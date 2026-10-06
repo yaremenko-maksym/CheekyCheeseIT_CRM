@@ -12,85 +12,85 @@
 
 ### 1.1 Purpose
 
-Пользователь (SENIOR / JUNIOR / HR / ACCOUNTANT / DROP) проходит onboarding wizard.
-Шаг «Подписание контракта» должен:
+A user (SENIOR / JUNIOR / HR / ACCOUNTANT / DROP) goes through the onboarding wizard.
+The «Подписание контракта» step must:
 
-1. Показать **оформленный PDF-документ** вместо сырого markdown-блока — чтобы пользователь
-   видел именно то, что будет в архиве, включая эмблему, номер, signature block.
-2. Позволить **подписать одним действием** (checkbox + кнопка) — без лишнего поля
-   ввода имени: имя берётся из legal-полей, заданных ADMIN при создании аккаунта.
-3. Сохранить полную **WCAG 2.2 AA** доступность.
+1. Show a **formatted PDF document** instead of a raw markdown block — so that the user
+   sees exactly what will go into the archive, including the emblem, number, signature block.
+2. Allow **signing in one action** (checkbox + button) — without an extra name input
+   field: the name is taken from the legal fields set by ADMIN when creating the account.
+3. Preserve full **WCAG 2.2 AA** accessibility.
 
 ### 1.2 Audience
 
-**Первичный:** не-ADMIN пользователь при первом входе (проходит wizard 1 раз).
-**Вторичный:** ADMIN при просмотре аудит-трейла подписанных контрактов (`/crm/profile/audit`).
+**Primary:** a non-ADMIN user on first login (goes through the wizard once).
+**Secondary:** ADMIN when viewing the audit trail of signed contracts (`/crm/profile/audit`).
 
-Частота: wizard — 1 раз за всё время; аудит — редко, по запросу.
-Паттерн: пользователь читает документ, убеждается что данные корректны, нажимает «Подписать».
+Frequency: the wizard — once for the whole time; audit — rare, on request.
+Pattern: the user reads the document, makes sure the data is correct, presses «Подписать».
 
 ### 1.3 Tone
 
-`Dense / quiet / scannable` — SaaS-инструмент. Не landing, не onboarding-wizard в игривом стиле.
+`Dense / quiet / scannable` — a SaaS tool. Not a landing, not an onboarding wizard in a playful style.
 
-Контракт — юридический документ, tone должен быть **серьёзным, офисным**.
-Wizard-шаг выглядит как «служебный документ для просмотра и подписания»,
-а не как «marketing feature reveal».
+A contract is a legal document, the tone must be **serious, office-like**.
+The wizard step looks like «an official document for review and signing»,
+not like a «marketing feature reveal».
 
 ### 1.4 Memorable detail
 
-**Единая design idea:** PDF-viewer встроен прямо в wizard step, без лишних iframe рамок —
-пользователь видит реальный документ с корпоративным брендингом (лого, номер, дата).
-Под viewer — compact confirmation row: аватар + read-only имя из legal-поля + checkbox + кнопка.
-Подписание ощущается как «я вижу конкретно свой документ и подтверждаю его».
+**A single design idea:** the PDF viewer is embedded right in the wizard step, without extra iframe frames —
+the user sees a real document with corporate branding (logo, number, date).
+Under the viewer — a compact confirmation row: an avatar + a read-only name from the legal field + a checkbox + a button.
+Signing feels like «I see specifically my document and confirm it».
 
 ### 1.5 Constraints
 
-- Tailwind v4 + shadcn/ui. Только существующие design tokens (`globals.css` `@theme inline`).
-- Russian UI — все лейблы, ошибки, подсказки на русском.
+- Tailwind v4 + shadcn/ui. Only existing design tokens (`globals.css` `@theme inline`).
+- Russian UI — all labels, errors, hints in Russian.
 - WCAG 2.2 Level AA — target size ≥ 24×24, focus visible, contrast 4.5:1 / 3:1.
 - Responsive: 320 / 768 / 1440px.
-- Нет новых npm-пакетов > 50 KB gzip без явного согласования (бюджет PDF-viewer).
-- `apps/web/**` только — Coder не трогает `apps/api/**` без отдельного task.
+- No new npm packages > 50 KB gzip without explicit agreement (the PDF viewer budget).
+- `apps/web/**` only — the Coder does not touch `apps/api/**` without a separate task.
 
 ---
 
-## 2. PDF Preview в Wizard
+## 2. PDF Preview in the Wizard
 
-### 2.1 Новый API endpoint — preview-rendered PDF
+### 2.1 New API endpoint — preview-rendered PDF
 
-**Проблема:** контракт-превью нужно показать ДО подписания. Сейчас существует только
-`GET /api/contracts/:id/pdf` — скачивание уже подписанного контракта (требует `signedContractId`).
+**Problem:** the contract preview must be shown BEFORE signing. Currently only
+`GET /api/contracts/:id/pdf` exists — downloading an already signed contract (requires `signedContractId`).
 
-**Нужен новый endpoint:** `GET /api/contracts/preview-pdf` (или `POST` с телом role).
+**A new endpoint is needed:** `GET /api/contracts/preview-pdf` (or `POST` with a role body).
 
-**Критично:** этот endpoint ДОЛЖЕН быть в bypass-листе `OnboardingGuard` (`onboarding.guard.ts`),
-иначе пользователь mid-onboarding получит 403. История: в PR предыдущей итерации `preview-rendered`
-падал с 403 именно из-за этого.
+**Critical:** this endpoint MUST be in the bypass list of `OnboardingGuard` (`onboarding.guard.ts`),
+otherwise a user mid-onboarding will get 403. History: in the previous iteration's PR `preview-rendered`
+failed with 403 precisely because of this.
 
-**Реализация preview endpoint (для Coder):**
+**Preview endpoint implementation (for the Coder):**
 
 ```
 GET /api/contracts/preview-pdf   (bypass-listed)
-Auth: JWT required (пользователь залогинен, но ещё не onboarded)
+Auth: JWT required (the user is logged in, but not yet onboarded)
 Response: application/pdf — stream
 
-Логика:
-1. Взять активный шаблон для user.role (как в `GET /api/contracts/templates/current/:role`)
-2. Заполнить placeholders через `SignedContractsService.interpolateVariables(template.body, user, new Date())`
-   с реальными данными пользователя (legal-поля из §3)
-3. Сгенерировать PDF через ContractPdfService.generateContractPdf()
-   С параметрами:
-     contractNumber: 'PREVIEW' (или локализовано: 'ПРЕДВАРИТЕЛЬНЫЙ ПРОСМОТР')
-     signedTypedName: user.legalFullName (новое поле — §3) или fallback: '...'
-     signedAt: new Date() (текущий момент для preview)
+Logic:
+1. Take the active template for user.role (as in `GET /api/contracts/templates/current/:role`)
+2. Fill the placeholders via `SignedContractsService.interpolateVariables(template.body, user, new Date())`
+   with the user's real data (the legal fields from §3)
+3. Generate the PDF via ContractPdfService.generateContractPdf()
+   With parameters:
+     contractNumber: 'PREVIEW' (or localized: 'ПРЕДВАРИТЕЛЬНЫЙ ПРОСМОТР')
+     signedTypedName: user.legalFullName (new field — §3) or fallback: '...'
+     signedAt: new Date() (the current moment for the preview)
      signedIpLastOctet: null
-     verifyUrl: '' (пустая строка — QR не рендерится в preview)
+     verifyUrl: '' (an empty string — the QR is not rendered in the preview)
 
-Throttle: 5 req/min (preview дороже чем JSON)
+Throttle: 5 req/min (the preview is more expensive than JSON)
 ```
 
-**Bypass добавить в `onboarding.guard.ts`:**
+**Add the bypass in `onboarding.guard.ts`:**
 
 ```typescript
 private readonly bypassPrefixes = [
@@ -100,16 +100,16 @@ private readonly bypassPrefixes = [
   '/api/tos/accept',
   '/api/contracts/templates/current/',
   '/api/contracts/sign',
-  '/api/contracts/preview-pdf',  // НОВЫЙ — preview до подписания
+  '/api/contracts/preview-pdf',  // NEW — preview before signing
 ]
 ```
 
-### 2.2 Способ embed — варианты с pros/cons
+### 2.2 Embedding method — options with pros/cons
 
-#### Вариант A — `<iframe src="blob-url">` (рекомендуется)
+#### Option A — `<iframe src="blob-url">` (recommended)
 
 ```tsx
-// Frontend: fetch PDF → createObjectURL → set в iframe src
+// Frontend: fetch PDF → createObjectURL → set into the iframe src
 const res = await api.get('/contracts/preview-pdf', { responseType: 'blob' })
 const url = URL.createObjectURL(res.data)
 // <iframe src={url} title="Предварительный просмотр контракта" />
@@ -117,35 +117,35 @@ const url = URL.createObjectURL(res.data)
 
 **Pros:**
 
-- Нативный PDF-рендер браузера — нет доп. зависимостей.
-- Полный контроль скролла, zoom, print (пользователь видит именно документ).
-- URL освобождается через `revokeObjectURL` при unmount.
-- Safari, Chrome, Firefox — все поддерживают iframe + blob PDF.
-- CSP-безопасно: blob: URL не нарушает политику `frame-src 'self'`.
+- The browser's native PDF rendering — no extra dependencies.
+- Full control over scroll, zoom, print (the user sees exactly the document).
+- The URL is released via `revokeObjectURL` on unmount.
+- Safari, Chrome, Firefox — all support iframe + blob PDF.
+- CSP-safe: a blob: URL does not violate the `frame-src 'self'` policy.
 
 **Cons:**
 
-- На мобильных (iOS Safari) iframe с PDF иногда не встраивается, показывает download-кнопку.
-  Fix: детект iOS → fallback к варианту C.
-- Нет кастомной loading skeleton — iframe показывает пустой прямоугольник пока PDF грузится.
-  Fix: показывать `<Skeleton />` поверх iframe пока `load` event не сработает.
+- On mobile (iOS Safari) an iframe with a PDF sometimes does not embed, showing a download button.
+  Fix: detect iOS → fall back to option C.
+- No custom loading skeleton — the iframe shows an empty rectangle while the PDF loads.
+  Fix: show `<Skeleton />` over the iframe until the `load` event fires.
 
-#### Вариант B — PDF.js (`pdfjs-dist`)
+#### Option B — PDF.js (`pdfjs-dist`)
 
 **Pros:**
 
-- Полный контроль рендера, кастомная UI поверх (page numbers, zoom controls).
-- Стабильный cross-platform (включая iOS).
+- Full control over rendering, a custom UI on top (page numbers, zoom controls).
+- Stable cross-platform (including iOS).
 
 **Cons:**
 
-- Зависимость: `pdfjs-dist` ≈ 260 KB gzip. Критически нарушает бюджет 300 KB для App pages.
-- Нужен `workerSrc` config — дополнительная настройка Vite (может конфликтовать с Vite 6 pin).
-- Избыточная сложность для wizard step (one-time read).
+- Dependency: `pdfjs-dist` ≈ 260 KB gzip. Critically violates the 300 KB budget for App pages.
+- Needs a `workerSrc` config — extra Vite setup (may conflict with the Vite 6 pin).
+- Excessive complexity for a wizard step (a one-time read).
 
-**Вывод: НЕ рекомендуется** для этого use case.
+**Conclusion: NOT recommended** for this use case.
 
-#### Вариант C — `<object data="blob-url" type="application/pdf">`
+#### Option C — `<object data="blob-url" type="application/pdf">`
 
 ```tsx
 <object data={blobUrl} type="application/pdf" width="100%" height="480">
@@ -160,20 +160,20 @@ const url = URL.createObjectURL(res.data)
 
 **Pros:**
 
-- Семантически корректно (embedded object).
-- Fallback content внутри `<object>` для браузеров без PDF support.
-- iOS Safari рендерит `<object type="application/pdf">` лучше чем iframe.
+- Semantically correct (an embedded object).
+- Fallback content inside `<object>` for browsers without PDF support.
+- iOS Safari renders `<object type="application/pdf">` better than an iframe.
 
 **Cons:**
 
-- Accessibility: screen-reader не читает содержимое PDF через `<object>`.
-  Требует aria-label + текстовый fallback.
-- Поведение немного отличается от iframe между браузерами (Chrome / Firefox / Safari).
+- Accessibility: a screen reader does not read the PDF contents via `<object>`.
+  Requires an aria-label + a text fallback.
+- Behavior differs slightly from an iframe between browsers (Chrome / Firefox / Safari).
 
-**Рекомендация:** вариант A (iframe + blob) как основной + Вариант C как iOS fallback.
-Детект iOS: `navigator.platform.includes('iPhone') || navigator.userAgent.includes('iPhone')`.
+**Recommendation:** option A (iframe + blob) as the primary + option C as the iOS fallback.
+iOS detection: `navigator.platform.includes('iPhone') || navigator.userAgent.includes('iPhone')`.
 
-### 2.3 Layout PDF-viewer в wizard step
+### 2.3 PDF viewer layout in the wizard step
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -183,8 +183,8 @@ const url = URL.createObjectURL(res.data)
 │                                                                   │
 │  ┌───────────────────────────────────────────────────────────┐   │
 │  │                                                           │   │
-│  │          [Skeleton overlay или iframe PDF]                │   │
-│  │              высота: 480px desktop / 360px mobile         │   │
+│  │          [Skeleton overlay or iframe PDF]                │   │
+│  │              height: 480px desktop / 360px mobile         │   │
 │  │                                                           │   │
 │  └───────────────────────────────────────────────────────────┘   │
 │                                                                   │
@@ -207,12 +207,12 @@ const url = URL.createObjectURL(res.data)
 
 - **1440:** viewer height 520px, wizard max-width `max-w-2xl`.
 - **768:** viewer height 480px, wizard max-width `max-w-xl`.
-- **320:** viewer height 340px. На iOS → `<object>` или download-link fallback.
+- **320:** viewer height 340px. On iOS → `<object>` or a download-link fallback.
 
-**Loading state (перед загрузкой PDF blob):**
+**Loading state (before the PDF blob loads):**
 
 ```tsx
-// Skeleton поверх iframe зоны
+// Skeleton over the iframe zone
 <div
   className="relative w-full rounded-md border border-border bg-muted/20"
   style={{ height: '480px' }}
@@ -235,127 +235,127 @@ const url = URL.createObjectURL(res.data)
 </div>
 ```
 
-**Error state (PDF endpoint упал):**
+**Error state (the PDF endpoint failed):**
 
 ```tsx
-// Если fetch завершился с ошибкой — показать fallback-блок
+// If the fetch finished with an error — show a fallback block
 <div className="rounded-md border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
   <AlertTriangle className="inline h-4 w-4 mr-2" />
   Не удалось загрузить предварительный просмотр контракта. Обратитесь к администратору.
 </div>
 ```
 
-**Empty state (шаблон не найден для роли):**
+**Empty state (no template found for the role):**
 
-- Backend `GET /api/contracts/templates/current/:role` вернул 404 → preview endpoint вернёт 404.
-- Показать тот же компонент что сейчас в `SignContractStep` при `!template`:
-  `FileText` icon + «Шаблон контракта для вашей роли не найден. Обратитесь к администратору.»
+- Backend `GET /api/contracts/templates/current/:role` returned 404 → the preview endpoint returns 404.
+- Show the same component as the current one in `SignContractStep` on `!template`:
+  a `FileText` icon + «Шаблон контракта для вашей роли не найден. Обратитесь к администратору.»
 
-### 2.4 Консистентность с audit trail
+### 2.4 Consistency with the audit trail
 
-`/crm/profile/audit` — там пользователь скачивает подписанный PDF через
-`GET /api/contracts/:id/pdf`. Этот endpoint уже существует и работает (PR #108).
+`/crm/profile/audit` — there the user downloads the signed PDF via
+`GET /api/contracts/:id/pdf`. This endpoint already exists and works (PR #108).
 
-Дополнительно: рассмотреть добавление **inline preview** на audit-странице (Pending Decision #2).
+Additionally: consider adding an **inline preview** on the audit page (Pending Decision #2).
 
 ---
 
-## 3. Admin legal-поля (новая секция в UserDialog)
+## 3. Admin legal fields (a new section in UserDialog)
 
-### 3.1 Проблема
+### 3.1 Problem
 
-`users.displayName` = "Dmytro Marchenko" (английский, из Google OAuth).
-В юридическом контракте (MSA) нужно: ФИО кириллицей в порядке Фамилия Имя Отчество.
+`users.displayName` = "Dmytro Marchenko" (English, from Google OAuth).
+In a legal contract (MSA) what is needed is: the full name in Cyrillic in the order Surname Name Patronymic.
 
-В `interpolateVariables()` сейчас: `employeeName: user.displayName ?? 'не указано'` — НЕВЕРНО.
+In `interpolateVariables()` currently: `employeeName: user.displayName ?? 'не указано'` — WRONG.
 
-### 3.2 Новое поле в schema `users`
+### 3.2 New field in the `users` schema
 
-Нужно **одно новое поле**:
+**One new field** is needed:
 
 ```typescript
-// apps/api/src/database/schema.ts — добавить в таблицу users:
+// apps/api/src/database/schema.ts — add to the users table:
 legalFullName: text('legal_full_name'),
-// Legal ФИО (кириллица, порядок: Фамилия Имя Отчество).
-// Задаётся ADMIN при создании/редактировании.
-// Используется в контракте вместо displayName.
-// NULL = не задано → interpolateVariables вернёт 'не указано'.
+// Legal full name (Cyrillic, order: Surname Name Patronymic).
+// Set by ADMIN on create/edit.
+// Used in the contract instead of displayName.
+// NULL = not set → interpolateVariables returns 'не указано'.
 ```
 
-**Почему одно поле, а не три (firstName/lastName/patronymic):**
+**Why one field and not three (firstName/lastName/patronymic):**
 
-- В юридическом тексте ФИО всегда используется целиком.
-- Разбивать на части не нужно для контракта.
-- Admin знает полный порядок (ФИО или ИО Фамилия — вводит как нужно).
-- Проще валидация: `min(5, 'ФИО минимум 5 символов')`.
+- In legal text the full name is always used as a whole.
+- Splitting into parts is not needed for the contract.
+- The admin knows the full order (full name or initials + Surname — enters as needed).
+- Simpler validation: `min(5, 'ФИО минимум 5 символов')`.
 
-**Реквизиты банка / USDT кошелёк:** поля уже есть (`walletUsdtErc20`, `bankUahRecipient`,
-`bankUahIban`, `bankUahRnokpp`, `bankUahBankName`). Не дублировать.
+**Bank requisites / USDT wallet:** the fields already exist (`walletUsdtErc20`, `bankUahRecipient`,
+`bankUahIban`, `bankUahRnokpp`, `bankUahBankName`). Do not duplicate.
 
 ### 3.3 Drizzle migration
 
 ```sql
--- Новая миграция (следующий номер после 0027):
+-- New migration (the next number after 0027):
 ALTER TABLE users ADD COLUMN legal_full_name TEXT;
 COMMENT ON COLUMN users.legal_full_name IS
   'Legal full name (Cyrillic, order: Surname First Patronymic). Set by ADMIN.';
 ```
 
-Схема Drizzle уже включает поля payment requisites — добавляется только `legal_full_name`.
+The Drizzle schema already includes the payment requisites fields — only `legal_full_name` is added.
 
-### 3.4 Форма в UserDialog.tsx — новая секция «Данные для контракта»
+### 3.4 Form in UserDialog.tsx — a new «Данные для контракта» section
 
-Новая Section добавляется **после Section 1 (Идентичность)** и **до Section 2 (Контакты)**.
-Visibility: показывать для всех ролей кроме ADMIN (ADMIN не подписывает контракт).
+A new Section is added **after Section 1 (Идентичность)** and **before Section 2 (Контакты)**.
+Visibility: show for all roles except ADMIN (ADMIN does not sign a contract).
 
 ```
 ┌─ Section: Данные для контракта ─────────────────────────────────┐
 │  Информация для MSA-контракта. Задаётся администратором.         │
 │  Используется в юридическом документе (не для отображения в UI). │
 │                                                                   │
-│  Поле: Юридическое ФИО                     [required for signing] │
+│  Field: Юридическое ФИО                     [required for signing] │
 │  Placeholder: «Марченко Дмитро Олексійович»                      │
-│  Hint: Кириллица, порядок: Фамилия Имя Отчество                  │
-│  Validation: min 5 символов, max 200                             │
+│  Hint: Кириллица, порядок: Фамилия Имя Отчество (Cyrillic, order: Surname Name Patronymic)                  │
+│  Validation: min 5 characters, max 200                             │
 │  data-testid: "user-dialog-legal-full-name"                      │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-**Добавить в `defaultValues` формы:**
+**Add to the form's `defaultValues`:**
 
 ```typescript
 legalFullName: editingUser?.legalFullName ?? '',
 ```
 
-**В payload создания (CreateUserDto) / обновления (AdminUpdateUserDto):**
+**In the create payload (CreateUserDto) / update payload (AdminUpdateUserDto):**
 
 ```typescript
 legalFullName: value.legalFullName.trim() || undefined,
 ```
 
-**Shared schema обновление** (`packages/shared/src/schemas/users.ts`):
+**Shared schema update** (`packages/shared/src/schemas/users.ts`):
 
 ```typescript
-// Добавить в createUserSchema и adminUpdateUserSchema:
+// Add to createUserSchema and adminUpdateUserSchema:
 legalFullName: z.string().min(5).max(200).optional(),
-// Добавить в userSchema (UserProfileDto):
+// Add to userSchema (UserProfileDto):
 legalFullName: z.string().nullable().optional(),
 ```
 
-### 3.5 Обновление interpolateVariables
+### 3.5 Updating interpolateVariables
 
 ```typescript
 // signed-contracts.service.ts — interpolateVariables():
-// БЫЛО:
+// WAS:
 employeeName: user.displayName ?? 'не указано',
 
-// СТАЛО:
+// BECOMES:
 employeeName: user.legalFullName?.trim() || user.displayName || 'не указано',
-// Fallback-цепочка: legal ФИО → displayName (platform name) → 'не указано'
-// Fallback через displayName сохраняет backward compatibility для старых рядов без legalFullName.
+// Fallback chain: legal full name → displayName (platform name) → 'не указано'
+// The fallback via displayName preserves backward compatibility for old rows without legalFullName.
 ```
 
-**Тип User в `interpolateVariables` pick:**
+**The User type in the `interpolateVariables` pick:**
 
 ```typescript
 static interpolateVariables(
@@ -363,7 +363,7 @@ static interpolateVariables(
   user: Pick<
     User,
     | 'displayName'
-    | 'legalFullName'  // ДОБАВИТЬ
+    | 'legalFullName'  // ADD
     | 'email'
     | 'role'
     | 'walletUsdtErc20'
@@ -380,19 +380,19 @@ static interpolateVariables(
 
 ---
 
-## 4. Simplification подписания (SignContractStep.tsx)
+## 4. Signing simplification (SignContractStep.tsx)
 
-### 4.1 Убрать typed-name input
+### 4.1 Remove the typed-name input
 
-Поле `<Input placeholder="Ваше полное имя" />` и связанный `nameError` state — удалить.
+The `<Input placeholder="Ваше полное имя" />` field and the related `nameError` state — remove.
 
-**Что заменяет:**
+**What replaces it:**
 
-Под зоной PDF-viewer добавить **read-only signature identification block**:
+Under the PDF viewer zone add a **read-only signature identification block**:
 
 ```tsx
 <div className="flex items-center gap-3 rounded-md border border-border bg-muted/20 px-4 py-3">
-  {/* Аватар с инициалами */}
+  {/* Avatar with initials */}
   <Avatar className="h-8 w-8 shrink-0">
     <AvatarFallback className="text-xs">
       {getInitials(user.legalFullName ?? user.displayName)}
@@ -407,58 +407,58 @@ static interpolateVariables(
 </div>
 ```
 
-**Если `legalFullName` не заполнен (guard, §6):**
-Показать `<Alert variant="destructive">` + блокировать кнопку «Подписать».
+**If `legalFullName` is not filled (guard, §6):**
+Show `<Alert variant="destructive">` + block the «Подписать» button.
 
-### 4.2 Обновление submit flow
+### 4.2 Updating the submit flow
 
 ```typescript
-// БЫЛО: signMutation.mutate({ typedName })
-// СТАЛО:
-signMutation.mutate() // тело пустое, или: { typedName: '' }
+// WAS: signMutation.mutate({ typedName })
+// BECOMES:
+signMutation.mutate() // empty body, or: { typedName: '' }
 ```
 
-**Изменения в shared schema:**
+**Changes in the shared schema:**
 
 `signContractSchema` (`packages/shared/src/schemas/contracts.ts`):
 
 ```typescript
-// БЫЛО:
+// WAS:
 export const signContractSchema = z.object({
   typedName: z.string().min(1, 'Введите ваше имя').max(200),
 })
 
-// СТАЛО:
+// BECOMES:
 export const signContractSchema = z.object({
-  // typedName опционален — backend берёт из legalFullName
+  // typedName is optional — the backend takes it from legalFullName
   typedName: z.string().max(200).optional(),
 })
 ```
 
-### 4.3 Что происходит с `signed_contracts.signedTypedName`
+### 4.3 What happens to `signed_contracts.signedTypedName`
 
-`signedTypedName text NOT NULL` — поле существует в схеме БД.
+`signedTypedName text NOT NULL` — the field exists in the DB schema.
 
-**Рекомендуемый подход (Coder должен решить):**
+**Recommended approach (the Coder must decide):**
 
-Option A — Заполнять из `legalFullName` server-side:
+Option A — Fill from `legalFullName` server-side:
 
 ```typescript
 // signed-contracts.service.ts, sign():
 signedTypedName: user.legalFullName?.trim() || user.displayName || '',
-// Аудит-трейл сохраняет имя которое было в профиле на момент подписания.
-// Колонка не меняется в schema — NOT NULL сохраняется.
+// The audit trail keeps the name that was in the profile at the moment of signing.
+// The column does not change in the schema — NOT NULL is preserved.
 ```
 
-Option B — Переименовать семантику: `signedTypedName` → хранит resolved legal name.
-Требует migration для изменения comment в БД (data остаётся).
+Option B — Rename the semantics: `signedTypedName` → stores the resolved legal name.
+Requires a migration to change the comment in the DB (data stays).
 
-**Рекомендация: Option A** — нет migration, backward compatible, аудит-трейл сохраняется.
-`variablesFilled.employeeName` в JSONB тоже обновится т.к. `interpolateVariables` обновлён.
+**Recommendation: Option A** — no migration, backward compatible, the audit trail is preserved.
+`variablesFilled.employeeName` in the JSONB will also update since `interpolateVariables` is updated.
 
-### 4.4 Новый UI SignContractStep
+### 4.4 New SignContractStep UI
 
-**Итоговый layout (после изменений):**
+**Final layout (after the changes):**
 
 ```
 [FileText] Ваш контракт
@@ -481,10 +481,10 @@ Option B — Переименовать семантику: `signedTypedName` �
 │       Подпись — юридическое ФИО из профиля                  │
 └─────────────────────────────────────────────────────────────┘
 
-[ Подписать контракт ]  ← disabled пока !confirmed || !blobUrl || legalNameMissing
+[ Подписать контракт ]  ← disabled while !confirmed || !blobUrl || legalNameMissing
 ```
 
-**State variables (упрощённый, без typed-name):**
+**State variables (simplified, without typed-name):**
 
 ```typescript
 const [confirmed, setConfirmed] = useState(false)
@@ -497,12 +497,12 @@ const [pdfError, setPdfError] = useState(false)
 
 ## 5. Accessibility (WCAG 2.2 AA critical paths)
 
-### 5.1 Focus order в wizard step
+### 5.1 Focus order in the wizard step
 
 ```
-1. Heading "Ваш контракт" (h3 или роль в stepper)
+1. Heading "Ваш контракт" (h3 or a role in the stepper)
 2. PDF viewer iframe — focusable (tabIndex=0), title="Предварительный просмотр контракта"
-3. Info alert (если есть)
+3. Info alert (if present)
 4. Checkbox "Я ознакомился" — natively focusable
 5. Signature block (read-only, role="group", aria-label="Подписант")
 6. Button "Подписать контракт"
@@ -510,30 +510,30 @@ const [pdfError, setPdfError] = useState(false)
 
 ### 5.2 Target sizes
 
-| Элемент                   | Текущий (оценка)        | Требование SC 2.5.8 | Fix                                              |
-| ------------------------- | ----------------------- | ------------------- | ------------------------------------------------ |
-| Checkbox `h-4 w-4` (16px) | 16×16px                 | 24×24px             | `min-h-6 min-w-6` (24px)                         |
-| Кнопка «Подписать»        | full-width, h-10 (40px) | OK                  | Без изменений                                    |
-| Info alert link «к ADMIN» | inline text             | 24px height         | Обернуть в `<button>` или сделать `<a>` с `py-1` |
+| Element                   | Current (estimate)      | SC 2.5.8 requirement | Fix                                               |
+| ------------------------- | ----------------------- | -------------------- | ------------------------------------------------- |
+| Checkbox `h-4 w-4` (16px) | 16×16px                 | 24×24px              | `min-h-6 min-w-6` (24px)                          |
+| The «Подписать» button    | full-width, h-10 (40px) | OK                   | No change                                         |
+| Info alert link «к ADMIN» | inline text             | 24px height          | Wrap in a `<button>` or make an `<a>` with `py-1` |
 
 ### 5.3 Contrast
 
-Существующие design tokens `--foreground` / `--muted-foreground` — уже проверены в системе.
-Новые элементы:
+The existing design tokens `--foreground` / `--muted-foreground` are already vetted in the system.
+New elements:
 
-- Signature block text: `text-sm font-medium` на `bg-muted/20` → token `foreground` на `muted` bg.
-  Светлый режим: `oklch(0.12 0 0)` на `oklch(0.94 0 0)` ≈ 8:1. OK.
-  Тёмный режим: `oklch(0.97 0 0)` на `oklch(0.16 0 0)` ≈ 12:1. OK.
-- Muted hint text `text-xs text-muted-foreground` на `bg-muted/20`:
-  Светлый: `oklch(0.50)` на `oklch(0.94)` ≈ 3.8:1. Borderline — это small text, нужно 4.5:1.
-  **Fix:** использовать `text-muted-foreground` напрямую без `/20 overlay`, или повысить до
-  `oklch(0.40)` в light mode hint-тексте. Либо сделать hint 14px (не small text).
+- Signature block text: `text-sm font-medium` on `bg-muted/20` → token `foreground` on a `muted` bg.
+  Light mode: `oklch(0.12 0 0)` on `oklch(0.94 0 0)` ≈ 8:1. OK.
+  Dark mode: `oklch(0.97 0 0)` on `oklch(0.16 0 0)` ≈ 12:1. OK.
+- Muted hint text `text-xs text-muted-foreground` on `bg-muted/20`:
+  Light: `oklch(0.50)` on `oklch(0.94)` ≈ 3.8:1. Borderline — this is small text, 4.5:1 is needed.
+  **Fix:** use `text-muted-foreground` directly without the `/20 overlay`, or raise to
+  `oklch(0.40)` in light mode for the hint text. Or make the hint 14px (not small text).
 
-- Skeleton overlay `bg-muted/30` с loading text: `text-muted-foreground` — OK.
+- Skeleton overlay `bg-muted/30` with loading text: `text-muted-foreground` — OK.
 
-### 5.4 Screen-reader fallback для PDF viewer
+### 5.4 Screen-reader fallback for the PDF viewer
 
-`<iframe>` с PDF недоступен для screen-readers. Добавить `aria-describedby`:
+An `<iframe>` with a PDF is not accessible to screen readers. Add `aria-describedby`:
 
 ```tsx
 <div role="region" aria-label="Контракт для подписания">
@@ -549,7 +549,7 @@ const [pdfError, setPdfError] = useState(false)
 </div>
 ```
 
-Добавить кнопку / ссылку «Скачать для просмотра» (только когда `blobUrl` есть):
+Add a button / link «Скачать для просмотра» (only when `blobUrl` exists):
 
 ```tsx
 <a
@@ -563,27 +563,27 @@ const [pdfError, setPdfError] = useState(false)
 
 ### 5.5 Checkbox accessibility
 
-Нативный `<input type="checkbox">` — сохранить (не заменять на Radix). Сейчас в `AcceptTosStep`
-и `SignContractStep` используется `<input type="checkbox" class="h-4 w-4 accent-primary">`.
+A native `<input type="checkbox">` — keep (do not replace with Radix). Currently `AcceptTosStep`
+and `SignContractStep` use `<input type="checkbox" class="h-4 w-4 accent-primary">`.
 
-Fix для SC 2.5.8: `className="mt-0.5 h-6 w-6 accent-primary"` (24×24px).
+Fix for SC 2.5.8: `className="mt-0.5 h-6 w-6 accent-primary"` (24×24px).
 
 ### 5.6 Modal/wizard a11y
 
-Wizard рендерится в полноэкранном overlay. Проверить:
+The wizard renders in a fullscreen overlay. Check:
 
-- `aria-modal="true"` на корневом контейнере wizard.
-- Focus trap при открытии (первый интерактивный элемент — кнопка или checkbox).
-- Escape не закрывает wizard (пользователь ОБЯЗАН завершить onboarding) — убедиться что
-  `onOpenChange` не обрабатывает `Escape` в wizard container.
+- `aria-modal="true"` on the wizard's root container.
+- A focus trap on open (the first interactive element — a button or checkbox).
+- Escape does not close the wizard (the user MUST complete onboarding) — make sure
+  `onOpenChange` does not handle `Escape` in the wizard container.
 
 ---
 
 ## 6. Edge Cases & Guards
 
-### 6.1 Если `legalFullName` не заполнен
+### 6.1 If `legalFullName` is not filled
 
-ADMIN мог создать пользователя до введения нового поля (migration backward compat).
+ADMIN could have created a user before the new field was introduced (migration backward compat).
 
 **Behavior:**
 
@@ -598,10 +598,10 @@ ADMIN мог создать пользователя до введения но�
    Tooltip: "Заполните юридическое ФИО в профиле (обратитесь к администратору)"
 ```
 
-**Backend guard (доп. защита):** `sign()` в `SignedContractsService` проверяет
+**Backend guard (additional protection):** `sign()` in `SignedContractsService` checks
 `!user.legalFullName?.trim()` → `BadRequestException('LEGAL_NAME_REQUIRED')`.
 
-Frontend обрабатывает это в `onError`:
+The frontend handles this in `onError`:
 
 ```typescript
 if (message.includes('LEGAL_NAME_REQUIRED')) {
@@ -610,27 +610,27 @@ if (message.includes('LEGAL_NAME_REQUIRED')) {
 }
 ```
 
-### 6.2 Если шаблон контракта не существует для роли
+### 6.2 If the contract template does not exist for the role
 
-Сейчас: показывается `FileText icon + "Шаблон не найден"`. Сохранить это поведение.
-Preview endpoint: `GET /api/contracts/preview-pdf` вернёт 404 → frontend показывает error state.
+Currently: `FileText icon + "Шаблон не найден"` is shown. Keep this behavior.
+Preview endpoint: `GET /api/contracts/preview-pdf` returns 404 → the frontend shows an error state.
 
-### 6.3 PDF не загрузился (network error, timeout)
+### 6.3 The PDF failed to load (network error, timeout)
 
-Показать error state (§2.3) + кнопку «Повторить загрузку» (retry через invalidateQuery или
-повторный fetch).
+Show the error state (§2.3) + a «Повторить загрузку» button (retry via invalidateQuery or
+a repeated fetch).
 
-### 6.4 Пользователь уже подписал (idempotency)
+### 6.4 The user has already signed (idempotency)
 
-Backend `sign()` уже idempotent (возвращает existing если есть). Frontend не меняется.
-Wizard step не должен показываться если `onboarding-status` говорит `requiresContract: false`.
+Backend `sign()` is already idempotent (returns the existing one if present). The frontend does not change.
+The wizard step must not be shown if `onboarding-status` says `requiresContract: false`.
 
-### 6.5 Мобильный (iOS Safari) — iframe не рендерит PDF
+### 6.5 Mobile (iOS Safari) — the iframe does not render the PDF
 
 ```typescript
 const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent)
 
-// Если iOS — не использовать iframe, показывать <object> или download-fallback
+// If iOS — do not use an iframe, show <object> or a download fallback
 {isIos ? (
   <div className="rounded-md border border-border bg-muted/10 p-6 text-center space-y-3">
     <FileText className="h-10 w-10 text-muted-foreground mx-auto" />
@@ -648,19 +648,19 @@ const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent)
 
 ---
 
-## 7. Pending Decisions (для выбора User'ом)
+## 7. Pending Decisions (for the User to choose)
 
-### PD-1 — Способ embed PDF на мобильном (iOS)
+### PD-1 — The PDF embed method on mobile (iOS)
 
-**Контекст:** iframe + blob-URL хорошо работает на desktop. iOS Safari — нестабильно.
+**Context:** an iframe + blob-URL works well on desktop. iOS Safari — unstable.
 
-**Вариант A (рекомендуется):** Детект iOS → show download-link fallback вместо iframe.
-Пользователь открывает PDF во внешнем приложении (Files/Adobe), возвращается в браузер, подписывает.
+**Option A (recommended):** Detect iOS → show a download-link fallback instead of the iframe.
+The user opens the PDF in an external app (Files/Adobe), returns to the browser, signs.
 
-- Pros: нулевая зависимость, 100% надёжность.
-- Cons: flow прерывается (пользователь покидает браузер).
+- Pros: zero dependencies, 100% reliability.
+- Cons: the flow is interrupted (the user leaves the browser).
 
-**Вариант B:** `<object type="application/pdf">` как fallback внутри `<iframe>`.
+**Option B:** `<object type="application/pdf">` as a fallback inside the `<iframe>`.
 
 ```html
 <iframe src="...">
@@ -670,141 +670,141 @@ const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent)
 </iframe>
 ```
 
-- Pros: Progressive enhancement, без JS detects.
-- Cons: Поведение в iOS непредсказуемо, объект может всё равно не отрендериться.
+- Pros: Progressive enhancement, without JS detects.
+- Cons: Behavior in iOS is unpredictable, the object may still fail to render.
 
-**Вариант C:** Не решать сейчас — wizard используется внутри компании (non-mobile contexts).
-Показать iframe без iOS fix, добавить кнопку «Скачать» всегда.
-
----
-
-### PD-2 — Inline PDF preview на audit-странице (`/crm/profile/audit`)
-
-**Контекст:** Сейчас на audit trail есть кнопка «Скачать PDF» (`GET /api/contracts/:id/pdf`).
-После изменений в wizard — стоит ли также добавить inline preview там?
-
-**Вариант A:** Оставить только download. Аудит — редкое действие, popup/download достаточно.
-
-- Pros: ноль изменений в audit UI.
-- Cons: Непоследовательно — wizard показывает inline, audit — только download.
-
-**Вариант B:** Добавить кнопку «Открыть» рядом с «Скачать» — открывает PDF в новой вкладке
-(`/api/contracts/:id/pdf` с `Content-Disposition: inline`).
-
-- Pros: Консистентно с wizard UX.
-- Cons: Требует добавления второго Content-Disposition mode на endpoint (query param `?view=1`).
-
-**Вариант C (рекомендуется для audit):** В audit-карточке добавить inline iframe/object
-в expandable accordion (collapsed по умолчанию). Click → expand → PDF загружается.
-
-- Pros: Консистентно, не меняет backend (тот же `/pdf` endpoint, blob в iframe).
-- Cons: Дополнительная работа в audit UI.
+**Option C:** Do not decide now — the wizard is used inside the company (non-mobile contexts).
+Show the iframe without an iOS fix, always add a «Скачать» button.
 
 ---
 
-### PD-3 — Что показывать в preview-PDF signature block (preview watermark)
+### PD-2 — Inline PDF preview on the audit page (`/crm/profile/audit`)
 
-**Контекст:** Preview PDF генерируется с `contractNumber: 'PREVIEW'` и `signedAt: new Date()`.
-Signature block будет выглядеть как будто контракт уже подписан.
+**Context:** Currently the audit trail has a «Скачать PDF» button (`GET /api/contracts/:id/pdf`).
+After the changes in the wizard — should an inline preview be added there too?
 
-**Вариант A (рекомендуется):** Добавить watermark «ПРЕДВАРИТЕЛЬНЫЙ ПРОСМОТР» в PDF (красный диагональный текст поверх страниц).
-Требует изменения `ContractPdfService.generateContractPdf()` — опциональный `isPreview: boolean` param.
+**Option A:** Keep only the download. Audit is a rare action, a popup/download is enough.
 
-- Pros: Явно видно что это preview, не финальный документ.
-- Cons: Усложняет PDF generation service.
+- Pros: zero changes in the audit UI.
+- Cons: Inconsistent — the wizard shows inline, audit — only a download.
 
-**Вариант B:** Не добавлять watermark. В signature block написать имя пользователя,
-дату «сегодня» и tooltip «это предварительный просмотр».
-Badge `[PREVIEW]` в UI wizard над viewer — достаточно.
+**Option B:** Add an «Открыть» button next to «Скачать» — opens the PDF in a new tab
+(`/api/contracts/:id/pdf` with `Content-Disposition: inline`).
 
-- Pros: Нет изменений в PDF service.
-- Cons: PDF выглядит как финальный документ с сегодняшней датой.
+- Pros: Consistent with the wizard UX.
+- Cons: Requires adding a second Content-Disposition mode to the endpoint (a `?view=1` query param).
 
-**Вариант C:** Убрать signature block из preview PDF полностью.
-Preview генерирует PDF без нижнего блока подписи и QR.
+**Option C (recommended for audit):** In the audit card add an inline iframe/object
+in an expandable accordion (collapsed by default). Click → expand → the PDF loads.
 
-- Pros: Принципиально отличается от подписанного PDF.
-- Cons: Более глубокое изменение PDF service — нужен режим «preview mode» без footer.
+- Pros: Consistent, does not change the backend (the same `/pdf` endpoint, a blob in an iframe).
+- Cons: Extra work in the audit UI.
 
 ---
 
-### PD-4 — Когда показывать предупреждение об отсутствующем `legalFullName`
+### PD-3 — What to show in the preview-PDF signature block (preview watermark)
 
-**Контекст:** ADMIN мог создать пользователя до появления поля. Migration добавляет `NULL`.
+**Context:** The preview PDF is generated with `contractNumber: 'PREVIEW'` and `signedAt: new Date()`.
+The signature block will look as if the contract were already signed.
 
-**Вариант A (рекомендуется):** Блокировать подпись сразу при загрузке wizard step.
-Alert warning + disabled button + tooltip «Обратитесь к администратору».
+**Option A (recommended):** Add a watermark «ПРЕДВАРИТЕЛЬНЫЙ ПРОСМОТР» to the PDF (red diagonal text over the pages).
+Requires changing `ContractPdfService.generateContractPdf()` — an optional `isPreview: boolean` param.
 
-- Pros: Четкое UX — пользователь знает почему не может подписать.
-- Cons: Фрустрация если admin просто не знает что нужно заполнить новое поле.
+- Pros: It is clearly visible that this is a preview, not the final document.
+- Cons: Complicates the PDF generation service.
 
-**Вариант B:** Разрешить подпись с fallback на `displayName` (как было раньше).
-После перехода — в JSONB `variablesFilled.employeeName` сохранится platform-name.
-Admin может исправить через new admin tool в будущем.
+**Option B:** Do not add a watermark. In the signature block write the user's name,
+the date «today» and a tooltip «это предварительный просмотр».
+A `[PREVIEW]` badge in the wizard UI above the viewer — is enough.
 
-- Pros: Zero friction для пользователя, backward compat.
-- Cons: Контракт с юридически неверным именем (en → kyr).
+- Pros: No changes in the PDF service.
+- Cons: The PDF looks like a final document with today's date.
 
-**Вариант C:** Показать warning (не блокировать), позволить подписать.
-Рядом с signature block: «Юридическое ФИО не задано, будет использован платформенный профиль».
+**Option C:** Remove the signature block from the preview PDF entirely.
+The preview generates a PDF without the bottom signature block and QR.
 
-- Pros: Компромисс — пользователь видит проблему, но не заблокирован.
-- Cons: Создаёт юридически неоднозначные документы.
+- Pros: Fundamentally different from the signed PDF.
+- Cons: A deeper change in the PDF service — a «preview mode» without a footer is needed.
 
 ---
 
-## 8. Components используемые
+### PD-4 — When to show the warning about a missing `legalFullName`
 
-Все из существующих shadcn/ui `apps/web/app/components/ui/`:
+**Context:** ADMIN could have created a user before the field appeared. The migration adds `NULL`.
 
-| Компонент                                     | Зачем                                         |
+**Option A (recommended):** Block signing right when the wizard step loads.
+An Alert warning + a disabled button + the tooltip «Обратитесь к администратору».
+
+- Pros: Clear UX — the user knows why they cannot sign.
+- Cons: Frustration if the admin simply does not know the new field needs filling.
+
+**Option B:** Allow signing with a fallback to `displayName` (as before).
+After the transition — in the JSONB `variablesFilled.employeeName` the platform name will be saved.
+The admin can fix it via a new admin tool in the future.
+
+- Pros: Zero friction for the user, backward compat.
+- Cons: A contract with a legally incorrect name (en → cyr).
+
+**Option C:** Show a warning (do not block), allow signing.
+Next to the signature block: «Юридическое ФИО не задано, будет использован платформенный профиль».
+
+- Pros: A compromise — the user sees the problem but is not blocked.
+- Cons: Creates legally ambiguous documents.
+
+---
+
+## 8. Components used
+
+All from the existing shadcn/ui `apps/web/app/components/ui/`:
+
+| Component                                     | Why                                           |
 | --------------------------------------------- | --------------------------------------------- |
-| `Avatar`, `AvatarFallback`                    | Инициалы подписанта в signature block         |
+| `Avatar`, `AvatarFallback`                    | The signer's initials in the signature block  |
 | `Button`                                      | «Подписать контракт», «Скачать для просмотра» |
-| `Skeleton`                                    | Loading overlay над PDF viewer                |
-| `Loader2` (lucide)                            | Spinner в loading state                       |
-| `Alert` (если есть) / `div` с border          | Warning о missing legalFullName               |
-| `ScrollArea`                                  | НЕ нужен — заменяется на iframe PDF           |
-| `Checkbox` / native `<input type="checkbox">` | Подтверждение ознакомления                    |
+| `Skeleton`                                    | Loading overlay over the PDF viewer           |
+| `Loader2` (lucide)                            | Spinner in the loading state                  |
+| `Alert` (if exists) / `div` with a border     | Warning about a missing legalFullName         |
+| `ScrollArea`                                  | NOT needed — replaced by the iframe PDF       |
+| `Checkbox` / native `<input type="checkbox">` | Confirmation of having read                   |
 | `Tooltip`                                     | Disabled button hint                          |
-| `Badge`                                       | PREVIEW badge над viewer                      |
+| `Badge`                                       | PREVIEW badge above the viewer                |
 
-**Новые компоненты: НЕ нужны.** Всё строится из существующих.
+**New components: NOT needed.** Everything is built from the existing ones.
 
 ---
 
 ## 9. Token map
 
-Все существующие токены — из `globals.css` `@theme inline {}`. Новые не нужны.
+All existing tokens — from `globals.css` `@theme inline {}`. New ones are not needed.
 
-| Token                                        | Где используется                                    |
-| -------------------------------------------- | --------------------------------------------------- |
-| `--color-border`                             | Рамка PDF-viewer, signature block, checkbox label   |
-| `--color-muted` / `--color-muted-foreground` | Loading overlay, hint text, error state             |
-| `--color-primary`                            | Кнопка «Подписать», checkbox accent                 |
-| `--color-destructive`                        | Error state PDF viewer, legalFullName missing alert |
-| `--color-card`, `--color-card-foreground`    | Signature block background если не muted            |
-| `--radius-lg` (0.625rem)                     | PDF viewer container, signature block               |
+| Token                                        | Where used                                               |
+| -------------------------------------------- | -------------------------------------------------------- |
+| `--color-border`                             | Frame of the PDF viewer, signature block, checkbox label |
+| `--color-muted` / `--color-muted-foreground` | Loading overlay, hint text, error state                  |
+| `--color-primary`                            | The «Подписать» button, checkbox accent                  |
+| `--color-destructive`                        | PDF viewer error state, legalFullName missing alert      |
+| `--color-card`, `--color-card-foreground`    | Signature block background if not muted                  |
+| `--radius-lg` (0.625rem)                     | PDF viewer container, signature block                    |
 
 ---
 
 ## 10. Motion spec
 
-Минимум motion (контракт — серьёзный контекст):
+Minimal motion (a contract is a serious context):
 
-- PDF viewer появляется через `opacity: 0 → 1` (200ms, `ease-out`) когда blob загружен.
-  Skeleton уходит через opacity 0 (150ms).
-- Кнопка «Подписать» — нет доп. анимаций (уже есть `isPending` spinner через Loader2).
-- Signature block — нет анимации. Статичный блок.
+- The PDF viewer appears via `opacity: 0 → 1` (200ms, `ease-out`) when the blob is loaded.
+  The skeleton leaves via opacity 0 (150ms).
+- The «Подписать» button — no extra animations (there is already an `isPending` spinner via Loader2).
+- Signature block — no animation. A static block.
 
 ```css
-/* apps/web/app/styles/globals.css уже есть transition helpers через tw-animate-css */
-/* Использовать: transition-opacity duration-200 ease-out */
+/* apps/web/app/styles/globals.css already has transition helpers via tw-animate-css */
+/* Use: transition-opacity duration-200 ease-out */
 ```
 
 ---
 
-## 11. Data flow summary (для Coder)
+## 11. Data flow summary (for the Coder)
 
 ```
 UserDialog (ADMIN) → PATCH /api/users/:id { legalFullName: "Марченко Дмитро" }
@@ -817,7 +817,7 @@ SignContractStep (frontend, wizard)
   → URL.createObjectURL(blob) → iframe src
   → user reads PDF
   → user checks checkbox
-  → POST /api/contracts/sign  { typedName: "" }  [bypass-listed — уже есть]
+  → POST /api/contracts/sign  { typedName: "" }  [bypass-listed — already exists]
         ↓
     sign() resolves user.legalFullName → signedTypedName
     interpolateVariables(): employeeName = legalFullName || displayName
@@ -831,15 +831,15 @@ SignContractStep (frontend, wizard)
 
 ---
 
-## 12. Что НЕ меняется
+## 12. What does NOT change
 
-- Шаблоны контрактов (ADMIN-редактируемые в `/crm/admin/templates/contracts`).
-- `AcceptTosStep.tsx` — ToS preview остаётся markdown (это приемлемо для ToS).
-- `TosUpdateBanner.tsx` — без изменений.
-- `OnboardingGuard` bypass list — только добавляется `/api/contracts/preview-pdf`.
-- Audit-trail immutability: `signedContracts.bodyMarkdownSnapshot` + `variablesFilled` — не трогаем.
-- `contract_number_seq` — не трогаем.
-- PDF layout (эмблема, номер, separator, QR) — уже хорошо (PR #108). Не переделывать.
+- Contract templates (ADMIN-editable in `/crm/admin/templates/contracts`).
+- `AcceptTosStep.tsx` — the ToS preview stays markdown (acceptable for ToS).
+- `TosUpdateBanner.tsx` — unchanged.
+- The `OnboardingGuard` bypass list — only `/api/contracts/preview-pdf` is added.
+- Audit-trail immutability: `signedContracts.bodyMarkdownSnapshot` + `variablesFilled` — not touched.
+- `contract_number_seq` — not touched.
+- The PDF layout (emblem, number, separator, QR) — already good (PR #108). Do not redo.
 
 ---
 
@@ -848,67 +848,67 @@ SignContractStep (frontend, wizard)
 **Backend (apps/api):**
 
 - [ ] Migration: `ALTER TABLE users ADD COLUMN legal_full_name TEXT`
-- [ ] Update Drizzle schema `users` — добавить `legalFullName` поле
+- [ ] Update the Drizzle schema `users` — add the `legalFullName` field
 - [ ] Update `signed-contracts.service.ts`:
   - `interpolateVariables()` — `employeeName: legalFullName || displayName || 'не указано'`
   - `sign()` — `signedTypedName: legalFullName || displayName || ''`
-  - Guard: если `!legalFullName.trim()` → `BadRequestException('LEGAL_NAME_REQUIRED')` (если PD-4 = Вариант A)
+  - Guard: if `!legalFullName.trim()` → `BadRequestException('LEGAL_NAME_REQUIRED')` (if PD-4 = Option A)
 - [ ] New endpoint: `GET /api/contracts/preview-pdf` (bypass-listed, auth required)
-  - Генерирует PDF с `contractNumber: 'PREVIEW'` (или watermark — pending PD-3)
+  - Generates the PDF with `contractNumber: 'PREVIEW'` (or a watermark — pending PD-3)
   - Throttle 5 req/min
-- [ ] Update `OnboardingGuard.bypassPrefixes` — добавить `/api/contracts/preview-pdf`
-- [ ] Update `UsersService` + Users controller — поддержка `legalFullName` в PATCH/POST
+- [ ] Update `OnboardingGuard.bypassPrefixes` — add `/api/contracts/preview-pdf`
+- [ ] Update `UsersService` + the Users controller — support `legalFullName` in PATCH/POST
 
 **Shared (packages/shared):**
 
-- [ ] `schemas/users.ts` — добавить `legalFullName` в `userSchema`, `createUserSchema`, `adminUpdateUserSchema`
+- [ ] `schemas/users.ts` — add `legalFullName` to `userSchema`, `createUserSchema`, `adminUpdateUserSchema`
 - [ ] `schemas/contracts.ts` — `signContractSchema.typedName` → optional
 
 **Frontend (apps/web):**
 
-- [ ] `UserDialog.tsx` — добавить секцию «Данные для контракта» с полем `legalFullName`
-- [ ] `SignContractStep.tsx` — рефакторинг:
-  - Убрать typed-name input + `nameError` state
-  - Добавить PDF viewer (iframe + blob-URL + loading skeleton)
-  - Добавить signature block (avatar + legalFullName read-only)
-  - Добавить guard для missing legalFullName (pending PD-4)
-  - Добавить iOS fallback (pending PD-1)
-  - Добавить download link для a11y
+- [ ] `UserDialog.tsx` — add the «Данные для контракта» section with the `legalFullName` field
+- [ ] `SignContractStep.tsx` — refactor:
+  - Remove the typed-name input + `nameError` state
+  - Add the PDF viewer (iframe + blob-URL + loading skeleton)
+  - Add the signature block (avatar + legalFullName read-only)
+  - Add a guard for a missing legalFullName (pending PD-4)
+  - Add the iOS fallback (pending PD-1)
+  - Add a download link for a11y
 
 ---
 
-## 14. Дополнения от User (2026-06-04) — входят в scope PR A
+## 14. Additions from the User (2026-06-04) — in scope of PR A
 
-### 14.1 Убрать сайдбар (и шапку) из онбординга
+### 14.1 Remove the sidebar (and header) from onboarding
 
-**Проблема:** онбординг-роут `/crm/onboarding` вложен под layout `/crm` (`apps/web/app/routes/crm/route.tsx`),
-который всегда рендерит `<header>` + `<NavSidebar>` + ambient background. Поэтому при онбординге виден
-сайдбар и шапка, хотя сам `crm/onboarding/route.tsx` — уже full-screen карточка.
+**Problem:** the onboarding route `/crm/onboarding` is nested under the `/crm` layout (`apps/web/app/routes/crm/route.tsx`),
+which always renders `<header>` + `<NavSidebar>` + the ambient background. So during onboarding the
+sidebar and header are visible, although `crm/onboarding/route.tsx` itself is already a full-screen card.
 
-**Фикс (Coder, PR A):** в `CrmLayout` (`apps/web/app/routes/crm/route.tsx`) после auth-проверок —
-ранний `return <Outlet />` когда `location.pathname.startsWith('/crm/onboarding')` (онбординг сам
-даёт свой full-screen layout). Переменная `onOnboardingRoute` уже вычисляется внутри useEffect (стр. ~69) —
-поднять в scope компонента. Не рендерить header / NavSidebar / background blobs на онбординг-роуте.
+**Fix (Coder, PR A):** in `CrmLayout` (`apps/web/app/routes/crm/route.tsx`) after the auth checks —
+an early `return <Outlet />` when `location.pathname.startsWith('/crm/onboarding')` (onboarding provides its own
+full-screen layout). The variable `onOnboardingRoute` is already computed inside the useEffect (line ~69) —
+lift it into the component scope. Do not render the header / NavSidebar / background blobs on the onboarding route.
 
-**Verify:** dev-login un-onboarded SENIOR (`dmytro.marchenko@cheekycheese.dev`) → `/crm/onboarding`
-без сайдбара и шапки (Manual QA скриншот 320/768/1440).
+**Verify:** dev-login an un-onboarded SENIOR (`dmytro.marchenko@cheekycheese.dev`) → `/crm/onboarding`
+without the sidebar and header (Manual QA screenshot 320/768/1440).
 
-### 14.2 Добавить DROP в Dev Login
+### 14.2 Add DROP to Dev Login
 
-**Где:** `apps/web/app/routes/crm_/login.tsx`, массив `DEV_USERS` (хардкод, стр. ~41) — сейчас нет DROP.
-Добавить запись с email одного из DROP-юзеров, которых засидит PR B (взять стабильный известный email
-из нового seed после merge PR B). Label формата `«<Имя> — DROP»`.
+**Where:** `apps/web/app/routes/crm_/login.tsx`, the `DEV_USERS` array (hard-coded, line ~41) — currently there is no DROP.
+Add an entry with the email of one of the DROP users that PR B will seed (take a stable known email
+from the new seed after PR B merges). Label format `«<Name> — DROP»`.
 
-> Зависимость: email DROP-юзера фиксируется в PR B (seed). PM передаст конкретный email в task PR A
-> после merge PR B.
+> Dependency: the DROP user's email is fixed in PR B (seed). PM will pass the specific email into the PR A task
+> after PR B merges.
 
-## Ссылки
+## References
 
 - `apps/api/src/contracts/signed-contracts.service.ts` — `interpolateVariables()`
 - `apps/api/src/contracts/contract-pdf.service.ts` — `generateContractPdf()`
 - `apps/api/src/common/pdf/pdf.constants.ts` — `PDF_BRAND`, `PDF_LAYOUT`, `PDF_COLORS`
 - `apps/api/src/auth/onboarding.guard.ts` — bypass list
-- `apps/web/app/components/onboarding/SignContractStep.tsx` — компонент для рефакторинга
-- `apps/web/app/components/users/UserDialog.tsx` — форма создания/редактирования пользователя
+- `apps/web/app/components/onboarding/SignContractStep.tsx` — the component to refactor
+- `apps/web/app/components/users/UserDialog.tsx` — the user create/edit form
 - `apps/web/app/styles/globals.css` — design tokens
 - `packages/shared/src/schemas/contracts.ts` — `signContractSchema`, `InterpolatableVariableKey`

@@ -2934,7 +2934,7 @@ msgstr "Details are in the CRM."
 msgid "Деталі виплати"
 msgstr "Payout details"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectOverviewTab.tsx
 msgid "Деталі проєкту"
 msgstr "Project details"
 
@@ -2979,7 +2979,7 @@ msgstr "Funding source"
 msgid "Джуніор"
 msgstr "Junior"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectOverviewTab.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectTeamCards.tsx
 msgid "Джуніор не призначений"
 msgstr "No junior assigned"
@@ -3212,8 +3212,8 @@ msgstr "Add a project account"
 msgid "Додати до команди дропа"
 msgstr "Add to a drop team"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectMemberDialogs.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectOverviewTab.tsx
 msgid "Додати до складу"
 msgstr "Add to the project"
 
@@ -3926,8 +3926,8 @@ msgid "Загальний дохід"
 msgstr "Total income"
 
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectOverviewTab.tsx
 msgid "Загальні нотатки"
 msgstr "General notes"
 
@@ -3993,7 +3993,7 @@ msgstr "Fully closed"
 msgid "Залишається вам"
 msgstr "Left for you"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectOverviewTab.tsx
 msgid "Залишили проєкт"
 msgstr "Left the project"
 
@@ -6259,8 +6259,8 @@ msgstr "do not follow the link"
 msgid "не підтверджено"
 msgstr "not confirmed"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectOverviewTab.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectOverviewTab.tsx
 msgid "Не призначено"
 msgstr "Not assigned"
 
@@ -6491,8 +6491,8 @@ msgstr "No connection to the server. Check your internet connection and try agai
 msgid "Немає зобов’язань"
 msgstr "No obligations"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectMemberDialogs.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectOverviewTab.tsx
 msgid "Немає кого додати"
 msgstr "No one to add"
 
@@ -9526,7 +9526,7 @@ msgstr "How much the drop keeps from each payout"
 
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectOverviewTab.tsx
 msgid "Склад"
 msgstr "Members"
 
@@ -11094,7 +11094,7 @@ msgid "Частка в проєкті тепер {percent}%"
 msgstr "Project share is now {percent}%"
 
 #: apps/web/app/routes/_authenticated/finance/constants.ts
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectOverviewTab.tsx
 msgid "Частка дропа"
 msgstr "Drop’s share"
 
@@ -11172,7 +11172,7 @@ msgstr "Partner share"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectOverviewTab.tsx
 msgid "Частка сеньйора"
 msgstr "Senior’s share"
 

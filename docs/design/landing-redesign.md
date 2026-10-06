@@ -1,431 +1,431 @@
 # landing-redesign — coder-ready spec (ui-ux-designer Mode E)
 
-**Статус:** экспорт Claude Design реконсилирован в coder-spec 2026-07-23 (Mode E). **Обновлено
-2026-07-24:** добавлен §M «Motion-спека v2» — владелец счёл §5 недостаточно живой («не вижу
-активного применения анимаций»); §M расширяет §5 до scroll-progress-driven анимаций per-секция,
-полного hover-языка на всех интерактивных элементах, брендированных page-transitions между
-роутами и плавной in-page навигации. §5 остаётся в силе как база (typewriter-тайминги,
-reduced-motion double-guard, hero above-the-fold правило) — §M его дополняет/апгрейдит явно
-помеченными местами, не дублирует.
-**Hotfix 2026-07-24 (тот же день, после деплоя v2):** владелец — «жёлтая анимация перехода очень
+**Status:** the Claude Design export was reconciled into a coder-spec on 2026-07-23 (Mode E). **Updated
+2026-07-24:** added §M "Motion spec v2" — the owner found §5 insufficiently alive ("не вижу
+активного применения анимаций"); §M extends §5 to per-section scroll-progress-driven animations, a
+full hover language on all interactive elements, branded page transitions between
+routes and smooth in-page navigation. §5 remains in force as the base (typewriter timings,
+reduced-motion double-guard, hero above-the-fold rule) — §M supplements/upgrades it in explicitly
+marked places, does not duplicate it.
+**Hotfix 2026-07-24 (the same day, after the v2 deploy):** the owner — "жёлтая анимация перехода очень
 бьёт по глазам... у некоторых может вызвать эпилепсию. Позаботься, чтобы ВСЕ анимации были
-плавными» + 2 визуальных бага со скриншотов (process connector-line режет текст лейблов,
-vacancy-card hover «прыгает»). §M.3 **переработан** — полноэкранная жёлтая заливка заменена на
-люминанс-безопасный тёмный scrim + тонкую жёлтую ведущую кромку (WCAG 2.3.1 расчёт внутри), везде
-в §M.1/M.2/M.3/M.4 длительности/easing смягчены (см. пометки «HOTFIX» по тексту), + geometry/
-stacking-фиксы для connector-line и `will-change` фикс для card-hover jump. Оркестрационная
-механика page-transition (module-singleton, `onBeforeNavigate`/`onResolved`, focus-management) —
-**не менялась**, только визуальный слой и тайминги.
-**Claude Design проект:** https://claude.ai/design/p/9c07d82e-ea1b-4b84-a8a1-94aa5210f051
-**Дизайн-система:** `CheekyCheeseIT CRM` (synced) — токены/oklch-значения экспорта **1:1 совпадают**
-с `apps/landing/app/styles/globals.css` (проверено построчным diff, см. §3). Никаких новых
-base-токенов вводить не нужно.
-**Продуктовая спека:** `docs/superpowers/specs/2026-07-22-landing-refactor-design.md` (§2 —
-лендинг; этот файл её конкретизирует до компонентного уровня, НЕ дублирует бизнес-требования).
-**Design tier:** 1 (новый редизайн существующих экранов `/`, `/careers`, `/careers/:slug`).
+плавными" + 2 visual bugs from screenshots (the process connector-line cuts the label text,
+the vacancy-card hover "jumps"). §M.3 was **reworked** — the full-screen yellow fill was replaced with a
+luminance-safe dark scrim + a thin yellow leading edge (WCAG 2.3.1 calculation inside), everywhere
+in §M.1/M.2/M.3/M.4 durations/easing were softened (see the "HOTFIX" notes in the text), + geometry/
+stacking fixes for the connector-line and a `will-change` fix for the card-hover jump. The orchestration
+mechanics of the page transition (module-singleton, `onBeforeNavigate`/`onResolved`, focus management) —
+**did not change**, only the visual layer and timings.
+**Claude Design project:** https://claude.ai/design/p/9c07d82e-ea1b-4b84-a8a1-94aa5210f051
+**Design system:** `CheekyCheeseIT CRM` (synced) — the export's tokens/oklch values **match 1:1**
+`apps/landing/app/styles/globals.css` (verified by a line-by-line diff, see §3). No new
+base tokens need to be introduced.
+**Product spec:** `docs/superpowers/specs/2026-07-22-landing-refactor-design.md` (§2 —
+the landing page; this file makes it concrete down to the component level, does NOT duplicate the business requirements).
+**Design tier:** 1 (a new redesign of the existing screens `/`, `/careers`, `/careers/:slug`).
 
-**Кодеру:** это единственный интерфейс к дизайну. `.dc.html` в `assets/landing-redesign/` —
-**визуальный референс**, генерируемый standalone-экспортом Claude Design (generic divs +
-инлайн-стили + собственный `x-dc`/`sc-if`/`sc-for` шаблонный синтаксис). **НЕ копировать HTML,
-НЕ импортировать `support.js`/`site.css`/`\_ds/**`в билд.** Строить нашими React-компонентами +`apps/landing/app/styles/globals.css`токенами, следуя маппингу §2 и spec ниже. Fidelity-приёмка
-(Mode B) сравнивает live`localhost:3002` со скриншотами §7, а не с самим HTML.
-
----
-
-## 0. Направление (кратко, per `frontend-design-direction`)
-
-| Вопрос               | Ответ                                                                                                                                                                                                                                                                  |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Purpose**          | Публичная витрина студии — конвертит визитёра в лид («Start a project») или кандидата («See open roles»). Не CRM — не подчиняется тону `foundation.md` («dense/quiet operations tool»); это намеренное исключение.                                                     |
-| **Audience**         | Founder/CTO продуктовой компании (заказчик) и senior-инженер (кандидат) — оба искушённые, сканируют быстро, ценят техническую достоверность (живой код, метрики) больше маркетингового глянца.                                                                         |
-| **Tone**             | **Премиум-сдержанный dev-tool.** Тёмный фон, фирменный жёлтый как единственный высокоэнергичный акцент, моно-шрифт для технических деталей (терминал, лейблы). Уровень Linear/Vercel — НЕ generic SaaS-landing (никаких фиолетовых градиентов/blob/stock-иллюстраций). |
-| **Memorable detail** | Живой печатающийся терминал с реальными доменными code-сниппетами (AI/EdTech/E-Commerce) — единственный «hero-визуал», без стоковых картинок/фото людей (владелец: «без персоналий»).                                                                                  |
-| **Constraints**      | Tailwind v4 (`@theme inline`) + Framer Motion + only-English copy + WCAG 2.2 AA + responsive 320/768/1024/1440 + `prefers-reduced-motion`.                                                                                                                             |
+**For the coder:** this is the only interface to the design. The `.dc.html` files in `assets/landing-redesign/` are a
+**visual reference**, generated by the standalone export of Claude Design (generic divs +
+inline styles + its own `x-dc`/`sc-if`/`sc-for` template syntax). **DO NOT copy the HTML,
+DO NOT import `support.js`/`site.css`/`\_ds/**`into the build.** Build with our React components +`apps/landing/app/styles/globals.css`tokens, following the mapping of §2 and the spec below. Fidelity acceptance
+(Mode B) compares live`localhost:3002` with the screenshots of §7, not with the HTML itself.
 
 ---
 
-## 1. Роуты и секции (напоминание из продуктовой спеки)
+## 0. Direction (brief, per `frontend-design-direction`)
+
+| Question             | Answer                                                                                                                                                                                                                                                         |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Purpose**          | The studio's public storefront — converts a visitor into a lead («Start a project») or a candidate («See open roles»). Not the CRM — does not follow the tone of `foundation.md` ("dense/quiet operations tool"); this is a deliberate exception.              |
+| **Audience**         | A founder/CTO of a product company (the customer) and a senior engineer (the candidate) — both sophisticated, they scan quickly, value technical credibility (live code, metrics) more than marketing gloss.                                                   |
+| **Tone**             | **A premium restrained dev tool.** A dark background, the brand yellow as the only high-energy accent, a mono font for technical details (terminal, labels). Linear/Vercel level — NOT a generic SaaS landing (no purple gradients/blobs/stock illustrations). |
+| **Memorable detail** | A live typing terminal with real domain code snippets (AI/EdTech/E-Commerce) — the only "hero visual", with no stock images/photos of people (owner: "без персоналий").                                                                                        |
+| **Constraints**      | Tailwind v4 (`@theme inline`) + Framer Motion + English-only copy + WCAG 2.2 AA + responsive 320/768/1024/1440 + `prefers-reduced-motion`.                                                                                                                     |
+
+---
+
+## 1. Routes and sections (a reminder from the product spec)
 
 - **`/`** — Nav → Hero(+Terminal) → About → Selected work (3 case studies) → Services (3) →
-  How we work (4 шага) → Tech stack (chips) → Careers-тизер (до 3 живых вакансий ИЛИ empty-CTA) →
+  How we work (4 steps) → Tech stack (chips) → Careers teaser (up to 3 live vacancies OR an empty CTA) →
   Contact → Footer.
-- **`/careers`** — Nav → header (заголовок+лид) → **список вакансий БЕЗ фильтров** (2-колоночный
-  grid карточек) ИЛИ empty state → Footer.
-- **`/careers/:slug`** — Nav → back-link → title-block (тег+заголовок+meta-теги) → 2-колоночная
-  деталка (markdown-описание слева, sticky форма отклика справа) → Footer.
-- Контактный email везде — **`hr@cheekycheese.tech`** (единственный на всём лендинге).
+- **`/careers`** — Nav → header (title+lead) → **vacancy list WITHOUT filters** (a 2-column
+  card grid) OR an empty state → Footer.
+- **`/careers/:slug`** — Nav → back-link → title block (tag+title+meta tags) → a 2-column
+  detail (markdown description on the left, a sticky application form on the right) → Footer.
+- The contact email everywhere — **`hr@cheekycheese.tech`** (the only one on the whole landing page).
 
 ---
 
-## 2. Компонентный маппинг
+## 2. Component mapping
 
-### 2.1. Уже есть в `apps/landing/app/components/` — переиспользовать as-is
+### 2.1. Already in `apps/landing/app/components/` — reuse as-is
 
-| Компонент   | Файл             | Как используется в редизайне                                                                                                                                                                                                                                                          |
-| ----------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Button`    | `ui/button.tsx`  | CTA везде. `variant="default"` = `cc-btn-primary` (жёлтый), `variant="outline"` ≈ `cc-btn-ghost` (нужно поправить бордер-токен на `border-border` — уже есть). Размеры: смэпить `size="lg"` → `cc-btn-lg` (52px), добавить `size="default"` →46px (уже 36/h-9 — **см. §2.3 правки**). |
-| `Badge`     | `ui/badge.tsx`   | Годится для мелких статус-меток, НЕ для domain-тегов (см. новый `Tag` §2.2) и НЕ для eyebrow (см. новый `SectionEyebrow`).                                                                                                                                                            |
-| `BrandMark` | `brand-mark.tsx` | Логотип в Nav (`variant="outline"`, `h-8 w-8 text-primary` на жёлтом квадрате — см. правку §2.4) и Footer (`variant="flat"`).                                                                                                                                                         |
-| `cn`        | `lib/utils.ts`   | Как есть.                                                                                                                                                                                                                                                                             |
+| Component   | File             | How it is used in the redesign                                                                                                                                                                                                                                                                           |
+| ----------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Button`    | `ui/button.tsx`  | The CTA everywhere. `variant="default"` = `cc-btn-primary` (yellow), `variant="outline"` ≈ `cc-btn-ghost` (the border token needs to be fixed to `border-border` — already exists). Sizes: map `size="lg"` → `cc-btn-lg` (52px), add `size="default"` →46px (currently 36/h-9 — **see the §2.3 fixes**). |
+| `Badge`     | `ui/badge.tsx`   | Fine for small status labels, NOT for domain tags (see the new `Tag` §2.2) and NOT for the eyebrow (see the new `SectionEyebrow`).                                                                                                                                                                       |
+| `BrandMark` | `brand-mark.tsx` | The logo in the Nav (`variant="outline"`, `h-8 w-8 text-primary` on a yellow square — see the §2.4 fix) and the Footer (`variant="flat"`).                                                                                                                                                               |
+| `cn`        | `lib/utils.ts`   | As is.                                                                                                                                                                                                                                                                                                   |
 
-### 2.2. Новые примитивы (`apps/landing/app/components/ui/`) — добавить
+### 2.2. New primitives (`apps/landing/app/components/ui/`) — add
 
-| Компонент            | Обоснование (нет аналога)                                                                                                                                                                                  | Соответствие экспорту                                                                                                                                                                                                                                                                   |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Card`               | Переиспользуется в Services/Selected work/Process/Careers-empty/Contact-CTA/Vacancy-apply-box — 6+ мест. `apps/web` имеет `card.tsx`, `apps/landing` — нет (отдельный workspace, отдельный component-lib). | `.cc-card`: `bg-card border border-border rounded-2xl p-6 md:p-[30px] transition-[border-color,transform,background] duration-300`. Hover-вариант (`cc-card-hover`): `hover:border-primary/40 hover:-translate-y-[3px]` — только там, где карточка кликабельна (VacancyCard, Services). |
-| `Tag`                | Domain-бейдж (AI/ML · EdTech · E-Commerce · neutral) с цветной подложкой — семантика отличается от `Badge` (роли/статусы CRM).                                                                             | `.cc-tag-{ai,edu,ecom,neutral}`. Цвета — **новые семантические токены** (см. §3.2, НЕ хардкод hex).                                                                                                                                                                                     |
-| `Chip`               | Pill с dot-индикатором для hero eyebrow-строки и tech-stack — не то же самое, что `Badge`.                                                                                                                 | `.cc-chip`: `inline-flex items-center gap-[7px] rounded-full border border-border/60 bg-card/60 px-3.5 py-2 text-[0.86rem] text-foreground/80 hover:border-primary/55 hover:text-foreground`.                                                                                           |
-| `Input` / `Textarea` | Форма отклика — единственное текстовое поле ввода на лендинге, примитива нет.                                                                                                                              | `.cc-input`: `h-[46px] w-full rounded-[10px] border border-border bg-input px-3.5 text-[0.95rem] focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/22`. Textarea — `min-h-[140px] resize-y`.                                                             |
+| Component            | Rationale (no analogue)                                                                                                                                                                                | Correspondence to the export                                                                                                                                                                                                                                                            |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Card`               | Reused in Services/Selected work/Process/Careers-empty/Contact-CTA/Vacancy-apply-box — 6+ places. `apps/web` has `card.tsx`, `apps/landing` does not (a separate workspace, a separate component lib). | `.cc-card`: `bg-card border border-border rounded-2xl p-6 md:p-[30px] transition-[border-color,transform,background] duration-300`. The hover variant (`cc-card-hover`): `hover:border-primary/40 hover:-translate-y-[3px]` — only where the card is clickable (VacancyCard, Services). |
+| `Tag`                | A domain badge (AI/ML · EdTech · E-Commerce · neutral) with a colored background — the semantics differ from `Badge` (CRM roles/statuses).                                                             | `.cc-tag-{ai,edu,ecom,neutral}`. The colors — **new semantic tokens** (see §3.2, NOT hardcoded hex).                                                                                                                                                                                    |
+| `Chip`               | A pill with a dot indicator for the hero eyebrow line and tech stack — not the same as `Badge`.                                                                                                        | `.cc-chip`: `inline-flex items-center gap-[7px] rounded-full border border-border/60 bg-card/60 px-3.5 py-2 text-[0.86rem] text-foreground/80 hover:border-primary/55 hover:text-foreground`.                                                                                           |
+| `Input` / `Textarea` | The application form is the only text input on the landing page, there is no primitive.                                                                                                                | `.cc-input`: `h-[46px] w-full rounded-[10px] border border-border bg-input px-3.5 text-[0.95rem] focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/22`. Textarea — `min-h-[140px] resize-y`.                                                             |
 
-### 2.3. Правка существующих примитивов
+### 2.3. Fixes to existing primitives
 
-- **`Button`**: добавить/выровнять размеры под `cc-btn` шкалу — `sm`=40px (только НЕ на touch-путях,
-  см. a11y §5), `default`=46px (текущий `h-9`=36px — **несоответствие макету**, поднять до `h-[46px]`
-  ТОЛЬКО в контексте marketing-кнопок; не трогать `apps/web` копию, это отдельный workspace), `lg`=52px.
-  Активный active-состояние `active:translate-y-px` (сейчас `active:scale-[0.98]` — визуально
-  отличается от макета, где кнопка «проседает», а не сжимается — поправить под hero/CTA use-case).
-- **`Badge` `variant="outline"`**: используется в текущем `index.tsx` для eyebrow-строк — в
-  редизайне заменяется на новый `Chip`/`SectionEyebrow` (§2.2/§2.5), `Badge` для этих мест больше
-  не используется.
+- **`Button`**: add/align sizes to the `cc-btn` scale — `sm`=40px (only NOT on touch paths,
+  see a11y §5), `default`=46px (the current `h-9`=36px — **a mismatch with the mockup**, raise to `h-[46px]`
+  ONLY in the context of marketing buttons; do not touch the `apps/web` copy, it is a separate workspace), `lg`=52px.
+  The active state `active:translate-y-px` (currently `active:scale-[0.98]` — visually
+  different from the mockup, where the button "sinks" rather than shrinks — fix for the hero/CTA use case).
+- **`Badge` `variant="outline"`**: used in the current `index.tsx` for eyebrow lines — in the
+  redesign it is replaced by the new `Chip`/`SectionEyebrow` (§2.2/§2.5), `Badge` is no longer
+  used for these places.
 
-### 2.4. Новые составные компоненты (`apps/landing/app/components/marketing/`)
+### 2.4. New composite components (`apps/landing/app/components/marketing/`)
 
-| Компонент          | Экспорт-референс                                                 | Заметки                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| ------------------ | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `MarketingNav`     | `Nav.dc.html`                                                    | Sticky (`sticky top-0 z-50`), фон `bg-background/72` + `backdrop-blur-md`, нижний бордер появляется после `scrollY>8` (`border-border` при скролле, `border-transparent` в топе — воспроизвести через `useState`+`scroll` listener или `useScroll` из Framer Motion). Desktop-ссылки видны от **900px** (не Tailwind default `lg=1024` — используй `min-[900px]:flex` / `min-[900px]:hidden` для бургера, как в экспорте). Активный пункт — `aria-current="page"` + `text-foreground` (не-активные `text-foreground/72`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `MobileNavMenu`    | `Nav.dc.html` (`.cc-mobile-menu`)                                | Дисклоужер под хедером (НЕ модалка/Sheet — не нужен focus-trap, это часть навигации). `AnimatePresence`+`motion.div` по `max-height`/`opacity` (как в экспорте `menuStyle`). Бургер-кнопка **44×44px** (уже в экспорте, сохранить). При открытии — фокус остаётся в кнопке; `Escape` закрывает + возвращает фокус на бургер (добавить — в экспорте нет, must-have для a11y).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `MarketingFooter`  | `Footer.dc.html`                                                 | 4-колоночный grid (`grid-cols-1 md:grid-cols-4`, лого-блок `col-span-full md:col-span-1` — в экспорте это `grid-column:1/-1` на mobile/tablet, полноширинный логотип-блок). 3 колонки ссылок: Studio / Company / Get in touch (`hr@cheekycheese.tech` mailto).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `Terminal`         | `Terminal.dc.html`                                               | **Эволюция** существующего `Terminal()` внутри `routes/index.tsx` (сейчас инлайн, 3 упрощённых сниппета без line-numbers) → вынести в `marketing/terminal.tsx`, апгрейд: (a) 3 НОВЫХ сниппета из экспорта — `ai-platform/serve.py` (torch inference), `edtech-platform/path.ts` (adaptive path engine), `commerce-storefront/checkout.ts` (idempotent checkout) — использовать ТЕКСТ 1:1 из `Terminal.dc.html` (уже финальная копия); (b) line-numbers в левой колонке (моно, `text-foreground/26`, `w-[2.2em]` right-aligned); (c) статус-индикатор `live` с пульсирующей точкой (`bg-primary` + `box-shadow` glow) в правом углу тулбара; (d) посимвольный typewriter с character-level tokenizer (keyword/string/number/comment/fn/type/var/punct классы — портировать `tokenize()`/`buildFlat()` логику из `Terminal.dc.html` 1:1, это чистый JS, не UI-фреймворк-специфичный) вместо нынешнего line-level; (e) macOS window chrome (3 точки, полупрозрачный фон тулбара) — уже есть, сохранить/донастроить под новые токены. `role="img"` + `aria-label` описывающий терминал целиком (AT не должен читать посимвольную анимацию) — обязательно перенести. |
-| `SectionEyebrow`   | (паттерн `.cc-eyebrow` встречается 8+ раз)                       | Маленький переиспользуемый компонент: `— LABEL` (тире + uppercase mono-tracked текст, `text-primary`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `StatStrip`        | Home «About» секция (40+/15+/3+/20+)                             | `grid grid-cols-2 md:grid-cols-4 gap-5`. Число — `cc-stat-num` (`text-[clamp(2.2rem,5vw,3.25rem)] font-semibold tracking-[-0.03em]`), суффикс `+`/`%` — `text-primary`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `CaseStudyCard`    | Home «Selected work» — 3 карточки (Challenge/Solution/3 метрики) | Данные — типизированный массив (домен/тег/заголовок/challenge/solution/3×{value,label}). **Копия финальная** — взять 1:1 текст из `Home.dc.html` (assistant-драфт уже утверждён процессом дизайна; коррективы владельца — отдельная правка после вёрстки, не блокер).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `ServiceCard`      | Home «Services» — 3 карточки (AI/ML, EdTech, E-Commerce)         | `Card` + `Tag` + h3 + описание + `<ul>` из 3 пунктов. Текст — 1:1 из `Home.dc.html`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `ProcessStep`      | Home «How we work» — 4 шага                                      | `Card` вариант с `step-num` мото-лейблом (`01 / Discovery` — сохранить формат `NN / Name`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `TechStackChips`   | Home «Tech stack»                                                | `Chip` × 18 технологий, `flex flex-wrap gap-3`. Список технологий — обновить под актуальный стек (в экспорте: TypeScript/React/Next.js/Node.js/Python/PyTorch/TensorFlow/Go/PostgreSQL/Redis/GraphQL/Kubernetes/Docker/AWS/GCP/Terraform/Stripe/Kafka — шире текущего списка на лендинге; финальный список — на усмотрение владельца при ревью, дизайн только задаёт визуальный паттерн chip-грида).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `VacancyCard`      | `VacancyCard.dc.html`                                            | `Card` (hover-вариант) как `<Link>` на `/careers/:slug`. domain `Tag` + type mono-лейбл сверху; title h3; seniority+location мета-ряд (иконки `lucide-react` — `BarChart3`/`MapPin`, уже в deps); footer-ряд «View role» + круглая кнопка-стрелка (`ArrowRight`, 38×38px круг с бордером).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `VacancyApplyForm` | `Vacancy.dc.html` (aside)                                        | Controlled форма, состояния `default \| submitting \| success \| error` (см. §6.4). Поля — Full name*/Email*/Telegram/LinkedIn URL/GitHub URL/Cover letter/CV\*. Честная реализация (не DC-заглушка): интегрирует Turnstile invisible widget + honeypot + реальный `fetch POST /api/public/vacancies/:slug/apply` (multipart).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `CvDropzone`       | `Vacancy.dc.html` (`.cc-drop`)                                   | Часть `VacancyApplyForm` (можно отдельным файлом для читаемости). Drag&drop + `<input type=file>` visually-hidden (opacity:0, `1px×1px`, `position:absolute`) обёрнутый `<label>` — паттерн из экспорта уже a11y-корректен (label — кликабельная/focusable-через-input цель), перенести 1:1. Клиентская валидация: `application/pdf` (MIME + `.pdf` fallback) + ≤5MB — те же правила, что и сервер (§2.2 продуктовой спеки), UX должен ловить ошибку ДО отправки.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `MarkdownBody`     | `Vacancy.dc.html` (`.cc-prose`)                                  | `ReactMarkdown` + `remark-gfm` (**тот же паттерн, что `AcceptTosStep.tsx`** в `apps/web` — `<ReactMarkdown>{descriptionMd}</ReactMarkdown>` без `rehype-raw`, т.е. сырой HTML в markdown не рендерится — безопасно by default). Обернуть в `<article className="cc-prose-эквивалент">` — Tailwind `[&_h3]:...` arbitrary-variant стили ИЛИ выделенный `markdown-body.tsx` с `className` пропсами на h3/p/ul/li (заголовки `text-foreground font-semibold`, `li::marker` — `text-primary` через `marker:text-primary`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Component          | Export reference                                              | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------ | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MarketingNav`     | `Nav.dc.html`                                                 | Sticky (`sticky top-0 z-50`), background `bg-background/72` + `backdrop-blur-md`, the bottom border appears after `scrollY>8` (`border-border` on scroll, `border-transparent` at the top — reproduce via `useState`+a `scroll` listener or `useScroll` from Framer Motion). Desktop links are visible from **900px** (not the Tailwind default `lg=1024` — use `min-[900px]:flex` / `min-[900px]:hidden` for the burger, as in the export). The active item — `aria-current="page"` + `text-foreground` (non-active `text-foreground/72`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `MobileNavMenu`    | `Nav.dc.html` (`.cc-mobile-menu`)                             | A disclosure under the header (NOT a modal/Sheet — no focus trap needed, it is part of the navigation). `AnimatePresence`+`motion.div` by `max-height`/`opacity` (as in the export's `menuStyle`). The burger button is **44×44px** (already in the export, keep). On open — focus stays in the button; `Escape` closes + returns focus to the burger (add — not in the export, a must-have for a11y).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `MarketingFooter`  | `Footer.dc.html`                                              | A 4-column grid (`grid-cols-1 md:grid-cols-4`, the logo block `col-span-full md:col-span-1` — in the export it is `grid-column:1/-1` on mobile/tablet, a full-width logo block). 3 link columns: Studio / Company / Get in touch (`hr@cheekycheese.tech` mailto).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `Terminal`         | `Terminal.dc.html`                                            | An **evolution** of the existing `Terminal()` inside `routes/index.tsx` (currently inline, 3 simplified snippets without line numbers) → extract to `marketing/terminal.tsx`, upgrade: (a) 3 NEW snippets from the export — `ai-platform/serve.py` (torch inference), `edtech-platform/path.ts` (adaptive path engine), `commerce-storefront/checkout.ts` (idempotent checkout) — use the TEXT 1:1 from `Terminal.dc.html` (already the final copy); (b) line numbers in the left column (mono, `text-foreground/26`, `w-[2.2em]` right-aligned); (c) a `live` status indicator with a pulsing dot (`bg-primary` + `box-shadow` glow) in the right corner of the toolbar; (d) a per-character typewriter with a character-level tokenizer (keyword/string/number/comment/fn/type/var/punct classes — port the `tokenize()`/`buildFlat()` logic from `Terminal.dc.html` 1:1, it is pure JS, not UI-framework specific) instead of the current line-level one; (e) macOS window chrome (3 dots, a semi-transparent toolbar background) — already exists, keep/adjust to the new tokens. `role="img"` + an `aria-label` describing the whole terminal (AT must not read the per-character animation) — must be carried over. |
+| `SectionEyebrow`   | (the `.cc-eyebrow` pattern occurs 8+ times)                   | A small reusable component: `— LABEL` (a dash + uppercase mono-tracked text, `text-primary`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `StatStrip`        | Home "About" section (40+/15+/3+/20+)                         | `grid grid-cols-2 md:grid-cols-4 gap-5`. The number — `cc-stat-num` (`text-[clamp(2.2rem,5vw,3.25rem)] font-semibold tracking-[-0.03em]`), the suffix `+`/`%` — `text-primary`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `CaseStudyCard`    | Home "Selected work" — 3 cards (Challenge/Solution/3 metrics) | The data — a typed array (domain/tag/title/challenge/solution/3×{value,label}). **The copy is final** — take the text 1:1 from `Home.dc.html` (the assistant draft has already been approved by the design process; the owner's corrections — a separate edit after layout, not a blocker).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `ServiceCard`      | Home "Services" — 3 cards (AI/ML, EdTech, E-Commerce)         | `Card` + `Tag` + h3 + description + a `<ul>` of 3 items. The text — 1:1 from `Home.dc.html`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `ProcessStep`      | Home "How we work" — 4 steps                                  | A `Card` variant with a `step-num` mono label (`01 / Discovery` — keep the `NN / Name` format).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `TechStackChips`   | Home "Tech stack"                                             | `Chip` × 18 technologies, `flex flex-wrap gap-3`. The technology list — update to the current stack (in the export: TypeScript/React/Next.js/Node.js/Python/PyTorch/TensorFlow/Go/PostgreSQL/Redis/GraphQL/Kubernetes/Docker/AWS/GCP/Terraform/Stripe/Kafka — wider than the current list on the landing page; the final list — at the owner's discretion during review, the design only sets the visual pattern of the chip grid).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `VacancyCard`      | `VacancyCard.dc.html`                                         | A `Card` (hover variant) as a `<Link>` to `/careers/:slug`. A domain `Tag` + a type mono label at the top; title h3; a seniority+location meta row (`lucide-react` icons — `BarChart3`/`MapPin`, already in deps); a footer row «View role» + a round arrow button (`ArrowRight`, a 38×38px circle with a border).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `VacancyApplyForm` | `Vacancy.dc.html` (aside)                                     | A controlled form, states `default \| submitting \| success \| error` (see §6.4). Fields — Full name*/Email*/Telegram/LinkedIn URL/GitHub URL/Cover letter/CV\*. An honest implementation (not a DC stub): integrates the Turnstile invisible widget + honeypot + a real `fetch POST /api/public/vacancies/:slug/apply` (multipart).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `CvDropzone`       | `Vacancy.dc.html` (`.cc-drop`)                                | Part of `VacancyApplyForm` (can be a separate file for readability). Drag&drop + a visually-hidden `<input type=file>` (opacity:0, `1px×1px`, `position:absolute`) wrapped in a `<label>` — the export's pattern is already a11y-correct (the label is a clickable/focusable-via-input target), carry over 1:1. Client-side validation: `application/pdf` (MIME + `.pdf` fallback) + ≤5MB — the same rules as the server (§2.2 of the product spec), the UX must catch the error BEFORE sending.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `MarkdownBody`     | `Vacancy.dc.html` (`.cc-prose`)                               | `ReactMarkdown` + `remark-gfm` (**the same pattern as `AcceptTosStep.tsx`** in `apps/web` — `<ReactMarkdown>{descriptionMd}</ReactMarkdown>` without `rehype-raw`, i.e. raw HTML in markdown is not rendered — safe by default). Wrap in `<article className="cc-prose-equivalent">` — Tailwind `[&_h3]:...` arbitrary-variant styles OR a dedicated `markdown-body.tsx` with `className` props on h3/p/ul/li (headings `text-foreground font-semibold`, `li::marker` — `text-primary` via `marker:text-primary`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 
-### 2.5. Роуты (`apps/landing/app/routes/`)
+### 2.5. Routes (`apps/landing/app/routes/`)
 
-| Файл (предложение)         | Роут             | Данные                                                                                                                                                                                                                                                                               |
-| -------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `routes/index.tsx`         | `/`              | Полная переработка (см. §1). Careers-тизер — TanStack Router `loader` → `fetch('/api/public/vacancies')`, top-3, `hasRoles = list.length > 0` (аналог `hasOpenRoles` tweak в экспорте, но по реальным данным, не prop).                                                              |
-| `routes/careers.tsx`       | `/careers`       | `loader` → `fetch('/api/public/vacancies')`, список без фильтров, `isEmpty = list.length === 0`.                                                                                                                                                                                     |
-| `routes/careers.$slug.tsx` | `/careers/:slug` | `loader` → `fetch('/api/public/vacancies/:slug')`; 404 (DRAFT/CLOSED/не найдено) → редирект/`notFound()` TanStack Router на **дружелюбный empty-state**, НЕ raw 404 (продукт: «не раскрываем существование» на сервере — на клиенте просто «Role not found» + ссылка на `/careers`). |
+| File (proposal)            | Route            | Data                                                                                                                                                                                                                                                                                          |
+| -------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `routes/index.tsx`         | `/`              | A full rework (see §1). The Careers teaser — a TanStack Router `loader` → `fetch('/api/public/vacancies')`, top-3, `hasRoles = list.length > 0` (analogous to the `hasOpenRoles` tweak in the export, but from real data, not a prop).                                                        |
+| `routes/careers.tsx`       | `/careers`       | `loader` → `fetch('/api/public/vacancies')`, the list without filters, `isEmpty = list.length === 0`.                                                                                                                                                                                         |
+| `routes/careers.$slug.tsx` | `/careers/:slug` | `loader` → `fetch('/api/public/vacancies/:slug')`; 404 (DRAFT/CLOSED/not found) → redirect/`notFound()` of TanStack Router to a **friendly empty state**, NOT a raw 404 (product: "we do not reveal existence" on the server — on the client simply "Role not found" + a link to `/careers`). |
 
-Все 3 файла — same-origin `fetch` (см. продуктовую спеку §2.3), без react-query.
+All 3 files — same-origin `fetch` (see product spec §2.3), without react-query.
 
 ---
 
-## 3. Token-map
+## 3. Token map
 
-### 3.1. Базовые токены — уже 1:1 (verified byte-diff oklch values)
+### 3.1. Base tokens — already 1:1 (verified byte-diff of oklch values)
 
-Проверено: `--primary`/`--primary-foreground`/`--background`/`--foreground`/`--card`/
-`--muted-foreground`/`--border`/`--input`/`--destructive` в экспортированном
-`_ds_bundle.css` (`:root` и `.dark`) **совпадают побайтово** (oklch-значения) с
-`apps/landing/app/styles/globals.css`. Дизайн-система синхронизирована — **новых base-токенов
-не вводим**. Экспорт — dark-only лендинг (`class="dark"` жёстко на корневом div во всех 3 `.dc.html`)
-— это осознанное решение (лендинг не имеет light/dark toggle, только `.dark`; см. §5.2).
+Verified: `--primary`/`--primary-foreground`/`--background`/`--foreground`/`--card`/
+`--muted-foreground`/`--border`/`--input`/`--destructive` in the exported
+`_ds_bundle.css` (`:root` and `.dark`) **match byte for byte** (oklch values) with
+`apps/landing/app/styles/globals.css`. The design system is synchronized — **we do not introduce new base tokens**.
+The export is a dark-only landing page (`class="dark"` hardcoded on the root div in all 3 `.dc.html`)
+— this is a deliberate decision (the landing page has no light/dark toggle, only `.dark`; see §5.2).
 
-### 3.2. Производные `--cc-*` переменные экспорта → куда деть
+### 3.2. The export's derived `--cc-*` variables → where to put them
 
-Экспорт вычисляет вспомогательные переменные через `color-mix()` поверх наших токенов (не новые
-базовые цвета — производные). Рекомендация: **не плодить дубли `--cc-*` имён**, а или (a) завести
-маленький layer в `globals.css`/новом `marketing.css` с 3-4 переиспользуемыми computed-переменными,
-или (b) инлайнить `color-mix()` через Tailwind arbitrary values по месту. Т.к. паттерны повторяются
-6-10+ раз — рекомендуется (a):
+The export computes helper variables via `color-mix()` on top of our tokens (not new
+base colors — derived ones). Recommendation: **do not multiply duplicate `--cc-*` names**, but either (a)
+create a small layer in `globals.css`/a new `marketing.css` with 3-4 reusable computed variables,
+or (b) inline `color-mix()` via Tailwind arbitrary values in place. Since the patterns repeat
+6-10+ times — (a) is recommended:
 
 ```css
-/* apps/landing/app/styles/globals.css — добавить в конец, marketing-only computed layer */
+/* apps/landing/app/styles/globals.css — add at the end, marketing-only computed layer */
 :root,
 .dark {
   --marketing-line: color-mix(in oklch, var(--foreground) 10%, transparent);
   --marketing-line-soft: color-mix(in oklch, var(--foreground) 6%, transparent);
   --marketing-glow: color-mix(in oklch, var(--primary) 55%, transparent);
-  --marketing-dim: var(--muted-foreground); /* алиас для читаемости в разметке, не новый цвет */
+  --marketing-dim: var(--muted-foreground); /* alias for readability in markup, not a new color */
 }
 ```
 
-Использовать как `border-[var(--marketing-line)]` (Tailwind v4 arbitrary property) вместо
-хардкод-хексов. **НЕ создавать** отдельных `--cc-yellow` (= `var(--primary)` один в один, просто
-использовать `text-primary`/`bg-primary` напрямую).
+Use as `border-[var(--marketing-line)]` (a Tailwind v4 arbitrary property) instead of
+hardcoded hexes. **DO NOT create** separate `--cc-yellow` (= `var(--primary)` one to one, just
+use `text-primary`/`bg-primary` directly).
 
-### 3.3. Domain-tag цвета (новые семантические токены — единственное реальное расширение)
+### 3.3. Domain-tag colors (new semantic tokens — the only real extension)
 
-Экспорт использует 3 фиксированных oklch-hue для доменных тегов, НЕ производные от `--primary`
-(нужны 3 разных hue для визуального различения AI/EdTech/E-Commerce):
+The export uses 3 fixed oklch hues for the domain tags, NOT derived from `--primary`
+(3 different hues are needed to visually distinguish AI/EdTech/E-Commerce):
 
-| Домен      | oklch (экспорт)                          | Предлагаемое имя токена |
-| ---------- | ---------------------------------------- | ----------------------- |
-| AI / ML    | `oklch(84% .12 200)` (голубой)           | `--tag-ai`              |
-| EdTech     | `oklch(82% .13 145)` (зелёный)           | `--tag-edtech`          |
-| E-Commerce | `oklch(80% .12 320)` (розово-фиолетовый) | `--tag-ecommerce`       |
+| Domain     | oklch (export)                     | Proposed token name |
+| ---------- | ---------------------------------- | ------------------- |
+| AI / ML    | `oklch(84% .12 200)` (light blue)  | `--tag-ai`          |
+| EdTech     | `oklch(82% .13 145)` (green)       | `--tag-edtech`      |
+| E-Commerce | `oklch(80% .12 320)` (pink-purple) | `--tag-ecommerce`   |
 
-Добавить в `@theme inline` + `:root`/`.dark` (одинаковые в обоих — экспорт не варьирует их по
-теме, лендинг dark-only). Это **единственное легитимное расширение палитры** — существующие
-токены не покрывают 3-domain differentiation семантику (не связано с ролями/статусами CRM, поэтому
-не конфликтует с существующей RBAC-палитрой `apps/web`). Использовать ТОЛЬКО в `Tag`-компоненте
-(§2.2), нигде больше на лендинге.
+Add to `@theme inline` + `:root`/`.dark` (identical in both — the export does not vary them by
+theme, the landing page is dark-only). This is **the only legitimate extension of the palette** — the existing
+tokens do not cover the 3-domain differentiation semantics (unrelated to CRM roles/statuses, so
+it does not conflict with the existing RBAC palette of `apps/web`). Use ONLY in the `Tag` component
+(§2.2), nowhere else on the landing page.
 
-### 3.4. Terminal-специфичные syntax-цвета
+### 3.4. Terminal-specific syntax colors
 
-`tk-key`/`tk-fn`/`tk-str`/`tk-num`/`tk-type` в экспорте переиспользуют `--tag-ecommerce`
-(фиолетовый, keywords), `--primary` (функции), `--tag-edtech` (зелёный, строки), `--tag-ai`
-(голубой, числа/типы) — **не новые токены**, маппятся на §3.3. `tk-com`/`tk-var`/`tk-punc` —
+`tk-key`/`tk-fn`/`tk-str`/`tk-num`/`tk-type` in the export reuse `--tag-ecommerce`
+(purple, keywords), `--primary` (functions), `--tag-edtech` (green, strings), `--tag-ai`
+(light blue, numbers/types) — **not new tokens**, mapped onto §3.3. `tk-com`/`tk-var`/`tk-punc` —
 `color-mix(in oklch, var(--foreground) {34,92,55}%, transparent)`.
 
 ---
 
-## 4. Type-scale
+## 4. Type scale
 
-| Класс экспорта | Tailwind-эквивалент (arbitrary, т.к. `clamp()`)                                                                                                                                                                                                                                                | Где                                                                             |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `.cc-display`  | `text-[clamp(2.35rem,8vw,5rem)] leading-[1.02] tracking-[-0.03em] font-semibold text-balance`                                                                                                                                                                                                  | H1 hero, H1 careers-header, H1 vacancy-title (свой clamp — см. §6, чуть меньше) |
-| `.cc-h2`       | `text-[clamp(1.9rem,4.5vw,3rem)] leading-[1.05] tracking-[-0.025em] font-semibold text-balance`                                                                                                                                                                                                | Секционные H2                                                                   |
-| `.cc-h3`       | `text-[clamp(1.25rem,2.4vw,1.6rem)] leading-[1.15] tracking-[-0.015em] font-semibold`                                                                                                                                                                                                          | Карточные заголовки                                                             |
-| `.cc-lead`     | `text-[clamp(1.05rem,1.6vw,1.3rem)] leading-[1.55] text-muted-foreground max-w-[40ch] text-pretty`                                                                                                                                                                                             | Подзаголовки секций                                                             |
-| `.cc-body`     | `text-muted-foreground leading-[1.65] text-pretty`                                                                                                                                                                                                                                             | Параграфы                                                                       |
-| `.cc-eyebrow`  | `text-[0.78rem] tracking-[0.16em] uppercase font-medium text-primary` + `::before` тире-линия (реализовать через `<span>` псевдо-элемент невозможен в Tailwind напрямую — либо реальный `<span>` 20×1px перед текстом, либо `before:content-[''] before:w-5 before:h-px before:bg-primary/70`) | `SectionEyebrow`                                                                |
+| Export class  | Tailwind equivalent (arbitrary, because of `clamp()`)                                                                                                                                                                                                                                                  | Where                                                                                   |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| `.cc-display` | `text-[clamp(2.35rem,8vw,5rem)] leading-[1.02] tracking-[-0.03em] font-semibold text-balance`                                                                                                                                                                                                          | H1 hero, H1 careers-header, H1 vacancy-title (its own clamp — see §6, slightly smaller) |
+| `.cc-h2`      | `text-[clamp(1.9rem,4.5vw,3rem)] leading-[1.05] tracking-[-0.025em] font-semibold text-balance`                                                                                                                                                                                                        | Section H2s                                                                             |
+| `.cc-h3`      | `text-[clamp(1.25rem,2.4vw,1.6rem)] leading-[1.15] tracking-[-0.015em] font-semibold`                                                                                                                                                                                                                  | Card headings                                                                           |
+| `.cc-lead`    | `text-[clamp(1.05rem,1.6vw,1.3rem)] leading-[1.55] text-muted-foreground max-w-[40ch] text-pretty`                                                                                                                                                                                                     | Section subheadings                                                                     |
+| `.cc-body`    | `text-muted-foreground leading-[1.65] text-pretty`                                                                                                                                                                                                                                                     | Paragraphs                                                                              |
+| `.cc-eyebrow` | `text-[0.78rem] tracking-[0.16em] uppercase font-medium text-primary` + a `::before` dash line (implementing via a `<span>` pseudo-element is not possible in Tailwind directly — either a real `<span>` 20×1px before the text, or `before:content-[''] before:w-5 before:h-px before:bg-primary/70`) | `SectionEyebrow`                                                                        |
 
-Шрифты: Inter (текст) + JetBrains Mono (`cc-mono` — терминал, лейблы, eyebrow-теги, шаги
-процесса) — **JetBrains Mono НЕ подключён** в текущем `apps/landing` (только Inter через
-`--font-sans`). Добавить `--font-mono: 'JetBrains Mono', ui-monospace, monospace;` в
-`@theme inline` + Google Fonts `<link>` (или self-host, на усмотрение DevOps/Coder) в `__root.tsx`.
+Fonts: Inter (text) + JetBrains Mono (`cc-mono` — terminal, labels, eyebrow tags, process
+steps) — **JetBrains Mono is NOT connected** in the current `apps/landing` (only Inter via
+`--font-sans`). Add `--font-mono: 'JetBrains Mono', ui-monospace, monospace;` to
+`@theme inline` + a Google Fonts `<link>` (or self-host, at the discretion of DevOps/Coder) in `__root.tsx`.
 
 ---
 
-## 5. Motion-spec (Framer Motion)
+## 5. Motion spec (Framer Motion)
 
-Уже в deps (`framer-motion ^12.0.0`). Принцип продуктовой спеки: «премиум-сдержанные», НЕ
-WebGL/3D, `prefers-reduced-motion` уважается.
+Already in deps (`framer-motion ^12.0.0`). The product spec principle: "premium restrained", NOT
+WebGL/3D, `prefers-reduced-motion` respected.
 
-> **v2 (2026-07-24):** §5.1's `Reveal` (one-shot `whileInView`) **апгрейднут** в §M.1 до
-> progress-linked scroll-reveal (не one-shot). Terminal-typewriter тайминги, prerender-safety
-> механика и double-guard reduced-motion ниже — **остаются канон**, §M на них ссылается, не
-> переопределяет. Hover-язык (ранее только кнопки/чипы) — полностью покрыт в §M.2. Page-transitions
-> и in-page smooth-scroll — новые темы, §M.3/§M.4.
+> **v2 (2026-07-24):** §5.1's `Reveal` (one-shot `whileInView`) is **upgraded** in §M.1 to a
+> progress-linked scroll-reveal (not one-shot). The Terminal-typewriter timings, the prerender-safety
+> mechanics and the reduced-motion double-guard below — **remain canon**, §M refers to them, does not
+> redefine them. The hover language (previously only buttons/chips) — fully covered in §M.2. Page transitions
+> and in-page smooth-scroll — new topics, §M.3/§M.4.
 
-### 5.1. Паттерны
+### 5.1. Patterns
 
 - **Scroll-reveal:** `whileInView={{ opacity: 1, y: 0 }}` `initial={{ opacity: 0, y: 22 }}`
   `viewport={{ once: true, margin: '-8%' }}` `transition={{ duration: 0.7, ease: [0.2,0.6,0.2,1] }}`
-  — на секционных блоках (не на каждом дочернем элементе по отдельности, экспорт местами
-  переусердствует с `cc-reveal` на каждой карточке; ограничиться уровнем секции +
-  card-грид как единая группа с `staggerChildren` при желании polish).
-  **Above-the-fold контент (hero copy + terminal) НЕ должен зависеть от scroll-reveal** —
-  виден сразу (экспорт это учитывает через хардкод `is-in` на hero, сохранить принцип: `initial`
-  hero = уже видимое состояние, никакого fade-in-on-scroll для первого экрана).
-- **Terminal typewriter:** посимвольный reveal через `setTimeout`-цепочку (портировать тайминги
-  1:1 из `Terminal.dc.html`: буква ~16-46ms, пробел 22ms, перевод строки 90-170ms, pause между
-  сниппетами 2400ms). НЕ requestAnimationFrame-heavy — таймер достаточно лёгкий.
-- **Кнопки:** `active:translate-y-px` (микро-press), hover на primary — `box-shadow` glow
-  (`hover:shadow-[0_8px_30px_-8px_var(--marketing-glow)]`) + чуть светлее фон
-  (`hover:bg-[color-mix(in_oklch,var(--primary)_92%,white)]`), стрелка-иконка внутри кнопки
-  сдвигается на `hover:translate-x-[3px]` (`transition-transform`).
-- **Nav scroll-state:** бордер снизу хедера плавно проявляется при `scrollY > 8`
+  — on section blocks (not on every child element separately, the export in places
+  overdoes `cc-reveal` on every card; limit to the section level +
+  the card grid as a single group with `staggerChildren` if polish is desired).
+  **Above-the-fold content (hero copy + terminal) MUST NOT depend on scroll-reveal** —
+  visible immediately (the export accounts for this via a hardcoded `is-in` on the hero, keep the principle: the hero's `initial`
+  = an already visible state, no fade-in-on-scroll for the first screen).
+- **Terminal typewriter:** a per-character reveal via a `setTimeout` chain (port the timings
+  1:1 from `Terminal.dc.html`: a letter ~16-46ms, a space 22ms, a line break 90-170ms, a pause between
+  snippets 2400ms). NOT requestAnimationFrame-heavy — a timer is light enough.
+- **Buttons:** `active:translate-y-px` (a micro-press), hover on primary — a `box-shadow` glow
+  (`hover:shadow-[0_8px_30px_-8px_var(--marketing-glow)]`) + a slightly lighter background
+  (`hover:bg-[color-mix(in_oklch,var(--primary)_92%,white)]`), the arrow icon inside the button
+  shifts by `hover:translate-x-[3px]` (`transition-transform`).
+- **Nav scroll-state:** the header's bottom border smoothly appears at `scrollY > 8`
   (`transition-colors duration-300`).
-- **Mobile menu:** `AnimatePresence` + `max-height`/`opacity` (не `height:auto` — ломает
+- **Mobile menu:** `AnimatePresence` + `max-height`/`opacity` (not `height:auto` — it breaks the
   transition), `duration: 0.35` ease `cubic-bezier(.2,.6,.2,1)`.
-- **CV dropzone drag-over:** `border-color` + `background` transition `0.2s ease` (не Framer,
-  чистый CSS-transition ок для такой мелочи).
-- **`prefers-reduced-motion: reduce`:** глобально — использовать `useReducedMotion()` из
-  framer-motion в каждом месте, где есть `whileInView`/`animate` цикл, и:
-  - scroll-reveal → рендерить сразу в конечном состоянии (`initial=false` эквивалент), БЕЗ
-    полагания на IntersectionObserver-only логику из экспорта (экспорт при reduced-motion
-    буквально **не устанавливает `is-in`** в JS и полагается ИСКЛЮЧИТЕЛЬНО на CSS
-    `@media (prefers-reduced-motion) { .cc-reveal { opacity:1 !important } }` — воспроизвести
-    именно так: React-компонент тоже должен не зависеть от JS-флага, а visibility должна
-    гарантироваться CSS-уровнем/условным рендером, чтобы «двойной guard» не оставлял контент
-    невидимым при частичной поддержке);
-  - terminal typewriter → показать финальный сниппет сразу, без анимации набора, курсор без
-    blink-анимации;
-  - magnetic/hover micro-interactions → просто убрать transition (не критично для reduced-motion,
-    но `transform`-heavy hover можно смягчить).
+- **CV dropzone drag-over:** `border-color` + `background` transition `0.2s ease` (not Framer,
+  a pure CSS transition is fine for such a small thing).
+- **`prefers-reduced-motion: reduce`:** globally — use `useReducedMotion()` from
+  framer-motion in every place that has a `whileInView`/`animate` loop, and:
+  - scroll-reveal → render immediately in the final state (the equivalent of `initial=false`), WITHOUT
+    relying on the IntersectionObserver-only logic from the export (with reduced-motion the export
+    literally **does not set `is-in`** in JS and relies EXCLUSIVELY on CSS
+    `@media (prefers-reduced-motion) { .cc-reveal { opacity:1 !important } }` — reproduce
+    exactly that way: the React component must also not depend on a JS flag, and visibility must be
+    guaranteed at the CSS level/by conditional rendering, so that the "double guard" does not leave content
+    invisible under partial support);
+  - terminal typewriter → show the final snippet immediately, without the typing animation, the cursor without
+    a blink animation;
+  - magnetic/hover micro-interactions → just remove the transition (not critical for reduced-motion,
+    but a `transform`-heavy hover can be softened).
 
 ---
 
-## 6. Responsive-поведение (320 / 768 / 1024 / 1440 — hard-гейт)
+## 6. Responsive behavior (320 / 768 / 1024 / 1440 — hard gate)
 
-Экспорт использует **свои breakpoints** (640/768/900/1000/1024), частично НЕ совпадающие с
-Tailwind default (`sm=640 md=768 lg=1024 xl=1280`). Для fidelity — воспроизводить точные пороги
-через arbitrary variants (`min-[900px]:`, `min-[1000px]:`) там, где явно указано ниже; иначе —
-стандартные Tailwind breakpoints.
+The export uses **its own breakpoints** (640/768/900/1000/1024), partly NOT matching the
+Tailwind default (`sm=640 md=768 lg=1024 xl=1280`). For fidelity — reproduce the exact thresholds
+via arbitrary variants (`min-[900px]:`, `min-[1000px]:`) where explicitly stated below; otherwise —
+the standard Tailwind breakpoints.
 
 ### 6.1. Nav
 
-- **<900px:** только логотип + бургер (44×44px, `aria-expanded`). Клик → `MobileNavMenu`
-  раскрывается под хедером на всю ширину, вертикальный список ссылок (`padding: 13px 4px`,
-  `font-size: 1.05rem` — крупнее десктопных ссылок, под тач) + full-width CTA-кнопка снизу.
-- **≥900px:** горизонтальное меню (Services/Work/Careers/Contact) + CTA-кнопка справа, бургер
-  скрыт.
+- **<900px:** only the logo + a burger (44×44px, `aria-expanded`). A click → `MobileNavMenu`
+  expands under the header at full width, a vertical list of links (`padding: 13px 4px`,
+  `font-size: 1.05rem` — larger than the desktop links, for touch) + a full-width CTA button at the bottom.
+- **≥900px:** a horizontal menu (Services/Work/Careers/Contact) + a CTA button on the right, the burger
+  is hidden.
 
 ### 6.2. Hero (`/`)
 
-- **320-1023px:** одна колонка — copy сверху, `Terminal` под ней (`grid-template-columns: 1fr`).
-  Terminal — full-width карточка, `min-height` тела 340px.
-- **≥1024px:** 2 колонки (`1.02fr 1fr`, gap 56px) — copy слева, terminal справа. Terminal
-  `min-height` тела растёт до 400px, font-size 13.5px (от 12.5px на мобиле).
-- CTA-ряд (`Start a project` + `See open roles`): `flex-col` <460px → `flex-row wrap` ≥460px.
+- **320-1023px:** one column — copy at the top, `Terminal` below it (`grid-template-columns: 1fr`).
+  The Terminal — a full-width card, body `min-height` 340px.
+- **≥1024px:** 2 columns (`1.02fr 1fr`, gap 56px) — copy on the left, terminal on the right. The Terminal
+  body `min-height` grows to 400px, font-size 13.5px (from 12.5px on mobile).
+- The CTA row (`Start a project` + `See open roles`): `flex-col` <460px → `flex-row wrap` ≥460px.
 
 ### 6.3. About / stats
 
-- Двухколоночная секция (`cc-two`): 1 колонка <900px → `0.85fr 1.15fr` ≥900px.
-- Bullet-грид (4 пункта): `grid-cols-1` уже в макете `repeat(2,1fr)` фиксированно (не меняется по
-  брейкпоинтам — 2 колонки всегда, даже на 320px; на очень узких экранах допустимо не ужиматься
-  дальше, текст короткий).
+- A two-column section (`cc-two`): 1 column <900px → `0.85fr 1.15fr` ≥900px.
+- The bullet grid (4 items): `grid-cols-1` — already in the mockup `repeat(2,1fr)` fixed (does not change by
+  breakpoints — always 2 columns, even at 320px; on very narrow screens it is acceptable not to shrink
+  further, the text is short).
 - Stat-strip: `grid-cols-2` <768px → `grid-cols-4` ≥768px.
 
-### 6.4. Selected work / Services / How we work (карточные грид-секции)
+### 6.4. Selected work / Services / How we work (card grid sections)
 
-- Case studies (`cc-case` внутри карточки): 1 колонка <860px (текст сверху, 3 метрики снизу в
-  своём `grid-cols-3` — метрики НЕ схлопываются в 1 колонку, всегда 3-в-ряд, даже на 320px, т.к.
-  значения короткие типа «80ms»/«-64%»/«5×») → `1.25fr 1fr` ≥860px.
+- Case studies (`cc-case` inside a card): 1 column <860px (text at the top, 3 metrics below in
+  their own `grid-cols-3` — the metrics do NOT collapse into 1 column, always 3 in a row, even at 320px, since
+  the values are short like «80ms»/«-64%»/«5×») → `1.25fr 1fr` ≥860px.
 - Services: `grid-cols-1` <768px → `grid-cols-3` ≥768px.
 - Process steps: `grid-cols-1` <768px → `grid-cols-4` ≥768px.
 
 ### 6.5. Careers list (`/careers`)
 
-- `grid-cols-1` <640px → `grid-cols-2` ≥640px (НЕ 3 колонки ни на каком breakpoint в экспорте —
-  карточки достаточно крупные, зафиксировано 1-2 колонки).
+- `grid-cols-1` <640px → `grid-cols-2` ≥640px (NOT 3 columns at any breakpoint in the export —
+  the cards are large enough, fixed at 1-2 columns).
 
 ### 6.6. Vacancy detail (`/careers/:slug`)
 
-- **<1000px:** описание и форма — одна колонка, форма идёт ПОСЛЕ описания (не sticky).
-- **≥1000px:** `1.35fr 1fr` (описание слева, форма справа), форма **sticky** (`top: 90px`) —
-  на очень длинном описании форма остаётся видимой при скролле.
-- Form-row (2 инпута в ряд — name+email, telegram+linkedin): `grid-cols-1` <560px →
+- **<1000px:** the description and the form — one column, the form goes AFTER the description (not sticky).
+- **≥1000px:** `1.35fr 1fr` (description on the left, form on the right), the form is **sticky** (`top: 90px`) —
+  with a very long description the form stays visible while scrolling.
+- Form-row (2 inputs in a row — name+email, telegram+linkedin): `grid-cols-1` <560px →
   `grid-cols-2` ≥560px.
-- Meta-теги под заголовком (`Senior`/`Full-time`/`Remote · EU`/`4+ hrs overlap`) — `flex-wrap`,
-  не грид — естественно оборачиваются на узких экранах.
+- The meta tags under the title (`Senior`/`Full-time`/`Remote · EU`/`4+ hrs overlap`) — `flex-wrap`,
+  not a grid — they naturally wrap on narrow screens.
 
-### 6.7. Touch targets (мобайл, ≥44px — усиление 24px WCAG-минимума)
+### 6.7. Touch targets (mobile, ≥44px — strengthening the 24px WCAG minimum)
 
-Все interactive-элементы экспорта уже ≥44px min-height (`cc-btn` 46/52px, `cc-input` 46px,
-бургер 44×44px, круглая VacancyCard-стрелка 38×38px — **это НИЖЕ 44px**, поправить до 40-44px в
-реализации или явно принять как decorative-only элемент внутри кликабельной card целиком
-(вся `VacancyCard` — единая `<a>`, стрелка — визуальный акцент, не отдельная цель — приемлемо,
-но зафиксировать это явное решение, не случайность).
-
----
-
-## 7. Fidelity-референсы (для Mode B)
-
-Отрендерены локально из `.dc.html` (Playwright, статичный HTTP-сервер на `_ds/`-бандле,
-`prefers-reduced-motion`-эквивалент форсирован через inline `<style>` override перед скриншотом
-— иначе scroll-reveal секции остаются `opacity:0` на статичном full-page снапшоте):
-
-| Файл                                        | Страница                          | Ширина |
-| ------------------------------------------- | --------------------------------- | ------ |
-| `assets/landing-redesign/design.png`        | Home (`/`)                        | 1440   |
-| `assets/landing-redesign/design-mobile.png` | Home (`/`)                        | 320    |
-| `assets/landing-redesign/careers-1440.png`  | Careers (`/careers`)              | 1440   |
-| `assets/landing-redesign/careers-320.png`   | Careers (`/careers`)              | 320    |
-| `assets/landing-redesign/vacancy-1440.png`  | Vacancy detail (`/careers/:slug`) | 1440   |
-| `assets/landing-redesign/vacancy-320.png`   | Vacancy detail (`/careers/:slug`) | 320    |
-
-`screenshots/` (в `assets/landing-redesign/`) — кадры из самой Claude Design сессии генерации;
-`careers-cards.png` там **устарел** (показывает фильтры All roles/AI-ML/EdTech/E-Commerce —
-это ДО правки владельца от 2026-07-23, убравшей фильтры; актуальный референс —
-`careers-1440.png`/`careers-320.png` выше, сгенерированные из финального `Careers.dc.html`,
-который фильтров уже не содержит). `02-home-full.png` — пустой (сбой захвата в оборвавшейся
-сессии) — игнорировать, использовать `design.png`.
+All interactive elements of the export are already ≥44px min-height (`cc-btn` 46/52px, `cc-input` 46px,
+the burger 44×44px, the round VacancyCard arrow 38×38px — **this is BELOW 44px**, fix to 40-44px in the
+implementation or explicitly accept it as a decorative-only element inside the whole clickable card
+(the whole `VacancyCard` is a single `<a>`, the arrow is a visual accent, not a separate target — acceptable,
+but record this explicit decision, not an accident).
 
 ---
 
-## 8. Edge-cases
+## 7. Fidelity references (for Mode B)
 
-| Кейс                                                         | Поведение                                                                                                                                                                                                                                                      |
-| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Careers-тизер (Home), 0 PUBLISHED вакансий**               | Секция НЕ скрывается (продукт-решение). Показывает CTA-карточку: иконка (папка), «No open roles right now», текст «We hire in waves…», кнопка `mailto:hr@cheekycheese.tech`. Референс — `sc-if noRoles` блок в `Home.dc.html` (строки с `hasOpenRoles` tweak). |
-| **`/careers`, 0 PUBLISHED вакансий**                         | Полноразмерный empty-state (крупнее тизерного): иконка, «No open roles right now», текст, mailto-кнопка. Референс — `sc-if isEmpty` в `Careers.dc.html`.                                                                                                       |
-| **`/careers/:slug`, несуществующий/DRAFT/CLOSED slug**       | 404 от API (без раскрытия причины) → клиент показывает «Role not found» + ссылка «Back to careers» (НЕ raw browser 404, НЕ leak статуса вакансии).                                                                                                             |
-| **Форма отклика — default**                                  | Пустая форма, все поля видны, submit активен.                                                                                                                                                                                                                  |
-| **Форма — submitting**                                       | Кнопка disabled (`aria-disabled`) + spinner + «Sending…», поля НЕ disabled (пользователь не должен терять введённое при случайном re-focus), honeypot/Turnstile невидимы всегда.                                                                               |
-| **Форма — success**                                          | Форма заменяется на success-панель (иконка check, «Application received», персонализация именем если введено — `Thanks, {firstName}`, кнопка «Browse more roles» → `/careers`). `role="status"`.                                                               |
-| **Форма — error (сеть/сервер)**                              | Форма остаётся с введёнными данными (НЕ очищать!), баннер `role="alert"` сверху формы «Something went wrong… try again».                                                                                                                                       |
-| **Форма — 429 (дубль-защита, тот же email+вакансия за 24ч)** | Отдельное сообщение в error-баннере (не generic «something went wrong») — «You've already applied to this role recently.» — уточнить у Coder/PM текст при реализации.                                                                                          |
-| **CV — неверный формат/размер**                              | Инлайн-ошибка под dropzone (`{{ fileError }}` паттерн), submit НЕ блокируется до попытки сабмита (ошибка на blur/change поля), но при submit с невалидным файлом — блокирует и фокусирует dropzone.                                                            |
-| **Длинный заголовок вакансии**                               | `cc-display` уже `max-width: 18ch` — переносится на 2-3 строки, `clamp()` уменьшает размер на узких экранах, не обрезать/эллипсис.                                                                                                                             |
-| **Длинное markdown-описание**                                | Обычный вертикальный скролл страницы; на ≥1000px форма sticky остаётся в вьюпорте (§6.6).                                                                                                                                                                      |
-| **Много (10+) вакансий на `/careers`**                       | Простой grid без пагинации в v1 (YAGNI, продукт не оговаривал пагинацию — если станет проблемой, отдельная задача).                                                                                                                                            |
-| **Overflow длинных технологий/названий в TechStackChips**    | `flex-wrap`, chip не сжимается — переносится на следующую строку.                                                                                                                                                                                              |
+Rendered locally from `.dc.html` (Playwright, a static HTTP server on the `_ds/` bundle,
+the `prefers-reduced-motion` equivalent forced via an inline `<style>` override before the screenshot
+— otherwise the scroll-reveal sections stay `opacity:0` on a static full-page snapshot):
+
+| File                                        | Page                              | Width |
+| ------------------------------------------- | --------------------------------- | ----- |
+| `assets/landing-redesign/design.png`        | Home (`/`)                        | 1440  |
+| `assets/landing-redesign/design-mobile.png` | Home (`/`)                        | 320   |
+| `assets/landing-redesign/careers-1440.png`  | Careers (`/careers`)              | 1440  |
+| `assets/landing-redesign/careers-320.png`   | Careers (`/careers`)              | 320   |
+| `assets/landing-redesign/vacancy-1440.png`  | Vacancy detail (`/careers/:slug`) | 1440  |
+| `assets/landing-redesign/vacancy-320.png`   | Vacancy detail (`/careers/:slug`) | 320   |
+
+`screenshots/` (in `assets/landing-redesign/`) — frames from the Claude Design generation session itself;
+`careers-cards.png` there is **outdated** (shows the filters All roles/AI-ML/EdTech/E-Commerce —
+this is BEFORE the owner's edit of 2026-07-23 that removed the filters; the current reference is
+`careers-1440.png`/`careers-320.png` above, generated from the final `Careers.dc.html`,
+which no longer contains filters). `02-home-full.png` — empty (a capture failure in the interrupted
+session) — ignore, use `design.png`.
+
+---
+
+## 8. Edge cases
+
+| Case                                                                 | Behavior                                                                                                                                                                                                                                                                            |
+| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Careers teaser (Home), 0 PUBLISHED vacancies**                     | The section is NOT hidden (a product decision). Shows a CTA card: an icon (folder), «No open roles right now», the text «We hire in waves…», a `mailto:hr@cheekycheese.tech` button. Reference — the `sc-if noRoles` block in `Home.dc.html` (lines with the `hasOpenRoles` tweak). |
+| **`/careers`, 0 PUBLISHED vacancies**                                | A full-size empty state (larger than the teaser one): an icon, «No open roles right now», text, a mailto button. Reference — `sc-if isEmpty` in `Careers.dc.html`.                                                                                                                  |
+| **`/careers/:slug`, nonexistent/DRAFT/CLOSED slug**                  | A 404 from the API (without disclosing the reason) → the client shows «Role not found» + a «Back to careers» link (NOT a raw browser 404, NOT a leak of the vacancy status).                                                                                                        |
+| **Application form — default**                                       | An empty form, all fields visible, submit active.                                                                                                                                                                                                                                   |
+| **Form — submitting**                                                | The button is disabled (`aria-disabled`) + a spinner + «Sending…», the fields are NOT disabled (the user must not lose what they entered on an accidental re-focus), honeypot/Turnstile are always invisible.                                                                       |
+| **Form — success**                                                   | The form is replaced with a success panel (a check icon, «Application received», personalization by name if entered — `Thanks, {firstName}`, a «Browse more roles» button → `/careers`). `role="status"`.                                                                           |
+| **Form — error (network/server)**                                    | The form stays with the entered data (do NOT clear!), a `role="alert"` banner above the form «Something went wrong… try again».                                                                                                                                                     |
+| **Form — 429 (duplicate protection, same email+vacancy within 24h)** | A separate message in the error banner (not the generic «something went wrong») — «You've already applied to this role recently.» — clarify the text with Coder/PM during implementation.                                                                                           |
+| **CV — wrong format/size**                                           | An inline error under the dropzone (the `{{ fileError }}` pattern), submit is NOT blocked until a submit attempt (the error on blur/change of the field), but on submit with an invalid file — it blocks and focuses the dropzone.                                                  |
+| **Long vacancy title**                                               | `cc-display` already has `max-width: 18ch` — wraps onto 2-3 lines, `clamp()` reduces the size on narrow screens, do not truncate/ellipsis.                                                                                                                                          |
+| **Long markdown description**                                        | Ordinary vertical page scroll; at ≥1000px the sticky form stays in the viewport (§6.6).                                                                                                                                                                                             |
+| **Many (10+) vacancies on `/careers`**                               | A simple grid without pagination in v1 (YAGNI, the product did not stipulate pagination — if it becomes a problem, a separate task).                                                                                                                                                |
+| **Overflow of long technologies/names in TechStackChips**            | `flex-wrap`, the chip does not shrink — wraps to the next line.                                                                                                                                                                                                                     |
 
 ---
 
 ## 9. A11y (WCAG 2.2 AA)
 
-- **Focus-visible:** единый паттерн на ВСЕХ интерактивных элементах (ссылки/кнопки/инпуты/
-  чекбоксы burger) — `focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-[3px] focus-visible:rounded-md`
-  (= `.cc-focus-ring` из экспорта). НЕ полагаться на browser-default outline.
-- **Target size:** см. §6.7 — минимум 44×44px на мобильных тач-целях; круглая VacancyCard-стрелка
-  38px — decorative-only внутри крупной кликабельной карточки, зафиксировать как осознанное
-  исключение (не случайный недосмотр).
-- **Contrast:** primary-жёлтый на почти-чёрном фоне и domain-tag цвета (§3.3, oklch 80-84%
-  lightness) на 12%-alpha подложке — визуально проходят 4.5:1 (текст)/3:1 (UI), но
-  **проверить axe/Playwright contrast-check в Mode B** перед PASS-вердиктом (не полагаться
-  только на визуальный осмотр).
-- **Форма:**
-  - каждый `<input>`/`<textarea>` — связанный `<label for>` (перенесено из экспорта — уже так).
-  - error-состояние поля → `aria-invalid="true"` + `aria-describedby` на id error-хинта
-    (**экспорт этого не делает** — DC-прототип упрощён, добавить в реальной реализации,
-    обязательно).
-  - required-поля — нативный `required` атрибут (AT читает без доп. работы) + визуальная `*`
-    (`aria-hidden` на сам символ `*`, т.к. `required` уже озвучивается атрибутом).
-  - error-баннер — `role="alert"` (перенести 1:1).
-  - success-панель — `role="status"` (перенести 1:1).
-  - CV-инпут — visually-hidden native `<input type=file>` + `<label>`-обёртка (паттерн
-    экспорта, keyboard-accessible, перенести 1:1 — см. §2.4 `CvDropzone`).
-- **Honeypot-поле:** `aria-hidden="true"` + `tabIndex={-1}` + `autoComplete="off"` + visually
-  off-screen (НЕ `display:none`/`visibility:hidden` — некоторые screen-readers/ботов-детекторы
-  ведут себя по-разному, но `display:none` безопасен для honeypot конкретно — human-AT не должен
-  доходить до поля вообще, допустимо `display:none` здесь в отличие от обычных hidden-паттернов).
-- **Terminal:** `role="img"` + описательный `aria-label` (не читать посимвольную анимацию) —
-  перенести 1:1 из `Terminal.dc.html`.
-- **Mobile nav disclosure:** `aria-expanded` на бургере (уже есть), `Escape` закрывает + focus
-  return на бургер (добавить — нет в экспорте).
-- **`prefers-reduced-motion`:** см. §5.1 — двойной guard (JS + CSS) чтобы контент не завис
-  invisible при частичной поддержке.
-- **Semantic HTML:** `<nav aria-label="Primary">` (уже в экспорте), `<main>` вокруг основного
-  контента страниц careers/vacancy (в экспорте есть `<main>`, перенести), `<footer>`,
-  `<article>` для markdown-описания вакансии.
+- **Focus-visible:** a single pattern on ALL interactive elements (links/buttons/inputs/
+  burger checkboxes) — `focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-[3px] focus-visible:rounded-md`
+  (= `.cc-focus-ring` from the export). Do NOT rely on the browser-default outline.
+- **Target size:** see §6.7 — a minimum of 44×44px on mobile touch targets; the round VacancyCard arrow
+  38px — decorative-only inside a large clickable card, record as a conscious
+  exception (not an accidental oversight).
+- **Contrast:** the primary yellow on the near-black background and the domain-tag colors (§3.3, oklch 80-84%
+  lightness) on a 12%-alpha backing — visually pass 4.5:1 (text)/3:1 (UI), but
+  **verify with an axe/Playwright contrast check in Mode B** before a PASS verdict (do not rely
+  on visual inspection alone).
+- **Form:**
+  - every `<input>`/`<textarea>` — an associated `<label for>` (carried over from the export — already so).
+  - a field error state → `aria-invalid="true"` + `aria-describedby` on the error-hint id
+    (**the export does not do this** — the DC prototype is simplified, add in the real implementation,
+    mandatory).
+  - required fields — the native `required` attribute (AT reads it with no extra work) + a visual `*`
+    (`aria-hidden` on the `*` symbol itself, since `required` is already announced by the attribute).
+  - the error banner — `role="alert"` (carry over 1:1).
+  - the success panel — `role="status"` (carry over 1:1).
+  - the CV input — a visually-hidden native `<input type=file>` + a `<label>` wrapper (the export's
+    pattern, keyboard-accessible, carry over 1:1 — see §2.4 `CvDropzone`).
+- **Honeypot field:** `aria-hidden="true"` + `tabIndex={-1}` + `autoComplete="off"` + visually
+  off-screen (NOT `display:none`/`visibility:hidden` — some screen readers/bot detectors
+  behave differently, but `display:none` is safe for a honeypot specifically — human AT must not
+  reach the field at all, `display:none` is acceptable here unlike ordinary hidden patterns).
+- **Terminal:** `role="img"` + a descriptive `aria-label` (do not read the per-character animation) —
+  carry over 1:1 from `Terminal.dc.html`.
+- **Mobile nav disclosure:** `aria-expanded` on the burger (already there), `Escape` closes + focus
+  return to the burger (add — not in the export).
+- **`prefers-reduced-motion`:** see §5.1 — a double guard (JS + CSS) so that content does not hang
+  invisible under partial support.
+- **Semantic HTML:** `<nav aria-label="Primary">` (already in the export), `<main>` around the main
+  content of the careers/vacancy pages (the export has `<main>`, carry over), `<footer>`,
+  `<article>` for the vacancy markdown description.
 
 ---
 
-## 10. Известные отклонения / проверки экспорта
+## 10. Known deviations / export checks
 
-- **Email-консистентность — ПРОВЕРЕНО, ЧИСТО.** Построчный ревью всех 7 `.dc.html`
-  (`Home`/`Careers`/`Vacancy`/`Nav`/`Footer`/`Terminal`/`VacancyCard`) — единственный email
-  везде **`hr@cheekycheese.tech`**. Никаких `careers@`/`contact@`/иных адресов не осталось
-  (опасение из брифа про оборвавшуюся chat-сессию — не подтвердилось, экспорт финализирован
-  корректно).
-- **Текущий `apps/landing/app/routes/index.tsx`** (до этой задачи) использует
-  `contact@cheekycheeseit.com` и `careers@cheekycheeseit.com` — **устаревшие адреса, ДОМЕН
-  ДАЖЕ ДРУГОЙ** (`cheekycheeseit.com` vs `cheekycheese.tech`). Обязательно заменить на
-  `hr@cheekycheese.tech` везде при реализации (это не «дополнительная» правка — часть скоупа
-  задачи, продуктовая спека §2.1 явно требует единый адрес).
-- **`careers-cards.png` в `screenshots/`** — устаревший кадр с фильтрами (до владельческой
-  правки). См. §7 — использовать актуальные `careers-1440.png`/`careers-320.png` вместо него.
-- **`02-home-full.png` в `screenshots/`** — пустой файл (сбой рендера в оборвавшейся сессии),
-  игнорировать.
-- **Scroll-reveal имеет above-the-fold исключение** (hero — `is-in` захардкожен, не ждёт
-  scroll) — это НЕ баг, а намеренный паттерн, сохранить при портировании на Framer Motion
+- **Email consistency — CHECKED, CLEAN.** A line-by-line review of all 7 `.dc.html`
+  (`Home`/`Careers`/`Vacancy`/`Nav`/`Footer`/`Terminal`/`VacancyCard`) — the only email
+  everywhere is **`hr@cheekycheese.tech`**. No `careers@`/`contact@`/other addresses remain
+  (the concern from the brief about the interrupted chat session was not confirmed, the export was finalized
+  correctly).
+- **The current `apps/landing/app/routes/index.tsx`** (before this task) uses
+  `contact@cheekycheeseit.com` and `careers@cheekycheeseit.com` — **outdated addresses, EVEN THE
+  DOMAIN IS DIFFERENT** (`cheekycheeseit.com` vs `cheekycheese.tech`). Must be replaced with
+  `hr@cheekycheese.tech` everywhere during implementation (this is not an "extra" edit — part of the task's scope,
+  product spec §2.1 explicitly requires a single address).
+- **`careers-cards.png` in `screenshots/`** — an outdated frame with filters (before the owner's
+  edit). See §7 — use the current `careers-1440.png`/`careers-320.png` instead of it.
+- **`02-home-full.png` in `screenshots/`** — an empty file (a render failure in the interrupted session),
+  ignore.
+- **Scroll-reveal has an above-the-fold exception** (hero — `is-in` is hardcoded, does not wait for
+  scroll) — this is NOT a bug, but a deliberate pattern, keep it when porting to Framer Motion
   (§5.1).
-- **Vacancy meta-тег «4+ hrs overlap CET»** — специфика конкретной демо-вакансии (EU timezone),
-  реальные вакансии могут иметь другой overlap/локацию — поле должно быть данными из БД
-  (`vacancies.location` + дополнительное поле overlap, если продукт захочет — сейчас в схеме
-  БД (`docs/superpowers/specs/2026-07-22-landing-refactor-design.md` §3.1) такого поля НЕТ,
-  только `location` text — «4+ hrs overlap CET» тогда часть свободного текста `location` ИЛИ
-  теряется. **Флаг для PM/владельца**: либо расширить `location` на реальных данных вручную
-  (например «Remote · EU, 4+ hrs overlap CET» одной строкой), либо убрать этот 4-й meta-тег
-  из вёрстки как demo-only деталь. Рекомендация дизайнера: оставить как часть `location`-строки
-  (не заводить новую колонку — YAGNI, продукт явно отверг зарплатные/доп.поля).
+- **The vacancy meta tag «4+ hrs overlap CET»** — specific to the particular demo vacancy (EU timezone),
+  real vacancies may have a different overlap/location — the field must be data from the DB
+  (`vacancies.location` + an extra overlap field, if the product wants it — currently the DB
+  schema (`docs/superpowers/specs/2026-07-22-landing-refactor-design.md` §3.1) has NO such field,
+  only the `location` text — «4+ hrs overlap CET» is then either part of the free text of `location` OR
+  is lost. **A flag for PM/the owner**: either extend `location` on real data manually
+  (for example «Remote · EU, 4+ hrs overlap CET» as one string), or remove this 4th meta tag
+  from the layout as a demo-only detail. The designer's recommendation: keep it as part of the `location` string
+  (do not create a new column — YAGNI, the product explicitly rejected salary/extra fields).
 
 ---
 
-## 11. Файловая структура (предложение, не догма)
+## 11. File structure (a proposal, not dogma)
 
 ```
 apps/landing/app/
@@ -462,123 +462,123 @@ apps/landing/app/
     globals.css             (PATCH — §3.2 marketing computed vars, §3.3 tag tokens, §4 font-mono)
 ```
 
-Зависимости к добавить в `apps/landing/package.json`: `@crm/shared` (workspace, для Zod-схем
-формы), `zod`, `react-markdown`, `remark-gfm` (уже в `apps/web`, версии смотреть там для
-консистентности monorepo). `server.proxy` в `vite.config.ts` для dev (`/api → localhost:3001`,
-per продуктовая спека §2.3).
+Dependencies to add to `apps/landing/package.json`: `@crm/shared` (workspace, for the form's Zod schemas),
+`zod`, `react-markdown`, `remark-gfm` (already in `apps/web`, look at the versions there for
+monorepo consistency). `server.proxy` in `vite.config.ts` for dev (`/api → localhost:3001`,
+per product spec §2.3).
 
 ---
 
-## 12. Чеклист для fidelity-приёмки (Mode B, после реализации)
+## 12. Checklist for fidelity acceptance (Mode B, after implementation)
 
-- [ ] Все 3 роута рендерятся на 320/768/1024/1440 без горизонтального overflow.
-- [ ] Единственный email на всём лендинге — `hr@cheekycheese.tech` (grep по `apps/landing/app`
-      на `@cheekycheeseit.com`/`careers@`/`contact@` — должно быть 0 совпадений).
-- [ ] Careers — БЕЗ фильтров/табов (продукт-решение 2026-07-23).
-- [ ] Терминал — новые 3 сниппета (ai-platform/serve.py, edtech-platform/path.ts,
-      commerce-storefront/checkout.ts), не старые.
-- [ ] Форма отклика — все 4 состояния (default/submitting/success/error) визуально проверены.
-- [ ] `prefers-reduced-motion` — scroll-reveal и terminal-typewriter корректно деградируют
-      (контент виден сразу, не завис invisible).
-- [ ] Touch targets ≥44px на мобильных интерактивных элементах (кроме осознанного исключения
+- [ ] All 3 routes render at 320/768/1024/1440 without horizontal overflow.
+- [ ] The only email on the whole landing page is `hr@cheekycheese.tech` (grep over `apps/landing/app`
+      for `@cheekycheeseit.com`/`careers@`/`contact@` — must be 0 matches).
+- [ ] Careers — WITHOUT filters/tabs (product decision of 2026-07-23).
+- [ ] The terminal — the new 3 snippets (ai-platform/serve.py, edtech-platform/path.ts,
+      commerce-storefront/checkout.ts), not the old ones.
+- [ ] The application form — all 4 states (default/submitting/success/error) visually checked.
+- [ ] `prefers-reduced-motion` — scroll-reveal and terminal-typewriter degrade correctly
+      (content visible immediately, does not hang invisible).
+- [ ] Touch targets ≥44px on mobile interactive elements (except the deliberate exception
       §6.7/§9).
-- [ ] Focus-visible виден на Tab-обходе всех интерактивных элементов.
-- [ ] Contrast-check (axe/Playwright) на domain-tag цветах и primary-на-чёрном.
-- [ ] Diff со скриншотами §7 (spacing rhythm, иерархия, токены, плотность) — per
+- [ ] Focus-visible is visible on a Tab walk through all interactive elements.
+- [ ] A contrast check (axe/Playwright) on the domain-tag colors and primary-on-black.
+- [ ] A diff against the §7 screenshots (spacing rhythm, hierarchy, tokens, density) — per
       `design-fidelity-review.md`.
 
 ---
 
-## M. Motion-спека v2 (2026-07-24, дополняет §5)
+## M. Motion spec v2 (2026-07-24, supplements §5)
 
-**Запрос владельца (дословно):** «Я не вижу активного применения анимаций и какой-либо фантазии.
+**The owner's request (verbatim):** «Я не вижу активного применения анимаций и какой-либо фантазии.
 Добавь каждому блоку жизни; на скролл — интересная анимация, зависящая от текущего положения
 скролла; при наведении на элементы нет анимаций. Придумай и имплементируй page transition
 анимации между всеми страницами (не просто перерендер контента, а креативный переход)... Лендинг
-должен ощущаться живым и откликаться на действия пользователя красиво.» + доп. владельца (через
-координатора, тем же днём): скролл при навигации к якорям/между страницами должен быть **плавным**,
-не моментальным.
+должен ощущаться живым и откликаться на действия пользователя красиво.» + the owner's addition (via
+the coordinator, the same day): scrolling when navigating to anchors/between pages must be **smooth**,
+not instantaneous.
 
-**Референс текущего состояния** (для контекста, живой прод 2026-07-24): hero/терминал/careers уже
-соответствуют §1-§9 визуально (тёмный фон, жёлтый акцент, терминал с живым тайпрайтером) — но
-анимация ограничена one-shot `whileInView`-reveal + точечными hover на кнопках/картах. Ниже —
-что добавляется/апгрейдится, БЕЗ переработки визуального языка §0-§9 (тон/токены/раскладка не
-меняются, меняется только _движение_).
+**Reference of the current state** (for context, the live prod 2026-07-24): the hero/terminal/careers already
+match §1-§9 visually (dark background, yellow accent, a terminal with a live typewriter) — but
+the animation is limited to a one-shot `whileInView` reveal + point hovers on buttons/cards. Below —
+what is added/upgraded, WITHOUT reworking the visual language of §0-§9 (the tone/tokens/layout do not
+change, only the _motion_ changes).
 
-**Область действия §M:** только `apps/landing/**`. `apps/web` (CRM) не затрагивается — это
-отдельный workspace/дизайн-язык (см. §2.3).
+**Scope of §M:** `apps/landing/**` only. `apps/web` (the CRM) is not affected — it is a
+separate workspace/design language (see §2.3).
 
-**Жёсткие ограничения (владелец, не пересматриваются):**
+**Hard constraints (the owner, not subject to revision):**
 
-- Lighthouse CI ≥90 медиана **mobile** — не регрессирует. Всё ниже — `transform`/`opacity` (+
-  `translateX`/`translateY`/`scaleX`/`scaleY`) на GPU-composited слоях, НЕ `clip-path`/`width`/
-  `height`/`top`/`left` (layout-трэш) — см. §M.3, где это явно было решающим фактором дизайна
-  page-transition. Scroll-listener'ы — `passive: true`. Никаких новых тяжёлых зависимостей
-  (`framer-motion` уже есть, версия не меняется).
-- `prefers-reduced-motion: reduce` — полный выключатель декоративного: scroll-linked эффекты
-  рендерятся сразу в конечном состоянии (без анимации выезда/parallax), page-transition = мгновенный
-  свап (без wipe/crossfade), smooth-scroll = мгновенный `scrollTo` без твина. Единый флаг —
-  `useReducedMotion()` (компоненты) / `window.matchMedia('(prefers-reduced-motion: reduce)').matches`
-  (модули вне React-дерева, напр. `lib/page-transition.ts`).
-- Hero above-the-fold контракт (§5.1) и prerender-hydration fix (Terminal, PR #398) — **не
-  трогать**: hero по-прежнему виден мгновенно без entrance-анимации; связка `terminalHasMountedOnce`
-  и `wasRootPrerendered()` внутри Terminal остаётся как есть (§M.1 добавляет terminal-контейнеру
-  ТОЛЬКО scroll-linked exit-parallax при скролле мимо hero — сам typewriter внутри не трогается,
-  см. §M.1.2 — важное обоснование, почему буквальная идея «скролл доскролливает код» отклонена).
-- Тач-девайсы: hover-эффекты либо не имеют смысла без tap-эквивалента (у нас все hover-цели уже
-  и так активируются по tap/focus — CSS `:hover`/`:focus-visible` дают одинаковый визуальный
-  результат на границе тач-без-hover; ничего декоративного не завязано ИСКЛЮЧИТЕЛЬНО на mouseenter
-  кроме case-study/process-card, которые намеренно БЕЗ hover, см. §M.2).
+- Lighthouse CI ≥90 median **mobile** — must not regress. Everything below — `transform`/`opacity` (+
+  `translateX`/`translateY`/`scaleX`/`scaleY`) on GPU-composited layers, NOT `clip-path`/`width`/
+  `height`/`top`/`left` (layout thrash) — see §M.3, where this was explicitly the deciding factor in the design of the
+  page transition. Scroll listeners — `passive: true`. No new heavy dependencies
+  (`framer-motion` is already there, the version does not change).
+- `prefers-reduced-motion: reduce` — a full off-switch for the decorative: scroll-linked effects
+  are rendered immediately in the final state (without slide-in/parallax animation), page transition = an instant
+  swap (without wipe/crossfade), smooth scroll = an instant `scrollTo` without a tween. A single flag —
+  `useReducedMotion()` (components) / `window.matchMedia('(prefers-reduced-motion: reduce)').matches`
+  (modules outside the React tree, e.g. `lib/page-transition.ts`).
+- The hero above-the-fold contract (§5.1) and the prerender-hydration fix (Terminal, PR #398) — **do not
+  touch**: the hero is still visible instantly without an entrance animation; the `terminalHasMountedOnce`
+  and `wasRootPrerendered()` linkage inside Terminal stays as is (§M.1 adds to the terminal container
+  ONLY a scroll-linked exit parallax when scrolling past the hero — the typewriter inside is not touched,
+  see §M.1.2 — an important rationale for why the literal idea "scroll finishes scrolling the code" was rejected).
+- Touch devices: hover effects either make no sense without a tap equivalent (all our hover targets are already
+  activated on tap/focus — CSS `:hover`/`:focus-visible` give the same visual
+  result at the boundary of touch-without-hover; nothing decorative depends EXCLUSIVELY on mouseenter
+  except the case-study/process cards, which are deliberately WITHOUT hover, see §M.2).
 
 ---
 
-### M.0 Motion-токены (единый язык движения)
+### M.0 Motion tokens (a single motion language)
 
-Новый файл `apps/landing/app/lib/motion.ts` — именованные константы вместо разбросанных
-inline-чисел (сейчас `duration: 0.7`, `ease: [0.2,0.6,0.2,1]` и т.д. захардкожены по месту в
-`routes/index.tsx`/`nav.tsx` — оставить как есть там, где это CSS Tailwind-transition, но ВСЕ
-НОВЫЕ JS-driven (Framer Motion `useTransform`/`animate()`) значения — только через этот модуль,
-чтобы scroll-эффекты/page-transition/smooth-scroll не разъезжались по ощущению):
+A new file `apps/landing/app/lib/motion.ts` — named constants instead of scattered
+inline numbers (currently `duration: 0.7`, `ease: [0.2,0.6,0.2,1]`, etc. are hardcoded in place in
+`routes/index.tsx`/`nav.tsx` — leave as is where it is a CSS Tailwind transition, but ALL
+NEW JS-driven (Framer Motion `useTransform`/`animate()`) values — only via this module,
+so that scroll effects/page transition/smooth scroll do not drift apart in feel):
 
 ```ts
 // apps/landing/app/lib/motion.ts
-export const EASE_STANDARD = [0.2, 0.6, 0.2, 1] as const // сигнатурная кривая §5.1 Reveal — ТОЛЬКО для scroll-position-driven M.1 (не time-based, флеш-риска нет там по конструкции)
-// HOTFIX 2026-07-24: EASE_EXIT УДАЛЁН (был [0.4,0,1,1] — жёсткий финиш "на полной скорости",
-// часть жалобы "очень быстрая"). EASE_SOFT — новый ЕДИНСТВЕННЫЙ default для ВСЕХ time-based
-// (duration+ease) JS-анимаций (page-transition §M.3, smooth-scroll §M.4). Симметричная
-// easeInOutCubic — мягкий старт И мягкий финиш, никакого рывка на старте/резкой остановки.
+export const EASE_STANDARD = [0.2, 0.6, 0.2, 1] as const // the signature curve of §5.1 Reveal — ONLY for scroll-position-driven M.1 (not time-based, no flash risk there by construction)
+// HOTFIX 2026-07-24: EASE_EXIT REMOVED (it was [0.4,0,1,1] — a hard finish "at full speed",
+// part of the "very fast" complaint). EASE_SOFT — the new ONLY default for ALL time-based
+// (duration+ease) JS animations (page-transition §M.3, smooth-scroll §M.4). A symmetric
+// easeInOutCubic — a soft start AND a soft finish, no jolt at the start/abrupt stop.
 export const EASE_SOFT = [0.65, 0, 0.35, 1] as const
 
-export const DUR_REVEAL = 0.7 // section scroll-reveal (было в Reveal, не меняется)
-export const DUR_SMOOTH_SCROLL = 0.6 // in-page якорный скролл (§M.4) — уже мягкий, ease меняется на EASE_SOFT, duration не меняется
-// HOTFIX 2026-07-24 — page-transition duration UP (владелец: "вверх, ориентир 350-500мс"), плюс
-// переименовано под новую scrim+caret-line механику (§M.3) — это больше не "полоса-заливка":
-export const DUR_SCRIM_IN = 0.23 // тёмный scrim проявляется (было DUR_WIPE_IN=0.2 сплошной жёлтой заливки)
-export const DUR_SCRIM_OUT = 0.27 // scrim исчезает (было DUR_WIPE_OUT=0.26) — итого 500мс, верх диапазона 350-500
-export const DUR_CARET_SWEEP = 0.42 // тонкая жёлтая кромка пересекает экран ОДИН раз, длиннее scrim-фаз — не "мелькает"
-export const DUR_LIGHT_TRANSITION = 0.26 // page-transition облегчённый back-вариант (было 0.18 — тоже "очень быстро")
+export const DUR_REVEAL = 0.7 // section scroll-reveal (was in Reveal, does not change)
+export const DUR_SMOOTH_SCROLL = 0.6 // in-page anchor scroll (§M.4) — already soft, the ease changes to EASE_SOFT, the duration does not change
+// HOTFIX 2026-07-24 — page-transition duration UP (the owner: "вверх, ориентир 350-500мс"), plus
+// renamed for the new scrim+caret-line mechanics (§M.3) — this is no longer a "fill strip":
+export const DUR_SCRIM_IN = 0.23 // the dark scrim appears (was DUR_WIPE_IN=0.2 of a solid yellow fill)
+export const DUR_SCRIM_OUT = 0.27 // the scrim disappears (was DUR_WIPE_OUT=0.26) — 500ms total, the top of the 350-500 range
+export const DUR_CARET_SWEEP = 0.42 // a thin yellow edge crosses the screen ONCE, longer than the scrim phases — does not "flicker"
+export const DUR_LIGHT_TRANSITION = 0.26 // the page-transition lightweight back variant (was 0.18 — also "very fast")
 ```
 
-Значения hover/press (CSS Tailwind-transitions на кнопках/картах) **токенами не становятся** —
-это `duration-200`/`duration-300` classes; **HOTFIX**: явно фиксируем `ease-out` Tailwind-класс
-(`cubic-bezier(0,0,0.2,1)`, строго замедляющаяся, без начального разгона) вместо implicit
-Tailwind-default (`cubic-bezier(0.4,0,0.2,1)`, у которого есть лёгкий разгон перед торможением) —
-см. правку §M.2 таблицы ниже. `duration-200`/`duration-300` classes уже консистентны между
-`button.tsx`/`card.tsx`/`chip.tsx`; §M.2 явно называет duration-класс по месту, без изобретения
-параллельной системы для того, что уже единообразно.
+The hover/press values (CSS Tailwind transitions on buttons/cards) **do not become tokens** —
+these are `duration-200`/`duration-300` classes; **HOTFIX**: we explicitly fix the `ease-out` Tailwind class
+(`cubic-bezier(0,0,0.2,1)`, strictly decelerating, without an initial acceleration) instead of the implicit
+Tailwind default (`cubic-bezier(0.4,0,0.2,1)`, which has a slight acceleration before decelerating) —
+see the fix to the §M.2 table below. The `duration-200`/`duration-300` classes are already consistent between
+`button.tsx`/`card.tsx`/`chip.tsx`; §M.2 explicitly names the duration class in place, without inventing
+a parallel system for what is already uniform.
 
 ---
 
-### M.1 Scroll-driven анимация per-секция (progress-linked, НЕ one-shot)
+### M.1 Per-section scroll-driven animation (progress-linked, NOT one-shot)
 
-#### M.1.0 Принцип — апгрейд `Reveal` → `ScrollReveal`
+#### M.1.0 Principle — upgrade `Reveal` → `ScrollReveal`
 
-Текущий `Reveal` (`routes/index.tsx:37-59`) — `whileInView`+`viewport={{once:true}}`: спрингом
-играет ОДИН раз при пересечении 8%-порога и дальше не реагирует на скролл. Владелец просит
-«анимация, зависящая от **текущего положения** скролла» — это принципиально другой примитив:
-`useScroll`+`useTransform`, где opacity/y — **motion values, привязанные к scroll-прогрессу**, не
-к discrete triggers. Заменить `Reveal` на `ScrollReveal` во ВСЕХ местах текущего использования
-(`routes/index.tsx` — 11 вызовов) с этим паттерном:
+The current `Reveal` (`routes/index.tsx:37-59`) — `whileInView`+`viewport={{once:true}}`: plays with a spring
+ONCE on crossing the 8% threshold and then does not react to scroll. The owner asks for
+"an animation that depends on the **current position** of the scroll" — this is a fundamentally different primitive:
+`useScroll`+`useTransform`, where opacity/y are **motion values tied to scroll progress**, not
+to discrete triggers. Replace `Reveal` with `ScrollReveal` in ALL places of current usage
+(`routes/index.tsx` — 11 calls) with this pattern:
 
 ```tsx
 function ScrollReveal({
@@ -593,8 +593,8 @@ function ScrollReveal({
   const ref = useRef<HTMLDivElement>(null)
   const reduced = useReducedMotion()
   const { scrollYProgress } = useScroll({ target: ref, offset: ['start end', 'start 0.6'] })
-  // 3-точечная кривая имитирует ease-out БЕЗ time-based easing (progress не время) —
-  // резкое замедление к концу диапазона, вместо линейного заезда.
+  // a 3-point curve imitates ease-out WITHOUT time-based easing (progress is not time) —
+  // a sharp deceleration toward the end of the range, instead of a linear glide-in.
   const opacity = useTransform(scrollYProgress, [0, 1], [0, 1])
   const yMotion = useTransform(scrollYProgress, [0, 0.6, 1], [y, y * 0.22, 0])
   if (reduced)
@@ -611,379 +611,379 @@ function ScrollReveal({
 }
 ```
 
-- `offset: ['start end', 'start 0.6']` (Framer Motion `useScroll` intersection-синтаксис,
-  проверено по актуальной документации): прогресс 0 когда верх секции касается низа вьюпорта
-  (секция только показалась снизу), прогресс 1 когда верх секции доходит до 60% высоты вьюпорта
-  сверху (комфортно видна, не обязательно центр — раньше «доезжает», чтобы не тянуть анимацию до
-  середины экрана на длинных секциях).
-- **Без `once`** — намеренно: если пользователь скроллит вверх обратно, секция плавно уходит в
-  исходное состояние и при повторном скролле вниз — снова появляется. Это ТОЧНО то, что просит
-  формулировка «зависящая от текущего положения скролла» (не «play once and forget»). `useTransform`
-  по умолчанию clamp'ит на границах диапазона — вне `[0,1]` progress значения не улетают за
+- `offset: ['start end', 'start 0.6']` (the Framer Motion `useScroll` intersection syntax,
+  verified against the current documentation): progress is 0 when the top of the section touches the bottom of the viewport
+  (the section has only just appeared from below), progress is 1 when the top of the section reaches 60% of the viewport height
+  from the top (comfortably visible, not necessarily the center — it "arrives" earlier so as not to drag the animation to the
+  middle of the screen on long sections).
+- **No `once`** — deliberately: if the user scrolls back up, the section smoothly goes to the
+  initial state and when scrolling down again — appears again. This is EXACTLY what the wording
+  "depending on the current position of the scroll" asks for (not "play once and forget"). `useTransform`
+  clamps at the range boundaries by default — outside the `[0,1]` progress the values do not fly beyond
   `[0, y]`/`[0,1]`.
-- Delay-параметр текущего `Reveal` (`delay={i * 0.05}` на case-study/service карточках-в-цикле) —
-  заменяется на **разный offset старта per-индекс** (не time-delay, т.к. это больше не time-based
-  анимация): `offset: ['start end', \`start ${0.6 + i \* 0.05}\`]` — карточки с большим индексом
-  «дозревают» чуть позже по scroll-прогрессу, сохраняя визуальный stagger без таймера.
-- Секции, где `ScrollReveal` применяется как есть (без доп. правок ниже) — About (оба столбца +
-  stat-strip), Services grid (сохранить index-based offset stagger), Tech stack, Careers teaser
-  (заголовок + карточки), Contact CTA. Hero — **исключение, без ScrollReveal** (§5.1 контракт).
+- The delay parameter of the current `Reveal` (`delay={i * 0.05}` on the case-study/service cards-in-a-loop) —
+  is replaced by **a different start offset per index** (not a time delay, since this is no longer a time-based
+  animation): `offset: ['start end', \`start ${0.6 + i \* 0.05}\`]` — cards with a larger index
+  "ripen" slightly later in scroll progress, preserving the visual stagger without a timer.
+- Sections where `ScrollReveal` is applied as is (without the extra edits below) — About (both columns +
+  stat-strip), the Services grid (keep the index-based offset stagger), Tech stack, the Careers teaser
+  (heading + cards), Contact CTA. The hero — **an exception, without ScrollReveal** (the §5.1 contract).
 
-#### M.1.1 Таблица per-секция (сигнатурные/особые случаи)
+#### M.1.1 Per-section table (signature/special cases)
 
-| Секция (id)                                   | Target / offset                                                                                              | Анимируемое                                                                                                                                                                                             | Значения                                                                                                                               | Зачем именно так                                                                                                                                                         | Reduced-motion                                                                                                           |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
-| **Hero — фон-глоу** (`#hero`)                 | `target=heroRef`, `offset: ['start start', 'end start']`                                                     | `translateY` радиального glow-слоя (`aria-hidden` div, `routes/index.tsx:78-81`)                                                                                                                        | `useTransform(p, [0,1], [0, 60])` px — глоу «отстаёт», уходит медленнее контента                                                       | Единственный ambient-параллакс, разрешённый в hero (не entrance — hero и так виден сразу; это **exit**-параллакс по мере скролла ВНИЗ)                                   | Статичный glow, без translate                                                                                            |
-| **Hero — терминал «докинг»**                  | `target=heroRef`, `offset: ['start start', 'end start']`                                                     | `translateY` + `scale` контейнера `<Terminal/>` (обёртка `div.min-w-0` в hero-гриде)                                                                                                                    | `translateY: useTransform(p,[0,1],[0,-36])`, `scale: useTransform(p,[0,1],[1,0.965])`, `opacity: useTransform(p,[0,0.7,1],[1,1,0.85])` | «Фирменная» деталь для терминала (владелец просил что-то фирменное). Терминал слегка «уходит вглубь» при скролле — эффект глубины, БЕЗ трогания typewriter-логики внутри | Без transform, `opacity` фиксирован на 1                                                                                 |
-| **How we work — connector-line** (`#process`) | `target=` grid-обёртка 4 шагов, `offset: ['start end', 'end 0.4']`, **только `≥768px`** (`md:`)              | НОВЫЙ элемент — тонкая горизонтальная линия (`absolute`, `top-[60px]` — **HOTFIX, было `top-[34px]`, см. M.1.1a**, `h-px bg-primary/50`, `left-[12.5%] right-[12.5%]`, `transform-origin: left`, `z-0`) | `scaleX: useTransform(p, [0,1], [0,1])`                                                                                                | Сигнатурная деталь «Four steps» — линия «дорисовывается» слева направо по мере скролла ряда, буквально связывая шаги 1→4                                                 | `scaleX: 1` сразу (линия статично протянута), либо `hidden` до `md:` (мобильный грид и так 1-колоночный, линия не нужна) |
-| **Selected work — metric-lag** (`#work`)      | Внутри каждой `ScrollReveal`-обёртки карточки: metrics-грид получает СВОЙ `useTransform` со сдвинутым входом | `opacity`/`translateY` grid с 3 метриками (`case-study-card.tsx:37-47`)                                                                                                                                 | `useTransform(p, [0.15, 1], [0, 1])` (входит на 15% позже основного контента карточки, `y: [14,0]`)                                    | Метрики «догоняют» текст с лёгким лагом — depth cue внутри карточки, не просто одновременный fade                                                                        | Без лага — рендерится вместе с остальным содержимым карточки                                                             |
-| **Tech stack — chip-волна**                   | `ScrollReveal` на обёртке `<TechStackChips/>` + per-chip `useTransform` с `i * 0.02` доп. входным сдвигом    | `opacity`/`translateY` на каждом `<Chip>`                                                                                                                                                               | `y: [10,0]`, вход растянут на первые 40% диапазона секции (`i / stack.length * 0.4`)                                                   | Лёгкая «волна» по чипам вместо одновременного появления всех 18 — премиум-деталь без карусели эффектов (один паттерн, не новый язык)                                     | Все чипы видны сразу, без волны                                                                                          |
+| Section (id)                                  | Target / offset                                                                                                    | Animated                                                                                                                                                                                          | Values                                                                                                                                 | Why exactly this way                                                                                                                                                                                     | Reduced-motion                                                                                                                           |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| **Hero — background glow** (`#hero`)          | `target=heroRef`, `offset: ['start start', 'end start']`                                                           | `translateY` of the radial glow layer (an `aria-hidden` div, `routes/index.tsx:78-81`)                                                                                                            | `useTransform(p, [0,1], [0, 60])` px — the glow "lags", leaves slower than the content                                                 | The only ambient parallax allowed in the hero (not an entrance — the hero is visible immediately anyway; this is an **exit** parallax as scrolling DOWN)                                                 | A static glow, no translate                                                                                                              |
+| **Hero — terminal "docking"**                 | `target=heroRef`, `offset: ['start start', 'end start']`                                                           | `translateY` + `scale` of the `<Terminal/>` container (the `div.min-w-0` wrapper in the hero grid)                                                                                                | `translateY: useTransform(p,[0,1],[0,-36])`, `scale: useTransform(p,[0,1],[1,0.965])`, `opacity: useTransform(p,[0,0.7,1],[1,1,0.85])` | A "signature" detail for the terminal (the owner asked for something signature). The terminal slightly "recedes into the depth" on scroll — a depth effect, WITHOUT touching the typewriter logic inside | No transform, `opacity` fixed at 1                                                                                                       |
+| **How we work — connector-line** (`#process`) | `target=` the grid wrapper of the 4 steps, `offset: ['start end', 'end 0.4']`, **only `≥768px`** (`md:`)           | A NEW element — a thin horizontal line (`absolute`, `top-[60px]` — **HOTFIX, was `top-[34px]`, see M.1.1a**, `h-px bg-primary/50`, `left-[12.5%] right-[12.5%]`, `transform-origin: left`, `z-0`) | `scaleX: useTransform(p, [0,1], [0,1])`                                                                                                | The signature detail of "Four steps" — the line is "drawn" left to right as the row is scrolled, literally connecting steps 1→4                                                                          | `scaleX: 1` immediately (the line is statically drawn out), or `hidden` until `md:` (the mobile grid is 1-column anyway, no line needed) |
+| **Selected work — metric-lag** (`#work`)      | Inside each card's `ScrollReveal` wrapper: the metrics grid gets ITS OWN `useTransform` with a shifted entry       | `opacity`/`translateY` of the grid with 3 metrics (`case-study-card.tsx:37-47`)                                                                                                                   | `useTransform(p, [0.15, 1], [0, 1])` (enters 15% later than the card's main content, `y: [14,0]`)                                      | The metrics "catch up" with the text with a slight lag — a depth cue inside the card, not just a simultaneous fade                                                                                       | No lag — rendered together with the rest of the card's content                                                                           |
+| **Tech stack — chip wave**                    | `ScrollReveal` on the `<TechStackChips/>` wrapper + a per-chip `useTransform` with an extra `i * 0.02` entry shift | `opacity`/`translateY` on each `<Chip>`                                                                                                                                                           | `y: [10,0]`, the entry stretched over the first 40% of the section's range (`i / stack.length * 0.4`)                                  | A slight "wave" across the chips instead of all 18 appearing simultaneously — a premium detail without a carousel of effects (one pattern, not a new language)                                           | All chips visible immediately, no wave                                                                                                   |
 
-#### M.1.1a HOTFIX (2026-07-24) — connector-line пересекает текст лейблов
+#### M.1.1a HOTFIX (2026-07-24) — the connector-line crosses the label text
 
-**Баг (скриншот владельца):** жёлтая линия проходит СКВОЗЬ подписи шагов «01 / Discovery»,
-«02 / Build»... — читается как зачёркивание. Реализация (`process-steps-grid.tsx`, живой прод) —
-две ПРИЧИНЫ, обе нужно фиксить, они не взаимозаменяемы:
+**The bug (the owner's screenshot):** the yellow line passes THROUGH the step captions «01 / Discovery»,
+«02 / Build»... — reads as a strikethrough. The implementation (`process-steps-grid.tsx`, live prod) has
+two CAUSES, both must be fixed, they are not interchangeable:
 
-1. **Root cause — CSS stacking order, не геометрия.** Линия — `position: absolute` (`className`
-   включает `absolute`). Контейнер с 4 карточками (`<div className="grid grid-cols-1 gap-5
-md:grid-cols-4 md:gap-7">`) — БЕЗ `position` (`static`, дефолт), сами `Card` — тоже `static`. По
-   CSS 2.1 stacking order: **позиционированные элементы (даже `z-index:auto`) всегда красятся
-   ПОВЕРХ non-positioned in-flow контента того же stacking-контекста, НЕЗАВИСИМО от DOM-порядка.**
-   Линия идёт ПЕРВОЙ в DOM (значит, по «наивной» логике должна быть «под» картой), но т.к. она
-   `absolute`, а грид с картами — нет, линия красится НАД непрозрачным `bg-card` карточек и их
-   текстом, а не под ним — комментарий в коде («cards paint over it») был верным по замыслу, но не
-   реализован технически. **Фикс:** добавить `relative` на грид-обёртку (`<div className="relative
-grid grid-cols-1 gap-5 md:grid-cols-4 md:gap-7">`) — переводит её в тот же positioning-tier, что и
-   линия; т.к. грид идёт ВТОРЫМ в DOM, при равном (`auto`) z-index он теперь красится ПОВЕРХ линии,
-   как и задумывалось (видна только в 28px-зазорах между карточками). Явно зафиксировать z-index
-   для однозначности (не полагаться на DOM-order tie-break): линия — `z-0`, обёртка карточек —
+1. **Root cause — CSS stacking order, not geometry.** The line is `position: absolute` (the `className`
+   includes `absolute`). The container with the 4 cards (`<div className="grid grid-cols-1 gap-5
+md:grid-cols-4 md:gap-7">`) is WITHOUT `position` (`static`, the default), the `Card`s themselves are also
+   `static`. Per the CSS 2.1 stacking order: **positioned elements (even with `z-index:auto`) are always painted
+   ON TOP of non-positioned in-flow content of the same stacking context, REGARDLESS of DOM order.**
+   The line comes FIRST in the DOM (so by "naive" logic it should be "under" the card), but since it is
+   `absolute` and the grid with the cards is not, the line paints ABOVE the opaque `bg-card` of the cards and their
+   text, not under it — the comment in the code («cards paint over it») was right in intent, but not
+   implemented technically. **Fix:** add `relative` to the grid wrapper (`<div className="relative
+grid grid-cols-1 gap-5 md:grid-cols-4 md:gap-7">`) — this moves it to the same positioning tier as the
+   line; since the grid comes SECOND in the DOM, at equal (`auto`) z-index it now paints ON TOP of the line,
+   as intended (visible only in the 28px gaps between the cards). Explicitly fix the z-index
+   for unambiguity (do not rely on the DOM-order tie-break): the line — `z-0`, the card wrapper —
    `relative z-10`.
-2. **Geometry — дополнительная защита, не единственная линия обороны.** Пока `ScrollReveal`
-   (обёртка ВСЕЙ секции process, см. M.1.0) проигрывает fade-in (`opacity` растёт 0→1), карточки
-   ТОЖЕ полупрозрачны — непрозрачный-фон-перекрывает-линию перестаёт быть 100%-гарантией в этот
-   момент (полупрозрачная карта не полностью скрывает то, что под ней). Поэтому геометрия ДОЛЖНА
-   сама по себе не пересекать текст, а не полагаться исключительно на occlusion. `ProcessStep`
-   (`process-step.tsx`): `Card` `p-[26px]` → `step.stepNum` mono-лейбл начинается на y≈26px,
-   занимает line-box ≈20px (итого до y≈46px), затем `mb-5`=20px пустого места до заголовка `h3`
-   (старт y≈66px). **Безопасная зона — y ∈ [46px, 66px]**, где НЕТ текста ни лейбла, ни заголовка.
-   `top-[34px]` (старое значение) сидел ПРЯМО в середине лейбла — отсюда «зачёркивание». Новое
-   значение — **`top-[60px]`** (внутри безопасной зоны, ближе к заголовку — читается как «линия
-   проходит под номером-лейблом, над заголовком»). Значение приблизительное (точные line-box
-   метрики зависят от font-hinting браузера) — Coder визуально сверяет на реальном рендере,
-   допустима ручная коррекция ±4px, лишь бы линия НЕ пересекала ни один глиф текста ни на одном
-   шаге (все 4 карточки имеют одинаковую структуру/паддинги — единое значение `top` подходит всем).
+2. **Geometry — additional protection, not the only line of defense.** While `ScrollReveal`
+   (the wrapper of the WHOLE process section, see M.1.0) plays the fade-in (`opacity` growing 0→1), the cards
+   are ALSO semi-transparent — an opaque-background-covers-the-line stops being a 100% guarantee at that
+   moment (a semi-transparent card does not fully hide what is under it). Therefore the geometry MUST
+   by itself not cross the text, rather than relying exclusively on occlusion. `ProcessStep`
+   (`process-step.tsx`): `Card` `p-[26px]` → the `step.stepNum` mono label starts at y≈26px,
+   takes a line-box of ≈20px (total up to y≈46px), then `mb-5`=20px of empty space to the `h3` heading
+   (starting at y≈66px). **The safe zone — y ∈ [46px, 66px]**, where there is NO text of either the label or the heading.
+   `top-[34px]` (the old value) sat RIGHT in the middle of the label — hence the "strikethrough". The new
+   value — **`top-[60px]`** (inside the safe zone, closer to the heading — reads as "the line
+   passes under the number label, above the heading"). The value is approximate (the exact line-box
+   metrics depend on the browser's font hinting) — the Coder checks visually on a real render,
+   a manual correction of ±4px is acceptable, as long as the line does NOT cross any text glyph at any
+   step (all 4 cards have the same structure/paddings — a single `top` value fits all).
 
-Итог: `relative z-10` на грид-обёртке + `z-0` на линии (СТРУКТУРНЫЙ фикс, устраняет причину) +
-`top-[60px]` вместо `top-[34px]` (GEOMETRY, defense-in-depth на время fade-in/будущих вариантов
-card). Оба применяются вместе, не по отдельности.
+Result: `relative z-10` on the grid wrapper + `z-0` on the line (a STRUCTURAL fix, eliminates the cause) +
+`top-[60px]` instead of `top-[34px]` (GEOMETRY, defense-in-depth for the duration of the fade-in/future card
+variants). Both are applied together, not separately.
 
-#### M.1.2 Отклонённая идея — «скролл доскролливает код» (обоснование)
+#### M.1.2 Rejected idea — "scroll finishes scrolling the code" (rationale)
 
-Владелец предложил (как вариант, «например»): scroll-прогресс управляет посимвольным тайпрайтером
-терминала. **Отклонено осознанно**, не пропущено: (1) hero-контракт §5.1 требует, чтобы терминал
-был содержательно виден СРАЗУ при загрузке, до любого скролла — если тайпинг завязан на scroll-
-прогресс, первый экран показывает ПУСТОЙ терминал, пока юзер не начал скроллить, что хуже текущего
-состояния; (2) прямо ломает prerender-hydration fix (PR #398, `terminalHasMountedOnce`/
-`wasRootPrerendered`) — та логика полагается на независимый от скролла таймер, стартующий на mount;
-переход на scroll-scrub означает переписывать этот fix заново, между делом теряя его гарантию
-«без flash при первом заходе»; (3) смешивает две разные метафоры — «live код, который печатается
-сам» (текущий, statusbar `live`+пульсирующая точка подтверждает это) vs «код, который скраббится
-как видео-таймлайн скроллом» — конфликтующие сигналы того, ЧТО терминал «из себя представляет».
-**Принятая альтернатива** — terminal-«докинг» из таблицы M.1.1 выше: typewriter остаётся
-полностью автономным (как сейчас), но КОНТЕЙНЕР терминала получает scroll-linked parallax/scale
-при скролле мимо hero — тоже «фирменно», не конфликтует ни с одним существующим контрактом.
-
----
-
-### M.2 Hover-язык (ВСЕ интерактивные элементы)
-
-Принцип (`make-interfaces-feel-better`): hover — **CSS-transition**, не Framer Motion (ретаргетится
-при смене намерения на лету, дешевле); `transition-property` — явный список, никогда `transition: all`
-(уже соблюдается в существующем коде — сохранить паттерн). Hit-area ≥40×40px (мобайл — см. §6.7,
-≥44px). Ниже — таблица per-элемент; «уже есть» = зафиксировать текущее поведение как канон (не
-менять), «НОВОЕ» = добавить.
-
-**HOTFIX 2026-07-24 (smoothness-пass, весь список ниже):** добавить явный Tailwind-класс
-`ease-out` (`cubic-bezier(0,0,0.2,1)`, строго замедляющаяся) на КАЖДЫЙ `transition-[...]` из
-таблицы ниже — раньше полагались на implicit Tailwind default (`cubic-bezier(0.4,0,0.2,1)`, есть
-небольшой разгон перед торможением). Минимум длительности проверен — **все ≥150мс** (владелец:
-«hover ≥150мс»); единственное значение РОВНО на границе (`Input` 150мс) — поднято до 180мс с
-запасом, см. строку ниже.
-
-| Элемент                                               | Статус          | Hover/focus состояние                                                                                                                                                                        | `transition-property` / duration                                                                          | Touch/reduced-motion                                                                                                                         |
-| ----------------------------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Button` `variant="default"`                          | Уже есть        | Фон светлеет + `box-shadow` glow + иконка-стрелка `translateX(3px)` + `active:translateY(1px)`                                                                                               | `background-color, border-color, box-shadow, transform` / 200ms                                           | Tap = тот же visual (CSS `:active`); нет reduced-motion трогания (не декоративно-развлекательное, функциональный feedback)                   |
-| `Button` `variant="outline"`                          | Уже есть        | Бордер темнее + едва заметный фон-тинт + `active:translateY(1px)`                                                                                                                            | то же / 200ms                                                                                             | То же                                                                                                                                        |
-| **Nav-ссылки desktop** (`nav.tsx` `NAV_LINK_CLASS`)   | НОВОЕ           | Сейчас только `text-foreground/72 → text-foreground`. Добавить underline-draw: `::after` `absolute -bottom-1 left-0 h-px w-full bg-primary scale-x-0 origin-left`, `group-hover:scale-x-100` | `transform` (scaleX) / 200ms, `transition-timing-function` Tailwind default                               | Focus-visible показывает тот же underline (не только outline-ring) — добавить `focus-visible:` вариант тех же классов                        |
-| **Footer-ссылки** (`FOOTER_LINK_CLASS`)               | НОВОЕ           | Тот же underline-draw паттерн, что и nav — единый язык (не два разных hover-стиля для одинаковой семантики «текстовая ссылка»)                                                               | то же / 200ms                                                                                             | Focus-visible — так же                                                                                                                       |
-| **Burger-кнопка** (закрыта, idle hover)               | НОВОЕ           | `border-border` → `border-[color-mix(...,var(--foreground)_30%,transparent)]` (тот же токен, что hover outline-button §2.3) — едва заметный, не мигающий                                     | `border-color` / 200ms                                                                                    | На тач — нет hover-состояния, только focus-visible ring (уже есть)                                                                           |
-| `Card` `hover` (ServiceCard/VacancyCard)              | Уже есть        | `-translate-y-[3px]` + бордер-тинт primary/40                                                                                                                                                | `border-color, transform, background` `ease-out` / 300ms                                                  | Tap на VacancyCard = переход по ссылке, hover-lift не критичен, но CSS всё равно применяется на touchstart в некоторых браузерах — безвредно |
-| **`Card` `hover` + `VacancyCard` — HOTFIX «прыгает»** | БАГФИКС         | См. M.2a ниже — диагноз + `will-change-transform` фикс (НЕ визуальная правка, та же анимация из строки выше, просто без первого-кадра «скачка»)                                              | —                                                                                                         | —                                                                                                                                            |
-| `Card` (ServiceCard) — **добавить** glow              | НОВОЕ           | При hover — тот же `box-shadow` glow-паттерн, что у primary-кнопки (`var(--marketing-glow)`), едва заметный, `0 20px 60px -30px`                                                             | `box-shadow` (добавить в существующий `transition-[...]` список) `ease-out` / 300ms                       | —                                                                                                                                            |
-| **VacancyCard — стрелка-кружок**                      | Уже есть        | `group-hover:translate-x-[2px]`. **Добавить**: `group-hover:bg-primary/10` (лёгкая заливка круга) для более явного «эта карточка кликабельна»                                                | `transform, background-color` `ease-out` / 200ms                                                          | —                                                                                                                                            |
-| `Chip` (tech-stack, hero eyebrow)                     | Уже есть        | Бордер-тинт + текст ярче. **Добавить** `hover:-translate-y-px` (микро-лифт 1px — едва заметно, тактильно, не «прыгает»)                                                                      | `border-color, color, transform` (добавить `transform` в список) `ease-out` / 200ms                       | Без transform на touch (CSS `:hover` не триггерится длительно на тач — безвредно оставить)                                                   |
-| Форма — `Input`/`Textarea`                            | НОВОЕ           | Pre-focus hover: `border-[color-mix(...,var(--foreground)_20%,transparent)]` (легче текущего focus-бордера, отличимо от focus-visible ring)                                                  | `border-color` `ease-out` / **180ms** (HOTFIX, было 150мс — ровно на границе «≥150мс», поднято с запасом) | Focus-visible ring (§9) — не меняется, hover — доп. слой ДО фокуса                                                                           |
-| CV dropzone drag-over                                 | Уже есть (§5.1) | Без изменений — chистый CSS-transition, канон                                                                                                                                                | `border-color, background` / 200ms                                                                        | —                                                                                                                                            |
-| Nav mobile-меню ссылки                                | Уже есть        | Тот же `NAV_LINK_CLASS` (без underline-draw на мобиле — тач не наводит, `hover:` классы там decorative-noop, безвредны)                                                                      | —                                                                                                         | —                                                                                                                                            |
-
-**Элементы БЕЗ hover (осознанно, не забыто):**
-
-- `CaseStudyCard`, `ProcessStep` — НЕ кликабельны (информационные карточки). Hover-реакция на
-  некликабельном блоке — false affordance (`frontend-design-direction` anti-pattern: не создавать
-  ложных сигналов интерактивности). «Жизнь» этим карточкам дают M.1 scroll-эффекты (metric-lag,
-  connector-line), не hover.
-- `Tag` (domain badge) — статичный лейбл-классификатор, не интерактивен нигде на лендинге →
-  без hover.
-- `SectionEyebrow`, `StatStrip`-числа, terminal window-chrome точки (macOS-style) — декоративные/
-  информационные, без hover.
-
-#### M.2a HOTFIX (2026-07-24) — vacancy-card hover «прыгает»
-
-**Диагноз.** На Home `<CareersTeaser>` целиком обёрнут в ОДИН `<ScrollReveal>`
-(`routes/index.tsx`) — `motion.div`, у которого `style={{opacity, y: yMotion}}` ВСЕГДА активен
-(это `MotionValue`, привязанные к `scrollYProgress`, — не снимаются после «доезда», просто
-`yMotion` становится constant `0`). Framer постоянно держит на этом `motion.div` inline
-`transform`/`opacity`, что per CSS-спеке создаёт **новый stacking/compositing context** для ВСЕГО
-поддерева (это относится и к `ServiceCard`, обёрнутому per-card в `ScrollReveal` тем же образом).
-`VacancyCard`/`Card hover` — ВЛОЖЕННЫЙ элемент, у которого СВОЙ transform включается только на
-`:hover` (Tailwind `hover:-translate-y-[3px]`, CSS-driven, отдельно от родителя). Пока курсор не
-наведён, браузер обычно НЕ промоутит этот вложенный элемент на отдельный composite-layer заранее
-(нет причины — его transform неактивен) — первый `:hover` резко создаёт для него layer «на лету»
-(layer promotion), и это ПЕРВЫЙ кадр рендера в новый layer иногда даёт видимый микро-скачок/
-subpixel-снэп — классический, задокументированный Chrome/Framer-паттерн для вложенного transform
-внутри уже-transform'нутого/opacity'нутого предка. **Проверено, что НЕ является причиной:** (а) не
-конфликт «два transform на одном узле» — `ScrollReveal`-обёртка и `VacancyCard`/`Card` это РАЗНЫЕ
-DOM-узлы (обёртка НЕ применяется поэлементно к каждой карточке в тизере, см. M.1.0 «Careers teaser
-— заголовок + карточки» единым блоком); (б) не `border-width` — hover меняет только
-`border-color`, layout не сдвигается. **Диагностическая проверка (для Coder/QA):** баг ДОЛЖЕН
-воспроизводиться на Home (тизер под `ScrollReveal`) и НЕ воспроизводиться на `/careers`
-(`CareersList` рендерится БЕЗ какой-либо `ScrollReveal`-обёртки, `routes/careers.tsx`) — если
-разница подтверждается, диагноз верен; если баг ОДИНАКОВО проявляется на `/careers` тоже — это
-сигнал копать глубже (не просто layer-promotion), эскалировать отдельным `.blocked.md`.
-
-**Фикс.** Пред-промоутить сам ховерящийся элемент в свой composite-layer ЗАРАНЕЕ (`will-change`)
-— это ИМЕННО тот санкционированный `make-interfaces-feel-better` кейс («Use `will-change` only for
-first-frame stutter on compositor-friendly properties»), не `will-change: all`:
-
-- `apps/landing/app/components/ui/card.tsx` — на `hover`-варианте класс-списка добавить
-  `will-change-transform` (только когда `hover` prop `true`, статичные карточки без hover его не
-  получают — не нужно, транзишена нет).
-- `apps/landing/app/components/marketing/vacancy-card.tsx` — на `<Link>` (сам hover-элемент)
-  добавить `will-change-transform` в className (VacancyCard всегда кликабельна/hover-активна,
-  безусловно).
-
-**Архитектурное правило (закрепить на будущее, не только для этого бага):** hover-transform и
-scroll-reveal-transform НИКОГДА не применяются inline-стилем на ОДИН И ТОТ ЖЕ DOM-узел — уже
-верно по структуре (`ScrollReveal` — обёртка, hover — на вложенном интерактивном элементе), но
-теперь явно задокументировано как требование для ЛЮБОГО нового hover+reveal компонента, не только
-существующих.
+The owner suggested (as an option, "for example"): scroll progress drives the terminal's per-character typewriter.
+**Rejected deliberately**, not missed: (1) the hero contract §5.1 requires the terminal to
+be meaningfully visible IMMEDIATELY on load, before any scroll — if typing is tied to scroll
+progress, the first screen shows an EMPTY terminal until the user starts scrolling, which is worse than the current
+state; (2) it directly breaks the prerender-hydration fix (PR #398, `terminalHasMountedOnce`/
+`wasRootPrerendered`) — that logic relies on a scroll-independent timer starting on mount;
+moving to a scroll-scrub means rewriting that fix from scratch, losing along the way its guarantee
+of "no flash on first visit"; (3) it mixes two different metaphors — "live code that types
+itself" (the current one, the `live` statusbar+pulsing dot confirms this) vs "code that is scrubbed
+like a video timeline by scroll" — conflicting signals of WHAT the terminal "is".
+**The accepted alternative** — the terminal "docking" from the M.1.1 table above: the typewriter stays
+fully autonomous (as now), but the terminal's CONTAINER gets a scroll-linked parallax/scale
+when scrolling past the hero — also "signature", does not conflict with any existing contract.
 
 ---
 
-### M.3 Page-transitions (TanStack Router + Framer Motion)
+### M.2 Hover language (ALL interactive elements)
 
-> **SUPERSEDED 2026-07-25 (§M v3.1/§M v3.2).** Владелец повторно отверг результат этого раздела:
-> «контрастирует с общим освещением сайта и бьёт по глазам» (про scrim+caret-line ниже) — весь
-> механизм scrim+caret-line (включая люминанс-расчёт §M.3.0) **удалён**, заменён на «мягкий лифт»
-> (lift cross-fade, БЕЗ каких-либо цветных/тёмных оверлеев) + отдельный shared-element FLIP-морф
-> заголовка на `/careers ↔ /careers/:slug`. Раздел ниже оставлен как historical record (объясняет,
-> почему первая попытка "спрятать свап под непрозрачным слоем" вообще была выбрана и какие
-> WCAG-расчёты для неё делались) — **для реализации использовать ТОЛЬКО §M v3**, не этот раздел.
+Principle (`make-interfaces-feel-better`): hover — a **CSS transition**, not Framer Motion (it retargets
+when the intent changes on the fly, cheaper); `transition-property` — an explicit list, never `transition: all`
+(already observed in the existing code — keep the pattern). Hit area ≥40×40px (mobile — see §6.7,
+≥44px). Below — a per-element table; "already exists" = record the current behavior as canon (do not
+change), "NEW" = add.
+
+**HOTFIX 2026-07-24 (smoothness pass, the whole list below):** add an explicit Tailwind class
+`ease-out` (`cubic-bezier(0,0,0.2,1)`, strictly decelerating) to EVERY `transition-[...]` in the
+table below — previously the implicit Tailwind default was relied upon (`cubic-bezier(0.4,0,0.2,1)`, there is a
+slight acceleration before decelerating). The minimum duration was checked — **all ≥150ms** (the owner:
+«hover ≥150мс»); the single value EXACTLY at the boundary (`Input` 150ms) — raised to 180ms with
+a margin, see the row below.
+
+| Element                                             | Status                | Hover/focus state                                                                                                                                                                           | `transition-property` / duration                                                                                   | Touch/reduced-motion                                                                                                                               |
+| --------------------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Button` `variant="default"`                        | Already exists        | The background lightens + a `box-shadow` glow + the arrow icon `translateX(3px)` + `active:translateY(1px)`                                                                                 | `background-color, border-color, box-shadow, transform` / 200ms                                                    | A tap = the same visual (CSS `:active`); reduced-motion does not touch it (not decorative-entertaining, functional feedback)                       |
+| `Button` `variant="outline"`                        | Already exists        | The border darkens + a barely noticeable background tint + `active:translateY(1px)`                                                                                                         | the same / 200ms                                                                                                   | The same                                                                                                                                           |
+| **Desktop nav links** (`nav.tsx` `NAV_LINK_CLASS`)  | NEW                   | Currently only `text-foreground/72 → text-foreground`. Add an underline-draw: `::after` `absolute -bottom-1 left-0 h-px w-full bg-primary scale-x-0 origin-left`, `group-hover:scale-x-100` | `transform` (scaleX) / 200ms, `transition-timing-function` Tailwind default                                        | Focus-visible shows the same underline (not only the outline ring) — add a `focus-visible:` variant of the same classes                            |
+| **Footer links** (`FOOTER_LINK_CLASS`)              | NEW                   | The same underline-draw pattern as the nav — a single language (not two different hover styles for the same "text link" semantics)                                                          | the same / 200ms                                                                                                   | Focus-visible — likewise                                                                                                                           |
+| **Burger button** (closed, idle hover)              | NEW                   | `border-border` → `border-[color-mix(...,var(--foreground)_30%,transparent)]` (the same token as the hover of the outline button §2.3) — barely noticeable, not flashing                    | `border-color` / 200ms                                                                                             | On touch — no hover state, only the focus-visible ring (already there)                                                                             |
+| `Card` `hover` (ServiceCard/VacancyCard)            | Already exists        | `-translate-y-[3px]` + a primary/40 border tint                                                                                                                                             | `border-color, transform, background` `ease-out` / 300ms                                                           | A tap on VacancyCard = navigating via the link, the hover lift is not critical, but CSS is still applied on touchstart in some browsers — harmless |
+| **`Card` `hover` + `VacancyCard` — HOTFIX "jumps"** | BUGFIX                | See M.2a below — the diagnosis + the `will-change-transform` fix (NOT a visual edit, the same animation as the row above, just without the first-frame "jolt")                              | —                                                                                                                  | —                                                                                                                                                  |
+| `Card` (ServiceCard) — **add** glow                 | NEW                   | On hover — the same `box-shadow` glow pattern as the primary button (`var(--marketing-glow)`), barely noticeable, `0 20px 60px -30px`                                                       | `box-shadow` (add to the existing `transition-[...]` list) `ease-out` / 300ms                                      | —                                                                                                                                                  |
+| **VacancyCard — arrow circle**                      | Already exists        | `group-hover:translate-x-[2px]`. **Add**: `group-hover:bg-primary/10` (a light circle fill) for a more explicit "this card is clickable"                                                    | `transform, background-color` `ease-out` / 200ms                                                                   | —                                                                                                                                                  |
+| `Chip` (tech-stack, hero eyebrow)                   | Already exists        | A border tint + brighter text. **Add** `hover:-translate-y-px` (a 1px micro-lift — barely noticeable, tactile, does not "jump")                                                             | `border-color, color, transform` (add `transform` to the list) `ease-out` / 200ms                                  | No transform on touch (CSS `:hover` does not trigger for long on touch — harmless to leave)                                                        |
+| Form — `Input`/`Textarea`                           | NEW                   | Pre-focus hover: `border-[color-mix(...,var(--foreground)_20%,transparent)]` (lighter than the current focus border, distinguishable from the focus-visible ring)                           | `border-color` `ease-out` / **180ms** (HOTFIX, was 150ms — exactly at the "≥150ms" boundary, raised with a margin) | The focus-visible ring (§9) — does not change, hover — an extra layer BEFORE focus                                                                 |
+| CV dropzone drag-over                               | Already exists (§5.1) | Unchanged — a pure CSS transition, canon                                                                                                                                                    | `border-color, background` / 200ms                                                                                 | —                                                                                                                                                  |
+| Nav mobile-menu links                               | Already exists        | The same `NAV_LINK_CLASS` (without the underline-draw on mobile — touch does not hover, the `hover:` classes there are decorative no-ops, harmless)                                         | —                                                                                                                  | —                                                                                                                                                  |
+
+**Elements WITHOUT hover (deliberately, not forgotten):**
+
+- `CaseStudyCard`, `ProcessStep` — NOT clickable (informational cards). A hover reaction on a
+  non-clickable block is a false affordance (the `frontend-design-direction` anti-pattern: do not create
+  false signals of interactivity). The M.1 scroll effects (metric-lag,
+  connector-line) give these cards "life", not hover.
+- `Tag` (domain badge) — a static classifier label, not interactive anywhere on the landing page →
+  no hover.
+- `SectionEyebrow`, the `StatStrip` numbers, the terminal window-chrome dots (macOS-style) — decorative/
+  informational, no hover.
+
+#### M.2a HOTFIX (2026-07-24) — the vacancy-card hover "jumps"
+
+**Diagnosis.** On Home the whole `<CareersTeaser>` is wrapped in ONE `<ScrollReveal>`
+(`routes/index.tsx`) — a `motion.div` whose `style={{opacity, y: yMotion}}` is ALWAYS active
+(these are `MotionValue`s tied to `scrollYProgress` — they are not removed after "arriving", `yMotion`
+simply becomes a constant `0`). Framer permanently keeps an inline
+`transform`/`opacity` on this `motion.div`, which per the CSS spec creates a **new stacking/compositing context** for the WHOLE
+subtree (this also applies to `ServiceCard`, wrapped per-card in `ScrollReveal` in the same way).
+`VacancyCard`/`Card hover` is a NESTED element whose OWN transform is enabled only on
+`:hover` (Tailwind `hover:-translate-y-[3px]`, CSS-driven, separately from the parent). Until the cursor is
+over it, the browser usually does NOT promote this nested element to a separate composite layer in advance
+(no reason — its transform is inactive) — the first `:hover` abruptly creates a layer for it "on the fly"
+(layer promotion), and this FIRST frame of rendering into the new layer sometimes gives a visible micro-jolt/
+subpixel snap — a classic, documented Chrome/Framer pattern for a nested transform
+inside an already transformed/opacity'd ancestor. **Verified NOT to be the cause:** (a) not
+a "two transforms on one node" conflict — the `ScrollReveal` wrapper and `VacancyCard`/`Card` are DIFFERENT
+DOM nodes (the wrapper is NOT applied per card in the teaser, see M.1.0 "Careers teaser
+— heading + cards" as a single block); (b) not `border-width` — hover changes only
+`border-color`, the layout does not shift. **A diagnostic check (for Coder/QA):** the bug MUST
+reproduce on Home (the teaser under `ScrollReveal`) and NOT reproduce on `/careers`
+(`CareersList` is rendered WITHOUT any `ScrollReveal` wrapper, `routes/careers.tsx`) — if
+the difference is confirmed, the diagnosis is correct; if the bug manifests EQUALLY on `/careers` too — that is
+a signal to dig deeper (not just layer promotion), escalate with a separate `.blocked.md`.
+
+**Fix.** Pre-promote the hovered element itself to its own composite layer IN ADVANCE (`will-change`)
+— this is EXACTLY the sanctioned `make-interfaces-feel-better` case («Use `will-change` only for
+first-frame stutter on compositor-friendly properties»), not `will-change: all`:
+
+- `apps/landing/app/components/ui/card.tsx` — on the `hover` variant's class list add
+  `will-change-transform` (only when the `hover` prop is `true`, static cards without hover do not
+  get it — not needed, no transition).
+- `apps/landing/app/components/marketing/vacancy-card.tsx` — on the `<Link>` (the hover element itself)
+  add `will-change-transform` to the className (VacancyCard is always clickable/hover-active,
+  unconditionally).
+
+**An architectural rule (to record for the future, not only for this bug):** a hover transform and a
+scroll-reveal transform are NEVER applied as an inline style to ONE AND THE SAME DOM node — already
+true by structure (`ScrollReveal` is the wrapper, hover is on the nested interactive element), but
+now explicitly documented as a requirement for ANY new hover+reveal component, not only the
+existing ones.
+
+---
+
+### M.3 Page transitions (TanStack Router + Framer Motion)
+
+> **SUPERSEDED 2026-07-25 (§M v3.1/§M v3.2).** The owner again rejected the result of this section:
+> «контрастирует с общим освещением сайта и бьёт по глазам» (about the scrim+caret-line below) — the whole
+> scrim+caret-line mechanism (including the luminance calculation §M.3.0) has been **removed**, replaced by a "soft lift"
+> (lift cross-fade, WITHOUT any colored/dark overlays) + a separate shared-element FLIP morph
+> of the heading on `/careers ↔ /careers/:slug`. The section below is kept as a historical record (it explains
+> why the first attempt to "hide the swap under an opaque layer" was chosen at all and which
+> WCAG calculations were made for it) — **for implementation use ONLY §M v3**, not this section.
 >
-> **HOTFIX 2026-07-24.** Владелец (дословно, про задеплоенную v1 этой секции): «Жёлтая анимация
+> **HOTFIX 2026-07-24.** The owner (verbatim, about the deployed v1 of this section): «Жёлтая анимация
 > перехода очень бьёт по глазам — очень быстрая, у некоторых может вызвать эпилепсию. Позаботься,
-> чтобы ВСЕ анимации были плавными». Полноэкранная `bg-primary`-заливка **удалена полностью** —
-> заменена на люминанс-безопасный дизайн ниже. Оркестрация (module-singleton,
-> `onBeforeNavigate`/`onResolved`, focus-management, prerender-safety) — **не изменилась**, шаги
-> 1-4/8-9 актуальны как были, поменялись только шаги 5-6 (визуал) и таблица значений.
+> чтобы ВСЕ анимации были плавными». The full-screen `bg-primary` fill was **removed entirely** —
+> replaced with the luminance-safe design below. The orchestration (module-singleton,
+> `onBeforeNavigate`/`onResolved`, focus management, prerender-safety) — **did not change**, steps
+> 1-4/8-9 are current as before, only steps 5-6 (the visual) and the values table changed.
 
-**Выбранная механика (основной вариант) — «каретка», не заливка: тёмный scrim + тонкая жёлтая
-ведущая кромка.** Два независимых слоя вместо одной сплошной полосы:
+**The chosen mechanics (the main variant) — a "caret", not a fill: a dark scrim + a thin yellow
+leading edge.** Two independent layers instead of one solid strip:
 
-1. **Scrim** (`fixed inset-0`, `background: var(--background)` — ТОТ ЖЕ токен, что фон страницы,
-   не новый цвет) — плавно проявляется через `opacity` (0→1) и плавно исчезает (1→0). Функция —
-   технически скрыть мгновенный `Outlet`-свап (как раньше), но т.к. цвет = «то же самое тёмное»,
-   что уже занимает бо́льшую часть экрана в этом дизайне (см. расчёт ниже) — люминанс-скачок
-   минимален независимо от скорости/частоты показа.
-2. **Caret-line** — тонкая (`~3px` core + `~56px` мягкий gradient-затухание по краям, ИТОГО
-   ~64px полоса) `bg-primary` кромка, пересекающая экран ОДИН раз через `translateX` (не
-   `clip-path`, hard-constraint transform/opacity сохраняется), поверх УЖЕ затемнённого scrim'а
-   (не поверх яркого живого контента) — визуально читается как «курсор терминала печатает новую
-   страницу», ровно та метафора, которую просил владелец, но теперь узкая полоска, а не заливка на
-   весь экран (`≤5-10%` площади вьюпорта — целевое требование хотфикса, расчёт ниже подтверждает
-   фактическую площадь).
+1. **Scrim** (`fixed inset-0`, `background: var(--background)` — the SAME token as the page background,
+   not a new color) — smoothly appears via `opacity` (0→1) and smoothly disappears (1→0). Its function — to
+   technically hide the instant `Outlet` swap (as before), but since the color = "the same dark" that
+   already occupies most of the screen in this design (see the calculation below) — the luminance jump is
+   minimal regardless of the speed/frequency of display.
+2. **Caret-line** — a thin (`~3px` core + `~56px` soft gradient fade at the edges, TOTAL
+   ~64px strip) `bg-primary` edge, crossing the screen ONCE via `translateX` (not
+   `clip-path`, the transform/opacity hard constraint is preserved), on top of the ALREADY darkened scrim
+   (not on top of bright live content) — visually reads as "a terminal cursor printing the new page", exactly the
+   metaphor the owner asked for, but now a narrow strip, not a fill over
+   the whole screen (`≤5-10%` of the viewport area — the target requirement of the hotfix, the calculation below confirms
+   the actual area).
 
 ```tsx
-// apps/landing/app/components/marketing/page-transition-overlay.tsx (НОВЫЙ)
-// Слой 1 — scrim: fixed inset-0, z-[999], pointer-events-none, background: var(--background),
-// opacity управляется animate(). Слой 2 — caret-line: fixed inset-y-0, ~64px шириной, gradient
-// (transparent -> primary -> transparent), z-[1000] (поверх scrim), pointer-events-none,
-// translateX управляется animate(). Оба — ТОЛЬКО transform/opacity, ничего layout-триггерящего.
+// apps/landing/app/components/marketing/page-transition-overlay.tsx (NEW)
+// Layer 1 — scrim: fixed inset-0, z-[999], pointer-events-none, background: var(--background),
+// opacity is driven by animate(). Layer 2 — caret-line: fixed inset-y-0, ~64px wide, gradient
+// (transparent -> primary -> transparent), z-[1000] (above the scrim), pointer-events-none,
+// translateX is driven by animate(). Both — ONLY transform/opacity, nothing layout-triggering.
 ```
 
-#### M.3.0 HOTFIX — WCAG 2.3.1 расчёт (люминанс-безопасность)
+#### M.3.0 HOTFIX — WCAG 2.3.1 calculation (luminance safety)
 
-> **SUPERSEDED 2026-07-25.** §M v3.1 (lift) не вводит ни одного нового цветного/тёмного слоя —
-> анимируются `opacity`/`translateY` самого контента страницы, поэтому весь расчёт ниже неприменим
-> к новой механике (см. compliance-заметку в §M v3.1). Оставлено для истории — показывает, почему
-> версия co scrim/caret вообще считалась «безопасной», прежде чем владелец её отверг по subjective
-> ощущению («бьёт по глазам»), не по факту нарушения формального порога.
+> **SUPERSEDED 2026-07-25.** §M v3.1 (lift) does not introduce a single new colored/dark layer —
+> the `opacity`/`translateY` of the page content itself are animated, so the whole calculation below is inapplicable
+> to the new mechanics (see the compliance note in §M v3.1). Kept for history — it shows why
+> the scrim/caret version was considered "safe" at all, before the owner rejected it on a subjective
+> feeling («бьёт по глазам»), not on an actual violation of the formal threshold.
 
-Формальная проверка General Flash Threshold (WCAG 2.3.1): нарушение требует ОДНОВРЕМЕННО (И) —
-≥3 вспышки/сек, (И) пара противоположных изменений относительной люминанции ≥10% полной шкалы, (И)
-площадь ≥25% зрительного поля 10°. Не выполнено хотя бы одно условие → порог не достигнут.
+The formal check of the General Flash Threshold (WCAG 2.3.1): a violation requires SIMULTANEOUSLY (AND) —
+≥3 flashes/sec, (AND) a pair of opposing changes in relative luminance ≥10% of the full scale, (AND)
+an area ≥25% of the 10° visual field. If at least one condition is not met → the threshold is not reached.
 
-Относительная люминанция (формула WCAG, через OKLCH → linear sRGB → `0.2126R+0.7152G+0.0722B`,
-токены `apps/landing/app/styles/globals.css` `.dark`):
+Relative luminance (the WCAG formula, via OKLCH → linear sRGB → `0.2126R+0.7152G+0.0722B`,
+the tokens of `apps/landing/app/styles/globals.css` `.dark`):
 
-| Токен                        | oklch                   | Относительная люминанция | Δ vs `--background`              |
-| ---------------------------- | ----------------------- | ------------------------ | -------------------------------- |
-| `--background`               | `oklch(0.08 0 0)`       | 0.00051                  | —                                |
-| `--card`                     | `oklch(0.12 0 0)`       | 0.00173                  | 0.1% (незначимо)                 |
-| `--primary` (старый wipe)    | `oklch(0.84 .183 85.3)` | 0.58655                  | **58.6%** — почти 6× порог `10%` |
-| `--foreground` (белый текст) | `oklch(0.97 0 0)`       | 0.91267                  | 91.2% (справочно, см. ниже)      |
+| Token                       | oklch                   | Relative luminance | Δ vs `--background`                       |
+| --------------------------- | ----------------------- | ------------------ | ----------------------------------------- |
+| `--background`              | `oklch(0.08 0 0)`       | 0.00051            | —                                         |
+| `--card`                    | `oklch(0.12 0 0)`       | 0.00173            | 0.1% (insignificant)                      |
+| `--primary` (the old wipe)  | `oklch(0.84 .183 85.3)` | 0.58655            | **58.6%** — almost 6× the `10%` threshold |
+| `--foreground` (white text) | `oklch(0.97 0 0)`       | 0.91267            | 91.2% (for reference, see below)          |
 
-**Старый дизайн (удалён):** полноэкранная `--primary`-заливка поверх `--background` — Δ=58.6%
-относительной люминанции, площадь 100% вьюпорта (≫25%) — при единичном срабатывании технически НЕ
-нарушает букву правила (нужно ≥3 раз/сек), но при быстрой повторной навигации (двойной клик,
-серия back/forward) МОГ бы попасть под порог — недопустимый риск независимо от частоты, вот
-почему хотфикс переделывает дизайн, а не просто "полагается" на то, что 3 повтора/сек маловероятны.
+**The old design (removed):** a full-screen `--primary` fill over `--background` — Δ=58.6%
+of relative luminance, 100% of the viewport area (≫25%) — when triggered once it technically does NOT
+violate the letter of the rule (≥3 times/sec is required), but with fast repeated navigation (a double click,
+a series of back/forward) it COULD fall under the threshold — an unacceptable risk regardless of frequency, which is
+why the hotfix reworks the design rather than simply "relying" on 3 repeats/sec being unlikely.
 
-**Новый дизайн:**
+**The new design:**
 
-- **Scrim-фаза:** `--background` → `--background`, тот же токен, Δ≈0% — НЕ проходит критерий
-  «≥10%» вообще, **независимо от площади и частоты повторов**. (Честная оговорка: scrim ТАКЖЕ
-  временно перекрывает видимый в моменте белый текст/жёлтые акценты страницы, чья собственная
-  люминанция выше — но эти элементы занимают явное меньшинство площади вьюпорта в этом
-  тёмном/плотном дизайне, в отличие от старой ПОЛНОЭКРАННОЙ заливки, которая ГАРАНТИРОВАННО была
-  100% площади на пиковом высоком Δ; для дополнительной мягкости — см. пик opacity ниже.) Пик
-  opacity scrim'а — **0.94**, не 1.0 — намеренно неполное покрытие, чтобы переход читался как
-  ПОСТЕПЕННОЕ затемнение (rate-of-change ниже), а не жёсткий бинарный cut даже там, где Δ и так
-  мал.
-- **Caret-line фаза:** `transparent → primary → transparent` (57.9% Δ на пиковом узком участке,
-  фактически тот же цвет, что и раньше) — НО площадь: core+glow ≈64px на эталонном 1440px
-  вьюпорте = **4.4% ширины** (`64/1440`), полная высота — что кратно меньше `25%` критерия
-  зрительного поля (даже на узком 320px мобильном вьюпорте `64/320`=20% — всё ещё ниже 25%, и это
-  worst-case, десктоп — типичный случай — сильно ниже). Линия НЕ проходит критерий «≥25% площади»
-  → не квалифицируется как flash-элемент. Плюс: сама кромка появляется как ГРАДИЕНТ (мягкое
-  нарастание/спад яркости В ПРОСТРАНСТВЕ), а не блок с резким краем — дополнительно снижает rate
-  восприятия даже локально.
-- **Вывод:** ни один из двух слоёв по отдельности НЕ проходит комбинацию «Δ≥10% И площадь≥25%» —
-  требование WCAG 2.3.1 не может быть нарушено этим дизайном **независимо от частоты повторной
-  навигации** (в отличие от старого дизайна, где безопасность частично держалась на допущении
-  «пользователь не кликает достаточно быстро»). Это strictly более сильная гарантия, не просто
-  «медленнее/тише на глаз».
+- **The scrim phase:** `--background` → `--background`, the same token, Δ≈0% — does NOT pass the
+  "≥10%" criterion at all, **regardless of area and repetition frequency**. (An honest caveat: the scrim ALSO
+  temporarily covers the white text/yellow accents of the page visible at the moment, whose own
+  luminance is higher — but these elements occupy a clear minority of the viewport area in this
+  dark/dense design, unlike the old FULL-SCREEN fill, which was GUARANTEED to be
+  100% of the area at a peak high Δ; for additional softness — see the opacity peak below.) The scrim's
+  opacity peak — **0.94**, not 1.0 — deliberately incomplete coverage, so that the transition reads as a
+  GRADUAL darkening (the rate-of-change is lower), not a hard binary cut even where Δ is
+  already small.
+- **The caret-line phase:** `transparent → primary → transparent` (57.9% Δ at the peak narrow stretch,
+  effectively the same color as before) — BUT the area: core+glow ≈64px on the reference 1440px
+  viewport = **4.4% of the width** (`64/1440`), full height — which is many times smaller than the `25%` criterion of
+  the visual field (even on a narrow 320px mobile viewport `64/320`=20% — still below 25%, and this is the
+  worst case, desktop — the typical case — is far lower). The line does NOT pass the "≥25% of area" criterion
+  → does not qualify as a flash element. Plus: the edge itself appears as a GRADIENT (a soft
+  rise/fall of brightness IN SPACE), not a block with a sharp edge — additionally lowers the rate
+  of perception even locally.
+- **Conclusion:** neither of the two layers individually passes the combination "Δ≥10% AND area≥25%" —
+  the WCAG 2.3.1 requirement cannot be violated by this design **regardless of the frequency of repeated
+  navigation** (unlike the old design, where safety partly rested on the assumption
+  "the user does not click fast enough"). This is a strictly stronger guarantee, not merely
+  "slower/quieter by eye".
 
-**Почему БЕЗ `AnimatePresence`** (прямой ответ на вопрос «как ждать exit-анимацию»): классический
-паттерн `<AnimatePresence mode="wait"><motion.div key={pathname}><Outlet/></motion.div></AnimatePresence>`
-требует держать смонтированным старый `Outlet`-контент, пока играет exit — у TanStack Router нет
-хука «не переключай match, пока не закончилась анимация», так что реально exit играет уже НАД
-данными новой страницы, что хрупко на данных, зависящих от роута. Полноэкранный непрозрачный scrim
-**решает ту же проблему проще**: пока scrim покрывает весь вьюпорт, под ним можно менять `Outlet`
-МГНОВЕННО (обычное поведение роутера, без анимации самого контента) — свап невидим.
-`AnimatePresence` не нужен вообще для основного варианта.
+**Why WITHOUT `AnimatePresence`** (a direct answer to the question "how to wait for the exit animation"): the classic
+pattern `<AnimatePresence mode="wait"><motion.div key={pathname}><Outlet/></motion.div></AnimatePresence>`
+requires keeping the old `Outlet` content mounted while the exit plays — TanStack Router has no
+hook "do not switch the match until the animation has finished", so in reality the exit plays ON TOP of
+the new page's data, which is fragile on route-dependent data. A full-screen opaque scrim
+**solves the same problem more simply**: while the scrim covers the whole viewport, the `Outlet` can be swapped underneath it
+INSTANTLY (the router's usual behavior, without animating the content itself) — the swap is invisible.
+`AnimatePresence` is not needed at all for the main variant.
 
-**Механика (пошагово, HOTFIX меняет ТОЛЬКО шаги 5 и 6 — визуальный слой и тайминги; 1-4/7-9 те
-же, что в задеплоенной v1):**
+**Mechanics (step by step, the HOTFIX changes ONLY steps 5 and 6 — the visual layer and timings; 1-4/7-9 are the
+same as in the deployed v1):**
 
-1. `apps/landing/app/lib/page-transition.ts` — модуль-синглтон (по аналогии с
-   `terminalHasMountedOnce` в `terminal.tsx`, тот же паттерн module-level state вне React):
+1. `apps/landing/app/lib/page-transition.ts` — a module singleton (analogous to
+   `terminalHasMountedOnce` in `terminal.tsx`, the same pattern of module-level state outside React):
    `let pendingVariant: 'full' | 'light' = 'full'`.
-2. `window.addEventListener('popstate', () => { pendingVariant = 'light' })` — регистрируется
-   один раз в корневом orchestrator-компоненте (`__root.tsx`). Браузерные back/forward → всегда
-   light-вариант (см. ниже почему).
-3. Общий `<BackLink>` (обёртка над `Link`, использовать вместо голого `<Link>` в местах, которые
-   семантически «назад» — `careers_.$slug.tsx` `ArrowLeft "All roles"`, `__root.tsx`
+2. `window.addEventListener('popstate', () => { pendingVariant = 'light' })` — registered
+   once in the root orchestrator component (`__root.tsx`). Browser back/forward → always
+   the light variant (see below why).
+3. A shared `<BackLink>` (a wrapper over `Link`, use instead of a bare `<Link>` in places that
+   are semantically "back" — `careers_.$slug.tsx` `ArrowLeft "All roles"`, `__root.tsx`
    `ArrowLeft "Back home"`, `careers_.$slug.tsx` `NotFoundState` `ArrowLeft "Back to careers"`):
-   `onClick` синхронно ставит `pendingVariant = 'light'` ДО вызова навигации (React вызывает
-   переданный `onClick`-проп раньше внутреннего обработчика `Link`, если оба навешены на один DOM-
-   узел — порядок гарантирован event bubbling самого элемента).
-4. Orchestrator-компонент в `__root.tsx` (`RootDocument`): `const router = useRouter()`.
+   `onClick` synchronously sets `pendingVariant = 'light'` BEFORE the navigation is invoked (React calls
+   the passed `onClick` prop before `Link`'s internal handler if both are attached to one DOM
+   node — the order is guaranteed by the event bubbling of the element itself).
+4. The orchestrator component in `__root.tsx` (`RootDocument`): `const router = useRouter()`.
    `useEffect(() => router.subscribe('onBeforeNavigate', ({ toLocation, fromLocation }) => { ... }), [])`.
-   Внутри callback'а:
-   - Если `toLocation.pathname === fromLocation.pathname` (hash-only смена, напр. nav-ссылка
-     `Contact` пока уже на `/`) — **ничего не делать**, page-transition НЕ триггерится (это чисто
-     in-page скролл, см. §M.4).
-   - Иначе — прочитать `pendingVariant`, запустить соответствующую анимацию (ниже), **сбросить
-     `pendingVariant = 'full'` сразу после чтения** (одноразовый override, следующая навигация по
-     умолчанию снова «основной» вариант).
-5. **Основной (`full`), HOTFIX:** параллельно (`Promise.all`) —
-   `animate(scrimEl, { opacity: [0, 0.94] }, { duration: DUR_SCRIM_IN, ease: EASE_SOFT })` **и**
+   Inside the callback:
+   - If `toLocation.pathname === fromLocation.pathname` (a hash-only change, e.g. the nav link
+     `Contact` while already on `/`) — **do nothing**, the page transition is NOT triggered (this is purely an
+     in-page scroll, see §M.4).
+   - Otherwise — read `pendingVariant`, start the corresponding animation (below), **reset
+     `pendingVariant = 'full'` immediately after reading** (a one-time override, the next navigation
+     by default is again the "main" variant).
+5. **Main (`full`), HOTFIX:** in parallel (`Promise.all`) —
+   `animate(scrimEl, { opacity: [0, 0.94] }, { duration: DUR_SCRIM_IN, ease: EASE_SOFT })` **and**
    `animate(caretEl, { x: ['-15vw', '105vw'] }, { duration: DUR_CARET_SWEEP, ease: EASE_SOFT })`
-   (кромка стартует чуть раньше/шире scrim'а и идёт дольше — целостный, не рваный, «неспешный»
-   свайп) → дождаться Promise scrim-анимации **И** события `onResolved` того же
-   `router.subscribe` (`Promise.all`) — что бы ни закончилось позже (обычно `onResolved` раньше
-   благодаря `defaultPreload: 'intent'`, см. ниже) → `animate(scrimEl, { opacity: [0.94, 0] }, {
-duration: DUR_SCRIM_OUT, ease: EASE_SOFT })` → по завершении мгновенно сбросить `caretEl` за
-   левый край (`x: '-15vw'`, `duration: 0`) и `scrimEl` `opacity: 0`, готовы к следующему разу.
-6. **Облегчённый (`light`), HOTFIX:** scrim/caret-line НЕ используются вообще (как и раньше).
-   Контентная обёртка `<motion.div key={pathname} initial={{opacity:0, x:-8}} animate={{opacity:1,
-x:0}} transition={{duration: DUR_LIGHT_TRANSITION, ease: EASE_SOFT}}>` вокруг `<Outlet/>`
-   (обычный React remount по смене `key`, БЕЗ `AnimatePresence` — старый контент исчезает
-   мгновенно при unmount, новый сразу начинает fade-in с `opacity:0`; на 260мс с мягким
-   `EASE_SOFT` это читается как плавный crossfade, не как «дыра» и не как рывок — было `180мс` +
-   `EASE_EXIT` (жёсткий финиш «на полной скорости»), обе причины жалобы «быстро»). Дешевле и
-   уместнее для «я просто иду назад, уже это видел».
-7. **`preload: 'intent'` — почему hold почти всегда ≈0**: `router.tsx` уже ставит
-   `defaultPreload: 'intent'` (hover/focus на `<Link>` начинает грузить `loader` заранее) — то есть
-   к моменту клика `fetchVacancies()`/`fetchVacancy()` чаще всего уже resolved из кеша, и
-   `onResolved` в шаге 5 срабатывает практически сразу после клика, задолго до того как
-   `DUR_SCRIM_IN`-анимация (230мс) успевает доиграть — значит `Promise.all` реально ждёт ТОЛЬКО
-   анимацию scrim'а, не сеть. Гарантированный бюджет = `DUR_SCRIM_IN + DUR_SCRIM_OUT` = **500мс**
-   (HOTFIX: было 460мс — верх диапазона 350-500мс, владелец прямо просил «длительности вверх»),
-   сеть добавляет задержку только на холодном/медленном заходе — и в этом случае непрозрачный
-   scrim маскирует загрузку вместо пустого экрана (честный trade-off, не баг).
-8. **Первый заход / прямая загрузка (prerendered)** — `onBeforeNavigate` **физически не
-   фейрится** на первичной загрузке документа (это событие клиентского роутера, не document-load) →
-   никакого special-case флага не требуется (в отличие от Terminal — там нужен был
-   `wasRootPrerendered()`, здесь проблема не возникает по конструкции). Прямой заход на `/careers`
-   или `/careers/:slug` рендерится сразу, без scrim/caret-line.
-9. **Focus management (a11y, WCAG 2.4.3 — не запрошено явно, но обязательный компаньон page-
-   transitions):** после `onResolved` (оба варианта) — переместить фокус на `<main>`
-   лендмарк новой страницы (`tabIndex={-1}` + `.focus({preventScroll:true})` — `preventScroll`,
-   т.к. позиционирование скролла уже управляется §M.4/scroll-restoration отдельно, не должно
-   конфликтовать). **Пререквизит**: `routes/index.tsx` сейчас НЕ оборачивает контент в `<main>`
-   (только `careers.tsx`/`careers_.$slug.tsx` это делают, см. §9) — добавить `<main>` вокруг
-   секций hero..contact на `/` как часть этой задачи (маленькая структурная правка, не визуальная).
-   Без этого шага клавиатурный/скринридер-пользователь при SPA-навигации не узнаёт, что страница
-   сменилась (документ не перезагружается, фокус молча остаётся на теле старой ссылки).
+   (the edge starts slightly earlier/wider than the scrim and runs longer — a cohesive, not choppy, "unhurried"
+   swipe) → wait for the Promise of the scrim animation **AND** the `onResolved` event of the same
+   `router.subscribe` (`Promise.all`) — whichever finishes later (usually `onResolved` earlier
+   thanks to `defaultPreload: 'intent'`, see below) → `animate(scrimEl, { opacity: [0.94, 0] }, {
+duration: DUR_SCRIM_OUT, ease: EASE_SOFT })` → on completion instantly reset `caretEl` beyond the
+   left edge (`x: '-15vw'`, `duration: 0`) and `scrimEl` `opacity: 0`, ready for the next time.
+6. **Lightweight (`light`), HOTFIX:** the scrim/caret-line are NOT used at all (as before).
+   A content wrapper `<motion.div key={pathname} initial={{opacity:0, x:-8}} animate={{opacity:1,
+x:0}} transition={{duration: DUR_LIGHT_TRANSITION, ease: EASE_SOFT}}>` around `<Outlet/>`
+   (an ordinary React remount on a `key` change, WITHOUT `AnimatePresence` — the old content disappears
+   instantly on unmount, the new one immediately starts fading in from `opacity:0`; at 260ms with a soft
+   `EASE_SOFT` this reads as a smooth crossfade, not as a "hole" and not as a jolt — it was `180ms` +
+   `EASE_EXIT` (a hard finish "at full speed"), both causes of the "fast" complaint). Cheaper and
+   more fitting for "I'm just going back, I've already seen this".
+7. **`preload: 'intent'` — why the hold is almost always ≈0**: `router.tsx` already sets
+   `defaultPreload: 'intent'` (hover/focus on a `<Link>` starts loading the `loader` in advance) — i.e.
+   by the time of the click `fetchVacancies()`/`fetchVacancy()` has most often already resolved from the cache, and
+   `onResolved` in step 5 fires practically right after the click, long before the `DUR_SCRIM_IN` animation (230ms)
+   has time to finish playing — meaning `Promise.all` really waits ONLY for
+   the scrim animation, not the network. The guaranteed budget = `DUR_SCRIM_IN + DUR_SCRIM_OUT` = **500ms**
+   (HOTFIX: it was 460ms — the top of the 350-500ms range, the owner explicitly asked for "durations up"),
+   the network adds delay only on a cold/slow visit — and in that case the opaque
+   scrim masks the loading instead of an empty screen (an honest trade-off, not a bug).
+8. **First visit / direct load (prerendered)** — `onBeforeNavigate` **physically does not
+   fire** on the initial document load (it is a client router event, not a document load) →
+   no special-case flag is required (unlike Terminal — there `wasRootPrerendered()` was needed, here the
+   problem does not arise by construction). A direct visit to `/careers`
+   or `/careers/:slug` renders immediately, without the scrim/caret-line.
+9. **Focus management (a11y, WCAG 2.4.3 — not requested explicitly, but a mandatory companion to page
+   transitions):** after `onResolved` (both variants) — move focus to the `<main>`
+   landmark of the new page (`tabIndex={-1}` + `.focus({preventScroll:true})` — `preventScroll`,
+   since scroll positioning is already managed by §M.4/scroll restoration separately, must not
+   conflict). **Prerequisite**: `routes/index.tsx` currently does NOT wrap the content in `<main>`
+   (only `careers.tsx`/`careers_.$slug.tsx` do, see §9) — add `<main>` around the
+   hero..contact sections on `/` as part of this task (a small structural edit, not a visual one).
+   Without this step a keyboard/screen-reader user does not learn during SPA navigation that the page
+   has changed (the document does not reload, focus silently stays on the body of the old link).
 
-**Значения (HOTFIX — все длительности/easing изменены, см. M.0):**
+**Values (HOTFIX — all durations/easing changed, see M.0):**
 
-| Фаза                            | Триггер                                  | Duration                        | Easing      | Свойство / слой                                           |
-| ------------------------------- | ---------------------------------------- | ------------------------------- | ----------- | --------------------------------------------------------- |
-| Scrim-in (затемнение)           | `onBeforeNavigate`, pathname изменился   | `DUR_SCRIM_IN` = 230мс          | `EASE_SOFT` | `opacity` scrim (`0 → 0.94`)                              |
-| Caret-sweep (кромка пересекает) | параллельно со scrim-in, дольше          | `DUR_CARET_SWEEP` = 420мс       | `EASE_SOFT` | `translateX` caret-line (`-15vw → 105vw`), поверх scrim'а |
-| Hold (scrim держит экран)       | до `Promise.all([scrim-in, onResolved])` | переменная (обычно ≈0, см. п.7) | —           | —                                                         |
-| Scrim-out (просветление)        | после hold                               | `DUR_SCRIM_OUT` = 270мс         | `EASE_SOFT` | `opacity` scrim (`0.94 → 0`)                              |
-| Light-transition (back)         | `popstate` ИЛИ `<BackLink>`              | `DUR_LIGHT_TRANSITION` = 260мс  | `EASE_SOFT` | `opacity` + `translateX` (контента, `-8px → 0`)           |
+| Phase                             | Trigger                                     | Duration                          | Easing      | Property / layer                                               |
+| --------------------------------- | ------------------------------------------- | --------------------------------- | ----------- | -------------------------------------------------------------- |
+| Scrim-in (darkening)              | `onBeforeNavigate`, pathname changed        | `DUR_SCRIM_IN` = 230ms            | `EASE_SOFT` | scrim `opacity` (`0 → 0.94`)                                   |
+| Caret-sweep (the edge crosses)    | in parallel with scrim-in, longer           | `DUR_CARET_SWEEP` = 420ms         | `EASE_SOFT` | caret-line `translateX` (`-15vw → 105vw`), on top of the scrim |
+| Hold (the scrim holds the screen) | until `Promise.all([scrim-in, onResolved])` | variable (usually ≈0, see item 7) | —           | —                                                              |
+| Scrim-out (lightening)            | after the hold                              | `DUR_SCRIM_OUT` = 270ms           | `EASE_SOFT` | scrim `opacity` (`0.94 → 0`)                                   |
+| Light-transition (back)           | `popstate` OR `<BackLink>`                  | `DUR_LIGHT_TRANSITION` = 260ms    | `EASE_SOFT` | `opacity` + `translateX` (of the content, `-8px → 0`)          |
 
-**Reduced-motion:** `pendingVariant`-логика полностью обходится — `onBeforeNavigate` при
-`prefers-reduced-motion: reduce` ничего не анимирует (ни scrim, ни caret-line, ни content-wrapper),
-роутер работает как обычный мгновенный SPA-свап. Проверка — `window.matchMedia` в момент
-callback'а (не React-хук, т.к. orchestrator — не компонент внутри рендер-дерева страницы).
+**Reduced-motion:** the `pendingVariant` logic is bypassed entirely — `onBeforeNavigate` with
+`prefers-reduced-motion: reduce` animates nothing (neither the scrim, nor the caret-line, nor the content wrapper),
+the router works as an ordinary instant SPA swap. The check — `window.matchMedia` at the moment of the
+callback (not a React hook, since the orchestrator is not a component inside the page's render tree).
 
 ---
 
-### M.4 Плавная in-page навигация (доп. владельца, 2026-07-24)
+### M.4 Smooth in-page navigation (the owner's addition, 2026-07-24)
 
-**Решение: JS-управляемый скролл** (не CSS `scroll-behavior: smooth`), обоснование ровно по
-развилке, которую поставил владелец:
+**Decision: JS-driven scroll** (not CSS `scroll-behavior: smooth`), the rationale exactly per the
+fork the owner posed:
 
-1. **Контроль easing** — нативный `scrollIntoView({behavior:'smooth'})`/CSS `scroll-behavior`
-   используют браузерный дефолт (`ease`-подобная кривая, не настраиваемая), а у нас уже есть
-   единая мягкая кривая `EASE_SOFT` (§M.0, HOTFIX 2026-07-24 — единственный default для всех
-   time-based JS-анимаций), которой animated везде — якорный скролл на другой кривой был бы
-   диссонансом («единый язык движения», требование продуктовой спеки).
-2. **Header-offset** — sticky-хедер 66px (`nav.tsx` `h-[66px]`) перекрывает верх секции при
-   обычном `scrollIntoView`; нативное решение — `scroll-margin-top` CSS на каждой `<section id=...>`
-   (работает, но тогда нельзя переиспользовать ЭТУ же логику ниже для cross-page + hash случая
-   единым куском кода — два разных механизма для одного и того же визуального эффекта).
-3. **Reduced-motion гарантия** — браузерная поддержка `prefers-reduced-motion` для нативного smooth
-   scroll реализована консистентно не во всех браузерах/версиях; explicit JS-ветка — единственный
-   способ гарантировать 100% выполнение продуктового требования (§ жёсткие ограничения выше), а не
-   полагаться на UA-эвристику.
+1. **Easing control** — native `scrollIntoView({behavior:'smooth'})`/CSS `scroll-behavior`
+   use the browser default (an `ease`-like curve, not configurable), and we already have
+   a single soft curve `EASE_SOFT` (§M.0, HOTFIX 2026-07-24 — the only default for all
+   time-based JS animations) with which everything is animated — an anchor scroll on a different curve would be
+   dissonant ("a single language of motion", a requirement of the product spec).
+2. **Header offset** — the 66px sticky header (`nav.tsx` `h-[66px]`) overlaps the top of the section with a
+   plain `scrollIntoView`; the native solution — `scroll-margin-top` CSS on each `<section id=...>`
+   (works, but then THIS same logic below cannot be reused for the cross-page + hash case
+   as a single piece of code — two different mechanisms for one and the same visual effect).
+3. **Reduced-motion guarantee** — browser support for `prefers-reduced-motion` for native smooth
+   scroll is implemented inconsistently across browsers/versions; an explicit JS branch is the only
+   way to guarantee 100% fulfillment of the product requirement (§ hard constraints above), rather than
+   relying on a UA heuristic.
 
 ```ts
 // apps/landing/app/lib/smooth-scroll.ts
@@ -1008,201 +1008,201 @@ export function smoothScrollToId(id: string): void {
 }
 ```
 
-**Где применяется — 2 разных случая, разное поведение (важно не смешать):**
+**Where it is applied — 2 different cases, different behavior (important not to mix up):**
 
-| Случай                                                                                                  | Поведение                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Hash-ссылка на ТОЙ ЖЕ странице** (юзер на `/`, кликает «Services» в nav)                              | Route НЕ меняется (pathname тот же) → page-transition НЕ триггерится (§M.3 п.4). Вместо стандартного мгновенного `hashScrollIntoView` роутера — `<Link ... hashScrollIntoView={false} onClick={() => smoothScrollToId(hash)}>` — наш плавный скролл единолично владеет этим случаем.                                                                                                                                                                                                                          |
-| **Hash-ссылка С ДРУГОЙ страницы** (юзер на `/careers`, кликает «Contact» в nav → уходит на `/#contact`) | Route МЕНЯЕТСЯ → обычный instant re-render, БЕЗ page-transition (**SUPERSEDED 2026-07-26**: цепочка §M.3 scrim+caret-line → §M v3.1 lift закончилась — page transitions убраны совсем, task-landing-remove-page-transitions.md). `hashScrollIntoView` роутера остаётся **default (true)** — TanStack восстанавливает/скроллит к `#contact` синхронно на `onRendered`. **Дополнительный плавный скролл поверх НЕ проигрывается** — это была бы вторая анимация подряд («не бесить»), а не «премиум-сдержанно». |
-| **Back-to-top**                                                                                         | На лендинге сейчас **нет** такой кнопки/ссылки — если появится позже, обязана переиспользовать `smoothScrollToId`/аналогичный вызов `animate(window.scrollY, 0, {...})` из того же модуля, не заводить отдельный механизм.                                                                                                                                                                                                                                                                                    |
+| Case                                                                                                             | Behavior                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **A hash link on THE SAME page** (the user is on `/`, clicks «Services» in the nav)                              | The route does NOT change (the same pathname) → the page transition is NOT triggered (§M.3 item 4). Instead of the router's standard instant `hashScrollIntoView` — `<Link ... hashScrollIntoView={false} onClick={() => smoothScrollToId(hash)}>` — our smooth scroll solely owns this case.                                                                                                                                                                                                                              |
+| **A hash link FROM ANOTHER page** (the user is on `/careers`, clicks «Contact» in the nav → goes to `/#contact`) | The route CHANGES → an ordinary instant re-render, WITHOUT a page transition (**SUPERSEDED 2026-07-26**: the chain §M.3 scrim+caret-line → §M v3.1 lift ended — page transitions removed entirely, task-landing-remove-page-transitions.md). The router's `hashScrollIntoView` stays **default (true)** — TanStack restores/scrolls to `#contact` synchronously on `onRendered`. **An additional smooth scroll on top is NOT played** — that would be a second animation in a row ("не бесить"), not "premium-restrained". |
+| **Back-to-top**                                                                                                  | The landing page currently has **no** such button/link — if one appears later, it must reuse `smoothScrollToId`/a similar call `animate(window.scrollY, 0, {...})` from the same module, not introduce a separate mechanism.                                                                                                                                                                                                                                                                                               |
 
-**Взаимодействие с page-transition scroll-reset и браузерным back/forward** (владелец: «новая
-страница начинается с верха... back/forward восстанавливает позицию»):
+**Interaction with page-transition scroll reset and browser back/forward** (the owner: "новая
+страница начинается с верха... back/forward восстанавливает позицию"):
 
-- `router.tsx` уже включает `scrollRestoration: true` — TanStack Router САМ восстанавливает
-  scroll-позицию для истории (back/forward) и сбрасывает в 0 для обычной forward-навигации,
-  синхронно на событии `onRendered` (до отрисовки кадра) — **это уже нативно даёт «моментальный
-  snap до enter-анимации»**, ничего доп. писать не нужно, только **не выключать** существующий
-  флаг.
-- Порядок событий защищает от видимого «прыжка»: `onBeforeNavigate` (scrim начинает затемнять) →
-  роутер грузит/коммитит новый match → `onRendered` (TanStack восстанавливает/сбрасывает scroll
-  МГНОВЕННО, без анимации, ДО следующего кадра отрисовки) → наш `Promise.all` видит `onResolved`
-  → scrim открывает (scrim-out) уже ПРАВИЛЬНО заскроленную страницу. При основном (`full`)
-  варианте юзер физически не может увидеть промежуточный «прыжок» — он происходит под непрозрачным
-  scrim'ом. При облегчённом (`light`, back/forward) варианте — прыжок происходит ДО первого
-  отрисованного кадра нового `key`-remount (тот же порядок событий), так что тоже не виден как
-  анимированный скролл, только как корректная финальная позиция.
-- Итог: НЕ анимировать scroll-restoration отдельно (владелец прямо просил «restoration восстанавливает
-  позицию», а не «restoration плавно доскролливает») — она инстант по конструкции TanStack Router,
-  и это правильно ложится под page-transition scrim.
-
----
-
-### M.5 Сигнатурные детали — краткий свод («душа» v2)
-
-Для быстрого сканирования PM/Coder — что здесь реально новое/особенное (не рутинный reveal):
-
-1. **Terminal-докинг** (§M.1.1) — терминал слегка уходит вглубь/масштабируется при скролле мимо
-   hero, typewriter не тронут.
-2. **Process connector-line** (§M.1.1, geometry HOTFIX в §M.1.1a) — линия «дорисовывается» между
-   4 шагами по scroll-прогрессу, `≥768px`, теперь корректно прячется за карточками (не пересекает
-   текст лейблов).
-3. **Case-study metric-lag** (§M.1.1) — метрики карточки чуть «догоняют» текст, depth cue.
-4. **SUPERSEDED 2026-07-26** — цепочка page-transition попыток закончена, ВСЕ удалены. Было:
-   тёмный scrim + тонкая жёлтая caret-line (§M.3, HOTFIX 2026-07-24, «бьёт по глазам») → заменено
-   на «мягкий лифт» + shared-element FLIP-морф заголовка (§M v3.1/§M v3.2) → владелец снова отверг
-   («очень быстро мигает») → **page transitions убраны совсем**, task-landing-remove-page-
-   transitions.md. Навигация между страницами теперь — прямой ререндер, без анимации.
-5. **Единая scroll-progress-linked entrance** (§M.1.0, `ScrollReveal`) — база под всем остальным:
-   каждая секция теперь буквально реагирует на положение скролла, не на факт «появилась в кадре».
+- `router.tsx` already enables `scrollRestoration: true` — TanStack Router ITSELF restores the
+  scroll position for history (back/forward) and resets to 0 for an ordinary forward navigation,
+  synchronously on the `onRendered` event (before the frame is painted) — **this already natively gives "an instant
+  snap before the enter animation"**, nothing extra needs to be written, just **do not turn off** the existing
+  flag.
+- The order of events protects against a visible "jump": `onBeforeNavigate` (the scrim starts darkening) →
+  the router loads/commits the new match → `onRendered` (TanStack restores/resets the scroll
+  INSTANTLY, without animation, BEFORE the next paint frame) → our `Promise.all` sees `onResolved`
+  → the scrim opens (scrim-out) the already CORRECTLY scrolled page. With the main (`full`)
+  variant the user physically cannot see an intermediate "jump" — it happens under the opaque
+  scrim. With the lightweight (`light`, back/forward) variant — the jump happens BEFORE the first
+  painted frame of the new `key` remount (the same order of events), so it too is not visible as an
+  animated scroll, only as a correct final position.
+- Result: do NOT animate scroll restoration separately (the owner explicitly asked for "restoration restores
+  the position", not "restoration smoothly scrolls on") — it is instant by TanStack Router's construction,
+  and this fits correctly under the page-transition scrim.
 
 ---
 
-### M.6 Verification-чеклист (Mode B, специфично для v2 — дополняет §12)
+### M.5 Signature details — a brief summary (the "soul" of v2)
 
-- [ ] Lighthouse mobile ≥90 не регрессировал после добавления scroll-listeners/`animate()`-вызовов
-      (`passive`-листенеры, только `transform`/`opacity`, без layout-триггерящих свойств).
-- [ ] Ни один `ScrollReveal`/scroll-linked эффект не создаёт CLS (все — `transform`, не
+For quick scanning by PM/Coder — what is really new/special here (not a routine reveal):
+
+1. **Terminal docking** (§M.1.1) — the terminal slightly recedes into the depth/scales on scrolling past the
+   hero, the typewriter is untouched.
+2. **Process connector-line** (§M.1.1, the geometry HOTFIX in §M.1.1a) — the line is "drawn" between the
+   4 steps by scroll progress, `≥768px`, now correctly hides behind the cards (does not cross the
+   label text).
+3. **Case-study metric-lag** (§M.1.1) — the card's metrics slightly "catch up" with the text, a depth cue.
+4. **SUPERSEDED 2026-07-26** — the chain of page-transition attempts ended, ALL removed. It was:
+   a dark scrim + a thin yellow caret-line (§M.3, HOTFIX 2026-07-24, «бьёт по глазам») → replaced
+   with a "soft lift" + a shared-element FLIP morph of the heading (§M v3.1/§M v3.2) → the owner rejected again
+   («очень быстро мигает») → **page transitions removed entirely**, task-landing-remove-page-
+   transitions.md. Navigation between pages is now a direct re-render, without animation.
+5. **A single scroll-progress-linked entrance** (§M.1.0, `ScrollReveal`) — the base under everything else:
+   every section now literally reacts to the scroll position, not to the fact "appeared in frame".
+
+---
+
+### M.6 Verification checklist (Mode B, specific to v2 — supplements §12)
+
+- [ ] Lighthouse mobile ≥90 did not regress after adding the scroll listeners/`animate()` calls
+      (`passive` listeners, only `transform`/`opacity`, no layout-triggering properties).
+- [ ] No `ScrollReveal`/scroll-linked effect creates CLS (all — `transform`, not
       `margin`/`top`/`height`).
-- [ ] Скролл вверх после того как секция появилась — секция плавно уходит обратно (bidirectional,
-      не `once`).
-- [ ] Page-transition scrim/caret-line — `pointer-events-none` **всегда** (проверить, что клик
-      сквозь них проходит даже в момент анимации — не должны блокировать доп. клики).
-- [ ] Hash-навигация с другой страницы НЕ проигрывает второй (лишний) скролл-твин поверх
-      page-transition (см. таблицу §M.4).
-- [ ] Browser back/forward — облегчённый `light`-вариант, НЕ основной scrim+caret-line.
-- [ ] После завершения page-transition (оба варианта) — фокус на `<main>` новой страницы
-      (клавиатурный Tab с этой точки идёт по новому контенту, не залипает на старой ссылке).
-- [ ] `prefers-reduced-motion: reduce` — page-transition = мгновенный свап, smooth-scroll =
-      мгновенный `scrollTo`, все `ScrollReveal` — сразу в конечном состоянии (протестировать через
-      Playwright `emulateMedia({reducedMotion: 'reduce'})` на все 3 роута).
-- [ ] Прямой заход (свежая вкладка/reload) на `/`, `/careers`, `/careers/:slug` — БЕЗ scrim/
-      caret-line (page-transition — только для client-side навигации).
+- [ ] Scrolling up after a section has appeared — the section smoothly goes back (bidirectional,
+      not `once`).
+- [ ] The page-transition scrim/caret-line — `pointer-events-none` **always** (check that a click
+      passes through them even at the moment of the animation — they must not block additional clicks).
+- [ ] Hash navigation from another page does NOT play a second (extra) scroll tween on top of the
+      page transition (see the §M.4 table).
+- [ ] Browser back/forward — the lightweight `light` variant, NOT the main scrim+caret-line.
+- [ ] After the page transition completes (both variants) — focus on the new page's `<main>`
+      (a keyboard Tab from this point goes through the new content, does not stick on the old link).
+- [ ] `prefers-reduced-motion: reduce` — page transition = an instant swap, smooth scroll =
+      an instant `scrollTo`, all `ScrollReveal`s — immediately in the final state (test via
+      Playwright `emulateMedia({reducedMotion: 'reduce'})` on all 3 routes).
+- [ ] A direct visit (a fresh tab/reload) to `/`, `/careers`, `/careers/:slug` — WITHOUT the scrim/
+      caret-line (page transition — only for client-side navigation).
 
-**HOTFIX 2026-07-24 — дополнительные пункты:**
+**HOTFIX 2026-07-24 — additional items:**
 
-- [ ] Page-transition НЕ содержит НИ ОДНОГО полноэкранного `bg-primary`/яркой сплошной заливки —
-      только scrim (`var(--background)`) + тонкая (`≤10%` ширины вьюпорта) caret-line.
-      Playwright: pixel-sample центра viewport в момент пика анимации, относительная люминанция
-      НЕ должна скакать на ≥10% при площади образца ≥25% (см. §M.3.0 расчёт).
-- [ ] `DUR_SCRIM_IN + DUR_SCRIM_OUT` = 500мс (не короче — было 460мс, жалоба «очень быстро»);
-      `EASE_SOFT` (симметричная, БЕЗ раннего разгона) на ВСЕХ time-based JS-анимациях
-      (page-transition, smooth-scroll) — `EASE_STANDARD`/`EASE_EXIT` НЕ используются вне M.1.
-- [ ] Все hover-состояния §M.2 — ≥150мс, явный `ease-out` класс (не implicit Tailwind default).
-- [ ] Process connector-line НЕ пересекает текст «01 / Discovery» и т.п. ни на одном из 4 шагов
-      (визуальная проверка + `relative z-10` на грид-обёртке в DOM, `z-0` на линии — §M.1.1a).
-- [ ] VacancyCard/ServiceCard hover — плавный лифт БЕЗ видимого «скачка» на первом кадре hover
-      (визуальная/видео-проверка замедленной съёмкой при необходимости; `will-change-transform`
-      присутствует в DOM на обоих — §M.2a).
+- [ ] The page transition contains NOT A SINGLE full-screen `bg-primary`/bright solid fill —
+      only the scrim (`var(--background)`) + a thin (`≤10%` of the viewport width) caret-line.
+      Playwright: pixel-sample the center of the viewport at the animation peak, the relative luminance
+      must NOT jump by ≥10% with a sample area ≥25% (see the §M.3.0 calculation).
+- [ ] `DUR_SCRIM_IN + DUR_SCRIM_OUT` = 500ms (not shorter — it was 460ms, the complaint "очень быстро");
+      `EASE_SOFT` (symmetric, WITHOUT early acceleration) on ALL time-based JS animations
+      (page-transition, smooth-scroll) — `EASE_STANDARD`/`EASE_EXIT` are NOT used outside M.1.
+- [ ] All hover states of §M.2 — ≥150ms, an explicit `ease-out` class (not the implicit Tailwind default).
+- [ ] The process connector-line does NOT cross the text «01 / Discovery» etc. at any of the 4 steps
+      (a visual check + `relative z-10` on the grid wrapper in the DOM, `z-0` on the line — §M.1.1a).
+- [ ] VacancyCard/ServiceCard hover — a smooth lift WITHOUT a visible "jolt" on the first hover frame
+      (a visual/video check with slow-motion capture if needed; `will-change-transform`
+      is present in the DOM on both — §M.2a).
 
 ---
 
 ## M v3 (2026-07-25): page transitions — lift + shared-element morph + iOS perf
 
-> **SUPERSEDED 2026-07-26 (§M v3.0/§M v3.1/§M v3.2 — page-transition part only).**
-> Владелец повторно отверг результат: «У тебя очень криво получились page transition, оно просто
+> **SUPERSEDED 2026-07-26 (§M v3.0/§M v3.1/§M v3.2 — the page-transition part only).**
+> The owner again rejected the result: «У тебя очень криво получились page transition, оно просто
 > очень быстро мигает и всё. Давай вообще уберем page transition анимации и просто будем
-> ререндерить страницу без перехода» (task-landing-remove-page-transitions.md). §M v3.0 (motion-
-> токены `DUR_LIFT_*`/`LIFT_OFFSET_*`/`DUR_TITLE_MORPH`), §M v3.1 (lift cross-fade) и §M v3.2
-> (shared-element title morph) — **удалены полностью**, включая их addendum-фиксы ниже
+> ререндерить страницу без перехода» (task-landing-remove-page-transitions.md). §M v3.0 (the motion
+> tokens `DUR_LIFT_*`/`LIFT_OFFSET_*`/`DUR_TITLE_MORPH`), §M v3.1 (the lift cross-fade) and §M v3.2
+> (the shared-element title morph) — **removed entirely**, including their addendum fixes below
 > (`__root.tsx` orchestrator, `lib/lift-transition.ts`, `lib/page-transition.ts`,
-> `lib/title-morph.ts`). Клиентская навигация теперь — прямой рендер `<Outlet/>`, без анимации
-> любого рода. **§M v3.3 (iOS-перф) и §M v3.4 (мобильный аудит) остаются в силе как есть** — они
-> не про page-transition и задачей не тронуты. Три раздела ниже (§M v3.0-§M v3.2) оставлены как
-> historical record (объясняют, зачем lift+morph вообще были выбраны и как были устроены) — для
-> реализации навигации использовать НИЧЕГО из них, страница просто ререндерится.
+> `lib/title-morph.ts`). Client navigation is now a direct render of `<Outlet/>`, without animation
+> of any kind. **§M v3.3 (iOS perf) and §M v3.4 (the mobile audit) remain in force as is** — they
+> are not about page transitions and are untouched by the task. The three sections below (§M v3.0-§M v3.2) are kept as a
+> historical record (they explain why lift+morph were chosen at all and how they were built) — for
+> implementing navigation use NOTHING from them, the page is simply re-rendered.
 
-**Решение владельца (дословно, через координатора).** Про задеплоенный scrim+caret-line (§M.3):
-«контрастирует с общим освещением сайта и бьёт по глазам». Про мобильный опыт: «на iPhone все
-анимации дёрганые», плюс отдельный скриншот мобильного хиро с пометкой на строке-бейдже
-(«заголовок/отступы... выглядит криво»). Владелец выбрал из предложенных концептов КОМБО:
+**The owner's decision (verbatim, via the coordinator).** About the deployed scrim+caret-line (§M.3):
+«контрастирует с общим освещением сайта и бьёт по глазам». About the mobile experience: «на iPhone все
+анимации дёрганые», plus a separate screenshot of the mobile hero with a note on the badge line
+(«заголовок/отступы... выглядит криво»). The owner chose a COMBO from the proposed concepts:
 
-1. **База (ВСЕ переходы страниц): «мягкий лифт» (lift cross-fade)** — старая страница ~10px
-   оседает вниз и тает, новая всплывает снизу (~12-14px) и проявляется. **Никаких цветных/тёмных
-   оверлеев/шторок** — переход только контентом (`transform`/`opacity`), scrim+caret-line §M.3
-   удалён полностью (SUPERSEDED-пометки расставлены по тексту §M.3/§M.3.0/§M.4/§M.5 выше).
-2. **Поверх базы, только на `/careers ↔ /careers/:slug`: shared-element FLIP-морф заголовка** —
-   кликнутый title карточки перелетает/масштабируется в позицию H1 деталки (и обратно на back),
-   остальной контент идёт базовым лифтом.
-3. **iOS-перф раздел** — правила, устраняющие вероятную причину «дёрганости» на iPhone (scroll-
-   linked JS + continuous backdrop-blur repaint), обязательны для ЛЮБОЙ реализации M.1/nav, не
-   только для нового M v3-кода.
-4. **Мобильный аудит живого прода** (320/375/390) — конкретные найденные «кривизны» с fix-списком.
+1. **The base (ALL page transitions): a "soft lift" (lift cross-fade)** — the old page ~10px
+   settles down and fades, the new one rises from below (~12-14px) and appears. **No colored/dark
+   overlays/curtains** — the transition is by content only (`transform`/`opacity`), the scrim+caret-line §M.3
+   was removed entirely (SUPERSEDED notes are placed throughout the text of §M.3/§M.3.0/§M.4/§M.5 above).
+2. **On top of the base, only on `/careers ↔ /careers/:slug`: a shared-element FLIP morph of the heading** —
+   the clicked card title flies/scales into the position of the detail page's H1 (and back on back),
+   the rest of the content goes with the base lift.
+3. **An iOS-perf section** — rules that eliminate the probable cause of the "jerkiness" on iPhone (scroll-
+   linked JS + continuous backdrop-blur repaint), mandatory for ANY implementation of M.1/nav, not
+   only for the new M v3 code.
+4. **A mobile audit of the live prod** (320/375/390) — the specific found "crookednesses" with a fix list.
 
-Область действия — та же, что §M (только `apps/landing/**`). Жёсткие ограничения §M (Lighthouse
-≥90 mobile, только `transform`/`opacity`, `prefers-reduced-motion`, hero above-the-fold контракт,
-без новых тяжёлых зависимостей) действуют без изменений.
+The scope — the same as §M (`apps/landing/**` only). The hard constraints of §M (Lighthouse
+≥90 mobile, `transform`/`opacity` only, `prefers-reduced-motion`, the hero above-the-fold contract,
+no new heavy dependencies) apply without change.
 
-### M v3.0 Motion-токены — замена page-transition констант
+### M v3.0 Motion tokens — replacing the page-transition constants
 
 > **SUPERSEDED 2026-07-26 — page transitions removed by owner decision** (task-landing-remove-page-
-> transitions.md). Все токены ниже (`DUR_LIFT_*`/`LIFT_OFFSET_*`/`DUR_TITLE_MORPH`) удалены из
-> `apps/landing/app/lib/motion.ts` — мертвы, ничего их не потребляет.
+> transitions.md). All the tokens below (`DUR_LIFT_*`/`LIFT_OFFSET_*`/`DUR_TITLE_MORPH`) were removed from
+> `apps/landing/app/lib/motion.ts` — dead, nothing consumes them.
 
 `apps/landing/app/lib/motion.ts` — `DUR_SCRIM_IN`/`DUR_SCRIM_OUT`/`DUR_CARET_SWEEP`/
-`DUR_LIGHT_TRANSITION` **удаляются** (были только для scrim+caret, теперь мертвый код). Новые:
+`DUR_LIGHT_TRANSITION` are **removed** (they were only for the scrim+caret, now dead code). The new ones:
 
 ```ts
 // §M v3 (2026-07-25) — REPLACES DUR_SCRIM_IN/DUR_SCRIM_OUT/DUR_CARET_SWEEP/DUR_LIGHT_TRANSITION.
-// EASE_SOFT (единая мягкая symmetric-кривая, §M.0) остаётся default для ВСЕХ time-based JS-анимаций
-// ниже — единый язык движения, отдельная кривая для lift/morph НЕ вводится.
-export const DUR_LIFT_EXIT = 0.22 // 220ms — старая страница оседает + тает
-export const DUR_LIFT_ENTER = 0.3 // 300ms — новая страница всплывает + проявляется
-export const LIFT_OFFSET_EXIT = 10 // px — translateY 0 → +10 (вниз) на exit
-export const LIFT_OFFSET_ENTER = 14 // px — |translateY| на enter (знак зависит от direction, см. M v3.1)
-export const DUR_TITLE_MORPH = 0.35 // 350ms — shared-element заголовок, /careers ↔ /careers/:slug
+// EASE_SOFT (the single soft symmetric curve, §M.0) remains the default for ALL time-based JS animations
+// below — a single motion language, a separate curve for lift/morph is NOT introduced.
+export const DUR_LIFT_EXIT = 0.22 // 220ms — the old page settles + fades
+export const DUR_LIFT_ENTER = 0.3 // 300ms — the new page rises + appears
+export const LIFT_OFFSET_EXIT = 10 // px — translateY 0 → +10 (down) on exit
+export const LIFT_OFFSET_ENTER = 14 // px — |translateY| on enter (the sign depends on direction, see M v3.1)
+export const DUR_TITLE_MORPH = 0.35 // 350ms — shared-element heading, /careers ↔ /careers/:slug
 ```
 
-`DUR_REVEAL`, `DUR_SMOOTH_SCROLL`, `EASE_SOFT`, `EASE_STANDARD` — без изменений (M.0 актуален).
+`DUR_REVEAL`, `DUR_SMOOTH_SCROLL`, `EASE_SOFT`, `EASE_STANDARD` — unchanged (M.0 is current).
 
-### M v3.1 Lift cross-fade (база, ВСЕ переходы страниц)
+### M v3.1 Lift cross-fade (the base, ALL page transitions)
 
-> **SUPERSEDED 2026-07-26 — page transitions removed by owner decision.** Владелец: «У тебя очень
+> **SUPERSEDED 2026-07-26 — page transitions removed by owner decision.** The owner: «У тебя очень
 > криво получились page transition, оно просто очень быстро мигает и всё. Давай вообще уберем page
 > transition анимации и просто будем ререндерить страницу без перехода» (task-landing-remove-page-
-> transitions.md). Весь механизм ниже (`lib/lift-transition.ts`, `lib/page-transition.ts`,
-> `__root.tsx`'s orchestrator) — **удалён**. `<Outlet/>` рендерится напрямую, без `key`-ремаунта и
-> без анимации входа/выхода. Оставлено как historical record.
+> transitions.md). The whole mechanism below (`lib/lift-transition.ts`, `lib/page-transition.ts`,
+> `__root.tsx`'s orchestrator) — **removed**. `<Outlet/>` is rendered directly, without a `key` remount and
+> without an enter/exit animation. Kept as a historical record.
 
-**Почему всё ещё БЕЗ `AnimatePresence`** (тот же технический аргумент, что в старом §M.3 «Почему БЕЗ
-AnimatePresence» — не повторяется дословно, действует так же): TanStack Router не даёт хука «не
-переключай match, пока не доиграла exit-анимация» — держать старый `Outlet` смонтированным до конца
-exit означало бы либо форкать роутер, либо клонировать весь DOM старой страницы (`cloneNode`, htmlcanvas-free,
-но лишняя сложность/риск рассинхрона с живым CSS). Вместо этого — тот же паттерн, что уже был
-проверен в бою в старом «light»-варианте §M.3 шаг 6 (single keyed `motion.div`, React remount по
-смене `key={pathname}`, БЕЗ AnimatePresence): расширяем его на ВСЕ переходы, а exit старой
-страницы играем **императивно поверх ещё смонтированного старого DOM**, не блокируя навигацию.
+**Why still WITHOUT `AnimatePresence`** (the same technical argument as in the old §M.3 "Why WITHOUT
+AnimatePresence" — not repeated verbatim, applies the same way): TanStack Router gives no hook "do not
+switch the match until the exit animation has finished playing" — keeping the old `Outlet` mounted until the end of the
+exit would mean either forking the router, or cloning the whole DOM of the old page (`cloneNode`, htmlcanvas-free,
+but extra complexity/a risk of desync with live CSS). Instead — the same pattern that was already
+proven in battle in the old "light" variant of §M.3 step 6 (a single keyed `motion.div`, a React remount on
+a `key={pathname}` change, WITHOUT AnimatePresence): we extend it to ALL transitions, and the exit of the old
+page is played **imperatively on top of the still-mounted old DOM**, without blocking navigation.
 
-**Принятый компромисс (явно, не случайность):** т.к. навигация НЕ блокируется ради exit-анимации,
-при очень быстрой (preloaded, `defaultPreload:'intent'` уже стоит в `router.tsx`) навигации React
-может успеть демонтировать старую страницу и смонтировать новую ДО того, как 220мс exit-твин
-доиграл — exit в этом случае обрывается на середине (Motion's `animate()` просто перестаёт
-применяться к уже удалённому из DOM узлу, без ошибки). Это тот же класс trade-off, что уже был
-явно принят в §M.3 шаге 7 (там — сеть могла «съесть» scrim-hold бюджет); здесь — редкий случай
-(наведение/focus почти всегда прогревает `loader` заранее), и даже при обрыве enter новой страницы
-всё равно доигрывает полностью 300мс — переход не выглядит сломанным, просто чуть короче exit-фазы.
+**An accepted trade-off (explicit, not an accident):** since navigation is NOT blocked for the sake of the exit animation,
+with very fast (preloaded, `defaultPreload:'intent'` is already in `router.tsx`) navigation
+React may manage to unmount the old page and mount the new one BEFORE the 220ms exit tween
+has finished — the exit in this case is cut off midway (Motion's `animate()` simply stops
+applying to a node already removed from the DOM, without an error). This is the same class of trade-off that was already
+explicitly accepted in §M.3 step 7 (there — the network could "eat" the scrim-hold budget); here — a rare case
+(hover/focus almost always warms the `loader` in advance), and even with a cutoff the new page's enter
+still plays in full for 300ms — the transition does not look broken, just with a slightly shorter exit phase.
 
-**Механика (пошагово):**
+**Mechanics (step by step):**
 
-1. `apps/landing/app/lib/page-transition.ts` — модуль-синглтон, тот же файл/паттерн, что в §M.3,
-   переименованное значение: `let pendingDirection: 'forward' | 'back' = 'forward'` (было
-   `pendingVariant: 'full'|'light'` — семантика меняется с «тяжесть эффекта» на «направление
-   лифта», сама архитектура module-singleton — без изменений).
-2. `window.addEventListener('popstate', () => { pendingDirection = 'back' })` — как раньше,
-   регистрируется один раз в `__root.tsx`.
-3. `<BackLink>` (та же обёртка, что в §M.3 шаг 3, тот же список мест применения — `careers_.$slug.tsx`
+1. `apps/landing/app/lib/page-transition.ts` — a module singleton, the same file/pattern as in §M.3,
+   a renamed value: `let pendingDirection: 'forward' | 'back' = 'forward'` (it was
+   `pendingVariant: 'full'|'light'` — the semantics change from "the heaviness of the effect" to "the direction
+   of the lift", the module-singleton architecture itself — unchanged).
+2. `window.addEventListener('popstate', () => { pendingDirection = 'back' })` — as before,
+   registered once in `__root.tsx`.
+3. `<BackLink>` (the same wrapper as in §M.3 step 3, the same list of places of application — `careers_.$slug.tsx`
    `ArrowLeft "All roles"`, `__root.tsx` `ArrowLeft "Back home"`, `NotFoundState` `ArrowLeft "Back to
-careers"`) — `onClick` синхронно ставит `pendingDirection = 'back'` до вызова навигации.
-4. Orchestrator в `__root.tsx` (`RootDocument`) — `router.subscribe('onBeforeNavigate', ...)`, тот же
-   guard на hash-only смену (`toLocation.pathname === fromLocation.pathname` → ничего не делать,
-   см. §M.4). При смене pathname:
-   - Взять ref текущего (ещё смонтированного) content-wrapper `motion.div`.
+careers"`) — `onClick` synchronously sets `pendingDirection = 'back'` before the navigation is invoked.
+4. The orchestrator in `__root.tsx` (`RootDocument`) — `router.subscribe('onBeforeNavigate', ...)`, the same
+   guard for a hash-only change (`toLocation.pathname === fromLocation.pathname` → do nothing,
+   see §M.4). On a pathname change:
+   - Take the ref of the current (still mounted) content-wrapper `motion.div`.
    - `animate(currentWrapperEl, { opacity: [1, 0], y: [0, LIFT_OFFSET_EXIT] }, { duration:
-DUR_LIFT_EXIT, ease: EASE_SOFT })` — **fire-and-forget**, НЕ await (см. «Принятый компромисс»
-     выше). `prefers-reduced-motion: reduce` → пропустить вызов целиком (страница просто исчезнет
-     мгновенно на React-unmount, ничего не анимируется).
-5. Content-wrapper — **один и тот же** `motion.div key={pathname}` вокруг `<Outlet/>` для ЛЮБОЙ
-   навигации (никакого разделения full/light, как было раньше — вся ветка упрощена):
+DUR_LIFT_EXIT, ease: EASE_SOFT })` — **fire-and-forget**, NOT awaited (see the "Accepted trade-off"
+     above). `prefers-reduced-motion: reduce` → skip the call entirely (the page simply disappears
+     instantly on React unmount, nothing is animated).
+5. The content wrapper — **the same** `motion.div key={pathname}` around `<Outlet/>` for ANY
+   navigation (no full/light split, as there was before — the whole branch is simplified):
    ```tsx
    <motion.div
      key={pathname}
@@ -1213,182 +1213,181 @@ DUR_LIFT_EXIT, ease: EASE_SOFT })` — **fire-and-forget**, НЕ await (см. «
      }
      animate={{ opacity: 1, y: 0 }}
      transition={{ duration: DUR_LIFT_ENTER, ease: EASE_SOFT }}
-     onAnimationComplete={focusMainLandmark} // см. п.7
+     onAnimationComplete={focusMainLandmark} // see item 7
    >
      <Outlet />
    </motion.div>
    ```
-   Читать `pendingDirection` и сразу сбрасывать в `'forward'` в момент вычисления `initial` (одноразовый
-   override, как было с `pendingVariant`). `reducedMotion` — `window.matchMedia('(prefers-reduced-motion:
-reduce)').matches`, прочитанный в момент рендера (не React-хук — `RootDocument` уже читает его
-   императивно для шага 4, переиспользовать то же значение).
-6. **Никакого `Promise.all`/scrim-hold/`onResolved`-ожидания** (в отличие от старого §M.3 шага 5) —
-   прятать нечего, новый `Outlet` просто виден сразу с `opacity:0`, что и есть его enter-анимация.
-   `onResolved` из старого шага 7 — не нужен вообще, убрать эту подписку.
-7. **Focus management** (WCAG 2.4.3, тот же компаньон-требование, что в §M.3 шаг 9, БЕЗ изменений
-   по сути) — `onAnimationComplete` enter-твина (см. код шага 5) переносит фокус на `<main>`
-   лендмарк новой страницы (`tabIndex={-1}` + `.focus({preventScroll:true})`). Тот же пререквизит
-   остаётся в силе: `routes/index.tsx` должен оборачивать hero..contact в `<main>` (если ещё не
-   сделано в рамках §M.3 — не переделывать дважды).
-8. **Первый заход/прямая загрузка** — `onBeforeNavigate` не фейрится на document-load, как и раньше
-   (см. §M.3 п.8) — без изменений, ничего доп. не требуется.
-9. **Scroll-позиция** (тот же контракт, что §M.4 «Взаимодействие с page-transition scroll-reset»,
-   переформулированное обоснование — старое «физически спрятано под scrim» больше не подходит, т.к.
-   scrim исчез): `router.tsx` `scrollRestoration: true` восстанавливает/сбрасывает scroll СИНХРОННО
-   на `onRendered`, **до следующего отрисованного кадра** — т.е. до того, как браузер вообще успевает
-   покрасить кадр с неправильной scroll-позицией. Enter-анимация (шаг 5) стартует УЖЕ на корректно
-   восстановленной позиции — «прыжка» не видно не потому, что он спрятан непрозрачным слоем (как
-   раньше), а потому что он физически происходит до первого paint нового layout-состояния (тот же
-   браузерный гарант, просто другое объяснение, т.к. раньше объяснение №1 — под scrim — было
-   доступно как страховка, теперь остаётся только объяснение №2, которое ГЛАВНОЕ и раньше тоже было
-   верным).
+   Read `pendingDirection` and immediately reset it to `'forward'` at the moment `initial` is computed (a one-time
+   override, as it was with `pendingVariant`). `reducedMotion` — `window.matchMedia('(prefers-reduced-motion:
+reduce)').matches`, read at render time (not a React hook — `RootDocument` already reads it
+   imperatively for step 4, reuse the same value).
+6. **No `Promise.all`/scrim-hold/`onResolved` waiting** (unlike the old §M.3 step 5) —
+   there is nothing to hide, the new `Outlet` is simply visible immediately with `opacity:0`, which is its enter animation.
+   `onResolved` from the old step 7 — not needed at all, remove this subscription.
+7. **Focus management** (WCAG 2.4.3, the same companion requirement as in §M.3 step 9, WITHOUT change
+   in substance) — the `onAnimationComplete` of the enter tween (see the code of step 5) moves focus to the `<main>`
+   landmark of the new page (`tabIndex={-1}` + `.focus({preventScroll:true})`). The same prerequisite
+   remains in force: `routes/index.tsx` must wrap hero..contact in `<main>` (if not yet
+   done as part of §M.3 — do not redo it twice).
+8. **First visit/direct load** — `onBeforeNavigate` does not fire on document load, as before
+   (see §M.3 item 8) — unchanged, nothing extra is required.
+9. **Scroll position** (the same contract as §M.4 "Interaction with page-transition scroll reset",
+   a reformulated rationale — the old "physically hidden under the scrim" no longer fits, since the
+   scrim is gone): `router.tsx` `scrollRestoration: true` restores/resets the scroll SYNCHRONOUSLY
+   on `onRendered`, **before the next painted frame** — i.e. before the browser even has time to
+   paint a frame with the wrong scroll position. The enter animation (step 5) starts ALREADY at the correctly
+   restored position — the "jump" is not seen not because it is hidden by an opaque layer (as
+   before), but because it physically happens before the first paint of the new layout state (the same
+   browser guarantee, just a different explanation, since before explanation #1 — under the scrim — was
+   available as insurance, now only explanation #2 remains, which was also the MAIN one and was true before).
 
-**Значения:**
+**Values:**
 
-| Фаза                               | Триггер                                            | Duration                 | Easing      | Свойство                                                                    |
-| ---------------------------------- | -------------------------------------------------- | ------------------------ | ----------- | --------------------------------------------------------------------------- |
-| Exit (старая страница)             | `onBeforeNavigate`, pathname изменился             | `DUR_LIFT_EXIT` = 220мс  | `EASE_SOFT` | `opacity` 1→0, `translateY` 0→+10px (оседает вниз)                          |
-| Enter forward (обычная навигация)  | mount нового match, `pendingDirection==='forward'` | `DUR_LIFT_ENTER` = 300мс | `EASE_SOFT` | `opacity` 0→1, `translateY` +14px→0 (всплывает снизу)                       |
-| Enter back (`popstate`/`BackLink`) | mount нового match, `pendingDirection==='back'`    | `DUR_LIFT_ENTER` = 300мс | `EASE_SOFT` | `opacity` 0→1, `translateY` −14px→0 (приходит сверху — зеркально direction) |
+| Phase                               | Trigger                                                | Duration                 | Easing      | Property                                                                    |
+| ----------------------------------- | ------------------------------------------------------ | ------------------------ | ----------- | --------------------------------------------------------------------------- |
+| Exit (the old page)                 | `onBeforeNavigate`, pathname changed                   | `DUR_LIFT_EXIT` = 220ms  | `EASE_SOFT` | `opacity` 1→0, `translateY` 0→+10px (settles down)                          |
+| Enter forward (ordinary navigation) | mount of the new match, `pendingDirection==='forward'` | `DUR_LIFT_ENTER` = 300ms | `EASE_SOFT` | `opacity` 0→1, `translateY` +14px→0 (rises from below)                      |
+| Enter back (`popstate`/`BackLink`)  | mount of the new match, `pendingDirection==='back'`    | `DUR_LIFT_ENTER` = 300ms | `EASE_SOFT` | `opacity` 0→1, `translateY` −14px→0 (comes from above — mirrored direction) |
 
-**Reduced-motion:** exit-вызов (шаг 4) пропускается целиком; content-wrapper `initial={false}`
-(рендерится сразу в конечном `{opacity:1,y:0}` состоянии) — итог тот же, что в старом §M.3: обычный
-мгновенный SPA-свап, ни одна фаза не анимируется.
+**Reduced-motion:** the exit call (step 4) is skipped entirely; the content wrapper `initial={false}`
+(rendered immediately in the final `{opacity:1,y:0}` state) — the result is the same as in the old §M.3: an ordinary
+instant SPA swap, no phase is animated.
 
-**WCAG 2.3.1 compliance (заменяет расчёт §M.3.0, короче — по конструкции безопаснее):** lift НЕ
-вводит ни одного нового цветного/непрозрачного слоя — анимируется исключительно `opacity`/
-`translateY` САМОГО контента страницы (то, что видно — это реальный UI, теряющий/приобретающий
-непрозрачность). Люминанс-разница кадр-к-кадру ограничена обычным диапазоном fade/scroll-подобного
-изменения, не «мигающим элементом» в терминах General Flash Threshold — критерий неприменим в
-принципе (нет альтернирующего цветного паттерна, есть один монотонный переход). Формальный расчёт
-не требуется (в отличие от scrim+caret, где ОБЯЗАТЕЛЬНО было доказывать безопасность конкретных
-токенов — здесь эта категория риска отсутствует по построению).
+**WCAG 2.3.1 compliance (replaces the §M.3.0 calculation, shorter — safer by construction):** the lift does NOT
+introduce a single new colored/opaque layer — exclusively `opacity`/
+`translateY` of the page's OWN content is animated (what is visible is the real UI, losing/gaining
+opacity). The frame-to-frame luminance difference is limited to the ordinary range of a fade/scroll-like
+change, not a "flashing element" in terms of the General Flash Threshold — the criterion is inapplicable in
+principle (there is no alternating colored pattern, there is one monotonic transition). A formal calculation
+is not required (unlike scrim+caret, where it was MANDATORY to prove the safety of the specific
+tokens — here this category of risk is absent by construction).
 
 ### M v3.2 Shared-element title morph (`/careers ↔ /careers/:slug`)
 
 > **SUPERSEDED 2026-07-26 — page transitions removed by owner decision** (task-landing-remove-page-
 > transitions.md — same decision as §M v3.1). `lib/title-morph.ts` and every capture/consume call
-> site (`vacancy-card.tsx`, `careers-list.tsx`, `vacancy-detail-page-content.tsx`) — **удалены**.
+> site (`vacancy-card.tsx`, `careers-list.tsx`, `vacancy-detail-page-content.tsx`) — **removed**.
 > Navigating `/careers ↔ /careers/:slug` is now the same instant re-render as every other route
-> change, no shared-element animation. Oставлено как historical record.
+> change, no shared-element animation. Kept as a historical record.
 
-**Что морфится:** ИМЕННО текстовый заголовок вакансии — `<h3>` в `VacancyCard`
+**What morphs:** EXACTLY the vacancy's text heading — the `<h3>` in `VacancyCard`
 (`apps/landing/app/components/marketing/vacancy-card.tsx:32-34`, `text-[1.22rem] leading-[1.15]
-font-semibold tracking-[-0.015em]`) ↔ `<h1>` в детальной странице
+font-semibold tracking-[-0.015em]`) ↔ the `<h1>` on the detail page
 (`apps/landing/app/routes/careers_.$slug.tsx:126-128`, `text-[clamp(2rem,5.5vw,3.4rem)]
-leading-[1.02] font-semibold tracking-[-0.03em]`). НЕ вся карточка — только сама строка текста.
-Шрифт/размер интерполируются **масштабом** (`transform: scale()`), НЕ анимацией `font-size`
-(layout-триггерящее свойство, ломает hard-constraint §M «только transform/opacity»); tracking
-(letter-spacing) НЕ интерполируется — остаётся константой на значении карточки весь твин
-(0.35с — разница между -0.015em/-0.03em визуально незаметна за это время, не стоит усложнения).
+leading-[1.02] font-semibold tracking-[-0.03em]`). NOT the whole card — only the line of text itself.
+The font/size are interpolated by **scale** (`transform: scale()`), NOT by animating `font-size`
+(a layout-triggering property, breaks the §M hard constraint "transform/opacity only"); tracking
+(letter-spacing) is NOT interpolated — it stays a constant at the card's value for the whole tween
+(0.35s — the difference between -0.015em/-0.03em is visually unnoticeable in that time, not worth the complication).
 
-**Область действия — только связка `/careers ↔ /careers/:slug` (задача явно это ограничивает).**
-Клик по `VacancyCard` в Home-тизере (`careers-teaser.tsx`) → детальная **НЕ** получает морф (это
-переход `/` → `/careers/:slug`, не `/careers` → `/careers/:slug`) — падает в фолбэк «просто базовый
-лифт» ниже. `VacancyCard` — ОДИН shared-компонент для тизера и списка; специально форкать его под
-два поведения не нужно (см. механику ниже — гейт по route-паре стоит на СТОРОНЕ ПОТРЕБЛЕНИЯ, не на
-стороне капчура, поэтому `VacancyCard` остаётся одним и тем же кодом в обоих местах).
+**Scope — only the `/careers ↔ /careers/:slug` pairing (the task explicitly limits this).**
+A click on `VacancyCard` in the Home teaser (`careers-teaser.tsx`) → the detail page does **NOT** get the morph (this is a
+`/` → `/careers/:slug` transition, not `/careers` → `/careers/:slug`) — it falls to the "just the base
+lift" fallback below. `VacancyCard` is ONE shared component for the teaser and the list; there is no need to
+deliberately fork it for two behaviors (see the mechanics below — the route-pair gate sits on the CONSUMING side, not
+on the capture side, so `VacancyCard` stays the same code in both places).
 
-**Механика (measure → invert → play, overlay-clone — не настоящий FLIP на одном узле, т.к. узлы на
-разных страницах физически разные DOM-элементы):**
+**Mechanics (measure → invert → play, an overlay clone — not a real FLIP on one node, since the nodes on
+different pages are physically different DOM elements):**
 
-1. Оба конца связки получают общий идентификатор: `VacancyCard` `<h3>` и детальная `<h1>` — атрибут
-   `data-vacancy-morph-slug={vacancy.slug}` (аналог Framer `layoutId`, но управляется вручную, т.к.
-   `AnimatePresence`/встроенный shared-layout недоступны при полном unmount страницы, см. §M v3.1
-   «Почему БЕЗ AnimatePresence»).
-2. `apps/landing/app/lib/title-morph.ts` — модуль-синглтон:
+1. Both ends of the pairing get a shared identifier: the `VacancyCard` `<h3>` and the detail `<h1>` — the attribute
+   `data-vacancy-morph-slug={vacancy.slug}` (analogous to Framer's `layoutId`, but managed manually, since
+   `AnimatePresence`/the built-in shared layout are unavailable on a full unmount of the page, see §M v3.1
+   "Why WITHOUT AnimatePresence").
+2. `apps/landing/app/lib/title-morph.ts` — a module singleton:
    `let pendingMorph: { slug: string; text: string; rect: DOMRect; fontSizePx: number; lineHeightPx: number } | null = null`.
-3. **Capture — forward** (клик по `VacancyCard`, `onClick` на `<Link>`, синхронно до навигации, тот
-   же event-order гарант, что у `<BackLink>` в §M v3.1 шаг 3): если `prefers-reduced-motion` —
-   ничего не делать (return early, дешёвая проверка). Иначе — измерить `h3Ref.current.getBoundingClientRect()`
-   - `getComputedStyle(h3Ref.current)` (`fontSize`, `lineHeight` в px) → **guard: однострочность** —
-     если `rect.height > lineHeightPx * 1.3` (т.е. заголовок карточки уже сам перенёсся на 2+ строки —
-     бывает на очень узких экранах при длинном названии вакансии) → НЕ писать `pendingMorph` (fallback
-     ниже сработает сам по отсутствию `pendingMorph`). Иначе — записать `{ slug, text: vacancy.title,
+3. **Capture — forward** (a click on `VacancyCard`, `onClick` on the `<Link>`, synchronously before navigation, the same
+   event-order guarantee as for `<BackLink>` in §M v3.1 step 3): if `prefers-reduced-motion` —
+   do nothing (return early, a cheap check). Otherwise — measure `h3Ref.current.getBoundingClientRect()`
+   - `getComputedStyle(h3Ref.current)` (`fontSize`, `lineHeight` in px) → **guard: single-line** —
+     if `rect.height > lineHeightPx * 1.3` (i.e. the card heading has itself already wrapped onto 2+ lines —
+     happens on very narrow screens with a long vacancy title) → do NOT write `pendingMorph` (the fallback
+     below fires by itself by the absence of `pendingMorph`). Otherwise — record `{ slug, text: vacancy.title,
 rect, fontSizePx, lineHeightPx }`.
-4. **Capture — back** (клик по `<BackLink>` на детальной странице, `ArrowLeft "All roles"`) — тот же
-   код пути, что п.3, но источник — `<h1>` (не `<h3>`), `slug` — `vacancy.slug` текущей страницы.
-   Та же однострочность-guard (на H1 более вероятно сработать на очень длинных названиях — это
-   ожидаемо и нормально, `cc-display`/H1 и так уже допускает 2-3 строки по дизайну §8 edge-case
-   «Длинный заголовок вакансии» — просто в этом случае морф не играет, только базовый лифт).
-5. **Consume** (на странице-получателе, `useLayoutEffect` — до первой отрисовки кадра): прочитать
-   `pendingMorph`. Условия проигрывания морфа (**ВСЕ** обязательны, иначе — silent fallback на
-   базовый лифт, реальный заголовок рендерится сразу как обычно, ничего доп. не показываем):
+4. **Capture — back** (a click on `<BackLink>` on the detail page, `ArrowLeft "All roles"`) — the same
+   code path as item 3, but the source is the `<h1>` (not `<h3>`), `slug` — the current page's `vacancy.slug`.
+   The same single-line guard (on the H1 it is more likely to fire on very long titles — this is
+   expected and normal, `cc-display`/H1 already allows 2-3 lines by design §8 edge case
+   "Long vacancy title" — it is just that in this case the morph does not play, only the base lift).
+5. **Consume** (on the receiving page, `useLayoutEffect` — before the first frame is painted): read
+   `pendingMorph`. The conditions for playing the morph (**ALL** are mandatory, otherwise — a silent fallback to the
+   base lift, the real heading is rendered immediately as usual, nothing extra is shown):
    - `pendingMorph !== null`;
-   - `router` подтверждает, что переход был ИМЕННО `/careers → /careers/:slug` (forward) или
-     `/careers/:slug → /careers` (back) — читать `fromLocation.pathname`/`toLocation.pathname` из
-     того же `onBeforeNavigate`-подписки §M v3.1 (кэшировать пару путей в ещё одно поле того же
-     `title-morph.ts` синглтона, устанавливаемое в п.4 оркестратора §M v3.1 — не заводить вторую
-     независимую router-подписку);
-   - `pendingMorph.slug` совпадает с релевантным slug на странице-получателе (детальная — `vacancy.slug`
-     из loader; список — ищем `document.querySelector('[data-vacancy-morph-slug="' + slug + '"]')`
-     среди только что смонтированных `VacancyCard`; НЕ найден — silent fallback, напр. если вакансия
-     успела пропасть из списка между переходами);
-   - реальный целевой элемент (H1 или найденный H3) сам однострочный (та же `rect.height <=
-lineHeightPx * 1.3` проверка, теперь на ПРИЁМНОЙ стороне — т.к. `clamp()`-размер H1 зависит от
-     viewport, длинный заголовок на очень узком экране может перенестись именно на 2 строки уже на
-     destination, даже если source было в одну строку);
-   - `pendingMorph.text` совпадает с фактическим текстом целевого заголовка (staleness-guard — на
-     случай, если между capture и consume данные успели устареть/race).
-     Прочитав — сразу сбросить `pendingMorph = null` (одноразовый, как `pendingDirection`).
-6. **Если все условия — да, играть overlay-клон:**
-   - Скрыть реальный заголовок-получатель на время морфа: `realTitleEl.style.visibility = 'hidden'`
-     (НЕ `display:none` — элемент обязан остаться в layout-потоке, иначе `getBoundingClientRect()`
-     ниже вернёт неверный/нулевой прямоугольник).
-   - Измерить `destRect = realTitleEl.getBoundingClientRect()` + `destFontSizePx =
+   - `router` confirms that the transition was EXACTLY `/careers → /careers/:slug` (forward) or
+     `/careers/:slug → /careers` (back) — read `fromLocation.pathname`/`toLocation.pathname` from
+     the same `onBeforeNavigate` subscription of §M v3.1 (cache the path pair in another field of the same
+     `title-morph.ts` singleton, set in item 4 of the §M v3.1 orchestrator — do not create a second
+     independent router subscription);
+   - `pendingMorph.slug` matches the relevant slug on the receiving page (the detail page — `vacancy.slug`
+     from the loader; the list — look up `document.querySelector('[data-vacancy-morph-slug="' + slug + '"]')`
+     among the just-mounted `VacancyCard`s; NOT found — a silent fallback, e.g. if the vacancy
+     managed to disappear from the list between transitions);
+   - the real target element (H1 or the found H3) is itself single-line (the same `rect.height <=
+lineHeightPx * 1.3` check, now on the RECEIVING side — since the `clamp()` size of the H1 depends on the
+     viewport, a long heading on a very narrow screen may wrap onto exactly 2 lines already at the
+     destination, even if the source was on one line);
+   - `pendingMorph.text` matches the actual text of the target heading (a staleness guard — in
+     case the data managed to go stale/race between capture and consume).
+     Having read it — immediately reset `pendingMorph = null` (one-time, like `pendingDirection`).
+6. **If all conditions are met, play the overlay clone:**
+   - Hide the real receiving heading for the duration of the morph: `realTitleEl.style.visibility = 'hidden'`
+     (NOT `display:none` — the element must remain in the layout flow, otherwise the `getBoundingClientRect()`
+     below will return a wrong/zero rectangle).
+   - Measure `destRect = realTitleEl.getBoundingClientRect()` + `destFontSizePx =
 parseFloat(getComputedStyle(realTitleEl).fontSize)`.
-   - Создать overlay `<div>` (`document.body.appendChild`, `position:fixed; top:0; left:0; margin:0;
+   - Create an overlay `<div>` (`document.body.appendChild`, `position:fixed; top:0; left:0; margin:0;
 pointer-events:none; z-index:1000; white-space:nowrap; font-weight:600; color:var(--foreground);
 transform-origin: top left`), `textContent = pendingMorph.text`, `fontSize =
-pendingMorph.fontSizePx + 'px'`, начальный `transform: translate(${pendingMorph.rect.left}px,
-${pendingMorph.rect.top}px) scale(1)` — визуально идентичен тому, как заголовок выглядел на
-     ИСХОДНОЙ странице, появляется МГНОВЕННО (без анимации) в той же экранной позиции, где был до
-     навигации (это и есть «invert»-шаг классического FLIP, просто клон вместо реального узла).
-     `willChange = 'transform'` на время анимации (санкционированный кейс §M.2a — снять после
-     завершения, п.7).
-   - **Play** (imperative `animate()`, единая точка входа, что и везде в M v3/M.3):
-     `scaleFactor = destFontSizePx / pendingMorph.fontSizePx`; анимировать overlay `transform` от
-     стартового значения к `translate(${destRect.left}px, ${destRect.top}px) scale(${scaleFactor})`,
-     `{ duration: DUR_TITLE_MORPH, ease: EASE_SOFT }` (350мс — в диапазоне 320-380 из задачи).
-     `transform-origin: top left` гарантирует, что масштаб растёт от уже-выставленного левого-
-     верхнего угла, а не «гуляет» — конечная позиция overlay совпадает с `destRect` без доп. коррекций.
-7. **По завершении** (`animate()`-промис/`onComplete`): удалить overlay из DOM, `realTitleEl.style.visibility
-= ''` (снова видим — т.к. финальный кадр overlay пиксель-в-пиксель совпадает с позицией/размером
-   реального заголовка, подмена незаметна), `willChange = 'auto'` уже снят по завершении (не
-   оставлять висеть, тот же принцип §M.2a).
-8. **Донор-карточка (что происходит с ней):** НИЧЕГО специального. `VacancyCard`/список на исходной
-   странице просто уходят через обычный базовый лифт §M v3.1 (exit-фаза, страница целиком оседает и
-   тает) — сам overlay-клон летит НАД ней (`z-index:1000`, `position:fixed`, поверх затухающего
-   контента), визуально читается как «заголовок отрывается от карточки и летит на новое место», пока
-   всё остальное на списке мягко угасает под ним. Никакого отдельного кода на стороне
-   `VacancyCard`/`CareersList` не требуется.
+pendingMorph.fontSizePx + 'px'`, the initial `transform: translate(${pendingMorph.rect.left}px,
+${pendingMorph.rect.top}px) scale(1)` — visually identical to how the heading looked on the
+     SOURCE page, appears INSTANTLY (without animation) at the same on-screen position where it was before
+     the navigation (this is the "invert" step of a classic FLIP, just a clone instead of the real node).
+     `willChange = 'transform'` for the duration of the animation (the sanctioned case of §M.2a — remove after
+     completion, item 7).
+   - **Play** (imperative `animate()`, the single entry point as everywhere in M v3/M.3):
+     `scaleFactor = destFontSizePx / pendingMorph.fontSizePx`; animate the overlay `transform` from
+     the start value to `translate(${destRect.left}px, ${destRect.top}px) scale(${scaleFactor})`,
+     `{ duration: DUR_TITLE_MORPH, ease: EASE_SOFT }` (350ms — within the 320-380 range from the task).
+     `transform-origin: top left` guarantees that the scale grows from the already-set top-left
+     corner and does not "wander" — the overlay's final position matches `destRect` with no extra corrections.
+7. **On completion** (the `animate()` promise/`onComplete`): remove the overlay from the DOM, `realTitleEl.style.visibility
+= ''` (visible again — since the overlay's final frame matches the position/size of the
+   real heading pixel for pixel, the swap is unnoticeable), `willChange = 'auto'` is already removed on completion (do not
+   leave it hanging, the same principle of §M.2a).
+8. **The donor card (what happens to it):** NOTHING special. `VacancyCard`/the list on the source
+   page simply leave via the ordinary base lift of §M v3.1 (the exit phase, the whole page settles and
+   fades) — the overlay clone itself flies ABOVE it (`z-index:1000`, `position:fixed`, on top of the fading
+   content), visually reads as "the heading detaches from the card and flies to its new place" while
+   everything else on the list softly fades under it. No separate code is required on the
+   `VacancyCard`/`CareersList` side.
 
-**Фолбэки (ВСЕ — просто базовый лифт §M v3.1, без морфа, без ошибок/задержек):**
+**Fallbacks (ALL — just the base lift of §M v3.1, without the morph, without errors/delays):**
 
-| Кейс                                                                     | Поведение                                                                                       |
-| ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
-| Прямой заход на `/careers/:slug` (новая вкладка/reload/внешняя ссылка)   | `pendingMorph === null` с самого начала → фолбэк                                                |
-| Переход НЕ из списка (Home-тизер → детальная, детальная → nav-лого home) | Route-пара `fromLocation`/`toLocation` не совпадает с `/careers ↔ /careers/:slug` → фолбэк      |
-| `prefers-reduced-motion: reduce`                                         | Capture пропущен целиком (п.3/4 early-return) → `pendingMorph` никогда не выставляется → фолбэк |
-| Заголовок карточки/детальной переносится на 2+ строки на любом конце     | Однострочность-guard (п.3/4/5) → фолбэк                                                         |
-| Вакансия пропала из списка между capture и consume (back-направление)    | `querySelector` не находит `[data-vacancy-morph-slug]` → фолбэк                                 |
-| Race/устаревшие данные (текст не совпадает)                              | Staleness-guard (п.5) → фолбэк                                                                  |
+| Case                                                                               | Behavior                                                                                         |
+| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| A direct visit to `/careers/:slug` (a new tab/reload/an external link)             | `pendingMorph === null` from the very start → fallback                                           |
+| A transition NOT from the list (Home teaser → detail, detail → nav-logo home)      | The route pair `fromLocation`/`toLocation` does not match `/careers ↔ /careers/:slug` → fallback |
+| `prefers-reduced-motion: reduce`                                                   | Capture skipped entirely (item 3/4 early-return) → `pendingMorph` is never set → fallback        |
+| The card/detail heading wraps onto 2+ lines at either end                          | The single-line guard (item 3/4/5) → fallback                                                    |
+| The vacancy disappeared from the list between capture and consume (back direction) | `querySelector` does not find `[data-vacancy-morph-slug]` → fallback                             |
+| A race/stale data (the text does not match)                                        | The staleness guard (item 5) → fallback                                                          |
 
-### M v3.3 iOS-перф правила (обязательны — применяются и к существующему M.1/nav-коду, не только к новому)
+### M v3.3 iOS-perf rules (mandatory — they also apply to the existing M.1/nav code, not only the new)
 
-Владелец: «на iPhone все анимации дёрганые». Разбор по коду (не только гипотеза) — два независимых
-источника continuous per-frame repaint на iOS Safari, оба усиливают друг друга при скролле:
+The owner: «на iPhone все анимации дёрганые». An analysis from the code (not only a hypothesis) — two independent
+sources of continuous per-frame repaint on iOS Safari, both reinforcing each other on scroll:
 
-1. **Правило (hard, наследует §M constraint):** ТОЛЬКО `transform`/`opacity` на композитном слое.
-   Lift (§M v3.1) и title-morph (§M v3.2) уже соблюдают это по построению (проверено выше по каждому
-   шагу) — фиксируется как регрессия-гейт для будущих правок этого кода, не только текущая проверка.
-2. **Правило (mandatory): НИКАКОГО scroll-linked JS-декора на тач-устройствах.** `ScrollReveal`
-   (§M.1.0, `useScroll`+`useTransform`, пересчитывается на КАЖДЫЙ scroll-frame) — на touch/coarse-
-   pointer устройствах заменяется на одноразовый `useInView`-reveal (IntersectionObserver под
-   капотом, не scroll-listener — нулевая нагрузка на main thread между срабатываниями):
+1. **Rule (hard, inherits the §M constraint):** ONLY `transform`/`opacity` on a composite layer.
+   The lift (§M v3.1) and title-morph (§M v3.2) already comply by construction (verified above at every
+   step) — recorded as a regression gate for future edits to this code, not only the current check.
+2. **Rule (mandatory): NO scroll-linked JS decor on touch devices.** `ScrollReveal`
+   (§M.1.0, `useScroll`+`useTransform`, recomputed on EVERY scroll frame) — on touch/coarse-
+   pointer devices is replaced by a one-time `useInView` reveal (an IntersectionObserver under the
+   hood, not a scroll listener — zero main-thread load between firings):
 
    ```ts
-   // apps/landing/app/lib/use-coarse-pointer.ts (НОВЫЙ) — НЕ UA-sniffing, media-query-based
+   // apps/landing/app/lib/use-coarse-pointer.ts (NEW) — NOT UA sniffing, media-query-based
    export function useCoarsePointer(): boolean {
      const [coarse, setCoarse] = useState(
        () =>
@@ -1405,174 +1404,174 @@ ${pendingMorph.rect.top}px) scale(1)` — визуально идентичен 
    }
    ```
 
-   - `ScrollReveal` (About/Services/Tech stack/Careers teaser/Contact, §M.1.0) — на touch: `const
-isInView = useInView(ref, { once: true, amount: 0.15 })`, рендерить `{opacity: isInView?1:0, y:
-isInView?0:y}` через обычный CSS-transition (`transition-[opacity,transform] duration-500
-ease-out`, НЕ Framer imperative) вместо `useScroll`/`useTransform` — тот же визуальный «въезд
-     один раз», без continuous scroll-recalculation.
-   - **Hero-glow/Terminal-докинг/Process connector-line/Chip-волна** (§M.1.1 — ambient/continuous
-     эффекты БЕЗ естественного «one-shot»-эквивалента) — на touch используют **тот же статичный
-     fallback, что уже прописан для `prefers-reduced-motion` в таблице §M.1.1** (просто объединить
-     условие: `if (reduced || coarsePointer) return <static/>`) — не изобретать отдельную
-     touch-версию с половинчатым эффектом, ambient-параллакс на тач-скролле не несёт той же
-     ценности, что на десктопном курсор+scroll.
-   - **Case-study metric-lag** (§M.1.1, «догоняющие» метрики) — на touch: лаг отключается, метрики
-     появляются ОДНОВРЕМЕННО с остальным содержимым карточки через тот же `useInView({once:true})`,
-     что и родительский `ScrollReveal` (не отдельный лаг-эффект).
+   - `ScrollReveal` (About/Services/Tech stack/Careers teaser/Contact, §M.1.0) — on touch: `const
+isInView = useInView(ref, { once: true, amount: 0.15 })`, render `{opacity: isInView?1:0, y:
+isInView?0:y}` via an ordinary CSS transition (`transition-[opacity,transform] duration-500
+ease-out`, NOT Framer imperative) instead of `useScroll`/`useTransform` — the same visual "slide-in
+     once", without continuous scroll recalculation.
+   - **Hero-glow/Terminal-docking/Process connector-line/Chip-wave** (§M.1.1 — ambient/continuous
+     effects WITHOUT a natural "one-shot" equivalent) — on touch use **the same static
+     fallback that is already prescribed for `prefers-reduced-motion` in the §M.1.1 table** (simply merge
+     the condition: `if (reduced || coarsePointer) return <static/>`) — do not invent a separate
+     touch version with a half-baked effect, an ambient parallax on touch scroll does not carry the same
+     value as on desktop cursor+scroll.
+   - **Case-study metric-lag** (§M.1.1, the "catching-up" metrics) — on touch: the lag is turned off, the metrics
+     appear SIMULTANEOUSLY with the rest of the card's content via the same `useInView({once:true})`
+     as the parent `ScrollReveal` (not a separate lag effect).
 
-3. **Правило: passive listeners.** Framer Motion `useScroll`/`useInView` используют passive/
-   IntersectionObserver внутри (не ручные non-passive scroll-listeners — подтверждено docs). Lift/
-   morph НЕ добавляют scroll-listeners вообще (только `popstate`, не scroll-событие). Явных ручных
-   `addEventListener('scroll', ...)` в кодовой базе landing нет — фиксируется как regression-gate:
-   если появится, ОБЯЗАН иметь `{ passive: true }`.
-4. **Правило: `will-change` точечно, снимать после анимации.** Уже применяется в §M.2a (Card/
-   VacancyCard hover) — title-morph overlay (§M v3.2 п.6-7) следует тому же паттерну (`willChange`
-   выставляется перед `animate()`, снимается в `onComplete`, никогда не оставляется висеть).
-5. **Правило (mandatory fix, НОВАЯ находка этого аудита): никакого continuous `backdrop-filter` на
-   sticky/fixed элементах над скроллящимся контентом.** `nav.tsx:84` — sticky header имеет
-   `backdrop-blur-md backdrop-saturate-150`. Формально это не CSS-`@keyframes`-анимация фильтра, НО
-   `backdrop-filter` на `position:sticky`-элементе, под которым непрерывно скроллится контент,
-   заставляет iOS Safari **пересчитывать сэмпл фона на КАЖДЫЙ scroll-frame** — функционально
-   эквивалентно анимированному blur, даже без явного `transition`/`animation` на самом фильтре.
-   Это накладывается на пункт 2 (scroll-linked JS) на КАЖДОМ кадре скролла и, скорее всего, —
-   главный вклад в жалобу «все анимации дёрганые» (эффект глобальный, липнет ко ВСЕМ 66px верхней
-   полосы экрана на протяжении всего скролла, не к одной конкретной секции). **Fix (touch only,
-   через `useCoarsePointer()` выше или CSS `@media (hover: none)`-вариант класса):** заменить
-   `backdrop-blur-md backdrop-saturate-150` на подъём непрозрачности фонового `color-mix` с текущих
-   `72%` до `~95%` и убрать `backdrop-filter` целиком — визуально почти неотличимо (фон и так тёмный,
-   контент под хедером тоже тёмный), но снимает per-frame repaint полностью. На desktop/hover-devices
-   — оставить как есть (blur там не создаёт той же нагрузки, retina/desktop GPU справляется).
-6. **Правило: никаких blur/filter-анимаций на мобиле** (общее следствие пункта 5) — регрессия-гейт
-   на будущее: любой новый `backdrop-blur`/`filter: blur()` на элементе, который может оказаться под
-   активным скроллом (sticky/fixed/`position:absolute` внутри скроллящегося контейнера) — ОБЯЗАН
-   иметь touch-fallback без фильтра, по аналогии с п.5.
+3. **Rule: passive listeners.** Framer Motion `useScroll`/`useInView` use passive/
+   IntersectionObserver inside (not manual non-passive scroll listeners — confirmed by the docs). The lift/
+   morph add NO scroll listeners at all (only `popstate`, not a scroll event). There are no explicit manual
+   `addEventListener('scroll', ...)` in the landing codebase — recorded as a regression gate:
+   if one appears, it MUST have `{ passive: true }`.
+4. **Rule: `will-change` sparingly, remove after the animation.** Already applied in §M.2a (Card/
+   VacancyCard hover) — the title-morph overlay (§M v3.2 items 6-7) follows the same pattern (`willChange`
+   is set before `animate()`, removed in `onComplete`, never left hanging).
+5. **Rule (mandatory fix, a NEW finding of this audit): no continuous `backdrop-filter` on
+   sticky/fixed elements above scrolling content.** `nav.tsx:84` — the sticky header has
+   `backdrop-blur-md backdrop-saturate-150`. Formally this is not a CSS `@keyframes` animation of the filter, BUT
+   `backdrop-filter` on a `position:sticky` element under which content continuously scrolls
+   forces iOS Safari to **recompute the background sample on EVERY scroll frame** — functionally
+   equivalent to an animated blur, even without an explicit `transition`/`animation` on the filter itself.
+   This stacks with item 2 (scroll-linked JS) on EVERY scroll frame and is most likely
+   the main contribution to the complaint "все анимации дёрганые" (the effect is global, it sticks to ALL 66px of the top
+   strip of the screen throughout the whole scroll, not to one specific section). **Fix (touch only,
+   via `useCoarsePointer()` above or a CSS `@media (hover: none)` variant of the class):** replace
+   `backdrop-blur-md backdrop-saturate-150` with raising the opacity of the background `color-mix` from the current
+   `72%` to `~95%` and remove `backdrop-filter` entirely — visually nearly indistinguishable (the background is dark anyway,
+   the content under the header is also dark), but it removes the per-frame repaint completely. On desktop/hover devices
+   — leave as is (the blur does not create the same load there, a retina/desktop GPU copes).
+6. **Rule: no blur/filter animations on mobile** (a general corollary of item 5) — a regression gate
+   for the future: any new `backdrop-blur`/`filter: blur()` on an element that may end up under
+   an active scroll (sticky/fixed/`position:absolute` inside a scrolling container) — MUST
+   have a touch fallback without the filter, by analogy with item 5.
 
-### M v3.4 Мобильный аудит живого прода (2026-07-25, `https://cheekycheese.tech`, 320/375/390)
+### M v3.4 Mobile audit of the live prod (2026-07-25, `https://cheekycheese.tech`, 320/375/390)
 
-Playwright, read-only, прод (не dev/staging — 0 PUBLISHED вакансий на момент аудита, `/careers/:slug`
-визуально не проверялся живьём, см. примечание в конце). Скриншоты — `assets/landing-redesign/
+Playwright, read-only, prod (not dev/staging — 0 PUBLISHED vacancies at the time of the audit, `/careers/:slug`
+was not checked visually live, see the note at the end). Screenshots — `assets/landing-redesign/
 mobile-audit-2026-07-25/`.
 
-| #   | Severity                      | Где                                                                                                                                                                                                                     | Что не так                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Что сделать                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| --- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | **HIGH** (владельца скриншот) | Hero eyebrow-бейдж «Outsource & outstaffing · AI · EdTech · E-Commerce», `apps/landing/app/components/ui/chip.tsx:11-21` (`Chip`, `items-center` на строке 11)                                                          | На 320/375/390 текст переносится на 2 строки (контент шире доступной ширины на ЛЮБОМ мобильном экране, не только 320). `items-center` на flex-контейнере центрирует ведущий жёлтый dot против ВСЕГО (двухстрочного) текстового блока, а не против первой строки — dot визуально «плавает» между строк, читается как оторванный/несвязанный элемент. Промерено: dot center y=157.19, центр 1-й строки y=146.6, центр всего 2-строчного блока y=156.2 — dot совпадает со вторым, не с первым (мат. подтверждение бага). Воспроизведено на 320/375/390 идентично (см. `home-320-badge-zoom.png`, `home-375-hero.png`, `home-390-hero-top.png`).                                                                                                                                                                                       | В `chip.tsx`: `items-center` → `items-start` на внешнем `span` (строка 11) + на dot (`span` строка 19) добавить `mt-[calc(0.75em-3px)]`. Формула — половина разницы между line-height (Tailwind Preflight `line-height:1.5`, наследуется, т.к. ни один вызов `Chip` не задаёт `leading-*`) и высотой dot (`size-1.5`=6px, фиксирован): `(1.5em-6px)/2 = 0.75em-3px`. `em` резолвится от текущего font-size dot'а (наследует от `Chip`), поэтому формула автоматически верна для ЛЮБОГО переопределения размера у любого вызова (`text-[0.8rem]` на hero, `text-[0.86rem]` default на tech-stack) — не хардкодить px. **Проверено математически, что для однострочных Chip (tech-stack — не переносится ни на одном брейкпоинте) результат ПИКСЕЛЬ-В-ПИКСЕЛЬ идентичен старому `items-center`** — фикс не требует раздельного пути для wrap/no-wrap случаев, безопасен как global-дефолт компонента. |
-| 2   | **HIGH** (найдено аудитом)    | Case-study метрики (`Selected work`), `apps/landing/app/components/marketing/case-study-card.tsx:56` и `:71` (обе ветки — `reduced` и обычная) — `text-[1.9rem]` на value-`div`                                         | На 320px (375/390 — чисто, промерено) значения вида `±NN%` (2-значное число + суффикс `%`, напр. `-64%`/`+38%`/`+27%`) визуально КАСАЮТСЯ следующей метрики — 16px gap между 66px-колонками grid'а полностью съедается натуральной шириной нерасщепляемого текстового рана "-64%" (~83px против 66+16=82px доступных) — заходит на ~1px в соседнюю колонку. На глаз (см. `home-320-casestudy.png`) читается как слипшееся «-64%5×» без зазора вообще — крупный визуальный дефект на каждой из 3 case-study карточек (AI/ML, EdTech, E-Commerce — паттерн систематический, не единичный случай). Промерено `getBoundingClientRect()`: em `%` правый край vs левый край соседней колонки — overlap +1px на всех трёх картах с `±NN%`-метрикой.                                                                                       | Уменьшить `text-[1.9rem]` до `text-[1.35rem]` БАЗОВО (<400px) с возвратом к полному размеру ≥400px: `text-[1.35rem] min-[400px]:text-[1.9rem]` на обеих строках (56, 71) — используя тот же `min-[Npx]:`-arbitrary-variant паттерн, что уже в кодовой базе (`nav.tsx` `min-[900px]:`, case-study grid `min-[860px]:`). Порог 400px — намеренно с запасом (реальный overflow только на 320px), не точечный под 320-374px — Coder может сузить порог при желании, но ОБЯЗАН перепроверить нулевой overlap на 320/375/390 (bounding-rect соседних колонок, `col[i].right <= col[i+1].left`, как в этом аудите) перед PASS.                                                                                                                                                                                                                                                                             |
-| 3   | LOW (guidance, не блокер)     | `nav.tsx:84` sticky header, hover-состояния §M.2 в целом                                                                                                                                                                | Не layout-баг, а перф/UX guidance: см. §M v3.3 п.5 (backdrop-blur continuous repaint — САМ фикс уже специфицирован там, здесь только перекрёстная ссылка, чтобы Coder не пропустил при беглом чтении только audit-таблицы). Отдельно: CSS `:hover`-классы (не Framer `whileHover`) не имеют встроенного touch-исключения (в отличие от Framer's `whileHover`, который игнорирует `pointerType==='touch'` по built-in — подтверждено исходником `gestures/hover.ts`) — на iOS `:hover` может визуально «залипнуть» после тапа до следующего тапа в другое место (задокументированный WebKit-паттерн). Риск минимален для элементов, где тап сразу уводит со страницы (nav/footer-ссылки, VacancyCard), но применимо к `mailto:`-CTA (открывает почтовый клиент, пользователь может вернуться на ту же страницу с «залипшим» hover). | Не блокирующий фикс. Если будет замечено на QA реальных iPhone — добавить `@media (hover: hover) and (pointer: fine)`-обёртку вокруг НОВЫХ decorative-only hover-добавлений из §M.2 HOTFIX (nav/footer underline-draw, burger idle-hover, Card glow, Chip micro-lift, Input pre-focus border) — существующие ФУНКЦИОНАЛЬНЫЕ hover (Button/Card lift, VacancyCard стрелка) не трогать, они и так корректно работают через `:active`/tap-эквивалент (см. §M «Жёсткие ограничения» последний пункт).                                                                                                                                                                                                                                                                                                                                                                                                   |
-| 4   | Verified clean                | Mobile nav (бургер+меню), smooth-scroll к `#about` с footer-ссылки, footer раскладка, tech-stack chip-грид, Process steps (1-колонка, connector-line корректно `hidden` <768px), careers empty-state (тизер+`/careers`) | Проверено на 320 — переносов/обрезаний/overlap НЕ найдено. Бургер 44×44px (соответствует §6.7). Смузи-скролл к `#about` останавливается на y=84.96 (за вычетом sticky-header 67px + запас) — `HEADER_OFFSET` (§M.4) работает верно живьём.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Изменений не требуется — зафиксировано как regression-baseline (см. скриншоты `home-320-nav-menu.png`, `home-320-about.png`, `home-320-footer.png`, `home-320-techstack.png`, `home-320-process.png`, `home-320-careers-teaser.png`, `careers-320.png`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| #   | Severity                          | Where                                                                                                                                                                                                                                     | What is wrong                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | What to do                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| --- | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **HIGH** (the owner's screenshot) | The hero eyebrow badge «Outsource & outstaffing · AI · EdTech · E-Commerce», `apps/landing/app/components/ui/chip.tsx:11-21` (`Chip`, `items-center` on line 11)                                                                          | At 320/375/390 the text wraps onto 2 lines (the content is wider than the available width on ANY mobile screen, not only 320). `items-center` on the flex container centers the leading yellow dot against the WHOLE (two-line) text block, not against the first line — the dot visually "floats" between the lines, reads as a detached/unconnected element. Measured: dot center y=157.19, the center of the 1st line y=146.6, the center of the whole 2-line block y=156.2 — the dot matches the second, not the first (a mathematical confirmation of the bug). Reproduced at 320/375/390 identically (see `home-320-badge-zoom.png`, `home-375-hero.png`, `home-390-hero-top.png`).                                                                                                                                   | In `chip.tsx`: `items-center` → `items-start` on the outer `span` (line 11) + on the dot (`span` line 19) add `mt-[calc(0.75em-3px)]`. The formula — half the difference between the line-height (Tailwind Preflight `line-height:1.5`, inherited, since no `Chip` call sets `leading-*`) and the dot height (`size-1.5`=6px, fixed): `(1.5em-6px)/2 = 0.75em-3px`. `em` resolves from the dot's current font-size (inherited from `Chip`), so the formula is automatically correct for ANY size override at any call (`text-[0.8rem]` on the hero, `text-[0.86rem]` default on tech-stack) — do not hardcode px. **It was verified mathematically that for single-line Chips (tech-stack — does not wrap at any breakpoint) the result is PIXEL-FOR-PIXEL identical to the old `items-center`** — the fix does not require a separate path for wrap/no-wrap cases, it is safe as a global default of the component. |
+| 2   | **HIGH** (found by the audit)     | Case-study metrics (`Selected work`), `apps/landing/app/components/marketing/case-study-card.tsx:56` and `:71` (both branches — `reduced` and the ordinary one) — `text-[1.9rem]` on the value `div`                                      | At 320px (375/390 — clean, measured) values of the form `±NN%` (a 2-digit number + the `%` suffix, e.g. `-64%`/`+38%`/`+27%`) visually TOUCH the next metric — the 16px gap between the 66px grid columns is completely eaten by the natural width of the unbreakable text run "-64%" (~83px vs 66+16=82px available) — it goes ~1px into the neighboring column. By eye (see `home-320-casestudy.png`) it reads as a stuck-together «-64%5×» with no gap at all — a major visual defect on each of the 3 case-study cards (AI/ML, EdTech, E-Commerce — the pattern is systematic, not a single case). Measured with `getBoundingClientRect()`: the `%` em's right edge vs the left edge of the neighboring column — an overlap of +1px on all three cards with a `±NN%` metric.                                            | Reduce `text-[1.9rem]` to `text-[1.35rem]` BY DEFAULT (<400px) with a return to the full size ≥400px: `text-[1.35rem] min-[400px]:text-[1.9rem]` on both lines (56, 71) — using the same `min-[Npx]:` arbitrary-variant pattern that is already in the codebase (`nav.tsx` `min-[900px]:`, the case-study grid `min-[860px]:`). The 400px threshold — deliberately with a margin (the real overflow is only at 320px), not tailored to 320-374px — the Coder may narrow the threshold if desired, but MUST re-verify zero overlap at 320/375/390 (bounding-rect of the neighboring columns, `col[i].right <= col[i+1].left`, as in this audit) before PASS.                                                                                                                                                                                                                                                          |
+| 3   | LOW (guidance, not a blocker)     | `nav.tsx:84` sticky header, the §M.2 hover states in general                                                                                                                                                                              | Not a layout bug, but perf/UX guidance: see §M v3.3 item 5 (backdrop-blur continuous repaint — the fix ITSELF is already specified there, here only a cross-reference so the Coder does not miss it when skimming only the audit table). Separately: CSS `:hover` classes (not Framer `whileHover`) have no built-in touch exclusion (unlike Framer's `whileHover`, which ignores `pointerType==='touch'` by built-in — confirmed by the `gestures/hover.ts` source) — on iOS `:hover` may visually "stick" after a tap until the next tap elsewhere (a documented WebKit pattern). The risk is minimal for elements where a tap immediately leads away from the page (nav/footer links, VacancyCard), but applies to the `mailto:` CTA (opens the mail client, the user may return to the same page with a "stuck" hover). | A non-blocking fix. If noticed in QA on real iPhones — add a `@media (hover: hover) and (pointer: fine)` wrapper around the NEW decorative-only hover additions of the §M.2 HOTFIX (nav/footer underline-draw, burger idle-hover, Card glow, Chip micro-lift, Input pre-focus border) — do not touch the existing FUNCTIONAL hovers (Button/Card lift, the VacancyCard arrow), they already work correctly via `:active`/the tap equivalent (see the last item of §M "Hard constraints").                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| 4   | Verified clean                    | Mobile nav (burger+menu), smooth scroll to `#about` from the footer link, the footer layout, the tech-stack chip grid, Process steps (1-column, the connector-line is correctly `hidden` <768px), careers empty state (teaser+`/careers`) | Verified at 320 — no wraps/clipping/overlap found. The burger is 44×44px (matches §6.7). The smooth scroll to `#about` stops at y=84.96 (net of the sticky header 67px + a margin) — `HEADER_OFFSET` (§M.4) works correctly live.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | No changes required — recorded as a regression baseline (see the screenshots `home-320-nav-menu.png`, `home-320-about.png`, `home-320-footer.png`, `home-320-techstack.png`, `home-320-process.png`, `home-320-careers-teaser.png`, `careers-320.png`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
-**Не покрыто аудитом (примечание для Coder/PM, не дефект):** на момент аудита в БД 0 PUBLISHED
-вакансий — `/careers/:slug` недостижим на живом проде (список пуст на всех страницах). Мобильная
-раскладка детальной страницы визуально НЕ перепроверялась живьём в этом проходе — полагаться на
-статичный fidelity-референс `assets/landing-redesign/vacancy-320.png` (§7) + §6.6 responsive-спеку;
-после публикации первой живой вакансии — отдельный быстрый Mode B прогон `/careers/:slug` на 320/375/390.
-Также замечена (не в скоупе дизайна, для информации PM/DevOps) CSP console-ошибка на `/careers`:
+**Not covered by the audit (a note for Coder/PM, not a defect):** at the time of the audit there were 0 PUBLISHED
+vacancies in the DB — `/careers/:slug` is unreachable on the live prod (the list is empty on all pages). The mobile
+layout of the detail page was NOT re-verified visually live in this pass — rely on the
+static fidelity reference `assets/landing-redesign/vacancy-320.png` (§7) + the §6.6 responsive spec;
+after the first live vacancy is published — a separate quick Mode B run of `/careers/:slug` at 320/375/390.
+Also noticed (not in the design scope, for PM/DevOps information) a CSP console error on `/careers`:
 `Loading the script 'https://static.cloudflareinsights.com/beacon.min.js/...' violates ... "script-src
-'self'"` — блокируется браузером, инфраструктурный `Content-Security-Policy`-заголовок не выпускает
-Cloudflare Insights beacon; не влияет на визуал/motion, но стоит завести отдельный DevOps-тикет.
+'self'"` — blocked by the browser, the infrastructure `Content-Security-Policy` header does not allow the
+Cloudflare Insights beacon; it does not affect visuals/motion, but a separate DevOps ticket is worth creating.
 
-### M v3.5 Verification-чеклист (дополняет §M.6 — то, что реально изменилось в v3)
+### M v3.5 Verification checklist (supplements §M.6 — what really changed in v3)
 
-> **SUPERSEDED 2026-07-26 (page-transition/title-morph пункты только).** Первые 5 пунктов ниже
-> проверяли механику §M v3.1/§M v3.2, которая **удалена** (task-landing-remove-page-transitions.md)
-> — не применимы. iOS-перф/Chip/case-study/Lighthouse пункты остаются в силе как есть.
+> **SUPERSEDED 2026-07-26 (page-transition/title-morph items only).** The first 5 items below
+> verified the mechanics of §M v3.1/§M v3.2, which is **removed** (task-landing-remove-page-transitions.md)
+> — not applicable. The iOS-perf/Chip/case-study/Lighthouse items remain in force as is.
 
-- [ ] Ни один page-transition НЕ использует `AnimatePresence` (проверка кода — паттерн исключён
-      сознательно, см. §M v3.1 «Почему всё ещё БЕЗ AnimatePresence»).
-- [ ] Lift exit/enter — ТОЛЬКО `opacity`/`translateY`, никакого нового цветного/тёмного full-screen
-      слоя (визуальная проверка + DOM-инспекция — `page-transition-overlay.tsx` из старого §M.3
-      **удалён** вместе со scrim/caret-line кодом).
-- [ ] Back-direction (`popstate` И `<BackLink>`) — `translateY` enter стартует с ОТРИЦАТЕЛЬНЫМ
-      знаком (сверху), forward — с положительным (снизу) — визуально/через `getComputedStyle`
-      в момент старта анимации.
-- [ ] Title-morph играет ТОЛЬКО на переходах `/careers → /careers/:slug` и обратно, кликнутых
-      ИМЕННО из `VacancyCard`/`BackLink` (не на прямом заходе, не с Home-тизера) — покрыть все 6
-      фолбэков из таблицы §M v3.2 (Playwright: прямой заход на `/careers/:slug`, переход с `/`,
-      `prefers-reduced-motion`, искусственно длинный заголовок вызывающий 2-строчный wrap на любом
-      конце).
-- [ ] Title-morph overlay — `pointer-events:none` всегда (клики сквозь него проходят), `willChange`
-      снят после завершения (DOM-инспекция сразу после анимации, не должен остаться в inline style).
-- [ ] iOS-перф: на `useCoarsePointer()===true` (эмулировать `page.emulateMedia({ 'pointer': 'coarse'
-})` в Playwright, либо реальный touch-эмулятор) — `ScrollReveal` секции используют
-      `useInView({once:true})`, НЕ `useScroll`/`useTransform` (проверка через React DevTools/props
-      или через отсутствие continuous re-render на scroll — profiler).
-- [ ] Nav sticky header на touch — `backdrop-filter` отсутствует в computed style (`getComputedStyle
-(nav).backdropFilter === 'none'`), фон близок к непрозрачному (`~95%` alpha).
-- [ ] Hero eyebrow-бейдж (Chip) — ноль случаев, где dot визуально не совпадает с первой строкой
-      текста, на 320/375/390 (визуальная проверка + `getBoundingClientRect()` dot vs первая строка
-      text-node, как в этом аудите, п.1 таблицы §M v3.4).
-- [ ] Case-study метрики — ноль overlap между соседними колонками на 320/375/390 (`col[i].right <=
-col[i+1].left`, все 3 карточки × все 3 метрики).
-- [ ] `Lighthouse mobile ≥90` не регрессировал (тот же гейт, что §M.6, но с учётом нового overlay-
-      клона title-morph — DOM-элемент создаётся/удаляется динамически, не должен оставаться в DOM
-      после завершения ни при каком фолбэке/раннем прерывании навигации).
+- [ ] No page transition uses `AnimatePresence` (a code check — the pattern is excluded
+      deliberately, see §M v3.1 "Why still WITHOUT AnimatePresence").
+- [ ] The lift exit/enter — ONLY `opacity`/`translateY`, no new colored/dark full-screen
+      layer (a visual check + DOM inspection — `page-transition-overlay.tsx` from the old §M.3
+      is **removed** together with the scrim/caret-line code).
+- [ ] Back direction (`popstate` AND `<BackLink>`) — the enter `translateY` starts with a NEGATIVE
+      sign (from above), forward — with a positive one (from below) — visually/via `getComputedStyle`
+      at the moment the animation starts.
+- [ ] The title-morph plays ONLY on transitions `/careers → /careers/:slug` and back, clicked
+      EXACTLY from `VacancyCard`/`BackLink` (not on a direct visit, not from the Home teaser) — cover all 6
+      fallbacks from the §M v3.2 table (Playwright: a direct visit to `/careers/:slug`, a transition from `/`,
+      `prefers-reduced-motion`, an artificially long heading causing a 2-line wrap at either
+      end).
+- [ ] The title-morph overlay — `pointer-events:none` always (clicks pass through it), `willChange`
+      removed after completion (DOM inspection right after the animation, must not remain in the inline style).
+- [ ] iOS perf: with `useCoarsePointer()===true` (emulate `page.emulateMedia({ 'pointer': 'coarse'
+})` in Playwright, or a real touch emulator) — the `ScrollReveal` sections use
+      `useInView({once:true})`, NOT `useScroll`/`useTransform` (a check via React DevTools/props
+      or via the absence of continuous re-render on scroll — profiler).
+- [ ] The nav sticky header on touch — `backdrop-filter` is absent in the computed style (`getComputedStyle
+(nav).backdropFilter === 'none'`), the background is close to opaque (`~95%` alpha).
+- [ ] The hero eyebrow badge (Chip) — zero cases where the dot visually does not match the first line of
+      text, at 320/375/390 (a visual check + `getBoundingClientRect()` dot vs the first line of the
+      text node, as in this audit, item 1 of the §M v3.4 table).
+- [ ] Case-study metrics — zero overlap between neighboring columns at 320/375/390 (`col[i].right <=
+col[i+1].left`, all 3 cards × all 3 metrics).
+- [ ] `Lighthouse mobile ≥90` did not regress (the same gate as §M.6, but taking into account the new overlay
+      clone of the title-morph — a DOM element is created/removed dynamically, must not remain in the DOM
+      after completion under any fallback/early interruption of navigation).
 
 ### M v3 addendum (implementation notes, 2026-07-25, MED-1 code-review)
 
 > **SUPERSEDED 2026-07-26 (mechanism only — pattern carried forward).** The `lib/title-morph.ts` /
-> lift-wrapper machinery this addendum documents is **удалена**
+> lift-wrapper machinery this addendum documents is **removed**
 > (task-landing-remove-page-transitions.md). Point 1's underlying LESSON (defer `focusMainLandmark()`
 > to a `useEffect` keyed on committed state, never call it synchronously right after `setState`) is
 > still correct and is exactly what the NEW, transition-free focus-management code in `__root.tsx`
 > does — see that file's own module doc. Points 2-3 (the `key`-remount race + title-morph
 > addressable-consume) are moot — there is no `key`-remount and no title-morph left to race.
 
-Реализация (`apps/landing/app/routes/__root.tsx`, `apps/landing/app/lib/title-morph.ts`,
+The implementation (`apps/landing/app/routes/__root.tsx`, `apps/landing/app/lib/title-morph.ts`,
 `apps/landing/app/components/marketing/careers-list.tsx`, `apps/landing/app/routes/careers_.$slug.tsx`)
-отклонилась от буквы §M v3.1 шаги 5-7 в двух местах — оба отклонения обнаружены практикой
-(E2E-верификация round 1 + ui-ux-designer Mode B fidelity-аудит round 1, PR #419) и являются
-намеренными, задокументированными здесь fix-коммитами `a5510a57`/`e838e3ec`. Спека выше (§M v3.1
-шаги 5-7) остаётся как есть — этот аддендум объясняет ГДЕ и ПОЧЕМУ реализация разошлась с буквой,
-не переписывает саму спеку задним числом.
+deviated from the letter of §M v3.1 steps 5-7 in two places — both deviations were discovered in practice
+(E2E verification round 1 + the ui-ux-designer Mode B fidelity audit round 1, PR #419) and are
+deliberate, documented here by the fix commits `a5510a57`/`e838e3ec`. The spec above (§M v3.1
+steps 5-7) remains as is — this addendum explains WHERE and WHY the implementation diverged from the letter,
+and does not rewrite the spec itself retroactively.
 
-**1. Focus-management — `onResolved` + `useEffect`, НЕ `onAnimationComplete` (отклонение от §M v3.1
-шаг 6/7).** Буква шага 6 прямо говорит «`onResolved` из старого шага 7 — не нужен вообще, убрать эту
-подписку», а шаг 7 привязывает `focusMainLandmark` к `onAnimationComplete` enter-твина. На практике
-это не работает: `onAnimationComplete`/само изменение `transition.pathname`-state срабатывают в
-момент `onBeforeNavigate` — синхронно, ДО того, как асинхронный `loader` роута зарезолвился и
-`<Outlet/>` реально подставил конечный DOM новой страницы. E2E (round 1) стабильно воспроизвела это
-как race именно под `prefers-reduced-motion` (там нет анимационной задержки, которая на глаз
-маскировала разрыв): фокус уезжал на `<main>`, который мгновение спустя подменялся, и
-`document.activeElement` незаметно откатывался на `<body>`. Round-1 фикс (`a5510a57`) вернул
-`onResolved`-подписку (тот же паттерн, что был в дореспековском §M.3). Round-2 фикс (`e838e3ec`) пошёл
-дальше: `focusMainLandmark()` вызывается не инлайново сразу после `setTransition(...)` внутри
-`onResolved`-обработчика, а из отдельного `useEffect`, зависящего от `transition.pathname` —
-`setTransition` лишь ПЛАНИРУЕТ ре-рендер, синхронный вызов сразу после него ещё выполняется ДО того,
-как React закоммитил этот рендер, и `document.querySelector('main')` в этот момент мог найти СТАРЫЙ
-`<main>` (или ничего). `useEffect` по построению срабатывает строго ПОСЛЕ коммита DOM для рендера,
-который выставил именно это значение `transition.pathname` — гарантированно финальный, уже
-отрисованный узел. Оба фикса эмпирически подтверждены (ui-ux-designer round 1 + round 2): фокус
-корректно уходит на `<main>`, включая под `prefers-reduced-motion`.
+**1. Focus management — `onResolved` + `useEffect`, NOT `onAnimationComplete` (a deviation from §M v3.1
+step 6/7).** The letter of step 6 says directly "`onResolved` from the old step 7 — is not needed at all, remove this
+subscription", and step 7 ties `focusMainLandmark` to the `onAnimationComplete` of the enter tween. In practice
+this does not work: `onAnimationComplete`/the very change of the `transition.pathname` state fire at
+the moment of `onBeforeNavigate` — synchronously, BEFORE the route's asynchronous `loader` has resolved and
+`<Outlet/>` has actually substituted the final DOM of the new page. E2E (round 1) stably reproduced this
+as a race precisely under `prefers-reduced-motion` (there is no animation delay there, which
+masked the gap by eye): focus moved to `<main>`, which a moment later was swapped out, and
+`document.activeElement` quietly rolled back to `<body>`. The round-1 fix (`a5510a57`) brought back the
+`onResolved` subscription (the same pattern that was in the pre-respec §M.3). The round-2 fix (`e838e3ec`) went
+further: `focusMainLandmark()` is called not inline right after `setTransition(...)` inside the
+`onResolved` handler, but from a separate `useEffect` depending on `transition.pathname` —
+`setTransition` merely SCHEDULES a re-render, a synchronous call right after it still runs BEFORE
+React has committed that render, and `document.querySelector('main')` at that moment could find the OLD
+`<main>` (or nothing). `useEffect` by construction fires strictly AFTER the DOM commit for the render
+that set exactly this value of `transition.pathname` — a guaranteed final, already
+painted node. Both fixes were confirmed empirically (ui-ux-designer round 1 + round 2): focus
+correctly goes to `<main>`, including under `prefers-reduced-motion`.
 
-**2. `key`/`transition.pathname` — обновляется ТОЛЬКО из `onResolved`, НЕ из `onBeforeNavigate`
-(усиливает, не противоречит букве шага 5 — шаг 5 не специфицировал источник `pathname` явно; round-1
-реализация читала его из `onBeforeNavigate`'s `toLocation.pathname` оптимистично, что и стало HIGH
-root cause ниже).** Round-1 fidelity-аудит (PR #419, `Design Review: BLOCK`) нашёл и локализовал
-точной трассировкой стека: оптимистичный `key` до коммита роутера форсил React на немедленный
-unmount+remount враппера, пока `<Outlet/>` внутри ещё резолвился в СТАРЫЙ маршрут (async `loader` не
-успел закоммититься) — это порождало спуриозный лишний mount СТАРОЙ страницы, чей `useLayoutEffect`
-(title-morph consumer) успевал первым вызвать one-shot `readPendingMorph()` и «съедал» морф раньше,
-чем настоящий destination успевал смонтироваться. Итог — §M v3.2 shared-element title-morph НЕ играл
-НИ В ОДНОМ направлении, при этом базовый лифт (§M v3.1) выглядел корректно и маскировал баг от
-беглого визуального QA. Round-2 фикс (`e838e3ec`) убирает race у источника: `key` меняется только
-когда роутер РЕАЛЬНО закоммитил переход (`onResolved`), спуриозного remount'а больше не происходит.
+**2. `key`/`transition.pathname` — updated ONLY from `onResolved`, NOT from `onBeforeNavigate`
+(strengthens, does not contradict the letter of step 5 — step 5 did not specify the source of `pathname`
+explicitly; the round-1 implementation read it optimistically from `onBeforeNavigate`'s `toLocation.pathname`, which became the HIGH
+root cause below).** The round-1 fidelity audit (PR #419, `Design Review: BLOCK`) found and localized
+by an exact stack trace: an optimistic `key` before the router's commit forced React to immediately
+unmount+remount the wrapper while the `<Outlet/>` inside was still resolving to the OLD route (the async `loader` had not
+had time to commit) — this produced a spurious extra mount of the OLD page, whose `useLayoutEffect`
+(the title-morph consumer) managed to be first to call the one-shot `readPendingMorph()` and "ate" the morph before
+the real destination had time to mount. Result — the §M v3.2 shared-element title-morph did NOT play in
+EITHER direction, while the base lift (§M v3.1) looked correct and masked the bug from
+a cursory visual QA. The round-2 fix (`e838e3ec`) removes the race at the source: `key` changes only
+when the router has ACTUALLY committed the transition (`onResolved`), the spurious remount no longer happens.
 
-**3. `title-morph.ts` `readPendingMorph` — адресный по `consumerPathname` (второй, независимый слой
-защиты).** Помимо фикса №2 у источника, `readPendingMorph(consumerPathname)` теперь дополнительно
-сверяет `routePair.to === consumerPathname` — one-shot morph достаётся ТОЛЬКО тому компоненту, чей
-собственный текущий `pathname` реально совпадает с destination навигации, независимо от порядка
-срабатывания эффектов. Это защищает от того же класса race, если он когда-нибудь вернётся при
-будущем рефакторинге `__root.tsx` (defense-in-depth, не полагается только на фикс №2).
-`consumerPathname` передаётся через `useLocation({ select: (l) => l.pathname })`, и **намеренно
-исключён из dependency array** consumer-эффектов (`careers-list.tsx`, `careers_.$slug.tsx`) — этот
-хук реактивен и TanStack Router обновляет `router.state.location` на PENDING/целевой адрес рано, до
-реального unmount текущего компонента; если бы `pathname` был в deps, эффект перезапустился бы на
-ещё смонтированном SOURCE-компоненте в момент, когда pending-location уже переключился на
-destination — тот же race на другом уровне. Эффект должен читать `pathname` как снятый при
-ИСТИННОМ mount снэпшот (через closure), не как live-tracked значение.
+**3. `title-morph.ts` `readPendingMorph` — addressable by `consumerPathname` (a second, independent layer of
+protection).** In addition to fix #2 at the source, `readPendingMorph(consumerPathname)` now additionally
+checks `routePair.to === consumerPathname` — the one-shot morph is handed ONLY to the component whose
+own current `pathname` really matches the navigation's destination, regardless of the order in which
+the effects fire. This protects against the same class of race if it ever returns during a
+future refactor of `__root.tsx` (defense-in-depth, does not rely only on fix #2).
+`consumerPathname` is passed via `useLocation({ select: (l) => l.pathname })`, and is **deliberately
+excluded from the dependency array** of the consumer effects (`careers-list.tsx`, `careers_.$slug.tsx`) — this
+hook is reactive and TanStack Router updates `router.state.location` to the PENDING/target address early, before
+the actual unmount of the current component; if `pathname` were in deps, the effect would re-run on the
+still-mounted SOURCE component at the moment when the pending location has already switched to the
+destination — the same race at a different level. The effect must read `pathname` as a snapshot taken at the
+TRUE mount (via a closure), not as a live-tracked value.
 
-**Верификация (ui-ux-designer Mode B, round 2, PR #419 `Fidelity: PASS`):** количественно (не только
-визуально) — `getComputedStyle` timeline overlay-клона сопоставлен с реальной геометрией
-destination-элемента (`getBoundingClientRect()`+`fontSize`) на 1440px в обоих направлениях: финальная
-позиция/масштаб overlay совпадают с destination с точностью <1px / 4 знака после запятой на
-`scaleFactor`. Все 4 применимых фолбэка (прямой заход, Home-тизер, `prefers-reduced-motion`,
-многострочный guard) перепроверены — морф корректно НЕ играет, базовый лифт отрабатывает штатно.
+**Verification (ui-ux-designer Mode B, round 2, PR #419 `Fidelity: PASS`):** quantitatively (not only
+visually) — the `getComputedStyle` timeline of the overlay clone was matched against the real geometry of the
+destination element (`getBoundingClientRect()`+`fontSize`) at 1440px in both directions: the final
+position/scale of the overlay match the destination to within <1px / 4 decimal places on
+`scaleFactor`. All 4 applicable fallbacks (a direct visit, the Home teaser, `prefers-reduced-motion`, the
+multi-line guard) were re-verified — the morph correctly does NOT play, the base lift works as normal.

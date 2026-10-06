@@ -8,68 +8,68 @@
 
 ## Brief
 
-Инструмент для ADMIN: войти в CRM от лица другого сотрудника. Используется для поддержки и отладки.
+A tool for ADMIN: log in to the CRM as another employee. Used for support and debugging.
 
-Два компонента:
+Two components:
 
-1. **Таба «Войти как»** на странице `/admin` (рядом с «Контракты», «Terms of Service», «Компания»)
-2. **Глобальный баннер** — видимый на ВСЕХ страницах когда ADMIN действует как другой пользователь
-
----
-
-## Token map (из globals.css)
-
-- Фон баннера: `amber-500/10` (`bg-amber-500/10`)
-- Граница баннера: `amber-500/30` (`border-amber-500/30`)
-- Текст баннера: `amber-600 dark:amber-400`
-- Кнопка «Вернуться»: `variant="outline"` (shadcn/ui Button)
-- Список пользователей: `bg-card border border-border/60 rounded-xl` (карточки как на /users)
-- Бейджи ролей: `<Badge variant={role.toLowerCase()}>` (существующая система)
-- Hover строки: `hover:bg-muted/40 transition-colors`
-- Кнопка «Войти как» на строке: `variant="outline" size="sm"`
+1. **«Войти как» tab** on the `/admin` page (next to «Контракты», «Terms of Service», «Компания»)
+2. **Global banner** — visible on ALL pages while the ADMIN is acting as another user
 
 ---
 
-## Компоненты
+## Token map (from globals.css)
 
-### Используемые (существующие shadcn/ui + проект)
+- Banner background: `amber-500/10` (`bg-amber-500/10`)
+- Banner border: `amber-500/30` (`border-amber-500/30`)
+- Banner text: `amber-600 dark:amber-400`
+- «Вернуться» button: `variant="outline"` (shadcn/ui Button)
+- User list: `bg-card border border-border/60 rounded-xl` (cards as on /users)
+- Role badges: `<Badge variant={role.toLowerCase()}>` (existing system)
+- Row hover: `hover:bg-muted/40 transition-colors`
+- «Войти как» button on a row: `variant="outline" size="sm"`
+
+---
+
+## Components
+
+### Used (existing shadcn/ui + project)
 
 - `Button` (variant: outline, size: sm / default)
-- `Badge` (variant: роль в lowercase)
-- `AlertDialog` / Dialog для confirm (вместо window.confirm — браузерный диалог не брендирован)
+- `Badge` (variant: role in lowercase)
+- `AlertDialog` / Dialog for confirm (instead of window.confirm — the browser dialog is not branded)
 - `Skeleton` (loading state)
-- `AnimatedTabs` (для добавления табы в admin/route.tsx)
-- `UserAvatar` (аватарки в списке)
-- `PageHeader` + `StickyPageHeader` (шапка страницы)
+- `AnimatedTabs` (to add the tab in admin/route.tsx)
+- `UserAvatar` (avatars in the list)
+- `PageHeader` + `StickyPageHeader` (page header)
 
-### Новые
+### New
 
-- `ImpersonationBanner` — компонент баннера (в `apps/web/app/components/layout/`)
-- `LoginAsPage` — роут-компонент (`apps/web/app/routes/_authenticated/admin/login-as.tsx`)
+- `ImpersonationBanner` — banner component (in `apps/web/app/components/layout/`)
+- `LoginAsPage` — route component (`apps/web/app/routes/_authenticated/admin/login-as.tsx`)
 
 ---
 
 ## Layout
 
-### Таба в /admin
+### Tab in /admin
 
-Добавить в `ADMIN_TABS` в `admin/route.tsx`:
+Add to `ADMIN_TABS` in `admin/route.tsx`:
 
 ```
 { value: 'login-as', label: 'Войти как', ariaLabel: 'Войти как' }
 ```
 
-### Страница /admin/login-as
+### Page /admin/login-as
 
 ```
 PageHeader
   "Войти как"  ← title (h2, text-lg font-semibold)
   "Войдите от лица сотрудника для поддержки"  ← description (text-sm text-muted-foreground)
 
-Search input  ← фильтр по имени/email (placeholder: "Поиск...")
+Search input  ← filter by name/email (placeholder: "Поиск...")
 
-Список пользователей (grid-cols-1, gap-2):
-  [Строка]
+User list (grid-cols-1, gap-2):
+  [Row]
     UserAvatar (32px)
     displayName (font-medium)
     email (text-sm text-muted-foreground)
@@ -77,10 +77,10 @@ Search input  ← фильтр по имени/email (placeholder: "Поиск..
     Button("Войти как")  → confirm dialog → mutation
 ```
 
-### Баннер ImpersonationBanner
+### ImpersonationBanner
 
 ```
-sticky top-0 z-50 (ИЛИ z-49 если ниже header)
+sticky top-0 z-50 (OR z-49 if below the header)
 bg-amber-500/10 border-b border-amber-500/30
 
 Desktop (≥640):
@@ -88,43 +88,43 @@ Desktop (≥640):
 
 Mobile (<640):
   [!] Вы вошли как «{displayName}»
-  [Вернуться]  ← full-width кнопка (min-h-[44px])
+  [Вернуться]  ← full-width button (min-h-[44px])
 ```
 
 ---
 
 ## Motion
 
-- Баннер: `motion.div` fadeIn (opacity 0→1, duration 200ms) при маунте
-- Confirm dialog: встроенный Radix анимация (shadcn/ui AlertDialog)
+- Banner: `motion.div` fadeIn (opacity 0→1, duration 200ms) on mount
+- Confirm dialog: built-in Radix animation (shadcn/ui AlertDialog)
 
 ---
 
 ## A11y (WCAG 2.2)
 
-- Баннер: `role="alert"` (screen reader announcement при появлении)
-- Кнопка «Вернуться»: `aria-label="Вернуться в свой профиль"` (явный label)
-- Кнопка «Войти как» на строке: `aria-label="Войти как {displayName}"`
-- Тач-таргеты мобайл: `min-h-[44px]` для всех интерактивных элементов
-- Confirm dialog: focus trap автоматически через Radix AlertDialog
+- Banner: `role="alert"` (screen reader announcement on appearance)
+- «Вернуться» button: `aria-label="Вернуться в свой профиль"` (explicit label)
+- «Войти как» button on a row: `aria-label="Войти как {displayName}"`
+- Mobile touch targets: `min-h-[44px]` for all interactive elements
+- Confirm dialog: focus trap is automatic via Radix AlertDialog
 
 ---
 
-## Responsive (4 класса)
+## Responsive (4 classes)
 
-| Класс          | Поведение                                                                                        |
-| -------------- | ------------------------------------------------------------------------------------------------ |
-| Mobile 320–375 | Список одноколоночный; баннер текст переносится; кнопка «Вернуться» full-width; тач-таргет ≥44px |
-| Tablet 768     | Список одноколоночный; баннер в одну строку                                                      |
-| Laptop 1024    | Список с Badge и кнопкой справа в одну строку                                                    |
-| Large 1440     | max-w-2xl для контента, остальное как laptop                                                     |
+| Class          | Behavior                                                                                    |
+| -------------- | ------------------------------------------------------------------------------------------- |
+| Mobile 320–375 | Single-column list; banner text wraps; «Вернуться» button is full-width; touch target ≥44px |
+| Tablet 768     | Single-column list; banner on one line                                                      |
+| Laptop 1024    | List with Badge and button on the right, on one line                                        |
+| Large 1440     | max-w-2xl for content, the rest as laptop                                                   |
 
 ---
 
 ## Edge cases
 
-- **Empty state:** «Нет сотрудников» с иконкой (нет non-ADMIN пользователей)
-- **Loading:** Skeleton строки
+- **Empty state:** «Нет сотрудников» with an icon (no non-ADMIN users)
+- **Loading:** Skeleton rows
 - **Error mutation:** toast.error('Не удалось войти как...')
-- **Onboarding flow:** баннер остаётся доступен ДАЖЕ на `/onboarding` (не скрывать за гейтом)
-- **Фильтрация:** фронт фильтрует `role === 'ADMIN'` и `id === currentUser.id` из списка
+- **Onboarding flow:** the banner stays available EVEN on `/onboarding` (do not hide it behind the gate)
+- **Filtering:** the frontend filters `role === 'ADMIN'` and `id === currentUser.id` out of the list
