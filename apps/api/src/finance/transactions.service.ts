@@ -27,7 +27,6 @@ import type {
   IncomeComplianceReceiverDto,
   IncomeComplianceRole,
   ManualPayoutMethod,
-  CurrencyEnum,
   TransactionAuditLogEntryDto,
   SalaryMonthGapReportDto,
   SalaryMonthGapReceiverDto,
@@ -127,6 +126,7 @@ import {
 // exchange-rate storability rule when settling a DROP obligation in a
 // non-obligation currency — see exchange-rate.util.ts for the full rationale.
 import { isStorableExchangeRate } from './exchange-rate.util'
+import { convertToUsdtMinor } from './usdt-conversion.util'
 
 // Phase 8 v2 — payout → company wallet. Marker persisted in
 // transactions.fundingSource on a PAYOUT row whose money landed on the company
@@ -1044,49 +1044,6 @@ export class TransactionsService {
   // (income − senior − drop) is NOT split here — it stays on the company
   // account (task-drop-payout-company-account; the legacy 50/50 partner split
   // helper `computePartnersSplit` was removed with the payment-channel flow).
-
-  /**
-   * Phase 8 v2 — convert a scaled-integer (minor units, ×1e6) amount in a source
-   * currency into USDT minor units, using NBU UAH cross-rates.
-   *
-   * USDT is pegged 1:1 to USD (NbuCurrencyService returns usdtUah === usdUah),
-   * so:
-   *   - USDT / USD → identity (1 USD == 1 USDT).
-   *   - EUR  → USDT: amount * (eurUah / usdUah)  (EUR→UAH→USD≡USDT).
-   *   - UAH  → USDT: amount / usdUah.
-   *
-   * Integer-domain arithmetic on the scaled minor units (no float accumulation):
-   * we multiply by the rate ratio with a single Math.round, mirroring the
-   * decimal-safe aggregation used elsewhere in createPayoutRequest.
-   *
-   * `rates` is fetched ONCE per payout (today's NBU snapshot) and passed in so
-   * the conversion is deterministic across the whole batch.
-   */
-  private convertToUsdtMinor(
-    amountMinor: number,
-    // code-review LOW: strict currency union (canonical `CurrencyEnum` from
-    // @crm/shared = 'USDT' | 'USD' | 'EUR' | 'UAH') instead of bare `string`,
-    // so the switch is exhaustive at compile time and an unsupported currency
-    // is a type error at the call site, not a runtime surprise. The default
-    // branch is kept as a defensive runtime backstop for data that bypasses the
-    // Zod boundary (e.g. a legacy DB row outside the enum).
-    currency: CurrencyEnum,
-    rates: { usdUah: number; eurUah: number },
-  ): number {
-    switch (currency) {
-      case 'USDT':
-      case 'USD':
-        return amountMinor
-      case 'EUR':
-        return Math.round((amountMinor * rates.eurUah) / rates.usdUah)
-      case 'UAH':
-        return Math.round(amountMinor / rates.usdUah)
-      default:
-        throw apiError('FINANCE_USDT_CONVERSION_CURRENCY_UNSUPPORTED', HttpStatus.BAD_REQUEST, {
-          currency: String(currency),
-        })
-    }
-  }
 
   /**
    * Distribute a drop-project's incoming amount across senior, drop, and the
@@ -5927,8 +5884,8 @@ export class TransactionsService {
         const companyShareMinor = Math.round((amountMinor * (100 - sharePercent)) / 100)
         // Convert BOTH the gross income and the company-share to USDT so the
         // recorded incomeAmount/payableAmount are coherent in one currency.
-        incomeUsdtMinor += this.convertToUsdtMinor(amountMinor, tx.currency, rates)
-        payableUsdtMinor += this.convertToUsdtMinor(companyShareMinor, tx.currency, rates)
+        incomeUsdtMinor += convertToUsdtMinor(amountMinor, tx.currency, rates)
+        payableUsdtMinor += convertToUsdtMinor(companyShareMinor, tx.currency, rates)
       }
       const incomeAmount = (incomeUsdtMinor / SCALE).toFixed(6)
       const payableAmount = (payableUsdtMinor / SCALE).toFixed(6)
