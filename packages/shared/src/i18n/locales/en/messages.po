@@ -1332,14 +1332,14 @@ msgid "api-error.FINANCE_PAID_ROW_CURRENCY_LOCKED"
 msgstr "The currency of a paid row can't be changed — the payment already went through in this currency, correct it with a reversing transaction"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
-msgid "notification.TRANSACTION_ADDED.title"
-msgstr "Transaction added for you"
-
-#. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-email-registry.ts
 msgid "email.notification.TRANSACTION_ADDED.subject"
 msgstr "A transaction was added for you"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.TRANSACTION_ADDED.title"
+msgstr "Transaction added for you"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -8844,13 +8844,13 @@ msgid "Рахунок підписано"
 msgstr "Invoice signed"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
-msgid "notification.INVOICE_SIGNED.title"
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.INVOICE_SIGNED.subject"
 msgstr "Invoice signed"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-email-registry.ts
-msgid "email.notification.INVOICE_SIGNED.subject"
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.INVOICE_SIGNED.title"
 msgstr "Invoice signed"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx
