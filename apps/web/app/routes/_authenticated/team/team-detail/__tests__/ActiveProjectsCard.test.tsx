@@ -28,6 +28,16 @@ vi.mock('@/components/projects/ProjectLogo', () => ({
   ),
 }))
 
+// Radix AvatarImage renders nothing until the image loads (never in jsdom), so
+// the image branch is only observable through a plain-element stand-in.
+vi.mock('@/components/ui/avatar', () => ({
+  Avatar: ({ children }: { children?: ReactNode }) => <span>{children}</span>,
+  AvatarImage: ({ src, alt }: { src: string; alt?: string }) => (
+    <img data-testid="avatar-image" src={src} alt={alt} />
+  ),
+  AvatarFallback: ({ children }: { children?: ReactNode }) => <span>{children}</span>,
+}))
+
 import { ActiveProjectsCard } from '../components/ActiveProjectsCard'
 
 function project(
@@ -168,5 +178,16 @@ describe('ActiveProjectsCard', () => {
     const slot = screen.getByTestId('project-junior-slot')
     expect(slot.textContent).toContain('Olga Koval')
     expect(slot.textContent).toContain('OK')
+    const img = screen.getByTestId('avatar-image')
+    expect(img.getAttribute('src')).toBe('https://img.test/olga.png')
+    expect(img.getAttribute('alt')).toBe('Olga Koval')
+  })
+
+  it('renders no avatar image when the member has no avatarUrl', () => {
+    renderCard(
+      [project('p1', 'Alpha', 'Acme', [{ userId: 'j1', role: 'JUNIOR', leftAt: null }])],
+      'ADMIN',
+    )
+    expect(screen.queryByTestId('avatar-image')).toBeNull()
   })
 })
