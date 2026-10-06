@@ -211,11 +211,10 @@ export const FIELD_CATEGORIES: Record<string, Category> = {
   'testid:user-dialog-personal-email': 'EMAIL_NO_AUTOFILL',
   'testid:user-dialog-name': 'PERSON_NAME_NO_AUTOFILL',
   'testid:user-dialog-legal-full-name': 'PERSON_NAME_NO_AUTOFILL',
-  // task-user-emails-dual-login: shifted from #5 to #6 — the new
-  // personal-email field above it (testid-keyed, but still consumes a slot
-  // in the file's running input index) pushed every later positional key
-  // in this file down by one.
-  'app/components/users/UserDialog.tsx#6': 'HANDLE', // "Telegram" contact field — no testid on this one
+  // L4 (UserDialog decomposition): the "Telegram" contact field moved verbatim
+  // into user-dialog/ContactsSection.tsx; it is that file's only Input (#1 —
+  // the scanner's per-file index is 1-based), so the key moved with it.
+  'app/components/users/user-dialog/ContactsSection.tsx#1': 'HANDLE', // "Telegram" contact field — no testid on this one
   'testid:user-dialog-wallet': 'WALLET_HASH',
   'testid:user-dialog-bank-recipient': 'PERSON_NAME_NO_AUTOFILL',
   'testid:user-dialog-bank-iban': 'BANK_ID',
@@ -364,11 +363,12 @@ export const EXEMPT_FIELDS: Record<string, string> = {
   // ---- users/UserDialog.tsx ----
   'testid:user-dialog-registration-address':
     'Free-text ФОП registration address ("г. Киев, ул. Крещатик, 1") used verbatim in the generated contract — prose, not a wallet/crypto address.',
-  // task-user-emails-dual-login: both shifted by one (#7→#8, #11→#12) —
-  // see the comment on the #6 telegram entry above for why.
-  'app/components/users/UserDialog.tsx#8':
+  // L4 (UserDialog decomposition): both shifted down by one (#8→#7, #12→#11)
+  // because the Telegram Input (previously #6) left this file for
+  // user-dialog/ContactsSection.tsx.
+  'app/components/users/UserDialog.tsx#7':
     "walletUsdtLabel (no testid on this occurrence) — same free-text nickname field as RequisitesEditForm's walletUsdtLabel, admin-create-user variant.",
-  'app/components/users/UserDialog.tsx#12':
+  'app/components/users/UserDialog.tsx#11':
     "bankUahBankName (no testid on this occurrence) — same free-text bank-name field as RequisitesEditForm's bankName, admin-create-user variant.",
 
   // ---- routes/_authenticated/legend.tsx (default persona template) ----
