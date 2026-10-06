@@ -372,9 +372,13 @@ export const EXEMPT_FIELDS: Record<string, string> = {
   // #9→#6) because the email / personalEmail / displayName Inputs left for
   // user-dialog/IdentitySection.tsx (all three carry a testid, keyed under
   // `testid:` above, so no IdentitySection re-key was needed either).
-  'app/components/users/UserDialog.tsx#2':
+  // L16: both remaining occurrences moved verbatim into
+  // user-dialog/PaymentRequisitesSection.tsx (its Inputs in source order:
+  // wallet #1 [testid], walletUsdtLabel #2, recipient #3 [testid], IBAN #4
+  // [testid], RNOKPP #5 [testid], bankUahBankName #6), so they re-key there.
+  'app/components/users/user-dialog/PaymentRequisitesSection.tsx#2':
     "walletUsdtLabel (no testid on this occurrence) — same free-text nickname field as RequisitesEditForm's walletUsdtLabel, admin-create-user variant.",
-  'app/components/users/UserDialog.tsx#6':
+  'app/components/users/user-dialog/PaymentRequisitesSection.tsx#6':
     "bankUahBankName (no testid on this occurrence) — same free-text bank-name field as RequisitesEditForm's bankName, admin-create-user variant.",
 
   // ---- routes/_authenticated/legend.tsx (default persona template) ----
