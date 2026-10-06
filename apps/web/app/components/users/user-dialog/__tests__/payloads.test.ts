@@ -2,12 +2,15 @@ import { describe, expect, it } from 'vitest'
 import {
   buildCreateDropPayload,
   buildCreateUserPayload,
+  buildEditUpdatePayload,
   buildWizardUpdatePayload,
   computeMonthlySalaryUsd,
   type CreateDropFormValue,
   type CreateUserFormValue,
+  type EditUserFormValue,
   type WizardUpdateFormValue,
 } from '../payloads'
+import type { UserProfileDto } from '@crm/shared'
 import type { Currency } from '@/components/ui/amount-currency-input'
 import type { ExchangeRates } from '../validation'
 
@@ -974,5 +977,273 @@ describe('buildWizardUpdatePayload', () => {
     )
     expect(onlyAddr.registrationAddress).toBe('A')
     expect('legalFullName' in onlyAddr).toBe(false)
+  })
+})
+
+// ── buildEditUpdatePayload ─────────────────────────────────────────────────
+// Server snapshot the change-detection compares against.
+const SNAPSHOT = {
+  id: 'u1',
+  email: 'a@x.com',
+  role: 'SENIOR',
+  paymentMethod: 'USDT_ERC20',
+  walletUsdtErc20: '0xW',
+  walletUsdtLabel: 'main',
+  bankUahRecipient: null,
+  bankUahIban: null,
+  bankUahRnokpp: null,
+  bankUahBankName: null,
+  seniorSharePercent: 26,
+} as unknown as UserProfileDto
+
+// Form value that mirrors SNAPSHOT exactly (nothing touched).
+function makeEditValue(overrides: Partial<EditUserFormValue> = {}): EditUserFormValue {
+  return {
+    email: 'a@x.com',
+    role: 'SENIOR',
+    displayName: ' Ann ',
+    telegram: '',
+    phone: '',
+    techStack: [],
+    seniorSharePercent: 26,
+    dropSharePercent: 30,
+    teamTelegramChannel: '',
+    monthlySalary: '',
+    salaryCurrency: 'USD',
+    paymentMethod: 'USDT_ERC20',
+    walletUsdtErc20: '0xW',
+    walletUsdtLabel: 'main',
+    bankUahRecipient: '',
+    bankUahIban: '',
+    bankUahRnokpp: '',
+    bankUahBankName: '',
+    legalFullName: '',
+    registrationAddress: '',
+    ...overrides,
+  }
+}
+
+const EDIT_DEPS = {
+  editingUser: SNAPSHOT,
+  hrIds: ['hr1'],
+  accountantId: 'acc1',
+  exchangeRates: RATES,
+}
+
+describe('buildEditUpdatePayload', () => {
+  it('untouched SENIOR: no email, no share, no payment slice; exact shape', () => {
+    expect(buildEditUpdatePayload(makeEditValue(), EDIT_DEPS)).toStrictEqual({
+      displayName: 'Ann',
+      telegram: null,
+      phone: null,
+      techStack: null,
+      hrIds: ['hr1'],
+      accountantId: 'acc1',
+      teamTelegramChannel: null,
+      registrationAddress: null,
+    })
+  })
+
+  it('email: key present (trimmed) only when it differs from the server email', () => {
+    const changed = buildEditUpdatePayload(makeEditValue({ email: '  b@x.com ' }), EDIT_DEPS)
+    expect(changed.email).toBe('b@x.com')
+    const same = buildEditUpdatePayload(makeEditValue({ email: ' a@x.com ' }), EDIT_DEPS)
+    expect('email' in same).toBe(false)
+  })
+
+  it('email: omitted when there is no server snapshot', () => {
+    const p = buildEditUpdatePayload(makeEditValue({ email: 'z@x.com' }), {
+      ...EDIT_DEPS,
+      editingUser: null,
+    })
+    expect('email' in p).toBe(false)
+  })
+
+  it('shareChanged: seniorSharePercent present only when it differs from the SERVER value', () => {
+    const moved = buildEditUpdatePayload(makeEditValue({ seniorSharePercent: 40 }), EDIT_DEPS)
+    expect(moved.seniorSharePercent).toBe(40)
+    const same = buildEditUpdatePayload(makeEditValue({ seniorSharePercent: 26 }), EDIT_DEPS)
+    expect('seniorSharePercent' in same).toBe(false)
+  })
+
+  it('shareChanged: absent without a server snapshot even for a non-default value', () => {
+    const p = buildEditUpdatePayload(makeEditValue({ seniorSharePercent: 40 }), {
+      ...EDIT_DEPS,
+      editingUser: null,
+    })
+    expect('seniorSharePercent' in p).toBe(false)
+  })
+
+  it('share % is never sent for a non-SENIOR role', () => {
+    const p = buildEditUpdatePayload(
+      makeEditValue({ role: 'JUNIOR', seniorSharePercent: 40 }),
+      EDIT_DEPS,
+    )
+    expect('seniorSharePercent' in p).toBe(false)
+    expect('hrIds' in p).toBe(false)
+    expect('accountantId' in p).toBe(false)
+    expect('teamTelegramChannel' in p).toBe(false)
+  })
+
+  it('SENIOR with empty accountant sends accountantId null', () => {
+    const p = buildEditUpdatePayload(makeEditValue(), { ...EDIT_DEPS, accountantId: '' })
+    expect(p.accountantId).toBeNull()
+  })
+
+  it('normalizedTeamChannel: blank -> null, @-prefixed stripped, bare kept, trimmed', () => {
+    expect(
+      buildEditUpdatePayload(makeEditValue({ teamTelegramChannel: '   ' }), EDIT_DEPS)
+        .teamTelegramChannel,
+    ).toBeNull()
+    expect(
+      buildEditUpdatePayload(makeEditValue({ teamTelegramChannel: ' @team ' }), EDIT_DEPS)
+        .teamTelegramChannel,
+    ).toBe('team')
+    expect(
+      buildEditUpdatePayload(makeEditValue({ teamTelegramChannel: 'team' }), EDIT_DEPS)
+        .teamTelegramChannel,
+    ).toBe('team')
+  })
+
+  it('paymentChanged: method change (USDT -> BANK) sends the BANK slice only', () => {
+    const p = buildEditUpdatePayload(
+      makeEditValue({
+        paymentMethod: 'BANK_UAH_FOP',
+        bankUahRecipient: ' R ',
+        bankUahIban: 'UA1',
+        bankUahRnokpp: '',
+        bankUahBankName: 'B',
+      }),
+      EDIT_DEPS,
+    )
+    expect(p).toMatchObject({
+      paymentMethod: 'BANK_UAH_FOP',
+      bankUahRecipient: 'R',
+      bankUahIban: 'UA1',
+      bankUahRnokpp: null,
+      bankUahBankName: 'B',
+    })
+    expect('walletUsdtErc20' in p).toBe(false)
+    expect('walletUsdtLabel' in p).toBe(false)
+  })
+
+  it('paymentChanged: a wallet edit sends the USDT slice only (label blank -> null)', () => {
+    const p = buildEditUpdatePayload(
+      makeEditValue({ walletUsdtErc20: ' 0xNEW ', walletUsdtLabel: ' ' }),
+      EDIT_DEPS,
+    )
+    expect(p).toMatchObject({
+      paymentMethod: 'USDT_ERC20',
+      walletUsdtErc20: '0xNEW',
+      walletUsdtLabel: null,
+    })
+    expect('bankUahIban' in p).toBe(false)
+  })
+
+  it.each([
+    ['walletUsdtLabel', { walletUsdtLabel: 'other' }],
+    ['bankUahRecipient', { bankUahRecipient: 'x' }],
+    ['bankUahIban', { bankUahIban: 'x' }],
+    ['bankUahRnokpp', { bankUahRnokpp: 'x' }],
+    ['bankUahBankName', { bankUahBankName: 'x' }],
+  ] as const)('paymentChanged: a lone %s change triggers the payment slice', (_n, over) => {
+    const p = buildEditUpdatePayload(makeEditValue(over), EDIT_DEPS)
+    expect(p.paymentMethod).toBe('USDT_ERC20')
+  })
+
+  it('paymentChanged false: whitespace-only differences send NO payment slice', () => {
+    const p = buildEditUpdatePayload(
+      makeEditValue({ walletUsdtErc20: ' 0xW ', walletUsdtLabel: ' main ' }),
+      EDIT_DEPS,
+    )
+    expect('paymentMethod' in p).toBe(false)
+    expect('walletUsdtErc20' in p).toBe(false)
+  })
+
+  it('paymentChanged: null server method falls back to the role default', () => {
+    const snap = { ...SNAPSHOT, paymentMethod: null } as unknown as UserProfileDto
+    // SENIOR default is USDT_ERC20 -> unchanged
+    const same = buildEditUpdatePayload(makeEditValue(), { ...EDIT_DEPS, editingUser: snap })
+    expect('paymentMethod' in same).toBe(false)
+    // JUNIOR default is BANK_UAH_FOP -> USDT form value counts as changed
+    const diff = buildEditUpdatePayload(makeEditValue({ role: 'JUNIOR' }), {
+      ...EDIT_DEPS,
+      editingUser: snap,
+    })
+    expect(diff.paymentMethod).toBe('USDT_ERC20')
+  })
+
+  it('paymentChanged: no server snapshot never sends the payment slice', () => {
+    const p = buildEditUpdatePayload(makeEditValue({ walletUsdtErc20: '0xOTHER' }), {
+      ...EDIT_DEPS,
+      editingUser: null,
+    })
+    expect('paymentMethod' in p).toBe(false)
+  })
+
+  it('DROP: dropSharePercent present, NO salary, NO senior fields', () => {
+    const p = buildEditUpdatePayload(
+      makeEditValue({ role: 'DROP', dropSharePercent: 35, monthlySalary: '100' }),
+      EDIT_DEPS,
+    )
+    expect(p.dropSharePercent).toBe(35)
+    expect('monthlySalary' in p).toBe(false)
+    expect('salaryCurrency' in p).toBe(false)
+    expect('hrIds' in p).toBe(false)
+  })
+
+  it('non-SENIOR non-DROP: salary converted to USD via rates, currency USD', () => {
+    const p = buildEditUpdatePayload(
+      makeEditValue({ role: 'JUNIOR', monthlySalary: '4100', salaryCurrency: 'UAH' }),
+      EDIT_DEPS,
+    )
+    expect(p.monthlySalary).toBe(100)
+    expect(p.salaryCurrency).toBe('USD')
+    expect('dropSharePercent' in p).toBe(false)
+  })
+
+  it('non-SENIOR: blank salary sends null (clear), still with salaryCurrency USD', () => {
+    const p = buildEditUpdatePayload(
+      makeEditValue({ role: 'JUNIOR', monthlySalary: '' }),
+      EDIT_DEPS,
+    )
+    expect(p.monthlySalary).toBeNull()
+    expect(p.salaryCurrency).toBe('USD')
+  })
+
+  it('SENIOR never carries salary fields', () => {
+    const p = buildEditUpdatePayload(makeEditValue({ monthlySalary: '100' }), EDIT_DEPS)
+    expect('monthlySalary' in p).toBe(false)
+    expect('salaryCurrency' in p).toBe(false)
+  })
+
+  it('telegram is normalised with @ and phone/techStack pass through', () => {
+    const p = buildEditUpdatePayload(
+      makeEditValue({ telegram: ' ann ', phone: '+380501112233', techStack: ['ts'] }),
+      EDIT_DEPS,
+    )
+    expect(p.telegram).toBe('@ann')
+    expect(p.phone).toBe('+380501112233')
+    expect(p.techStack).toStrictEqual(['ts'])
+  })
+
+  it('legalFullName: trimmed when present, key absent when blank', () => {
+    expect(
+      buildEditUpdatePayload(makeEditValue({ legalFullName: ' Ivan ' }), EDIT_DEPS).legalFullName,
+    ).toBe('Ivan')
+    expect(
+      'legalFullName' in buildEditUpdatePayload(makeEditValue({ legalFullName: '  ' }), EDIT_DEPS),
+    ).toBe(false)
+  })
+
+  it('registrationAddress: ALWAYS present — trimmed value, or null when blank', () => {
+    const filled = buildEditUpdatePayload(
+      makeEditValue({ registrationAddress: ' Kyiv, 1 ' }),
+      EDIT_DEPS,
+    )
+    expect(filled.registrationAddress).toBe('Kyiv, 1')
+    const blank = buildEditUpdatePayload(makeEditValue({ registrationAddress: '  ' }), EDIT_DEPS)
+    expect('registrationAddress' in blank).toBe(true)
+    expect(blank.registrationAddress).toBeNull()
   })
 })

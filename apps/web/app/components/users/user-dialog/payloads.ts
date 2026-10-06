@@ -5,11 +5,12 @@ import type {
   Locale,
   PaymentMethod,
   TeamMode,
+  UserProfileDto,
 } from '@crm/shared'
 import type { Currency } from '@/components/ui/amount-currency-input'
 import { parseStrictAmount } from '@/lib/utils'
 import { type Role, normalizeTelegram } from '../constants'
-import { toUsd, type ExchangeRates } from './validation'
+import { defaultPaymentMethod, toUsd, type ExchangeRates } from './validation'
 
 /**
  * Pure payload builders extracted from `UserDialog`'s `onSubmit` closure.
@@ -302,4 +303,153 @@ export function buildWizardUpdatePayload(
     }),
   }
   return updatePayload
+}
+
+/** The slice of the form's values the normal-EDIT payload reads. */
+export type EditUserFormValue = {
+  email: string
+  role: Role
+  displayName: string
+  telegram: string
+  phone: string
+  techStack: string[]
+  seniorSharePercent: number
+  dropSharePercent: number
+  teamTelegramChannel: string
+  monthlySalary: unknown
+  salaryCurrency: Currency
+  paymentMethod: PaymentMethod
+  walletUsdtErc20: string
+  walletUsdtLabel: string
+  bankUahRecipient: string
+  bankUahIban: string
+  bankUahRnokpp: string
+  bankUahBankName: string
+  legalFullName: string
+  registrationAddress: string
+}
+
+/** Everything the EDIT payload closes over beyond the form `value`. */
+export type EditUserPayloadDeps = CreateUserPayloadDeps & {
+  /** SERVER snapshot — change-detection compares against this, never the form's initial. */
+  editingUser: UserProfileDto | null
+}
+
+/**
+ * Normal EDIT (PATCH) payload. Verbatim move from `onSubmit`, including the
+ * server-snapshot change-detection (`paymentChanged`, `shareChanged`, email);
+ * `adminUpdateUserSchema.safeParse` and `mutate` stay in the caller.
+ */
+export function buildEditUpdatePayload(
+  value: EditUserFormValue,
+  { editingUser, hrIds, accountantId, exchangeRates }: EditUserPayloadDeps,
+): AdminUpdateUserDto {
+  const isSenior = value.role === 'SENIOR'
+  const isDrop = value.role === 'DROP'
+
+  // Detect whether admin actually touched any payment requisite field.
+  // When nothing changed we omit the entire payment slice — otherwise
+  // `refineRequisitePresence` would block submit for users with empty
+  // requisites in seed data (e.g. SENIOR without a wallet) even when the
+  // admin only edited unrelated fields like HR/Accountant.
+  const paymentChanged =
+    !!editingUser &&
+    (value.paymentMethod !== (editingUser.paymentMethod ?? defaultPaymentMethod(value.role)) ||
+      value.walletUsdtErc20.trim() !== (editingUser.walletUsdtErc20 ?? '') ||
+      value.walletUsdtLabel.trim() !== (editingUser.walletUsdtLabel ?? '') ||
+      value.bankUahRecipient.trim() !== (editingUser.bankUahRecipient ?? '') ||
+      value.bankUahIban.trim() !== (editingUser.bankUahIban ?? '') ||
+      value.bankUahRnokpp.trim() !== (editingUser.bankUahRnokpp ?? '') ||
+      value.bankUahBankName.trim() !== (editingUser.bankUahBankName ?? ''))
+
+  // task-648-fix-round-2 (SR-M-5): see the payload comment below. Same
+  // `!!editingUser &&` shape as `paymentChanged` directly above — with
+  // no server snapshot to compare against there is no evidence the
+  // operator changed anything, so the field stays off the wire.
+  // `seniorSharePercent` is a non-nullable `number` on `UserProfileDto`,
+  // so no `?? 26` fallback: it would be unreachable.
+  const shareChanged = !!editingUser && value.seniorSharePercent !== editingUser.seniorSharePercent
+
+  // ut-17: normalize team telegram channel value. Strip leading @ before
+  // sending — the backend stores the bare handle, UI re-adds @ on display.
+  const normalizedTeamChannel = (() => {
+    if (!isSenior) return undefined
+    const trimmed = value.teamTelegramChannel.trim()
+    if (!trimmed) return null
+    return trimmed.startsWith('@') ? trimmed.slice(1) : trimmed
+  })()
+
+  const payload: AdminUpdateUserDto = {
+    ...(editingUser &&
+      value.email.trim() !== editingUser.email && {
+        email: value.email.trim(),
+      }),
+    displayName: value.displayName.trim(),
+    telegram: value.telegram.trim() ? normalizeTelegram(value.telegram) : null,
+    phone: value.phone || null,
+    techStack: value.techStack.length > 0 ? value.techStack : null,
+    // task-648-fix-round-2 (SR-M-5 / QA-HIGH-3): the share % goes on
+    // the wire ONLY when the operator actually moved it. It used to be
+    // included on every save of a SENIOR — so an admin editing a phone
+    // number sent `seniorSharePercent` too, and the backend's
+    // "requested == active" branch (removed this round) read that as an
+    // explicit "cancel the live proposal". Manual QA reproduced the
+    // full path: one phone edit, `PENDING → CANCELLED`, no signal.
+    // Same rule the project form has always used (`overrideChanged` in
+    // `$projectId.tsx`): compare against the SERVER snapshot, not
+    // against the form's own initial value, so a value typed and typed
+    // back also counts as unchanged.
+    ...(isSenior && {
+      ...(shareChanged && { seniorSharePercent: value.seniorSharePercent }),
+      hrIds,
+      accountantId: accountantId || null,
+      teamTelegramChannel: normalizedTeamChannel,
+    }),
+    // Prod bug fix: DROP's «Доля дропа (%)» edit was silently dropped —
+    // this branch was missing entirely, unlike the isSenior one above.
+    // The field renders and submits fine, but nothing carried the new
+    // value to the PATCH body, so admin edits never persisted.
+    ...(isDrop && {
+      dropSharePercent: value.dropSharePercent,
+    }),
+    // DROP has no salary field in the finance section (Section 4 renders
+    // SENIOR-slider / DROP-slider / salary-field, mutually exclusive) —
+    // exclude it here so the payload doesn't re-send/clamp salaryCurrency
+    // for a role that never had a salary to begin with.
+    ...(!isSenior &&
+      value.role !== 'DROP' && {
+        monthlySalary: value.monthlySalary
+          ? computeMonthlySalaryUsd({
+              monthlySalary: value.monthlySalary,
+              salaryCurrency: value.salaryCurrency,
+              exchangeRates,
+            })
+          : null,
+        salaryCurrency: 'USD',
+      }),
+    // Contract data — legal full name for MSA contract. Empty string → omit
+    // (backend treats absence as "no change").
+    ...(value.legalFullName.trim() && {
+      legalFullName: value.legalFullName.trim(),
+    }),
+    // ФОП юридические данные — передаём null при очистке поля.
+    registrationAddress: value.registrationAddress.trim() || null,
+    // Payment requisites — only include when admin actually changed them.
+    // Sending paymentMethod without matching requisite fields would trip
+    // `refineRequisitePresence` on the shared schema and block submit.
+    ...(paymentChanged && {
+      paymentMethod: value.paymentMethod,
+      ...(value.paymentMethod === 'USDT_ERC20' && {
+        walletUsdtErc20: value.walletUsdtErc20.trim() || null,
+        walletUsdtLabel: value.walletUsdtLabel.trim() || null,
+      }),
+      ...(value.paymentMethod === 'BANK_UAH_FOP' && {
+        bankUahRecipient: value.bankUahRecipient.trim() || null,
+        bankUahIban: value.bankUahIban.trim() || null,
+        bankUahRnokpp: value.bankUahRnokpp.trim() || null,
+        bankUahBankName: value.bankUahBankName.trim() || null,
+      }),
+    }),
+  }
+  return payload
 }
