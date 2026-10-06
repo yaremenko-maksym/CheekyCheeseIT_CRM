@@ -365,10 +365,13 @@ export const EXEMPT_FIELDS: Record<string, string> = {
     'Free-text ФОП registration address ("г. Киев, ул. Крещатик, 1") used verbatim in the generated contract — prose, not a wallet/crypto address.',
   // L4 (UserDialog decomposition): both shifted down by one (#8→#7, #12→#11)
   // because the Telegram Input (previously #6) left this file for
-  // user-dialog/ContactsSection.tsx.
-  'app/components/users/UserDialog.tsx#7':
+  // user-dialog/ContactsSection.tsx. L6: shifted down by two more (#7→#5,
+  // #11→#9) because the legalFullName + registrationAddress Inputs left for
+  // user-dialog/ContractDataSection.tsx (both are keyed by testid, so no
+  // re-key was needed for them).
+  'app/components/users/UserDialog.tsx#5':
     "walletUsdtLabel (no testid on this occurrence) — same free-text nickname field as RequisitesEditForm's walletUsdtLabel, admin-create-user variant.",
-  'app/components/users/UserDialog.tsx#11':
+  'app/components/users/UserDialog.tsx#9':
     "bankUahBankName (no testid on this occurrence) — same free-text bank-name field as RequisitesEditForm's bankName, admin-create-user variant.",
 
   // ---- routes/_authenticated/legend.tsx (default persona template) ----
