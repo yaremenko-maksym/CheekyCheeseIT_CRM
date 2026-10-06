@@ -64,7 +64,6 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
-import { TechAutocompleteInput } from '@/components/ui/tech-autocomplete-input'
 import { AmountCurrencyInput, type Currency } from '@/components/ui/amount-currency-input'
 import { SegmentedToggle } from '@/components/ui/segmented-toggle'
 import { api } from '@/lib/axios'
@@ -87,6 +86,7 @@ import { AccountantChipField } from './AccountantChipField'
 import { WizardStep2 } from './user-dialog/WizardStep2'
 import { WizardStep3 } from './user-dialog/WizardStep3'
 import { ContactsSection } from './user-dialog/ContactsSection'
+import { TechStackSection } from './user-dialog/TechStackSection'
 
 // Re-exported so existing test imports from '../UserDialog' keep resolving.
 export { WizardStep2 }
@@ -1461,20 +1461,7 @@ export function UserDialog(props: UserDialogProps) {
               <ContactsSection form={form} />
 
               {/* ── Section 3: Profession (Tech stack) ──────────────────── */}
-              <Section title={t`Професія`}>
-                <form.Field name="techStack">
-                  {(field) => (
-                    <Field label={t`Технології`}>
-                      <TechAutocompleteInput
-                        value={field.state.value}
-                        onChange={field.handleChange}
-                        onBlur={field.handleBlur}
-                        placeholder={t`Почніть вводити: React, Node.js…`}
-                      />
-                    </Field>
-                  )}
-                </form.Field>
-              </Section>
+              <TechStackSection form={form} />
 
               {/* ── Section 4: Finance ──────────────────────────────────── */}
               <form.Subscribe selector={(s) => s.values.role}>
