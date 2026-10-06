@@ -876,7 +876,7 @@ msgstr "No completed projects"
 msgid "Нова адреса (ERC-20)"
 msgstr "New address (ERC-20)"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/useUserDialogMutations.ts
 msgid "Не вдалося створити дропа — дані залишилися у формі, спробуйте ще раз"
 msgstr "Could not create the drop — the form keeps your data, try again"
 
@@ -1356,7 +1356,7 @@ msgstr "Create project — {seniorName}"
 msgid "аватар"
 msgstr "avatar"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/useUserDialogMutations.ts
 msgid "Сеньйора додано до команди дропа"
 msgstr "The senior was added to the drop team"
 
@@ -7069,7 +7069,7 @@ msgstr "Pay out ({0})"
 msgid "Не вдалося відновити. Спробуйте ще раз"
 msgstr "Could not restore. Try again"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/useUserDialogMutations.ts
 msgid "Не вдалося створити користувача — дані залишилися у формі, спробуйте ще раз"
 msgstr "Could not create the user — the form keeps your data, try again"
 
@@ -7596,7 +7596,7 @@ msgstr "Company expense"
 msgid "Дохід сеньйора (неоплачена частка)"
 msgstr "Senior's income (unpaid share)"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/useUserDialogMutations.ts
 msgid "Не вдалося позначити контракт готовим до підписання"
 msgstr "Could not mark the contract as ready to sign"
 
@@ -7950,7 +7950,7 @@ msgstr "Vacancy “{vacancyTitle}”"
 msgid "notification.VACANCY_APPLICATION.title"
 msgstr "New vacancy application"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/useUserDialogMutations.ts
 msgid "Користувача створено, контракт готовий до підписання"
 msgstr "User created, the contract is ready to sign"
 
@@ -8056,8 +8056,8 @@ msgstr "Locked"
 msgid "Резюме видалено (минув термін зберігання)"
 msgstr "Resume deleted (retention period expired)"
 
-#: apps/web/app/components/users/UserDialog.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/useUserDialogMutations.ts
+#: apps/web/app/components/users/user-dialog/useUserDialogMutations.ts
 msgid "Не вдалося зберегти зміни — дані залишилися у формі, спробуйте ще раз"
 msgstr "Could not save the changes — the form keeps your data, try again"
 
@@ -9973,7 +9973,7 @@ msgstr "Invalid amount"
 msgid "Проєкт"
 msgstr "Project"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/useUserDialogMutations.ts
 #: apps/web/app/hooks/use-credentials.ts
 #: apps/web/app/hooks/use-credentials.ts
 msgid "Зміни збережено"
@@ -10266,7 +10266,7 @@ msgstr "{0} of {1}"
 msgid "Неможливо видалити вакансію з відгуками"
 msgstr "A vacancy with applications cannot be deleted"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/useUserDialogMutations.ts
 msgid "Дропа створено"
 msgstr "Drop created"
 
@@ -10328,7 +10328,7 @@ msgstr "Loading the reason…"
 
 #. placeholder {0}: pending.percent
 #. placeholder {1}: response.data.seniorSharePercent
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/useUserDialogMutations.ts
 msgid "Збережено. Сеньйору запропоновано {0}% замість чинних {1}%"
 msgstr "Saved. Proposed {0}% to the senior instead of the current {1}%"
 
