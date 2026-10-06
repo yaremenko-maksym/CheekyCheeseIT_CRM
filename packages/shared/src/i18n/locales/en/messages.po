@@ -4387,7 +4387,7 @@ msgstr "Refresh"
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/ActiveProjectsCard.tsx
 msgid "Активні проєкти"
 msgstr "Active projects"
 
@@ -4461,7 +4461,7 @@ msgstr "Archive user"
 msgid "Співбесіди"
 msgstr "Interviews"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/ActiveProjectsCard.tsx
 msgid "Джуніора не призначено"
 msgstr "No junior assigned"
 
@@ -6365,7 +6365,7 @@ msgstr "Contract templates for each role. Click “Edit” to change the text."
 #: apps/web/app/components/projects/ProjectStatusBadge.tsx
 #: apps/web/app/components/user-profile/tabs/ProjectsTab.tsx
 #: apps/web/app/routes/_authenticated/project.tsx
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/ActiveProjectsCard.tsx
 msgid "Активний"
 msgstr "Active"
 
@@ -7073,7 +7073,7 @@ msgstr "Could not restore. Try again"
 msgid "Не вдалося створити користувача — дані залишилися у формі, спробуйте ще раз"
 msgstr "Could not create the user — the form keeps your data, try again"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/ActiveProjectsCard.tsx
 msgid "Джуніора призначено"
 msgstr "Junior assigned"
 
@@ -8143,7 +8143,7 @@ msgstr "Loading the contract…"
 #: apps/web/app/components/user-profile/tabs/ProjectsTab.tsx
 #: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/ActiveProjectsCard.tsx
 msgid "Немає активних проєктів"
 msgstr "No active projects"
 
