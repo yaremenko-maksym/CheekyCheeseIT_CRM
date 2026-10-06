@@ -510,8 +510,8 @@ msgid "Деталі рахунку"
 msgstr "Деталі рахунку"
 
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
-#: apps/web/app/components/users/UserDialog.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/TeamSection.tsx
+#: apps/web/app/components/users/user-dialog/TeamSection.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Команда дропа"
 msgstr "Команда дропа"
@@ -1299,8 +1299,8 @@ msgstr "Виправити"
 msgid "Змінити email?"
 msgstr "Змінити email?"
 
-#: apps/web/app/components/users/UserDialog.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/TeamSection.tsx
+#: apps/web/app/components/users/user-dialog/TeamSection.tsx
 msgid "Необов’язково. Канал для спілкування команди."
 msgstr "Необов’язково. Канал для спілкування команди."
 
@@ -1373,8 +1373,8 @@ msgstr "Відхилені"
 msgid "Прийнято: {0}"
 msgstr "Прийнято: {0}"
 
-#: apps/web/app/components/users/UserDialog.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/TeamSection.tsx
+#: apps/web/app/components/users/user-dialog/TeamSection.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "— не обрано —"
@@ -4306,7 +4306,7 @@ msgstr "Деталі співбесіди"
 msgid "Сторінку не знайдено"
 msgstr "Сторінку не знайдено"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/TeamSection.tsx
 msgid "Тип команди"
 msgstr "Тип команди"
 
@@ -4383,7 +4383,7 @@ msgstr "Додати HR"
 msgid "Оновити"
 msgstr "Оновити"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/TeamSection.tsx
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
@@ -5378,9 +5378,9 @@ msgstr "Власник"
 #: apps/web/app/components/crm/nav-sidebar.tsx
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
-#: apps/web/app/components/users/UserDialog.tsx
-#: apps/web/app/components/users/UserDialog.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/TeamSection.tsx
+#: apps/web/app/components/users/user-dialog/TeamSection.tsx
+#: apps/web/app/components/users/user-dialog/TeamSection.tsx
 msgid "Команда"
 msgstr "Команда"
 
@@ -6914,7 +6914,7 @@ msgstr "(за замовчуванням)"
 msgid "Дроп (опційно)"
 msgstr "Дроп (опційно)"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/TeamSection.tsx
 msgid "Немає проєктів без активного джуніора"
 msgstr "Немає проєктів без активного джуніора"
 
@@ -7152,7 +7152,7 @@ msgid "Чеки додаються в розділі «Фінанси» під �
 msgstr "Чеки додаються в розділі «Фінанси» під час створення транзакції."
 
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/TeamSection.tsx
 msgid "Дропа не призначено"
 msgstr "Дропа не призначено"
 
@@ -7534,7 +7534,7 @@ msgstr "Телефон"
 msgid "Дроп: {0}"
 msgstr "Дроп: {0}"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/TeamSection.tsx
 msgid "Можна прикріпити пізніше в розділі «Проєкти»"
 msgstr "Можна прикріпити пізніше в розділі «Проєкти»"
 
@@ -8141,7 +8141,7 @@ msgid "Завантажуємо контракт…"
 msgstr "Завантажуємо контракт…"
 
 #: apps/web/app/components/user-profile/tabs/ProjectsTab.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/TeamSection.tsx
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 #: apps/web/app/routes/_authenticated/team/team-detail/components/ActiveProjectsCard.tsx
 msgid "Немає активних проєктів"
@@ -8255,7 +8255,7 @@ msgstr "Чек прикріплено"
 msgid "Усі ({0})"
 msgstr "Усі ({0})"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/TeamSection.tsx
 msgid "Керувати в розділі «Проєкти» →"
 msgstr "Керувати в розділі «Проєкти» →"
 
@@ -8482,7 +8482,7 @@ msgstr "підставити"
 msgid "Встановлено для цього проєкту; глобальна частка сеньйора: {fallback}%"
 msgstr "Встановлено для цього проєкту; глобальна частка сеньйора: {fallback}%"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/TeamSection.tsx
 msgid "— оберіть команду дропа —"
 msgstr "— оберіть команду дропа —"
 
@@ -8586,7 +8586,7 @@ msgstr "Профіль можна відновити з архіву."
 msgid "Нову версію умов використання опубліковано. Користувачі побачать сповіщення."
 msgstr "Нову версію умов використання опубліковано. Користувачі побачать сповіщення."
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/TeamSection.tsx
 msgid "Немає команд дропа без активного сеньйора. Створіть дропа або оберіть «Створити свою команду»."
 msgstr "Немає команд дропа без активного сеньйора. Створіть дропа або оберіть «Створити свою команду»."
 
@@ -8884,7 +8884,7 @@ msgid "Прибрати"
 msgstr "Прибрати"
 
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/TeamSection.tsx
 msgid "Створити свою команду"
 msgstr "Створити свою команду"
 
@@ -9503,8 +9503,8 @@ msgstr "Немає доступу? Зверніться до адміністр�
 msgid "+ Зареєструвати"
 msgstr "+ Зареєструвати"
 
-#: apps/web/app/components/users/UserDialog.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/TeamSection.tsx
+#: apps/web/app/components/users/user-dialog/TeamSection.tsx
 msgid "Telegram-канал команди"
 msgstr "Telegram-канал команди"
 
@@ -9847,7 +9847,7 @@ msgid "Помилка під час публікації версії умов �
 msgstr "Помилка під час публікації версії умов використання"
 
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/TeamSection.tsx
 msgid "Немає команд дропа без активного сеньйора."
 msgstr "Немає команд дропа без активного сеньйора."
 
@@ -9936,7 +9936,7 @@ msgstr "Відкрити проєкт"
 msgid "Очистити"
 msgstr "Очистити"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/TeamSection.tsx
 msgid "Додати до команди дропа"
 msgstr "Додати до команди дропа"
 
@@ -9961,7 +9961,7 @@ msgstr "Некоректна сума"
 #: apps/web/app/components/documents/upload-document-dialog.tsx
 #: apps/web/app/components/finance/ConfirmPayoutDialog.tsx
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/TeamSection.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/EditSeniorIncomeDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/SettleSeniorPayoutDialog.tsx
@@ -10303,7 +10303,7 @@ msgstr "Є незбережені зміни. Зберегти перед зак
 msgid "Огляд"
 msgstr "Огляд"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/TeamSection.tsx
 msgid "Нова команда сеньйора. Оберіть склад нижче."
 msgstr "Нова команда сеньйора. Оберіть склад нижче."
 
@@ -10333,7 +10333,7 @@ msgid "Збережено. Сеньйору запропоновано {0}% за
 msgstr "Збережено. Сеньйору запропоновано {0}% замість чинних {1}%"
 
 #. placeholder {0}: vacantDropTeams.length
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/TeamSection.tsx
 msgid "{0, plural, one {# команда доступна.} few {# команди доступні.} many {# команд доступно.} other {# команди доступно.}}"
 msgstr "{0, plural, one {# команда доступна.} few {# команди доступні.} many {# команд доступно.} other {# команди доступно.}}"
 
