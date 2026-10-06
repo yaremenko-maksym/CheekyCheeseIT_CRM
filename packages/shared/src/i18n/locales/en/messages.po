@@ -2352,6 +2352,11 @@ msgstr "This payment's amount is recorded together with the transfer rate — it
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_PAYOUT_DATE_BEFORE_INCOME"
+msgstr "The payout date can't be earlier than the selected income date"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION"
 msgstr "The payout date can't be earlier than the obligation's creation date"
 
@@ -4441,6 +4446,13 @@ msgstr "Payment type"
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Покинути"
 msgstr "Leave"
+
+#: apps/web/app/components/finance/ConfirmPayoutDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/PaySalaryDialog.tsx
+msgid "Дата виплати"
+msgstr "Payout date"
 
 #: apps/web/app/components/users/user-dialog/WizardStep3.tsx
 msgid "Контракт не створено (немає активного шаблону для ролі). Його можна додати пізніше через профіль користувача."
@@ -8294,6 +8306,11 @@ msgstr "Upload again"
 msgid "Не вдалося підтвердити оплату."
 msgstr "Could not confirm the payment."
 
+#. placeholder {0}: formatDate(sourceDateKey, locale, 'shortYY')
+#: apps/web/app/components/finance/ConfirmPayoutDialog.tsx
+msgid "Не раніше дати транзакції: {0}"
+msgstr "Not earlier than the transaction date: {0}"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
 msgid "Залишається вам"
 msgstr "Left for you"
@@ -8708,6 +8725,15 @@ msgstr "No results"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
 msgid "Сума перевищує баланс рахунку компанії"
 msgstr "The amount exceeds the company account balance"
+
+#. placeholder {0}: formatDate(`${minPayoutDate}T00:00:00.000Z`, locale)
+#. placeholder {0}: formatDate(`${payoutMinDate}T00:00:00.000Z`, locale)
+#. placeholder {0}: formatDate(`${sourceDateKey}T00:00:00.000Z`, locale)
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/PaySalaryDialog.tsx
+msgid "Найраніша доступна дата — {0}."
+msgstr "Earliest available date — {0}."
 
 #: apps/web/app/components/users/user-dialog/FinanceSection.tsx
 msgid "Те, що сеньйор залишає собі. Нове значення набуде чинності після підтвердження сеньйора."

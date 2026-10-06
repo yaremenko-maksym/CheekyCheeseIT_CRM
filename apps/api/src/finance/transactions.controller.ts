@@ -226,6 +226,7 @@ export class TransactionsController {
     return this.svc.confirmPayout(id, data.recipientAdminId, user, {
       method: data.method,
       ...(data.txHash !== undefined && data.txHash !== null ? { txHash: data.txHash } : {}),
+      ...(data.txDate !== undefined && data.txDate !== null ? { txDate: data.txDate } : {}),
     })
   }
 
@@ -423,7 +424,8 @@ export class PayoutRequestsController {
   @Post()
   @Roles('SENIOR', 'DROP')
   create(@Body() body: unknown, @CurrentUser() user: SessionUser) {
-    return this.svc.createPayoutRequest(createPayoutRequestSchema.parse(body).transactionIds, user)
+    const data = createPayoutRequestSchema.parse(body)
+    return this.svc.createPayoutRequest(data.transactionIds, user, data.txDate)
   }
 
   @Patch(':id/pay')
@@ -435,10 +437,7 @@ export class PayoutRequestsController {
     // call the original 3-arg overload. The service ignores it outside of
     // NODE_ENV !== 'production' regardless. txHash is optional in simulate
     // mode — service synthesizes a stub when absent.
-    if (data.simulateResult !== undefined) {
-      return this.svc.payPayoutRequest(id, data.txHash, user, data.simulateResult)
-    }
-    return this.svc.payPayoutRequest(id, data.txHash, user)
+    return this.svc.payPayoutRequest(id, data.txHash, user, data.simulateResult, data.txDate)
   }
 
   // Phase 8 v2 — manual payout confirmation. ADMIN/ACCOUNTANT mark a payout PAID
@@ -455,6 +454,7 @@ export class PayoutRequestsController {
     return this.svc.manualConfirmPayout(id, data.method, user, {
       ...(data.note !== undefined && data.note !== null ? { note: data.note } : {}),
       ...(data.txHash !== undefined && data.txHash !== null ? { txHash: data.txHash } : {}),
+      ...(data.txDate !== undefined && data.txDate !== null ? { txDate: data.txDate } : {}),
     })
   }
 }

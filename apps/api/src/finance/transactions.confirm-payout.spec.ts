@@ -421,6 +421,56 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
       expect(confirmed['createdBy']).toBe(accountantUser.id)
     })
 
+    it('stores the selected business date on both PAYOUT and PAYOUT_CONFIRMED', async () => {
+      const { svc, state } = makeService({
+        payoutRow: makePayoutRow({ txDate: new Date('2026-05-01T00:00:00.000Z') }),
+      })
+
+      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
+        method: 'CASH',
+        txDate: '2026-05-04',
+      })
+
+      expect((state.updates[0]!.set['txDate'] as Date).toISOString().slice(0, 10)).toBe(
+        '2026-05-04',
+      )
+      expect((state.inserts[0]!['txDate'] as Date).toISOString().slice(0, 10)).toBe('2026-05-04')
+    })
+
+    it('rejects a selected date before the PAYOUT business date', async () => {
+      const { svc, state } = makeService({
+        payoutRow: makePayoutRow({ txDate: new Date('2026-05-03T00:00:00.000Z') }),
+      })
+
+      await expect(
+        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
+          method: 'CASH',
+          txDate: '2026-05-02',
+        }),
+      ).rejects.toMatchObject({
+        response: { code: 'FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', statusCode: 400 },
+      })
+      expect(state.updates).toHaveLength(0)
+      expect(state.inserts).toHaveLength(0)
+    })
+
+    it('accepts a selected date equal to the PAYOUT business date', async () => {
+      const { svc, state } = makeService({
+        payoutRow: makePayoutRow({
+          txDate: new Date('2026-05-03T00:00:00.000Z'),
+          createdAt: new Date('2026-05-05T10:00:00.000Z'),
+        }),
+      })
+
+      await expect(
+        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
+          method: 'CASH',
+          txDate: '2026-05-03',
+        }),
+      ).resolves.toBeDefined()
+      expect(state.updates).not.toHaveLength(0)
+    })
+
     it('selecting Kostya credits Kostya, not Maksym', async () => {
       const { svc, state } = makeService({ recipient: KOSTYA_USER })
 

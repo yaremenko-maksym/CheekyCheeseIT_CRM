@@ -23,15 +23,16 @@
  * dialog's own static text (title, labels, method names, hints, the
  * NEVER-reached fallback) is translated.
  */
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { AxiosError } from 'axios'
 import { ExternalLink, Coins, Banknote, Gem } from 'lucide-react'
 import { toast } from 'sonner'
 import { Trans, useLingui } from '@lingui/react/macro'
 import type { PayoutMethod, TransactionDto } from '@crm/shared'
-import { MAKSYM_ID, KOSTYA_ID } from '@crm/shared'
+import { formatDate, kyivToday, MAKSYM_ID, KOSTYA_ID } from '@crm/shared'
 import { Button } from '@/components/ui/button'
+import { DatePickerField } from '@/components/ui/date-picker'
 import {
   Dialog,
   CrmDialogContent,
@@ -51,6 +52,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import { useLocale } from '@/lib/i18n'
 import { financeApi } from '@/routes/_authenticated/finance/api'
 import { fmtAmount } from '@/routes/_authenticated/finance/constants'
 import { displayCounterpartyLabel } from '@/routes/_authenticated/finance/components/counterparty-label'
@@ -78,6 +80,7 @@ type ConfirmPayoutDialogProps = {
 
 export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
   const { t } = useLingui()
+  const locale = useLocale()
   const qc = useQueryClient()
   const [recipientAdminId, setRecipientAdminId] = useState<string>('')
   // AC10 — Phase 4 refactor. Default = crypto (legacy contract); switching
@@ -86,8 +89,17 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
   // recipient selector instead (the company account is credited, not an admin).
   const [method, setMethod] = useState<UiMethod>('CRYPTO')
   const [txHash, setTxHash] = useState<string>('')
+  const [payoutDate, setPayoutDate] = useState(kyivToday)
 
   const isCompanyAccount = method === 'COMPANY_ACCOUNT'
+  const sourceDateKey = tx
+    ? new Date(tx.txDate ?? tx.createdAt).toISOString().slice(0, 10)
+    : kyivToday()
+
+  useEffect(() => {
+    const today = kyivToday()
+    setPayoutDate([today, sourceDateKey].sort()[1]!)
+  }, [sourceDateKey])
 
   // Return type is `void` on purpose — the two branches resolve to different
   // DTOs (`confirmPayout` → {payout, confirmed}; `manualConfirmPayout` →
@@ -116,6 +128,7 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
         await financeApi.manualConfirmPayout(tx.payoutRequestId, {
           method: 'COMPANY_ACCOUNT',
           ...(trimmed.length > 0 ? { txHash: trimmed } : {}),
+          txDate: payoutDate,
         })
         return
       }
@@ -131,6 +144,7 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
         recipientAdminId,
         method,
         ...(method === 'CRYPTO' ? { txHash: trimmed } : {}),
+        txDate: payoutDate,
       })
     },
     onSuccess: () => {
@@ -170,6 +184,7 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
     setRecipientAdminId('')
     setMethod('CRYPTO')
     setTxHash('')
+    setPayoutDate(kyivToday())
     onClose()
   }
 
@@ -242,6 +257,27 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
                   {tx.projectName}
                 </span>
               </div>
+            )}
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs" htmlFor="confirm-payout-txdate">
+              <Trans>Дата виплати</Trans>
+            </Label>
+            <DatePickerField
+              id="confirm-payout-txdate"
+              data-testid="confirm-payout-txdate"
+              value={payoutDate}
+              onChange={setPayoutDate}
+              {...(sourceDateKey ? { minDate: sourceDateKey } : {})}
+              className="h-9 text-sm"
+            />
+            {sourceDateKey && (
+              <p className="text-[11px] text-muted-foreground">
+                <Trans>
+                  Не раніше дати транзакції: {formatDate(sourceDateKey, locale, 'shortYY')}
+                </Trans>
+              </p>
             )}
           </div>
 

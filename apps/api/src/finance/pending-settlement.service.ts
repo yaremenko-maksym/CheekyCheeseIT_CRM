@@ -74,6 +74,7 @@ import {
   settledAmountError,
   throwSettledAmountError,
 } from './exchange-rate.util'
+import { parseTransactionBusinessDate } from './transaction-date.util'
 
 /**
  * security-review PR #521 round 3, LOW — mirrors the EXACT peg predicate
@@ -316,6 +317,8 @@ export class PendingSettlementService {
       sourceFundingSource,
       sourceSenderId,
       sourceSenderLabel,
+      sourceTxDate,
+      sourceCreatedAt,
     } = await this.resolveSource(obligation.sourceTransactionId)
 
     // task-cascade-apply (task 3, AC10 / addendum §1.11) — how much of this
@@ -551,12 +554,24 @@ export class PendingSettlementService {
     let originalAmount: string | undefined
     let originalCurrency: 'USDT' | 'USD' | 'EUR' | 'UAH' | undefined
     let exchangeRate: string | null | undefined
-    // task-drop-payout-currency (owner addendum, 2026-08): the date this
-    // settlement is recorded as of — see the extended comment on
-    // `SettleFunding.txDate`. `undefined` (⇒ `.set()` below leaves the
-    // column untouched, i.e. whatever it already was) for a SENIOR
-    // settlement or a DROP settle from a caller that predates this feature.
+    // Business date this settlement is recorded as of. Applies to both
+    // SENIOR and DROP settlements; legacy callers that omit it keep the
+    // existing source row date untouched.
     let txDateToWrite: Date | undefined
+    const selectedDateStr = funding?.txDate ?? undefined
+    if (selectedDateStr) {
+      const sourceBusinessDate = (sourceTxDate ?? sourceCreatedAt ?? obligation.createdAt)
+        .toISOString()
+        .slice(0, 10)
+      if (selectedDateStr < sourceBusinessDate) {
+        throw apiError('FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', HttpStatus.BAD_REQUEST)
+      }
+      // This path historically stores an explicitly selected settlement day at
+      // UTC midnight, including when the operator selects today. Keep that
+      // ledger contract while sharing the strict calendar parser used by the
+      // other finance writers.
+      txDateToWrite = parseTransactionBusinessDate(selectedDateStr)
+    }
     // Stryker disable next-line ConditionalExpression: for a SENIOR settlement this block's four locals are ASSIGNED but never READ — the `.set()` patch below spreads them behind its OWN, separately-tested `isDropObligation` ternary (see the `'originalAmount' in flips[0]!` assertions in pending-settlement.spec.ts), so entering this block unnecessarily has no observable output. It is also provably side-effect-free: a SENIOR obligation is ALWAYS booked in USDT and BIZ-03 restricts a SENIOR settle's currency to USD/USDT — the only pair convertToBase short-circuits WITHOUT calling `this.nbuCurrency.getRates()` — so no stray network call either
     if (isDropObligation) {
       const obligationAmount = parseFloat(obligation.amount)
@@ -628,34 +643,12 @@ export class PendingSettlementService {
         })
       }
 
-      // task-drop-payout-currency (owner addendum): resolve + validate the
-      // date-of-record BEFORE any currency logic — it applies uniformly
-      // whether or not a conversion actually happens (a same-currency
-      // settle still records WHICH day it was paid). The Zod schema already
-      // rejected a future date (compared against server "today", no
-      // obligation context needed); the LOWER bound needs the obligation
-      // row, so it lives here: a settlement cannot be dated before the debt
-      // itself existed — there is nothing to backdate a payment of an
-      // obligation that had not yet been booked.
-      // security-review PR #521 round 3 (LOW, decided NOT to fix): this is
-      // the AUTHORITATIVE lower bound, keyed on `obligation.createdAt` (the
-      // `pending_obligations` row) — the dialog's own picker bound (see
-      // `SettleSeniorPayoutDialog.tsx`'s `minDate`) reads `sourceTx.createdAt`
-      // instead, a SEPARATE INSERT `bookCompanyObligations` issues moments
-      // apart, so the two CAN disagree by one calendar day exactly at a UTC
-      // midnight straddle. Deliberately left unreconciled here too — see
-      // the frontend comment for the full reasoning (a millisecond-window
-      // coincidence, and the failure mode below is a loud, explicit 400,
-      // never a silent wrong write).
-      const selectedDateStr = funding?.txDate ?? undefined
-      if (selectedDateStr) {
-        const obligationCreatedStr = obligation.createdAt.toISOString().slice(0, 10)
-        if (selectedDateStr < obligationCreatedStr) {
-          throw apiError('FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', HttpStatus.BAD_REQUEST)
-        }
-        txDateToWrite = new Date(`${selectedDateStr}T00:00:00.000Z`)
-      }
-
+      // task-drop-payout-currency (owner addendum): the date-of-record is
+      // validated before currency logic. The shared date schema rejects
+      // malformed calendar dates and this NBU-priced flow separately rejects
+      // future Kyiv days. The lower bound above compares against the source
+      // transaction's UTC calendar key, matching how txDate stores a selected
+      // YYYY-MM-DD value. A payment therefore cannot predate its source row.
       // Skip the NBU round-trip entirely when there is nothing to convert —
       // i.e. the pair is USD⇄USDT-pegged 1:1 (see `convertToBase`'s own
       // short-circuit). `obligationCurrency` is provably 'USDT' at this
@@ -1480,6 +1473,8 @@ export class PendingSettlementService {
      */
     sourceSenderId: string | null
     sourceSenderLabel: string | null
+    sourceTxDate: Date | null
+    sourceCreatedAt: Date | null
   }> {
     const source = await this.db.db.query.transactions.findFirst({
       where: eq(transactions.id, sourceTransactionId),
@@ -1510,6 +1505,8 @@ export class PendingSettlementService {
         sourceFundingSource: null,
         sourceSenderId: null,
         sourceSenderLabel: null,
+        sourceTxDate: null,
+        sourceCreatedAt: null,
       }
     const project = source.projectId
       ? await this.db.db.query.projects.findFirst({ where: eq(projects.id, source.projectId) })
@@ -1525,6 +1522,8 @@ export class PendingSettlementService {
       sourceFundingSource: source.fundingSource,
       sourceSenderId: source.senderId,
       sourceSenderLabel: source.senderLabel,
+      sourceTxDate: source.txDate,
+      sourceCreatedAt: source.createdAt,
     }
   }
 

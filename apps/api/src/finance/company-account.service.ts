@@ -38,6 +38,7 @@ import {
   settlementConsumesTransfer,
 } from './onchain-tx'
 import { assertFoundAndVisible } from './transaction-visibility.util'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * task-company-account-backend — the shared company USDT account.
@@ -285,7 +286,7 @@ export class CompanyAccountService {
    * credit (exchange withdrawals show the exchange's wallet).
    */
   async submitDeposit(
-    input: { txHashOrLink: string },
+    input: { txHashOrLink: string; txDate?: string | null | undefined },
     currentUser: SessionUser,
   ): Promise<CompanyDepositDto> {
     if (currentUser.role !== 'SENIOR' && currentUser.role !== 'DROP') {
@@ -380,6 +381,7 @@ export class CompanyAccountService {
             receiverLabel: COMPANY_ACCOUNT_LABEL,
             txHash,
             txFromAddress: onChainFromAddress,
+            txDate: resolveTransactionDate(input.txDate),
             createdBy: currentUser.id,
           })
           .returning()
@@ -621,6 +623,7 @@ export class CompanyAccountService {
       // MANDATORY and explorer-only. Zod enforces this; re-checked below.
       receiptDocumentId?: string | null | undefined
       receiptExternalUrl?: string | null | undefined
+      txDate?: string | null | undefined
     },
     currentUser: SessionUser,
   ): Promise<{ id: string; amount: number; receiverId: string }> {
@@ -744,6 +747,7 @@ export class CompanyAccountService {
             // receiptDocumentId is always null here).
             receiptDocumentId: input.receiptDocumentId ?? null,
             receiptExternalUrl: input.receiptExternalUrl ?? null,
+            txDate: resolveTransactionDate(input.txDate),
             // BIZ-19: persist the key so the unique index enforces idempotency
             // as a DB-level backstop (concurrent races that bypass the SELECT above).
             idempotencyKey: input.idempotencyKey ?? null,

@@ -99,6 +99,7 @@ import { resolveSeniorShare } from './senior-share-resolver'
 import { resolveDropShare, DEFAULT_DROP_SHARE_PERCENT } from './drop-share-resolver'
 import { getOwnSalaryStates } from './salary-status.helper'
 import { previousSalaryMonthKey } from './salary-month.util'
+import { resolveTransactionDate } from './transaction-date.util'
 import {
   computeCompanyAccountBalanceFromLedger,
   lockCompanyAccount,
@@ -695,50 +696,6 @@ export class TransactionsService {
         `path=${params.path} transactionId=${params.transactionId} actorId=${params.actorId}. ` +
         `The receipt link carries no 0x+64hex tx hash, so the transfer stays spendable ` +
         `by another settlement path. Verify the receipt.`,
-    )
-  }
-
-  /**
-   * Resolve the business-time of a transaction from a user-supplied input.
-   *
-   * Frontend sends `txDate` from `<input type="date">` (YYYY-MM-DD) which the
-   * Date constructor parses to midnight UTC (00:00:00.000Z). This breaks
-   * sort-by-date — all "today's" rows tie at 00:00 and order falls back to
-   * unrelated keys (e.g. payouts with txDate=null land first because their
-   * `createdAt` carries the real time-of-day).
-   *
-   * Rule:
-   * - User picked nothing → `new Date()` (now, with full time-of-day).
-   * - User picked a *past* day (different YYYY-MM-DD vs today UTC) → keep
-   *   their pick as-is (midnight is correct for "this happened on day X").
-   * - User picked *today* → merge today's calendar date with current
-   *   time-of-day so the row sorts above same-day rows created earlier.
-   *
-   * This is fix-forward: legacy midnight rows are not migrated. The frontend
-   * sort tie-breaker handles them by falling through to `createdAt`.
-   */
-  private resolveTxDate(rawTxDate: string | null | undefined): Date {
-    const now = new Date()
-    if (!rawTxDate) return now
-    const picked = new Date(rawTxDate)
-    if (Number.isNaN(picked.getTime())) return now
-    // Compare UTC calendar dates (matches how the input is parsed).
-    const sameDay =
-      picked.getUTCFullYear() === now.getUTCFullYear() &&
-      picked.getUTCMonth() === now.getUTCMonth() &&
-      picked.getUTCDate() === now.getUTCDate()
-    if (!sameDay) return picked
-    // Same calendar day: keep picked date, fold in current time-of-day.
-    return new Date(
-      Date.UTC(
-        picked.getUTCFullYear(),
-        picked.getUTCMonth(),
-        picked.getUTCDate(),
-        now.getUTCHours(),
-        now.getUTCMinutes(),
-        now.getUTCSeconds(),
-        now.getUTCMilliseconds(),
-      ),
     )
   }
 
@@ -1981,7 +1938,7 @@ export class TransactionsService {
             txHash: onChainTxHash,
             notes: data.notes ?? null,
             fundingSource,
-            txDate: this.resolveTxDate(data.txDate),
+            txDate: resolveTransactionDate(data.txDate),
             createdBy: currentUser.id,
           })
           .returning()
@@ -2194,7 +2151,7 @@ export class TransactionsService {
             // registry claim below has a visible counterpart on the ledger.
             txHash: extractOnChainTxHash(data.receiptExternalUrl) ?? null,
             notes: data.notes ?? null,
-            txDate: this.resolveTxDate(data.txDate),
+            txDate: resolveTransactionDate(data.txDate),
             createdBy: currentUser.id,
           })
           .returning()
@@ -2246,6 +2203,7 @@ export class TransactionsService {
           projectId: data.projectId,
           companyName: project.companyName,
           createdBy: currentUser.id,
+          txDate: tx!.txDate ?? tx!.createdAt,
           // task-admin-income-drop-backfill: this row's own id — the ONE call
           // site that always knows its source income (it just inserted it, in
           // this same db transaction). Lets a future query answer "does this
@@ -2438,7 +2396,7 @@ export class TransactionsService {
           receiptDocumentId: data.receiptDocumentId ?? null,
           receiptExternalUrl: data.receiptExternalUrl ?? null,
           notes: data.notes ?? null,
-          txDate: this.resolveTxDate(data.txDate),
+          txDate: resolveTransactionDate(data.txDate),
           createdBy: currentUser.id,
         })
         .returning()
@@ -2589,7 +2547,7 @@ export class TransactionsService {
           receiptDocumentId: data.receiptDocumentId ?? null,
           receiptExternalUrl: data.receiptExternalUrl ?? null,
           notes: data.notes ?? null,
-          txDate: this.resolveTxDate(data.txDate),
+          txDate: resolveTransactionDate(data.txDate),
           createdBy: currentUser.id,
         })
         .returning()
@@ -5202,7 +5160,7 @@ export class TransactionsService {
     payoutTxId: string,
     recipientAdminId: string,
     currentUser: SessionUser,
-    options: { method?: 'CRYPTO' | 'CASH'; txHash?: string | null } = {},
+    options: { method?: 'CRYPTO' | 'CASH'; txHash?: string | null; txDate?: string | null } = {},
   ) {
     if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
       throw new ForbiddenException()
@@ -5232,6 +5190,10 @@ export class TransactionsService {
     // which side races; throw early so the UI can show «уже подтверждено».
     if (payoutTx.status !== 'PENDING_PAYMENT') {
       throw apiError('FINANCE_PAYOUT_NOT_PENDING_PAYMENT', HttpStatus.BAD_REQUEST)
+    }
+    const payoutSourceDate = (payoutTx.txDate ?? payoutTx.createdAt).toISOString().slice(0, 10)
+    if ((options.txDate ?? payoutSourceDate) < payoutSourceDate) {
+      throw apiError('FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', HttpStatus.BAD_REQUEST)
     }
 
     const recipient = await this.db.db.query.users.findFirst({
@@ -5263,6 +5225,7 @@ export class TransactionsService {
     const effectiveActorId = currentUser.impersonatorId ?? currentUser.id
 
     const now = new Date()
+    const confirmationTxDate = resolveTransactionDate(options.txDate)
     const confirmationNote = `Manual payout confirmation by ${effectiveActorId} at ${now.toISOString()} (method=${method})`
 
     await this.db.db.transaction(async (dbtx) => {
@@ -5278,6 +5241,7 @@ export class TransactionsService {
           status: 'PAID',
           validatedBy: effectiveActorId,
           validatedAt: now,
+          txDate: confirmationTxDate,
           updatedAt: now,
           ...(method === 'CRYPTO' && recordedTxHash ? { txHash: recordedTxHash } : {}),
         })
@@ -5334,6 +5298,7 @@ export class TransactionsService {
         payoutRequestId: payoutTx.payoutRequestId,
         txHash: recordedTxHash,
         notes: confirmationNote,
+        txDate: confirmationTxDate,
         createdBy: currentUser.id,
       })
     })
@@ -5434,7 +5399,7 @@ export class TransactionsService {
       receiptDocumentId: data.receiptDocumentId ?? null,
       receiptExternalUrl: data.receiptExternalUrl ?? null,
       fundingSource,
-      txDate: this.resolveTxDate(data.txDate),
+      txDate: resolveTransactionDate(data.txDate),
       createdBy: currentUser.id,
     }
 
@@ -5609,7 +5574,7 @@ export class TransactionsService {
           idempotencyKey: data.idempotencyKey,
           notes: data.notes ?? null,
           fundingSource: null,
-          txDate: this.resolveTxDate(data.txDate),
+          txDate: resolveTransactionDate(data.txDate),
           createdBy: currentUser.id,
         })
         .returning()
@@ -5748,7 +5713,7 @@ export class TransactionsService {
         receiptDocumentId: data.receiptDocumentId ?? null,
         receiptExternalUrl: data.receiptExternalUrl ?? null,
         notes: data.notes ?? null,
-        txDate: this.resolveTxDate(data.txDate),
+        txDate: resolveTransactionDate(data.txDate),
         createdBy: currentUser.id,
       })
       .returning()
@@ -5759,7 +5724,11 @@ export class TransactionsService {
 
   // ── Create Payout Request ─────────────────────────────────────────────────
 
-  async createPayoutRequest(transactionIds: string[], currentUser: SessionUser) {
+  async createPayoutRequest(
+    transactionIds: string[],
+    currentUser: SessionUser,
+    txDate?: string | null,
+  ) {
     // task-drop-payout-company-account. SENIOR and DROP have the SAME payout
     // flow: bundle one's own VALIDATED incomes into a single payout to the
     // COMPANY wallet. The ONLY differences are (a) the income row type the
@@ -5842,6 +5811,23 @@ export class TransactionsService {
       // is based on the locked, consistent view of the rows.
       if (lockedRows.length !== transactionIds.length) {
         throw apiError('FINANCE_PAYOUT_TRANSACTIONS_UNAVAILABLE', HttpStatus.BAD_REQUEST)
+      }
+
+      // A payout may be backdated, but it cannot predate any income it settles.
+      // Compare calendar-day keys only: txDate is a business DATE, while the
+      // source rows carry timestamps. For a batch, the latest source date is
+      // therefore the inclusive lower bound for the payout date.
+      const latestSourceDate = lockedRows
+        .map((tx) => (tx.txDate ?? tx.createdAt).toISOString().slice(0, 10))
+        .sort()
+        .pop()
+      // Missing custom date means "do not enforce a lower bound". Use a
+      // lexicographically-high sentinel so the comparison remains one simple,
+      // mutation-testable expression without nullable branches.
+      const comparablePayoutDate = txDate ?? String.fromCharCode(0xffff)
+      const comparableLatestSourceDate = latestSourceDate ?? comparablePayoutDate
+      if (comparablePayoutDate < comparableLatestSourceDate) {
+        throw apiError('FINANCE_PAYOUT_DATE_BEFORE_INCOME', HttpStatus.BAD_REQUEST)
       }
 
       // Audit 2026-06-28 (#5): a DROP payout must bundle incomes from a SINGLE
@@ -6002,6 +5988,10 @@ export class TransactionsService {
         receiverLabel: 'CheekyCheeseIT',
         payoutRequestId: req!.id,
         projectId: primaryProjectId,
+        // Persist the operator-selected business date on the ledger row.
+        // Omitting txDate stays backward-compatible at the API boundary and
+        // resolves to "now", matching the old createdAt-based business day.
+        txDate: resolveTransactionDate(txDate),
         createdBy: currentUser.id,
       })
 
@@ -6035,6 +6025,7 @@ export class TransactionsService {
     txHash: string | undefined,
     currentUser: SessionUser,
     simulateResult?: 'success' | 'error',
+    txDate?: string | null,
   ) {
     // Drop role - phase 2: DROP users own drop-project payouts. The legacy
     // SENIOR check is kept for senior-projects; either role can call this
@@ -6192,6 +6183,7 @@ export class TransactionsService {
       currentUser,
       false,
       onChainFromAddress,
+      txDate,
     )
   }
 
@@ -6213,7 +6205,7 @@ export class TransactionsService {
     requestId: string,
     method: ManualPayoutMethod,
     currentUser: SessionUser,
-    options: { note?: string | null; txHash?: string | null } = {},
+    options: { note?: string | null; txHash?: string | null; txDate?: string | null } = {},
   ) {
     // RBAC: ADMIN/ACCOUNTANT only (NOT SENIOR/DROP). Real 403 enforced here AND
     // by the controller RolesGuard (defense-in-depth).
@@ -6310,6 +6302,8 @@ export class TransactionsService {
       auditNote,
       currentUser,
       needsReuseGuard,
+      null,
+      options.txDate,
     )
   }
 
@@ -6351,6 +6345,7 @@ export class TransactionsService {
       companyName: string
       createdBy: string
       payoutRequestId?: string | null
+      txDate?: Date | undefined
       // task-admin-income-drop-backfill: the income transaction this booking
       // was caused by, when the caller knows it — see the column comment on
       // `transactions.sourceIncomeTransactionId` in schema.ts for the full
@@ -6397,6 +6392,7 @@ export class TransactionsService {
           createdBy,
           sourceIncomeTransactionId: incomeTransactionId,
           companyNameSnapshot: companyName,
+          ...(params.txDate ? { txDate: params.txDate } : {}),
         })
         .returning()
       if (pendingRow) {
@@ -6447,6 +6443,7 @@ export class TransactionsService {
           createdBy,
           sourceIncomeTransactionId: incomeTransactionId,
           companyNameSnapshot: companyName,
+          ...(params.txDate ? { txDate: params.txDate } : {}),
         })
         .returning()
       if (pendingRow) {
@@ -6499,6 +6496,7 @@ export class TransactionsService {
     // settlements). Stamped on the payout_request AND the PAYOUT ledger row —
     // audit data, never a gate.
     onChainFromAddress: string | null = null,
+    txDate?: string | null,
   ) {
     const requestId = req.id
 
@@ -6545,6 +6543,31 @@ export class TransactionsService {
           // A concurrent / repeated confirm already flipped this payout.
           throw apiError('FINANCE_PAYOUT_REQUEST_ALREADY_PAID', HttpStatus.BAD_REQUEST)
         }
+
+        // The payment date may be backdated, but never before the PAYOUT row
+        // being settled. Validate inside the same transaction as the status
+        // claim so no concurrent edit can make the decision stale.
+        const [payoutSource] = await dbtx
+          .select({
+            id: transactions.id,
+            txDate: transactions.txDate,
+            createdAt: transactions.createdAt,
+          })
+          .from(transactions)
+          .where(and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, 'PAYOUT')))
+          .limit(1)
+        if (!payoutSource) {
+          throw apiError('FINANCE_PAYOUT_TRANSACTION_NOT_FOUND_FOR_REQUEST', HttpStatus.BAD_REQUEST)
+        }
+        if (txDate) {
+          const sourceDate = (payoutSource.txDate ?? payoutSource.createdAt)
+            .toISOString()
+            .slice(0, 10)
+          if (txDate < sourceDate) {
+            throw apiError('FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', HttpStatus.BAD_REQUEST)
+          }
+        }
+        const paymentTxDate = txDate ? resolveTransactionDate(txDate) : undefined
 
         // ── SECURITY (LOW #6, defense-in-depth): in-transaction txHash-reuse guard.
         // For the manual COMPANY_ACCOUNT path the on-chain hash credits the company
@@ -6683,6 +6706,7 @@ export class TransactionsService {
             // task-onchain-payment-integrity: recorded on-chain sender (audit).
             txFromAddress: onChainFromAddress,
             fundingSource,
+            ...(paymentTxDate ? { txDate: paymentTxDate } : {}),
             updatedAt: new Date(),
             ...(auditNote ? { notes: auditNote } : {}),
           })
@@ -6711,6 +6735,7 @@ export class TransactionsService {
               txHash: effectiveTxHash,
               txFromAddress: onChainFromAddress,
               fundingSource,
+              ...(paymentTxDate ? { txDate: paymentTxDate } : {}),
               updatedAt: new Date(),
               ...(auditNote ? { notes: auditNote } : {}),
             })
@@ -6749,6 +6774,7 @@ export class TransactionsService {
             fundingSource,
             payableAmount: req.payableAmount,
             ...(auditNote ? { note: auditNote } : {}),
+            ...(txDate ? { txDate } : {}),
           },
         })
 
@@ -6870,6 +6896,7 @@ export class TransactionsService {
             companyName: primaryProject.companyName,
             createdBy: currentUser.id,
             payoutRequestId: requestId,
+            txDate: paymentTxDate,
             senior: { id: senior.id, role: senior.role, shareSnapshot: seniorShareSnapshot },
             drop: { id: dropUser.id, shareSnapshot: dropShareSnapshot },
             notePrefix: 'Drop payout',
@@ -8396,6 +8423,7 @@ export class TransactionsService {
       // behaviour — only the currency LABEL changed). Zod bounds it at the
       // boundary (positive, ≤ MAX_TRANSACTION_AMOUNT).
       paidAmount?: number | undefined
+      txDate?: string | null | undefined
       txHash?: string | null | undefined
       // task-receipts-backend (#7): pay-time proof MANDATORY, currency-aware
       // (COMPANY_ACCOUNT → USDT → explorer-only). Zod enforces at the boundary.
@@ -8415,6 +8443,16 @@ export class TransactionsService {
     if (tx.type !== 'SALARY') throw apiError('FINANCE_PAY_SALARY_ONLY', HttpStatus.BAD_REQUEST)
     if (tx.status !== 'PENDING')
       throw apiError('FINANCE_TRANSACTION_NOT_PENDING', HttpStatus.BAD_REQUEST)
+
+    // A salary payment can be entered later than it happened, but it cannot
+    // predate the salary transaction itself. Keep the comparison at calendar-
+    // day granularity because the UI submits a business date (YYYY-MM-DD).
+    if (data.txDate) {
+      const sourceDate = (tx.txDate ?? tx.createdAt).toISOString().slice(0, 10)
+      if (data.txDate < sourceDate) {
+        throw apiError('FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', HttpStatus.BAD_REQUEST)
+      }
+    }
 
     // task-finance-fix-wave1 (E-1): refuse to PAY a salary whose receiver has
     // been dismissed. `assertTransactionWritable` above only knows about
@@ -8582,10 +8620,9 @@ export class TransactionsService {
         ? rawExchangeRate.toFixed(8)
         : null
 
-    // task-salary-pay-flow: stamp txDate = pay date (now). The salary was created
-    // (PENDING) on an earlier date, but the business-time of the actual payment
-    // is when an ADMIN pays it. The funding source / currency / sender are
-    // finalized on the row HERE.
+    // task-salary-pay-flow: stamp txDate = the actual payment business date.
+    // When legacy callers omit it, resolveTransactionDate preserves the old "now"
+    // behaviour; the UI supplies the operator-selected calendar day.
     const paidSet = {
       status: 'PAID' as const,
       fundingSource: isCompanyFunded ? ('COMPANY_ACCOUNT' as const) : ('ADMIN_PERSONAL' as const),
@@ -8609,7 +8646,7 @@ export class TransactionsService {
       receiptDocumentId: data.receiptDocumentId ?? null,
       receiptExternalUrl: data.receiptExternalUrl ?? null,
       notes: data.notes ?? tx.notes,
-      txDate: new Date(),
+      txDate: resolveTransactionDate(data.txDate),
       updatedAt: new Date(),
     }
 

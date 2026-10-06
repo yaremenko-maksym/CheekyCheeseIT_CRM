@@ -778,6 +778,7 @@ export function CreateTransactionDialog({
           idempotencyKey: dividendIdempotencyKey,
           receiptDocumentId,
           receiptExternalUrl,
+          txDate: txDate || null,
           ...(dividendReceiverId ? { adminId: dividendReceiverId } : {}),
         })
       }
@@ -1595,15 +1596,13 @@ export function CreateTransactionDialog({
             />
           )}
 
-          {/* Date (non-dividend types) */}
-          {type !== 'DIVIDEND' && (
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">
-                <Trans>Дата транзакції</Trans>
-              </Label>
-              <DatePickerField value={txDate} onChange={setTxDate} className="h-9 text-sm" />
-            </div>
-          )}
+          {/* Business date — every manually-created transaction, including dividends. */}
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">
+              <Trans>Дата транзакції</Trans>
+            </Label>
+            <DatePickerField value={txDate} onChange={setTxDate} className="h-9 text-sm" />
+          </div>
 
           {/* Receipt — mandatory for all 7 showReceipt types (task-receipts-frontend);
               explorer-only (link, no file) when the effective currency is USDT. */}

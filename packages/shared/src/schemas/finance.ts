@@ -7,6 +7,18 @@ import {
 import { moneyFloorAndPrecisionError, withMoneyFloor, withSalaryFloor } from './money'
 import { kyivToday } from '../utils/kyiv-day'
 
+function isRealCalendarDate(value: string): boolean {
+  const parsed = new Date(`${value}T00:00:00.000Z`)
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
+}
+
+// Every financial date input uses one strict YYYY-MM-DD calendar validator.
+// Whether a future date is legal is flow-specific (for example, NBU-priced
+// settlement forbids it, while a pending salary may legitimately be planned).
+const transactionBusinessDateSchema = z
+  .string()
+  .refine(isRealCalendarDate, { message: 'zod.DATE_FORMAT_YYYYMMDD' })
+
 // ---------------------------------------------------------------------------
 // Enums
 // ---------------------------------------------------------------------------
@@ -889,11 +901,7 @@ export const createAdminIncomeSchema = z
     currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
     ...receiptFields,
     notes: z.string().max(1000).optional().nullable(),
-    txDate: z
-      .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/)
-      .optional()
-      .nullable(),
+    txDate: transactionBusinessDateSchema.optional().nullable(),
     // Stryker disable next-line ArrayDeclaration: this array literal is evaluated ONCE at module-import time (schema construction), before any test's per-test coverage window opens, so Stryker's vitest-runner falls back to a single whole-suite run for this "static" mutant and reports 0 tests completed. Verified independently outside Stryker's sandbox (plain node, this repo's exact zod@4.3.6): `z.union([])` throws synchronously inside `new ZodUnion` the instant the module is imported — every test file importing anything from finance.ts would fail to even load. Not an equivalent mutant (it is a real, severe regression); real behavioural tests already exist accepting a UUID and the COMPANY_ACCOUNT sentinel for this exact field (createAdminIncomeSchema.spec.ts) — they just cannot register as "covering" a construction-time literal, a tool blind spot for module-scope Zod unions.
     receiverId: z.union([z.string().uuid(), z.literal(COMPANY_ACCOUNT_RECEIVER)]).optional(),
     // security-review (PR #522, MED-1): `receiverId` REPLACED `fundingSource` on
@@ -958,11 +966,7 @@ export const createUsdtIncomeSchema = z
     // literal → the mandatory refine below requires a blockchain-explorer link.
     ...receiptFields,
     notes: z.string().max(1000).optional().nullable(),
-    txDate: z
-      .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/)
-      .optional()
-      .nullable(),
+    txDate: transactionBusinessDateSchema.optional().nullable(),
   })
   .superRefine(mandatoryReceiptRefine(() => 'USDT'))
 export type CreateUsdtIncomeDto = z.infer<typeof createUsdtIncomeSchema>
@@ -988,11 +992,7 @@ export const createSeniorIncomeSchema = z
     idempotencyKey: z.string().uuid(),
     ...receiptFields,
     notes: z.string().max(1000).optional().nullable(),
-    txDate: z
-      .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/)
-      .optional()
-      .nullable(),
+    txDate: transactionBusinessDateSchema.optional().nullable(),
   })
   // task-receipts-backend: receipt MANDATORY + currency-aware (USDT → explorer-only).
   .superRefine(mandatoryReceiptRefine((d) => d.currency))
@@ -1022,11 +1022,7 @@ export const createDropIncomeSchema = z
     idempotencyKey: z.string().uuid(),
     ...receiptFields,
     notes: z.string().max(1000).optional().nullable(),
-    txDate: z
-      .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/)
-      .optional()
-      .nullable(),
+    txDate: transactionBusinessDateSchema.optional().nullable(),
   })
   // task-receipts-backend: receipt MANDATORY + currency-aware (USDT → explorer-only).
   .superRefine(mandatoryReceiptRefine((d) => d.currency))
@@ -1072,11 +1068,7 @@ export const createExpenseSchema = z
     category: z.string().min(1).max(255),
     notes: z.string().max(1000).optional().nullable(),
     ...receiptFields,
-    txDate: z
-      .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/)
-      .optional()
-      .nullable(),
+    txDate: transactionBusinessDateSchema.optional().nullable(),
     // Reuse salaryFundingSourceSchema — only COMPANY_ACCOUNT is meaningful here.
     // Optional → legacy expense (no company routing, no balance impact).
     fundingSource: salaryFundingSourceSchema.optional(),
@@ -1111,11 +1103,7 @@ export const createSalarySchema = z.object({
   // distinguish from an intentional second, identical salary part.
   idempotencyKey: z.string().uuid(),
   notes: z.string().max(1000).optional().nullable(),
-  txDate: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional()
-    .nullable(),
+  txDate: transactionBusinessDateSchema.optional().nullable(),
 })
 export type CreateSalaryDto = z.infer<typeof createSalarySchema>
 
@@ -1133,11 +1121,7 @@ export const createAdminTransferSchema = z
     // an omitted currency is treated as USDT.
     ...receiptFields,
     notes: z.string().max(1000).optional().nullable(),
-    txDate: z
-      .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/)
-      .optional()
-      .nullable(),
+    txDate: transactionBusinessDateSchema.optional().nullable(),
   })
   .superRefine(mandatoryReceiptRefine((d) => d.currency))
 export type CreateAdminTransferDto = z.infer<typeof createAdminTransferSchema>
@@ -1192,6 +1176,7 @@ export const transactionAuditLogListSchema = z.array(transactionAuditLogEntrySch
 // Create payout request (senior bundles their VALIDATED incomes)
 export const createPayoutRequestSchema = z.object({
   transactionIds: z.array(z.string().uuid()).min(1),
+  txDate: transactionBusinessDateSchema.optional().nullable(),
 })
 export type CreatePayoutRequestDto = z.infer<typeof createPayoutRequestSchema>
 
@@ -1216,6 +1201,7 @@ export const payPayoutRequestSchema = z
   .object({
     txHash: z.string().max(255).optional(),
     simulateResult: z.enum(['success', 'error']).optional(),
+    txDate: transactionBusinessDateSchema.optional().nullable(),
   })
   .superRefine((data, ctx) => {
     if (data.simulateResult === undefined) {
@@ -1307,6 +1293,7 @@ export type ReleaseOnChainHashDto = z.infer<typeof releaseOnChainHashSchema>
 export const manualConfirmPayoutSchema = z.object({
   method: manualPayoutMethodSchema,
   note: z.string().max(1000).optional().nullable(),
+  txDate: transactionBusinessDateSchema.optional().nullable(),
   // HIGH-1 (security-review PR #438): the format is now validated at the write
   // boundary. A supplied txHash MUST contain a real on-chain hash (bare or as
   // an explorer link) — previously any string ≥10 chars was accepted verbatim,
@@ -1436,6 +1423,7 @@ export const paySalarySchema = z
         if (message) ctx.addIssue({ code: 'custom', message })
       })
       .optional(),
+    txDate: transactionBusinessDateSchema.optional().nullable(),
     txHash: z.string().max(255).optional().nullable(),
     // task-receipts-backend (#7): pay-time proof is now MANDATORY. Effective
     // currency = USDT for COMPANY_ACCOUNT (USDT-only) → explorer-only; else the
@@ -1510,6 +1498,7 @@ export const confirmPayoutSchema = z
     recipientAdminId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
     method: payoutMethodSchema.default('CRYPTO'),
     txHash: z.string().max(255).optional().nullable(),
+    txDate: transactionBusinessDateSchema.optional().nullable(),
   })
   .superRefine((data, ctx) => {
     if (data.method === 'CRYPTO') {
@@ -1780,15 +1769,11 @@ export const settleSeniorPayoutSchema = z
     // one (the legacy route, e2e fixtures, unit specs, and every SENIOR
     // settle — the picker is DROP-only in the UI) keeps working byte-for-
     // byte: the service falls back to "now", the pre-existing behaviour.
-    // Upper-bound (no future dates) is enforced right here — it needs no
-    // per-obligation context. The LOWER bound (not before the obligation
-    // existed) does need the obligation row, so it is enforced in the
-    // service instead.
-    txDate: z
-      .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/, 'zod.DATE_FORMAT_YYYYMMDD')
-      .optional()
-      .nullable(),
+    // Strict calendar validation comes from the shared financial-date schema.
+    // This NBU-priced flow additionally forbids future dates below. The LOWER
+    // bound (not before the obligation existed) needs row context and stays in
+    // the service.
+    txDate: transactionBusinessDateSchema.optional().nullable(),
     // task-receipts-backend (#10): closing a senior/drop IOU now requires proof.
     // Effective currency = USDT for COMPANY_ACCOUNT (USDT-only) or when `currency`
     // is omitted (task-remove-settle-currency default) → explorer-only; else the
@@ -1804,19 +1789,8 @@ export const settleSeniorPayoutSchema = z
     ),
   )
   .superRefine((data, ctx) => {
-    // Stryker disable next-line ConditionalExpression: removing this early-return is unobservable — `data.txDate` would be `undefined` on the branch it guards, and JS's abstract relational comparison (`undefined > <anything>`) always evaluates to `false`, so the addIssue below is never reached either way; kept as an explicit, readable guard rather than relying on that coercion
     if (!data.txDate) return
-    // The KYIV calendar day (security-review PR #578 review, MED-2) — NOT
-    // UTC. NBU's operational day (backlog 148) turns at Kyiv midnight, and
-    // this upper bound has to agree with `NbuCurrencyService.getRates()`'s
-    // own idea of "today", or a UTC boundary here could reject a txDate the
-    // server would otherwise have priced correctly (or the reverse: accept
-    // one the server treats as future), for up to 3 hours a day. Matches the
-    // YYYY-MM-DD the client sends (see the settle dialog's date picker,
-    // which mirrors this exact bound with the same `kyivToday()` call — see
-    // its comment for why the two must move together).
-    const todayStr = kyivToday()
-    if (data.txDate > todayStr) {
+    if (data.txDate > kyivToday()) {
       ctx.addIssue({
         code: 'custom',
         path: ['txDate'],
@@ -2392,6 +2366,7 @@ export type UpdateRequisitesDto = z.infer<typeof updateRequisitesSchema>
 // while the service does the strict extraction/validation.
 export const createCompanyDepositSchema = z.object({
   txHashOrLink: z.string().min(10, 'zod.TX_HASH_MIN_LENGTH').max(500),
+  txDate: transactionBusinessDateSchema.optional().nullable(),
 })
 export type CreateCompanyDepositDto = z.infer<typeof createCompanyDepositSchema>
 
@@ -2448,6 +2423,7 @@ export const createDividendSchema = z
     amount: withMoneyFloor(z.number().positive()),
     adminId: z.string().uuid().optional(),
     idempotencyKey: z.string().uuid(),
+    txDate: transactionBusinessDateSchema.optional().nullable(),
     // task-receipts-backend (#9): a dividend is a USDT withdrawal from the company
     // account → receipt MANDATORY and explorer-only (no currency field: always USDT).
     ...receiptFields,

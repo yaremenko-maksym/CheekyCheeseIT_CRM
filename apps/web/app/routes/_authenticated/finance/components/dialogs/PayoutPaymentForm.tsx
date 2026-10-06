@@ -20,6 +20,7 @@ import { formatDate } from '@crm/shared'
 import { useLocale } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { DatePickerField } from '@/components/ui/date-picker'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -97,6 +98,9 @@ export function PayoutPaymentForm({
     setManualNote,
     manualTxHash,
     setManualTxHash,
+    payoutDate,
+    setPayoutDate,
+    payoutMinDate,
     payMutation,
     payError,
     manualMutation,
@@ -342,6 +346,31 @@ export function PayoutPaymentForm({
               </div>
             )
           })()}
+
+          {!isPaid && (
+            <div className="space-y-1.5">
+              <Label htmlFor="payout-payment-date" className="text-xs text-muted-foreground">
+                <Trans>Дата виплати</Trans>
+              </Label>
+              <DatePickerField
+                id="payout-payment-date"
+                value={payoutDate}
+                onChange={setPayoutDate}
+                {...(payoutMinDate ? { minDate: payoutMinDate } : {})}
+                {...(payoutMinDate ? { 'aria-describedby': 'payout-payment-date-helper' } : {})}
+                className="h-9 text-sm"
+                data-testid="payout-detail-txdate"
+              />
+              {payoutMinDate && (
+                <p id="payout-payment-date-helper" className="text-[11px] text-muted-foreground">
+                  <Trans>
+                    Найраніша доступна дата — {formatDate(`${payoutMinDate}T00:00:00.000Z`, locale)}
+                    .
+                  </Trans>
+                </p>
+              )}
+            </div>
+          )}
 
           {/* TX hash — input (PENDING) or read-only display (PAID) */}
           {isPaid ? (

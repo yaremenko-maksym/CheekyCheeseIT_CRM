@@ -29,6 +29,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { kyivToday } from '@crm/shared'
 
 vi.mock('@/lib/axios', () => ({
   api: {
@@ -59,6 +60,34 @@ vi.mock('../../../api', () => ({
   },
 }))
 
+vi.mock('@/components/ui/date-picker', () => ({
+  DatePickerField: ({
+    value,
+    onChange,
+    minDate,
+    id,
+    'aria-describedby': ariaDescribedBy,
+    'data-testid': dataTestId,
+  }: {
+    value: string
+    onChange: (value: string) => void
+    minDate?: string
+    id?: string
+    'aria-describedby'?: string
+    'data-testid'?: string
+  }) => (
+    <input
+      id={id}
+      type="date"
+      value={value}
+      min={minDate}
+      aria-describedby={ariaDescribedBy}
+      data-testid={dataTestId}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  ),
+}))
+
 import { PaySalaryDialog } from '../PaySalaryDialog'
 
 const TX = {
@@ -69,6 +98,7 @@ const TX = {
   currency: 'USD',
   receiverName: 'HR Person',
   salaryMonth: '2026-05',
+  txDate: '2026-05-01T00:00:00.000Z',
   createdAt: '2026-05-01T00:00:00.000Z',
 } as never
 
@@ -80,14 +110,26 @@ beforeEach(async () => {
   await loadCatalog('uk')
 })
 
-function renderDialog() {
+type SalaryTx = Parameters<typeof PaySalaryDialog>[0]['tx']
+
+function renderDialog(tx: SalaryTx = TX) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
+  const view = render(
     <QueryClientProvider client={qc}>
-      <PaySalaryDialog tx={TX} onClose={() => {}} />
+      <PaySalaryDialog tx={tx} onClose={() => {}} />
     </QueryClientProvider>,
     { wrapper: I18nTestProvider },
   )
+  return {
+    ...view,
+    rerenderDialog(nextTx: SalaryTx) {
+      view.rerender(
+        <QueryClientProvider client={qc}>
+          <PaySalaryDialog tx={nextTx} onClose={() => {}} />
+        </QueryClientProvider>,
+      )
+    },
+  }
 }
 
 describe('PaySalaryDialog — account + currency selectors', () => {
@@ -127,6 +169,7 @@ describe('PaySalaryDialog — account + currency selectors', () => {
     expect(payload.fundingSource).toBe('COMPANY_ACCOUNT')
     expect(payload.currency).toBe('USDT')
     expect(payload.payerAdminId).toBeUndefined()
+    expect(payload.txDate).toBe(kyivToday())
     expect(payload.receiptExternalUrl).toBe('https://etherscan.io/tx/0xabc123')
     // fix-round 2 (CI-5/CR-H-2): `setReceiptError(receiptErr ? ... : null)`
     // is unconditional (fixes a stale-error bug — see that call site's own
@@ -170,5 +213,66 @@ describe('PaySalaryDialog — account + currency selectors', () => {
     // formatDate(..., 'shortYY') → day.month.2-digit-year — exact string so
     // a mutation to the style key (silently switching formats) fails.
     expect(screen.getByText('01.05.26')).toBeInTheDocument()
+  })
+
+  it('shows a payout-date picker', async () => {
+    renderDialog()
+    await screen.findByTestId('pay-salary-account-company')
+    const date = screen.getByTestId('pay-salary-txdate')
+    expect(date).toBeInTheDocument()
+    expect(date).toHaveAttribute('min', '2026-05-01')
+    expect(date).toHaveAttribute('aria-describedby', 'pay-salary-date-helper')
+    expect(screen.getByText(/Найраніша доступна дата/).textContent).toBe(
+      'Найраніша доступна дата — 01.05.2026.',
+    )
+  })
+
+  it('prefers txDate over createdAt and clamps a future salary payment date', async () => {
+    renderDialog({
+      ...(TX as object),
+      id: 'future-salary',
+      txDate: '2099-04-05T00:00:00.000Z',
+      createdAt: '2098-01-01T00:00:00.000Z',
+    } as typeof TX)
+    const date = await screen.findByTestId('pay-salary-txdate')
+    await waitFor(() => expect(date).toHaveValue('2099-04-05'))
+    expect(date).toHaveAttribute('min', '2099-04-05')
+  })
+
+  it('recomputes the payment date when the salary transaction changes without remounting', async () => {
+    const first = {
+      ...(TX as object),
+      id: 'salary-first',
+      txDate: '2099-04-05T00:00:00.000Z',
+    } as typeof TX
+    const second = {
+      ...(TX as object),
+      id: 'salary-second',
+      txDate: '2099-05-06T00:00:00.000Z',
+    } as typeof TX
+    const view = renderDialog(first)
+    await waitFor(() => expect(screen.getByTestId('pay-salary-txdate')).toHaveValue('2099-04-05'))
+    view.rerenderDialog(second)
+    await waitFor(() => expect(screen.getByTestId('pay-salary-txdate')).toHaveValue('2099-05-06'))
+  })
+
+  it('renders nothing when no salary transaction is selected', () => {
+    const { container } = renderDialog(null)
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('submits the operator-selected salary payment date', async () => {
+    renderDialog()
+    fireEvent.change(await screen.findByTestId('pay-salary-txdate'), {
+      target: { value: '2026-06-15' },
+    })
+    fireEvent.change(screen.getByTestId('receipt-input-url-field'), {
+      target: { value: 'https://etherscan.io/tx/0xcustomdate' },
+    })
+    fireEvent.click(screen.getByTestId('pay-salary-submit'))
+    await waitFor(() => expect(paySalaryMock).toHaveBeenCalledTimes(1))
+    expect(paySalaryMock.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({ txDate: '2026-06-15' }),
+    )
   })
 })

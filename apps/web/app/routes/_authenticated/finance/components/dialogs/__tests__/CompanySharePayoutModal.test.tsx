@@ -49,6 +49,34 @@ vi.mock('../../../api', () => ({
   },
 }))
 
+vi.mock('@/components/ui/date-picker', () => ({
+  DatePickerField: ({
+    value,
+    onChange,
+    minDate,
+    id,
+    'aria-describedby': ariaDescribedBy,
+    'data-testid': dataTestId,
+  }: {
+    value: string
+    onChange: (value: string) => void
+    minDate?: string
+    id?: string
+    'aria-describedby'?: string
+    'data-testid'?: string
+  }) => (
+    <input
+      id={id}
+      type="date"
+      value={value}
+      min={minDate}
+      aria-describedby={ariaDescribedBy}
+      data-testid={dataTestId}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  ),
+}))
+
 import { CompanySharePayoutModal } from '../CompanySharePayoutModal'
 
 const PROJECT_A = '00000000-0000-4000-b000-00000000000a'
@@ -155,6 +183,131 @@ describe('CompanySharePayoutModal — step 1 selection (AC2)', () => {
     expect(screen.getByTestId(`company-share-income-checkbox-${TX_A2.id}`)).toBeChecked()
     expect(screen.getByTestId(`company-share-income-checkbox-${TX_B1.id}`)).toBeChecked()
     expect(screen.getByTestId('company-share-create-payout')).not.toBeDisabled()
+  })
+
+  it('submits today as the payout date by default', async () => {
+    const oldTx = makeTx({
+      id: 'old-date',
+      projectId: PROJECT_A,
+      projectName: 'Project Alpha',
+      txDate: '2020-01-01T00:00:00.000Z',
+      createdAt: '2020-01-01T00:00:00.000Z',
+    })
+    createPayoutRequestMock.mockResolvedValue(makePayout())
+    getPayoutRequestMock.mockResolvedValue(makePayout())
+
+    renderModal({ validatedTxs: [oldTx], preselectedTxIds: [oldTx.id] })
+
+    const now = new Date()
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    fireEvent.click(screen.getByTestId('company-share-create-payout'))
+    await waitFor(() =>
+      expect(createPayoutRequestMock).toHaveBeenLastCalledWith({
+        transactionIds: [oldTx.id],
+        txDate: today,
+      }),
+    )
+  })
+
+  it('zero-pads a single-digit local month and day in the default payout date', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date(2026, 2, 4, 12, 0, 0))
+      const oldTx = makeTx({
+        id: 'old-date-padding',
+        txDate: '2020-01-01T00:00:00.000Z',
+        createdAt: '2020-01-01T00:00:00.000Z',
+      })
+      createPayoutRequestMock.mockResolvedValue(makePayout())
+      getPayoutRequestMock.mockResolvedValue(makePayout())
+      renderModal({ validatedTxs: [oldTx], preselectedTxIds: [oldTx.id] })
+      fireEvent.click(screen.getByTestId('company-share-create-payout'))
+      await vi.runAllTimersAsync()
+      expect(createPayoutRequestMock).toHaveBeenCalledWith({
+        transactionIds: [oldTx.id],
+        txDate: '2026-03-04',
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('clamps the payout date when selection raises the minimum', async () => {
+    const oldTx = makeTx({
+      id: 'old-date',
+      projectId: PROJECT_A,
+      projectName: 'Project Alpha',
+      txDate: '2020-01-01T00:00:00.000Z',
+      createdAt: '2020-01-01T00:00:00.000Z',
+    })
+    const futureTx = makeTx({
+      id: 'future-date',
+      projectId: PROJECT_B,
+      projectName: 'Project Beta',
+      txDate: '2099-01-10T00:00:00.000Z',
+      createdAt: '2099-01-10T00:00:00.000Z',
+    })
+    createPayoutRequestMock.mockResolvedValue(makePayout())
+    getPayoutRequestMock.mockResolvedValue(makePayout())
+
+    renderModal({ validatedTxs: [oldTx, futureTx], preselectedTxIds: [oldTx.id] })
+    fireEvent.click(screen.getByTestId(`company-share-income-checkbox-${futureTx.id}`))
+    const date = screen.getByTestId('company-share-payout-date')
+    await waitFor(() => expect(date).toHaveValue('2099-01-10'))
+    expect(date).toHaveAttribute('min', '2099-01-10')
+    expect(date).toHaveAttribute('aria-describedby', 'company-share-payout-date-helper')
+    expect(screen.getByText(/Найраніша доступна дата/).textContent).toBe(
+      'Найраніша доступна дата — 10.01.2099.',
+    )
+    fireEvent.click(screen.getByTestId('company-share-create-payout'))
+    await waitFor(() =>
+      expect(createPayoutRequestMock).toHaveBeenLastCalledWith({
+        transactionIds: [oldTx.id, futureTx.id],
+        txDate: '2099-01-10',
+      }),
+    )
+  })
+
+  it('uses txDate rather than createdAt when calculating the selected minimum', async () => {
+    const tx = makeTx({
+      id: 'date-precedence',
+      txDate: '2099-05-06T00:00:00.000Z',
+      createdAt: '2099-12-31T00:00:00.000Z',
+    })
+    renderModal({ validatedTxs: [tx], preselectedTxIds: [tx.id] })
+    const date = screen.getByTestId('company-share-payout-date')
+    await waitFor(() => expect(date).toHaveValue('2099-05-06'))
+    expect(date).toHaveAttribute('min', '2099-05-06')
+  })
+
+  it('keeps the latest selected transaction date regardless of transaction order', async () => {
+    const future = makeTx({
+      id: 'future-first',
+      txDate: '2099-05-06T00:00:00.000Z',
+      createdAt: '2099-05-06T00:00:00.000Z',
+    })
+    const old = makeTx({
+      id: 'old-second',
+      txDate: '2020-01-01T00:00:00.000Z',
+      createdAt: '2020-01-01T00:00:00.000Z',
+    })
+    renderModal({
+      validatedTxs: [future, old],
+      preselectedTxIds: [future.id, old.id],
+    })
+    const date = screen.getByTestId('company-share-payout-date')
+    await waitFor(() => expect(date).toHaveValue('2099-05-06'))
+    expect(date).toHaveAttribute('min', '2099-05-06')
+  })
+
+  it('removes the date bound and helper when the selection becomes empty', () => {
+    renderModal({ validatedTxs: [TX_A1], preselectedTxIds: [TX_A1.id] })
+    const date = screen.getByTestId('company-share-payout-date')
+    expect(date).toHaveAttribute('min', '2026-07-01')
+    fireEvent.click(screen.getByTestId(`company-share-income-checkbox-${TX_A1.id}`))
+    expect(date).not.toHaveAttribute('min')
+    expect(date).not.toHaveAttribute('aria-describedby')
+    expect(screen.queryByText(/Найраніша доступна дата/)).not.toBeInTheDocument()
   })
 
   it('a single row-level preselect selects ONLY that income (unchanged from old PayoutDialog)', () => {

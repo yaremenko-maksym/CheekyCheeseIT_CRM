@@ -207,6 +207,7 @@ describe.skipIf(!hasDatabaseUrl())(
       owner: SessionUser,
       amount: string,
       sharePercent = 26,
+      dates?: { incomeTxDate?: string; payoutTxDate?: string },
     ): Promise<{ requestId: string; payable: number }> {
       const [income] = await dbSvc.db
         .insert(transactions)
@@ -217,10 +218,13 @@ describe.skipIf(!hasDatabaseUrl())(
           currency: 'USDT',
           receiverId: owner.id,
           seniorSharePercent: sharePercent,
+          ...(dates?.incomeTxDate
+            ? { txDate: new Date(`${dates.incomeTxDate}T00:00:00.000Z`) }
+            : {}),
           createdBy: owner.id,
         })
         .returning()
-      const pr = await svc.createPayoutRequest([income!.id], owner)
+      const pr = await svc.createPayoutRequest([income!.id], owner, dates?.payoutTxDate)
       return { requestId: pr.id, payable: parseFloat(pr.payableAmount) }
     }
 
@@ -309,6 +313,48 @@ describe.skipIf(!hasDatabaseUrl())(
       const result = await svc.payPayoutRequest(requestId, HASH, SENIOR)
       expect(result.status).toBe('PAID')
       expect(await balance()).toBeCloseTo(before + payable, 6)
+    })
+
+    it('on-chain confirm stores the operator-selected payment date on the PAYOUT row', async () => {
+      const { requestId, payable } = await seedPayout(SENIOR, '1000', 26, {
+        incomeTxDate: '2026-10-01',
+        payoutTxDate: '2026-10-02',
+      })
+      const HASH = '0x' + 'e'.repeat(64)
+      verifyScript.set(HASH, {
+        found: true,
+        toMatches: true,
+        confirmed: true,
+        confirmations: THRESHOLD,
+        amountUsdt: payable,
+      })
+
+      await svc.payPayoutRequest(requestId, HASH, SENIOR, undefined, '2026-10-04')
+      const payout = await dbSvc.db.query.transactions.findFirst({
+        where: and(eq(transactions.type, 'PAYOUT'), eq(transactions.payoutRequestId, requestId)),
+      })
+      expect(payout?.txDate?.toISOString().slice(0, 10)).toBe('2026-10-04')
+    })
+
+    it('on-chain confirm rejects a payment date before the PAYOUT business date', async () => {
+      const { requestId, payable } = await seedPayout(SENIOR, '1000', 26, {
+        incomeTxDate: '2026-10-01',
+        payoutTxDate: '2026-10-03',
+      })
+      const HASH = '0x' + 'f'.repeat(64)
+      verifyScript.set(HASH, {
+        found: true,
+        toMatches: true,
+        confirmed: true,
+        confirmations: THRESHOLD,
+        amountUsdt: payable,
+      })
+
+      await expect(
+        svc.payPayoutRequest(requestId, HASH, SENIOR, undefined, '2026-10-02'),
+      ).rejects.toMatchObject({
+        response: { code: 'FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', statusCode: 400 },
+      })
     })
 
     // ── AC3: wrong recipient → NOT PAID, balance unchanged ──────────────────────
@@ -591,6 +637,19 @@ describe.skipIf(!hasDatabaseUrl())(
       const result = await svc.manualConfirmPayout(requestId, 'CASH', ADMIN)
       expect(result.status).toBe('PAID')
       expect(await balance()).toBe(before)
+    })
+
+    it('manual-confirm stores the operator-selected payment date on the PAYOUT row', async () => {
+      const { requestId } = await seedPayout(SENIOR, '1000', 26, {
+        incomeTxDate: '2026-10-01',
+        payoutTxDate: '2026-10-02',
+      })
+
+      await svc.manualConfirmPayout(requestId, 'CASH', ADMIN, { txDate: '2026-10-04' })
+      const payout = await dbSvc.db.query.transactions.findFirst({
+        where: and(eq(transactions.type, 'PAYOUT'), eq(transactions.payoutRequestId, requestId)),
+      })
+      expect(payout?.txDate?.toISOString().slice(0, 10)).toBe('2026-10-04')
     })
 
     // ── AC6: manual-confirm idempotency — second confirm throws, no double credit ─

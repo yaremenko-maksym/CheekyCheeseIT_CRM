@@ -9,14 +9,70 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
+  confirmPayoutSchema,
+  createCompanyDepositSchema,
+  createDividendSchema,
+  createPayoutRequestSchema,
   extractOnChainTxHash,
   financeSummarySchema,
   incomeComplianceOverviewSchema,
   incomeComplianceProjectSchema,
   incomeComplianceReceiverSchema,
   manualConfirmPayoutSchema,
+  payPayoutRequestSchema,
   transactionSchema,
 } from './finance'
+
+describe('createPayoutRequestSchema — optional payout business date', () => {
+  const transactionIds = ['00000000-0000-4000-8000-000000000001']
+
+  it('accepts an omitted or valid YYYY-MM-DD txDate', () => {
+    expect(createPayoutRequestSchema.safeParse({ transactionIds }).success).toBe(true)
+    expect(
+      createPayoutRequestSchema.safeParse({ transactionIds, txDate: '2026-10-05' }).success,
+    ).toBe(true)
+  })
+
+  it('rejects a malformed txDate', () => {
+    expect(
+      createPayoutRequestSchema.safeParse({ transactionIds, txDate: '05.10.2026' }).success,
+    ).toBe(false)
+  })
+
+  it('rejects a syntactically valid but non-existent calendar date', () => {
+    expect(
+      createPayoutRequestSchema.safeParse({ transactionIds, txDate: '2026-02-31' }).success,
+    ).toBe(false)
+  })
+})
+
+describe('finance payment schemas — optional business date', () => {
+  const validDate = '2026-10-05'
+  const invalidDate = '05.10.2026'
+  const uuid = '00000000-0000-4000-8000-000000000001'
+  const hash = `0x${'a'.repeat(64)}`
+
+  it.each([
+    ['payPayoutRequest', payPayoutRequestSchema, { txHash: hash }],
+    ['manualConfirmPayout', manualConfirmPayoutSchema, { method: 'CASH' }],
+    ['confirmPayout', confirmPayoutSchema, { recipientAdminId: uuid, method: 'CASH' }],
+    ['createCompanyDeposit', createCompanyDepositSchema, { txHashOrLink: hash }],
+    [
+      'createDividend',
+      createDividendSchema,
+      {
+        amount: 100,
+        idempotencyKey: uuid,
+        receiptExternalUrl: `https://etherscan.io/tx/${hash}`,
+        receiptDocumentId: null,
+      },
+    ],
+  ] as const)('%s accepts YYYY-MM-DD and rejects another date format', (_name, schema, base) => {
+    expect(schema.safeParse({ ...base, txDate: validDate }).success).toBe(true)
+    expect(schema.safeParse({ ...base, txDate: invalidDate }).success).toBe(false)
+    expect(schema.safeParse({ ...base, txDate: '2026-02-31' }).success).toBe(false)
+  })
+})
 
 const baseSummary = {
   totalIncome: 50000,

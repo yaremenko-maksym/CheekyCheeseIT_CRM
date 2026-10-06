@@ -108,8 +108,8 @@ function makeSourceTx(overrides: Record<string, unknown> = {}) {
     receiptExternalUrl: null,
     invoiceDocumentId: null,
     createdBy: 'system',
-    createdAt: new Date(),
-    updatedAt: new Date(),
+    createdAt: new Date('2026-08-01T00:00:00Z'),
+    updatedAt: new Date('2026-08-01T00:00:00Z'),
     ...overrides,
   }
 }
@@ -914,6 +914,7 @@ describe('settleByCompany — date-of-record: selected date drives BOTH the appl
     const DATE_B = '2026-07-20' // rate 45.00
     const svcA = makeService({
       obligation: makeObligation({ createdAt: new Date('2026-07-01T00:00:00Z') }),
+      sourceTx: makeSourceTx({ createdAt: new Date('2026-07-01T00:00:00Z') }),
       ratesByDate: {
         '20260710': { usdUah: '40.00', usdtUah: '40.00', eurUah: '44.80', date: '20260710' },
       },
@@ -932,6 +933,7 @@ describe('settleByCompany — date-of-record: selected date drives BOTH the appl
 
     const svcB = makeService({
       obligation: makeObligation({ createdAt: new Date('2026-07-01T00:00:00Z') }),
+      sourceTx: makeSourceTx({ createdAt: new Date('2026-07-01T00:00:00Z') }),
       ratesByDate: {
         '20260720': { usdUah: '45.00', usdtUah: '45.00', eurUah: '44.80', date: '20260720' },
       },
@@ -999,6 +1001,46 @@ describe('settleByCompany — date-of-record: selected date drives BOTH the appl
     ).resolves.toBeDefined()
   })
 
+  it('uses source txDate as the lower bound even when source createdAt is later', async () => {
+    const { svc } = makeService({
+      obligation: makeObligation({ createdAt: new Date('2026-07-01T00:00:00Z') }),
+      sourceTx: makeSourceTx({
+        txDate: new Date('2026-08-01T00:00:00Z'),
+        createdAt: new Date('2026-08-05T00:00:00Z'),
+      }),
+    })
+
+    await expect(
+      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+        fundingSource: 'ADMIN_PERSONAL',
+        payerAdminId: ADMIN_PAYER_ID,
+        currency: 'USDT',
+        txDate: '2026-08-01',
+        ...RECEIPT_EXPLORER,
+      }),
+    ).resolves.toBeDefined()
+  })
+
+  it('falls back to source createdAt before obligation createdAt when source txDate is absent', async () => {
+    const { svc } = makeService({
+      obligation: makeObligation({ createdAt: new Date('2026-07-01T00:00:00Z') }),
+      sourceTx: makeSourceTx({
+        txDate: null,
+        createdAt: new Date('2026-08-05T00:00:00Z'),
+      }),
+    })
+
+    await expect(
+      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+        fundingSource: 'ADMIN_PERSONAL',
+        payerAdminId: ADMIN_PAYER_ID,
+        currency: 'USDT',
+        txDate: '2026-08-01',
+        ...RECEIPT_EXPLORER,
+      }),
+    ).rejects.toThrow(/earlier than the obligation/)
+  })
+
   it('a same-currency settle still records the selected txDate even though no rate is fetched', async () => {
     const { svc, settledTx, getRates } = makeService({
       obligation: makeObligation({ createdAt: new Date('2026-08-01T00:00:00Z') }),
@@ -1013,6 +1055,22 @@ describe('settleByCompany — date-of-record: selected date drives BOTH the appl
     expect(getRates).not.toHaveBeenCalled()
     const row = settledTx()
     expect((row['txDate'] as Date).toISOString().slice(0, 10)).toBe('2026-08-05')
+  })
+
+  it('a SENIOR settlement also records the selected business date', async () => {
+    const sourceTx = makeSourceTx({
+      type: 'SENIOR_PENDING_PAYOUT',
+      txDate: new Date('2026-08-01T00:00:00Z'),
+      createdAt: new Date('2026-08-01T00:00:00Z'),
+    })
+    const { svc, settledTx } = makeService({ sourceTx })
+    await svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      fundingSource: 'ADMIN_PERSONAL',
+      payerAdminId: ADMIN_PAYER_ID,
+      txDate: '2026-08-05',
+      ...RECEIPT_EXPLORER,
+    })
+    expect((settledTx()['txDate'] as Date).toISOString().slice(0, 10)).toBe('2026-08-05')
   })
 
   // Refined MED-2 (owner addendum): a graceful, DATED fallback (a holiday

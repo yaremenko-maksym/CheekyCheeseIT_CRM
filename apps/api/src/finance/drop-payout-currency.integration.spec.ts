@@ -547,8 +547,17 @@ describe.skipIf(!hasDatabaseUrl())(
     // timestamp column (not a mocked patch object the unit spec's harness
     // just stores as-is).
     it("owner addendum: settling at a SELECTED past date writes THAT date as txDate and applies THAT date's rate", async () => {
-      // Backdate the seeded obligation so the lower bound (not before the
-      // obligation existed) doesn't reject the selected date below.
+      // Backdate the SOURCE transaction as well as its obligation. The custom
+      // settlement date is forbidden before the transaction it settles (the
+      // user-facing invariant), so changing only pending_obligations.createdAt
+      // would correctly leave the selected date below the real lower bound.
+      await dbSvc.db
+        .update(transactions)
+        .set({
+          txDate: new Date('2026-01-01T00:00:00Z'),
+          createdAt: new Date('2026-01-01T00:00:00Z'),
+        })
+        .where(eq(transactions.id, SOURCE_TX_ID))
       await dbSvc.db
         .update(pendingObligations)
         .set({ createdAt: new Date('2026-01-01T00:00:00Z') })

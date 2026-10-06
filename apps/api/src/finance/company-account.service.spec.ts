@@ -337,6 +337,38 @@ describe('CompanyAccountService.submitDeposit — security invariant (AC3 unit)'
     expect(dto.amountUsdt).toBe(500)
   })
 
+  it('stores an explicitly selected company-deposit business date', async () => {
+    const insertValues = vi.fn(() => ({
+      returning: () =>
+        Promise.resolve([
+          {
+            id: 'd-date',
+            txHash: '0x' + 'e'.repeat(64),
+            amount: '500',
+            status: 'PAID',
+            createdAt: new Date(),
+          },
+        ]),
+    }))
+    const db = makeDb({ insert: vi.fn(() => ({ values: insertValues })) })
+    const etherscan = {
+      verifyDeposit: vi.fn().mockResolvedValue({
+        found: true,
+        toMatches: true,
+        fromAddress: SENDER_WALLET,
+        confirmed: true,
+        confirmations: 12,
+        amountUsdt: 500,
+      }),
+    }
+    const svc = makeService(db, etherscan)
+    await svc.submitDeposit({ txHashOrLink: '0x' + 'e'.repeat(64), txDate: '2026-10-04' }, SENIOR)
+    const depositWrite = insertValues.mock.calls
+      .map((call) => call[0] as Record<string, unknown>)
+      .find((row) => row['type'] === 'COMPANY_DEPOSIT')
+    expect((depositWrite?.['txDate'] as Date).toISOString().slice(0, 10)).toBe('2026-10-04')
+  })
+
   // ── Recorded sender (task-onchain-payment-integrity) ──────────────────────
   it('a third-party sender (exchange withdrawal) is CREDITED and RECORDED, not blocked', async () => {
     const insertValues = vi.fn(() => ({
@@ -814,6 +846,21 @@ describe('CompanyAccountService.createDividend (ADMIN only)', () => {
       senderId: null,
       senderLabel: 'COMPANY',
     })
+  })
+
+  it('stores an explicitly selected dividend business date', async () => {
+    let booked: Record<string, unknown> | undefined
+    const db = makeDividendDb({ onValues: (v) => (booked = v as Record<string, unknown>) })
+    const svc = makeService(db)
+    await svc.createDividend(
+      {
+        amount: 100,
+        txDate: '2026-10-04',
+        receiptExternalUrl: 'https://etherscan.io/tx/0xabc123',
+      },
+      ADMIN,
+    )
+    expect((booked?.['txDate'] as Date).toISOString().slice(0, 10)).toBe('2026-10-04')
   })
 
   it('acquires the advisory lock before reading balance (TOCTOU serialization)', async () => {

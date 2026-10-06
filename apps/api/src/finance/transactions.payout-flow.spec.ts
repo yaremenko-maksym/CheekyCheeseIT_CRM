@@ -589,6 +589,98 @@ describe('createPayoutRequest (#7)', () => {
     expect(mocks.updateMock).toHaveBeenCalledTimes(1)
   })
 
+  it('stores a custom payout date when it equals the latest selected source date', async () => {
+    const tx1 = makeTx({
+      id: 'tx-1',
+      status: 'VALIDATED' as const,
+      txDate: new Date('2026-09-30T00:00:00.000Z'),
+      createdAt: new Date('2026-09-30T12:00:00.000Z'),
+    })
+    const tx2 = makeTx({
+      id: 'tx-2',
+      status: 'VALIDATED' as const,
+      txDate: new Date('2026-10-02T00:00:00.000Z'),
+      createdAt: new Date('2026-10-02T12:00:00.000Z'),
+    })
+    const { svc, mocks } = makeServiceWithTransaction([tx1, tx2], makePayoutRequestRow('pr-date-1'))
+
+    await svc.createPayoutRequest(['tx-1', 'tx-2'], SENIOR_USER, '2026-10-02')
+
+    const payoutInsertArg = mocks.insertValuesResolveMock.mock.calls[0]?.[0] as Record<
+      string,
+      unknown
+    >
+    expect((payoutInsertArg['txDate'] as Date).toISOString().slice(0, 10)).toBe('2026-10-02')
+  })
+
+  it('rejects a payout date earlier than the latest selected source date', async () => {
+    const tx1 = makeTx({
+      id: 'tx-1',
+      status: 'VALIDATED' as const,
+      txDate: new Date('2026-09-30T00:00:00.000Z'),
+      createdAt: new Date('2026-09-30T12:00:00.000Z'),
+    })
+    const tx2 = makeTx({
+      id: 'tx-2',
+      status: 'VALIDATED' as const,
+      txDate: null,
+      createdAt: new Date('2026-10-03T12:00:00.000Z'),
+    })
+    const { svc } = makeServiceWithTransaction([tx1, tx2], makePayoutRequestRow('pr-date-2'))
+
+    await expect(
+      svc.createPayoutRequest(['tx-1', 'tx-2'], SENIOR_USER, '2026-10-02'),
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_PAYOUT_DATE_BEFORE_INCOME', statusCode: 400 },
+    })
+  })
+
+  it('uses the latest source date even when the latest row is not last in the batch', async () => {
+    const latest = makeTx({
+      id: 'tx-latest',
+      status: 'VALIDATED' as const,
+      txDate: new Date('2026-10-03T00:00:00.000Z'),
+      createdAt: new Date('2026-10-03T12:00:00.000Z'),
+    })
+    const earlier = makeTx({
+      id: 'tx-earlier',
+      status: 'VALIDATED' as const,
+      txDate: new Date('2026-10-01T00:00:00.000Z'),
+      createdAt: new Date('2026-10-01T12:00:00.000Z'),
+    })
+    const { svc } = makeServiceWithTransaction(
+      [latest, earlier],
+      makePayoutRequestRow('pr-date-order'),
+    )
+
+    await expect(
+      svc.createPayoutRequest(['tx-latest', 'tx-earlier'], SENIOR_USER, '2026-10-02'),
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_PAYOUT_DATE_BEFORE_INCOME', statusCode: 400 },
+    })
+  })
+
+  it('keeps the legacy two-argument call valid and stamps the PAYOUT with today', async () => {
+    const tx = makeTx({
+      id: 'tx-1',
+      status: 'VALIDATED' as const,
+      createdAt: new Date('2020-01-01T00:00:00.000Z'),
+    })
+    const { svc, mocks } = makeServiceWithTransaction([tx], makePayoutRequestRow('pr-date-3'))
+
+    const before = new Date()
+    await svc.createPayoutRequest(['tx-1'], SENIOR_USER)
+    const after = new Date()
+
+    const payoutInsertArg = mocks.insertValuesResolveMock.mock.calls[0]?.[0] as Record<
+      string,
+      unknown
+    >
+    const stored = payoutInsertArg['txDate'] as Date
+    expect(stored.getTime()).toBeGreaterThanOrEqual(before.getTime())
+    expect(stored.getTime()).toBeLessThanOrEqual(after.getTime())
+  })
+
   it('per-tx payable aggregation: different sharePercent values', () => {
     // Pure math check — no DB needed.
     // tx1: 2000 * (1 - 0.20) = 1600

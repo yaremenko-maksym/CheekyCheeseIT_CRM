@@ -21,10 +21,12 @@ import {
   screen,
   fireEvent,
   act,
+  waitFor,
   type RenderResult,
 } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import type { TransactionDto } from '@crm/shared'
+import { kyivToday } from '@crm/shared'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 beforeAll(async () => {
@@ -82,6 +84,31 @@ vi.mock('@/routes/_authenticated/finance/api', () => ({
 
 vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
+}))
+
+vi.mock('@/components/ui/date-picker', () => ({
+  DatePickerField: ({
+    value,
+    onChange,
+    minDate,
+    id,
+    'data-testid': dataTestId,
+  }: {
+    value: string
+    onChange: (value: string) => void
+    minDate?: string
+    id?: string
+    'data-testid'?: string
+  }) => (
+    <input
+      id={id}
+      type="date"
+      value={value}
+      min={minDate}
+      data-testid={dataTestId}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  ),
 }))
 
 import { toast } from 'sonner'
@@ -147,6 +174,7 @@ describe('ConfirmPayoutDialog', () => {
 
   it('shows three method options and the recipient selector by default (CRYPTO)', () => {
     render(<ConfirmPayoutDialog tx={makeTx()} onClose={vi.fn()} />)
+    expect(screen.getByTestId('confirm-payout-txdate')).toBeInTheDocument()
     expect(screen.getByTestId('confirm-payout-method-crypto')).toBeInTheDocument()
     expect(screen.getByTestId('confirm-payout-method-cash')).toBeInTheDocument()
     expect(screen.getByTestId('confirm-payout-method-company_account')).toBeInTheDocument()
@@ -162,6 +190,64 @@ describe('ConfirmPayoutDialog', () => {
     expect(screen.getByText('— оберіть адміна —')).toBeInTheDocument()
   })
 
+  it('uses txDate as the minimum, clamps a future payout date, and submits a custom date', async () => {
+    render(
+      <ConfirmPayoutDialog
+        tx={makeTx({
+          txDate: '2099-01-10T00:00:00.000Z',
+          createdAt: '2098-12-01T00:00:00.000Z',
+        })}
+        onClose={vi.fn()}
+      />,
+    )
+    const date = screen.getByTestId('confirm-payout-txdate')
+    await waitFor(() => expect(date).toHaveValue('2099-01-10'))
+    expect(date).toHaveAttribute('min', '2099-01-10')
+    expect(screen.getByText(/Не раніше дати транзакції/)).toHaveTextContent('10.01.99')
+
+    fireEvent.change(date, { target: { value: '2099-01-11' } })
+    await runMutation()
+    expect(confirmPayoutMock).toHaveBeenCalledWith(
+      'tx-1',
+      expect.objectContaining({ txDate: '2099-01-11' }),
+    )
+  })
+
+  it('falls back to createdAt for the minimum when txDate is absent', async () => {
+    render(
+      <ConfirmPayoutDialog
+        tx={makeTx({ txDate: null, createdAt: '2099-02-03T12:34:56.000Z' })}
+        onClose={vi.fn()}
+      />,
+    )
+    const date = screen.getByTestId('confirm-payout-txdate')
+    await waitFor(() => expect(date).toHaveValue('2099-02-03'))
+    expect(date).toHaveAttribute('min', '2099-02-03')
+  })
+
+  it('recomputes the minimum when the selected transaction changes', async () => {
+    const { rerender } = render(
+      <ConfirmPayoutDialog
+        tx={makeTx({ id: 'old', txDate: '2020-01-01T00:00:00.000Z' })}
+        onClose={vi.fn()}
+      />,
+    )
+    const initialDate = screen.getByTestId('confirm-payout-txdate')
+    expect(initialDate).toHaveAttribute('min', '2020-01-01')
+    await waitFor(() => expect(initialDate).toHaveValue(kyivToday()))
+
+    rerender(
+      <ConfirmPayoutDialog
+        tx={makeTx({ id: 'future', txDate: '2099-03-04T00:00:00.000Z' })}
+        onClose={vi.fn()}
+      />,
+    )
+    await waitFor(() =>
+      expect(screen.getByTestId('confirm-payout-txdate')).toHaveValue('2099-03-04'),
+    )
+    expect(screen.getByTestId('confirm-payout-txdate')).toHaveAttribute('min', '2099-03-04')
+  })
+
   it('CRYPTO method calls confirmPayout (not manualConfirmPayout)', async () => {
     render(<ConfirmPayoutDialog tx={makeTx()} onClose={vi.fn()} />)
     // pick recipient + hash so the legacy contract is well-formed
@@ -173,7 +259,11 @@ describe('ConfirmPayoutDialog', () => {
     expect(manualConfirmPayoutMock).not.toHaveBeenCalled()
     const [id, payload] = confirmPayoutMock.mock.calls[0]!
     expect(id).toBe('tx-1')
-    expect(payload).toMatchObject({ method: 'CRYPTO', txHash: '0x1234567890abcdef' })
+    expect(payload).toMatchObject({
+      method: 'CRYPTO',
+      txHash: '0x1234567890abcdef',
+      txDate: kyivToday(),
+    })
   })
 
   it('CASH method calls confirmPayout and omits txHash', async () => {
@@ -216,7 +306,7 @@ describe('ConfirmPayoutDialog', () => {
     expect(confirmPayoutMock).not.toHaveBeenCalled()
     const [payoutRequestId, payload] = manualConfirmPayoutMock.mock.calls[0]!
     expect(payoutRequestId).toBe('pr-1')
-    expect(payload).toMatchObject({ method: 'COMPANY_ACCOUNT' })
+    expect(payload).toMatchObject({ method: 'COMPANY_ACCOUNT', txDate: kyivToday() })
     // txHash is optional + omitted when blank
     expect(payload).not.toHaveProperty('txHash')
   })

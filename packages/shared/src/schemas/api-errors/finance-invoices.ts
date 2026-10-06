@@ -124,6 +124,7 @@ export const FINANCE_INVOICES_ERROR_CODES = [
   'FINANCE_TRANSFER_RECEIVER_ARCHIVED',
   // payout requests
   'FINANCE_PAYOUT_TRANSACTIONS_UNAVAILABLE',
+  'FINANCE_PAYOUT_DATE_BEFORE_INCOME',
   'FINANCE_PAYOUT_SINGLE_PROJECT_ONLY',
   'FINANCE_COMPANY_WALLET_NOT_CONFIGURED',
   'FINANCE_NBU_RATE_UNAVAILABLE',
@@ -280,6 +281,7 @@ export const FINANCE_INVOICES_ERROR_PARAMS = {
   FINANCE_TRANSFER_RECIPIENT_MUST_BE_ADMIN: [],
   FINANCE_TRANSFER_RECEIVER_ARCHIVED: [],
   FINANCE_PAYOUT_TRANSACTIONS_UNAVAILABLE: [],
+  FINANCE_PAYOUT_DATE_BEFORE_INCOME: [],
   FINANCE_PAYOUT_SINGLE_PROJECT_ONLY: [],
   FINANCE_COMPANY_WALLET_NOT_CONFIGURED: [],
   FINANCE_NBU_RATE_UNAVAILABLE: [],
@@ -677,6 +679,10 @@ export const FINANCE_INVOICES_ERROR_MESSAGES: Record<FinanceInvoicesErrorCode, M
     FINANCE_PAYOUT_TRANSACTIONS_UNAVAILABLE: /* i18n */ {
       id: 'api-error.FINANCE_PAYOUT_TRANSACTIONS_UNAVAILABLE',
       message: 'Частину транзакцій уже включено до виплати або вони недоступні — оновіть список',
+    },
+    FINANCE_PAYOUT_DATE_BEFORE_INCOME: /* i18n */ {
+      id: 'api-error.FINANCE_PAYOUT_DATE_BEFORE_INCOME',
+      message: 'Дата виплати не може бути раніше дати вибраного доходу',
     },
     FINANCE_PAYOUT_SINGLE_PROJECT_ONLY: /* i18n */ {
       id: 'api-error.FINANCE_PAYOUT_SINGLE_PROJECT_ONLY',
@@ -1086,6 +1092,8 @@ export const FINANCE_INVOICES_ERROR_FALLBACK_EN: Record<FinanceInvoicesErrorCode
   FINANCE_TRANSFER_RECEIVER_ARCHIVED: "The recipient is archived — the transfer can't be made",
   FINANCE_PAYOUT_TRANSACTIONS_UNAVAILABLE:
     'Some transactions are already in a payout or unavailable — refresh the list',
+  FINANCE_PAYOUT_DATE_BEFORE_INCOME:
+    "The payout date can't be earlier than the selected income date",
   FINANCE_PAYOUT_SINGLE_PROJECT_ONLY: 'A payout must cover only one project',
   FINANCE_COMPANY_WALLET_NOT_CONFIGURED: "The company wallet isn't configured",
   FINANCE_NBU_RATE_UNAVAILABLE: 'The NBU exchange rate is unavailable — try again later',

@@ -289,6 +289,9 @@ describe('CreateTransactionDialog — DIVIDEND mandatory + ALWAYS explorer-only'
     fireEvent.click(screen.getByTestId('create-transaction-submit'))
     await waitFor(() => expect(createDividendMock).toHaveBeenCalledTimes(1))
     const [payload] = createDividendMock.mock.calls[0] as [Record<string, unknown>]
-    expect(payload).toMatchObject({ receiptExternalUrl: 'https://etherscan.io/tx/0xdividend' })
+    expect(payload).toMatchObject({
+      receiptExternalUrl: 'https://etherscan.io/tx/0xdividend',
+      txDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    })
   })
 })

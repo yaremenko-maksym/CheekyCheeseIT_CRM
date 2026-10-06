@@ -45,6 +45,34 @@ vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }))
 
+vi.mock('@/components/ui/date-picker', () => ({
+  DatePickerField: ({
+    value,
+    onChange,
+    minDate,
+    id,
+    'aria-describedby': ariaDescribedBy,
+    'data-testid': dataTestId,
+  }: {
+    value: string
+    onChange: (value: string) => void
+    minDate?: string
+    id?: string
+    'aria-describedby'?: string
+    'data-testid'?: string
+  }) => (
+    <input
+      id={id}
+      type="date"
+      value={value}
+      min={minDate}
+      aria-describedby={ariaDescribedBy}
+      data-testid={dataTestId}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  ),
+}))
+
 // `vi.hoisted` so the fixture is available inside the hoisted `vi.mock` factory
 // below (top-level consts are NOT — they initialise after the hoisted mocks).
 const { PAYOUT } = vi.hoisted(() => ({
@@ -89,6 +117,15 @@ function renderDialog() {
 const PRIVILEGED = ['ADMIN', 'ACCOUNTANT'] as const
 const UNPRIVILEGED = ['SENIOR', 'DROP', 'JUNIOR', 'HR'] as const
 
+beforeEach(() => {
+  vi.mocked(useQuery).mockReturnValue({
+    data: PAYOUT,
+    isLoading: false,
+    isError: false,
+  } as ReturnType<typeof useQuery>)
+  PAYOUT.transactions = []
+})
+
 describe('PayoutDetailDialog — instruction card (payer surface)', () => {
   beforeEach(() => {
     currentRole = 'SENIOR'
@@ -107,6 +144,7 @@ describe('PayoutDetailDialog — instruction card (payer surface)', () => {
       'Копіювати адресу',
     )
     expect(screen.getByTestId('payout-detail-payable')).toBeInTheDocument()
+    expect(screen.getByTestId('payout-detail-txdate')).toBeInTheDocument()
     expect(screen.getByTestId('payout-detail-tx-hash-input')).toBeInTheDocument()
     // Instruction line interpolates the payable amount into a fixed sentence.
     const instruction = screen.getByText(
@@ -134,6 +172,22 @@ describe('PayoutDetailDialog — instruction card (payer surface)', () => {
     expect(txHashLabel?.textContent).toMatch(/транзакції\s+\(після оплати\)/)
   })
 
+  it('binds the payout payment date to the payout source date and helper', () => {
+    PAYOUT.transactions = [
+      makePayoutLedgerTx({
+        txDate: '2099-06-07T00:00:00.000Z',
+        createdAt: '2098-01-01T00:00:00.000Z',
+      }),
+    ]
+    renderDialog()
+    const date = screen.getByTestId('payout-detail-txdate')
+    expect(date).toHaveAttribute('min', '2099-06-07')
+    expect(date).toHaveAttribute('aria-describedby', 'payout-payment-date-helper')
+    expect(screen.getByText(/Найраніша доступна дата/).textContent).toBe(
+      'Найраніша доступна дата — 07.06.2099.',
+    )
+  })
+
   // task-i18n-stage3d-pr2 (mutation gate, AC10). Title, sr-only description,
   // and the footer's cancel/submit buttons were never asserted — every
   // existing test in this file only checks testids inside `PayoutPaymentForm`
@@ -148,7 +202,7 @@ describe('PayoutDetailDialog — instruction card (payer surface)', () => {
   })
 
   it('a PAID payout swaps the title to "Виплата (оплачена)" and the footer button to "Закрити"', () => {
-    vi.mocked(useQuery).mockReturnValueOnce({
+    vi.mocked(useQuery).mockReturnValue({
       data: { ...PAYOUT, status: 'PAID' },
       isLoading: false,
       isError: false,
