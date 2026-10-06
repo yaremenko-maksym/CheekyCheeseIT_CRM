@@ -512,7 +512,7 @@ msgstr "Invoice details"
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 #: apps/web/app/components/users/user-dialog/TeamSection.tsx
 #: apps/web/app/components/users/user-dialog/TeamSection.tsx
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
 msgid "Команда дропа"
 msgstr "Drop's team"
 
@@ -1179,7 +1179,7 @@ msgstr "Dashboard"
 msgid "Місяць {0}"
 msgstr "Month {0}"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
 msgid "Дроп:"
 msgstr "Drop:"
 
@@ -3255,7 +3255,7 @@ msgstr "Vacancy created"
 #: apps/web/app/components/user-profile/admin-actions/ArchiveUserDialog.tsx
 #: apps/web/app/components/users/ArchiveUserConfirmDialog.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectHero.tsx
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
 msgid "Архівувати"
 msgstr "Archive"
 
@@ -5198,8 +5198,8 @@ msgstr "Projects"
 msgid "(до отримання: {0})"
 msgstr "(to receive: {0})"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/team/team-detail/components/RotateSeniorDialog.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
 msgid "Призначити сеньйора"
 msgstr "Assign senior"
 
@@ -5593,7 +5593,7 @@ msgid "Підтвердження відв’язання дропа від пр
 msgstr "Confirm detaching the drop from the project"
 
 #. placeholder {0}: formatDate(team.createdAt, locale, 'long')
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
 msgid "Створено {0}"
 msgstr "Created {0}"
 
@@ -5802,7 +5802,7 @@ msgstr "Ivan Ivanenko"
 #: apps/web/app/routes/_authenticated/legend.tsx
 #: apps/web/app/routes/_authenticated/legend.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectHero.tsx
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
 msgid "Редагувати"
 msgstr "Edit"
@@ -5856,8 +5856,8 @@ msgstr "Could not cancel the proposal"
 msgid "Мій баланс (частка)"
 msgstr "My balance (share)"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/team/team-detail/components/AddMemberDialog.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
 msgid "Додати учасника"
 msgstr "Add member"
 
@@ -6434,7 +6434,7 @@ msgstr "Could not confirm"
 msgid "Повернеться в очікування розрахунку"
 msgstr "Will revert to awaiting settlement"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
 msgid " · Сеньйор: "
 msgstr " · Senior: "
 
@@ -8437,7 +8437,7 @@ msgstr "Users"
 msgid "Введіть коректний URL (https://...)"
 msgstr "Enter a valid URL (https://...)"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
 msgid "Активна"
 msgstr "Active"
 
@@ -9390,8 +9390,8 @@ msgstr "This amount is not linked to any payouts — there is nothing to recalcu
 msgid "Гроші ще не надіслано — переведіть суму та вкажіть хеш транзакції нижче."
 msgstr "The money has not been sent yet — transfer the amount and enter the transaction hash below."
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/team/team-detail/components/RotateSeniorDialog.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
 msgid "Змінити сеньйора"
 msgstr "Change senior"
 
@@ -9497,8 +9497,8 @@ msgstr "Interface language"
 #: apps/web/app/components/user-profile/tabs/ProjectsTab.tsx
 #: apps/web/app/components/users/UserRow.tsx
 #: apps/web/app/routes/_authenticated/project.tsx
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
 msgid "В архіві"
 msgstr "Archived"
 
@@ -9692,7 +9692,7 @@ msgstr "Invoice signed"
 msgid "Професія"
 msgstr "Profession"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
 msgid "· Сеньйора не призначено"
 msgstr "· No senior assigned"
 
@@ -10333,7 +10333,7 @@ msgstr "Overview"
 msgid "Нова команда сеньйора. Оберіть склад нижче."
 msgstr "A new team led by this senior. Pick its members below."
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
 msgid "Telegram-чат"
 msgstr "Telegram chat"
 

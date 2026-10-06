@@ -512,7 +512,7 @@ msgstr "Деталі рахунку"
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 #: apps/web/app/components/users/user-dialog/TeamSection.tsx
 #: apps/web/app/components/users/user-dialog/TeamSection.tsx
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
 msgid "Команда дропа"
 msgstr "Команда дропа"
 
@@ -1179,7 +1179,7 @@ msgstr "Дашборд"
 msgid "Місяць {0}"
 msgstr "Місяць {0}"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
 msgid "Дроп:"
 msgstr "Дроп:"
 
@@ -3255,7 +3255,7 @@ msgstr "Вакансію створено"
 #: apps/web/app/components/user-profile/admin-actions/ArchiveUserDialog.tsx
 #: apps/web/app/components/users/ArchiveUserConfirmDialog.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectHero.tsx
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
 msgid "Архівувати"
 msgstr "Архівувати"
 
@@ -5198,8 +5198,8 @@ msgstr "Проєкти"
 msgid "(до отримання: {0})"
 msgstr "(до отримання: {0})"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/team/team-detail/components/RotateSeniorDialog.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
 msgid "Призначити сеньйора"
 msgstr "Призначити сеньйора"
 
@@ -5593,7 +5593,7 @@ msgid "Підтвердження відв’язання дропа від пр
 msgstr "Підтвердження відв’язання дропа від проєкту"
 
 #. placeholder {0}: formatDate(team.createdAt, locale, 'long')
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
 msgid "Створено {0}"
 msgstr "Створено {0}"
 
@@ -5802,7 +5802,7 @@ msgstr "Іван Іваненко"
 #: apps/web/app/routes/_authenticated/legend.tsx
 #: apps/web/app/routes/_authenticated/legend.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectHero.tsx
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
 msgid "Редагувати"
 msgstr "Редагувати"
@@ -5856,8 +5856,8 @@ msgstr "Не вдалося скасувати пропозицію"
 msgid "Мій баланс (частка)"
 msgstr "Мій баланс (частка)"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/team/team-detail/components/AddMemberDialog.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
 msgid "Додати учасника"
 msgstr "Додати учасника"
 
@@ -6434,7 +6434,7 @@ msgstr "Не вдалося підтвердити"
 msgid "Повернеться в очікування розрахунку"
 msgstr "Повернеться в очікування розрахунку"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
 msgid " · Сеньйор: "
 msgstr " · Сеньйор: "
 
@@ -8437,7 +8437,7 @@ msgstr "Користувачі"
 msgid "Введіть коректний URL (https://...)"
 msgstr "Введіть коректний URL (https://...)"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
 msgid "Активна"
 msgstr "Активна"
 
@@ -9390,8 +9390,8 @@ msgstr "Ця сума не пов’язана з виплатами — пер�
 msgid "Гроші ще не надіслано — переведіть суму та вкажіть хеш транзакції нижче."
 msgstr "Гроші ще не надіслано — переведіть суму та вкажіть хеш транзакції нижче."
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/team/team-detail/components/RotateSeniorDialog.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
 msgid "Змінити сеньйора"
 msgstr "Змінити сеньйора"
 
@@ -9497,8 +9497,8 @@ msgstr "Мова інтерфейсу"
 #: apps/web/app/components/user-profile/tabs/ProjectsTab.tsx
 #: apps/web/app/components/users/UserRow.tsx
 #: apps/web/app/routes/_authenticated/project.tsx
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
 msgid "В архіві"
 msgstr "В архіві"
 
@@ -9692,7 +9692,7 @@ msgstr "Рахунок підписано"
 msgid "Професія"
 msgstr "Професія"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
 msgid "· Сеньйора не призначено"
 msgstr "· Сеньйора не призначено"
 
@@ -10333,7 +10333,7 @@ msgstr "Огляд"
 msgid "Нова команда сеньйора. Оберіть склад нижче."
 msgstr "Нова команда сеньйора. Оберіть склад нижче."
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
 msgid "Telegram-чат"
 msgstr "Telegram-чат"
 
