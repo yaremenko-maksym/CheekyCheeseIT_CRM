@@ -3900,7 +3900,7 @@ msgstr "Upload a file (PNG, JPEG, GIF, WebP, up to 5 MB) or provide a direct htt
 msgid "api-error.DOCUMENT_UPLOAD_SELF_ONLY"
 msgstr "You can only upload your own documents"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/WizardStep2.tsx
 msgid "Завантажуємо контракт…"
 msgstr "Loading the contract…"
 
@@ -4317,7 +4317,7 @@ msgstr "Cannot save — the amount on the marked rows cannot be recalculated, a 
 msgid "Зберегти реквізити"
 msgstr "Save payout details"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/WizardStep3.tsx
 msgid "Зберегти чернетку"
 msgstr "Save draft"
 
@@ -5000,11 +5000,11 @@ msgstr "The contract is being prepared"
 msgid "Контракт для підписання"
 msgstr "Contract to sign"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/WizardStep3.tsx
 msgid "Контракт збережено як чернетку. Ви можете позначити його готовим до підписання."
 msgstr "The contract was saved as a draft. You can mark it ready to sign."
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/WizardStep2.tsx
 msgid "Контракт можна додати пізніше з профілю користувача."
 msgstr "The contract can be added later from the user's profile."
 
@@ -5014,7 +5014,7 @@ msgid "notification.DOCUMENT_SIGN_REQUIRED.title"
 msgstr "Contract to sign"
 
 #: apps/web/app/components/user-profile/contract/ContractTab.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/WizardStep2.tsx
 msgid "Контракт надіслано на підпис — редагування заблоковано, щоб внести правки, поверніть у чернетку"
 msgstr "The contract was sent for signing — editing is locked; to make changes, revert it to draft"
 
@@ -5023,7 +5023,7 @@ msgstr "The contract was sent for signing — editing is locked; to make changes
 msgid "api-error.CONTRACT_NOT_READY"
 msgstr "The contract isn't ready to sign"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/WizardStep3.tsx
 msgid "Контракт не створено (немає активного шаблону для ролі). Його можна додати пізніше через профіль користувача."
 msgstr "The contract was not created (no active template for the role). It can be added later through the user's profile."
 
@@ -5109,7 +5109,7 @@ msgstr "The user is not archived"
 msgid "api-error.USER_NOT_FOUND"
 msgstr "User not found"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/WizardStep3.tsx
 msgid "Користувача створено"
 msgstr "User created"
 
@@ -5530,7 +5530,7 @@ msgid "Надходження від компаній за цей місяць"
 msgstr "Receipts from companies this month"
 
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/WizardStep3.tsx
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Назад"
 msgstr "Back"
@@ -5712,7 +5712,7 @@ msgstr "Next version: v{0} (current — v{1})"
 msgid "Наступна сторінка"
 msgstr "Next page"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/WizardStep2.tsx
 msgid "Натисніть «Далі», щоб продовжити без контракту."
 msgstr "Press “Next” to continue without a contract."
 
@@ -6357,7 +6357,7 @@ msgstr "No active projects"
 msgid "Немає активних проєктів-отримувачів доходу за {monthLabel}."
 msgstr "There are no active income-receiving projects for {monthLabel}."
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/WizardStep2.tsx
 msgid "Немає активного шаблону контракту для цієї ролі"
 msgstr "No active contract template for this role"
 
@@ -7924,7 +7924,7 @@ msgstr "Retry"
 msgid "Податок на дивіденди"
 msgstr "Dividend tax"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/WizardStep3.tsx
 msgid "Позначаємо…"
 msgstr "Marking…"
 
@@ -7936,7 +7936,7 @@ msgstr "Marked: applied"
 msgid "Позначити готовим"
 msgstr "Mark as ready"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/WizardStep3.tsx
 msgid "Позначити готовим до підписання"
 msgstr "Mark ready to sign"
 

@@ -13,8 +13,6 @@ import {
   Sparkles,
   ArrowLeft,
   ArrowRight,
-  FileText,
-  CheckCircle2,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { isValidPhoneNumber } from 'react-phone-number-input'
@@ -72,20 +70,9 @@ import { TechAutocompleteInput } from '@/components/ui/tech-autocomplete-input'
 import { AmountCurrencyInput, type Currency } from '@/components/ui/amount-currency-input'
 import { SegmentedToggle } from '@/components/ui/segmented-toggle'
 import { api } from '@/lib/axios'
-import {
-  getApiErrorCode,
-  getApiErrorMessage,
-  translateZodCode,
-  translateZodMessage,
-} from '@/lib/axios-utils'
+import { getApiErrorMessage, translateZodCode, translateZodMessage } from '@/lib/axios-utils'
 import { cn, parseStrictAmount } from '@/lib/utils'
 import { CreateWizardStepper } from './CreateWizardStepper'
-import {
-  useEmployeeContract,
-  useSaveContractBody,
-} from '@/components/user-profile/contract/useEmployeeContract'
-import { ContractEditor } from '@/components/user-profile/contract/ContractEditor'
-import { ContractActionBar } from '@/components/user-profile/contract/ContractActionBar'
 import {
   CREATE_ALLOWED_ROLES,
   ROLE_VARIANT,
@@ -99,6 +86,11 @@ import { ROLE_LABEL_MESSAGES } from '@/components/ui/role-select'
 import { ShareSlider } from '@/components/ui/share-slider'
 import { HrChipsField } from './HrChipsField'
 import { AccountantChipField } from './AccountantChipField'
+import { WizardStep2 } from './user-dialog/WizardStep2'
+import { WizardStep3 } from './user-dialog/WizardStep3'
+
+// Re-exported so existing test imports from '../UserDialog' keep resolving.
+export { WizardStep2 }
 import {
   defaultPaymentMethod,
   fetchUsersForDialog,
@@ -2440,192 +2432,5 @@ export function UserDialog(props: UserDialogProps) {
         </AlertDialogContent>
       </AlertDialog>
     </>
-  )
-}
-
-// ── Wizard sub-components (create-mode only) ────────────────────────────────
-
-interface WizardStep2Props {
-  userId: string
-  onHasContract: (has: boolean) => void
-  body: string
-  onBodyChange: (v: string) => void
-  isDirty: boolean
-}
-
-/**
- * Step 2 of the create wizard: contract editor on the freshly-created user.
- * Lazy-loads the A3-2 ContractEditor + uses useEmployeeContract for DRAFT lazy-create.
- * Renders a skippable empty-state when no active template (404).
- */
-// task-i18n-stage2-task5: exported (was module-private) so
-// `UserDialog.test.tsx` can render it directly with a mocked
-// `useEmployeeContract` — same pattern `ContractTab.test.tsx` already uses
-// for its sibling `isNoTemplate` migration, without needing a full
-// multi-provider `UserDialog` render.
-export function WizardStep2({
-  userId,
-  onHasContract,
-  body,
-  onBodyChange,
-  isDirty,
-}: WizardStep2Props) {
-  const { t } = useLingui()
-  const { data: contract, isLoading, error } = useEmployeeContract(userId)
-  const saveBody = useSaveContractBody(userId)
-
-  // Sync contract body into local state on first load.
-  // deps intentionally limited to contract?.id — we only want to seed the
-  // local body once per contract identity (not on every render where body
-  // or the stable callbacks change). Adding body/onBodyChange/onHasContract
-  // would re-seed on every keystroke and clobber in-progress edits.
-  // (react-hooks/exhaustive-deps is not configured in this project's eslint)
-  useEffect(() => {
-    if (contract && body === '') {
-      onBodyChange(contract.bodyMarkdown ?? '')
-      onHasContract(true)
-    }
-  }, [contract?.id])
-
-  // Notify parent whether we have a contract
-  useEffect(() => {
-    if (contract) onHasContract(true)
-    else if (error) onHasContract(false)
-  }, [contract, error])
-
-  const handleSave = () => {
-    saveBody.mutate(body)
-  }
-
-  // No active template → 404 empty state (step is skippable).
-  // task-i18n-stage2-task5: stable `code` from the envelope instead of
-  // status-404-OR-substring-match — the substring half broke the moment the
-  // prose it matched against became translatable (see ContractTab.tsx's
-  // identical migration for the same reasoning).
-  const isNoTemplate = getApiErrorCode(error) === 'CONTRACT_TEMPLATE_MISSING'
-
-  return (
-    <div className="py-2 flex flex-col gap-4" data-testid="wizard-contract-step">
-      {isLoading && (
-        <div className="flex items-center justify-center py-8 text-muted-foreground text-sm">
-          <Trans>Завантажуємо контракт…</Trans>
-        </div>
-      )}
-
-      {isNoTemplate && !isLoading && (
-        <div className="rounded-lg border border-dashed border-border bg-muted/30 px-4 py-6 text-center">
-          <FileText className="mx-auto mb-2 h-8 w-8 text-muted-foreground/50" />
-          <p className="text-sm font-medium text-muted-foreground">
-            <Trans>Немає активного шаблону контракту для цієї ролі</Trans>
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground/70">
-            <Trans>Контракт можна додати пізніше з профілю користувача.</Trans>
-            <br />
-            <Trans>Натисніть «Далі», щоб продовжити без контракту.</Trans>
-          </p>
-        </div>
-      )}
-
-      {contract && !isLoading && (
-        <>
-          <ContractEditor
-            value={body || contract.bodyMarkdown}
-            onChange={onBodyChange}
-            readOnly={contract.status !== 'DRAFT'}
-            {...(contract.status === 'READY_TO_SIGN'
-              ? {
-                  frozenBanner: t`Контракт надіслано на підпис — редагування заблоковано, щоб внести правки, поверніть у чернетку`,
-                }
-              : {})}
-          />
-          <ContractActionBar
-            status={contract.status}
-            isDirty={isDirty}
-            isSaving={saveBody.isPending}
-            onSave={handleSave}
-            onMarkReady={() => {
-              /* handled in step 3 */
-            }}
-            onReset={() => {
-              /* handled via profile tab */
-            }}
-            onRevert={() => {
-              /* handled via profile tab */
-            }}
-          />
-        </>
-      )}
-    </div>
-  )
-}
-
-interface WizardStep3Props {
-  hasContract: boolean
-  onSaveDraft: () => void
-  onMarkReady: () => void
-  isMarkingReady: boolean
-  onBack: () => void
-}
-
-/**
- * Step 3 of the create wizard: confirmation summary + finalize buttons.
- * «Сохранить как черновик» → close (contract stays DRAFT, already saved).
- * «Сохранить и отметить готовым» → POST /ready → close.
- * Ready button disabled when no contract (no-template path).
- */
-function WizardStep3({
-  hasContract,
-  onSaveDraft,
-  onMarkReady,
-  isMarkingReady,
-  onBack,
-}: WizardStep3Props) {
-  const { t } = useLingui()
-  return (
-    <div className="py-4 flex flex-col gap-6" data-testid="wizard-confirm-step">
-      {/* Summary */}
-      <div className="rounded-lg border border-border/60 bg-muted/30 p-4 flex flex-col gap-2">
-        <div className="flex items-center gap-2">
-          <CheckCircle2 className="h-5 w-5 text-primary shrink-0" />
-          <p className="text-sm font-medium">
-            <Trans>Користувача створено</Trans>
-          </p>
-        </div>
-        <p className="text-xs text-muted-foreground pl-7">
-          {hasContract ? (
-            <Trans>
-              Контракт збережено як чернетку. Ви можете позначити його готовим до підписання.
-            </Trans>
-          ) : (
-            <Trans>
-              Контракт не створено (немає активного шаблону для ролі). Його можна додати пізніше
-              через профіль користувача.
-            </Trans>
-          )}
-        </p>
-      </div>
-
-      {/* Navigation */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <Button variant="outline" onClick={onBack} data-testid="wizard-step3-back-btn">
-          <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
-          <Trans>Назад</Trans>
-        </Button>
-
-        <div className="flex flex-wrap gap-2 justify-end">
-          <Button variant="secondary" onClick={onSaveDraft} data-testid="wizard-save-draft-btn">
-            <Trans>Зберегти чернетку</Trans>
-          </Button>
-          <Button
-            onClick={onMarkReady}
-            disabled={!hasContract || isMarkingReady}
-            data-testid="wizard-mark-ready-btn"
-            data-track="contract-sign-prep"
-          >
-            {isMarkingReady ? t`Позначаємо…` : t`Позначити готовим до підписання`}
-          </Button>
-        </div>
-      </div>
-    </div>
   )
 }
