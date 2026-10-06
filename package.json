@@ -73,7 +73,10 @@
       "tsx>esbuild": ">=0.28.1 <1.0.0",
       "@esbuild-kit/core-utils>esbuild": ">=0.28.1 <1.0.0",
       "browserslist": ">=4.28.7 <5.0.0",
-      "@fastify/busboy": ">=3.2.1 <4.0.0"
+      "@fastify/busboy": ">=3.2.1 <4.0.0",
+      "seroval": ">=1.6.3 <2.0.0",
+      "seroval-plugins": ">=1.6.3 <2.0.0",
+      "source-map-js": ">=1.2.2 <2.0.0"
     }
   }
 }
