@@ -14,7 +14,6 @@ import {
   Send,
   UserMinus,
   UserPlus,
-  Users,
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import type { Role, TeamDto } from '@crm/shared'
@@ -45,7 +44,6 @@ import {
 } from '@/components/ui/crm-dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Skeleton } from '@/components/ui/skeleton'
 import {
   Select,
   SelectContent,
@@ -62,6 +60,8 @@ import { ROLE_LABEL_MESSAGES } from '@/components/ui/role-select'
 import { ROLE_VARIANT, container, item } from './team-detail/constants'
 import { fetchTeam, fetchProjects } from './team-detail/api'
 import type { UserOption } from './team-detail/api'
+import { TeamLoadingSkeleton } from './team-detail/components/TeamLoadingSkeleton'
+import { TeamNotFound } from './team-detail/components/TeamNotFound'
 import { TeamUnarchiveHeaderButton } from './team-detail/components/TeamUnarchiveHeaderButton'
 export const Route = createFileRoute('/_authenticated/team/$teamId')({
   component: TeamDetailPage,
@@ -284,56 +284,11 @@ function TeamDetailPage() {
   if (denied) return null
 
   if (isLoading) {
-    return (
-      <div className="space-y-6 px-6 pt-4 pb-6">
-        <div className="flex items-center gap-3">
-          <Skeleton className="h-9 w-9 rounded-md" />
-          <div className="space-y-1.5">
-            <Skeleton className="h-7 w-48" />
-            <Skeleton className="h-4 w-32" />
-          </div>
-        </div>
-        <div className="grid gap-6 lg:grid-cols-3">
-          <div className="lg:col-span-2 space-y-4">
-            {/* Members card skeleton — matches real grid gap-2 sm:grid-cols-2 */}
-            <div className="rounded-xl border border-border p-4 space-y-3">
-              <Skeleton className="h-5 w-36" />
-              <div className="grid gap-2 sm:grid-cols-2">
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <Skeleton key={i} className="h-14 rounded-lg" />
-                ))}
-              </div>
-            </div>
-          </div>
-          <div className="space-y-4">
-            <Skeleton className="h-32 rounded-xl" />
-          </div>
-        </div>
-      </div>
-    )
+    return <TeamLoadingSkeleton />
   }
 
   if (error || !team) {
-    return (
-      <div className="flex flex-col items-center justify-center py-24 text-center">
-        <Users className="h-10 w-10 text-muted-foreground/30" />
-        <p className="mt-4 text-sm font-medium">
-          <Trans>Команду не знайдено</Trans>
-        </p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          <Trans>Можливо, у вас немає доступу до цієї команди</Trans>
-        </p>
-        {/* the back-to-list button is hidden for DROP: nowhere to go back to. */}
-        {user?.role !== 'DROP' && (
-          <Button asChild variant="outline" size="sm" className="mt-4">
-            <Link to="/team">
-              <ArrowLeft className="h-4 w-4 mr-1.5" />
-              <Trans>Повернутися до списку</Trans>
-            </Link>
-          </Button>
-        )}
-      </div>
-    )
+    return <TeamNotFound userRole={user?.role} />
   }
 
   // Add member dialog filtering logic
