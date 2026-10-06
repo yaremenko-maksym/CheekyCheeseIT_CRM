@@ -690,7 +690,7 @@ msgstr "Опублікувати"
 msgid "Немає збережених паролів"
 msgstr "Немає збережених паролів"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/AddMemberDialog.tsx
 msgid "Оберіть, кого додати до команди."
 msgstr "Оберіть, кого додати до команди."
 
@@ -5330,8 +5330,8 @@ msgstr "чек"
 #: apps/web/app/routes/_authenticated/projects/ProjectMemberDialogs.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/AddMemberDialog.tsx
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
@@ -5439,7 +5439,7 @@ msgstr "Видаляємо…"
 msgid "Щільність верстки"
 msgstr "Щільність верстки"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/AddMemberDialog.tsx
 msgid "Немає користувачів, яких можна додати"
 msgstr "Немає користувачів, яких можна додати"
 
@@ -5845,7 +5845,7 @@ msgid "Мій баланс (частка)"
 msgstr "Мій баланс (частка)"
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/AddMemberDialog.tsx
 msgid "Додати учасника"
 msgstr "Додати учасника"
 
@@ -10560,7 +10560,7 @@ msgstr "Використовується в тексті"
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectMemberDialogs.tsx
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/AddMemberDialog.tsx
 msgid "Додати"
 msgstr "Додати"
 
@@ -10607,7 +10607,7 @@ msgid "Внутрішня нотатка, видна лише адміністр
 msgstr "Внутрішня нотатка, видна лише адміністраторам…"
 
 #. placeholder {0}: selectedUserIds.size
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/AddMemberDialog.tsx
 msgid "Додати ({0})"
 msgstr "Додати ({0})"
 

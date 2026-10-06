@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { Archive, ArrowLeft, Calendar, Pencil, RefreshCw, Send, UserPlus } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import type { Role, TeamDto } from '@crm/shared'
+import type { TeamDto } from '@crm/shared'
 import { compareNames, formatDate } from '@crm/shared'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { useAuth } from '@/context/auth'
@@ -12,7 +12,6 @@ import { useLocale } from '@/lib/i18n'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import { api } from '@/lib/axios'
 import { getApiErrorMessage } from '@/lib/axios-utils'
-import { cn } from '@/lib/utils'
 import { getInitialsBySpaceSplit } from '@/lib/initials'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { ProfileNameLink } from '@/components/users/ProfileNameLink'
@@ -41,10 +40,11 @@ import { ShareSlider } from '@/components/ui/share-slider'
 import { toast } from 'sonner'
 import { tgUrl } from '@/lib/tg-url'
 import { ArchiveConfirmDialog } from '@/components/archive/ArchiveConfirmDialog'
-import { ROLE_LABEL_MESSAGES } from '@/components/ui/role-select'
 import { container, item } from './team-detail/constants'
 import { fetchTeam, fetchProjects } from './team-detail/api'
 import type { UserOption } from './team-detail/api'
+import { AddMemberDialog } from './team-detail/components/AddMemberDialog'
+import type { CandidateUser } from './team-detail/components/AddMemberDialog'
 import { MembersCard } from './team-detail/components/MembersCard'
 import { ActiveProjectsCard } from './team-detail/components/ActiveProjectsCard'
 import { TeamLoadingSkeleton } from './team-detail/components/TeamLoadingSkeleton'
@@ -55,7 +55,7 @@ export const Route = createFileRoute('/_authenticated/team/$teamId')({
 })
 
 function TeamDetailPage() {
-  const { t, i18n } = useLingui()
+  const { t } = useLingui()
   const locale = useLocale()
   const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'])
   const { user } = useAuth()
@@ -273,8 +273,6 @@ function TeamDetailPage() {
     ) ?? [],
   )
 
-  type CandidateUser = UserOption & { disabledReason?: string }
-
   const candidateUsers: CandidateUser[] = (allUsers || [])
     .filter((u: UserOption) => u.role !== 'ADMIN')
     .map((u: UserOption): CandidateUser => {
@@ -290,6 +288,18 @@ function TeamDetailPage() {
       if (aDisabled !== bDisabled) return aDisabled ? 1 : -1
       return compareNames(locale)(a.displayName, b.displayName)
     })
+
+  function toggleSelectedUser(userId: string) {
+    setSelectedUserIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(userId)) {
+        next.delete(userId)
+      } else {
+        next.add(userId)
+      }
+      return next
+    })
+  }
 
   async function handleAddMembers() {
     for (const userId of selectedUserIds) {
@@ -667,118 +677,18 @@ function TeamDetailPage() {
         </Dialog>
 
         {/* Add Member Dialog */}
-        <Dialog
+        <AddMemberDialog
           open={showAddMember}
           onOpenChange={(open) => {
             setShowAddMember(open)
             if (!open) setSelectedUserIds(new Set())
           }}
-        >
-          <CrmDialogContent>
-            <CrmDialogHeader>
-              <DialogTitle>
-                <Trans>Додати учасника</Trans>
-              </DialogTitle>
-              <DialogDescription className="sr-only">
-                <Trans>Оберіть, кого додати до команди.</Trans>
-              </DialogDescription>
-            </CrmDialogHeader>
-            <CrmDialogBody>
-              <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
-                {candidateUsers.length === 0 && (
-                  <p className="py-4 text-center text-sm text-muted-foreground">
-                    <Trans>Немає користувачів, яких можна додати</Trans>
-                  </p>
-                )}
-                {candidateUsers.map((u, idx) => {
-                  const isDisabled = !!u.disabledReason
-                  const isSelected = selectedUserIds.has(u.id)
-                  const prevDisabled = idx > 0 && !!candidateUsers[idx - 1]?.disabledReason
-                  const showDivider = isDisabled && !prevDisabled && idx > 0
-                  return (
-                    <div key={u.id}>
-                      {showDivider && <div className="my-2 border-t border-border/50" />}
-                      <button
-                        type="button"
-                        disabled={isDisabled}
-                        onClick={() => {
-                          if (isDisabled) return
-                          setSelectedUserIds((prev) => {
-                            const next = new Set(prev)
-                            if (next.has(u.id)) {
-                              next.delete(u.id)
-                            } else {
-                              next.add(u.id)
-                            }
-                            return next
-                          })
-                        }}
-                        className={cn(
-                          'flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left transition-colors',
-                          isDisabled
-                            ? 'cursor-not-allowed opacity-35'
-                            : isSelected
-                              ? 'bg-primary/10'
-                              : 'hover:bg-muted/50',
-                        )}
-                      >
-                        {!isDisabled && (
-                          <div
-                            className={cn(
-                              'h-4 w-4 shrink-0 rounded border',
-                              isSelected
-                                ? 'border-primary bg-primary flex items-center justify-center'
-                                : 'border-border',
-                            )}
-                          >
-                            {isSelected && (
-                              <span className="text-[10px] text-primary-foreground font-bold">
-                                ✓
-                              </span>
-                            )}
-                          </div>
-                        )}
-                        {isDisabled && <div className="h-4 w-4 shrink-0" />}
-                        <Avatar className="h-6 w-6 shrink-0">
-                          {u.avatarUrl && <AvatarImage src={u.avatarUrl} alt={u.displayName} />}
-                          <AvatarFallback className="text-[9px]">
-                            {getInitialsBySpaceSplit(u.displayName)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <span className="flex-1 truncate text-sm">{u.displayName}</span>
-                        <Badge variant="outline" className="text-[10px] shrink-0">
-                          {i18n._(ROLE_LABEL_MESSAGES[u.role as Role])}
-                        </Badge>
-                        {u.disabledReason && (
-                          <span className="text-[10px] text-muted-foreground shrink-0">
-                            {u.disabledReason}
-                          </span>
-                        )}
-                      </button>
-                    </div>
-                  )
-                })}
-              </div>
-            </CrmDialogBody>
-            <CrmDialogFooter>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setShowAddMember(false)
-                  setSelectedUserIds(new Set())
-                }}
-              >
-                <Trans>Скасувати</Trans>
-              </Button>
-              <Button
-                disabled={selectedUserIds.size === 0 || addMemberMutation.isPending}
-                onClick={() => void handleAddMembers()}
-              >
-                {selectedUserIds.size > 0 ? t`Додати (${selectedUserIds.size})` : t`Додати`}
-              </Button>
-            </CrmDialogFooter>
-          </CrmDialogContent>
-        </Dialog>
+          candidateUsers={candidateUsers}
+          selectedUserIds={selectedUserIds}
+          onToggle={toggleSelectedUser}
+          onSubmit={() => void handleAddMembers()}
+          isPending={addMemberMutation.isPending}
+        />
 
         {/* ut-39b: Archive confirm dialog — triggered by explicit Archive button. */}
         {archiveDialogOpen && (
