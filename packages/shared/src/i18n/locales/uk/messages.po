@@ -4948,7 +4948,7 @@ msgstr "Константи компанії"
 msgid "Контакт HR"
 msgstr "Контакт HR"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/ContactsSection.tsx
 msgid "Контакти"
 msgstr "Контакти"
 
@@ -10191,7 +10191,7 @@ msgid "Текст резюме"
 msgstr "Текст резюме"
 
 #: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/ContactsSection.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Телефон"
 msgstr "Телефон"

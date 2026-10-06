@@ -15,7 +15,6 @@ import {
   ArrowRight,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
-import { isValidPhoneNumber } from 'react-phone-number-input'
 import type { Value as PhoneValue } from 'react-phone-number-input'
 import { z } from 'zod'
 import type { AxiosError } from 'axios'
@@ -57,7 +56,6 @@ import {
   DialogTitle,
 } from '@/components/ui/crm-dialog'
 import { Input } from '@/components/ui/input'
-import { PhoneInput } from '@/components/ui/phone-input'
 import {
   Select,
   SelectContent,
@@ -88,6 +86,7 @@ import { HrChipsField } from './HrChipsField'
 import { AccountantChipField } from './AccountantChipField'
 import { WizardStep2 } from './user-dialog/WizardStep2'
 import { WizardStep3 } from './user-dialog/WizardStep3'
+import { ContactsSection } from './user-dialog/ContactsSection'
 
 // Re-exported so existing test imports from '../UserDialog' keep resolving.
 export { WizardStep2 }
@@ -95,9 +94,7 @@ import {
   defaultPaymentMethod,
   fetchUsersForDialog,
   ibanPattern,
-  phoneFieldSchema,
   rnokppPattern,
-  telegramFieldSchema,
   toUsd,
   usdtWalletPattern,
   type ExchangeRates,
@@ -1461,69 +1458,7 @@ export function UserDialog(props: UserDialogProps) {
               </form.Subscribe>
 
               {/* ── Section 2: Contacts ─────────────────────────────────── */}
-              <Section title={t`Контакти`}>
-                <form.Field
-                  name="telegram"
-                  validators={{
-                    onBlur: ({ value, fieldApi }) => {
-                      if (!fieldApi.state.meta.isDirty) return undefined
-                      if (!value.trim()) return undefined
-                      const r = telegramFieldSchema.safeParse(value.trim())
-                      return r.success ? undefined : translateZodMessage(r.error.issues[0]?.message)
-                    },
-                  }}
-                >
-                  {(field) => {
-                    const showError = field.state.meta.isTouched && field.state.meta.isDirty
-                    const err = showError ? field.state.meta.errors[0] : undefined
-                    return (
-                      <Field label="Telegram" error={err}>
-                        <Input
-                          placeholder="@username"
-                          value={field.state.value}
-                          onChange={(e) => field.handleChange(e.target.value)}
-                          onBlur={field.handleBlur}
-                          autoCapitalize="off"
-                          autoCorrect="off"
-                          className={cn(
-                            err && 'border-destructive focus-visible:ring-destructive/30',
-                          )}
-                        />
-                      </Field>
-                    )
-                  }}
-                </form.Field>
-
-                <form.Field
-                  name="phone"
-                  validators={{
-                    onBlur: ({ value, fieldApi }) => {
-                      if (!fieldApi.state.meta.isDirty) return undefined
-                      const v = value as string
-                      if (!v || v.replace(/\D/g, '').length < 5) return undefined
-                      const r = phoneFieldSchema.safeParse(v)
-                      if (!r.success) return translateZodMessage(r.error.issues[0]?.message)
-                      if (!isValidPhoneNumber(v)) return translateZodCode('PHONE_INVALID')
-                      return undefined
-                    },
-                  }}
-                >
-                  {(field) => {
-                    const showError = field.state.meta.isTouched && field.state.meta.isDirty
-                    const err = showError ? field.state.meta.errors[0] : undefined
-                    return (
-                      <Field label={t`Телефон`} error={err}>
-                        <PhoneInput
-                          value={field.state.value as PhoneValue | undefined}
-                          onChange={(v) => field.handleChange((v ?? '') as PhoneValue | '')}
-                          onBlur={field.handleBlur}
-                          className={cn(err && '[&_input]:border-destructive')}
-                        />
-                      </Field>
-                    )
-                  }}
-                </form.Field>
-              </Section>
+              <ContactsSection form={form} />
 
               {/* ── Section 3: Profession (Tech stack) ──────────────────── */}
               <Section title={t`Професія`}>
