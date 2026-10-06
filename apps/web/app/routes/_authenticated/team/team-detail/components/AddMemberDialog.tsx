@@ -64,6 +64,7 @@ export function AddMemberDialog({
             {candidateUsers.map((u, idx) => {
               const isDisabled = !!u.disabledReason
               const isSelected = selectedUserIds.has(u.id)
+              // Stryker disable next-line ConditionalExpression,EqualityOperator,OptionalChaining: the idx > 0 guard is redundant with showDivider's own idx > 0 check and ?. only satisfies noUncheckedIndexedAccess, so idx >= 0, a constant-true guard or a bare index access at idx 0 all yield the same divider outcome
               const prevDisabled = idx > 0 && !!candidateUsers[idx - 1]?.disabledReason
               const showDivider = isDisabled && !prevDisabled && idx > 0
               return (
@@ -73,10 +74,12 @@ export function AddMemberDialog({
                     type="button"
                     disabled={isDisabled}
                     onClick={() => {
+                      // Stryker disable next-line ConditionalExpression: defense-in-depth behind the native disabled attribute, which already stops React from dispatching click on a disabled button, so no test can reach this branch
                       if (isDisabled) return
                       onToggle(u.id)
                     }}
                     className={cn(
+                      // Stryker disable next-line StringLiteral: purely cosmetic base layout utilities of the row, no behavior or state hangs off them
                       'flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left transition-colors',
                       isDisabled
                         ? 'cursor-not-allowed opacity-35'

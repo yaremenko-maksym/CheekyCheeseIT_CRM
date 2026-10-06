@@ -156,6 +156,41 @@ describe('AddMemberDialog selection', () => {
   })
 })
 
+describe('AddMemberDialog row decoration', () => {
+  it('gives an eligible row exactly one checkbox and no alignment spacer', () => {
+    renderDialog([candidate('a', 'HR')])
+    const boxes = rowButton('a').querySelectorAll('div.h-4.w-4')
+    expect(boxes).toHaveLength(1)
+    expect(boxes[0]!.className).toContain('rounded')
+    expect(boxes[0]!.className).toContain('border-border')
+    expect(boxes[0]!.className).not.toContain('bg-primary')
+  })
+
+  it('styles the checkbox of a selected row as filled', () => {
+    renderDialog([candidate('a', 'HR')], { selected: ['a'] })
+    const box = rowButton('a').querySelector('div.h-4.w-4')!
+    expect(box.className).toContain('border-primary')
+    expect(box.className).toContain('bg-primary')
+    expect(box.className).toContain('justify-center')
+    expect(box.className).not.toContain('border-border')
+  })
+
+  it('replaces the checkbox of a disabled row with an empty alignment spacer', () => {
+    renderDialog([candidate('a', 'HR', { disabledReason: 'в команді' })])
+    const boxes = rowButton('a').querySelectorAll('div.h-4.w-4')
+    expect(boxes).toHaveLength(1)
+    expect(boxes[0]!.className).not.toContain('rounded')
+    expect(boxes[0]!.childNodes).toHaveLength(0)
+  })
+
+  it('renders the disabled reason in its own muted label, and no label for eligible rows', () => {
+    renderDialog([candidate('a', 'HR'), candidate('b', 'HR', { disabledReason: 'в команді' })])
+    expect(screen.getByText('в команді').tagName).toBe('SPAN')
+    expect(screen.getByText('в команді').className).toContain('text-muted-foreground')
+    expect(rowButton('a').querySelectorAll('span.text-muted-foreground')).toHaveLength(0)
+  })
+})
+
 describe('AddMemberDialog divider', () => {
   it('draws one divider before the first disabled row that follows an enabled one', () => {
     renderDialog([
