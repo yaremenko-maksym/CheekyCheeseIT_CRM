@@ -45,11 +45,7 @@ export function computeMonthlySalaryUsd(args: {
   exchangeRates: ExchangeRates | undefined
 }): number | null {
   const { monthlySalary, salaryCurrency, exchangeRates } = args
-  // Stryker disable next-line MethodExpression: equivalent mutant — dropping `.trim()` is unobservable because `parseStrictAmount` trims its own input and a blank string parses to NaN, which the guard below maps to null just like the `!raw` early return
-  const raw = String(monthlySalary).trim()
-  // Stryker disable next-line ConditionalExpression: the `false` variant is equivalent — a blank `raw` parses to NaN and returns null at the isFinite guard below, identical to this early return; the early return is only a fast path
-  if (!raw) return null
-  const num = parseStrictAmount(raw)
+  const num = parseStrictAmount(String(monthlySalary))
   if (!isFinite(num) || num < 0) return null
   if (!exchangeRates) return num // shouldn't happen — query enabled on open
   return Number(toUsd(num, salaryCurrency, exchangeRates).toFixed(2))

@@ -187,7 +187,7 @@ describe('UserDialog — create payload wiring', () => {
     })
   })
 
-  it('non-SENIOR create: the salary is sent and the PATCH after «Назад» re-sends it via the same helper', async () => {
+  it('non-SENIOR create: the salary is sent and the PATCH after going Back re-sends it via the same helper', async () => {
     const user = userEvent.setup()
     render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
 
