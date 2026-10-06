@@ -4408,7 +4408,7 @@ msgid "Змін немає — вміст ідентичний поточній 
 msgstr "No changes — the content is identical to the current version."
 
 #. placeholder {0}: editingUser?.displayName
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/EmailChangeWarningDialog.tsx
 msgid "Зміна email може розірвати вхід через Google для <0>{0}</0>. Переконайтеся, що користувач знає про зміну і за потреби змінить свій обліковий запис Google."
 msgstr "Changing the email may break Google sign-in for <0>{0}</0>. Make sure the user knows about the change and updates their Google account if needed."
 
@@ -4446,7 +4446,7 @@ msgstr "Changes saved"
 msgid "Змінити"
 msgstr "Change"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/EmailChangeWarningDialog.tsx
 msgid "Змінити email?"
 msgstr "Change the email?"
 
@@ -6694,7 +6694,7 @@ msgstr "New senior"
 msgid "Новий тип сповіщень"
 msgstr "New notification type"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/EmailChangeWarningDialog.tsx
 msgid "Новий:"
 msgstr "New:"
 
@@ -7797,7 +7797,7 @@ msgstr "Confirm payout"
 msgid "Підтвердити вручну"
 msgstr "Confirm manually"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/EmailChangeWarningDialog.tsx
 msgid "Підтвердити зміну"
 msgstr "Confirm the change"
 
@@ -9432,8 +9432,8 @@ msgstr "Cancelling the proposal…"
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/users/ArchiveUserConfirmDialog.tsx
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
+#: apps/web/app/components/users/user-dialog/EmailChangeWarningDialog.tsx
 #: apps/web/app/components/users/user-dialog/UserDialogFooter.tsx
-#: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/routes/_authenticated/admin/ChangeWalletAddressDialog.tsx
 #: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
@@ -9771,7 +9771,7 @@ msgstr "Standard"
 msgid "Старий файл/посилання буде видалено без можливості відновлення."
 msgstr "The old file/link will be deleted with no way to restore it."
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/EmailChangeWarningDialog.tsx
 msgid "Старий:"
 msgstr "Old:"
 

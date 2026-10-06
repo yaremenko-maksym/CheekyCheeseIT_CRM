@@ -25,16 +25,6 @@ import { useAuth } from '@/context/auth'
 import { useUser } from '@/hooks/use-user-profile'
 import { Badge } from '@/components/ui/badge'
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
-import {
   CrmDialogBody,
   CrmDialogContent,
   CrmDialogHeader,
@@ -75,6 +65,7 @@ import { WizardStep3 } from './user-dialog/WizardStep3'
 import { ContactsSection } from './user-dialog/ContactsSection'
 import { TechStackSection } from './user-dialog/TechStackSection'
 import { ContractDataSection } from './user-dialog/ContractDataSection'
+import { EmailChangeWarningDialog } from './user-dialog/EmailChangeWarningDialog'
 import { UserDialogFooter } from './user-dialog/UserDialogFooter'
 
 // Re-exported so existing test imports from '../UserDialog' keep resolving.
@@ -2155,50 +2146,17 @@ export function UserDialog(props: UserDialogProps) {
       </Dialog>
 
       {/* ut-9: Email change warning. Confirms or reverts the email field. */}
-      <AlertDialog
-        open={!!pendingEmailChange}
-        onOpenChange={(o) => !o && setPendingEmailChange(null)}
-      >
-        <AlertDialogContent data-testid="email-change-warning">
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              <Trans>Змінити email?</Trans>
-            </AlertDialogTitle>
-            <AlertDialogDescription className="space-y-2">
-              <span className="block">
-                <Trans>
-                  Зміна email може розірвати вхід через Google для{' '}
-                  <strong>{editingUser?.displayName}</strong>. Переконайтеся, що користувач знає про
-                  зміну і за потреби змінить свій обліковий запис Google.
-                </Trans>
-              </span>
-              <span className="block text-muted-foreground">
-                <Trans>Старий:</Trans>{' '}
-                <code className="px-1 rounded bg-muted">{originalEmail}</code>
-                <br />
-                <Trans>Новий:</Trans>{' '}
-                <code className="px-1 rounded bg-muted">{pendingEmailChange}</code>
-              </span>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel
-              onClick={() => {
-                form.setFieldValue('email', originalEmail)
-                setPendingEmailChange(null)
-              }}
-            >
-              <Trans>Скасувати</Trans>
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => setPendingEmailChange(null)}
-              data-testid="email-change-confirm"
-            >
-              <Trans>Підтвердити зміну</Trans>
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <EmailChangeWarningDialog
+        pendingEmailChange={pendingEmailChange}
+        editingUser={editingUser}
+        originalEmail={originalEmail}
+        onCancel={() => {
+          form.setFieldValue('email', originalEmail)
+          setPendingEmailChange(null)
+        }}
+        onConfirm={() => setPendingEmailChange(null)}
+        onDismiss={() => setPendingEmailChange(null)}
+      />
     </>
   )
 }
