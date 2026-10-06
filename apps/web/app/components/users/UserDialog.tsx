@@ -3,7 +3,7 @@ import { useForm } from '@tanstack/react-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plural, Trans, useLingui } from '@lingui/react/macro'
 import { Coins, Landmark, Pencil, Percent, Send, UserPlus, Users, Sparkles } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Value as PhoneValue } from 'react-phone-number-input'
 import type { AxiosError } from 'axios'
 import type {
@@ -60,6 +60,7 @@ import { TechStackSection } from './user-dialog/TechStackSection'
 import { ContractDataSection } from './user-dialog/ContractDataSection'
 import { EmailChangeWarningDialog } from './user-dialog/EmailChangeWarningDialog'
 import { UserDialogFooter } from './user-dialog/UserDialogFooter'
+import { useCreateWizard } from './user-dialog/useCreateWizard'
 
 // Re-exported so existing test imports from '../UserDialog' keep resolving.
 export { WizardStep2 }
@@ -138,25 +139,25 @@ export function UserDialog(props: UserDialogProps) {
   const hrOnly = isCreate ? !!props.hrOnly : false
 
   // ── Wizard state (create-mode only) ─────────────────────────────────────
-  // currentStep: 1=Data, 2=Contract, 3=Confirm
-  // createdUserId: set after successful POST /api/users in step 1
-  // hasContract: set true when step 2 successfully loads a contract
-  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1)
-  const [createdUserId, setCreatedUserId] = useState<string | null>(null)
-  const [hasContract, setHasContract] = useState<boolean>(false)
-  const [wizardContractBody, setWizardContractBody] = useState<string>('')
-  const [wizardContractDirty, setWizardContractDirty] = useState<boolean>(false)
-
-  // Reset wizard state when dialog opens/closes
-  useEffect(() => {
-    if (isCreate && !open) {
-      setCurrentStep(1)
-      setCreatedUserId(null)
-      setHasContract(false)
-      setWizardContractBody('')
-      setWizardContractDirty(false)
-    }
-  }, [isCreate, open])
+  const {
+    currentStep,
+    setCurrentStep,
+    createdUserId,
+    setCreatedUserId,
+    hasContract,
+    setHasContract,
+    wizardContractBody,
+    setWizardContractBody,
+    wizardContractDirty,
+    setWizardContractDirty,
+    handleWizardSaveDraft,
+  } = useCreateWizard({
+    isCreate,
+    open,
+    queryClient,
+    onClose: props.onClose,
+    draftSavedMessage: t`Користувача створено, контракт збережено як чернетку`,
+  })
 
   // ut-11: SENIOR/ADMIN locked for self-ADMIN edit. We compute it once and
   // reuse in the Role select + footer hint.
@@ -976,17 +977,6 @@ export function UserDialog(props: UserDialogProps) {
     }
     props.onClose()
   }
-
-  // A3-3: wizard finalize — «Сохранить как черновик»
-  const handleWizardSaveDraft = useCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: ['users-admin'] })
-    void queryClient.invalidateQueries({ queryKey: ['users'] })
-    toast.success(t`Користувача створено, контракт збережено як чернетку`, { duration: 4500 })
-    setCurrentStep(1)
-    setCreatedUserId(null)
-    setHasContract(false)
-    props.onClose()
-  }, [queryClient, props, t])
 
   const isPending =
     createMutation.isPending ||
