@@ -1,7 +1,7 @@
 import { createElement, type ReactNode } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderHook, waitFor } from '@testing-library/react'
-import type { UserProfileDto } from '@crm/shared'
+import { kyivToday, type UserProfileDto } from '@crm/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { getMock } = vi.hoisted(() => ({ getMock: vi.fn() }))
@@ -45,7 +45,7 @@ function render(args: Args) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const wrapper = ({ children }: { children: ReactNode }) =>
     createElement(QueryClientProvider, { client }, children)
-  return renderHook(() => useUserDialogData(args), { wrapper })
+  return { client, ...renderHook(() => useUserDialogData(args), { wrapper }) }
 }
 
 const base: Args = { open: true, isCreate: true, isEdit: false, editingUser: null }
@@ -206,5 +206,64 @@ describe('useUserDialogData', () => {
     setup({ '/finance/exchange-rate': rates })
     const { result } = render(base)
     await waitFor(() => expect(result.current.exchangeRates).toEqual(rates))
+  })
+
+  describe('query cache contract (keys shared with other consumers, staleness)', () => {
+    const staleTimeOf = (client: QueryClient, queryKey: unknown[]) =>
+      client.getQueryCache().find({ queryKey })?.observers[0]?.options.staleTime
+
+    it('create mode: stores each payload under its documented key', async () => {
+      const users = [user({ id: 'hr', role: 'HR' })]
+      const projects = [project('p1', {})]
+      const rates = { usdUah: '41', usdtUah: '41.2', eurUah: '45', date: '2026-10-06' }
+      const teams = [team('t1', {})]
+      setup({
+        '/users': users,
+        '/projects': projects,
+        '/finance/exchange-rate': rates,
+        '/teams': teams,
+      })
+      const { result, client } = render(base)
+      await waitFor(() => expect(result.current.dropTeamsForJoin).toEqual(teams))
+      await waitFor(() => expect(result.current.allUsers).toEqual(users))
+      await waitFor(() => expect(result.current.projects).toEqual(projects))
+      await waitFor(() => expect(result.current.exchangeRates).toEqual(rates))
+      expect(client.getQueryData(['users-admin'])).toEqual(users)
+      expect(client.getQueryData(['projects'])).toEqual(projects)
+      expect(client.getQueryData(['exchange-rate', kyivToday()])).toEqual(rates)
+      expect(client.getQueryData(['teams', { type: 'DROP', vacant: true }])).toEqual(teams)
+      // the bare ['teams'] key belongs to the edit-SENIOR query and is not populated here
+      expect(client.getQueryData(['teams'])).toBeUndefined()
+    })
+
+    it('staleness: rates cached for 24h, drop teams for 30s', () => {
+      setup({})
+      const { client } = render(base)
+      expect(staleTimeOf(client, ['exchange-rate', kyivToday()])).toBe(86_400_000)
+      expect(staleTimeOf(client, ['teams', { type: 'DROP', vacant: true }])).toBe(30_000)
+    })
+
+    it('edit SENIOR: allTeams is the /teams payload under the bare [teams] key', async () => {
+      const teams = [team('t1', {})]
+      setup({ '/teams': teams })
+      const { result, client } = render({
+        open: true,
+        isCreate: false,
+        isEdit: true,
+        editingUser: user({ role: 'SENIOR' }),
+      })
+      await waitFor(() => expect(result.current.allTeams).toEqual(teams))
+      expect(client.getQueryData(['teams'])).toEqual(teams)
+      expect(result.current.dropTeamsForJoin).toBeUndefined()
+    })
+
+    it('derived collections are empty arrays (not undefined) before data loads', () => {
+      setup({})
+      const { result } = render(base)
+      expect(result.current.hrUsers).toEqual([])
+      expect(result.current.accountantUsers).toEqual([])
+      expect(result.current.availableJuniorProjects).toEqual([])
+      expect(result.current.juniorActiveProjects).toEqual([])
+    })
   })
 })
