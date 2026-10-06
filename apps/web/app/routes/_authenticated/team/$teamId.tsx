@@ -2,18 +2,7 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useForm } from '@tanstack/react-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import {
-  Archive,
-  ArrowLeft,
-  Calendar,
-  Mail,
-  Pencil,
-  Phone,
-  RefreshCw,
-  Send,
-  UserMinus,
-  UserPlus,
-} from 'lucide-react'
+import { Archive, ArrowLeft, Calendar, Pencil, RefreshCw, Send, UserPlus } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import type { Role, TeamDto } from '@crm/shared'
 import { compareNames, formatDate } from '@crm/shared'
@@ -25,12 +14,10 @@ import { api } from '@/lib/axios'
 import { getApiErrorMessage } from '@/lib/axios-utils'
 import { cn } from '@/lib/utils'
 import { getInitialsBySpaceSplit } from '@/lib/initials'
-import { hasRealPhone } from '@/lib/format-phone'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { ProfileNameLink } from '@/components/users/ProfileNameLink'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Dialog,
   CrmDialogContent,
@@ -52,12 +39,13 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { ShareSlider } from '@/components/ui/share-slider'
 import { toast } from 'sonner'
-import { tgUrl, tgDisplay } from '@/lib/tg-url'
+import { tgUrl } from '@/lib/tg-url'
 import { ArchiveConfirmDialog } from '@/components/archive/ArchiveConfirmDialog'
 import { ROLE_LABEL_MESSAGES } from '@/components/ui/role-select'
-import { ROLE_VARIANT, container, item } from './team-detail/constants'
+import { container, item } from './team-detail/constants'
 import { fetchTeam, fetchProjects } from './team-detail/api'
 import type { UserOption } from './team-detail/api'
+import { MembersCard } from './team-detail/components/MembersCard'
 import { ActiveProjectsCard } from './team-detail/components/ActiveProjectsCard'
 import { TeamLoadingSkeleton } from './team-detail/components/TeamLoadingSkeleton'
 import { TeamNotFound } from './team-detail/components/TeamNotFound'
@@ -251,33 +239,14 @@ function TeamDetailPage() {
         )
       : activeProjects
 
-  // Pre-compute members grouped by role once per team.members change. MUST be
-  // ABOVE the early returns below — Rules of Hooks: an unconditional hook call.
-  // Placing it after `if (isLoading)` changed the hook count between the loading
-  // and loaded renders -> "Rendered more hooks than during the previous render"
-  // crash on every navigation to /team/$teamId.
-  // (Also avoids the prior O(N²) per-member reduce inside the JSX .map().)
-  const membersByRole = useMemo(
-    () =>
-      (team?.members ?? []).reduce(
-        (acc, m) => {
-          if (!acc[m.role]) acc[m.role] = []
-          acc[m.role]!.push(m)
-          return acc
-        },
-        {} as Record<string, NonNullable<typeof team>['members']>,
-      ),
-    [team?.members],
-  )
-
   // Rules of Hooks: moved here — after every hook above — instead of
   // between the mutations near the top and the ~10 hooks that follow it
   // (useQuery x4/useMemo/useForm/useMutation/useState/useMutation/useMemo).
   // `denied` flips false→true mid-mount once `useAuth`'s `isLoading`
   // resolves to a disallowed role; a guard sitting in the middle of the
   // hook list made that transition change the hook count between renders
-  // ("Rendered fewer hooks than expected") — the exact same failure class
-  // the `membersByRole` comment above already documents for this file. This
+  // ("Rendered fewer hooks than expected") — the same failure class
+  // as the earlier crash on /team/$teamId. This
   // route is also gated at the layout level (see use-role-guard.ts), so
   // this remains defense-in-depth, not the only guard.
   if (denied) return null
@@ -331,7 +300,7 @@ function TeamDetailPage() {
     toast.success(t`Учасників додано`)
   }
 
-  // tgUrl / tgDisplay imported from @/lib/tg-url
+  // tgUrl imported from @/lib/tg-url
 
   return (
     <div className="flex flex-col h-full">
@@ -516,164 +485,13 @@ function TeamDetailPage() {
         <div className="space-y-6">
           {/* Members */}
           <motion.div variants={item}>
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Trans>Учасники команди</Trans>
-                  <Badge variant="outline" className="ml-auto">
-                    {team.members.length}
-                  </Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {(() => {
-                  // RBAC member visibility:
-                  // JUNIOR viewer → hide all JUNIORs (sees non-junior roster only).
-                  // SENIOR viewer → hide all JUNIORs (identity hidden per RBAC rule #1).
-                  // Other roles → full member list.
-                  const visibleMembers =
-                    user?.role === 'JUNIOR' || user?.role === 'SENIOR'
-                      ? team.members.filter((m) => m.role !== 'JUNIOR')
-                      : team.members
-
-                  return (
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      {visibleMembers.map((member) => (
-                        <motion.div
-                          key={member.id}
-                          className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-card/50 p-3"
-                          whileHover={{ scale: 1.01 }}
-                          transition={{ duration: 0.15 }}
-                        >
-                          {/* round-2 AC1: avatar + name is the only profile <Link>;
-                            email/telegram/phone are sibling <a> tags (NOT nested
-                            inside another anchor) — fixes validateDOMNesting.
-                            task-drop-profile-lockdown: for a DROP viewer these
-                            become plain (non-navigable) — DROP has no profile
-                            access. Contacts below stay visible. */}
-                          <div className="flex min-w-0 flex-1 items-center gap-3">
-                            <ProfileNameLink
-                              userId={member.userId}
-                              viewerRole={user?.role ?? 'JUNIOR'}
-                              className="shrink-0 transition-opacity hover:opacity-80"
-                            >
-                              <Avatar className="h-9 w-9 shrink-0">
-                                {member.avatarUrl && (
-                                  <AvatarImage src={member.avatarUrl} alt={member.displayName} />
-                                )}
-                                <AvatarFallback className="bg-muted text-xs">
-                                  {getInitialsBySpaceSplit(member.displayName)}
-                                </AvatarFallback>
-                              </Avatar>
-                            </ProfileNameLink>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-2">
-                                <ProfileNameLink
-                                  userId={member.userId}
-                                  viewerRole={user?.role ?? 'JUNIOR'}
-                                  className="min-w-0 transition-opacity hover:opacity-80"
-                                >
-                                  <p className="truncate text-sm font-medium leading-tight hover:text-primary transition-colors">
-                                    {member.displayName}
-                                  </p>
-                                </ProfileNameLink>
-                                <Badge
-                                  variant={ROLE_VARIANT[member.role] ?? 'junior'}
-                                  className="text-[9px] shrink-0"
-                                >
-                                  {i18n._(ROLE_LABEL_MESSAGES[member.role])}
-                                </Badge>
-                              </div>
-                              {Array.isArray(member.techStack) && member.techStack.length > 0 && (
-                                <div className="mt-1 flex flex-wrap gap-1">
-                                  {(member.techStack as string[]).map((t) => (
-                                    <Badge
-                                      key={t}
-                                      variant="outline"
-                                      className="text-[9px] px-1.5 py-0 font-mono"
-                                    >
-                                      {t}
-                                    </Badge>
-                                  ))}
-                                </div>
-                              )}
-                              <div className="mt-1 flex flex-col gap-0.5 min-w-0">
-                                <a
-                                  href={`mailto:${member.email}`}
-                                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors min-w-0"
-                                >
-                                  <Mail className="h-3 w-3 shrink-0" />
-                                  <span className="truncate">{member.email}</span>
-                                </a>
-                                {member.telegram && (
-                                  <a
-                                    href={tgUrl(member.telegram)}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors min-w-0"
-                                  >
-                                    <Send className="h-3 w-3 shrink-0" />
-                                    <span className="truncate">{tgDisplay(member.telegram)}</span>
-                                  </a>
-                                )}
-                                {hasRealPhone(member.phone) && (
-                                  <a
-                                    href={`tel:${member.phone}`}
-                                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors min-w-0"
-                                  >
-                                    <Phone className="h-3 w-3 shrink-0" />
-                                    <span className="truncate">{member.phone}</span>
-                                  </a>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                          {canManage &&
-                            (() => {
-                              // membersByRole is pre-computed above via useMemo([team.members])
-                              const isSenior = member.role === 'SENIOR'
-                              const isJunior = member.role === 'JUNIOR'
-                              const isLastHr =
-                                member.role === 'HR' &&
-                                membersByRole.HR &&
-                                membersByRole.HR.length <= 1
-                              const isLastAccountant =
-                                member.role === 'ACCOUNTANT' &&
-                                membersByRole.ACCOUNTANT &&
-                                membersByRole.ACCOUNTANT.length <= 1
-                              const isSelf = member.userId === user?.id
-                              const canRemove =
-                                !isSenior &&
-                                !isJunior &&
-                                !isLastHr &&
-                                !isLastAccountant &&
-                                (user?.role === 'ADMIN' ? true : isSelf)
-                              return canRemove ? (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
-                                  title={t`Виключити`}
-                                  onClick={() => removeMemberMutation.mutate(member.userId)}
-                                >
-                                  <UserMinus className="h-3.5 w-3.5" />
-                                </Button>
-                              ) : null
-                            })()}
-                        </motion.div>
-                      ))}
-                      {visibleMembers.length === 0 && (
-                        <div className="flex flex-col items-center justify-center py-12 text-center col-span-2">
-                          <p className="mt-3 text-sm font-medium">
-                            <Trans>Немає учасників</Trans>
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })()}
-              </CardContent>
-            </Card>
+            <MembersCard
+              members={team.members}
+              viewerRole={user?.role}
+              viewerId={user?.id}
+              canManage={canManage}
+              onRemove={(userId) => removeMemberMutation.mutate(userId)}
+            />
           </motion.div>
 
           {/* Active Projects — hidden from JUNIOR viewers per task #11;

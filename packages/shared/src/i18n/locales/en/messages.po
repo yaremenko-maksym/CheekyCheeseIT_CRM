@@ -1275,7 +1275,7 @@ msgstr "Total income"
 msgid "Очікує"
 msgstr "Pending"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/MembersCard.tsx
 msgid "Виключити"
 msgstr "Remove"
 
@@ -7264,7 +7264,7 @@ msgstr "No contract template for the “{roleLabel}” role"
 msgid "Досвід роботи"
 msgstr "Work experience"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/MembersCard.tsx
 msgid "Учасники команди"
 msgstr "Team members"
 
@@ -8803,7 +8803,7 @@ msgstr "Project share is now {percent}%"
 msgid "Користувачів поки немає"
 msgstr "No users yet"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/MembersCard.tsx
 msgid "Немає учасників"
 msgstr "No members"
 

@@ -1275,7 +1275,7 @@ msgstr "Загальний дохід"
 msgid "Очікує"
 msgstr "Очікує"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/MembersCard.tsx
 msgid "Виключити"
 msgstr "Виключити"
 
@@ -7264,7 +7264,7 @@ msgstr "Немає шаблону контракту для ролі «{roleLabe
 msgid "Досвід роботи"
 msgstr "Досвід роботи"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/MembersCard.tsx
 msgid "Учасники команди"
 msgstr "Учасники команди"
 
@@ -8803,7 +8803,7 @@ msgstr "Частка в проєкті тепер {percent}%"
 msgid "Користувачів поки немає"
 msgstr "Користувачів поки немає"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/MembersCard.tsx
 msgid "Немає учасників"
 msgstr "Немає учасників"
 
