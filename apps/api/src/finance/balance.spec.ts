@@ -25,10 +25,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { BalanceService, convertToBase } from './balance.service'
-// C-1 parity test only — see the "self-referential parity" describe block
-// below. Read-only import of an existing test helper (not a zone-of-write
-// touch on transactions.service.ts itself).
-import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
+import { computeDropAggregate } from './drop-distribution.util'
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -951,29 +948,10 @@ describe('BalanceService.getTotalEarned — DROP PAYOUT_DROP self-referential pa
   })
 
   it('AC4: parity with computeDropAggregate (transactions.service.ts) on the SAME row set', async () => {
-    // computeDropAggregate is `private` on TransactionsService — TS enforces
-    // that only at compile time. Reaching it via a typed bracket-cast is the
-    // established pattern in this codebase for testing a pure aggregation
-    // helper without standing up its DB-backed caller (see
-    // transactions.drop-self-summary.spec.ts). It takes ONLY (drop, allTxs,
-    // rates) — no DB access — so calling it directly here, fed the EXACT SAME
-    // row set used above, is the most direct two-reader parity check.
-    const txSvc = makeTransactionsService({ db: {} as never })
-    const computeDropAggregate = (
-      txSvc as unknown as {
-        computeDropAggregate: (
-          drop: { id: string; displayName: string; dropSharePercent: number | null },
-          txs: Array<{
-            type: string
-            status: string
-            amount: string
-            currency?: string
-            senderId: string | null
-            receiverId: string | null
-          }>,
-        ) => { balance: number }
-      }
-    ).computeDropAggregate
+    // computeDropAggregate is a pure util (drop-distribution.util.ts, T-L2) — it
+    // takes ONLY (drop, allTxs, rates), no DB access, so calling it directly
+    // here, fed the EXACT SAME row set used above, is the most direct
+    // two-reader parity check.
 
     const rows = [selfRefTx, legitTx].map((t) => ({
       type: t.type,
