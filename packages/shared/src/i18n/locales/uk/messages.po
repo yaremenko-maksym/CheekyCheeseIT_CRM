@@ -820,7 +820,7 @@ msgstr "МОЇ ДОХОДИ"
 msgid "Не вдалося видалити вакансію. Спробуйте ще раз"
 msgstr "Не вдалося видалити вакансію. Спробуйте ще раз"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/PaymentRequisitesSection.tsx
 msgid "Використовуватиметься український банківський рахунок ФОП."
 msgstr "Використовуватиметься український банківський рахунок ФОП."
 
@@ -1283,7 +1283,7 @@ msgstr "Виключити"
 msgid "Хеш PDF (8)"
 msgstr "Хеш PDF (8)"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/PaymentRequisitesSection.tsx
 msgid "Банк (необов’язково)"
 msgstr "Банк (необов’язково)"
 
@@ -3463,7 +3463,7 @@ msgid "Не вдалося архівувати користувача — сп�
 msgstr "Не вдалося архівувати користувача — спробуйте ще раз"
 
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/PaymentRequisitesSection.tsx
 msgid "ПриватБанк"
 msgstr "ПриватБанк"
 
@@ -3603,7 +3603,7 @@ msgstr "Переказів ще не було"
 msgid "Стек технологій"
 msgstr "Стек технологій"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/PaymentRequisitesSection.tsx
 msgid "USDT ERC-20"
 msgstr "USDT ERC-20"
 
@@ -4002,8 +4002,8 @@ msgstr "Кастомні змінні не додані"
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
-#: apps/web/app/components/users/UserDialog.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/PaymentRequisitesSection.tsx
+#: apps/web/app/components/users/user-dialog/PaymentRequisitesSection.tsx
 msgid "Спосіб виплати"
 msgstr "Спосіб виплати"
 
@@ -4875,7 +4875,7 @@ msgstr "Зараз не призначено на проєкт"
 msgid "Чек недоступний"
 msgstr "Чек недоступний"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/PaymentRequisitesSection.tsx
 msgid "Використовуватиметься адреса гаманця в мережі Ethereum."
 msgstr "Використовуватиметься адреса гаманця в мережі Ethereum."
 
@@ -5088,7 +5088,7 @@ msgid "· НБУ"
 msgstr "· НБУ"
 
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/PaymentRequisitesSection.tsx
 msgid "наприклад: основний"
 msgstr "наприклад: основний"
 
@@ -6315,7 +6315,7 @@ msgstr "Адресу гаманця оновлено"
 
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/PaymentRequisitesSection.tsx
 msgid "Гаманець USDT (ERC-20)"
 msgstr "Гаманець USDT (ERC-20)"
 
@@ -6689,7 +6689,7 @@ msgstr "Користувача створено, контракт збереже
 msgid "— оберіть бухгалтера —"
 msgstr "— оберіть бухгалтера —"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/PaymentRequisitesSection.tsx
 msgid "ПІБ отримувача (ФОП)"
 msgstr "ПІБ отримувача (ФОП)"
 
@@ -7208,7 +7208,7 @@ msgstr "ERC-20, прив’язаний до долара"
 msgid "Попередній перегляд"
 msgstr "Попередній перегляд"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/PaymentRequisitesSection.tsx
 msgid "Мітка гаманця (необов’язково)"
 msgstr "Мітка гаманця (необов’язково)"
 
@@ -8815,7 +8815,7 @@ msgstr "Нічого не чекає на ваше рішення"
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 #: apps/web/app/components/users/user-dialog/ContractDataSection.tsx
 #: apps/web/app/components/users/user-dialog/IdentitySection.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/PaymentRequisitesSection.tsx
 #: apps/web/app/routes/_authenticated/legend.tsx
 msgid "Іваненко Іван Іванович"
 msgstr "Іваненко Іван Іванович"
@@ -8853,7 +8853,7 @@ msgstr "Шаблон договору для ролі «{roleLabel}» опубл
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
 #: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/PaymentRequisitesSection.tsx
 msgid "Реквізити для виплат"
 msgstr "Реквізити для виплат"
 
@@ -9096,7 +9096,7 @@ msgstr "Копіювати пароль"
 msgid "Нова команда — оберіть HR і бухгалтера нижче."
 msgstr "Нова команда — оберіть HR і бухгалтера нижче."
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/PaymentRequisitesSection.tsx
 msgid "Для ролі «{roleLabel}» доступні лише виплати в USDT ERC-20."
 msgstr "Для ролі «{roleLabel}» доступні лише виплати в USDT ERC-20."
 
@@ -9544,7 +9544,7 @@ msgstr "За ім’ям"
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/PaymentRequisitesSection.tsx
 msgid "ФОП (UAH)"
 msgstr "ФОП (UAH)"
 
@@ -10880,7 +10880,7 @@ msgstr "Дохід сеньйора з проєкту"
 
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/PaymentRequisitesSection.tsx
 msgid "РНОКПП"
 msgstr "РНОКПП"
 

@@ -2,7 +2,7 @@ import { Link } from '@tanstack/react-router'
 import { useForm } from '@tanstack/react-form'
 import { useQueryClient } from '@tanstack/react-query'
 import { Plural, Trans, useLingui } from '@lingui/react/macro'
-import { Coins, Landmark, Pencil, Send, UserPlus, Users, Sparkles } from 'lucide-react'
+import { Pencil, Send, UserPlus, Users, Sparkles } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { Value as PhoneValue } from 'react-phone-number-input'
 import type {
@@ -36,19 +36,18 @@ import {
 } from '@/components/ui/select'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { type Currency } from '@/components/ui/amount-currency-input'
-import { SegmentedToggle } from '@/components/ui/segmented-toggle'
 import { translateZodCode, translateZodMessage } from '@/lib/axios-utils'
 import { cn, parseStrictAmount } from '@/lib/utils'
 import { CreateWizardStepper } from './CreateWizardStepper'
 import { type Role, normalizeTelegram } from './constants'
 import { Field, Section } from './section'
-import { ROLE_LABEL_MESSAGES } from '@/components/ui/role-select'
 import { HrChipsField } from './HrChipsField'
 import { AccountantChipField } from './AccountantChipField'
 import { WizardStep2 } from './user-dialog/WizardStep2'
 import { WizardStep3 } from './user-dialog/WizardStep3'
 import { ContactsSection } from './user-dialog/ContactsSection'
 import { FinanceSection } from './user-dialog/FinanceSection'
+import { PaymentRequisitesSection } from './user-dialog/PaymentRequisitesSection'
 import { IdentitySection } from './user-dialog/IdentitySection'
 import { TechStackSection } from './user-dialog/TechStackSection'
 import { ContractDataSection } from './user-dialog/ContractDataSection'
@@ -62,13 +61,7 @@ import { useTeamSelection } from './user-dialog/useTeamSelection'
 
 // Re-exported so existing test imports from '../UserDialog' keep resolving.
 export { WizardStep2 }
-import {
-  defaultPaymentMethod,
-  ibanPattern,
-  rnokppPattern,
-  toUsd,
-  usdtWalletPattern,
-} from './user-dialog/validation'
+import { defaultPaymentMethod, toUsd } from './user-dialog/validation'
 
 type CommonProps = {
   mode: 'create' | 'edit'
@@ -99,7 +92,7 @@ export type UserDialogProps = CreateProps | EditProps
  * dropdown (ut-12).
  */
 export function UserDialog(props: UserDialogProps) {
-  const { t, i18n } = useLingui()
+  const { t } = useLingui()
   const queryClient = useQueryClient()
   const { user: me } = useAuth()
   const isCreate = props.mode === 'create'
@@ -776,238 +769,7 @@ export function UserDialog(props: UserDialogProps) {
               {/* ── Section 4: Finance ──────────────────────────────────── */}
               <FinanceSection form={form} isCreate={isCreate} editingUser={editingUser} />
 
-              {/* ── Section 5: Payment requisites (ut-14) ───────────────── */}
-              <form.Subscribe selector={(s) => s.values.role}>
-                {(role) => {
-                  const usdtOnly = role === 'SENIOR' || role === 'ADMIN'
-                  const roleLabel = i18n._(ROLE_LABEL_MESSAGES[role])
-                  return (
-                    <Section title={t`Реквізити для виплат`}>
-                      {usdtOnly ? (
-                        <p className="text-xs text-muted-foreground">
-                          <Trans>Для ролі «{roleLabel}» доступні лише виплати в USDT ERC-20.</Trans>
-                        </p>
-                      ) : (
-                        <form.Field name="paymentMethod">
-                          {(field) => (
-                            <Field label={t`Спосіб виплати`} required>
-                              {/* ut-15 + ut-24: iOS-style segmented control with a
-                                sliding gold pill. Implemented via the shared
-                                <SegmentedToggle> primitive (apps/web/app/components/ui/segmented-toggle.tsx)
-                                so this design is consistent across the project. */}
-                              <SegmentedToggle<PaymentMethod>
-                                value={field.state.value}
-                                onChange={(v) => field.handleChange(v)}
-                                options={[
-                                  { value: 'USDT_ERC20', label: t`USDT ERC-20`, icon: Coins },
-                                  {
-                                    value: 'BANK_UAH_FOP',
-                                    label: t`ФОП (UAH)`,
-                                    icon: Landmark,
-                                  },
-                                ]}
-                                ariaLabel={t`Спосіб виплати`}
-                                layoutId="payment-method-active-pill"
-                                testId="user-dialog-payment-method"
-                              />
-                              <p className="text-xs text-muted-foreground mt-1">
-                                {field.state.value === 'USDT_ERC20' ? (
-                                  <Trans>
-                                    Використовуватиметься адреса гаманця в мережі Ethereum.
-                                  </Trans>
-                                ) : (
-                                  <Trans>
-                                    Використовуватиметься український банківський рахунок ФОП.
-                                  </Trans>
-                                )}
-                              </p>
-                            </Field>
-                          )}
-                        </form.Field>
-                      )}
-
-                      <form.Subscribe
-                        selector={(s) => (usdtOnly ? 'USDT_ERC20' : s.values.paymentMethod)}
-                      >
-                        {(method) =>
-                          method === 'USDT_ERC20' ? (
-                            <>
-                              <form.Field
-                                name="walletUsdtErc20"
-                                validators={{
-                                  onBlur: ({ value, fieldApi }) => {
-                                    if (!fieldApi.state.meta.isDirty) return undefined
-                                    if (!value.trim())
-                                      return translateZodCode('USDT_WALLET_REQUIRED')
-                                    return usdtWalletPattern.test(value.trim())
-                                      ? undefined
-                                      : translateZodCode('USDT_ADDRESS_FORMAT')
-                                  },
-                                }}
-                              >
-                                {(field) => {
-                                  const showError =
-                                    field.state.meta.isTouched && field.state.meta.isDirty
-                                  const err = showError ? field.state.meta.errors[0] : undefined
-                                  return (
-                                    <Field label={t`Гаманець USDT (ERC-20)`} error={err} required>
-                                      <Input
-                                        placeholder="0x..."
-                                        value={field.state.value}
-                                        onChange={(e) => field.handleChange(e.target.value)}
-                                        onBlur={field.handleBlur}
-                                        autoComplete="off"
-                                        autoCapitalize="off"
-                                        autoCorrect="off"
-                                        spellCheck={false}
-                                        className={cn(
-                                          err &&
-                                            'border-destructive focus-visible:ring-destructive/30',
-                                        )}
-                                        data-testid="user-dialog-wallet"
-                                      />
-                                    </Field>
-                                  )
-                                }}
-                              </form.Field>
-                              <form.Field name="walletUsdtLabel">
-                                {(field) => (
-                                  <Field label={t`Мітка гаманця (необов’язково)`}>
-                                    <Input
-                                      placeholder={t`наприклад: основний`}
-                                      value={field.state.value}
-                                      onChange={(e) => field.handleChange(e.target.value)}
-                                      onBlur={field.handleBlur}
-                                    />
-                                  </Field>
-                                )}
-                              </form.Field>
-                            </>
-                          ) : (
-                            <>
-                              <form.Field
-                                name="bankUahRecipient"
-                                validators={{
-                                  onBlur: ({ value, fieldApi }) => {
-                                    if (!fieldApi.state.meta.isDirty) return undefined
-                                    return value.trim().length >= 3
-                                      ? undefined
-                                      : translateZodCode('RECIPIENT_NAME_MIN')
-                                  },
-                                }}
-                              >
-                                {(field) => {
-                                  const showError =
-                                    field.state.meta.isTouched && field.state.meta.isDirty
-                                  const err = showError ? field.state.meta.errors[0] : undefined
-                                  return (
-                                    <Field label={t`ПІБ отримувача (ФОП)`} error={err} required>
-                                      <Input
-                                        placeholder={t`Іваненко Іван Іванович`}
-                                        value={field.state.value}
-                                        onChange={(e) => field.handleChange(e.target.value)}
-                                        onBlur={field.handleBlur}
-                                        autoCapitalize="words"
-                                        autoComplete="off"
-                                        data-testid="user-dialog-bank-recipient"
-                                        className={cn(
-                                          err &&
-                                            'border-destructive focus-visible:ring-destructive/30',
-                                        )}
-                                      />
-                                    </Field>
-                                  )
-                                }}
-                              </form.Field>
-                              <form.Field
-                                name="bankUahIban"
-                                validators={{
-                                  onBlur: ({ value, fieldApi }) => {
-                                    if (!fieldApi.state.meta.isDirty) return undefined
-                                    return ibanPattern.test(value.trim())
-                                      ? undefined
-                                      : translateZodCode('IBAN_FORMAT')
-                                  },
-                                }}
-                              >
-                                {(field) => {
-                                  const showError =
-                                    field.state.meta.isTouched && field.state.meta.isDirty
-                                  const err = showError ? field.state.meta.errors[0] : undefined
-                                  return (
-                                    <Field label="IBAN" error={err} required>
-                                      <Input
-                                        placeholder="UA000000000000000000000000000"
-                                        value={field.state.value}
-                                        onChange={(e) => field.handleChange(e.target.value)}
-                                        onBlur={field.handleBlur}
-                                        autoCapitalize="characters"
-                                        autoCorrect="off"
-                                        spellCheck={false}
-                                        data-testid="user-dialog-bank-iban"
-                                        className={cn(
-                                          err &&
-                                            'border-destructive focus-visible:ring-destructive/30',
-                                        )}
-                                      />
-                                    </Field>
-                                  )
-                                }}
-                              </form.Field>
-                              <form.Field
-                                name="bankUahRnokpp"
-                                validators={{
-                                  onBlur: ({ value, fieldApi }) => {
-                                    if (!fieldApi.state.meta.isDirty) return undefined
-                                    return rnokppPattern.test(value.trim())
-                                      ? undefined
-                                      : translateZodCode('RNOKPP_FORMAT')
-                                  },
-                                }}
-                              >
-                                {(field) => {
-                                  const showError =
-                                    field.state.meta.isTouched && field.state.meta.isDirty
-                                  const err = showError ? field.state.meta.errors[0] : undefined
-                                  return (
-                                    <Field label={t`РНОКПП`} error={err} required>
-                                      <Input
-                                        placeholder="1234567890"
-                                        value={field.state.value}
-                                        onChange={(e) => field.handleChange(e.target.value)}
-                                        onBlur={field.handleBlur}
-                                        inputMode="numeric"
-                                        pattern="[0-9]*"
-                                        data-testid="user-dialog-bank-rnokpp"
-                                        className={cn(
-                                          err &&
-                                            'border-destructive focus-visible:ring-destructive/30',
-                                        )}
-                                      />
-                                    </Field>
-                                  )
-                                }}
-                              </form.Field>
-                              <form.Field name="bankUahBankName">
-                                {(field) => (
-                                  <Field label={t`Банк (необов’язково)`}>
-                                    <Input
-                                      placeholder={t`ПриватБанк`}
-                                      value={field.state.value}
-                                      onChange={(e) => field.handleChange(e.target.value)}
-                                      onBlur={field.handleBlur}
-                                    />
-                                  </Field>
-                                )}
-                              </form.Field>
-                            </>
-                          )
-                        }
-                      </form.Subscribe>
-                    </Section>
-                  )
-                }}
-              </form.Subscribe>
+              <PaymentRequisitesSection form={form} />
 
               {/* ── Section 6: Team ─────────────────────────────────────── */}
               <form.Subscribe selector={(s) => s.values.role}>
