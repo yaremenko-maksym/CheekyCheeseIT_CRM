@@ -22,13 +22,30 @@ interface StubForm {
   setFieldValue: (name: string, value: unknown) => void
   store: Parameters<typeof useStore>[0]
 }
-const h = vi.hoisted(() => ({ form: null as unknown, fieldProps: null as unknown }))
+const h = vi.hoisted(() => ({
+  form: null as unknown,
+  fieldProps: null as unknown,
+  options: null as unknown,
+  renders: [] as string[],
+}))
+
+vi.mock('@tanstack/react-form', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-form')>()
+  return {
+    ...actual,
+    useForm: (opts: unknown) => {
+      h.options = opts
+      return (actual.useForm as (o: unknown) => unknown)(opts)
+    },
+  }
+})
 
 vi.mock('../ProjectEditFields', () => ({
   ProjectEditFields: (props: { form: StubForm }) => {
     h.form = props.form
     h.fieldProps = props
     const values = useStore(props.form.store, (s) => (s as { values: unknown }).values)
+    h.renders.push(String((values as Record<string, unknown>).name))
     return <pre data-testid="form-values">{JSON.stringify(values)}</pre>
   },
 }))
@@ -114,6 +131,8 @@ beforeEach(async () => {
   vi.mocked(api.patch).mockResolvedValue({ data: {} })
   h.form = null
   h.fieldProps = null
+  h.options = null
+  h.renders = []
   qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
@@ -193,6 +212,98 @@ describe('ProjectEditDialog — open / reset-on-open', () => {
     setField('name', 'Typing…')
     rerender(tree({ ...props, project: makeProject({ name: 'Server renamed' }) }))
     expect(shownValues().name).toBe('Typing…')
+  })
+
+  it('exposes the initial form defaults derived from the project (before any open)', () => {
+    setup({ open: false })
+    expect((h.options as { defaultValues: unknown }).defaultValues).toEqual({
+      name: 'Alpha',
+      companyName: 'Acme',
+      domain: 'FinTech',
+      logoDocumentId: null,
+      logoExternalUrl: 'https://img.example/logo.png',
+      rate: 40,
+      currency: 'EUR',
+      seniorSharePercentOverride: 30,
+      dropSharePercentOverride: 7,
+      techStack: 'React',
+      teamSize: '5',
+      benefits: 'Gym',
+      paymentType: 'GIG_CONTRACT',
+      salaryReview: 'Yearly',
+      corpTech: 'Slack',
+      notesGeneral: 'Note',
+    })
+  })
+
+  it('falls back to empty / null / USDT / FOP / Other defaults for a legacy project', () => {
+    setup({
+      open: false,
+      project: makeProject({
+        domain: 'Legacy-Domain',
+        logoDocumentId: null,
+        logoExternalUrl: null,
+        rate: null,
+        currency: null,
+        paymentType: null,
+        seniorSharePercentOverride: null,
+        dropSharePercentOverride: null,
+        techStack: null,
+        teamSize: null,
+        benefits: null,
+        salaryReview: null,
+        corpTech: null,
+        notesGeneral: null,
+      }),
+    })
+    expect((h.options as { defaultValues: unknown }).defaultValues).toStrictEqual({
+      name: 'Alpha',
+      companyName: 'Acme',
+      domain: 'Other',
+      logoDocumentId: null,
+      logoExternalUrl: null,
+      rate: '',
+      currency: 'USDT',
+      seniorSharePercentOverride: null,
+      dropSharePercentOverride: null,
+      techStack: '',
+      teamSize: '',
+      benefits: '',
+      paymentType: 'FOP',
+      salaryReview: '',
+      corpTech: '',
+      notesGeneral: '',
+    })
+  })
+
+  it('populates a stored logo document id on open', () => {
+    setup({ project: makeProject({ logoDocumentId: 'doc-9', logoExternalUrl: null }) })
+    expect(shownValues().logoDocumentId).toBe('doc-9')
+    expect(shownValues().logoExternalUrl).toBeNull()
+  })
+
+  it('never renders the fields with stale values: not on first open, not on reopen', () => {
+    const closedA = baseProps({ open: false })
+    const { rerender } = render(tree(closedA), { wrapper: I18nTestProvider })
+    const openB = { ...closedA, open: true, project: makeProject({ name: 'Beta' }) }
+    rerender(tree(openB))
+    expect(h.renders.length).toBeGreaterThan(0)
+    expect(h.renders.every((n) => n === 'Beta')).toBe(true)
+
+    setField('name', 'Typed')
+    rerender(tree({ ...openB, open: false }))
+    h.renders = []
+    rerender(tree({ ...openB, open: true, project: makeProject({ name: 'Gamma' }) }))
+    expect(h.renders.length).toBeGreaterThan(0)
+    expect(h.renders.every((n) => n === 'Gamma')).toBe(true)
+  })
+
+  it('does not mount the fields on the render that closes the dialog', () => {
+    const { rerender, props } = setup()
+    h.renders = []
+    rerender(tree({ ...props, open: false, project: makeProject({ name: 'Closed' }) }))
+    expect(h.renders).toEqual([])
+    expect(screen.queryByTestId('form-values')).toBeNull()
   })
 
   it('passes the page-supplied RBAC context through to the fields', () => {
@@ -312,7 +423,7 @@ describe('ProjectEditDialog — payload trimming', () => {
     setField('companyName', '  Globex  ')
     setField('techStack', '   ')
     setField('teamSize', ' 8 ')
-    setField('benefits', '')
+    setField('benefits', '  ')
     setField('salaryReview', '  Quarterly ')
     setField('corpTech', '   ')
     setField('notesGeneral', ' hi ')
@@ -337,6 +448,20 @@ describe('ProjectEditDialog — payload trimming', () => {
     await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1))
     const body = vi.mocked(api.patch).mock.calls[0]?.[1] as Record<string, unknown>
     expect(body.rate).toBeUndefined()
+  })
+
+  it('sends a stored logo document id and external url as-is', async () => {
+    setup({ project: makeProject({ logoDocumentId: 'doc-9', logoExternalUrl: null }) })
+    const body = await save()
+    expect(body.logoDocumentId).toBe('doc-9')
+    expect(body.logoExternalUrl).toBeNull()
+  })
+
+  it('sends a stored external logo url as-is', async () => {
+    setup()
+    const body = await save()
+    expect(body.logoExternalUrl).toBe('https://img.example/logo.png')
+    expect(body.logoDocumentId).toBeNull()
   })
 
   it('passes domain / currency / logo fields through; null logos stay null', async () => {

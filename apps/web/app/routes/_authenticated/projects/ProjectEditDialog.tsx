@@ -71,28 +71,28 @@ export function ProjectEditDialog({
 
   const editForm = useForm({
     defaultValues: {
-      name: project?.name ?? '',
-      companyName: project?.companyName ?? '',
-      domain: coerceDomain(project?.domain),
-      logoDocumentId: project?.logoDocumentId ?? (null as string | null),
-      logoExternalUrl: project?.logoExternalUrl ?? (null as string | null),
-      rate: (project?.rate ?? '') as unknown as number,
-      currency: (project?.currency ?? 'USDT') as 'USDT' | 'USD' | 'EUR' | 'UAH',
-      seniorSharePercentOverride: project?.seniorSharePercentOverride ?? null,
+      name: project.name ?? '',
+      companyName: project.companyName ?? '',
+      domain: coerceDomain(project.domain),
+      logoDocumentId: project.logoDocumentId ?? (null as string | null),
+      logoExternalUrl: project.logoExternalUrl ?? (null as string | null),
+      rate: (project.rate ?? '') as unknown as number,
+      currency: (project.currency ?? 'USDT') as 'USDT' | 'USD' | 'EUR' | 'UAH',
+      seniorSharePercentOverride: project.seniorSharePercentOverride ?? null,
       // task-drop-share-override-and-receiver (Surface A). Same null-default
       // convention as seniorSharePercentOverride above.
-      dropSharePercentOverride: project?.dropSharePercentOverride ?? null,
-      techStack: project?.techStack ?? '',
-      teamSize: project?.teamSize ?? '',
-      benefits: project?.benefits ?? '',
+      dropSharePercentOverride: project.dropSharePercentOverride ?? null,
+      techStack: project.techStack ?? '',
+      teamSize: project.teamSize ?? '',
+      benefits: project.benefits ?? '',
       // task-drop-share-override-and-receiver (Surface C). paymentType is now a
       // 3-value enum Select — default to the backend's own default ('FOP') so a
       // legacy/never-set project still shows a valid, disabled-for-non-editors
       // selection instead of an empty Select.
-      paymentType: project?.paymentType ?? 'FOP',
-      salaryReview: project?.salaryReview ?? '',
-      corpTech: project?.corpTech ?? '',
-      notesGeneral: project?.notesGeneral ?? '',
+      paymentType: project.paymentType ?? 'FOP',
+      salaryReview: project.salaryReview ?? '',
+      corpTech: project.corpTech ?? '',
+      notesGeneral: project.notesGeneral ?? '',
     },
     onSubmit: async ({ value }) => {
       // Round-3 (PR #39 round 2): ShareSlider всегда виден (для не-HR), нет
@@ -103,11 +103,13 @@ export function ProjectEditDialog({
       // отправляют (canEditOverride=false).
       const overrideChanged =
         canEditOverride &&
+        // Stryker disable next-line OptionalChaining: `project` is a required prop and never undefined here (the page renders this component only once the project has loaded), so `project?.` and `project.` are indistinguishable
         (value.seniorSharePercentOverride ?? null) !== (project?.seniorSharePercentOverride ?? null)
       // task-drop-share-override-and-receiver (Surface A). Same "only send when
       // actually changed AND caller is allowed to edit" convention as senior.
       const dropOverrideChanged =
         canEditOverride &&
+        // Stryker disable next-line OptionalChaining: `project` is a required prop and never undefined here (the page renders this component only once the project has loaded), so `project?.` and `project.` are indistinguishable
         (value.dropSharePercentOverride ?? null) !== (project?.dropSharePercentOverride ?? null)
       editMutation.mutate({
         name: value.name.trim() || undefined,
@@ -142,6 +144,7 @@ export function ProjectEditDialog({
 
   const editMutation = useMutation({
     mutationFn: (data: UpdateProjectDto) =>
+      // Stryker disable next-line ArrowFunction: the mutation result is never read (onSuccess ignores it), so what `.then` maps the response to is unobservable
       api.patch<ProjectDto>(`/projects/${projectId}`, data).then((r) => r.data),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['projects'] })
