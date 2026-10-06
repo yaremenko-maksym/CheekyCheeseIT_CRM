@@ -78,7 +78,7 @@ msgstr "· НБУ"
 msgid "· Сеньйора не призначено"
 msgstr "· Сеньйора не призначено"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/IdentitySection.tsx
 msgid "(HR може створювати лише сеньйорів)"
 msgstr "(HR може створювати лише сеньйорів)"
 
@@ -4626,7 +4626,7 @@ msgstr "Іван Іваненко"
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 #: apps/web/app/components/users/user-dialog/ContractDataSection.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/IdentitySection.tsx
 #: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/routes/_authenticated/legend.tsx
 msgid "Іваненко Іван Іванович"
@@ -4650,7 +4650,7 @@ msgid "ім’я сеньйора"
 msgstr "ім’я сеньйора"
 
 #: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/IdentitySection.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Ім’я та прізвище"
 msgstr "Ім’я та прізвище"
@@ -5406,11 +5406,11 @@ msgstr "Мова"
 
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 #: apps/web/app/components/user-profile/LanguageSection.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/IdentitySection.tsx
 msgid "Мова інтерфейсу"
 msgstr "Мова інтерфейсу"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/IdentitySection.tsx
 msgid "Мова інтерфейсу співробітника — він зможе змінити її у своєму профілі."
 msgstr "Мова інтерфейсу співробітника — він зможе змінити її у своєму профілі."
 
@@ -5490,7 +5490,7 @@ msgstr "На сайті"
 msgid "На цю адресу одразу піде запрошення — увійти нею співробітник зможе лише після того, як підтвердить адресу"
 msgstr "На цю адресу одразу піде запрошення — увійти нею співробітник зможе лише після того, як підтвердить адресу"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/IdentitySection.tsx
 msgid "На цю адресу одразу піде запрошення. Увійти з цією адресою співробітник зможе лише після її підтвердження."
 msgstr "На цю адресу одразу піде запрошення. Увійти з цією адресою співробітник зможе лише після її підтвердження."
 
@@ -6976,7 +6976,7 @@ msgstr "Освіта"
 msgid "Основна навігація"
 msgstr "Основна навігація"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/IdentitySection.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "Основне"
 msgstr "Основне"
@@ -6994,7 +6994,7 @@ msgstr "особистий email"
 msgid "Особистий email"
 msgstr "Особистий email"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/IdentitySection.tsx
 msgid "Особистий email (необов’язково)"
 msgstr "Особистий email (необов’язково)"
 
@@ -9251,7 +9251,7 @@ msgid "Розширена інформація доступна в таблиц�
 msgstr "Розширена інформація доступна в таблиці доходів нижче"
 
 #: apps/web/app/components/ui/role-select.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/IdentitySection.tsx
 msgid "Роль"
 msgstr "Роль"
 
@@ -9273,7 +9273,7 @@ msgstr "Рядок включено до оформленої заявки на 
 msgid "api-error.REJOIN_TEAM_MUST_BE_FORMER_MEMBER"
 msgstr "Самостійно приєднатися можна лише до команди, в якій ви вже були"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/IdentitySection.tsx
 msgid "Свою роль змінити не можна"
 msgstr "Свою роль змінити не можна"
 
