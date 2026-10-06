@@ -157,4 +157,11 @@ describe('ContactsSection', () => {
     fireEvent.blur(phone)
     await waitFor(() => expect(screen.getByText(PHONE_ERROR)).toBeInTheDocument())
   })
+
+  it('does not run the phone validator on a pristine prefilled value', async () => {
+    render(<Harness phone="+38012" />)
+    fireEvent.blur(inputs().phone)
+    await Promise.resolve()
+    expect(screen.getByTestId('valid').textContent).toBe('true')
+  })
 })
