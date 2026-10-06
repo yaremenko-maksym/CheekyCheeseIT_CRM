@@ -54,9 +54,11 @@ interface ProjectEditDialogProps {
  * The former imperative `openEdit()` reset of the 16 fields is reproduced as a
  * reset-on-open (keyed on `open` only, NOT on `project`: a background refetch
  * while the dialog is open must not clobber the user's in-progress edits, same
- * as before). The reset runs in a layout effect, before the dialog content mounts
- * (Radix Portal defers it), so locally-initialised children (e.g. ImageUploadField)
- * see the fresh values — pinned by "never renders the fields with stale values".
+ * as before). The reset runs in a layout effect (before paint, and before the
+ * dialog content mounts since Radix Portal defers it), so locally-initialised
+ * children (e.g. ImageUploadField) see the fresh values and there is no flash of
+ * stale values. NOTE: this ordering is not currently guarded by a test — swapping
+ * `useLayoutEffect` for `useEffect` leaves the suite green.
  */
 export function ProjectEditDialog({
   project,
