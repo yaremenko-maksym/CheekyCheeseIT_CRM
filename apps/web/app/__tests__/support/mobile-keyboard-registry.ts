@@ -368,10 +368,13 @@ export const EXEMPT_FIELDS: Record<string, string> = {
   // user-dialog/ContactsSection.tsx. L6: shifted down by two more (#7→#5,
   // #11→#9) because the legalFullName + registrationAddress Inputs left for
   // user-dialog/ContractDataSection.tsx (both are keyed by testid, so no
-  // re-key was needed for them).
-  'app/components/users/UserDialog.tsx#5':
+  // re-key was needed for them). L9: shifted down by three more (#5→#2,
+  // #9→#6) because the email / personalEmail / displayName Inputs left for
+  // user-dialog/IdentitySection.tsx (all three carry a testid, keyed under
+  // `testid:` above, so no IdentitySection re-key was needed either).
+  'app/components/users/UserDialog.tsx#2':
     "walletUsdtLabel (no testid on this occurrence) — same free-text nickname field as RequisitesEditForm's walletUsdtLabel, admin-create-user variant.",
-  'app/components/users/UserDialog.tsx#9':
+  'app/components/users/UserDialog.tsx#6':
     "bankUahBankName (no testid on this occurrence) — same free-text bank-name field as RequisitesEditForm's bankName, admin-create-user variant.",
 
   // ---- routes/_authenticated/legend.tsx (default persona template) ----

@@ -78,7 +78,7 @@ msgstr "· NBU"
 msgid "· Сеньйора не призначено"
 msgstr "· No senior assigned"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/IdentitySection.tsx
 msgid "(HR може створювати лише сеньйорів)"
 msgstr "(HR can only create seniors)"
 
@@ -4626,7 +4626,7 @@ msgstr "Ivan Ivanenko"
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 #: apps/web/app/components/users/user-dialog/ContractDataSection.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/IdentitySection.tsx
 #: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/routes/_authenticated/legend.tsx
 msgid "Іваненко Іван Іванович"
@@ -4650,7 +4650,7 @@ msgid "ім’я сеньйора"
 msgstr "senior's name"
 
 #: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/IdentitySection.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Ім’я та прізвище"
 msgstr "Full name"
@@ -5406,11 +5406,11 @@ msgstr "Language"
 
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 #: apps/web/app/components/user-profile/LanguageSection.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/IdentitySection.tsx
 msgid "Мова інтерфейсу"
 msgstr "Interface language"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/IdentitySection.tsx
 msgid "Мова інтерфейсу співробітника — він зможе змінити її у своєму профілі."
 msgstr "The employee's interface language — they can change it in their own profile."
 
@@ -5490,7 +5490,7 @@ msgstr "On the site"
 msgid "На цю адресу одразу піде запрошення — увійти нею співробітник зможе лише після того, як підтвердить адресу"
 msgstr "An invitation will be sent to this address right away — the employee will be able to sign in with it only after confirming it"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/IdentitySection.tsx
 msgid "На цю адресу одразу піде запрошення. Увійти з цією адресою співробітник зможе лише після її підтвердження."
 msgstr "An invitation goes to this address right away. The employee can sign in with it only after confirming the address."
 
@@ -6976,7 +6976,7 @@ msgstr "Education"
 msgid "Основна навігація"
 msgstr "Main navigation"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/IdentitySection.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "Основне"
 msgstr "Basics"
@@ -6994,7 +6994,7 @@ msgstr "personal email"
 msgid "Особистий email"
 msgstr "Personal email"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/IdentitySection.tsx
 msgid "Особистий email (необов’язково)"
 msgstr "Personal email (optional)"
 
@@ -9251,7 +9251,7 @@ msgid "Розширена інформація доступна в таблиц�
 msgstr "Full detail is available in the income table below"
 
 #: apps/web/app/components/ui/role-select.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/IdentitySection.tsx
 msgid "Роль"
 msgstr "Role"
 
@@ -9273,7 +9273,7 @@ msgstr "The row is included in a submitted payout request — the amount is alre
 msgid "api-error.REJOIN_TEAM_MUST_BE_FORMER_MEMBER"
 msgstr "You can only rejoin a team you were previously a member of"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/IdentitySection.tsx
 msgid "Свою роль змінити не можна"
 msgstr "You can't change your own role"
 
