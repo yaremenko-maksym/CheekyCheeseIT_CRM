@@ -17,13 +17,16 @@ function render(ui: ReactElement) {
 const TELEGRAM_ERROR = 'Нік у Telegram: 5–32 символи — латиниця, цифри або _'
 const PHONE_ERROR = 'Введіть номер у міжнародному форматі, напр. +380671234567'
 
-function Harness() {
-  const form = useForm({ defaultValues: { telegram: '', phone: '' } })
+function Harness({ telegram = '', phone = '' }: { telegram?: string; phone?: string }) {
+  const form = useForm({ defaultValues: { telegram, phone } })
   return (
     <>
       <ContactsSection form={form} />
       <form.Subscribe selector={(s) => s.values}>
         {(v) => <output data-testid="values">{JSON.stringify(v)}</output>}
+      </form.Subscribe>
+      <form.Subscribe selector={(s) => s.isFieldsValid}>
+        {(valid) => <output data-testid="valid">{String(valid)}</output>}
       </form.Subscribe>
     </>
   )
@@ -106,5 +109,52 @@ describe('ContactsSection', () => {
     fireEvent.blur(phone)
     await Promise.resolve()
     expect(screen.queryByText(PHONE_ERROR)).not.toBeInTheDocument()
+  })
+
+  it('trims telegram before validating (surrounding spaces are accepted)', async () => {
+    render(<Harness />)
+    const { telegram } = inputs()
+    fireEvent.change(telegram, { target: { value: '  @valid_name  ' } })
+    fireEvent.blur(telegram)
+    await Promise.resolve()
+    expect(screen.queryByText(TELEGRAM_ERROR)).not.toBeInTheDocument()
+    expect(screen.getByTestId('valid').textContent).toBe('true')
+  })
+
+  it('treats a whitespace-only telegram as empty (no error)', async () => {
+    render(<Harness />)
+    const { telegram } = inputs()
+    fireEvent.change(telegram, { target: { value: '   ' } })
+    fireEvent.blur(telegram)
+    await Promise.resolve()
+    expect(screen.queryByText(TELEGRAM_ERROR)).not.toBeInTheDocument()
+    expect(screen.getByTestId('valid').textContent).toBe('true')
+  })
+
+  it('clearing a dirty telegram removes the error (empty is valid)', async () => {
+    render(<Harness />)
+    const { telegram } = inputs()
+    fireEvent.change(telegram, { target: { value: 'ab' } })
+    fireEvent.blur(telegram)
+    expect(await screen.findByText(TELEGRAM_ERROR)).toBeInTheDocument()
+    fireEvent.change(telegram, { target: { value: '' } })
+    fireEvent.blur(telegram)
+    await waitFor(() => expect(screen.queryByText(TELEGRAM_ERROR)).not.toBeInTheDocument())
+    expect(screen.getByTestId('valid').textContent).toBe('true')
+  })
+
+  it('does not run the telegram validator on a pristine prefilled value', async () => {
+    render(<Harness telegram="ab" />)
+    fireEvent.blur(inputs().telegram)
+    await Promise.resolve()
+    expect(screen.getByTestId('valid').textContent).toBe('true')
+  })
+
+  it('validates a phone number of exactly 5 digits (lower bound is exclusive of <5)', async () => {
+    render(<Harness />)
+    const { phone } = inputs()
+    fireEvent.change(phone, { target: { value: '+38012' } })
+    fireEvent.blur(phone)
+    await waitFor(() => expect(screen.getByText(PHONE_ERROR)).toBeInTheDocument())
   })
 })
