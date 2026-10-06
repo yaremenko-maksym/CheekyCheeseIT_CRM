@@ -41,8 +41,10 @@
 
 Уровень 2 — нужен дизайн интерфейса (предпосылки: уровень 1):
 
-- [todo] `ProjectEditDialog` (владеет `editForm`; риск: field-scoped RBAC в `onSubmit` — `paymentType`/override
-  только при `canEditOverride`) <- `ProjectEditFields`, константы, `useProjectPermissions`
+- [done] `ProjectEditDialog` -> `ProjectEditDialog.tsx` (лист 13, последний; компонент владеет `editForm` +
+  `editMutation` и `coerceDomain`; `onSubmit` с field-scoped RBAC (`paymentType`/override только при
+  `canEditOverride`) перенесён побайтово; imperative `openEdit()` заменён reset-on-open по `open` (не по `project`);
+  страница держит `editOpen` и флаги `useProjectPermissions`; characterization: `__tests__/ProjectEditDialog.test.tsx`)
 - [done] диалоги drop-picker + detach-drop -> `ProjectDropDialogs.tsx` (лист 9; компонент владеет
   `useProjectDropMutations`, успех закрывает оба диалога через `onCloseDropPicker`/`onCloseDetachDropConfirm`;
   страница держит open-состояния, `dropCandidates` и гейт `canManageDrop` на кнопках-триггерах;
