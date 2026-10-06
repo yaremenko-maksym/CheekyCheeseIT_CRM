@@ -13,7 +13,13 @@
  * `userEvent` step-advancing needed. Only the payment-method toggle and the
  * team-mode radios need a click to reach their second branch.
  */
-import { render as rtlRender, screen, within, type RenderOptions } from '@testing-library/react'
+import {
+  render as rtlRender,
+  screen,
+  waitFor,
+  within,
+  type RenderOptions,
+} from '@testing-library/react'
 import type { ReactElement } from 'react'
 import userEvent from '@testing-library/user-event'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -457,5 +463,38 @@ describe('UserDialog — email-change confirmation dialog (edit mode)', () => {
     expect(dialog).toHaveTextContent('Старий: old@example.dev')
     expect(dialog).toHaveTextContent('Новий: new@example.dev')
     expect(dialog).toHaveTextContent('new@example.dev')
+  })
+
+  // Parent wiring of EmailChangeWarningDialog (state + form revert live in UserDialog).
+  async function openWarning() {
+    const user = userEvent.setup()
+    render(<UserDialog mode="edit" user={seniorProfile} onClose={vi.fn()} />)
+    const emailInput = screen.getByTestId('user-dialog-email')
+    await user.clear(emailInput)
+    await user.type(emailInput, 'new@example.dev')
+    await user.tab()
+    await screen.findByTestId('email-change-warning')
+    return { user, emailInput }
+  }
+
+  it('«Скасувати» reverts the email field to the original and closes the warning', async () => {
+    const { user, emailInput } = await openWarning()
+    await user.click(screen.getByRole('button', { name: 'Скасувати' }))
+    await waitFor(() => expect(screen.queryByTestId('email-change-warning')).toBeNull())
+    expect(emailInput).toHaveValue('old@example.dev')
+  })
+
+  it('«Підтвердити зміну» keeps the new email and closes the warning', async () => {
+    const { user, emailInput } = await openWarning()
+    await user.click(screen.getByTestId('email-change-confirm'))
+    await waitFor(() => expect(screen.queryByTestId('email-change-warning')).toBeNull())
+    expect(emailInput).toHaveValue('new@example.dev')
+  })
+
+  it('Escape dismisses the warning without reverting the email', async () => {
+    const { user, emailInput } = await openWarning()
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByTestId('email-change-warning')).toBeNull())
+    expect(emailInput).toHaveValue('new@example.dev')
   })
 })

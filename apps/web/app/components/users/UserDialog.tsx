@@ -2154,6 +2154,7 @@ export function UserDialog(props: UserDialogProps) {
           form.setFieldValue('email', originalEmail)
           setPendingEmailChange(null)
         }}
+        // Stryker disable next-line ArrowFunction: equivalent mutant — Radix AlertDialogAction also fires onOpenChange(false), whose onDismiss clears the same state, so no assertion can tell a no-op onConfirm apart (kept verbatim from the pre-extraction handler)
         onConfirm={() => setPendingEmailChange(null)}
         onDismiss={() => setPendingEmailChange(null)}
       />
