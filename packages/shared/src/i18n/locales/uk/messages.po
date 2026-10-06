@@ -780,7 +780,7 @@ msgstr "Листи:"
 msgid "Учасників додано"
 msgstr "Учасників додано"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/RotateSeniorDialog.tsx
 msgid "Оберіть сеньйора для команди."
 msgstr "Оберіть сеньйора для команди."
 
@@ -1095,7 +1095,7 @@ msgstr "Нова змінна"
 msgid "Перевірте правильність посилання або QR-коду. Якщо документ існує — можливо, він ще не згенерований."
 msgstr "Перевірте правильність посилання або QR-коду. Якщо документ існує — можливо, він ще не згенерований."
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/RotateSeniorDialog.tsx
 msgid "Новий сеньйор"
 msgstr "Новий сеньйор"
 
@@ -1256,8 +1256,8 @@ msgstr "Підтверджено"
 #: apps/web/app/components/user-profile/resume/ResumeSectionCard.tsx
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 #: apps/web/app/components/users/UserDialog.tsx
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/RotateSeniorDialog.tsx
 msgid "Зберігаємо…"
 msgstr "Зберігаємо…"
 
@@ -5199,7 +5199,7 @@ msgid "(до отримання: {0})"
 msgstr "(до отримання: {0})"
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/RotateSeniorDialog.tsx
 msgid "Призначити сеньйора"
 msgstr "Призначити сеньйора"
 
@@ -5247,7 +5247,7 @@ msgstr "Не вдалося змінити мову інтерфейсу. Спр
 msgid "Контракт підписано — редагування заблоковано, повернення в чернетку скине підпис і онбординг"
 msgstr "Контракт підписано — редагування заблоковано, повернення в чернетку скине підпис і онбординг"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/RotateSeniorDialog.tsx
 msgid "Немає сеньйорів без активної команди"
 msgstr "Немає сеньйорів без активної команди"
 
@@ -5340,10 +5340,10 @@ msgstr "чек"
 #: apps/web/app/routes/_authenticated/projects/ProjectDropDialogs.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectEditDialog.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectMemberDialogs.tsx
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 #: apps/web/app/routes/_authenticated/team/team-detail/components/AddMemberDialog.tsx
 #: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/RotateSeniorDialog.tsx
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
@@ -7068,7 +7068,7 @@ msgid "Оплатити"
 msgstr "Оплатити"
 
 #: apps/web/app/routes/_authenticated/projects/ProjectDropDialogs.tsx
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/RotateSeniorDialog.tsx
 msgid "Призначити"
 msgstr "Призначити"
 
@@ -8817,7 +8817,7 @@ msgstr "Відкрити дошку"
 
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/users/AccountantChipField.tsx
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/RotateSeniorDialog.tsx
 msgid "Змінити"
 msgstr "Змінити"
 
@@ -9323,7 +9323,7 @@ msgid "Дзвінок"
 msgstr "Дзвінок"
 
 #. placeholder {0}: activeSenior.displayName
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/RotateSeniorDialog.tsx
 msgid "Поточного сеньйора «{0}» буде знято з команди. Новий сеньйор має бути без активної команди."
 msgstr "Поточного сеньйора «{0}» буде знято з команди. Новий сеньйор має бути без активної команди."
 
@@ -9391,7 +9391,7 @@ msgid "Гроші ще не надіслано — переведіть суму
 msgstr "Гроші ще не надіслано — переведіть суму та вкажіть хеш транзакції нижче."
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/RotateSeniorDialog.tsx
 msgid "Змінити сеньйора"
 msgstr "Змінити сеньйора"
 
@@ -10273,7 +10273,7 @@ msgstr "Немає доходів за обраними фільтрами"
 msgid "Видалити відгук?"
 msgstr "Видалити відгук?"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/RotateSeniorDialog.tsx
 msgid "Оберіть сеньйора без активної команди. Дроп та інші учасники команди залишаються."
 msgstr "Оберіть сеньйора без активної команди. Дроп та інші учасники команди залишаються."
 
@@ -10300,7 +10300,7 @@ msgstr "Дропа створено"
 msgid "Немає перевірених доходів"
 msgstr "Немає перевірених доходів"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/RotateSeniorDialog.tsx
 msgid "— оберіть сеньйора —"
 msgstr "— оберіть сеньйора —"
 
