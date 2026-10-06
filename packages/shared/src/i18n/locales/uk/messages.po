@@ -3471,7 +3471,7 @@ msgstr "ПриватБанк"
 msgid "Мій проєкт"
 msgstr "Мій проєкт"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/TeamNotFound.tsx
 msgid "Повернутися до списку"
 msgstr "Повернутися до списку"
 
@@ -6673,7 +6673,7 @@ msgstr "Відновити все"
 msgid "Адресу не налаштовано"
 msgstr "Адресу не налаштовано"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/TeamNotFound.tsx
 msgid "Команду не знайдено"
 msgstr "Команду не знайдено"
 
@@ -7111,7 +7111,7 @@ msgstr "Частка сеньйора ({seniorPct}%)"
 msgid "Пропозицію відхилено — лишається попередня частка. Адміністратор побачить причину"
 msgstr "Пропозицію відхилено — лишається попередня частка. Адміністратор побачить причину"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/TeamNotFound.tsx
 msgid "Можливо, у вас немає доступу до цієї команди"
 msgstr "Можливо, у вас немає доступу до цієї команди"
 

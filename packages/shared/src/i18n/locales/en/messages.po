@@ -3471,7 +3471,7 @@ msgstr "PrivatBank"
 msgid "Мій проєкт"
 msgstr "My project"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/TeamNotFound.tsx
 msgid "Повернутися до списку"
 msgstr "Back to the list"
 
@@ -6673,7 +6673,7 @@ msgstr "Restore all"
 msgid "Адресу не налаштовано"
 msgstr "Address not configured"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/TeamNotFound.tsx
 msgid "Команду не знайдено"
 msgstr "Team not found"
 
@@ -7111,7 +7111,7 @@ msgstr "Senior’s share ({seniorPct}%)"
 msgid "Пропозицію відхилено — лишається попередня частка. Адміністратор побачить причину"
 msgstr "Proposal rejected — the previous share stays. The admin will see the reason"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/TeamNotFound.tsx
 msgid "Можливо, у вас немає доступу до цієї команди"
 msgstr "You may not have access to this team"
 
