@@ -1,23 +1,23 @@
 # Docs — Multi-Agent Development System
 
-Эта папка — операционная база для всех AI-агентов и людей, работающих над CRM.
+This folder is the operational base for all AI agents and humans working on the CRM.
 
-## Структура
+## Structure
 
 ```
 docs/
-├── business/           # Бизнес-логика, user flows, user stories
-│   ├── overview.md     # Бизнес-модель и роли
-│   ├── user-flows.md   # Диаграммы пользовательских потоков
-│   ├── user-stories.md # User stories по всем модулям
-│   └── modules/        # Детальная документация каждого модуля
+├── business/           # Business logic, user flows, user stories
+│   ├── overview.md     # Business model and roles
+│   ├── user-flows.md   # User flow diagrams
+│   ├── user-stories.md # User stories for all modules
+│   └── modules/        # Detailed documentation of each module
 ├── specs/
-│   ├── active-task.md  # ТЕКУЩАЯ задача для Coder-агента (1 файл в один момент)
-│   └── archive/        # Выполненные задачи (перемещаются после merge)
+│   ├── active-task.md  # CURRENT task for the Coder agent (1 file at a time)
+│   └── archive/        # Completed tasks (moved here after merge)
 ├── test-cases/
-│   └── e2e-scenarios.md # Сценарии E2E тестов (AutoTest-агент пишет тесты отсюда)
-├── escalations/        # Баги/несостыковки, найденные QA после merge в main
-└── agents/             # Системные промпты каждого агента
+│   └── e2e-scenarios.md # E2E test scenarios (the AutoTest agent writes tests from here)
+├── escalations/        # Bugs/inconsistencies found by QA after merge into main
+└── agents/             # System prompts of each agent
     ├── ../business/roles/ba.md  # Business Analyst (human role, moved out in Phase 6)
     ├── coder.md        # Coder
     ├── code-reviewer.md     # Code Reviewer
@@ -27,37 +27,37 @@ docs/
     └── autotest.md     # AutoTest
 ```
 
-## Workflow агентов
+## Agent workflow
 
 ```
-Пользователь описывает фичу
+User describes a feature
         ↓
-   BA-агент (локально)
-   - задаёт вопросы
-   - пишет docs/business/
-   - создаёт .claude/briefs/active-task.md
+   BA agent (local)
+   - asks questions
+   - writes docs/business/
+   - creates .claude/briefs/active-task.md
         ↓
  ┌──────────────────────────────┐
- │ Coder-агент  │ AutoTest-агент│
- │ (ветка PR)   │ (тесты)       │
+ │ Coder agent  │ AutoTest agent│
+ │ (PR branch)   │ (tests)       │
  └──────────────────────────────┘
-        ↓ (PR открыт + label: ai-review-ready)
+        ↓ (PR opened + label: ai-review-ready)
  ┌──────────────────────────────────┐
  │ Reviewer (GitHub Actions)        │
  │ QA Manual (GitHub Actions + app) │
  └──────────────────────────────────┘
-        ↓ (оба APPROVE + status checks green)
-   Auto-merge в main
+        ↓ (both APPROVE + status checks green)
+   Auto-merge into main
 ```
 
-## Как создать задачу для Coder-агента
+## How to create a task for the Coder agent
 
-1. Запустить BA-агента локально в Claude Code
-2. BA пишет `.claude/briefs/active-task.md` по шаблону
-3. Coder читает файл, создаёт ветку `feature/<slug>`, делает PR
-4. Добавить label `ai-review-ready` → запустятся Reviewer + QA
+1. Run the BA agent locally in Claude Code
+2. BA writes `.claude/briefs/active-task.md` from the template
+3. Coder reads the file, creates branch `feature/<slug>`, opens a PR
+4. Add label `ai-review-ready` → Reviewer + QA will start
 
-## Как читать agent prompts
+## How to read agent prompts
 
-Каждый `.claude/agents/*.md` — это системный промпт для соответствующего агента.
-Агент ВСЕГДА читает его первым перед любой работой.
+Each `.claude/agents/*.md` is the system prompt for the corresponding agent.
+The agent ALWAYS reads it first, before any work.

@@ -1,45 +1,51 @@
-# E2E Сценарии
+# E2E Scenarios
 
-> AutoTest-агент читает этот файл и `docs/business/user-flows.md` для генерации тестов в `apps/e2e/tests/`.
+> The AutoTest agent reads this file and `docs/business/user-flows.md` to generate tests in `apps/e2e/tests/`.
 
-## Покрытые сценарии
+## Covered scenarios
 
 ### Auth
-- [ ] Google OAuth — успешный логин (пользователь есть в БД)
-- [ ] Google OAuth — отказ (email не в БД → redirect `/login?error=unauthorized`)
-- [ ] Logout — cookie очищается, redirect на `/login`
-- [ ] Прямой доступ к `/crm` без сессии → redirect `/login`
+
+- [ ] Google OAuth — successful login (user exists in the DB)
+- [ ] Google OAuth — rejection (email not in the DB → redirect `/login?error=unauthorized`)
+- [ ] Logout — cookie is cleared, redirect to `/login`
+- [ ] Direct access to `/crm` without a session → redirect `/login`
 
 ### Teams
-- [ ] ADMIN: создать команду, добавить HR, SENIOR, ACCOUNTANT
-- [ ] HR: создать команду, добавить SENIOR
-- [ ] SENIOR/JUNIOR/HR: просмотр состава команды (read-only)
-- [ ] ADMIN: удалить команду
+
+- [ ] ADMIN: create a team, add HR, SENIOR, ACCOUNTANT
+- [ ] HR: create a team, add SENIOR
+- [ ] SENIOR/JUNIOR/HR: view team composition (read-only)
+- [ ] ADMIN: delete a team
 
 ### Projects
-- [ ] ADMIN/HR: создать проект, назначить SENIOR
-- [ ] SENIOR: видит только свои проекты
-- [ ] JUNIOR: видит проекты где он активный member
-- [ ] Закрытие проекта (ADMIN/HR)
+
+- [ ] ADMIN/HR: create a project, assign SENIOR
+- [ ] SENIOR: sees only their own projects
+- [ ] JUNIOR: sees projects where they are an active member
+- [ ] Closing a project (ADMIN/HR)
 
 ### Interviews Kanban
-- [ ] HR: создать карточку собеседования
-- [ ] DnD: переместить карточку между колонками
-- [ ] Button move: переместить через кнопку в диалоге (PATCH method)
-- [ ] SENIOR: видит только свою доску
-- [ ] HR: переключение между досками синьоров (`?seniorId=`)
-- [x] CLIENT_INTERVIEW стейдж: последний активный стейдж после FINAL_INTERVIEW
-- [x] CLIENT_INTERVIEW стейдж: перемещение карточки в Client колонку
-- [x] Все активные стейджи отображаются: HR Screen, English, Tech, Final, Client
+
+- [ ] HR: create an interview card
+- [ ] DnD: move a card between columns
+- [ ] Button move: move via the button in the dialog (PATCH method)
+- [ ] SENIOR: sees only their own board
+- [ ] HR: switching between seniors' boards (`?seniorId=`)
+- [x] CLIENT_INTERVIEW stage: the last active stage after FINAL_INTERVIEW
+- [x] CLIENT_INTERVIEW stage: moving a card to the Client column
+- [x] All active stages are displayed: HR Screen, English, Tech, Final, Client
 
 ### Finance
-- [ ] SENIOR: добавить транзакцию
-- [ ] ACCOUNTANT: валидировать транзакцию
-- [ ] SENIOR: статус меняется на VALIDATED
-- [x] HR: видит "История ваших выплат" (свои зарплаты, не список проектов)
-- [ ] PDF инвойс: скачать
-- [ ] TODO: PENDING_PAYMENT статус (выявлено в BA аудите, не реализовано)
+
+- [ ] SENIOR: add a transaction
+- [ ] ACCOUNTANT: validate a transaction
+- [ ] SENIOR: status changes to VALIDATED
+- [x] HR: sees "История ваших выплат" (their own salaries, not a list of projects)
+- [ ] PDF invoice: download
+- [ ] TODO: PENDING_PAYMENT status (identified in the BA audit, not implemented)
 
 ### Profile
-- [ ] Редактировать телефон, Telegram
-- [ ] Просмотр профиля другого пользователя по `/crm/users/:id`
+
+- [ ] Edit phone, Telegram
+- [ ] View another user's profile at `/crm/users/:id`
