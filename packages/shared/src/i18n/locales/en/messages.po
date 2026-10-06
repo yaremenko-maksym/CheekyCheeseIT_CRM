@@ -516,7 +516,7 @@ msgstr "Invoice details"
 msgid "Команда дропа"
 msgstr "Drop's team"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
 msgid "Частка сеньйора на рівні команди"
 msgstr "Senior’s share at the team level"
 
@@ -986,7 +986,7 @@ msgstr "Large"
 msgid "Хеш транзакції має містити щонайменше 10 символів"
 msgstr "Transaction hash must be at least 10 characters"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
 msgid "Внутрішні замітки…"
 msgstr "Internal notes…"
 
@@ -1257,7 +1257,7 @@ msgstr "Validated"
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 #: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
 msgid "Зберігаємо…"
 msgstr "Saving…"
 
@@ -3406,7 +3406,7 @@ msgstr "Net profit for {0}: income minus that month’s expenses and salaries."
 msgid "Дія"
 msgstr "Action"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
 msgid "Редагування назви, Telegram-посилання та заміток команди."
 msgstr "Edit the team's name, Telegram link and notes."
 
@@ -3586,7 +3586,7 @@ msgstr "Rejection reason (if rejecting)"
 msgid "Реквізити не заповнено"
 msgstr "Payout details not filled in"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
 msgid "Задано для команди. Діє на всіх її проєктах, крім тих, де є індивідуальна частка за проєктом."
 msgstr "Set for the team. Applies to all its projects except those with an individual project share."
 
@@ -3684,7 +3684,7 @@ msgstr "Check the hash and try again, or use manual confirmation."
 msgid "Зберегти зміни"
 msgstr "Save changes"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
 msgid "Редагувати команду"
 msgstr "Edit team"
 
@@ -5341,9 +5341,9 @@ msgstr "receipt"
 #: apps/web/app/routes/_authenticated/projects/ProjectEditDialog.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectMemberDialogs.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 #: apps/web/app/routes/_authenticated/team/team-detail/components/AddMemberDialog.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
@@ -5917,7 +5917,7 @@ msgstr "Payout details"
 msgid "Показати пароль"
 msgstr "Show password"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
 msgid "Замітки"
 msgstr "Notes"
 
@@ -6984,7 +6984,7 @@ msgstr "First publication — all of the content will be added as new."
 msgid "Неприпустиме значення"
 msgstr "Invalid value"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
 msgid "Назва команди"
 msgstr "Team name"
 
@@ -7151,7 +7151,7 @@ msgstr "This file format isn't supported."
 msgid "Чекають рішення"
 msgstr "Awaiting decision"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
 msgid "Посилання має починатися з https://t.me/"
 msgstr "The link must start with https://t.me/"
 
@@ -8357,7 +8357,7 @@ msgstr "Recalculating linked payouts…"
 msgid "Вставити"
 msgstr "Insert"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
 msgid "Посилання на Telegram-чат команди"
 msgstr "Link to the team's Telegram chat"
 
@@ -8884,7 +8884,7 @@ msgid "Реквізити для виплат"
 msgstr "Payout details"
 
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyTranslationFields.tsx
 msgid "Назва"
 msgstr "Name"
@@ -10037,7 +10037,7 @@ msgstr "Could not read the file"
 #: apps/web/app/routes/_authenticated/legend.tsx
 #: apps/web/app/routes/_authenticated/legend.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectEditDialog.tsx
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
 msgid "Зберегти"
 msgstr "Save"
 
@@ -10641,7 +10641,7 @@ msgstr "Add ({0})"
 msgid "Створити проєкт?"
 msgstr "Create the project?"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
 msgid "Не задано — діє частка сеньйора за замовчуванням (26%, якщо не змінювали). Пересуньте повзунок, щоб задати частку для команди."
 msgstr "Not set — the senior’s default share applies (26% unless changed). Move the slider to set a team share."
 
@@ -11446,7 +11446,7 @@ msgstr "<0>{{{key}}}</0> — added, but not used in the text"
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
 msgid "Скинути"
 msgstr "Reset"
 
