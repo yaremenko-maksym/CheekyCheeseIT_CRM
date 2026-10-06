@@ -9890,7 +9890,7 @@ msgstr "The order and look of the sections. Edit the resume text above."
 #: apps/web/app/routes/_authenticated/finance/components/TransactionRow.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectUnarchive.tsx
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/TeamUnarchiveHeaderButton.tsx
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
