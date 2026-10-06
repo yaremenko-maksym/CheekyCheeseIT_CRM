@@ -1332,13 +1332,13 @@ msgid "api-error.FINANCE_PAID_ROW_CURRENCY_LOCKED"
 msgstr "Валюту оплаченого рядка не можна змінити — платіж уже пройшов у цій валюті, виправляйте сторнувальною транзакцією"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-email-registry.ts
-msgid "email.notification.TRANSACTION_ADDED.subject"
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.TRANSACTION_ADDED.title"
 msgstr "Вам додали транзакцію"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
-msgid "notification.TRANSACTION_ADDED.title"
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.TRANSACTION_ADDED.subject"
 msgstr "Вам додали транзакцію"
 
 #. js-lingui-explicit-id
@@ -8844,13 +8844,13 @@ msgid "Рахунок підписано"
 msgstr "Рахунок підписано"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-email-registry.ts
-msgid "email.notification.INVOICE_SIGNED.subject"
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.INVOICE_SIGNED.title"
 msgstr "Рахунок підписано"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
-msgid "notification.INVOICE_SIGNED.title"
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.INVOICE_SIGNED.subject"
 msgstr "Рахунок підписано"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx
