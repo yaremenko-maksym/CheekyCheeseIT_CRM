@@ -373,8 +373,6 @@ export function buildEditUpdatePayload(
   // ut-17: normalize team telegram channel value. Strip leading @ before
   // sending — the backend stores the bare handle, UI re-adds @ on display.
   const normalizedTeamChannel = (() => {
-    // Stryker disable next-line ConditionalExpression: only the guard-forced-FALSE mutant is equivalent (a non-SENIOR then computes a value read solely inside the `...(isSenior && {...})` spread below, so the output is identical); the forced-TRUE mutant is unsuppressed-killable and is pinned by the SENIOR teamTelegramChannel tests — verified by removing this directive (only the FALSE mutant survived)
-    if (!isSenior) return undefined
     const trimmed = value.teamTelegramChannel.trim()
     if (!trimmed) return null
     return trimmed.startsWith('@') ? trimmed.slice(1) : trimmed
