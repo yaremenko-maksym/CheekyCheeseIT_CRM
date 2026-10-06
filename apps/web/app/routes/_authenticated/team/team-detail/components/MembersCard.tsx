@@ -71,7 +71,9 @@ export function MembersCard({
                 <motion.div
                   key={member.id}
                   className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-card/50 p-3"
+                  // Stryker disable next-line ObjectLiteral: hover animation config; framer-motion applies it only on real pointer events, which no jsdom assertion observes
                   whileHover={{ scale: 1.01 }}
+                  // Stryker disable next-line ObjectLiteral: animation timing config; not observable in jsdom
                   transition={{ duration: 0.15 }}
                 >
                   {/* round-2 AC1: avatar + name is the only profile <Link>;

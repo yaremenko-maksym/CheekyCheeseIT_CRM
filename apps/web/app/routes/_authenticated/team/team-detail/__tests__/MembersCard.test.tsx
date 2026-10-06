@@ -122,9 +122,54 @@ describe('MembersCard rendering', () => {
     expect(document.querySelectorAll('a')).toHaveLength(1)
   })
 
-  it('omits the tech stack block for an empty array', () => {
-    renderCard([member('h1', 'HR', { techStack: [] })])
-    expect(document.querySelector('.font-mono')).toBeNull()
+  it('omits the tech stack block for an empty array and for null', () => {
+    renderCard([member('h1', 'HR', { techStack: [] }), member('h2', 'HR', { techStack: null })])
+    expect(document.querySelector('.flex-wrap')).toBeNull()
+  })
+
+  it('renders the tech stack block when tags exist', () => {
+    renderCard([member('h1', 'HR', { techStack: ['Go'] })])
+    expect(document.querySelectorAll('.flex-wrap')).toHaveLength(1)
+  })
+
+  it.each([
+    ['ADMIN', 'text-yellow-400'],
+    ['SENIOR', 'text-blue-400'],
+    ['JUNIOR', 'text-green-400'],
+    ['HR', 'text-purple-400'],
+    ['ACCOUNTANT', 'text-orange-400'],
+    ['DROP', 'text-cyan-400'],
+  ])('renders the %s role badge with its own variant', (role, cls) => {
+    renderCard([member('u1', role)], { canManage: false })
+    const row = screen.getByText('Name u1').closest('div.rounded-lg') as HTMLElement
+    expect(row.querySelectorAll(`.${cls}`)).toHaveLength(1)
+  })
+
+  it('recomputes the last-HR guard when the roster changes', () => {
+    const { rerender } = render(
+      <I18nTestProvider>
+        <MembersCard
+          members={[member('h1', 'HR'), member('h2', 'HR')]}
+          viewerRole="ADMIN"
+          viewerId="admin1"
+          canManage
+          onRemove={vi.fn()}
+        />
+      </I18nTestProvider>,
+    )
+    expect(hasRemove('h1')).toBe(true)
+    rerender(
+      <I18nTestProvider>
+        <MembersCard
+          members={[member('h1', 'HR')]}
+          viewerRole="ADMIN"
+          viewerId="admin1"
+          canManage
+          onRemove={vi.fn()}
+        />
+      </I18nTestProvider>,
+    )
+    expect(hasRemove('h1')).toBe(false)
   })
 
   it('passes the viewer role to profile links', () => {
