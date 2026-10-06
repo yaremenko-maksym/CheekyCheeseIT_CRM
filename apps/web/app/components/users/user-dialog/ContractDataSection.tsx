@@ -64,6 +64,7 @@ export function ContractDataSection({ form, isCreate }: ContractDataSectionProps
                 //    filling legalFullName for a contract-eligible role).
                 //    TanStack Form populates errorMap.onSubmit after handleSubmit.
                 const blurErr =
+                  // Stryker disable next-line ConditionalExpression,LogicalOperator: unobservable — the only onBlur validator bails on !isDirty and runs only on blur (isTouched), so `errorMap.onBlur` can exist only when the field is both touched and dirty; the gate cannot change what is rendered
                   field.state.meta.isTouched && field.state.meta.isDirty
                     ? (field.state.meta.errorMap.onBlur as string | undefined)
                     : undefined

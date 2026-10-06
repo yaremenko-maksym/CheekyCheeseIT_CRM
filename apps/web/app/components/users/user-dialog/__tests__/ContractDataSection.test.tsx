@@ -36,6 +36,9 @@ function Harness({
       <form.Subscribe selector={(s) => s.values}>
         {(v) => <output data-testid="values">{JSON.stringify(v)}</output>}
       </form.Subscribe>
+      <form.Subscribe selector={(s) => s.isFieldsValid}>
+        {(valid) => <output data-testid="valid">{String(valid)}</output>}
+      </form.Subscribe>
     </>
   )
 }
@@ -125,6 +128,7 @@ describe('ContractDataSection', () => {
     fireEvent.blur(legal())
     await Promise.resolve()
     expect(legal().getAttribute('aria-invalid')).toBeNull()
+    expect(screen.getByTestId('valid').textContent).toBe('true')
   })
 
   it('clearing a dirty invalid legal name removes the error', async () => {
