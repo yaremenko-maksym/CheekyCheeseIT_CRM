@@ -6,7 +6,6 @@ import { useEffect, useState } from 'react'
 import type { Value as PhoneValue } from 'react-phone-number-input'
 import type {
   AdminUpdateUserDto,
-  CreateDropDto,
   CreateUserDto,
   Locale,
   PaymentMethod,
@@ -50,6 +49,7 @@ import { useTeamSelection } from './user-dialog/useTeamSelection'
 export { WizardStep2 }
 import { defaultPaymentMethod } from './user-dialog/validation'
 import {
+  buildCreateDropPayload,
   buildCreateUserPayload,
   computeMonthlySalaryUsd as toMonthlySalaryUsd,
 } from './user-dialog/payloads'
@@ -232,49 +232,7 @@ export function UserDialog(props: UserDialogProps) {
           toast.error(translateZodCode('HR_REQUIRED_MIN'))
           return
         }
-        const trimmedChannel = value.teamTelegramChannelDrop.trim()
-        const normalizedChannel = trimmedChannel
-          ? trimmedChannel.startsWith('@')
-            ? trimmedChannel.slice(1)
-            : trimmedChannel
-          : null
-
-        const payload: CreateDropDto = {
-          email: value.email.trim(),
-          displayName: value.displayName.trim(),
-          telegram: value.telegram.trim() ? normalizeTelegram(value.telegram) : undefined,
-          phone: (value.phone as string) || undefined,
-          ...(value.techStack.length > 0 && { techStack: value.techStack }),
-          dropSharePercent: value.dropSharePercent,
-          paymentMethod: value.paymentMethod,
-          ...(value.paymentMethod === 'USDT_ERC20' && {
-            walletUsdtErc20: value.walletUsdtErc20.trim(),
-            ...(value.walletUsdtLabel.trim() && {
-              walletUsdtLabel: value.walletUsdtLabel.trim(),
-            }),
-          }),
-          ...(value.paymentMethod === 'BANK_UAH_FOP' && {
-            bankUahRecipient: value.bankUahRecipient.trim(),
-            bankUahIban: value.bankUahIban.trim(),
-            bankUahRnokpp: value.bankUahRnokpp.trim(),
-            ...(value.bankUahBankName.trim() && {
-              bankUahBankName: value.bankUahBankName.trim(),
-            }),
-          }),
-          hrIds,
-          accountantId: accountantId || null,
-          telegramChannel: normalizedChannel,
-          // Данные для контракта — DROP still gets an MSA contract (owner
-          // decision). legalFullName is REQUIRED (schema + UI validator);
-          // registrationAddress is optional. Previously omitted from this
-          // branch → the admin's input was silently lost (legal_full_name=null).
-          ...(value.legalFullName.trim() && {
-            legalFullName: value.legalFullName.trim(),
-          }),
-          ...(value.registrationAddress.trim() && {
-            registrationAddress: value.registrationAddress.trim(),
-          }),
-        }
+        const payload = buildCreateDropPayload(value, { hrIds, accountantId })
         const result = createDropSchema.safeParse(payload)
         if (!result.success) {
           const first = result.error.issues[0]

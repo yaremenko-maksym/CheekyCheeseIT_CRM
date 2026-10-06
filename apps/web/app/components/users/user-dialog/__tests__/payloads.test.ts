@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildCreateDropPayload,
   buildCreateUserPayload,
   computeMonthlySalaryUsd,
+  type CreateDropFormValue,
   type CreateUserFormValue,
 } from '../payloads'
 import type { Currency } from '@/components/ui/amount-currency-input'
@@ -537,5 +539,217 @@ describe('buildCreateUserPayload', () => {
       legalFullName: 'Full Legal',
       registrationAddress: 'Addr',
     })
+  })
+})
+
+// ── buildCreateDropPayload ─────────────────────────────────────────────────
+function makeDropValue(overrides: Partial<CreateDropFormValue> = {}): CreateDropFormValue {
+  return {
+    email: 'drop@example.com',
+    displayName: 'Drop User',
+    telegram: '',
+    phone: '',
+    techStack: [],
+    dropSharePercent: 5,
+    paymentMethod: 'USDT_ERC20',
+    walletUsdtErc20: '0xwallet',
+    walletUsdtLabel: '',
+    bankUahRecipient: '',
+    bankUahIban: '',
+    bankUahRnokpp: '',
+    bankUahBankName: '',
+    teamTelegramChannelDrop: '',
+    legalFullName: '',
+    registrationAddress: '',
+    ...overrides,
+  }
+}
+
+const DROP_DEPS = { hrIds: ['hr-1', 'hr-2'], accountantId: 'acc-1' }
+
+describe('buildCreateDropPayload', () => {
+  it('builds the minimal USDT payload (optional keys explicitly undefined / null)', () => {
+    expect(buildCreateDropPayload(makeDropValue(), DROP_DEPS)).toStrictEqual({
+      email: 'drop@example.com',
+      displayName: 'Drop User',
+      telegram: undefined,
+      phone: undefined,
+      dropSharePercent: 5,
+      paymentMethod: 'USDT_ERC20',
+      walletUsdtErc20: '0xwallet',
+      hrIds: ['hr-1', 'hr-2'],
+      accountantId: 'acc-1',
+      telegramChannel: null,
+    })
+  })
+
+  it('trims email / displayName / wallet and normalizes telegram; passes phone, share, label', () => {
+    expect(
+      buildCreateDropPayload(
+        makeDropValue({
+          email: '  a@b.co ',
+          displayName: ' Name  ',
+          telegram: ' handle ',
+          phone: '+380501234567',
+          dropSharePercent: 12,
+          walletUsdtErc20: ' 0xabc ',
+          walletUsdtLabel: ' main ',
+        }),
+        DROP_DEPS,
+      ),
+    ).toStrictEqual({
+      email: 'a@b.co',
+      displayName: 'Name',
+      telegram: '@handle',
+      phone: '+380501234567',
+      dropSharePercent: 12,
+      paymentMethod: 'USDT_ERC20',
+      walletUsdtErc20: '0xabc',
+      walletUsdtLabel: 'main',
+      hrIds: ['hr-1', 'hr-2'],
+      accountantId: 'acc-1',
+      telegramChannel: null,
+    })
+  })
+
+  it('keeps an already @-prefixed telegram and treats a blank one as absent', () => {
+    expect(buildCreateDropPayload(makeDropValue({ telegram: '@kept' }), DROP_DEPS).telegram).toBe(
+      '@kept',
+    )
+    expect(
+      buildCreateDropPayload(makeDropValue({ telegram: '   ' }), DROP_DEPS).telegram,
+    ).toBeUndefined()
+  })
+
+  it('USDT: omits a blank label and never carries bank fields', () => {
+    const payload = buildCreateDropPayload(
+      makeDropValue({
+        walletUsdtLabel: '   ',
+        bankUahRecipient: 'R',
+        bankUahIban: 'UA1',
+        bankUahRnokpp: '1',
+        bankUahBankName: 'B',
+      }),
+      DROP_DEPS,
+    )
+    expect(payload).toStrictEqual({
+      email: 'drop@example.com',
+      displayName: 'Drop User',
+      telegram: undefined,
+      phone: undefined,
+      dropSharePercent: 5,
+      paymentMethod: 'USDT_ERC20',
+      walletUsdtErc20: '0xwallet',
+      hrIds: ['hr-1', 'hr-2'],
+      accountantId: 'acc-1',
+      telegramChannel: null,
+    })
+  })
+
+  it('BANK_UAH_FOP: full bank slice trimmed, no wallet fields', () => {
+    expect(
+      buildCreateDropPayload(
+        makeDropValue({
+          paymentMethod: 'BANK_UAH_FOP',
+          bankUahRecipient: ' Recipient ',
+          bankUahIban: ' UA123 ',
+          bankUahRnokpp: ' 1234567890 ',
+          bankUahBankName: ' Mono ',
+          walletUsdtErc20: '0xshouldnotappear',
+          walletUsdtLabel: 'nope',
+        }),
+        DROP_DEPS,
+      ),
+    ).toStrictEqual({
+      email: 'drop@example.com',
+      displayName: 'Drop User',
+      telegram: undefined,
+      phone: undefined,
+      dropSharePercent: 5,
+      paymentMethod: 'BANK_UAH_FOP',
+      bankUahRecipient: 'Recipient',
+      bankUahIban: 'UA123',
+      bankUahRnokpp: '1234567890',
+      bankUahBankName: 'Mono',
+      hrIds: ['hr-1', 'hr-2'],
+      accountantId: 'acc-1',
+      telegramChannel: null,
+    })
+  })
+
+  it('BANK_UAH_FOP: omits a blank bank name', () => {
+    const payload = buildCreateDropPayload(
+      makeDropValue({
+        paymentMethod: 'BANK_UAH_FOP',
+        bankUahRecipient: 'R',
+        bankUahIban: 'UA1',
+        bankUahRnokpp: '1',
+        bankUahBankName: '  ',
+      }),
+      DROP_DEPS,
+    )
+    expect('bankUahBankName' in payload).toBe(false)
+    expect(payload.bankUahIban).toBe('UA1')
+  })
+
+  it('includes techStack only when non-empty', () => {
+    expect(
+      buildCreateDropPayload(makeDropValue({ techStack: ['react', 'node'] }), DROP_DEPS).techStack,
+    ).toStrictEqual(['react', 'node'])
+    expect('techStack' in buildCreateDropPayload(makeDropValue(), DROP_DEPS)).toBe(false)
+  })
+
+  it('accountantId: empty becomes null; hrIds passed through by reference', () => {
+    const hrIds = ['hr-9']
+    const payload = buildCreateDropPayload(makeDropValue(), { hrIds, accountantId: '' })
+    expect(payload.accountantId).toBeNull()
+    expect(payload.hrIds).toBe(hrIds)
+  })
+
+  it('telegramChannel: empty / whitespace -> null, @-prefixed -> stripped, bare -> trimmed', () => {
+    const ch = (v: string) =>
+      buildCreateDropPayload(makeDropValue({ teamTelegramChannelDrop: v }), DROP_DEPS)
+        .telegramChannel
+    expect(ch('')).toBeNull()
+    expect(ch('   ')).toBeNull()
+    expect(ch('@team_chan')).toBe('team_chan')
+    expect(ch('  @team_chan  ')).toBe('team_chan')
+    expect(ch('team_chan')).toBe('team_chan')
+    expect(ch(' team_chan ')).toBe('team_chan')
+    expect(ch('@')).toBe('')
+  })
+
+  it('legalFullName / registrationAddress: trimmed when present, omitted when blank', () => {
+    expect(
+      buildCreateDropPayload(
+        makeDropValue({ legalFullName: ' Full Legal ', registrationAddress: ' Addr ' }),
+        DROP_DEPS,
+      ),
+    ).toStrictEqual({
+      email: 'drop@example.com',
+      displayName: 'Drop User',
+      telegram: undefined,
+      phone: undefined,
+      dropSharePercent: 5,
+      paymentMethod: 'USDT_ERC20',
+      walletUsdtErc20: '0xwallet',
+      hrIds: ['hr-1', 'hr-2'],
+      accountantId: 'acc-1',
+      telegramChannel: null,
+      legalFullName: 'Full Legal',
+      registrationAddress: 'Addr',
+    })
+    const blank = buildCreateDropPayload(
+      makeDropValue({ legalFullName: '  ', registrationAddress: '  ' }),
+      DROP_DEPS,
+    )
+    expect('legalFullName' in blank).toBe(false)
+    expect('registrationAddress' in blank).toBe(false)
+  })
+
+  it('legalFullName without registrationAddress carries only the former', () => {
+    const payload = buildCreateDropPayload(makeDropValue({ legalFullName: 'Only Name' }), DROP_DEPS)
+    expect(payload.legalFullName).toBe('Only Name')
+    expect('registrationAddress' in payload).toBe(false)
   })
 })

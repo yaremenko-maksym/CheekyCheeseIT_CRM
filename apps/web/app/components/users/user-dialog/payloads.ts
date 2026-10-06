@@ -1,4 +1,4 @@
-import type { CreateUserDto, Locale, PaymentMethod, TeamMode } from '@crm/shared'
+import type { CreateDropDto, CreateUserDto, Locale, PaymentMethod, TeamMode } from '@crm/shared'
 import type { Currency } from '@/components/ui/amount-currency-input'
 import { parseStrictAmount } from '@/lib/utils'
 import { type Role, normalizeTelegram } from '../constants'
@@ -138,6 +138,81 @@ export function buildCreateUserPayload(
         projectId: value.projectId,
       }),
     // Contract data — legal full name for MSA contract (optional at create time).
+    ...(value.legalFullName.trim() && {
+      legalFullName: value.legalFullName.trim(),
+    }),
+    ...(value.registrationAddress.trim() && {
+      registrationAddress: value.registrationAddress.trim(),
+    }),
+  }
+  return payload
+}
+
+/** The slice of the form's values the DROP-create payload reads. */
+export type CreateDropFormValue = {
+  email: string
+  displayName: string
+  telegram: string
+  phone: string
+  techStack: string[]
+  dropSharePercent: number
+  paymentMethod: PaymentMethod
+  walletUsdtErc20: string
+  walletUsdtLabel: string
+  bankUahRecipient: string
+  bankUahIban: string
+  bankUahRnokpp: string
+  bankUahBankName: string
+  teamTelegramChannelDrop: string
+  legalFullName: string
+  registrationAddress: string
+}
+
+/**
+ * DROP-create payload (dedicated provisioning endpoint). Verbatim move from
+ * `onSubmit`; the HR-required gate, `createDropSchema.safeParse` and `mutate`
+ * stay in the caller.
+ */
+export function buildCreateDropPayload(
+  value: CreateDropFormValue,
+  { hrIds, accountantId }: { hrIds: string[]; accountantId: string },
+): CreateDropDto {
+  const trimmedChannel = value.teamTelegramChannelDrop.trim()
+  const normalizedChannel = trimmedChannel
+    ? trimmedChannel.startsWith('@')
+      ? trimmedChannel.slice(1)
+      : trimmedChannel
+    : null
+
+  const payload: CreateDropDto = {
+    email: value.email.trim(),
+    displayName: value.displayName.trim(),
+    telegram: value.telegram.trim() ? normalizeTelegram(value.telegram) : undefined,
+    phone: value.phone || undefined,
+    ...(value.techStack.length > 0 && { techStack: value.techStack }),
+    dropSharePercent: value.dropSharePercent,
+    paymentMethod: value.paymentMethod,
+    ...(value.paymentMethod === 'USDT_ERC20' && {
+      walletUsdtErc20: value.walletUsdtErc20.trim(),
+      ...(value.walletUsdtLabel.trim() && {
+        walletUsdtLabel: value.walletUsdtLabel.trim(),
+      }),
+    }),
+    ...(value.paymentMethod === 'BANK_UAH_FOP' && {
+      bankUahRecipient: value.bankUahRecipient.trim(),
+      bankUahIban: value.bankUahIban.trim(),
+      bankUahRnokpp: value.bankUahRnokpp.trim(),
+      ...(value.bankUahBankName.trim() && {
+        bankUahBankName: value.bankUahBankName.trim(),
+      }),
+    }),
+    hrIds,
+    accountantId: accountantId || null,
+    telegramChannel: normalizedChannel,
+    // Данные для контракта — DROP still gets an MSA contract (owner
+    // decision). legalFullName is REQUIRED (schema + UI validator);
+    // registrationAddress is optional. Previously omitted from this
+    // branch → the admin's input was silently lost (legal_full_name=null).
     ...(value.legalFullName.trim() && {
       legalFullName: value.legalFullName.trim(),
     }),
