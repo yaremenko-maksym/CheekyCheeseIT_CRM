@@ -16,6 +16,7 @@ export function mapDropIncomeStatus(dbStatus: string): DropIncomeStatus {
       return 'paid'
     case 'REJECTED':
       return 'rejected'
+    // Stryker disable next-line StringLiteral: equivalent mutant — falls through to `default` which returns the same 'pending'
     case 'PENDING':
     default:
       return 'pending'
@@ -90,8 +91,10 @@ export function mapDropPaymentStatus(dbStatus: string): DropPaymentStatus {
       return 'failed'
     // Phase 4-B cash-payment confirmation gate — semantically still pending;
     // explicit to prevent silent mis-attribution when phase 4-B ships.
+    // Stryker disable next-line StringLiteral,ConditionalExpression: equivalent mutants — this case body is IDENTICAL to `default` (both `return 'pending'`), so removing/emptying the label is unobservable; the explicit label is documentation of the phase 4-B gate (pinned by name in the spec)
     case 'PENDING_CASH_CONFIRM':
       return 'pending'
+    // Stryker disable next-line StringLiteral: equivalent mutant — falls through to `default` which returns the same 'pending'
     case 'PENDING_PAYMENT':
     default:
       return 'pending'
