@@ -274,7 +274,7 @@ describe('TeamDetailHeader drop owner / senior line', () => {
 
   it('shows the drop owner and active senior links with the viewer role', () => {
     renderHeader({ isDropTeam: true, dropOwner: owner, activeSenior: senior, viewerRole: 'HR' })
-    expect(screen.getByText(/^Дроп:/)).toBeTruthy()
+    expect(screen.getByText(/^Дроп:/).textContent).toBe('Дроп: Drop Owner · Сеньйор: Sen One')
     const links = screen.getAllByTestId('profile-link')
     expect(links.map((l) => l.getAttribute('data-user'))).toEqual(['d1', 's1'])
     expect(links.map((l) => l.getAttribute('data-viewer'))).toEqual(['HR', 'HR'])
