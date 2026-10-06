@@ -167,6 +167,7 @@ export function useUserDialogMutations({
       void queryClient.invalidateQueries({ queryKey: ['users-admin'] })
       void queryClient.invalidateQueries({ queryKey: ['users'] })
       void queryClient.invalidateQueries({ queryKey: ['teams'] })
+      // Stryker disable next-line OptionalChaining: onSuccess is only reachable after mutationFn dereferenced `editingUser!.id` without throwing, so editingUser is never nullish here and `?.` vs `.` cannot be told apart by any test
       void queryClient.invalidateQueries({ queryKey: ['user-profile', editingUser?.id] })
       // task-648-fix-round-2 (COPY-H-6): «Пользователь обновлён» is a lie for
       // the one field this whole PR exists for — the live column was NOT
