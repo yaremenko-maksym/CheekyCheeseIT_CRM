@@ -276,8 +276,11 @@ describe('ProjectEditDialog — open / reset-on-open', () => {
     })
   })
 
-  it('populates a stored logo document id on open', () => {
+  it('populates a stored logo document id on open and in the initial defaults', () => {
     setup({ project: makeProject({ logoDocumentId: 'doc-9', logoExternalUrl: null }) })
+    expect(
+      (h.options as { defaultValues: Record<string, unknown> }).defaultValues.logoDocumentId,
+    ).toBe('doc-9')
     expect(shownValues().logoDocumentId).toBe('doc-9')
     expect(shownValues().logoExternalUrl).toBeNull()
   })
@@ -298,11 +301,12 @@ describe('ProjectEditDialog — open / reset-on-open', () => {
     expect(h.renders.every((n) => n === 'Gamma')).toBe(true)
   })
 
-  it('does not mount the fields on the render that closes the dialog', () => {
+  it('keeps the edited values after closing (no reset on close) until the next open', () => {
     const { rerender, props } = setup()
-    h.renders = []
-    rerender(tree({ ...props, open: false, project: makeProject({ name: 'Closed' }) }))
-    expect(h.renders).toEqual([])
+    setField('name', 'Typed')
+    rerender(tree({ ...props, open: false }))
+    const state = (form().store as unknown as { state: { values: Record<string, unknown> } }).state
+    expect(state.values.name).toBe('Typed')
     expect(screen.queryByTestId('form-values')).toBeNull()
   })
 

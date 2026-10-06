@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 import { useForm } from '@tanstack/react-form'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Trans, useLingui } from '@lingui/react/macro'
@@ -54,8 +54,9 @@ interface ProjectEditDialogProps {
  * The former imperative `openEdit()` reset of the 16 fields is reproduced as a
  * reset-on-open (keyed on `open` only, NOT on `project`: a background refetch
  * while the dialog is open must not clobber the user's in-progress edits, same
- * as before). `ProjectEditFields` mounts only after the reset, so its
- * locally-initialised children (e.g. ImageUploadField) see the fresh values.
+ * as before). The reset runs in a layout effect, before the dialog content mounts
+ * (Radix Portal defers it), so locally-initialised children (e.g. ImageUploadField)
+ * see the fresh values — pinned by "never renders the fields with stale values".
  */
 export function ProjectEditDialog({
   project,
@@ -156,12 +157,8 @@ export function ProjectEditDialog({
   // Reads the LATEST project through a ref so the effect keys on `open` only.
   const projectRef = useRef(project)
   projectRef.current = project
-  const [synced, setSynced] = useState(false)
   useLayoutEffect(() => {
-    if (!open) {
-      setSynced(false)
-      return
-    }
+    if (!open) return
     const current = projectRef.current
     editForm.setFieldValue('name', current.name)
     editForm.setFieldValue('companyName', current.companyName)
@@ -179,7 +176,6 @@ export function ProjectEditDialog({
     editForm.setFieldValue('salaryReview', current.salaryReview ?? '')
     editForm.setFieldValue('corpTech', current.corpTech ?? '')
     editForm.setFieldValue('notesGeneral', current.notesGeneral ?? '')
-    setSynced(true)
     // Deliberately keyed on `open` only (see doc comment above the component).
   }, [open])
 
@@ -199,7 +195,7 @@ export function ProjectEditDialog({
 
         <CrmDialogBody>
           <div className="space-y-5">
-            {canOpenEdit && open && synced && (
+            {canOpenEdit && open && (
               <ProjectEditFields
                 form={editForm}
                 mode="info"
