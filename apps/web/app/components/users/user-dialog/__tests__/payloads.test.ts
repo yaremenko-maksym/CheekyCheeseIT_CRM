@@ -1140,7 +1140,100 @@ describe('buildEditUpdatePayload', () => {
     expect('bankUahIban' in p).toBe(false)
   })
 
+  it('telegram: whitespace-only is treated as empty -> null', () => {
+    expect(
+      buildEditUpdatePayload(makeEditValue({ telegram: '   ' }), EDIT_DEPS).telegram,
+    ).toBeNull()
+  })
+
+  describe('BANK_UAH_FOP server snapshot', () => {
+    const BANK_SNAPSHOT = {
+      ...SNAPSHOT,
+      role: 'JUNIOR',
+      paymentMethod: 'BANK_UAH_FOP',
+      walletUsdtErc20: null,
+      walletUsdtLabel: null,
+      bankUahRecipient: 'R',
+      bankUahIban: 'UA1',
+      bankUahRnokpp: '123',
+      bankUahBankName: 'B',
+    } as unknown as UserProfileDto
+    const bankDeps = { ...EDIT_DEPS, editingUser: BANK_SNAPSHOT }
+    const bankValue = (over: Partial<EditUserFormValue> = {}) =>
+      makeEditValue({
+        role: 'JUNIOR',
+        paymentMethod: 'BANK_UAH_FOP',
+        walletUsdtErc20: '',
+        walletUsdtLabel: '',
+        bankUahRecipient: 'R',
+        bankUahIban: 'UA1',
+        bankUahRnokpp: '123',
+        bankUahBankName: 'B',
+        ...over,
+      })
+
+    it('null server wallet fields vs empty form fields -> NO payment slice', () => {
+      const p = buildEditUpdatePayload(bankValue(), bankDeps)
+      expect('paymentMethod' in p).toBe(false)
+      expect('bankUahIban' in p).toBe(false)
+    })
+
+    it('whitespace-padded copies of the server bank values -> NO payment slice', () => {
+      const p = buildEditUpdatePayload(
+        bankValue({
+          bankUahRecipient: ' R ',
+          bankUahIban: ' UA1 ',
+          bankUahRnokpp: ' 123 ',
+          bankUahBankName: ' B ',
+        }),
+        bankDeps,
+      )
+      expect('paymentMethod' in p).toBe(false)
+    })
+
+    it.each([
+      ['bankUahRecipient', { bankUahRecipient: 'R2' }],
+      ['bankUahIban', { bankUahIban: 'UA2' }],
+      ['bankUahRnokpp', { bankUahRnokpp: '999' }],
+      ['bankUahBankName', { bankUahBankName: 'B2' }],
+    ] as const)('a lone %s change sends the full trimmed BANK slice', (_n, over) => {
+      const p = buildEditUpdatePayload(
+        bankValue({
+          bankUahRecipient: ' R ',
+          bankUahIban: ' UA1 ',
+          bankUahRnokpp: ' 123 ',
+          bankUahBankName: ' B ',
+          ...over,
+        }),
+        bankDeps,
+      )
+      expect(p.paymentMethod).toBe('BANK_UAH_FOP')
+      const expected = {
+        bankUahRecipient: 'R',
+        bankUahIban: 'UA1',
+        bankUahRnokpp: '123',
+        bankUahBankName: 'B',
+        ...over,
+      }
+      expect(p).toMatchObject(expected)
+    })
+
+    it('blank bank values in the slice become null', () => {
+      const p = buildEditUpdatePayload(
+        bankValue({ bankUahIban: '  ', bankUahRnokpp: '', bankUahBankName: ' ' }),
+        bankDeps,
+      )
+      expect(p).toMatchObject({
+        paymentMethod: 'BANK_UAH_FOP',
+        bankUahIban: null,
+        bankUahRnokpp: null,
+        bankUahBankName: null,
+      })
+    })
+  })
+
   it.each([
+    ['walletUsdtErc20', { walletUsdtErc20: '0xZ' }],
     ['walletUsdtLabel', { walletUsdtLabel: 'other' }],
     ['bankUahRecipient', { bankUahRecipient: 'x' }],
     ['bankUahIban', { bankUahIban: 'x' }],
