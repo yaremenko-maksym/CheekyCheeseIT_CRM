@@ -35,8 +35,12 @@ describe('resolveTransactionDate', () => {
 
   it('fails loudly for a non-existent calendar date instead of silently recording now', () => {
     const now = new Date('2026-10-05T18:12:34.567Z')
-    expect(() => resolveTransactionDate('2026-02-31', now)).toThrow(RangeError)
-    expect(() => parseTransactionBusinessDate('2026-02-31')).toThrow(RangeError)
+    expect(() => resolveTransactionDate('2026-02-31', now)).toThrow(
+      'Invalid transaction business date: 2026-02-31',
+    )
+    expect(() => parseTransactionBusinessDate('2026-02-31')).toThrow(
+      'Invalid transaction business date: 2026-02-31',
+    )
   })
 
   it('keeps future-date policy outside the timestamp resolver', () => {

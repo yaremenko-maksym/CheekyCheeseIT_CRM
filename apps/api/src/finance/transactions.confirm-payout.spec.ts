@@ -454,6 +454,23 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
       expect(state.inserts).toHaveLength(0)
     })
 
+    it('accepts a selected date equal to the PAYOUT business date', async () => {
+      const { svc, state } = makeService({
+        payoutRow: makePayoutRow({
+          txDate: new Date('2026-05-03T00:00:00.000Z'),
+          createdAt: new Date('2026-05-05T10:00:00.000Z'),
+        }),
+      })
+
+      await expect(
+        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
+          method: 'CASH',
+          txDate: '2026-05-03',
+        }),
+      ).resolves.toBeDefined()
+      expect(state.updates).not.toHaveLength(0)
+    })
+
     it('selecting Kostya credits Kostya, not Maksym', async () => {
       const { svc, state } = makeService({ recipient: KOSTYA_USER })
 

@@ -635,6 +635,31 @@ describe('createPayoutRequest (#7)', () => {
     })
   })
 
+  it('uses the latest source date even when the latest row is not last in the batch', async () => {
+    const latest = makeTx({
+      id: 'tx-latest',
+      status: 'VALIDATED' as const,
+      txDate: new Date('2026-10-03T00:00:00.000Z'),
+      createdAt: new Date('2026-10-03T12:00:00.000Z'),
+    })
+    const earlier = makeTx({
+      id: 'tx-earlier',
+      status: 'VALIDATED' as const,
+      txDate: new Date('2026-10-01T00:00:00.000Z'),
+      createdAt: new Date('2026-10-01T12:00:00.000Z'),
+    })
+    const { svc } = makeServiceWithTransaction(
+      [latest, earlier],
+      makePayoutRequestRow('pr-date-order'),
+    )
+
+    await expect(
+      svc.createPayoutRequest(['tx-latest', 'tx-earlier'], SENIOR_USER, '2026-10-02'),
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_PAYOUT_DATE_BEFORE_INCOME', statusCode: 400 },
+    })
+  })
+
   it('keeps the legacy two-argument call valid and stamps the PAYOUT with today', async () => {
     const tx = makeTx({
       id: 'tx-1',

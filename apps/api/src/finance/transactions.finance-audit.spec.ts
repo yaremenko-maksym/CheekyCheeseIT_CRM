@@ -743,6 +743,25 @@ describe('paySalary — #11: ADMIN_PERSONAL atomic flip (no duplicate invoice)',
     expect(setSpy).not.toHaveBeenCalled()
   })
 
+  it('accepts a salary payout date equal to txDate even when createdAt is later', async () => {
+    const { svc, setSpy } = makeSvc([{ id: 'sal-1' }], {
+      id: 'sal-1',
+      type: 'SALARY',
+      status: 'PENDING',
+      amount: '500',
+      currency: 'USD',
+      receiverId: null,
+      notes: null,
+      txDate: new Date('2026-10-03T00:00:00.000Z'),
+      createdAt: new Date('2026-10-05T10:00:00.000Z'),
+    })
+
+    await expect(
+      svc.paySalary('sal-1', { ...payData, txDate: '2026-10-03' }, admin()),
+    ).resolves.toBeDefined()
+    expect(setSpy).toHaveBeenCalled()
+  })
+
   it('loser of the race (0 rows flipped — already PAID) → throws, NO invoice', async () => {
     const { svc, invoiceSpy } = makeSvc([])
     await expect(svc.paySalary('sal-1', payData, admin())).rejects.toMatchObject({

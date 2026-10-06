@@ -232,7 +232,9 @@ describe('ConfirmPayoutDialog', () => {
         onClose={vi.fn()}
       />,
     )
-    expect(screen.getByTestId('confirm-payout-txdate')).toHaveAttribute('min', '2020-01-01')
+    const initialDate = screen.getByTestId('confirm-payout-txdate')
+    expect(initialDate).toHaveAttribute('min', '2020-01-01')
+    await waitFor(() => expect(initialDate).toHaveValue(kyivToday()))
 
     rerender(
       <ConfirmPayoutDialog
