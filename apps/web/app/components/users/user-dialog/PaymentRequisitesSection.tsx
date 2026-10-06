@@ -83,7 +83,6 @@ export function PaymentRequisitesSection({ form }: PaymentRequisitesSectionProps
                       name="walletUsdtErc20"
                       validators={{
                         onBlur: ({ value, fieldApi }) => {
-                          // Stryker disable next-line ConditionalExpression: equivalent — showError (isTouched && isDirty) hides any error produced for a pristine field, so skipping this early return is not observable
                           if (!fieldApi.state.meta.isDirty) return undefined
                           if (!value.trim()) return translateZodCode('USDT_WALLET_REQUIRED')
                           return usdtWalletPattern.test(value.trim())
@@ -93,7 +92,6 @@ export function PaymentRequisitesSection({ form }: PaymentRequisitesSectionProps
                       }}
                     >
                       {(field) => {
-                        // Stryker disable next-line ConditionalExpression,LogicalOperator: equivalent — the onBlur validator returns undefined unless the field is dirty and only runs on blur (touched), so `errors[0]` is already empty whenever either flag is false; the gate cannot be observed
                         const showError = field.state.meta.isTouched && field.state.meta.isDirty
                         const err = showError ? field.state.meta.errors[0] : undefined
                         return (
@@ -143,7 +141,6 @@ export function PaymentRequisitesSection({ form }: PaymentRequisitesSectionProps
                       }}
                     >
                       {(field) => {
-                        // Stryker disable next-line ConditionalExpression,LogicalOperator: equivalent — the onBlur validator returns undefined unless the field is dirty and only runs on blur (touched), so `errors[0]` is already empty whenever either flag is false; the gate cannot be observed
                         const showError = field.state.meta.isTouched && field.state.meta.isDirty
                         const err = showError ? field.state.meta.errors[0] : undefined
                         return (
@@ -176,7 +173,6 @@ export function PaymentRequisitesSection({ form }: PaymentRequisitesSectionProps
                       }}
                     >
                       {(field) => {
-                        // Stryker disable next-line ConditionalExpression,LogicalOperator: equivalent — the onBlur validator returns undefined unless the field is dirty and only runs on blur (touched), so `errors[0]` is already empty whenever either flag is false; the gate cannot be observed
                         const showError = field.state.meta.isTouched && field.state.meta.isDirty
                         const err = showError ? field.state.meta.errors[0] : undefined
                         return (
@@ -210,7 +206,6 @@ export function PaymentRequisitesSection({ form }: PaymentRequisitesSectionProps
                       }}
                     >
                       {(field) => {
-                        // Stryker disable next-line ConditionalExpression,LogicalOperator: equivalent — the onBlur validator returns undefined unless the field is dirty and only runs on blur (touched), so `errors[0]` is already empty whenever either flag is false; the gate cannot be observed
                         const showError = field.state.meta.isTouched && field.state.meta.isDirty
                         const err = showError ? field.state.meta.errors[0] : undefined
                         return (
