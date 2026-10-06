@@ -1,120 +1,120 @@
 # Design Spec — Per-project Drop Share Override + Payment-type Income Routing
 
-> **Design tier:** 2 (правка существующих экранов)
-> **design-gate:** degraded (Tier 2 conformance, Claude Design не задействован — текстовая спека)
+> **Design tier:** 2 (edit of existing screens)
+> **design-gate:** degraded (Tier 2 conformance, Claude Design not used — a text spec)
 > **Status:** coder-ready
-> **Ветка фичи:** `feature/drop-share-override-and-receiver`
-> **Референс брифа:** `.claude/briefs/pm-brief-drop-share-override-and-receiver.md`
-> **Референс ADR:** `docs/architecture/2026-07-13-payment-type-income-routing.md`
-> **Задача дизайнера:** `task-drop-share-design`
+> **Feature branch:** `feature/drop-share-override-and-receiver`
+> **Brief reference:** `.claude/briefs/pm-brief-drop-share-override-and-receiver.md`
+> **ADR reference:** `docs/architecture/2026-07-13-payment-type-income-routing.md`
+> **Designer task:** `task-drop-share-design`
 
 ---
 
-## ⚠️ ADDENDUM (2026-07-13) — читать первым
+## ⚠️ ADDENDUM (2026-07-13) — read first
 
-Эта спека писалась **до** финализации контракта (первая версия — коммит `1c66d2a0`). Владелец
-зафиксировал финальный контракт в ADR `2026-07-13-payment-type-income-routing.md` — он меняет
-**Surface B** и добавляет **Surface C**. Ниже — актуальная версия документа целиком.
+This spec was written **before** the contract was finalized (the first version — commit `1c66d2a0`). The owner
+fixed the final contract in the ADR `2026-07-13-payment-type-income-routing.md` — it changes
+**Surface B** and adds **Surface C**. Below is the current version of the document in full.
 
-Что изменилось vs первая версия:
+What changed vs the first version:
 
-1. **Surface A** («Доля дропа (%)» слайдер) — **без изменений**, корректна с первого захода.
-2. **Surface B** («Получатель прихода») — **ПЕРЕЕХАЛА**. Раньше планировался обязательный
-   селектор получателя внутри диалога `DROP_INCOME` (дроп декларирует свой приход и выбирает,
-   кому он фактически пришёл — себе или админу). **Это устарело.** Теперь: `DROP_INCOME` (как и
-   `SENIOR_INCOME`) на ФОП/гіг-проектах остаётся **без всякого селектора получателя** — лайфсайкл
-   не меняется. Получатель появляется в **новом, отдельном ADMIN-only флоу** декларации
-   USDT-прихода (`USDT_INCOME` — синтетический UI-тип в `CreateTransactionDialog`, ledger-тип
-   остаётся `ADMIN_INCOME`).
-3. **Surface C** (НОВАЯ) — Select «Тип оплаты» проекта (`FOP` / `GIG_CONTRACT` / `USDT`),
-   заменяет существующее free-text поле `paymentType` в форме проекта.
-4. Добавлен **гейт-скрытие** для SENIOR/DROP на USDT-проектах (пустые состояния/подсказки внутри
+1. **Surface A** (the "Доля дропа (%)" slider) — **unchanged**, correct from the first pass.
+2. **Surface B** ("Получатель прихода") — **MOVED**. Previously a mandatory receiver
+   selector was planned inside the `DROP_INCOME` dialog (the drop declares their income and chooses
+   to whom it actually arrived — themselves or the admin). **This is outdated.** Now: `DROP_INCOME` (like
+   `SENIOR_INCOME`) on FOP/gig projects stays **without any receiver selector** — the lifecycle
+   does not change. The receiver appears in a **new, separate ADMIN-only flow** for declaring
+   USDT income (`USDT_INCOME` — a synthetic UI type in `CreateTransactionDialog`, the ledger type
+   stays `ADMIN_INCOME`).
+3. **Surface C** (NEW) — the project's "Тип оплаты" Select (`FOP` / `GIG_CONTRACT` / `USDT`),
+   replaces the existing free-text `paymentType` field in the project form.
+4. Added a **gate-hide** for SENIOR/DROP on USDT projects (empty states/hints inside
    `CreateTransactionDialog`).
 
-Coder реализует по разделам ниже (единственный источник правды теперь). Старый черновик Surface B
-(«селектор получателя в DROP_INCOME») **не реализовывать** — он удалён из этой версии документа;
-история — в git blame коммита `1c66d2a0`, если понадобится context.
+The Coder implements per the sections below (the only source of truth now). The old Surface B draft
+("receiver selector in DROP_INCOME") is **not to be implemented** — it was removed from this version of the document;
+the history is in the git blame of commit `1c66d2a0`, if context is needed.
 
 ---
 
-## ⚠️ ADDENDUM 2 (2026-07-14) — Чек для `USDT_INCOME` снова обязателен
+## ⚠️ ADDENDUM 2 (2026-07-14) — The receipt for `USDT_INCOME` is mandatory again
 
-Раздел «Чек / подтверждение» внутри **Surface B** ниже описывал решение ADR Q1 («прямой кредит, без
-чека вообще» для admin-USDT-прихода). **Владелец это решение отменил** — `USDT_INCOME` теперь несёт
-**обязательный чек explorer-ссылкой**, наравне со всеми остальными create/pay-флоу транзакций. Полный
-контракт (allowlist доменов, `explorerOnly`-механизм `ReceiptInput`, unified `showReceipt`) —
-`docs/design/transaction-receipts.md` (задача `task-receipts-design`, ветка
-`feature/transaction-receipts`). Раздел «Чек / подтверждение» ниже — обновлён inline, старый текст
-ADR Q1 сохранён под `<details>` только для истории.
+The "Чек / подтверждение" section inside **Surface B** below described the ADR Q1 decision ("direct credit, no
+receipt at all" for an admin USDT income). **The owner reversed this decision** — `USDT_INCOME` now carries a
+**mandatory receipt as an explorer link**, on a par with all other transaction create/pay flows. The full
+contract (domain allowlist, the `explorerOnly` mechanism of `ReceiptInput`, unified `showReceipt`) —
+`docs/design/transaction-receipts.md` (task `task-receipts-design`, branch
+`feature/transaction-receipts`). The "Чек / подтверждение" section below is updated inline, the old ADR Q1 text
+is kept under `<details>` for history only.
 
 ---
 
-## Контекст и UX-принцип
+## Context and UX principle
 
-Все три поверхности — **conformance к уже существующим паттернам**, не новый визуальный язык:
+All three surfaces are **conformance to already existing patterns**, not a new visual language:
 
-- **Surface A** (`dropSharePercentOverride` слайдер) повторяет `seniorSharePercentOverride` ShareSlider.
-  Различие только в label/role/hint. Никаких новых компонентов.
-- **Surface B** (получатель admin-USDT-прихода) повторяет структуру существующей ветки `DIVIDEND`
-  в `CreateTransactionDialog.tsx` (:801-883) — самодостаточный блок «баланс/получатель (grouped
-  Select)/сумма», ADMIN-only, плюс переиспользует уже существующий `isUsdtLocked`-механизм
-  форс-валюты (:211-215, использован для `ADMIN_INCOME`+`COMPANY_ACCOUNT`).
-- **Surface C** (тип оплаты проекта) заменяет уже существующее free-text поле `paymentType`
-  (сейчас — обычный `Input` внутри общего цикла полей в `ProjectEditFields` и в форме создания
-  проекта) на `Select` с 3 значениями — тот же RBAC-паттерн disabled/hidden, что у
+- **Surface A** (the `dropSharePercentOverride` slider) repeats the `seniorSharePercentOverride` ShareSlider.
+  The difference is only in label/role/hint. No new components.
+- **Surface B** (the receiver of an admin USDT income) repeats the structure of the existing `DIVIDEND` branch
+  in `CreateTransactionDialog.tsx` (:801-883) — a self-contained "balance/receiver (grouped
+  Select)/amount" block, ADMIN-only, plus reuses the already existing `isUsdtLocked` mechanism
+  of forced currency (:211-215, used for `ADMIN_INCOME`+`COMPANY_ACCOUNT`).
+- **Surface C** (the project payment type) replaces the already existing free-text `paymentType` field
+  (currently — a plain `Input` inside the generic field loop in `ProjectEditFields` and in the project
+  creation form) with a `Select` with 3 values — the same disabled/hidden RBAC pattern as
   `seniorSharePercentOverride`.
 
-Coder строит строго по референс-паттернам из `$projectId.tsx`, `projects/index.tsx` и
-`CreateTransactionDialog.tsx`. `design-gate: degraded` — генерация нового макета не требуется.
+The Coder builds strictly per the reference patterns from `$projectId.tsx`, `projects/index.tsx` and
+`CreateTransactionDialog.tsx`. `design-gate: degraded` — generating a new mockup is not required.
 
 ---
 
 ## Token map
 
-Используются исключительно существующие семантические токены из `apps/web/app/styles/globals.css`.
-Новые токены не вводятся — это касается и addendum-поверхностей (Surface B v2 и C переиспользуют
-идентичный набор, никаких новых CSS-переменных).
+Only existing semantic tokens from `apps/web/app/styles/globals.css` are used.
+No new tokens are introduced — this includes the addendum surfaces (Surface B v2 and C reuse
+the identical set, no new CSS variables).
 
-| Назначение                               | Tailwind / CSS token                                                                                                                   |
-| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| Фон страницы / канвас                    | `bg-background`                                                                                                                        |
-| Поднятая поверхность (карточка)          | `bg-card` / `border-border`                                                                                                            |
-| Вторичный / подписи                      | `text-muted-foreground`                                                                                                                |
-| Основной текст                           | `text-foreground`                                                                                                                      |
-| Ошибка / деструктив                      | `text-destructive` / `border-destructive`                                                                                              |
-| Бренд / CTA                              | `bg-primary` / `text-primary`                                                                                                          |
-| Инпут / бордер                           | `border-input` / `bg-background` / `bg-muted`                                                                                          |
-| Радиус                                   | `rounded-md` (вложенные контролы) / `rounded-lg` (карточки)                                                                            |
-| Disabled-состояние                       | `opacity-60` (как в ShareSlider) / `opacity-50` (SelectItem disabled — компонент)                                                      |
-| Визуальный акцент слайдера (company-bar) | `bg-primary/20 text-primary`                                                                                                           |
-| Визуальный акцент слайдера (role-bar)    | `bg-emerald-500/20 text-emerald-400` (эталон ShareSlider)                                                                              |
-| Info-hint (company-balance box)          | `border-blue-500/20 bg-blue-500/5 text-blue-400` (существующий паттерн, `CreateTransactionDialog.tsx:702`, `:804`)                     |
-| Hint-текст                               | `text-xs text-muted-foreground`                                                                                                        |
-| Ошибка валидации                         | `text-[11px] text-destructive` (паттерн CreateTransactionDialog)                                                                       |
-| Тип-карточка (выбранная/невыбранная)     | `border-primary bg-primary/8 text-foreground` / `border-border bg-muted/20 text-muted-foreground` (паттерн `type`-селектора, :508-513) |
-| Select group label                       | `text-sm font-semibold` (встроено в `SelectLabel`, `ui/select.tsx:102`)                                                                |
+| Purpose                            | Tailwind / CSS token                                                                                                                  |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Page background / canvas           | `bg-background`                                                                                                                       |
+| Raised surface (card)              | `bg-card` / `border-border`                                                                                                           |
+| Secondary / captions               | `text-muted-foreground`                                                                                                               |
+| Primary text                       | `text-foreground`                                                                                                                     |
+| Error / destructive                | `text-destructive` / `border-destructive`                                                                                             |
+| Brand / CTA                        | `bg-primary` / `text-primary`                                                                                                         |
+| Input / border                     | `border-input` / `bg-background` / `bg-muted`                                                                                         |
+| Radius                             | `rounded-md` (nested controls) / `rounded-lg` (cards)                                                                                 |
+| Disabled state                     | `opacity-60` (as in ShareSlider) / `opacity-50` (SelectItem disabled — component)                                                     |
+| Slider visual accent (company-bar) | `bg-primary/20 text-primary`                                                                                                          |
+| Slider visual accent (role-bar)    | `bg-emerald-500/20 text-emerald-400` (ShareSlider reference)                                                                          |
+| Info-hint (company-balance box)    | `border-blue-500/20 bg-blue-500/5 text-blue-400` (existing pattern, `CreateTransactionDialog.tsx:702`, `:804`)                        |
+| Hint text                          | `text-xs text-muted-foreground`                                                                                                       |
+| Validation error                   | `text-[11px] text-destructive` (CreateTransactionDialog pattern)                                                                      |
+| Type card (selected/unselected)    | `border-primary bg-primary/8 text-foreground` / `border-border bg-muted/20 text-muted-foreground` (`type` selector pattern, :508-513) |
+| Select group label                 | `text-sm font-semibold` (built into `SelectLabel`, `ui/select.tsx:102`)                                                               |
 
 ---
 
-## Surface A — слайдер «Доля дропа (%)» в форме редактирования проекта
+## Surface A — the "Доля дропа (%)" slider in the project edit form
 
-**Без изменений** — раздел ниже идентичен первой версии спеки, конформна финальному контракту.
+**Unchanged** — the section below is identical to the first version of the spec, conformant to the final contract.
 
-### Референс-паттерн
+### Reference pattern
 
-`apps/web/app/routes/_authenticated/projects/$projectId.tsx` — `ProjectEditFields` (строки 339–397),
-поле `seniorSharePercentOverride` с `ShareSlider`.
+`apps/web/app/routes/_authenticated/projects/$projectId.tsx` — `ProjectEditFields` (lines 339–397),
+the `seniorSharePercentOverride` field with `ShareSlider`.
 
-`apps/web/app/components/ui/share-slider.tsx` — компонент `ShareSlider` (строки 41–126). Компонент
-**уже поддерживает** `role="DROP"` (`ROLE_LABELS.DROP`, share-slider.tsx:38) — использовать как есть,
-без модификаций компонента.
+`apps/web/app/components/ui/share-slider.tsx` — the `ShareSlider` component (lines 41–126). The component
+**already supports** `role="DROP"` (`ROLE_LABELS.DROP`, share-slider.tsx:38) — use as is,
+without modifying the component.
 
-### Компонент
+### Component
 
-Используется существующий `ShareSlider` из `@/components/ui/share-slider`.
-**Новых компонентов не требуется.**
+The existing `ShareSlider` from `@/components/ui/share-slider` is used.
+**No new components are required.**
 
-Параметры вызова `ShareSlider` для доли дропа:
+`ShareSlider` call parameters for the drop share:
 
 ```tsx
 <ShareSlider
@@ -130,13 +130,13 @@ Coder строит строго по референс-паттернам из `$
 />
 ```
 
-### Расположение в `ProjectEditFields`
+### Placement in `ProjectEditFields`
 
-Новую секцию размещать **сразу после** секции `seniorSharePercentOverride` (строка 392 в `$projectId.tsx`).
+Place the new section **right after** the `seniorSharePercentOverride` section (line 392 in `$projectId.tsx`).
 
 ```tsx
-{/* Per-project DROP share — только для drop-проектов, только ADMIN/ACCOUNTANT.
-    Паттерн — полный аналог seniorSharePercentOverride выше. */}
+{/* Per-project DROP share — only for drop projects, only ADMIN/ACCOUNTANT.
+    The pattern is a full analog of seniorSharePercentOverride above. */}
 {viewerRole !== 'HR' && viewerRole !== 'JUNIOR' && project.dropId != null && (
   <form.Field name="dropSharePercentOverride" validators={...}>
     {(field) => {
@@ -175,31 +175,31 @@ Coder строит строго по референс-паттернам из `$
 )}
 ```
 
-### Условие видимости (RBAC)
+### Visibility condition (RBAC)
 
-| Роль       | Условие показа                            | Состояние                     |
+| Role       | Show condition                            | State                         |
 | ---------- | ----------------------------------------- | ----------------------------- |
 | ADMIN      | `dropId != null`                          | enabled                       |
 | ACCOUNTANT | `dropId != null`                          | enabled                       |
 | SENIOR     | `dropId != null`                          | disabled (`!canEditOverride`) |
 | DROP       | `dropId != null`                          | disabled (`!canEditOverride`) |
-| HR         | скрыто (фильтр `viewerRole !== 'HR'`)     | —                             |
-| JUNIOR     | скрыто (фильтр `viewerRole !== 'JUNIOR'`) | —                             |
+| HR         | hidden (filter `viewerRole !== 'HR'`)     | —                             |
+| JUNIOR     | hidden (filter `viewerRole !== 'JUNIOR'`) | —                             |
 
-Не-drop-проекты (`project.dropId == null`): секция полностью скрыта для всех ролей.
+Non-drop projects (`project.dropId == null`): the section is hidden completely for all roles.
 
-### Значение для формы
+### Value for the form
 
-- `dropSharePercentOverride` = `null | number` (аналог `seniorSharePercentOverride`).
-- `effectiveDropSharePercent` — текущая эффективная доля, резолвится по бэкенд-иерархии из ADR D4:
-  `project.dropSharePercentOverride ?? user.dropSharePercent ?? 5` (БЕЗ team-уровня — у дропа нет
-  team-membership override, в отличие от senior).
-- **Implicit-null-reset:** если пользователь устанавливает значение === `effectiveDropSharePercent`,
-  frontend отправляет `null` (или backend резолвит это как сброс). Паттерн строго как у senior.
+- `dropSharePercentOverride` = `null | number` (analogous to `seniorSharePercentOverride`).
+- `effectiveDropSharePercent` — the current effective share, resolved by the backend hierarchy from ADR D4:
+  `project.dropSharePercentOverride ?? user.dropSharePercent ?? 5` (WITHOUT a team level — a drop has no
+  team-membership override, unlike a senior).
+- **Implicit-null-reset:** if the user sets a value === `effectiveDropSharePercent`,
+  the frontend sends `null` (or the backend resolves this as a reset). Strictly the same pattern as the senior.
 
-### info-row «Доля дропа» в Обзоре
+### info-row "Доля дропа" in the Overview
 
-Рядом с `InfoRow` «Доля синьора» (строка 1028 в `$projectId.tsx`) добавить строку для drop-проектов:
+Next to the `InfoRow` "Доля синьора" (line 1028 in `$projectId.tsx`) add a row for drop projects:
 
 ```tsx
 {
@@ -211,48 +211,48 @@ Coder строит строго по референс-паттернам из `$
 }
 ```
 
-`ProjectDropShareInfo` — компонент по образцу `ProjectShareInfo` (существующий для senior, строка
-429). Показывает: текущую эффективную долю + источник (`PROJECT` / `USER_DEFAULT`), бейдж «Override»
-при наличии override. Паттерн: `text-sm font-medium tabular-nums` для числа.
+`ProjectDropShareInfo` — a component modeled on `ProjectShareInfo` (the existing one for the senior, line
+429). Shows: the current effective share + the source (`PROJECT` / `USER_DEFAULT`), an "Override" badge
+when an override is present. Pattern: `text-sm font-medium tabular-nums` for the number.
 
-### Панель `ProjectDropDistribution`
+### The `ProjectDropDistribution` panel
 
-Компонент (`$projectId.tsx:1520`) уже читает `project.dropSharePercent ?? 5`. После backend-задачи
-DTO будет возвращать эффективную долю (с учётом override). **UI-правок не требуется** — данные
-придут обновлёнными в DTO. Дизайнер отмечает: панель показывает эффективную долю (снапшот на момент
-рендеринга), не хранимый override отдельно.
+The component (`$projectId.tsx:1520`) already reads `project.dropSharePercent ?? 5`. After the backend task
+the DTO will return the effective share (accounting for the override). **No UI edits are required** — the data
+will arrive updated in the DTO. The designer notes: the panel shows the effective share (a snapshot at the moment
+of rendering), not the stored override separately.
 
 ---
 
-## Surface B — Получатель admin-USDT-прихода (НОВЫЙ флоу, заменяет старый Surface B)
+## Surface B — Receiver of an admin USDT income (a NEW flow, replaces the old Surface B)
 
-> **DROP_INCOME / SENIOR_INCOME на ФОП/гіг — БЕЗ ИЗМЕНЕНИЙ.** Дроп/синьор декларируют свой приход
-> строго как сегодня — проект, сумма+валюта, чек, дата. Никакого селектора получателя туда НЕ
-> добавляется. Гейт-скрытие для этих ролей на USDT-проектах — см. подраздел ниже.
+> **DROP_INCOME / SENIOR_INCOME on FOP/gig — UNCHANGED.** The drop/senior declare their income
+> strictly as today — project, amount+currency, receipt, date. No receiver selector is added there.
+> The gate-hide for these roles on USDT projects — see the subsection below.
 
-### Референс-паттерны (3 существующих места, комбинируются)
+### Reference patterns (3 existing places, combined)
 
-1. **Синтетический UI-тип диалога** — `DIVIDEND` (`CreateTransactionDialog.tsx:42-45,84,90,801-883`).
-   `DIVIDEND` — не значение `TransactionType`, а UI-only ветка `DialogTxType`, потому что реальный
-   ledger-тип создаётся отдельным company-account-эндпоинтом. **Тот же паттерн** для нового
-   `USDT_INCOME`: UI-only синтетический тип, реальный ledger-тип на бэкенде — `ADMIN_INCOME`
-   (переиспользуется, см. ADR D3) через отдельный метод/эндпоинт `declareUsdtProjectIncome`.
-   Это значит `USDT_INCOME` **не входит** в `constants.ts` `TYPE_LABELS`/`TYPE_COLORS` (те остаются
-   `Record<TransactionType, …>` — нулевой blast radius, как и у `DIVIDEND`).
-2. **Grouped receiver Select** — ADR требует 2 группы опций («Админы» + «Счёт компании»). Компонент
-   `Select` из `@/components/ui/select` уже экспортирует `SelectGroup` + `SelectLabel` +
-   `SelectSeparator` (`ui/select.tsx:9,96-106,130-140`) — **на сегодня нигде в приложении не
-   используются**, но это часть канонического shadcn/ui набора этого же файла. Первое использование
-   в этой фиче — не новый компонент, а первое включение уже существующего примитива.
-3. **Форс-валюта USDT без нового UI** — существующий `isUsdtLocked` (:211-215) уже скрывает валютный
-   селектор `AmountCurrencyInput` (`disableCurrency` prop, :887-901) для `ADMIN_INCOME` при
-   `fundingSource === 'COMPANY_ACCOUNT'`. Расширить это булево значение — `USDT_INCOME` **всегда**
-   locked (не по toggle, а безусловно, т.к. валюта для этого типа всегда USDT).
+1. **Synthetic UI type of the dialog** — `DIVIDEND` (`CreateTransactionDialog.tsx:42-45,84,90,801-883`).
+   `DIVIDEND` is not a `TransactionType` value but a UI-only branch of `DialogTxType`, because the real
+   ledger type is created by a separate company-account endpoint. **The same pattern** for the new
+   `USDT_INCOME`: a UI-only synthetic type, the real ledger type on the backend — `ADMIN_INCOME`
+   (reused, see ADR D3) via a separate method/endpoint `declareUsdtProjectIncome`.
+   This means `USDT_INCOME` is **not included** in `constants.ts` `TYPE_LABELS`/`TYPE_COLORS` (those stay
+   `Record<TransactionType, …>` — zero blast radius, like `DIVIDEND`).
+2. **Grouped receiver Select** — the ADR requires 2 option groups ("Админы" + "Счёт компании"). The
+   `Select` component from `@/components/ui/select` already exports `SelectGroup` + `SelectLabel` +
+   `SelectSeparator` (`ui/select.tsx:9,96-106,130-140`) — **currently not used anywhere in the
+   app**, but they are part of the canonical shadcn/ui set of this same file. The first use
+   in this feature is not a new component, but the first inclusion of an already existing primitive.
+3. **Forced USDT currency without new UI** — the existing `isUsdtLocked` (:211-215) already hides the currency
+   selector of `AmountCurrencyInput` (`disableCurrency` prop, :887-901) for `ADMIN_INCOME` when
+   `fundingSource === 'COMPANY_ACCOUNT'`. Extend this boolean — `USDT_INCOME` is **always**
+   locked (not by a toggle but unconditionally, since the currency for this type is always USDT).
 
-### Тип-карточка «Тип операции»
+### "Тип операции" type card
 
-Добавить `'USDT_INCOME'` в `availableTypes` **только для ADMIN** (ADR Q4 — ACCOUNTANT НЕ декларирует
-USDT-приход):
+Add `'USDT_INCOME'` to `availableTypes` **for ADMIN only** (ADR Q4 — ACCOUNTANT does NOT declare
+USDT income):
 
 ```tsx
 const availableTypes: DialogTxType[] = isAdmin
@@ -266,34 +266,34 @@ const availableTypes: DialogTxType[] = isAdmin
         : []
 ```
 
-Иконка/описание — по образцу `TYPE_ICONS`/`TYPE_DESCRIPTIONS` + `typeLabel()`/`DIVIDEND_LABEL`
+Icon/description — modeled on `TYPE_ICONS`/`TYPE_DESCRIPTIONS` + `typeLabel()`/`DIVIDEND_LABEL`
 (:42-49,71-91):
 
 ```tsx
 const USDT_INCOME_LABEL = 'USDT-приход'
 const USDT_INCOME_DESCRIPTION = 'Приход по USDT-проекту — получатель + авто-обязательства'
 
-// typeLabel() расширить:
+// extend typeLabel():
 function typeLabel(t: DialogTxType): string {
   if (t === 'DIVIDEND') return DIVIDEND_LABEL
   if (t === 'USDT_INCOME') return USDT_INCOME_LABEL
   return TYPE_LABELS[t]
 }
 
-// TYPE_ICONS / TYPE_DESCRIPTIONS — добавить ключ 'USDT_INCOME' (Record<string, …>,
-// не Record<TransactionType, …> — безопасно, как у DIVIDEND):
-TYPE_ICONS.USDT_INCOME = <TrendingUp className="h-4 w-4" /> // income-семантика, как остальные income-типы
+// TYPE_ICONS / TYPE_DESCRIPTIONS — add the key 'USDT_INCOME' (Record<string, …>,
+// not Record<TransactionType, …> — safe, like DIVIDEND):
+TYPE_ICONS.USDT_INCOME = <TrendingUp className="h-4 w-4" /> // income semantics, like the other income types
 TYPE_DESCRIPTIONS.USDT_INCOME = USDT_INCOME_DESCRIPTION
 ```
 
-`data-testid` карточки типа генерируется существующим паттерном
+The type card's `data-testid` is generated by the existing pattern
 `` `create-transaction-type-${t.toLowerCase()}` `` (:514) → `create-transaction-type-usdt_income`
-автоматически, без ручной правки.
+automatically, without a manual edit.
 
-### Проект-селектор — расширить существующий блок
+### Project selector — extend the existing block
 
-Существующий блок «Project selector» (:532-570) уже условно рендерится для
-`SENIOR_INCOME | ADMIN_INCOME | DROP_INCOME`. Расширить условие + пул на `USDT_INCOME`:
+The existing "Project selector" block (:532-570) is already conditionally rendered for
+`SENIOR_INCOME | ADMIN_INCOME | DROP_INCOME`. Extend the condition + the pool to `USDT_INCOME`:
 
 ```tsx
 {(type === 'SENIOR_INCOME' ||
@@ -321,26 +321,26 @@ TYPE_DESCRIPTIONS.USDT_INCOME = USDT_INCOME_DESCRIPTION
         ))}
       </SelectContent>
     </Select>
-    {/* существующий error-параграф без изменений */}
+    {/* the existing error paragraph without changes */}
   </div>
 )}
 ```
 
-`usdtProjects` — новый derived-массив: **любой** активный USDT-проект (не только «свой», ADR D3:
-«Проект — ЛЮБОЙ USDT-проект»):
+`usdtProjects` — a new derived array: **any** active USDT project (not only "own", ADR D3:
+"The project — ANY USDT project"):
 
 ```tsx
 const usdtProjects = isAdmin ? projects.filter((p) => p.paymentType === 'USDT') : []
 ```
 
-**Data-требование:** локальный тип `ProjectOption` (:65) расширить полем `paymentType?: string | null`
-— бэкенд уже отдаёт `paymentType` в `GET /projects` (проверено, `projectSchema.paymentType`,
-`packages/shared/src/schemas/projects.ts:147`), фронту нужно только дописать поле в локальный тип.
+**Data requirement:** the local type `ProjectOption` (:65) is extended with the field `paymentType?: string | null`
+— the backend already returns `paymentType` in `GET /projects` (verified, `projectSchema.paymentType`,
+`packages/shared/src/schemas/projects.ts:147`), the frontend only needs to add the field to the local type.
 
-### Получатель — новый grouped Select (сердце Surface B)
+### Receiver — a new grouped Select (the heart of Surface B)
 
-Разместить **сразу после** проект-селектора, в собственном блоке `type === 'USDT_INCOME'`
-(структурно — рядом с существующей веткой `DIVIDEND` :801, тот же уровень вложенности):
+Place it **right after** the project selector, in its own block `type === 'USDT_INCOME'`
+(structurally — next to the existing `DIVIDEND` branch :801, at the same nesting level):
 
 ```tsx
 {
@@ -392,23 +392,23 @@ const usdtProjects = isAdmin ? projects.filter((p) => p.paymentType === 'USDT') 
 }
 ```
 
-Обоснование дизайн-решения: переиспользуется существующий `receiverId`-стейт (уже общий для
-SALARY/DIVIDEND/ADMIN_TRANSFER, :138) с sentinel-строкой `'COMPANY_ACCOUNT'` для «Счёт компании» —
-это ровно то же значение, что уже отправляется в payload при выборе company-funding для
-`ADMIN_INCOME`/`EXPENSE` (:326,363), поэтому бэкенд-контракт `createUsdtIncomeSchema.receiverId:
-uuid | 'COMPANY_ACCOUNT'` (ADR D3) резолвится без доп. маппинга на фронте — значение из Select идёт
-в payload как есть.
+Rationale for the design decision: the existing `receiverId` state is reused (already shared across
+SALARY/DIVIDEND/ADMIN_TRANSFER, :138) with the sentinel string `'COMPANY_ACCOUNT'` for "Счёт компании" —
+this is exactly the same value that is already sent in the payload when company funding is selected for
+`ADMIN_INCOME`/`EXPENSE` (:326,363), so the backend contract `createUsdtIncomeSchema.receiverId:
+uuid | 'COMPANY_ACCOUNT'` (ADR D3) resolves without additional mapping on the frontend — the value from the Select goes
+into the payload as is.
 
-### Дефолт получателя
+### Receiver default
 
-**НЕ предвыбирать** (ADR — осознанный выбор). Существующий сброс `setReceiverId('')` при смене типа
-(:498) уже это обеспечивает — доп. логики не требуется (в отличие от старой версии спеки, где для
-DROP-роли предполагался автопредвыбор — это была часть устаревшего контракта, здесь неприменимо:
-`USDT_INCOME` доступен только ADMIN).
+**Do NOT preselect** (the ADR — a deliberate choice). The existing reset `setReceiverId('')` on type change
+(:498) already provides this — no additional logic is required (unlike the old version of the spec, where for
+the DROP role an auto-preselect was assumed — that was part of the outdated contract, not applicable here:
+`USDT_INCOME` is available only to ADMIN).
 
-### Сумма — форс-валюта USDT
+### Amount — forced USDT currency
 
-Расширить существующий `isUsdtLocked` (:211-215; НЕ создавать новую переменную):
+Extend the existing `isUsdtLocked` (:211-215; do NOT create a new variable):
 
 ```tsx
 const isUsdtLocked =
@@ -416,32 +416,32 @@ const isUsdtLocked =
   ((type === 'EXPENSE' || type === 'ADMIN_INCOME') && fundingSource === 'COMPANY_ACCOUNT')
 ```
 
-`AmountCurrencyInput` (:887-901) уже условно рендерится для `type !== 'DIVIDEND'` — `USDT_INCOME`
-проходит через тот же общий блок без правок JSX, только через `isUsdtLocked`. Currency-селектор
-внутри компонента скрывается автоматически (`disableCurrency={isUsdtLocked}`).
+`AmountCurrencyInput` (:887-901) is already conditionally rendered for `type !== 'DIVIDEND'` — `USDT_INCOME`
+passes through the same shared block with no JSX edits, only via `isUsdtLocked`. The currency selector
+inside the component is hidden automatically (`disableCurrency={isUsdtLocked}`).
 
-### Чек / подтверждение
+### Receipt / confirmation
 
-> **⚠️ ADDENDUM 2 (2026-07-14) — читать поверх текста ниже.** Владелец **отменил** решение ADR Q1
-> «прямой кредит без tx-link верификации» для admin-USDT-прихода. Актуальное решение (зафиксировано
-> задачей `task-receipts-design`, `docs/design/transaction-receipts.md`): **`USDT_INCOME` ТЕПЕРЬ несёт
-> ОБЯЗАТЕЛЬНЫЙ чек — explorer-ссылкой** (allowlist доменов, файл НЕ принимается), как и все остальные
-> create/pay-флоу транзакций. Текст раздела ниже (описывающий «без чека вообще») — **устарел**,
-> сохранён только для истории решения ADR Q1 (git blame/контекст, ЕСЛИ понадобится). Coder реализует
-> `USDT_INCOME`-чек по `docs/design/transaction-receipts.md` §3.1/§4 (единый `showReceipt`/
-> `effectiveCurrency`/`explorerOnly`-механизм для ВСЕХ 7 receipt-типов `CreateTransactionDialog`,
-> `USDT_INCOME` — один из них, ВСЕГДА `explorerOnly=true` поскольку currency у него `z.literal('USDT')`).
-> `createUsdtIncomeSchema` (ADR D3) **добавляет** `receiptFields`+`receiptXor` (было: сознательно без
-> них) — backend-контракт координируется в той же задаче.
+> **⚠️ ADDENDUM 2 (2026-07-14) — read on top of the text below.** The owner **reversed** the ADR Q1 decision
+> "direct credit without tx-link verification" for an admin USDT income. The current decision (fixed
+> by the task `task-receipts-design`, `docs/design/transaction-receipts.md`): **`USDT_INCOME` NOW carries a
+> MANDATORY receipt — as an explorer link** (domain allowlist, a file is NOT accepted), like all other
+> create/pay transaction flows. The text of the section below (describing "no receipt at all") is **outdated**,
+> kept only for the history of the ADR Q1 decision (git blame/context, IF needed). The Coder implements the
+> `USDT_INCOME` receipt per `docs/design/transaction-receipts.md` §3.1/§4 (the unified `showReceipt`/
+> `effectiveCurrency`/`explorerOnly` mechanism for ALL 7 receipt types of `CreateTransactionDialog`,
+> `USDT_INCOME` is one of them, ALWAYS `explorerOnly=true` since its currency is `z.literal('USDT')`).
+> `createUsdtIncomeSchema` (ADR D3) **adds** `receiptFields`+`receiptXor` (previously: deliberately without
+> them) — the backend contract is coordinated in the same task.
 
 <details>
-<summary>Устаревший текст (ADR Q1, отменено владельцем 2026-07-14) — сохранён для истории</summary>
+<summary>Outdated text (ADR Q1, reversed by the owner 2026-07-14) — kept for history</summary>
 
-Ранее: владелец выбрал **(а) прямой кредит, без on-chain tx-link верификации** для admin-USDT-прихода
-(не вариант «прямой + опциональная ссылка»). Из этого следовало: `USDT_INCOME` — без чека/подтверждения
-вообще, не «опционально, как у `ADMIN_INCOME`». `showReceipt` (:456-460) НЕ расширялся на `USDT_INCOME`;
-`createUsdtIncomeSchema` (ADR D3) не содержал полей `receiptDocumentId`/`receiptExternalUrl`,
-submit-payload их не отправлял:
+Previously: the owner chose **(a) direct credit, without on-chain tx-link verification** for an admin USDT income
+(not the "direct + optional link" option). It followed that `USDT_INCOME` — without a receipt/confirmation
+at all, not "optional, like `ADMIN_INCOME`". `showReceipt` (:456-460) was NOT extended to `USDT_INCOME`;
+`createUsdtIncomeSchema` (ADR D3) did not contain the fields `receiptDocumentId`/`receiptExternalUrl`,
+the submit payload did not send them:
 
 ```tsx
 const showReceipt =
@@ -449,16 +449,16 @@ const showReceipt =
   type === 'SENIOR_INCOME' ||
   type === 'DROP_INCOME' ||
   type === 'EXPENSE'
-// USDT_INCOME сюда НЕ входил (ADR Q1) — доверенный ADMIN, прямой кредит,
-// без receipt-доказательства для этого флоу. ОТМЕНЕНО 2026-07-14, см. addendum выше.
+// USDT_INCOME was NOT included here (ADR Q1) — a trusted ADMIN, direct credit,
+// without receipt proof for this flow. REVERSED 2026-07-14, see the addendum above.
 ```
 
 </details>
 
-### Валидация
+### Validation
 
-Расширить `validate()` (:278-306). **Обновлено addendum 2** — `hasReceipt`-проверка для `USDT_INCOME`
-теперь идёт через ЕДИНЫЙ `showReceipt`-механизм `transaction-receipts.md` §3.1 (не отдельная ветка):
+Extend `validate()` (:278-306). **Updated by addendum 2** — the `hasReceipt` check for `USDT_INCOME`
+now goes through the SINGLE `showReceipt` mechanism of `transaction-receipts.md` §3.1 (not a separate branch):
 
 ```tsx
 if (
@@ -472,16 +472,16 @@ if (
 if (type === 'USDT_INCOME') {
   if (!receiverId) errors.receiver = 'Выберите получателя'
 }
-// Чек — единый showReceipt-гейт (transaction-receipts.md §3.1), USDT_INCOME включён:
+// Receipt — the single showReceipt gate (transaction-receipts.md §3.1), USDT_INCOME included:
 // if (showReceipt) { if (!hasReceipt) errors.receipt = '...'; else if (isExplorerOnly && ...) ... }
 ```
 
 ### Submit
 
-Новый ветвь в `mutation.mutationFn` (рядом с `ADMIN_INCOME`/`DROP_INCOME`, :315-352), вызывает
-**новый** `financeApi`-метод (frontend-задача добавляет функцию + импортирует DTO-тип из
-`@crm/shared` после backend-контракта). **Обновлено addendum 2** — `receiptDocumentId`/
-`receiptExternalUrl` ТЕПЕРЬ отправляются (были явно исключены до отмены ADR Q1):
+A new branch in `mutation.mutationFn` (next to `ADMIN_INCOME`/`DROP_INCOME`, :315-352), calls a
+**new** `financeApi` method (the frontend task adds the function + imports the DTO type from
+`@crm/shared` after the backend contract). **Updated by addendum 2** — `receiptDocumentId`/
+`receiptExternalUrl` ARE NOW sent (they were explicitly excluded before the reversal of ADR Q1):
 
 ```tsx
 if (type === 'USDT_INCOME') {
@@ -489,24 +489,24 @@ if (type === 'USDT_INCOME') {
     projectId,
     amount: amt,
     currency: 'USDT',
-    receiverId, // uuid ИЛИ 'COMPANY_ACCOUNT' — как есть из Select
-    receiptDocumentId, // ОБЯЗАТЕЛЕН (addendum 2) — explorer-ссылкой, currency='USDT' форсит explorerOnly
-    receiptExternalUrl, // XOR с receiptDocumentId; для USDT_INCOME фактически всегда этот путь заполнен (файл не принимается)
+    receiverId, // uuid OR 'COMPANY_ACCOUNT' — as is from the Select
+    receiptDocumentId, // MANDATORY (addendum 2) — as an explorer link, currency='USDT' forces explorerOnly
+    receiptExternalUrl, // XOR with receiptDocumentId; for USDT_INCOME this path is in practice always the one filled in (a file is not accepted)
     notes: notes || null,
     txDate: txDate || null,
   })
 }
 ```
 
-Точный путь эндпоинта (`POST /api/finance/usdt-income` по ADR D3 vs существующая конвенция
-`/transactions/*`) — контракт backend-задачи; фронт вызывает через `financeApi.declareUsdtProjectIncome`
-независимо от итогового пути. Receipt-контракт (обязательность, explorer-only allowlist) —
+The exact endpoint path (`POST /api/finance/usdt-income` per ADR D3 vs the existing convention
+`/transactions/*`) — the backend task's contract; the frontend calls via `financeApi.declareUsdtProjectIncome`
+regardless of the final path. The receipt contract (mandatory, explorer-only allowlist) —
 `docs/design/transaction-receipts.md` §2.2/§4.2.
 
-### Гейт-скрытие для SENIOR/DROP на USDT-проектах (ADR D2)
+### Gate-hide for SENIOR/DROP on USDT projects (ADR D2)
 
-ФОП/гіг lifecycle SENIOR_INCOME/DROP_INCOME не меняется, но проект-пул для этих типов **исключает**
-USDT-проекты (декларирует только ADMIN):
+The FOP/gig lifecycle of SENIOR_INCOME/DROP_INCOME does not change, but the project pool for these types **excludes**
+USDT projects (only ADMIN declares):
 
 ```tsx
 const myProjects = isSenior
@@ -517,8 +517,8 @@ const dropProjects = isDrop
   : []
 ```
 
-**Пустое состояние**, когда у SENIOR/DROP есть проекты, но ВСЕ они USDT-типа (список пуст после
-фильтра, хотя исходный непуст) — показать подсказку под селектором проекта вместо тихого пустого
+**Empty state** when the SENIOR/DROP have projects but ALL of them are of the USDT type (the list is empty after
+the filter although the original is not) — show a hint under the project selector instead of a silently empty
 Select:
 
 ```tsx
@@ -545,34 +545,34 @@ Select:
 }
 ```
 
-Если у SENIOR/DROP есть смесь ФОП/гіг + USDT проектов — USDT-проекты просто не появляются в
-Select (тихая фильтрация, без hint), декларация на оставшихся проектах работает как обычно.
+If the SENIOR/DROP have a mix of FOP/gig + USDT projects — the USDT projects simply do not appear in the
+Select (silent filtering, no hint), declaration on the remaining projects works as usual.
 
 ---
 
-## Surface C — «Тип оплаты» Select в форме проекта (НОВАЯ)
+## Surface C — "Тип оплаты" Select in the project form (NEW)
 
-### Референс-паттерн
+### Reference pattern
 
-Поле `paymentType` уже существует **как free-text `Input`** в двух местах, оба — часть одного и
-того же generic-цикла из 6 полей:
+The `paymentType` field already exists **as a free-text `Input`** in two places, both part of the same
+generic loop of 6 fields:
 
-- Создание проекта: `apps/web/app/routes/_authenticated/projects/index.tsx:758-786`.
-- Редактирование проекта: `apps/web/app/routes/_authenticated/projects/$projectId.tsx:268-303`.
+- Project creation: `apps/web/app/routes/_authenticated/projects/index.tsx:758-786`.
+- Project editing: `apps/web/app/routes/_authenticated/projects/$projectId.tsx:268-303`.
 
-Обе локации — **буквально идентичный код** (`['techStack','teamSize','benefits','paymentType',
-'salaryReview','corpTech']` + `labels`-record + `form.Field` + `Input`). RBAC-паттерн для field-scoped
+Both locations are **literally identical code** (`['techStack','teamSize','benefits','paymentType',
+'salaryReview','corpTech']` + a `labels` record + `form.Field` + `Input`). The RBAC pattern for field-scoped
 disable — `seniorSharePercentOverride` (`canEditOverride`, `$projectId.tsx:516`).
 
-### Значения enum
+### Enum values
 
-`FOP → 'ФОП'`, `GIG_CONTRACT → 'гіг-контракт'`, `USDT → 'USDT'` (см. ADR D1,
+`FOP → 'ФОП'`, `GIG_CONTRACT → 'гіг-контракт'`, `USDT → 'USDT'` (see ADR D1,
 `projectPaymentTypeSchema = z.enum(['FOP','GIG_CONTRACT','USDT'])`).
 
-### Изменение в generic-цикле (edit-форма и create-форма — идентично)
+### Change in the generic loop (edit form and create form — identical)
 
-Внутри `.map((fieldName) => ...)` выделить `paymentType` спец-веткой (остальные 5 полей остаются
-`Input` без изменений):
+Inside `.map((fieldName) => ...)` split out `paymentType` with a special branch (the other 5 fields stay
+`Input` without changes):
 
 ```tsx
 {
@@ -643,20 +643,20 @@ disable — `seniorSharePercentOverride` (`canEditOverride`, `$projectId.tsx:516
 }
 ```
 
-`canEditPaymentType` = то же выражение, что `canEditOverride` (ADMIN | ACCOUNTANT) — **в edit-форме
-переиспользовать существующую переменную `canEditOverride`** (`$projectId.tsx:516`) напрямую, без
-дублирования. **В create-форме** (`index.tsx`) объявить аналог `const canEditPaymentType =
-user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'` — заметить, что `canCreate` там = ADMIN||HR
-(:136), т.е. **HR может создать проект, но не может выбрать тип оплаты** при создании: Select
-показывает дефолт `ФОП` (соответствует backend-дефолту `DEFAULT 'FOP'`, ADR D1) в disabled-состоянии
-с тем же hint'ом «Менять может только ADMIN или ACCOUNTANT.» ACCOUNTANT физически не видит create-форму
-(`canCreate` их не пускает) — RBAC-переменная остаётся симметричной ради conformance с edit-формой,
-не создаёт лишнего состояния.
+`canEditPaymentType` = the same expression as `canEditOverride` (ADMIN | ACCOUNTANT) — **in the edit form
+reuse the existing variable `canEditOverride`** (`$projectId.tsx:516`) directly, without
+duplication. **In the create form** (`index.tsx`) declare an analog `const canEditPaymentType =
+user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'` — note that `canCreate` there = ADMIN||HR
+(:136), i.e. **HR can create a project but cannot choose the payment type** on creation: the Select
+shows the default `ФОП` (corresponds to the backend default `DEFAULT 'FOP'`, ADR D1) in the disabled state
+with the same hint "Менять может только ADMIN или ACCOUNTANT." ACCOUNTANT physically does not see the create form
+(`canCreate` does not let them in) — the RBAC variable stays symmetric for conformance with the edit form,
+it does not create extra state.
 
-### Read-only view — InfoRow «Тип оплаты»
+### Read-only view — InfoRow "Тип оплаты"
 
-Существующий `InfoRow` (`$projectId.tsx:989-995`) сейчас рендерит `project.paymentType` как
-свободный текст **без RBAC-гейта** (виден всем ролям, включая HR/JUNIOR). Обновить:
+The existing `InfoRow` (`$projectId.tsx:989-995`) currently renders `project.paymentType` as
+free text **without an RBAC gate** (visible to all roles, including HR/JUNIOR). Update:
 
 ```tsx
 {
@@ -672,104 +672,104 @@ user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'` — заметить, ч�
 }
 ```
 
-`PAYMENT_TYPE_LABELS` — константа-маппинг enum→русский лейбл (`{ FOP: 'ФОП', GIG_CONTRACT:
-'гіг-контракт', USDT: 'USDT' }`), общая для Select-опций и read-view (не дублировать строки).
+`PAYMENT_TYPE_LABELS` — a constant mapping enum→Russian label (`{ FOP: 'ФОП', GIG_CONTRACT:
+'гіг-контракт', USDT: 'USDT' }`), shared by the Select options and the read view (do not duplicate the strings).
 
-**Важно (Q5 — скрытие от JUNIOR):** это единственная RBAC-правка read-view в этой фиче — раньше
-строка была видна всем. Теперь `viewerRole !== 'JUNIOR'` явно исключает JUNIOR, HR **продолжает
-видеть значение** (Q5-таблица в задаче: HR = read (value), только JUNIOR = скрыто целиком). Если
-backend решит маскировать поле как `null` в JUNIOR-DTO (а не просто не различать роль) — фронт всё
-равно должен не рендерить строку для JUNIOR явным условием (defense-in-depth, не полагаться только
-на `project.paymentType == null`, т.к. HR тоже мог бы теоретически получить null по другой причине).
+**Important (Q5 — hiding from JUNIOR):** this is the only RBAC edit of the read view in this feature — previously the
+row was visible to everyone. Now `viewerRole !== 'JUNIOR'` explicitly excludes JUNIOR, HR **keeps
+seeing the value** (the Q5 table in the task: HR = read (value), only JUNIOR = hidden entirely). If the
+backend decides to mask the field as `null` in the JUNIOR DTO (rather than simply not distinguishing the role), the frontend
+still must not render the row for JUNIOR by an explicit condition (defense-in-depth, do not rely only
+on `project.paymentType == null`, since HR could theoretically get null for another reason too).
 
 ### data-testid
 
-| Элемент                                                 | `data-testid`                  |
-| ------------------------------------------------------- | ------------------------------ |
-| SelectTrigger «Тип оплаты» (edit + create — одинаковый) | `project-payment-type-trigger` |
+| Element                                               | `data-testid`                  |
+| ----------------------------------------------------- | ------------------------------ |
+| SelectTrigger "Тип оплаты" (edit + create — the same) | `project-payment-type-trigger` |
 
 ---
 
-## Responsive (4 класса устройств)
+## Responsive (4 device classes)
 
-**Подход: mobile-first.** Все три поверхности наследуют поведение своих референс-паттернов —
-ShareSlider (Surface A), диалог `CreateTransactionDialog`/`CrmDialog` (Surface B), форма проекта в
-диалоге (Surface C).
+**Approach: mobile-first.** All three surfaces inherit the behavior of their reference patterns —
+ShareSlider (Surface A), the `CreateTransactionDialog`/`CrmDialog` dialog (Surface B), the project form in
+a dialog (Surface C).
 
-### Surface A — ShareSlider в edit-диалоге проекта
+### Surface A — ShareSlider in the project edit dialog
 
-| Класс            | Поведение                                                                                                                                                                                                                                                                                                                                                 |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Мобайл 320–639   | `space-y-2` = стандартный vertical stack. Визуальный bar 100% ширина контейнера — адаптируется автоматически. Числовой инпут `w-16` не меняется. Hit-area слайдера: `h-2` track → thumb нативный браузерный (≥44px в большинстве мобильных браузеров). Range-инпут `accent-primary`. Весь блок не обрезается — нет фиксированных горизонтальных размеров. |
-| Планшет 640–1023 | Идентично мобайлу, ширина контейнера больше — bar читается лучше.                                                                                                                                                                                                                                                                                         |
-| Ноутбук 1024+    | Полная ширина внутри `space-y-3` формы. Числовые значения чёткие.                                                                                                                                                                                                                                                                                         |
-| Большой 1440+    | Контент-колонка формы с `max-w` — нет растяжки.                                                                                                                                                                                                                                                                                                           |
+| Class           | Behavior                                                                                                                                                                                                                                                                                                                                               |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Mobile 320–639  | `space-y-2` = a standard vertical stack. The visual bar is 100% of the container width — adapts automatically. The numeric input `w-16` does not change. Slider hit area: `h-2` track → the thumb is the native browser one (≥44px in most mobile browsers). Range input `accent-primary`. The whole block is not clipped — no fixed horizontal sizes. |
+| Tablet 640–1023 | Identical to mobile, the container width is larger — the bar reads better.                                                                                                                                                                                                                                                                             |
+| Laptop 1024+    | Full width inside the form's `space-y-3`. The numeric values are crisp.                                                                                                                                                                                                                                                                                |
+| Large 1440+     | The form's content column with `max-w` — no stretching.                                                                                                                                                                                                                                                                                                |
 
-**Нет обрезания на мобайле:** `ShareSlider` использует `flex items-center gap-3` для ряда
-с range + числовым инпутом — адаптируется. Визуальный bar — `overflow-hidden rounded-md` —
-адаптируется к ширине родителя.
+**No clipping on mobile:** `ShareSlider` uses `flex items-center gap-3` for the row
+with the range + numeric input — adapts. The visual bar — `overflow-hidden rounded-md` —
+adapts to the parent's width.
 
-### Surface B — тип-карточка + проект-Select + grouped receiver-Select в `CreateTransactionDialog`
+### Surface B — type card + project Select + grouped receiver Select in `CreateTransactionDialog`
 
-| Класс          | Поведение                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Мобайл 320–639 | `CrmDialog` full-screen (`max-h-[90dvh]`, body скроллится). Тип-карточки (`grid grid-cols-1`) — стек в 1 колонку, каждая ≥ 44px высоты (`px-3 py-2` + текст+description ⇒ фактическая высота карточки ~52-56px, comfortably ≥44px тач-таргет). Проект-Select и Получатель-Select — `SelectTrigger h-9` (36px) при закрытом состоянии — на мобайле хорошо, т.к. `SelectTrigger` full-width контейнера (широкий тач-таргет по X компенсирует высоту по Y); открытый `SelectContent` — Radix Portal, покрывает viewport, `SelectItem` `py-1.5` (~32px) читаемо и скроллируемо. `SelectGroup`/`SelectLabel` («Админы»/«Счёт компании») не ломают раскладку — `px-2 py-1.5 text-sm font-semibold`, обычный block-level элемент. |
-| Планшет 640+   | Диалог 90dvh, Select нормальный, тип-карточки — та же 1-колоночная сетка (не расширяется на 2 колонки — конформно с существующим паттерном :490).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| Ноутбук 1024+  | Стандартный диалог (`sm:max-w-lg`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| Большой 1440+  | Без изменений — диалог не растягивается сверх `sm:max-w-lg`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Class          | Behavior                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mobile 320–639 | `CrmDialog` full-screen (`max-h-[90dvh]`, the body scrolls). Type cards (`grid grid-cols-1`) — a stack in 1 column, each ≥ 44px tall (`px-3 py-2` + text+description ⇒ the actual card height ~52-56px, comfortably ≥44px touch target). The project Select and Receiver Select — `SelectTrigger h-9` (36px) when closed — on mobile it is fine since `SelectTrigger` is the full width of the container (the wide touch target on X compensates for the height on Y); the open `SelectContent` — a Radix Portal, covers the viewport, `SelectItem` `py-1.5` (~32px) is readable and scrollable. `SelectGroup`/`SelectLabel` ("Админы"/"Счёт компании") do not break the layout — `px-2 py-1.5 text-sm font-semibold`, an ordinary block-level element. |
+| Tablet 640+    | Dialog 90dvh, Select normal, type cards — the same 1-column grid (not expanded into 2 columns — conformant with the existing pattern :490).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Laptop 1024+   | Standard dialog (`sm:max-w-lg`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Large 1440+    | Unchanged — the dialog does not stretch beyond `sm:max-w-lg`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
-**Длинные имена ADMIN в SelectItem:** Radix `SelectItem` по умолчанию не обрезает текст (нет
-`overflow: hidden` на `ItemText`) — длинные `displayName` переносятся, не обрезаются ни на одном
-классе устройств.
+**Long ADMIN names in SelectItem:** Radix `SelectItem` does not truncate text by default (no
+`overflow: hidden` on `ItemText`) — long `displayName`s wrap, they are not truncated on any
+device class.
 
-### Surface C — Select «Тип оплаты» в форме проекта (create + edit)
+### Surface C — "Тип оплаты" Select in the project form (create + edit)
 
-| Класс          | Поведение                                                                                                                                                                                                                                                                                                                                             |
-| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Мобайл 320–639 | Форма проекта уже рендерится внутри `Dialog`/`Sheet` full-screen на мобайле (существующее поведение create/edit диалогов). Select full-width контейнера (`space-y-1.5` секция) — тач-таргет `h-9` по высоте, полная ширина по X. Disabled-состояние (`opacity-50` встроено в `SelectTrigger`, компонент) — читаемо, не выглядит как активный контрол. |
-| Планшет 640+   | Форма может идти в 1-2 колонки (существующая раскладка) — Select не меняется.                                                                                                                                                                                                                                                                         |
-| Ноутбук 1024+  | Стандартно.                                                                                                                                                                                                                                                                                                                                           |
-| Большой 1440+  | `max-w` формы — Select не растягивается сверх контейнера поля.                                                                                                                                                                                                                                                                                        |
+| Class          | Behavior                                                                                                                                                                                                                                                                                                                                                                              |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mobile 320–639 | The project form already renders inside a full-screen `Dialog`/`Sheet` on mobile (existing behavior of the create/edit dialogs). The Select is the full width of the container (`space-y-1.5` section) — touch target `h-9` in height, full width on X. The disabled state (`opacity-50` built into `SelectTrigger`, the component) — readable, does not look like an active control. |
+| Tablet 640+    | The form may go in 1-2 columns (the existing layout) — the Select does not change.                                                                                                                                                                                                                                                                                                    |
+| Laptop 1024+   | Standard.                                                                                                                                                                                                                                                                                                                                                                             |
+| Large 1440+    | The form's `max-w` — the Select does not stretch beyond the field container.                                                                                                                                                                                                                                                                                                          |
 
 ---
 
-## Edge-cases
+## Edge cases
 
 ### Surface A
 
-| Кейс                                                    | Поведение                                                                                                                                                              |
-| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Не-drop-проект (`dropId == null`)                       | Секция «Доля дропа» полностью скрыта для всех ролей                                                                                                                    |
-| Дроп-проект, но `dropSharePercent` не пришло в DTO      | Показывать `effectiveDropSharePercent` = `5` (дефолт `DEFAULT_DROP_SHARE_PERCENT`); hint: «По умолчанию: 5%»                                                           |
-| Override = null (сброшен)                               | Слайдер показывает `effectiveDropSharePercent` (из user-default), не 0                                                                                                 |
-| Пользователь не ADMIN/ACCOUNTANT                        | Слайдер `disabled` (opacity-60), hint «Менять может только ADMIN или ACCOUNTANT.»                                                                                      |
-| HR / JUNIOR                                             | Секция `dropSharePercentOverride` скрыта (`viewerRole !== 'HR' && viewerRole !== 'JUNIOR'`)                                                                            |
-| Значение > 100 или < 0                                  | Validator: «Введите целое число от 0 до 100» (паттерн senior)                                                                                                          |
-| **USDT-проект без синьора-небанковской привязки — n/a** | Surface A не зависит от `paymentType` вообще — слайдер видим на drop-проекте независимо от типа оплаты (ФОП/гіг/USDT); доля дропа резолвится одинаково во всех случаях |
+| Case                                                           | Behavior                                                                                                                                                                                 |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Non-drop project (`dropId == null`)                            | The "Доля дропа" section is hidden completely for all roles                                                                                                                              |
+| Drop project, but `dropSharePercent` did not arrive in the DTO | Show `effectiveDropSharePercent` = `5` (the default `DEFAULT_DROP_SHARE_PERCENT`); hint: «По умолчанию: 5%»                                                                              |
+| Override = null (reset)                                        | The slider shows `effectiveDropSharePercent` (from the user default), not 0                                                                                                              |
+| User is not ADMIN/ACCOUNTANT                                   | The slider is `disabled` (opacity-60), hint «Менять может только ADMIN или ACCOUNTANT.»                                                                                                  |
+| HR / JUNIOR                                                    | The `dropSharePercentOverride` section is hidden (`viewerRole !== 'HR' && viewerRole !== 'JUNIOR'`)                                                                                      |
+| Value > 100 or < 0                                             | Validator: «Введите целое число от 0 до 100» (senior pattern)                                                                                                                            |
+| **USDT project without a senior's non-bank link — n/a**        | Surface A does not depend on `paymentType` at all — the slider is visible on a drop project regardless of the payment type (FOP/gig/USDT); the drop share resolves the same in all cases |
 
 ### Surface B (admin-USDT flow)
 
-| Кейс                                                                                                               | Поведение                                                                                                                                                                                                                         |
-| ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Пустой список ADMIN (edge-case — теоретически невозможно, минимум 1 ADMIN всегда есть, включая самого декларатора) | `adminUsers` включает и самого декларирующего ADMIN — список никогда не пуст на практике; UI не полагается на это жёстко, просто не рендерит пустую `SelectGroup` без падения                                                     |
-| Имя ADMIN длиннее ~30 символов                                                                                     | `SelectItem` допускает wrap — текст переносится, ничего не обрезается                                                                                                                                                             |
-| Проект без синьора-ADMIN (обычный drop/senior-USDT-проект)                                                         | Обязательства создаются по стандартной логике ADR D4 (senior-доля — если синьор не ADMIN; drop-доля — если `dropId` привязан); UI не меняется в зависимости от того, кто синьор                                                   |
-| USDT-проект БЕЗ синьора вообще (гипотетически) — n/a на UI-уровне                                                  | Backend-инвариант (`projects.seniorId NOT NULL` в схеме) — фронт не обрабатывает этот кейс отдельно                                                                                                                               |
-| Нет ни одного USDT-проекта в системе                                                                               | `usdtProjects` — пустой массив; проект-Select открывается пустым (без вспомогательного текста внутри `SelectContent` — минимальный edge-case, ADMIN и так знает, что USDT-проектов нет); Submit заблокирован валидацией `project` |
-| SENIOR/DROP — ВСЕ их проекты USDT-типа                                                                             | Гейт-хинт под селектором проекта (см. раздел «Гейт-скрытие» выше) — `senior-income-usdt-gate-hint` / `drop-income-usdt-gate-hint`                                                                                                 |
-| SENIOR/DROP — смесь ФОП/гіг + USDT проектов                                                                        | USDT-проекты тихо отфильтрованы из Select, без хинта — деклатор просто не видит их в списке                                                                                                                                       |
-| Диалог закрыт/сброшен                                                                                              | `receiverId` сбрасывается в `''` (уже существующий `resetForm`/type-switch механизм, :498) — предвыбора нет по дизайну                                                                                                            |
-| Ошибка загрузки списка пользователей (`allUsers` query error)                                                      | `adminUsers` — пустой derived-массив (fallback `[]`, уже в коде :195 `data: allUsers = []`); Select открывается пустым, стандартный паттерн query error — не блокирует диалог                                                     |
+| Case                                                                                                                          | Behavior                                                                                                                                                                                                                             |
+| ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Empty ADMIN list (edge case — theoretically impossible, there is always at least 1 ADMIN, including the declarant themselves) | `adminUsers` includes the declaring ADMIN themselves — the list is never empty in practice; the UI does not rely on this rigidly, it simply does not render an empty `SelectGroup`, without crashing                                 |
+| ADMIN name longer than ~30 characters                                                                                         | `SelectItem` allows wrapping — the text wraps, nothing is truncated                                                                                                                                                                  |
+| Project without an ADMIN senior (an ordinary drop/senior-USDT project)                                                        | The obligations are created by the standard logic of ADR D4 (the senior share — if the senior is not an ADMIN; the drop share — if `dropId` is linked); the UI does not change depending on who the senior is                        |
+| USDT project WITHOUT a senior at all (hypothetically) — n/a at the UI level                                                   | A backend invariant (`projects.seniorId NOT NULL` in the schema) — the frontend does not handle this case separately                                                                                                                 |
+| No USDT project in the system at all                                                                                          | `usdtProjects` — an empty array; the project Select opens empty (without helper text inside `SelectContent` — a minimal edge case, the ADMIN knows there are no USDT projects anyway); Submit is blocked by the `project` validation |
+| SENIOR/DROP — ALL their projects are of the USDT type                                                                         | The gate hint under the project selector (see the "Gate-hide" section above) — `senior-income-usdt-gate-hint` / `drop-income-usdt-gate-hint`                                                                                         |
+| SENIOR/DROP — a mix of FOP/gig + USDT projects                                                                                | USDT projects are silently filtered out of the Select, with no hint — the declarant simply does not see them in the list                                                                                                             |
+| Dialog closed/reset                                                                                                           | `receiverId` is reset to `''` (the already existing `resetForm`/type-switch mechanism, :498) — there is no preselection by design                                                                                                    |
+| Error loading the users list (`allUsers` query error)                                                                         | `adminUsers` — an empty derived array (fallback `[]`, already in the code :195 `data: allUsers = []`); the Select opens empty, the standard query error pattern — does not block the dialog                                          |
 
-### Surface C (тип оплаты)
+### Surface C (payment type)
 
-| Кейс                                                         | Поведение                                                                                                                                         |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| HR открывает create-форму                                    | Select виден, **disabled**, дефолт «ФОП»; hint «Менять может только ADMIN или ACCOUNTANT.»                                                        |
-| SENIOR/DROP видят Select в read-view (InfoRow)               | Значение видно (read), не редактируется — они вообще не имеют доступа к edit-диалогу (`canOpenEdit` их не включает)                               |
-| JUNIOR                                                       | Секция целиком скрыта, и в edit-форме (JUNIOR не открывает edit вообще), и в read-view InfoRow (`viewerRole !== 'JUNIOR'` явный гейт)             |
-| `project.paymentType` не пришёл в DTO (legacy/до миграции)   | InfoRow показывает `—` (существующий fallback-паттерн `text-muted-foreground/40 italic`); Select в форме — fallback на `'FOP'` как value          |
-| Смена типа с USDT на ФОП/гіг при наличии pending-obligations | UI-уровня edge-case не требует спец-обработки — backend-инвариант (существующие obligations не отменяются сменой paymentType, это backend-задача) |
+| Case                                                                   | Behavior                                                                                                                                                             |
+| ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| HR opens the create form                                               | The Select is visible, **disabled**, default «ФОП»; hint «Менять может только ADMIN или ACCOUNTANT.»                                                                 |
+| SENIOR/DROP see the Select in the read view (InfoRow)                  | The value is visible (read), not editable — they do not have access to the edit dialog at all (`canOpenEdit` does not include them)                                  |
+| JUNIOR                                                                 | The section is hidden entirely, both in the edit form (JUNIOR does not open edit at all) and in the read view InfoRow (an explicit gate `viewerRole !== 'JUNIOR'`)   |
+| `project.paymentType` did not arrive in the DTO (legacy/pre-migration) | InfoRow shows `—` (the existing fallback pattern `text-muted-foreground/40 italic`); the Select in the form — falls back to `'FOP'` as the value                     |
+| Changing the type from USDT to FOP/gig with pending obligations        | No special handling is needed as a UI-level edge case — a backend invariant (existing obligations are not cancelled by changing paymentType, this is a backend task) |
 
 ---
 
@@ -777,63 +777,63 @@ ShareSlider (Surface A), диалог `CreateTransactionDialog`/`CrmDialog` (Sur
 
 ### Surface A — ShareSlider
 
-| Требование                      | Реализация                                                                                                              |
-| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `aria-label` на range-инпуте    | ShareSlider передаёт `aria-label={labels.aria}` = «Доля дропа в процентах» (из `ROLE_LABELS['DROP']`)                   |
-| `aria-label` на числовом инпуте | Аналогично — уже в компоненте                                                                                           |
-| Label / for                     | `<Label>` над блоком — визуальный; range и number инпуты не `id`-связаны (паттерн компонента) — aria-label компенсирует |
-| Contrast                        | `text-muted-foreground` на `bg-card` — 4.5:1 в dark-mode (выверено в tokens)                                            |
-| Focus                           | Range инпут: нативный `focus` браузера + `accent-primary`; number инпут: `focus-visible:ring-1 focus-visible:ring-ring` |
-| Target size                     | Range thumb нативный — варьируется по браузеру (обычно 20–28px нативно); acceptable (SC 2.5.8 минимум 24px)             |
-| Disabled state                  | `aria-disabled` не нужен — `disabled` атрибут на инпутах достаточен; `opacity-60` — визуальный индикатор                |
+| Requirement                       | Implementation                                                                                                                       |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `aria-label` on the range input   | ShareSlider passes `aria-label={labels.aria}` = «Доля дропа в процентах» (from `ROLE_LABELS['DROP']`)                                |
+| `aria-label` on the numeric input | Likewise — already in the component                                                                                                  |
+| Label / for                       | The `<Label>` above the block — visual; the range and number inputs are not `id`-linked (component pattern) — aria-label compensates |
+| Contrast                          | `text-muted-foreground` on `bg-card` — 4.5:1 in dark mode (verified in tokens)                                                       |
+| Focus                             | Range input: the native browser `focus` + `accent-primary`; number input: `focus-visible:ring-1 focus-visible:ring-ring`             |
+| Target size                       | The range thumb is native — varies by browser (usually 20–28px natively); acceptable (SC 2.5.8 minimum 24px)                         |
+| Disabled state                    | `aria-disabled` is not needed — the `disabled` attribute on the inputs is sufficient; `opacity-60` — the visual indicator            |
 
-### Surface B — тип-карточка + оба Select (проект / получатель)
+### Surface B — type card + both Selects (project / receiver)
 
-| Требование                             | Реализация                                                                                                                                      |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| Тип-карточка (`button`)                | Нативный `<button type="button">` — фокусируем по Tab, активируем Enter/Space без доп. ARIA                                                     |
-| Radix Select a11y (project + receiver) | `Select` (Radix) автоматически: `role="combobox"`, `aria-expanded`, `aria-haspopup`, `role="option"` на items                                   |
-| `SelectGroup`/`SelectLabel`            | Radix `Group`/`Label` — screen reader объявляет группу перед перечислением опций внутри (`aria-labelledby` авто-связь, встроено в примитив)     |
-| Focus trap                             | Radix `SelectContent` trap focus внутри себя — штатное поведение Radix UI                                                                       |
-| Escape close                           | Radix закрывает Select по Escape — штатно                                                                                                       |
-| Contrast                               | `text-muted-foreground` hints — ≥4.5:1; `text-destructive` ошибки — ≥4.5:1; `text-blue-400` company-hint box — выверено в существующем паттерне |
-| Target size SelectTrigger              | `h-9` = 36px height; ширина full-width контейнера — более чем 44px в ширину → ок. На мобайле: tap target крупный (full-width)                   |
-| SelectItem target size                 | Radix `py-1.5` ≈ 32px высота элемента — допустимо (SC 2.5.8 минимум 24px); на мобайле Radix SelectContent — оверлей позволяет комфортный tap    |
-| Обязательное поле (получатель)         | `aria-required` не добавляется явно — ошибка валидации через `fieldErrors.receiver` + screen reader читает error-параграф                       |
-| Error сообщение                        | `<p data-testid="usdt-income-error-receiver">` — визуальный + screen reader (inline после trigger)                                              |
+| Requirement                            | Implementation                                                                                                                                              |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Type card (`button`)                   | A native `<button type="button">` — focusable via Tab, activated by Enter/Space without extra ARIA                                                          |
+| Radix Select a11y (project + receiver) | `Select` (Radix) automatically: `role="combobox"`, `aria-expanded`, `aria-haspopup`, `role="option"` on items                                               |
+| `SelectGroup`/`SelectLabel`            | Radix `Group`/`Label` — the screen reader announces the group before enumerating the options inside (`aria-labelledby` auto-link, built into the primitive) |
+| Focus trap                             | Radix `SelectContent` traps focus inside itself — standard Radix UI behavior                                                                                |
+| Escape close                           | Radix closes the Select on Escape — standard                                                                                                                |
+| Contrast                               | `text-muted-foreground` hints — ≥4.5:1; `text-destructive` errors — ≥4.5:1; `text-blue-400` company-hint box — verified in the existing pattern             |
+| Target size SelectTrigger              | `h-9` = 36px height; the width of the full-width container — more than 44px wide → ok. On mobile: the tap target is large (full-width)                      |
+| SelectItem target size                 | Radix `py-1.5` ≈ 32px element height — acceptable (SC 2.5.8 minimum 24px); on mobile the Radix SelectContent — an overlay allows a comfortable tap          |
+| Required field (receiver)              | `aria-required` is not added explicitly — validation error via `fieldErrors.receiver` + the screen reader reads the error paragraph                         |
+| Error message                          | `<p data-testid="usdt-income-error-receiver">` — visual + screen reader (inline after the trigger)                                                          |
 
-### Surface C — Select «Тип оплаты»
+### Surface C — "Тип оплаты" Select
 
-| Требование                         | Реализация                                                                                                                                |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `<Label>` над селектором           | `<Label>Тип оплаты</Label>` — визуальный, стандартная связь по позиционированию (паттерн остальных полей формы)                           |
-| Radix Select a11y                  | Как у Surface B — встроено в примитив                                                                                                     |
-| Disabled state                     | `disabled` prop на `Select` (Radix) → `aria-disabled` авто, `data-disabled` для стилизации (`opacity-50` встроено)                        |
-| Contrast                           | Disabled-текст всё ещё ≥3:1 (не полностью invisible) — компонент не переопределяет цвет текста, только opacity                            |
-| Target size                        | `h-9` (36px) + full-width — тот же паттерн, что везде в форме проекта                                                                     |
-| Screen reader на скрытии от JUNIOR | Секция не рендерится вообще для JUNIOR (`viewerRole !== 'JUNIOR'`) — корректно, не «visually hidden», а полностью убрана из DOM/AT-дерева |
+| Requirement                         | Implementation                                                                                                                                       |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `<Label>` above the selector        | `<Label>Тип оплаты</Label>` — visual, a standard link by positioning (the pattern of the other form fields)                                          |
+| Radix Select a11y                   | As in Surface B — built into the primitive                                                                                                           |
+| Disabled state                      | The `disabled` prop on `Select` (Radix) → `aria-disabled` auto, `data-disabled` for styling (`opacity-50` built in)                                  |
+| Contrast                            | The disabled text is still ≥3:1 (not completely invisible) — the component does not override the text color, only the opacity                        |
+| Target size                         | `h-9` (36px) + full-width — the same pattern as everywhere in the project form                                                                       |
+| Screen reader on hiding from JUNIOR | The section is not rendered at all for JUNIOR (`viewerRole !== 'JUNIOR'`) — correct, not "visually hidden" but removed entirely from the DOM/AT tree |
 
 ---
 
-## Список компонентов
+## Component list
 
-| Компонент                                                               | Тип                                                 | Источник                                                                                         |
-| ----------------------------------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `ShareSlider`                                                           | Существующий                                        | `apps/web/app/components/ui/share-slider.tsx`                                                    |
-| `Select`, `SelectTrigger`, `SelectContent`, `SelectItem`, `SelectValue` | Существующий                                        | `apps/web/app/components/ui/select.tsx` (shadcn/Radix)                                           |
-| `SelectGroup`, `SelectLabel`, `SelectSeparator`                         | Существующий, **первое использование в приложении** | `apps/web/app/components/ui/select.tsx` (уже экспортированы, не используются нигде до этой фичи) |
-| `Label`                                                                 | Существующий                                        | `apps/web/app/components/ui/label.tsx`                                                           |
-| `AmountCurrencyInput`                                                   | Существующий (расширяется `isUsdtLocked`)           | `apps/web/app/components/ui/amount-currency-input.tsx`                                           |
-| `ProjectDropShareInfo`                                                  | **НОВЫЙ** компонент (если нужен)                    | По образцу `ProjectShareInfo` — read-only строка доли дропа с бейджем                            |
-| `PAYMENT_TYPE_LABELS`                                                   | **НОВАЯ** константа (не компонент)                  | Маппинг enum→лейбл, общий для Select-опций Surface C и read-view InfoRow                         |
+| Component                                                               | Type                                   | Source                                                                                            |
+| ----------------------------------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `ShareSlider`                                                           | Existing                               | `apps/web/app/components/ui/share-slider.tsx`                                                     |
+| `Select`, `SelectTrigger`, `SelectContent`, `SelectItem`, `SelectValue` | Existing                               | `apps/web/app/components/ui/select.tsx` (shadcn/Radix)                                            |
+| `SelectGroup`, `SelectLabel`, `SelectSeparator`                         | Existing, **first use in the app**     | `apps/web/app/components/ui/select.tsx` (already exported, not used anywhere before this feature) |
+| `Label`                                                                 | Existing                               | `apps/web/app/components/ui/label.tsx`                                                            |
+| `AmountCurrencyInput`                                                   | Existing (extended via `isUsdtLocked`) | `apps/web/app/components/ui/amount-currency-input.tsx`                                            |
+| `ProjectDropShareInfo`                                                  | **NEW** component (if needed)          | Modeled on `ProjectShareInfo` — a read-only drop share row with a badge                           |
+| `PAYMENT_TYPE_LABELS`                                                   | **NEW** constant (not a component)     | An enum→label mapping, shared by the Surface C Select options and the read-view InfoRow           |
 
-### `ProjectDropShareInfo` — эскиз API
+### `ProjectDropShareInfo` — API sketch
 
 ```tsx
-// По образцу существующего ProjectShareInfo
+// Modeled on the existing ProjectShareInfo
 function ProjectDropShareInfo({ project }: { project: ProjectDetailDto }) {
   const override = project.dropSharePercentOverride
-  const effective = project.dropSharePercent ?? 5 // effective из DTO
+  const effective = project.dropSharePercent ?? 5 // effective from the DTO
   return (
     <span className="text-sm font-medium tabular-nums">
       {effective}%
@@ -847,76 +847,76 @@ function ProjectDropShareInfo({ project }: { project: ProjectDetailDto }) {
 }
 ```
 
-Если архитектурно проще встроить inline — допустимо, отдельный компонент не обязателен.
+If it is architecturally simpler to embed inline — acceptable, a separate component is not mandatory.
 
 ---
 
-## data-testid — сводная таблица (все поверхности)
+## data-testid — summary table (all surfaces)
 
-| Элемент                                                | `data-testid`                                       | Поверхность |
-| ------------------------------------------------------ | --------------------------------------------------- | ----------- |
-| Слайдер доли дропа (числовой инпут)                    | `project-edit-drop-share-override`                  | A           |
-| Секция слайдера (обёртка)                              | `project-edit-drop-share-section`                   | A           |
-| Тип-карточка «USDT-приход» (авто из паттерна)          | `create-transaction-type-usdt_income`               | B           |
-| Проект-Select (переиспользуется всеми 4 income-типами) | `create-transaction-project-trigger` (существующий) | B           |
-| Получатель-Select trigger                              | `usdt-income-receiver-trigger`                      | B (новый)   |
-| Получатель — ошибка валидации                          | `usdt-income-error-receiver`                        | B (новый)   |
-| Гейт-хинт SENIOR (все проекты USDT)                    | `senior-income-usdt-gate-hint`                      | B (новый)   |
-| Гейт-хинт DROP (все проекты USDT)                      | `drop-income-usdt-gate-hint`                        | B (новый)   |
-| Select «Тип оплаты» (create + edit форма проекта)      | `project-payment-type-trigger`                      | C (новый)   |
+| Element                                          | `data-testid`                                   | Surface |
+| ------------------------------------------------ | ----------------------------------------------- | ------- |
+| Drop share slider (numeric input)                | `project-edit-drop-share-override`              | A       |
+| Slider section (wrapper)                         | `project-edit-drop-share-section`               | A       |
+| "USDT-приход" type card (auto from the pattern)  | `create-transaction-type-usdt_income`           | B       |
+| Project Select (reused by all 4 income types)    | `create-transaction-project-trigger` (existing) | B       |
+| Receiver Select trigger                          | `usdt-income-receiver-trigger`                  | B (new) |
+| Receiver — validation error                      | `usdt-income-error-receiver`                    | B (new) |
+| SENIOR gate hint (all projects USDT)             | `senior-income-usdt-gate-hint`                  | B (new) |
+| DROP gate hint (all projects USDT)               | `drop-income-usdt-gate-hint`                    | B (new) |
+| "Тип оплаты" Select (project create + edit form) | `project-payment-type-trigger`                  | C (new) |
 
 ---
 
 ## Motion
 
-Никакого дополнительного motion. Переходы слайдера (bar width) — `transition-all duration-150` уже
-в ShareSlider (строки 72 и 80). Select-анимации, тип-карточки (`transition-all`) — из
-shadcn/Radix/существующего паттерна диалога (стандартные `fade-in`). Новых анимаций не добавлять —
-это касается всех трёх поверхностей, включая новый grouped Select и Select «Тип оплаты».
+No additional motion. The slider transitions (bar width) — `transition-all duration-150` already
+in ShareSlider (lines 72 and 80). Select animations, type cards (`transition-all`) — from
+shadcn/Radix/the existing dialog pattern (standard `fade-in`). Do not add new animations —
+this applies to all three surfaces, including the new grouped Select and the "Тип оплаты" Select.
 
 ---
 
-## Инструкция для кодера (КРИТИЧНО)
+## Instructions for the coder (CRITICAL)
 
-1. **Строй нашими компонентами** по этой спеке — `ShareSlider`, `Select`/`SelectGroup`/`SelectLabel`/
-   `SelectSeparator` из shadcn/ui. **НЕ** копируй generic HTML, **НЕ** вводи новые CSS-переменные /
+1. **Build with our components** per this spec — `ShareSlider`, `Select`/`SelectGroup`/`SelectLabel`/
+   `SelectSeparator` from shadcn/ui. Do **NOT** copy generic HTML, do **NOT** introduce new CSS variables /
    hardcoded hex.
-2. **Surface A** — полный аналог `seniorSharePercentOverride` (строки 339–397 в `$projectId.tsx`).
-   Различия: имя поля, label, `role="DROP"`, условие `project.dropId != null`. **Без изменений с
-   первой версии спеки.**
-3. **Surface B — НЕ добавляй селектор получателя в `DROP_INCOME`/`SENIOR_INCOME`.** Это устаревшее
-   требование из первой версии спеки. Получатель — только в новой ветке `type === 'USDT_INCOME'`
-   (синтетический UI-тип, ADMIN-only, ledger-тип на бэкенде остаётся `ADMIN_INCOME`). Модель — ветка
-   `DIVIDEND` (:801-883) как структурный референс + grouped `SelectGroup`/`SelectLabel`.
-4. **Гейт-скрытие для SENIOR/DROP** — фильтруй `myProjects`/`dropProjects` по `paymentType !==
-'USDT'`; хинт только когда список опустел ПОСЛЕ фильтра (не когда изначально пуст).
-5. **Surface C** — заменяет существующее free-text `Input` для `paymentType` (НЕ добавляет новое
-   поле) в ДВУХ местах: `projects/index.tsx` (create) и `$projectId.tsx` (edit) — идентичные
-   generic-циклы, найди оба. RBAC: disabled non-ADMIN/ACCOUNTANT (переиспользуй `canEditOverride` в
-   edit-форме); скрой read-view InfoRow от JUNIOR (`viewerRole !== 'JUNIOR'`).
-6. **НЕ вставляй `receiverId` в `createDropIncomeSchema`/`createDropIncome`-payload** (ADR C14 — это
-   был баг черновика M1, откатывается на backend-стороне; фронт просто не добавляет это поле в
+2. **Surface A** — a full analog of `seniorSharePercentOverride` (lines 339–397 in `$projectId.tsx`).
+   Differences: the field name, label, `role="DROP"`, the condition `project.dropId != null`. **Unchanged from
+   the first version of the spec.**
+3. **Surface B — do NOT add a receiver selector to `DROP_INCOME`/`SENIOR_INCOME`.** This is an outdated
+   requirement from the first version of the spec. The receiver — only in the new branch `type === 'USDT_INCOME'`
+   (a synthetic UI type, ADMIN-only, the ledger type on the backend stays `ADMIN_INCOME`). The model — the `DIVIDEND`
+   branch (:801-883) as a structural reference + the grouped `SelectGroup`/`SelectLabel`.
+4. **Gate-hide for SENIOR/DROP** — filter `myProjects`/`dropProjects` by `paymentType !==
+'USDT'`; the hint only when the list became empty AFTER the filter (not when it was empty initially).
+5. **Surface C** — replaces the existing free-text `Input` for `paymentType` (does NOT add a new
+   field) in TWO places: `projects/index.tsx` (create) and `$projectId.tsx` (edit) — identical
+   generic loops, find both. RBAC: disabled for non-ADMIN/ACCOUNTANT (reuse `canEditOverride` in
+   the edit form); hide the read-view InfoRow from JUNIOR (`viewerRole !== 'JUNIOR'`).
+6. **Do NOT insert `receiverId` into the `createDropIncomeSchema`/`createDropIncome` payload** (ADR C14 — this
+   was a bug of the M1 draft, reverted on the backend side; the frontend simply does not add this field to the
    DROP_INCOME submit).
-7. **`ProjectDropShareInfo`** — опциональный компонент по образцу `ProjectShareInfo`. Если
-   `ProjectShareInfo` уже абстрагирован достаточно, используй его с `role="DROP"` параметром.
-8. **data-testid** строго по сводной таблице выше — AutoTest использует их (особенно
-   `usdt-income-error-receiver` и `project-payment-type-trigger` — точные имена из задачи).
-9. **Responsive** — нет фикс-ширин, нет overflow, ни на одной из 3 поверхностей. Проверь на 320px
-   (ShareSlider bar, тип-карточки в 1 колонку, оба Select full-width).
-10. **Implicit-null-reset для Surface A** — логика на frontend/backend согласно брифу (backend-задача
-    задаёт контракт).
-11. **Зависимость от backend-контракта:** `ProjectOption.paymentType`, `financeApi.declareUsdtProjectIncome`,
-    DTO-тип для USDT-income — приходят из backend-задачи (`task-drop-share-backend`, модель opus).
-    Frontend-задача НЕ стартует раньше готовности этого контракта (см. `pm-brief` — sequential
-    single-pipeline, frontend ждёт backend).
+7. **`ProjectDropShareInfo`** — an optional component modeled on `ProjectShareInfo`. If
+   `ProjectShareInfo` is already abstracted enough, use it with a `role="DROP"` parameter.
+8. **data-testid** strictly per the summary table above — AutoTest uses them (especially
+   `usdt-income-error-receiver` and `project-payment-type-trigger` — the exact names from the task).
+9. **Responsive** — no fixed widths, no overflow, on any of the 3 surfaces. Check at 320px
+   (ShareSlider bar, type cards in 1 column, both Selects full-width).
+10. **Implicit-null-reset for Surface A** — logic on the frontend/backend per the brief (the backend task
+    sets the contract).
+11. **Dependency on the backend contract:** `ProjectOption.paymentType`, `financeApi.declareUsdtProjectIncome`,
+    the DTO type for USDT income — come from the backend task (`task-drop-share-backend`, model opus).
+    The frontend task does NOT start before this contract is ready (see `pm-brief` — a sequential
+    single-pipeline, the frontend waits for the backend).
 
 ---
 
-## Fidelity-референсы (для Mode B после реализации)
+## Fidelity references (for Mode B after implementation)
 
-`design-gate: degraded` — Claude Design не задействован, `design.png` не создаётся для этой фичи
-(Tier 2 conformance к существующим паттернам). Mode B fidelity-аудит после реализации сверяется
-против **этой спеки + существующих референс-компонентов** (`ShareSlider`, `DIVIDEND`-ветка,
-`seniorSharePercentOverride`), не против макета — по правилу `design-fidelity-review.md` §Деградация
-(«fidelity-diff против spec docs/design/<slug>.md + foundation.md»). Responsive-проверка всех 4
-классов на localhost остаётся обязательной.
+`design-gate: degraded` — Claude Design is not used, `design.png` is not created for this feature
+(Tier 2 conformance to existing patterns). The Mode B fidelity audit after implementation is checked
+against **this spec + the existing reference components** (`ShareSlider`, the `DIVIDEND` branch,
+`seniorSharePercentOverride`), not against a mockup — per the rule `design-fidelity-review.md` §Degradation
+("fidelity-diff against the spec docs/design/<slug>.md + foundation.md"). The responsive check of all 4
+classes on localhost remains mandatory.
