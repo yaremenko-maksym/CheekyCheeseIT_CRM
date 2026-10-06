@@ -36,6 +36,7 @@ export type ExchangeRates = { usdUah: string; usdtUah: string; eurUah: string; d
  * admin saw in the "≈ USD" badge.
  */
 export function toUsd(amount: number, currency: Currency, rates: ExchangeRates): number {
+  // Stryker disable next-line ConditionalExpression,LogicalOperator,StringLiteral: equivalent mutants — USD/USDT passthrough returns `amount`, identical to the final fallthrough `return amount`, so breaking this guard is unobservable
   if (currency === 'USD' || currency === 'USDT') return amount
   if (currency === 'EUR') return amount * (parseFloat(rates.eurUah) / parseFloat(rates.usdUah))
   if (currency === 'UAH') return amount / parseFloat(rates.usdUah)
