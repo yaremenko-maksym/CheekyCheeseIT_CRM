@@ -18,7 +18,7 @@ import {
   Users,
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import type { ProjectDto, Role, TeamDto } from '@crm/shared'
+import type { Role, TeamDto } from '@crm/shared'
 import { compareNames, formatDate } from '@crm/shared'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { useAuth } from '@/context/auth'
@@ -62,28 +62,11 @@ import { ArchiveConfirmDialog } from '@/components/archive/ArchiveConfirmDialog'
 import { useUnarchiveEntity } from '@/hooks/use-archive'
 import { ROLE_LABEL_MESSAGES } from '@/components/ui/role-select'
 import { ROLE_VARIANT, container, item } from './team-detail/constants'
+import { fetchTeam, fetchProjects } from './team-detail/api'
+import type { UserOption } from './team-detail/api'
 export const Route = createFileRoute('/_authenticated/team/$teamId')({
   component: TeamDetailPage,
 })
-
-async function fetchTeam(id: string): Promise<TeamDto> {
-  const res = await api.get<TeamDto>(`/teams/${id}`)
-  return res.data
-}
-
-async function fetchProjects(): Promise<ProjectDto[]> {
-  const res = await api.get<ProjectDto[]>('/projects')
-  return res.data
-}
-
-type UserOption = {
-  id: string
-  displayName: string
-  email: string
-  role: string
-  avatarUrl: string | null
-  avatarDocumentId: string | null
-}
 
 function TeamDetailPage() {
   const { t, i18n } = useLingui()
