@@ -1,9 +1,9 @@
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useForm } from '@tanstack/react-form'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plural, Trans, useLingui } from '@lingui/react/macro'
 import { Coins, Landmark, Pencil, Percent, Send, UserPlus, Users, Sparkles } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Value as PhoneValue } from 'react-phone-number-input'
 import type { AxiosError } from 'axios'
 import type {
@@ -12,12 +12,10 @@ import type {
   CreateUserDto,
   Locale,
   PaymentMethod,
-  ProjectDto,
-  TeamDto,
   TeamMode,
   UserProfileDto,
 } from '@crm/shared'
-import { adminUpdateUserSchema, createDropSchema, createUserSchema, kyivToday } from '@crm/shared'
+import { adminUpdateUserSchema, createDropSchema, createUserSchema } from '@crm/shared'
 import { toast } from 'sonner'
 import { PendingShareEditNotice } from '@/components/pending-share/cancel-pending-share'
 import { useAuth } from '@/context/auth'
@@ -61,17 +59,16 @@ import { EmailChangeWarningDialog } from './user-dialog/EmailChangeWarningDialog
 import { UserDialogFooter } from './user-dialog/UserDialogFooter'
 import { useCreateWizard } from './user-dialog/useCreateWizard'
 import { useEditingUser } from './user-dialog/useEditingUser'
+import { useUserDialogData } from './user-dialog/useUserDialogData'
 
 // Re-exported so existing test imports from '../UserDialog' keep resolving.
 export { WizardStep2 }
 import {
   defaultPaymentMethod,
-  fetchUsersForDialog,
   ibanPattern,
   rnokppPattern,
   toUsd,
   usdtWalletPattern,
-  type ExchangeRates,
 } from './user-dialog/validation'
 
 type CommonProps = {
@@ -142,40 +139,16 @@ export function UserDialog(props: UserDialogProps) {
   const isSelfAdminEdit =
     isEdit && !!editingUser && !!me && editingUser.id === me.id && editingUser.role === 'ADMIN'
 
-  // ── Auxiliary data: HR / Accountant / project list ────────────────────────
-  const { data: allUsers } = useQuery({
-    queryKey: ['users-admin'],
-    queryFn: fetchUsersForDialog,
-    enabled: open,
-  })
-
-  const { data: projects } = useQuery({
-    queryKey: ['projects'],
-    queryFn: () => api.get<ProjectDto[]>('/projects').then((r) => r.data),
-    enabled: open,
-  })
-
-  // Exchange rates — needed when admin enters a salary in non-USD currency.
-  // Same query key as `AmountCurrencyInput` so the cache is shared.
-  // ut-20: key includes today's calendar day so cache auto-refreshes past midnight.
-  // `kyivToday()`, not the browser's local/UTC day (security-review PR #578
-  // review, MED-1) — must match the KYIV day the server prices by (backlog 148).
-  const exchangeTodayKey = kyivToday()
-  const { data: exchangeRates } = useQuery<ExchangeRates>({
-    queryKey: ['exchange-rate', exchangeTodayKey],
-    queryFn: () => api.get<ExchangeRates>('/finance/exchange-rate').then((r) => r.data),
-    staleTime: 1000 * 60 * 60 * 24,
-    enabled: open,
-  })
-
-  const hrUsers = useMemo(
-    () => allUsers?.filter((u) => u.role === 'HR' && !u.archivedAt) ?? [],
-    [allUsers],
-  )
-  const accountantUsers = useMemo(
-    () => allUsers?.filter((u) => u.role === 'ACCOUNTANT' && !u.archivedAt) ?? [],
-    [allUsers],
-  )
+  // ── Auxiliary data: HR / Accountant / project / team queries + derived lists ──
+  const {
+    exchangeRates,
+    allTeams,
+    hrUsers,
+    accountantUsers,
+    vacantDropTeams,
+    juniorActiveProjects,
+    availableJuniorProjects,
+  } = useUserDialogData({ open, isCreate, isEdit, editingUser })
 
   // SENIOR-only team controls (HR multiselect + Accountant)
   const [selectedHrIds, setSelectedHrIds] = useState<string[]>([])
@@ -201,45 +174,6 @@ export function UserDialog(props: UserDialogProps) {
   useEffect(() => {
     selectedAccountantIdRef.current = selectedAccountantId
   }, [selectedAccountantId])
-
-  // Fetch all teams (active) to find current HR/Accountant for a SENIOR being edited.
-  const { data: allTeams } = useQuery({
-    queryKey: ['teams'],
-    queryFn: () => api.get<TeamDto[]>('/teams').then((r) => r.data),
-    enabled: isEdit && !!editingUser && editingUser.role === 'SENIOR',
-  })
-
-  // Drop role - phase 1 (AC3): senior creation supports two team modes —
-  // CREATE_NEW (default; existing behavior) or JOIN_DROP_TEAM (pick a
-  // drop-team without an active senior). Fetched lazily only when the
-  // create-senior path is open: avoids an extra network call for non-senior
-  // role flows and during edit.
-  const { data: dropTeamsForJoin } = useQuery({
-    queryKey: ['teams', { type: 'DROP', vacant: true }],
-    queryFn: () => api.get<TeamDto[]>('/teams').then((r) => r.data),
-    enabled: isCreate && open,
-    staleTime: 30_000,
-  })
-  /**
-   * Drop teams eligible for `JOIN_DROP_TEAM`:
-   *  - `type === 'DROP'`
-   *  - not archived
-   *  - no active senior member (`role === 'SENIOR'` && `leftAt === null`)
-   *
-   * Backend's `addSeniorToDropTeam` enforces the same invariants — this
-   * client-side filter is a UX guard so the dropdown lists only valid
-   * options. Falling out of sync (e.g. another admin just rotated a
-   * senior in) surfaces a backend 400 toast.
-   */
-  const vacantDropTeams = useMemo(() => {
-    if (!dropTeamsForJoin) return []
-    return dropTeamsForJoin.filter(
-      (t) =>
-        t.type === 'DROP' &&
-        !t.archivedAt &&
-        !t.members.some((m) => m.role === 'SENIOR' && !m.leftAt),
-    )
-  }, [dropTeamsForJoin])
 
   /**
    * Senior's team is the team where the senior is an active member with role=SENIOR.
@@ -277,25 +211,6 @@ export function UserDialog(props: UserDialogProps) {
     // form is stable but we intentionally exclude it from deps — re-running on
     // every form-state change would clobber edits in progress.
   }, [allTeams, editingUser?.id, hrUsers.length, accountantUsers.length, isEdit, isCreate, open])
-
-  // For JUNIOR projects display in Edit
-  const juniorActiveProjects = useMemo(() => {
-    if (!editingUser || editingUser.role !== 'JUNIOR' || !projects) return []
-    return projects.filter((p) =>
-      p.members.some((m) => m.userId === editingUser.id && m.leftAt === null),
-    )
-  }, [editingUser, projects])
-
-  // ut-7: For initial JUNIOR project select in Create — only projects without
-  // an active JUNIOR. The business rule "max 1 active junior per project" makes
-  // any project with a current JUNIOR an invalid pick at creation time.
-  const availableJuniorProjects = useMemo(() => {
-    if (!projects) return []
-    return projects.filter((p) => {
-      if (p.archivedAt) return false
-      return !p.members.some((m) => m.role === 'JUNIOR' && m.leftAt === null)
-    })
-  }, [projects])
 
   // ── Mutations ────────────────────────────────────────────────────────────
   // ut-40: invalidate the generic `['users']` cache as well — that's the
