@@ -7,10 +7,7 @@ import {
 import { moneyFloorAndPrecisionError, withMoneyFloor, withSalaryFloor } from './money'
 import { kyivToday } from '../utils/kyiv-day'
 
-const YYYY_MM_DD_RE = /^\d{4}-\d{2}-\d{2}$/
-
 function isRealCalendarDate(value: string): boolean {
-  if (!YYYY_MM_DD_RE.test(value)) return false
   const parsed = new Date(`${value}T00:00:00.000Z`)
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
 }
@@ -20,7 +17,6 @@ function isRealCalendarDate(value: string): boolean {
 // settlement forbids it, while a pending salary may legitimately be planned).
 const transactionBusinessDateSchema = z
   .string()
-  .regex(YYYY_MM_DD_RE, 'zod.DATE_FORMAT_YYYYMMDD')
   .refine(isRealCalendarDate, { message: 'zod.DATE_FORMAT_YYYYMMDD' })
 
 // ---------------------------------------------------------------------------

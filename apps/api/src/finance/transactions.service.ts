@@ -5191,11 +5191,9 @@ export class TransactionsService {
     if (payoutTx.status !== 'PENDING_PAYMENT') {
       throw apiError('FINANCE_PAYOUT_NOT_PENDING_PAYMENT', HttpStatus.BAD_REQUEST)
     }
-    if (options.txDate) {
-      const sourceDate = (payoutTx.txDate ?? payoutTx.createdAt).toISOString().slice(0, 10)
-      if (options.txDate < sourceDate) {
-        throw apiError('FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', HttpStatus.BAD_REQUEST)
-      }
+    const payoutSourceDate = (payoutTx.txDate ?? payoutTx.createdAt).toISOString().slice(0, 10)
+    if ((options.txDate ?? payoutSourceDate) < payoutSourceDate) {
+      throw apiError('FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', HttpStatus.BAD_REQUEST)
     }
 
     const recipient = await this.db.db.query.users.findFirst({
@@ -5819,14 +5817,17 @@ export class TransactionsService {
       // Compare calendar-day keys only: txDate is a business DATE, while the
       // source rows carry timestamps. For a batch, the latest source date is
       // therefore the inclusive lower bound for the payout date.
-      if (txDate) {
-        const latestSourceDate = lockedRows.reduce((latest, tx) => {
-          const sourceDate = (tx.txDate ?? tx.createdAt).toISOString().slice(0, 10)
-          return sourceDate > latest ? sourceDate : latest
-        }, '')
-        if (txDate < latestSourceDate) {
-          throw apiError('FINANCE_PAYOUT_DATE_BEFORE_INCOME', HttpStatus.BAD_REQUEST)
-        }
+      const latestSourceDate = lockedRows
+        .map((tx) => (tx.txDate ?? tx.createdAt).toISOString().slice(0, 10))
+        .sort()
+        .pop()
+      // Missing custom date means "do not enforce a lower bound". Use a
+      // lexicographically-high sentinel so the comparison remains one simple,
+      // mutation-testable expression without nullable branches.
+      const comparablePayoutDate = txDate ?? String.fromCharCode(0xffff)
+      const comparableLatestSourceDate = latestSourceDate ?? comparablePayoutDate
+      if (comparablePayoutDate < comparableLatestSourceDate) {
+        throw apiError('FINANCE_PAYOUT_DATE_BEFORE_INCOME', HttpStatus.BAD_REQUEST)
       }
 
       // Audit 2026-06-28 (#5): a DROP payout must bundle incomes from a SINGLE
