@@ -61,18 +61,10 @@ import { tgUrl, tgDisplay } from '@/lib/tg-url'
 import { ArchiveConfirmDialog } from '@/components/archive/ArchiveConfirmDialog'
 import { useUnarchiveEntity } from '@/hooks/use-archive'
 import { ROLE_LABEL_MESSAGES } from '@/components/ui/role-select'
+import { ROLE_VARIANT, container, item } from './team-detail/constants'
 export const Route = createFileRoute('/_authenticated/team/$teamId')({
   component: TeamDetailPage,
 })
-
-const ROLE_VARIANT: Record<string, 'admin' | 'senior' | 'junior' | 'hr' | 'accountant' | 'drop'> = {
-  ADMIN: 'admin',
-  SENIOR: 'senior',
-  JUNIOR: 'junior',
-  HR: 'hr',
-  ACCOUNTANT: 'accountant',
-  DROP: 'drop',
-}
 
 async function fetchTeam(id: string): Promise<TeamDto> {
   const res = await api.get<TeamDto>(`/teams/${id}`)
@@ -91,15 +83,6 @@ type UserOption = {
   role: string
   avatarUrl: string | null
   avatarDocumentId: string | null
-}
-
-const container = {
-  hidden: { opacity: 0 },
-  show: { opacity: 1, transition: { staggerChildren: 0.1 } },
-}
-const item = {
-  hidden: { opacity: 0, y: 16 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.25, 0.1, 0.25, 1] as const } },
 }
 
 function TeamDetailPage() {
