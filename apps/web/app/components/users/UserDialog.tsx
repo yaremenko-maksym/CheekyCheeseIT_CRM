@@ -3,8 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { Pencil, UserPlus } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import type { Value as PhoneValue } from 'react-phone-number-input'
-import type { CreateUserDto, Locale, PaymentMethod, TeamMode, UserProfileDto } from '@crm/shared'
+import type { CreateUserDto, UserProfileDto } from '@crm/shared'
 import { adminUpdateUserSchema, createDropSchema, createUserSchema } from '@crm/shared'
 import { toast } from 'sonner'
 import { useAuth } from '@/context/auth'
@@ -16,11 +15,9 @@ import {
   DialogDescription,
   DialogTitle,
 } from '@/components/ui/crm-dialog'
-import { type Currency } from '@/components/ui/amount-currency-input'
 import { translateZodCode, translateZodMessage } from '@/lib/axios-utils'
 import { cn } from '@/lib/utils'
 import { CreateWizardStepper } from './CreateWizardStepper'
-import { type Role } from './constants'
 import { WizardStep2 } from './user-dialog/WizardStep2'
 import { WizardStep3 } from './user-dialog/WizardStep3'
 import { ContactsSection } from './user-dialog/ContactsSection'
@@ -40,7 +37,7 @@ import { useTeamSelection } from './user-dialog/useTeamSelection'
 
 // Re-exported so existing test imports from '../UserDialog' keep resolving.
 export { WizardStep2 }
-import { defaultPaymentMethod } from './user-dialog/validation'
+import { buildUserDialogDefaults } from './user-dialog/form-defaults'
 import {
   buildCreateDropPayload,
   buildCreateUserPayload,
@@ -144,60 +141,8 @@ export function UserDialog(props: UserDialogProps) {
   })
 
   // ── Form ─────────────────────────────────────────────────────────────────
-  const initialRole: Role = (editingUser?.role as Role) ?? (hrOnly ? 'SENIOR' : 'JUNIOR')
-  const initialPaymentMethod: PaymentMethod =
-    (editingUser?.paymentMethod as PaymentMethod | null) ?? defaultPaymentMethod(initialRole)
-
   const form = useForm({
-    defaultValues: {
-      email: editingUser?.email ?? '',
-      // §4.4 — ADMIN-entered at creation only (no edit-mode default: the
-      // spec's decision 7 restricts this field to the create flow).
-      personalEmail: '',
-      displayName: editingUser?.displayName ?? '',
-      role: initialRole,
-      // task-i18n-stage2 (Task 3, Step 6) — create-wizard-only field (this
-      // dialog's Edit mode never sends it: `adminUpdateUserSchema` has no
-      // `locale`, matching the profile-view/create-wizard scope decision
-      // recorded in `users.service.ts`'s `FilteredUser` comment). Default
-      // 'uk' matches `createUserSchema`'s own server-side default.
-      locale: 'uk' as Locale,
-      telegram: editingUser?.telegram ?? '',
-      phone: ((editingUser?.phone as PhoneValue | undefined) ?? '') as PhoneValue | '',
-      techStack: (editingUser?.techStack ?? []) as string[],
-      seniorSharePercent: editingUser?.seniorSharePercent ?? 26,
-      monthlySalary: editingUser?.monthlySalary ?? '',
-      salaryCurrency: ((editingUser?.salaryCurrency as Currency | undefined) ?? 'USD') as Currency,
-      projectId: '' as string,
-      // Payment requisites (ut-14)
-      paymentMethod: initialPaymentMethod,
-      walletUsdtErc20: editingUser?.walletUsdtErc20 ?? '',
-      walletUsdtLabel: editingUser?.walletUsdtLabel ?? '',
-      bankUahRecipient: editingUser?.bankUahRecipient ?? '',
-      bankUahIban: editingUser?.bankUahIban ?? '',
-      bankUahRnokpp: editingUser?.bankUahRnokpp ?? '',
-      bankUahBankName: editingUser?.bankUahBankName ?? '',
-      // ut-17: SENIOR-only Telegram channel of the senior's team. Resolved from
-      // the senior's team in the `allTeams` query (useEffect below). Empty
-      // string when no channel set or non-SENIOR.
-      teamTelegramChannel: '' as string,
-      // Drop role - phase 1 (AC3): senior create mode picker. Default
-      // `CREATE_NEW` preserves the legacy senior-team auto-create path
-      // 1:1 — backend service also defaults to CREATE_NEW when this
-      // field is omitted (defense-in-depth).
-      teamMode: 'CREATE_NEW' as TeamMode,
-      dropTeamId: '' as string,
-      // DROP role — share % the drop keeps from each payout. Default 5
-      // matches the spec and `createDropSchema` default.
-      dropSharePercent: editingUser?.dropSharePercent ?? 5,
-      // DROP role — optional Telegram channel of the drop-team (same
-      // regex as the SENIOR team telegram channel).
-      teamTelegramChannelDrop: '' as string,
-      // Данные для контракта — юридическое ФИО (задаётся ADMIN, используется в MSA)
-      legalFullName: editingUser?.legalFullName ?? '',
-      // ФОП юридические данные для контракта
-      registrationAddress: editingUser?.registrationAddress ?? '',
-    },
+    defaultValues: buildUserDialogDefaults(editingUser, { hrOnly }),
     onSubmit: async ({ value }) => {
       const isSenior = value.role === 'SENIOR'
       const isDrop = value.role === 'DROP'
@@ -343,57 +288,8 @@ export function UserDialog(props: UserDialogProps) {
   // stable and re-running on every prop change would clobber user edits in-flight.
   useEffect(() => {
     if (isEdit && editingUser) {
-      const role = editingUser.role as Role
-      form.reset({
-        email: editingUser.email,
-        // §4.4 — create-only field, always blank on re-seed for Edit mode.
-        // This instance is mounted with `mode="edit"` HARDCODED at its call
-        // site (routes/_authenticated/users/index.tsx renders a SEPARATE
-        // `<UserDialog mode="create" .../>` for creation) — `isCreate` is
-        // therefore always false for the lifetime of this component, the
-        // personalEmail `form.Field` above is gated on `isCreate &&` and so
-        // never renders here, and the only reader of `value.personalEmail`
-        // is the CREATE submit handler's payload builder, which this
-        // instance's onSubmit branch never reaches either. The VALUE here
-        // cannot become observable through any path — kept only because
-        // `form.reset()`'s argument is the full form-values shape.
-        // Stryker disable next-line StringLiteral: see the paragraph above — unobservable in this mode-locked instance
-        personalEmail: '',
-        // task-i18n-stage2 (Task 3, Step 6) — same reasoning as
-        // `personalEmail` immediately above: create-wizard-only field, the
-        // `locale` `form.Field` is gated on `isCreate &&` and this
-        // mode="edit"-locked instance's onSubmit branch never reads
-        // `value.locale`. Kept only because `form.reset()`'s argument is
-        // the full form-values shape.
-        locale: 'uk' as Locale,
-        displayName: editingUser.displayName,
-        role,
-        telegram: editingUser.telegram ?? '',
-        phone: ((editingUser.phone as PhoneValue | undefined) ?? '') as PhoneValue | '',
-        techStack: editingUser.techStack ?? [],
-        seniorSharePercent: editingUser.seniorSharePercent ?? 26,
-        monthlySalary: editingUser.monthlySalary ?? '',
-        salaryCurrency: ((editingUser.salaryCurrency as Currency | undefined) ?? 'USD') as Currency,
-        projectId: '',
-        paymentMethod:
-          (editingUser.paymentMethod as PaymentMethod | null) ?? defaultPaymentMethod(role),
-        walletUsdtErc20: editingUser.walletUsdtErc20 ?? '',
-        walletUsdtLabel: editingUser.walletUsdtLabel ?? '',
-        bankUahRecipient: editingUser.bankUahRecipient ?? '',
-        bankUahIban: editingUser.bankUahIban ?? '',
-        bankUahRnokpp: editingUser.bankUahRnokpp ?? '',
-        bankUahBankName: editingUser.bankUahBankName ?? '',
-        // Re-seeded again by the allTeams effect once the query resolves.
-        teamTelegramChannel: '',
-        // Drop role - phase 1: team-mode picker is create-only. In edit
-        // mode the field is ignored — re-seed to default for safety.
-        teamMode: 'CREATE_NEW' as TeamMode,
-        dropTeamId: '',
-        dropSharePercent: editingUser.dropSharePercent ?? 5,
-        teamTelegramChannelDrop: '',
-        legalFullName: editingUser.legalFullName ?? '',
-        registrationAddress: editingUser.registrationAddress ?? '',
-      })
+      // Stryker disable next-line ObjectLiteral: `hrOnly` only feeds the role fallback for a null user; here `editingUser` is non-null (guarded above) so the role always comes from the user and the opts object is unobservable (and hrOnly is false in this mode-locked edit instance anyway)
+      form.reset(buildUserDialogDefaults(editingUser, { hrOnly }))
     }
     // Re-seed when the edited user changes AND when the full profile finishes
     // loading (slim list → full /:id). `fullProfileLoadedId` flips from null to
