@@ -8726,9 +8726,9 @@ msgstr "Нічого не знайдено"
 msgid "Сума перевищує баланс рахунку компанії"
 msgstr "Сума перевищує баланс рахунку компанії"
 
-#. placeholder {0}: formatDate(`${minPayoutDate}T00:00:00.000Z`, locale, 'short')
-#. placeholder {0}: formatDate(`${payoutMinDate}T00:00:00.000Z`, locale, 'short')
-#. placeholder {0}: formatDate(`${sourceDateKey}T00:00:00.000Z`, locale, 'short')
+#. placeholder {0}: formatDate(`${minPayoutDate}T00:00:00.000Z`, locale)
+#. placeholder {0}: formatDate(`${payoutMinDate}T00:00:00.000Z`, locale)
+#. placeholder {0}: formatDate(`${sourceDateKey}T00:00:00.000Z`, locale)
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PaySalaryDialog.tsx
