@@ -2,18 +2,7 @@ import { Link, useNavigate } from '@tanstack/react-router'
 import { useForm } from '@tanstack/react-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plural, Trans, useLingui } from '@lingui/react/macro'
-import {
-  Coins,
-  Landmark,
-  Pencil,
-  Percent,
-  Send,
-  UserPlus,
-  Users,
-  Sparkles,
-  ArrowLeft,
-  ArrowRight,
-} from 'lucide-react'
+import { Coins, Landmark, Pencil, Percent, Send, UserPlus, Users, Sparkles } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import type { Value as PhoneValue } from 'react-phone-number-input'
 import { z } from 'zod'
@@ -35,7 +24,6 @@ import { PendingShareEditNotice } from '@/components/pending-share/cancel-pendin
 import { useAuth } from '@/context/auth'
 import { useUser } from '@/hooks/use-user-profile'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -49,7 +37,6 @@ import {
 import {
   CrmDialogBody,
   CrmDialogContent,
-  CrmDialogFooter,
   CrmDialogHeader,
   Dialog,
   DialogDescription,
@@ -88,6 +75,7 @@ import { WizardStep3 } from './user-dialog/WizardStep3'
 import { ContactsSection } from './user-dialog/ContactsSection'
 import { TechStackSection } from './user-dialog/TechStackSection'
 import { ContractDataSection } from './user-dialog/ContractDataSection'
+import { UserDialogFooter } from './user-dialog/UserDialogFooter'
 
 // Re-exported so existing test imports from '../UserDialog' keep resolving.
 export { WizardStep2 }
@@ -2153,63 +2141,16 @@ export function UserDialog(props: UserDialogProps) {
             {/* end step-1 form grid */}
           </CrmDialogBody>
 
-          <CrmDialogFooter className="items-center justify-between">
-            <form.Subscribe selector={(s) => s.values.role}>
-              {(role) => (
-                <Badge variant={ROLE_VARIANT[role]} className="text-[11px]">
-                  {i18n._(ROLE_LABEL_MESSAGES[role])}
-                </Badge>
-              )}
-            </form.Subscribe>
-            <div className="flex gap-2">
-              <Button variant="ghost" onClick={handleClose}>
-                <Trans>Скасувати</Trans>
-              </Button>
-              {/* Wizard step 1: «Далі» instead of «Створити» in create mode */}
-              {isCreate && currentStep === 1 ? (
-                <Button
-                  onClick={() => void form.handleSubmit()}
-                  disabled={isPending}
-                  data-testid="wizard-next-btn"
-                  data-track="user-create"
-                >
-                  {createMutation.isPending ? (
-                    t`Створюємо…`
-                  ) : (
-                    <span className="inline-flex items-center gap-1.5">
-                      <Trans>Далі</Trans>
-                      <ArrowRight className="h-3.5 w-3.5" />
-                    </span>
-                  )}
-                </Button>
-              ) : isCreate && currentStep === 2 ? (
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => setCurrentStep(1)}
-                    data-testid="wizard-back-btn"
-                  >
-                    <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
-                    <Trans>Назад</Trans>
-                  </Button>
-                  <Button onClick={() => setCurrentStep(3)} data-testid="wizard-step2-next-btn">
-                    <span className="inline-flex items-center gap-1.5">
-                      <Trans>Далі</Trans>
-                      <ArrowRight className="h-3.5 w-3.5" />
-                    </span>
-                  </Button>
-                </div>
-              ) : !isCreate ? (
-                <Button
-                  onClick={() => void form.handleSubmit()}
-                  disabled={isPending}
-                  data-testid="user-dialog-submit"
-                >
-                  {submitLabel}
-                </Button>
-              ) : null}
-            </div>
-          </CrmDialogFooter>
+          <UserDialogFooter
+            form={form}
+            isCreate={isCreate}
+            currentStep={currentStep}
+            setCurrentStep={setCurrentStep}
+            isPending={isPending}
+            submitLabel={submitLabel}
+            createPending={createMutation.isPending}
+            onClose={handleClose}
+          />
         </CrmDialogContent>
       </Dialog>
 

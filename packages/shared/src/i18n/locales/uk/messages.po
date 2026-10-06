@@ -2788,8 +2788,8 @@ msgstr "Гроші ще не надіслано — переведіть сум�
 msgid "invoicePdf.month.12"
 msgstr "грудень"
 
-#: apps/web/app/components/users/UserDialog.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/UserDialogFooter.tsx
+#: apps/web/app/components/users/user-dialog/UserDialogFooter.tsx
 msgid "Далі"
 msgstr "Далі"
 
@@ -5530,8 +5530,8 @@ msgid "Надходження від компаній за цей місяць"
 msgstr "Надходження від компаній за цей місяць"
 
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+#: apps/web/app/components/users/user-dialog/UserDialogFooter.tsx
 #: apps/web/app/components/users/user-dialog/WizardStep3.tsx
-#: apps/web/app/components/users/UserDialog.tsx
 msgid "Назад"
 msgstr "Назад"
 
@@ -9432,7 +9432,7 @@ msgstr "Скасовуємо пропозицію…"
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/users/ArchiveUserConfirmDialog.tsx
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/UserDialogFooter.tsx
 #: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/routes/_authenticated/admin/ChangeWalletAddressDialog.tsx
 #: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
@@ -9950,7 +9950,7 @@ msgstr "Створіть сеньйора та сформуйте команду
 msgid "Створіть шаблон контракту для цієї ролі, щоб сформувати контракт"
 msgstr "Створіть шаблон контракту для цієї ролі, щоб сформувати контракт"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/UserDialogFooter.tsx
 #: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
