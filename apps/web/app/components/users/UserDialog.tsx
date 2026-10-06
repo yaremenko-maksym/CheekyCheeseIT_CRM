@@ -288,6 +288,7 @@ export function UserDialog(props: UserDialogProps) {
   // stable and re-running on every prop change would clobber user edits in-flight.
   useEffect(() => {
     if (isEdit && editingUser) {
+      // Stryker disable next-line ObjectLiteral: `hrOnly` only feeds the role fallback for a null user; here `editingUser` is non-null (guarded above) so the role always comes from the user and the opts object is unobservable (and hrOnly is false in this mode-locked edit instance anyway)
       form.reset(buildUserDialogDefaults(editingUser, { hrOnly }))
     }
     // Re-seed when the edited user changes AND when the full profile finishes
