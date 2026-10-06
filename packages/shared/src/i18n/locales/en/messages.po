@@ -8243,7 +8243,7 @@ msgid "Почніть вводити технологію…"
 msgstr "Start typing a technology…"
 
 #: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/TechStackSection.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Почніть вводити: React, Node.js…"
 msgstr "Start typing: React, Node.js…"
@@ -8696,7 +8696,7 @@ msgstr "Share proposal"
 msgid "Пропонує {proposer}"
 msgstr "Proposed by {proposer}"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/TechStackSection.tsx
 msgid "Професія"
 msgstr "Profession"
 
@@ -10216,7 +10216,7 @@ msgstr "Technical"
 
 #: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/TechStackSection.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Технології"
 msgstr "Tech stack"
