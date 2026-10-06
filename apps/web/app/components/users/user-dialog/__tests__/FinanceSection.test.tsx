@@ -65,7 +65,7 @@ interface Defaults {
   role?: string
   seniorSharePercent?: number | undefined
   dropSharePercent?: number | undefined
-  monthlySalary?: string
+  monthlySalary?: string | undefined
   salaryCurrency?: string
 }
 
@@ -281,6 +281,7 @@ describe('FinanceSection — DROP', () => {
     fireEvent.blur(screen.getByRole('spinbutton'))
     expect(await screen.findByText('Вкажіть від 0 до 100')).toBeInTheDocument()
     expect(screen.queryByText('Скільки дроп залишає собі з кожної виплати')).not.toBeInTheDocument()
+    expect(screen.getByRole('spinbutton').className).toContain('border-destructive')
   })
 })
 
@@ -295,6 +296,11 @@ describe('FinanceSection — salary (every other role)', () => {
     expect(screen.getByTestId('currency-value')).toHaveTextContent('UAH')
     expect(screen.queryByRole('slider')).not.toBeInTheDocument()
     expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument()
+  })
+
+  it('renders an empty amount (not "undefined") when the form value is unset', () => {
+    render(<Harness defaults={{ role: 'JUNIOR', monthlySalary: undefined }} />)
+    expect(screen.getByTestId('amount-value')).toBeEmptyDOMElement()
   })
 
   it.each(['ADMIN', 'HR', 'ACCOUNTANT'])('%s sees the salary field, not a share slider', (role) => {
