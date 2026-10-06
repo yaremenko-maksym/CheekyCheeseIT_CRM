@@ -6,6 +6,10 @@ const config: LinguiConfig = {
   // Line numbers in `#:` references drift on every merge with main (a file changed
   // above a message shifts the number), which made the CI catalog-sync step red on
   // #694 without any message changing. Keep file references, drop the numbers.
+  // Deterministic, traversal-independent catalog order. The default `message` order ties on
+  // identical texts (e.g. notification title vs email subject pairs) and then falls back to
+  // file-traversal order, so adding any source file reshuffled them and flapped the CI sync gate.
+  orderBy: 'messageId',
   format: 'po',
   formatOptions: { lineNumbers: false },
   catalogs: [
