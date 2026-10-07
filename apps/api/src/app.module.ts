@@ -34,6 +34,7 @@ import { LegendsModule } from './legends/legends.module'
 import { TelemetryModule } from './telemetry/telemetry.module'
 import { VacanciesModule } from './vacancies/vacancies.module'
 import { SeniorResumesModule } from './resumes/resumes.module'
+import { MeetingRecorderModule } from './integrations/meeting-recorder/meeting-recorder.module'
 
 @Module({
   imports: [
@@ -108,6 +109,7 @@ import { SeniorResumesModule } from './resumes/resumes.module'
     // task-csp-reports-and-flip: public CSP violation report endpoint —
     // POST /api/public/csp-report, aggregated storage, digest visibility.
     CspReportsModule,
+    MeetingRecorderModule,
     // Position 3 of docs/superpowers/specs/2026-09-01-notifications-and-
     // confirmations-design.md — foundation for employee-facing confirmations
     // (propose/approve/reject). Consumed by ProjectsModule/UsersModule

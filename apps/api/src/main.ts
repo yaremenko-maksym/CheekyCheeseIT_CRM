@@ -11,6 +11,8 @@ import { registerCspReportContentTypeParser } from './csp-reports/csp-report-con
 import { assertJwtAuthGuardsWired } from './auth/jwt-guard-wiring'
 import { TelemetryExceptionFilter } from './telemetry/telemetry-exception.filter'
 import { createRedactingReqSerializer } from './config/http-logger-serializers'
+import { registerMeetingRecorderContentTypeParser } from './integrations/meeting-recorder/meeting-recorder-webhook-parser'
+import { registerMeetingRecorderWebhookOnRequestHook } from './integrations/meeting-recorder/meeting-recorder-webhook-auth-hook'
 
 async function bootstrap() {
   const isProd = process.env['NODE_ENV'] === 'production'
@@ -92,6 +94,8 @@ async function bootstrap() {
   // built-in parser for either (see that file's own doc comment for the
   // 32 KB per-route body limit rationale).
   registerCspReportContentTypeParser(app)
+  registerMeetingRecorderContentTypeParser(app)
+  registerMeetingRecorderWebhookOnRequestHook(app)
 
   // Build CORS origin allowlist from env:
   //  - CORS_ORIGINS set → use as exact multi-origin allowlist (no dev-tunnel regexes)

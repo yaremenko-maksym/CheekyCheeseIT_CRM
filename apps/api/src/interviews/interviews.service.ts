@@ -13,14 +13,8 @@ import type {
 import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
 import { ProjectsService } from '../projects/projects.service'
-import {
-  interviews,
-  teamMembers,
-  users,
-  visibleProjects,
-  type Interview,
-  type User,
-} from '../database/schema'
+import { interviews, users, visibleProjects, type Interview, type User } from '../database/schema'
+import { InterviewAccessPolicyService } from './interview-access-policy.service'
 
 type InterviewWithRelations = Interview & {
   senior: User | null
@@ -32,6 +26,7 @@ export class InterviewsService {
   constructor(
     private db: DatabaseService,
     private projects: ProjectsService,
+    private accessPolicy: InterviewAccessPolicyService = new InterviewAccessPolicyService(db),
   ) {}
 
   private mapInterview(i: InterviewWithRelations): InterviewDto {
@@ -62,43 +57,6 @@ export class InterviewsService {
     }
   }
 
-  /**
-   * Drop role - phase 1: teamless guard. SENIORs without an active team
-   * membership (e.g. detached after a drop-team archive) cannot reach any
-   * interview endpoint — controller-level 403 with explicit message.
-   */
-  private async assertSeniorHasActiveTeam(seniorId: string): Promise<void> {
-    const row = await this.db.db
-      .select()
-      .from(teamMembers)
-      .where(and(eq(teamMembers.userId, seniorId), isNull(teamMembers.leftAt)))
-      .limit(1)
-      .then((rows) => rows[0])
-    if (!row) {
-      throw apiError('INTERVIEW_NO_ACTIVE_TEAM', HttpStatus.FORBIDDEN)
-    }
-  }
-
-  private async getAccessibleSeniorIds(currentUser: SessionUser): Promise<Set<string>> {
-    // Audit (MEDIUM): only ACTIVE HR memberships grant board access. An HR who
-    // has left the team (teamMembers.leftAt set) must NOT retain access to that
-    // team's seniors' boards — mirrors ProjectsService.getHrSeniorIds /
-    // DocumentsService.getHrSeniorIds, which already pin the leftAt predicate.
-    const hrTeamMemberships = await this.db.db.query.teamMembers.findMany({
-      where: and(eq(teamMembers.userId, currentUser.id), isNull(teamMembers.leftAt)),
-      with: { team: { with: { members: { with: { user: true } } } } },
-    })
-
-    const accessibleSeniorIds = new Set<string>()
-    for (const tm of hrTeamMemberships) {
-      for (const m of tm.team.members) {
-        // ...and only seniors who are themselves still ACTIVE in that team.
-        if (m.user?.role === 'SENIOR' && m.leftAt === null) accessibleSeniorIds.add(m.userId)
-      }
-    }
-    return accessibleSeniorIds
-  }
-
   async findBySenior(
     seniorId: string | undefined,
     currentUser: SessionUser,
@@ -106,11 +64,11 @@ export class InterviewsService {
     // SENIOR can only see their own board
     if (currentUser.role === 'SENIOR') {
       // Drop role - phase 1: teamless SENIORs are blocked at the controller level.
-      await this.assertSeniorHasActiveTeam(currentUser.id)
+      await this.accessPolicy.assertSeniorHasActiveTeam(currentUser.id)
       seniorId = currentUser.id
     } else if (currentUser.role === 'HR') {
       if (!seniorId) throw apiError('INTERVIEW_SENIOR_ID_REQUIRED', HttpStatus.FORBIDDEN)
-      const accessibleSeniorIds = await this.getAccessibleSeniorIds(currentUser)
+      const accessibleSeniorIds = await this.accessPolicy.getAccessibleSeniorIds(currentUser)
       if (!accessibleSeniorIds.has(seniorId)) {
         throw apiError('INTERVIEW_SENIOR_NOT_IN_YOUR_TEAMS', HttpStatus.FORBIDDEN)
       }
@@ -143,12 +101,12 @@ export class InterviewsService {
 
     if (currentUser.role === 'SENIOR') {
       // Drop role - phase 1: teamless SENIOR cannot create.
-      await this.assertSeniorHasActiveTeam(currentUser.id)
+      await this.accessPolicy.assertSeniorHasActiveTeam(currentUser.id)
       // SENIOR always creates on their own board
       seniorId = currentUser.id
     } else if (currentUser.role === 'HR') {
       // HR: check that target senior is in one of their teams
-      const accessibleSeniorIds = await this.getAccessibleSeniorIds(currentUser)
+      const accessibleSeniorIds = await this.accessPolicy.getAccessibleSeniorIds(currentUser)
       if (!accessibleSeniorIds.has(seniorId)) {
         throw apiError('INTERVIEW_SENIOR_NOT_IN_YOUR_TEAMS', HttpStatus.FORBIDDEN)
       }
@@ -197,7 +155,7 @@ export class InterviewsService {
 
     if (!interview) throw apiError('INTERVIEW_NOT_FOUND', HttpStatus.NOT_FOUND)
 
-    await this.assertUpdateAccess(interview, currentUser)
+    await this.accessPolicy.assertUpdateAccess(interview, currentUser)
 
     const updateData: Partial<typeof interviews.$inferInsert> = {
       updatedAt: new Date(),
@@ -239,7 +197,7 @@ export class InterviewsService {
 
     if (!interview) throw apiError('INTERVIEW_NOT_FOUND', HttpStatus.NOT_FOUND)
 
-    await this.assertUpdateAccess(interview, currentUser)
+    await this.accessPolicy.assertUpdateAccess(interview, currentUser)
 
     const oldStage = interview.stage
     const newStage = dto.stage
@@ -323,34 +281,12 @@ export class InterviewsService {
     if (!interview) throw apiError('INTERVIEW_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     if (currentUser.role === 'HR') {
-      const accessibleSeniorIds = await this.getAccessibleSeniorIds(currentUser)
+      const accessibleSeniorIds = await this.accessPolicy.getAccessibleSeniorIds(currentUser)
       if (!accessibleSeniorIds.has(interview.seniorId))
         throw apiError('INTERVIEW_SENIOR_NOT_IN_YOUR_TEAMS', HttpStatus.FORBIDDEN)
     }
 
     await this.db.db.delete(interviews).where(eq(interviews.id, id))
-  }
-
-  private async assertUpdateAccess(
-    interview: InterviewWithRelations,
-    currentUser: SessionUser,
-  ): Promise<void> {
-    if (currentUser.role === 'ADMIN') return
-
-    if (currentUser.role === 'SENIOR') {
-      if (interview.seniorId !== currentUser.id) throw new ForbiddenException()
-      // Drop role - phase 1: teamless SENIOR cannot mutate interviews either.
-      await this.assertSeniorHasActiveTeam(currentUser.id)
-      return
-    }
-
-    if (currentUser.role === 'HR') {
-      const accessibleSeniorIds = await this.getAccessibleSeniorIds(currentUser)
-      if (!accessibleSeniorIds.has(interview.seniorId)) throw new ForbiddenException()
-      return
-    }
-
-    throw new ForbiddenException()
   }
 
   /** Allow-list mapper — id/displayName/avatar only, never email/techStack/finance. */
@@ -414,7 +350,7 @@ export class InterviewsService {
     const notArchived = isNull(users.archivedAt)
 
     if (currentUser.role === 'HR') {
-      const accessibleSeniorIds = [...(await this.getAccessibleSeniorIds(currentUser))]
+      const accessibleSeniorIds = [...(await this.accessPolicy.getAccessibleSeniorIds(currentUser))]
       if (accessibleSeniorIds.length === 0) return []
       const rows = await this.db.db.query.users.findMany({
         where: and(inArray(users.id, accessibleSeniorIds), notArchived),
@@ -471,7 +407,7 @@ export class InterviewsService {
     let projectScope: SQL | undefined = undefined
 
     if (currentUser.role === 'HR') {
-      const accessibleSeniorIds = [...(await this.getAccessibleSeniorIds(currentUser))]
+      const accessibleSeniorIds = [...(await this.accessPolicy.getAccessibleSeniorIds(currentUser))]
       if (accessibleSeniorIds.length === 0) {
         return { openInterviews: 0, hiredThisMonth: 0, activeProjects: 0 }
       }
