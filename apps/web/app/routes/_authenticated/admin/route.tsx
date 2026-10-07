@@ -30,6 +30,7 @@ function AdminTemplatesRoot() {
     // company config — wallet + requisites — so its label is «Компанія».
     { value: 'wallet', label: t`Компанія`, ariaLabel: t`Компанія` },
     { value: 'login-as', label: t`Увійти як`, ariaLabel: t`Увійти як` },
+    { value: 'integrations', label: t`Інтеграції`, ariaLabel: t`Інтеграції` },
   ]
 
   // Derive active tab from pathname: /admin/contracts → 'contracts'
@@ -100,6 +101,9 @@ function AdminTemplatesRoot() {
             </a>
             <a data-testid="admin-templates-tab-login-as" href="/admin/login-as">
               {t`Увійти як`}
+            </a>
+            <a data-testid="admin-templates-tab-integrations" href="/admin/integrations">
+              {t`Інтеграції`}
             </a>
           </span>
         </div>

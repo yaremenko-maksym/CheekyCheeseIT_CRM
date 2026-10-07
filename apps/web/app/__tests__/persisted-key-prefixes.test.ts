@@ -11,6 +11,10 @@ import { PERSISTED_KEY_PREFIXES, shouldDehydrateQuery } from '../routes/__root'
 import { PENDING_QUERY_KEY } from '../hooks/use-pending-items'
 import { notificationsQueryKey } from '../hooks/use-notifications-api'
 import { NOTIFICATION_PREFERENCES_QUERY_KEY } from '../hooks/use-notification-preferences'
+import {
+  interviewRecordingQueryKey,
+  interviewRecordingsQueryKey,
+} from '../lib/meeting-recorder-api'
 
 // PII-bearing keys that were removed in the security audit and must NEVER return.
 const FORBIDDEN_PII_PREFIXES = ['teams', 'team', 'user-team'] as const
@@ -152,5 +156,14 @@ describe('PERSISTED_KEY_PREFIXES — PII exclusion (security audit Fix#1)', () =
   // not a copy of its literal string — a rename travels with it.
   it('NOTIFICATION_PREFERENCES_QUERY_KEY is NOT in the allow-list', () => {
     expect(PERSISTED_KEY_PREFIXES.has(String(NOTIFICATION_PREFERENCES_QUERY_KEY[0]))).toBe(false)
+  })
+
+  it('meeting-recorder transcript query keys are NOT in the persisted allow-list', () => {
+    expect(PERSISTED_KEY_PREFIXES.has(String(interviewRecordingsQueryKey('interview-id')[0]))).toBe(
+      false,
+    )
+    expect(PERSISTED_KEY_PREFIXES.has(String(interviewRecordingQueryKey('recording-id')[0]))).toBe(
+      false,
+    )
   })
 })
