@@ -11480,3 +11480,35 @@ msgstr "receives"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PaySalaryDialog.tsx
 msgid "Оплата…"
 msgstr "Paying…"
+
+#: packages/shared/src/schemas/api-errors/meeting-recorder.ts
+msgid "api-error.MEETING_RECORDER_CONNECTION_NOT_FOUND"
+msgstr "Meeting Recorder connection not found"
+
+#: packages/shared/src/schemas/api-errors/meeting-recorder.ts
+msgid "api-error.MEETING_RECORDER_WEBHOOK_UNAUTHORIZED"
+msgstr "Meeting Recorder webhook authentication failed"
+
+#: packages/shared/src/schemas/api-errors/meeting-recorder.ts
+msgid "api-error.MEETING_RECORDER_SOURCE_MISMATCH"
+msgstr "Meeting Recorder source does not match the paired source"
+
+#: packages/shared/src/schemas/api-errors/meeting-recorder.ts
+msgid "api-error.MEETING_RECORDER_CONNECTION_DISABLED"
+msgstr "Meeting Recorder connection is disabled"
+
+#: packages/shared/src/schemas/api-errors/meeting-recorder.ts
+msgid "api-error.MEETING_RECORDER_CONTENT_TYPE_UNSUPPORTED"
+msgstr "Meeting Recorder webhook content type is not supported"
+
+#: packages/shared/src/schemas/api-errors/meeting-recorder.ts
+msgid "api-error.MEETING_RECORDER_EVENT_INVALID"
+msgstr "Meeting Recorder event does not match the supported V1 contract"
+
+#: packages/shared/src/schemas/api-errors/meeting-recorder.ts
+msgid "api-error.MEETING_RECORDER_RECORDING_NOT_FOUND"
+msgstr "Meeting recording not found"
+
+#: packages/shared/src/schemas/api-errors/meeting-recorder.ts
+msgid "api-error.MEETING_RECORDER_RECORDING_ACCESS_DENIED"
+msgstr "You don't have access to this meeting recording"

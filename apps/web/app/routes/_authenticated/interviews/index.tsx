@@ -16,7 +16,7 @@ import { arrayMove } from '@dnd-kit/sortable'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { z } from 'zod'
-import { Plus, Search } from 'lucide-react'
+import { Plus, Search, Unlink2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Trans } from '@lingui/react/macro'
 import type { InterviewDto, InterviewStage } from '@crm/shared'
@@ -371,6 +371,15 @@ function InterviewsPage() {
             <Button size="sm" onClick={() => setCreateOpen(true)}>
               <Plus className="mr-1.5 h-4 w-4" />
               <Trans>Нова співбесіда</Trans>
+            </Button>
+          )}
+
+          {isAdmin && (
+            <Button size="sm" variant="outline" asChild>
+              <Link to="/interviews/unmatched">
+                <Unlink2 className="mr-1.5 h-4 w-4" />
+                <Trans>Неприв'язані записи</Trans>
+              </Link>
             </Button>
           )}
 

@@ -36,6 +36,8 @@ import {
   getNextStage,
   getPrevStage,
 } from '../constants'
+import { RecordingDetailDialog } from './RecordingDetailDialog'
+import { RecordingSummarySection } from './RecordingSummarySection'
 
 export function InterviewDetailSheet({
   interview,
@@ -67,7 +69,10 @@ export function InterviewDetailSheet({
 
   const [createdProjectId, setCreatedProjectId] = useState<string | null>(null)
   const [confirmUnsaved, setConfirmUnsaved] = useState(false)
+  const [recordingId, setRecordingId] = useState<string | null>(null)
+  const [recorderNestedDialogOpen, setRecorderNestedDialogOpen] = useState(false)
   const closeAfterSave = useRef(false)
+  const recordingsHeadingRef = useRef<HTMLHeadingElement>(null)
 
   const updateMutation = useMutation({
     mutationFn: (data: Record<string, unknown>) =>
@@ -227,7 +232,14 @@ export function InterviewDetailSheet({
     if (!v) {
       // A nested Dialog may trigger a bubbled close event on the Sheet; ignore
       // it when any modal dialog is already open.
-      if (confirmDelete || confirmUnsaved || confirmCreateProject) return
+      if (
+        confirmDelete ||
+        confirmUnsaved ||
+        confirmCreateProject ||
+        recordingId !== null ||
+        recorderNestedDialogOpen
+      )
+        return
       if (form.state.isDirty) {
         setConfirmUnsaved(true)
       } else {
@@ -350,6 +362,13 @@ export function InterviewDetailSheet({
                 </div>
               )}
 
+              <RecordingSummarySection
+                interviewId={interview.id}
+                enabled={open}
+                headingRef={recordingsHeadingRef}
+                onOpenRecording={setRecordingId}
+              />
+
               <div className="space-y-3">
                 <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                   <Trans>Нотатки сеньйора</Trans>
@@ -454,6 +473,19 @@ export function InterviewDetailSheet({
       {/* Bug fix 1: all modal dialogs are OUTSIDE <Sheet> to avoid Radix
           focus-trap conflicts. Sheet.onOpenChange is guarded to ignore close
           events while any dialog is open. */}
+
+      <RecordingDetailDialog
+        recordingId={recordingId}
+        open={recordingId !== null}
+        currentInterviewId={interview.id}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) setRecordingId(null)
+        }}
+        onNestedDialogStateChange={setRecorderNestedDialogOpen}
+        onRemovedFromInterview={() => {
+          requestAnimationFrame(() => recordingsHeadingRef.current?.focus())
+        }}
+      />
 
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <DialogContent data-testid="confirm-delete-dialog">
