@@ -40,9 +40,19 @@ export function InterviewCard({
     <div
       ref={setNodeRef}
       style={style}
-      {...attributes}
-      {...listeners}
+      {...(draggable ? attributes : { role: 'button', tabIndex: 0 })}
+      {...(draggable ? listeners : {})}
       onClick={onClick}
+      onKeyDown={(event) => {
+        if (draggable) {
+          listeners?.onKeyDown?.(event)
+          return
+        }
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          onClick()
+        }
+      }}
       className={cn(
         'group rounded-lg border border-border/60 border-l-4 bg-card p-3',
         'cursor-pointer select-none',
