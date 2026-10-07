@@ -17,7 +17,7 @@ import {
 import { api } from '@/lib/axios'
 
 export const MEETING_RECORDER_CONNECTIONS_QUERY_KEY = ['meeting-recorder-connections'] as const
-export const UNMATCHED_INTERVIEW_RECORDINGS_QUERY_KEY = ['unmatched-interview-recordings'] as const
+export const UNMATCHED_INTERVIEW_RECORDINGS_QUERY_KEY = ['interview-recordings-unmatched'] as const
 
 export const interviewRecordingsQueryKey = (interviewId: string) =>
   ['interview-recordings', interviewId] as const
