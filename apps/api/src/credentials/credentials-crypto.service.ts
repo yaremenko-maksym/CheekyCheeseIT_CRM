@@ -1,6 +1,7 @@
-import { createCipheriv, createDecipheriv, createHash, hkdfSync, randomBytes } from 'node:crypto'
+import { createDecipheriv, createHash } from 'node:crypto'
 import { Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
+import { Aes256GcmHkdf } from '../common/crypto/aes-256-gcm-hkdf'
 
 /**
  * AES-256-GCM encryption for project credential passwords (at-rest).
@@ -34,8 +35,6 @@ import { ConfigService } from '@nestjs/config'
 @Injectable()
 export class CredentialsCryptoService {
   private static readonly ALGORITHM = 'aes-256-gcm'
-  private static readonly IV_BYTES = 12
-  private static readonly KEY_BYTES = 32
   /** Current scheme version emitted by `encrypt`. */
   private static readonly VERSION = 'v2'
   /**
@@ -44,8 +43,8 @@ export class CredentialsCryptoService {
    */
   private static readonly V2_INFO = 'cheekycheese-credentials-v1'
 
-  /** v2 key — HKDF-SHA-256(secret, info=V2_INFO). Used for all new encrypts. */
-  private readonly keyV2: Buffer
+  /** v2 primitive — HKDF-SHA-256(secret, info=V2_INFO). Used for all new encrypts. */
+  private readonly cryptoV2: Aes256GcmHkdf
   /** v1 key — legacy bare SHA-256(secret). Decrypt-only backward compatibility. */
   private readonly keyV1Legacy: Buffer
 
@@ -57,17 +56,7 @@ export class CredentialsCryptoService {
       // Defensive: validateEnv should have caught this. Fail loud, not silent.
       throw new Error('CREDENTIALS_ENC_KEY is not configured')
     }
-    // v2: HKDF with empty salt + fixed `info` for domain separation. hkdfSync
-    // returns an ArrayBuffer; wrap it in a Buffer for the cipher API.
-    this.keyV2 = Buffer.from(
-      hkdfSync(
-        'sha256',
-        Buffer.from(raw, 'utf8'),
-        Buffer.alloc(0),
-        Buffer.from(CredentialsCryptoService.V2_INFO, 'utf8'),
-        CredentialsCryptoService.KEY_BYTES,
-      ),
-    )
+    this.cryptoV2 = new Aes256GcmHkdf(raw, CredentialsCryptoService.V2_INFO)
     // v1: legacy SHA-256 derivation — retained for decrypting pre-upgrade rows.
     this.keyV1Legacy = createHash('sha256').update(raw, 'utf8').digest()
   }
@@ -76,15 +65,12 @@ export class CredentialsCryptoService {
    * Encrypt a plaintext password into the current (v2) versioned token string.
    */
   encrypt(plaintext: string): string {
-    const iv = randomBytes(CredentialsCryptoService.IV_BYTES)
-    const cipher = createCipheriv(CredentialsCryptoService.ALGORITHM, this.keyV2, iv)
-    const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()])
-    const tag = cipher.getAuthTag()
+    const { iv, authTag, ciphertext } = this.cryptoV2.encrypt(plaintext)
 
     return [
       CredentialsCryptoService.VERSION,
       iv.toString('base64'),
-      tag.toString('base64'),
+      authTag.toString('base64'),
       ciphertext.toString('base64'),
     ].join(':')
   }
@@ -105,8 +91,7 @@ export class CredentialsCryptoService {
       throw new Error('Malformed credential token')
     }
 
-    const key = this.keyForVersion(version)
-    if (!key) {
+    if (version !== CredentialsCryptoService.VERSION && version !== 'v1') {
       throw new Error(`Unsupported credential token version: ${version}`)
     }
 
@@ -114,18 +99,15 @@ export class CredentialsCryptoService {
     const tag = Buffer.from(tagB64, 'base64')
     const ciphertext = Buffer.from(dataB64, 'base64')
 
-    const decipher = createDecipheriv(CredentialsCryptoService.ALGORITHM, key, iv)
+    if (version === CredentialsCryptoService.VERSION) {
+      return this.cryptoV2.decrypt({ iv, authTag: tag, ciphertext }).toString('utf8')
+    }
+
+    const decipher = createDecipheriv(CredentialsCryptoService.ALGORITHM, this.keyV1Legacy, iv)
     decipher.setAuthTag(tag)
     // .final() throws "Unsupported state or unable to authenticate data" on a
     // tampered ciphertext/tag — this is the integrity guarantee we rely on.
     const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()])
     return plaintext.toString('utf8')
-  }
-
-  /** Returns the AES key for a known token version, or null for an unknown one. */
-  private keyForVersion(version: string): Buffer | null {
-    if (version === CredentialsCryptoService.VERSION) return this.keyV2
-    if (version === 'v1') return this.keyV1Legacy
-    return null
   }
 }

@@ -46,6 +46,7 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
     "sharp": "^0.35.5",
+    "standardwebhooks": "1.1.1",
     "unpdf": "^1.8.1",
     "zod": "^4.6.5"
   },

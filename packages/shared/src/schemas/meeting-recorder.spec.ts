@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import {
+  createMeetingRecorderConnectionSchema,
+  linkMeetingRecorderRecordingSchema,
+  meetingRecorderArtifactStoredSchema,
+  meetingRecorderIntegrationTestEventSchema,
+  meetingRecorderReadyEventSchema,
+  meetingRecorderRecordingDetailSchema,
+  meetingRecorderSigningSecretSchema,
+  meetingRecorderUnmatchedRecordingSchema,
+  meetingRecorderUpdatedEventSchema,
+  setMeetingRecorderSecretSchema,
+  updateMeetingRecorderConnectionSchema,
   meetingRecorderWebhookEventSchema,
   sanitizeMeetingRecorderRecording,
 } from './meeting-recorder'
@@ -129,6 +140,7 @@ describe('meeting recorder webhook contract', () => {
       datacontenttype: 'application/json',
       data: { test: true },
     }
+    expect(() => meetingRecorderIntegrationTestEventSchema.parse(event)).not.toThrow()
     expect(() => meetingRecorderWebhookEventSchema.parse(event)).not.toThrow()
     expect(() =>
       meetingRecorderWebhookEventSchema.parse({
@@ -136,6 +148,16 @@ describe('meeting recorder webhook contract', () => {
         data: { test: true, unexpected: true },
       }),
     ).toThrow()
+  })
+
+  it('exports exact ready and updated V1 event schemas', () => {
+    expect(() => meetingRecorderReadyEventSchema.parse(snapshotEvent())).not.toThrow()
+    expect(() =>
+      meetingRecorderUpdatedEventSchema.parse({
+        ...snapshotEvent(),
+        type: 'io.github.kstroevsky.meeting-recorder.recording.updated.v1',
+      }),
+    ).not.toThrow()
   })
 
   it('drops artifact viewUrl from the persisted/output recording snapshot', () => {
@@ -156,5 +178,121 @@ describe('meeting recorder webhook contract', () => {
       mimeType: 'video/webm',
       delivery: 'uploaded',
     })
+    expect(() =>
+      meetingRecorderArtifactStoredSchema.parse({
+        type: 'tab-recording',
+        mimeType: 'video/webm',
+        delivery: 'uploaded',
+        viewUrl: 'https://example.test/private',
+      }),
+    ).toThrow()
+  })
+
+  it('validates whsec_ secrets by canonical base64 decoded size, including unpadded input', () => {
+    const secret = (bytes: number) => `whsec_${Buffer.alloc(bytes).toString('base64')}`
+
+    expect(meetingRecorderSigningSecretSchema.parse(secret(24))).toBe(secret(24))
+    expect(meetingRecorderSigningSecretSchema.parse(secret(64))).toBe(secret(64))
+    const unpadded25 = secret(25).replace(/=+$/, '')
+    const unpadded26 = secret(26).replace(/=+$/, '')
+    expect(meetingRecorderSigningSecretSchema.parse(unpadded25)).toBe(unpadded25)
+    expect(meetingRecorderSigningSecretSchema.parse(unpadded26)).toBe(unpadded26)
+    expect(() => meetingRecorderSigningSecretSchema.parse(secret(23))).toThrow()
+    expect(() => meetingRecorderSigningSecretSchema.parse(secret(65))).toThrow()
+    expect(() => meetingRecorderSigningSecretSchema.parse('not-a-webhook-secret')).toThrow()
+    expect(() => meetingRecorderSigningSecretSchema.parse('whsec_not-base64!')).toThrow()
+
+    // 25 zero bytes canonically end in `AA==`. Changing the final data sextet
+    // to `B` keeps the decoded length but makes the base64 representation non-canonical.
+    expect(() => meetingRecorderSigningSecretSchema.parse(`whsec_${'A'.repeat(33)}B==`)).toThrow()
+  })
+
+  it('keeps connection and link write DTOs strict', () => {
+    expect(createMeetingRecorderConnectionSchema.parse({ name: 'Recorder A' })).toEqual({
+      name: 'Recorder A',
+    })
+    expect(updateMeetingRecorderConnectionSchema.parse({ enabled: false })).toEqual({
+      enabled: false,
+    })
+    expect(() => updateMeetingRecorderConnectionSchema.parse({})).toThrow()
+    expect(() =>
+      createMeetingRecorderConnectionSchema.parse({ name: 'Recorder A', unexpected: true }),
+    ).toThrow()
+    expect(() =>
+      linkMeetingRecorderRecordingSchema.parse({
+        interviewId: '5d8938da-0470-48ce-b985-5cfbb478e825',
+        unexpected: true,
+      }),
+    ).toThrow()
+  })
+
+  it('uses interviewId, not matchedBy, as the unmatched-recording source of truth', () => {
+    expect(() =>
+      meetingRecorderUnmatchedRecordingSchema.parse({
+        id: '5d8938da-0470-48ce-b985-5cfbb478e825',
+        interviewId: null,
+        connectionId: '5f074ea3-b0dc-4fcf-8d06-aeb27ed98521',
+        externalRecordingId: 'recording_123',
+        revision: 1,
+        title: 'Interview',
+        startedAt: '2026-10-07T12:00:00.000Z',
+        endedAt: null,
+        durationMs: null,
+        provider: 'google-meet',
+        meetingId: 'abc-defg-hij',
+        meetingUrl: 'https://meet.google.com/abc-defg-hij',
+        stageAtLink: 'TECH_INTERVIEW',
+        matchedBy: 'manual',
+        readiness: { complete: true, release: 'complete', pending: [] },
+        linkedByUserId: null,
+        linkedAt: null,
+        lastEventAt: '2026-10-07T12:01:00.000Z',
+        createdAt: '2026-10-07T12:01:00.000Z',
+        updatedAt: '2026-10-07T12:01:00.000Z',
+      }),
+    ).not.toThrow()
+  })
+
+  it('keeps the signing secret write-only and recording detail snapshot sanitized', () => {
+    const validSecret = `whsec_${Buffer.alloc(32).toString('base64')}`
+    expect(setMeetingRecorderSecretSchema.parse({ secret: validSecret })).toEqual({
+      secret: validSecret,
+    })
+
+    expect(() =>
+      meetingRecorderRecordingDetailSchema.parse({
+        id: '5d8938da-0470-48ce-b985-5cfbb478e825',
+        interviewId: null,
+        connectionId: '5f074ea3-b0dc-4fcf-8d06-aeb27ed98521',
+        externalRecordingId: 'recording_123',
+        revision: 1,
+        title: 'Interview',
+        startedAt: '2026-10-07T12:00:00.000Z',
+        endedAt: null,
+        durationMs: null,
+        provider: 'google-meet',
+        meetingId: 'abc-defg-hij',
+        meetingUrl: 'https://meet.google.com/abc-defg-hij',
+        stageAtLink: null,
+        matchedBy: 'unmatched',
+        readiness: { complete: true, release: 'complete', pending: [] },
+        linkedByUserId: null,
+        linkedAt: null,
+        lastEventAt: '2026-10-07T12:01:00.000Z',
+        createdAt: '2026-10-07T12:01:00.000Z',
+        updatedAt: '2026-10-07T12:01:00.000Z',
+        snapshot: {
+          ...BASE_RECORDING,
+          artifacts: [
+            {
+              type: 'tab-recording',
+              mimeType: 'video/webm',
+              delivery: 'uploaded',
+              viewUrl: 'https://example.test/private',
+            },
+          ],
+        },
+      }),
+    ).toThrow()
   })
 })
