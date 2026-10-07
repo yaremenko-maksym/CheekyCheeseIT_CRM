@@ -279,7 +279,7 @@ export function RelaxableThrottle(
 ): MethodDecorator {
   return Throttle({
     default: {
-      limit: () => (isRelaxed() ? globalLimit() : prodLimit),
+      limit: () => (isRelaxed() ? Math.max(globalLimit(), prodLimit) : prodLimit),
       ttl: () => (isRelaxed() ? globalTtl() : ttlMs),
     },
   })
