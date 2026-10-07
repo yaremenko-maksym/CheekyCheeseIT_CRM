@@ -2749,6 +2749,27 @@ This is **Gate J18**.
 
 ---
 
+### Local acceptance evidence — 2026-10-07
+
+The phase-1 implementation is locally complete. The prescribed behaviors are covered by the following automated evidence; **J16 remains intentionally open because it can only be closed after the migration and privacy review reach the real production perimeter**.
+
+| Gates                 | Automated evidence                                                                                                                                                                                                                                                                     | Result                      |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
+| J0                    | Extension setup/test-connection coverage plus `meeting-recorder-receiver.integration.spec.ts`, which ingests the extension-produced test fixture into real Postgres and asserts `expectedSource` pinning and `lastVerifiedAt`                                                          | Pass locally                |
+| J1, J3, J12, J13, J14 | `tests/e2e/integration-save-to.spec.ts`: connected destination appears under _Save to_, built-ins create no route, end-dialog removal suppresses delivery, deleted integrations become unavailable, and a successful integration delivery creates no public-share publication          | Pass in Chromium            |
+| J2, J4, J5, J8, J9    | `meeting-recorder-receiver.integration.spec.ts` against guarded Postgres 16 `crm_qa`: exact Meet auto-match, unmatched → manual link → revision 2 with link preserved, one stable row across revisions, duplicate receipt idempotency, and revision-2 → revision-1 downgrade rejection | Pass against real Postgres  |
+| J6, J7                | `tests/e2e/integration-delivery.spec.ts`: 503/network retry, lost-response recovery, same event identity/body, Chrome restart recovery, fresh Standard Webhooks timestamp/signature; receiver idempotency is independently exercised against real Postgres                             | Pass in Chromium + Postgres |
+| J10                   | `meeting-recorder-webhook-parser.spec.ts` pins 2,097,152-byte acceptance and 2,097,153-byte `413`; extension contract/planner/dispatcher tests cover pre-send size rejection and non-retryable/action-required handling                                                                | Pass locally                |
+| J11                   | `RecordingDestinationsRuntime.test.ts` proves rename updates the display name while preserving the same profile ID and remembered selection                                                                                                                                            | Pass locally                |
+| J15                   | The integration E2Es use arbitrary local HTTPS receiver destinations through the same generic destination, serializer, signer and delivery machinery; the integration implementation has no CheekyCheese-specific sender path                                                          | Pass locally                |
+| J17                   | `RecordingController.destinations.test.ts` and routing-service coverage remove held routing on discard and cancel unsent work                                                                                                                                                          | Pass locally                |
+| J18                   | `IntegrationEventPlanner.test.ts` proves no automatic readiness before finalization/while a route is held; `integration-save-to.spec.ts` proves no webhook leaves before end-dialog confirmation                                                                                       | Pass locally                |
+| J16                   | Production Cloudflare/nginx smoke against `https://app.cheekycheese.tech`, after migration deployment and privacy review                                                                                                                                                               | **Pending production**      |
+
+The cross-repository fixture bridge below is also implemented. The extension fixture publication is commit `4431290cf215c4f76ef17dd22b0580493caa7eb1`; the CRM manifest pins that commit and the SHA-256 of every exact payload. The CRM test passes those unmodified bytes through the production raw-body parser, Standard Webhooks verifier and shared event schema, and proves a schema-valid byte tamper returns `401` at the verifier seam.
+
+---
+
 ### Cross-repository contract tests
 
 I would add a small explicit contract bridge between the repos.
