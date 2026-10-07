@@ -940,6 +940,7 @@ CORRESPONDS to the requested image tag. The practical consequence:
     apps/api/drizzle/manual/2026-10-04_multiple_salary_transactions_activate.sql \
     apps/api/drizzle/manual/2026-10-05_vacancy_sourcing_schema.sql \
     apps/api/drizzle/manual/2026-10-05_vacancy_sources_seed.sql \
+    apps/api/drizzle/manual/2026-10-07_meeting_recorder_integration.sql \
     scripts/devops/check-security-headers.sh \
     scripts/devops/check-nginx-perimeter.sh \
     scripts/devops/pg-backup.sh \

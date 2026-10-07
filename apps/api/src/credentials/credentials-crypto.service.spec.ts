@@ -1,4 +1,4 @@
-import { createCipheriv, createHash, randomBytes } from 'node:crypto'
+import { createCipheriv, createDecipheriv, createHash, hkdfSync, randomBytes } from 'node:crypto'
 import { ConfigService } from '@nestjs/config'
 import { describe, expect, it } from 'vitest'
 import { CredentialsCryptoService } from './credentials-crypto.service'
@@ -25,6 +25,46 @@ function makeLegacyV1Token(plaintext: string, encKey: string): string {
   return ['v1', iv.toString('base64'), tag.toString('base64'), ciphertext.toString('base64')].join(
     ':',
   )
+}
+
+function derivePreRefactorV2Key(encKey: string): Buffer {
+  return Buffer.from(
+    hkdfSync(
+      'sha256',
+      Buffer.from(encKey, 'utf8'),
+      Buffer.alloc(0),
+      Buffer.from('cheekycheese-credentials-v1', 'utf8'),
+      32,
+    ),
+  )
+}
+
+function makePreRefactorV2Token(plaintext: string, encKey: string): string {
+  const key = derivePreRefactorV2Key(encKey)
+  const iv = randomBytes(12)
+  const cipher = createCipheriv('aes-256-gcm', key, iv)
+  const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()])
+  const tag = cipher.getAuthTag()
+  return ['v2', iv.toString('base64'), tag.toString('base64'), ciphertext.toString('base64')].join(
+    ':',
+  )
+}
+
+function decryptV2WithPreRefactorAlgorithm(token: string, encKey: string): string {
+  const [version, ivB64, tagB64, dataB64] = token.split(':')
+  if (version !== 'v2' || !ivB64 || !tagB64 || !dataB64) {
+    throw new Error('Invalid v2 test vector')
+  }
+  const decipher = createDecipheriv(
+    'aes-256-gcm',
+    derivePreRefactorV2Key(encKey),
+    Buffer.from(ivB64, 'base64'),
+  )
+  decipher.setAuthTag(Buffer.from(tagB64, 'base64'))
+  return Buffer.concat([
+    decipher.update(Buffer.from(dataB64, 'base64')),
+    decipher.final(),
+  ]).toString('utf8')
 }
 
 describe('CredentialsCryptoService', () => {
@@ -58,6 +98,22 @@ describe('CredentialsCryptoService', () => {
     const legacyToken = makeLegacyV1Token(legacyPlaintext, encKey)
     expect(legacyToken.startsWith('v1:')).toBe(true)
     expect(svc.decrypt(legacyToken)).toBe(legacyPlaintext)
+  })
+
+  it('decrypts v2 ciphertext emitted by the pre-refactor implementation', () => {
+    const encKey = 'a'.repeat(64)
+    const svc = makeService(encKey)
+    const token = makePreRefactorV2Token('frozen-v2-compatibility', encKey)
+
+    expect(svc.decrypt(token)).toBe('frozen-v2-compatibility')
+  })
+
+  it('emits v2 ciphertext decryptable by the pre-refactor implementation', () => {
+    const encKey = 'a'.repeat(64)
+    const svc = makeService(encKey)
+    const token = svc.encrypt('new-code-old-reader')
+
+    expect(decryptV2WithPreRefactorAlgorithm(token, encKey)).toBe('new-code-old-reader')
   })
 
   it('does not decrypt a v2 token with the legacy v1 key (KDFs are distinct)', () => {

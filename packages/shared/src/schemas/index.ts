@@ -37,6 +37,7 @@ export * from './telemetry'
 export * from './contact'
 export * from './csp-report'
 export * from './job-sourcing'
+export * from './meeting-recorder'
 export * from './api-errors'
 export * from './zod-errors'
 

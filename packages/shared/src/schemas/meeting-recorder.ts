@@ -123,7 +123,7 @@ export const meetingRecorderReadinessSchema = z
   })
   .strict()
 
-const snapshotDataSchema = z
+export const meetingRecorderSnapshotDataSchema = z
   .object({
     revision: z.number().int().positive(),
     readiness: meetingRecorderReadinessSchema,
@@ -139,12 +139,12 @@ const commonCloudEventShape = {
   datacontenttype: z.literal('application/json'),
 }
 
-const readyEventSchema = z
+export const meetingRecorderReadyEventSchema = z
   .object({
     ...commonCloudEventShape,
     type: z.literal(MEETING_RECORDER_READY_EVENT_TYPE),
     subject: z.string().startsWith('recording/'),
-    data: snapshotDataSchema,
+    data: meetingRecorderSnapshotDataSchema,
   })
   .strict()
   .superRefine((event, ctx) => {
@@ -157,12 +157,12 @@ const readyEventSchema = z
     }
   })
 
-const updatedEventSchema = z
+export const meetingRecorderUpdatedEventSchema = z
   .object({
     ...commonCloudEventShape,
     type: z.literal(MEETING_RECORDER_UPDATED_EVENT_TYPE),
     subject: z.string().startsWith('recording/'),
-    data: snapshotDataSchema,
+    data: meetingRecorderSnapshotDataSchema,
   })
   .strict()
   .superRefine((event, ctx) => {
@@ -175,7 +175,7 @@ const updatedEventSchema = z
     }
   })
 
-const testEventSchema = z
+export const meetingRecorderIntegrationTestEventSchema = z
   .object({
     ...commonCloudEventShape,
     type: z.literal(MEETING_RECORDER_TEST_EVENT_TYPE),
@@ -185,9 +185,9 @@ const testEventSchema = z
   .strict()
 
 export const meetingRecorderWebhookEventSchema = z.union([
-  readyEventSchema,
-  updatedEventSchema,
-  testEventSchema,
+  meetingRecorderReadyEventSchema,
+  meetingRecorderUpdatedEventSchema,
+  meetingRecorderIntegrationTestEventSchema,
 ])
 
 export type MeetingRecorderWebhookEvent = z.infer<typeof meetingRecorderWebhookEventSchema>
@@ -219,10 +219,31 @@ export type UpdateMeetingRecorderConnectionDto = z.infer<
 >
 
 function base64DecodedLength(value: string): number | null {
-  if (value.length === 0 || value.length % 4 !== 0) return null
-  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value)) return null
+  if (value.length === 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(value)) return null
+
   const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0
-  return (value.length / 4) * 3 - padding
+  const dataLength = value.length - padding
+  const remainder = dataLength % 4
+  if (remainder === 1) return null
+
+  if (padding > 0) {
+    const expectedPadding = remainder === 2 ? 2 : remainder === 3 ? 1 : 0
+    if (padding !== expectedPadding || value.length % 4 !== 0) return null
+  }
+
+  const lastDataChar = value[dataLength - 1]
+  if (!lastDataChar) return null
+  const sextet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'.indexOf(
+    lastDataChar,
+  )
+  if (sextet < 0) return null
+
+  // Canonical base64 requires all unused low bits in the final sextet to be 0.
+  // This applies equally to padded and unpadded spellings.
+  if (remainder === 2 && (sextet & 0x0f) !== 0) return null
+  if (remainder === 3 && (sextet & 0x03) !== 0) return null
+
+  return Math.floor((dataLength * 3) / 4)
 }
 
 export const meetingRecorderSigningSecretSchema = z
@@ -246,7 +267,7 @@ export const meetingRecorderConnectionSchema = z
     name: z.string(),
     enabled: z.boolean(),
     secretSet: z.boolean(),
-    expectedSource: z.string().nullable(),
+    expectedSource: meetingRecorderSourceSchema.nullable(),
     signingSecretUpdatedAt: isoDateTimeSchema.nullable(),
     lastVerifiedAt: isoDateTimeSchema.nullable(),
     lastEventAt: isoDateTimeSchema.nullable(),
@@ -295,7 +316,6 @@ export type MeetingRecorderRecordingDetailDto = z.infer<typeof meetingRecorderRe
 export const meetingRecorderUnmatchedRecordingSchema = meetingRecorderRecordingSummarySchema
   .extend({
     interviewId: z.null(),
-    matchedBy: z.literal('unmatched'),
   })
   .strict()
 export type MeetingRecorderUnmatchedRecordingDto = z.infer<
