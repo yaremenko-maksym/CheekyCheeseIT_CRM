@@ -32,3 +32,6 @@ docs/architecture/ecc-reference/
 # .claude/skills/claude-design-workflow/SKILL.md)
 docs/design/assets/**/_ds/**
 docs/design/assets/**/support.js
+
+# Meeting Recorder cross-repository contract payloads are exact signed bytes.
+apps/api/src/integrations/meeting-recorder/__fixtures__/*-v1.json
