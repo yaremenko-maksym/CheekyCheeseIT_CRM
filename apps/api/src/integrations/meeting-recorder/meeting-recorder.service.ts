@@ -625,9 +625,22 @@ export class MeetingRecorderService {
 
   private mapSummary(row: RecordingSummaryRow): MeetingRecorderRecordingSummaryDto {
     return meetingRecorderRecordingSummarySchema.parse({
-      ...row,
+      id: row.id,
+      interviewId: row.interviewId,
+      connectionId: row.connectionId,
+      externalRecordingId: row.externalRecordingId,
+      revision: row.revision,
+      title: row.title,
       startedAt: row.startedAt.toISOString(),
       endedAt: row.endedAt?.toISOString() ?? null,
+      durationMs: row.durationMs,
+      provider: row.provider,
+      meetingId: row.meetingId,
+      meetingUrl: row.meetingUrl,
+      stageAtLink: row.stageAtLink,
+      matchedBy: row.matchedBy,
+      readiness: row.readiness,
+      linkedByUserId: row.linkedByUserId,
       linkedAt: row.linkedAt?.toISOString() ?? null,
       lastEventAt: row.lastEventAt.toISOString(),
       createdAt: row.createdAt.toISOString(),
