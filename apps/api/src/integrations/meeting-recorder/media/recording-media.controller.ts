@@ -1,35 +1,43 @@
-import { Body, Controller, Get, Header, Headers, HttpCode, Param, Post } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Get,
+  Header,
+  HttpCode,
+  Param,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common'
 
 import { Public } from '../../../auth/public.decorator'
 import { RelaxableThrottle } from '../../../config/throttle-decorators'
-import { RecordingMediaAuthService } from './recording-media-auth.service'
+import {
+  RecordingMediaAuthenticationGuard,
+  RecordingMediaConnectionThrottlerGuard,
+} from './recording-media-guards'
 import { RecordingMediaUploadService } from './recording-media-upload.service'
 
 /** Private extension control-plane API; the bearer token selects the connection. */
 @Public()
+@UseGuards(RecordingMediaAuthenticationGuard, RecordingMediaConnectionThrottlerGuard)
 @Controller('integrations/meeting-recorder/media/v1')
 export class RecordingMediaController {
-  constructor(
-    private readonly auth: RecordingMediaAuthService,
-    private readonly uploads: RecordingMediaUploadService,
-  ) {}
+  constructor(private readonly uploads: RecordingMediaUploadService) {}
 
   @Post('uploads')
   @HttpCode(200)
   @Header('Cache-Control', 'no-store')
   @RelaxableThrottle(600, 60_000)
-  async create(@Headers('authorization') credential: string | undefined, @Body() body: unknown) {
-    return this.uploads.create(await this.auth.authenticate(credential), body)
+  async create(@Req() req: { mediaConnectionId: string }, @Body() body: unknown) {
+    return this.uploads.create(req.mediaConnectionId, body)
   }
 
   @Get('uploads/:uploadId')
   @Header('Cache-Control', 'no-store')
   @RelaxableThrottle(600, 60_000)
-  async status(
-    @Headers('authorization') credential: string | undefined,
-    @Param('uploadId') uploadId: string,
-  ) {
-    return this.uploads.status(await this.auth.authenticate(credential), uploadId)
+  async status(@Req() req: { mediaConnectionId: string }, @Param('uploadId') uploadId: string) {
+    return this.uploads.status(req.mediaConnectionId, uploadId)
   }
 
   @Post('uploads/:uploadId/parts/:partNumber')
@@ -37,15 +45,11 @@ export class RecordingMediaController {
   @Header('Cache-Control', 'no-store')
   @RelaxableThrottle(600, 60_000)
   async part(
-    @Headers('authorization') credential: string | undefined,
+    @Req() req: { mediaConnectionId: string },
     @Param('uploadId') uploadId: string,
     @Param('partNumber') partNumber: string,
   ) {
-    return this.uploads.signPart(
-      await this.auth.authenticate(credential),
-      uploadId,
-      Number(partNumber),
-    )
+    return this.uploads.signPart(req.mediaConnectionId, uploadId, Number(partNumber))
   }
 
   @Post('uploads/:uploadId/complete')
@@ -53,11 +57,11 @@ export class RecordingMediaController {
   @Header('Cache-Control', 'no-store')
   @RelaxableThrottle(600, 60_000)
   async complete(
-    @Headers('authorization') credential: string | undefined,
+    @Req() req: { mediaConnectionId: string },
     @Param('uploadId') uploadId: string,
     @Body() body: unknown,
   ) {
-    return this.uploads.complete(await this.auth.authenticate(credential), uploadId, body)
+    return this.uploads.complete(req.mediaConnectionId, uploadId, body)
   }
 
   @Post('artifacts/:artifactId/playback')
@@ -65,9 +69,9 @@ export class RecordingMediaController {
   @Header('Cache-Control', 'no-store')
   @RelaxableThrottle(600, 60_000)
   async playback(
-    @Headers('authorization') credential: string | undefined,
+    @Req() req: { mediaConnectionId: string },
     @Param('artifactId') artifactId: string,
   ) {
-    return this.uploads.playback(await this.auth.authenticate(credential), artifactId)
+    return this.uploads.playback(req.mediaConnectionId, artifactId)
   }
 }
