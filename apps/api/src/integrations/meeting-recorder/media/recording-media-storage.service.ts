@@ -6,6 +6,7 @@ import {
   CreateMultipartUploadCommand,
   GetObjectCommand,
   HeadObjectCommand,
+  ListMultipartUploadsCommand,
   ListPartsCommand,
   S3Client,
   UploadPartCommand,
@@ -19,6 +20,7 @@ const PART_URL_TTL_SECONDS = 15 * 60
 const PLAYBACK_URL_TTL_SECONDS = 30 * 60
 
 export type UploadedMediaPart = { partNumber: number; etag: string }
+export type OpenMediaUpload = { key: string; uploadId: string; initiatedAt: Date }
 
 /** S3/R2 implementation detail of the generic external-media protocol. No media bytes pass through CRM. */
 @Injectable()
@@ -168,6 +170,47 @@ export class RecordingMediaStorageService {
           UploadId: uploadId,
         }),
       )
+    })
+  }
+
+  /** Dedicated media prefix: the documents reconciler must never enumerate these uploads. */
+  async listOpenMediaUploads(): Promise<OpenMediaUpload[]> {
+    return this.safe(async () => {
+      const uploads: OpenMediaUpload[] = []
+      let keyMarker: string | undefined
+      let uploadIdMarker: string | undefined
+      do {
+        const page = await this.client.send(
+          new ListMultipartUploadsCommand({
+            Bucket: this.bucket,
+            Prefix: 'meeting-recordings/',
+            KeyMarker: keyMarker,
+            UploadIdMarker: uploadIdMarker,
+          }),
+        )
+        for (const upload of page.Uploads ?? []) {
+          if (
+            !upload.Key?.startsWith('meeting-recordings/') ||
+            !upload.UploadId ||
+            !(upload.Initiated instanceof Date) ||
+            !Number.isFinite(upload.Initiated.getTime())
+          )
+            continue // Never abort an upload without a valid key, ID and initiation timestamp.
+          uploads.push({
+            key: upload.Key,
+            uploadId: upload.UploadId,
+            initiatedAt: upload.Initiated,
+          })
+        }
+        if (!page.IsTruncated) break
+        const nextKey = page.NextKeyMarker
+        const nextUploadId = page.NextUploadIdMarker
+        if (!nextKey || (nextKey === keyMarker && nextUploadId === uploadIdMarker))
+          throw new Error('Malformed multipart pagination')
+        keyMarker = nextKey
+        uploadIdMarker = nextUploadId
+      } while (true)
+      return uploads
     })
   }
 

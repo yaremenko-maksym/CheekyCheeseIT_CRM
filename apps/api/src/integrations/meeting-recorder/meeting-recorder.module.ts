@@ -19,6 +19,7 @@ import { RecordingMediaAuthService } from './media/recording-media-auth.service'
 import { RecordingMediaStorageService } from './media/recording-media-storage.service'
 import { RecordingMediaUploadService } from './media/recording-media-upload.service'
 import { RecordingMediaController } from './media/recording-media.controller'
+import { RecordingMediaReconciliationService } from './media/recording-media-reconciliation.service'
 import {
   RecordingMediaAuthenticationGuard,
   RecordingMediaConnectionThrottlerGuard,
@@ -44,6 +45,7 @@ import {
     RecordingMediaConnectionThrottlerGuard,
     RecordingMediaStorageService,
     RecordingMediaUploadService,
+    RecordingMediaReconciliationService,
   ],
 })
 export class MeetingRecorderModule {}
