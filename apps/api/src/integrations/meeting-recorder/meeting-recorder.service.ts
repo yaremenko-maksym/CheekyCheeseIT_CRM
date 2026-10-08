@@ -461,6 +461,7 @@ export class MeetingRecorderService {
     let interviewId = existing?.interviewId ?? null
     let stageAtLink = existing?.stageAtLink ?? null
     let matchedBy = existing?.matchedBy ?? ('unmatched' as const)
+    // Stryker disable next-line BooleanLiteral: persisted rows have a non-null boolean and new rows overwrite this value in the matching branch before persistence
     let autoMatchSuppressed = existing?.autoMatchSuppressed ?? false
     let linkedByUserId = existing?.linkedByUserId ?? null
     let linkedAt = existing?.linkedAt ?? null
@@ -529,6 +530,7 @@ export class MeetingRecorderService {
           lastEventAt: eventTime,
           updatedAt: now,
         },
+        // Stryker disable next-line StringLiteral: the revision predicate is compiled by Drizzle and only a real Postgres upsert can distinguish the raw SQL fragment
         setWhere: sql`${interviewRecordings.revision} < ${event.data.revision}`,
       })
       .returning({ id: interviewRecordings.id })

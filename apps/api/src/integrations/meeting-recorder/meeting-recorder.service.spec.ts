@@ -8,6 +8,7 @@ import {
 } from '@crm/shared'
 
 import type { DatabaseService } from '../../database/database.service'
+import { interviewRecordings, meetingRecorderWebhookReceipts } from '../../database/schema'
 import type { DrizzleTx } from '../../database/types'
 import type { InterviewAccessPolicyService } from '../../interviews/interview-access-policy.service'
 import type { MeetingRecorderMatcher } from './meeting-recorder-matcher'
@@ -43,6 +44,7 @@ function updatedEvent(revision: number): MeetingRecorderSnapshotEvent {
         id: 'recording-external-1',
         title: `Revision ${revision}`,
         startedAt: '2026-10-07T18:00:00.000Z',
+        durationMs: 2_520_000,
         source: {
           kind: 'meeting',
           provider: 'google-meet',
@@ -62,14 +64,17 @@ type SnapshotIngestor = {
   ): Promise<void>
 }
 
-function snapshotTx(existingRows: unknown[]) {
+function snapshotTx(
+  existingRows: unknown[],
+  writtenRows: unknown[] = [{ id: 'recording-row-id' }],
+) {
   const limit = vi.fn().mockResolvedValue(existingRows)
   const forUpdate = vi.fn().mockReturnValue({ limit })
   const selectWhere = vi.fn().mockReturnValue({ for: forUpdate })
   const from = vi.fn().mockReturnValue({ where: selectWhere })
   const select = vi.fn().mockReturnValue({ from })
 
-  const insertReturning = vi.fn().mockResolvedValue([{ id: 'recording-row-id' }])
+  const insertReturning = vi.fn().mockResolvedValue(writtenRows)
   const onConflictDoUpdate = vi.fn().mockReturnValue({ returning: insertReturning })
   const insertValues = vi.fn().mockReturnValue({ onConflictDoUpdate })
   const insert = vi.fn().mockReturnValue({ values: insertValues })
@@ -80,10 +85,42 @@ function snapshotTx(existingRows: unknown[]) {
 
   return {
     tx: { select, insert, update } as unknown as DrizzleTx,
+    forUpdate,
     insert,
     insertValues,
     onConflictDoUpdate,
+    insertReturning,
     update,
+    updateSet,
+    updateWhere,
+  }
+}
+
+function webhookTx(connectionRows: unknown[]) {
+  const receiptReturning = vi.fn().mockResolvedValue([{ id: 'receipt-id' }])
+  const onConflictDoNothing = vi.fn().mockReturnValue({ returning: receiptReturning })
+  const receiptValues = vi.fn().mockReturnValue({ onConflictDoNothing })
+  const insert = vi.fn().mockReturnValue({ values: receiptValues })
+
+  const connectionLimit = vi.fn().mockResolvedValue(connectionRows)
+  const connectionForUpdate = vi.fn().mockReturnValue({ limit: connectionLimit })
+  const connectionWhere = vi.fn().mockReturnValue({ for: connectionForUpdate })
+  const from = vi.fn().mockReturnValue({ where: connectionWhere })
+  const select = vi.fn().mockReturnValue({ from })
+
+  const updateWhere = vi.fn().mockResolvedValue([])
+  const updateSet = vi.fn().mockReturnValue({ where: updateWhere })
+  const update = vi.fn().mockReturnValue({ set: updateSet })
+  const tx = { insert, select, update }
+  const transaction = vi.fn(async (callback: (value: typeof tx) => Promise<void>) => callback(tx))
+
+  return {
+    db: { db: { transaction } } as unknown as DatabaseService,
+    receiptValues,
+    onConflictDoNothing,
+    receiptReturning,
+    connectionForUpdate,
+    updateSet,
   }
 }
 
@@ -112,9 +149,206 @@ describe('MeetingRecorderService webhook idempotency', () => {
     ).resolves.toBeUndefined()
 
     expect(insert).toHaveBeenCalledOnce()
+    expect(values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectionId: CONNECTION_ID,
+        webhookId: testEvent.id,
+        eventType: testEvent.type,
+        receivedAt: expect.any(Date),
+      }),
+    )
     expect(onConflictDoNothing).toHaveBeenCalledOnce()
+    expect(onConflictDoNothing).toHaveBeenCalledWith({
+      target: [
+        meetingRecorderWebhookReceipts.connectionId,
+        meetingRecorderWebhookReceipts.webhookId,
+      ],
+    })
     expect(returning).toHaveBeenCalledOnce()
+    expect(returning).toHaveBeenCalledWith({ id: meetingRecorderWebhookReceipts.id })
     expect(select).not.toHaveBeenCalled()
+  })
+
+  it('rejects a claimed webhook when its connection disappeared before the locked read', async () => {
+    const ctx = webhookTx([])
+    const service = new MeetingRecorderService(
+      ctx.db,
+      {} as MeetingRecorderSecretCryptoService,
+      {} as MeetingRecorderMatcher,
+      {} as InterviewAccessPolicyService,
+    )
+
+    const error = await service
+      .ingestWebhookEvent(CONNECTION_ID, testEvent, 'v1:authenticated-secret-token')
+      .then(
+        () => null,
+        (reason: unknown) => reason,
+      )
+
+    expect(error).toBeInstanceOf(HttpException)
+    expect((error as HttpException).getStatus()).toBe(401)
+    expect((error as HttpException).getResponse()).toEqual({
+      code: 'MEETING_RECORDER_WEBHOOK_UNAUTHORIZED',
+    })
+    expect(ctx.connectionForUpdate).toHaveBeenCalledWith('update')
+  })
+
+  it('accepts a claimed test event when the locked connection still has the authenticated secret', async () => {
+    const ctx = webhookTx([
+      {
+        id: CONNECTION_ID,
+        enabled: true,
+        expectedSource: testEvent.source,
+        signingSecretCiphertext: 'v1:authenticated-secret-token',
+      },
+    ])
+    const service = new MeetingRecorderService(
+      ctx.db,
+      {} as MeetingRecorderSecretCryptoService,
+      {} as MeetingRecorderMatcher,
+      {} as InterviewAccessPolicyService,
+    )
+
+    await expect(
+      service.ingestWebhookEvent(CONNECTION_ID, testEvent, 'v1:authenticated-secret-token'),
+    ).resolves.toBeUndefined()
+
+    expect(ctx.connectionForUpdate).toHaveBeenCalledWith('update')
+    expect(ctx.updateSet).toHaveBeenCalledOnce()
+    expect(ctx.updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ lastVerifiedAt: expect.any(Date), updatedAt: expect.any(Date) }),
+    )
+    expect(ctx.updateSet).not.toHaveBeenCalledWith(
+      expect.objectContaining({ expectedSource: expect.any(String) }),
+    )
+  })
+
+  it('rejects a claimed webhook when the connection is disabled', async () => {
+    const ctx = webhookTx([
+      {
+        id: CONNECTION_ID,
+        enabled: false,
+        expectedSource: testEvent.source,
+        signingSecretCiphertext: 'v1:authenticated-secret-token',
+      },
+    ])
+    const service = new MeetingRecorderService(
+      ctx.db,
+      {} as MeetingRecorderSecretCryptoService,
+      {} as MeetingRecorderMatcher,
+      {} as InterviewAccessPolicyService,
+    )
+
+    const error = await service
+      .ingestWebhookEvent(CONNECTION_ID, testEvent, 'v1:authenticated-secret-token')
+      .then(
+        () => null,
+        (reason: unknown) => reason,
+      )
+
+    expect(error).toBeInstanceOf(HttpException)
+    expect((error as HttpException).getStatus()).toBe(410)
+    expect((error as HttpException).getResponse()).toEqual({
+      code: 'MEETING_RECORDER_CONNECTION_DISABLED',
+    })
+    expect(ctx.updateSet).not.toHaveBeenCalled()
+  })
+
+  it('rejects a claimed webhook when the pinned source changes', async () => {
+    const ctx = webhookTx([
+      {
+        id: CONNECTION_ID,
+        enabled: true,
+        expectedSource: 'urn:meeting-recorder:destination:another-producer',
+        signingSecretCiphertext: 'v1:authenticated-secret-token',
+      },
+    ])
+    const service = new MeetingRecorderService(
+      ctx.db,
+      {} as MeetingRecorderSecretCryptoService,
+      {} as MeetingRecorderMatcher,
+      {} as InterviewAccessPolicyService,
+    )
+
+    const error = await service
+      .ingestWebhookEvent(CONNECTION_ID, testEvent, 'v1:authenticated-secret-token')
+      .then(
+        () => null,
+        (reason: unknown) => reason,
+      )
+
+    expect(error).toBeInstanceOf(HttpException)
+    expect((error as HttpException).getStatus()).toBe(403)
+    expect((error as HttpException).getResponse()).toEqual({
+      code: 'MEETING_RECORDER_SOURCE_MISMATCH',
+    })
+    expect(ctx.updateSet).not.toHaveBeenCalled()
+  })
+
+  it('pins the source before accepting the first authenticated test event', async () => {
+    const ctx = webhookTx([
+      {
+        id: CONNECTION_ID,
+        enabled: true,
+        expectedSource: null,
+        signingSecretCiphertext: 'v1:authenticated-secret-token',
+      },
+    ])
+    const service = new MeetingRecorderService(
+      ctx.db,
+      {} as MeetingRecorderSecretCryptoService,
+      {} as MeetingRecorderMatcher,
+      {} as InterviewAccessPolicyService,
+    )
+
+    await expect(
+      service.ingestWebhookEvent(CONNECTION_ID, testEvent, 'v1:authenticated-secret-token'),
+    ).resolves.toBeUndefined()
+
+    expect(ctx.updateSet).toHaveBeenCalledTimes(2)
+    expect(ctx.updateSet).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        expectedSource: testEvent.source,
+        updatedAt: expect.any(Date),
+      }),
+    )
+    expect(ctx.updateSet).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        lastVerifiedAt: expect.any(Date),
+        updatedAt: expect.any(Date),
+      }),
+    )
+  })
+
+  it('dispatches authenticated snapshot events instead of marking them as test verification', async () => {
+    const ctx = webhookTx([
+      {
+        id: CONNECTION_ID,
+        enabled: true,
+        expectedSource: testEvent.source,
+        signingSecretCiphertext: 'v1:authenticated-secret-token',
+      },
+    ])
+    const service = new MeetingRecorderService(
+      ctx.db,
+      {} as MeetingRecorderSecretCryptoService,
+      {} as MeetingRecorderMatcher,
+      {} as InterviewAccessPolicyService,
+    )
+    const snapshotSpy = vi
+      .spyOn(service as unknown as SnapshotIngestor, 'ingestSnapshot')
+      .mockResolvedValue(undefined)
+    const event = updatedEvent(1)
+
+    await expect(
+      service.ingestWebhookEvent(CONNECTION_ID, event, 'v1:authenticated-secret-token'),
+    ).resolves.toBeUndefined()
+
+    expect(snapshotSpy).toHaveBeenCalledOnce()
+    expect(snapshotSpy).toHaveBeenCalledWith(expect.anything(), CONNECTION_ID, event)
+    expect(ctx.updateSet).not.toHaveBeenCalled()
   })
 
   it('rejects a non-duplicate webhook if the signing secret changed after authentication', async () => {
@@ -158,6 +392,7 @@ describe('MeetingRecorderService webhook idempotency', () => {
     expect((error as HttpException).getResponse()).toEqual({
       code: 'MEETING_RECORDER_WEBHOOK_UNAUTHORIZED',
     })
+    expect(forUpdate).toHaveBeenCalledWith('update')
   })
 })
 
@@ -192,6 +427,167 @@ describe('MeetingRecorderService snapshot revision semantics', () => {
     expect(matcher.findExactMatch).not.toHaveBeenCalled()
     expect(ctx.insert).not.toHaveBeenCalled()
     expect(ctx.update).not.toHaveBeenCalled()
+    expect(ctx.forUpdate).toHaveBeenCalledWith('update')
+  })
+
+  it('ignores an equal revision before matching or writing recording state', async () => {
+    const matcher = { findExactMatch: vi.fn() } as unknown as MeetingRecorderMatcher
+    const service = new MeetingRecorderService(
+      {} as DatabaseService,
+      {} as MeetingRecorderSecretCryptoService,
+      matcher,
+      {} as InterviewAccessPolicyService,
+    )
+    const ctx = snapshotTx([
+      {
+        revision: 2,
+        interviewId: null,
+        stageAtLink: null,
+        matchedBy: 'unmatched',
+        autoMatchSuppressed: false,
+        linkedByUserId: null,
+        linkedAt: null,
+      },
+    ])
+
+    await expect(
+      (service as unknown as SnapshotIngestor).ingestSnapshot(
+        ctx.tx,
+        CONNECTION_ID,
+        updatedEvent(2),
+      ),
+    ).resolves.toBeUndefined()
+
+    expect(matcher.findExactMatch).not.toHaveBeenCalled()
+    expect(ctx.insert).not.toHaveBeenCalled()
+    expect(ctx.update).not.toHaveBeenCalled()
+  })
+
+  it('matches a new recording and persists its source metadata', async () => {
+    const matcher = {
+      findExactMatch: vi.fn().mockResolvedValue({
+        interviewId: '22222222-2222-4222-8222-222222222222',
+        stageAtLink: 'TECH_INTERVIEW',
+        matchedBy: 'meeting-id',
+      }),
+    } as unknown as MeetingRecorderMatcher
+    const service = new MeetingRecorderService(
+      {} as DatabaseService,
+      {} as MeetingRecorderSecretCryptoService,
+      matcher,
+      {} as InterviewAccessPolicyService,
+    )
+    const ctx = snapshotTx([])
+
+    await expect(
+      (service as unknown as SnapshotIngestor).ingestSnapshot(
+        ctx.tx,
+        CONNECTION_ID,
+        updatedEvent(1),
+      ),
+    ).resolves.toBeUndefined()
+
+    expect(matcher.findExactMatch).toHaveBeenCalledOnce()
+    expect(ctx.insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        durationMs: 2_520_000,
+        provider: 'google-meet',
+        meetingId: 'abc-defg-hij',
+        meetingUrl: 'https://meet.google.com/abc-defg-hij',
+        interviewId: '22222222-2222-4222-8222-222222222222',
+        matchedBy: 'meeting-id',
+        autoMatchSuppressed: false,
+      }),
+    )
+    expect(ctx.onConflictDoUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: [interviewRecordings.connectionId, interviewRecordings.externalRecordingId],
+      }),
+    )
+    expect(ctx.insertReturning).toHaveBeenCalledWith({ id: interviewRecordings.id })
+    expect(ctx.updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lastEventAt: new Date('2026-10-07T19:01:00.000Z'),
+        updatedAt: expect.any(Date),
+      }),
+    )
+  })
+
+  it('retries exact matching for an unmatched recording that was not manually suppressed', async () => {
+    const matcher = {
+      findExactMatch: vi.fn().mockResolvedValue({
+        interviewId: '22222222-2222-4222-8222-222222222222',
+        stageAtLink: 'TECH_INTERVIEW',
+        matchedBy: 'meeting-id',
+      }),
+    } as unknown as MeetingRecorderMatcher
+    const service = new MeetingRecorderService(
+      {} as DatabaseService,
+      {} as MeetingRecorderSecretCryptoService,
+      matcher,
+      {} as InterviewAccessPolicyService,
+    )
+    const ctx = snapshotTx([
+      {
+        revision: 1,
+        interviewId: null,
+        stageAtLink: null,
+        matchedBy: 'unmatched',
+        autoMatchSuppressed: false,
+        linkedByUserId: null,
+        linkedAt: null,
+      },
+    ])
+
+    await expect(
+      (service as unknown as SnapshotIngestor).ingestSnapshot(
+        ctx.tx,
+        CONNECTION_ID,
+        updatedEvent(2),
+      ),
+    ).resolves.toBeUndefined()
+
+    expect(matcher.findExactMatch).toHaveBeenCalledOnce()
+    expect(ctx.insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        revision: 2,
+        interviewId: '22222222-2222-4222-8222-222222222222',
+        stageAtLink: 'TECH_INTERVIEW',
+        matchedBy: 'meeting-id',
+        autoMatchSuppressed: false,
+      }),
+    )
+  })
+
+  it('keeps a new recording unmatched when no exact interview match exists', async () => {
+    const matcher = {
+      findExactMatch: vi.fn().mockResolvedValue(null),
+    } as unknown as MeetingRecorderMatcher
+    const service = new MeetingRecorderService(
+      {} as DatabaseService,
+      {} as MeetingRecorderSecretCryptoService,
+      matcher,
+      {} as InterviewAccessPolicyService,
+    )
+    const ctx = snapshotTx([])
+
+    await expect(
+      (service as unknown as SnapshotIngestor).ingestSnapshot(
+        ctx.tx,
+        CONNECTION_ID,
+        updatedEvent(1),
+      ),
+    ).resolves.toBeUndefined()
+
+    expect(matcher.findExactMatch).toHaveBeenCalledOnce()
+    expect(ctx.insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        interviewId: null,
+        stageAtLink: null,
+        matchedBy: 'unmatched',
+        autoMatchSuppressed: false,
+      }),
+    )
   })
 
   it('advances a manually linked recording in place without re-matching it', async () => {
@@ -209,6 +605,7 @@ describe('MeetingRecorderService snapshot revision semantics', () => {
         interviewId: '22222222-2222-4222-8222-222222222222',
         stageAtLink: 'TECH_INTERVIEW',
         matchedBy: 'manual',
+        autoMatchSuppressed: false,
         linkedByUserId: '33333333-3333-4333-8333-333333333333',
         linkedAt,
       },
@@ -232,6 +629,7 @@ describe('MeetingRecorderService snapshot revision semantics', () => {
         interviewId: '22222222-2222-4222-8222-222222222222',
         stageAtLink: 'TECH_INTERVIEW',
         matchedBy: 'manual',
+        autoMatchSuppressed: false,
         linkedByUserId: '33333333-3333-4333-8333-333333333333',
         linkedAt,
       }),
@@ -244,6 +642,7 @@ describe('MeetingRecorderService snapshot revision semantics', () => {
           interviewId: '22222222-2222-4222-8222-222222222222',
           stageAtLink: 'TECH_INTERVIEW',
           matchedBy: 'manual',
+          autoMatchSuppressed: false,
           linkedByUserId: '33333333-3333-4333-8333-333333333333',
           linkedAt,
         }),
@@ -289,5 +688,40 @@ describe('MeetingRecorderService snapshot revision semantics', () => {
         autoMatchSuppressed: true,
       }),
     )
+  })
+
+  it('does not advance connection activity when a concurrent newer revision wins the upsert', async () => {
+    const matcher = { findExactMatch: vi.fn() } as unknown as MeetingRecorderMatcher
+    const service = new MeetingRecorderService(
+      {} as DatabaseService,
+      {} as MeetingRecorderSecretCryptoService,
+      matcher,
+      {} as InterviewAccessPolicyService,
+    )
+    const ctx = snapshotTx(
+      [
+        {
+          revision: 1,
+          interviewId: '22222222-2222-4222-8222-222222222222',
+          stageAtLink: 'TECH_INTERVIEW',
+          matchedBy: 'manual',
+          autoMatchSuppressed: false,
+          linkedByUserId: null,
+          linkedAt: null,
+        },
+      ],
+      [],
+    )
+
+    await expect(
+      (service as unknown as SnapshotIngestor).ingestSnapshot(
+        ctx.tx,
+        CONNECTION_ID,
+        updatedEvent(2),
+      ),
+    ).resolves.toBeUndefined()
+
+    expect(ctx.insert).toHaveBeenCalledOnce()
+    expect(ctx.update).not.toHaveBeenCalled()
   })
 })

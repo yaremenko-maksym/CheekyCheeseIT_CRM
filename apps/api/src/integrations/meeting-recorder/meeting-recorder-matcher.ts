@@ -36,8 +36,7 @@ export function googleMeetCodeFromUrl(value: string): string | null {
   const canonical = canonicalizeGoogleMeetUrl(value)
   if (!canonical) return null
   const url = new URL(canonical)
-  const segments = url.pathname.split('/').filter(Boolean)
-  const code = segments.at(-1)
+  const code = url.pathname.split('/').at(-1)
   return code ? code.toLowerCase() : null
 }
 
@@ -63,8 +62,7 @@ export class MeetingRecorderMatcher {
 
     if (incomingCode) {
       const matches = candidates.filter(
-        (candidate) =>
-          candidate.callUrl !== null && googleMeetCodeFromUrl(candidate.callUrl) === incomingCode,
+        (candidate) => googleMeetCodeFromUrl(candidate.callUrl!) === incomingCode,
       )
       if (matches.length === 1) {
         const match = matches[0]!
@@ -79,9 +77,7 @@ export class MeetingRecorderMatcher {
     const incomingUrl = source.meetingUrl ? canonicalizeGoogleMeetUrl(source.meetingUrl) : null
     if (incomingUrl) {
       const matches = candidates.filter(
-        (candidate) =>
-          candidate.callUrl !== null &&
-          canonicalizeGoogleMeetUrl(candidate.callUrl) === incomingUrl,
+        (candidate) => canonicalizeGoogleMeetUrl(candidate.callUrl!) === incomingUrl,
       )
       if (matches.length === 1) {
         const match = matches[0]!

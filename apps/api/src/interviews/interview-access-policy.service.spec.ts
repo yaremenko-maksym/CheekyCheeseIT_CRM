@@ -73,6 +73,11 @@ describe('InterviewAccessPolicyService', () => {
               { userId: activeSeniorId, leftAt: null, user: { role: 'SENIOR' } },
               { userId: leftSeniorId, leftAt: new Date(), user: { role: 'SENIOR' } },
               { userId: HR.id, leftAt: null, user: { role: 'HR' } },
+              {
+                userId: '77777777-7777-4777-8777-777777777777',
+                leftAt: null,
+                user: null,
+              },
             ],
           },
         },
@@ -85,6 +90,17 @@ describe('InterviewAccessPolicyService', () => {
     const compiled = new PgDialect().sqlToQuery(query.where)
     expect(compiled.sql.replace(/"/g, '')).toContain('team_members.left_at is null')
     expect(compiled.params).toContain(HR.id)
+    expect(query).toMatchObject({
+      with: {
+        team: {
+          with: {
+            members: {
+              with: { user: true },
+            },
+          },
+        },
+      },
+    })
   })
 
   it('preserves update semantics for ADMIN, SENIOR ownership/team status, and HR team scope', async () => {
@@ -111,6 +127,11 @@ describe('InterviewAccessPolicyService', () => {
 
     await expect(
       policy.assertUpdateAccess({ seniorId: '66666666-6666-4666-8666-666666666666' }, HR),
+    ).rejects.toBeInstanceOf(ForbiddenException)
+
+    accessible.mockResolvedValue(new Set([SENIOR.id]))
+    await expect(
+      policy.assertUpdateAccess({ seniorId: SENIOR.id }, { ...HR, role: 'ACCOUNTANT' }),
     ).rejects.toBeInstanceOf(ForbiddenException)
   })
 })
