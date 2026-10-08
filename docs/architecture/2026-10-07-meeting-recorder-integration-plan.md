@@ -49,7 +49,7 @@ _Superseded (D46): revision 2 made a folder the intent, chosen at naming time an
 | F5  | The extension signs every attempt again with a fresh `webhook-timestamp` (same `webhook-id`, same body), times out after 15 s, and fetches with `redirect: 'manual'` and `credentials: 'omit'`.                                                                                                                                                                                                                                                                                                                                                      | C3, J7                     |
 | F6  | Extension response classification (`classifyHttpFailure`): `408`, `425`, `429` and `5xx` → retrying; `3xx`, `400`, `401`, `403`, `410` and `413` → action-required; any other non-2xx → failed. At most 6 automatic attempts in total (the first send plus up to 5 retries, so the baseline's _retry count 6_ counts attempts), with full-jitter backoff capped at 30 s, 2 min, 10 min, 1 h, 6 h; a manual retry starts a fresh series; `Retry-After` is honored and clamped to 24 h; failed and action-required deliveries can be retried manually. | HTTP response contract, J6 |
 | F7  | The 2 MiB cap counts UTF-8 bytes of the serialized body and is inclusive (`totalBytes <= 2 * 1024 * 1024`).                                                                                                                                                                                                                                                                                                                                                                                                                                          | C2, J10                    |
-| F8  | Google Meet identity: `provider = 'google-meet'`, `meetingId` = last path segment of the Meet URL, `meetingUrl` with query and fragment stripped. All three are absent when the destination policy has `meetingIdentity: false`.                                                                                                                                                                                                                                                                                                                     | C6                         |
+| F8  | Google Meet identity: `provider = 'google-meet'`, `meetingId` = last path segment of the Meet URL, `meetingUrl` with query and fragment stripped. Published meeting URLs are HTTPS-only; the receiver rejects non-HTTPS schemes before persistence/rendering. All three are absent when the destination policy has `meetingIdentity: false`.                                                                                                                                                                                                         | C6                         |
 | F9  | `normalizeWebhookEndpoint()` requires `https:` and rejects URL credentials and fragments; it does not block private hosts or custom ports.                                                                                                                                                                                                                                                                                                                                                                                                           | Local HTTPS                |
 | F10 | `standardwebhooks@1.1.1` verifies a string (a Buffer is decoded with `toString()`), hard-codes a 5-minute timestamp tolerance, throws `WebhookVerificationError`, and accepts several space-separated `v1,` signatures.                                                                                                                                                                                                                                                                                                                              | C3, contract tests         |
 | F11 | CRM: interviews are hard-deleted (`InterviewsService.remove`) and would also be cascade-deleted with their senior's user row.                                                                                                                                                                                                                                                                                                                                                                                                                        | C1 Table 3                 |
@@ -2050,19 +2050,32 @@ Do not use an untrusted/self-signed certificate; the extension intentionally doe
 
 **[Δ D31]** Simpler variant (F9: the extension accepts any HTTPS host and custom ports): run `mkcert -install` and `mkcert localhost`, then put a TLS reverse proxy (Caddy, for example) on `https://localhost:3443` in front of `http://127.0.0.1:3001`. No hosts-file entry is needed; Chrome asks for host permission on `https://localhost/*`.
 
-#### Option B — easiest setup: HTTPS tunnel
+#### Option B — HTTPS tunnel through a webhook-only proxy
 
-Expose local port `3001` through an HTTPS development tunnel.
+Never expose local port `3001` directly. Non-production CRM enables development-only routes such as
+`POST /api/auth/dev-login`; tunneling the whole API would make those routes reachable from the
+public tunnel as well.
 
-For example:
+Instead, put a local reverse proxy in front of the API that accepts only:
 
 ```text
-https://<temporary-host>/
-    ↓
-localhost:3001
+POST /api/integrations/meeting-recorder/<UUID>/webhook
 ```
 
-This is easier, but test transcript data leaves the machine through the tunnel provider, so only use synthetic/non-sensitive recordings.
+and returns `404`/`403` for every other path and method. Tunnel that restricted proxy port:
+
+```text
+https://<temporary-host>/api/integrations/meeting-recorder/<UUID>/webhook
+    ↓
+webhook-only local proxy
+    ↓
+http://127.0.0.1:3001/api/integrations/meeting-recorder/<UUID>/webhook
+```
+
+Test transcript data still leaves the machine through the tunnel provider, so use only
+synthetic/non-sensitive recordings. The webhook's Standard Webhooks signature remains mandatory;
+the path restriction prevents the tunnel from becoming a public entrance to unrelated development
+API routes.
 
 ---
 
@@ -2767,6 +2780,21 @@ The phase-1 implementation is locally complete. The prescribed behaviors are cov
 | J17                   | `RecordingController.destinations.test.ts` and routing-service coverage remove held routing on discard and cancel unsent work                                                                                                                                                          | Pass locally                |
 | J18                   | `IntegrationEventPlanner.test.ts` proves no automatic readiness before finalization/while a route is held; `integration-save-to.spec.ts` proves no webhook leaves before end-dialog confirmation                                                                                       | Pass locally                |
 | J16                   | Production Cloudflare/nginx smoke against `https://app.cheekycheese.tech`, after migration deployment and privacy review                                                                                                                                                               | **Pending production**      |
+
+Security re-check on 2026-10-08 closed four implementation findings and one documentation hazard
+before this evidence was finalized: manual ADMIN unlink now suppresses future automatic re-linking;
+write-only signing secrets never enter TanStack mutation persistence; B-tree-backed sender
+identifiers are bounded to 512 characters in both sender and receiver contracts, with the upper
+bound exercised against real PostgreSQL; and meeting identity URLs are HTTPS-only before they can
+be persisted or rendered as browser links. The development-tunnel instructions above were also
+restricted to a webhook-only proxy so `/api/auth/dev-login` is never exposed by the documented
+setup.
+
+The scan's proposed connection-ownership restriction was re-checked against the accepted V1 trust
+model and is intentionally not applied: an enabled recorder connection is an organization-wide
+trusted producer, so exact Meet matching remains global while reads still pass through the
+interview access policy. If recorder connections become team/owner-scoped later, matching must be
+scoped at the same boundary.
 
 The cross-repository fixture bridge below is also implemented. The extension fixture publication is commit `4431290cf215c4f76ef17dd22b0580493caa7eb1`; the CRM manifest pins that commit and the SHA-256 of every exact payload. The CRM test passes those unmodified bytes through the production raw-body parser, Standard Webhooks verifier and shared event schema, and proves a schema-valid byte tamper returns `401` at the verifier seam.
 
