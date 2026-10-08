@@ -8,6 +8,10 @@ import { meetingRecorderWebhookReceipts } from '../../database/schema'
 export const MEETING_RECORDER_WEBHOOK_RECEIPT_RETENTION_DAYS = 30
 const RETENTION_MS = MEETING_RECORDER_WEBHOOK_RECEIPT_RETENTION_DAYS * 24 * 60 * 60 * 1000
 
+export function meetingRecorderReceiptRetentionCutoff(now: Date): Date {
+  return new Date(now.getTime() - RETENTION_MS)
+}
+
 @Injectable()
 export class MeetingRecorderRetentionCronService {
   private readonly logger = new Logger(MeetingRecorderRetentionCronService.name)
@@ -28,11 +32,13 @@ export class MeetingRecorderRetentionCronService {
   }
 
   async purgeExpiredReceipts(now: Date = new Date()): Promise<number> {
-    const cutoff = new Date(now.getTime() - RETENTION_MS)
+    const cutoff = meetingRecorderReceiptRetentionCutoff(now)
+    // Stryker disable next-line ObjectLiteral: only deleted.length is consumed; the selected RETURNING columns cannot change the number of rows deleted, and query shape is verified only by real Postgres
+    const returningProjection = { id: meetingRecorderWebhookReceipts.id }
     const deleted = await this.db.db
       .delete(meetingRecorderWebhookReceipts)
       .where(lt(meetingRecorderWebhookReceipts.receivedAt, cutoff))
-      .returning({ id: meetingRecorderWebhookReceipts.id })
+      .returning(returningProjection)
     return deleted.length
   }
 }
