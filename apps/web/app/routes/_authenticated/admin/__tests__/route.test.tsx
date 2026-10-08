@@ -102,7 +102,7 @@ describe('AdminTemplatesRoot — ADMIN tab bar', () => {
     useAuthMock.mockReturnValue({ user: ADMIN_USER, isLoading: false })
   })
 
-  it('renders the four ADMIN_TABS with their catalog labels (visible text, not just aria-label) + a11y nav landmark', () => {
+  it('renders all ADMIN_TABS with their catalog labels (visible text, not just aria-label) + a11y nav landmark', () => {
     render(<AdminTemplatesRoot />)
 
     const nav = screen.getByTestId('admin-tabs-nav')
@@ -118,6 +118,7 @@ describe('AdminTemplatesRoot — ADMIN tab bar', () => {
     )
     expect(screen.getByRole('button', { name: 'Компанія' })).toHaveTextContent('Компанія')
     expect(screen.getByRole('button', { name: 'Увійти як' })).toHaveTextContent('Увійти як')
+    expect(screen.getByRole('button', { name: 'Інтеграції' })).toHaveTextContent('Інтеграції')
   })
 
   it('renders the Outlet for child routes', () => {
@@ -134,6 +135,7 @@ describe('AdminTemplatesRoot — ADMIN tab bar', () => {
     ['tos', 'Умови використання'],
     ['wallet', 'Компанія'],
     ['login-as', 'Увійти як'],
+    ['integrations', 'Інтеграції'],
   ])('clicking the %s tab navigates to /admin/%s', async (value, label) => {
     const user = userEvent.setup()
     render(<AdminTemplatesRoot />)
@@ -158,6 +160,7 @@ describe('AdminTemplatesRoot — ADMIN tab bar', () => {
     ['/admin/tos', 'Умови використання'],
     ['/admin/wallet', 'Компанія'],
     ['/admin/login-as', 'Увійти як'],
+    ['/admin/integrations', 'Інтеграції'],
   ])(
     'marks the tab matching %s as active (text-primary-foreground), others not',
     (path, activeLabel) => {
@@ -167,7 +170,13 @@ describe('AdminTemplatesRoot — ADMIN tab bar', () => {
       expect(screen.getByRole('button', { name: activeLabel })).toHaveClass(
         'text-primary-foreground',
       )
-      for (const label of ['Контракти', 'Умови використання', 'Компанія', 'Увійти як']) {
+      for (const label of [
+        'Контракти',
+        'Умови використання',
+        'Компанія',
+        'Увійти як',
+        'Інтеграції',
+      ]) {
         if (label === activeLabel) continue
         expect(screen.getByRole('button', { name: label })).not.toHaveClass(
           'text-primary-foreground',
@@ -216,5 +225,6 @@ describe('AdminTemplatesRoot — ADMIN tab bar', () => {
     expect(screen.getByTestId('admin-templates-tab-tos')).toHaveTextContent('Умови використання')
     expect(screen.getByTestId('admin-templates-tab-wallet')).toHaveTextContent('Компанія')
     expect(screen.getByTestId('admin-templates-tab-login-as')).toHaveTextContent('Увійти як')
+    expect(screen.getByTestId('admin-templates-tab-integrations')).toHaveTextContent('Інтеграції')
   })
 })

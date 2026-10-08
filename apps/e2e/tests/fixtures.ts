@@ -1140,6 +1140,24 @@ export async function mockAuthAs(page: Page, user: MockUser) {
       ? jsonOk(r, { ...INTERVIEWS[0], id: 'new-interview-id' }, 201)
       : jsonOk(r, INTERVIEWS),
   )
+
+  // Meeting Recorder UI mounts inside the interview detail sheet and fetches
+  // linked recordings as soon as that sheet opens. Without this default mock,
+  // the request reaches the real CI API, gets a 401 (the Playwright browser
+  // does not carry the backend session), and the axios interceptor redirects
+  // the whole test to /login. Specs that exercise recordings register their
+  // own handler after mockAuthAs(), so Playwright's LIFO matching lets those
+  // richer fixtures override this empty default.
+  await page.route(new RegExp(`${API_RE}/interviews/([^/?]+)/recordings$`), (r) => jsonOk(r, []))
+
+  // These two collection queries are likewise mounted by authenticated
+  // Meeting Recorder pages. Keep safe empty defaults here so ordinary auth
+  // fixtures never fall through to the live API; dedicated integration specs
+  // override them after mockAuthAs().
+  await page.route(new RegExp(`${API_RE}/interview-recordings/unmatched$`), (r) => jsonOk(r, []))
+  await page.route(new RegExp(`${API_RE}/integrations/meeting-recorder/connections$`), (r) =>
+    jsonOk(r, []),
+  )
   // HR dashboard summary — registered AFTER the `/interviews/:id` route so it
   // wins under Playwright's LIFO route matching (last-registered handler runs
   // first). Without this ordering the `([^/?]+)` param matcher above would
