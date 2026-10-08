@@ -150,8 +150,13 @@ async function mockResumeEndpoints(
     // State-based, not call-count-based: the profile page may legitimately
     // refetch the resume (staleTime 0) before the user acts, and a counter
     // would then serve the post-submit snapshot too early.
-    const body =
-      textPosted && afterTextPost ? afterTextPost : responses[Math.min(call, responses.length - 1)]
+    // Keep the initial server state for two reads. The profile query uses
+    // staleTime: 0, so mounting/navigation can legitimately issue an immediate
+    // second GET before the first snapshot has been painted. Advancing the
+    // fixture on every raw request made QUEUED disappear before a user could
+    // ever observe it and turned this state-machine test into a timing race.
+    const sequenceIndex = Math.min(Math.max(0, call - 1), responses.length - 1)
+    const body = textPosted && afterTextPost ? afterTextPost : responses[sequenceIndex]
     call += 1
     await route.fulfill(json(body))
   })

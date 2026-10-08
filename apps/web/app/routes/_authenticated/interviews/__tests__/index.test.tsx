@@ -151,6 +151,25 @@ describe('/interviews — job-sourcing entry point (paused, task-hide-job-sourci
     expect(screen.getByText('Нова співбесіда')).toBeInTheDocument()
   })
 
+  it('shows the unmatched-recordings entry point to ADMIN users', async () => {
+    renderPage()
+
+    await screen.findByTestId('interviews-page')
+    expect(screen.getByText("Неприв'язані записи")).toBeInTheDocument()
+  })
+
+  it('does not expose the unmatched-recordings entry point to non-admin users', async () => {
+    vi.mocked(useAuth).mockReturnValue({
+      user: { id: 'senior-uuid-1', role: 'SENIOR' },
+      isLoading: false,
+    } as ReturnType<typeof useAuth>)
+
+    renderPage()
+
+    await screen.findByTestId('interviews-page')
+    expect(screen.queryByText("Неприв'язані записи")).not.toBeInTheDocument()
+  })
+
   it('never mounts JobSuggestionDialog, even indirectly — the dialog import stays, its render does not', async () => {
     renderPage()
 
