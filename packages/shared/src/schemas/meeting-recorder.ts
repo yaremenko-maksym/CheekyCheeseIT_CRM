@@ -10,6 +10,10 @@ export const MEETING_RECORDER_UPDATED_EVENT_TYPE =
 export const MEETING_RECORDER_INDEXED_IDENTIFIER_MAX_CHARS = 512
 
 const isoDateTimeSchema = z.string().datetime({ offset: true })
+const httpsUrlSchema = z
+  .string()
+  .url()
+  .refine((value) => /^https:\/\//i.test(value), 'URL must use HTTPS')
 
 const meetingRecorderSourceSchema = z.string().startsWith('urn:meeting-recorder:destination:')
 
@@ -18,7 +22,7 @@ const recordingSourceSchema = z
     kind: z.enum(['meeting', 'tab']),
     provider: z.string().optional(),
     meetingId: z.string().max(MEETING_RECORDER_INDEXED_IDENTIFIER_MAX_CHARS).optional(),
-    meetingUrl: z.string().url().optional(),
+    meetingUrl: httpsUrlSchema.optional(),
   })
   .strict()
 
@@ -292,7 +296,7 @@ export const meetingRecorderRecordingSummarySchema = z
     durationMs: z.number().min(0).nullable(),
     provider: z.string().nullable(),
     meetingId: z.string().nullable(),
-    meetingUrl: z.string().url().nullable(),
+    meetingUrl: httpsUrlSchema.nullable(),
     stageAtLink: z.string().nullable(),
     matchedBy: z.enum(['meeting-id', 'meeting-url', 'manual', 'unmatched']),
     readiness: meetingRecorderReadinessSchema,
