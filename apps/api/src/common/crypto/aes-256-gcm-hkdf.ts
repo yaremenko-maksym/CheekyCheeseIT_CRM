@@ -13,7 +13,7 @@ export interface Aes256GcmCiphertext {
 type BinaryInput = string | Buffer
 
 function toBuffer(value: BinaryInput): Buffer {
-  return typeof value === 'string' ? Buffer.from(value, 'utf8') : value
+  return Buffer.from(value)
 }
 
 /**
@@ -30,13 +30,7 @@ export class Aes256GcmHkdf {
     }
 
     this.key = Buffer.from(
-      hkdfSync(
-        'sha256',
-        toBuffer(keyMaterial),
-        Buffer.alloc(0),
-        Buffer.from(info, 'utf8'),
-        KEY_BYTES,
-      ),
+      hkdfSync('sha256', toBuffer(keyMaterial), Buffer.alloc(0), Buffer.from(info), KEY_BYTES),
     )
   }
 

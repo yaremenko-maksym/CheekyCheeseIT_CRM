@@ -3,6 +3,7 @@ import Fastify, { type FastifyInstance } from 'fastify'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import {
+  isMeetingRecorderCloudEventsContentType,
   MEETING_RECORDER_WEBHOOK_BODY_LIMIT_BYTES,
   registerMeetingRecorderContentTypeParser,
 } from './meeting-recorder-webhook-parser'
@@ -34,6 +35,25 @@ describe('meeting recorder raw-body content-type parser', () => {
 
   it('pins the sender-compatible inclusive 2 MiB UTF-8 byte limit', () => {
     expect(MEETING_RECORDER_WEBHOOK_BODY_LIMIT_BYTES).toBe(2 * 1024 * 1024)
+  })
+
+  it.each([
+    'application/cloudevents+json',
+    'Application/CloudEvents+Json ; charset=utf-8',
+    'application/cloudevents+json; charset=utf-8',
+  ])('recognizes the exact CloudEvents content type %s', (value) => {
+    expect(isMeetingRecorderCloudEventsContentType(value)).toBe(true)
+  })
+
+  it.each([
+    'xapplication/cloudevents+json',
+    'application/cloudevents+jsonx',
+    'application/json',
+    ['application/cloudevents+json'],
+    null,
+    42,
+  ])('does not recognize unrelated or non-string content type %j', (value) => {
+    expect(isMeetingRecorderCloudEventsContentType(value)).toBe(false)
   })
 
   it('accepts exactly 2 MiB and preserves the exact raw string', async () => {
