@@ -100,6 +100,23 @@ describe('meeting recorder backend V1 contract boundary', () => {
     expect(meetingRecorderWebhookEventSchema.safeParse(invalid).success).toBe(false)
   })
 
+  it('rejects non-HTTPS meeting URLs before they can reach browser links', () => {
+    for (const meetingUrl of [
+      'http://meet.google.com/abc-defg-hij',
+      'javascript:alert(1)',
+      'data:text/html,<h1>unsafe</h1>',
+    ]) {
+      expect(
+        meetingRecorderWebhookEventSchema.safeParse(
+          snapshotEvent({
+            ...BASE_RECORDING,
+            source: { ...BASE_RECORDING.source, meetingUrl },
+          }),
+        ).success,
+      ).toBe(false)
+    }
+  })
+
   it('keeps non-indexed sender strings bounded only by the transport envelope', () => {
     const longValue = 'x'.repeat(128 * 1024)
     const event = snapshotEvent({
