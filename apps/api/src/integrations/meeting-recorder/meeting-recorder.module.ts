@@ -19,6 +19,10 @@ import { RecordingMediaAuthService } from './media/recording-media-auth.service'
 import { RecordingMediaStorageService } from './media/recording-media-storage.service'
 import { RecordingMediaUploadService } from './media/recording-media-upload.service'
 import { RecordingMediaController } from './media/recording-media.controller'
+import {
+  RecordingMediaAuthenticationGuard,
+  RecordingMediaConnectionThrottlerGuard,
+} from './media/recording-media-guards'
 
 @Module({
   imports: [InterviewsModule, ScheduleModule.forRoot()],
@@ -36,6 +40,8 @@ import { RecordingMediaController } from './media/recording-media.controller'
     MeetingRecorderMatcher,
     MeetingRecorderRetentionCronService,
     RecordingMediaAuthService,
+    RecordingMediaAuthenticationGuard,
+    RecordingMediaConnectionThrottlerGuard,
     RecordingMediaStorageService,
     RecordingMediaUploadService,
   ],
