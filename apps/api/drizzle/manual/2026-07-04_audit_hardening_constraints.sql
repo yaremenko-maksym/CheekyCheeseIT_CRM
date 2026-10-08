@@ -32,8 +32,10 @@
 --     -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
 --     < apps/api/drizzle/manual/2026-07-04_audit_hardening_constraints.sql
 --
--- The script is FULLY IDEMPOTENT — every statement uses IF NOT EXISTS.
--- Re-running it on a database that already has these objects is safe (no-op).
+-- The script is FULLY IDEMPOTENT. The legacy salary receiver/month uniqueness
+-- is additionally transition-aware: after multipart salary creates
+-- salary_month_initializations, that uniqueness is retired and MUST NOT be
+-- recreated on later deploys.
 --
 -- See also: docs/architecture/2026-07-04-audit-constraints-deploy-runbook.md
 -- =============================================================================
@@ -44,7 +46,10 @@
 -- BEFORE running the DDL — otherwise the CREATE INDEX will fail on conflict.
 -- ---------------------------------------------------------------------------
 
--- SEC-01 duplicates: multiple SALARY rows for the same (receiver, month)
+-- SEC-01 duplicates: multiple SALARY rows for the same (receiver, month).
+-- Only a violation before multipart salary has created
+-- salary_month_initializations. Afterwards multiple salary parts/month are
+-- valid and the legacy unique index below is intentionally skipped.
 -- SELECT receiver_id, salary_month, count(*)
 --   FROM transactions
 --  WHERE type = 'SALARY' AND salary_month IS NOT NULL
@@ -95,15 +100,24 @@
 -- =============================================================================
 -- 1. SEC-01 — salary-cron idempotency (transactions)
 -- =============================================================================
--- Partial unique index: at most one SALARY row per (receiver_id, salary_month).
--- Mirrors: uniqueIndex('uq_transactions_salary_receiver_month')
---            .on(t.receiverId, t.salaryMonth)
---            .where(sql`${t.type} = 'SALARY' AND ${t.salaryMonth} IS NOT NULL`)
--- Source: schema.ts ~line 571; PR #332.
+-- Legacy partial unique index: at most one SALARY row per
+-- (receiver_id, salary_month). Multipart salary (2026-10-04) deliberately
+-- replaced this invariant with salary_month_initializations so manual salary
+-- parts can share a month. deploy.yml replays this July DDL on every deploy,
+-- therefore the marker table is the durable transition boundary: create the
+-- legacy index only on databases that have not entered the multipart model.
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_transactions_salary_receiver_month
-  ON transactions (receiver_id, salary_month)
-  WHERE type = 'SALARY' AND salary_month IS NOT NULL;
+DO $$
+BEGIN
+  IF to_regclass('public.salary_month_initializations') IS NULL THEN
+    EXECUTE $sql$
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_transactions_salary_receiver_month
+        ON transactions (receiver_id, salary_month)
+        WHERE type = 'SALARY' AND salary_month IS NOT NULL
+    $sql$;
+  END IF;
+END
+$$;
 
 -- =============================================================================
 -- 2. BIZ-11 — one PENDING obligation per source transaction (pending_obligations)
@@ -207,7 +221,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_transactions_dividend_idempotency_key
   WHERE type = 'DIVIDEND_TO_ADMIN' AND idempotency_key IS NOT NULL;
 
 -- =============================================================================
--- VERIFY: after applying, run this query — expect exactly 7 rows.
+-- VERIFY: before multipart salary, expect exactly 7 rows. After multipart
+-- salary, expect 6 because uq_transactions_salary_receiver_month is retired.
 -- =============================================================================
 -- SELECT indexname
 --   FROM pg_indexes
