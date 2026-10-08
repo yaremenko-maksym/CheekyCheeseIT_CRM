@@ -1,15 +1,27 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PgDialect, getTableConfig } from 'drizzle-orm/pg-core'
+import {
+  One,
+  createTableRelationsHelpers,
+  extractTablesRelationalConfig,
+  type Relation,
+} from 'drizzle-orm/relations'
 import { describe, expect, it } from 'vitest'
 
 import {
   interviewRecordings,
+  interviewRecordingsRelations,
   interviews,
+  interviewsRelations,
   meetingRecorderAuditLog,
+  meetingRecorderAuditLogRelations,
   meetingRecorderConnections,
+  meetingRecorderConnectionsRelations,
   meetingRecorderWebhookReceipts,
+  meetingRecorderWebhookReceiptsRelations,
   users,
+  usersRelations,
 } from './schema'
 
 const migration = readFileSync(
@@ -25,6 +37,34 @@ function fkFor(table: Parameters<typeof getTableConfig>[0], columnName: string) 
 
 function normalizedSql(value: Parameters<PgDialect['sqlToQuery']>[0]): string {
   return new PgDialect().sqlToQuery(value).sql.replace(/"/g, '').replace(/\s+/g, ' ').trim()
+}
+
+const relationalConfig = extractTablesRelationalConfig(
+  {
+    users,
+    usersRelations,
+    interviews,
+    interviewsRelations,
+    meetingRecorderConnections,
+    meetingRecorderConnectionsRelations,
+    meetingRecorderWebhookReceipts,
+    meetingRecorderWebhookReceiptsRelations,
+    interviewRecordings,
+    interviewRecordingsRelations,
+    meetingRecorderAuditLog,
+    meetingRecorderAuditLogRelations,
+  },
+  createTableRelationsHelpers,
+).tables
+
+function relationShape(relation: Relation) {
+  const oneConfig = relation instanceof One ? relation.config : undefined
+  return {
+    referencedTable: relation.referencedTableName,
+    relationName: relation.relationName,
+    fields: oneConfig?.fields.map((column) => column.name) ?? [],
+    references: oneConfig?.references.map((column) => column.name) ?? [],
+  }
 }
 
 describe('meeting recorder database foundation', () => {
@@ -99,6 +139,22 @@ describe('meeting recorder database foundation', () => {
       (item) => item.name === 'ck_interview_recordings_revision_positive',
     )
     expect(normalizedSql(revisionCheck!.value)).toContain('interview_recordings.revision > 0')
+
+    expect(config.indexes.map((item) => item.config.name)).toEqual([
+      'uq_interview_recordings_connection_external',
+      'idx_interview_recordings_interview',
+      'idx_interview_recordings_connection',
+      'idx_interview_recordings_meeting_id',
+      'idx_interview_recordings_started_at',
+      'idx_interview_recordings_unmatched_created_at',
+    ])
+
+    const matchedByCheck = config.checks.find(
+      (item) => item.name === 'ck_interview_recordings_matched_by',
+    )
+    expect(normalizedSql(matchedByCheck!.value)).toContain(
+      "interview_recordings.matched_by IN ('meeting-id', 'meeting-url', 'manual', 'unmatched')",
+    )
   })
 
   it('keeps the audit table metadata-only and retains rows when referenced entities disappear', () => {
@@ -114,6 +170,130 @@ describe('meeting recorder database foundation', () => {
     expect(fkFor(meetingRecorderAuditLog, 'actor_user_id')?.onDelete).toBe('set null')
     expect(fkFor(meetingRecorderAuditLog, 'connection_id')?.onDelete).toBe('set null')
     expect(fkFor(meetingRecorderAuditLog, 'interview_recording_id')?.onDelete).toBe('set null')
+
+    expect(config.indexes.map((item) => item.config.name)).toEqual([
+      'idx_meeting_recorder_audit_log_created_at',
+      'idx_meeting_recorder_audit_log_connection',
+      'idx_meeting_recorder_audit_log_recording',
+    ])
+    expect(config.checks.map((item) => item.name)).toEqual(['ck_meeting_recorder_audit_log_action'])
+    expect(normalizedSql(config.checks[0]!.value)).toContain(
+      "meeting_recorder_audit_log.action IN ('connection-created', 'connection-renamed', 'connection-enabled', 'connection-disabled', 'secret-replaced', 'token-issued', 'pairing-reset', 'recording-linked', 'recording-unlinked', 'recording-purged', 'media-purged')",
+    )
+  })
+
+  it('pins the meeting-recorder relation graph used by Drizzle relational queries', () => {
+    expect(
+      relationShape(relationalConfig.users!.relations.createdMeetingRecorderConnections!),
+    ).toEqual({
+      referencedTable: 'meeting_recorder_connections',
+      relationName: 'meetingRecorderConnectionCreator',
+      fields: [],
+      references: [],
+    })
+    expect(relationShape(relationalConfig.users!.relations.linkedInterviewRecordings!)).toEqual({
+      referencedTable: 'interview_recordings',
+      relationName: 'interviewRecordingLinker',
+      fields: [],
+      references: [],
+    })
+    expect(relationShape(relationalConfig.users!.relations.meetingRecorderAuditEntries!)).toEqual({
+      referencedTable: 'meeting_recorder_audit_log',
+      relationName: 'meetingRecorderAuditActor',
+      fields: [],
+      references: [],
+    })
+
+    expect(relationShape(relationalConfig.interviews!.relations.recordings!)).toEqual({
+      referencedTable: 'interview_recordings',
+      relationName: undefined,
+      fields: [],
+      references: [],
+    })
+
+    expect(relationShape(relationalConfig.meetingRecorderConnections!.relations.creator!)).toEqual({
+      referencedTable: 'users',
+      relationName: 'meetingRecorderConnectionCreator',
+      fields: ['created_by'],
+      references: ['id'],
+    })
+    expect(relationShape(relationalConfig.meetingRecorderConnections!.relations.receipts!)).toEqual(
+      {
+        referencedTable: 'meeting_recorder_webhook_receipts',
+        relationName: undefined,
+        fields: [],
+        references: [],
+      },
+    )
+    expect(
+      relationShape(relationalConfig.meetingRecorderConnections!.relations.recordings!),
+    ).toEqual({
+      referencedTable: 'interview_recordings',
+      relationName: undefined,
+      fields: [],
+      references: [],
+    })
+    expect(
+      relationShape(relationalConfig.meetingRecorderConnections!.relations.auditEntries!),
+    ).toEqual({
+      referencedTable: 'meeting_recorder_audit_log',
+      relationName: undefined,
+      fields: [],
+      references: [],
+    })
+
+    expect(
+      relationShape(relationalConfig.meetingRecorderWebhookReceipts!.relations.connection!),
+    ).toEqual({
+      referencedTable: 'meeting_recorder_connections',
+      relationName: undefined,
+      fields: ['connection_id'],
+      references: ['id'],
+    })
+
+    expect(relationShape(relationalConfig.interviewRecordings!.relations.interview!)).toEqual({
+      referencedTable: 'interviews',
+      relationName: undefined,
+      fields: ['interview_id'],
+      references: ['id'],
+    })
+    expect(relationShape(relationalConfig.interviewRecordings!.relations.connection!)).toEqual({
+      referencedTable: 'meeting_recorder_connections',
+      relationName: undefined,
+      fields: ['connection_id'],
+      references: ['id'],
+    })
+    expect(relationShape(relationalConfig.interviewRecordings!.relations.linkedByUser!)).toEqual({
+      referencedTable: 'users',
+      relationName: 'interviewRecordingLinker',
+      fields: ['linked_by_user_id'],
+      references: ['id'],
+    })
+    expect(relationShape(relationalConfig.interviewRecordings!.relations.auditEntries!)).toEqual({
+      referencedTable: 'meeting_recorder_audit_log',
+      relationName: undefined,
+      fields: [],
+      references: [],
+    })
+
+    expect(relationShape(relationalConfig.meetingRecorderAuditLog!.relations.actor!)).toEqual({
+      referencedTable: 'users',
+      relationName: 'meetingRecorderAuditActor',
+      fields: ['actor_user_id'],
+      references: ['id'],
+    })
+    expect(relationShape(relationalConfig.meetingRecorderAuditLog!.relations.connection!)).toEqual({
+      referencedTable: 'meeting_recorder_connections',
+      relationName: undefined,
+      fields: ['connection_id'],
+      references: ['id'],
+    })
+    expect(relationShape(relationalConfig.meetingRecorderAuditLog!.relations.recording!)).toEqual({
+      referencedTable: 'interview_recordings',
+      relationName: undefined,
+      fields: ['interview_recording_id'],
+      references: ['id'],
+    })
   })
 
   it('keeps the manual migration idempotent and aligned with Drizzle names/invariants', () => {
