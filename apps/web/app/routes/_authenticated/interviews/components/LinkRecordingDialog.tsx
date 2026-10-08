@@ -167,6 +167,8 @@ export function LinkRecordingDialog({
                 </Label>
                 <Input
                   id="recording-link-search"
+                  type="search"
+                  enterKeyHint="search"
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                   placeholder={t`Компанія або стадія`}

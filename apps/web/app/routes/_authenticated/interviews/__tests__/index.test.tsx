@@ -43,6 +43,7 @@ vi.mock('@tanstack/react-router', async (orig) => {
   return {
     ...real,
     useNavigate: () => mockNavigate,
+    Link: ({ children }: { children?: React.ReactNode }) => <a>{children}</a>,
     // Hand-rolled — NOT the real generated route object. The real
     // `createFileRoute(path)(options).useSearch()` needs an active router
     // match this test never mounts; this stub keeps `.options.component`

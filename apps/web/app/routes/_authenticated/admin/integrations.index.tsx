@@ -414,6 +414,9 @@ function CreateConnectionDialog({
               id="meeting-recorder-secret"
               type="password"
               autoComplete="new-password"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
               value={secret}
               onChange={(event) => {
                 setSecret(event.target.value)
@@ -613,6 +616,9 @@ function SecretConnectionDialog({
             id="meeting-recorder-replace-secret"
             type="password"
             autoComplete="new-password"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
             value={secret}
             onChange={(event) => {
               setSecret(event.target.value)
