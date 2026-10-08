@@ -321,6 +321,7 @@ function CreateConnectionDialog({
   const [secret, setSecret] = useState('')
   const [nameError, setNameError] = useState<string | null>(null)
   const [secretError, setSecretError] = useState<string | null>(null)
+  const [isCreating, setIsCreating] = useState(false)
 
   function closeDialog() {
     setName('')
@@ -330,51 +331,45 @@ function CreateConnectionDialog({
     onOpenChange(false)
   }
 
-  const createMutation = useMutation({
-    mutationFn: async ({
-      connectionName,
-      signingSecret,
-    }: {
-      connectionName: string
-      signingSecret: string
-    }) => {
-      const created = await meetingRecorderApi.createConnection({ name: connectionName })
-      try {
-        await meetingRecorderApi.setConnectionSecret(created.id, { secret: signingSecret })
-        return { secretSaved: true }
-      } catch {
-        return { secretSaved: false }
-      }
-    },
-    onSuccess: async ({ secretSaved }) => {
-      await queryClient.invalidateQueries({ queryKey: MEETING_RECORDER_CONNECTIONS_QUERY_KEY })
-      closeDialog()
-      if (secretSaved) toast.success(t`Підключення створено`)
-      else toast.error(t`Підключення створено, але секрет не вдалося зберегти`)
-    },
-    onError: () => toast.error(t`Не вдалося створити підключення`),
-    onSettled: () => setSecret(''),
-  })
-
-  function submit() {
+  async function submit() {
     const parsedName = createMeetingRecorderConnectionSchema.safeParse({ name })
     const parsedSecret = meetingRecorderSigningSecretSchema.safeParse(secret)
     setNameError(parsedName.success ? null : t`Введіть назву підключення`)
     setSecretError(
       parsedSecret.success ? null : t`Секрет має починатися з whsec_ і містити 24–64 байти Base64`,
     )
-    if (!parsedName.success || !parsedSecret.success) return
-    createMutation.mutate({
-      connectionName: parsedName.data.name,
-      signingSecret: parsedSecret.data,
-    })
+    if (!parsedName.success || !parsedSecret.success || isCreating) return
+
+    // Keep write-only credentials out of TanStack mutation state: paused mutations are
+    // otherwise eligible for persistence. Clear the controlled input before awaiting I/O.
+    const signingSecret = parsedSecret.data
+    setSecret('')
+    setIsCreating(true)
+    try {
+      const created = await meetingRecorderApi.createConnection({ name: parsedName.data.name })
+      let secretSaved = true
+      try {
+        await meetingRecorderApi.setConnectionSecret(created.id, { secret: signingSecret })
+      } catch {
+        secretSaved = false
+      }
+
+      await queryClient.invalidateQueries({ queryKey: MEETING_RECORDER_CONNECTIONS_QUERY_KEY })
+      closeDialog()
+      if (secretSaved) toast.success(t`Підключення створено`)
+      else toast.error(t`Підключення створено, але секрет не вдалося зберегти`)
+    } catch {
+      toast.error(t`Не вдалося створити підключення`)
+    } finally {
+      setIsCreating(false)
+    }
   }
 
   return (
     <Dialog
       open={open}
       onOpenChange={(nextOpen) => {
-        if (!nextOpen && !createMutation.isPending) {
+        if (!nextOpen && !isCreating) {
           closeDialog()
         } else if (nextOpen) {
           onOpenChange(true)
@@ -439,12 +434,12 @@ function CreateConnectionDialog({
             variant="outline"
             data-testid="cancel-button"
             onClick={closeDialog}
-            disabled={createMutation.isPending}
+            disabled={isCreating}
           >
             <Trans>Скасувати</Trans>
           </Button>
-          <Button onClick={submit} disabled={createMutation.isPending}>
-            {createMutation.isPending ? t`Створення…` : t`Створити`}
+          <Button onClick={submit} disabled={isCreating}>
+            {isCreating ? t`Створення…` : t`Створити`}
           </Button>
         </CrmDialogFooter>
       </CrmDialogContent>
@@ -560,6 +555,7 @@ function SecretConnectionDialog({
   const queryClient = useQueryClient()
   const [secret, setSecret] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [isSaving, setIsSaving] = useState(false)
 
   function closeDialog() {
     setSecret('')
@@ -567,23 +563,35 @@ function SecretConnectionDialog({
     onOpenChange(null)
   }
 
-  const secretMutation = useMutation({
-    mutationFn: ({ id, nextSecret }: { id: string; nextSecret: string }) =>
-      meetingRecorderApi.setConnectionSecret(id, { secret: nextSecret }),
-    onSuccess: async () => {
+  async function submitSecret() {
+    if (!connection || isSaving) return
+    const parsed = meetingRecorderSigningSecretSchema.safeParse(secret)
+    if (!parsed.success) {
+      setError(t`Секрет має починатися з whsec_ і містити 24–64 байти Base64`)
+      return
+    }
+
+    const connectionId = connection.id
+    const signingSecret = parsed.data
+    setSecret('')
+    setIsSaving(true)
+    try {
+      await meetingRecorderApi.setConnectionSecret(connectionId, { secret: signingSecret })
       await queryClient.invalidateQueries({ queryKey: MEETING_RECORDER_CONNECTIONS_QUERY_KEY })
-      onOpenChange(null)
+      closeDialog()
       toast.success(t`Signing secret оновлено`)
-    },
-    onError: () => toast.error(t`Не вдалося оновити signing secret`),
-    onSettled: () => setSecret(''),
-  })
+    } catch {
+      toast.error(t`Не вдалося оновити signing secret`)
+    } finally {
+      setIsSaving(false)
+    }
+  }
 
   return (
     <Dialog
       open={connection !== null}
       onOpenChange={(open) => {
-        if (!open && !secretMutation.isPending) {
+        if (!open && !isSaving) {
           closeDialog()
         }
       }}
@@ -624,23 +632,12 @@ function SecretConnectionDialog({
             variant="outline"
             data-testid="cancel-button"
             onClick={closeDialog}
-            disabled={secretMutation.isPending}
+            disabled={isSaving}
           >
             <Trans>Скасувати</Trans>
           </Button>
-          <Button
-            disabled={secretMutation.isPending || !connection}
-            onClick={() => {
-              if (!connection) return
-              const parsed = meetingRecorderSigningSecretSchema.safeParse(secret)
-              if (!parsed.success) {
-                setError(t`Секрет має починатися з whsec_ і містити 24–64 байти Base64`)
-                return
-              }
-              secretMutation.mutate({ id: connection.id, nextSecret: parsed.data })
-            }}
-          >
-            {secretMutation.isPending ? t`Збереження…` : t`Зберегти`}
+          <Button disabled={isSaving || !connection} onClick={submitSecret}>
+            {isSaving ? t`Збереження…` : t`Зберегти`}
           </Button>
         </CrmDialogFooter>
       </CrmDialogContent>

@@ -46,6 +46,12 @@ export function shouldDehydrateQuery(query: Query): boolean {
   return query.state.status === 'success' && PERSISTED_KEY_PREFIXES.has(String(query.queryKey[0]))
 }
 
+// Mutations are never durable browser state. In particular, write-only inputs such as
+// integration signing secrets must not be serialized when TanStack pauses a mutation offline.
+export function shouldDehydrateMutation(): boolean {
+  return false
+}
+
 export const Route = createRootRoute({
   component: RootDocument,
 })
@@ -78,6 +84,7 @@ function RootDocument() {
               // allow-list (see PERSISTED_KEY_PREFIXES). Pending / error states are
               // transient and never rehydrated into a fresh session.
               shouldDehydrateQuery,
+              shouldDehydrateMutation,
             },
           }}
         >
