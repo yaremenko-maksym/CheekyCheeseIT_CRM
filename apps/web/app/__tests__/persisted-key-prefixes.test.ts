@@ -7,7 +7,11 @@
  */
 import { describe, it, expect } from 'vitest'
 import type { Query } from '@tanstack/react-query'
-import { PERSISTED_KEY_PREFIXES, shouldDehydrateQuery } from '../routes/__root'
+import {
+  PERSISTED_KEY_PREFIXES,
+  shouldDehydrateMutation,
+  shouldDehydrateQuery,
+} from '../routes/__root'
 import { PENDING_QUERY_KEY } from '../hooks/use-pending-items'
 import { notificationsQueryKey } from '../hooks/use-notifications-api'
 import { NOTIFICATION_PREFERENCES_QUERY_KEY } from '../hooks/use-notification-preferences'
@@ -165,5 +169,9 @@ describe('PERSISTED_KEY_PREFIXES — PII exclusion (security audit Fix#1)', () =
     expect(PERSISTED_KEY_PREFIXES.has(String(interviewRecordingQueryKey('recording-id')[0]))).toBe(
       false,
     )
+  })
+
+  it('mutations are never dehydrated into IndexedDB', () => {
+    expect(shouldDehydrateMutation()).toBe(false)
   })
 })
