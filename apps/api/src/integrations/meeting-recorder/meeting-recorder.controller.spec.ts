@@ -1,5 +1,6 @@
 import { HttpException, HttpStatus, Logger } from '@nestjs/common'
-import type { FastifyRequest } from 'fastify'
+import type { FastifyReply, FastifyRequest } from 'fastify'
+import type { ConfigService } from '@nestjs/config'
 import { MEETING_RECORDER_TEST_EVENT_TYPE, type SessionUser } from '@crm/shared'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -13,6 +14,9 @@ import {
 } from './meeting-recorder-errors'
 import type { MeetingRecorderService } from './meeting-recorder.service'
 import type { MeetingRecorderWebhookVerifier } from './meeting-recorder-webhook-verifier'
+import type { RecordingMediaAuthService } from './media/recording-media-auth.service'
+import type { RecordingMediaStorageService } from './media/recording-media-storage.service'
+import type { Env } from '../../config/env'
 
 const CONNECTION_ID = '11111111-1111-4111-8111-111111111111'
 const EVENT_ID = 'event_11111111-1111-4111-8111-111111111111'
@@ -55,14 +59,29 @@ function mocks() {
     resetPairing: vi.fn().mockReturnValue('pairing-reset'),
   }
   const verifier = { verify: vi.fn().mockReturnValue(true) }
+  const mediaAuth = {
+    isProvisioned: vi.fn().mockResolvedValue(false),
+    replaceToken: vi.fn().mockResolvedValue({ token: 'new-token' }),
+  }
+  const storage = {
+    uploadOrigin: vi.fn().mockResolvedValue('https://bucket.r2.cloudflarestorage.com'),
+  }
+  const config = { get: vi.fn().mockReturnValue('https://app.cheekycheese.tech') }
+  const reply = {
+    code: vi.fn().mockReturnThis(),
+    header: vi.fn().mockReturnThis(),
+  } as unknown as FastifyReply
   const controller = new MeetingRecorderWebhookController(
     service as unknown as MeetingRecorderService,
     verifier as unknown as MeetingRecorderWebhookVerifier,
+    mediaAuth as unknown as RecordingMediaAuthService,
+    storage as unknown as RecordingMediaStorageService,
+    config as unknown as ConfigService<Env, true>,
   )
-  return { service, verifier, controller }
+  return { service, verifier, mediaAuth, storage, config, reply, controller }
 }
 
-async function expectWebhookError(promise: Promise<void>, status: number, code: string) {
+async function expectWebhookError(promise: Promise<unknown>, status: number, code: string) {
   const error = await promise.then(
     () => null,
     (reason: unknown) => reason,
@@ -120,10 +139,10 @@ describe('MeetingRecorderWebhookController', () => {
   })
 
   it('rejects malformed connection ids before authentication', async () => {
-    const { controller, service } = mocks()
+    const { controller, service, reply } = mocks()
 
     await expectWebhookError(
-      controller.receiveWebhook('not-a-uuid', JSON.stringify(event), request()),
+      controller.receiveWebhook('not-a-uuid', JSON.stringify(event), request(), reply),
       401,
       'MEETING_RECORDER_WEBHOOK_UNAUTHORIZED',
     )
@@ -134,10 +153,15 @@ describe('MeetingRecorderWebhookController', () => {
     ['content-type', 'application/json', JSON.stringify(event)],
     ['body', 'application/cloudevents+json', event],
   ])('rejects unsupported webhook %s', async (_label, contentType, body) => {
-    const { controller, service } = mocks()
+    const { controller, service, reply } = mocks()
 
     await expectWebhookError(
-      controller.receiveWebhook(CONNECTION_ID, body, request({ 'content-type': contentType })),
+      controller.receiveWebhook(
+        CONNECTION_ID,
+        body,
+        request({ 'content-type': contentType }),
+        reply,
+      ),
       415,
       'MEETING_RECORDER_CONTENT_TYPE_UNSUPPORTED',
     )
@@ -152,10 +176,15 @@ describe('MeetingRecorderWebhookController', () => {
     ['webhook-timestamp', ['duplicate']],
     ['webhook-signature', ['duplicate']],
   ])('rejects invalid %s header value', async (name, value) => {
-    const { controller, service } = mocks()
+    const { controller, service, reply } = mocks()
 
     await expectWebhookError(
-      controller.receiveWebhook(CONNECTION_ID, JSON.stringify(event), request({ [name]: value })),
+      controller.receiveWebhook(
+        CONNECTION_ID,
+        JSON.stringify(event),
+        request({ [name]: value }),
+        reply,
+      ),
       401,
       'MEETING_RECORDER_WEBHOOK_UNAUTHORIZED',
     )
@@ -163,11 +192,11 @@ describe('MeetingRecorderWebhookController', () => {
   })
 
   it('rejects a failed cryptographic verification', async () => {
-    const { controller, verifier, service } = mocks()
+    const { controller, verifier, service, reply } = mocks()
     verifier.verify.mockReturnValue(false)
 
     await expectWebhookError(
-      controller.receiveWebhook(CONNECTION_ID, JSON.stringify(event), request()),
+      controller.receiveWebhook(CONNECTION_ID, JSON.stringify(event), request(), reply),
       401,
       'MEETING_RECORDER_WEBHOOK_UNAUTHORIZED',
     )
@@ -184,10 +213,10 @@ describe('MeetingRecorderWebhookController', () => {
   })
 
   it('rejects malformed JSON after signature verification', async () => {
-    const { controller, service } = mocks()
+    const { controller, service, reply } = mocks()
 
     await expectWebhookError(
-      controller.receiveWebhook(CONNECTION_ID, '{', request()),
+      controller.receiveWebhook(CONNECTION_ID, '{', request(), reply),
       422,
       'MEETING_RECORDER_EVENT_INVALID',
     )
@@ -197,7 +226,7 @@ describe('MeetingRecorderWebhookController', () => {
   it('rejects schema-invalid events and webhook-id mismatches', async () => {
     const invalid = mocks()
     await expectWebhookError(
-      invalid.controller.receiveWebhook(CONNECTION_ID, '{}', request()),
+      invalid.controller.receiveWebhook(CONNECTION_ID, '{}', request(), invalid.reply),
       422,
       'MEETING_RECORDER_EVENT_INVALID',
     )
@@ -209,6 +238,7 @@ describe('MeetingRecorderWebhookController', () => {
         CONNECTION_ID,
         JSON.stringify(event),
         request({ 'webhook-id': 'event_different' }),
+        mismatched.reply,
       ),
       422,
       'MEETING_RECORDER_EVENT_INVALID',
@@ -217,10 +247,13 @@ describe('MeetingRecorderWebhookController', () => {
   })
 
   it('verifies and ingests a valid signed event with the authenticated ciphertext', async () => {
-    const { controller, service, verifier } = mocks()
+    const { controller, service, verifier, reply } = mocks()
     const body = JSON.stringify(event)
 
-    await expect(controller.receiveWebhook(CONNECTION_ID, body, request())).resolves.toBeUndefined()
+    await expect(
+      controller.receiveWebhook(CONNECTION_ID, body, request(), reply),
+    ).resolves.toBeUndefined()
+    expect(reply.code).toHaveBeenCalledWith(204)
 
     expect(service.getWebhookAuthentication).toHaveBeenCalledWith(CONNECTION_ID)
     expect(verifier.verify).toHaveBeenCalledWith(
@@ -240,7 +273,7 @@ describe('MeetingRecorderWebhookController', () => {
   // line goes through the #1042 redaction helpers, so it carries the SQLSTATE
   // and frames but none of the bound parameter values.
   it('logs the redacted failure under the same requestId, with no transcript in the line', async () => {
-    const { controller, service } = mocks()
+    const { controller, service, reply } = mocks()
     const transcript = 'PRIVATE_TRANSCRIPT_CANARY'
     // Shaped like a real drizzle error, which is what makes this a test of the
     // redaction and not of a stub: `query` plus a `params` ARRAY holding the bound
@@ -272,7 +305,7 @@ describe('MeetingRecorderWebhookController', () => {
 
     try {
       const error = await controller
-        .receiveWebhook(CONNECTION_ID, JSON.stringify(event), request())
+        .receiveWebhook(CONNECTION_ID, JSON.stringify(event), request(), reply)
         .then(
           () => null,
           (reason: unknown) => reason,
@@ -308,7 +341,7 @@ describe('MeetingRecorderWebhookController', () => {
   // would have logged that message verbatim, because it redacts only pg/drizzle
   // nodes; `strictErrorStack` logs the name and frames and never the message.
   it('logs no message for a plain Error whose message carries a transcript', async () => {
-    const { controller, service } = mocks()
+    const { controller, service, reply } = mocks()
     const transcript = 'PRIVATE_TRANSCRIPT_CANARY'
     service.ingestWebhookEvent.mockRejectedValue(
       new Error(`wrapper failed while ingesting: ${transcript}`),
@@ -321,7 +354,7 @@ describe('MeetingRecorderWebhookController', () => {
 
     try {
       const error = await controller
-        .receiveWebhook(CONNECTION_ID, JSON.stringify(event), request())
+        .receiveWebhook(CONNECTION_ID, JSON.stringify(event), request(), reply)
         .then(
           () => null,
           (reason: unknown) => reason,
@@ -342,7 +375,7 @@ describe('MeetingRecorderWebhookController', () => {
   })
 
   it('reports a non-Error throw by type alone, never by its value', async () => {
-    const { controller, service } = mocks()
+    const { controller, service, reply } = mocks()
     // `String(err)` on a thrown string IS the value — exactly what must not be logged.
     service.ingestWebhookEvent.mockRejectedValue('PRIVATE_TRANSCRIPT_CANARY')
 
@@ -353,7 +386,7 @@ describe('MeetingRecorderWebhookController', () => {
 
     try {
       await controller
-        .receiveWebhook(CONNECTION_ID, JSON.stringify(event), request())
+        .receiveWebhook(CONNECTION_ID, JSON.stringify(event), request(), reply)
         .catch(() => undefined)
       const line = logged[0]!.map((part) => String(part)).join(' ')
       expect(line).not.toContain('PRIVATE_TRANSCRIPT_CANARY')
@@ -364,7 +397,7 @@ describe('MeetingRecorderWebhookController', () => {
   })
 
   it('normalizes unexpected ingestion failures before telemetry can see private recorder content', async () => {
-    const { controller, service } = mocks()
+    const { controller, service, reply } = mocks()
     const canaries = [
       'PRIVATE_TRANSCRIPT_CANARY',
       'PRIVATE_NOTE_CANARY',
@@ -378,7 +411,7 @@ describe('MeetingRecorderWebhookController', () => {
     )
 
     const error = await controller
-      .receiveWebhook(CONNECTION_ID, JSON.stringify(event), request())
+      .receiveWebhook(CONNECTION_ID, JSON.stringify(event), request(), reply)
       .then(
         () => null,
         (reason: unknown) => reason,
@@ -406,7 +439,7 @@ describe('MeetingRecorderWebhookController', () => {
   })
 
   it('preserves the allow-listed expected webhook 4xx error shape from ingestion', async () => {
-    const { controller, service } = mocks()
+    const { controller, service, reply } = mocks()
     const expected = meetingRecorderWebhookError(
       'MEETING_RECORDER_CONNECTION_DISABLED',
       HttpStatus.GONE,
@@ -414,20 +447,20 @@ describe('MeetingRecorderWebhookController', () => {
     service.ingestWebhookEvent.mockRejectedValue(expected)
 
     await expectWebhookError(
-      controller.receiveWebhook(CONNECTION_ID, JSON.stringify(event), request()),
+      controller.receiveWebhook(CONNECTION_ID, JSON.stringify(event), request(), reply),
       HttpStatus.GONE,
       'MEETING_RECORDER_CONNECTION_DISABLED',
     )
   })
 
   it('normalizes unexpected webhook 5xx HttpExceptions instead of forwarding their message/cause', async () => {
-    const { controller, service } = mocks()
+    const { controller, service, reply } = mocks()
     service.ingestWebhookEvent.mockRejectedValue(
       new HttpException('PRIVATE_TRANSCRIPT_CANARY', HttpStatus.INTERNAL_SERVER_ERROR),
     )
 
     const error = await controller
-      .receiveWebhook(CONNECTION_ID, JSON.stringify(event), request())
+      .receiveWebhook(CONNECTION_ID, JSON.stringify(event), request(), reply)
       .then(
         () => null,
         (reason: unknown) => reason,
@@ -436,6 +469,38 @@ describe('MeetingRecorderWebhookController', () => {
     expect(error).toBeInstanceOf(HttpException)
     expect((error as HttpException).getStatus()).toBe(HttpStatus.SERVICE_UNAVAILABLE)
     expect(JSON.stringify(error)).not.toContain('PRIVATE_TRANSCRIPT_CANARY')
+  })
+
+  it('advertises media only for a provisioned connection with HTTPS storage', async () => {
+    const ctx = mocks()
+    ctx.mediaAuth.isProvisioned.mockResolvedValue(true)
+    const result = await ctx.controller.receiveWebhook(
+      CONNECTION_ID,
+      JSON.stringify(event),
+      request(),
+      ctx.reply,
+    )
+    expect(ctx.reply.code).toHaveBeenCalledWith(200)
+    expect(result).toEqual({
+      protocol: 'io.github.kstroevsky.meeting-recorder.service.v1',
+      capabilities: {
+        events: { version: 1 },
+        media: {
+          version: 1,
+          apiBase: 'https://app.cheekycheese.tech/api/integrations/meeting-recorder/media',
+          upload: {
+            strategy: 'multipart-put-v1',
+            origins: ['https://bucket.r2.cloudflarestorage.com'],
+          },
+          playback: { strategy: 'refreshable-url-v1' },
+        },
+      },
+    })
+    ctx.storage.uploadOrigin.mockResolvedValue(null)
+    await expect(
+      ctx.controller.receiveWebhook(CONNECTION_ID, JSON.stringify(event), request(), ctx.reply),
+    ).resolves.toBeUndefined()
+    expect(ctx.reply.code).toHaveBeenLastCalledWith(204)
   })
 })
 
@@ -446,6 +511,7 @@ describe('MeetingRecorderAdminController', () => {
     const { service } = mocks()
     const controller = new MeetingRecorderAdminController(
       service as unknown as MeetingRecorderService,
+      { replaceToken: vi.fn() } as unknown as RecordingMediaAuthService,
     )
 
     expect(controller.listConnections()).toBe('connections')
