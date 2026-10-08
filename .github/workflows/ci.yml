@@ -784,16 +784,21 @@ jobs:
     # No explicit ceiling existed here before task-mutation-gate-dryrun-timeout
     # (2026-09-24) — the job silently ran under GitHub's own 360min (6h)
     # per-job default, an implicit number this file never stated anywhere.
-    # 75 is a REASONED ceiling, not "large enough it can never fire" (the same
-    # standard the "Mutation gate (changed code only)" step's own comment,
-    # below, already holds MUTATION_BUDGET_SECONDS to):
+    # The ceiling is package-specific because the changed-code API gate now has
+    # a materially different measured cost from shared/web. `matrix.package`
+    # below keeps both the mutation budget and the containing job timeout next
+    # to the package they constrain, so the expensive API leg does not silently
+    # relax the two cheaper legs.
+    #
+    # 75 min for shared/web remains the REASONED ceiling from the original
+    # matrix split (same standard the mutation step below applies):
     #   ~10 min  setup margin (checkout, pnpm/node setup, actions/cache, Typst
     #            install, `pnpm install --frozen-lockfile`, `pnpm build`) —
     #            measured 54s-63s on a cache hit across several recent runs
     #            (`gh run view <id> --json jobs` on this job's own steps), this
     #            is generous headroom for a cold Typst-cache miss or a loaded
     #            runner, not the observed figure itself.
-    #   60 min   MUTATION_BUDGET_SECONDS=3600 below — the gate's OWN external
+    #   60 min   MUTATION_BUDGET_SECONDS=3600 — the gate's OWN external
     #            kill switch for the whole per-package Stryker run (dry run +
     #            mutation testing together), unchanged by this task. Stryker's
     #            OWN internal dryRunTimeoutMinutes (20, mutation-gate.mjs
@@ -809,14 +814,24 @@ jobs:
     # over the reasoned 72min sum above for exactly the runner-contention
     # variance already measured and documented on the step's budget below
     # (2.7x spread from host load alone, PR #613).
-    timeout-minutes: 75
+    #
+    # API is calibrated separately from PR #865's observed failure: 1,589
+    # changed API lines produced 873 mutants, including 124 static mutants.
+    # Its clean 3,176-test dry run completed, but the 3,600s gate reached only
+    # 782/873 mutants before the external budget fired. The runner's own
+    # progress estimate still showed roughly another 90 minutes of mutation
+    # work. A 10,800s (3h) API budget therefore covers that measured workload
+    # with useful margin; 195 min leaves the same explicit setup/report margin
+    # around it. This is deliberately scoped to API rather than tripling every
+    # package's budget.
+    timeout-minutes: ${{ matrix.package.timeout }}
     strategy:
       fail-fast: false
       matrix:
         package:
-          - { name: '@crm/shared', slug: 'shared' }
-          - { name: '@crm/api', slug: 'api' }
-          - { name: '@crm/web', slug: 'web' }
+          - { name: '@crm/shared', slug: 'shared', budget: 3600, timeout: 75 }
+          - { name: '@crm/api', slug: 'api', budget: 10800, timeout: 195 }
+          - { name: '@crm/web', slug: 'web', budget: 3600, timeout: 75 }
     env:
       S3_ENDPOINT: http://localhost:9000
       S3_FORCE_PATH_STYLE: 'true'
@@ -936,15 +951,11 @@ jobs:
       # same thing dorny/paths-filter relies on). If the base cannot be resolved
       # the script exits 2 rather than reporting "nothing changed".
       #
-      # Budget: 1 hour, unchanged by the matrix split (task-infra-mutation-
-      # gate-matrix, 2026-09-03). This is the SAME 3600s the single job used
-      # before the split, carried over as-is rather than divided or
-      # re-guessed three ways: no per-leg timing exists yet to calibrate a
-      # smaller number against, and a smaller budget here would be a silent
-      # tightening dressed up as a refactor. `MUTATION_PACKAGES` below only
-      # narrows WHICH package this leg mutates; the ceiling it can spend
-      # doing so is the one the whole job had (recalibrated 2026-08-30 — see
-      # below; was 900s/15min).
+      # Budget: package-specific, supplied by the matrix above. Shared/web keep
+      # the original 3600s ceiling from task-infra-mutation-gate-matrix. API is
+      # 10800s based on the measured PR #865 run documented at the job header.
+      # `MUTATION_PACKAGES` below narrows WHICH package this leg mutates; the
+      # matrix budget bounds how long that package can spend doing so.
       #
       # The old 900s figure was measured against a BROKEN `apps/web` gate: a
       # fixed repo-root walk-up in the vitest configs landed on the wrong
@@ -969,7 +980,7 @@ jobs:
       #     312s (a >=2.9x gap, and an unknown amount worse since the CI run
       #     never got to report its own completion time).
       #
-      # 3600s is chosen with that spread in mind: comfortably above the
+      # 3600s for shared/web is chosen with that spread in mind: comfortably above the
       # worst MEASURED number (841s, local-under-load) with margin to spare
       # for a CI runner that is already shown to be slower still, while
       # staying a bounded, reasoned figure rather than "large enough it can
@@ -982,7 +993,7 @@ jobs:
       - name: Mutation gate (changed code only)
         if: steps.scope.outputs.code == 'true' && github.event_name == 'pull_request'
         env:
-          MUTATION_BUDGET_SECONDS: '3600'
+          MUTATION_BUDGET_SECONDS: ${{ matrix.package.budget }}
           MUTATION_PACKAGES: ${{ matrix.package.name }}
         run: node scripts/devops/mutation-gate.mjs --changed
 
@@ -1189,6 +1200,13 @@ jobs:
             # job timeout on a recent main run, gh run 31194170529) but has ample headroom —
             # 11 fast mocked tests do not meaningfully move that number.
             files: tests/interviews.spec.ts tests/job-sourcing-mobile.spec.ts tests/profile-self-edit.spec.ts tests/requisites-warning.spec.ts tests/admin-actions.spec.ts tests/onboarding-logout.spec.ts tests/documents-pdf-preview.spec.ts tests/persist-query.spec.ts tests/vacancies.spec.ts tests/crm
+          - name: meeting-recorder
+            # The Meeting Recorder flow is a self-contained mocked-browser suite
+            # spanning admin connection setup, unmatched-recording linking and
+            # interview playback metadata. Keep it isolated from `misc`: that
+            # shard is already the slowest leg, while this integration has its
+            # own contract and should fail independently when it regresses.
+            files: tests/meeting-recorder.spec.ts
           - name: drop-finance
             # tests/drop-payout-currency.spec.ts (PR #521, feat/drop-payout-currency,
             # not yet merged as of this line landing): drop obligation payout in
