@@ -7,6 +7,7 @@ export const MEETING_RECORDER_READY_EVENT_TYPE =
   `${MEETING_RECORDER_EVENT_NAMESPACE}.recording.ready.v1` as const
 export const MEETING_RECORDER_UPDATED_EVENT_TYPE =
   `${MEETING_RECORDER_EVENT_NAMESPACE}.recording.updated.v1` as const
+export const MEETING_RECORDER_INDEXED_IDENTIFIER_MAX_CHARS = 512
 
 const isoDateTimeSchema = z.string().datetime({ offset: true })
 
@@ -16,7 +17,7 @@ const recordingSourceSchema = z
   .object({
     kind: z.enum(['meeting', 'tab']),
     provider: z.string().optional(),
-    meetingId: z.string().optional(),
+    meetingId: z.string().max(MEETING_RECORDER_INDEXED_IDENTIFIER_MAX_CHARS).optional(),
     meetingUrl: z.string().url().optional(),
   })
   .strict()
@@ -84,7 +85,7 @@ export const meetingRecorderArtifactStoredSchema = meetingRecorderArtifactInputS
 
 export const meetingRecorderRecordingInputSchema = z
   .object({
-    id: z.string().min(1),
+    id: z.string().min(1).max(MEETING_RECORDER_INDEXED_IDENTIFIER_MAX_CHARS),
     title: z.string(),
     startedAt: isoDateTimeSchema,
     endedAt: isoDateTimeSchema.optional(),
@@ -133,7 +134,7 @@ export const meetingRecorderSnapshotDataSchema = z
 
 const commonCloudEventShape = {
   specversion: z.literal('1.0'),
-  id: z.string().min(1),
+  id: z.string().min(1).max(MEETING_RECORDER_INDEXED_IDENTIFIER_MAX_CHARS),
   source: meetingRecorderSourceSchema,
   time: isoDateTimeSchema,
   datacontenttype: z.literal('application/json'),

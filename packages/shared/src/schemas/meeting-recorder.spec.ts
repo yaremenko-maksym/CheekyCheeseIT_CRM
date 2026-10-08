@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   createMeetingRecorderConnectionSchema,
   linkMeetingRecorderRecordingSchema,
+  MEETING_RECORDER_INDEXED_IDENTIFIER_MAX_CHARS,
   meetingRecorderArtifactStoredSchema,
   meetingRecorderIntegrationTestEventSchema,
   meetingRecorderReadyEventSchema,
@@ -102,7 +103,7 @@ describe('meeting recorder webhook contract', () => {
     ).toThrow()
   })
 
-  it('does not impose artificial sender length limits', () => {
+  it('keeps free-form sender fields envelope-bounded rather than schema-bounded', () => {
     const longValue = 'x'.repeat(10_000)
     expect(() =>
       meetingRecorderWebhookEventSchema.parse(
@@ -112,12 +113,47 @@ describe('meeting recorder webhook contract', () => {
           source: {
             kind: 'meeting',
             provider: longValue,
-            meetingId: longValue,
+            meetingId: 'abc-defg-hij',
             meetingUrl: `https://example.test/${longValue}`,
           },
         }),
       ),
     ).not.toThrow()
+  })
+
+  it('bounds identifiers that are persisted in PostgreSQL B-tree indexes', () => {
+    const atLimit = 'x'.repeat(MEETING_RECORDER_INDEXED_IDENTIFIER_MAX_CHARS)
+    const overLimit = `${atLimit}x`
+    const recordingAtLimit = {
+      ...BASE_RECORDING,
+      id: atLimit,
+      source: { ...BASE_RECORDING.source, meetingId: atLimit },
+    }
+
+    expect(
+      meetingRecorderWebhookEventSchema.safeParse({
+        ...snapshotEvent(recordingAtLimit),
+        id: atLimit,
+        subject: `recording/${atLimit}`,
+      }).success,
+    ).toBe(true)
+    expect(
+      meetingRecorderWebhookEventSchema.safeParse({ ...snapshotEvent(), id: overLimit }).success,
+    ).toBe(false)
+    expect(
+      meetingRecorderWebhookEventSchema.safeParse({
+        ...snapshotEvent({ ...BASE_RECORDING, id: overLimit }),
+        subject: `recording/${overLimit}`,
+      }).success,
+    ).toBe(false)
+    expect(
+      meetingRecorderWebhookEventSchema.safeParse(
+        snapshotEvent({
+          ...BASE_RECORDING,
+          source: { ...BASE_RECORDING.source, meetingId: overLimit },
+        }),
+      ).success,
+    ).toBe(false)
   })
 
   it('requires snapshot subject to match recording.id', () => {

@@ -1,4 +1,5 @@
 import {
+  MEETING_RECORDER_INDEXED_IDENTIFIER_MAX_CHARS,
   MEETING_RECORDER_READY_EVENT_TYPE,
   meetingRecorderSigningSecretSchema,
   meetingRecorderWebhookEventSchema,
@@ -99,7 +100,7 @@ describe('meeting recorder backend V1 contract boundary', () => {
     expect(meetingRecorderWebhookEventSchema.safeParse(invalid).success).toBe(false)
   })
 
-  it('does not invent receiver-only maxLength limits for sender strings', () => {
+  it('keeps non-indexed sender strings bounded only by the transport envelope', () => {
     const longValue = 'x'.repeat(128 * 1024)
     const event = snapshotEvent({
       ...BASE_RECORDING,
@@ -107,13 +108,29 @@ describe('meeting recorder backend V1 contract boundary', () => {
       source: {
         kind: 'meeting',
         provider: longValue,
-        meetingId: longValue,
+        meetingId: 'abc-defg-hij',
         meetingUrl: `https://example.test/${longValue}`,
       },
     })
 
     expect(meetingRecorderWebhookEventSchema.safeParse(event).success).toBe(true)
     expect(Buffer.byteLength(JSON.stringify(event), 'utf8')).toBeLessThan(2 * 1024 * 1024)
+  })
+
+  it('rejects indexed identifiers above the published V1 bound', () => {
+    const overLimit = 'x'.repeat(MEETING_RECORDER_INDEXED_IDENTIFIER_MAX_CHARS + 1)
+
+    expect(
+      meetingRecorderWebhookEventSchema.safeParse({ ...snapshotEvent(), id: overLimit }).success,
+    ).toBe(false)
+    expect(
+      meetingRecorderWebhookEventSchema.safeParse(
+        snapshotEvent({
+          ...BASE_RECORDING,
+          source: { ...BASE_RECORDING.source, meetingId: overLimit },
+        }),
+      ).success,
+    ).toBe(false)
   })
 
   it('accepts signing secrets only at the published 24-64 decoded-byte boundary', () => {

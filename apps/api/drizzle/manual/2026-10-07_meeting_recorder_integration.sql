@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS interview_recordings (
   meeting_url            text,
   stage_at_link          interview_stage,
   matched_by             text NOT NULL DEFAULT 'unmatched',
+  auto_match_suppressed  boolean NOT NULL DEFAULT false,
   readiness              jsonb NOT NULL,
   snapshot               jsonb NOT NULL,
   linked_by_user_id      uuid REFERENCES users(id) ON DELETE SET NULL,

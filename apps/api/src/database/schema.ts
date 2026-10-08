@@ -999,6 +999,7 @@ export const interviewRecordings = pgTable(
       .$type<InterviewRecordingMatchedBy>()
       .notNull()
       .default('unmatched'),
+    autoMatchSuppressed: boolean('auto_match_suppressed').notNull().default(false),
     readiness: jsonb('readiness').notNull(),
     snapshot: jsonb('snapshot').notNull(),
     linkedByUserId: uuid('linked_by_user_id').references(() => users.id, {

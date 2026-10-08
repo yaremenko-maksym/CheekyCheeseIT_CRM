@@ -389,6 +389,7 @@ export class MeetingRecorderService {
           interviewId: null,
           stageAtLink: null,
           matchedBy: 'unmatched',
+          autoMatchSuppressed: true,
           linkedByUserId: null,
           linkedAt: null,
           updatedAt: now,
@@ -413,6 +414,7 @@ export class MeetingRecorderService {
           interviewId: target.id,
           stageAtLink: target.stage,
           matchedBy: 'manual',
+          autoMatchSuppressed: true,
           linkedByUserId: actor.id,
           linkedAt: now,
           updatedAt: now,
@@ -459,14 +461,16 @@ export class MeetingRecorderService {
     let interviewId = existing?.interviewId ?? null
     let stageAtLink = existing?.stageAtLink ?? null
     let matchedBy = existing?.matchedBy ?? ('unmatched' as const)
+    let autoMatchSuppressed = existing?.autoMatchSuppressed ?? false
     let linkedByUserId = existing?.linkedByUserId ?? null
     let linkedAt = existing?.linkedAt ?? null
 
-    if (!existing || existing.interviewId === null) {
+    if (!existing || (existing.interviewId === null && !autoMatchSuppressed)) {
       const match = await this.matcher.findExactMatch(tx, recording)
       interviewId = match?.interviewId ?? null
       stageAtLink = match?.stageAtLink ?? null
       matchedBy = match?.matchedBy ?? 'unmatched'
+      autoMatchSuppressed = false
       linkedByUserId = null
       linkedAt = null
     }
@@ -489,6 +493,7 @@ export class MeetingRecorderService {
       meetingUrl: recording.source.meetingUrl ?? null,
       stageAtLink,
       matchedBy,
+      autoMatchSuppressed,
       readiness: event.data.readiness,
       snapshot,
       linkedByUserId,
@@ -516,6 +521,7 @@ export class MeetingRecorderService {
           meetingUrl: values.meetingUrl,
           stageAtLink,
           matchedBy,
+          autoMatchSuppressed,
           readiness: event.data.readiness,
           snapshot,
           linkedByUserId,
