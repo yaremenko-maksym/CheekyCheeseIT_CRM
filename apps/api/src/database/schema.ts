@@ -947,6 +947,8 @@ export const meetingRecorderConnections = pgTable('meeting_recorder_connections'
   name: text('name').notNull(),
   enabled: boolean('enabled').notNull().default(true),
   signingSecretCiphertext: text('signing_secret_ciphertext'),
+  mediaTokenHash: text('media_token_hash'),
+  mediaTokenUpdatedAt: timestamp('media_token_updated_at', { withTimezone: true }),
   expectedSource: text('expected_source'),
   signingSecretUpdatedAt: timestamp('signing_secret_updated_at', { withTimezone: true }),
   lastVerifiedAt: timestamp('last_verified_at', { withTimezone: true }),
@@ -955,6 +957,68 @@ export const meetingRecorderConnections = pgTable('meeting_recorder_connections'
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 })
+
+/** The stable identity of one logical media transfer (including failed/restarted attempts). */
+export const recordingMediaArtifacts = pgTable(
+  'recording_media_artifacts',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    connectionId: uuid('connection_id')
+      .notNull()
+      .references(() => meetingRecorderConnections.id, { onDelete: 'restrict' }),
+    clientTransferId: text('client_transfer_id').notNull(),
+    externalRecordingId: text('external_recording_id').notNull(),
+    role: text('role').notNull(),
+    filename: text('filename').notNull(),
+    requestFingerprint: text('request_fingerprint').notNull(),
+    mimeType: text('mime_type').notNull(),
+    bytes: bigint('bytes', { mode: 'number' }).notNull(),
+    storageKey: text('storage_key').notNull(),
+    status: text('status').notNull().default('uploading'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex('uq_recording_media_artifact_connection_transfer').on(
+      t.connectionId,
+      t.clientTransferId,
+    ),
+    index('idx_recording_media_artifact_recording').on(t.connectionId, t.externalRecordingId),
+    check('ck_recording_media_artifact_bytes', sql`${t.bytes} > 0`),
+    check(
+      'ck_recording_media_artifact_status',
+      sql`${t.status} IN ('uploading', 'completing', 'ready', 'failed')`,
+    ),
+  ],
+)
+
+/** Every restart gets its own row and provider upload ID; the artifact stays stable. */
+export const recordingMediaUploads = pgTable(
+  'recording_media_uploads',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    artifactId: uuid('artifact_id')
+      .notNull()
+      .references(() => recordingMediaArtifacts.id, { onDelete: 'cascade' }),
+    // Unique for every attempt: an expired multipart completion must never overwrite a newer copy.
+    storageKey: text('storage_key').notNull(),
+    storageUploadId: text('storage_upload_id').notNull(),
+    partSize: integer('part_size').notNull(),
+    status: text('status').notNull().default('uploading'),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('idx_recording_media_uploads_artifact_created').on(t.artifactId, t.createdAt.desc()),
+    index('idx_recording_media_uploads_expiry').on(t.status, t.expiresAt),
+    check('ck_recording_media_upload_part_size', sql`${t.partSize} BETWEEN 5242880 AND 268435456`),
+    check(
+      'ck_recording_media_upload_status',
+      sql`${t.status} IN ('uploading', 'completing', 'ready', 'expired', 'aborted')`,
+    ),
+  ],
+)
 
 export const meetingRecorderWebhookReceipts = pgTable(
   'meeting_recorder_webhook_receipts',
