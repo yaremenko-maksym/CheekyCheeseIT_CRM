@@ -229,6 +229,8 @@ export const FIELD_CATEGORIES: Record<string, Category> = {
   'testid:projects-search-input': 'SEARCH',
   'testid:documents-search': 'SEARCH',
   'testid:login-as-search': 'SEARCH',
+  'app/routes/_authenticated/interviews/components/LinkRecordingDialog.tsx#id:recording-link-search':
+    'SEARCH',
   'app/routes/_authenticated/finance/index.tsx#1': 'SEARCH',
   'app/routes/_authenticated/team/index.tsx#4': 'SEARCH',
   'app/routes/_authenticated/users/index.tsx#1': 'SEARCH',
@@ -263,6 +265,11 @@ export const FIELD_CATEGORIES: Record<string, Category> = {
   // local `FieldRow` — one shared <Input>; reaches `type="url"` only when
   // `inputType="url"` is passed (currently just the vacancyUrl field).
   'app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx#2': 'URL',
+
+  // ---- routes/_authenticated/admin/integrations.index.tsx ----
+  'app/routes/_authenticated/admin/integrations.index.tsx#id:meeting-recorder-secret': 'PASSWORD',
+  'app/routes/_authenticated/admin/integrations.index.tsx#id:meeting-recorder-replace-secret':
+    'PASSWORD',
 
   // ---- routes/_authenticated/vacancies/components/VacancyFormFields.tsx ----
   'testid:vacancy-form-slug': 'HANDLE',
@@ -470,6 +477,12 @@ export const EXEMPT_FIELDS: Record<string, string> = {
     'Компания — free-text company name on the create-interview dialog.',
   'app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx#1':
     'The local FieldRow Textarea — every textarea call site on this sheet is a free-text notes/description field by construction (the URL-capable one is the separate Input node, classified URL above).',
+
+  // ---- routes/_authenticated/admin/integrations.index.tsx ----
+  'app/routes/_authenticated/admin/integrations.index.tsx#id:meeting-recorder-name':
+    'Free-text display name chosen by an admin to distinguish one recorder connection from another.',
+  'app/routes/_authenticated/admin/integrations.index.tsx#id:meeting-recorder-rename':
+    'Free-text replacement display name for an existing recorder connection.',
 
   // ---- vacancies — free-text title/description/SEO fields ----
   'testid:vacancy-form-title': 'Free-text vacancy title.',
