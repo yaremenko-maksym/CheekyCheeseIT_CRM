@@ -6,6 +6,8 @@ build/
 .next/
 .output/
 .vinxi/
+.agents
+.codex
 
 # Lighthouse CI report output (task-infra-seo-gates) — CI-generated, per-run
 # artifact directory; uploaded as a GHA artifact on failure, never committed.
