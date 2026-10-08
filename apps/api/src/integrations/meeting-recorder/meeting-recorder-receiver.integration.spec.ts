@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import {
+  MEETING_RECORDER_INDEXED_IDENTIFIER_MAX_CHARS,
   meetingRecorderWebhookEventSchema,
   type MeetingRecorderSnapshotEvent,
   type SessionUser,
@@ -72,6 +73,7 @@ describe.skipIf(!hasDatabaseUrl())('Meeting Recorder receiver semantics — real
       { table: 'meeting_recorder_connections', column: 'expected_source' },
       { table: 'meeting_recorder_webhook_receipts', column: 'webhook_id' },
       { table: 'interview_recordings', column: 'revision' },
+      { table: 'interview_recordings', column: 'auto_match_suppressed' },
     ])
 
     pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
@@ -218,6 +220,37 @@ describe.skipIf(!hasDatabaseUrl())('Meeting Recorder receiver semantics — real
       },
     ])
 
+    await service.linkRecording(rowId, { interviewId: null }, ADMIN)
+
+    const afterUnlinkUpdate = structuredClone(UPDATED_FIXTURE)
+    afterUnlinkUpdate.id = 'event_contract_unmatched_updated_v3'
+    afterUnlinkUpdate.subject = `recording/${UNMATCHED_RECORDING_ID}`
+    afterUnlinkUpdate.data.revision = 3
+    afterUnlinkUpdate.data.recording.id = UNMATCHED_RECORDING_ID
+    afterUnlinkUpdate.data.recording.source.meetingId = 'abc-defg-hij'
+    afterUnlinkUpdate.data.recording.source.meetingUrl = 'https://meet.google.com/abc-defg-hij'
+    await service.ingestWebhookEvent(CONNECTION_ID, afterUnlinkUpdate, CIPHERTEXT)
+
+    const afterManualUnlink = await pool.query<{
+      interview_id: string | null
+      revision: string
+      matched_by: string
+      auto_match_suppressed: boolean
+    }>(
+      `SELECT interview_id, revision, matched_by, auto_match_suppressed
+       FROM interview_recordings
+       WHERE connection_id = $1 AND external_recording_id = $2`,
+      [CONNECTION_ID, UNMATCHED_RECORDING_ID],
+    )
+    expect(afterManualUnlink.rows).toEqual([
+      {
+        interview_id: null,
+        revision: '3',
+        matched_by: 'unmatched',
+        auto_match_suppressed: true,
+      },
+    ])
+
     const lateRevisionOne = structuredClone(unmatchedReady)
     lateRevisionOne.id = 'event_contract_unmatched_late_v1'
     lateRevisionOne.time = '2026-10-07T12:03:00.000Z'
@@ -237,10 +270,33 @@ describe.skipIf(!hasDatabaseUrl())('Meeting Recorder receiver semantics — real
     expect(finalState.rows).toEqual([
       {
         id: rowId,
-        interview_id: MANUAL_INTERVIEW_ID,
-        revision: '2',
-        matched_by: 'manual',
+        interview_id: null,
+        revision: '3',
+        matched_by: 'unmatched',
       },
+    ])
+
+    const boundaryId = 'r'.repeat(MEETING_RECORDER_INDEXED_IDENTIFIER_MAX_CHARS)
+    const boundaryMeetingId = 'm'.repeat(MEETING_RECORDER_INDEXED_IDENTIFIER_MAX_CHARS)
+    const boundaryEvent = structuredClone(READY_FIXTURE)
+    boundaryEvent.id = 'e'.repeat(MEETING_RECORDER_INDEXED_IDENTIFIER_MAX_CHARS)
+    boundaryEvent.subject = `recording/${boundaryId}`
+    boundaryEvent.data.recording.id = boundaryId
+    boundaryEvent.data.recording.source.meetingId = boundaryMeetingId
+    delete boundaryEvent.data.recording.source.meetingUrl
+    await service.ingestWebhookEvent(CONNECTION_ID, boundaryEvent, CIPHERTEXT)
+
+    const boundaryRow = await pool.query<{
+      external_recording_id: string
+      meeting_id: string | null
+    }>(
+      `SELECT external_recording_id, meeting_id
+       FROM interview_recordings
+       WHERE connection_id = $1 AND external_recording_id = $2`,
+      [CONNECTION_ID, boundaryId],
+    )
+    expect(boundaryRow.rows).toEqual([
+      { external_recording_id: boundaryId, meeting_id: boundaryMeetingId },
     ])
   }, 20_000)
 })

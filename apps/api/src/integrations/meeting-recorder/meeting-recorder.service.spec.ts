@@ -251,4 +251,43 @@ describe('MeetingRecorderService snapshot revision semantics', () => {
     )
     expect(ctx.update).toHaveBeenCalledOnce()
   })
+
+  it('keeps an administrator-unlinked recording unmatched on later revisions', async () => {
+    const matcher = { findExactMatch: vi.fn() } as unknown as MeetingRecorderMatcher
+    const service = new MeetingRecorderService(
+      {} as DatabaseService,
+      {} as MeetingRecorderSecretCryptoService,
+      matcher,
+      {} as InterviewAccessPolicyService,
+    )
+    const ctx = snapshotTx([
+      {
+        revision: 1,
+        interviewId: null,
+        stageAtLink: null,
+        matchedBy: 'unmatched',
+        autoMatchSuppressed: true,
+        linkedByUserId: null,
+        linkedAt: null,
+      },
+    ])
+
+    await expect(
+      (service as unknown as SnapshotIngestor).ingestSnapshot(
+        ctx.tx,
+        CONNECTION_ID,
+        updatedEvent(2),
+      ),
+    ).resolves.toBeUndefined()
+
+    expect(matcher.findExactMatch).not.toHaveBeenCalled()
+    expect(ctx.insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        revision: 2,
+        interviewId: null,
+        matchedBy: 'unmatched',
+        autoMatchSuppressed: true,
+      }),
+    )
+  })
 })
