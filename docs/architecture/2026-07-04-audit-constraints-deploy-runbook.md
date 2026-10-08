@@ -1,6 +1,6 @@
 # Audit-hardening constraints — prod deploy runbook
 
-**Date:** 2026-07-04 (updated 2026-07-05)
+**Date:** 2026-07-04 (updated 2026-10-08)
 **Relates to:** PR #328–#336 (audit-fix pass); PR fix/deploy-apply-audit-ddl (automation)
 **DDL file:** `apps/api/drizzle/manual/2026-07-04_audit_hardening_constraints.sql`
 **Status on dev `crm_db`:** already applied (via `drizzle-kit push`)
@@ -13,30 +13,34 @@
 The audit-fix pass (PR #328–#336, 2026-06-27/07-03) added DB-level safety nets
 for idempotency races and business invariants. Without them:
 
-| Finding                                                                          | Risk without DB constraint                                                                     |
-| -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| **SEC-01** `uq_transactions_salary_receiver_month`                               | Salary-cron TOCTOU race → duplicate SALARY rows → double salary credit for same employee+month |
-| **BIZ-07** `uq_interviews_created_project_id` + `created_project_id` column      | Concurrent HIRED transitions → duplicate project creation / duplicate `project_members`        |
-| **BIZ-11** `uq_pending_obligations_source_pending`                               | Two concurrent income flows create two PENDING obligations for the same source transaction     |
-| **BIZ-11** `employee_contracts_one_per_user`                                     | Admin race → duplicate active employee contracts per user                                      |
-| **BIZ-11** `uq_contract_templates_active_role`                                   | Concurrent publish → two active templates for the same role                                    |
-| **BIZ-11** `uq_tos_versions_active`                                              | Concurrent publish → two globally active ToS versions                                          |
-| **BIZ-19** `uq_transactions_dividend_idempotency_key` + `idempotency_key` column | Network retry → DIVIDEND_TO_ADMIN created twice, double-crediting an admin                     |
+| Finding                                                                          | Risk without DB constraint                                                                                 |
+| -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| **SEC-01** `uq_transactions_salary_receiver_month`                               | Legacy salary-cron TOCTOU race before multipart salary; retired once `salary_month_initializations` exists |
+| **BIZ-07** `uq_interviews_created_project_id` + `created_project_id` column      | Concurrent HIRED transitions → duplicate project creation / duplicate `project_members`                    |
+| **BIZ-11** `uq_pending_obligations_source_pending`                               | Two concurrent income flows create two PENDING obligations for the same source transaction                 |
+| **BIZ-11** `employee_contracts_one_per_user`                                     | Admin race → duplicate active employee contracts per user                                                  |
+| **BIZ-11** `uq_contract_templates_active_role`                                   | Concurrent publish → two active templates for the same role                                                |
+| **BIZ-11** `uq_tos_versions_active`                                              | Concurrent publish → two globally active ToS versions                                                      |
+| **BIZ-19** `uq_transactions_dividend_idempotency_key` + `idempotency_key` column | Network retry → DIVIDEND_TO_ADMIN created twice, double-crediting an admin                                 |
 
 The prod image does **not** ship `drizzle-kit` (dev dependency only). These
 objects must be applied manually via `psql` before the audit-hardened API code
-reaches prod. The DDL is fully idempotent — safe to re-run.
+reaches prod. The DDL is fully idempotent and transition-aware — safe to re-run.
+After multipart salary is active, the script deliberately does not recreate the
+retired `uq_transactions_salary_receiver_month` index.
 
 ---
 
 ## 2. Pre-check: detect data violations before applying
 
-Run each query below against the prod database. If any returns rows there are
-existing data violations that **must** be resolved before the `CREATE INDEX`
-statements can succeed (a unique index cannot be built over conflicting rows).
+Run each query below against the prod database. If any applicable query returns
+rows there are existing data violations that **must** be resolved before the
+corresponding `CREATE INDEX` statements can succeed.
 
 ```sql
 -- SEC-01: duplicate SALARY rows for same (receiver, month)?
+-- Only blocking while salary_month_initializations does NOT exist. Once that
+-- table exists, multipart salary allows these rows and this result is expected.
 SELECT receiver_id, salary_month, count(*)
   FROM transactions
  WHERE type = 'SALARY' AND salary_month IS NOT NULL
@@ -87,7 +91,7 @@ SELECT idempotency_key, count(*)
 HAVING count(*) > 1;
 ```
 
-If any query returns rows — **stop and contact the owner** before proceeding.
+If any applicable query returns rows — **stop and contact the owner** before proceeding.
 Data cleanup is context-dependent (e.g. soft-delete the duplicate contract,
 set the older obligation to `CANCELLED`, etc.). Do not force-drop duplicates
 without business review.
@@ -108,7 +112,8 @@ automatically on every deploy. The pipeline order is:
 2. Ensure `postgres` + `redis` are up
 3. Wait for postgres healthy
 4. **Apply DDL** (pipe host file → `psql stdin` via `exec -T` + `-v ON_ERROR_STOP=1`)
-   — DDL is idempotent (IF NOT EXISTS); subsequent deploys are no-ops
+   — DDL is idempotent; the legacy salary unique index is skipped once the
+   multipart-salary marker table exists
 5. Start / update `api` + `nginx` with the new images
 
 If DDL fails (e.g. data conflict detected by postgres), the deploy fails at
@@ -162,9 +167,12 @@ docker exec -it $(docker compose -f docker-compose.prod.yml ps -q postgres) \
 
 ---
 
-## 4. Verify — expect 7 rows
+## 4. Verify — expect 7 legacy rows or 6 after multipart salary
 
-After applying, run the following query and confirm **7 rows** are returned:
+Before multipart salary, this query returns **7 rows**. After
+`salary_month_initializations` exists and multipart salary has been activated,
+it returns **6 rows** because `uq_transactions_salary_receiver_month` is
+intentionally absent:
 
 ```sql
 SELECT indexname
@@ -181,7 +189,7 @@ SELECT indexname
  ORDER BY indexname;
 ```
 
-Expected output (7 rows, order may vary):
+Expected output before multipart salary (7 rows, order may vary):
 
 ```
 employee_contracts_one_per_user
@@ -193,8 +201,10 @@ uq_transactions_dividend_idempotency_key
 uq_transactions_salary_receiver_month
 ```
 
-Fewer than 7 rows → scroll back through the `psql` output for `ERROR:` lines
-and resolve before re-running the idempotent script.
+After multipart salary, the same output without
+`uq_transactions_salary_receiver_month` is correct. Any other missing row →
+scroll back through the `psql` output for `ERROR:` lines and resolve before
+re-running the idempotent script.
 
 Also verify the two new columns exist:
 

@@ -1,7 +1,14 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { PgDialect, getTableConfig } from 'drizzle-orm/pg-core'
 import { describe, expect, it } from 'vitest'
 
 import { salaryMonthInitializations, transactions, users } from './schema'
+
+const LEGACY_AUDIT_DDL = readFileSync(
+  join(import.meta.dirname, '../../drizzle/manual/2026-07-04_audit_hardening_constraints.sql'),
+  'utf8',
+)
 
 function normalize(sql: string): string {
   return sql
@@ -52,6 +59,12 @@ describe('multipart salary — Drizzle schema contract', () => {
     expect(indexColumnNames(index!)).toEqual(['receiver_id', 'salary_month'])
     expect(normalize(new PgDialect().sqlToQuery(index!.config.where!, 'indexes').sql)).toBe(
       "type = 'salary' and salary_month is not null",
+    )
+  })
+
+  it('prevents replayed legacy audit DDL from restoring receiver/month uniqueness after multipart salary', () => {
+    expect(LEGACY_AUDIT_DDL).toMatch(
+      /DO \$\$[\s\S]*?IF to_regclass\('public\.salary_month_initializations'\) IS NULL THEN[\s\S]*?CREATE UNIQUE INDEX IF NOT EXISTS uq_transactions_salary_receiver_month[\s\S]*?END IF;[\s\S]*?\$\$;/,
     )
   })
 
