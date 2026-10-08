@@ -11,7 +11,7 @@ function rawHeaderCount(request: FastifyRequest, target: string): number {
   let count = 0
   const rawHeaders = request.raw.rawHeaders
   for (let index = 0; index < rawHeaders.length; index += 2) {
-    if (rawHeaders[index]?.toLowerCase() === target) count += 1
+    if (rawHeaders[index]!.toLowerCase() === target) count += 1
   }
   return count
 }
@@ -34,6 +34,7 @@ export function registerMeetingRecorderWebhookOnRequestHook(app: NestFastifyAppl
   const fastify = app.getHttpAdapter().getInstance()
 
   fastify.addHook('onRequest', (request, reply, done) => {
+    // Stryker disable next-line StringLiteral: when Node supplies no URL, any non-matching fallback is equivalent because the webhook regex is fully anchored
     const match = WEBHOOK_PATH.exec(request.raw.url ?? '')
     if (!match) {
       done()
@@ -51,6 +52,7 @@ export function registerMeetingRecorderWebhookOnRequestHook(app: NestFastifyAppl
     const signature = singleHeader(request, 'webhook-signature')
     if (
       webhookId === null ||
+      // Stryker disable next-line ConditionalExpression: if this null check is forced false, RegExp.test(null) coerces to "null" and the following digits-only check still rejects the request; the explicit branch is kept for type narrowing and clarity
       timestamp === null ||
       signature === null ||
       !/^-?\d+$/.test(timestamp)

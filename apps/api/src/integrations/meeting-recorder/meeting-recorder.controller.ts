@@ -105,6 +105,7 @@ export class MeetingRecorderWebhookController {
     try {
       decoded = JSON.parse(body) as unknown
     } catch {
+      // Stryker disable next-line BlockStatement: an empty catch leaves decoded undefined, and the immediately following schema validation returns the same 422 MEETING_RECORDER_EVENT_INVALID response by design
       throw meetingRecorderWebhookError(
         'MEETING_RECORDER_EVENT_INVALID',
         HttpStatus.UNPROCESSABLE_ENTITY,
