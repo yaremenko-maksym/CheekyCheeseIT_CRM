@@ -1,4 +1,4 @@
-import { Injectable, ServiceUnavailableException } from '@nestjs/common'
+import { GoneException, Injectable, ServiceUnavailableException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import {
   AbortMultipartUploadCommand,
@@ -20,6 +20,7 @@ const PART_URL_TTL_SECONDS = 15 * 60
 const PLAYBACK_URL_TTL_SECONDS = 30 * 60
 
 export type UploadedMediaPart = { partNumber: number; etag: string }
+export type StoredMediaPart = UploadedMediaPart & { bytes: number }
 export type OpenMediaUpload = { key: string; uploadId: string; initiatedAt: Date }
 
 /** S3/R2 implementation detail of the generic external-media protocol. No media bytes pass through CRM. */
@@ -85,9 +86,9 @@ export class RecordingMediaStorageService {
   }
 
   /** ListParts paginates at 1,000; resume and completion must see the entire provider manifest. */
-  async listParts(key: string, uploadId: string): Promise<UploadedMediaPart[]> {
+  async listParts(key: string, uploadId: string): Promise<StoredMediaPart[]> {
     return this.safe(async () => {
-      const parts: UploadedMediaPart[] = []
+      const parts: StoredMediaPart[] = []
       let marker: string | undefined
       do {
         const page = await this.client.send(
@@ -99,8 +100,9 @@ export class RecordingMediaStorageService {
           }),
         )
         for (const part of page.Parts ?? []) {
-          if (!part.PartNumber || !part.ETag) throw new Error('Malformed provider part')
-          parts.push({ partNumber: part.PartNumber, etag: part.ETag })
+          if (!part.PartNumber || !part.ETag || !Number.isSafeInteger(part.Size) || part.Size! <= 0)
+            throw new Error('Malformed provider part')
+          parts.push({ partNumber: part.PartNumber, etag: part.ETag, bytes: part.Size! })
         }
         if (!page.IsTruncated) break
         const next = page.NextPartNumberMarker
@@ -217,11 +219,17 @@ export class RecordingMediaStorageService {
   private async safe<T>(operation: () => Promise<T>): Promise<T> {
     try {
       return await operation()
-    } catch {
+    } catch (error: unknown) {
+      if (isMissingUpload(error)) throw new GoneException({ code: 'MEDIA_UPLOAD_EXPIRED' })
       // The SDK can include presigned URLs, bucket keys and provider credentials in error text.
       throw new ServiceUnavailableException('MEDIA_STORAGE_UNAVAILABLE')
     }
   }
+}
+
+function isMissingUpload(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  return (error as { name?: string }).name === 'NoSuchUpload'
 }
 
 function isNotFound(error: unknown): boolean {
