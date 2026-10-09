@@ -188,6 +188,24 @@ const envSchema = z
     ),
     MEETING_RECORDER_MEDIA_AWS_ACCESS_KEY_ID: z.string().min(1).optional(),
     MEETING_RECORDER_MEDIA_AWS_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+    MEETING_RECORDER_MEDIA_PART_URL_TTL_SECONDS: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(7 * 24 * 60 * 60)
+      .optional(),
+    MEETING_RECORDER_MEDIA_PLAYBACK_URL_TTL_SECONDS: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(7 * 24 * 60 * 60)
+      .optional(),
+    MEETING_RECORDER_MEDIA_UPLOAD_LIFETIME_MS: z.coerce
+      .number()
+      .int()
+      .min(1_000)
+      .max(6 * 24 * 60 * 60 * 1_000)
+      .optional(),
 
     // task-vacancies-api: Cloudflare Turnstile secret used to verify the
     // public vacancy-apply endpoint. Default is Cloudflare's documented

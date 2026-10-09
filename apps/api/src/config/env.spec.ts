@@ -238,12 +238,18 @@ describe('validateEnv — S3_USE_SSE and Cloudflare R2 compatibility (Section E)
       MEETING_RECORDER_MEDIA_S3_USE_SSE: 'false',
       MEETING_RECORDER_MEDIA_AWS_ACCESS_KEY_ID: 'media-access-key',
       MEETING_RECORDER_MEDIA_AWS_SECRET_ACCESS_KEY: 'media-secret-key',
+      MEETING_RECORDER_MEDIA_PART_URL_TTL_SECONDS: '2',
+      MEETING_RECORDER_MEDIA_PLAYBACK_URL_TTL_SECONDS: '3',
+      MEETING_RECORDER_MEDIA_UPLOAD_LIFETIME_MS: '4000',
     })
 
     expect(env.S3_BUCKET).toBe('crm-documents')
     expect(env.MEETING_RECORDER_MEDIA_S3_BUCKET).toBe('crm-meeting-recorder-media-r0')
     expect(env.MEETING_RECORDER_MEDIA_S3_FORCE_PATH_STYLE).toBe(false)
     expect(env.MEETING_RECORDER_MEDIA_S3_USE_SSE).toBe(false)
+    expect(env.MEETING_RECORDER_MEDIA_PART_URL_TTL_SECONDS).toBe(2)
+    expect(env.MEETING_RECORDER_MEDIA_PLAYBACK_URL_TTL_SECONDS).toBe(3)
+    expect(env.MEETING_RECORDER_MEDIA_UPLOAD_LIFETIME_MS).toBe(4000)
   })
 
   it('AWS S3 prod config (SSE=true, no custom endpoint) passes validation', () => {
