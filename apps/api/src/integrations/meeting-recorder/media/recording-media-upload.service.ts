@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common'
-import { and, count, desc, eq, gt, sql } from 'drizzle-orm'
+import { and, count, desc, eq, gt, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 
 import { DatabaseService } from '../../../database/database.service'
@@ -158,8 +158,16 @@ export class RecordingMediaUploadService {
           .where(
             and(
               eq(recordingMediaArtifacts.connectionId, connectionId),
-              eq(recordingMediaUploads.status, 'uploading'),
-              gt(recordingMediaUploads.expiresAt, new Date()),
+              or(
+                and(
+                  eq(recordingMediaUploads.status, 'uploading'),
+                  gt(recordingMediaUploads.expiresAt, new Date()),
+                ),
+                and(
+                  eq(recordingMediaUploads.status, 'completing'),
+                  gt(recordingMediaUploads.updatedAt, new Date(Date.now() - COMPLETION_LEASE_MS)),
+                ),
+              ),
             ),
           )
         if ((activeCount?.value ?? 0) >= MAX_ACTIVE)
@@ -239,13 +247,26 @@ export class RecordingMediaUploadService {
     if (artifact.status === 'ready') return this.ready(artifact)
     if (upload.status === 'completing') {
       if (await this.confirmObject(artifact, upload)) return await this.markReady(artifact, upload)
+      // Once the completion lease expires, the client can recreate the same logical
+      // artifact. An endless 409 here strands transfers after lost completion replies.
+      if (upload.updatedAt.getTime() <= Date.now() - COMPLETION_LEASE_MS)
+        throw mediaError('MEDIA_UPLOAD_EXPIRED', HttpStatus.GONE)
       throw mediaError('MEDIA_UPLOAD_COMPLETING', HttpStatus.CONFLICT)
     }
     this.assertUploadActive(upload)
+    let uploadedParts: UploadedMediaPart[]
+    try {
+      uploadedParts = (await this.storage.listParts(upload.storageKey, upload.storageUploadId)).map(
+        ({ partNumber, etag }) => ({ partNumber, etag }),
+      )
+    } catch (error) {
+      await this.recoverMissingSession(artifact, upload, error)
+      throw error
+    }
     return {
       state: 'uploading' as const,
       artifactId: externalId('media', artifact.id),
-      uploadedParts: await this.storage.listParts(upload.storageKey, upload.storageUploadId),
+      uploadedParts,
     }
   }
 
@@ -320,12 +341,13 @@ export class RecordingMediaUploadService {
 
     try {
       const actual = await this.storage.listParts(upload.storageKey, upload.storageUploadId)
-      if (!equalParts(parsed.data.parts, actual))
+      if (!equalParts(parsed.data.parts, actual, artifact.bytes, upload.partSize))
         throw mediaError('MEDIA_PARTS_MISMATCH', HttpStatus.UNPROCESSABLE_ENTITY)
       await this.storage.complete(upload.storageKey, upload.storageUploadId, parsed.data.parts)
     } catch (error: unknown) {
       // A completion can succeed at R2 even if its HTTP response is lost.
       if (await this.confirmObject(artifact, upload)) return await this.markReady(artifact, upload)
+      await this.recoverMissingSession(artifact, upload, error)
       if (error instanceof HttpException && error.getStatus() === HttpStatus.UNPROCESSABLE_ENTITY) {
         // ListParts mismatch happens before CompleteMultipartUpload and is safe to retry.
         await this.db.db.transaction(async (tx) => {
@@ -434,6 +456,32 @@ export class RecordingMediaUploadService {
     )
   }
 
+  private async recoverMissingSession(artifact: Artifact, upload: Upload, error: unknown) {
+    if (!(error instanceof HttpException) || error.getStatus() !== HttpStatus.GONE) return
+    // The provider confirms the multipart session is missing. The old attempt
+    // must be retired before an idempotent create can allocate its replacement.
+    // Serialize with create and do not overwrite a later or already ready attempt.
+    await this.db.db.transaction(async (tx) => {
+      await tx
+        .select({ id: meetingRecorderConnections.id })
+        .from(meetingRecorderConnections)
+        .where(eq(meetingRecorderConnections.id, artifact.connectionId))
+        .for('update')
+        .limit(1)
+      const [latest] = await tx
+        .select({ id: recordingMediaUploads.id, status: recordingMediaUploads.status })
+        .from(recordingMediaUploads)
+        .where(eq(recordingMediaUploads.artifactId, artifact.id))
+        .orderBy(desc(recordingMediaUploads.createdAt), desc(recordingMediaUploads.id))
+        .limit(1)
+      if (latest?.id !== upload.id || latest.status === 'ready') return
+      await tx
+        .update(recordingMediaUploads)
+        .set({ status: 'expired', updatedAt: new Date() })
+        .where(eq(recordingMediaUploads.id, upload.id))
+    })
+  }
+
   private async markReady(artifact: Artifact, upload: Upload) {
     await this.db.db.transaction(async (tx) => {
       // Use the same connection lock as create, so a restarted attempt cannot win a late complete.
@@ -495,12 +543,19 @@ function fingerprint(input: CreateRequest, mimeType: string): string {
     .digest('hex')
 }
 
-function equalParts(expected: UploadedMediaPart[], actual: UploadedMediaPart[]): boolean {
+function equalParts(
+  expected: UploadedMediaPart[],
+  actual: (UploadedMediaPart & { bytes: number })[],
+  totalBytes: number,
+  partSize: number,
+): boolean {
   return (
     expected.length === actual.length &&
     expected.every(
       (part, index) =>
-        part.partNumber === actual[index]?.partNumber && part.etag === actual[index]?.etag,
+        part.partNumber === actual[index]?.partNumber &&
+        part.etag === actual[index]?.etag &&
+        actual[index]?.bytes === Math.min(partSize, totalBytes - index * partSize),
     )
   )
 }
