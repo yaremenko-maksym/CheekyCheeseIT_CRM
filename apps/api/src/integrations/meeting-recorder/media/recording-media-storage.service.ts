@@ -7,6 +7,7 @@ import {
   GetObjectCommand,
   HeadObjectCommand,
   ListMultipartUploadsCommand,
+  ListObjectsV2Command,
   ListPartsCommand,
   S3Client,
   UploadPartCommand,
@@ -22,6 +23,7 @@ const PLAYBACK_URL_TTL_SECONDS = 30 * 60
 export type UploadedMediaPart = { partNumber: number; etag: string }
 export type StoredMediaPart = UploadedMediaPart & { bytes: number }
 export type OpenMediaUpload = { key: string; uploadId: string; initiatedAt: Date }
+export type StoredMediaObject = { key: string; bytes: number; lastModified: Date }
 
 /** S3/R2 implementation detail of the generic external-media protocol. No media bytes pass through CRM. */
 @Injectable()
@@ -213,6 +215,40 @@ export class RecordingMediaStorageService {
         uploadIdMarker = nextUploadId
       } while (true)
       return uploads
+    })
+  }
+
+  /** Read-only inventory used for conservative orphan reporting. Never deletes objects. */
+  async listMediaObjects(): Promise<StoredMediaObject[]> {
+    return this.safe(async () => {
+      const objects: StoredMediaObject[] = []
+      let continuationToken: string | undefined
+      do {
+        const page = await this.client.send(
+          new ListObjectsV2Command({
+            Bucket: this.bucket,
+            Prefix: 'meeting-recordings/',
+            ContinuationToken: continuationToken,
+          }),
+        )
+        for (const object of page.Contents ?? []) {
+          if (
+            !object.Key?.startsWith('meeting-recordings/') ||
+            !(object.LastModified instanceof Date) ||
+            !Number.isFinite(object.LastModified.getTime()) ||
+            !Number.isSafeInteger(object.Size) ||
+            object.Size! < 0
+          ) {
+            continue
+          }
+          objects.push({ key: object.Key, bytes: object.Size!, lastModified: object.LastModified })
+        }
+        if (!page.IsTruncated) break
+        const next = page.NextContinuationToken
+        if (!next || next === continuationToken) throw new Error('Malformed object pagination')
+        continuationToken = next
+      } while (true)
+      return objects
     })
   }
 
