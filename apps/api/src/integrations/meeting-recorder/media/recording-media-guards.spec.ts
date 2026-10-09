@@ -18,6 +18,12 @@ class MediaProbeController {
   probe() {
     return { ok: true }
   }
+
+  @Get('status')
+  @Throttle({ default: { limit: 2, ttl: 60_000 } })
+  status() {
+    return { ok: true }
+  }
 }
 
 describe('recording media authentication and per-connection throttling', () => {
@@ -37,10 +43,10 @@ describe('recording media authentication and per-connection throttling', () => {
     authenticate.mockClear()
   })
 
-  async function request(token: string) {
+  async function request(token: string, route = '/media-probe') {
     return app!.inject({
       method: 'GET',
-      url: '/media-probe',
+      url: route,
       headers: { authorization: `Bearer ${token}` },
     })
   }
@@ -70,6 +76,15 @@ describe('recording media authentication and per-connection throttling', () => {
     expect((await request('connection-b')).statusCode).toBe(200)
     expect((await request('connection-a')).statusCode).toBe(429)
     expect((await request('connection-b')).statusCode).toBe(429)
+  })
+
+  it('shares the connection budget across two distinct handlers', async () => {
+    await setup()
+    expect((await request('connection-a')).statusCode).toBe(200)
+    expect((await request('second-token-a', '/media-probe/status')).statusCode).toBe(200)
+    expect((await request('connection-a')).statusCode).toBe(429)
+    expect((await request('connection-a', '/media-probe/status')).statusCode).toBe(429)
+    expect((await request('connection-b', '/media-probe/status')).statusCode).toBe(200)
   })
 
   it('rejects unknown or disabled connections before they can consume a connection bucket', async () => {

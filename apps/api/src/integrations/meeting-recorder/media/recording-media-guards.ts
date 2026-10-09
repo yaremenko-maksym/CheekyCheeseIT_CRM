@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { CanActivate, ExecutionContext, Inject, Injectable } from '@nestjs/common'
 import { ThrottlerGuard } from '@nestjs/throttler'
 
@@ -33,5 +34,15 @@ export class RecordingMediaConnectionThrottlerGuard extends ThrottlerGuard {
     // AuthenticationGuard must precede this guard on every media route.
     if (!req.mediaConnectionId) throw new Error('Media connection was not authenticated')
     return `recording-media-connection:${req.mediaConnectionId}`
+  }
+
+  protected override generateKey(
+    _context: ExecutionContext,
+    tracker: string,
+    name: string,
+  ): string {
+    // Nest's default key includes the handler name, allowing each media endpoint
+    // to consume a separate quota. Use one connection-wide bucket per limiter.
+    return createHash('sha256').update(`recording-media:${name}:${tracker}`).digest('hex')
   }
 }
