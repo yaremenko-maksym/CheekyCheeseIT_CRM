@@ -33,15 +33,29 @@ export class RecordingMediaStorageService {
   private readonly useSse: boolean
 
   constructor(config: ConfigService<Env, true>) {
-    this.bucket = config.get('S3_BUCKET', { infer: true })
-    this.useSse = config.get('S3_USE_SSE', { infer: true })
+    this.bucket =
+      config.get('MEETING_RECORDER_MEDIA_S3_BUCKET', { infer: true }) ??
+      config.get('S3_BUCKET', { infer: true })
+    this.useSse =
+      config.get('MEETING_RECORDER_MEDIA_S3_USE_SSE', { infer: true }) ??
+      config.get('S3_USE_SSE', { infer: true })
     this.client = new S3Client({
-      endpoint: config.get('S3_ENDPOINT', { infer: true }),
-      region: config.get('S3_REGION', { infer: true }),
-      forcePathStyle: config.get('S3_FORCE_PATH_STYLE', { infer: true }),
+      endpoint:
+        config.get('MEETING_RECORDER_MEDIA_S3_ENDPOINT', { infer: true }) ??
+        config.get('S3_ENDPOINT', { infer: true }),
+      region:
+        config.get('MEETING_RECORDER_MEDIA_S3_REGION', { infer: true }) ??
+        config.get('S3_REGION', { infer: true }),
+      forcePathStyle:
+        config.get('MEETING_RECORDER_MEDIA_S3_FORCE_PATH_STYLE', { infer: true }) ??
+        config.get('S3_FORCE_PATH_STYLE', { infer: true }),
       credentials: {
-        accessKeyId: config.get('AWS_ACCESS_KEY_ID', { infer: true }),
-        secretAccessKey: config.get('AWS_SECRET_ACCESS_KEY', { infer: true }),
+        accessKeyId:
+          config.get('MEETING_RECORDER_MEDIA_AWS_ACCESS_KEY_ID', { infer: true }) ??
+          config.get('AWS_ACCESS_KEY_ID', { infer: true }),
+        secretAccessKey:
+          config.get('MEETING_RECORDER_MEDIA_AWS_SECRET_ACCESS_KEY', { infer: true }) ??
+          config.get('AWS_SECRET_ACCESS_KEY', { infer: true }),
       },
     })
   }

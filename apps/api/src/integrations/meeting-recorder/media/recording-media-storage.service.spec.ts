@@ -23,6 +23,53 @@ function fixture() {
 }
 
 describe('media provider part verification', () => {
+  it('falls back to the shared S3 configuration when media-specific settings are absent', async () => {
+    const config = {
+      get: (name: string) =>
+        ({
+          S3_BUCKET: 'shared-media',
+          S3_USE_SSE: false,
+          S3_ENDPOINT: 'https://abc123.r2.cloudflarestorage.com',
+          S3_REGION: 'auto',
+          S3_FORCE_PATH_STYLE: false,
+          AWS_ACCESS_KEY_ID: 'shared-key',
+          AWS_SECRET_ACCESS_KEY: 'shared-secret',
+        })[name as 'S3_BUCKET'],
+    }
+    const service = new RecordingMediaStorageService(config as never)
+
+    const origin = await service.uploadOrigin()
+
+    expect(origin).toBe('https://shared-media.abc123.r2.cloudflarestorage.com')
+  })
+
+  it('uses an isolated media S3 configuration when it is provided', async () => {
+    const config = {
+      get: (name: string) =>
+        ({
+          S3_BUCKET: 'documents',
+          S3_USE_SSE: true,
+          S3_ENDPOINT: 'https://documents.example.test',
+          S3_REGION: 'eu-central-1',
+          S3_FORCE_PATH_STYLE: true,
+          AWS_ACCESS_KEY_ID: 'documents-key',
+          AWS_SECRET_ACCESS_KEY: 'documents-secret',
+          MEETING_RECORDER_MEDIA_S3_BUCKET: 'private-media',
+          MEETING_RECORDER_MEDIA_S3_USE_SSE: false,
+          MEETING_RECORDER_MEDIA_S3_ENDPOINT: 'https://abc123.r2.cloudflarestorage.com',
+          MEETING_RECORDER_MEDIA_S3_REGION: 'auto',
+          MEETING_RECORDER_MEDIA_S3_FORCE_PATH_STYLE: false,
+          MEETING_RECORDER_MEDIA_AWS_ACCESS_KEY_ID: 'media-key',
+          MEETING_RECORDER_MEDIA_AWS_SECRET_ACCESS_KEY: 'media-secret',
+        })[name as 'S3_BUCKET'],
+    }
+    const service = new RecordingMediaStorageService(config as never)
+
+    const origin = await service.uploadOrigin()
+
+    expect(origin).toBe('https://private-media.abc123.r2.cloudflarestorage.com')
+  })
+
   it('presigns R2 URLs on a hostname allowed by the production media CSP', async () => {
     const config = {
       get: (name: string) =>
