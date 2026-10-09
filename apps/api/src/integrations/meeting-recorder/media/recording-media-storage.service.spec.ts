@@ -1,4 +1,8 @@
-import { ListObjectsV2Command, ListPartsCommand } from '@aws-sdk/client-s3'
+import {
+  ListMultipartUploadsCommand,
+  ListObjectsV2Command,
+  ListPartsCommand,
+} from '@aws-sdk/client-s3'
 import { describe, expect, it, vi } from 'vitest'
 
 import { RecordingMediaStorageService } from './recording-media-storage.service'
@@ -153,6 +157,35 @@ describe('media provider part verification', () => {
     })
   })
 
+  it('enumerates only the dedicated meeting-recordings multipart prefix across pages', async () => {
+    const { service, send } = fixture()
+    const first = new Date('2026-10-01T00:00:00Z')
+    const second = new Date('2026-10-02T00:00:00Z')
+    send
+      .mockResolvedValueOnce({
+        Uploads: [
+          { Key: 'meeting-recordings/a/one', UploadId: 'upload-1', Initiated: first },
+          { Key: 'documents/resume.pdf', UploadId: 'document-upload', Initiated: first },
+        ],
+        IsTruncated: true,
+        NextKeyMarker: 'meeting-recordings/a/one',
+        NextUploadIdMarker: 'upload-1',
+      })
+      .mockResolvedValueOnce({
+        Uploads: [{ Key: 'meeting-recordings/a/two', UploadId: 'upload-2', Initiated: second }],
+        IsTruncated: false,
+      })
+
+    await expect(service.listOpenMediaUploads()).resolves.toEqual([
+      { key: 'meeting-recordings/a/one', uploadId: 'upload-1', initiatedAt: first },
+      { key: 'meeting-recordings/a/two', uploadId: 'upload-2', initiatedAt: second },
+    ])
+    expect(send.mock.calls[0]?.[0]).toBeInstanceOf(ListMultipartUploadsCommand)
+    expect(send.mock.calls[0]?.[0].input.Prefix).toBe('meeting-recordings/')
+    expect(send.mock.calls[1]?.[0].input.KeyMarker).toBe('meeting-recordings/a/one')
+    expect(send.mock.calls[1]?.[0].input.UploadIdMarker).toBe('upload-1')
+  })
+
   it('lists completed media objects across provider pages for read-only orphan reporting', async () => {
     const { service, send } = fixture()
     const first = new Date('2026-10-01T00:00:00Z')
@@ -176,6 +209,7 @@ describe('media provider part verification', () => {
       { key: 'meeting-recordings/a/two', bytes: 7, lastModified: second },
     ])
     expect(send.mock.calls[0]?.[0]).toBeInstanceOf(ListObjectsV2Command)
+    expect(send.mock.calls[0]?.[0].input.Prefix).toBe('meeting-recordings/')
     expect(send.mock.calls[1]?.[0].input.ContinuationToken).toBe('page-2')
   })
 })
