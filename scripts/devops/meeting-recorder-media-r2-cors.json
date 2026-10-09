@@ -1,0 +1,16 @@
+{
+  "rules": [
+    {
+      "allowed": {
+        "origins": [
+          "chrome-extension://kiineaoggnikfpcicndeocnbmaeediom",
+          "https://app.cheekycheese.tech"
+        ],
+        "methods": ["GET", "PUT", "HEAD"],
+        "headers": ["*"]
+      },
+      "exposeHeaders": ["ETag", "Accept-Ranges", "Content-Length", "Content-Range"],
+      "maxAgeSeconds": 3600
+    }
+  ]
+}
