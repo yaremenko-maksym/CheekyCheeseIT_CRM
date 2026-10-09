@@ -236,6 +236,25 @@ secrets is missing. In dev/CI, omitting all media-specific variables deliberatel
 falls back to the ordinary S3 configuration so the existing local S3 stand keeps
 covering the media code path.
 
+After the bucket-scoped R2 key exists, run the first real integration gate against
+an isolated local CRM database and the real private R2 bucket:
+
+```bash
+export MEETING_RECORDER_MEDIA_S3_ENDPOINT='https://<account_id>.r2.cloudflarestorage.com'
+export MEETING_RECORDER_MEDIA_AWS_ACCESS_KEY_ID='<bucket-scoped R2 access key id>'
+export MEETING_RECORDER_MEDIA_AWS_SECRET_ACCESS_KEY='<bucket-scoped R2 secret access key>'
+scripts/devops/run-meeting-recorder-r0-pilot.sh
+```
+
+The runner creates/reuses only the local `crm_meeting_recorder_r0` scratch database,
+starts CRM on port 3011, builds the Chrome extension, and executes
+`tests/e2e/crm-media-r0.spec.ts`. That spec provisions a dedicated CRM connection,
+performs signed capability discovery, uploads the captured OPFS media directly to
+R2 through presigned multipart PUTs, waits until CRM's post-completion object HEAD
+check has made the artifact ready, verifies the CRM recording-to-artifact
+association, obtains the CRM playback URL, performs a ranged browser read and
+actual media seek, and confirms that R0 retained the OPFS source.
+
 ### 1.6 Host firewall — allow :80/:443 ONLY from Cloudflare (MANDATORY)
 
 > **Why (security-critical):** nginx trusts the `CF-Connecting-IP` header from the Cloudflare ranges
