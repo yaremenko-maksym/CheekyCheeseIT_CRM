@@ -6,6 +6,7 @@ import {
   InterviewRecordingsController,
 } from './interview-recordings.controller'
 import type { MeetingRecorderService } from './meeting-recorder.service'
+import type { RecordingMediaUploadService } from './media/recording-media-upload.service'
 
 const INTERVIEW_ID = '11111111-1111-4111-8111-111111111111'
 const RECORDING_ID = '22222222-2222-4222-8222-222222222222'
@@ -20,8 +21,9 @@ describe('interview recording controllers', () => {
       linkRecording: vi.fn().mockReturnValue('linked'),
     }
     const typedService = service as unknown as MeetingRecorderService
+    const media = { playbackForCrm: vi.fn() } as unknown as RecordingMediaUploadService
     const interviewController = new InterviewMeetingRecordingsController(typedService)
-    const recordingsController = new InterviewRecordingsController(typedService)
+    const recordingsController = new InterviewRecordingsController(typedService, media)
 
     expect(interviewController.list(INTERVIEW_ID, user)).toBe('list')
     expect(service.listInterviewRecordings).toHaveBeenCalledWith(INTERVIEW_ID, user)
@@ -46,9 +48,38 @@ describe('interview recording controllers', () => {
     const service = { linkRecording: vi.fn().mockReturnValue('unlinked') }
     const controller = new InterviewRecordingsController(
       service as unknown as MeetingRecorderService,
+      { playbackForCrm: vi.fn() } as unknown as RecordingMediaUploadService,
     )
 
     expect(controller.link(RECORDING_ID, { interviewId: null }, user)).toBe('unlinked')
     expect(service.linkRecording).toHaveBeenCalledWith(RECORDING_ID, { interviewId: null }, user)
+  })
+
+  it('requires recording-scoped CRM authorization before resolving a media capability', async () => {
+    const media = {
+      playbackForCrm: vi.fn().mockResolvedValue({ url: 'https://example.test/read' }),
+    }
+    const service = {
+      getRecordingDetail: vi.fn().mockResolvedValue({
+        connectionId: 'connection-a',
+        externalRecordingId: 'recording-a',
+      }),
+    }
+    const controller = new InterviewRecordingsController(
+      service as unknown as MeetingRecorderService,
+      media as unknown as RecordingMediaUploadService,
+    )
+
+    await expect(controller.mediaPlayback(RECORDING_ID, 'media_abc', user)).resolves.toEqual({
+      url: 'https://example.test/read',
+    })
+    expect(service.getRecordingDetail).toHaveBeenCalledWith(RECORDING_ID, user)
+    expect(media.playbackForCrm).toHaveBeenCalledWith('connection-a', 'recording-a', 'media_abc')
+
+    service.getRecordingDetail.mockRejectedValueOnce(new Error('recording access denied'))
+    await expect(controller.mediaPlayback(RECORDING_ID, 'media_abc', user)).rejects.toThrow(
+      'recording access denied',
+    )
+    expect(media.playbackForCrm).toHaveBeenCalledOnce()
   })
 })

@@ -371,12 +371,8 @@ export class RecordingMediaUploadService {
   }
 
   async playbackForCrm(connectionId: string, externalRecordingId: string, artifactId: string) {
-    const [connection] = await this.db.db
-      .select({ enabled: meetingRecorderConnections.enabled })
-      .from(meetingRecorderConnections)
-      .where(eq(meetingRecorderConnections.id, connectionId))
-      .limit(1)
-    if (!connection?.enabled) throw mediaError('MEDIA_CONNECTION_DISABLED', HttpStatus.GONE)
+    // CRM session/RBAC access is checked by the recording-detail controller.
+    // Disabling the external receiver revokes bearer access, not historical CRM playback.
     const id = parseExternalId(artifactId, 'media')
     const [artifact] = await this.db.db
       .select()
