@@ -1,4 +1,4 @@
-import { ListPartsCommand } from '@aws-sdk/client-s3'
+import { ListObjectsV2Command, ListPartsCommand } from '@aws-sdk/client-s3'
 import { describe, expect, it, vi } from 'vitest'
 
 import { RecordingMediaStorageService } from './recording-media-storage.service'
@@ -23,6 +23,28 @@ function fixture() {
 }
 
 describe('media provider part verification', () => {
+  it('presigns R2 URLs on a hostname allowed by the production media CSP', async () => {
+    const config = {
+      get: (name: string) =>
+        ({
+          S3_BUCKET: 'private-media',
+          S3_USE_SSE: false,
+          S3_ENDPOINT: 'https://abc123.r2.cloudflarestorage.com',
+          S3_REGION: 'auto',
+          S3_FORCE_PATH_STYLE: false,
+          AWS_ACCESS_KEY_ID: 'test',
+          AWS_SECRET_ACCESS_KEY: 'test',
+        })[name as 'S3_BUCKET'],
+    }
+    const service = new RecordingMediaStorageService(config as never)
+
+    const origin = await service.uploadOrigin()
+
+    expect(origin).not.toBeNull()
+    expect(new URL(origin!).protocol).toBe('https:')
+    expect(new URL(origin!).hostname).toMatch(/\.r2\.cloudflarestorage\.com$/)
+  })
+
   it('retains provider-reported sizes across multipart ListParts pages', async () => {
     const { service, send } = fixture()
     send
@@ -58,5 +80,31 @@ describe('media provider part verification', () => {
     await expect(service.listParts('opaque-key', 'opaque-upload')).rejects.toMatchObject({
       status: 503,
     })
+  })
+
+  it('lists completed media objects across provider pages for read-only orphan reporting', async () => {
+    const { service, send } = fixture()
+    const first = new Date('2026-10-01T00:00:00Z')
+    const second = new Date('2026-10-02T00:00:00Z')
+    send
+      .mockResolvedValueOnce({
+        Contents: [
+          { Key: 'meeting-recordings/a/one', Size: 5, LastModified: first },
+          { Key: 'documents/not-media', Size: 9, LastModified: first },
+        ],
+        IsTruncated: true,
+        NextContinuationToken: 'page-2',
+      })
+      .mockResolvedValueOnce({
+        Contents: [{ Key: 'meeting-recordings/a/two', Size: 7, LastModified: second }],
+        IsTruncated: false,
+      })
+
+    await expect(service.listMediaObjects()).resolves.toEqual([
+      { key: 'meeting-recordings/a/one', bytes: 5, lastModified: first },
+      { key: 'meeting-recordings/a/two', bytes: 7, lastModified: second },
+    ])
+    expect(send.mock.calls[0]?.[0]).toBeInstanceOf(ListObjectsV2Command)
+    expect(send.mock.calls[1]?.[0].input.ContinuationToken).toBe('page-2')
   })
 })
