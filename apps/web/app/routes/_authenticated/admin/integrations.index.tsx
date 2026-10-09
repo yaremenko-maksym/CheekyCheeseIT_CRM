@@ -60,6 +60,12 @@ function MeetingRecorderIntegrationsPage() {
   const [secretConnection, setSecretConnection] = useState<MeetingRecorderConnectionDto | null>(
     null,
   )
+  const [mediaTokenConnection, setMediaTokenConnection] =
+    useState<MeetingRecorderConnectionDto | null>(null)
+  const [mediaToken, setMediaToken] = useState<string | null>(null)
+  const [issuingMediaTokenId, setIssuingMediaTokenId] = useState<string | null>(null)
+  const [replaceMediaTokenConnection, setReplaceMediaTokenConnection] =
+    useState<MeetingRecorderConnectionDto | null>(null)
   const [resetConnection, setResetConnection] = useState<MeetingRecorderConnectionDto | null>(null)
 
   const enableMutation = useMutation({
@@ -96,6 +102,31 @@ function MeetingRecorderIntegrationsPage() {
     if (!connection.lastVerifiedAt)
       return { variant: 'pending' as const, label: t`Очікує перевірки` }
     return { variant: 'status-active' as const, label: t`Підключено` }
+  }
+
+  function closeMediaTokenDialog() {
+    setMediaToken(null)
+    setMediaTokenConnection(null)
+  }
+
+  async function issueMediaToken(connection: MeetingRecorderConnectionDto): Promise<boolean> {
+    if (issuingMediaTokenId) return false
+    setIssuingMediaTokenId(connection.id)
+    try {
+      const result = await meetingRecorderApi.issueMediaToken(connection.id)
+      setMediaTokenConnection(connection)
+      setMediaToken(result.token)
+      await queryClient
+        .invalidateQueries({ queryKey: MEETING_RECORDER_CONNECTIONS_QUERY_KEY })
+        .catch(() => undefined)
+      toast.success(connection.mediaProvisioned ? t`Media token замінено` : t`Media token створено`)
+      return true
+    } catch {
+      toast.error(t`Не вдалося створити media token`)
+      return false
+    } finally {
+      setIssuingMediaTokenId(null)
+    }
   }
 
   return (
@@ -155,7 +186,8 @@ function MeetingRecorderIntegrationsPage() {
             const webhookUrl = new URL(connection.webhookPath, window.location.origin).toString()
             const cardPending =
               (enableMutation.isPending && enableMutation.variables?.id === connection.id) ||
-              (resetMutation.isPending && resetMutation.variables === connection.id)
+              (resetMutation.isPending && resetMutation.variables === connection.id) ||
+              issuingMediaTokenId === connection.id
 
             return (
               <Card key={connection.id} className="border-border">
@@ -194,6 +226,17 @@ function MeetingRecorderIntegrationsPage() {
                         </DropdownMenuItem>
                         <DropdownMenuItem onSelect={() => setSecretConnection(connection)}>
                           {connection.secretSet ? t`Замінити секрет` : t`Налаштувати секрет`}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onSelect={() => {
+                            if (connection.mediaProvisioned)
+                              setReplaceMediaTokenConnection(connection)
+                            else void issueMediaToken(connection)
+                          }}
+                        >
+                          {connection.mediaProvisioned
+                            ? t`Замінити media token`
+                            : t`Створити media token`}
                         </DropdownMenuItem>
                         <DropdownMenuItem onSelect={() => setResetConnection(connection)}>
                           <Trans>Скинути прив'язку</Trans>
@@ -259,6 +302,19 @@ function MeetingRecorderIntegrationsPage() {
                       </div>
                     </div>
                   </div>
+                  <div className="text-xs">
+                    <p className="text-muted-foreground">
+                      <Trans>Media token</Trans>
+                    </p>
+                    <p className="mt-0.5">
+                      {connection.mediaProvisioned ? t`Налаштовано` : t`Не налаштовано`}
+                    </p>
+                    {connection.mediaTokenUpdatedAt && (
+                      <p className="mt-0.5 text-muted-foreground">
+                        <Trans>Оновлено: {formatDate(connection.mediaTokenUpdatedAt)}</Trans>
+                      </p>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             )
@@ -269,6 +325,98 @@ function MeetingRecorderIntegrationsPage() {
       <CreateConnectionDialog open={createOpen} onOpenChange={setCreateOpen} />
       <RenameConnectionDialog connection={renameConnection} onOpenChange={setRenameConnection} />
       <SecretConnectionDialog connection={secretConnection} onOpenChange={setSecretConnection} />
+
+      <Dialog
+        open={mediaToken !== null}
+        onOpenChange={(open) => {
+          if (!open) closeMediaTokenDialog()
+        }}
+      >
+        <CrmDialogContent>
+          <CrmDialogHeader>
+            <DialogTitle>
+              <Trans>Media token для Meeting Recorder</Trans>
+            </DialogTitle>
+            <DialogDescription>
+              <Trans>
+                Цей token показується лише один раз. Скопіюйте його в налаштування CRM destination у
+                розширенні. Після заміни попередній token одразу перестає працювати.
+              </Trans>
+            </DialogDescription>
+          </CrmDialogHeader>
+          <CrmDialogBody className="space-y-3 pb-4">
+            <p className="text-sm font-medium">{mediaTokenConnection?.name}</p>
+            <div className="flex items-center gap-2 rounded-md border border-border bg-muted/20 px-3 py-2">
+              <code className="min-w-0 flex-1 break-all font-mono text-xs">{mediaToken}</code>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 shrink-0"
+                aria-label={t`Скопіювати media token`}
+                onClick={() => {
+                  if (!mediaToken) return
+                  void navigator.clipboard
+                    .writeText(mediaToken)
+                    .then(() => toast.success(t`Media token скопійовано`))
+                    .catch(() => toast.error(t`Не вдалося скопіювати media token`))
+                }}
+              >
+                <Copy className="h-4 w-4" />
+              </Button>
+            </div>
+          </CrmDialogBody>
+          <CrmDialogFooter>
+            <Button onClick={closeMediaTokenDialog}>
+              <Trans>Готово</Trans>
+            </Button>
+          </CrmDialogFooter>
+        </CrmDialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={replaceMediaTokenConnection !== null}
+        onOpenChange={(open) => {
+          if (!open && !issuingMediaTokenId) setReplaceMediaTokenConnection(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              <Trans>Замінити media token?</Trans>
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              <Trans>
+                Поточний token розширення буде відкликано одразу. Активні або повторні media upload
+                запити з ним перестануть проходити, доки новий token не буде збережено в розширенні.
+              </Trans>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button
+              variant="outline"
+              data-testid="cancel-button"
+              disabled={issuingMediaTokenId !== null}
+              onClick={() => setReplaceMediaTokenConnection(null)}
+            >
+              <Trans>Скасувати</Trans>
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={issuingMediaTokenId !== null}
+              onClick={() => {
+                const connection = replaceMediaTokenConnection
+                if (!connection) return
+                void issueMediaToken(connection).then((success) => {
+                  if (success) setReplaceMediaTokenConnection(null)
+                })
+              }}
+            >
+              {issuingMediaTokenId ? t`Заміна…` : t`Замінити token`}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={resetConnection !== null}
