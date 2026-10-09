@@ -168,3 +168,49 @@ describe('CRM media upload recovery', () => {
     expect(query.params).toEqual(expect.arrayContaining(['uploading', 'completing']))
   })
 })
+
+describe('CRM media descriptors', () => {
+  it('returns only recording-scoped ready artifact metadata', async () => {
+    let whereFilter: unknown
+    const row = {
+      id: artifact.id,
+      role: 'tab-recording',
+      filename: 'meeting.webm',
+      mimeType: 'video/webm',
+      bytes: 5,
+    }
+    const db = {
+      db: {
+        select: vi.fn(() => ({
+          from: (table: unknown) => {
+            expect(table).toBe(recordingMediaArtifacts)
+            return {
+              where: (filter: unknown) => {
+                whereFilter = filter
+                return { orderBy: async () => [row] }
+              },
+            }
+          },
+        })),
+      },
+    }
+    const service = new RecordingMediaUploadService(db as never, {} as never)
+
+    await expect(
+      service.listReadyForCrm(artifact.connectionId, artifact.externalRecordingId),
+    ).resolves.toEqual([
+      {
+        artifactId: `media_${artifact.id}`,
+        role: row.role,
+        filename: row.filename,
+        mimeType: row.mimeType,
+        bytes: row.bytes,
+      },
+    ])
+
+    const query = new PgDialect().sqlToQuery(whereFilter as never)
+    expect(query.params).toEqual(
+      expect.arrayContaining([artifact.connectionId, artifact.externalRecordingId, 'ready']),
+    )
+  })
+})

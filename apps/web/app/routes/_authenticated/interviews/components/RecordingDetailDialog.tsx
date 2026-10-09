@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { MeetingRecorderMediaArtifactDto } from '@crm/shared'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { toast } from 'sonner'
 import { useAuth } from '@/context/auth'
@@ -22,7 +23,11 @@ import {
   DialogTitle,
 } from '@/components/ui/crm-dialog'
 import { Skeleton } from '@/components/ui/skeleton'
-import { useInterviewRecording, useLinkInterviewRecording } from '@/lib/meeting-recorder-api'
+import {
+  meetingRecorderApi,
+  useInterviewRecording,
+  useLinkInterviewRecording,
+} from '@/lib/meeting-recorder-api'
 import { LinkRecordingDialog } from './LinkRecordingDialog'
 
 type RecordingDetailDialogProps = {
@@ -42,6 +47,256 @@ function formatOffset(ms: number) {
   return hours > 0
     ? `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
     : `${minutes}:${String(seconds).padStart(2, '0')}`
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`
+}
+
+function mediaPriority(artifact: MeetingRecorderMediaArtifactDto) {
+  const video = artifact.mimeType.startsWith('video/')
+  if (video && artifact.role === 'tab-recording') return 0
+  if (video && artifact.role === 'self-video') return 1
+  if (video) return 2
+  return 3
+}
+
+function RecordingMediaSection({ recordingId }: { recordingId: string }) {
+  const { t } = useLingui()
+  const [artifacts, setArtifacts] = useState<MeetingRecorderMediaArtifactDto[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
+  const [reload, setReload] = useState(0)
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    setError(false)
+    void meetingRecorderApi
+      .listRecordingMedia(recordingId)
+      .then((items) => {
+        if (!active) return
+        setArtifacts([...items].sort((a, b) => mediaPriority(a) - mediaPriority(b)))
+      })
+      .catch(() => {
+        if (active) setError(true)
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [recordingId, reload])
+
+  return (
+    <section aria-labelledby="recording-media-heading" className="space-y-3">
+      <h3 id="recording-media-heading" className="text-sm font-semibold">
+        <Trans>Медіа</Trans>
+      </h3>
+      {loading ? (
+        <Skeleton className="h-20 w-full" />
+      ) : error ? (
+        <Alert variant="destructive">
+          <AlertDescription className="flex items-center justify-between gap-3">
+            <span>
+              <Trans>Не вдалося завантажити медіа.</Trans>
+            </span>
+            <Button size="sm" variant="outline" onClick={() => setReload((value) => value + 1)}>
+              <Trans>Повторити</Trans>
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : artifacts.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          <Trans>Готових медіафайлів ще немає.</Trans>
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {artifacts.map((artifact) => (
+            <RecordingMediaArtifactPlayer
+              key={artifact.artifactId}
+              recordingId={recordingId}
+              artifact={artifact}
+              playbackErrorLabel={t`Не вдалося відтворити медіа. Спробуйте оновити доступ.`}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function RecordingMediaArtifactPlayer({
+  recordingId,
+  artifact,
+  playbackErrorLabel,
+}: {
+  recordingId: string
+  artifact: MeetingRecorderMediaArtifactDto
+  playbackErrorLabel: string
+}) {
+  const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null)
+  const mountedRef = useRef(true)
+  const refreshInFlightRef = useRef(false)
+  const restoringSourceRef = useRef(false)
+  const intendedPlayingRef = useRef(false)
+  const consecutiveRefreshesRef = useRef(0)
+  const restoreRef = useRef<{ currentTime: number; shouldPlay: boolean } | null>(null)
+  const [sourceUrl, setSourceUrl] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
+
+  async function requestSource(countAsRefresh: boolean) {
+    if (refreshInFlightRef.current) return
+    if (countAsRefresh && consecutiveRefreshesRef.current >= 2) {
+      setError(playbackErrorLabel)
+      return
+    }
+    if (countAsRefresh) consecutiveRefreshesRef.current += 1
+    refreshInFlightRef.current = true
+    setLoading(true)
+    setError(null)
+    try {
+      const capability = await meetingRecorderApi.prepareRecordingMediaPlayback(
+        recordingId,
+        artifact.artifactId,
+      )
+      if (!mountedRef.current) return
+      setSourceUrl(capability.url)
+    } catch {
+      if (mountedRef.current) {
+        restoringSourceRef.current = false
+        setError(playbackErrorLabel)
+      }
+    } finally {
+      refreshInFlightRef.current = false
+      if (mountedRef.current) setLoading(false)
+    }
+  }
+
+  function handleMediaError() {
+    const media = mediaRef.current
+    restoringSourceRef.current = true
+    if (media) {
+      restoreRef.current = {
+        currentTime: Number.isFinite(media.currentTime) ? media.currentTime : 0,
+        shouldPlay: intendedPlayingRef.current,
+      }
+    }
+    void requestSource(true)
+  }
+
+  function handleLoadedMetadata() {
+    consecutiveRefreshesRef.current = 0
+    const media = mediaRef.current
+    const restore = restoreRef.current
+    restoreRef.current = null
+    if (!media || !restore) {
+      restoringSourceRef.current = false
+      return
+    }
+    try {
+      media.currentTime = restore.currentTime
+    } catch {
+      // Some browsers reject seeks until enough metadata is available; playback still remains usable.
+    }
+    restoringSourceRef.current = false
+    if (restore.shouldPlay) void media.play().catch(() => undefined)
+  }
+
+  function retry() {
+    consecutiveRefreshesRef.current = 0
+    const media = mediaRef.current
+    restoringSourceRef.current = true
+    if (media) {
+      restoreRef.current = {
+        currentTime: Number.isFinite(media.currentTime) ? media.currentTime : 0,
+        shouldPlay: intendedPlayingRef.current,
+      }
+    }
+    void requestSource(false)
+  }
+
+  const metadata = (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+      <span className="font-medium text-foreground">{artifact.filename}</span>
+      <span>{artifact.role}</span>
+      <span>{formatBytes(artifact.bytes)}</span>
+    </div>
+  )
+
+  return (
+    <div className="space-y-2 rounded-md border border-border p-3">
+      {metadata}
+      {!sourceUrl ? (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => void requestSource(false)}
+          disabled={loading}
+        >
+          {loading ? <Trans>Завантаження…</Trans> : <Trans>Відкрити програвач</Trans>}
+        </Button>
+      ) : artifact.mimeType.startsWith('video/') ? (
+        <video
+          ref={(element) => {
+            mediaRef.current = element
+          }}
+          className="max-h-[28rem] w-full rounded bg-black"
+          controls
+          preload="metadata"
+          src={sourceUrl}
+          onPlay={() => {
+            intendedPlayingRef.current = true
+          }}
+          onPause={(event) => {
+            if (!restoringSourceRef.current && !event.currentTarget.error) {
+              intendedPlayingRef.current = false
+            }
+          }}
+          onError={handleMediaError}
+          onLoadedMetadata={handleLoadedMetadata}
+        />
+      ) : (
+        <audio
+          ref={(element) => {
+            mediaRef.current = element
+          }}
+          className="w-full"
+          controls
+          preload="metadata"
+          src={sourceUrl}
+          onPlay={() => {
+            intendedPlayingRef.current = true
+          }}
+          onPause={(event) => {
+            if (!restoringSourceRef.current && !event.currentTarget.error) {
+              intendedPlayingRef.current = false
+            }
+          }}
+          onError={handleMediaError}
+          onLoadedMetadata={handleLoadedMetadata}
+        />
+      )}
+      {error && (
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs text-destructive">{error}</p>
+          <Button size="sm" variant="outline" onClick={retry} disabled={loading}>
+            <Trans>Оновити доступ</Trans>
+          </Button>
+        </div>
+      )}
+    </div>
+  )
 }
 
 export function RecordingDetailDialog({
@@ -203,6 +458,8 @@ export function RecordingDetailDialog({
               </Alert>
             ) : recording ? (
               <>
+                {recordingId && <RecordingMediaSection recordingId={recordingId} />}
+
                 <section aria-labelledby="recording-transcript-heading" className="space-y-3">
                   <h3 id="recording-transcript-heading" className="text-sm font-semibold">
                     <Trans>Транскрипт</Trans>

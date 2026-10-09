@@ -21,7 +21,10 @@ describe('interview recording controllers', () => {
       linkRecording: vi.fn().mockReturnValue('linked'),
     }
     const typedService = service as unknown as MeetingRecorderService
-    const media = { playbackForCrm: vi.fn() } as unknown as RecordingMediaUploadService
+    const media = {
+      listReadyForCrm: vi.fn(),
+      playbackForCrm: vi.fn(),
+    } as unknown as RecordingMediaUploadService
     const interviewController = new InterviewMeetingRecordingsController(typedService)
     const recordingsController = new InterviewRecordingsController(typedService, media)
 
@@ -48,7 +51,10 @@ describe('interview recording controllers', () => {
     const service = { linkRecording: vi.fn().mockReturnValue('unlinked') }
     const controller = new InterviewRecordingsController(
       service as unknown as MeetingRecorderService,
-      { playbackForCrm: vi.fn() } as unknown as RecordingMediaUploadService,
+      {
+        listReadyForCrm: vi.fn(),
+        playbackForCrm: vi.fn(),
+      } as unknown as RecordingMediaUploadService,
     )
 
     expect(controller.link(RECORDING_ID, { interviewId: null }, user)).toBe('unlinked')
@@ -81,5 +87,34 @@ describe('interview recording controllers', () => {
       'recording access denied',
     )
     expect(media.playbackForCrm).toHaveBeenCalledOnce()
+  })
+
+  it('requires recording-scoped CRM authorization before listing ready media', async () => {
+    const media = {
+      listReadyForCrm: vi.fn().mockResolvedValue([{ artifactId: 'media_abc' }]),
+      playbackForCrm: vi.fn(),
+    }
+    const service = {
+      getRecordingDetail: vi.fn().mockResolvedValue({
+        connectionId: 'connection-a',
+        externalRecordingId: 'recording-a',
+      }),
+    }
+    const controller = new InterviewRecordingsController(
+      service as unknown as MeetingRecorderService,
+      media as unknown as RecordingMediaUploadService,
+    )
+
+    await expect(controller.mediaList(RECORDING_ID, user)).resolves.toEqual([
+      { artifactId: 'media_abc' },
+    ])
+    expect(service.getRecordingDetail).toHaveBeenCalledWith(RECORDING_ID, user)
+    expect(media.listReadyForCrm).toHaveBeenCalledWith('connection-a', 'recording-a')
+
+    service.getRecordingDetail.mockRejectedValueOnce(new Error('recording access denied'))
+    await expect(controller.mediaList(RECORDING_ID, user)).rejects.toThrow(
+      'recording access denied',
+    )
+    expect(media.listReadyForCrm).toHaveBeenCalledOnce()
   })
 })

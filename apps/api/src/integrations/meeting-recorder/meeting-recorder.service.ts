@@ -621,6 +621,8 @@ export class MeetingRecorderService {
       name: row.name,
       enabled: row.enabled,
       secretSet: row.signingSecretCiphertext !== null,
+      mediaProvisioned: row.mediaTokenHash !== null,
+      mediaTokenUpdatedAt: row.mediaTokenUpdatedAt?.toISOString() ?? null,
       expectedSource: row.expectedSource,
       signingSecretUpdatedAt: row.signingSecretUpdatedAt?.toISOString() ?? null,
       lastVerifiedAt: row.lastVerifiedAt?.toISOString() ?? null,

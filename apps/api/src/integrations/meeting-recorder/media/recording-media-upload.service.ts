@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common'
-import { and, count, desc, eq, gt, or, sql } from 'drizzle-orm'
+import { meetingRecorderMediaArtifactSchema } from '@crm/shared'
+import { and, asc, count, desc, eq, gt, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 
 import { DatabaseService } from '../../../database/database.service'
@@ -410,6 +411,36 @@ export class RecordingMediaUploadService {
       .limit(1)
     if (!artifact) throw mediaError('MEDIA_NOT_FOUND', HttpStatus.NOT_FOUND)
     return this.storage.playback(artifact.storageKey, artifact.mimeType)
+  }
+
+  async listReadyForCrm(connectionId: string, externalRecordingId: string) {
+    const artifacts = await this.db.db
+      .select({
+        id: recordingMediaArtifacts.id,
+        role: recordingMediaArtifacts.role,
+        filename: recordingMediaArtifacts.filename,
+        mimeType: recordingMediaArtifacts.mimeType,
+        bytes: recordingMediaArtifacts.bytes,
+      })
+      .from(recordingMediaArtifacts)
+      .where(
+        and(
+          eq(recordingMediaArtifacts.connectionId, connectionId),
+          eq(recordingMediaArtifacts.externalRecordingId, externalRecordingId),
+          eq(recordingMediaArtifacts.status, 'ready'),
+        ),
+      )
+      .orderBy(asc(recordingMediaArtifacts.createdAt), asc(recordingMediaArtifacts.id))
+
+    return artifacts.map((artifact) =>
+      meetingRecorderMediaArtifactSchema.parse({
+        artifactId: externalId('media', artifact.id),
+        role: artifact.role,
+        filename: artifact.filename,
+        mimeType: artifact.mimeType,
+        bytes: artifact.bytes,
+      }),
+    )
   }
 
   private async findAttempt(
