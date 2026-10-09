@@ -92,6 +92,30 @@ describe('media provider part verification', () => {
     expect(new URL(origin!).hostname).toMatch(/\.r2\.cloudflarestorage\.com$/)
   })
 
+  it('uses validated media URL lifetime overrides when configured', async () => {
+    const config = {
+      get: (name: string) =>
+        ({
+          S3_BUCKET: 'private-media',
+          S3_USE_SSE: false,
+          S3_ENDPOINT: 'https://abc123.r2.cloudflarestorage.com',
+          S3_REGION: 'auto',
+          S3_FORCE_PATH_STYLE: false,
+          AWS_ACCESS_KEY_ID: 'test',
+          AWS_SECRET_ACCESS_KEY: 'test',
+          MEETING_RECORDER_MEDIA_PART_URL_TTL_SECONDS: 2,
+          MEETING_RECORDER_MEDIA_PLAYBACK_URL_TTL_SECONDS: 3,
+        })[name as 'S3_BUCKET'],
+    }
+    const service = new RecordingMediaStorageService(config as never)
+
+    const part = await service.signPart('meeting-recordings/a', 'opaque-upload', 1)
+    const playback = await service.playback('meeting-recordings/a', 'video/webm')
+
+    expect(new URL(part.url).searchParams.get('X-Amz-Expires')).toBe('2')
+    expect(new URL(playback.url).searchParams.get('X-Amz-Expires')).toBe('3')
+  })
+
   it('retains provider-reported sizes across multipart ListParts pages', async () => {
     const { service, send } = fixture()
     send
