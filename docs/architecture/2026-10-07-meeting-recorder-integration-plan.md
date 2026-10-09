@@ -2965,6 +2965,7 @@ Response:
 {
   "artifactId": "media_...",
   "uploadId": "upload_...",
+  "state": "uploading",
   "strategy": "multipart-put-v1",
 
   "partSize": 33554432,
@@ -2972,7 +2973,7 @@ Response:
 }
 ```
 
-**Correction:** `recordingId` is the stream's `externalRecordingId` (`recording_<uuid>`), the same pseudonymous ID the CloudEvents carry as `recording.id`, so the service joins media to the recording without ever seeing a local ID; this is why E5 creates the stream identity at Start. `clientTransferId` makes _create_ idempotent: a repeated create gets the same `uploadId`.
+**Correction:** `recordingId` is the stream's `externalRecordingId` (`recording_<uuid>`), the same pseudonymous ID the CloudEvents carry as `recording.id`, so the service joins media to the recording without ever seeing a local ID; this is why E5 creates the stream identity at Start. `clientTransferId` makes _create_ idempotent: a repeated create while active gets the same `uploadId`. For an expired/aborted session, repeating create with the same `clientTransferId` returns a **new uploadId for the same artifactId**. For a completed artifact it returns `{ "artifactId": "media_...", "state": "ready" }`. Different immutable upload metadata for the same transfer ID is a `409`.
 
 The service chooses the part size; the extension does not assume R2 or S3. **Correction (F28):** `partSize` is binding, not advisory: every part except the last is exactly `partSize` bytes, because R2 rejects uneven parts. The service picks it so that each part is at least 5 MiB and the upload needs at most 10,000 parts; 32 MiB covers recordings up to about 312 GiB.
 
@@ -3009,9 +3010,20 @@ The extension reads exactly that byte range, `PUT`s it directly to storage and r
 }
 ```
 
-After a browser restart, parts 1–16 stay uploaded and the transfer continues at part 17: no multi-gigabyte restart. **Correction (F28):** R2 removes unfinished multipart uploads after 7 days by default, so `state` can also be `expired`; the extension then creates a new upload for the same artifact and starts again from part 1.
+After a browser restart, parts 1–16 stay uploaded and the transfer continues at part 17: no multi-gigabyte restart. The server reconciles the part list against storage's paginated ListParts, which is authoritative. **Correction (F28):** R2 removes unfinished multipart uploads after 7 days by default; an expired upload returns `410`, so the extension calls _create_ again with the same transfer ID and restarts from part 1 with a new upload ID and the **existing** artifact ID.
 
-**Complete**: `POST {apiBase}/v1/uploads/<uploadId>/complete`, with the part ETags:
+**Complete**: `POST {apiBase}/v1/uploads/<uploadId>/complete`, with the ordered, consecutive part ETags as the request body:
+
+```json
+{
+  "parts": [
+    { "partNumber": 1, "etag": "\"part-1-etag\"" },
+    { "partNumber": 2, "etag": "\"part-2-etag\"" }
+  ]
+}
+```
+
+The backend checks every ETag against actual uploaded parts (ListParts) before completing. `ETag` is opaque, including its quotes; no reformatting is allowed. Response:
 
 ```json
 {
@@ -3020,7 +3032,7 @@ After a browser restart, parts 1–16 stay uploaded and the transfer continues a
 }
 ```
 
-Before answering `ready`, the service checks the stored object's size against the declared `bytes`. Only then does the extension persist `ArtifactLocation.external` as a playable location.
+Before answering `ready`, the service checks the stored object's size against the declared `bytes`. Completion is retriable after a lost response: persist a `completing` state, reconcile HEAD when the provider's multipart session disappears, and return the existing artifact in `ready` once HEAD verifies it. Only then does the extension persist `ArtifactLocation.external` as a playable location. The normative details are in the extension's `docs/adr/0009-external-media-storage-protocol-v1.md`.
 
 **Playback capability**: `POST {apiBase}/v1/artifacts/<artifactId>/playback`
 
@@ -3153,7 +3165,7 @@ created_at
 updated_at
 ```
 
-**Correction:** artifacts are keyed by `connection_id` + `external_recording_id` rather than by a foreign key to `interview_recordings`: media can finish before the first event creates the recording row, and the two join when both exist. Add `UNIQUE(connection_id, client_transfer_id)` for idempotent create. `storage_key` stays internal; the extension only ever sees `artifactId`.
+**Correction:** artifacts carry `connection_id` + `external_recording_id` rather than a foreign key to `interview_recordings`: media can finish before the first event creates the recording row, and the two join when both exist. Add `UNIQUE(connection_id, client_transfer_id)` **to the artifacts table**, not to uploads. Every expired/aborted upload attempt requires a new upload row and `uploadId` for the same logical artifact and transfer ID. `storage_key` stays internal; the extension only ever sees `artifactId`.
 
 **[Δ D90]** Input rules for _create_:
 

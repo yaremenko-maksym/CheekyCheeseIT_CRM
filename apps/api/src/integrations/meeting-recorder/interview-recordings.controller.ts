@@ -56,6 +56,17 @@ export class InterviewRecordingsController {
     return this.service.getRecordingDetail(recordingId, user)
   }
 
+  @Get(':recordingId/media')
+  @Roles('ADMIN', 'SENIOR', 'HR')
+  @Header('Cache-Control', 'no-store')
+  async mediaList(
+    @Param('recordingId', ParseUUIDPipe) recordingId: string,
+    @CurrentUser() user: SessionUser,
+  ) {
+    const recording = await this.service.getRecordingDetail(recordingId, user)
+    return this.media.listReadyForCrm(recording.connectionId, recording.externalRecordingId)
+  }
+
   @Post(':recordingId/media/:artifactId/playback')
   @Roles('ADMIN', 'SENIOR', 'HR')
   @Header('Cache-Control', 'no-store')

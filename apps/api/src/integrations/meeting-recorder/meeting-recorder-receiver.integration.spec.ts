@@ -78,9 +78,13 @@ describe.skipIf(!hasDatabaseUrl())('Meeting Recorder receiver semantics — real
     process.env[AUTO_MATCH_KEY] = 'true'
     await assertRealDbSchema([
       { table: 'meeting_recorder_connections', column: 'expected_source' },
+      { table: 'meeting_recorder_connections', column: 'media_token_hash' },
+      { table: 'meeting_recorder_connections', column: 'media_token_updated_at' },
       { table: 'meeting_recorder_webhook_receipts', column: 'webhook_id' },
       { table: 'interview_recordings', column: 'revision' },
       { table: 'interview_recordings', column: 'auto_match_suppressed' },
+      { table: 'recording_media_artifacts', column: 'client_transfer_id' },
+      { table: 'recording_media_uploads', column: 'storage_upload_id' },
     ])
 
     pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
