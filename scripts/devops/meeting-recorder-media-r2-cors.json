@@ -2,11 +2,17 @@
   "rules": [
     {
       "allowed": {
-        "origins": [
-          "chrome-extension://kiineaoggnikfpcicndeocnbmaeediom",
-          "https://app.cheekycheese.tech"
-        ],
+        "origins": ["chrome-extension://kiineaoggnikfpcicndeocnbmaeediom"],
         "methods": ["GET", "PUT", "HEAD"],
+        "headers": ["*"]
+      },
+      "exposeHeaders": ["ETag", "Accept-Ranges", "Content-Length", "Content-Range"],
+      "maxAgeSeconds": 3600
+    },
+    {
+      "allowed": {
+        "origins": ["https://app.cheekycheese.tech"],
+        "methods": ["GET", "HEAD"],
         "headers": ["*"]
       },
       "exposeHeaders": ["ETag", "Accept-Ranges", "Content-Length", "Content-Range"],
