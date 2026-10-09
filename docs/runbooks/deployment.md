@@ -995,6 +995,8 @@ CORRESPONDS to the requested image tag. The practical consequence:
     apps/api/drizzle/manual/2026-10-05_vacancy_sources_seed.sql \
     apps/api/drizzle/manual/2026-10-07_meeting_recorder_integration.sql \
     apps/api/drizzle/manual/2026-10-10_salary_creation_intent.sql \
+
+    apps/api/drizzle/manual/2026-10-08_meeting_recorder_media.sql \
     apps/api/drizzle/manual/2026-10-17_job_opportunities_store.sql \
     apps/api/drizzle/manual/2026-10-17_job_opportunities_store_indexes.sql \
     apps/api/drizzle/manual/2026-10-18_job_queue_append_only_triggers.sql \
