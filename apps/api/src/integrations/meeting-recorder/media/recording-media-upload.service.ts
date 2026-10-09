@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
 import { meetingRecorderMediaArtifactSchema } from '@crm/shared'
 import { and, asc, count, desc, eq, gt, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
@@ -10,6 +11,7 @@ import {
   recordingMediaArtifacts,
   recordingMediaUploads,
 } from '../../../database/schema'
+import type { Env } from '../../../config/env'
 import {
   RecordingMediaStorageService,
   type UploadedMediaPart,
@@ -19,7 +21,7 @@ const PART_SIZE = 32 * 1024 * 1024
 const MAX_PARTS = 10_000
 const MAX_BYTES = 8 * 1024 * 1024 * 1024
 const CONNECTION_QUOTA = 64 * 1024 * 1024 * 1024
-const UPLOAD_LIFETIME_MS = 6 * 24 * 60 * 60 * 1000
+const DEFAULT_UPLOAD_LIFETIME_MS = 6 * 24 * 60 * 60 * 1000
 const COMPLETION_LEASE_MS = 2 * 60 * 1000
 const MAX_ACTIVE = 4
 const MAX_CONCURRENCY = 3
@@ -67,7 +69,14 @@ export class RecordingMediaUploadService {
   constructor(
     private readonly db: DatabaseService,
     private readonly storage: RecordingMediaStorageService,
-  ) {}
+    config?: ConfigService<Env, true>,
+  ) {
+    this.uploadLifetimeMs =
+      config?.get('MEETING_RECORDER_MEDIA_UPLOAD_LIFETIME_MS', { infer: true }) ??
+      DEFAULT_UPLOAD_LIFETIME_MS
+  }
+
+  private readonly uploadLifetimeMs: number
 
   async create(connectionId: string, body: unknown) {
     const parsed = uploadRequestSchema.safeParse(body)
@@ -209,7 +218,7 @@ export class RecordingMediaUploadService {
 
         const providerUploadId = await this.storage.begin(key, mimeType)
         pendingProviderUpload = { key, uploadId: providerUploadId }
-        const expiresAt = new Date(Date.now() + UPLOAD_LIFETIME_MS)
+        const expiresAt = new Date(Date.now() + this.uploadLifetimeMs)
         const [attempt] = await tx
           .insert(recordingMediaUploads)
           .values({

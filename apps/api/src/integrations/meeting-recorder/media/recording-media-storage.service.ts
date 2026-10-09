@@ -17,8 +17,8 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 
 import type { Env } from '../../../config/env'
 
-const PART_URL_TTL_SECONDS = 15 * 60
-const PLAYBACK_URL_TTL_SECONDS = 30 * 60
+const DEFAULT_PART_URL_TTL_SECONDS = 15 * 60
+const DEFAULT_PLAYBACK_URL_TTL_SECONDS = 30 * 60
 
 export type UploadedMediaPart = { partNumber: number; etag: string }
 export type StoredMediaPart = UploadedMediaPart & { bytes: number }
@@ -31,6 +31,8 @@ export class RecordingMediaStorageService {
   private readonly client: S3Client
   private readonly bucket: string
   private readonly useSse: boolean
+  private readonly partUrlTtlSeconds: number
+  private readonly playbackUrlTtlSeconds: number
 
   constructor(config: ConfigService<Env, true>) {
     this.bucket =
@@ -39,6 +41,12 @@ export class RecordingMediaStorageService {
     this.useSse =
       config.get('MEETING_RECORDER_MEDIA_S3_USE_SSE', { infer: true }) ??
       config.get('S3_USE_SSE', { infer: true })
+    this.partUrlTtlSeconds =
+      config.get('MEETING_RECORDER_MEDIA_PART_URL_TTL_SECONDS', { infer: true }) ??
+      DEFAULT_PART_URL_TTL_SECONDS
+    this.playbackUrlTtlSeconds =
+      config.get('MEETING_RECORDER_MEDIA_PLAYBACK_URL_TTL_SECONDS', { infer: true }) ??
+      DEFAULT_PLAYBACK_URL_TTL_SECONDS
     this.client = new S3Client({
       endpoint:
         config.get('MEETING_RECORDER_MEDIA_S3_ENDPOINT', { infer: true }) ??
@@ -94,10 +102,10 @@ export class RecordingMediaStorageService {
           UploadId: uploadId,
           PartNumber: partNumber,
         }),
-        { expiresIn: PART_URL_TTL_SECONDS },
+        { expiresIn: this.partUrlTtlSeconds },
       ),
       headers: {} as Record<string, string>,
-      expiresAt: new Date(Date.now() + PART_URL_TTL_SECONDS * 1000).toISOString(),
+      expiresAt: new Date(Date.now() + this.partUrlTtlSeconds * 1000).toISOString(),
     }))
   }
 
@@ -173,9 +181,9 @@ export class RecordingMediaStorageService {
           ResponseContentDisposition: 'inline',
           ResponseCacheControl: 'private, no-store',
         }),
-        { expiresIn: PLAYBACK_URL_TTL_SECONDS },
+        { expiresIn: this.playbackUrlTtlSeconds },
       ),
-      expiresAt: new Date(Date.now() + PLAYBACK_URL_TTL_SECONDS * 1000).toISOString(),
+      expiresAt: new Date(Date.now() + this.playbackUrlTtlSeconds * 1000).toISOString(),
     }))
   }
 
