@@ -1927,6 +1927,26 @@ docker compose \
   < "$SALARY_CREATION_INTENT_FILE"
 echo "==> salary creation intent DDL applied successfully"
 
+# ── meeting recorder media DDL: additive; depends on Phase 1 above ──
+# Source: apps/api/drizzle/manual/2026-10-08_meeting_recorder_media.sql
+MEETING_RECORDER_MEDIA_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-08_meeting_recorder_media.sql"
+
+if [ ! -f "$MEETING_RECORDER_MEDIA_FILE" ]; then
+  echo "ERROR: DDL file not found at $MEETING_RECORDER_MEDIA_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying meeting recorder media DDL — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+  < "$MEETING_RECORDER_MEDIA_FILE"
+echo "==> meeting recorder media DDL applied successfully"
+
 # ── multipart salary: PREPARE while the previous API may still serve ──
 # Applied here, BEFORE the privilege grants below, so the relation it creates
 # (salary_month_initializations) is covered by them on a fresh database.
