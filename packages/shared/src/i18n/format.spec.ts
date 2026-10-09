@@ -11,6 +11,7 @@ import {
 describe('format', () => {
   afterEach(() => {
     vi.restoreAllMocks()
+    vi.unstubAllEnvs()
   })
 
   it('formats the same date differently per locale', () => {
@@ -139,14 +140,23 @@ describe('format', () => {
   it('formatMonthLabel renders a full month name + year from a YYYY-MM key', () => {
     expect(formatMonthLabel('2026-07', 'uk')).toBe(
       new Intl.DateTimeFormat('uk-UA', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(
-        new Date(2026, 6, 1),
+        new Date(Date.UTC(2026, 6, 1)),
       ),
     )
     expect(formatMonthLabel('2026-07', 'en')).toBe(
       new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(
-        new Date(2026, 6, 1),
+        new Date(Date.UTC(2026, 6, 1)),
       ),
     )
+  })
+  it('formatMonthLabel does not shift August to July or January to December in Europe/Berlin', () => {
+    vi.stubEnv('TZ', 'Europe/Berlin')
+    // Reproduce the original mismatch: local midnight on the 1st falls in
+    // the previous month in UTC, while the formatter explicitly uses UTC.
+    expect(new Date(2026, 7, 1).getUTCMonth()).toBe(6)
+    expect(formatMonthLabel('2026-08', 'uk')).toBe('серпень 2026 р.')
+    expect(formatMonthLabel('2026-08', 'en')).toBe('August 2026')
+    expect(formatMonthLabel('2026-01', 'en')).toBe('January 2026')
   })
   it('formatMonthLabel falls back to an em dash for missing input, and to the raw key when unparseable', () => {
     expect(formatMonthLabel(null, 'uk')).toBe('—')
