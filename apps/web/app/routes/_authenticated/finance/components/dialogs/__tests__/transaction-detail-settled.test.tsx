@@ -395,6 +395,7 @@ describe('TransactionDetailDialog — type-specific content blocks (Row labels)'
     await screen.findByText('Дата')
     expect(await screen.findByText('Отримувач')).toBeInTheDocument()
     expect(await screen.findByText('Період')).toBeInTheDocument()
+    expect(screen.getByText('серпень 2026 р.')).toBeInTheDocument()
     expect(await screen.findByText('Проєкт')).toBeInTheDocument()
     expect(await screen.findByText('Хеш транзакції')).toBeInTheDocument()
     expect(await screen.findByText('Примітки')).toBeInTheDocument()

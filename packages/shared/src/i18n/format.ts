@@ -91,7 +91,9 @@ export function formatMonthLabel(ym: string | null | undefined, locale: Locale):
   if (!ym) return '—'
   const [year, month] = ym.split('-').map(Number)
   if (!year || !month) return ym
-  return formatDate(new Date(year, month - 1, 1), locale, 'monthYear')
+  // `monthYear` formats in UTC. Constructing local midnight can land on the
+  // previous UTC day (and month) for users east of Greenwich.
+  return formatDate(new Date(Date.UTC(year, month - 1, 1)), locale, 'monthYear')
 }
 
 /**
