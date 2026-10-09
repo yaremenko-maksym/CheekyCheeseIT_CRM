@@ -11,6 +11,14 @@ DATABASE_URL="postgresql://crm_user:password@127.0.0.1:5432/$SCRATCH_DB"
 REDIS_URL="redis://127.0.0.1:6379"
 API_PORT="${R0_API_PORT:-3011}"
 CRM_PUBLIC_ORIGIN="${R0_CRM_PUBLIC_ORIGIN:-https://127.0.0.1:3443}"
+
+if [ -f "$REPO_ROOT/.env.local" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$REPO_ROOT/.env.local"
+  set +a
+fi
+
 MEDIA_BUCKET="${MEETING_RECORDER_MEDIA_S3_BUCKET:-crm-meeting-recorder-media-staging}"
 MEDIA_ENDPOINT="${MEETING_RECORDER_MEDIA_S3_ENDPOINT:-}"
 MEDIA_ACCESS_KEY="${MEETING_RECORDER_MEDIA_AWS_ACCESS_KEY_ID:-}"
@@ -42,6 +50,12 @@ node -e 'new URL(process.argv[1])' "$R2_UPLOAD_ORIGIN"
 
 cd "$REPO_ROOT"
 docker compose up -d postgres redis >/dev/null
+
+# The API imports @crm/shared through the package's built dist output. A branch
+# checkout can leave that output stale even when node_modules is already present,
+# which makes the watch-mode API fail before the pilot reaches R2. Keep this
+# runner self-contained by rebuilding the shared package first.
+pnpm --filter @crm/shared build
 
 if ! docker compose exec -T postgres psql -U crm_user -d postgres -tAc \
   "SELECT 1 FROM pg_database WHERE datname = '$SCRATCH_DB'" | grep -qx 1; then
