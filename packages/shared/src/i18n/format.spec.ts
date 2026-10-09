@@ -149,14 +149,17 @@ describe('format', () => {
       ),
     )
   })
-  it('formatMonthLabel does not shift August to July or January to December in Europe/Berlin', () => {
-    vi.stubEnv('TZ', 'Europe/Berlin')
-    // Reproduce the original mismatch: local midnight on the 1st falls in
-    // the previous month in UTC, while the formatter explicitly uses UTC.
-    expect(new Date(2026, 7, 1).getUTCMonth()).toBe(6)
+  it('formatMonthLabel constructs months at UTC midnight, avoiding a previous-month shift', () => {
+    // Mutating TZ in a running Vitest worker is not reliable: Stryker's
+    // Linux worker can keep using UTC even after vi.stubEnv('TZ', 'Europe/Berlin').
+    // Check the UTC construction directly so the regression is caught in
+    // both UTC (CI) and non-UTC environments.
+    const utcSpy = vi.spyOn(Date, 'UTC')
     expect(formatMonthLabel('2026-08', 'uk')).toBe('серпень 2026 р.')
+    expect(utcSpy).toHaveBeenCalledWith(2026, 7, 1)
     expect(formatMonthLabel('2026-08', 'en')).toBe('August 2026')
     expect(formatMonthLabel('2026-01', 'en')).toBe('January 2026')
+    expect(utcSpy).toHaveBeenCalledWith(2026, 0, 1)
   })
   it('formatMonthLabel falls back to an em dash for missing input, and to the raw key when unparseable', () => {
     expect(formatMonthLabel(null, 'uk')).toBe('—')
