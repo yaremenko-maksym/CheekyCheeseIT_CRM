@@ -228,6 +228,24 @@ describe('validateEnv — S3_USE_SSE and Cloudflare R2 compatibility (Section E)
     ).not.toThrow()
   })
 
+  it('parses an isolated meeting-recorder R2 configuration without changing document storage', () => {
+    const env = validateEnv({
+      ...BASE_DEV,
+      MEETING_RECORDER_MEDIA_S3_ENDPOINT: 'https://abc123.r2.cloudflarestorage.com',
+      MEETING_RECORDER_MEDIA_S3_FORCE_PATH_STYLE: 'false',
+      MEETING_RECORDER_MEDIA_S3_REGION: 'auto',
+      MEETING_RECORDER_MEDIA_S3_BUCKET: 'crm-meeting-recorder-media-r0',
+      MEETING_RECORDER_MEDIA_S3_USE_SSE: 'false',
+      MEETING_RECORDER_MEDIA_AWS_ACCESS_KEY_ID: 'media-access-key',
+      MEETING_RECORDER_MEDIA_AWS_SECRET_ACCESS_KEY: 'media-secret-key',
+    })
+
+    expect(env.S3_BUCKET).toBe('crm-documents')
+    expect(env.MEETING_RECORDER_MEDIA_S3_BUCKET).toBe('crm-meeting-recorder-media-r0')
+    expect(env.MEETING_RECORDER_MEDIA_S3_FORCE_PATH_STYLE).toBe(false)
+    expect(env.MEETING_RECORDER_MEDIA_S3_USE_SSE).toBe(false)
+  })
+
   it('AWS S3 prod config (SSE=true, no custom endpoint) passes validation', () => {
     expect(() =>
       validateEnv({
