@@ -208,10 +208,10 @@ npx --yes wrangler@latest r2 bucket cors set crm-meeting-recorder-media-staging 
 npx --yes wrangler@latest r2 bucket cors list crm-meeting-recorder-media-staging
 ```
 
-The CORS rule allows the stable Chrome extension origin and the production CRM
-origin, permits `GET`/`PUT`/`HEAD`, and exposes `ETag` so the extension can submit
-the exact multipart manifest to CRM. The bucket stays private; CORS does not make
-objects public.
+The CORS policy allows `GET`/`PUT`/`HEAD` from the stable Chrome extension origin,
+but only `GET`/`HEAD` from the production CRM origin. It exposes `ETag` so the
+extension can submit the exact multipart manifest to CRM. The bucket stays private;
+CORS does not make objects public.
 
 Create a Cloudflare R2 API token with **Object Read & Write** scoped only to
 `crm-meeting-recorder-media-staging`, then set these GitHub Actions secrets:
