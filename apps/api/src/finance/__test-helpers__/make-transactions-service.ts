@@ -32,6 +32,7 @@ import type { DocumentsService } from '../../documents/documents.service'
 import type { NbuCurrencyService } from '../nbu-currency.service'
 import type { EtherscanService } from '../etherscan.service'
 import type { NotificationsService } from '../../notifications/notifications.service'
+import { SalaryService } from '../salary.service'
 
 export interface MakeTransactionsServiceOverrides {
   db: DatabaseService
@@ -46,6 +47,8 @@ export interface MakeTransactionsServiceOverrides {
    * проверяют производителя, передают свой шпион.
    */
   notificationsService?: NotificationsService
+  /** T-L6: db-only salary collaborator. Defaults to a real one over the same `db`. */
+  salaryService?: SalaryService
 }
 
 /** Default no-op stub for InvoicesService — covers auto-create paths. */
@@ -135,6 +138,7 @@ export function makeTransactionsService(
     nbuCurrencyService = makeDefaultNbuStub(),
     etherscanService = makeDefaultEtherscanStub(),
     notificationsService = makeDefaultNotificationsStub(),
+    salaryService = new SalaryService(db),
   } = overrides
 
   return new TransactionsService(
@@ -144,5 +148,6 @@ export function makeTransactionsService(
     nbuCurrencyService,
     etherscanService,
     notificationsService,
+    salaryService,
   )
 }

@@ -523,7 +523,7 @@ describe('«транзакция добавлена» — системное с�
     h: ReturnType<typeof makeHarness>,
     opts: { insertReturns: { id: string }[]; juniors?: boolean },
   ) {
-    const internals = h.svc as unknown as {
+    const internals = (h.svc as unknown as { salaryService: object }).salaryService as unknown as {
       resolveHrAccountantSalaryReceivers: () => Promise<unknown[]>
       resolveJuniorSalaryReceivers: () => Promise<unknown[]>
     }
