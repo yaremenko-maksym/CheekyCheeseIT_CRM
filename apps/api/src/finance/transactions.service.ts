@@ -58,7 +58,6 @@ import {
   payoutRequests,
   projects,
   salaryMonthInitializations,
-  teamMembers,
   transactions,
   transactionAuditLog,
   users,
@@ -92,6 +91,7 @@ import { resolveDropShare, DEFAULT_DROP_SHARE_PERCENT } from './drop-share-resol
 import { getOwnSalaryStates } from './salary-status.helper'
 import { SalaryService } from './salary.service'
 import { resolveTransactionDate } from './transaction-date.util'
+import { findActiveTeamsForUser } from './active-teams.util'
 import {
   computeCompanyAccountBalanceFromLedger,
   lockCompanyAccount,
@@ -764,56 +764,12 @@ export class TransactionsService {
     project: { seniorSharePercentOverride: number | null | undefined },
     senior: { id: string; seniorSharePercent: number | null | undefined },
   ): Promise<{ value: number; source: 'PROJECT' | 'TEAM' | 'USER_DEFAULT' }> {
-    const applicableTeams = await this.findActiveTeamsForUser(senior.id)
+    const applicableTeams = await findActiveTeamsForUser(this.db.db, senior.id)
     return resolveSeniorShare(
       { seniorSharePercentOverride: project.seniorSharePercentOverride },
       { seniorSharePercent: senior.seniorSharePercent },
       applicableTeams,
     )
-  }
-
-  /**
-   * Active team memberships for a given user — returns the team rows joined
-   * through `team_members`. Only `leftAt IS NULL` rows are included so a
-   * historical membership cannot accidentally apply an override.
-   *
-   * `archivedAt IS NULL` is enforced on the team side because an archived
-   * team must never participate in a fresh override decision (the override
-   * stays in DB for audit but does not apply to new income).
-   */
-  private async findActiveTeamsForUser(
-    userId: string,
-  ): Promise<{ id: string; seniorSharePercentOverride: number | null }[]> {
-    // Use the relational query API instead of a raw `db.select(...).from(...)`
-    // chain so existing service-spec mocks (which only stub
-    // `db.query.<entity>.findFirst/findMany`) keep working without re-doing
-    // every spec's mock surface. The query reaches the team rows via the
-    // membership join, then JS-filters out archived teams — the dataset per
-    // user is small (one or two teams in practice) so the secondary filter
-    // is cheap.
-    let rows: Array<{
-      team: { id: string; seniorSharePercentOverride: number | null; archivedAt: Date | null }
-    }> = []
-    try {
-      rows = (await this.db.db.query.teamMembers.findMany({
-        where: and(eq(teamMembers.userId, userId), isNull(teamMembers.leftAt)),
-        with: { team: true },
-      })) as unknown as Array<{
-        team: { id: string; seniorSharePercentOverride: number | null; archivedAt: Date | null }
-      }>
-    } catch {
-      // Defensive fallback for test mocks that don't stub
-      // `query.teamMembers.findMany` — treat as "no team memberships". The
-      // resolver then simply falls through to project / user-default.
-      rows = []
-    }
-
-    return rows
-      .filter((r) => r.team && r.team.archivedAt === null)
-      .map((r) => ({
-        id: r.team.id,
-        seniorSharePercentOverride: r.team.seniorSharePercentOverride ?? null,
-      }))
   }
 
   // ── Distribution helpers (Drop role - phase 2) ───────────────────────────
@@ -1802,7 +1758,7 @@ export class TransactionsService {
     // is preserved for back-compat — the projects module keeps both columns
     // in sync, so consulting `projects.seniorSharePercentOverride` (which
     // the resolver does) is equivalent to the previous mirror lookup.
-    const applicableTeams = await this.findActiveTeamsForUser(currentUser.id)
+    const applicableTeams = await findActiveTeamsForUser(this.db.db, currentUser.id)
     const resolved = resolveSeniorShare(
       { seniorSharePercentOverride: project.seniorSharePercentOverride },
       { seniorSharePercent: senior.seniorSharePercent },
@@ -7078,7 +7034,7 @@ export class TransactionsService {
     // team-membership lookup serves every project (the senior's team set is the
     // same regardless of the project).
     const selfUser = await this.db.db.query.users.findFirst({ where: eq(users.id, selfId) })
-    const applicableTeams = await this.findActiveTeamsForUser(selfId)
+    const applicableTeams = await findActiveTeamsForUser(this.db.db, selfId)
     const seniorSharePercent =
       selfUser?.seniorSharePercent ?? currentUser.seniorSharePercent ?? DEFAULT_SENIOR_SHARE_PERCENT
 
