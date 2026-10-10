@@ -45,8 +45,7 @@ export function assertAssignableRoleOnChange(
   requestedRole: Role | undefined,
   currentRole: Role,
 ): void {
-  // Stryker disable next-line ConditionalExpression: equivalent — an undefined requestedRole is neither 'ADMIN' nor 'DROP', so the inner checks cannot throw either way
-  if (requestedRole !== undefined && requestedRole !== currentRole) {
+  if (requestedRole !== currentRole) {
     if (requestedRole === 'ADMIN') {
       throw apiError('ADMIN_ROLE_ASSIGNMENT_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
@@ -73,8 +72,9 @@ export function assertAdminTargetEditableForRoleChange(
   }
 
   // (4) An ADMIN cannot demote themselves via this endpoint.
-  // Stryker disable next-line ConditionalExpression: equivalent — check (3) above already threw for every ADMIN target whose id differs from actorId, so actorId === target.id always holds here
-  if (target.role === 'ADMIN' && actorId === target.id) {
+  // Reaching here with an ADMIN target means actorId === target.id: check (3)
+  // above already threw for every ADMIN target the actor is not.
+  if (target.role === 'ADMIN') {
     throw apiError('ADMIN_CANNOT_CHANGE_OWN_ROLE', HttpStatus.FORBIDDEN)
   }
 }
