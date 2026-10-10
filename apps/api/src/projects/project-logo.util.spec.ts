@@ -1,3 +1,4 @@
+import { HttpStatus } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { DatabaseService } from '../database/database.service'
 import { assertLogoDocument } from './project-logo.util'
@@ -15,6 +16,17 @@ function stubDb(row: Row | undefined) {
   const findFirst = vi.fn().mockResolvedValue(row)
   const db = { query: { documents: { findFirst } } } as unknown as DatabaseService['db']
   return { db, findFirst }
+}
+
+// Rejections are HttpExceptions built by apiError: assert BOTH the code and the
+// HTTP status (a 400 -> 404 regression must not pass).
+async function expectRejects(p: Promise<void>, code: string): Promise<void> {
+  const err: unknown = await p.then(
+    () => null,
+    (e: unknown) => e,
+  )
+  expect(err).toMatchObject({ response: expect.objectContaining({ code }) })
+  expect((err as { getStatus(): number }).getStatus()).toBe(HttpStatus.BAD_REQUEST)
 }
 
 describe('assertLogoDocument', () => {
@@ -45,40 +57,28 @@ describe('assertLogoDocument', () => {
 
   it('rejects a missing document', async () => {
     const { db } = stubDb(undefined)
-    await expect(assertLogoDocument(db, 'doc-x', 'proj-1')).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'LOGO_DOCUMENT_NOT_FOUND' }),
-    })
+    await expectRejects(assertLogoDocument(db, 'doc-x', 'proj-1'), 'LOGO_DOCUMENT_NOT_FOUND')
   })
 
   it('rejects a wrong category', async () => {
     const { db } = stubDb({ ...okRow, category: 'CONTRACT' })
-    await expect(assertLogoDocument(db, 'doc-1', 'proj-1')).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'LOGO_DOCUMENT_WRONG_CATEGORY' }),
-    })
+    await expectRejects(assertLogoDocument(db, 'doc-1', 'proj-1'), 'LOGO_DOCUMENT_WRONG_CATEGORY')
   })
 
   it('rejects a soft-deleted document', async () => {
     const { db } = stubDb({ ...okRow, deletedAt: new Date() })
-    await expect(assertLogoDocument(db, 'doc-1', 'proj-1')).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'LOGO_DOCUMENT_DELETED' }),
-    })
+    await expectRejects(assertLogoDocument(db, 'doc-1', 'proj-1'), 'LOGO_DOCUMENT_DELETED')
   })
 
   it("rejects another project's document", async () => {
     const { db } = stubDb({ ...okRow, projectId: 'proj-other' })
-    await expect(assertLogoDocument(db, 'doc-1', 'proj-1')).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'LOGO_DOCUMENT_WRONG_PROJECT' }),
-    })
+    await expectRejects(assertLogoDocument(db, 'doc-1', 'proj-1'), 'LOGO_DOCUMENT_WRONG_PROJECT')
   })
 
   it('checks category before deleted, deleted before project', async () => {
     const { db } = stubDb({ ...okRow, category: 'X', deletedAt: new Date(), projectId: 'p2' })
-    await expect(assertLogoDocument(db, 'doc-1', 'proj-1')).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'LOGO_DOCUMENT_WRONG_CATEGORY' }),
-    })
+    await expectRejects(assertLogoDocument(db, 'doc-1', 'proj-1'), 'LOGO_DOCUMENT_WRONG_CATEGORY')
     const { db: db2 } = stubDb({ ...okRow, deletedAt: new Date(), projectId: 'p2' })
-    await expect(assertLogoDocument(db2, 'doc-1', 'proj-1')).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'LOGO_DOCUMENT_DELETED' }),
-    })
+    await expectRejects(assertLogoDocument(db2, 'doc-1', 'proj-1'), 'LOGO_DOCUMENT_DELETED')
   })
 })

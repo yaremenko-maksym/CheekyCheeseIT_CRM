@@ -7,11 +7,8 @@ import type { DatabaseService } from '../database/database.service'
 /**
  * Validate that the supplied `logoDocumentId` references a document with
  * `category = 'LOGO'`. ProjectId match is enforced when present — protects
- * against using the logo of another project. Throws `BadRequestException`.
+ * against using the logo of another project. Throws via `apiError(...)` with `HttpStatus.BAD_REQUEST`.
  * Null is treated as a clear-logo operation and short-circuits.
- *
- * Extracted verbatim from `ProjectsService.assertLogoDocument` (leaf P-L6);
- * the only change is `this.db.db` -> the `db` parameter.
  */
 export async function assertLogoDocument(
   db: DatabaseService['db'],
