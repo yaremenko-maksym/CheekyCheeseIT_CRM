@@ -368,6 +368,27 @@ export class MeetingRecorderService {
     actor: SessionUser,
   ): Promise<MeetingRecorderRecordingDetailDto> {
     return this.db.db.transaction(async (tx) => {
+      let target: {
+        id: string
+        seniorId: string
+        stage: typeof interviews.$inferSelect.stage
+      } | null = null
+      if (dto.interviewId !== null) {
+        const targetRows = await tx
+          .select({
+            id: interviews.id,
+            seniorId: interviews.seniorId,
+            stage: interviews.stage,
+          })
+          .from(interviews)
+          .where(eq(interviews.id, dto.interviewId))
+          .for('no key update')
+          .limit(1)
+        target = targetRows[0] ?? null
+        if (!target) throw apiError('INTERVIEW_NOT_FOUND', HttpStatus.NOT_FOUND)
+        await this.interviewAccess.assertUpdateAccess(target, actor)
+      }
+
       const rows = await tx
         .select()
         .from(interviewRecordings)
@@ -395,24 +416,10 @@ export class MeetingRecorderService {
           updatedAt: now,
         }
       } else {
-        const targetRows = await tx
-          .select({
-            id: interviews.id,
-            seniorId: interviews.seniorId,
-            stage: interviews.stage,
-          })
-          .from(interviews)
-          .where(eq(interviews.id, dto.interviewId))
-          .for('update')
-          .limit(1)
-        const target = targetRows[0]
-        if (!target) throw apiError('INTERVIEW_NOT_FOUND', HttpStatus.NOT_FOUND)
-        await this.interviewAccess.assertUpdateAccess(target, actor)
-
         action = 'recording-linked'
         update = {
-          interviewId: target.id,
-          stageAtLink: target.stage,
+          interviewId: target!.id,
+          stageAtLink: target!.stage,
           matchedBy: 'manual',
           autoMatchSuppressed: true,
           linkedByUserId: actor.id,
@@ -577,7 +584,7 @@ export class MeetingRecorderService {
       .select()
       .from(meetingRecorderConnections)
       .where(eq(meetingRecorderConnections.id, id))
-      .for('update')
+      .for('no key update')
       .limit(1)
     const row = rows[0]
     if (!row) {
@@ -591,7 +598,7 @@ export class MeetingRecorderService {
       .select()
       .from(meetingRecorderConnections)
       .where(eq(meetingRecorderConnections.id, id))
-      .for('update')
+      .for('no key update')
       .limit(1)
     return rows[0] ?? null
   }

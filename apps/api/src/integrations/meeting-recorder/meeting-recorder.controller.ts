@@ -26,7 +26,10 @@ import { Public } from '../../auth/public.decorator'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { RolesGuard } from '../../common/guards/roles.guard'
 import { AdminWriteThrottle, RelaxableThrottle } from '../../config/throttle-decorators'
-import { meetingRecorderWebhookError } from './meeting-recorder-errors'
+import {
+  meetingRecorderWebhookError,
+  normalizeMeetingRecorderWebhookIngestionError,
+} from './meeting-recorder-errors'
 import { isMeetingRecorderConnectionId } from './meeting-recorder-webhook-auth-hook'
 import { isMeetingRecorderCloudEventsContentType } from './meeting-recorder-webhook-parser'
 import {
@@ -119,11 +122,15 @@ export class MeetingRecorderWebhookController {
       )
     }
 
-    await this.service.ingestWebhookEvent(
-      connectionId,
-      parsed.data,
-      authentication.signingSecretCiphertext,
-    )
+    try {
+      await this.service.ingestWebhookEvent(
+        connectionId,
+        parsed.data,
+        authentication.signingSecretCiphertext,
+      )
+    } catch (error: unknown) {
+      throw normalizeMeetingRecorderWebhookIngestionError(error, connectionId)
+    }
   }
 }
 

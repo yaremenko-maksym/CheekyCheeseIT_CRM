@@ -328,8 +328,21 @@ describe('createSalary — AC2: an archived receiver is refused', () => {
     idempotencyKey: 'a1111111-1111-4111-8111-111111111111',
   }
 
+  const salaryCreationIntent = {
+    version: 1 as const,
+    operation: 'MANUAL_SALARY_CREATE' as const,
+    receiverId: ACTIVE_HR.id.toLowerCase(),
+    amount: '1500.000000',
+    currency: 'USD' as const,
+    salaryMonth: payload.salaryMonth,
+    notes: null,
+    txDate: 'AUTO' as const,
+  }
+
   function makeIdempotencySalaryService(opts: {
-    replayRows?: Array<{ id: string } | undefined>
+    replayRows?: Array<
+      { id: string; salaryCreationIntent: typeof salaryCreationIntent | null } | undefined
+    >
     insertError?: unknown
     insertRow?: Record<string, unknown>
   }) {
@@ -387,13 +400,13 @@ describe('createSalary — AC2: an archived receiver is refused', () => {
   })
 
   it('replays an existing manual salary by the exact (SALARY, idempotencyKey) lookup before receiver validation', async () => {
-    const existing = { id: 'salary-existing' }
+    const existing = { id: 'salary-existing', salaryCreationIntent }
     const { svc, transactionsFindFirst, usersFindFirst, insert, findOne } =
       makeIdempotencySalaryService({ replayRows: [existing] })
 
     await expect(
       svc.createSalary({ ...payload, receiverId: ACTIVE_HR.id }, ADMIN_USER),
-    ).resolves.toEqual(existing)
+    ).resolves.toEqual({ id: existing.id })
 
     expect(transactionsFindFirst).toHaveBeenCalledTimes(1)
     const { sql, params } = compileWhere(transactionsFindFirst.mock.calls[0]![0].where)
@@ -405,12 +418,62 @@ describe('createSalary — AC2: an archived receiver is refused', () => {
     expect(findOne).toHaveBeenCalledWith(existing.id, ADMIN_USER)
   })
 
+  it('rejects replay when the same idempotency key is reused for a different salary intent', async () => {
+    const existing = {
+      id: 'salary-existing',
+      salaryCreationIntent: { ...salaryCreationIntent, amount: '1499.000000' },
+    }
+    const { svc, usersFindFirst, insert, findOne } = makeIdempotencySalaryService({
+      replayRows: [existing],
+    })
+
+    await expect(
+      svc.createSalary({ ...payload, receiverId: ACTIVE_HR.id }, ADMIN_USER),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: {
+        code: 'FINANCE_SALARY_IDEMPOTENCY_CONFLICT',
+        message: 'This idempotency key was already used for a different salary request',
+        reason: 'INTENT_MISMATCH',
+        existingTransactionId: existing.id,
+      },
+    })
+
+    expect(usersFindFirst).not.toHaveBeenCalled()
+    expect(insert).not.toHaveBeenCalled()
+    expect(findOne).not.toHaveBeenCalled()
+  })
+
+  it('fails closed for a legacy replay whose original salary intent was never stored', async () => {
+    const existing = { id: 'salary-legacy', salaryCreationIntent: null }
+    const { svc, usersFindFirst, insert, findOne } = makeIdempotencySalaryService({
+      replayRows: [existing],
+    })
+
+    await expect(
+      svc.createSalary({ ...payload, receiverId: ACTIVE_HR.id }, ADMIN_USER),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: {
+        code: 'FINANCE_SALARY_IDEMPOTENCY_CONFLICT',
+        message:
+          'This idempotency key belongs to a legacy salary whose original request cannot be verified',
+        reason: 'LEGACY_INTENT_UNKNOWN',
+        existingTransactionId: existing.id,
+      },
+    })
+
+    expect(usersFindFirst).not.toHaveBeenCalled()
+    expect(insert).not.toHaveBeenCalled()
+    expect(findOne).not.toHaveBeenCalled()
+  })
+
   it('recovers a concurrent duplicate only for the salary idempotency unique index and re-reads the winner by the same key', async () => {
     const uniqueError = {
       code: '23505',
       constraint: 'uq_transactions_salary_idempotency_key',
     }
-    const winner = { id: 'salary-winner' }
+    const winner = { id: 'salary-winner', salaryCreationIntent }
     const { svc, transactionsFindFirst, findOne } = makeIdempotencySalaryService({
       replayRows: [undefined, winner],
       insertError: uniqueError,
@@ -418,7 +481,7 @@ describe('createSalary — AC2: an archived receiver is refused', () => {
 
     await expect(
       svc.createSalary({ ...payload, receiverId: ACTIVE_HR.id }, ADMIN_USER),
-    ).resolves.toEqual(winner)
+    ).resolves.toEqual({ id: winner.id })
 
     expect(transactionsFindFirst).toHaveBeenCalledTimes(2)
     for (const [args] of transactionsFindFirst.mock.calls) {
@@ -426,6 +489,36 @@ describe('createSalary — AC2: an archived receiver is refused', () => {
       expect(params).toEqual(['SALARY', payload.idempotencyKey])
     }
     expect(findOne).toHaveBeenCalledWith(winner.id, ADMIN_USER)
+  })
+
+  it('rejects a concurrent duplicate when the unique-index winner has a different salary intent', async () => {
+    const uniqueError = {
+      code: '23505',
+      constraint: 'uq_transactions_salary_idempotency_key',
+    }
+    const winner = {
+      id: 'salary-winner',
+      salaryCreationIntent: { ...salaryCreationIntent, notes: 'different' },
+    }
+    const { svc, transactionsFindFirst, findOne } = makeIdempotencySalaryService({
+      replayRows: [undefined, winner],
+      insertError: uniqueError,
+    })
+
+    await expect(
+      svc.createSalary({ ...payload, receiverId: ACTIVE_HR.id }, ADMIN_USER),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: {
+        code: 'FINANCE_SALARY_IDEMPOTENCY_CONFLICT',
+        message: 'This idempotency key was already used for a different salary request',
+        reason: 'INTENT_MISMATCH',
+        existingTransactionId: winner.id,
+      },
+    })
+
+    expect(transactionsFindFirst).toHaveBeenCalledTimes(2)
+    expect(findOne).not.toHaveBeenCalled()
   })
 
   it('rethrows an unrelated unique violation instead of treating it as a salary idempotency replay', async () => {
@@ -482,6 +575,7 @@ describe('createSalary — AC2: an archived receiver is refused', () => {
       receiverId: ACTIVE_HR.id,
       salaryMonth: payload.salaryMonth,
       salaryOrigin: 'MANUAL',
+      salaryCreationIntent,
       idempotencyKey: payload.idempotencyKey,
     })
     expect(afterTransactionCreated).toHaveBeenCalledWith(created.id, created, ADMIN_USER)
