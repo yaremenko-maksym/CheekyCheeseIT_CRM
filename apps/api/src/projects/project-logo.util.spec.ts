@@ -29,6 +29,8 @@ describe('assertLogoDocument', () => {
     const { db, findFirst } = stubDb(okRow)
     await expect(assertLogoDocument(db, 'doc-1', 'proj-1')).resolves.toBeUndefined()
     expect(findFirst).toHaveBeenCalledTimes(1)
+    // The lookup must be filtered (a bare findFirst({}) would fetch an arbitrary document).
+    expect(findFirst).toHaveBeenCalledWith({ where: expect.anything() })
   })
 
   it('accepts a project-less LOGO document for any project', async () => {
