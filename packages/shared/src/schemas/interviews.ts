@@ -1,6 +1,13 @@
 import { z } from 'zod'
 import { currencySchema, itDomainSchema } from './projects'
 
+// Security: `.url()` alone accepts `javascript:` / `data:` (WHATWG-valid), which
+// would execute on click when rendered into an `href`. Allow-list http(s) only.
+const httpUrlSchema = z
+  .string()
+  .url()
+  .refine((v) => /^https?:\/\//i.test(v), { message: 'URL must use http or https scheme' })
+
 export const interviewStageSchema = z.enum([
   'HR_SCREEN',
   'ENGLISH_CHECK',
@@ -40,8 +47,8 @@ export const interviewSchema = z.object({
 export const createInterviewSchema = z.object({
   seniorId: z.string().uuid(),
   companyName: z.string().min(1).max(255),
-  vacancyUrl: z.string().url().nullable().optional(),
-  callUrl: z.string().url().nullable().optional(),
+  vacancyUrl: httpUrlSchema.nullable().optional(),
+  callUrl: httpUrlSchema.nullable().optional(),
 })
 
 // Audit (HIGH): `stage` is intentionally NOT updatable through this schema.
@@ -53,8 +60,8 @@ export const createInterviewSchema = z.object({
 // written. Pinned by interviews-rbac.integration.spec.ts (PATCH stage → ignored).
 export const updateInterviewSchema = z.object({
   companyName: z.string().min(1).max(255).optional(),
-  vacancyUrl: z.string().url().nullable().optional(),
-  callUrl: z.string().url().nullable().optional(),
+  vacancyUrl: httpUrlSchema.nullable().optional(),
+  callUrl: httpUrlSchema.nullable().optional(),
   notesDomain: itDomainSchema.nullable().optional(),
   notesTechStack: z.string().max(500).nullable().optional(),
   notesTeamSize: z.string().max(100).nullable().optional(),
