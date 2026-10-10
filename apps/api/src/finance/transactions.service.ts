@@ -4759,7 +4759,7 @@ export class TransactionsService {
     if (isCompanyFunded) {
       txId = await this.db.db.transaction(async (dbtx) => {
         await lockCompanyAccount(dbtx)
-        const companyBalance = await this.computeCompanyAccountBalance(dbtx)
+        const companyBalance = await computeCompanyAccountBalanceFromLedger(dbtx ?? this.db.db)
         if (companyBalance < data.amount) {
           throw apiError('FINANCE_COMPANY_ACCOUNT_INSUFFICIENT_FUNDS', HttpStatus.BAD_REQUEST)
         }
@@ -4776,20 +4776,6 @@ export class TransactionsService {
   }
 
   // ── Create SALARY ─────────────────────────────────────────────────────────
-
-  // task-salary-company-account RECONCILIATION: the salary/expense balance gate
-  // now delegates to the SAME single-source-of-truth used by the display
-  // endpoint (GET /company-account). Previously this gate-side copy diverged —
-  // it was missing the `+PAYOUT(COMPANY_ACCOUNT)` term, so the gate undercounted
-  // the real balance. Both paths now call computeCompanyAccountBalanceFromLedger
-  // → display and gate are BYTE-FOR-BYTE identical (see company-account-balance.ts).
-  //
-  // MED-1 (TOCTOU): pass `dbtx` so the balance read runs INSIDE the
-  // advisory-locked transaction of a company-account debit; the consistent,
-  // serialized view guarantees the gate sees concurrent debits already applied.
-  private async computeCompanyAccountBalance(dbtx?: DrizzleTx): Promise<number> {
-    return computeCompanyAccountBalanceFromLedger(dbtx ?? this.db.db)
-  }
 
   async createSalary(
     data: {
@@ -6898,7 +6884,7 @@ export class TransactionsService {
         if (!fresh || fresh.status !== 'PENDING') {
           throw apiError('FINANCE_TRANSACTION_NOT_PENDING', HttpStatus.BAD_REQUEST)
         }
-        const companyBalance = await this.computeCompanyAccountBalance(dbtx)
+        const companyBalance = await computeCompanyAccountBalanceFromLedger(dbtx ?? this.db.db)
         if (companyBalance < amount) {
           throw apiError('FINANCE_COMPANY_ACCOUNT_INSUFFICIENT_FUNDS', HttpStatus.BAD_REQUEST)
         }
