@@ -151,6 +151,35 @@ describe('mapProjectToDto', () => {
     })
   })
 
+  it('JUNIOR still sees the non-sensitive fields (no over-masking)', () => {
+    const dto = map(fixture(), 'JUNIOR')
+    expect(dto).toMatchObject({
+      id: 'p1',
+      name: 'Proj',
+      companyName: 'Acme',
+      domain: 'acme.io',
+      startDate: '2026-01-02T03:04:05.000Z',
+      techStack: 'ts',
+      teamSize: 4,
+      benefits: 'ben',
+      corpTech: 'corp',
+      status: 'ACTIVE',
+      logoDocumentId: 'logo-doc',
+      logoExternalUrl: 'https://x.test/logo.png',
+    })
+  })
+
+  it.each<[Role, string | null]>([
+    ['ADMIN', 'Drp'],
+    ['ACCOUNTANT', 'Drp'],
+    ['HR', 'Drp'],
+    ['DROP', 'Drp'],
+    ['SENIOR', null],
+    ['JUNIOR', null],
+  ])('dropName boundary: %s sees %s', (role, expected) => {
+    expect(map(fixture(), role).dropName).toBe(expected)
+  })
+
   it('JUNIOR without a legend gets null persona fields', () => {
     const dto = map(fixture({ legend: null }), 'JUNIOR')
     expect(dto.seniorName).toBeNull()
