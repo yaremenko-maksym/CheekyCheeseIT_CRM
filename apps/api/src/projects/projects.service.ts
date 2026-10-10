@@ -43,6 +43,7 @@ import {
 import { ProjectAuditLogService } from './project-audit-log.service'
 import { canSeePendingSeniorShare } from './project-visibility.util'
 import { mapProjectToDto, type ProjectWithRelations } from './project-map.util'
+import { buildEffectiveTeam, type EffectiveTeamRow } from './project-team.util'
 import { UsersService } from '../users/users.service'
 import { resolveSeniorShare } from '../finance/senior-share-resolver'
 import type { DrizzleTx } from '../database/types'
@@ -587,127 +588,34 @@ export class ProjectsService {
     project: ProjectWithRelations,
     viewerRole: SessionUser['role'],
   ): Promise<EffectiveTeam> {
-    // task-admin-as-senior: when the project's senior is an ADMIN user,
-    // non-privileged viewers (SENIOR/HR/DROP) must not receive PII (email)
-    // or a navigable profile link. ADMIN/ACCOUNTANT see everything as-is.
-    const isAdminSeniorProject = project.senior?.role === 'ADMIN'
-    const isPrivilegedViewerForSenior = viewerRole === 'ADMIN' || viewerRole === 'ACCOUNTANT'
-    const maskAdminSenior = isAdminSeniorProject && !isPrivilegedViewerForSenior
-
-    const senior = project.senior
-      ? {
-          id: project.senior.id,
-          displayName: project.senior.displayName,
-          // Mask email when senior is ADMIN and viewer is non-privileged.
-          // Empty string keeps the type contract (z.string()) while leaking nothing.
-          email: maskAdminSenior ? '' : project.senior.email,
-          avatarUrl: project.senior.avatarUrl ?? null,
-          avatarDocumentId: project.senior.avatarDocumentId ?? null,
-          // EffectiveTeam.senior.role is typed as 'SENIOR' in the shared schema
-          // for backward compat. We keep this literal even for ADMIN-senior projects
-          // (the role field here indicates the team slot, not the DB role).
-          role: 'SENIOR' as const,
-          // task-admin-as-senior: whether the viewer can navigate to the senior's
-          // profile. False for non-privileged viewers of admin-projects.
-          profileNavigable: !maskAdminSenior,
-        }
-      : null
-
     // Resolve senior's team via team_members where userId = senior.id.
-    let hrs: EffectiveTeam['hrs'] = []
-    let accountants: EffectiveTeam['accountants'] = []
-    if (project.senior) {
-      const seniorMembership = await this.db.db.query.teamMembers.findFirst({
-        where: and(eq(teamMembers.userId, project.senior.id), isNull(teamMembers.leftAt)),
+    // The query stays here; the pure assembly + masking is `buildEffectiveTeam`.
+    const teamRows: EffectiveTeamRow[] = project.senior
+      ? await this.loadSeniorTeamRows(project.senior.id)
+      : // Stryker disable next-line ArrayDeclaration: equivalent mutant — a stray element is never a row with role 'HR'/'ACCOUNTANT', so buildEffectiveTeam's role filters discard it and hrs/accountants stay empty either way.
+        []
+    return buildEffectiveTeam(project, viewerRole, teamRows)
+  }
+
+  private async loadSeniorTeamRows(seniorId: string): Promise<EffectiveTeamRow[]> {
+    const seniorMembership = await this.db.db.query.teamMembers.findFirst({
+      where: and(eq(teamMembers.userId, seniorId), isNull(teamMembers.leftAt)),
+    })
+    if (!seniorMembership) return []
+    const teamId = seniorMembership.teamId
+    return this.db.db
+      .select({
+        id: teamMembers.id,
+        userId: teamMembers.userId,
+        displayName: users.displayName,
+        email: users.email,
+        avatarUrl: users.avatarUrl,
+        avatarDocumentId: users.avatarDocumentId,
+        role: users.role,
       })
-      if (seniorMembership) {
-        const teamId = seniorMembership.teamId
-        const teamRows = await this.db.db
-          .select({
-            id: teamMembers.id,
-            userId: teamMembers.userId,
-            displayName: users.displayName,
-            email: users.email,
-            avatarUrl: users.avatarUrl,
-            avatarDocumentId: users.avatarDocumentId,
-            role: users.role,
-          })
-          .from(teamMembers)
-          .innerJoin(users, eq(users.id, teamMembers.userId))
-          .where(and(eq(teamMembers.teamId, teamId), isNull(teamMembers.leftAt)))
-        hrs = teamRows
-          .filter((r) => r.role === 'HR')
-          .map((r) => ({
-            id: r.id,
-            userId: r.userId,
-            displayName: r.displayName,
-            email: r.email,
-            avatarUrl: r.avatarUrl ?? null,
-            avatarDocumentId: r.avatarDocumentId ?? null,
-            role: 'HR' as const,
-          }))
-        accountants = teamRows
-          .filter((r) => r.role === 'ACCOUNTANT')
-          .map((r) => ({
-            id: r.id,
-            userId: r.userId,
-            displayName: r.displayName,
-            email: r.email,
-            avatarUrl: r.avatarUrl ?? null,
-            avatarDocumentId: r.avatarDocumentId ?? null,
-            role: 'ACCOUNTANT' as const,
-          }))
-      }
-    }
-
-    // RBAC rule #1: SENIOR viewers must not see JUNIOR identity in effective team.
-    // When viewerRole === 'SENIOR', return empty array — the slot count is still
-    // visible via mapProject.members (redacted), but no personal data is leaked.
-    const juniors =
-      viewerRole === 'SENIOR'
-        ? []
-        : project.members
-            .filter((m) => m.leftAt === null && m.user?.role === 'JUNIOR')
-            .map((m) => ({
-              id: m.id,
-              userId: m.userId,
-              displayName: m.user?.displayName ?? '',
-              email: m.user?.email ?? '',
-              avatarUrl: m.user?.avatarUrl ?? null,
-              avatarDocumentId: m.user?.avatarDocumentId ?? null,
-              role: m.user?.role ?? 'JUNIOR',
-              joinedAt: m.joinedAt.toISOString(),
-              leftAt: null as null,
-            }))
-
-    // Drop role - phase 2. Surface the drop user (when project.dropId set)
-    // so FE can render «Дроп» row in the effective-team section without an
-    // extra fetch. dropSharePercent is duplicated here for the distribution
-    // breakdown widget (Phase 2 AC3).
-    //
-    // RBAC rule #2 (mirror of JUNIOR masking above): SENIOR must not receive
-    // drop identity — the legend subject is "drop ?? senior", so the drop's
-    // name/email/avatar would reveal which of the two personas is the real
-    // senior. We return null for the entire effectiveTeam.drop object when the
-    // viewer is SENIOR (same treatment as JUNIOR identity redaction above).
-    // UI: SENIOR does not render the «Дроп» row in effective-team (PR #359).
-    // Detach dialog is canManage-only (ADMIN/HR) — nothing breaks.
-    const drop: EffectiveTeam['drop'] =
-      viewerRole === 'SENIOR'
-        ? null
-        : project.drop
-          ? {
-              id: project.drop.id,
-              displayName: project.drop.displayName,
-              email: project.drop.email,
-              avatarUrl: project.drop.avatarUrl ?? null,
-              avatarDocumentId: project.drop.avatarDocumentId ?? null,
-              role: 'DROP' as const,
-              dropSharePercent: project.drop.dropSharePercent ?? 5,
-            }
-          : null
-
-    return { senior, drop, hrs, accountants, juniors }
+      .from(teamMembers)
+      .innerJoin(users, eq(users.id, teamMembers.userId))
+      .where(and(eq(teamMembers.teamId, teamId), isNull(teamMembers.leftAt)))
   }
 
   async create(data: CreateProjectDto, currentUser: SessionUser) {
