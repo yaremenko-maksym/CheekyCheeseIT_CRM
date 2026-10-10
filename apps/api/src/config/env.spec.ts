@@ -252,6 +252,46 @@ describe('validateEnv — S3_USE_SSE and Cloudflare R2 compatibility (Section E)
     expect(env.MEETING_RECORDER_MEDIA_UPLOAD_LIFETIME_MS).toBe(4000)
   })
 
+  it('parses meeting-recorder media boolean strings case-insensitively', () => {
+    const enabled = validateEnv({
+      ...BASE_DEV,
+      MEETING_RECORDER_MEDIA_S3_FORCE_PATH_STYLE: 'TRUE',
+      MEETING_RECORDER_MEDIA_S3_USE_SSE: 'TRUE',
+    })
+    expect(enabled.MEETING_RECORDER_MEDIA_S3_FORCE_PATH_STYLE).toBe(true)
+    expect(enabled.MEETING_RECORDER_MEDIA_S3_USE_SSE).toBe(true)
+
+    const disabled = validateEnv({
+      ...BASE_DEV,
+      MEETING_RECORDER_MEDIA_S3_FORCE_PATH_STYLE: 'false',
+      MEETING_RECORDER_MEDIA_S3_USE_SSE: 'false',
+    })
+    expect(disabled.MEETING_RECORDER_MEDIA_S3_FORCE_PATH_STYLE).toBe(false)
+    expect(disabled.MEETING_RECORDER_MEDIA_S3_USE_SSE).toBe(false)
+  })
+
+  it('enforces the exact meeting-recorder media expiry ceilings', () => {
+    const max = validateEnv({
+      ...BASE_DEV,
+      MEETING_RECORDER_MEDIA_PART_URL_TTL_SECONDS: String(7 * 24 * 60 * 60),
+      MEETING_RECORDER_MEDIA_PLAYBACK_URL_TTL_SECONDS: String(7 * 24 * 60 * 60),
+      MEETING_RECORDER_MEDIA_UPLOAD_LIFETIME_MS: String(6 * 24 * 60 * 60 * 1_000),
+    })
+    expect(max.MEETING_RECORDER_MEDIA_PART_URL_TTL_SECONDS).toBe(604_800)
+    expect(max.MEETING_RECORDER_MEDIA_PLAYBACK_URL_TTL_SECONDS).toBe(604_800)
+    expect(max.MEETING_RECORDER_MEDIA_UPLOAD_LIFETIME_MS).toBe(518_400_000)
+
+    expect(() =>
+      validateEnv({ ...BASE_DEV, MEETING_RECORDER_MEDIA_PART_URL_TTL_SECONDS: '604801' }),
+    ).toThrow()
+    expect(() =>
+      validateEnv({ ...BASE_DEV, MEETING_RECORDER_MEDIA_PLAYBACK_URL_TTL_SECONDS: '604801' }),
+    ).toThrow()
+    expect(() =>
+      validateEnv({ ...BASE_DEV, MEETING_RECORDER_MEDIA_UPLOAD_LIFETIME_MS: '518400001' }),
+    ).toThrow()
+  })
+
   it('AWS S3 prod config (SSE=true, no custom endpoint) passes validation', () => {
     expect(() =>
       validateEnv({

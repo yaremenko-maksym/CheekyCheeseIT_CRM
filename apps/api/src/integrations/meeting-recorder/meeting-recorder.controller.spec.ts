@@ -1,7 +1,11 @@
 import { HttpException } from '@nestjs/common'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import type { ConfigService } from '@nestjs/config'
-import { MEETING_RECORDER_TEST_EVENT_TYPE, type SessionUser } from '@crm/shared'
+import {
+  MEETING_RECORDER_TEST_EVENT_TYPE,
+  MEETING_RECORDER_UPDATED_EVENT_TYPE,
+  type SessionUser,
+} from '@crm/shared'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
@@ -27,6 +31,29 @@ const event = {
   time: '2026-10-07T19:00:00.000Z',
   datacontenttype: 'application/json',
   data: { test: true },
+}
+
+const snapshotEvent = {
+  ...event,
+  id: 'event_22222222-2222-4222-8222-222222222222',
+  type: MEETING_RECORDER_UPDATED_EVENT_TYPE,
+  subject: 'recording/recording-external-1',
+  data: {
+    revision: 2,
+    readiness: { complete: true, release: 'complete', pending: [] },
+    recording: {
+      id: 'recording-external-1',
+      title: 'Interview',
+      startedAt: '2026-10-07T18:00:00.000Z',
+      durationMs: 2_520_000,
+      source: {
+        kind: 'meeting',
+        provider: 'google-meet',
+        meetingId: 'abc-defg-hij',
+        meetingUrl: 'https://meet.google.com/abc-defg-hij',
+      },
+    },
+  },
 }
 
 function request(overrides: Record<string, unknown> = {}): FastifyRequest {
@@ -228,6 +255,8 @@ describe('MeetingRecorderWebhookController', () => {
       ctx.reply,
     )
     expect(ctx.reply.code).toHaveBeenCalledWith(200)
+    expect(ctx.reply.header).toHaveBeenCalledWith('Cache-Control', 'no-store')
+    expect(ctx.config.get).toHaveBeenCalledWith('FRONTEND_URL', { infer: true })
     expect(result).toEqual({
       protocol: 'io.github.kstroevsky.meeting-recorder.service.v1',
       capabilities: {
@@ -247,6 +276,33 @@ describe('MeetingRecorderWebhookController', () => {
     await expect(
       ctx.controller.receiveWebhook(CONNECTION_ID, JSON.stringify(event), request(), ctx.reply),
     ).resolves.toBeUndefined()
+    expect(ctx.reply.code).toHaveBeenLastCalledWith(204)
+  })
+
+  it('never advertises media capabilities on ordinary recording events', async () => {
+    const ctx = mocks()
+    ctx.mediaAuth.isProvisioned.mockResolvedValue(true)
+    const body = JSON.stringify(snapshotEvent)
+    const req = request({ 'webhook-id': snapshotEvent.id })
+
+    await expect(
+      ctx.controller.receiveWebhook(CONNECTION_ID, body, req, ctx.reply),
+    ).resolves.toBeUndefined()
+    expect(ctx.mediaAuth.isProvisioned).not.toHaveBeenCalled()
+    expect(ctx.storage.uploadOrigin).not.toHaveBeenCalled()
+    expect(ctx.reply.code).toHaveBeenLastCalledWith(204)
+  })
+
+  it('requires an HTTPS CRM frontend origin before advertising media', async () => {
+    const ctx = mocks()
+    ctx.mediaAuth.isProvisioned.mockResolvedValue(true)
+    ctx.config.get.mockReturnValue('http://localhost:3000')
+
+    await expect(
+      ctx.controller.receiveWebhook(CONNECTION_ID, JSON.stringify(event), request(), ctx.reply),
+    ).resolves.toBeUndefined()
+    expect(ctx.storage.uploadOrigin).toHaveBeenCalledTimes(1)
+    expect(ctx.config.get).toHaveBeenCalledWith('FRONTEND_URL', { infer: true })
     expect(ctx.reply.code).toHaveBeenLastCalledWith(204)
   })
 })

@@ -942,21 +942,29 @@ export type MeetingRecorderAuditAction =
   | 'recording-purged'
   | 'media-purged'
 
-export const meetingRecorderConnections = pgTable('meeting_recorder_connections', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  name: text('name').notNull(),
-  enabled: boolean('enabled').notNull().default(true),
-  signingSecretCiphertext: text('signing_secret_ciphertext'),
-  mediaTokenHash: text('media_token_hash'),
-  mediaTokenUpdatedAt: timestamp('media_token_updated_at', { withTimezone: true }),
-  expectedSource: text('expected_source'),
-  signingSecretUpdatedAt: timestamp('signing_secret_updated_at', { withTimezone: true }),
-  lastVerifiedAt: timestamp('last_verified_at', { withTimezone: true }),
-  lastEventAt: timestamp('last_event_at', { withTimezone: true }),
-  createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-})
+export const meetingRecorderConnections = pgTable(
+  'meeting_recorder_connections',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    name: text('name').notNull(),
+    enabled: boolean('enabled').notNull().default(true),
+    signingSecretCiphertext: text('signing_secret_ciphertext'),
+    mediaTokenHash: text('media_token_hash'),
+    mediaTokenUpdatedAt: timestamp('media_token_updated_at', { withTimezone: true }),
+    expectedSource: text('expected_source'),
+    signingSecretUpdatedAt: timestamp('signing_secret_updated_at', { withTimezone: true }),
+    lastVerifiedAt: timestamp('last_verified_at', { withTimezone: true }),
+    lastEventAt: timestamp('last_event_at', { withTimezone: true }),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('uq_meeting_recorder_connections_media_token_hash')
+      .on(t.mediaTokenHash)
+      .where(sql`${t.mediaTokenHash} IS NOT NULL`),
+  ],
+)
 
 /** The stable identity of one logical media transfer (including failed/restarted attempts). */
 export const recordingMediaArtifacts = pgTable(

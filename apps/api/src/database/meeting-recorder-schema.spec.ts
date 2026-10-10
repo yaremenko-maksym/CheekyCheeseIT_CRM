@@ -344,6 +344,12 @@ describe('meeting recorder database foundation', () => {
       expect(connection.columns.find((column) => column.name === name)?.notNull).toBe(false)
       expect(mediaMigration).toContain(name)
     }
+    const mediaTokenIndex = connection.indexes.find(
+      (index) => index.config.name === 'uq_meeting_recorder_connections_media_token_hash',
+    )
+    expect(mediaTokenIndex?.config.unique).toBe(true)
+    expect(mediaMigration).toContain('uq_meeting_recorder_connections_media_token_hash')
+    expect(mediaMigration).toMatch(/WHERE media_token_hash IS NOT NULL/i)
 
     for (const table of [recordingMediaArtifacts, recordingMediaUploads]) {
       const config = getTableConfig(table)
@@ -354,6 +360,29 @@ describe('meeting recorder database foundation', () => {
     }
 
     const artifacts = getTableConfig(recordingMediaArtifacts)
+    expect(artifacts.columns.map((column) => column.name)).toEqual([
+      'id',
+      'connection_id',
+      'client_transfer_id',
+      'external_recording_id',
+      'role',
+      'filename',
+      'request_fingerprint',
+      'mime_type',
+      'bytes',
+      'storage_key',
+      'status',
+      'created_at',
+      'completed_at',
+    ])
+    expect(artifacts.indexes.map((index) => index.config.name).sort()).toEqual([
+      'idx_recording_media_artifact_recording',
+      'uq_recording_media_artifact_connection_transfer',
+    ])
+    expect(artifacts.checks.map((constraint) => constraint.name).sort()).toEqual([
+      'ck_recording_media_artifact_bytes',
+      'ck_recording_media_artifact_status',
+    ])
     const transferIndex = artifacts.indexes.find(
       (index) => index.config.name === 'uq_recording_media_artifact_connection_transfer',
     )
@@ -368,6 +397,49 @@ describe('meeting recorder database foundation', () => {
     expect(fkFor(recordingMediaUploads, 'artifact_id')?.onDelete).toBe('cascade')
     expect(fkFor(recordingMediaUploads, 'artifact_id')?.reference().foreignTable).toBe(
       recordingMediaArtifacts,
+    )
+    const artifactBytesCheck = artifacts.checks.find(
+      (constraint) => constraint.name === 'ck_recording_media_artifact_bytes',
+    )
+    const artifactStatusCheck = artifacts.checks.find(
+      (constraint) => constraint.name === 'ck_recording_media_artifact_status',
+    )
+    expect(normalizedSql(artifactBytesCheck!.value)).toBe('recording_media_artifacts.bytes > 0')
+    expect(normalizedSql(artifactStatusCheck!.value)).toBe(
+      "recording_media_artifacts.status IN ('uploading', 'completing', 'ready', 'failed')",
+    )
+
+    const uploads = getTableConfig(recordingMediaUploads)
+    expect(uploads.columns.map((column) => column.name)).toEqual([
+      'id',
+      'artifact_id',
+      'storage_key',
+      'storage_upload_id',
+      'part_size',
+      'status',
+      'expires_at',
+      'created_at',
+      'updated_at',
+    ])
+    expect(uploads.indexes.map((index) => index.config.name).sort()).toEqual([
+      'idx_recording_media_uploads_artifact_created',
+      'idx_recording_media_uploads_expiry',
+    ])
+    expect(uploads.checks.map((constraint) => constraint.name).sort()).toEqual([
+      'ck_recording_media_upload_part_size',
+      'ck_recording_media_upload_status',
+    ])
+    const uploadPartSizeCheck = uploads.checks.find(
+      (constraint) => constraint.name === 'ck_recording_media_upload_part_size',
+    )
+    const uploadStatusCheck = uploads.checks.find(
+      (constraint) => constraint.name === 'ck_recording_media_upload_status',
+    )
+    expect(normalizedSql(uploadPartSizeCheck!.value)).toBe(
+      'recording_media_uploads.part_size BETWEEN 5242880 AND 268435456',
+    )
+    expect(normalizedSql(uploadStatusCheck!.value)).toBe(
+      "recording_media_uploads.status IN ('uploading', 'completing', 'ready', 'expired', 'aborted')",
     )
     expect(mediaMigration).toMatch(/CHECK \(bytes > 0\)/i)
     expect(mediaMigration).toMatch(/CHECK \(part_size BETWEEN 5242880 AND 268435456\)/i)

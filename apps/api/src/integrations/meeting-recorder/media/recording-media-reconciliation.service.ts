@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto'
 import { Injectable, Logger } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
-import { and, eq, inArray, lte, or } from 'drizzle-orm'
+import { and, eq, gt, inArray, lte, notExists, or } from 'drizzle-orm'
+import { QueryBuilder } from 'drizzle-orm/pg-core'
 
 import { DatabaseService } from '../../../database/database.service'
 import { recordingMediaArtifacts, recordingMediaUploads } from '../../../database/schema'
@@ -66,6 +67,11 @@ export class RecordingMediaReconciliationService {
     let stale = 0
     let aborted = 0
     let databaseAborted = 0
+    // Provider enumeration cannot reveal a multipart session that R2 has
+    // already removed. Converge quota-bearing artifact state directly from
+    // durable DB lifecycle as well, so provider-side disappearance cannot
+    // leave an abandoned artifact reserving connection quota forever.
+    if (!dryRun) await this.failArtifactsWithoutLiveAttempts(now, graceCutoff)
     // Bound query parameter count for large buckets; do not scan unrelated document tables.
     for (let offset = 0; offset < open.length; offset += REPORT_BATCH_SIZE) {
       const batch = open.slice(offset, offset + REPORT_BATCH_SIZE)
@@ -127,7 +133,7 @@ export class RecordingMediaReconciliationService {
         }
       }
     }
-    const orphanReport = await this.reportCompletedOrphans(graceCutoff)
+    const orphanReport = await this.reportCompletedOrphans(now, graceCutoff)
     return {
       scanned: open.length,
       stale,
@@ -138,6 +144,7 @@ export class RecordingMediaReconciliationService {
   }
 
   private async reportCompletedOrphans(
+    now: Date,
     graceCutoff: Date,
   ): Promise<Pick<ReconciliationResult, 'objectsScanned' | 'orphanObjects' | 'orphanSample'>> {
     const objects = await this.storage.listMediaObjects()
@@ -152,14 +159,29 @@ export class RecordingMediaReconciliationService {
         this.db.db
           .select({ storageKey: recordingMediaArtifacts.storageKey })
           .from(recordingMediaArtifacts)
-          .where(inArray(recordingMediaArtifacts.storageKey, keys)),
+          .where(
+            and(
+              inArray(recordingMediaArtifacts.storageKey, keys),
+              eq(recordingMediaArtifacts.status, 'ready'),
+            ),
+          ),
         this.db.db
           .select({ storageKey: recordingMediaUploads.storageKey })
           .from(recordingMediaUploads)
           .where(
             and(
               inArray(recordingMediaUploads.storageKey, keys),
-              inArray(recordingMediaUploads.status, ['uploading', 'completing', 'ready']),
+              or(
+                eq(recordingMediaUploads.status, 'ready'),
+                and(
+                  eq(recordingMediaUploads.status, 'uploading'),
+                  gt(recordingMediaUploads.expiresAt, now),
+                ),
+                and(
+                  eq(recordingMediaUploads.status, 'completing'),
+                  gt(recordingMediaUploads.updatedAt, graceCutoff),
+                ),
+              ),
             ),
           ),
       ])
@@ -181,5 +203,116 @@ export class RecordingMediaReconciliationService {
     }
 
     return { objectsScanned: objects.length, orphanObjects, orphanSample }
+  }
+
+  /**
+   * An artifact reserves connection quota while it is uploading. Once its last
+   * provider attempt is terminal, converge the logical artifact too so an
+   * abandoned multipart upload cannot reserve quota forever.
+   *
+   * The initial NOT EXISTS is only a candidate filter. Before changing state,
+   * lock the artifact row and re-read live attempts in a new statement. That
+   * makes the decision independent of PostgreSQL's UPDATE snapshot/EPQ details:
+   * a concurrent create/complete either updates the artifact first (so we wait
+   * and then observe its committed attempt) or waits for this transaction and
+   * subsequently revives the artifact itself.
+   */
+  private async failArtifactsWithoutLiveAttempts(now: Date, graceCutoff: Date): Promise<void> {
+    const liveAttempt = new QueryBuilder()
+      .select({ id: recordingMediaUploads.id })
+      .from(recordingMediaUploads)
+      .where(
+        and(
+          eq(recordingMediaUploads.artifactId, recordingMediaArtifacts.id),
+          or(
+            eq(recordingMediaUploads.status, 'ready'),
+            and(
+              eq(recordingMediaUploads.status, 'uploading'),
+              gt(recordingMediaUploads.expiresAt, now),
+            ),
+            and(
+              eq(recordingMediaUploads.status, 'completing'),
+              gt(recordingMediaUploads.updatedAt, graceCutoff),
+            ),
+          ),
+        ),
+      )
+
+    const candidates = await this.db.db
+      .select({ id: recordingMediaArtifacts.id })
+      .from(recordingMediaArtifacts)
+      .where(
+        and(
+          inArray(recordingMediaArtifacts.status, ['uploading', 'completing']),
+          notExists(liveAttempt),
+        ),
+      )
+
+    for (const candidate of candidates) {
+      await this.db.db.transaction(async (tx) => {
+        const [artifact] = await tx
+          .select({ id: recordingMediaArtifacts.id, status: recordingMediaArtifacts.status })
+          .from(recordingMediaArtifacts)
+          .where(eq(recordingMediaArtifacts.id, candidate.id))
+          .for('update')
+          .limit(1)
+        if (!artifact || !['uploading', 'completing'].includes(artifact.status)) return
+
+        const [currentLiveAttempt] = await tx
+          .select({ id: recordingMediaUploads.id })
+          .from(recordingMediaUploads)
+          .where(
+            and(
+              eq(recordingMediaUploads.artifactId, artifact.id),
+              or(
+                eq(recordingMediaUploads.status, 'ready'),
+                and(
+                  eq(recordingMediaUploads.status, 'uploading'),
+                  gt(recordingMediaUploads.expiresAt, now),
+                ),
+                and(
+                  eq(recordingMediaUploads.status, 'completing'),
+                  gt(recordingMediaUploads.updatedAt, graceCutoff),
+                ),
+              ),
+            ),
+          )
+          .limit(1)
+        if (currentLiveAttempt) return
+
+        // Retire stale lifecycle rows as well as the logical artifact. Provider
+        // enumeration cannot do this when the multipart session has already
+        // disappeared; leaving these rows as uploading/completing would make
+        // orphan reporting and later recovery treat dead work as live forever.
+        await tx
+          .update(recordingMediaUploads)
+          .set({ status: 'expired', updatedAt: now })
+          .where(
+            and(
+              eq(recordingMediaUploads.artifactId, artifact.id),
+              or(
+                and(
+                  eq(recordingMediaUploads.status, 'uploading'),
+                  lte(recordingMediaUploads.expiresAt, now),
+                ),
+                and(
+                  eq(recordingMediaUploads.status, 'completing'),
+                  lte(recordingMediaUploads.updatedAt, graceCutoff),
+                ),
+              ),
+            ),
+          )
+
+        await tx
+          .update(recordingMediaArtifacts)
+          .set({ status: 'failed' })
+          .where(
+            and(
+              eq(recordingMediaArtifacts.id, artifact.id),
+              inArray(recordingMediaArtifacts.status, ['uploading', 'completing']),
+            ),
+          )
+      })
+    }
   }
 }

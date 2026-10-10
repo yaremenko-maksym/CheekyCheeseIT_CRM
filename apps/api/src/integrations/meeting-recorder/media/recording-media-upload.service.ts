@@ -58,7 +58,9 @@ function externalId(prefix: 'media' | 'upload', uuid: string): string {
 }
 
 function parseExternalId(value: string, prefix: 'media' | 'upload'): string {
-  const id = value.startsWith(`${prefix}_`) ? value.slice(prefix.length + 1) : ''
+  const externalPrefix = `${prefix}_`
+  if (!value.startsWith(externalPrefix)) throw mediaError('MEDIA_NOT_FOUND', HttpStatus.NOT_FOUND)
+  const id = value.slice(externalPrefix.length)
   if (!z.uuid().safeParse(id).success) throw mediaError('MEDIA_NOT_FOUND', HttpStatus.NOT_FOUND)
   return id
 }
@@ -86,10 +88,9 @@ export class RecordingMediaUploadService {
     if (!['video/webm', 'video/mp4', 'audio/webm', 'audio/mp4'].includes(mimeType)) {
       throw mediaError('MEDIA_UPLOAD_INVALID', HttpStatus.UNPROCESSABLE_ENTITY)
     }
-    if (
-      input.artifact.bytes > MAX_BYTES ||
-      Math.ceil(input.artifact.bytes / PART_SIZE) > MAX_PARTS
-    ) {
+    // MAX_BYTES is stricter than S3's 10,000-part ceiling at our fixed PART_SIZE
+    // (8 GiB needs only 256 parts), so one size limit is the complete create-time bound.
+    if (input.artifact.bytes > MAX_BYTES) {
       throw mediaError('MEDIA_UPLOAD_TOO_LARGE', HttpStatus.PAYLOAD_TOO_LARGE)
     }
     const filename = input.artifact.filename.replace(/[\x00-\x1f\x7f]/g, '')
@@ -124,6 +125,27 @@ export class RecordingMediaUploadService {
         }
         if (existing?.status === 'ready') return this.ready(existing)
 
+        const assertQuotaForArtifact = async () => {
+          const [quota] = await tx
+            .select({ bytes: sql<string>`coalesce(sum(${recordingMediaArtifacts.bytes}),0)` })
+            .from(recordingMediaArtifacts)
+            .where(
+              and(
+                eq(recordingMediaArtifacts.connectionId, connectionId),
+                sql`${recordingMediaArtifacts.status} != 'failed'`,
+              ),
+            )
+          const quotaBytes = quota ? Number(quota.bytes) : 0
+          if (quotaBytes + input.artifact.bytes > CONNECTION_QUOTA) {
+            throw mediaError('MEDIA_QUOTA_EXCEEDED', HttpStatus.PAYLOAD_TOO_LARGE)
+          }
+        }
+
+        // Failed artifacts have released their logical quota reservation. Any
+        // path that revives one (including recovery of an already-existing
+        // provider attempt/object) must reserve those bytes again first.
+        if (existing?.status === 'failed') await assertQuotaForArtifact()
+
         if (existing) {
           const [latest] = await tx
             .select()
@@ -149,6 +171,11 @@ export class RecordingMediaUploadService {
             }
           }
           if (latest?.status === 'uploading' && latest.expiresAt > new Date()) {
+            if (existing.status !== 'uploading')
+              await tx
+                .update(recordingMediaArtifacts)
+                .set({ status: 'uploading' })
+                .where(eq(recordingMediaArtifacts.id, existing.id))
             return this.uploading(existing, latest)
           }
           if (latest?.status === 'uploading' || latest?.status === 'completing')
@@ -183,20 +210,7 @@ export class RecordingMediaUploadService {
         if ((activeCount?.value ?? 0) >= MAX_ACTIVE)
           throw mediaError('MEDIA_UPLOAD_LIMIT', HttpStatus.TOO_MANY_REQUESTS)
 
-        if (!existing) {
-          const [quota] = await tx
-            .select({ bytes: sql<string>`coalesce(sum(${recordingMediaArtifacts.bytes}),0)` })
-            .from(recordingMediaArtifacts)
-            .where(
-              and(
-                eq(recordingMediaArtifacts.connectionId, connectionId),
-                sql`${recordingMediaArtifacts.status} != 'failed'`,
-              ),
-            )
-          if (Number(quota?.bytes ?? 0) + input.artifact.bytes > CONNECTION_QUOTA) {
-            throw mediaError('MEDIA_QUOTA_EXCEEDED', HttpStatus.PAYLOAD_TOO_LARGE)
-          }
-        }
+        if (!existing) await assertQuotaForArtifact()
 
         const artifactId = existing?.id ?? randomUUID()
         const attemptId = randomUUID()
@@ -492,6 +506,7 @@ export class RecordingMediaUploadService {
     const object = await this.storage.head(upload.storageKey)
     return (
       object?.bytes === artifact.bytes &&
+      // Stryker disable next-line OptionalChaining: split() on a string always returns at least one element, so index 0 is defined.
       object.mimeType.split(';', 1)[0]?.toLowerCase() === artifact.mimeType
     )
   }
@@ -525,12 +540,20 @@ export class RecordingMediaUploadService {
   private async markReady(artifact: Artifact, upload: Upload) {
     await this.db.db.transaction(async (tx) => {
       // Use the same connection lock as create, so a restarted attempt cannot win a late complete.
-      await tx
-        .select({ id: meetingRecorderConnections.id })
+      const [connection] = await tx
+        .select({
+          id: meetingRecorderConnections.id,
+          enabled: meetingRecorderConnections.enabled,
+        })
         .from(meetingRecorderConnections)
         .where(eq(meetingRecorderConnections.id, artifact.connectionId))
         .for('update')
         .limit(1)
+      // Authentication happened before provider I/O. Re-check under the same
+      // lifecycle lock so an ADMIN disable that commits while completion is in
+      // flight wins over the later DB finalization.
+      if (!connection || !connection.enabled)
+        throw mediaError('MEDIA_CONNECTION_DISABLED', HttpStatus.GONE)
       // A stale attempt may have finished after the client restarted with a new upload.
       const [latest] = await tx
         .select({ id: recordingMediaUploads.id, status: recordingMediaUploads.status })
@@ -540,6 +563,27 @@ export class RecordingMediaUploadService {
         .limit(1)
       if (latest?.id !== upload.id || latest.status === 'expired' || latest.status === 'aborted') {
         throw mediaError('MEDIA_UPLOAD_EXPIRED', HttpStatus.GONE)
+      }
+
+      const [currentArtifact] = await tx
+        .select({ status: recordingMediaArtifacts.status })
+        .from(recordingMediaArtifacts)
+        .where(eq(recordingMediaArtifacts.id, artifact.id))
+        .limit(1)
+      if (!currentArtifact) throw mediaError('MEDIA_NOT_FOUND', HttpStatus.NOT_FOUND)
+      if (currentArtifact.status === 'failed') {
+        const [quota] = await tx
+          .select({ bytes: sql<string>`coalesce(sum(${recordingMediaArtifacts.bytes}),0)` })
+          .from(recordingMediaArtifacts)
+          .where(
+            and(
+              eq(recordingMediaArtifacts.connectionId, artifact.connectionId),
+              sql`${recordingMediaArtifacts.status} != 'failed'`,
+            ),
+          )
+        if (Number(quota?.bytes ?? 0) + artifact.bytes > CONNECTION_QUOTA) {
+          throw mediaError('MEDIA_QUOTA_EXCEEDED', HttpStatus.PAYLOAD_TOO_LARGE)
+        }
       }
       await tx
         .update(recordingMediaArtifacts)
@@ -593,8 +637,11 @@ function equalParts(
     expected.length === actual.length &&
     expected.every(
       (part, index) =>
+        // Stryker disable next-line OptionalChaining: equal lengths above guarantee an actual row at every expected index.
         part.partNumber === actual[index]?.partNumber &&
+        // Stryker disable next-line OptionalChaining: equal lengths above guarantee an actual row at every expected index.
         part.etag === actual[index]?.etag &&
+        // Stryker disable next-line OptionalChaining: equal lengths above guarantee an actual row at every expected index.
         actual[index]?.bytes === Math.min(partSize, totalBytes - index * partSize),
     )
   )
