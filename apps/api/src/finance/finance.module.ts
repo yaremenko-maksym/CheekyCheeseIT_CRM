@@ -14,6 +14,7 @@ import { NbuCurrencyService } from './nbu-currency.service'
 import { PendingSettlementController } from './pending-settlement.controller'
 import { PendingSettlementService } from './pending-settlement.service'
 import { SalaryCronService } from './salary-cron.service'
+import { SalaryService } from './salary.service'
 import {
   FinanceSummaryController,
   PayoutRequestsController,
@@ -47,6 +48,8 @@ import { TransactionsService } from './transactions.service'
     TransactionsService,
     EtherscanService,
     SalaryCronService,
+    // T-L6: db-only salary logic collaborator of TransactionsService.
+    SalaryService,
     NbuCurrencyService,
     // Phase 4-A: balance pipeline runs alongside the legacy getSummary.
     BalanceService,
