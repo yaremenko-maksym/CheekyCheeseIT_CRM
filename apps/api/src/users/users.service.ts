@@ -6,7 +6,7 @@ import {
   Injectable,
   forwardRef,
 } from '@nestjs/common'
-import { and, desc, eq, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm'
 import type {
   ArchiveImpact,
   ArchivePendingTransaction,
@@ -34,6 +34,7 @@ import {
 import type { DrizzleTx } from '../database/types'
 import { uniqueViolationConstraint } from '../database/pg-errors'
 import { writeUserEmailOrConflict } from './user-emails.util'
+import { resolveArchivedFilter, withActiveProjectFlag } from './users-list.util'
 import { generateInviteToken, hashInviteToken, INVITE_TOKEN_TTL_MS } from './invite-token.util'
 import {
   ARCHIVED_ENTITLEMENT_CODE,
@@ -683,12 +684,7 @@ export class UsersService {
   async findAll(filter: { archived?: boolean | 'all' } = {}): Promise<UserWithAvailability[]> {
     // round 7 (ut-44): tri-state filter — `'all'` returns both active and
     // archived rows in one query, used by the «Все» tab on /crm/users.
-    const archivedFilter =
-      filter.archived === 'all'
-        ? undefined
-        : filter.archived === true
-          ? isNotNull(users.archivedAt)
-          : isNull(users.archivedAt)
+    const archivedFilter = resolveArchivedFilter(filter)
     const where = archivedFilter
       ? and(ne(users.role, 'ADMIN'), archivedFilter)
       : ne(users.role, 'ADMIN')
@@ -699,21 +695,13 @@ export class UsersService {
       .from(projectMembers)
       .where(isNull(projectMembers.leftAt))
     const busyJuniorIds = new Set(activeProjectMemberships.map((m) => m.userId))
-    return allUsers.map((u) => ({
-      ...u,
-      hasActiveProject: u.role === 'JUNIOR' ? busyJuniorIds.has(u.id) : false,
-    }))
+    return withActiveProjectFlag(allUsers, busyJuniorIds)
   }
 
   async findAllIncludingAdmin(
     filter: { archived?: boolean | 'all' } = {},
   ): Promise<UserWithAvailability[]> {
-    const archivedFilter =
-      filter.archived === 'all'
-        ? undefined
-        : filter.archived === true
-          ? isNotNull(users.archivedAt)
-          : isNull(users.archivedAt)
+    const archivedFilter = resolveArchivedFilter(filter)
     // USER_LIST_PROJECTION excludes legalFullName — see module-level constant.
     const allUsers = archivedFilter
       ? await this.db.db.select(USER_LIST_PROJECTION).from(users).where(archivedFilter)
@@ -723,10 +711,7 @@ export class UsersService {
       .from(projectMembers)
       .where(isNull(projectMembers.leftAt))
     const busyJuniorIds = new Set(activeProjectMemberships.map((m) => m.userId))
-    return allUsers.map((u) => ({
-      ...u,
-      hasActiveProject: u.role === 'JUNIOR' ? busyJuniorIds.has(u.id) : false,
-    }))
+    return withActiveProjectFlag(allUsers, busyJuniorIds)
   }
 
   async getProfile(id: string): Promise<User> {
