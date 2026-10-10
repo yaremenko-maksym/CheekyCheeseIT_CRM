@@ -20,7 +20,6 @@ import { NOTIFICATION_TITLES, projectPaymentTypeSchema } from '@crm/shared'
 import { apiError } from '../common/api-error'
 import { NotificationsService } from '../notifications/notifications.service'
 import type { CreateNotificationInput } from '../notifications/notifications.service'
-import { DEFAULT_DROP_SHARE_PERCENT } from '../finance/drop-share-resolver'
 import { ApprovalsService } from '../approvals/approvals.service'
 import { HrAccessService } from '../common/hr-access.service'
 import { DatabaseService } from '../database/database.service'
@@ -45,7 +44,14 @@ import { canSeePendingSeniorShare } from './project-visibility.util'
 import { mapProjectToDto, type ProjectWithRelations } from './project-map.util'
 import { buildEffectiveTeam, type EffectiveTeamRow } from './project-team.util'
 import { UsersService } from '../users/users.service'
-import { resolveSeniorShare } from '../finance/senior-share-resolver'
+import {
+  buildPendingSeniorShareDto,
+  isDropOverrideChange,
+  isSeniorOverrideChange,
+  pickDropDefault,
+  pickSeniorDefault,
+  resolveOverrideEffective,
+} from './project-share.util'
 import type { DrizzleTx } from '../database/types'
 
 // task-pending-share (position 5). Pulled out of `notifyPendingSeniorShareProposed`'s
@@ -210,36 +216,7 @@ export class ProjectsService {
       projectId,
     )
     if (status !== 'PENDING') return null
-    // task-648-fix-round-1 (COPY-H-2/COPY-H-3): resolve what the effective
-    // percent WOULD become if this proposal is approved, via the SAME
-    // resolver `mapProject` uses for the live value — substituting the
-    // PENDING value for the live project override. This is what makes
-    // `percent: null` ("clear the override") render as the real fallback
-    // number instead of the client falling back to `percent ?? 0`.
-    // `resolveSeniorShare`'s TEAM step (`senior-share-resolver.ts`) keeps
-    // only elements where `t.seniorSharePercentOverride !== null && !==
-    // undefined`. Stryker's canned replacement (a bare string) has no such
-    // property — reading it off a string yields `undefined`, so the element
-    // is filtered out exactly like an empty array would be. `[]` and any
-    // array holding one element that isn't `ResolverTeam`-shaped are
-    // indistinguishable through the ONLY consumer of this value (below); no
-    // legitimate test can tell them apart without fabricating malformed data
-    // the real caller (`loadTeamOverridesBySenior`, a typed Drizzle query)
-    // can never actually produce.
-    // Stryker disable next-line ArrayDeclaration: see comment above — the
-    // fallback value is unobservable through resolveSeniorShare's filter.
-    const applicableTeams = teamOverridesBySeniorId.get(senior.id) ?? []
-    const effectivePercentAfterApproval = resolveSeniorShare(
-      { seniorSharePercentOverride: pendingValue },
-      { seniorSharePercent: senior.seniorSharePercent },
-      applicableTeams,
-    ).value
-    return {
-      percent: pendingValue ?? null,
-      effectivePercentAfterApproval,
-      approverId: senior.id,
-      approverName: senior.displayName,
-    }
+    return buildPendingSeniorShareDto(senior, pendingValue, teamOverridesBySeniorId)
   }
 
   /**
@@ -1427,28 +1404,18 @@ export class ProjectsService {
     // это как сброс переопределения (пишем `null`). Иначе — пишем число.
     // Это касается и `projects.seniorSharePercentOverride`, и mirror в
     // `project_finance_settings.seniorSharePercentOverride`.
-    const seniorDefault = project.senior?.seniorSharePercent ?? 26
-    const overrideEffective: number | null | undefined =
-      data.seniorSharePercentOverride === undefined
-        ? undefined
-        : data.seniorSharePercentOverride === null
-          ? null
-          : data.seniorSharePercentOverride === seniorDefault
-            ? null
-            : data.seniorSharePercentOverride
+    const overrideEffective = resolveOverrideEffective(
+      data.seniorSharePercentOverride,
+      pickSeniorDefault(project.senior),
+    )
 
     // task-drop-share-override-and-receiver (D6). Implicit-null reset mirrors the
     // senior override: a value equal to the drop's effective default is stored
     // as null so the resolver keeps falling back to the user default.
-    const dropDefault = project.drop?.dropSharePercent ?? DEFAULT_DROP_SHARE_PERCENT
-    const dropOverrideEffective: number | null | undefined =
-      data.dropSharePercentOverride === undefined
-        ? undefined
-        : data.dropSharePercentOverride === null
-          ? null
-          : data.dropSharePercentOverride === dropDefault
-            ? null
-            : data.dropSharePercentOverride
+    const dropOverrideEffective = resolveOverrideEffective(
+      data.dropSharePercentOverride,
+      pickDropDefault(project.drop),
+    )
 
     const updateData: Partial<typeof projects.$inferInsert> = {
       updatedAt: new Date(),
@@ -1519,10 +1486,7 @@ export class ProjectsService {
     // "actual-change, not mere presence" gate `updateUserRow` applies to
     // every other entitlement column (no proposal spam on a routine resubmit
     // of an unchanged form).
-    if (
-      overrideEffective !== undefined &&
-      overrideEffective !== (project.seniorSharePercentOverride ?? null)
-    ) {
+    if (isSeniorOverrideChange(overrideEffective, project.seniorSharePercentOverride)) {
       await this.proposeSeniorShareChange(
         id,
         project.seniorId,
@@ -1551,10 +1515,7 @@ export class ProjectsService {
     // task-drop-share-override-and-receiver (D6). Audit the drop override change
     // (no project_finance_settings mirror sync — the canonical value lives on
     // projects.dropSharePercentOverride, which the resolver reads directly).
-    if (
-      dropOverrideEffective !== undefined &&
-      project.dropSharePercentOverride !== dropOverrideEffective
-    ) {
+    if (isDropOverrideChange(dropOverrideEffective, project.dropSharePercentOverride)) {
       // security-review round 2 (authz-hardening): attribute to the real
       // operator under impersonation — see sessionUserSchema.impersonatorId's doc.
       await this.projectAuditLogService.record({
