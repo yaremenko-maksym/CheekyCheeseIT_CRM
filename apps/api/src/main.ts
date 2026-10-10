@@ -11,6 +11,7 @@ import { registerCspReportContentTypeParser } from './csp-reports/csp-report-con
 import { assertJwtAuthGuardsWired } from './auth/jwt-guard-wiring'
 import { TelemetryExceptionFilter } from './telemetry/telemetry-exception.filter'
 import { createRedactingReqSerializer } from './config/http-logger-serializers'
+import { PRODUCTION_CSP_DIRECTIVES } from './config/csp'
 import { registerMeetingRecorderContentTypeParser } from './integrations/meeting-recorder/meeting-recorder-webhook-parser'
 import { registerMeetingRecorderWebhookOnRequestHook } from './integrations/meeting-recorder/meeting-recorder-webhook-auth-hook'
 
@@ -54,23 +55,7 @@ async function bootstrap() {
     //   connect-src 'self'         — XHR/fetch to same origin only
     contentSecurityPolicy: isProd
       ? {
-          directives: {
-            defaultSrc: ["'self'"],
-            scriptSrc: ["'self'"],
-            styleSrc: ["'self'", "'unsafe-inline'"],
-            // CSP: img-src allows https: because DocumentImage (<img src={presignedR2Url}>)
-            // fetches presigned R2/S3 thumbnails and full-res previews directly as <img>,
-            // not via fetch(). Narrowing to a specific R2 hostname is fragile (env-specific
-            // endpoint, changes per deployment). All other directives remain tightly scoped.
-            imgSrc: ["'self'", 'data:', 'https:', 'https://api.dicebear.com'],
-            fontSrc: ["'self'", 'data:'],
-            connectSrc: ["'self'"],
-            frameSrc: ["'self'", 'blob:'],
-            objectSrc: ["'self'", 'blob:'],
-            baseUri: ["'self'"],
-            frameAncestors: ["'none'"], // clickjacking defense (#100 MED-1)
-            formAction: ["'self'"], // restrict form submissions to same origin (#100 LOW-1)
-          },
+          directives: PRODUCTION_CSP_DIRECTIVES,
         }
       : false,
   })

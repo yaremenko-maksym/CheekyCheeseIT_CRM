@@ -7,6 +7,9 @@ import {
   meetingRecorderArtifactInputSchema,
   meetingRecorderArtifactStoredSchema,
   meetingRecorderConnectionSchema,
+  meetingRecorderMediaArtifactSchema,
+  meetingRecorderMediaPlaybackSchema,
+  meetingRecorderMediaTokenResponseSchema,
   meetingRecorderIntegrationTestEventSchema,
   meetingRecorderReadyEventSchema,
   meetingRecorderReadinessSchema,
@@ -395,6 +398,8 @@ describe('meeting recorder schema boundaries', () => {
     name: 'Recruiting recorder',
     enabled: true,
     secretSet: true,
+    mediaProvisioned: true,
+    mediaTokenUpdatedAt: '2026-10-07T12:00:00.000Z',
     expectedSource: 'urn:meeting-recorder:destination:producer_123',
     signingSecretUpdatedAt: '2026-10-07T12:00:00.000Z',
     lastVerifiedAt: '2026-10-07T12:01:00.000Z',
@@ -786,6 +791,7 @@ describe('meeting recorder schema boundaries', () => {
       meetingRecorderConnectionSchema.parse({
         ...validConnection,
         expectedSource: null,
+        mediaTokenUpdatedAt: null,
         signingSecretUpdatedAt: null,
         lastVerifiedAt: null,
         lastEventAt: null,
@@ -793,6 +799,7 @@ describe('meeting recorder schema boundaries', () => {
     ).toEqual({
       ...validConnection,
       expectedSource: null,
+      mediaTokenUpdatedAt: null,
       signingSecretUpdatedAt: null,
       lastVerifiedAt: null,
       lastEventAt: null,
@@ -808,6 +815,66 @@ describe('meeting recorder schema boundaries', () => {
     ).toBe(false)
     expect(
       meetingRecorderConnectionSchema.safeParse({ ...validConnection, unexpected: true }).success,
+    ).toBe(false)
+  })
+
+  it('validates media provisioning, descriptor, and playback contracts', () => {
+    const validMediaToken = `mrmt_${'a'.repeat(43)}`
+    expect(meetingRecorderMediaTokenResponseSchema.parse({ token: validMediaToken })).toEqual({
+      token: validMediaToken,
+    })
+    expect(meetingRecorderMediaTokenResponseSchema.safeParse({ token: 'mrmt_short' }).success).toBe(
+      false,
+    )
+    expect(
+      meetingRecorderMediaTokenResponseSchema.safeParse({ token: `x${validMediaToken}` }).success,
+    ).toBe(false)
+    expect(
+      meetingRecorderMediaTokenResponseSchema.safeParse({ token: `${validMediaToken}x` }).success,
+    ).toBe(false)
+
+    const artifact = {
+      artifactId: 'media_22222222-2222-4222-8222-222222222222',
+      role: 'tab-recording',
+      filename: 'meeting.webm',
+      mimeType: 'video/webm',
+      bytes: 123,
+    }
+    expect(meetingRecorderMediaArtifactSchema.parse(artifact)).toEqual(artifact)
+    expect(meetingRecorderMediaArtifactSchema.safeParse({ ...artifact, bytes: 0 }).success).toBe(
+      false,
+    )
+    expect(
+      meetingRecorderMediaArtifactSchema.safeParse({
+        ...artifact,
+        artifactId: `x${artifact.artifactId}`,
+      }).success,
+    ).toBe(false)
+    expect(
+      meetingRecorderMediaArtifactSchema.safeParse({
+        ...artifact,
+        artifactId: `${artifact.artifactId}x`,
+      }).success,
+    ).toBe(false)
+    for (const role of ['tab-recording', 'microphone-recording', 'self-video']) {
+      expect(meetingRecorderMediaArtifactSchema.safeParse({ ...artifact, role }).success).toBe(true)
+    }
+    for (const mimeType of ['video/webm', 'video/mp4', 'audio/webm', 'audio/mp4']) {
+      expect(meetingRecorderMediaArtifactSchema.safeParse({ ...artifact, mimeType }).success).toBe(
+        true,
+      )
+    }
+
+    const playback = {
+      url: 'https://media.example.test/object',
+      expiresAt: '2026-10-09T12:00:00.000Z',
+    }
+    expect(meetingRecorderMediaPlaybackSchema.parse(playback)).toEqual(playback)
+    expect(
+      meetingRecorderMediaPlaybackSchema.safeParse({
+        ...playback,
+        url: 'http://media.example.test',
+      }).success,
     ).toBe(false)
   })
 

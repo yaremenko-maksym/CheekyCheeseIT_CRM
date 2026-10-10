@@ -20,14 +20,21 @@ import {
   meetingRecorderConnectionsRelations,
   meetingRecorderWebhookReceipts,
   meetingRecorderWebhookReceiptsRelations,
+  recordingMediaArtifacts,
+  recordingMediaUploads,
   users,
   usersRelations,
 } from './schema'
 
-const migration = readFileSync(
+const phase1Migration = readFileSync(
   join(__dirname, '../../drizzle/manual/2026-10-07_meeting_recorder_integration.sql'),
   'utf8',
 )
+const mediaMigration = readFileSync(
+  join(__dirname, '../../drizzle/manual/2026-10-08_meeting_recorder_media.sql'),
+  'utf8',
+)
+const migration = `${phase1Migration}\n${mediaMigration}`
 
 function fkFor(table: Parameters<typeof getTableConfig>[0], columnName: string) {
   return getTableConfig(table).foreignKeys.find((fk) =>
@@ -320,5 +327,127 @@ describe('meeting recorder database foundation', () => {
     expect(migration).toMatch(/revision\s+bigint NOT NULL/i)
     expect(migration).toMatch(/duration_ms\s+double precision/i)
     expect(migration).not.toMatch(/CREATE (?:UNIQUE )?INDEX (?!IF NOT EXISTS)/i)
+  })
+
+  it('pins the additive media migration chain, foreign keys and transfer uniqueness', () => {
+    expect(phase1Migration).toContain('CREATE TABLE IF NOT EXISTS meeting_recorder_connections')
+    expect(phase1Migration).not.toContain('recording_media_artifacts')
+    expect(mediaMigration).toMatch(
+      /ALTER TABLE meeting_recorder_connections\s+ADD COLUMN IF NOT EXISTS media_token_hash text,\s+ADD COLUMN IF NOT EXISTS media_token_updated_at timestamptz/i,
+    )
+    expect(mediaMigration).toMatch(/CREATE TABLE IF NOT EXISTS recording_media_artifacts/i)
+    expect(mediaMigration).toMatch(/CREATE TABLE IF NOT EXISTS recording_media_uploads/i)
+    expect(mediaMigration).not.toMatch(/CREATE (?:UNIQUE )?INDEX (?!IF NOT EXISTS)/i)
+
+    const connection = getTableConfig(meetingRecorderConnections)
+    for (const name of ['media_token_hash', 'media_token_updated_at']) {
+      expect(connection.columns.find((column) => column.name === name)?.notNull).toBe(false)
+      expect(mediaMigration).toContain(name)
+    }
+    const mediaTokenIndex = connection.indexes.find(
+      (index) => index.config.name === 'uq_meeting_recorder_connections_media_token_hash',
+    )
+    expect(mediaTokenIndex?.config.unique).toBe(true)
+    expect(mediaMigration).toContain('uq_meeting_recorder_connections_media_token_hash')
+    expect(mediaMigration).toMatch(/WHERE media_token_hash IS NOT NULL/i)
+
+    for (const table of [recordingMediaArtifacts, recordingMediaUploads]) {
+      const config = getTableConfig(table)
+      expect(mediaMigration).toContain(`CREATE TABLE IF NOT EXISTS ${config.name}`)
+      for (const column of config.columns) expect(mediaMigration).toContain(column.name)
+      for (const index of config.indexes) expect(mediaMigration).toContain(index.config.name)
+      for (const constraint of config.checks) expect(mediaMigration).toContain(constraint.name)
+    }
+
+    const artifacts = getTableConfig(recordingMediaArtifacts)
+    expect(artifacts.columns.map((column) => column.name)).toEqual([
+      'id',
+      'connection_id',
+      'client_transfer_id',
+      'external_recording_id',
+      'role',
+      'filename',
+      'request_fingerprint',
+      'mime_type',
+      'bytes',
+      'storage_key',
+      'status',
+      'created_at',
+      'completed_at',
+    ])
+    expect(artifacts.indexes.map((index) => index.config.name).sort()).toEqual([
+      'idx_recording_media_artifact_recording',
+      'uq_recording_media_artifact_connection_transfer',
+    ])
+    expect(artifacts.checks.map((constraint) => constraint.name).sort()).toEqual([
+      'ck_recording_media_artifact_bytes',
+      'ck_recording_media_artifact_status',
+    ])
+    const transferIndex = artifacts.indexes.find(
+      (index) => index.config.name === 'uq_recording_media_artifact_connection_transfer',
+    )
+    expect(transferIndex?.config.unique).toBe(true)
+    expect(
+      transferIndex?.config.columns.map((column) => (column as { name?: string }).name),
+    ).toEqual(['connection_id', 'client_transfer_id'])
+    expect(fkFor(recordingMediaArtifacts, 'connection_id')?.onDelete).toBe('restrict')
+    expect(fkFor(recordingMediaArtifacts, 'connection_id')?.reference().foreignTable).toBe(
+      meetingRecorderConnections,
+    )
+    expect(fkFor(recordingMediaUploads, 'artifact_id')?.onDelete).toBe('cascade')
+    expect(fkFor(recordingMediaUploads, 'artifact_id')?.reference().foreignTable).toBe(
+      recordingMediaArtifacts,
+    )
+    const artifactBytesCheck = artifacts.checks.find(
+      (constraint) => constraint.name === 'ck_recording_media_artifact_bytes',
+    )
+    const artifactStatusCheck = artifacts.checks.find(
+      (constraint) => constraint.name === 'ck_recording_media_artifact_status',
+    )
+    expect(normalizedSql(artifactBytesCheck!.value)).toBe('recording_media_artifacts.bytes > 0')
+    expect(normalizedSql(artifactStatusCheck!.value)).toBe(
+      "recording_media_artifacts.status IN ('uploading', 'completing', 'ready', 'failed')",
+    )
+
+    const uploads = getTableConfig(recordingMediaUploads)
+    expect(uploads.columns.map((column) => column.name)).toEqual([
+      'id',
+      'artifact_id',
+      'storage_key',
+      'storage_upload_id',
+      'part_size',
+      'status',
+      'expires_at',
+      'created_at',
+      'updated_at',
+    ])
+    expect(uploads.indexes.map((index) => index.config.name).sort()).toEqual([
+      'idx_recording_media_uploads_artifact_created',
+      'idx_recording_media_uploads_expiry',
+    ])
+    expect(uploads.checks.map((constraint) => constraint.name).sort()).toEqual([
+      'ck_recording_media_upload_part_size',
+      'ck_recording_media_upload_status',
+    ])
+    const uploadPartSizeCheck = uploads.checks.find(
+      (constraint) => constraint.name === 'ck_recording_media_upload_part_size',
+    )
+    const uploadStatusCheck = uploads.checks.find(
+      (constraint) => constraint.name === 'ck_recording_media_upload_status',
+    )
+    expect(normalizedSql(uploadPartSizeCheck!.value)).toBe(
+      'recording_media_uploads.part_size BETWEEN 5242880 AND 268435456',
+    )
+    expect(normalizedSql(uploadStatusCheck!.value)).toBe(
+      "recording_media_uploads.status IN ('uploading', 'completing', 'ready', 'expired', 'aborted')",
+    )
+    expect(mediaMigration).toMatch(/CHECK \(bytes > 0\)/i)
+    expect(mediaMigration).toMatch(/CHECK \(part_size BETWEEN 5242880 AND 268435456\)/i)
+    expect(mediaMigration).toMatch(
+      /CHECK \(status IN \('uploading', 'completing', 'ready', 'failed'\)\)/i,
+    )
+    expect(mediaMigration).toMatch(
+      /CHECK \(status IN \('uploading', 'completing', 'ready', 'expired', 'aborted'\)\)/i,
+    )
   })
 })

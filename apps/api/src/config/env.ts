@@ -172,6 +172,41 @@ const envSchema = z
     AWS_ACCESS_KEY_ID: z.string().min(1).default(DEV_S3_ACCESS_KEY_ID),
     AWS_SECRET_ACCESS_KEY: z.string().min(1).default(DEV_S3_SECRET_ACCESS_KEY),
 
+    // Meeting-recorder media can use an isolated S3/R2 bucket and credential set.
+    // Every field is optional so existing deployments keep using the document
+    // storage configuration until the dedicated media store is provisioned.
+    MEETING_RECORDER_MEDIA_S3_ENDPOINT: z.string().url().optional(),
+    MEETING_RECORDER_MEDIA_S3_FORCE_PATH_STYLE: z.preprocess(
+      (v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v),
+      z.boolean().optional(),
+    ),
+    MEETING_RECORDER_MEDIA_S3_REGION: z.string().min(1).optional(),
+    MEETING_RECORDER_MEDIA_S3_BUCKET: z.string().min(1).optional(),
+    MEETING_RECORDER_MEDIA_S3_USE_SSE: z.preprocess(
+      (v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v),
+      z.boolean().optional(),
+    ),
+    MEETING_RECORDER_MEDIA_AWS_ACCESS_KEY_ID: z.string().min(1).optional(),
+    MEETING_RECORDER_MEDIA_AWS_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+    MEETING_RECORDER_MEDIA_PART_URL_TTL_SECONDS: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(7 * 24 * 60 * 60)
+      .optional(),
+    MEETING_RECORDER_MEDIA_PLAYBACK_URL_TTL_SECONDS: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(7 * 24 * 60 * 60)
+      .optional(),
+    MEETING_RECORDER_MEDIA_UPLOAD_LIFETIME_MS: z.coerce
+      .number()
+      .int()
+      .min(1_000)
+      .max(6 * 24 * 60 * 60 * 1_000)
+      .optional(),
+
     // task-vacancies-api: Cloudflare Turnstile secret used to verify the
     // public vacancy-apply endpoint. Default is Cloudflare's documented
     // "always passes" test secret — safe for dev/CI, never for production

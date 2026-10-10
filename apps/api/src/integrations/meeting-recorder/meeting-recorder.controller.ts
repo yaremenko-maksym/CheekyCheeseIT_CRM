@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   HttpCode,
   HttpStatus,
   Param,
@@ -10,9 +11,12 @@ import {
   Post,
   Put,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common'
-import type { FastifyRequest } from 'fastify'
+import { ConfigService } from '@nestjs/config'
+import { MEETING_RECORDER_TEST_EVENT_TYPE } from '@crm/shared'
+import type { FastifyReply, FastifyRequest } from 'fastify'
 import {
   createMeetingRecorderConnectionSchema,
   meetingRecorderWebhookEventSchema,
@@ -34,6 +38,9 @@ import {
   type MeetingRecorderWebhookHeaders,
 } from './meeting-recorder-webhook-verifier'
 import { MeetingRecorderService } from './meeting-recorder.service'
+import { RecordingMediaAuthService } from './media/recording-media-auth.service'
+import { RecordingMediaStorageService } from './media/recording-media-storage.service'
+import type { Env } from '../../config/env'
 
 export const MEETING_RECORDER_WEBHOOK_LIMIT = 120
 const MEETING_RECORDER_WEBHOOK_TTL_MS = 60_000
@@ -57,17 +64,20 @@ export class MeetingRecorderWebhookController {
   constructor(
     private readonly service: MeetingRecorderService,
     private readonly verifier: MeetingRecorderWebhookVerifier,
+    private readonly mediaAuth: RecordingMediaAuthService,
+    private readonly storage: RecordingMediaStorageService,
+    private readonly config: ConfigService<Env, true>,
   ) {}
 
   @Post(':connectionId/webhook')
   @Public()
-  @HttpCode(HttpStatus.NO_CONTENT)
   @RelaxableThrottle(MEETING_RECORDER_WEBHOOK_LIMIT, MEETING_RECORDER_WEBHOOK_TTL_MS)
   async receiveWebhook(
     @Param('connectionId') connectionId: string,
     @Body() body: unknown,
     @Req() request: FastifyRequest,
-  ): Promise<void> {
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<unknown> {
     if (!isMeetingRecorderConnectionId(connectionId)) {
       throw meetingRecorderWebhookError(
         'MEETING_RECORDER_WEBHOOK_UNAUTHORIZED',
@@ -124,6 +134,32 @@ export class MeetingRecorderWebhookController {
       parsed.data,
       authentication.signingSecretCiphertext,
     )
+
+    reply.header('Cache-Control', 'no-store')
+    if (
+      parsed.data.type === MEETING_RECORDER_TEST_EVENT_TYPE &&
+      (await this.mediaAuth.isProvisioned(connectionId))
+    ) {
+      const uploadOrigin = await this.storage.uploadOrigin()
+      const frontend = new URL(this.config.get('FRONTEND_URL', { infer: true }))
+      if (uploadOrigin && frontend.protocol === 'https:') {
+        reply.code(HttpStatus.OK)
+        return {
+          protocol: 'io.github.kstroevsky.meeting-recorder.service.v1',
+          capabilities: {
+            events: { version: 1 },
+            media: {
+              version: 1,
+              apiBase: `${frontend.origin}/api/integrations/meeting-recorder/media`,
+              upload: { strategy: 'multipart-put-v1', origins: [uploadOrigin] },
+              playback: { strategy: 'refreshable-url-v1' },
+            },
+          },
+        }
+      }
+    }
+    reply.code(HttpStatus.NO_CONTENT)
+    return undefined
   }
 }
 
@@ -131,7 +167,10 @@ export class MeetingRecorderWebhookController {
 @Roles('ADMIN')
 @Controller('integrations/meeting-recorder/connections')
 export class MeetingRecorderAdminController {
-  constructor(private readonly service: MeetingRecorderService) {}
+  constructor(
+    private readonly service: MeetingRecorderService,
+    private readonly mediaAuth: RecordingMediaAuthService,
+  ) {}
 
   @Get()
   listConnections() {
@@ -172,5 +211,12 @@ export class MeetingRecorderAdminController {
   @AdminWriteThrottle()
   resetPairing(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: SessionUser) {
     return this.service.resetPairing(id, user.id)
+  }
+
+  @Put(':id/token')
+  @AdminWriteThrottle()
+  @Header('Cache-Control', 'no-store')
+  replaceMediaToken(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: SessionUser) {
+    return this.mediaAuth.replaceToken(id, user.id)
   }
 }

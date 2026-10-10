@@ -2965,6 +2965,7 @@ Response:
 {
   "artifactId": "media_...",
   "uploadId": "upload_...",
+  "state": "uploading",
   "strategy": "multipart-put-v1",
 
   "partSize": 33554432,
@@ -2972,7 +2973,7 @@ Response:
 }
 ```
 
-**Correction:** `recordingId` is the stream's `externalRecordingId` (`recording_<uuid>`), the same pseudonymous ID the CloudEvents carry as `recording.id`, so the service joins media to the recording without ever seeing a local ID; this is why E5 creates the stream identity at Start. `clientTransferId` makes _create_ idempotent: a repeated create gets the same `uploadId`.
+**Correction:** `recordingId` is the stream's `externalRecordingId` (`recording_<uuid>`), the same pseudonymous ID the CloudEvents carry as `recording.id`, so the service joins media to the recording without ever seeing a local ID; this is why E5 creates the stream identity at Start. `clientTransferId` makes _create_ idempotent: a repeated create while active gets the same `uploadId`. For an expired/aborted session, repeating create with the same `clientTransferId` returns a **new uploadId for the same artifactId**. For a completed artifact it returns `{ "artifactId": "media_...", "state": "ready" }`. Different immutable upload metadata for the same transfer ID is a `409`.
 
 The service chooses the part size; the extension does not assume R2 or S3. **Correction (F28):** `partSize` is binding, not advisory: every part except the last is exactly `partSize` bytes, because R2 rejects uneven parts. The service picks it so that each part is at least 5 MiB and the upload needs at most 10,000 parts; 32 MiB covers recordings up to about 312 GiB.
 
@@ -3009,9 +3010,20 @@ The extension reads exactly that byte range, `PUT`s it directly to storage and r
 }
 ```
 
-After a browser restart, parts 1–16 stay uploaded and the transfer continues at part 17: no multi-gigabyte restart. **Correction (F28):** R2 removes unfinished multipart uploads after 7 days by default, so `state` can also be `expired`; the extension then creates a new upload for the same artifact and starts again from part 1.
+After a browser restart, parts 1–16 stay uploaded and the transfer continues at part 17: no multi-gigabyte restart. The server reconciles the part list against storage's paginated ListParts, which is authoritative. **Correction (F28):** R2 removes unfinished multipart uploads after 7 days by default; an expired upload returns `410`, so the extension calls _create_ again with the same transfer ID and restarts from part 1 with a new upload ID and the **existing** artifact ID.
 
-**Complete**: `POST {apiBase}/v1/uploads/<uploadId>/complete`, with the part ETags:
+**Complete**: `POST {apiBase}/v1/uploads/<uploadId>/complete`, with the ordered, consecutive part ETags as the request body:
+
+```json
+{
+  "parts": [
+    { "partNumber": 1, "etag": "\"part-1-etag\"" },
+    { "partNumber": 2, "etag": "\"part-2-etag\"" }
+  ]
+}
+```
+
+The backend checks every ETag against actual uploaded parts (ListParts) before completing. `ETag` is opaque, including its quotes; no reformatting is allowed. Response:
 
 ```json
 {
@@ -3020,7 +3032,7 @@ After a browser restart, parts 1–16 stay uploaded and the transfer continues a
 }
 ```
 
-Before answering `ready`, the service checks the stored object's size against the declared `bytes`. Only then does the extension persist `ArtifactLocation.external` as a playable location.
+Before answering `ready`, the service checks the stored object's size against the declared `bytes`. Completion is retriable after a lost response: persist a `completing` state, reconcile HEAD when the provider's multipart session disappears, and return the existing artifact in `ready` once HEAD verifies it. Only then does the extension persist `ArtifactLocation.external` as a playable location. The normative details are in the extension's `docs/adr/0009-external-media-storage-protocol-v1.md`.
 
 **Playback capability**: `POST {apiBase}/v1/artifacts/<artifactId>/playback`
 
@@ -3078,7 +3090,7 @@ Media calls go from the extension to the service, so a media-capable destination
 
 **[Δ D89]** Revocation and offboarding:
 
-- A connection disabled in the CRM answers every media call with `410`, playback capabilities included, not only webhooks (C3). Disabling the connection of a recruiter who left stops their uploads and the extension-side playback of their uploads at once; CRM users keep seeing those recordings through interview RBAC.
+- A connection disabled in the CRM answers every **new CRM media control-plane call** with `410`, playback-capability minting included, not only webhooks (C3). It also prevents an in-flight completion from committing `ready` after the disable wins the connection lifecycle lock. Already-issued direct-storage presigned capabilities are not revocable by the CRM Bearer switch and remain usable only until their bounded TTL (O12); CRM users keep seeing historical recordings through interview RBAC.
 - _Replace token_ (`PUT .../connections/:id/token`, ADMIN) issues a new Bearer token and invalidates the old one immediately; the extension then needs the new token, which is a connection change (ADR-0008 §20).
 - Both actions are audited (Table 4).
 
@@ -3153,7 +3165,7 @@ created_at
 updated_at
 ```
 
-**Correction:** artifacts are keyed by `connection_id` + `external_recording_id` rather than by a foreign key to `interview_recordings`: media can finish before the first event creates the recording row, and the two join when both exist. Add `UNIQUE(connection_id, client_transfer_id)` for idempotent create. `storage_key` stays internal; the extension only ever sees `artifactId`.
+**Correction:** artifacts carry `connection_id` + `external_recording_id` rather than a foreign key to `interview_recordings`: media can finish before the first event creates the recording row, and the two join when both exist. Add `UNIQUE(connection_id, client_transfer_id)` **to the artifacts table**, not to uploads. Every expired/aborted upload attempt requires a new upload row and `uploadId` for the same logical artifact and transfer ID. `storage_key` stays internal; the extension only ever sees `artifactId`.
 
 **[Δ D90]** Input rules for _create_:
 
@@ -3385,7 +3397,7 @@ JM9  disconnect dialog shows the right count; Disable automation keeps playback 
 JM10 Remove from extension leaves the CRM recording and its media intact
 JM11 OPFS released only after the remote copy is verified playable
 JM12 the reference receiver (M6) passes JM0–JM6 with zero extension changes
-JM13 connection disabled in the CRM → every media call 410, playback included
+JM13 connection disabled in the CRM → every new CRM media API call 410, playback-capability minting included; already-issued direct-storage capabilities expire at O12's bounded TTL
 JM14 role or base mimeType outside the allowlist → 422; stored type never client-supplied
 JM15 a filename with control characters or quotes never reaches a header or a storage key
 JM16 partSize outside 5–256 MiB → Unsupported upload parameters, no crash
@@ -3412,6 +3424,30 @@ JM19 same-service profile: one × in the end dialog stops both video and data
 Once the media protocol is proven, the setup can become a one-time connection code: the CRM generates it, the user pastes it once into _＋ Add destination…_, and the extension receives the endpoint, a credential and the capabilities, then registers its signing secret back over the authenticated connection.
 
 **[Δ D101]** Phase 2 runs on the same track as phase 1 (_CRM delivery track_): media endpoints, presigned URLs and token storage are critical-path, so `security-reviewer` is mandatory on those CRM PRs; the protocol ADR (decision O8) is written before step 3 starts; the extension work follows the extension repository's own review process.
+
+### Phase 2 implementation reconciliation — 2026-10-09
+
+**[Δ D132–D143]** This is the current PLAN C implementation contract after re-checking the extension at `6f2ba4f` and the CRM at `56820170` against the implementation and the continuation analysis in `docs/plans/2026-10-09-crm-media-continuation-plan.md`. Where an older PLAN C sentence conflicts with this section, this section wins. The real Chrome → CRM → R2 → CRM-browser gate is still required before M1/M2 are called production-proven.
+
+- **[Δ D132] Start-time media authorization pins the storage perimeter.** A selected route snapshots `producerId`, webhook `endpoint`, media `apiBase`, `connectionVersion` and the exact ordered `upload.origins` list at recording Start. Resumed/reconciled work must match all of those values. A later profile/capability edit cannot expand historical media consent. Legacy intents that do not contain the pinned upload origins fail closed to data-only delivery. Bearer-token rotation is allowed because the secret itself is not persisted in the recording intent; the live grant must still match the pinned receiver identity.
+- **[Δ D133] Durable transfer identity is separate from mutable history metadata.** One logical recording/file/destination authorization owns one random `clientTransferId`. The journal keeps the original upload request, OPFS source locator and receiver owner immutable across duplicate enqueue, rename, crash and retry. The upload byte count comes from the retained OPFS file at enqueue time rather than optional history metadata. A lost enqueue response returns the same transfer/request instead of creating another remote artifact.
+- **[Δ D134] Ready-result replay is source-free.** After CRM has verified the object, the journal enters `verifying-capability`, then `ready-unacknowledged`. Playback-capability verification and replay of a completed result no longer require reopening the source bytes. The result remains durable until recording history has stored `ArtifactLocation.external` and explicitly acknowledges it; acknowledgement is tombstoned so a repeated reconciliation cannot create another artifact.
+- **[Δ D135] Retry classification is code-aware.** Network `TypeError`, `429`, `5xx`, and the structured `409` code `MEDIA_UPLOAD_COMPLETING` are transient. Only that specific `409` receives completion retry/durable `retry-wait`; permanent conflicts such as `MEDIA_OBJECT_MISMATCH` do not. The client parses only a bounded `[A-Z0-9_]{1,128}` error code and otherwise treats HTTP status as authoritative for generic receivers. Signed-part `403`, and a storage-network failure that can represent an expired opaque presigned response, cause bounded re-signing; `410` retires the provider attempt and recreates it with the same logical transfer/artifact.
+- **[Δ D136] The offscreen queue is the transfer owner.** Its persisted states are `queued/uploading/verifying-capability/retry-wait/action-required/ready-unacknowledged/acknowledged/canceled` (plus the legacy-compatible `pending`). It preserves active work across service-worker/browser recovery, holds critical work open while needed, performs bounded durable retries, exposes progress/retry state to the library UI and never persists Bearer credentials or presigned URLs.
+- **[Δ D137] CRM create/complete concurrency is serialized around the connection.** Create/restart/quota checks take the connection row lock; the four-upload cap counts both live `uploading` attempts and recent `completing` attempts. Media request throttling uses one connection-wide bucket across handlers rather than a separate quota per route. A stale completion attempt cannot overwrite a newer attempt.
+- **[Δ D138] Completion recovery has an explicit lease.** CRM can recover a lost `CompleteMultipartUpload` response by HEAD-verifying the expected object. While the completion lease is live it returns `MEDIA_UPLOAD_COMPLETING`; after the lease expires without a verified object, status returns `MEDIA_UPLOAD_EXPIRED` so the client can recreate the attempt. A missing provider multipart session also retires the DB attempt before idempotent recreation.
+- **[Δ D139] CRM playback and extension authorization have different offboarding semantics.** Disabling a CRM connection immediately revokes new Bearer media control-plane calls and new extension playback-capability minting, while authenticated CRM users retain historical playback through interview RBAC. Already-issued direct-storage capabilities have the bounded lifetime defined by D147/O12. Extension _Disable automation_ stops future/pending exports while preserving credentials needed for existing extension playback; destructive _Disconnect service_ remains a separate user-confirmed action.
+- **[Δ D140] The Phase-2 schema is part of deployment, not an out-of-band prerequisite.** `apps/api/drizzle/manual/2026-10-08_meeting_recorder_media.sql` is required, copied and applied by the production deployment before the media API is deployed, and the DDL wiring checker covers it. The receiver PostgreSQL integration guard asserts the Phase-2 media columns as part of its test precondition.
+- **[Δ D141] Media cleanup is conservative and converges provider/DB state.** The media reconciler aborts stale multipart sessions only after claiming the corresponding stale DB attempt, skips live/recent/ready work, and separately reports completed orphan-object candidates after a grace period. Completed-orphan reporting is redacted (hashed object reference plus size/time) and does not automatically delete those objects.
+- **[Δ D142] Provisioning/playback UX was tightened.** ADMIN can issue the one-time media token; replacing an existing token requires destructive confirmation because the old Bearer is revoked immediately for subsequent CRM API calls. CRM exposes ready media descriptors through typed schemas/client calls. Browser playback uses native ranged media, refreshes expiring capabilities, and the production CSP allowlists only `self` plus `https://*.r2.cloudflarestorage.com` for media; the API Helmet policy carries the same narrow media source while nginx remains the SPA policy boundary.
+- **[Δ D143] Remote-ready is not release-ready.** A successful HEAD plus issued playback capability proves storage/provider readiness but does not prove actual browser playback, seeking, refresh or auxiliary tracks. R0 therefore remains the real private-R2 pilot (JM0–JM10 and JM13–JM19 as applicable), with no local source release. Explicit _Free up space_ is R1 and is enabled only after real remote playback has been verified and release/recovery journaling is proven. M3–M6 follow only after those M1/M2 gates.
+- **[Δ D144] Retry backoff preserves server intent without pinning the offscreen worker.** Generic media control calls treat network `TypeError`, `408`, `425`, `429` and `5xx` as transient; the completion-specific `MEDIA_UPLOAD_COMPLETING` 409 remains the only retryable 409. A syntactically valid `Retry-After` delta or HTTP-date is preserved up to 15 minutes. Short hints may influence bounded inline retry; longer waits are persisted into `retry-wait`, where the scheduler uses the greater of its exponential delay and the server hint. CRM throttling emits `Retry-After` on 429.
+- **[Δ D145] Logical quota and cleanup state converge across every revival path.** Changing an abandoned artifact to `failed` releases its logical connection quota, therefore any subsequent restart, reuse of an existing live attempt, or late verified completion that revives it first rechecks the 64 GiB connection quota. Reconciliation treats its initial no-live-attempt query only as candidate discovery: it locks the artifact row, rechecks attempts, retires stale `uploading`/`completing` rows, and only then marks the artifact failed. Completed-orphan protection is limited to a `ready` artifact or semantically live/ready attempt, so terminal rows cannot hide orphaned objects indefinitely.
+- **[Δ D146] Provider network calls are bounded and media-token authentication is indexed.** Every real S3/R2 SDK request (`CreateMultipartUpload`, `ListParts`, `CompleteMultipartUpload`, `HeadObject`, `AbortMultipartUpload`, multipart enumeration and object enumeration) gets a fresh 30-second abort deadline; this is mandatory for create/HEAD paths that can execute while the connection row serializes lifecycle decisions and also prevents API/reconciliation workers from hanging indefinitely elsewhere. `media_token_hash` has an idempotent partial unique index for non-null hashes, so every Bearer-authenticated media request uses an indexed, unambiguous lookup. The index remains additive in `2026-10-08_meeting_recorder_media.sql` and covered by the production DDL wiring guard.
+- **[Δ D147] Disable and completion have a serialized winner; presigned revocation is TTL-bounded.** Authentication happens before provider I/O, so `markReady` re-locks the connection and re-checks `enabled` before committing a verified object. If ADMIN disable commits first, the in-flight request cannot publish `ready`. Direct R2/S3 presigned URLs already returned to a client are capabilities independent of the CRM Bearer and cannot be synchronously revoked by flipping the connection row; the current maximum exposure is the configured 15-minute part PUT or 30-minute playback TTL (O12), and the extension never persists either URL. Instant revocation of already-issued storage capabilities would require a future revocation-aware edge/proxy design rather than direct presigning.
+- **[Δ D148] Restart recovery must restore ephemeral authorization without resurrecting released bytes.** Bearer grants remain memory-only. During startup/reconnect reconciliation, an existing source-free `verifying-capability` journal or `retry-wait` journal resuming capability verification may be re-enqueued to restore the grant needed for automatic work even after explicit OPFS release; a new or source-needing transfer still requires retained OPFS. `ready-unacknowledged` replays directly from durable journal state, while `action-required` reacquires a fresh grant only after explicit Retry. Matching requires the exact destination, external recording ID, connection generation, producer, endpoint, API base and ordered upload-origin list.
+- **[Δ D149] Extension network waits are explicitly bounded and cancelable.** Control-plane fetches have a 30-second deadline and signed part PUTs a five-minute deadline. A full request timeout is classified as transient but goes directly to durable `retry-wait` instead of spending multiple full inline deadlines. The caller abort signal is propagated through control calls, storage PUTs and the final playback-capability verification so cancellation/update handling cannot be pinned forever by a hung fetch.
+- **[Δ D150] Ephemeral media credentials live only while runnable work needs them.** The offscreen runtime removes an in-memory Bearer grant when a transfer becomes `action-required` or reaches `ready-unacknowledged`/`acknowledged`/`canceled`; duplicate reconciliation of those states must not reacquire and retain a credential. Automatic `queued`/`uploading`/`verifying-capability`/`retry-wait` work may hold the memory-only grant, and explicit Retry re-validates the Start-time receiver identity and obtains a fresh grant before moving manual recovery back to `queued`.
 
 ### End state
 
@@ -3795,3 +3831,33 @@ After the double-check, this is the implementation direction I would choose. **[
 | D129 | Joint Test 12             | The popup closed before _Stop_                                                                          |
 | D131 | E7                        | The post-save summary waits for E12                                                                     |
 | D130 | Revision record           | This table                                                                                              |
+
+**[Δ D143]** Revision 8 (2026-10-09): reconciled PLAN C with the implemented Phase-2 foundations after the continuation audit and subsequent fixes. The source of truth for current media behavior is the _Phase 2 implementation reconciliation — 2026-10-09_ section above; older PLAN C prose remains useful historical design context where it does not conflict with these entries. The historic Revision-7 `D118` collision is left unchanged to avoid silently renumbering already-referenced phase-1 decisions; new identifiers continue from `D132`.
+
+**[Δ D146]** Revision 9 (2026-10-10): re-audited the implemented media lifecycle after the R0/R1 work. D144–D146 add the receiver-aware retry contract, quota-safe revival plus lock-and-recheck reconciliation semantics, bounded multipart creation, and indexed media-token authentication. These are implementation-contract corrections rather than changes to the user-facing storage model.
+
+**[Δ D149]** Revision 10 (2026-10-10): the follow-up adversarial pass closed the remaining liveness/offboarding/restart gaps. D146 is strengthened from multipart-create-only to every provider network request; D147 serializes disable against final media publication and records the unavoidable TTL semantics of already-issued presigned storage capabilities; D148 restores memory-only grants for source-free recovery while pinning the complete transfer identity; D149 bounds extension control/PUT waits and propagates cancellation through capability verification. The lock-and-recheck reconciliation invariant from D145 is now also exercised against real PostgreSQL with a deterministic candidate-selection/row-lock race.
+
+**[Δ D150]** Revision 11 (2026-10-10): the credential-lifetime audit refined D148 after tracing restart and manual-retry paths end to end. Source-free automatic verification may rehydrate a grant, but manual/terminal journal states do not need one: `action-required` obtains a fresh grant only on explicit Retry, `ready-unacknowledged` commits from durable journal state, and acknowledged/canceled tombstones never reacquire a Bearer. The offscreen runtime now releases credentials at those state boundaries.
+
+| Δ    | Section                            | Change                                                                                                                                  |
+| ---- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| D132 | PLAN C authorization               | Pin producer/endpoint/apiBase/connection version/exact upload origins at Start; legacy media authorization fails closed                 |
+| D133 | PLAN C durable queue               | Stable logical transfer identity; immutable request/source ownership; actual OPFS byte size; duplicate enqueue returns original request |
+| D134 | PLAN C durable queue               | Source-free capability verification and ready-result replay until durable history acknowledgement                                       |
+| D135 | PLAN C retry semantics             | Structured error-code handling; only `MEDIA_UPLOAD_COMPLETING` 409 is transient; bounded signed-URL/network retry                       |
+| D136 | PLAN C offscreen runtime           | Durable queue states, bounded retries, critical-work ownership, UI progress/retry exposure                                              |
+| D137 | PLAN C CRM provider                | Connection-serialized create/restart/quota, aggregate media throttle, completing attempts count toward the four-upload cap              |
+| D138 | PLAN C CRM provider                | Completion lease, HEAD recovery, missing provider-session retirement and stale-attempt protection                                       |
+| D139 | PLAN C disable/disconnect/playback | CRM RBAC playback survives connection disable; extension Disable and Disconnect remain separate semantics                               |
+| D140 | PLAN C deployment                  | Phase-2 media migration wired and checked before API deployment; PostgreSQL integration guard asserts required media schema             |
+| D141 | PLAN C reconciliation              | DB/provider convergence for stale multipart work plus redacted, non-destructive completed-object orphan reporting                       |
+| D142 | PLAN C provisioning/playback/CSP   | Confirm token replacement, typed ready-media descriptors, ranged playback refresh, narrowly allowlisted R2 media CSP                    |
+| D143 | PLAN C rollout                     | R0 real-R2/browser proof before source release; R1 explicit verified _Free up space_; M3–M6 remain gated                                |
+| D144 | PLAN C retry semantics             | `408`/`425`/`429`/`5xx` transient handling plus bounded `Retry-After`; long waits delegated to durable scheduling                       |
+| D145 | PLAN C quota/reconciliation        | Quota recheck on failed-artifact revival; artifact-row lock/recheck; stale-attempt retirement; orphan report uses semantic liveness     |
+| D146 | PLAN C provider/auth liveness      | Every S3/R2 SDK request has a bounded deadline; partial unique/indexed `media_token_hash` authentication                                |
+| D147 | PLAN C disable/revocation          | Final readiness re-checks enabled under the lifecycle lock; already-issued direct-storage capabilities expire at bounded TTL            |
+| D148 | PLAN C restart/authorization       | Rehydrate ephemeral grants for existing source-free work; match external recording ID and the complete pinned receiver/storage identity |
+| D149 | PLAN C extension network liveness  | 30 s control and 5 min part deadlines; full timeouts go durable; cancellation reaches playback-capability verification                  |
+| D150 | PLAN C credential lifetime         | Keep memory-only Bearers only for runnable automatic work; explicit Retry reacquires; ready/manual/terminal states release credentials  |
