@@ -32,7 +32,8 @@ import {
   type UserEmail,
 } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
-import { isUniqueViolation, uniqueViolationConstraint } from '../database/pg-errors'
+import { uniqueViolationConstraint } from '../database/pg-errors'
+import { writeUserEmailOrConflict } from './user-emails.util'
 import { generateInviteToken, hashInviteToken, INVITE_TOKEN_TTL_MS } from './invite-token.util'
 import {
   ARCHIVED_ENTITLEMENT_CODE,
@@ -621,15 +622,8 @@ export class UsersService {
    * wording — that would misname the caller: this is a collision with the
    * SAME user's own other row, not a stranger's.
    */
-  private async writeUserEmailOrConflict<T>(write: () => Promise<T>): Promise<T> {
-    try {
-      return await write()
-    } catch (err) {
-      if (isUniqueViolation(err)) {
-        throw apiError('EMAIL_ALREADY_IN_USE', HttpStatus.CONFLICT)
-      }
-      throw err
-    }
+  private writeUserEmailOrConflict<T>(write: () => Promise<T>): Promise<T> {
+    return writeUserEmailOrConflict(write)
   }
 
   /**
@@ -666,11 +660,11 @@ export class UsersService {
     })
     if (existing) {
       const workRowUpdate = { email, updatedAt: new Date() }
-      await this.writeUserEmailOrConflict(() =>
+      await writeUserEmailOrConflict(() =>
         db.update(userEmails).set(workRowUpdate).where(eq(userEmails.id, existing.id)),
       )
     } else {
-      await this.writeUserEmailOrConflict(() =>
+      await writeUserEmailOrConflict(() =>
         db
           .insert(userEmails)
           .values({ userId, email, kind: 'WORK', canLogin: true, verifiedAt: new Date() }),
@@ -942,7 +936,7 @@ export class UsersService {
       // findLoginableUserByEmail) — without it this user could never sign in.
       // Already verified/loginable, mirroring the trust `users.email` carries
       // today.
-      await this.writeUserEmailOrConflict(() =>
+      await writeUserEmailOrConflict(() =>
         tx.insert(userEmails).values({
           userId: createdUser.id,
           email: createdUser.email,
@@ -956,7 +950,7 @@ export class UsersService {
         // NOT a login method until the invite-accept flow below issues a
         // token AND the holder actually accepts it
         // (UsersService.acceptPersonalEmailInvite).
-        const personalRows = await this.writeUserEmailOrConflict(() =>
+        const personalRows = await writeUserEmailOrConflict(() =>
           tx
             .insert(userEmails)
             .values({ userId: createdUser.id, email: data.personalEmail!, kind: 'PERSONAL' })
@@ -3110,7 +3104,7 @@ export class UsersService {
         await tx.delete(userEmails).where(eq(userEmails.id, existingRow.id))
       }
       if (newEmail) {
-        const rows = await this.writeUserEmailOrConflict(() =>
+        const rows = await writeUserEmailOrConflict(() =>
           tx.insert(userEmails).values({ userId, email: newEmail, kind: 'PERSONAL' }).returning(),
         )
         const row = rows[0]
@@ -3404,7 +3398,7 @@ export class UsersService {
       // §4.4 — see createUser's identical insert for the full rationale.
       // writeUserEmailOrConflict: SR-M-2 — same 23505-to-409 conversion as
       // every other user_emails write in this file.
-      await this.writeUserEmailOrConflict(() =>
+      await writeUserEmailOrConflict(() =>
         tx.insert(userEmails).values({
           userId: created.id,
           email: created.email,
