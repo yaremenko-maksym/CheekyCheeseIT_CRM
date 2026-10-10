@@ -17,7 +17,6 @@ import type {
 import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
 import {
-  documents,
   lowerEmail,
   projectMembers,
   projects,
@@ -37,6 +36,7 @@ import { writeUserEmailOrConflict } from './user-emails.util'
 import { resolveArchivedFilter, withActiveProjectFlag } from './users-list.util'
 import { buildCreateUserInsertValues, buildDropInsertValues } from './user-insert.util'
 import { buildAdminUserUpdateSet } from './user-update.util'
+import { assertAvatarDocument } from './user-avatar.util'
 import { generateInviteToken, hashInviteToken, INVITE_TOKEN_TTL_MS } from './invite-token.util'
 import {
   ARCHIVED_ENTITLEMENT_CODE,
@@ -733,34 +733,6 @@ export class UsersService {
     return user
   }
 
-  /**
-   * Validate that the supplied `avatarDocumentId` references a document with
-   * `category = 'AVATAR'` owned by `ownerId` (or any owner when invoker is
-   * ADMIN). Throws `BadRequestException` otherwise so the caller surfaces a
-   * 400 with a human-readable message.
-   *
-   * `null` is treated as a clear-avatar operation and short-circuits.
-   */
-  private async assertAvatarDocument(
-    documentId: string | null | undefined,
-    expectedOwnerId: string,
-  ): Promise<void> {
-    if (documentId === undefined || documentId === null) return
-    const row = await this.db.db.query.documents.findFirst({
-      where: eq(documents.id, documentId),
-    })
-    if (!row) throw apiError('AVATAR_DOCUMENT_NOT_FOUND', HttpStatus.BAD_REQUEST)
-    if (row.category !== 'AVATAR') {
-      throw apiError('AVATAR_DOCUMENT_WRONG_CATEGORY', HttpStatus.BAD_REQUEST)
-    }
-    if (row.ownerId !== expectedOwnerId) {
-      throw apiError('AVATAR_DOCUMENT_WRONG_OWNER', HttpStatus.BAD_REQUEST)
-    }
-    if (row.deletedAt !== null) {
-      throw apiError('AVATAR_DOCUMENT_DELETED', HttpStatus.BAD_REQUEST)
-    }
-  }
-
   async createUser(data: {
     email: string
     /** §4.4 — optional personal address, ADMIN-entered at creation only. */
@@ -1090,7 +1062,7 @@ export class UsersService {
     if ('avatarDocumentId' in data) {
       // ADMIN may attach any AVATAR document; ownership check is bypassed
       // (admin operating on someone else's profile). Still enforce category.
-      await this.assertAvatarDocument(data.avatarDocumentId ?? null, id)
+      await assertAvatarDocument(this.db.db, data.avatarDocumentId ?? null, id)
       set.avatarDocumentId = data.avatarDocumentId ?? null
     }
 
@@ -1390,7 +1362,7 @@ export class UsersService {
     if ('techStack' in data) set.techStack = data.techStack ?? null
     if ('avatarDocumentId' in data) {
       // Self-update: document must be owned by `id`.
-      await this.assertAvatarDocument(data.avatarDocumentId ?? null, id)
+      await assertAvatarDocument(this.db.db, data.avatarDocumentId ?? null, id)
       set.avatarDocumentId = data.avatarDocumentId ?? null
     }
     if (data.locale !== undefined) set.locale = data.locale
