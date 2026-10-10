@@ -509,6 +509,10 @@ msgstr "Ключ зарезервовано системою"
 msgid "Транзакцію не можна редагувати (це виплата або транзакція прив’язана до заявки на виплату)"
 msgstr "Транзакцію не можна редагувати (це виплата або транзакція прив’язана до заявки на виплату)"
 
+#: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
+msgid "Не налаштовано"
+msgstr "Не налаштовано"
+
 #. placeholder {0}: new Set(selectedTxs.map((tx) => tx.projectId)).size
 #. placeholder {0}: payoutSummary.projectsCount
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
@@ -654,6 +658,10 @@ msgstr "Не вдалося видалити документ. Спробуйт�
 #: apps/web/app/routes/_authenticated/legend.tsx
 msgid "Дата народження"
 msgstr "Дата народження"
+
+#: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
+msgid "Скопіювати media token"
+msgstr "Скопіювати media token"
 
 #: apps/web/app/components/user-profile/contract/MissingFieldsBanner.tsx
 msgid "З картки співробітника (заповніть у профілі):"
@@ -3830,6 +3838,7 @@ msgstr "Залиште порожнім, щоб не змінювати"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/LinkRecordingDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
+#: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingSummarySection.tsx
 #: apps/web/app/routes/_authenticated/interviews/unmatched.tsx
 #: apps/web/app/routes/_authenticated/pending/index.tsx
@@ -3846,7 +3855,9 @@ msgstr "Не вдалося скинути прив'язку"
 msgid "Перевірте хеш і спробуйте знову, або скористайтеся ручним підтвердженням."
 msgstr "Перевірте хеш і спробуйте знову, або скористайтеся ручним підтвердженням."
 
+#. placeholder {0}: formatDate(connection.mediaTokenUpdatedAt)
 #. placeholder {0}: formatDate(connection.signingSecretUpdatedAt)
+#: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Оновлено: {0}"
 msgstr "Оновлено: {0}"
@@ -4277,6 +4288,7 @@ msgid "Дохід адміна"
 msgstr "Дохід адміна"
 
 #: apps/web/app/components/ui/upload-progress.tsx
+#: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Готово"
 msgstr "Готово"
 
@@ -4330,6 +4342,7 @@ msgstr "Розпізнати текст"
 
 #: apps/web/app/components/documents/upload-document-dialog.tsx
 #: apps/web/app/components/ui/upload-progress.tsx
+#: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Завантаження…"
 msgstr "Завантаження…"
 
@@ -4502,6 +4515,10 @@ msgstr "Співбесіду «{0}» буде видалено безповор�
 #: apps/web/app/components/finance/ConfirmPayoutDialog.tsx
 msgid "Транзакція виплати"
 msgstr "Транзакція виплати"
+
+#: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
+msgid "Медіа"
+msgstr "Медіа"
 
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "Деталі співбесіди"
@@ -4677,6 +4694,10 @@ msgstr "Архівувати користувача"
 #: apps/web/app/routes/_authenticated/interviews/components/LinkRecordingDialog.tsx
 msgid "Співбесіди"
 msgstr "Співбесіди"
+
+#: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
+msgid "Налаштовано"
+msgstr "Налаштовано"
 
 #: apps/web/app/routes/_authenticated/team/team-detail/components/ActiveProjectsCard.tsx
 msgid "Джуніора не призначено"
@@ -5550,6 +5571,7 @@ msgstr "чек"
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
+#: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx
@@ -5775,6 +5797,10 @@ msgstr "Не вдалося зберегти — помилка на нашом�
 msgid "Валідовано за місяць"
 msgstr "Валідовано за місяць"
 
+#: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
+msgid "Media token створено"
+msgstr "Media token створено"
+
 #: apps/web/app/routes/_authenticated/finance/utils/company-share.ts
 msgid "3+ валюти — точна сума у вікні"
 msgstr "3+ валюти — точна сума у вікні"
@@ -5924,6 +5950,10 @@ msgstr "Поміняти напрямок"
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Створіть свою команду або приєднайтеся до команди дропа, щоб повернути доступ до проєктів і співбесід"
 msgstr "Створіть свою команду або приєднайтеся до команди дропа, щоб повернути доступ до проєктів і співбесід"
+
+#: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
+msgid "Не вдалося відтворити медіа. Спробуйте оновити доступ."
+msgstr "Не вдалося відтворити медіа. Спробуйте оновити доступ."
 
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancySeoFields.tsx
 msgid "Додаткові поля для повнішої розмітки вакансії в пошуку Google."
@@ -6563,6 +6593,10 @@ msgstr "Вибір учасників для додавання до склад�
 msgid "Немає логотипів"
 msgstr "Немає логотипів"
 
+#: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
+msgid "Заміна…"
+msgstr "Заміна…"
+
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Нотатки за часом"
 msgstr "Нотатки за часом"
@@ -6871,6 +6905,10 @@ msgstr "Підтверджений розрахунок"
 #: apps/web/app/routes/_authenticated/interviews/unmatched.tsx
 msgid "Збіг не знайдено"
 msgstr "Збіг не знайдено"
+
+#: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
+msgid "Відкрити програвач"
+msgstr "Відкрити програвач"
 
 #: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
 msgid "Скинути контракт до шаблону?"
@@ -7592,6 +7630,10 @@ msgstr "Файл більший за {MAX_MB} МБ"
 #: apps/web/app/routes/_authenticated/project.tsx
 msgid "Виплат ще не було"
 msgstr "Виплат ще не було"
+
+#: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
+msgid "Media token замінено"
+msgstr "Media token замінено"
 
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 msgid "— оберіть команду —"
@@ -8354,6 +8396,10 @@ msgstr "Автоматичний електронний підпис компа�
 msgid "сеньйора"
 msgstr "сеньйора"
 
+#: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
+msgid "Поточний token розширення буде відкликано одразу. Активні або повторні media upload запити з ним перестануть проходити, доки новий token не буде збережено в розширенні."
+msgstr "Поточний token розширення буде відкликано одразу. Активні або повторні media upload запити з ним перестануть проходити, доки новий token не буде збережено в розширенні."
+
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 #: apps/web/app/routes/_authenticated/users/index.tsx
@@ -8505,6 +8551,10 @@ msgstr "Контракт збережено як чернетку. Ви може
 msgid "перевизначено на рівні проєкту"
 msgstr "перевизначено на рівні проєкту"
 
+#: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
+msgid "Не вдалося створити media token"
+msgstr "Не вдалося створити media token"
+
 #: apps/web/app/routes/_authenticated/project.tsx
 msgid "Останні виплати"
 msgstr "Останні виплати"
@@ -8613,6 +8663,10 @@ msgstr "Запрошення надіслано на особисту адрес
 #: apps/web/app/components/user-profile/resume/ResumeStatusPanel.tsx
 msgid "Завантажити ще раз"
 msgstr "Завантажити ще раз"
+
+#: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
+msgid "Не вдалося завантажити медіа."
+msgstr "Не вдалося завантажити медіа."
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "Не вдалося підтвердити оплату."
@@ -8854,6 +8908,10 @@ msgstr "Текст прийнято, розпізнаємо резюме"
 msgid "Секрет не налаштовано"
 msgstr "Секрет не налаштовано"
 
+#: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
+msgid "Media token скопійовано"
+msgstr "Media token скопійовано"
+
 #: apps/web/app/routes/_authenticated/vacancies/constants.ts
 msgid "Неприпустимий формат"
 msgstr "Неприпустимий формат"
@@ -9016,6 +9074,10 @@ msgstr "Адміністратор"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "Метод оплати"
 msgstr "Метод оплати"
+
+#: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
+msgid "Готових медіафайлів ще немає."
+msgstr "Готових медіафайлів ще немає."
 
 #: apps/web/app/components/users/user-dialog/IdentitySection.tsx
 msgid "Свою роль змінити не можна"
@@ -9596,6 +9658,10 @@ msgstr "Нараховано"
 msgid "Сума джерела:"
 msgstr "Сума джерела:"
 
+#: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
+msgid "Media token"
+msgstr "Media token"
+
 #: apps/web/app/components/finance/ConfirmPayoutDialog.tsx
 #: apps/web/app/components/pending/SeniorShareApprovalActions.tsx
 #: apps/web/app/components/projects/ProjectApprovalActions.tsx
@@ -9631,6 +9697,10 @@ msgstr "Транзакцію буде підтверджено і перевед
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
 msgid "Дохід зареєстровано, очікує валідації"
 msgstr "Дохід зареєстровано, очікує валідації"
+
+#: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
+msgid "Оновити доступ"
+msgstr "Оновити доступ"
 
 #: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
 msgid "Власна"
@@ -9734,6 +9804,10 @@ msgstr "Хто завантажив"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 msgid "Курс: 1 {0} = {1} {2}"
 msgstr "Курс: 1 {0} = {1} {2}"
+
+#: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
+msgid "Замінити media token"
+msgstr "Замінити media token"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Не вдалося перейменувати підключення"
@@ -10270,6 +10344,10 @@ msgstr "Дані для контракту"
 #: apps/web/app/components/contracts/VariablesPanel.tsx
 msgid "Авто (за методом оплати)"
 msgstr "Авто (за методом оплати)"
+
+#: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
+msgid "Цей token показується лише один раз. Скопіюйте його в налаштування CRM destination у розширенні. Після заміни попередній token одразу перестає працювати."
+msgstr "Цей token показується лише один раз. Скопіюйте його в налаштування CRM destination у розширенні. Після заміни попередній token одразу перестає працювати."
 
 #: apps/web/app/components/pending/SeniorShareApprovalActions.tsx
 msgid "Наприклад: помилилися з розрахунком"
@@ -10931,6 +11009,10 @@ msgstr "Посада, місце роботи {position}"
 msgid "Очікують рішення"
 msgstr "Очікують рішення"
 
+#: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
+msgid "Media token для Meeting Recorder"
+msgstr "Media token для Meeting Recorder"
+
 #: apps/web/app/routes/_authenticated/projects/ProjectTeamCards.tsx
 msgid "Частка дропа ({dropPct}%)"
 msgstr "Частка дропа ({dropPct}%)"
@@ -10938,6 +11020,10 @@ msgstr "Частка дропа ({dropPct}%)"
 #: apps/web/app/components/documents/document-detail-dialog.tsx
 msgid "Розмір"
 msgstr "Розмір"
+
+#: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
+msgid "Замінити media token?"
+msgstr "Замінити media token?"
 
 #: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/index.tsx
@@ -11042,6 +11128,10 @@ msgstr "Назад"
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 msgid "Причина видалення (обов’язково)"
 msgstr "Причина видалення (обов’язково)"
+
+#: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
+msgid "Створити media token"
+msgstr "Створити media token"
 
 #: apps/web/app/routes/_authenticated/admin/ChangeWalletAddressDialog.tsx
 msgid "Не вказано"
@@ -11334,6 +11424,10 @@ msgstr "Підписи всіх сторін присутні. Вміст PDF н
 msgid "Файл занадто великий."
 msgstr "Файл занадто великий."
 
+#: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
+msgid "Замінити token"
+msgstr "Замінити token"
+
 #. placeholder {0}: u.displayName
 #: apps/web/app/components/users/HrChipsField.tsx
 msgid "Прибрати {0}"
@@ -11515,6 +11609,10 @@ msgstr "Буде видалено заповнені розділи та зав�
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Користувача відновлено"
 msgstr "Користувача відновлено"
+
+#: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
+msgid "Не вдалося скопіювати media token"
+msgstr "Не вдалося скопіювати media token"
 
 #: apps/web/app/lib/telemetry/ErrorBoundary.tsx
 msgid "Щось пішло не так"
