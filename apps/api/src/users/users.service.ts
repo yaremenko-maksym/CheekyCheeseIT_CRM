@@ -54,6 +54,12 @@ import {
   computePendingSeniorShare,
   projectProfileUser,
 } from './profile-view.util'
+import {
+  assertAdminTargetEditableForRoleChange,
+  assertAdminTargetEditableForUpdate,
+  assertAssignableRole,
+  assertAssignableRoleOnChange,
+} from './role-guards.util'
 import { UsersAccessService } from './users-access.service'
 import { PersonalEmailInviteMailerService } from './personal-email-invite-mailer.service'
 
@@ -1060,18 +1066,7 @@ export class UsersService {
     const existing = await this.findById(id)
     if (!existing) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
 
-    if (existing.role === 'ADMIN' && actorId !== null && existing.id !== actorId) {
-      throw apiError('CANNOT_EDIT_ANOTHER_ADMIN', HttpStatus.FORBIDDEN)
-    }
-    if (
-      data.role !== undefined &&
-      existing.role === 'ADMIN' &&
-      actorId !== null &&
-      existing.id === actorId &&
-      data.role !== 'ADMIN'
-    ) {
-      throw apiError('ADMIN_CANNOT_CHANGE_OWN_ROLE', HttpStatus.FORBIDDEN)
-    }
+    assertAdminTargetEditableForUpdate(existing, data.role, actorId)
     // MED (security-audit authz-hardening): mirror changeRole's privilege-
     // escalation guards here. PATCH /:id/role already forbids elevating
     // anyone to ADMIN (fixed pool) and moving a user to DROP (must go
@@ -1081,14 +1076,7 @@ export class UsersService {
     // ACTUAL role change (data.role !== existing.role) so the routine
     // round-trip of resubmitting the current role (e.g. an ADMIN self-edit,
     // or editing a DROP user's other fields) is unaffected.
-    if (data.role !== undefined && data.role !== existing.role) {
-      if (data.role === 'ADMIN') {
-        throw apiError('ADMIN_ROLE_ASSIGNMENT_FORBIDDEN', HttpStatus.FORBIDDEN)
-      }
-      if (data.role === 'DROP') {
-        throw apiError('DROP_ROLE_CHANGE_VIA_DEDICATED_ENDPOINT', HttpStatus.FORBIDDEN)
-      }
-    }
+    assertAssignableRoleOnChange(data.role, existing.role)
     // ut-17: Telegram channel of the team is a SENIOR-only field. The pair
     // invariant SENIOR ≡ team means setting it for any other role would be a
     // contract violation — reject early with 400.
@@ -1682,32 +1670,14 @@ export class UsersService {
     // adminUpdateUser and createUser so that the lightweight PATCH /:id/role
     // endpoint cannot be used to bypass them.
 
-    // (1) ADMIN pool is fixed — elevation to ADMIN is always forbidden here.
-    if (role === 'ADMIN') {
-      throw apiError('ADMIN_ROLE_ASSIGNMENT_FORBIDDEN', HttpStatus.FORBIDDEN)
-    }
-
-    // (2) DROP must be created via the dedicated POST /users/drops endpoint
-    // which provisions the associated drop-team atomically. Routing through
-    // changeRole would leave the user without a team (broken invariant).
-    if (role === 'DROP') {
-      throw apiError('DROP_ROLE_CHANGE_VIA_DEDICATED_ENDPOINT', HttpStatus.FORBIDDEN)
-    }
+    // (1)+(2) ADMIN pool fixed; DROP only via POST /users/drops.
+    assertAssignableRole(role)
 
     const existing = await this.findById(id)
     if (!existing) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
 
-    // (3) Cannot change the role of any ADMIN (even to a lower role) unless
-    // the actor is editing their own record — and even then self-demotion is
-    // blocked by rule (4). Mirrors adminUpdateUser :410.
-    if (existing.role === 'ADMIN' && actorId !== existing.id) {
-      throw apiError('CANNOT_EDIT_ANOTHER_ADMIN', HttpStatus.FORBIDDEN)
-    }
-
-    // (4) An ADMIN cannot demote themselves via this endpoint.
-    if (existing.role === 'ADMIN' && actorId === existing.id) {
-      throw apiError('ADMIN_CANNOT_CHANGE_OWN_ROLE', HttpStatus.FORBIDDEN)
-    }
+    // (3)+(4) ADMIN targets are never editable here (another ADMIN / self-demotion).
+    assertAdminTargetEditableForRoleChange(existing, actorId)
 
     // (5) task-archived-user-completeness (AC2): an archived user's role is
     // frozen. Guards (1)–(4) are about privilege; this one is about money —
