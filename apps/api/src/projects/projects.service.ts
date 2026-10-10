@@ -24,7 +24,6 @@ import { ApprovalsService } from '../approvals/approvals.service'
 import { HrAccessService } from '../common/hr-access.service'
 import { DatabaseService } from '../database/database.service'
 import {
-  documents,
   // security-review PR #456 round 2: `nonDeletedTransactions` (VIEW), never the
   // raw `transactions` table — this module is outside `finance/**` and the
   // ESLint no-restricted-imports rule bans the raw import here.
@@ -47,6 +46,7 @@ import {
   assertCanRemoveMember,
   assertNoActiveJunior,
 } from './project-members.util'
+import { assertLogoDocument } from './project-logo.util'
 import { buildEffectiveTeam, type EffectiveTeamRow } from './project-team.util'
 import { UsersService } from '../users/users.service'
 import {
@@ -222,32 +222,6 @@ export class ProjectsService {
     )
     if (status !== 'PENDING') return null
     return buildPendingSeniorShareDto(senior, pendingValue, teamOverridesBySeniorId)
-  }
-
-  /**
-   * Validate that the supplied `logoDocumentId` references a document with
-   * `category = 'LOGO'`. ProjectId match is enforced when present — protects
-   * against using the logo of another project. Throws `BadRequestException`.
-   * Null is treated as a clear-logo operation and short-circuits.
-   */
-  private async assertLogoDocument(
-    documentId: string | null | undefined,
-    projectId: string | null,
-  ): Promise<void> {
-    if (documentId === undefined || documentId === null) return
-    const row = await this.db.db.query.documents.findFirst({
-      where: eq(documents.id, documentId),
-    })
-    if (!row) throw apiError('LOGO_DOCUMENT_NOT_FOUND', HttpStatus.BAD_REQUEST)
-    if (row.category !== 'LOGO') {
-      throw apiError('LOGO_DOCUMENT_WRONG_CATEGORY', HttpStatus.BAD_REQUEST)
-    }
-    if (row.deletedAt !== null) {
-      throw apiError('LOGO_DOCUMENT_DELETED', HttpStatus.BAD_REQUEST)
-    }
-    if (projectId !== null && row.projectId !== null && row.projectId !== projectId) {
-      throw apiError('LOGO_DOCUMENT_WRONG_PROJECT', HttpStatus.BAD_REQUEST)
-    }
   }
 
   /**
@@ -672,7 +646,7 @@ export class ProjectsService {
     // document or a deleted row, fail with 400 instead of catching a DB
     // constraint violation. Project does not exist yet, so projectId is null.
     if (data.logoDocumentId !== undefined && data.logoDocumentId !== null) {
-      await this.assertLogoDocument(data.logoDocumentId, null)
+      await assertLogoDocument(this.db.db, data.logoDocumentId, null)
     }
 
     // task-project-draft-status, decision Д1: "Строки согласования создаются
@@ -1430,7 +1404,7 @@ export class ProjectsService {
     if (data.domain !== undefined) updateData.domain = data.domain
     if (data.logoDocumentId !== undefined) {
       // Validate the FK before applying. Null clears the document path.
-      await this.assertLogoDocument(data.logoDocumentId, id)
+      await assertLogoDocument(this.db.db, data.logoDocumentId, id)
       updateData.logoDocumentId = data.logoDocumentId ?? null
       // XOR invariant: setting documentId clears externalUrl, even when the
       // caller didn't pass externalUrl explicitly. Without this the DB CHECK
