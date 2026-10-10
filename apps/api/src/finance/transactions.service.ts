@@ -1053,7 +1053,7 @@ export class TransactionsService {
 
     if (!tx) throw apiError('FINANCE_TRANSACTION_NOT_FOUND', HttpStatus.NOT_FOUND)
     // AC2: hidden from every non-ADMIN/ACCOUNTANT viewer, regardless of
-    // ownership — MUST run before assertReadAccess (see that guard's doc).
+    // ownership — MUST run before assertTransactionReadAccess (see that guard's doc).
     assertTransactionVisible(tx, currentUser)
     assertTransactionReadAccess(tx, currentUser)
     // (masking of the internal counterparty happens in mapTx below via `currentUser`)
@@ -1623,7 +1623,7 @@ export class TransactionsService {
     // declareUsdtProjectIncome uses, for the same reason: an unauthorized
     // replay still gets 403 from the role check above, never a leaked row.
     // A caller replaying a key that belongs to a DIFFERENT senior's income
-    // still cannot read it — `findOne` below re-applies `assertReadAccess`,
+    // still cannot read it — `findOne` below re-applies `assertTransactionReadAccess`,
     // which rejects a SENIOR who is neither the sender nor the receiver of
     // the row, so this early-SELECT does not need its own ownership filter.
     //
@@ -1798,7 +1798,7 @@ export class TransactionsService {
 
     // backlog 73/A-3: idempotency replay guard — same placement + rationale
     // as createSeniorIncome's own guard (see its comment). `findOne` below
-    // re-applies `assertReadAccess`, which rejects a DROP who is neither the
+    // re-applies `assertTransactionReadAccess`, which rejects a DROP who is neither the
     // sender nor the receiver of the replayed row, so a replay of someone
     // else's key still cannot leak that row's data.
     const dropIncomeReplay = await this.db.db.query.transactions.findFirst({
@@ -4124,7 +4124,7 @@ export class TransactionsService {
   // a deleted row again, and even they don't by default — see the
   // `includeDeleted` toggle on `findAll`. Every other role gets a 404 (never
   // 403) both in the list and on a direct `GET /transactions/:id` fetch —
-  // `assertReadAccess`/`findOne` enforce that so a 403 can never leak that a
+  // `assertTransactionReadAccess`/`findOne` enforce that so a 403 can never leak that a
   // deleted row exists.
   //
   // Balances/summaries: every aggregate read in this service and in
