@@ -433,6 +433,7 @@ describe('createSalary — AC2: an archived receiver is refused', () => {
       status: 409,
       response: {
         code: 'FINANCE_SALARY_IDEMPOTENCY_CONFLICT',
+        message: 'This idempotency key was already used for a different salary request',
         reason: 'INTENT_MISMATCH',
         existingTransactionId: existing.id,
       },
@@ -455,6 +456,8 @@ describe('createSalary — AC2: an archived receiver is refused', () => {
       status: 409,
       response: {
         code: 'FINANCE_SALARY_IDEMPOTENCY_CONFLICT',
+        message:
+          'This idempotency key belongs to a legacy salary whose original request cannot be verified',
         reason: 'LEGACY_INTENT_UNKNOWN',
         existingTransactionId: existing.id,
       },
@@ -508,6 +511,7 @@ describe('createSalary — AC2: an archived receiver is refused', () => {
       status: 409,
       response: {
         code: 'FINANCE_SALARY_IDEMPOTENCY_CONFLICT',
+        message: 'This idempotency key was already used for a different salary request',
         reason: 'INTENT_MISMATCH',
         existingTransactionId: winner.id,
       },

@@ -8,7 +8,11 @@ import {
 } from '@crm/shared'
 
 import type { DatabaseService } from '../../database/database.service'
-import { interviewRecordings, meetingRecorderWebhookReceipts } from '../../database/schema'
+import {
+  interviews,
+  interviewRecordings,
+  meetingRecorderWebhookReceipts,
+} from '../../database/schema'
 import type { DrizzleTx } from '../../database/types'
 import type { InterviewAccessPolicyService } from '../../interviews/interview-access-policy.service'
 import type { MeetingRecorderMatcher } from './meeting-recorder-matcher'
@@ -397,67 +401,73 @@ describe('MeetingRecorderService webhook idempotency', () => {
 })
 
 describe('MeetingRecorderService manual linking lock order', () => {
-  it('locks the target interview with NO KEY UPDATE before locking the recording', async () => {
-    const targetInterviewId = '22222222-2222-4222-8222-222222222222'
-    const recordingId = '33333333-3333-4333-8333-333333333333'
-    const actor = {
-      id: '44444444-4444-4444-8444-444444444444',
-      role: 'ADMIN',
-    } as never
+  const targetInterviewId = '22222222-2222-4222-8222-222222222222'
+  const recordingId = '33333333-3333-4333-8333-333333333333'
+  const actor = {
+    id: '44444444-4444-4444-8444-444444444444',
+    role: 'ADMIN',
+  } as never
+  const target = { id: targetInterviewId, seniorId: 'senior-1', stage: 'TECH_INTERVIEW' }
+  const recording = {
+    id: recordingId,
+    interviewId: null,
+    connectionId: CONNECTION_ID,
+    externalRecordingId: 'recording-external-1',
+    revision: 1,
+    source: testEvent.source,
+    title: 'Recording',
+    startedAt: new Date('2026-10-07T18:00:00.000Z'),
+    endedAt: null,
+    durationMs: null,
+    provider: null,
+    meetingId: null,
+    meetingUrl: null,
+    stageAtLink: null,
+    matchedBy: 'unmatched',
+    autoMatchSuppressed: false,
+    readiness: { complete: true, release: 'complete', pending: [] },
+    snapshot: {
+      id: 'recording-external-1',
+      title: 'Recording',
+      startedAt: '2026-10-07T18:00:00.000Z',
+      source: {
+        kind: 'meeting',
+        provider: 'google-meet',
+        meetingId: 'abc-defg-hij',
+        meetingUrl: 'https://meet.google.com/abc-defg-hij',
+      },
+    },
+    linkedByUserId: null,
+    linkedAt: null,
+    lastEventAt: new Date('2026-10-07T19:00:00.000Z'),
+    createdAt: new Date('2026-10-07T19:00:00.000Z'),
+    updatedAt: new Date('2026-10-07T19:00:00.000Z'),
+  }
+
+  function makeLinkHarness(options: { targetRows?: (typeof target)[] } = {}) {
     const lockOrder: string[] = []
     const lockModes: Array<[string, string]> = []
-    const target = { id: targetInterviewId, seniorId: 'senior-1', stage: 'TECH_INTERVIEW' }
-    const recording = {
-      id: recordingId,
-      interviewId: null,
-      connectionId: CONNECTION_ID,
-      externalRecordingId: 'recording-external-1',
-      revision: 1,
-      source: testEvent.source,
-      title: 'Recording',
-      startedAt: new Date('2026-10-07T18:00:00.000Z'),
-      endedAt: null,
-      durationMs: null,
-      provider: null,
-      meetingId: null,
-      meetingUrl: null,
-      stageAtLink: null,
-      matchedBy: 'unmatched',
-      autoMatchSuppressed: false,
-      readiness: { complete: true, release: 'complete', pending: [] },
-      snapshot: {
-        id: 'recording-external-1',
-        title: 'Recording',
-        startedAt: '2026-10-07T18:00:00.000Z',
-        source: {
-          kind: 'meeting',
-          provider: 'google-meet',
-          meetingId: 'abc-defg-hij',
-          meetingUrl: 'https://meet.google.com/abc-defg-hij',
-        },
-      },
-      linkedByUserId: null,
-      linkedAt: null,
-      lastEventAt: new Date('2026-10-07T19:00:00.000Z'),
-      createdAt: new Date('2026-10-07T19:00:00.000Z'),
-      updatedAt: new Date('2026-10-07T19:00:00.000Z'),
-    }
+    const selectProjections: unknown[] = []
 
     const tx = {
-      select: vi.fn(() => ({
-        from: (table: unknown) => ({
-          where: () => ({
-            for: (mode: string) => {
-              const kind = table === interviewRecordings ? 'recording' : 'interview'
-              lockOrder.push(kind)
-              lockModes.push([kind, mode])
-              return {
-                limit: async () => (kind === 'recording' ? [recording] : [target]),
-              }
-            },
+      select: vi.fn((projection?: unknown) => {
+        selectProjections.push(projection)
+        return {
+          from: (table: unknown) => ({
+            where: () => ({
+              for: (mode: string) => {
+                const kind = table === interviewRecordings ? 'recording' : 'interview'
+                lockOrder.push(kind)
+                lockModes.push([kind, mode])
+                return {
+                  limit: async () =>
+                    kind === 'recording' ? [recording] : (options.targetRows ?? [target]),
+                }
+              },
+            }),
           }),
-        }),
-      })),
+        }
+      }),
       update: vi.fn(() => ({
         set: (patch: Record<string, unknown>) => ({
           where: () => ({ returning: async () => [{ ...recording, ...patch }] }),
@@ -478,6 +488,12 @@ describe('MeetingRecorderService manual linking lock order', () => {
       access,
     )
 
+    return { service, access, tx, lockOrder, lockModes, selectProjections }
+  }
+
+  it('locks the target interview with NO KEY UPDATE before locking the recording', async () => {
+    const { service, access, lockOrder, lockModes, selectProjections } = makeLinkHarness()
+
     await service.linkRecording(recordingId, { interviewId: targetInterviewId }, actor)
 
     expect(lockOrder).toEqual(['interview', 'recording'])
@@ -485,7 +501,36 @@ describe('MeetingRecorderService manual linking lock order', () => {
       ['interview', 'no key update'],
       ['recording', 'update'],
     ])
+    expect(selectProjections[0]).toEqual({
+      id: interviews.id,
+      seniorId: interviews.seniorId,
+      stage: interviews.stage,
+    })
     expect(access.assertUpdateAccess).toHaveBeenCalledWith(target, actor)
+  })
+
+  it('does not lock or authorize an interview when manually unlinking', async () => {
+    const { service, access, lockOrder, lockModes } = makeLinkHarness()
+
+    await service.linkRecording(recordingId, { interviewId: null }, actor)
+
+    expect(lockOrder).toEqual(['recording'])
+    expect(lockModes).toEqual([['recording', 'update']])
+    expect(access.assertUpdateAccess).not.toHaveBeenCalled()
+  })
+
+  it('fails before locking the recording when the target interview does not exist', async () => {
+    const { service, access, tx, lockOrder } = makeLinkHarness({ targetRows: [] })
+
+    await expect(
+      service.linkRecording(recordingId, { interviewId: targetInterviewId }, actor),
+    ).rejects.toMatchObject({
+      response: { code: 'INTERVIEW_NOT_FOUND' },
+    })
+
+    expect(lockOrder).toEqual(['interview'])
+    expect(access.assertUpdateAccess).not.toHaveBeenCalled()
+    expect(tx.update).not.toHaveBeenCalled()
   })
 })
 

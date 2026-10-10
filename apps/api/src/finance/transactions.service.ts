@@ -241,10 +241,7 @@ function assertSalaryCreationIntent(
   existing: Pick<typeof transactions.$inferSelect, 'id' | 'salaryCreationIntent'>,
   expected: SalaryCreationIntent,
 ): void {
-  if (
-    existing.salaryCreationIntent !== null &&
-    isDeepStrictEqual(existing.salaryCreationIntent, expected)
-  ) {
+  if (isDeepStrictEqual(existing.salaryCreationIntent, expected)) {
     return
   }
 
@@ -2825,6 +2822,27 @@ export class TransactionsService {
         // before this transaction opened; re-assert `deleted_at IS NULL`
         // inside the write itself so a concurrent delete cannot land between
         // the pre-check and this UPDATE.
+        const sourceSnapshotPredicates = [
+          eq(transactions.id, id),
+          isNull(transactions.deletedAt),
+          eq(transactions.status, tx.status),
+          // SR-L-1 (review round 5) — the ABA remainder of the predicate
+          // below. `PENDING → PAID → PENDING` inside the window leaves the
+          // status reading exactly what was read, while the accumulator now
+          // says money went out. Binding the accumulator itself closes it.
+          sql`${transactions.settledAmount} IS NOT DISTINCT FROM ${tx.settledAmount}::numeric`,
+        ]
+        // Closed-PR review S3: salary-month correction also migrates
+        // cron-marker ownership below. Bind the exact source month and origin
+        // observed by the pre-transaction read. NULL is meaningful for legacy
+        // automatic rows, hence IS NOT DISTINCT FROM rather than `=`.
+        if (salaryMonthChanged && tx.type === 'SALARY') {
+          sourceSnapshotPredicates.push(
+            sql`${transactions.salaryMonth} IS NOT DISTINCT FROM ${tx.salaryMonth}`,
+            sql`${transactions.salaryOrigin} IS NOT DISTINCT FROM ${tx.salaryOrigin}`,
+          )
+        }
+
         const updated = await dbtx
           .update(transactions)
           .set({
@@ -2885,38 +2903,7 @@ export class TransactionsService {
           // because BIZ-18 forbade editing a PAID row's amount at all. This
           // task lifts BIZ-18, so this task is what wakes it — "no worse than
           // before" is not a defence when the change is the activator.
-          .where(
-            and(
-              eq(transactions.id, id),
-              isNull(transactions.deletedAt),
-              eq(transactions.status, tx.status),
-              // SR-L-1 (review round 5) — the ABA remainder of the predicate
-              // above. `PENDING → PAID → PENDING` inside the window leaves the
-              // status reading exactly what was read, while the accumulator
-              // now says money went out. Binding the accumulator itself closes
-              // it; the two predicates are not redundant, they cover A→B and
-              // A→B→A.
-              //
-              // `IS NOT DISTINCT FROM` rather than `=` because the value is
-              // NULL on a row that has never settled, and `NULL = NULL` is
-              // NULL — which would match nothing and break every ordinary
-              // edit. Same statement, same column, same reason as
-              // `settleByCompany`'s flip (pending-settlement.service.ts).
-              sql`${transactions.settledAmount} IS NOT DISTINCT FROM ${tx.settledAmount}::numeric`,
-              // Closed-PR review S3: salary-month correction also migrates
-              // cron-marker ownership below. Bind the exact source month and
-              // origin observed by the pre-transaction read so a competing
-              // correction cannot make this transaction move/delete markers
-              // for state it no longer owns. NULL is meaningful for legacy
-              // automatic rows, hence IS NOT DISTINCT FROM rather than `=`.
-              ...(salaryMonthChanged && tx.type === 'SALARY'
-                ? [
-                    sql`${transactions.salaryMonth} IS NOT DISTINCT FROM ${tx.salaryMonth}`,
-                    sql`${transactions.salaryOrigin} IS NOT DISTINCT FROM ${tx.salaryOrigin}`,
-                  ]
-                : []),
-            ),
-          )
+          .where(and(...sourceSnapshotPredicates))
           .returning({ id: transactions.id })
         if (updated.length === 0) {
           // Two ways to get here now, and the message names both: a message
@@ -7220,13 +7207,14 @@ export class TransactionsService {
       // Per-month bucket for the sparkline (keyed by the income's own date).
       const key = monthKeyOf(whenDate)
       perMonthShare.set(key, (perMonthShare.get(key) ?? 0) + share)
+      if (whenDate >= lastMonthStart && whenDate < monthStart) {
+        incomeLastMonth += share
+      }
       if (whenDate >= monthStart && whenDate < nextMonthStart) {
         incomeThisMonth += share
         // A project counts toward arrival-progress as soon as ONE of its incomes
         // lands this month. Self-scoped: receiverId is already === self.
         if (tx.projectId) companiesWithIncomeThisMonth.add(tx.projectId)
-      } else if (whenDate >= lastMonthStart && whenDate < monthStart) {
-        incomeLastMonth += share
       }
     }
 
@@ -8192,10 +8180,10 @@ export class TransactionsService {
     const paymentSnapshotPredicates = [
       eq(transactions.amount, tx.amount),
       eq(transactions.currency, tx.currency),
-      ...(data.notes === undefined
-        ? [sql`${transactions.notes} IS NOT DISTINCT FROM ${tx.notes}`]
-        : []),
     ]
+    if (data.notes === undefined) {
+      paymentSnapshotPredicates.push(sql`${transactions.notes} IS NOT DISTINCT FROM ${tx.notes}`)
+    }
 
     if (isCompanyFunded) {
       // For a company-funded salary the money leaves the shared USDT account

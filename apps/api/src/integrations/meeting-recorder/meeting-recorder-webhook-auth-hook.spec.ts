@@ -32,7 +32,7 @@ function captureHook(): OnRequestHook {
 function requestFor(options?: {
   url?: string
   routeUrl?: string
-  connectionId?: string
+  connectionId?: unknown
   timestamp?: string
   rawHeaders?: string[]
   headers?: Record<string, string | string[] | undefined>
@@ -197,6 +197,23 @@ describe('meeting recorder webhook auth hook', () => {
       requestFor({
         url: '/api/integrations/meeting-recorder/not-a-uuid/webhook',
         connectionId: 'not-a-uuid',
+      }),
+    )
+
+    expect(result.done).not.toHaveBeenCalled()
+    expect(result.status).toHaveBeenCalledWith(401)
+    expect(result.send).toHaveBeenCalledWith({
+      code: 'MEETING_RECORDER_WEBHOOK_UNAUTHORIZED',
+    })
+  })
+
+  it('rejects a non-string connection id even when string coercion would produce a valid UUID', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(NOW_MS)
+    const hook = captureHook()
+    const result = invoke(
+      hook,
+      requestFor({
+        connectionId: [CONNECTION_ID],
       }),
     )
 

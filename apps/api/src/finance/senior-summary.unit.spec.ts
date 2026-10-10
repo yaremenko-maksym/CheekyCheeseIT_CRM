@@ -286,6 +286,43 @@ describe('getSeniorSummary — earningsStats month math (AC4)', () => {
     expect(r.earningsStats.companyIncomeProgress).toEqual({ received: 1, total: 2 })
   })
 
+  it('uses half-open month boundaries for current and previous income', async () => {
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+    const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1))
+    const lastMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1))
+    const beforeLastMonth = new Date(lastMonthStart.getTime() - 1)
+
+    const svc = makeService({
+      selfUser: { seniorSharePercent: 100 },
+      paidIncome: [
+        { amount: '10', seniorSharePercent: 100, txDate: monthStart, createdAt: monthStart },
+        {
+          amount: '20',
+          seniorSharePercent: 100,
+          txDate: nextMonthStart,
+          createdAt: nextMonthStart,
+        },
+        {
+          amount: '30',
+          seniorSharePercent: 100,
+          txDate: lastMonthStart,
+          createdAt: lastMonthStart,
+        },
+        {
+          amount: '40',
+          seniorSharePercent: 100,
+          txDate: beforeLastMonth,
+          createdAt: beforeLastMonth,
+        },
+      ],
+    })
+
+    const r = await svc.getSeniorSummary(user('SENIOR'))
+    expect(r.seniorShareIncome.total).toBeCloseTo(100, 6)
+    expect(r.seniorShareIncome.thisMonth).toBeCloseTo(10, 6)
+    expect(r.earningsStats.lastMonthIncome).toBeCloseTo(30, 6)
+  })
+
   it('received never exceeds total: income on a now-archived/non-active project is ignored', async () => {
     const svc = makeService({
       selfUser: { seniorSharePercent: 26 },

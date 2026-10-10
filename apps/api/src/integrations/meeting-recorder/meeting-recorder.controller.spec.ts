@@ -7,7 +7,10 @@ import {
   MeetingRecorderAdminController,
   MeetingRecorderWebhookController,
 } from './meeting-recorder.controller'
-import { meetingRecorderWebhookError } from './meeting-recorder-errors'
+import {
+  meetingRecorderWebhookError,
+  normalizeMeetingRecorderWebhookIngestionError,
+} from './meeting-recorder-errors'
 import type { MeetingRecorderService } from './meeting-recorder.service'
 import type { MeetingRecorderWebhookVerifier } from './meeting-recorder-webhook-verifier'
 
@@ -70,6 +73,52 @@ async function expectWebhookError(promise: Promise<void>, status: number, code: 
 }
 
 describe('MeetingRecorderWebhookController', () => {
+  it.each([
+    'MEETING_RECORDER_WEBHOOK_UNAUTHORIZED',
+    'MEETING_RECORDER_SOURCE_MISMATCH',
+    'MEETING_RECORDER_CONNECTION_DISABLED',
+    'MEETING_RECORDER_CONTENT_TYPE_UNSUPPORTED',
+    'MEETING_RECORDER_EVENT_INVALID',
+  ] as const)('preserves allow-listed webhook error %s', (code) => {
+    const expected = meetingRecorderWebhookError(code, HttpStatus.BAD_REQUEST)
+
+    expect(normalizeMeetingRecorderWebhookIngestionError(expected, CONNECTION_ID)).toBe(expected)
+  })
+
+  it.each([400, 499])('preserves allow-listed webhook errors at 4xx boundary %s', (status) => {
+    const expected = meetingRecorderWebhookError(
+      'MEETING_RECORDER_CONNECTION_DISABLED',
+      status as never,
+    )
+
+    expect(normalizeMeetingRecorderWebhookIngestionError(expected, CONNECTION_ID)).toBe(expected)
+  })
+
+  it.each([399, 500])(
+    'normalizes allow-listed codes outside the 4xx range at status %s',
+    (status) => {
+      const unexpected = new HttpException({ code: 'MEETING_RECORDER_CONNECTION_DISABLED' }, status)
+
+      const normalized = normalizeMeetingRecorderWebhookIngestionError(unexpected, CONNECTION_ID)
+
+      expect(normalized).not.toBe(unexpected)
+      expect(normalized.getStatus()).toBe(HttpStatus.SERVICE_UNAVAILABLE)
+    },
+  )
+
+  it.each([
+    ['string response', 'MEETING_RECORDER_CONNECTION_DISABLED'],
+    ['null response', null],
+    ['object without code', {}],
+  ])('normalizes a 4xx HttpException with malformed %s', (_label, response) => {
+    const unexpected = new HttpException(response as never, HttpStatus.GONE)
+
+    const normalized = normalizeMeetingRecorderWebhookIngestionError(unexpected, CONNECTION_ID)
+
+    expect(normalized).not.toBe(unexpected)
+    expect(normalized.getStatus()).toBe(HttpStatus.SERVICE_UNAVAILABLE)
+  })
+
   it('rejects malformed connection ids before authentication', async () => {
     const { controller, service } = mocks()
 
@@ -209,10 +258,19 @@ describe('MeetingRecorderWebhookController', () => {
 
     expect(error).toBeInstanceOf(HttpException)
     expect((error as HttpException).getStatus()).toBe(HttpStatus.SERVICE_UNAVAILABLE)
+    const response = (error as HttpException).getResponse() as Record<string, unknown>
+    expect(response['code']).toBe('MEETING_RECORDER_WEBHOOK_INGESTION_FAILED')
+    expect(response['operation']).toBe('meeting-recorder-webhook-ingest')
+    expect(response['diagnosticCode']).toBe('UNEXPECTED_INGESTION_FAILURE')
+    expect(response['connectionId']).toBe(CONNECTION_ID)
+    expect(response['requestId']).toEqual(expect.stringMatching(/^[0-9a-f-]{36}$/i))
+    expect(response['message']).toBe(
+      `meeting-recorder-webhook-ingest failed; requestId=${response['requestId']}; connectionId=${CONNECTION_ID}; diagnosticCode=UNEXPECTED_INGESTION_FAILURE`,
+    )
     const serialized = JSON.stringify({
       message: (error as Error).message,
       stack: (error as Error).stack,
-      response: (error as HttpException).getResponse(),
+      response,
     })
     for (const canary of canaries) expect(serialized).not.toContain(canary)
     expect(serialized).toContain('meeting-recorder-webhook-ingest')

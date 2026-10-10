@@ -346,6 +346,54 @@ describe('adminUpdateTransaction — multipart salary marker migration', () => {
     expect(reclassificationValues).toHaveLength(0)
   })
 
+  it('treats a legacy NULL salary origin as automatic marker ownership', async () => {
+    const { svc, markerInsertValues, markerDeleteWhere } = makeSalaryMoveSvc({
+      ...automaticSalary,
+      salaryOrigin: null,
+    })
+
+    await svc.adminUpdateTransaction(
+      automaticSalary.id,
+      { salaryMonth: '2026-02' },
+      admin('real-admin'),
+    )
+
+    expect(markerInsertValues).toHaveLength(1)
+    expect(markerDeleteWhere).toHaveLength(1)
+  })
+
+  it('does not bind salary month/origin snapshots when a salary month is unchanged', async () => {
+    const { svc, sourceUpdateWhere, markerInsertValues } = makeSalaryMoveSvc(automaticSalary)
+
+    await svc.adminUpdateTransaction(automaticSalary.id, { notes: 'metadata only' }, admin())
+
+    expect(sourceUpdateWhere).toHaveLength(1)
+    const sourceWhere = compileWhere(sourceUpdateWhere[0])
+    expect(sourceWhere.sql).not.toContain('"salary_month" IS NOT DISTINCT FROM')
+    expect(sourceWhere.sql).not.toContain('"salary_origin" IS NOT DISTINCT FROM')
+    expect(markerInsertValues).toHaveLength(0)
+  })
+
+  it('does not bind salary snapshots when a non-salary row changes salaryMonth', async () => {
+    const { svc, sourceUpdateWhere, markerInsertValues } = makeSalaryMoveSvc({
+      ...automaticSalary,
+      type: 'EXPENSE',
+      salaryOrigin: null,
+    })
+
+    await svc.adminUpdateTransaction(
+      automaticSalary.id,
+      { salaryMonth: '2026-02' },
+      admin('real-admin'),
+    )
+
+    expect(sourceUpdateWhere).toHaveLength(1)
+    const sourceWhere = compileWhere(sourceUpdateWhere[0])
+    expect(sourceWhere.sql).not.toContain('"salary_month" IS NOT DISTINCT FROM')
+    expect(sourceWhere.sql).not.toContain('"salary_origin" IS NOT DISTINCT FROM')
+    expect(markerInsertValues).toHaveLength(0)
+  })
+
   it('reclassifies the moved row as ADJUSTED when the destination month marker was already claimed', async () => {
     const { svc, reclassificationValues } = makeSalaryMoveSvc(automaticSalary, {
       targetClaimed: false,
