@@ -9,6 +9,8 @@ const connection = {
   name: 'Recruiting recorder',
   enabled: true,
   secretSet: false,
+  mediaProvisioned: false,
+  mediaTokenUpdatedAt: null,
   expectedSource: null,
   signingSecretUpdatedAt: null,
   lastVerifiedAt: null,
@@ -179,6 +181,9 @@ test.describe('Meeting Recorder CRM UI', () => {
     )
     await page.route(new RegExp(`${API_RE}/interview-recordings/${RECORDING_ID}$`), (route) =>
       json(route, recordingDetail),
+    )
+    await page.route(new RegExp(`${API_RE}/interview-recordings/${RECORDING_ID}/media$`), (route) =>
+      json(route, []),
     )
 
     await page.goto('/interviews')
