@@ -19,6 +19,11 @@ import type { Env } from '../../../config/env'
 
 const DEFAULT_PART_URL_TTL_SECONDS = 15 * 60
 const DEFAULT_PLAYBACK_URL_TTL_SECONDS = 30 * 60
+// Smithy's Node handler has no request timeout by default. Some provider calls
+// (notably HEAD and multipart creation) can run while create() holds the
+// connection lifecycle lock, and the others still occupy API/cron resources.
+// Give every real S3/R2 request a fresh bounded deadline.
+const PROVIDER_REQUEST_TIMEOUT_MS = 30_000
 
 export type UploadedMediaPart = { partNumber: number; etag: string }
 export type StoredMediaPart = UploadedMediaPart & { bytes: number }
@@ -78,7 +83,9 @@ export class RecordingMediaStorageService {
           CacheControl: 'private, no-store',
           ...(this.useSse ? { ServerSideEncryption: 'AES256' as const } : {}),
         }),
+        this.providerRequestOptions(),
       )
+      // Stryker disable next-line StringLiteral: provider details are intentionally sanitized by safe(); this message is not externally observable.
       if (!result.UploadId) throw new Error('Missing provider upload ID')
       return result.UploadId
     })
@@ -122,14 +129,17 @@ export class RecordingMediaStorageService {
             UploadId: uploadId,
             PartNumberMarker: marker,
           }),
+          this.providerRequestOptions(),
         )
         for (const part of page.Parts ?? []) {
           if (!part.PartNumber || !part.ETag || !Number.isSafeInteger(part.Size) || part.Size! <= 0)
+            // Stryker disable next-line StringLiteral: provider details are intentionally sanitized by safe(); this message is not externally observable.
             throw new Error('Malformed provider part')
           parts.push({ partNumber: part.PartNumber, etag: part.ETag, bytes: part.Size! })
         }
         if (!page.IsTruncated) break
         const next = page.NextPartNumberMarker
+        // Stryker disable next-line StringLiteral: provider details are intentionally sanitized by safe(); this message is not externally observable.
         if (!next || String(next) === marker) throw new Error('Malformed provider pagination')
         marker = String(next)
       } while (true)
@@ -150,6 +160,7 @@ export class RecordingMediaStorageService {
           UploadId: uploadId,
           MultipartUpload: { Parts: completed },
         }),
+        this.providerRequestOptions(),
       )
     })
   }
@@ -159,8 +170,10 @@ export class RecordingMediaStorageService {
     try {
       const result = await this.client.send(
         new HeadObjectCommand({ Bucket: this.bucket, Key: key }),
+        this.providerRequestOptions(),
       )
       if (result.ContentLength === undefined || !result.ContentType) {
+        // Stryker disable next-line StringLiteral: HEAD failures are deliberately reduced to MEDIA_STORAGE_UNAVAILABLE.
         throw new Error('Incomplete provider object metadata')
       }
       return { bytes: result.ContentLength, mimeType: result.ContentType }
@@ -195,6 +208,7 @@ export class RecordingMediaStorageService {
           Key: key,
           UploadId: uploadId,
         }),
+        this.providerRequestOptions(),
       )
     })
   }
@@ -213,7 +227,9 @@ export class RecordingMediaStorageService {
             KeyMarker: keyMarker,
             UploadIdMarker: uploadIdMarker,
           }),
+          this.providerRequestOptions(),
         )
+        // Stryker disable next-line ArrayDeclaration: a synthetic fallback row is rejected by the conservative row validator, so it is behaviorally equivalent to an empty list.
         for (const upload of page.Uploads ?? []) {
           if (
             !upload.Key?.startsWith('meeting-recordings/') ||
@@ -232,6 +248,7 @@ export class RecordingMediaStorageService {
         const nextKey = page.NextKeyMarker
         const nextUploadId = page.NextUploadIdMarker
         if (!nextKey || (nextKey === keyMarker && nextUploadId === uploadIdMarker))
+          // Stryker disable next-line StringLiteral: provider details are intentionally sanitized by safe(); this message is not externally observable.
           throw new Error('Malformed multipart pagination')
         keyMarker = nextKey
         uploadIdMarker = nextUploadId
@@ -252,7 +269,9 @@ export class RecordingMediaStorageService {
             Prefix: 'meeting-recordings/',
             ContinuationToken: continuationToken,
           }),
+          this.providerRequestOptions(),
         )
+        // Stryker disable next-line ArrayDeclaration: a synthetic fallback row is rejected by the conservative row validator, so it is behaviorally equivalent to an empty list.
         for (const object of page.Contents ?? []) {
           if (
             !object.Key?.startsWith('meeting-recordings/') ||
@@ -267,6 +286,7 @@ export class RecordingMediaStorageService {
         }
         if (!page.IsTruncated) break
         const next = page.NextContinuationToken
+        // Stryker disable next-line StringLiteral: provider details are intentionally sanitized by safe(); this message is not externally observable.
         if (!next || next === continuationToken) throw new Error('Malformed object pagination')
         continuationToken = next
       } while (true)
@@ -282,6 +302,10 @@ export class RecordingMediaStorageService {
       // The SDK can include presigned URLs, bucket keys and provider credentials in error text.
       throw new ServiceUnavailableException('MEDIA_STORAGE_UNAVAILABLE')
     }
+  }
+
+  private providerRequestOptions(): { abortSignal: AbortSignal } {
+    return { abortSignal: AbortSignal.timeout(PROVIDER_REQUEST_TIMEOUT_MS) }
   }
 }
 
