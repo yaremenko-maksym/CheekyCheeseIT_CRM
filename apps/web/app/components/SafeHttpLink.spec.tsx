@@ -15,7 +15,7 @@ describe('SafeHttpLink', () => {
     (url) => {
       render(<SafeHttpLink url={url} />)
       expect(screen.queryByRole('link')).toBeNull()
-      expect(screen.getByText(url)).toBeTruthy()
+      expect(screen.getByText(url).tagName).toBe('SPAN')
     },
   )
 })
