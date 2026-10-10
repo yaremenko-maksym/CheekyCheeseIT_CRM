@@ -104,6 +104,7 @@ import { COMPANY_ACCOUNT_LABEL, roundShareAmount } from '@crm/shared'
 // above, not a second implementation.
 export { roundShareAmount }
 import {
+  assertTransactionVisible,
   assertTransactionWritable,
   fetchWritableTransactionOrThrow,
 } from './transaction-visibility.util'
