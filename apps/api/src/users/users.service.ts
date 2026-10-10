@@ -35,6 +35,7 @@ import type { DrizzleTx } from '../database/types'
 import { uniqueViolationConstraint } from '../database/pg-errors'
 import { writeUserEmailOrConflict } from './user-emails.util'
 import { resolveArchivedFilter, withActiveProjectFlag } from './users-list.util'
+import { buildCreateUserInsertValues, buildDropInsertValues } from './user-insert.util'
 import { generateInviteToken, hashInviteToken, INVITE_TOKEN_TTL_MS } from './invite-token.util'
 import {
   ARCHIVED_ENTITLEMENT_CODE,
@@ -870,42 +871,7 @@ export class UsersService {
     // Single source for the invitee's locale: the SAME const feeds the `users.locale`
     // column and the invite mail, so they cannot diverge by construction.
     const locale: Locale = data.locale ?? 'uk'
-    const insertValues: typeof users.$inferInsert = {
-      email: data.email,
-      displayName: data.displayName,
-      role: data.role,
-      telegram: data.telegram ?? null,
-      phone: data.phone ?? null,
-      // No auto-generated (dicebear) placeholder — new users get null here and
-      // the UI (UserAvatar) falls back to initials until a real photo/upload
-      // is set.
-      avatarUrl: data.avatarUrl ?? null,
-      techStack: data.techStack ?? null,
-      // task-i18n-stage2 (Task 3) — explicit default here (not left to the
-      // column default) so the returned row (and the audit event's
-      // `after: created.displayName` sibling fields) reflect the same value
-      // this method's own callers expect back immediately.
-      locale,
-    }
-    if (data.seniorSharePercent !== undefined)
-      insertValues.seniorSharePercent = data.seniorSharePercent
-    if (data.monthlySalary != null) insertValues.monthlySalary = String(data.monthlySalary)
-    if (data.salaryCurrency) insertValues.salaryCurrency = data.salaryCurrency
-    if (data.legalFullName?.trim()) insertValues.legalFullName = data.legalFullName.trim()
-
-    // Payment requisites — only persist the fields matching the selected method.
-    if (data.paymentMethod) {
-      insertValues.paymentMethod = data.paymentMethod
-      if (data.paymentMethod === 'USDT_ERC20') {
-        insertValues.walletUsdtErc20 = data.walletUsdtErc20 ?? null
-        insertValues.walletUsdtLabel = data.walletUsdtLabel ?? null
-      } else {
-        insertValues.bankUahRecipient = data.bankUahRecipient ?? null
-        insertValues.bankUahIban = data.bankUahIban ?? null
-        insertValues.bankUahRnokpp = data.bankUahRnokpp ?? null
-        insertValues.bankUahBankName = data.bankUahBankName ?? null
-      }
-    }
+    const insertValues = buildCreateUserInsertValues(data, locale)
 
     // security-review PR #623 (SR-M-1, MED): these three writes used to be
     // three separate statements with no transaction — a personalEmail long
@@ -3161,35 +3127,7 @@ export class UsersService {
     await this.assertEmailAvailable(this.db.db, data.email)
 
     return this.db.db.transaction(async (tx) => {
-      const insertValues: typeof users.$inferInsert = {
-        email: data.email,
-        displayName: data.displayName,
-        role: 'DROP',
-        telegram: data.telegram ?? null,
-        phone: data.phone ?? null,
-        // Same rationale as UsersService.createUser — no dicebear placeholder.
-        avatarUrl: data.avatarUrl ?? null,
-        techStack: data.techStack ?? null,
-        dropSharePercent: data.dropSharePercent ?? 5,
-      }
-      // Contract data — persist the legal ФИО / registration address so the
-      // drop's MSA contract renders them (buildContractVariableMap reads both).
-      // Trim + only set when non-blank, mirroring createUser.
-      if (data.legalFullName?.trim()) insertValues.legalFullName = data.legalFullName.trim()
-      if (data.registrationAddress?.trim())
-        insertValues.registrationAddress = data.registrationAddress.trim()
-      if (data.paymentMethod) {
-        insertValues.paymentMethod = data.paymentMethod
-        if (data.paymentMethod === 'USDT_ERC20') {
-          insertValues.walletUsdtErc20 = data.walletUsdtErc20 ?? null
-          insertValues.walletUsdtLabel = data.walletUsdtLabel ?? null
-        } else {
-          insertValues.bankUahRecipient = data.bankUahRecipient ?? null
-          insertValues.bankUahIban = data.bankUahIban ?? null
-          insertValues.bankUahRnokpp = data.bankUahRnokpp ?? null
-          insertValues.bankUahBankName = data.bankUahBankName ?? null
-        }
-      }
+      const insertValues = buildDropInsertValues(data)
 
       const rows = await tx.insert(users).values(insertValues).returning()
       const created = rows[0]
