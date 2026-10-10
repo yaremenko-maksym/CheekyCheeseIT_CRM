@@ -76,13 +76,14 @@
  * deleted transaction's amount/counterparty through `GET /api/invoices` and
  * the documents "Требует подписи" badge).
  */
-import { HttpStatus } from '@nestjs/common'
+import { ForbiddenException, HttpStatus } from '@nestjs/common'
 import { eq, isNull } from 'drizzle-orm'
 import type { SessionUser } from '@crm/shared'
 import { transactions, type Transaction } from '../database/schema'
 import type { DatabaseService } from '../database/database.service'
 import type { DrizzleTx } from '../database/types'
 import { apiError } from '../common/api-error'
+import type { TxWithRelations } from './transaction-mapper.util'
 
 /** Reusable predicate for LIST/JOIN reads — AND this into every multi-row query. */
 export const TRANSACTION_NOT_DELETED = isNull(transactions.deletedAt)
@@ -190,4 +191,46 @@ export async function fetchWritableTransactionOrThrow(
   const tx = await fetchVisibleTransactionOrThrow(db, id, currentUser)
   assertTransactionNotDeleted(tx)
   return tx
+}
+
+/**
+ * Per-row READ access guard (RBAC) — ADMIN/ACCOUNTANT see all; SENIOR/DROP only
+ * own sender/receiver rows minus PAYOUT_ADMIN/PAYOUT_CONFIRMED; JUNIOR
+ * receiver-only; HR own sender/receiver; any other role is rejected. Pure:
+ * depends only on `tx` + `currentUser`. MUST run AFTER the visibility check.
+ */
+export function assertTransactionReadAccess(tx: TxWithRelations, currentUser: SessionUser): void {
+  if (currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT') return
+  if (currentUser.role === 'SENIOR') {
+    // Drop role - phase 3: PAYOUT_CONFIRMED matches PAYOUT_ADMIN — admin
+    // attribution rows are never visible to SENIOR via findOne either.
+    if (
+      (tx.senderId === currentUser.id || tx.receiverId === currentUser.id) &&
+      tx.type !== 'PAYOUT_ADMIN' &&
+      tx.type !== 'PAYOUT_CONFIRMED'
+    )
+      return
+    throw new ForbiddenException()
+  }
+  if (currentUser.role === 'JUNIOR') {
+    if (tx.receiverId === currentUser.id) return
+    throw new ForbiddenException()
+  }
+  if (currentUser.role === 'HR') {
+    if (tx.receiverId === currentUser.id || tx.senderId === currentUser.id) return
+    throw new ForbiddenException()
+  }
+  // Drop role - phase 1 (AC1, security): same shape as SENIOR — own
+  // sender/receiver rows only, no PAYOUT_ADMIN. In Phase 1 the row set is
+  // typically empty; explicit clause keeps the contract crisp.
+  if (currentUser.role === 'DROP') {
+    if (
+      (tx.senderId === currentUser.id || tx.receiverId === currentUser.id) &&
+      tx.type !== 'PAYOUT_ADMIN' &&
+      tx.type !== 'PAYOUT_CONFIRMED'
+    )
+      return
+    throw new ForbiddenException()
+  }
+  throw new ForbiddenException()
 }
