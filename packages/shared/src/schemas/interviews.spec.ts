@@ -16,6 +16,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   boardSeniorSchema,
+  createInterviewSchema,
+  updateInterviewSchema,
   mySalaryAggregateStateSchema,
   mySalaryStateSchema,
   mySalaryStatusSchema,
@@ -239,5 +241,28 @@ describe('boardSeniorSchema', () => {
     const result = boardSeniorSchema.parse({ ...VALID, email: 'leak@test.spec', techStack: ['x'] })
     expect(result).not.toHaveProperty('email')
     expect(result).not.toHaveProperty('techStack')
+  })
+})
+
+describe('interview URL fields — http(s) scheme allow-list', () => {
+  const base = { seniorId: '11111111-1111-4111-8111-111111111111', companyName: 'Acme' }
+
+  it.each(['vacancyUrl', 'callUrl'] as const)(
+    '%s rejects javascript:/data: on create and update',
+    (field) => {
+      for (const bad of ['javascript:alert(1)', 'data:text/html,<script>1</script>']) {
+        expect(createInterviewSchema.safeParse({ ...base, [field]: bad }).success).toBe(false)
+        expect(updateInterviewSchema.safeParse({ [field]: bad }).success).toBe(false)
+      }
+    },
+  )
+
+  it.each(['vacancyUrl', 'callUrl'] as const)('%s accepts http(s), null and omitted', (field) => {
+    expect(createInterviewSchema.safeParse({ ...base, [field]: 'https://x.io/a' }).success).toBe(
+      true,
+    )
+    expect(updateInterviewSchema.safeParse({ [field]: 'http://x.io/a' }).success).toBe(true)
+    expect(updateInterviewSchema.safeParse({ [field]: null }).success).toBe(true)
+    expect(updateInterviewSchema.safeParse({}).success).toBe(true)
   })
 })
