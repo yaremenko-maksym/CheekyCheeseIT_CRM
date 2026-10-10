@@ -4777,17 +4777,6 @@ export class TransactionsService {
 
   // ── Create SALARY ─────────────────────────────────────────────────────────
 
-  // task-salary-company-account RECONCILIATION: the salary/expense balance gate
-  // now delegates to the SAME single-source-of-truth used by the display
-  // endpoint (GET /company-account). Previously this gate-side copy diverged —
-  // it was missing the `+PAYOUT(COMPANY_ACCOUNT)` term, so the gate undercounted
-  // the real balance. Both paths now call computeCompanyAccountBalanceFromLedger
-  // → display and gate are BYTE-FOR-BYTE identical (see company-account-balance.ts).
-  //
-  // MED-1 (TOCTOU): callers pass `dbtx` so the balance read runs INSIDE the
-  // advisory-locked transaction of a company-account debit; the consistent,
-  // serialized view guarantees the gate sees concurrent debits already applied.
-
   async createSalary(
     data: {
       receiverId: string
