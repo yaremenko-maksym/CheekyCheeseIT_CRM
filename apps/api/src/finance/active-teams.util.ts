@@ -24,7 +24,7 @@ export async function findActiveTeamsForUser(
   // is cheap.
   let rows: Array<{
     team: { id: string; seniorSharePercentOverride: number | null; archivedAt: Date | null }
-  }> = []
+  }>
   try {
     rows = (await db.query.teamMembers.findMany({
       where: and(eq(teamMembers.userId, userId), isNull(teamMembers.leftAt)),
@@ -36,6 +36,7 @@ export async function findActiveTeamsForUser(
     // Defensive fallback for test mocks that don't stub
     // `query.teamMembers.findMany` — treat as "no team memberships". The
     // resolver then simply falls through to project / user-default.
+    // Stryker disable next-line ArrayDeclaration: equivalent — a non-empty junk array is dropped by the `r.team &&` filter below (a string has no `.team`), so the result is still []
     rows = []
   }
 
