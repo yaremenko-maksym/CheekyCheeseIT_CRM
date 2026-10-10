@@ -105,6 +105,7 @@ import { COMPANY_ACCOUNT_LABEL, roundShareAmount } from '@crm/shared'
 // above, not a second implementation.
 export { roundShareAmount }
 import {
+  assertTransactionReadAccess,
   assertTransactionVisible,
   assertTransactionWritable,
   fetchWritableTransactionOrThrow,
@@ -1052,9 +1053,9 @@ export class TransactionsService {
 
     if (!tx) throw apiError('FINANCE_TRANSACTION_NOT_FOUND', HttpStatus.NOT_FOUND)
     // AC2: hidden from every non-ADMIN/ACCOUNTANT viewer, regardless of
-    // ownership — MUST run before assertReadAccess (see that guard's doc).
+    // ownership — MUST run before assertTransactionReadAccess (see that guard's doc).
     assertTransactionVisible(tx, currentUser)
-    this.assertReadAccess(tx, currentUser)
+    assertTransactionReadAccess(tx, currentUser)
     // (masking of the internal counterparty happens in mapTx below via `currentUser`)
 
     // Enrich payoutRequest with seniorSharePercent snapshot from first linked income tx
@@ -1622,7 +1623,7 @@ export class TransactionsService {
     // declareUsdtProjectIncome uses, for the same reason: an unauthorized
     // replay still gets 403 from the role check above, never a leaked row.
     // A caller replaying a key that belongs to a DIFFERENT senior's income
-    // still cannot read it — `findOne` below re-applies `assertReadAccess`,
+    // still cannot read it — `findOne` below re-applies `assertTransactionReadAccess`,
     // which rejects a SENIOR who is neither the sender nor the receiver of
     // the row, so this early-SELECT does not need its own ownership filter.
     //
@@ -1797,7 +1798,7 @@ export class TransactionsService {
 
     // backlog 73/A-3: idempotency replay guard — same placement + rationale
     // as createSeniorIncome's own guard (see its comment). `findOne` below
-    // re-applies `assertReadAccess`, which rejects a DROP who is neither the
+    // re-applies `assertTransactionReadAccess`, which rejects a DROP who is neither the
     // sender nor the receiver of the replayed row, so a replay of someone
     // else's key still cannot leak that row's data.
     const dropIncomeReplay = await this.db.db.query.transactions.findFirst({
@@ -4123,7 +4124,7 @@ export class TransactionsService {
   // a deleted row again, and even they don't by default — see the
   // `includeDeleted` toggle on `findAll`. Every other role gets a 404 (never
   // 403) both in the list and on a direct `GET /transactions/:id` fetch —
-  // `assertReadAccess`/`findOne` enforce that so a 403 can never leak that a
+  // `assertTransactionReadAccess`/`findOne` enforce that so a 403 can never leak that a
   // deleted row exists.
   //
   // Balances/summaries: every aggregate read in this service and in
@@ -7186,44 +7187,6 @@ export class TransactionsService {
     // docblock for why this differs from the cron's unaudited "any admin" call.
     await this.createMonthlySalaries(month, currentUser)
     return this.salaryService.resolveSalaryMonthGap(month)
-  }
-
-  // ── Access guard ──────────────────────────────────────────────────────────
-
-  private assertReadAccess(tx: TxWithRelations, currentUser: SessionUser) {
-    if (currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT') return
-    if (currentUser.role === 'SENIOR') {
-      // Drop role - phase 3: PAYOUT_CONFIRMED matches PAYOUT_ADMIN — admin
-      // attribution rows are never visible to SENIOR via findOne either.
-      if (
-        (tx.senderId === currentUser.id || tx.receiverId === currentUser.id) &&
-        tx.type !== 'PAYOUT_ADMIN' &&
-        tx.type !== 'PAYOUT_CONFIRMED'
-      )
-        return
-      throw new ForbiddenException()
-    }
-    if (currentUser.role === 'JUNIOR') {
-      if (tx.receiverId === currentUser.id) return
-      throw new ForbiddenException()
-    }
-    if (currentUser.role === 'HR') {
-      if (tx.receiverId === currentUser.id || tx.senderId === currentUser.id) return
-      throw new ForbiddenException()
-    }
-    // Drop role - phase 1 (AC1, security): same shape as SENIOR — own
-    // sender/receiver rows only, no PAYOUT_ADMIN. In Phase 1 the row set is
-    // typically empty; explicit clause keeps the contract crisp.
-    if (currentUser.role === 'DROP') {
-      if (
-        (tx.senderId === currentUser.id || tx.receiverId === currentUser.id) &&
-        tx.type !== 'PAYOUT_ADMIN' &&
-        tx.type !== 'PAYOUT_CONFIRMED'
-      )
-        return
-      throw new ForbiddenException()
-    }
-    throw new ForbiddenException()
   }
 
   /**
