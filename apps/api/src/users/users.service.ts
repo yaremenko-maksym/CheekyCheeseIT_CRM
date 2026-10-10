@@ -49,6 +49,7 @@ import { ApprovalsService } from '../approvals/approvals.service'
 import { NOTIFICATION_TITLES, resolveLocale, type Locale } from '@crm/shared'
 import { NotificationsService } from '../notifications/notifications.service'
 import { AuditLogService, REDACTED_TOKEN } from './audit-log.service'
+import { collectExposedRequisiteFields, computePendingSeniorShare } from './profile-view.util'
 import { UsersAccessService } from './users-access.service'
 import { PersonalEmailInviteMailerService } from './personal-email-invite-mailer.service'
 
@@ -2648,25 +2649,10 @@ export class UsersService {
       ? await this.approvals.getStatus(UsersService.SENIOR_SHARE_SUBJECT_TYPE, target.id)
       : // Stryker disable next-line StringLiteral: see the comment above this statement.
         'NONE'
-    const pendingSeniorShare: PendingSeniorShare | null =
-      pendingSeniorShareStatus === 'PENDING'
-        ? {
-            // Guaranteed non-null in practice while PENDING — see
-            // `proposeSeniorShareChangeInTx`'s doc (a base-share proposal is
-            // always a concrete percent). `??` is a defensive fallback only.
-            percent: target.pendingSeniorSharePercent ?? target.seniorSharePercent,
-            // task-648-fix-round-1 (COPY-H-2/COPY-H-3). A base-share (USER
-            // level) proposal has nothing above it in the resolver hierarchy
-            // that could override it, so the effective-after-approval value
-            // always equals `percent` itself — unlike the PROJECT-level DTO
-            // (`ProjectsService.loadPendingSeniorShare`), there is no
-            // PROJECT/TEAM fallback to resolve here.
-            effectivePercentAfterApproval:
-              target.pendingSeniorSharePercent ?? target.seniorSharePercent,
-            approverId: target.id,
-            approverName: target.displayName,
-          }
-        : null
+    const pendingSeniorShare: PendingSeniorShare | null = computePendingSeniorShare(
+      target,
+      pendingSeniorShareStatus,
+    )
 
     // ---------------------------------------------------------------------------
     // Build filteredUser with explicit allow-list projection (OWASP A01 guard).
@@ -2842,17 +2828,7 @@ export class UsersService {
     // only WHICH fields were exposed, with redacted markers, mirroring how the
     // write-audit redacts SENSITIVE_FIELDS.
     if (viewer.role === 'ACCOUNTANT' && viewer.id !== target.id && permissions.fields.requisites) {
-      const exposedFields = (
-        [
-          'paymentMethod',
-          'walletUsdtErc20',
-          'walletUsdtLabel',
-          'bankUahRecipient',
-          'bankUahIban',
-          'bankUahRnokpp',
-          'bankUahBankName',
-        ] as const
-      ).filter((f) => (filteredUser as Record<string, unknown>)[f] != null)
+      const exposedFields = collectExposedRequisiteFields(filteredUser)
       if (exposedFields.length > 0) {
         const changes: Record<string, AuditChange> = {}
         for (const f of exposedFields) {
