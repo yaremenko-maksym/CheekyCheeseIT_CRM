@@ -681,6 +681,30 @@ describe('createPayoutRequest (#7)', () => {
     expect(stored.getTime()).toBeLessThanOrEqual(after.getTime())
   })
 
+  it('rejects an omitted payout date when today is before the latest selected source date', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-02T12:00:00.000Z'))
+    try {
+      const futureIncome = makeTx({
+        id: 'tx-future',
+        status: 'VALIDATED' as const,
+        txDate: new Date('2026-10-03T00:00:00.000Z'),
+        createdAt: new Date('2026-10-03T12:00:00.000Z'),
+      })
+      const { svc, mocks } = makeServiceWithTransaction(
+        [futureIncome],
+        makePayoutRequestRow('pr-future-date'),
+      )
+
+      await expect(svc.createPayoutRequest(['tx-future'], SENIOR_USER)).rejects.toMatchObject({
+        response: { code: 'FINANCE_PAYOUT_DATE_BEFORE_INCOME', statusCode: 400 },
+      })
+      expect(mocks.insertMock).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('per-tx payable aggregation: different sharePercent values', () => {
     // Pure math check — no DB needed.
     // tx1: 2000 * (1 - 0.20) = 1600

@@ -96,6 +96,7 @@ function makeService(data: StubData = {}): TransactionsService {
 const now = new Date()
 const thisMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 15))
 const lastMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 15))
+const nextMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 15))
 
 describe('getSeniorSummary — RBAC guard (AC2)', () => {
   const forbiddenRoles: SessionUser['role'][] = ['JUNIOR', 'HR', 'ACCOUNTANT', 'DROP']
@@ -252,6 +253,37 @@ describe('getSeniorSummary — earningsStats month math (AC4)', () => {
     const r = await svc.getSeniorSummary(user('SENIOR'))
     expect(r.earningsStats.companyIncomeProgress.total).toBe(3)
     expect(r.earningsStats.companyIncomeProgress.received).toBe(1)
+  })
+
+  it('future-dated income does not leak into this-month income or company arrival progress', async () => {
+    const svc = makeService({
+      selfUser: { seniorSharePercent: 26 },
+      projects: [
+        { id: 'p-current', name: 'Current', companyName: 'Acme', seniorSharePercentOverride: null },
+        { id: 'p-future', name: 'Future', companyName: 'Globex', seniorSharePercentOverride: null },
+      ],
+      paidIncome: [
+        {
+          amount: '100',
+          seniorSharePercent: 25,
+          txDate: thisMonth,
+          createdAt: thisMonth,
+          projectId: 'p-current',
+        },
+        {
+          amount: '400',
+          seniorSharePercent: 25,
+          txDate: nextMonth,
+          createdAt: nextMonth,
+          projectId: 'p-future',
+        },
+      ],
+    })
+
+    const r = await svc.getSeniorSummary(user('SENIOR'))
+    expect(r.seniorShareIncome.total).toBeCloseTo(125, 6)
+    expect(r.seniorShareIncome.thisMonth).toBeCloseTo(25, 6)
+    expect(r.earningsStats.companyIncomeProgress).toEqual({ received: 1, total: 2 })
   })
 
   it('received never exceeds total: income on a now-archived/non-active project is ignored', async () => {

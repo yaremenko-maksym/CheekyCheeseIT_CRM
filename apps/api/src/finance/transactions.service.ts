@@ -1,7 +1,9 @@
 import { randomBytes } from 'crypto'
+import { isDeepStrictEqual } from 'node:util'
 import {
   BadRequestException,
   ForbiddenException,
+  HttpException,
   HttpStatus,
   Injectable,
   Logger,
@@ -97,7 +99,7 @@ import { resolveSeniorShare } from './senior-share-resolver'
 import { resolveDropShare, DEFAULT_DROP_SHARE_PERCENT } from './drop-share-resolver'
 import { getOwnSalaryStates } from './salary-status.helper'
 import { previousSalaryMonthKey } from './salary-month.util'
-import { resolveTransactionDate } from './transaction-date.util'
+import { formatTransactionBusinessDate, resolveTransactionDate } from './transaction-date.util'
 import {
   computeCompanyAccountBalanceFromLedger,
   lockCompanyAccount,
@@ -212,6 +214,56 @@ export const CRON_ELIGIBLE_SALARY_ROLES: ReadonlySet<SessionUser['role']> = new 
   'ACCOUNTANT',
   'JUNIOR',
 ])
+
+type SalaryCreationIntent = NonNullable<typeof transactions.$inferSelect.salaryCreationIntent>
+
+function buildSalaryCreationIntent(data: {
+  receiverId: string
+  amount: number
+  currency?: string
+  salaryMonth: string
+  notes?: string | null | undefined
+  txDate?: string | null | undefined
+}): SalaryCreationIntent {
+  return {
+    version: 1,
+    operation: 'MANUAL_SALARY_CREATE',
+    receiverId: data.receiverId.toLowerCase(),
+    amount: data.amount.toFixed(6),
+    currency: (data.currency ?? 'USD') as SalaryCreationIntent['currency'],
+    salaryMonth: data.salaryMonth,
+    notes: data.notes ?? null,
+    txDate: data.txDate ?? 'AUTO',
+  }
+}
+
+function assertSalaryCreationIntent(
+  existing: Pick<typeof transactions.$inferSelect, 'id' | 'salaryCreationIntent'>,
+  expected: SalaryCreationIntent,
+): void {
+  if (
+    existing.salaryCreationIntent !== null &&
+    isDeepStrictEqual(existing.salaryCreationIntent, expected)
+  ) {
+    return
+  }
+
+  const reason =
+    existing.salaryCreationIntent === null ? 'LEGACY_INTENT_UNKNOWN' : 'INTENT_MISMATCH'
+  throw new HttpException(
+    {
+      statusCode: HttpStatus.CONFLICT,
+      code: 'FINANCE_SALARY_IDEMPOTENCY_CONFLICT',
+      message:
+        reason === 'LEGACY_INTENT_UNKNOWN'
+          ? 'This idempotency key belongs to a legacy salary whose original request cannot be verified'
+          : 'This idempotency key was already used for a different salary request',
+      reason,
+      existingTransactionId: existing.id,
+    },
+    HttpStatus.CONFLICT,
+  )
+}
 
 /**
  * SR-M-1 — which stage of an invoice void/re-issue failed, if any. `undefined`
@@ -2851,6 +2903,18 @@ export class TransactionsService {
               // edit. Same statement, same column, same reason as
               // `settleByCompany`'s flip (pending-settlement.service.ts).
               sql`${transactions.settledAmount} IS NOT DISTINCT FROM ${tx.settledAmount}::numeric`,
+              // Closed-PR review S3: salary-month correction also migrates
+              // cron-marker ownership below. Bind the exact source month and
+              // origin observed by the pre-transaction read so a competing
+              // correction cannot make this transaction move/delete markers
+              // for state it no longer owns. NULL is meaningful for legacy
+              // automatic rows, hence IS NOT DISTINCT FROM rather than `=`.
+              ...(salaryMonthChanged && tx.type === 'SALARY'
+                ? [
+                    sql`${transactions.salaryMonth} IS NOT DISTINCT FROM ${tx.salaryMonth}`,
+                    sql`${transactions.salaryOrigin} IS NOT DISTINCT FROM ${tx.salaryOrigin}`,
+                  ]
+                : []),
             ),
           )
           .returning({ id: transactions.id })
@@ -2868,15 +2932,16 @@ export class TransactionsService {
         // an admin correction would leave a stale marker behind and cron would
         // silently skip the now-empty old month forever.
         //
-        // MANUAL parts never own a cron marker, so moving one must not disturb
-        // a marker that may belong to an automatic part in the same month.
+        // Only legacy (NULL) and CRON rows own automatic-month semantics.
+        // MANUAL parts and ADJUSTED rows never own a cron marker, so moving one
+        // must not disturb a marker that may belong to the automatic part.
         if (
           salaryMonthChanged &&
           tx.type === 'SALARY' &&
           tx.receiverId &&
           tx.salaryMonth &&
           data.salaryMonth &&
-          tx.salaryOrigin !== 'MANUAL'
+          (tx.salaryOrigin === null || tx.salaryOrigin === 'CRON')
         ) {
           const claimedTarget = await dbtx
             .insert(salaryMonthInitializations)
@@ -2894,13 +2959,14 @@ export class TransactionsService {
             .returning({ id: salaryMonthInitializations.id })
 
           // If the destination was already initialized, another automatic or
-          // legacy salary already owns that month. The moved row is now an
-          // explicit operator-created extra part; reclassifying it as MANUAL
-          // prevents two rows from claiming automatic origin semantics.
+          // legacy salary already owns that month. The moved row remains an
+          // operator correction of an automatic row, but no longer owns the
+          // automatic slot. ADJUSTED preserves that history without making it
+          // look like a manually-created salary intent.
           if (claimedTarget.length === 0) {
             await dbtx
               .update(transactions)
-              .set({ salaryOrigin: 'MANUAL' })
+              .set({ salaryOrigin: 'ADJUSTED' })
               .where(eq(transactions.id, id))
           }
 
@@ -4643,8 +4709,13 @@ export class TransactionsService {
     if (payoutTx.status !== 'PENDING_PAYMENT') {
       throw apiError('FINANCE_PAYOUT_NOT_PENDING_PAYMENT', HttpStatus.BAD_REQUEST)
     }
-    const payoutSourceDate = (payoutTx.txDate ?? payoutTx.createdAt).toISOString().slice(0, 10)
-    if ((options.txDate ?? payoutSourceDate) < payoutSourceDate) {
+    // Resolve once so validation and persistence use the same exact instant.
+    // Omitting the date means "now", and that effective date is still subject
+    // to the source lower bound (intentional compatibility hardening).
+    const now = new Date()
+    const confirmationTxDate = resolveTransactionDate(options.txDate, now)
+    const payoutSourceDate = formatTransactionBusinessDate(payoutTx.txDate ?? payoutTx.createdAt)
+    if (formatTransactionBusinessDate(confirmationTxDate) < payoutSourceDate) {
       throw apiError('FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', HttpStatus.BAD_REQUEST)
     }
 
@@ -4676,8 +4747,6 @@ export class TransactionsService {
     // (pending-settlement.service.ts's `settleByCompany` was the first).
     const effectiveActorId = currentUser.impersonatorId ?? currentUser.id
 
-    const now = new Date()
-    const confirmationTxDate = resolveTransactionDate(options.txDate)
     const confirmationNote = `Manual payout confirmation by ${effectiveActorId} at ${now.toISOString()} (method=${method})`
 
     await this.db.db.transaction(async (dbtx) => {
@@ -4924,6 +4993,8 @@ export class TransactionsService {
       throw new BadRequestException('idempotencyKey is required for manual salary creation')
     }
 
+    const creationIntent = buildSalaryCreationIntent(data)
+
     // One key represents one manual salary-part intent. The public schema
     // requires it, and the DB CHECK below rejects any MANUAL SALARY write that
     // bypasses the controller without one. This read handles sequential replay;
@@ -4934,7 +5005,10 @@ export class TransactionsService {
         eq(transactions.idempotencyKey, data.idempotencyKey),
       ),
     })
-    if (replay) return this.findOne(replay.id, currentUser)
+    if (replay) {
+      assertSalaryCreationIntent(replay, creationIntent)
+      return this.findOne(replay.id, currentUser)
+    }
 
     const receiver = await this.db.db.query.users.findFirst({
       where: eq(users.id, data.receiverId),
@@ -5023,6 +5097,7 @@ export class TransactionsService {
           receiverId: data.receiverId,
           salaryMonth: data.salaryMonth,
           salaryOrigin: 'MANUAL',
+          salaryCreationIntent: creationIntent,
           idempotencyKey: data.idempotencyKey,
           notes: data.notes ?? null,
           fundingSource: null,
@@ -5039,7 +5114,10 @@ export class TransactionsService {
             eq(transactions.idempotencyKey, data.idempotencyKey),
           ),
         })
-        if (committed) return this.findOne(committed.id, currentUser)
+        if (committed) {
+          assertSalaryCreationIntent(committed, creationIntent)
+          return this.findOne(committed.id, currentUser)
+        }
       }
       throw err
     }
@@ -5193,6 +5271,9 @@ export class TransactionsService {
     if (currentUser.role !== 'SENIOR' && currentUser.role !== 'DROP') {
       throw new ForbiddenException()
     }
+    const payoutNow = new Date()
+    const effectivePayoutTxDate = resolveTransactionDate(txDate, payoutNow)
+    const effectivePayoutBusinessDate = formatTransactionBusinessDate(effectivePayoutTxDate)
     const isDrop = currentUser.role === 'DROP'
     const incomeType = isDrop ? 'DROP_INCOME' : 'SENIOR_INCOME'
 
@@ -5270,15 +5351,11 @@ export class TransactionsService {
       // source rows carry timestamps. For a batch, the latest source date is
       // therefore the inclusive lower bound for the payout date.
       const latestSourceDate = lockedRows
-        .map((tx) => (tx.txDate ?? tx.createdAt).toISOString().slice(0, 10))
+        .map((tx) => formatTransactionBusinessDate(tx.txDate ?? tx.createdAt))
         .sort()
         .pop()
-      // Missing custom date means "do not enforce a lower bound". Use a
-      // lexicographically-high sentinel so the comparison remains one simple,
-      // mutation-testable expression without nullable branches.
-      const comparablePayoutDate = txDate ?? String.fromCharCode(0xffff)
-      const comparableLatestSourceDate = latestSourceDate ?? comparablePayoutDate
-      if (comparablePayoutDate < comparableLatestSourceDate) {
+      const comparableLatestSourceDate = latestSourceDate ?? effectivePayoutBusinessDate
+      if (effectivePayoutBusinessDate < comparableLatestSourceDate) {
         throw apiError('FINANCE_PAYOUT_DATE_BEFORE_INCOME', HttpStatus.BAD_REQUEST)
       }
 
@@ -5443,7 +5520,7 @@ export class TransactionsService {
         // Persist the operator-selected business date on the ledger row.
         // Omitting txDate stays backward-compatible at the API boundary and
         // resolves to "now", matching the old createdAt-based business day.
-        txDate: resolveTransactionDate(txDate),
+        txDate: effectivePayoutTxDate,
         createdBy: currentUser.id,
       })
 
@@ -7053,6 +7130,7 @@ export class TransactionsService {
     // Current-month boundary (UTC), computed once — matches HR / accountant.
     const now = new Date()
     const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+    const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1))
     // task-senior-stats-block: PREVIOUS-month window [lastMonthStart, monthStart)
     // for `lastMonthIncome`. The current-month `YYYY-MM` key (salaryMonth) is also
     // reused as the per-company arrival bucket so the progress bar and the salary
@@ -7142,12 +7220,12 @@ export class TransactionsService {
       // Per-month bucket for the sparkline (keyed by the income's own date).
       const key = monthKeyOf(whenDate)
       perMonthShare.set(key, (perMonthShare.get(key) ?? 0) + share)
-      if (whenDate >= monthStart) {
+      if (whenDate >= monthStart && whenDate < nextMonthStart) {
         incomeThisMonth += share
         // A project counts toward arrival-progress as soon as ONE of its incomes
         // lands this month. Self-scoped: receiverId is already === self.
         if (tx.projectId) companiesWithIncomeThisMonth.add(tx.projectId)
-      } else if (whenDate >= lastMonthStart) {
+      } else if (whenDate >= lastMonthStart && whenDate < monthStart) {
         incomeLastMonth += share
       }
     }
@@ -7899,11 +7977,13 @@ export class TransactionsService {
     // A salary payment can be entered later than it happened, but it cannot
     // predate the salary transaction itself. Keep the comparison at calendar-
     // day granularity because the UI submits a business date (YYYY-MM-DD).
-    if (data.txDate) {
-      const sourceDate = (tx.txDate ?? tx.createdAt).toISOString().slice(0, 10)
-      if (data.txDate < sourceDate) {
-        throw apiError('FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', HttpStatus.BAD_REQUEST)
-      }
+    // Resolve omitted/null to now and validate that effective day too; this is
+    // the explicit compatibility hardening from the closed-PR review.
+    const paymentNow = new Date()
+    const paymentTxDate = resolveTransactionDate(data.txDate, paymentNow)
+    const sourceDate = formatTransactionBusinessDate(tx.txDate ?? tx.createdAt)
+    if (formatTransactionBusinessDate(paymentTxDate) < sourceDate) {
+      throw apiError('FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', HttpStatus.BAD_REQUEST)
     }
 
     // task-finance-fix-wave1 (E-1): refuse to PAY a salary whose receiver has
@@ -8098,9 +8178,24 @@ export class TransactionsService {
       receiptDocumentId: data.receiptDocumentId ?? null,
       receiptExternalUrl: data.receiptExternalUrl ?? null,
       notes: data.notes ?? tx.notes,
-      txDate: resolveTransactionDate(data.txDate),
+      txDate: paymentTxDate,
       updatedAt: new Date(),
     }
+
+    // Closed-PR review S4: several fields in `paidSet` are derived from the
+    // pre-write salary snapshot. If an admin edits that PENDING salary between
+    // the initial read and this payment, paying the stale snapshot can record
+    // a different obligation than the one the UI/operator just changed.
+    // Bind every mutable source field whose old value is copied or used in a
+    // derivation. Notes only need a predicate when the request omits them and
+    // therefore copies tx.notes; an explicit note is the caller's new value.
+    const paymentSnapshotPredicates = [
+      eq(transactions.amount, tx.amount),
+      eq(transactions.currency, tx.currency),
+      ...(data.notes === undefined
+        ? [sql`${transactions.notes} IS NOT DISTINCT FROM ${tx.notes}`]
+        : []),
+    ]
 
     if (isCompanyFunded) {
       // For a company-funded salary the money leaves the shared USDT account
@@ -8152,6 +8247,7 @@ export class TransactionsService {
               // write itself so exactly one funding source can win.
               eq(transactions.status, 'PENDING'),
               isNull(transactions.deletedAt),
+              ...paymentSnapshotPredicates,
               // MED-3: archival re-asserted in the write, not only pre-read.
               this.salaryReceiverNotArchivedFilter(),
             ),
@@ -8185,6 +8281,7 @@ export class TransactionsService {
             eq(transactions.id, id),
             eq(transactions.status, 'PENDING'),
             isNull(transactions.deletedAt),
+            ...paymentSnapshotPredicates,
             // MED-3: same in-write archival re-assertion as the company path.
             this.salaryReceiverNotArchivedFilter(),
           ),

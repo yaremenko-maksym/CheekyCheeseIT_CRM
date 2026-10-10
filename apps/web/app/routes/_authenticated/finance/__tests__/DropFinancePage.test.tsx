@@ -46,8 +46,8 @@ vi.mock('@/hooks/use-drop-incomes', async () => {
   )
   return {
     ...actual,
-    useDropIncomes: () => useDropIncomesMock(),
-    useDropPayments: () => useDropPaymentsMock(),
+    useDropIncomes: (...args: unknown[]) => useDropIncomesMock(...args),
+    useDropPayments: (...args: unknown[]) => useDropPaymentsMock(...args),
   }
 })
 
@@ -349,6 +349,64 @@ describe('DropFinancePage — labels with no prior assertion (mutation-gate cove
     expect(screen.getByRole('option', { name: 'Поточний місяць' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'Минулий місяць' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'Останні 3 міс.' })).toBeInTheDocument()
+  })
+
+  it('serializes period filters from local calendar dates without UTC day shifts', async () => {
+    const originalTz = process.env.TZ
+    process.env.TZ = 'Europe/Berlin'
+    const RealDate = Date
+    const fixedNow = new RealDate('2026-10-10T12:00:00.000Z')
+    class FixedDate extends RealDate {
+      constructor(...args: unknown[]) {
+        super(0)
+        return Reflect.construct(
+          RealDate,
+          args.length === 0 ? [fixedNow.getTime()] : args,
+        ) as FixedDate
+      }
+
+      static override now() {
+        return fixedNow.getTime()
+      }
+    }
+    vi.stubGlobal('Date', FixedDate)
+    try {
+      const user = userEvent.setup()
+      useDropIncomesMock.mockReturnValue({
+        data: { items: [], total: 0, page: 1, limit: 20 },
+        isLoading: false,
+      })
+      renderPage()
+
+      await user.click(screen.getByTestId('drop-filter-period'))
+      await user.click(screen.getByRole('option', { name: 'Поточний місяць' }))
+      expect(useDropIncomesMock).toHaveBeenLastCalledWith({
+        page: 1,
+        limit: 20,
+        from: '2026-10-01',
+      })
+
+      await user.click(screen.getByTestId('drop-filter-period'))
+      await user.click(screen.getByRole('option', { name: 'Минулий місяць' }))
+      expect(useDropIncomesMock).toHaveBeenLastCalledWith({
+        page: 1,
+        limit: 20,
+        from: '2026-09-01',
+        to: '2026-09-30',
+      })
+
+      await user.click(screen.getByTestId('drop-filter-period'))
+      await user.click(screen.getByRole('option', { name: 'Останні 3 міс.' }))
+      expect(useDropIncomesMock).toHaveBeenLastCalledWith({
+        page: 1,
+        limit: 20,
+        from: '2026-07-10',
+      })
+    } finally {
+      vi.unstubAllGlobals()
+      if (originalTz === undefined) delete process.env.TZ
+      else process.env.TZ = originalTz
+    }
   })
 
   it('fmtUsd formats with exactly two fraction digits even for a whole number', () => {

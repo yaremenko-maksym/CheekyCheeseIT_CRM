@@ -163,12 +163,17 @@ describe('adminUpdateTransaction — multipart salary marker migration', () => {
 
   function makeSalaryMoveSvc(
     row: Record<string, unknown>,
-    opts: { targetClaimed?: boolean; oldAutomaticEvidence?: boolean } = {},
+    opts: {
+      targetClaimed?: boolean
+      oldAutomaticEvidence?: boolean
+      sourceUpdateMatched?: boolean
+    } = {},
   ) {
     const markerInsertValues: Record<string, unknown>[] = []
     const markerDeleteWhere: unknown[] = []
     const oldEvidenceWhere: unknown[] = []
     const reclassificationValues: Record<string, unknown>[] = []
+    const sourceUpdateWhere: unknown[] = []
     let markerConflictArgs: Record<string, unknown> | undefined
     let markerReturningProjection: Record<string, unknown> | undefined
     let oldEvidenceSelectProjection: Record<string, unknown> | undefined
@@ -178,12 +183,14 @@ describe('adminUpdateTransaction — multipart salary marker migration', () => {
       update: (table: unknown) => ({
         set: (setArg: Record<string, unknown>) => ({
           where: (whereArg: unknown) => {
-            if (table === transactions && setArg['salaryOrigin'] === 'MANUAL') {
+            if (table === transactions && setArg['salaryOrigin'] === 'ADJUSTED') {
               reclassificationValues.push(setArg)
               return Promise.resolve(undefined)
             }
+            if (table === transactions) sourceUpdateWhere.push(whereArg)
             return {
-              returning: () => Promise.resolve([{ id: row['id'] }]),
+              returning: () =>
+                Promise.resolve(opts.sourceUpdateMatched === false ? [] : [{ id: row['id'] }]),
             }
           },
         }),
@@ -252,6 +259,7 @@ describe('adminUpdateTransaction — multipart salary marker migration', () => {
       markerDeleteWhere,
       oldEvidenceWhere,
       reclassificationValues,
+      sourceUpdateWhere,
       getMarkerConflictArgs: () => markerConflictArgs,
       getMarkerReturningProjection: () => markerReturningProjection,
       getOldEvidenceSelectProjection: () => oldEvidenceSelectProjection,
@@ -265,6 +273,7 @@ describe('adminUpdateTransaction — multipart salary marker migration', () => {
       markerDeleteWhere,
       oldEvidenceWhere,
       reclassificationValues,
+      sourceUpdateWhere,
       getMarkerConflictArgs,
       getMarkerReturningProjection,
       getOldEvidenceSelectProjection,
@@ -289,6 +298,13 @@ describe('adminUpdateTransaction — multipart salary marker migration', () => {
     ])
     expect(getMarkerReturningProjection()).toEqual({ id: salaryMonthInitializations.id })
     expect(reclassificationValues).toHaveLength(0)
+    expect(sourceUpdateWhere).toHaveLength(1)
+    const sourceWhere = compileWhere(sourceUpdateWhere[0])
+    expect(sourceWhere.sql).toContain('"salary_month" IS NOT DISTINCT FROM')
+    expect(sourceWhere.sql).toContain('"salary_origin" IS NOT DISTINCT FROM')
+    expect(sourceWhere.params).toEqual(
+      expect.arrayContaining(['salary-cron-1', 'PENDING', '2026-01', 'CRON']),
+    )
     expect(oldEvidenceWhere).toHaveLength(1)
     expect(getOldEvidenceSelectProjection()).toEqual({ id: transactions.id })
     expect(compileWhere(oldEvidenceWhere[0]).params).toEqual(
@@ -314,7 +330,23 @@ describe('adminUpdateTransaction — multipart salary marker migration', () => {
     expect(reclassificationValues).toHaveLength(0)
   })
 
-  it('reclassifies the moved row as MANUAL when the destination month marker was already claimed', async () => {
+  it('moving an ADJUSTED salary part never changes cron initialization markers', async () => {
+    const { svc, markerInsertValues, markerDeleteWhere, oldEvidenceWhere, reclassificationValues } =
+      makeSalaryMoveSvc({ ...automaticSalary, salaryOrigin: 'ADJUSTED' })
+
+    await svc.adminUpdateTransaction(
+      automaticSalary.id,
+      { salaryMonth: '2026-02' },
+      admin('real-admin'),
+    )
+
+    expect(markerInsertValues).toHaveLength(0)
+    expect(markerDeleteWhere).toHaveLength(0)
+    expect(oldEvidenceWhere).toHaveLength(0)
+    expect(reclassificationValues).toHaveLength(0)
+  })
+
+  it('reclassifies the moved row as ADJUSTED when the destination month marker was already claimed', async () => {
     const { svc, reclassificationValues } = makeSalaryMoveSvc(automaticSalary, {
       targetClaimed: false,
     })
@@ -325,7 +357,28 @@ describe('adminUpdateTransaction — multipart salary marker migration', () => {
       admin('real-admin'),
     )
 
-    expect(reclassificationValues).toEqual([{ salaryOrigin: 'MANUAL' }])
+    expect(reclassificationValues).toEqual([{ salaryOrigin: 'ADJUSTED' }])
+  })
+
+  it('aborts before touching markers when a competing edit changed the source month/origin snapshot', async () => {
+    const { svc, markerInsertValues, markerDeleteWhere, oldEvidenceWhere } = makeSalaryMoveSvc(
+      automaticSalary,
+      { sourceUpdateMatched: false },
+    )
+
+    await expect(
+      svc.adminUpdateTransaction(
+        automaticSalary.id,
+        { salaryMonth: '2026-02' },
+        admin('real-admin'),
+      ),
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_ROW_STATE_CHANGED_WHILE_EDITING' },
+    })
+
+    expect(markerInsertValues).toHaveLength(0)
+    expect(markerDeleteWhere).toHaveLength(0)
+    expect(oldEvidenceWhere).toHaveLength(0)
   })
 
   it('keeps the old marker when another legacy/CRON salary still proves that month was initialized', async () => {
@@ -602,25 +655,33 @@ describe('BIZ-18-fix — adminUpdateTransaction: change-based guard (not presenc
 
 // ── #11: paySalary ADMIN_PERSONAL atomic flip ─────────────────────────────────
 describe('paySalary — #11: ADMIN_PERSONAL atomic flip (no duplicate invoice)', () => {
-  function makeSvc(
-    updateReturning: Array<{ id: string }>,
-    txRow: Record<string, unknown> = {
+  function makeSvc(updateReturning: Array<{ id: string }>, txRow: Record<string, unknown> = {}) {
+    const effectiveTxRow: Record<string, unknown> = {
       id: 'sal-1',
       type: 'SALARY',
       status: 'PENDING',
+      amount: '500',
+      currency: 'USD',
+      receiverId: null,
       notes: null,
-    },
-  ) {
+      txDate: null,
+      createdAt: new Date('2020-01-01T00:00:00.000Z'),
+      ...txRow,
+    }
     const invoiceSpy = vi.fn().mockResolvedValue(undefined)
     const findOne = vi.fn().mockResolvedValue({ id: 'sal-1' })
-    const setSpy = vi.fn((values: Record<string, unknown>) => ({
-      where: () => ({ returning: () => Promise.resolve(updateReturning) }),
+    const whereArgs: unknown[] = []
+    const setSpy = vi.fn((_values: Record<string, unknown>) => ({
+      where: (whereArg: unknown) => {
+        whereArgs.push(whereArg)
+        return { returning: () => Promise.resolve(updateReturning) }
+      },
     }))
     const dbStub = {
       db: {
         query: {
           transactions: {
-            findFirst: () => Promise.resolve(txRow),
+            findFirst: () => Promise.resolve(effectiveTxRow),
           },
           users: {
             // payerAdmin resolution for ADMIN_PERSONAL.
@@ -637,7 +698,7 @@ describe('paySalary — #11: ADMIN_PERSONAL atomic flip (no duplicate invoice)',
     ;(svc as unknown as { safeAutoCreateInvoice: typeof invoiceSpy }).safeAutoCreateInvoice =
       invoiceSpy
     ;(svc as unknown as { findOne: typeof findOne }).findOne = findOne
-    return { svc, invoiceSpy, setSpy }
+    return { svc, invoiceSpy, setSpy, whereArgs }
   }
 
   const payData = {
@@ -698,9 +759,45 @@ describe('paySalary — #11: ADMIN_PERSONAL atomic flip (no duplicate invoice)',
   })
 
   it('winner (1 row flipped) → fires exactly one invoice', async () => {
-    const { svc, invoiceSpy } = makeSvc([{ id: 'sal-1' }])
+    const { svc, invoiceSpy, whereArgs } = makeSvc([{ id: 'sal-1' }], {
+      id: 'sal-1',
+      type: 'SALARY',
+      status: 'PENDING',
+      amount: '500.000000',
+      currency: 'USD',
+      receiverId: null,
+      notes: 'copied note',
+    })
     await expect(svc.paySalary('sal-1', payData, admin())).resolves.toBeDefined()
     expect(invoiceSpy).toHaveBeenCalledTimes(1)
+    expect(whereArgs).toHaveLength(1)
+    const { sql, params } = compileWhere(whereArgs[0])
+    expect(sql).toContain('"amount" =')
+    expect(sql).toContain('"currency" =')
+    expect(sql).toContain('"notes" IS NOT DISTINCT FROM')
+    expect(params).toEqual(
+      expect.arrayContaining(['sal-1', 'PENDING', '500.000000', 'USD', 'copied note']),
+    )
+  })
+
+  it('does not bind the old note when the payment request explicitly replaces notes', async () => {
+    const { svc, whereArgs } = makeSvc([{ id: 'sal-1' }], {
+      id: 'sal-1',
+      type: 'SALARY',
+      status: 'PENDING',
+      amount: '500.000000',
+      currency: 'USD',
+      receiverId: null,
+      notes: 'old note',
+    })
+
+    await svc.paySalary('sal-1', { ...payData, notes: 'new note' }, admin())
+
+    const { sql, params } = compileWhere(whereArgs[0])
+    expect(sql).toContain('"amount" =')
+    expect(sql).toContain('"currency" =')
+    expect(sql).not.toContain('"notes" IS NOT DISTINCT FROM')
+    expect(params).not.toContain('old note')
   })
 
   it('stores a custom salary payout date on the PAID transaction', async () => {
@@ -741,6 +838,31 @@ describe('paySalary — #11: ADMIN_PERSONAL atomic flip (no duplicate invoice)',
       response: { code: 'FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', statusCode: 400 },
     })
     expect(setSpy).not.toHaveBeenCalled()
+  })
+
+  it('rejects an omitted salary payout date when today is before the salary transaction date', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-02T12:00:00.000Z'))
+    try {
+      const { svc, setSpy } = makeSvc([{ id: 'sal-1' }], {
+        id: 'sal-1',
+        type: 'SALARY',
+        status: 'PENDING',
+        amount: '500',
+        currency: 'USD',
+        receiverId: null,
+        notes: null,
+        txDate: new Date('2026-10-03T00:00:00.000Z'),
+        createdAt: new Date('2026-10-03T10:00:00.000Z'),
+      })
+
+      await expect(svc.paySalary('sal-1', payData, admin())).rejects.toMatchObject({
+        response: { code: 'FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', statusCode: 400 },
+      })
+      expect(setSpy).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('accepts a salary payout date equal to txDate even when createdAt is later', async () => {
@@ -809,7 +931,11 @@ describe('paySalary — #11: ADMIN_PERSONAL atomic flip (no duplicate invoice)',
                 id: 'sal-1',
                 type: 'SALARY',
                 status: 'PENDING',
+                amount: '500',
+                currency: 'USD',
                 notes: null,
+                txDate: null,
+                createdAt: new Date('2020-01-01T00:00:00.000Z'),
                 // Same id as the ADMIN_PERSONAL payer below — the collision.
                 receiverId: 'admin-1',
               }),

@@ -1554,6 +1554,18 @@ export const transactions = pgTable(
     // A SALARY row is one concrete salary part. Manual and cron-created parts
     // may coexist for the same employee/month; NULL identifies legacy rows.
     salaryOrigin: varchar('salary_origin', { length: 8 }),
+    // Immutable meaning of a manual salary idempotency key. Historical rows
+    // remain NULL and are treated as unverifiable legacy retries.
+    salaryCreationIntent: jsonb('salary_creation_intent').$type<{
+      version: 1
+      operation: 'MANUAL_SALARY_CREATE'
+      receiverId: string
+      amount: string
+      currency: 'USDT' | 'USD' | 'EUR' | 'UAH'
+      salaryMonth: string
+      notes: string | null
+      txDate: string | 'AUTO'
+    }>(),
     // User-specified transaction date (defaults to creation time if not provided)
     txDate: timestamp('tx_date', { withTimezone: true }),
     createdBy: uuid('created_by')
