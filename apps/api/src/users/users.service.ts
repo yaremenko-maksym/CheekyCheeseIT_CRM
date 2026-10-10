@@ -1060,8 +1060,8 @@ export class UsersService {
     // avatar assertion after it leaves the error order unchanged.
     const { set, requestedSeniorSharePercent } = buildAdminUserUpdateSet(data, effectiveRole)
     if ('avatarDocumentId' in data) {
-      // ADMIN may attach any AVATAR document; ownership check is bypassed
-      // (admin operating on someone else's profile). Still enforce category.
+      // The avatar document must be an AVATAR owned by the target user `id`.
+      // The owner check is unconditional: there is no ADMIN/invoker bypass.
       await assertAvatarDocument(this.db.db, data.avatarDocumentId ?? null, id)
       set.avatarDocumentId = data.avatarDocumentId ?? null
     }

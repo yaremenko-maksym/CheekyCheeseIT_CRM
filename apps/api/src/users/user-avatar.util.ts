@@ -6,14 +6,16 @@ import type { DatabaseService } from '../database/database.service'
 
 /**
  * Validate that the supplied `avatarDocumentId` references a document with
- * `category = 'AVATAR'` owned by `ownerId` (or any owner when invoker is
- * ADMIN). Throws `BadRequestException` otherwise so the caller surfaces a
- * 400 with a human-readable message.
+ * `category = 'AVATAR'`, is not soft-deleted, and is owned by
+ * `expectedOwnerId`. The owner check is unconditional: it takes no role or
+ * invoker input, so there is no ADMIN bypass. Throws via `apiError(...,
+ * HttpStatus.BAD_REQUEST)` (HTTP 400 with an error code) otherwise.
  *
- * `null` is treated as a clear-avatar operation and short-circuits.
+ * `null` / `undefined` is treated as a clear-avatar operation and
+ * short-circuits without querying.
  *
- * Extracted verbatim from `UsersService.assertAvatarDocument`; the only
- * change is `this.db.db` -> the `db` parameter.
+ * Extracted from `UsersService.assertAvatarDocument`; the only code change
+ * is `this.db.db` -> the `db` parameter.
  */
 export async function assertAvatarDocument(
   db: DatabaseService['db'],
