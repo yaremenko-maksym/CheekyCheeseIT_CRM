@@ -1,5 +1,7 @@
 import { ForbiddenException } from '@nestjs/common'
+import type { SQL } from 'drizzle-orm'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
+import { PgDialect } from 'drizzle-orm/pg-core'
 import type { SessionUser } from '@crm/shared'
 import type * as schema from '../database/schema'
 import { loadTransactionForViewer } from './transaction-read.util'
@@ -92,6 +94,17 @@ describe('loadTransactionForViewer', () => {
       seniorSharePercent: 70,
       seniorSharePercentSource: 'TEAM',
     })
+  })
+
+  it('looks the enrichment income up by payoutRequestId AND type SENIOR_INCOME', async () => {
+    const pr = { seniorId: ME, incomeAmount: 10, payableAmount: 9 }
+    const { db, findFirst } = stubDb(row({ payoutRequestId: 'pr-1', payoutRequest: pr }), undefined)
+    await loadTransactionForViewer(db, 'tx-1', user('ADMIN'))
+    const arg = findFirst.mock.calls[1][0] as { where: SQL }
+    const q = new PgDialect().sqlToQuery(arg.where)
+    expect(q.params).toEqual(['pr-1', 'SENIOR_INCOME'])
+    expect(q.sql).toContain('"payout_request_id"')
+    expect(q.sql).toContain('"type"')
   })
 
   it('defaults a missing share source to null and leaves payoutRequest alone without an income', async () => {
