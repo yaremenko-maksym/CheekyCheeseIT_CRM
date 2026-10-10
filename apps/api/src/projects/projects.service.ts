@@ -42,6 +42,11 @@ import {
 import { ProjectAuditLogService } from './project-audit-log.service'
 import { canSeePendingSeniorShare } from './project-visibility.util'
 import { mapProjectToDto, type ProjectWithRelations } from './project-map.util'
+import {
+  assertCanAddMember,
+  assertCanRemoveMember,
+  assertNoActiveJunior,
+} from './project-members.util'
 import { buildEffectiveTeam, type EffectiveTeamRow } from './project-team.util'
 import { UsersService } from '../users/users.service'
 import {
@@ -1796,12 +1801,7 @@ export class ProjectsService {
     // second — `user.archivedAt` in the cron's JUNIOR loop (PR #549) — is what
     // actually stands between an archived junior and money, and it re-reads
     // the flag at accrual time, so a race here cannot mint a salary.
-    if (user.archivedAt) {
-      throw apiError('ARCHIVED_USER_CANNOT_JOIN_PROJECT', HttpStatus.BAD_REQUEST)
-    }
-    if (user.role !== 'JUNIOR' && user.role !== 'HR' && user.role !== 'ACCOUNTANT') {
-      throw apiError('PROJECT_MEMBER_ROLE_RESTRICTED', HttpStatus.BAD_REQUEST)
-    }
+    assertCanAddMember(user)
 
     // Prevent duplicate active membership on same project
     const existingActive = await this.db.db.query.projectMembers.findFirst({
@@ -1815,12 +1815,7 @@ export class ProjectsService {
 
     // JUNIOR: max 1 per project
     if (user.role === 'JUNIOR') {
-      const existingJunior = project.members.find(
-        (m) => m.leftAt === null && m.user?.role === 'JUNIOR',
-      )
-      if (existingJunior) {
-        throw apiError('PROJECT_HAS_ACTIVE_JUNIOR', HttpStatus.BAD_REQUEST)
-      }
+      assertNoActiveJunior(project.members)
 
       // JUNIOR: cannot be active on another project simultaneously
       const otherProjectMembership = await this.db.db.query.projectMembers.findFirst({
@@ -1890,19 +1885,7 @@ export class ProjectsService {
 
     // Prevent removing last HR or last ACCOUNTANT from project
     const userToRemove = await this.db.db.query.users.findFirst({ where: eq(users.id, userId) })
-    if (userToRemove?.role === 'HR' || userToRemove?.role === 'ACCOUNTANT') {
-      // Re-use already loaded project for the last-member check.
-      const project = projectForScope
-
-      if (project) {
-        const activeOfRole = project.members.filter(
-          (m) => m.leftAt === null && m.user?.role === userToRemove.role,
-        )
-        if (activeOfRole.length <= 1) {
-          throw apiError('CANNOT_REMOVE_LAST_ROLE_MEMBER', HttpStatus.BAD_REQUEST)
-        }
-      }
-    }
+    assertCanRemoveMember(userToRemove, projectForScope.members)
 
     await this.db.db
       .update(projectMembers)
