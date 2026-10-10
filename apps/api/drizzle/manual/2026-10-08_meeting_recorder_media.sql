@@ -6,6 +6,10 @@ ALTER TABLE meeting_recorder_connections
   ADD COLUMN IF NOT EXISTS media_token_hash text,
   ADD COLUMN IF NOT EXISTS media_token_updated_at timestamptz;
 
+CREATE UNIQUE INDEX IF NOT EXISTS uq_meeting_recorder_connections_media_token_hash
+  ON meeting_recorder_connections(media_token_hash)
+  WHERE media_token_hash IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS recording_media_artifacts (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   connection_id uuid NOT NULL REFERENCES meeting_recorder_connections(id) ON DELETE RESTRICT,

@@ -65,6 +65,7 @@ describe('CRM-user recording media playback', () => {
         service.playbackForCrm(connection!, recording!, `media_${artifact.id}`),
       ).rejects.toMatchObject({
         status: 404,
+        response: { code: 'MEDIA_NOT_FOUND' },
       })
     }
     expect(playback).not.toHaveBeenCalled()
@@ -78,5 +79,63 @@ describe('CRM-user recording media playback', () => {
       ),
     ).rejects.toBeInstanceOf(HttpException)
     expect(pending.playback).not.toHaveBeenCalled()
+  })
+})
+
+describe('bearer recording media playback', () => {
+  function setupBearer(row: typeof artifact | null) {
+    let filter: unknown
+    const playback = vi.fn().mockResolvedValue({ url: 'https://example.test/signed-read' })
+    const db = {
+      db: {
+        select: vi.fn(() => ({
+          from: (table: unknown) => {
+            expect(table).toBe(recordingMediaArtifacts)
+            return {
+              where: (predicate: unknown) => {
+                filter = predicate
+                return { limit: async () => (row ? [row] : []) }
+              },
+            }
+          },
+        })),
+      },
+    } as unknown as DatabaseService
+    const service = new RecordingMediaUploadService(db, {
+      playback,
+    } as unknown as RecordingMediaStorageService)
+    return { service, playback, filter: () => filter }
+  }
+
+  it('plays only a ready artifact owned by the authenticated connection', async () => {
+    const ready = setupBearer(artifact)
+    await expect(
+      ready.service.playback(artifact.connectionId, `media_${artifact.id}`),
+    ).resolves.toEqual({ url: 'https://example.test/signed-read' })
+    expect(ready.playback).toHaveBeenCalledWith(artifact.storageKey, artifact.mimeType)
+    expect(new PgDialect().sqlToQuery(ready.filter() as never).params).toEqual([artifact.id])
+
+    const forbidden = setupBearer({
+      ...artifact,
+      connectionId: '55555555-5555-4555-8555-555555555555',
+    })
+    await expect(
+      forbidden.service.playback(artifact.connectionId, `media_${artifact.id}`),
+    ).rejects.toMatchObject({ status: 403, response: { code: 'MEDIA_FORBIDDEN' } })
+
+    const pending = setupBearer({ ...artifact, status: 'uploading' })
+    await expect(
+      pending.service.playback(artifact.connectionId, `media_${artifact.id}`),
+    ).rejects.toMatchObject({ status: 409, response: { code: 'MEDIA_NOT_READY' } })
+  })
+
+  it('rejects malformed and missing bearer artifact ids with the stable not-found code', async () => {
+    const missing = setupBearer(null)
+    await expect(
+      missing.service.playback(artifact.connectionId, `media_${artifact.id}`),
+    ).rejects.toMatchObject({ status: 404, response: { code: 'MEDIA_NOT_FOUND' } })
+    await expect(
+      missing.service.playback(artifact.connectionId, 'not-a-media-id'),
+    ).rejects.toMatchObject({ status: 404, response: { code: 'MEDIA_NOT_FOUND' } })
   })
 })

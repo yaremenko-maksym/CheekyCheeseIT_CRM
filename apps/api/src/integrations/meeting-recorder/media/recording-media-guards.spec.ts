@@ -95,4 +95,31 @@ describe('recording media authentication and per-connection throttling', () => {
     expect((await request('connection-a')).statusCode).toBe(200)
     expect((await request('connection-a')).statusCode).toBe(429)
   })
+
+  it('does not pass ambiguous authorization header arrays to media authentication', async () => {
+    const authenticateHeader = vi.fn().mockResolvedValue('connection-a')
+    const guard = new RecordingMediaAuthenticationGuard({
+      authenticate: authenticateHeader,
+    } as never)
+    const requestWithArray = { headers: { authorization: ['Bearer a', 'Bearer b'] } }
+    const context = {
+      switchToHttp: () => ({ getRequest: () => requestWithArray }),
+    }
+
+    await expect(guard.canActivate(context as never)).resolves.toBe(true)
+    expect(authenticateHeader).toHaveBeenCalledWith(undefined)
+    expect(requestWithArray).toMatchObject({ mediaConnectionId: 'connection-a' })
+  })
+
+  it('fails closed when the connection throttler runs without authenticated connection state', async () => {
+    const getTracker = (
+      RecordingMediaConnectionThrottlerGuard.prototype as unknown as {
+        getTracker(req: { headers: Record<string, never> }): Promise<string>
+      }
+    ).getTracker
+
+    await expect(getTracker.call({}, { headers: {} })).rejects.toThrow(
+      'Media connection was not authenticated',
+    )
+  })
 })
