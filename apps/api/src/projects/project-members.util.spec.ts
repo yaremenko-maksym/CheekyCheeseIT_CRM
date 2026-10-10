@@ -104,6 +104,16 @@ describe('assertCanRemoveMember', () => {
     ).toBe('CANNOT_REMOVE_LAST_ROLE_MEMBER')
   })
 
+  it('ignores dangling members (user relation null/absent) when counting', () => {
+    const dangling: MemberRowSlice[] = [{ leftAt: null, user: null }, { leftAt: null }]
+    expect(codeOf(() => assertCanRemoveMember({ role: 'HR' }, [...dangling, hr(null)]))?.code).toBe(
+      'CANNOT_REMOVE_LAST_ROLE_MEMBER',
+    )
+    expect(
+      codeOf(() => assertCanRemoveMember({ role: 'HR' }, [...dangling, hr(null), hr(null)])),
+    ).toBeNull()
+  })
+
   it('does not guard JUNIOR or an unknown user', () => {
     const m = [{ leftAt: null, user: { role: 'JUNIOR' } }]
     expect(codeOf(() => assertCanRemoveMember({ role: 'JUNIOR' }, m))).toBeNull()
