@@ -4,11 +4,11 @@ import { ArrowLeft } from 'lucide-react'
 import { Trans, useLingui } from '@lingui/react/macro'
 import type { MeetingRecorderUnmatchedRecordingDto } from '@crm/shared'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { SafeHttpLink } from '@/components/SafeHttpLink'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import { useUnmatchedInterviewRecordings } from '@/lib/meeting-recorder-api'
-import { safeHttpUrl } from '@/lib/safe-http-url'
 import { LinkRecordingDialog } from './components/LinkRecordingDialog'
 
 export const Route = createFileRoute('/_authenticated/interviews/unmatched')({
@@ -114,21 +114,13 @@ function UnmatchedInterviewRecordingsPage() {
                       )}
                       {recording.provider && <span>{recording.provider}</span>}
                     </div>
-                    {recording.meetingUrl &&
-                      (safeHttpUrl(recording.meetingUrl) ? (
-                        <a
-                          href={safeHttpUrl(recording.meetingUrl) ?? undefined}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="block break-all text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
-                        >
-                          {recording.meetingUrl}
-                        </a>
-                      ) : (
-                        <span className="block break-all text-xs text-muted-foreground">
-                          {recording.meetingUrl}
-                        </span>
-                      ))}
+                    {recording.meetingUrl && (
+                      <SafeHttpLink
+                        url={recording.meetingUrl}
+                        className="block break-all text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                        fallbackClassName="block break-all text-xs text-muted-foreground"
+                      />
+                    )}
                   </div>
 
                   <div className="min-w-0 text-xs text-muted-foreground md:col-start-1 lg:col-start-auto">

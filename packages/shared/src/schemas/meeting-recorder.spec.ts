@@ -679,6 +679,8 @@ describe('meeting recorder schema boundaries', () => {
       source: { ...BASE_RECORDING.source, meetingUrl },
     })
     expect(result.success).toBe(false)
+    const issues = result.success ? [] : result.error.issues
+    expect(issues.some((issue) => issue.message === 'URL must use HTTPS')).toBe(true)
   })
 
   it('accepts each analysis status and artifact vocabulary member', () => {

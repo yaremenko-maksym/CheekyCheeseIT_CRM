@@ -11,6 +11,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { SafeHttpLink } from '@/components/SafeHttpLink'
 import { Button } from '@/components/ui/button'
 import {
   CrmDialogBody,
@@ -23,7 +24,6 @@ import {
 } from '@/components/ui/crm-dialog'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useInterviewRecording, useLinkInterviewRecording } from '@/lib/meeting-recorder-api'
-import { safeHttpUrl } from '@/lib/safe-http-url'
 import { LinkRecordingDialog } from './LinkRecordingDialog'
 
 type RecordingDetailDialogProps = {
@@ -159,22 +159,13 @@ export function RecordingDetailDialog({
                   )}
                   {detail.provider && <span>{detail.provider}</span>}
                 </div>
-                {detail.meetingUrl &&
-                  (safeHttpUrl(detail.meetingUrl) ? (
-                    <a
-                      href={safeHttpUrl(detail.meetingUrl) ?? undefined}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="block max-w-full truncate underline underline-offset-2 hover:text-foreground"
-                      title={detail.meetingUrl}
-                    >
-                      {detail.meetingUrl}
-                    </a>
-                  ) : (
-                    <span className="block max-w-full truncate" title={detail.meetingUrl}>
-                      {detail.meetingUrl}
-                    </span>
-                  ))}
+                {detail.meetingUrl && (
+                  <SafeHttpLink
+                    url={detail.meetingUrl}
+                    className="block max-w-full truncate underline underline-offset-2 hover:text-foreground"
+                    fallbackClassName="block max-w-full truncate"
+                  />
+                )}
                 <div className="flex flex-wrap gap-x-3 gap-y-1" aria-live="polite">
                   <span>{transcriptStatus}</span>
                   <span>{analysisStatus}</span>
