@@ -264,6 +264,7 @@ describe('AC5 SEC-13 — assertCanReadAdminBalance: ADMIN scoped to own target',
 // regardless of data.senderId supplied.
 
 import { SalaryService } from './salary.service'
+import { SummaryService } from './summary.service'
 import { TransactionsService } from './transactions.service'
 
 function makeAdminTransferService(
@@ -363,6 +364,7 @@ function makeAdminTransferService(
     etherscan,
     makeNotificationsStub(),
     new SalaryService(db),
+    new SummaryService(db, {} as never),
   )
 }
 
@@ -596,6 +598,7 @@ describe('AC3 BIZ-18 — adminUpdateTransaction: blocks edits to PAID non-compan
       {} as never,
       makeNotificationsStub(),
       new SalaryService(db),
+      new SummaryService(db, {} as never),
     )
   }
 
@@ -681,6 +684,7 @@ describe('AC3 BIZ-18 — adminUpdateTransaction: blocks edits to PAID non-compan
       {} as never,
       makeNotificationsStub(),
       new SalaryService(db),
+      new SummaryService(db, {} as never),
     )
     const admin = makeViewer('ADMIN', 'admin-id')
     // Should not throw — notes-only edit
@@ -735,6 +739,7 @@ describe('AC3 BIZ-18 — adminUpdateTransaction: blocks edits to PAID non-compan
       {} as never,
       makeNotificationsStub(),
       new SalaryService(db),
+      new SummaryService(db, {} as never),
     )
     const admin = makeViewer('ADMIN', 'admin-id')
     await expect(
@@ -792,6 +797,7 @@ describe('AC4 BIZ-17 — updateDropIncome: resubmit REJECTED DROP_INCOME', () =>
       {} as never,
       makeNotificationsStub(),
       new SalaryService(db),
+      new SummaryService(db, {} as never),
     )
   }
 

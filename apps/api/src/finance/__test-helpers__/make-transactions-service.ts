@@ -33,6 +33,7 @@ import type { NbuCurrencyService } from '../nbu-currency.service'
 import type { EtherscanService } from '../etherscan.service'
 import type { NotificationsService } from '../../notifications/notifications.service'
 import { SalaryService } from '../salary.service'
+import { SummaryService } from '../summary.service'
 
 export interface MakeTransactionsServiceOverrides {
   db: DatabaseService
@@ -49,6 +50,12 @@ export interface MakeTransactionsServiceOverrides {
   notificationsService?: NotificationsService
   /** T-L6: db-only salary collaborator. Defaults to a real one over the same `db`. */
   salaryService?: SalaryService
+  /**
+   * T-L8: read-only summary collaborator. Defaults to a real one over the same
+   * `db` and the same (possibly overridden) NBU stub, so existing summary specs
+   * keep exercising the real code through the TransactionsService delegates.
+   */
+  summaryService?: SummaryService
 }
 
 /** Default no-op stub for InvoicesService — covers auto-create paths. */
@@ -139,6 +146,7 @@ export function makeTransactionsService(
     etherscanService = makeDefaultEtherscanStub(),
     notificationsService = makeDefaultNotificationsStub(),
     salaryService = new SalaryService(db),
+    summaryService = new SummaryService(db, nbuCurrencyService),
   } = overrides
 
   return new TransactionsService(
@@ -149,5 +157,6 @@ export function makeTransactionsService(
     etherscanService,
     notificationsService,
     salaryService,
+    summaryService,
   )
 }
