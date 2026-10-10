@@ -640,39 +640,6 @@ export class TransactionsService {
   }
 
   /**
-   * HIGH-1 (IDOR / OWASP A01) guard — must be called BEFORE writing
-   * `receiptDocumentId` to any transaction FK.
-   *
-   * Validates that the document identified by `docId`:
-   *   1. Exists (not deleted / never inserted) — NotFoundException.
-   *   2. Has category === 'RECEIPT' — BadRequestException.
-   *   3. Is owned by the expected owner:
-   *      - For non-ADMIN paths the owner must be the calling user (`currentUser.id`).
-   *      - For ADMIN paths pass `opts.expectedOwnerId` = the transaction receiver/senior;
-   *        ADMIN may bind any RECEIPT owned by that person (mirrors the upload
-   *        RBAC matrix in DocumentsService.assertCanUpload for RECEIPT category).
-   *
-   * Throws before any DB write so the FK is never set to a foreign document.
-   *
-   * Rationale (PR-3 security review HIGH-1):
-   *   Without this check a SENIOR-A can supply `receiptDocumentId = <docId of B>`
-   *   in updateSeniorIncome.  After a subsequent reject+resubmit the replace-with-
-   *   delete path (`oldDocId → dbtx.delete + S3.delete`) would permanently destroy
-   *   victim B's document.  The partial unique index only catches already-bound
-   *   docs; orphan RECEIPTs are free to be stolen.
-   */
-  private assertReceiptDocumentBindable(
-    docId: string,
-    currentUser: SessionUser,
-    opts: { expectedOwnerId?: string } = {},
-  ): Promise<void> {
-    // Delegates to the shared guard (receipt.util) — the SINGLE implementation
-    // reused by PendingSettlementService's ADMIN_PERSONAL file-receipt settle so
-    // the ownership + RECEIPT-category check never drifts.
-    return assertReceiptDocumentBindable(this.db.db, docId, currentUser, opts)
-  }
-
-  /**
    * Fire-and-forget wrapper so a failing invoice generation (e.g. S3 outage)
    * does NOT roll back the underlying transaction state change. The PAID
    * status flip is the source of truth; the invoice is a derived artefact
@@ -1263,7 +1230,7 @@ export class TransactionsService {
 
     // HIGH-1: validate receipt ownership + category before writing FK
     if (data.receiptDocumentId) {
-      await this.assertReceiptDocumentBindable(data.receiptDocumentId, currentUser)
+      await assertReceiptDocumentBindable(this.db.db, data.receiptDocumentId, currentUser)
     }
 
     // task-salary-company-account (routing preserved, resolution moved above).
@@ -1746,7 +1713,7 @@ export class TransactionsService {
 
     // HIGH-1: validate receipt ownership + category before writing FK
     if (data.receiptDocumentId) {
-      await this.assertReceiptDocumentBindable(data.receiptDocumentId, currentUser)
+      await assertReceiptDocumentBindable(this.db.db, data.receiptDocumentId, currentUser)
     }
 
     let tx: typeof transactions.$inferSelect | undefined
@@ -1878,7 +1845,7 @@ export class TransactionsService {
 
     // HIGH-1: validate receipt ownership + category before writing FK
     if (data.receiptDocumentId) {
-      await this.assertReceiptDocumentBindable(data.receiptDocumentId, currentUser)
+      await assertReceiptDocumentBindable(this.db.db, data.receiptDocumentId, currentUser)
     }
 
     // task-drop-share-override-and-receiver (Part A). Snapshot the effective drop
@@ -2082,7 +2049,7 @@ export class TransactionsService {
     // Only check when nextDocId is set AND it is a new (different) document —
     // keeping the same docId is always safe (ownership already established).
     if (nextDocId && nextDocId !== tx.receiptDocumentId) {
-      await this.assertReceiptDocumentBindable(nextDocId, currentUser)
+      await assertReceiptDocumentBindable(this.db.db, nextDocId, currentUser)
     }
 
     // ── 1:1 receipt replace-with-delete (PR-3) — via shared helper ──────────
@@ -2170,7 +2137,7 @@ export class TransactionsService {
         : tx.receiptExternalUrl
 
     if (nextDocId && nextDocId !== tx.receiptDocumentId) {
-      await this.assertReceiptDocumentBindable(nextDocId, currentUser)
+      await assertReceiptDocumentBindable(this.db.db, nextDocId, currentUser)
     }
 
     // task-receipts-backend: adopt the shared 1:1 replace-with-delete helper so a
@@ -2258,7 +2225,7 @@ export class TransactionsService {
     // The receipt document must be a RECEIPT owned by the caller — you can only
     // attach a document you uploaded (self-ownership, no cross-owner binding).
     if (nextDocId && nextDocId !== tx.receiptDocumentId) {
-      await this.assertReceiptDocumentBindable(nextDocId, currentUser)
+      await assertReceiptDocumentBindable(this.db.db, nextDocId, currentUser)
     }
 
     // ── SECURITY (security-review round 3, MED-E): keep "evidence ↔ claim" honest.
@@ -2582,7 +2549,9 @@ export class TransactionsService {
     const nextReceiptDocId = receiptPatch.receiptDocumentId
     if (nextReceiptDocId && nextReceiptDocId !== tx.receiptDocumentId) {
       const expectedOwnerId = tx.receiverId ?? currentUser.id
-      await this.assertReceiptDocumentBindable(nextReceiptDocId, currentUser, { expectedOwnerId })
+      await assertReceiptDocumentBindable(this.db.db, nextReceiptDocId, currentUser, {
+        expectedOwnerId,
+      })
     }
 
     // ── SECURITY (security-review round 4, MED-F): the SECOND receipt entrance.
@@ -4742,7 +4711,7 @@ export class TransactionsService {
 
     // HIGH-1: validate receipt ownership + category before writing FK
     if (data.receiptDocumentId) {
-      await this.assertReceiptDocumentBindable(data.receiptDocumentId, currentUser)
+      await assertReceiptDocumentBindable(this.db.db, data.receiptDocumentId, currentUser)
     }
 
     // task-salary-company-account: company-funded expense path. Pays OUT of the
@@ -5074,7 +5043,7 @@ export class TransactionsService {
     )
     if (receiptErr) throw zodErrorBadRequest(receiptErr)
     if (data.receiptDocumentId) {
-      await this.assertReceiptDocumentBindable(data.receiptDocumentId, currentUser)
+      await assertReceiptDocumentBindable(this.db.db, data.receiptDocumentId, currentUser)
     }
 
     const [tx] = await this.db.db
@@ -6727,7 +6696,7 @@ export class TransactionsService {
     )
     if (receiptErr) throw zodErrorBadRequest(receiptErr)
     if (data.receiptDocumentId) {
-      await this.assertReceiptDocumentBindable(data.receiptDocumentId, currentUser)
+      await assertReceiptDocumentBindable(this.db.db, data.receiptDocumentId, currentUser)
     }
 
     // Resolve sender + currency from the pay-time funding choice. The AMOUNT is
