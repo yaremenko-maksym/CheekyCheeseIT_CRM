@@ -58,7 +58,6 @@ import {
   transactions,
   transactionAuditLog,
   users,
-  type Transaction,
 } from '../database/schema'
 import { assertProjectActive } from '../projects/project-status.util'
 import type { DrizzleTx } from '../database/types'
@@ -105,7 +104,6 @@ import { COMPANY_ACCOUNT_LABEL, roundShareAmount } from '@crm/shared'
 // above, not a second implementation.
 export { roundShareAmount }
 import {
-  assertTransactionReadAccess,
   assertTransactionVisible,
   assertTransactionWritable,
   fetchWritableTransactionOrThrow,
@@ -118,6 +116,7 @@ import { isStorableExchangeRate } from './exchange-rate.util'
 import { convertToUsdtMinor } from './usdt-conversion.util'
 import { isRegistryConflict } from './finance-predicates.util'
 import { mapTx, type TxWithRelations } from './transaction-mapper.util'
+import { loadTransactionForViewer } from './transaction-read.util'
 import {
   mapDropIncomeStatus,
   mapDropObligationStatus,
@@ -1038,52 +1037,7 @@ export class TransactionsService {
   }
 
   async findOne(id: string, currentUser: SessionUser) {
-    const tx = (await this.db.db.query.transactions.findFirst({
-      where: eq(transactions.id, id),
-      with: {
-        // task-counterparty-role-masking: `role` drives ADMIN-party masking in mapTx.
-        sender: { columns: { displayName: true, role: true } },
-        receiver: { columns: { displayName: true, role: true } },
-        project: { columns: { name: true } },
-        payoutRequest: {
-          columns: { seniorId: true, incomeAmount: true, payableAmount: true },
-        },
-      },
-    })) as TxWithRelations | undefined
-
-    if (!tx) throw apiError('FINANCE_TRANSACTION_NOT_FOUND', HttpStatus.NOT_FOUND)
-    // AC2: hidden from every non-ADMIN/ACCOUNTANT viewer, regardless of
-    // ownership — MUST run before assertTransactionReadAccess (see that guard's doc).
-    assertTransactionVisible(tx, currentUser)
-    assertTransactionReadAccess(tx, currentUser)
-    // (masking of the internal counterparty happens in mapTx below via `currentUser`)
-
-    // Enrich payoutRequest with seniorSharePercent snapshot from first linked income tx
-    if (tx.payoutRequest && tx.payoutRequestId) {
-      const firstIncome = await this.db.db.query.transactions.findFirst({
-        where: and(
-          eq(transactions.payoutRequestId, tx.payoutRequestId),
-          eq(transactions.type, 'SENIOR_INCOME'),
-        ),
-      })
-      if (firstIncome) {
-        const firstIncomeSource = (
-          firstIncome as Transaction & {
-            seniorSharePercentSource?: string | null
-          }
-        ).seniorSharePercentSource
-        tx.payoutRequest = {
-          ...tx.payoutRequest,
-          seniorSharePercent: firstIncome.seniorSharePercent,
-          // task-team-senior-share-override. Propagate the source from the
-          // originating SENIOR_INCOME so PayoutContent renders the badge.
-          seniorSharePercentSource: (firstIncomeSource ?? null) as
-            'PROJECT' | 'TEAM' | 'USER_DEFAULT' | null,
-        }
-      }
-    }
-
-    return mapTx(tx, currentUser)
+    return loadTransactionForViewer(this.db.db, id, currentUser)
   }
 
   // ── Create ADMIN_INCOME ──────────────────────────────────────────────────
