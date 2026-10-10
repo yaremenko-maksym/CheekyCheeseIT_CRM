@@ -577,6 +577,7 @@ export class SummaryService {
       const share = amt * (pct / 100)
       incomeTotal += share
       const when = tx.txDate ?? tx.createdAt
+      // Stryker disable next-line ConditionalExpression: equivalent `if (!when) continue` -> `false` — a missing date becomes `new Date(null)` (1970) or an Invalid Date; neither is >= monthStart / lastMonthStart, so the row adds nothing the output can show beyond the total already accumulated above.
       if (!when) continue
       const whenDate = new Date(when)
       // Per-month bucket for the sparkline (keyed by the income's own date).
@@ -586,6 +587,7 @@ export class SummaryService {
         incomeThisMonth += share
         // A project counts toward arrival-progress as soon as ONE of its incomes
         // lands this month. Self-scoped: receiverId is already === self.
+        // Stryker disable next-line ConditionalExpression: equivalent `if (tx.projectId)` -> `true` — a null project id would only add `null` to the set, and the intersection below (`ownActiveProjectIds.has(null)`) never matches a real project id, so `received` is unchanged.
         if (tx.projectId) companiesWithIncomeThisMonth.add(tx.projectId)
       } else if (whenDate >= lastMonthStart) {
         incomeLastMonth += share
@@ -894,6 +896,7 @@ export class SummaryService {
       { received: boolean; pendingValidation: boolean; accrued: boolean }
     >()
     for (const tx of incomeRows) {
+      // Stryker disable next-line ConditionalExpression: equivalent `if (!tx.projectId) continue` -> `false` — a null-project row is only keyed `null|TYPE`, and every lookup below is keyed by a real, non-null project id, so the stray entry is never read.
       if (!tx.projectId) continue
       const when = tx.txDate ?? tx.createdAt
       if (!when) continue
@@ -937,7 +940,8 @@ export class SummaryService {
         ? (['SENIOR_INCOME', 'SENIOR_PENDING_PAYOUT'] as const)
         : role === 'ADMIN'
           ? (['ADMIN_INCOME'] as const)
-          : role === 'DROP'
+          : // Stryker disable next-line ConditionalExpression: equivalent `role === 'DROP'` -> `true` — only a non-SENIOR/ADMIN/DROP role (JUNIOR...) could reach it, and `complianceRoleFor` returns null for exactly those, so the `!complianceRole || !incomeTypes` guard in addPair still drops them.
+            role === 'DROP'
             ? (['DROP_INCOME', 'DROP_PENDING_PAYOUT', 'PAYOUT_DROP'] as const)
             : null
     const complianceRoleFor = (role: string): IncomeComplianceRole | null =>
@@ -945,7 +949,8 @@ export class SummaryService {
         ? 'SENIOR'
         : role === 'ADMIN'
           ? 'ADMIN_SENIOR'
-          : role === 'DROP'
+          : // Stryker disable next-line ConditionalExpression: equivalent `role === 'DROP'` -> `true` — only a non-SENIOR/ADMIN/DROP role could reach it, and `incomeTypesFor` returns null for exactly those, so the `!complianceRole || !incomeTypes` guard in addPair still drops them.
+            role === 'DROP'
             ? 'DROP'
             : null
 
@@ -962,6 +967,7 @@ export class SummaryService {
     }
     const byReceiver = new Map<string, Acc>()
     const addPair = (ownerId: string | null, p: (typeof activeProjects)[number]): void => {
+      // Stryker disable next-line ConditionalExpression: equivalent `if (!ownerId) return` -> `false` — a null owner id makes `ownerById.get(null)` undefined, and the very next line (`if (!owner) return`) returns for it, so behaviour is identical.
       if (!ownerId) return
       const owner = ownerById.get(ownerId)
       if (!owner) return
@@ -984,6 +990,7 @@ export class SummaryService {
     }
     for (const p of activeProjects) {
       addPair(p.seniorId, p)
+      // Stryker disable next-line ConditionalExpression: equivalent `if (p.dropId)` -> `true` — `addPair(null, p)` returns immediately on `!ownerId`, so a null drop id is a no-op either way.
       if (p.dropId) addPair(p.dropId, p)
     }
 
@@ -1071,7 +1078,9 @@ export class SummaryService {
     // Sort laggards-first: lowest coverage ratio on top; ties → fewer submitted
     // first, then displayName for stable ordering.
     receivers.sort((a, b) => {
+      // Stryker disable next-line ConditionalExpression,EqualityOperator: equivalent for `-> true` / `>= 0` — every receiver is created by addPair with at least one project, so `expected > 0` always holds and the `: 1` fallback is unreachable (the real `-> false` mutant on this line is also pinned by the sort tests).
       const ra = a.expected > 0 ? a.submitted / a.expected : 1
+      // Stryker disable next-line ConditionalExpression,EqualityOperator: same equivalence as `ra` above — `b.expected > 0` is always true for any receiver, the `: 1` branch is unreachable.
       const rb = b.expected > 0 ? b.submitted / b.expected : 1
       if (ra !== rb) return ra - rb
       if (a.submitted !== b.submitted) return a.submitted - b.submitted
