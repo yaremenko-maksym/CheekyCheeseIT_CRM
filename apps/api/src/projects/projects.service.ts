@@ -43,6 +43,7 @@ import {
   type User,
 } from '../database/schema'
 import { ProjectAuditLogService } from './project-audit-log.service'
+import { canSeePendingSeniorShare } from './project-visibility.util'
 import { UsersService } from '../users/users.service'
 import { resolveSeniorShare } from '../finance/senior-share-resolver'
 import type { DrizzleTx } from '../database/types'
@@ -172,8 +173,7 @@ export class ProjectsService {
   private mapProject(
     project: ProjectWithRelations,
     teamOverridesBySeniorId:
-      | Map<string, { id: string; seniorSharePercentOverride: number | null }[]>
-      | undefined,
+      Map<string, { id: string; seniorSharePercentOverride: number | null }[]> | undefined,
     viewerRole: SessionUser['role'],
     /**
      * task-project-status-filter-ui. Pre-computed (batched, never queried
@@ -355,7 +355,7 @@ export class ProjectsService {
       // (payroll / team-management need-to-know) but must not learn a change
       // is even proposed. `undefined` (list endpoint / create) collapses to
       // `null` here too — the field is simply absent on those responses.
-      pendingSeniorShare: ProjectsService.canSeePendingSeniorShare(viewerRole)
+      pendingSeniorShare: canSeePendingSeniorShare(viewerRole)
         ? (pendingSeniorShare ?? null)
         : null,
       techStack: project.techStack ?? null,
@@ -442,30 +442,10 @@ export class ProjectsService {
    * legitimately hold `null` WHILE pending — see the column's own schema.ts
    * comment).
    */
-  /**
-   * task-648-fix-round-3 (SR-L-4). WHO may even be told that a proposal is
-   * open. Three response paths asked this question in three copies of the
-   * same expression — `mapProject`'s mask, `findOne`/`loadForResponse`'s
-   * "don't pay for a value nobody sees" skip, and (from this round)
-   * `update()`'s tail. SR-bm-3 in round 2 fixed one of the copies; SR-L-4
-   * found the next one. A rule with three spellings has three chances to
-   * drift, so it now has one.
-   *
-   * ADMIN and the affected SENIOR only: ACCOUNTANT and HR can reach these
-   * paths (the propose-gate admits ACCOUNTANT outright) and JUNIOR is masked
-   * wholesale, so this is an allow-list, not a denylist — the shape
-   * `security-review` pattern 3 requires on every projection.
-   */
-  private static canSeePendingSeniorShare(viewerRole: string | undefined): boolean {
-    return viewerRole === 'ADMIN' || viewerRole === 'SENIOR'
-  }
-
   private async loadPendingSeniorShare(
     projectId: string,
     senior:
-      | { id: string; displayName: string; seniorSharePercent: number | null }
-      | null
-      | undefined,
+      { id: string; displayName: string; seniorSharePercent: number | null } | null | undefined,
     pendingValue: number | null | undefined,
     // task-648-fix-round-1 (AC9 mutation-gate gap-fill): NOT optional — all
     // three call sites already compute this via `loadTeamOverridesBySenior`
@@ -830,7 +810,7 @@ export class ProjectsService {
     // ADMIN or the affected SENIOR — `mapProject` masks the field for every
     // other role now (not just JUNIOR), same "don't pay for a value nobody
     // sees" reasoning as effectiveTeam immediately above.
-    const pendingSeniorShare = ProjectsService.canSeePendingSeniorShare(currentUser.role)
+    const pendingSeniorShare = canSeePendingSeniorShare(currentUser.role)
       ? await this.loadPendingSeniorShare(
           project.id,
           project.senior,
@@ -1350,7 +1330,7 @@ export class ProjectsService {
     // result was thrown away one line later. `findOne` already applied this
     // exact gate; the two response paths silently disagreed about who may
     // even ask.
-    const pendingSeniorShare = ProjectsService.canSeePendingSeniorShare(currentUser.role)
+    const pendingSeniorShare = canSeePendingSeniorShare(currentUser.role)
       ? await this.loadPendingSeniorShare(
           project.id,
           project.senior,
@@ -1975,7 +1955,7 @@ export class ProjectsService {
     // admitted caller of this method (the propose-gate names them) — so this
     // was the third response path asking `approvals` a question whose answer
     // it then threw away, the one SR-bm-3 missed in round 2.
-    const pendingSeniorShare = ProjectsService.canSeePendingSeniorShare(currentUser.role)
+    const pendingSeniorShare = canSeePendingSeniorShare(currentUser.role)
       ? await this.loadPendingSeniorShare(
           updated.id,
           updated.senior,
