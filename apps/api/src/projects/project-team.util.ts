@@ -87,10 +87,15 @@ export function buildEffectiveTeam(
           .map((m) => ({
             id: m.id,
             userId: m.userId,
+            // Stryker disable next-line OptionalChaining: equivalent mutant — the preceding .filter() guarantees m.user?.role === 'JUNIOR', so m.user is non-null here and the optional chain / fallback is unreachable (kept verbatim from the pre-extraction code).
             displayName: m.user?.displayName ?? '',
+            // Stryker disable next-line OptionalChaining: equivalent mutant — the preceding .filter() guarantees m.user?.role === 'JUNIOR', so m.user is non-null here and the optional chain / fallback is unreachable (kept verbatim from the pre-extraction code).
             email: m.user?.email ?? '',
+            // Stryker disable next-line OptionalChaining: equivalent mutant — the preceding .filter() guarantees m.user?.role === 'JUNIOR', so m.user is non-null here and the optional chain / fallback is unreachable (kept verbatim from the pre-extraction code).
             avatarUrl: m.user?.avatarUrl ?? null,
+            // Stryker disable next-line OptionalChaining: equivalent mutant — the preceding .filter() guarantees m.user?.role === 'JUNIOR', so m.user is non-null here and the optional chain / fallback is unreachable (kept verbatim from the pre-extraction code).
             avatarDocumentId: m.user?.avatarDocumentId ?? null,
+            // Stryker disable next-line OptionalChaining,LogicalOperator: equivalent mutant — the preceding .filter() guarantees m.user?.role === 'JUNIOR', so m.user is non-null here and the optional chain / fallback is unreachable (kept verbatim from the pre-extraction code).
             role: m.user?.role ?? 'JUNIOR',
             joinedAt: m.joinedAt.toISOString(),
             leftAt: null as null,
