@@ -36,6 +36,7 @@ import { uniqueViolationConstraint } from '../database/pg-errors'
 import { writeUserEmailOrConflict } from './user-emails.util'
 import { resolveArchivedFilter, withActiveProjectFlag } from './users-list.util'
 import { buildCreateUserInsertValues, buildDropInsertValues } from './user-insert.util'
+import { buildAdminUserUpdateSet } from './user-update.util'
 import { generateInviteToken, hashInviteToken, INVITE_TOKEN_TTL_MS } from './invite-token.util'
 import {
   ARCHIVED_ENTITLEMENT_CODE,
@@ -1083,112 +1084,14 @@ export class UsersService {
       await this.assertEmailAvailable(this.db.db, data.email, id)
     }
 
-    const set: Partial<{
-      email: string
-      displayName: string
-      role: AppRole
-      telegram: string | null
-      phone: string | null
-      avatarUrl: string | null
-      avatarDocumentId: string | null
-      techStack: string[] | null
-      seniorSharePercent: number
-      dropSharePercent: number
-      monthlySalary: string | null
-      salaryCurrency: 'USDT' | 'USD' | 'EUR' | 'UAH'
-      paymentMethod: 'USDT_ERC20' | 'BANK_UAH_FOP'
-      walletUsdtErc20: string | null
-      walletUsdtLabel: string | null
-      bankUahRecipient: string | null
-      bankUahIban: string | null
-      bankUahRnokpp: string | null
-      bankUahBankName: string | null
-      legalFullName: string | null
-      registrationAddress: string | null
-      updatedAt: Date
-    }> = { updatedAt: new Date() }
-
-    if (data.email !== undefined) set.email = data.email
-    if (data.displayName !== undefined) set.displayName = data.displayName
-    if (data.role !== undefined) set.role = data.role
-    if ('telegram' in data) set.telegram = data.telegram ?? null
-    if ('phone' in data) set.phone = data.phone ?? null
-    if ('avatarUrl' in data) set.avatarUrl = data.avatarUrl ?? null
+    // Pure set-builder (see user-update.util.ts). Never throws, so moving the
+    // avatar assertion after it leaves the error order unchanged.
+    const { set, requestedSeniorSharePercent } = buildAdminUserUpdateSet(data, effectiveRole)
     if ('avatarDocumentId' in data) {
       // ADMIN may attach any AVATAR document; ownership check is bypassed
       // (admin operating on someone else's profile). Still enforce category.
       await this.assertAvatarDocument(data.avatarDocumentId ?? null, id)
       set.avatarDocumentId = data.avatarDocumentId ?? null
-    }
-    if ('techStack' in data) set.techStack = data.techStack ?? null
-    // Share-percent fields — role-scoped writes: only persist when the
-    // effective role actually uses the field, so an "orphaned" value can't
-    // surface later if the user is promoted into that role. Mirrors the
-    // UserDialog finance section (SENIOR-slider / DROP-slider / salary-field).
-    //
-    // task-pending-share (position 5): `seniorSharePercent` is DELIBERATELY
-    // excluded from `set` here — it no longer writes the active column
-    // directly. `requestedSeniorSharePercent` below is routed through
-    // `proposeSeniorShareChangeInTx` inside the SAME transaction as the rest
-    // of this write (see the `tx.transaction` block further down), so the
-    // affected SENIOR must confirm before it takes effect.
-    //
-    // Role-gating (`effectiveRole === 'SENIOR'`) is proven by
-    // `users.pending-share.spec.ts`'s "does not propose when the effective
-    // role is not SENIOR, even if seniorSharePercent IS present" test.
-    //
-    // task-648-fix-round-1 (CR-M-1): this used to also gate on
-    // `data.seniorSharePercent !== undefined`, guarded by a
-    // `// Stryker disable next-line ConditionalExpression` covering the
-    // resulting 4-mutant combination. That left operand was ALWAYS
-    // redundant — algebraically, not just in practice: when
-    // `data.seniorSharePercent` is undefined, the ternary's TRUE branch
-    // just re-reads `data.seniorSharePercent` one line down, which is
-    // undefined either way, so the result is undefined regardless of which
-    // path the condition takes for EVERY value of `effectiveRole`. Removing
-    // the dead conjunct (rather than suppressing the mutants it created)
-    // both simplifies the code and needs no suppression at all: the two
-    // ConditionalExpression mutants left on the simpler ternary below
-    // (whole-condition true/false) are exactly the ones the
-    // `users.pending-share.spec.ts` test cited above already kills.
-    const requestedSeniorSharePercent: number | undefined =
-      effectiveRole === 'SENIOR' ? data.seniorSharePercent : undefined
-    if (data.dropSharePercent !== undefined && effectiveRole === 'DROP')
-      set.dropSharePercent = data.dropSharePercent
-    if ('monthlySalary' in data)
-      set.monthlySalary = data.monthlySalary != null ? String(data.monthlySalary) : null
-    if (data.salaryCurrency !== undefined) set.salaryCurrency = data.salaryCurrency
-    if (data.legalFullName !== undefined) set.legalFullName = data.legalFullName.trim() || null
-    if ('registrationAddress' in data)
-      set.registrationAddress = data.registrationAddress?.trim() || null
-
-    // Payment requisites — switching method clears the other branch's fields.
-    if (data.paymentMethod !== undefined) {
-      set.paymentMethod = data.paymentMethod
-      if (data.paymentMethod === 'USDT_ERC20') {
-        if ('walletUsdtErc20' in data) set.walletUsdtErc20 = data.walletUsdtErc20 ?? null
-        if ('walletUsdtLabel' in data) set.walletUsdtLabel = data.walletUsdtLabel ?? null
-        set.bankUahRecipient = null
-        set.bankUahIban = null
-        set.bankUahRnokpp = null
-        set.bankUahBankName = null
-      } else {
-        if ('bankUahRecipient' in data) set.bankUahRecipient = data.bankUahRecipient ?? null
-        if ('bankUahIban' in data) set.bankUahIban = data.bankUahIban ?? null
-        if ('bankUahRnokpp' in data) set.bankUahRnokpp = data.bankUahRnokpp ?? null
-        if ('bankUahBankName' in data) set.bankUahBankName = data.bankUahBankName ?? null
-        set.walletUsdtErc20 = null
-        set.walletUsdtLabel = null
-      }
-    } else {
-      // No method switch — but the admin may still patch individual fields of
-      // the current method (e.g. update IBAN without changing payment method).
-      if ('walletUsdtErc20' in data) set.walletUsdtErc20 = data.walletUsdtErc20 ?? null
-      if ('walletUsdtLabel' in data) set.walletUsdtLabel = data.walletUsdtLabel ?? null
-      if ('bankUahRecipient' in data) set.bankUahRecipient = data.bankUahRecipient ?? null
-      if ('bankUahIban' in data) set.bankUahIban = data.bankUahIban ?? null
-      if ('bankUahRnokpp' in data) set.bankUahRnokpp = data.bankUahRnokpp ?? null
-      if ('bankUahBankName' in data) set.bankUahBankName = data.bankUahBankName ?? null
     }
 
     // The user UPDATE + downstream SENIOR-only side effects (team composition
