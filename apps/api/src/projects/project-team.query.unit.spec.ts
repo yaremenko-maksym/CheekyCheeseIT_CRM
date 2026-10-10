@@ -46,7 +46,7 @@ function harness(opts: { membership: { teamId: string } | null; rows: unknown[] 
         }>
       }
     ).computeEffectiveTeam(project, role)
-  return { compute, findFirst, select }
+  return { compute, findFirst, select, service }
 }
 
 const row = (id: string, role: string) => ({
@@ -75,6 +75,15 @@ describe('computeEffectiveTeam — team_members query wiring', () => {
     expect(t.hrs).toEqual([])
     expect(t.accountants).toEqual([])
     expect(h.findFirst).toHaveBeenCalledTimes(1)
+    expect(h.select).not.toHaveBeenCalled()
+  })
+
+  it('loadSeniorTeamRows: no active membership -> exactly [] without selecting rows', async () => {
+    const h = harness({ membership: null, rows: [row('h1', 'HR')] })
+    const rows = await (
+      h.service as unknown as { loadSeniorTeamRows: (id: string) => Promise<unknown[]> }
+    ).loadSeniorTeamRows('sen1')
+    expect(rows).toEqual([])
     expect(h.select).not.toHaveBeenCalled()
   })
 

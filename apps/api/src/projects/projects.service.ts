@@ -601,7 +601,6 @@ export class ProjectsService {
     const seniorMembership = await this.db.db.query.teamMembers.findFirst({
       where: and(eq(teamMembers.userId, seniorId), isNull(teamMembers.leftAt)),
     })
-    // Stryker disable next-line ArrayDeclaration: equivalent mutant — a stray element is never a row with role 'HR'/'ACCOUNTANT', so buildEffectiveTeam's role filters discard it and hrs/accountants stay empty either way.
     if (!seniorMembership) return []
     const teamId = seniorMembership.teamId
     return this.db.db
