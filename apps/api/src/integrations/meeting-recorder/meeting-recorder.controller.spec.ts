@@ -1,4 +1,4 @@
-import { HttpException } from '@nestjs/common'
+import { HttpException, HttpStatus } from '@nestjs/common'
 import type { FastifyRequest } from 'fastify'
 import { MEETING_RECORDER_TEST_EVENT_TYPE, type SessionUser } from '@crm/shared'
 import { describe, expect, it, vi } from 'vitest'
@@ -7,6 +7,7 @@ import {
   MeetingRecorderAdminController,
   MeetingRecorderWebhookController,
 } from './meeting-recorder.controller'
+import { meetingRecorderWebhookError } from './meeting-recorder-errors'
 import type { MeetingRecorderService } from './meeting-recorder.service'
 import type { MeetingRecorderWebhookVerifier } from './meeting-recorder-webhook-verifier'
 
@@ -183,6 +184,72 @@ describe('MeetingRecorderWebhookController', () => {
       SECRET,
     )
     expect(service.ingestWebhookEvent).toHaveBeenCalledWith(CONNECTION_ID, event, 'v1:encrypted')
+  })
+
+  it('normalizes unexpected ingestion failures before telemetry can see private recorder content', async () => {
+    const { controller, service } = mocks()
+    const canaries = [
+      'PRIVATE_TRANSCRIPT_CANARY',
+      'PRIVATE_NOTE_CANARY',
+      'urn:private:source:canary',
+      'recording-private-canary',
+      'v1,private-signature-canary',
+      'private-secret-canary',
+    ]
+    service.ingestWebhookEvent.mockRejectedValue(
+      new Error(`driver failed sql=params ${canaries.join(' ')}`),
+    )
+
+    const error = await controller
+      .receiveWebhook(CONNECTION_ID, JSON.stringify(event), request())
+      .then(
+        () => null,
+        (reason: unknown) => reason,
+      )
+
+    expect(error).toBeInstanceOf(HttpException)
+    expect((error as HttpException).getStatus()).toBe(HttpStatus.SERVICE_UNAVAILABLE)
+    const serialized = JSON.stringify({
+      message: (error as Error).message,
+      stack: (error as Error).stack,
+      response: (error as HttpException).getResponse(),
+    })
+    for (const canary of canaries) expect(serialized).not.toContain(canary)
+    expect(serialized).toContain('meeting-recorder-webhook-ingest')
+    expect(serialized).toContain(CONNECTION_ID)
+  })
+
+  it('preserves the allow-listed expected webhook 4xx error shape from ingestion', async () => {
+    const { controller, service } = mocks()
+    const expected = meetingRecorderWebhookError(
+      'MEETING_RECORDER_CONNECTION_DISABLED',
+      HttpStatus.GONE,
+    )
+    service.ingestWebhookEvent.mockRejectedValue(expected)
+
+    await expectWebhookError(
+      controller.receiveWebhook(CONNECTION_ID, JSON.stringify(event), request()),
+      HttpStatus.GONE,
+      'MEETING_RECORDER_CONNECTION_DISABLED',
+    )
+  })
+
+  it('normalizes unexpected webhook 5xx HttpExceptions instead of forwarding their message/cause', async () => {
+    const { controller, service } = mocks()
+    service.ingestWebhookEvent.mockRejectedValue(
+      new HttpException('PRIVATE_TRANSCRIPT_CANARY', HttpStatus.INTERNAL_SERVER_ERROR),
+    )
+
+    const error = await controller
+      .receiveWebhook(CONNECTION_ID, JSON.stringify(event), request())
+      .then(
+        () => null,
+        (reason: unknown) => reason,
+      )
+
+    expect(error).toBeInstanceOf(HttpException)
+    expect((error as HttpException).getStatus()).toBe(HttpStatus.SERVICE_UNAVAILABLE)
+    expect(JSON.stringify(error)).not.toContain('PRIVATE_TRANSCRIPT_CANARY')
   })
 })
 

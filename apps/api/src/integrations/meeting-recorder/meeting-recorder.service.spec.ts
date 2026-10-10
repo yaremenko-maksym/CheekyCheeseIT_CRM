@@ -190,7 +190,7 @@ describe('MeetingRecorderService webhook idempotency', () => {
     expect((error as HttpException).getResponse()).toEqual({
       code: 'MEETING_RECORDER_WEBHOOK_UNAUTHORIZED',
     })
-    expect(ctx.connectionForUpdate).toHaveBeenCalledWith('update')
+    expect(ctx.connectionForUpdate).toHaveBeenCalledWith('no key update')
   })
 
   it('accepts a claimed test event when the locked connection still has the authenticated secret', async () => {
@@ -213,7 +213,7 @@ describe('MeetingRecorderService webhook idempotency', () => {
       service.ingestWebhookEvent(CONNECTION_ID, testEvent, 'v1:authenticated-secret-token'),
     ).resolves.toBeUndefined()
 
-    expect(ctx.connectionForUpdate).toHaveBeenCalledWith('update')
+    expect(ctx.connectionForUpdate).toHaveBeenCalledWith('no key update')
     expect(ctx.updateSet).toHaveBeenCalledOnce()
     expect(ctx.updateSet).toHaveBeenCalledWith(
       expect.objectContaining({ lastVerifiedAt: expect.any(Date), updatedAt: expect.any(Date) }),
@@ -392,7 +392,100 @@ describe('MeetingRecorderService webhook idempotency', () => {
     expect((error as HttpException).getResponse()).toEqual({
       code: 'MEETING_RECORDER_WEBHOOK_UNAUTHORIZED',
     })
-    expect(forUpdate).toHaveBeenCalledWith('update')
+    expect(forUpdate).toHaveBeenCalledWith('no key update')
+  })
+})
+
+describe('MeetingRecorderService manual linking lock order', () => {
+  it('locks the target interview with NO KEY UPDATE before locking the recording', async () => {
+    const targetInterviewId = '22222222-2222-4222-8222-222222222222'
+    const recordingId = '33333333-3333-4333-8333-333333333333'
+    const actor = {
+      id: '44444444-4444-4444-8444-444444444444',
+      role: 'ADMIN',
+    } as never
+    const lockOrder: string[] = []
+    const lockModes: Array<[string, string]> = []
+    const target = { id: targetInterviewId, seniorId: 'senior-1', stage: 'TECH_INTERVIEW' }
+    const recording = {
+      id: recordingId,
+      interviewId: null,
+      connectionId: CONNECTION_ID,
+      externalRecordingId: 'recording-external-1',
+      revision: 1,
+      source: testEvent.source,
+      title: 'Recording',
+      startedAt: new Date('2026-10-07T18:00:00.000Z'),
+      endedAt: null,
+      durationMs: null,
+      provider: null,
+      meetingId: null,
+      meetingUrl: null,
+      stageAtLink: null,
+      matchedBy: 'unmatched',
+      autoMatchSuppressed: false,
+      readiness: { complete: true, release: 'complete', pending: [] },
+      snapshot: {
+        id: 'recording-external-1',
+        title: 'Recording',
+        startedAt: '2026-10-07T18:00:00.000Z',
+        source: {
+          kind: 'meeting',
+          provider: 'google-meet',
+          meetingId: 'abc-defg-hij',
+          meetingUrl: 'https://meet.google.com/abc-defg-hij',
+        },
+      },
+      linkedByUserId: null,
+      linkedAt: null,
+      lastEventAt: new Date('2026-10-07T19:00:00.000Z'),
+      createdAt: new Date('2026-10-07T19:00:00.000Z'),
+      updatedAt: new Date('2026-10-07T19:00:00.000Z'),
+    }
+
+    const tx = {
+      select: vi.fn(() => ({
+        from: (table: unknown) => ({
+          where: () => ({
+            for: (mode: string) => {
+              const kind = table === interviewRecordings ? 'recording' : 'interview'
+              lockOrder.push(kind)
+              lockModes.push([kind, mode])
+              return {
+                limit: async () => (kind === 'recording' ? [recording] : [target]),
+              }
+            },
+          }),
+        }),
+      })),
+      update: vi.fn(() => ({
+        set: (patch: Record<string, unknown>) => ({
+          where: () => ({ returning: async () => [{ ...recording, ...patch }] }),
+        }),
+      })),
+      insert: vi.fn(() => ({ values: vi.fn().mockResolvedValue(undefined) })),
+    }
+    const db = {
+      db: { transaction: (cb: (value: typeof tx) => Promise<unknown>) => cb(tx) },
+    } as unknown as DatabaseService
+    const access = {
+      assertUpdateAccess: vi.fn().mockResolvedValue(undefined),
+    } as unknown as InterviewAccessPolicyService
+    const service = new MeetingRecorderService(
+      db,
+      {} as MeetingRecorderSecretCryptoService,
+      {} as MeetingRecorderMatcher,
+      access,
+    )
+
+    await service.linkRecording(recordingId, { interviewId: targetInterviewId }, actor)
+
+    expect(lockOrder).toEqual(['interview', 'recording'])
+    expect(lockModes).toEqual([
+      ['interview', 'no key update'],
+      ['recording', 'update'],
+    ])
+    expect(access.assertUpdateAccess).toHaveBeenCalledWith(target, actor)
   })
 })
 

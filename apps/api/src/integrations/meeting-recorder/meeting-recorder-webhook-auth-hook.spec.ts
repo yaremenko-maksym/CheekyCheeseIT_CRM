@@ -31,6 +31,8 @@ function captureHook(): OnRequestHook {
 
 function requestFor(options?: {
   url?: string
+  routeUrl?: string
+  connectionId?: string
   timestamp?: string
   rawHeaders?: string[]
   headers?: Record<string, string | string[] | undefined>
@@ -57,6 +59,10 @@ function requestFor(options?: {
       rawHeaders,
     },
     headers,
+    params: { connectionId: options?.connectionId ?? CONNECTION_ID },
+    routeOptions: {
+      url: options?.routeUrl ?? '/api/integrations/meeting-recorder/:connectionId/webhook',
+    },
   } as unknown as FastifyRequest
 }
 
@@ -105,7 +111,7 @@ describe('meeting recorder webhook auth hook', () => {
 
   it('ignores non-webhook routes without inspecting authentication headers', () => {
     const hook = captureHook()
-    const result = invoke(hook, requestFor({ url: '/api/interviews' }))
+    const result = invoke(hook, requestFor({ url: '/api/interviews', routeUrl: '/api/interviews' }))
 
     expect(result.done).toHaveBeenCalledOnce()
     expect(result.status).not.toHaveBeenCalled()
@@ -120,6 +126,7 @@ describe('meeting recorder webhook auth hook', () => {
       hook,
       requestFor({
         url,
+        routeUrl: '/api/interviews',
         headers: { 'webhook-id': undefined },
         rawHeaders: ['webhook-timestamp', String(NOW_SECONDS), 'webhook-signature', 'v1,signature'],
       }),
@@ -145,6 +152,22 @@ describe('meeting recorder webhook auth hook', () => {
     expect(withoutQuery.status).not.toHaveBeenCalled()
     expect(withQuery.done).toHaveBeenCalledOnce()
     expect(withQuery.status).not.toHaveBeenCalled()
+  })
+
+  it('authenticates an encoded static-path alias using the matched Fastify route metadata', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(NOW_MS)
+    const hook = captureHook()
+    const result = invoke(
+      hook,
+      requestFor({
+        url: `/api/integrations/meeting-recorder/${CONNECTION_ID}/%77ebhook`,
+        headers: { 'webhook-id': undefined },
+        rawHeaders: ['webhook-timestamp', String(NOW_SECONDS), 'webhook-signature', 'v1,signature'],
+      }),
+    )
+
+    expect(result.done).not.toHaveBeenCalled()
+    expect(result.status).toHaveBeenCalledWith(401)
   })
 
   it.each([
@@ -173,6 +196,7 @@ describe('meeting recorder webhook auth hook', () => {
       hook,
       requestFor({
         url: '/api/integrations/meeting-recorder/not-a-uuid/webhook',
+        connectionId: 'not-a-uuid',
       }),
     )
 

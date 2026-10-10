@@ -3,7 +3,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
 
 export const MEETING_RECORDER_WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS = 5 * 60
 
-const WEBHOOK_PATH = /^\/api\/integrations\/meeting-recorder\/([^/?]+)\/webhook(?:\?.*)?$/
+const WEBHOOK_ROUTE = '/api/integrations/meeting-recorder/:connectionId/webhook'
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 type RequiredWebhookHeader = 'webhook-id' | 'webhook-timestamp' | 'webhook-signature'
 
@@ -34,15 +34,14 @@ export function registerMeetingRecorderWebhookOnRequestHook(app: NestFastifyAppl
   const fastify = app.getHttpAdapter().getInstance()
 
   fastify.addHook('onRequest', (request, reply, done) => {
-    // Stryker disable next-line StringLiteral: when Node supplies no URL, any non-matching fallback is equivalent because the webhook regex is fully anchored
-    const match = WEBHOOK_PATH.exec(request.raw.url ?? '')
-    if (!match) {
+    if (request.routeOptions.url !== WEBHOOK_ROUTE) {
       done()
       return
     }
 
-    const connectionId = match[1]
-    if (!connectionId || !isMeetingRecorderConnectionId(connectionId)) {
+    const params = request.params as { connectionId?: unknown }
+    const connectionId = params.connectionId
+    if (typeof connectionId !== 'string' || !isMeetingRecorderConnectionId(connectionId)) {
       rejectUnauthorized(reply)
       return
     }
