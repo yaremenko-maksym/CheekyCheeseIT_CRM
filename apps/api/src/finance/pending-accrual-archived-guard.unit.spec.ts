@@ -56,9 +56,16 @@ import { describe, expect, it, vi } from 'vitest'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 
 const SRC_FILE = path.resolve(import.meta.dirname, 'transactions.service.ts')
-// Manual SALARY entry (`createSalary`) lives in the entry collaborator; the
-// accrual scan covers every file that can mint a PENDING transactions row.
-const SCANNED_FILES = [SRC_FILE, path.resolve(import.meta.dirname, 'transaction-entry.service.ts')]
+// Manual SALARY entry (`createSalary`) lives in the entry collaborator and the
+// monthly salary accrual (`createMonthlySalaries`) in the salary-payment
+// collaborator; the accrual scan covers every file that can mint a PENDING
+// transactions row.
+const SALARY_PAYMENT_FILE = path.resolve(import.meta.dirname, 'salary-payment.service.ts')
+const SCANNED_FILES = [
+  SRC_FILE,
+  path.resolve(import.meta.dirname, 'transaction-entry.service.ts'),
+  SALARY_PAYMENT_FILE,
+]
 
 // backlog 73/A-3 (mutation-gate round 2): compiles a Drizzle `where` SQL
 // object (e.g. `and(eq(transactions.type, 'SENIOR_INCOME'), eq(...)))`) down
@@ -224,7 +231,7 @@ describe('transactions.service.ts — every PENDING-accrual site is accounted fo
     const sites = scanPendingAccrualSites()
     expect(sites.filter((s) => s.method === 'createMonthlySalaries')).toHaveLength(1)
 
-    const source = readFileSync(SRC_FILE, 'utf8')
+    const source = readFileSync(SALARY_PAYMENT_FILE, 'utf8')
     // Keep this structural assertion tolerant of Stryker instrumentation.
     // Mutation testing can wrap the object argument between `(` and `{`, but
     // the two call sites themselves must remain present.

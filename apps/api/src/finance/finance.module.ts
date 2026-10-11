@@ -19,6 +19,7 @@ import { PayoutRequestService } from './payout-request.service'
 import { PayoutSettlementService } from './payout-settlement.service'
 import { AdminIncomeService } from './admin-income.service'
 import { TransactionEntryService } from './transaction-entry.service'
+import { SalaryPaymentService } from './salary-payment.service'
 import { PendingSettlementController } from './pending-settlement.controller'
 import { PendingSettlementService } from './pending-settlement.service'
 import { SalaryCronService } from './salary-cron.service'
@@ -79,6 +80,7 @@ import { TransactionTrashService } from './transaction-trash.service'
     PayoutSettlementService,
     AdminIncomeService,
     TransactionEntryService,
+    SalaryPaymentService,
     NbuCurrencyService,
     // Phase 4-A: balance pipeline runs alongside the legacy getSummary.
     BalanceService,
