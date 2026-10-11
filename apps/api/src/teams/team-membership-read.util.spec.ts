@@ -2,6 +2,7 @@ import { HttpException } from '@nestjs/common'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import type { SQL } from 'drizzle-orm'
 import { describe, expect, it, vi } from 'vitest'
+import { teamAuditLog } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
 import {
   assertUserRole,
@@ -71,8 +72,9 @@ describe('wasFormerMemberOfTeam', () => {
   })
 
   it('requires team_member_removed + role.before = SENIOR for this team and user, limit 1', async () => {
-    const { db, where, limit } = auditDb([])
+    const { db, select, where, limit } = auditDb([])
     await wasFormerMemberOfTeam(db, 'team-X', 'user-Y')
+    expect(select).toHaveBeenCalledWith({ id: teamAuditLog.id })
     const q = render(where.mock.calls[0]![0] as SQL)
     expect(q.sql).toBe(
       `("team_audit_log"."target_id" = $1 and "team_audit_log"."action" = $2 and "team_audit_log"."changes" -> 'userId' ->> 'before' = $3 and "team_audit_log"."changes" -> 'role' ->> 'before' = 'SENIOR')`,
