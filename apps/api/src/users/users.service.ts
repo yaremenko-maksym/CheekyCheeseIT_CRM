@@ -32,7 +32,7 @@ import {
 } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
 import { uniqueViolationConstraint } from '../database/pg-errors'
-import { writeUserEmailOrConflict } from './user-emails.util'
+import { assertEmailAvailable, writeUserEmailOrConflict } from './user-emails.util'
 import { resolveArchivedFilter, withActiveProjectFlag } from './users-list.util'
 import { buildCreateUserInsertValues, buildDropInsertValues } from './user-insert.util'
 import { buildAdminUserUpdateSet } from './user-update.util'
@@ -535,58 +535,13 @@ export class UsersService {
     })
   }
 
-  /**
-   * §4.4 structural guarantee, application-side half. The DB unique index
-   * on `user_emails.email` (schema.ts) is what actually makes "one address,
-   * two accounts" impossible — this is only the friendly half: turns the
-   * would-be raw 23505 constraint violation into a clean 409 that names the
-   * problem, checked BEFORE the row that would collide is even inserted.
-   * `excludeUserId` lets an update re-save a user's own unchanged address
-   * without tripping over itself — it does NOT excuse a collision with a
-   * DIFFERENT row belonging to the same user (own WORK vs own PERSONAL);
-   * that one is real and still throws (see `isOwnRow` below), just later —
-   * `writeUserEmailOrConflict` catches it at the DB write (SR-M-2).
-   *
-   * security-review PR #623 (SR-H-1): compares case-folded, matching the
-   * unique index in schema.ts (`idx_user_emails_email_lower`) — mail is
-   * case-insensitive, `varchar` equality is not, and a mismatch here is a
-   * direct one-address-two-accounts hole (see schema.ts's migration file
-   * header for the proof-by-experiment that found it).
-   *
-   * COPY-H-5 (security-review PR #623 round 5): Russian message — this used
-   * to read `'User with this email already exists'`, which the admin sees
-   * verbatim as a toast (`getUserFacingErrorMessage` forwards backend
-   * exception messages unchanged) in an otherwise all-Russian interface.
-   * `changePersonalEmail` is the first caller where this is a routine,
-   * expected 409 (a collision is the everyday failure mode of "type an
-   * address, see if it's taken"), not a rare edge case — see that method's
-   * own doc. Deliberately does not name WHICH row (own WORK vs a stranger's)
-   * collided or which kind it was — the admin does not need that.
-   *
-   * COPY-H-6 (security-review PR #623 closing round): the previous version
-   * of this paragraph claimed `writeUserEmailOrConflict`'s catch-branch
-   * message (below) was "identical Russian text" to this one — it was not:
-   * that message was STILL the raw English string this fix replaced here.
-   * The two messages are deliberately DIFFERENT wording, not a copy-paste
-   * omission: "занят другим пользователем" is only true for THIS function's
-   * collision (a stranger's row) — `writeUserEmailOrConflict`'s catch fires
-   * on the SAME-user, different-`kind` collision this function's own
-   * `isOwnRow` branch above lets through (own WORK address set equal to
-   * own PERSONAL address) — see its own doc for the reachable path. Naming
-   * a caller as "другой пользователь" there would be factually wrong.
-   */
+  /** Thin delegate kept for specs that reach the guard through the service instance; see `assertEmailAvailable` in `user-emails.util`. */
   private async assertEmailAvailable(
     db: DatabaseService['db'] | DrizzleTx,
     email: string,
     excludeUserId?: string,
   ): Promise<void> {
-    const existing = await db.query.userEmails.findFirst({
-      where: eq(lowerEmail(userEmails.email), email.toLowerCase()),
-    })
-    if (!existing) return
-    const isOwnRow = existing.userId === excludeUserId
-    if (isOwnRow) return
-    throw apiError('EMAIL_TAKEN_BY_ANOTHER_USER', HttpStatus.CONFLICT)
+    return assertEmailAvailable(db, email, excludeUserId)
   }
 
   /**
@@ -627,7 +582,7 @@ export class UsersService {
    *     `explainUserMutationError` still swallows the message.
    *   - `changePersonalEmail`: reaches this catch on a race between two
    *     concurrent writes to the SAME new address (its own
-   *     `assertEmailAvailable(this.db.db, newEmail, userId)` call is a
+   *     `this.assertEmailAvailable(this.db.db, newEmail, userId)` call is a
    *     non-atomic pre-check, same TOCTOU gap). That mutation's `onError`
    *     (`useChangePersonalEmail`, `use-user-profile.ts`) shows `e.message`
    *     with no 409-specific override — THIS is the path where the
@@ -834,9 +789,9 @@ export class UsersService {
     // §4.4: `users.email` uniqueness alone cannot see a PERSONAL row on
     // another user — check the whole `user_emails` table too, for both the
     // work address AND the optional personal one, BEFORE creating anything.
-    await this.assertEmailAvailable(this.db.db, data.email)
+    await assertEmailAvailable(this.db.db, data.email)
     if (data.personalEmail) {
-      await this.assertEmailAvailable(this.db.db, data.personalEmail)
+      await assertEmailAvailable(this.db.db, data.personalEmail)
     }
 
     // Build insert payload — only include payment columns when relevant so we
@@ -1053,7 +1008,7 @@ export class UsersService {
       }
       // §4.4 — see createUser's identical check: users.email alone cannot
       // see a collision with someone else's PERSONAL row.
-      await this.assertEmailAvailable(this.db.db, data.email, id)
+      await assertEmailAvailable(this.db.db, data.email, id)
     }
 
     // Pure set-builder (see user-update.util.ts). Never throws, so moving the
@@ -2720,7 +2675,7 @@ export class UsersService {
       // make the no-op check itself case-insensitive (a re-cased resubmit
       // still goes through delete+reissue, not a true no-op) — it only
       // stops that path from being reported as a conflict with a stranger.
-      await this.assertEmailAvailable(this.db.db, newEmail, userId)
+      await assertEmailAvailable(this.db.db, newEmail, userId)
     }
 
     let personalInviteToken: string | undefined
@@ -2999,7 +2954,7 @@ export class UsersService {
     const existing = await this.findByEmail(data.email)
     if (existing) throw apiError('USER_EMAIL_EXISTS', HttpStatus.CONFLICT)
     // §4.4 — see createUser's identical check for the full rationale.
-    await this.assertEmailAvailable(this.db.db, data.email)
+    await assertEmailAvailable(this.db.db, data.email)
 
     return this.db.db.transaction(async (tx) => {
       const insertValues = buildDropInsertValues(data)
