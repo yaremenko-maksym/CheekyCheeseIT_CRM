@@ -56,6 +56,9 @@ export class SeniorShareChangeService {
    * не существовало); позиция 6 его заполняет, подавление снято. Подпись
    * получила `tx` и стала асинхронной — запись пишется в той же транзакции,
    * что и предложение. Спека-хендофф `users.pending-share.spec.ts` обновлена.
+   *
+   * No RBAC of its own: assumes the caller has already authorized the action. Any external caller
+   * must gate through the public method, not call this directly.
    */
   async notifyPendingSeniorShareProposed(
     tx: DrizzleTx,
@@ -113,6 +116,9 @@ export class SeniorShareChangeService {
    * already correct — caught by hand while visually verifying this task
    * against a scratch DB (`adminUpdateUser`'s response showed `null` right
    * after a propose that the DB itself had recorded correctly).
+   *
+   * No RBAC of its own: assumes the caller has already authorized the action. Any external caller
+   * must gate through the public method, not call this directly.
    */
   async proposeSeniorShareChangeInTx(
     tx: DrizzleTx,
@@ -167,6 +173,10 @@ export class SeniorShareChangeService {
    * Kept as a transaction-scoped core + public endpoint pair so the lock
    * order below is stated in one place; the public method adds the RBAC gate
    * and the profile-view reload.
+   *
+   * No ADMIN gate of its own: the ADMIN check lives in the public `cancelSeniorShareChange`
+   * wrapper. It assumes the caller has already authorized; any external caller must gate via
+   * the public method.
    */
   async cancelSeniorShareChangeCore(tx: DrizzleTx, userId: string): Promise<void> {
     // task-648-fix-round-2 (SR-M-6): `users` BEFORE `approvals`, the same
