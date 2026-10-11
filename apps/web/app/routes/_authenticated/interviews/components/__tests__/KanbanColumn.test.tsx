@@ -16,6 +16,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+import type { InterviewDto } from '@crm/shared'
 import { KanbanColumn } from '../KanbanColumn'
 
 const RAW_STAGE =
@@ -45,4 +46,56 @@ describe('KanbanColumn — stage label from the catalog (COPY-H-proj-1)', () => 
       expect(container.textContent ?? '').not.toMatch(RAW_STAGE)
     },
   )
+})
+
+describe('KanbanColumn — vacancy/call URL scheme allow-list (SR-M-1)', () => {
+  const card = (vacancyUrl: string, callUrl: string): InterviewDto =>
+    ({
+      id: '11111111-1111-4111-8111-111111111111',
+      seniorId: '22222222-2222-4222-8222-222222222222',
+      seniorName: 'Sen Ior',
+      hrId: null,
+      hrName: null,
+      companyName: 'Acme',
+      vacancyUrl,
+      callUrl,
+      stage: 'HR_SCREEN',
+      position: 0,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    }) as unknown as InterviewDto
+
+  it('renders no link for javascript:/data: URLs', async () => {
+    await loadCatalog('uk')
+    render(
+      <KanbanColumn
+        stage="HR_SCREEN"
+        interviews={[card('javascript:alert(1)', 'data:text/html,x')]}
+        onCardClick={() => {}}
+      />,
+      { wrapper: I18nTestProvider },
+    )
+    expect(screen.queryByRole('link', { name: 'Відкрити вакансію' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Приєднатися до дзвінка' })).toBeNull()
+  })
+
+  it('renders links for http(s) URLs', async () => {
+    await loadCatalog('uk')
+    render(
+      <KanbanColumn
+        stage="HR_SCREEN"
+        interviews={[card('https://jobs.example/1', 'http://meet.example/2')]}
+        onCardClick={() => {}}
+      />,
+      { wrapper: I18nTestProvider },
+    )
+    expect(screen.getByRole('link', { name: 'Відкрити вакансію' })).toHaveAttribute(
+      'href',
+      'https://jobs.example/1',
+    )
+    expect(screen.getByRole('link', { name: 'Приєднатися до дзвінка' })).toHaveAttribute(
+      'href',
+      'http://meet.example/2',
+    )
+  })
 })
