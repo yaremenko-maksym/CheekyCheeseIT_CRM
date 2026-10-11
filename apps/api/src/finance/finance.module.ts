@@ -14,6 +14,7 @@ import { DropSelfService } from './drop-self.service'
 import { OnChainClaimService } from './onchain-claim.service'
 import { EtherscanService } from './etherscan.service'
 import { NbuCurrencyService } from './nbu-currency.service'
+import { PayoutRequestReadService } from './payout-request-read.service'
 import { PendingSettlementController } from './pending-settlement.controller'
 import { PendingSettlementService } from './pending-settlement.service'
 import { SalaryCronService } from './salary-cron.service'
@@ -68,6 +69,8 @@ import { TransactionTrashService } from './transaction-trash.service'
     // Self-only DROP read path: summary, incomes and payments feeds (db + NBU rates only).
     DropSelfService,
     OnChainClaimService,
+    // Payout-request read path: role-scoped list + masked detail (db only).
+    PayoutRequestReadService,
     NbuCurrencyService,
     // Phase 4-A: balance pipeline runs alongside the legacy getSummary.
     BalanceService,
