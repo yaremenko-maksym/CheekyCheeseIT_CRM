@@ -24,6 +24,7 @@ import {
 } from './transactions.controller'
 import { TransactionLifecycleService } from './transaction-lifecycle.service'
 import { TransactionsService } from './transactions.service'
+import { TransactionTrashService } from './transaction-trash.service'
 
 @Module({
   imports: [
@@ -57,6 +58,8 @@ import { TransactionsService } from './transactions.service'
     // Post-write lifecycle collaborator: notifications, creation audit, auto-invoice
     // (NotificationsService + InvoicesService + db; never depends on TransactionsService).
     TransactionLifecycleService,
+    // Soft-delete / restore / audit-log read collaborator (db only).
+    TransactionTrashService,
     NbuCurrencyService,
     // Phase 4-A: balance pipeline runs alongside the legacy getSummary.
     BalanceService,
