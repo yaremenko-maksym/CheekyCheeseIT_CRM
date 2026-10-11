@@ -226,16 +226,14 @@ export class SalaryPaymentService {
     // unit of the original one). Derived, never client-supplied — see the column
     // comment in schema.ts. NULL when the obligation amount is unusable as a
     // divisor (should not happen: amounts are positive by schema).
-    const rawExchangeRate =
-      Number.isFinite(obligationAmount) &&
-      // `> 0` -> `>= 0` only changes the `obligationAmount === 0` case (negative and NaN
-      // are unaffected): it computes `paidAmount / 0` = Infinity (or `0 / 0` = NaN) instead
-      // of skipping to `null`, and `isStorableExchangeRate` below rejects both through its
-      // own `Number.isFinite` check, so `exchangeRate` is the identical `null` either way.
-      // Stryker disable next-line EqualityOperator: equivalent mutant, see the comment above
-      obligationAmount > 0
+    //
+    // `Math.sign(x) === 1` is `x > 0` (false for 0, negatives and NaN). An unusable
+    // obligation yields NaN, which `isStorableExchangeRate` below rejects through its own
+    // `Number.isFinite` check, so the stored rate is NULL in that case.
+    const rawExchangeRate: number =
+      Number.isFinite(obligationAmount) && Math.sign(obligationAmount) === 1
         ? paidAmount / obligationAmount
-        : null
+        : Number.NaN
     // security-review PR #485 (related to MED-1) — an unrepresentable ratio is
     // recorded as NULL, never as a wrong number, and never as a refusal.
     //
@@ -256,17 +254,7 @@ export class SalaryPaymentService {
     // when the ratio cannot be recorded faithfully, the honest value is NULL
     // («not recorded»), and the write never reaches the column with a number
     // that would overflow it.
-    const exchangeRate =
-      // `!== null` is a TS narrowing guard for the `.toFixed` below; at runtime it is
-      // behaviorally redundant because `isStorableExchangeRate(null)` already returns false
-      // via its own `Number.isFinite` check, so forcing the guard true cannot change the
-      // outcome.
-      // Stryker disable next-line ConditionalExpression: equivalent mutant, see the comment above
-      rawExchangeRate !== null &&
-      // The storability check is a separate line so a mutant here is not covered by the directive above.
-      isStorableExchangeRate(rawExchangeRate)
-        ? rawExchangeRate.toFixed(8)
-        : null
+    const exchangeRate = isStorableExchangeRate(rawExchangeRate) ? rawExchangeRate.toFixed(8) : null
 
     // task-salary-pay-flow: stamp txDate = the actual payment business date.
     // When legacy callers omit it, resolveTransactionDate preserves the old "now"
