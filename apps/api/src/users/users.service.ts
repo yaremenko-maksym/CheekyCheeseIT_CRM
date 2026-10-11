@@ -33,6 +33,7 @@ import {
 import type { DrizzleTx } from '../database/types'
 import { uniqueViolationConstraint } from '../database/pg-errors'
 import { assertEmailAvailable, writeUserEmailOrConflict } from './user-emails.util'
+import { loadUserById } from './user-read.util'
 import { resolveArchivedFilter, withActiveProjectFlag } from './users-list.util'
 import { buildCreateUserInsertValues, buildDropInsertValues } from './user-insert.util'
 import { buildAdminUserUpdateSet } from './user-update.util'
@@ -642,11 +643,7 @@ export class UsersService {
   }
 
   findById(id: string): Promise<User | undefined> {
-    return this.db.db
-      .select()
-      .from(users)
-      .where(eq(users.id, id))
-      .then((rows) => rows[0])
+    return loadUserById(this.db.db, id)
   }
 
   async findAll(filter: { archived?: boolean | 'all' } = {}): Promise<UserWithAvailability[]> {
