@@ -481,10 +481,10 @@ describe('archived-entitlement — the inventory of everything that writes `user
     'users/users.service.ts::updateRequisites': 'payment requisites only — settlement path',
     // Write columns that decide nothing about what anyone is owed.
     'users/users.service.ts::setAdminNote': 'admin_note only',
-    'users/users.service.ts::archive': 'archived_at only',
-    'users/users.service.ts::unarchivePairTx': 'archived_at only',
+    'users/user-archive.service.ts::archive': 'archived_at only',
+    'users/user-archive.service.ts::unarchivePairTx': 'archived_at only',
     'users/users.service.ts::updateGoogleId': 'google_id only',
-    'users/users.service.ts::archiveDrop': 'archived_at only',
+    'users/user-archive.service.ts::archiveDrop': 'archived_at only',
     'teams/teams.service.ts::archiveDropTeam': 'archived_at only, paired drop-team archive',
     // task-pending-share (position 5). `pending_senior_share_percent` is NOT
     // an entitlement column (not in ENTITLEMENT_FIELD_KIND — it decides
