@@ -6,6 +6,7 @@ import type { SessionUser } from '@crm/shared'
 
 import { DatabaseService } from '../database/database.service'
 import { TransactionsService } from './transactions.service'
+import { ProjectFinanceSettingsService } from './project-finance-settings.service'
 import { ProjectsService } from '../projects/projects.service'
 import { TeamAuditLogService } from '../teams/team-audit-log.service'
 import { ProjectAuditLogService } from '../projects/project-audit-log.service'
@@ -97,7 +98,10 @@ describe.skipIf(!hasDatabaseUrl())(
         projectAuditLogService: projectAuditSvc,
       })
       txSvc = Object.create(TransactionsService.prototype) as TransactionsService
-      Object.assign(txSvc, { db: dbSvc })
+      Object.assign(txSvc, {
+        db: dbSvc,
+        projectFinanceSettings: new ProjectFinanceSettingsService(dbSvc),
+      })
 
       // Seed users + team + project
       await db
