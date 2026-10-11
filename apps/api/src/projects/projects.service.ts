@@ -4,6 +4,7 @@ import {
   HttpStatus,
   Inject,
   Injectable,
+  Optional,
   forwardRef,
 } from '@nestjs/common'
 import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm'
@@ -38,6 +39,7 @@ import {
   type Project,
   type User,
 } from '../database/schema'
+import { ProjectAccessService, PROJECT_APPROVAL_SUBJECT_TYPE } from './project-access.service'
 import { ProjectAuditLogService } from './project-audit-log.service'
 import { canSeePendingSeniorShare } from './project-visibility.util'
 import { mapProjectToDto, type ProjectWithRelations } from './project-map.util'
@@ -99,10 +101,18 @@ export class ProjectsService {
     // «вас добавили в проект», «ждёт решения: новый проект» и — через шов
     // `notifyPendingSeniorShareProposed` ниже — «ждёт решения: новая доля».
     private readonly notifications: NotificationsService,
-  ) {}
+    // Optional so the many positional `new ProjectsService(a..f)` spec
+    // factories keep working; Nest injects the provider, otherwise it is
+    // built from the same db/approvals the service already holds.
+    @Optional() access?: ProjectAccessService,
+  ) {
+    this.access = access ?? new ProjectAccessService(db, approvals)
+  }
+
+  private readonly access: ProjectAccessService
 
   /** task-project-draft-status. `subjectType` this module registers approvals under. */
-  private static readonly APPROVAL_SUBJECT_TYPE = 'PROJECT'
+  private static readonly APPROVAL_SUBJECT_TYPE = PROJECT_APPROVAL_SUBJECT_TYPE
 
   /**
    * task-pending-share (position 5). `subjectType` for a PROJECT-level
@@ -224,62 +234,6 @@ export class ProjectsService {
     return buildPendingSeniorShareDto(senior, pendingValue, teamOverridesBySeniorId)
   }
 
-  /**
-   * Enforces HR cross-team scoping on write paths.
-   *
-   * HR can only manage projects whose senior belongs to one of HR's own teams.
-   * ADMIN and ACCOUNTANT are unrestricted (no-op for them).
-   * This helper is the single enforcement point for this class of RBAC check
-   * (OWASP A01: Broken Access Control — cross-team IDOR).
-   *
-   * @param seniorId - the `seniorId` column of the target project (may be null for admin-owned)
-   * @param user     - the acting user (SessionUser from JWT)
-   */
-  private async assertHrCanManageProject(
-    seniorId: string | null,
-    user: SessionUser,
-  ): Promise<void> {
-    if (user.role !== 'HR') return
-
-    if (!seniorId) {
-      throw apiError('PROJECT_NOT_IN_YOUR_TEAMS', HttpStatus.FORBIDDEN)
-    }
-
-    const allowedSeniorIds = await this.getHrSeniorIds(user.id)
-    if (!allowedSeniorIds.includes(seniorId)) {
-      throw apiError('PROJECT_NOT_IN_YOUR_TEAMS', HttpStatus.FORBIDDEN)
-    }
-  }
-
-  /**
-   * Returns senior user IDs that this HR actively belongs to (via team_members).
-   * Both the HR membership and the senior membership must have leftAt IS NULL —
-   * an HR who has left the team must not retain access to those projects.
-   * (dedup: was previously inlined as hrCanAccessProject; leftAt fix per task-junior-ux-3-cleanup defer #1)
-   */
-  private async getHrSeniorIds(hrId: string): Promise<string[]> {
-    // Only active HR memberships
-    const hrTeams = await this.db.db
-      .select({ teamId: teamMembers.teamId })
-      .from(teamMembers)
-      .where(and(eq(teamMembers.userId, hrId), isNull(teamMembers.leftAt)))
-    if (!hrTeams.length) return []
-    const teamIds = hrTeams.map((r) => r.teamId)
-    // Only active senior memberships in those same teams
-    const seniors = await this.db.db
-      .select({ userId: teamMembers.userId })
-      .from(teamMembers)
-      .innerJoin(users, eq(users.id, teamMembers.userId))
-      .where(
-        and(
-          inArray(teamMembers.teamId, teamIds),
-          eq(users.role, 'SENIOR'),
-          isNull(teamMembers.leftAt),
-        ),
-      )
-    return seniors.map((r) => r.userId)
-  }
-
   async findAll(currentUser: SessionUser, filter: { archived?: boolean | 'all' } = {}) {
     // round 7 (ut-44): tri-state filter — `'all'` returns both active and
     // archived projects (used by the «Все» tab); boolean keeps legacy behavior.
@@ -346,7 +300,7 @@ export class ProjectsService {
       for (const p of [...ownerProjects, ...dropProjects]) merged.set(p.id, p)
       filtered = Array.from(merged.values())
     } else if (currentUser.role === 'HR') {
-      const seniorIds = await this.getHrSeniorIds(currentUser.id)
+      const seniorIds = await this.access.getHrSeniorIds(currentUser.id)
       filtered = filtered.filter((p) => p.seniorId !== null && seniorIds.includes(p.seniorId))
     } else if (currentUser.role === 'JUNIOR') {
       filtered = filtered.filter((p) =>
@@ -609,7 +563,7 @@ export class ProjectsService {
       throw apiError('USER_NOT_SENIOR_OR_ADMIN', HttpStatus.BAD_REQUEST)
 
     // HR cross-team scoping: HR may only create projects for seniors in their own teams.
-    await this.assertHrCanManageProject(data.seniorId, currentUser)
+    await this.access.assertHrCanManageProject(data.seniorId, currentUser)
 
     const override =
       data.seniorSharePercentOverride === undefined ? null : data.seniorSharePercentOverride
@@ -1335,7 +1289,7 @@ export class ProjectsService {
     // ACCOUNTANT doing a hasOnlyOverride patch is exempted (their patch is finance-scoped,
     // not team-scoped — the field-level RBAC check above already ran).
     if (!(role === 'ACCOUNTANT' && hasOnlyOverride)) {
-      await this.assertHrCanManageProject(project.seniorId, currentUser)
+      await this.access.assertHrCanManageProject(project.seniorId, currentUser)
     }
 
     // Drop role - phase 2: validate updated `dropId` (when present). Same
@@ -1750,7 +1704,7 @@ export class ProjectsService {
     if (!project) throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     // HR cross-team scoping: HR may only add members to projects in their own teams.
-    await this.assertHrCanManageProject(project.seniorId, currentUser)
+    await this.access.assertHrCanManageProject(project.seniorId, currentUser)
 
     const user = await this.db.db.query.users.findFirst({
       where: eq(users.id, userId),
@@ -1846,7 +1800,7 @@ export class ProjectsService {
     })) as ProjectWithRelations | undefined
     if (!projectForScope) throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
 
-    await this.assertHrCanManageProject(projectForScope.seniorId, currentUser)
+    await this.access.assertHrCanManageProject(projectForScope.seniorId, currentUser)
 
     const activeMember = await this.db.db.query.projectMembers.findFirst({
       where: and(
@@ -2129,43 +2083,9 @@ export class ProjectsService {
     }
   }
 
-  private async assertAccess(project: ProjectWithRelations, currentUser: SessionUser) {
-    // task-project-draft-status, item 4 ("узкий путь к черновику") + decision
-    // Д1: a DRAFT or REJECTED project exists, for access purposes, ONLY for
-    // ADMIN and the invited approvers (senior + drop, per the `approvals`
-    // rows this.approvals.propose created in the SAME transaction as the
-    // insert — see `create()`). Every other role — INCLUDING ACCOUNTANT,
-    // whose branch below grants unconditional access to an ACTIVE project —
-    // gets 404, not 403: a 403 would let a caller distinguish "not mine" from
-    // "doesn't exist" from "not yet confirmed" by probing a known id
-    // (existence-oracle, same reasoning `transaction-visibility.util.ts`'s
-    // `assertTransactionVisible` documents for the identical choice).
-    // MUST run BEFORE the ADMIN/ACCOUNTANT early-return below, since that
-    // return is unconditional and would otherwise leak drafts to ACCOUNTANT.
-    if (project.status !== 'ACTIVE') {
-      if (currentUser.role === 'ADMIN') return
-      const invited = await this.approvals.isApprover(
-        ProjectsService.APPROVAL_SUBJECT_TYPE,
-        project.id,
-        currentUser.id,
-      )
-      if (invited) return
-      throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
-    }
-    if (currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT') return
-    if (currentUser.role === 'SENIOR' && project.seniorId === currentUser.id) return
-    if (currentUser.role === 'HR') {
-      const seniorIds = await this.getHrSeniorIds(currentUser.id)
-      if (project.seniorId !== null && seniorIds.includes(project.seniorId)) return
-    }
-    if (
-      currentUser.role === 'JUNIOR' &&
-      project.members.some((m) => m.userId === currentUser.id && m.leftAt === null)
-    ) {
-      return
-    }
-    // Drop role - phase 1: DROP can see their own drop-projects.
-    if (currentUser.role === 'DROP' && project.dropId === currentUser.id) return
-    throw new ForbiddenException()
+  // Thin delegate kept (not inlined): unit specs stub the guard via
+  // `vi.spyOn(service, 'assertAccess')`.
+  private assertAccess(project: ProjectWithRelations, currentUser: SessionUser) {
+    return this.access.assertAccess(project, currentUser)
   }
 }

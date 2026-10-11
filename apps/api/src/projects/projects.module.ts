@@ -4,6 +4,7 @@ import { AuthModule } from '../auth/auth.module'
 import { DatabaseModule } from '../database/database.module'
 import { NotificationsModule } from '../notifications/notifications.module'
 import { UsersModule } from '../users/users.module'
+import { ProjectAccessService } from './project-access.service'
 import { ProjectAuditLogService } from './project-audit-log.service'
 import { ProjectsController } from './projects.controller'
 import { ProjectsService } from './projects.service'
@@ -20,7 +21,7 @@ import { ProjectsService } from './projects.service'
     forwardRef(() => UsersModule),
   ],
   controllers: [ProjectsController],
-  providers: [ProjectsService, ProjectAuditLogService],
+  providers: [ProjectsService, ProjectAuditLogService, ProjectAccessService],
   exports: [ProjectsService, ProjectAuditLogService],
 })
 export class ProjectsModule {}
