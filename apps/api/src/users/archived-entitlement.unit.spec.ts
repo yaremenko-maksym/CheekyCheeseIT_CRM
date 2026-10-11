@@ -475,7 +475,7 @@ describe('archived-entitlement — the inventory of everything that writes `user
    */
   const KNOWN_USERS_WRITERS: Record<string, string> = {
     // The choke point itself — the only writer that may move an entitlement column.
-    'users/users.service.ts::updateUserRow': 'the choke point',
+    'users/user-write.util.ts::updateUserRow': 'the choke point',
     // Bypass the choke point; proven above to write no entitlement column.
     'users/users.service.ts::updateProfile': 'contacts / display name only',
     'users/users.service.ts::updateRequisites': 'payment requisites only — settlement path',
@@ -519,6 +519,12 @@ describe('archived-entitlement — the inventory of everything that writes `user
   function collectUsersWriters(): Record<string, string> {
     const METHOD =
       /^ {2}(?:private |public |protected |readonly |static )*(?:async )?([A-Za-z_$][\w$]*)\s*(?:<[^>]*>)?\(/
+    // Top-level (column 0) functions: the choke point lives in a util, not a class.
+    const TOP_LEVEL_FN = /^(?:export )?(?:async )?function\s+([A-Za-z_$][\w$]*)\s*(?:<[^>]*>)?\(/
+    // Same, for `const name = (async )?(...) =>` / `= function` at column 0, so
+    // two arrow-style writers in one file do not collapse into one key.
+    const TOP_LEVEL_CONST_FN =
+      /^(?:export )?const\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*(?:async\s+)?(?:function\b|<[^>]*>\s*\(|\(|[A-Za-z_$][\w$]*\s*=>)/
     const out: Record<string, string> = {}
 
     const walk = (dir: string): string[] =>
@@ -532,6 +538,7 @@ describe('archived-entitlement — the inventory of everything that writes `user
       const rel = path.relative(SRC_ROOT, file).split(path.sep).join('/')
       let method: string | null = null
       let inBlockComment = false
+      let inTopLevelFn = false
 
       readFileSync(file, 'utf8')
         .split('\n')
@@ -547,8 +554,18 @@ describe('archived-entitlement — the inventory of everything that writes `user
           }
           if (trimmed.startsWith('//') || trimmed.startsWith('*')) return
 
-          const match = METHOD.exec(line)
-          if (match?.[1]) method = match[1]
+          // Inside a top-level function body, two-space statements such as
+          // `  if (...)` look like class members; only a column-0 `}` ends it.
+          const topLevel = TOP_LEVEL_FN.exec(line) ?? TOP_LEVEL_CONST_FN.exec(line)
+          if (topLevel?.[1]) {
+            method = topLevel[1]
+            inTopLevelFn = true
+          } else if (line === '}') {
+            inTopLevelFn = false
+          } else if (!inTopLevelFn) {
+            const match = METHOD.exec(line)
+            if (match?.[1]) method = match[1]
+          }
           if (/\.update\(\s*users\s*\)/.test(line)) {
             out[`${rel}::${method ?? '<top-level>'}`] = `${rel}:${index + 1}`
           }
@@ -571,8 +588,8 @@ describe('archived-entitlement — the inventory of everything that writes `user
     // comparing two near-empty sets. Pin the one entry whose absence means the
     // parse broke rather than the code changed.
     const actual = collectUsersWriters()
-    expect(actual['users/users.service.ts::updateUserRow']).toMatch(
-      /^users\/users\.service\.ts:\d+$/,
+    expect(actual['users/user-write.util.ts::updateUserRow']).toMatch(
+      /^users\/user-write\.util\.ts:\d+$/,
     )
     expect(Object.keys(actual)).toHaveLength(Object.keys(KNOWN_USERS_WRITERS).length)
   })
