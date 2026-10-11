@@ -112,11 +112,12 @@ function makeHarness(d: Doubles = {}) {
     },
   }
   const svc = makeTransactionsService({ db: { db: client } as never })
-  const logger = (svc as unknown as { logger: { warn: (m: string) => void } }).logger
+  const collaborator = (svc as unknown as { onChainClaim: object }).onChainClaim
+  const logger = (collaborator as unknown as { logger: { warn: (m: string) => void } }).logger
   const warn = vi.spyOn(logger, 'warn').mockImplementation((m: string) => {
     events.push(`warn:${m}`)
   })
-  const priv = svc as unknown as {
+  const priv = collaborator as unknown as {
     describeReferent: (
       tx: unknown,
       purpose: string,
