@@ -5,6 +5,13 @@ export type TeamWithMembers = typeof teams.$inferSelect & {
   members: Array<typeof teamMembers.$inferSelect & { user: typeof users.$inferSelect | null }>
 }
 
+type TeamMemberRow = TeamWithMembers['members'][number]
+
+// A member row whose `user` relation is loaded. The `.filter()` predicates below
+// narrow to this type, so downstream code reads `m.user.*` without optional
+// chaining or fail-open fallbacks (a dangling relation is excluded up front).
+type TeamMemberWithUser = TeamMemberRow & { user: NonNullable<TeamMemberRow['user']> }
+
 export type ProjectWithMembers = typeof projects.$inferSelect & {
   members: Array<typeof projectMembers.$inferSelect & { user: typeof users.$inferSelect | null }>
 }
@@ -113,40 +120,30 @@ export function mapTeam(
         // (`m.user?.role ?? 'JUNIOR'`) — a dangling identity is treated as
         // the MOST restricted role, not the least. Excluding it here
         // (same treatment as ADMIN/JUNIOR) brings this branch to the same
-        // direction; the `?? 'JUNIOR'` default below is belt-and-suspenders
-        // for the same reason.
+        // direction. The predicate is a type guard, so `m.user` is non-null
+        // downstream and needs no optional chaining or fallback.
         .filter(
-          (m) =>
+          (m): m is TeamMemberWithUser =>
             m.user !== null &&
             m.user.role !== 'ADMIN' &&
             m.user.role !== 'JUNIOR' &&
             m.leftAt === null,
         )
         .map((m) => {
-          // Stryker disable next-line OptionalChaining: provably equivalent: every member reaching this map() passed the preceding .filter() which requires m.user !== null, so `?.` never short-circuits and the `?? ''` / `?? 'JUNIOR'` fallbacks are unreachable (belt-and-suspenders only)
-          const memberIsLegendSubject = m.user?.role === 'SENIOR' || m.user?.role === 'DROP'
+          const memberIsLegendSubject = m.user.role === 'SENIOR' || m.user.role === 'DROP'
           // Mask real contacts when JUNIOR views a SENIOR or DROP team member.
           const maskContacts = isJuniorViewer && memberIsLegendSubject
           return {
             id: m.id,
             userId: m.userId,
-            // Stryker disable OptionalChaining,StringLiteral: provably equivalent: every member reaching this map() passed the preceding .filter() which requires m.user !== null, so `?.` never short-circuits and the `?? ''` / `?? 'JUNIOR'` fallbacks are unreachable (belt-and-suspenders only)
-            displayName: m.user?.displayName ?? '',
-            email: maskContacts ? null : (m.user?.email ?? ''),
-            avatarUrl: m.user?.avatarUrl ?? null,
-            avatarDocumentId: m.user?.avatarDocumentId ?? null,
-            techStack: m.user?.techStack ?? null,
-            phone: maskContacts ? null : (m.user?.phone ?? null),
-            telegram: maskContacts ? null : (m.user?.telegram ?? null),
-            // Stryker restore OptionalChaining,StringLiteral
-            // Equivalence proof: the `.filter(...)` above this `.map(...)` requires
-            // `m.user !== null` for every element that reaches here, so `m.user` is
-            // never null/undefined at this point and `m.user?.role` / `m.user.role`
-            // read the IDENTICAL value. The `?? 'JUNIOR'` fallback (the actually
-            // meaningful half of this expression) is real belt-and-suspenders and
-            // stays unmutated — only the now-redundant `?.` is suppressed.
-            // Stryker disable next-line OptionalChaining,StringLiteral: provably equivalent — see the paragraph immediately above (the preceding .filter() already guarantees m.user is non-null here)
-            role: m.user?.role ?? 'JUNIOR',
+            displayName: m.user.displayName,
+            email: maskContacts ? null : m.user.email,
+            avatarUrl: m.user.avatarUrl ?? null,
+            avatarDocumentId: m.user.avatarDocumentId ?? null,
+            techStack: m.user.techStack ?? null,
+            phone: maskContacts ? null : (m.user.phone ?? null),
+            telegram: maskContacts ? null : (m.user.telegram ?? null),
+            role: m.user.role,
             joinedAt: m.joinedAt,
             leftAt: m.leftAt ? m.leftAt.toISOString() : null,
           }
@@ -172,7 +169,7 @@ function mapDropTeam(team: TeamWithMembers, currentUser: SessionUser) {
   // just above (same class of bug: a dangling user relation used to pass
   // this filter and default to role 'DROP' below).
   const activeMembers = team.members.filter(
-    (m) =>
+    (m): m is TeamMemberWithUser =>
       m.leftAt === null && m.user !== null && m.user.role !== 'ADMIN' && m.user.role !== 'JUNIOR',
   )
   // RBAC A01 (2026-06-10): JUNIOR viewer must NOT see real contacts of SENIOR/DROP
@@ -193,32 +190,19 @@ function mapDropTeam(team: TeamWithMembers, currentUser: SessionUser) {
     createdAt: team.createdAt,
     updatedAt: team.updatedAt,
     members: activeMembers.map((m) => {
-      // Stryker disable next-line OptionalChaining: provably equivalent: every member reaching this map() passed the preceding .filter() which requires m.user !== null, so `?.` never short-circuits and the `?? ''` / `?? 'JUNIOR'` fallbacks are unreachable (belt-and-suspenders only)
-      const memberIsLegendSubject = m.user?.role === 'SENIOR' || m.user?.role === 'DROP'
+      const memberIsLegendSubject = m.user.role === 'SENIOR' || m.user.role === 'DROP'
       const maskContacts = isJuniorViewer && memberIsLegendSubject
       return {
         id: m.id,
         userId: m.userId,
-        // Stryker disable OptionalChaining,StringLiteral: provably equivalent: every member reaching this map() passed the preceding .filter() which requires m.user !== null, so `?.` never short-circuits and the `?? ''` / `?? 'JUNIOR'` fallbacks are unreachable (belt-and-suspenders only)
-        displayName: m.user?.displayName ?? '',
-        email: maskContacts ? null : (m.user?.email ?? ''),
-        avatarUrl: m.user?.avatarUrl ?? null,
-        avatarDocumentId: m.user?.avatarDocumentId ?? null,
-        techStack: m.user?.techStack ?? null,
-        phone: maskContacts ? null : (m.user?.phone ?? null),
-        telegram: maskContacts ? null : (m.user?.telegram ?? null),
-        // Stryker restore OptionalChaining,StringLiteral
-        // Fail-closed default (belt-and-suspenders — the filter above
-        // already excludes a dangling `user`; this default no longer
-        // matters in practice but keeps the same safe direction if that
-        // filter is ever weakened).
-        // Equivalence proof: same as the identical line in mapTeam above —
-        // `activeMembers` is already filtered to `m.user !== null`, so `m.user`
-        // is never null/undefined here and `m.user?.role` / `m.user.role` read
-        // the IDENTICAL value. The `?? 'JUNIOR'` fallback stays unmutated — only
-        // the now-redundant `?.` is suppressed.
-        // Stryker disable next-line OptionalChaining,StringLiteral: provably equivalent — see the paragraph immediately above (the preceding .filter() already guarantees m.user is non-null here)
-        role: m.user?.role ?? 'JUNIOR',
+        displayName: m.user.displayName,
+        email: maskContacts ? null : m.user.email,
+        avatarUrl: m.user.avatarUrl ?? null,
+        avatarDocumentId: m.user.avatarDocumentId ?? null,
+        techStack: m.user.techStack ?? null,
+        phone: maskContacts ? null : (m.user.phone ?? null),
+        telegram: maskContacts ? null : (m.user.telegram ?? null),
+        role: m.user.role,
         joinedAt: m.joinedAt,
         leftAt: m.leftAt ? m.leftAt.toISOString() : null,
       }
