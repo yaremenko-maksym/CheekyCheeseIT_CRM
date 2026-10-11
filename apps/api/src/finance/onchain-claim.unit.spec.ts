@@ -962,3 +962,56 @@ describe('audit record helpers', () => {
     ])
   })
 })
+
+describe('facade wiring — adminUpdateTransaction forwards the new receipt link to the collaborator', () => {
+  const row = {
+    id: 'tx-wire-1',
+    type: 'ADMIN_INCOME',
+    status: 'PAID',
+    fundingSource: null,
+    amount: '100.000000',
+    currency: 'USD',
+    payoutRequestId: null,
+    receiverId: 'recv-1',
+    receiptDocumentId: null,
+    receiptExternalUrl: null,
+    salaryMonth: null,
+    notes: null,
+    sender: null,
+    receiver: null,
+    project: null,
+    payoutRequest: null,
+  }
+
+  it('passes the patched receiptExternalUrl (not null) to resolveReceiptHashTransition', async () => {
+    const updateWhere = vi
+      .fn()
+      .mockReturnValue({ returning: () => Promise.resolve([{ id: row.id }]) })
+    const dbStub = {
+      db: {
+        query: { transactions: { findFirst: () => Promise.resolve(row) } },
+        update: () => ({ set: () => ({ where: updateWhere }) }),
+        transaction: (cb: (dbtx: unknown) => Promise<unknown>) =>
+          cb({
+            update: () => ({ set: () => ({ where: updateWhere }) }),
+            insert: () => ({ values: () => Promise.resolve() }),
+          }),
+      },
+    }
+    const svc = makeTransactionsService({ db: dbStub as never })
+    ;(svc as unknown as { findOne: unknown }).findOne = vi.fn().mockResolvedValue({ id: row.id })
+    const collaborator = (
+      svc as unknown as {
+        onChainClaim: { resolveReceiptHashTransition: (...a: unknown[]) => unknown }
+      }
+    ).onChainClaim
+    const resolve = vi
+      .spyOn(collaborator, 'resolveReceiptHashTransition')
+      .mockResolvedValue({ txHashPatch: {}, claimHash: null, staleClaim: false } as never)
+
+    await svc.adminUpdateTransaction(row.id, { receiptExternalUrl: H1_URL_UPPER }, ADMIN)
+
+    expect(resolve).toHaveBeenCalledTimes(1)
+    expect(resolve).toHaveBeenCalledWith(row, H1_URL_UPPER)
+  })
+})
