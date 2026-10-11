@@ -65,6 +65,7 @@ import { S3Service, isSensitiveCategory, presignTtlForCategory } from './s3.serv
 import { CompressionService, CompressionError, detectMimeFromBuffer } from './compression.service'
 import type { DrizzleTx } from '../database/types'
 import { apiError } from '../common/api-error'
+import { sanitizeFilename, thumbnailKeyFor } from './document-key.util'
 
 /**
  * i18n server-text PR2: `name` of a virtual employee-contract entry. The DTO
@@ -170,7 +171,7 @@ export class DocumentsService {
     // S3 PutObject or a presigned URL signature.
     const docId = randomUUID()
     const originalName = (meta.name ?? file.originalname).slice(0, 255)
-    const sanitizedName = this.sanitizeFilename(originalName)
+    const sanitizedName = sanitizeFilename(originalName)
     const s3Key = `documents/${meta.category}/${ownerId}/${docId}-${sanitizedName}`
 
     // ---- 8. Generate thumbnail (sync) BEFORE the DB insert so we can
@@ -185,7 +186,7 @@ export class DocumentsService {
         compressed.finalMimeType,
       )
     }
-    const thumbnailS3Key = thumbnailBuffer ? this.thumbnailKeyFor(s3Key) : null
+    const thumbnailS3Key = thumbnailBuffer ? thumbnailKeyFor(s3Key) : null
 
     // ---- 9. Insert DB row FIRST, then S3 (compensate on S3 failure) ----
     // This avoids orphan S3 objects (which cost money) at the price of
@@ -280,7 +281,7 @@ export class DocumentsService {
   }): Promise<DocumentDto> {
     const docId = randomUUID()
     const originalName = params.name.slice(0, 255)
-    const sanitizedName = this.sanitizeFilename(originalName)
+    const sanitizedName = sanitizeFilename(originalName)
     const s3Key = `documents/${params.category}/${params.ownerId}/${docId}-${sanitizedName}`
 
     // Insert DB row first, then S3 (compensate on S3 failure) — mirrors
@@ -1470,24 +1471,6 @@ export class DocumentsService {
     }
 
     throw apiError('DOCUMENT_NOT_FOUND', HttpStatus.NOT_FOUND)
-  }
-
-  /**
-   * Replace any character that's not alphanumeric / dot / dash / underscore,
-   * cap the result at 200 chars. We collapse spaces to underscores so URLs
-   * stay clean.
-   */
-  private sanitizeFilename(name: string): string {
-    const cleaned = name
-      .normalize('NFKD')
-      .replace(/[^a-zA-Z0-9._-]+/g, '_')
-      .replace(/^_+|_+$/g, '')
-    return cleaned.slice(0, 200) || 'file'
-  }
-
-  /** Thumbnail key: <key-without-ext>-thumb.jpg */
-  private thumbnailKeyFor(key: string): string {
-    return key.replace(/\.[^.]+$/, '') + '-thumb.jpg'
   }
 
   /**
