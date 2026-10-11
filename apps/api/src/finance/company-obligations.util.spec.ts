@@ -10,7 +10,9 @@ function stubTx() {
       values: vi.fn((v: Record<string, unknown>) => {
         inserted.push(v)
         const row = { id: `row${++n}` }
-        const p = Promise.resolve([row]) as Promise<unknown[]> & { returning: () => unknown }
+        const p = Promise.resolve([row]) as unknown as Promise<unknown[]> & {
+          returning: () => unknown
+        }
         p.returning = () => Promise.resolve([row])
         return p
       }),
@@ -106,7 +108,9 @@ describe('bookCompanyObligations', () => {
       insert: vi.fn(() => ({
         values: vi.fn((v: Record<string, unknown>) => {
           inserted.push(v)
-          const p = Promise.resolve([]) as Promise<unknown[]> & { returning: () => unknown }
+          const p = Promise.resolve([]) as unknown as Promise<unknown[]> & {
+            returning: () => unknown
+          }
           p.returning = () => Promise.resolve([])
           return p
         }),
