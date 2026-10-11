@@ -34,6 +34,7 @@ import type { EtherscanService } from '../etherscan.service'
 import type { NotificationsService } from '../../notifications/notifications.service'
 import { SalaryService } from '../salary.service'
 import { SummaryService } from '../summary.service'
+import { TransactionLifecycleService } from '../transaction-lifecycle.service'
 
 export interface MakeTransactionsServiceOverrides {
   db: DatabaseService
@@ -56,6 +57,12 @@ export interface MakeTransactionsServiceOverrides {
    * keep exercising the real code through the TransactionsService delegates.
    */
   summaryService?: SummaryService
+  /**
+   * WC-L5a: notification collaborator. Defaults to a real one over the same `db`
+   * and `notificationsService`, so notification specs keep exercising the real
+   * code through TransactionsService.
+   */
+  lifecycleService?: TransactionLifecycleService
 }
 
 /** Default no-op stub for InvoicesService — covers auto-create paths. */
@@ -147,6 +154,7 @@ export function makeTransactionsService(
     notificationsService = makeDefaultNotificationsStub(),
     salaryService = new SalaryService(db),
     summaryService = new SummaryService(db, nbuCurrencyService),
+    lifecycleService = new TransactionLifecycleService(notificationsService, db),
   } = overrides
 
   return new TransactionsService(
@@ -155,7 +163,7 @@ export function makeTransactionsService(
     documentsService,
     nbuCurrencyService,
     etherscanService,
-    notificationsService,
+    lifecycleService,
     salaryService,
     summaryService,
   )
