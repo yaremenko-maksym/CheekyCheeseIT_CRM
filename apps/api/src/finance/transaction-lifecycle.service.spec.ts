@@ -4,7 +4,7 @@
  * the same paths lives in `transaction-notifications.unit.spec.ts`.)
  */
 import { describe, expect, it, vi } from 'vitest'
-import type { SessionUser } from '@crm/shared'
+import { NOTIFICATION_TITLES, type SessionUser } from '@crm/shared'
 import { TransactionLifecycleService } from './transaction-lifecycle.service'
 
 const ACTOR = { id: 'actor-1', email: 'a@example.com', role: 'ADMIN', name: 'A' } as SessionUser
@@ -52,7 +52,7 @@ describe('TransactionLifecycleService.notifyTransactionAdded', () => {
     expect(h.create).toHaveBeenCalledWith({
       userId: 'recv-1',
       type: 'TRANSACTION_ADDED',
-      title: expect.any(String),
+      title: NOTIFICATION_TITLES.TRANSACTION_ADDED,
       subjectType: 'TRANSACTION',
       subjectId: 'tx-1',
       data: { amount: '10.00', currency: 'USD', projectName: 'Acme' },
@@ -106,7 +106,7 @@ describe('TransactionLifecycleService.notifyTransactionStatusChanged', () => {
     expect(h.create).toHaveBeenCalledWith({
       userId: 'recv-1',
       type: 'TRANSACTION_STATUS_CHANGED',
-      title: expect.any(String),
+      title: NOTIFICATION_TITLES.TRANSACTION_STATUS_CHANGED,
       subjectType: 'TRANSACTION',
       subjectId: 'tx-1',
       data: { amount: '10.00', currency: 'USD', status: 'VALIDATED', rejectionReasonPreview: null },
