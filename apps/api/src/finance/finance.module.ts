@@ -15,6 +15,7 @@ import { OnChainClaimService } from './onchain-claim.service'
 import { EtherscanService } from './etherscan.service'
 import { NbuCurrencyService } from './nbu-currency.service'
 import { PayoutRequestReadService } from './payout-request-read.service'
+import { PayoutRequestService } from './payout-request.service'
 import { PendingSettlementController } from './pending-settlement.controller'
 import { PendingSettlementService } from './pending-settlement.service'
 import { SalaryCronService } from './salary-cron.service'
@@ -71,6 +72,7 @@ import { TransactionTrashService } from './transaction-trash.service'
     OnChainClaimService,
     // Payout-request read path: role-scoped list + masked detail (db only).
     PayoutRequestReadService,
+    PayoutRequestService,
     NbuCurrencyService,
     // Phase 4-A: balance pipeline runs alongside the legacy getSummary.
     BalanceService,
