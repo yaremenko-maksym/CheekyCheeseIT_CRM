@@ -227,7 +227,13 @@ export class SalaryPaymentService {
     // comment in schema.ts. NULL when the obligation amount is unusable as a
     // divisor (should not happen: amounts are positive by schema).
     const rawExchangeRate =
-      Number.isFinite(obligationAmount) && obligationAmount > 0
+      Number.isFinite(obligationAmount) &&
+      // `> 0` -> `>= 0` only changes the `obligationAmount === 0` case (negative and NaN
+      // are unaffected): it computes `paidAmount / 0` = Infinity (or `0 / 0` = NaN) instead
+      // of skipping to `null`, and `isStorableExchangeRate` below rejects both through its
+      // own `Number.isFinite` check, so `exchangeRate` is the identical `null` either way.
+      // Stryker disable next-line EqualityOperator: equivalent mutant, see the comment above
+      obligationAmount > 0
         ? paidAmount / obligationAmount
         : null
     // security-review PR #485 (related to MED-1) — an unrepresentable ratio is
@@ -251,7 +257,14 @@ export class SalaryPaymentService {
     // («not recorded»), and the write never reaches the column with a number
     // that would overflow it.
     const exchangeRate =
-      rawExchangeRate !== null && isStorableExchangeRate(rawExchangeRate)
+      // `!== null` is a TS narrowing guard for the `.toFixed` below; at runtime it is
+      // behaviorally redundant because `isStorableExchangeRate(null)` already returns false
+      // via its own `Number.isFinite` check, so forcing the guard true cannot change the
+      // outcome.
+      // Stryker disable next-line ConditionalExpression: equivalent mutant, see the comment above
+      rawExchangeRate !== null &&
+      // The storability check is a separate line so a mutant here is not covered by the directive above.
+      isStorableExchangeRate(rawExchangeRate)
         ? rawExchangeRate.toFixed(8)
         : null
 
