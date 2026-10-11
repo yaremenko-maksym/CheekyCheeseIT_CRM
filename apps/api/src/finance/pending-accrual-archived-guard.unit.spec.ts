@@ -56,6 +56,9 @@ import { describe, expect, it, vi } from 'vitest'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 
 const SRC_FILE = path.resolve(import.meta.dirname, 'transactions.service.ts')
+// Manual SALARY entry (`createSalary`) lives in the entry collaborator; the
+// accrual scan covers every file that can mint a PENDING transactions row.
+const SCANNED_FILES = [SRC_FILE, path.resolve(import.meta.dirname, 'transaction-entry.service.ts')]
 
 // backlog 73/A-3 (mutation-gate round 2): compiles a Drizzle `where` SQL
 // object (e.g. `and(eq(transactions.type, 'SENIOR_INCOME'), eq(...)))`) down
@@ -160,46 +163,49 @@ function scanPendingAccrualSites(): Array<{ method: string; line: number }> {
   const INSERT_OTHER_TABLE = /\.insert\(\s*(?:pendingObligations|payoutRequests)\s*\)/
   const RESUBMIT_UPDATE_CALL = /replaceReceiptAtomic\(/
 
-  const lines = readFileSync(SRC_FILE, 'utf8').split('\n')
   const out: Array<{ method: string; line: number }> = []
-  let method: string | null = null
-  let inBlockComment = false
 
-  lines.forEach((line, index) => {
-    const trimmed = line.trim()
-    if (inBlockComment) {
-      if (trimmed.includes('*/')) inBlockComment = false
-      return
-    }
-    if (trimmed.startsWith('/*')) {
-      if (!trimmed.includes('*/')) inBlockComment = true
-      return
-    }
-    if (trimmed.startsWith('//') || trimmed.startsWith('*')) return
+  for (const file of SCANNED_FILES) {
+    const lines = readFileSync(file, 'utf8').split('\n')
+    let method: string | null = null
+    let inBlockComment = false
 
-    const methodMatch = METHOD.exec(line)
-    if (methodMatch?.[1]) method = methodMatch[1]
+    lines.forEach((line, index) => {
+      const trimmed = line.trim()
+      if (inBlockComment) {
+        if (trimmed.includes('*/')) inBlockComment = false
+        return
+      }
+      if (trimmed.startsWith('/*')) {
+        if (!trimmed.includes('*/')) inBlockComment = true
+        return
+      }
+      if (trimmed.startsWith('//') || trimmed.startsWith('*')) return
 
-    if (STATUS_PENDING.test(line)) {
-      // 25 lines is generous for every site actually in this file (the
-      // farthest is ~7 lines) while staying bounded.
-      const window = lines.slice(Math.max(0, index - 25), index).reverse()
-      let isAccrualSite = false
-      for (const l of window) {
-        if (INSERT_TRANSACTIONS.test(l) || RESUBMIT_UPDATE_CALL.test(l)) {
-          isAccrualSite = true
-          break
+      const methodMatch = METHOD.exec(line)
+      if (methodMatch?.[1]) method = methodMatch[1]
+
+      if (STATUS_PENDING.test(line)) {
+        // 25 lines is generous for every site actually in this file (the
+        // farthest is ~7 lines) while staying bounded.
+        const window = lines.slice(Math.max(0, index - 25), index).reverse()
+        let isAccrualSite = false
+        for (const l of window) {
+          if (INSERT_TRANSACTIONS.test(l) || RESUBMIT_UPDATE_CALL.test(l)) {
+            isAccrualSite = true
+            break
+          }
+          if (INSERT_OTHER_TABLE.test(l)) {
+            isAccrualSite = false
+            break
+          }
         }
-        if (INSERT_OTHER_TABLE.test(l)) {
-          isAccrualSite = false
-          break
+        if (isAccrualSite) {
+          out.push({ method: method ?? '<top-level>', line: index + 1 })
         }
       }
-      if (isAccrualSite) {
-        out.push({ method: method ?? '<top-level>', line: index + 1 })
-      }
-    }
-  })
+    })
+  }
   return out
 }
 
