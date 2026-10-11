@@ -48,7 +48,6 @@ import { HttpStatus, Injectable, Logger, forwardRef, Inject } from '@nestjs/comm
 import { ConfigService } from '@nestjs/config'
 import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import type { FastifyRequest } from 'fastify'
-import type { MessageDescriptor } from '@lingui/core'
 import type {
   ContractTargetRole,
   InvoiceDto,
@@ -62,13 +61,7 @@ import type {
 // task-i18n-stage4-task6: `NOTIFICATION_TITLES[type]` — the neutral, frozen
 // legacy title `CreateNotificationInput.title` still requires (NOT NULL
 // column) — no longer a per-call hand-written Russian string.
-import {
-  amountsDiffer,
-  createI18n,
-  INVOICE_PDF_MESSAGES,
-  NOTIFICATION_TITLES,
-  renderMessage,
-} from '@crm/shared'
+import { amountsDiffer, NOTIFICATION_TITLES } from '@crm/shared'
 import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
 import {
@@ -105,12 +98,13 @@ import {
   InvoicePdfService,
   COMPANY_BRAND_NAME,
   type InvoiceCompanyInfo,
-  type InvoiceCounterpartyInfo,
   type InvoiceSignatureInfo,
   type InvoiceTransactionInfo,
 } from './invoice-pdf.service'
 import { sha256Hex, shortHash } from '../common/pdf/pdf.utils'
 import { extractIp, extractUserAgent, lastOctet } from './invoice-request.util'
+import { buildCounterpartyInfo, getCounterpartyId } from './invoice-counterparty.util'
+import { assertCanViewInvoice } from './invoice-view-access.util'
 
 // ---------------------------------------------------------------------------
 // Company info constants (TBD — currently hardcoded; future migration into
@@ -486,7 +480,7 @@ export class InvoicesService {
       salaryMonth: earliestLinkedIncome!.salaryMonth ?? null,
       txDate,
     }
-    const counterpartyInfo = this.buildCounterpartyInfo(counterpartyRow)
+    const counterpartyInfo = buildCounterpartyInfo(counterpartyRow)
     const verifyUrl = this.buildVerifyUrl(payoutTx.id)
     const sigForAdmin: InvoiceSignatureInfo = {
       role: 'COMPANY',
@@ -597,7 +591,7 @@ export class InvoicesService {
       return
     }
 
-    const counterpartyId = this.getCounterpartyId(tx)
+    const counterpartyId = getCounterpartyId(tx)
     if (!counterpartyId) {
       this.logger.warn(`autoCreate: tx ${tx.id} has no counterparty — skip`)
       return
@@ -640,7 +634,7 @@ export class InvoicesService {
       salaryMonth: tx.salaryMonth ?? null,
       txDate: tx.txDate ?? tx.createdAt,
     }
-    const counterpartyInfo = this.buildCounterpartyInfo(counterpartyRow)
+    const counterpartyInfo = buildCounterpartyInfo(counterpartyRow)
     const verifyUrl = this.buildVerifyUrl(tx.id)
 
     const sigForAdmin: InvoiceSignatureInfo = {
@@ -1198,7 +1192,7 @@ export class InvoicesService {
     }
 
     // RBAC: ADMIN + ACCOUNTANT pass; others must be the counterparty.
-    this.assertCanViewInvoice(viewer, tx)
+    assertCanViewInvoice(viewer, tx)
 
     const signatures = await this.getSignaturesWithSignerNames(tx.id)
     const status: InvoiceStatus = signatures.some((s) => s.signerRole === 'COUNTERPARTY')
@@ -1218,7 +1212,7 @@ export class InvoicesService {
       type: (tx.type === 'PAYOUT' ? 'SENIOR_INCOME' : tx.type) as InvoiceType,
       amount: tx.amount,
       currency: tx.currency,
-      counterpartyId: counterpartyUser?.id ?? this.getCounterpartyId(tx) ?? '',
+      counterpartyId: counterpartyUser?.id ?? getCounterpartyId(tx) ?? '',
       counterpartyName: counterpartyUser?.displayName ?? '—',
       projectName: tx.project?.name ?? null,
       salaryMonth: tx.salaryMonth ?? null,
@@ -1272,7 +1266,7 @@ export class InvoicesService {
     }
 
     // ---- RBAC: viewer must be the counterparty ----
-    if (this.getCounterpartyId(tx) !== viewer.id) {
+    if (getCounterpartyId(tx) !== viewer.id) {
       throw apiError('INVOICE_NOT_COUNTERPARTY', HttpStatus.FORBIDDEN)
     }
 
@@ -1346,7 +1340,7 @@ export class InvoicesService {
     if (!adminRow || !counterpartyRow) {
       throw apiError('INVOICE_USER_DATA_FETCH_FAILED', HttpStatus.CONFLICT)
     }
-    const counterpartyInfo = this.buildCounterpartyInfo(counterpartyRow)
+    const counterpartyInfo = buildCounterpartyInfo(counterpartyRow)
 
     // task-aggregate-invoice-per-payout. For PAYOUT rows we re-resolve the
     // aggregated description (contract number + project list) on every sign
@@ -1914,29 +1908,6 @@ export class InvoicesService {
   }
 
   /**
-   * Counterparty id derivation:
-   *   SENIOR_INCOME — the senior is the counterparty (receiver of the income).
-   *   SALARY        — the employee is the counterparty (receiver of the
-   *                   salary).
-   *   PAYOUT        — task-aggregate-invoice-per-payout. The aggregated
-   *                   invoice anchors on the PAYOUT row. The PAYOUT row's
-   *                   `senderId` is the senior / drop that initiated the
-   *                   payout — they are the counterparty (the entity signing
-   *                   on behalf of «ИСПОЛНИТЕЛЬ» in the act).
-   * Returning null defensively when the column is unexpectedly NULL (the DB
-   * FK ON DELETE SET NULL means a deleted user breaks the link).
-   */
-  private getCounterpartyId(tx: Transaction): string | null {
-    if (tx.type === 'SENIOR_INCOME' || tx.type === 'SALARY') {
-      return tx.receiverId
-    }
-    if (tx.type === 'PAYOUT') {
-      return tx.senderId
-    }
-    return null
-  }
-
-  /**
    * Resolve the system ADMIN that signs as COMPANY. Spec rule: first ADMIN by
    * `created_at ASC`. Cached in-memory because the ADMIN pool is fixed
    * (seed-only) — there is no admin creation flow that would invalidate the
@@ -1959,53 +1930,10 @@ export class InvoicesService {
     return this.cachedAdminId
   }
 
-  /**
-   * Build the counterparty info struct for the PDF service. Pulls payment
-   * requisites off the user row — branches by `paymentMethod` because USDT
-   * and Bank UAH ФОП have completely different field layouts.
-   */
-  private buildCounterpartyInfo(user: typeof users.$inferSelect): InvoiceCounterpartyInfo {
-    // i18n stage 5: the requisites labels are words, so they follow the
-    // RECIPIENT's locale (the counterparty's own `users.locale`) exactly like
-    // every other label on the PDF; the values (wallet, IBAN, names) are data.
-    const i18n = createI18n(user.locale)
-    const label = (descriptor: MessageDescriptor, value: string): string =>
-      renderMessage(i18n, descriptor, { value })
-    const details: string[] = []
-    if (user.paymentMethod === 'USDT_ERC20') {
-      if (user.walletUsdtErc20) details.push(`USDT (ERC-20): ${user.walletUsdtErc20}`)
-      if (user.walletUsdtLabel) details.push(user.walletUsdtLabel)
-    } else if (user.paymentMethod === 'BANK_UAH_FOP') {
-      if (user.bankUahRecipient)
-        details.push(label(INVOICE_PDF_MESSAGES.bankRecipient, user.bankUahRecipient))
-      if (user.bankUahIban) details.push(`IBAN: ${user.bankUahIban}`)
-      if (user.bankUahRnokpp)
-        details.push(label(INVOICE_PDF_MESSAGES.bankRnokpp, user.bankUahRnokpp))
-      if (user.bankUahBankName)
-        details.push(label(INVOICE_PDF_MESSAGES.bankName, user.bankUahBankName))
-    }
-    return {
-      displayName: user.displayName,
-      locale: user.locale,
-      paymentMethod: user.paymentMethod ?? null,
-      paymentDetails: details,
-    }
-  }
-
   /** FRONTEND_URL + /invoice/v/:id — used as the QR code payload. */
   private buildVerifyUrl(transactionId: string): string {
     const frontendUrl = this.config.get('FRONTEND_URL', { infer: true })
     return `${frontendUrl}/invoice/v/${transactionId}`
-  }
-
-  /**
-   * RBAC for `getInvoice`: ADMIN + ACCOUNTANT see everything; everyone else
-   * must be the counterparty. Throws 403 with a Russian message.
-   */
-  private assertCanViewInvoice(viewer: SessionUser, tx: Transaction): void {
-    if (viewer.role === 'ADMIN' || viewer.role === 'ACCOUNTANT') return
-    if (this.getCounterpartyId(tx) === viewer.id) return
-    throw apiError('INVOICE_ACCESS_DENIED', HttpStatus.FORBIDDEN)
   }
 
   /**
