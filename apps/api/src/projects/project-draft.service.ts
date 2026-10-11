@@ -41,7 +41,7 @@ export class ProjectDraftService {
    * satisfiable by an ADMIN who impersonated that approver: `POST
    * /auth/impersonate` swaps `id`/`role` to the TARGET's, so the "invited
    * caller" check cannot tell the difference. Unlike the other methods in
-   * this file (`archive`/`unarchive`/`update`/`addMember`), which read
+   * `ProjectsService` (`archive`/`unarchive`/`update`/`addMember`), which read
    * `currentUser.impersonatorId ?? currentUser.id` to ATTRIBUTE the write to
    * the real operator, attribution is not enough here — confirmation IS the
    * consent record this whole task exists to produce (design spec §3: a
