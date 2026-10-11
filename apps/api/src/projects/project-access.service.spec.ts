@@ -135,6 +135,16 @@ describe('ProjectAccessService.assertAccess — ACTIVE role matrix', () => {
     )
   })
 
+  it('HR passes when the project senior is one of several seniors in scope', async () => {
+    const { svc } = makeService({ hrTeams: ['t'], seniors: ['x', 'senior-1'] })
+    await expect(svc.assertAccess(project(), user('HR'))).resolves.toBeUndefined()
+  })
+
+  it('HR with no active team gets 403', async () => {
+    const { svc } = makeService({ hrTeams: [] })
+    await expect(svc.assertAccess(project(), user('HR'))).rejects.toBeInstanceOf(ForbiddenException)
+  })
+
   it('HR gets 403 on a senior-less project even if scope is non-empty', async () => {
     const { svc } = makeService({ hrTeams: ['t'], seniors: ['senior-1'] })
     await expect(svc.assertAccess(project({ seniorId: null }), user('HR'))).rejects.toBeInstanceOf(

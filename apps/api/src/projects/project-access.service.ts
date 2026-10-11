@@ -101,8 +101,7 @@ export class ProjectAccessService {
     if (currentUser.role === 'SENIOR' && project.seniorId === currentUser.id) return
     if (currentUser.role === 'HR') {
       const seniorIds = await this.getHrSeniorIds(currentUser.id)
-      // Stryker disable next-line ConditionalExpression: equivalent mutant — `seniorIds` holds only string user ids, so `includes(null)` is false either way; the null check exists to narrow the type for `includes`.
-      if (project.seniorId !== null && seniorIds.includes(project.seniorId)) return
+      if (seniorIds.some((sid) => sid === project.seniorId)) return
     }
     if (
       currentUser.role === 'JUNIOR' &&
