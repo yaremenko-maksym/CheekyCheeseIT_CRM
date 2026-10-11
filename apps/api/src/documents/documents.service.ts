@@ -19,23 +19,20 @@
  *   A generic role guard can't express any of that — keeping the rules here
  *   makes them testable in isolation.
  */
-import { BadRequestException, HttpStatus, Injectable, Logger } from '@nestjs/common'
+import { HttpStatus, Injectable, Logger } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
 import { and, desc, eq, inArray, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm'
 import {
   DOCUMENT_MAX_BYTES,
   DOCUMENT_MIME_WHITELIST,
   INTERNAL_CATEGORIES,
-  type ContractNameKind,
   type CreateDocumentMetadata,
   type Document as DocumentDto,
   type DocumentCategory,
   type DocumentListFilters,
-  type DocumentSource,
   type PresignedDownload,
   type Role,
   type SessionUser,
-  type StatusBadge,
 } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 // security-review PR #456 round 2 (merged in via MED-4, round 3 of THIS
@@ -66,14 +63,8 @@ import { CompressionService, CompressionError, detectMimeFromBuffer } from './co
 import type { DrizzleTx } from '../database/types'
 import { apiError } from '../common/api-error'
 import { sanitizeFilename, thumbnailKeyFor } from './document-key.util'
-
-/**
- * i18n server-text PR2: `name` of a virtual employee-contract entry. The DTO
- * requires a non-empty name, but the human label is client-owned
- * (`CONTRACT_NAME_MESSAGES`, selected by `nameKind`) — this is a fixed ASCII
- * marker, not prose and never the raw uuid.
- */
-const VIRTUAL_CONTRACT_NAME_MARKER = 'employee-contract'
+import { deriveStatusBadge, mapContractVirtualEntry, mapDocument } from './document-mapping.util'
+import { assertCanUpload } from './document-upload-rbac.util'
 
 /** What the controller hands us after parsing the multipart request. */
 export interface UploadFileInput {
@@ -129,7 +120,7 @@ export class DocumentsService {
     const ownerId = meta.ownerId ?? actor.id
 
     // ---- 4. RBAC: can `actor` upload `category` for `ownerId`? ----
-    this.assertCanUpload(actor.role, actor.id, meta.category, ownerId)
+    assertCanUpload(actor.role, actor.id, meta.category, ownerId)
 
     // ---- 5. CONTRACT requires projectId (Zod already enforced this; double-check defensively) ----
     if (meta.category === 'CONTRACT' && !meta.projectId) {
@@ -249,7 +240,7 @@ export class DocumentsService {
 
     // Uploader === actor for fresh uploads — we already have the
     // display name in the session, no extra round-trip needed.
-    return this.mapDocument(row, actor.displayName ?? null)
+    return mapDocument(row, actor.displayName ?? null)
   }
 
   // -------------------------------------------------------------------------
@@ -317,7 +308,7 @@ export class DocumentsService {
       throw err
     }
 
-    return this.mapDocument(row, null)
+    return mapDocument(row, null)
   }
 
   /**
@@ -484,12 +475,12 @@ export class DocumentsService {
 
     const fileEntries = rows.map((row) => {
       // Derive statusBadge from backend state (PR-2).
-      const badge = this.deriveStatusBadge(
+      const badge = deriveStatusBadge(
         row.doc.category as DocumentCategory,
         Boolean(row.invoiceSigned),
         row.receiptTxStatus,
       )
-      return this.mapDocument(
+      return mapDocument(
         row.doc,
         row.uploaderName ?? null,
         row.invoiceTxId ?? null,
@@ -505,34 +496,6 @@ export class DocumentsService {
     const contractEntries = await this.buildContractVirtualEntries(actor, filters)
 
     return [...fileEntries, ...contractEntries]
-  }
-
-  /**
-   * Derive the semantic statusBadge for a document row.
-   * Returns null for categories that carry no badge (RESUME, SCAN, CONTRACT uploads, AVATAR, LOGO).
-   */
-  private deriveStatusBadge(
-    category: DocumentCategory,
-    invoiceSigned: boolean,
-    receiptTxStatus: string | null,
-  ): StatusBadge | null {
-    if (category === 'INVOICE') {
-      return { kind: 'invoice', state: invoiceSigned ? 'signed' : 'ready' }
-    }
-    if (category === 'RECEIPT') {
-      if (!receiptTxStatus) return null
-      // Income lifecycle: PENDING → VALIDATED → PENDING_PAYMENT → PAID
-      // Only PENDING means «awaiting admin confirmation».
-      // VALIDATED / PENDING_PAYMENT / PAID = already approved / in progress / settled.
-      // REJECTED = needs re-confirmation → pending.
-      const validatedStatuses = new Set(['VALIDATED', 'PENDING_PAYMENT', 'PAID'])
-      return {
-        kind: 'receipt',
-        state: validatedStatuses.has(receiptTxStatus) ? 'validated' : 'pending',
-      }
-    }
-    // RESUME, SCAN, CONTRACT (uploaded file), AVATAR, LOGO — no badge
-    return null
   }
 
   /**
@@ -597,104 +560,7 @@ export class DocumentsService {
       ownerRows.map((u) => [u.id, u.displayName]),
     )
 
-    return contractRows.map((c) => this.mapContractVirtualEntry(c, displayNameMap))
-  }
-
-  /**
-   * Map an employee_contracts row to a DocumentDto virtual entry.
-   * The entry gets a synthetic id = the contract's id, ownerId = userId,
-   * category = 'CONTRACT' (for consistent filter/grouping), and
-   * source = 'employee_contract' (discriminator).
-   *
-   * i18n server-text PR2: the server composes NO prose. It ships a stable
-   * `nameKind` discriminant (+ `contractNumber` for SIGNED) and the client
-   * renders `CONTRACT_NAME_MESSAGES[nameKind]` in the viewer's locale.
-   *   - SIGNED + number: CONTRACT_SIGNED (contract_number from signed_contracts)
-   *   - SIGNED, no relation: CONTRACT (neutral — never DRAFT for a signed doc)
-   *   - READY_TO_SIGN: CONTRACT_TO_SIGN
-   *   - otherwise: CONTRACT_DRAFT
-   * `name` (DTO requires min(1)) is a fixed ASCII marker that the client
-   * ignores whenever `nameKind` is set; it never carries the raw uuid.
-   * s3Key / download paths are not touched.
-   */
-  private mapContractVirtualEntry(
-    contract: {
-      id: string
-      userId: string
-      status: string
-      createdAt: Date
-      signedContract?: {
-        contractNumber: string
-        signedTypedName: string | null
-        signedAt: Date | string | null
-        pdfSizeBytes?: number | null
-      } | null
-    },
-    actorUserDisplayNames: Record<string, string>,
-  ): DocumentDto {
-    const state: StatusBadge['state'] =
-      contract.status === 'SIGNED'
-        ? 'signed'
-        : contract.status === 'READY_TO_SIGN'
-          ? 'ready'
-          : 'draft'
-
-    // Name structure (PR2). SIGNED contracts carry the stable contract number
-    // so the entry is identifiable without exposing the raw uuid. A SIGNED
-    // contract without a signedContract relation (legacy data / relation not
-    // eagerly loaded) gets the neutral CONTRACT kind rather than CONTRACT_DRAFT,
-    // which would be semantically wrong for a signed document.
-    const contractNumber =
-      contract.status === 'SIGNED' ? (contract.signedContract?.contractNumber ?? null) : null
-    const nameKind: ContractNameKind =
-      contract.status === 'SIGNED'
-        ? contractNumber
-          ? 'CONTRACT_SIGNED'
-          : 'CONTRACT'
-        : contract.status === 'READY_TO_SIGN'
-          ? 'CONTRACT_TO_SIGN'
-          : 'CONTRACT_DRAFT'
-
-    const uploadedByDisplayName = actorUserDisplayNames[contract.userId] ?? null
-
-    // AC6: for SIGNED contracts, surface who signed and when.
-    const signedByName =
-      contract.status === 'SIGNED' ? (contract.signedContract?.signedTypedName ?? null) : null
-    const signedAtIso =
-      contract.status === 'SIGNED' && contract.signedContract?.signedAt
-        ? new Date(contract.signedContract.signedAt).toISOString()
-        : null
-
-    return {
-      id: contract.id,
-      ownerId: contract.userId,
-      projectId: null,
-      category: 'CONTRACT',
-      name: VIRTUAL_CONTRACT_NAME_MARKER,
-      originalName: null,
-      nameKind,
-      contractNumber,
-      // s3Key omitted — not part of public DTO; virtual employee_contract entries
-      // are served via a separate PDF endpoint, not direct S3 download.
-      thumbnailS3Key: null,
-      // task-junior-ut-round2 §7: real PDF size from the signed contract. Filled at
-      // signing time; lazily backfilled on first download for legacy rows. For
-      // DRAFT/READY_TO_SIGN (no signed_contract yet) and legacy rows not yet
-      // downloaded, fall back to 0 — never block the list on PDF generation.
-      sizeBytes: contract.signedContract?.pdfSizeBytes ?? 0,
-      mimeType: 'application/pdf',
-      uploadedBy: contract.userId,
-      uploadedByDisplayName,
-      deletedAt: null,
-      deletedBy: null,
-      createdAt: (contract.createdAt ?? new Date()).toISOString(),
-      invoiceTransactionId: null,
-      invoicePendingSignature: false,
-      source: 'employee_contract' as DocumentSource,
-      statusBadge: { kind: 'contract', state },
-      signedByName,
-      signedAt: signedAtIso,
-    }
+    return contractRows.map((c) => mapContractVirtualEntry(c, displayNameMap))
   }
 
   // -------------------------------------------------------------------------
@@ -854,7 +720,7 @@ export class DocumentsService {
       where: eq(users.id, restored.uploadedBy),
       columns: { displayName: true },
     })
-    return this.mapDocument(restored, uploader?.displayName ?? null)
+    return mapDocument(restored, uploader?.displayName ?? null)
   }
 
   // -------------------------------------------------------------------------
@@ -971,92 +837,6 @@ export class DocumentsService {
   // =========================================================================
   // RBAC helpers
   // =========================================================================
-
-  /**
-   * RBAC for UPLOAD. Throws ForbiddenException if `role` cannot upload
-   * `category` for the target `ownerId`. Matrix from pm-brief.md:
-   *
-   *   RESUME / SCAN:
-   *     ADMIN/HR/SENIOR — any ownerId
-   *     JUNIOR — ownerId == self only
-   *     ACCOUNTANT — forbidden
-   *   CONTRACT:
-   *     ADMIN — any ownerId
-   *     SENIOR — ownerId == self only
-   *     others — forbidden
-   *   RECEIPT:
-   *     ADMIN/ACCOUNTANT — any ownerId
-   *     SENIOR — ownerId == self only
-   *     HR / JUNIOR — forbidden
-   *   AVATAR:
-   *     ADMIN — any ownerId (impersonation)
-   *     anyone else — ownerId == self only
-   *   LOGO:
-   *     ADMIN/HR/SENIOR — allowed (projectId scope is enforced elsewhere)
-   *     JUNIOR/ACCOUNTANT — forbidden
-   */
-  private assertCanUpload(
-    role: Role,
-    actorId: string,
-    category: DocumentCategory,
-    ownerId: string,
-  ): void {
-    const isSelf = actorId === ownerId
-
-    switch (category) {
-      case 'RESUME':
-      case 'SCAN':
-        if (role === 'ACCOUNTANT') {
-          throw apiError('DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN', HttpStatus.FORBIDDEN, { category })
-        }
-        if (role === 'JUNIOR' && !isSelf) {
-          throw apiError('DOCUMENT_UPLOAD_SELF_ONLY', HttpStatus.FORBIDDEN)
-        }
-        if (role === 'DROP' && !isSelf) {
-          throw apiError('DOCUMENT_UPLOAD_SELF_ONLY', HttpStatus.FORBIDDEN)
-        }
-        return
-      case 'CONTRACT':
-        if (role === 'ADMIN') return
-        if (role === 'SENIOR' && isSelf) return
-        if (role === 'DROP' && isSelf) return
-        throw apiError('DOCUMENT_UPLOAD_CONTRACT_RESTRICTED', HttpStatus.FORBIDDEN)
-      case 'RECEIPT':
-        if (role === 'ADMIN' || role === 'ACCOUNTANT') return
-        if (role === 'SENIOR') {
-          if (isSelf) return
-          // A senior CAN upload receipts, just not for someone else — the
-          // blanket "you don't have access to receipts" text of
-          // DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN would be false here
-          // (COPY-M-14, PR #702 fix-round 2).
-          throw apiError('DOCUMENT_UPLOAD_RECEIPT_SELF_ONLY', HttpStatus.FORBIDDEN)
-        }
-        throw apiError('DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN', HttpStatus.FORBIDDEN, {
-          category: 'RECEIPT',
-        })
-      case 'AVATAR':
-        if (role === 'ADMIN') return
-        if (isSelf) return
-        throw apiError('DOCUMENT_UPLOAD_AVATAR_SELF_ONLY', HttpStatus.FORBIDDEN)
-      case 'LOGO':
-        if (role === 'ADMIN' || role === 'HR' || role === 'SENIOR') return
-        throw apiError('DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN', HttpStatus.FORBIDDEN, {
-          category: 'LOGO',
-        })
-      case 'INVOICE':
-        // INVOICE documents are produced by the system only (PDF generated
-        // server-side by InvoicesService — see Invoice Signing Epic). They
-        // must never be uploaded via the regular /api/documents endpoint
-        // — InvoicesService bypasses this check by calling the internal
-        // upload helper directly.
-        throw apiError('DOCUMENT_UPLOAD_INVOICE_FORBIDDEN', HttpStatus.FORBIDDEN)
-      default: {
-        // Exhaustiveness check
-        const _exhaustive: never = category
-        throw new BadRequestException(`Unknown category: ${String(_exhaustive)}`)
-      }
-    }
-  }
 
   /**
    * Build the WHERE clause for `list()`. Returns 'NONE' if the caller has
@@ -1471,63 +1251,6 @@ export class DocumentsService {
     }
 
     throw apiError('DOCUMENT_NOT_FOUND', HttpStatus.NOT_FOUND)
-  }
-
-  /**
-   * Map a `documents` row into the API DTO.
-   *
-   * @param row                       the `documents` row as returned by Drizzle
-   * @param uploaderName              display name resolved via a join (callers
-   *                                  that already issued the join pass it in;
-   *                                  callers that only have the row can pass
-   *                                  `null` and the UI will fall back to a
-   *                                  short id)
-   * @param invoiceTransactionId      for INVOICE category only — the parent
-   *                                  transaction id resolved via
-   *                                  `transactions.invoice_document_id`. Null
-   *                                  for non-INVOICE rows and for callers that
-   *                                  did not issue the join.
-   * @param invoicePendingSignature   computed by `list()` only: true when the
-   *                                  viewer is the expected counterparty and
-   *                                  no COUNTERPARTY signature exists yet.
-   *                                  Other callers (`upload`, `restore`, etc.)
-   *                                  pass `false` since the flag is purely a
-   *                                  viewer-relative UI hint.
-   */
-  private mapDocument(
-    row: typeof documents.$inferSelect,
-    uploaderName: string | null = null,
-    invoiceTransactionId: string | null = null,
-    invoicePendingSignature: boolean = false,
-    source: DocumentSource = 'file',
-    statusBadge: StatusBadge | null = null,
-  ): DocumentDto {
-    return {
-      id: row.id,
-      ownerId: row.ownerId,
-      projectId: row.projectId ?? null,
-      category: row.category as DocumentCategory,
-      name: row.name,
-      originalName: row.originalName ?? null,
-      // s3Key omitted — internal storage key, not part of the public DTO (s3/documents hygiene)
-      thumbnailS3Key: row.thumbnailS3Key ?? null,
-      sizeBytes: row.sizeBytes,
-      mimeType: row.mimeType,
-      uploadedBy: row.uploadedBy,
-      uploadedByDisplayName: uploaderName,
-      deletedAt: row.deletedAt?.toISOString() ?? null,
-      deletedBy: row.deletedBy ?? null,
-      createdAt: row.createdAt.toISOString(),
-      invoiceTransactionId,
-      invoicePendingSignature,
-      source,
-      statusBadge,
-      // i18n server-text PR2: real uploads carry a filename in `name`, not a
-      // contract-name structure — the client renders the structure only when
-      // `nameKind` is non-null.
-      nameKind: null,
-      contractNumber: null,
-    }
   }
 
   // -------------------------------------------------------------------------
