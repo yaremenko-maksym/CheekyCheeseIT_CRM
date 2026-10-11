@@ -265,4 +265,12 @@ describe('interview URL fields — http(s) scheme allow-list', () => {
     expect(updateInterviewSchema.safeParse({ [field]: null }).success).toBe(true)
     expect(updateInterviewSchema.safeParse({}).success).toBe(true)
   })
+
+  it('anchors the scheme check and reports a stable message', () => {
+    // `http://` later in the string must not satisfy the allow-list.
+    const r = updateInterviewSchema.safeParse({ vacancyUrl: 'javascript://x.io/%0Ahttp://y.io' })
+    expect(r.success).toBe(false)
+    expect(r.error?.issues[0]?.message).toBe('URL must use http or https scheme')
+    expect(updateInterviewSchema.safeParse({ vacancyUrl: 'HTTPS://x.io' }).success).toBe(true)
+  })
 })
