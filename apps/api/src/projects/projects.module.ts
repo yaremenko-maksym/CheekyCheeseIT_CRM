@@ -5,6 +5,7 @@ import { DatabaseModule } from '../database/database.module'
 import { NotificationsModule } from '../notifications/notifications.module'
 import { UsersModule } from '../users/users.module'
 import { ProjectAccessService } from './project-access.service'
+import { ProjectArchiveService } from './project-archive.service'
 import { ProjectAuditLogService } from './project-audit-log.service'
 import { ProjectDraftService } from './project-draft.service'
 import { ProjectMembersService } from './project-members.service'
@@ -31,6 +32,7 @@ import { ProjectsService } from './projects.service'
     ProjectMembersService,
     ProjectReadService,
     ProjectDraftService,
+    ProjectArchiveService,
   ],
   exports: [ProjectsService, ProjectAuditLogService],
 })
