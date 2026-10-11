@@ -1,11 +1,4 @@
-import {
-  ForbiddenException,
-  HttpStatus,
-  Inject,
-  Injectable,
-  Optional,
-  forwardRef,
-} from '@nestjs/common'
+import { ForbiddenException, HttpStatus, Inject, Injectable, forwardRef } from '@nestjs/common'
 import { and, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm'
 import type {
   ArchiveImpact,
@@ -182,15 +175,14 @@ export class UsersService {
     // решения: новая доля» для БАЗОВОЙ доли — половина, симметричная
     // `ProjectsService`.
     private readonly notifications: NotificationsService,
-    // Optional so the many positional `new UsersService(a..k)` spec factories
-    // keep working; Nest injects the provider, otherwise it is built from the
-    // same db / audit log the service already holds.
-    @Optional() invites?: PersonalEmailInviteService,
-  ) {
-    this.invites = invites ?? new PersonalEmailInviteService(db, auditLogService)
-  }
+  ) {}
 
-  private readonly invites: PersonalEmailInviteService
+  // Built lazily from the deps this service already holds, so it works for every construction
+  // style (Nest DI, positional `new`, and prototype-based spec factories that skip the constructor).
+  private _invites?: PersonalEmailInviteService
+  private get invites(): PersonalEmailInviteService {
+    return (this._invites ??= new PersonalEmailInviteService(this.db, this.auditLogService))
+  }
 
   /**
    * task-pending-share (position 5). `subjectType` this module registers

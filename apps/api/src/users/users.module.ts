@@ -14,7 +14,6 @@ import { UsersController } from './users.controller'
 import { UsersAccessService } from './users-access.service'
 import { AuditLogService } from './audit-log.service'
 import { PersonalEmailInviteMailerService } from './personal-email-invite-mailer.service'
-import { PersonalEmailInviteService } from './personal-email-invite.service'
 import { UsersService } from './users.service'
 
 @Module({
@@ -51,7 +50,6 @@ import { UsersService } from './users.service'
     AuditLogService,
     AuditInterceptor,
     PersonalEmailInviteMailerService,
-    PersonalEmailInviteService,
   ],
   exports: [UsersService, UsersAccessService, AuditLogService],
 })
