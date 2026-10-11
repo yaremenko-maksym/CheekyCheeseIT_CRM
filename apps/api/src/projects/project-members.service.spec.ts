@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 
+import { compileWhere } from '../finance/__test-helpers__/drizzle-where-introspection'
 import { ProjectMembersService } from './project-members.service'
 
 const user = (role: SessionUser['role'], id = 'actor-1'): SessionUser => ({
@@ -38,7 +39,7 @@ function make(opts: { project?: unknown; target?: unknown; activeMember?: unknow
     createManyInTx: vi.fn().mockResolvedValue(undefined),
   }
   const svc = new ProjectMembersService(db as never, access as never, notifications as never)
-  return { svc, access, notifications, insertValues, set, projectsFind, usersFind }
+  return { svc, access, notifications, insertValues, set, projectsFind, usersFind, membersFind }
 }
 
 const project = { id: 'p1', seniorId: 'sen-1', companyName: 'Acme', members: [] }
@@ -119,5 +120,84 @@ describe('ProjectMembersService.removeMember', () => {
     })
     await h.svc.removeMember('p1', 'u1', user('ADMIN'))
     expect(h.set).toHaveBeenCalledWith({ leftAt: expect.any(Date) })
+  })
+})
+
+const whereOf = (fn: ReturnType<typeof vi.fn>, call: number) =>
+  compileWhere((fn.mock.calls[call]?.[0] as { where: unknown }).where)
+
+describe('ProjectMembersService lookups are scoped', () => {
+  it('addMember scopes the user and duplicate lookups by id', async () => {
+    const h = make({ project, target: { id: 'u1', role: 'HR', archivedAt: null } })
+    await h.svc.addMember('p1', 'u1', user('ADMIN'))
+    expect(whereOf(h.usersFind, 0).params).toEqual(['u1'])
+    expect(whereOf(h.membersFind, 0).params).toEqual(expect.arrayContaining(['p1', 'u1']))
+    expect(whereOf(h.membersFind, 0).sql).toMatch(/left_at.*is null/i)
+  })
+
+  it('removeMember scopes the member and user lookups by id', async () => {
+    const h = make({
+      project,
+      activeMember: { id: 'm1' },
+      target: { id: 'u1', role: 'JUNIOR' },
+    })
+    await h.svc.removeMember('p1', 'u1', user('ADMIN'))
+    expect(whereOf(h.membersFind, 0).params).toEqual(expect.arrayContaining(['p1', 'u1']))
+    expect(whereOf(h.membersFind, 0).sql).toMatch(/left_at.*is null/i)
+    expect(whereOf(h.usersFind, 0).params).toEqual(['u1'])
+  })
+})
+
+describe('ProjectMembersService.addMember membership rules', () => {
+  const junior = { id: 'u1', role: 'JUNIOR', archivedAt: null }
+
+  it('rejects a duplicate active membership', async () => {
+    const h = make({ project, target: junior, activeMember: { id: 'm0' } })
+    await expect(h.svc.addMember('p1', 'u1', user('ADMIN'))).rejects.toMatchObject({
+      status: 400,
+    })
+    expect(h.insertValues).not.toHaveBeenCalled()
+  })
+
+  it('rejects a JUNIOR active on another project, scoping that lookup by user', async () => {
+    const h = make({ project, target: junior })
+    h.membersFind.mockResolvedValueOnce(undefined).mockResolvedValueOnce({ id: 'other' })
+    await expect(h.svc.addMember('p1', 'u1', user('ADMIN'))).rejects.toMatchObject({
+      status: 400,
+    })
+    expect(h.membersFind).toHaveBeenCalledTimes(2)
+    expect(whereOf(h.membersFind, 1).params).toEqual(['u1'])
+    expect(whereOf(h.membersFind, 1).sql).toMatch(/left_at.*is null/i)
+    expect(h.insertValues).not.toHaveBeenCalled()
+  })
+
+  it('adds a free JUNIOR', async () => {
+    const h = make({ project, target: junior })
+    await h.svc.addMember('p1', 'u1', user('ADMIN'))
+    expect(h.membersFind).toHaveBeenCalledTimes(2)
+    expect(h.insertValues).toHaveBeenCalled()
+  })
+
+  it('rejects a second JUNIOR on the project', async () => {
+    const full = {
+      ...project,
+      members: [{ leftAt: null, user: { role: 'JUNIOR' } }],
+    }
+    const h = make({ project: full, target: junior })
+    await expect(h.svc.addMember('p1', 'u1', user('ADMIN'))).rejects.toMatchObject({
+      status: 400,
+    })
+    expect(h.membersFind).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not apply the JUNIOR-only checks to HR', async () => {
+    const full = {
+      ...project,
+      members: [{ leftAt: null, user: { role: 'JUNIOR' } }],
+    }
+    const h = make({ project: full, target: { id: 'u1', role: 'HR', archivedAt: null } })
+    await h.svc.addMember('p1', 'u1', user('ADMIN'))
+    expect(h.membersFind).toHaveBeenCalledTimes(1)
+    expect(h.insertValues).toHaveBeenCalled()
   })
 })
