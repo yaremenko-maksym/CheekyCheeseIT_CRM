@@ -6,6 +6,7 @@ import { NotificationsModule } from '../notifications/notifications.module'
 import { UsersModule } from '../users/users.module'
 import { ProjectAccessService } from './project-access.service'
 import { ProjectAuditLogService } from './project-audit-log.service'
+import { ProjectDraftService } from './project-draft.service'
 import { ProjectMembersService } from './project-members.service'
 import { ProjectReadService } from './project-read.service'
 import { ProjectsController } from './projects.controller'
@@ -29,6 +30,7 @@ import { ProjectsService } from './projects.service'
     ProjectAccessService,
     ProjectMembersService,
     ProjectReadService,
+    ProjectDraftService,
   ],
   exports: [ProjectsService, ProjectAuditLogService],
 })
