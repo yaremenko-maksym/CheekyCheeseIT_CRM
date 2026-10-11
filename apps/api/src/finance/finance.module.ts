@@ -9,6 +9,7 @@ import { BalanceController, PendingObligationsController } from './balance.contr
 import { BalanceService } from './balance.service'
 import { CompanyAccountController } from './company-account.controller'
 import { CompanyAccountService } from './company-account.service'
+import { EditCascadeService } from './edit-cascade.service'
 import { EtherscanService } from './etherscan.service'
 import { NbuCurrencyService } from './nbu-currency.service'
 import { PendingSettlementController } from './pending-settlement.controller'
@@ -60,6 +61,8 @@ import { TransactionTrashService } from './transaction-trash.service'
     TransactionLifecycleService,
     // Soft-delete / restore / audit-log read collaborator (db only).
     TransactionTrashService,
+    // Edit-cascade core: row locks, cascade snapshot, apply, preview (db only).
+    EditCascadeService,
     NbuCurrencyService,
     // Phase 4-A: balance pipeline runs alongside the legacy getSummary.
     BalanceService,
