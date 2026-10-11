@@ -3,6 +3,8 @@
  * for each `select()` in call order and records every `update()` and audit
  * `record()` call, so the exact cascade (writes + audit payloads) is pinned.
  */
+import { PgDialect } from 'drizzle-orm/pg-core'
+import type { SQL } from 'drizzle-orm'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { projectMembers, projects, teamMembers, teams, users, type User } from '../database/schema'
@@ -14,13 +16,17 @@ type Update = { table: unknown; set: Row }
 function makeTx(selects: Row[][]) {
   const queue = [...selects]
   const updates: Update[] = []
+  const forCalls: string[] = []
   const tx = {
     select: vi.fn(() => {
       const rows = queue.shift() ?? []
       const chain: Record<string, unknown> = {}
       chain.from = () => chain
       chain.where = () => chain
-      chain.for = () => chain
+      chain.for = (mode: string) => {
+        forCalls.push(mode)
+        return chain
+      }
       chain.then = (res: (v: Row[]) => unknown, rej?: (e: unknown) => unknown) =>
         Promise.resolve(rows).then(res, rej)
       return chain
@@ -32,11 +38,11 @@ function makeTx(selects: Row[][]) {
       },
     })),
   }
-  return { tx, updates }
+  return { tx, updates, forCalls }
 }
 
 function makeService(selects: Row[][], opts: { archiveDropTeam?: ReturnType<typeof vi.fn> } = {}) {
-  const { tx, updates } = makeTx(selects)
+  const { tx, updates, forCalls } = makeTx(selects)
   const audit = { record: vi.fn().mockResolvedValue(undefined) }
   const teamAudit = { record: vi.fn().mockResolvedValue(undefined) }
   const projectAudit = { record: vi.fn().mockResolvedValue(undefined) }
@@ -53,7 +59,7 @@ function makeService(selects: Row[][], opts: { archiveDropTeam?: ReturnType<type
     audit as never,
     teamsService as never,
   )
-  return { svc, tx, updates, audit, teamAudit, projectAudit, teamsService }
+  return { svc, tx, updates, forCalls, audit, teamAudit, projectAudit, teamsService }
 }
 
 const ISO = /^\d{4}-\d{2}-\d{2}T/
@@ -160,7 +166,7 @@ describe('UserArchiveService.archive cascade', () => {
 
   it('HR/ACCOUNTANT: closes team memberships and audits each removed team', async () => {
     for (const role of ['HR', 'ACCOUNTANT']) {
-      const { svc, updates, teamAudit } = makeService([
+      const { svc, updates, teamAudit, tx } = makeService([
         [user(role)],
         [
           { id: 'm1', teamId: 't1' },
@@ -169,6 +175,7 @@ describe('UserArchiveService.archive cascade', () => {
         [user(role)],
       ])
       await svc.archive('u1', 'a1')
+      expect(tx.select).toHaveBeenCalledWith({ id: teamMembers.id, teamId: teamMembers.teamId })
       expect(updates.map((u) => u.table)).toEqual([users, teamMembers])
       expect(updates[1]!.set.leftAt).toBeInstanceOf(Date)
       expect(teamAudit.record).toHaveBeenCalledTimes(2)
@@ -190,7 +197,7 @@ describe('UserArchiveService.archive cascade', () => {
   })
 
   it('JUNIOR: closes project memberships and audits each', async () => {
-    const { svc, updates, projectAudit, teamAudit } = makeService([
+    const { svc, updates, projectAudit, teamAudit, tx } = makeService([
       [user('JUNIOR')],
       [
         { id: 'pm1', projectId: 'p1' },
@@ -199,6 +206,10 @@ describe('UserArchiveService.archive cascade', () => {
       [user('JUNIOR')],
     ])
     await svc.archive('u1', 'a1')
+    expect(tx.select).toHaveBeenCalledWith({
+      id: projectMembers.id,
+      projectId: projectMembers.projectId,
+    })
     expect(updates.map((u) => u.table)).toEqual([users, projectMembers])
     expect(updates[1]!.set.leftAt).toBeInstanceOf(Date)
     expect(projectAudit.record).toHaveBeenCalledTimes(2)
@@ -338,16 +349,20 @@ describe('UserArchiveService.getArchiveImpact', () => {
     const mk = (rows: Row[]) => {
       const chain: Record<string, unknown> = {}
       chain.from = () => chain
-      chain.where = () => chain
+      chain.where = (w: unknown) => {
+        wheres.push(w)
+        return chain
+      }
       chain.then = (res: (v: Row[]) => unknown, rej?: (e: unknown) => unknown) =>
         Promise.resolve(rows).then(res, rej)
       return chain
     }
+    const wheres: unknown[] = []
     const dbInner = {
-      select: vi.fn(() => mk(queue.shift() ?? [])),
+      select: vi.fn((_projection?: unknown) => mk(queue.shift() ?? [])),
       query: {
-        teamMembers: { findFirst: vi.fn(async () => firstQueue.shift()) },
-        teams: { findFirst: vi.fn(async () => firstQueue.shift()) },
+        teamMembers: { findFirst: vi.fn(async (_a: unknown) => firstQueue.shift()) },
+        teams: { findFirst: vi.fn(async (_a: unknown) => firstQueue.shift()) },
       },
     }
     const svc = new UserArchiveService(
@@ -357,7 +372,7 @@ describe('UserArchiveService.getArchiveImpact', () => {
       {} as never,
       {} as never,
     )
-    return svc
+    return Object.assign(svc, { dbInner, wheres })
   }
 
   it('rejects non-ADMIN callers before reading anything', async () => {
@@ -386,12 +401,14 @@ describe('UserArchiveService.getArchiveImpact', () => {
   it('HR / ACCOUNTANT: teamsCount', async () => {
     for (const role of ['HR', 'ACCOUNTANT']) {
       const svc = makeImpact([[user(role)], PENDING, [{ teamId: 't1' }, { teamId: 't2' }]])
-      await expect(svc.getArchiveImpact('u1', admin)).resolves.toEqual({
+      const probe = svc.getArchiveImpact('u1', admin)
+      await expect(probe).resolves.toEqual({
         type: 'user',
         role,
         teamsCount: 2,
         pendingTransactions: PENDING,
       })
+      expect(svc.dbInner.select).toHaveBeenCalledWith({ teamId: teamMembers.teamId })
     }
   })
 
@@ -403,6 +420,7 @@ describe('UserArchiveService.getArchiveImpact', () => {
       projectsCount: 1,
       pendingTransactions: PENDING,
     })
+    expect(svc.dbInner.select).toHaveBeenCalledWith({ projectId: projectMembers.projectId })
   })
 
   for (const role of ['SENIOR', 'DROP'] as const) {
@@ -420,7 +438,20 @@ describe('UserArchiveService.getArchiveImpact', () => {
         ],
         [{ teamId: 't1' }, { id: 't1', name: 'Team One' }],
       )
-      await expect(svc.getArchiveImpact('u1', admin)).resolves.toEqual({
+      const out = await svc.getArchiveImpact('u1', admin)
+      const sel = svc.dbInner.select
+      expect(sel).toHaveBeenCalledWith({ userId: teamMembers.userId })
+      expect(sel).toHaveBeenCalledWith({ id: projects.id, name: projects.name })
+      expect(sel).toHaveBeenCalledWith({ userId: projectMembers.userId })
+      expect(svc.dbInner.query.teamMembers.findFirst).toHaveBeenCalledWith({
+        where: expect.anything(),
+      })
+      expect(svc.dbInner.query.teams.findFirst).toHaveBeenCalledWith({
+        where: expect.anything(),
+      })
+      const juniorsWhere = svc.wheres[svc.wheres.length - 1] as SQL
+      expect(new PgDialect().sqlToQuery(juniorsWhere).params).toEqual(['p1', 'p2'])
+      expect(out).toEqual({
         type: 'user',
         role,
         isPaired: true,
@@ -435,7 +466,10 @@ describe('UserArchiveService.getArchiveImpact', () => {
 
     it(`${role}: no team, no projects -> zeros and null team name`, async () => {
       const svc = makeImpact([[user(role)], PENDING, []], [undefined])
-      await expect(svc.getArchiveImpact('u1', admin)).resolves.toEqual({
+      const out = await svc.getArchiveImpact('u1', admin)
+      // user, pending, projects only: no junior lookup for an empty project list
+      expect(svc.dbInner.select).toHaveBeenCalledTimes(3)
+      expect(out).toEqual({
         type: 'user',
         role,
         isPaired: true,
@@ -499,6 +533,12 @@ describe('UserArchiveService.archiveDrop', () => {
     expect(p.changes.archivedAt.before).toBeNull()
     expect(p.changes.archivedAt.after).toMatch(ISO)
     expect(ptx).toBe(tx)
+  })
+
+  it('locks the drop row FOR UPDATE', async () => {
+    const { svc, forCalls } = makeService([[user('DROP')], []])
+    await svc.archiveDrop('d1', admin)
+    expect(forCalls).toEqual(['update'])
   })
 
   it('no team: zero result, actor id used when not impersonating', async () => {

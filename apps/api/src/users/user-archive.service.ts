@@ -300,6 +300,9 @@ export class UserArchiveService {
         actorId,
         targetId: id,
         action: 'user_unarchived',
+        // Stryker disable next-line OptionalChaining: equivalent mutant — `user.archivedAt` was
+        // checked non-null a few lines up (`USER_NOT_ARCHIVED` throw), so `previousArchivedAt`
+        // can never be nullish here and `?.` vs `.` is unobservable.
         changes: { archivedAt: { before: previousArchivedAt?.toISOString() ?? null, after: null } },
       },
       tx,
