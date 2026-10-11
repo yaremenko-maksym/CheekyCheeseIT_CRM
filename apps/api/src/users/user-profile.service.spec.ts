@@ -93,6 +93,41 @@ describe('UserProfileService.buildProfileView — overview data', () => {
 })
 
 describe('UserProfileService.buildProfileView — requisites_read audit', () => {
+  const populated = {
+    ...baseTarget,
+    bankUahIban: 'UA213223130000026007233566001',
+    bankUahRnokpp: '1234567890',
+  }
+  const perms: Perms = {
+    tabs: ['overview', 'requisites'],
+    actions: [],
+    fields: { requisites: true },
+  }
+
+  it('accountant (not self) receiving requisites records one redacted, names-only audit', async () => {
+    const { service, auditRecord } = makeService(populated, perms)
+    await service.buildProfileView(viewerOf('acc-id', 'ACCOUNTANT'), 'target-id')
+    expect(auditRecord).toHaveBeenCalledTimes(1)
+    const entry = auditRecord.mock.calls[0][0]
+    expect(entry).toMatchObject({
+      actorId: 'acc-id',
+      targetId: 'target-id',
+      action: 'requisites_read',
+    })
+    expect(Object.keys(entry.changes).sort()).toEqual(['bankUahIban', 'bankUahRnokpp'])
+    for (const change of Object.values(entry.changes)) {
+      expect(change).toEqual({ before: '[redacted]', after: '[redacted]' })
+    }
+    expect(JSON.stringify(entry)).not.toContain('1234567890')
+    expect(JSON.stringify(entry)).not.toContain('UA2132')
+  })
+
+  it('attributes the audit to the impersonator when one is supplied', async () => {
+    const { service, auditRecord } = makeService(populated, perms)
+    await service.buildProfileView(viewerOf('acc-id', 'ACCOUNTANT'), 'target-id', 'imp-id')
+    expect(auditRecord.mock.calls[0][0].actorId).toBe('imp-id')
+  })
+
   it('accountant with requisites access but no populated requisite fields writes no audit', async () => {
     const { service, auditRecord } = makeService(baseTarget, {
       tabs: ['overview', 'requisites'],
