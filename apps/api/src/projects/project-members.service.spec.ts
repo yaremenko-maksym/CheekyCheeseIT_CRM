@@ -12,6 +12,7 @@ const user = (role: SessionUser['role'], id = 'actor-1'): SessionUser => ({
   role,
   seniorSharePercent: 0,
   legalFullName: null,
+  locale: 'en' as const,
 })
 
 function make(opts: { project?: unknown; target?: unknown; activeMember?: unknown } = {}) {
