@@ -315,7 +315,12 @@ export class AdminEditService {
             tx,
             receiptPatch.receiptExternalUrl ?? null,
           )
-        : { txHashPatch: {}, claimHash: null, staleClaim: false }
+        : // Stryker disable next-line ObjectLiteral: replacing this no-transition fallback with `{}` is unobservable — `...undefined` spreads no keys into the UPDATE and `undefined` is falsy exactly like `null` / `false` at the two reads below; the inner `txHashPatch: {}` on the next line is NOT covered and stays killable
+          {
+            txHashPatch: {},
+            claimHash: null,
+            staleClaim: false,
+          }
 
     // task-cascade-apply (task 3, AC11) — produced INSIDE the DB transaction,
     // consumed AFTER it commits. `undefined` ⇔ no cascade ran, which is also
