@@ -6,6 +6,8 @@
  * income link, placeholder PAYOUT row).
  */
 import { ForbiddenException, HttpException } from '@nestjs/common'
+import { PgDialect } from 'drizzle-orm/pg-core'
+import type { SQL } from 'drizzle-orm'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import type { DatabaseService } from '../database/database.service'
@@ -55,7 +57,7 @@ function setup(opts: Setup = {}) {
   const rate = opts.rate ?? { usdUah: '40', eurUah: '44' }
 
   const forMock = vi.fn(async () => rows)
-  const selectWhere = vi.fn(() => ({ for: forMock }))
+  const selectWhere = vi.fn((_cond: unknown) => ({ for: forMock }))
   const select = vi.fn(() => ({ from: vi.fn(() => ({ where: selectWhere })) }))
 
   const requestValues = vi.fn(() => ({
@@ -66,7 +68,7 @@ function setup(opts: Setup = {}) {
     void table
     return insert.mock.calls.length === 1 ? { values: requestValues } : { values: payoutValues }
   })
-  const updateWhere = vi.fn(async () => [])
+  const updateWhere = vi.fn(async (_cond: unknown) => [])
   const updateSet = vi.fn(() => ({ where: updateWhere }))
   const update = vi.fn(() => ({ set: updateSet }))
   const companyAccountFindFirst = vi.fn(async () => (wallet ? { walletAddress: wallet } : null))
@@ -77,7 +79,7 @@ function setup(opts: Setup = {}) {
     query: { companyAccount: { findFirst: companyAccountFindFirst } },
   }
 
-  const userFindFirst = vi.fn(async () => opts.dropUser ?? null)
+  const userFindFirst = vi.fn(async (_args: { where: unknown }) => opts.dropUser ?? null)
   const transaction = vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(dbtx))
   const db = {
     db: { transaction, query: { users: { findFirst: userFindFirst } } },
@@ -98,10 +100,16 @@ function setup(opts: Setup = {}) {
     forMock,
     transaction,
     userFindFirst,
+    selectWhere,
+    updateWhere,
     getRates,
     findPayoutRequest,
     companyAccountFindFirst,
   }
+}
+
+function render(cond: unknown): { sql: string; params: unknown[] } {
+  return new PgDialect().sqlToQuery(cond as SQL)
 }
 
 async function codeOf(p: Promise<unknown>): Promise<string | undefined> {
@@ -393,5 +401,35 @@ describe('PayoutRequestService.createPayoutRequest', () => {
     const s = setup({ rows: [income({ projectId: null })] })
     await s.svc.createPayoutRequest(['tx-1'], user('SENIOR'))
     expect(s.payoutValues).toHaveBeenCalledWith(expect.objectContaining({ projectId: null }))
+  })
+})
+
+describe('PayoutRequestService.createPayoutRequest predicates', () => {
+  it('locks SENIOR_INCOME rows for a SENIOR with the full candidate predicate', async () => {
+    const s = setup()
+    await s.svc.createPayoutRequest(['tx-a'], user('SENIOR', 'sen-1'))
+    const { sql: text, params } = render(s.selectWhere.mock.calls[0]![0])
+    expect(params).toEqual(['tx-a', 'SENIOR_INCOME', 'VALIDATED', 'sen-1'])
+    expect(text).toContain('"payout_request_id" is null')
+    expect(text).toContain('"deleted_at" is null')
+  })
+
+  it('locks DROP_INCOME rows for a DROP and reads the user default by id', async () => {
+    const s = setup({ rows: [income({ type: 'DROP_INCOME' })], dropUser: { dropSharePercent: 5 } })
+    await s.svc.createPayoutRequest(['tx-a'], user('DROP', 'drop-1'))
+    expect(render(s.selectWhere.mock.calls[0]![0]).params).toEqual([
+      'tx-a',
+      'DROP_INCOME',
+      'VALIDATED',
+      'drop-1',
+    ])
+    const lookup = render(s.userFindFirst.mock.calls[0]![0].where)
+    expect(lookup.params).toEqual(['drop-1'])
+  })
+
+  it('links exactly the locked ids, not the caller-supplied ones', async () => {
+    const s = setup({ rows: [income({ id: 'locked-1' }), income({ id: 'locked-2' })] })
+    await s.svc.createPayoutRequest(['req-1', 'req-2'], user('SENIOR'))
+    expect(render(s.updateWhere.mock.calls[0]![0]).params).toEqual(['locked-1', 'locked-2'])
   })
 })
