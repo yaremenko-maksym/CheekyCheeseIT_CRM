@@ -26,7 +26,7 @@ import {
  * them, and the next door added to this service starts out with zero. Here
  * the decision (which columns, which message, actual-change semantics) is
  * stated ONCE in `archived-entitlement.ts` and every writer inherits it by
- * calling this method rather than by remembering a rule.
+ * calling this function rather than by remembering a rule.
  *
  * The honest limit of a choke point: it protects writers that USE it. A
  * future method reaching for `this.db.db.update(users)` directly is not
@@ -34,7 +34,7 @@ import {
  * set of direct writers is a CHECKED inventory rather than a claim in this
  * comment.
  *
- * Two of them bypass this method on purpose (`updateProfile`,
+ * Two of them bypass this function on purpose (`updateProfile`,
  * `updateRequisites`). They are safe not because they look harmless but
  * because the `set` object they build contains no entitlement column, and
  * `archived-entitlement.unit.spec.ts` asserts exactly that by capturing what

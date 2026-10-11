@@ -521,6 +521,10 @@ describe('archived-entitlement — the inventory of everything that writes `user
       /^ {2}(?:private |public |protected |readonly |static )*(?:async )?([A-Za-z_$][\w$]*)\s*(?:<[^>]*>)?\(/
     // Top-level (column 0) functions: the choke point lives in a util, not a class.
     const TOP_LEVEL_FN = /^(?:export )?(?:async )?function\s+([A-Za-z_$][\w$]*)\s*(?:<[^>]*>)?\(/
+    // Same, for `const name = (async )?(...) =>` / `= function` at column 0, so
+    // two arrow-style writers in one file do not collapse into one key.
+    const TOP_LEVEL_CONST_FN =
+      /^(?:export )?const\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*(?:async\s+)?(?:function\b|<[^>]*>\s*\(|\(|[A-Za-z_$][\w$]*\s*=>)/
     const out: Record<string, string> = {}
 
     const walk = (dir: string): string[] =>
@@ -552,7 +556,7 @@ describe('archived-entitlement — the inventory of everything that writes `user
 
           // Inside a top-level function body, two-space statements such as
           // `  if (...)` look like class members; only a column-0 `}` ends it.
-          const topLevel = TOP_LEVEL_FN.exec(line)
+          const topLevel = TOP_LEVEL_FN.exec(line) ?? TOP_LEVEL_CONST_FN.exec(line)
           if (topLevel?.[1]) {
             method = topLevel[1]
             inTopLevelFn = true
