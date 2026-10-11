@@ -138,15 +138,19 @@ function spyOnLoggerErrors(svc: TransactionsService): string[] {
   return messages
 }
 
-/** `afterTransactionCreated` — приватный шов, который зовут все пути создания. */
+/** `afterTransactionCreated` — шов в lifecycle-коллабораторе, который зовут все пути создания. */
 function created(svc: TransactionsService) {
-  return svc as unknown as {
-    afterTransactionCreated: (
-      txId: string,
-      created: { type: string; amount: string; currency: string },
-      user: SessionUser,
-    ) => Promise<void>
-  }
+  return (
+    svc as unknown as {
+      lifecycle: {
+        afterTransactionCreated: (
+          txId: string,
+          created: { type: string; amount: string; currency: string },
+          user: SessionUser | null,
+        ) => Promise<void>
+      }
+    }
+  ).lifecycle
 }
 
 describe('«транзакция добавлена»', () => {

@@ -29,19 +29,33 @@ function makeRow(over: Partial<Row> = {}): Row {
 }
 
 function setup(row: Row | undefined, project: { companyName: string } | undefined = undefined) {
+  const invoices = {
+    autoCreateForSeniorPayout: vi.fn().mockResolvedValue(undefined),
+    autoCreateForSalary: vi.fn().mockResolvedValue(undefined),
+    autoCreateForPayout: vi.fn().mockResolvedValue(undefined),
+  }
+  const auditValues: unknown[] = []
+  const insert = vi.fn(() => ({
+    values: vi.fn(async (v: unknown) => {
+      auditValues.push(v)
+    }),
+  }))
   const create = vi.fn().mockResolvedValue(null)
   const txFind = vi.fn().mockResolvedValue(row)
   const projFind = vi.fn().mockResolvedValue(project)
   const db = {
-    db: { query: { transactions: { findFirst: txFind }, projects: { findFirst: projFind } } },
+    db: {
+      query: { transactions: { findFirst: txFind }, projects: { findFirst: projFind } },
+      insert,
+    },
   } as never
-  const svc = new TransactionLifecycleService({ create } as never, db)
+  const svc = new TransactionLifecycleService({ create } as never, db, invoices as never)
   const logger = (svc as unknown as { logger: { error: (m: string, s?: string) => void } }).logger
   const errors: string[] = []
   vi.spyOn(logger, 'error').mockImplementation((m: string) => {
     errors.push(m)
   })
-  return { svc, create, txFind, projFind, errors }
+  return { svc, create, txFind, projFind, errors, invoices, auditValues, insert }
 }
 
 describe('TransactionLifecycleService.notifyTransactionAdded', () => {
@@ -174,5 +188,92 @@ describe('TransactionLifecycleService.loadProjectName', () => {
   it('returns null when the project is gone', async () => {
     const h = setup(undefined, undefined)
     await expect(h.svc.loadProjectName('proj-1')).resolves.toBeNull()
+  })
+})
+
+describe('TransactionLifecycleService.safeAutoCreateInvoice', () => {
+  it.each([
+    ['SENIOR_INCOME', 'autoCreateForSeniorPayout'],
+    ['SALARY', 'autoCreateForSalary'],
+    ['PAYOUT', 'autoCreateForPayout'],
+  ] as const)('%s creates exactly one invoice via %s and no other', async (kind, method) => {
+    const h = setup(makeRow())
+    await h.svc.safeAutoCreateInvoice(kind, 'tx-9')
+    const calls = {
+      autoCreateForSeniorPayout: h.invoices.autoCreateForSeniorPayout.mock.calls,
+      autoCreateForSalary: h.invoices.autoCreateForSalary.mock.calls,
+      autoCreateForPayout: h.invoices.autoCreateForPayout.mock.calls,
+    }
+    expect(calls).toEqual({
+      autoCreateForSeniorPayout: [],
+      autoCreateForSalary: [],
+      autoCreateForPayout: [],
+      [method]: [['tx-9']],
+    })
+  })
+
+  it('swallows an invoice failure and logs a warning (committed money write stays committed)', async () => {
+    const h = setup(makeRow())
+    h.invoices.autoCreateForSalary.mockRejectedValue(new Error('S3 down'))
+    const warn = vi
+      .spyOn((h.svc as unknown as { logger: { warn: (m: string) => void } }).logger, 'warn')
+      .mockImplementation(() => undefined)
+    await expect(h.svc.safeAutoCreateInvoice('SALARY', 'tx-9')).resolves.toBeUndefined()
+    expect(warn).toHaveBeenCalledWith('auto-create invoice failed for SALARY tx=tx-9: S3 down')
+  })
+})
+
+describe('TransactionLifecycleService.afterTransactionCreated', () => {
+  const created = { type: 'INCOME', amount: '12.50', currency: 'USD' }
+
+  it('writes the CREATE audit row (impersonator attributed) THEN notifies the receiver', async () => {
+    const h = setup(makeRow())
+    const order: string[] = []
+    h.insert.mockImplementation(() => ({
+      values: vi.fn(async (v: unknown) => {
+        order.push('audit')
+        h.auditValues.push(v)
+      }),
+    }))
+    h.create.mockImplementation(async () => {
+      order.push('notify')
+      return null
+    })
+    const impersonated = { ...ACTOR, impersonatorId: 'real-admin' } as SessionUser
+    await h.svc.afterTransactionCreated('tx-1', created, impersonated)
+    expect(h.auditValues).toEqual([
+      {
+        actorId: 'real-admin',
+        targetId: 'tx-1',
+        action: 'CREATE',
+        metadata: { type: 'INCOME', amount: '12.50', currency: 'USD' },
+      },
+    ])
+    expect(order).toEqual(['audit', 'notify'])
+  })
+
+  it('uses the actor id when not impersonating', async () => {
+    const h = setup(makeRow())
+    await h.svc.afterTransactionCreated('tx-1', created, ACTOR)
+    expect(h.auditValues[0]).toMatchObject({ actorId: 'actor-1' })
+  })
+
+  it('writes no audit row without an actor (cron) but still notifies', async () => {
+    const h = setup(makeRow())
+    await h.svc.afterTransactionCreated('tx-1', created, null)
+    expect(h.insert).not.toHaveBeenCalled()
+    expect(h.create).toHaveBeenCalledTimes(1)
+  })
+
+  it('swallows an audit write failure, logs it, and still notifies', async () => {
+    const h = setup(makeRow())
+    h.insert.mockImplementation(() => ({
+      values: vi.fn().mockRejectedValue(new Error('db hiccup')),
+    }))
+    await expect(h.svc.afterTransactionCreated('tx-1', created, ACTOR)).resolves.toBeUndefined()
+    expect(h.errors).toEqual([
+      'recordCreationAudit: failed to persist audit record for transaction=tx-1: db hiccup',
+    ])
+    expect(h.create).toHaveBeenCalledTimes(1)
   })
 })

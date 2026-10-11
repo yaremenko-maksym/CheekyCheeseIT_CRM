@@ -634,8 +634,9 @@ describe('paySalary — #11: ADMIN_PERSONAL atomic flip (no duplicate invoice)',
       },
     }
     const svc = makeTransactionsService({ db: dbStub as never })
-    ;(svc as unknown as { safeAutoCreateInvoice: typeof invoiceSpy }).safeAutoCreateInvoice =
-      invoiceSpy
+    ;(
+      svc as unknown as { lifecycle: { safeAutoCreateInvoice: typeof invoiceSpy } }
+    ).lifecycle.safeAutoCreateInvoice = invoiceSpy
     ;(svc as unknown as { findOne: typeof findOne }).findOne = findOne
     return { svc, invoiceSpy, setSpy }
   }
@@ -671,8 +672,9 @@ describe('paySalary — #11: ADMIN_PERSONAL atomic flip (no duplicate invoice)',
       },
     }
     const svc = makeTransactionsService({ db: dbStub as never })
-    ;(svc as unknown as { safeAutoCreateInvoice: typeof invoiceSpy }).safeAutoCreateInvoice =
-      invoiceSpy
+    ;(
+      svc as unknown as { lifecycle: { safeAutoCreateInvoice: typeof invoiceSpy } }
+    ).lifecycle.safeAutoCreateInvoice = invoiceSpy
     return { svc, invoiceSpy }
   }
 
@@ -701,6 +703,7 @@ describe('paySalary — #11: ADMIN_PERSONAL atomic flip (no duplicate invoice)',
     const { svc, invoiceSpy } = makeSvc([{ id: 'sal-1' }])
     await expect(svc.paySalary('sal-1', payData, admin())).resolves.toBeDefined()
     expect(invoiceSpy).toHaveBeenCalledTimes(1)
+    expect(invoiceSpy).toHaveBeenCalledWith('SALARY', 'sal-1')
   })
 
   it('stores a custom salary payout date on the PAID transaction', async () => {
@@ -834,8 +837,9 @@ describe('paySalary — #11: ADMIN_PERSONAL atomic flip (no duplicate invoice)',
       },
     }
     const svc = makeTransactionsService({ db: dbStub as never })
-    ;(svc as unknown as { safeAutoCreateInvoice: typeof invoiceSpy }).safeAutoCreateInvoice =
-      invoiceSpy
+    ;(
+      svc as unknown as { lifecycle: { safeAutoCreateInvoice: typeof invoiceSpy } }
+    ).lifecycle.safeAutoCreateInvoice = invoiceSpy
     ;(svc as unknown as { findOne: typeof findOne }).findOne = findOne
 
     await expect(svc.paySalary('sal-1', payData, admin())).rejects.toBeInstanceOf(
