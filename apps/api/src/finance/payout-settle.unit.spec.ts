@@ -34,6 +34,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { compileWhere, collectParamValues } from './__test-helpers__/drizzle-where-introspection'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
+import type { PayoutRequestReadService } from './payout-request-read.service'
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -332,13 +333,20 @@ function build(patch: Partial<World> = {}) {
     lifecycleService: { safeAutoCreateInvoice } as never,
   })
   const findPayoutRequest = vi
-    .spyOn(svc, 'findPayoutRequest')
+    .spyOn(
+      (svc as unknown as { payoutRead: PayoutRequestReadService }).payoutRead,
+      'findPayoutRequest',
+    )
     .mockImplementation(async (id: string) => {
       events.push({ label: 'findPayoutRequest' })
       return { id, marker: 'found' } as never
     })
   const logger = (svc as unknown as { logger: Logger }).logger
+  // The claim path warns through OnChainClaimService's own logger; one shared
+  // mock records warnings from both the facade and the collaborator.
+  const claimLogger = (svc as unknown as { onChainClaim: { logger: Logger } }).onChainClaim.logger
   const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined)
+  vi.spyOn(claimLogger, 'warn').mockImplementation((...args) => warn(...args))
   const error = vi.spyOn(logger, 'error').mockImplementation(() => undefined)
 
   const labels = () => events.map((e) => e.label)
