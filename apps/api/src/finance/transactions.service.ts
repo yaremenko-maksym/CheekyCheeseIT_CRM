@@ -639,38 +639,6 @@ export class TransactionsService {
     )
   }
 
-  /**
-   * Fire-and-forget wrapper so a failing invoice generation (e.g. S3 outage)
-   * does NOT roll back the underlying transaction state change. The PAID
-   * status flip is the source of truth; the invoice is a derived artefact
-   * that can always be re-generated (autoCreate is idempotent on
-   * `invoice_document_id`).
-   *
-   * task-aggregate-invoice-per-payout: a third kind `PAYOUT` was added —
-   * `payPayoutRequest` now fires one PAYOUT-trigger after the cascade
-   * instead of N SENIOR_INCOME-triggers (one per linked income). The
-   * SENIOR_INCOME branch is kept for legacy callers
-   * (`PendingSettlementService.settleByCompany`).
-   */
-  private async safeAutoCreateInvoice(
-    kind: 'SENIOR_INCOME' | 'SALARY' | 'PAYOUT',
-    transactionId: string,
-  ): Promise<void> {
-    try {
-      if (kind === 'SENIOR_INCOME') {
-        await this.invoicesService.autoCreateForSeniorPayout(transactionId)
-      } else if (kind === 'SALARY') {
-        await this.invoicesService.autoCreateForSalary(transactionId)
-      } else {
-        await this.invoicesService.autoCreateForPayout(transactionId)
-      }
-    } catch (err) {
-      this.logger.warn(
-        `auto-create invoice failed for ${kind} tx=${transactionId}: ${(err as Error).message}`,
-      )
-    }
-  }
-
   // ── Team override resolution (task-team-senior-share-override) ───────────
   //
   // The team-level senior share override applies only when *exactly one*
@@ -1280,7 +1248,7 @@ export class TransactionsService {
       throw err
     }
 
-    await this.afterTransactionCreated(tx.id, tx, currentUser)
+    await this.lifecycle.afterTransactionCreated(tx.id, tx, currentUser)
     return this.findOne(tx.id, currentUser)
   }
 
@@ -1721,7 +1689,7 @@ export class TransactionsService {
       throw err
     }
 
-    await this.afterTransactionCreated(tx!.id, tx!, currentUser)
+    await this.lifecycle.afterTransactionCreated(tx!.id, tx!, currentUser)
     return this.findOne(tx!.id, currentUser)
   }
 
@@ -1865,7 +1833,7 @@ export class TransactionsService {
       throw err
     }
 
-    await this.afterTransactionCreated(tx!.id, tx!, currentUser)
+    await this.lifecycle.afterTransactionCreated(tx!.id, tx!, currentUser)
     return this.findOne(tx!.id, currentUser)
   }
 
@@ -4731,7 +4699,7 @@ export class TransactionsService {
       txId = tx!.id
     }
 
-    await this.afterTransactionCreated(txId, values, currentUser)
+    await this.lifecycle.afterTransactionCreated(txId, values, currentUser)
     return this.findOne(txId, currentUser)
   }
 
@@ -4883,7 +4851,7 @@ export class TransactionsService {
       throw err
     }
 
-    await this.afterTransactionCreated(tx.id, tx, currentUser)
+    await this.lifecycle.afterTransactionCreated(tx.id, tx, currentUser)
     return this.findOne(tx.id, currentUser)
   }
 
@@ -5009,7 +4977,7 @@ export class TransactionsService {
       })
       .returning()
 
-    await this.afterTransactionCreated(tx!.id, tx!, currentUser)
+    await this.lifecycle.afterTransactionCreated(tx!.id, tx!, currentUser)
     return this.findOne(tx!.id, currentUser)
   }
 
@@ -6256,7 +6224,7 @@ export class TransactionsService {
     // never roll back the (already-committed) money cascade. Idempotency is
     // guarded by the PAYOUT row's own `invoice_document_id` field.
     if (payoutRowId) {
-      await this.safeAutoCreateInvoice('PAYOUT', payoutRowId)
+      await this.lifecycle.safeAutoCreateInvoice('PAYOUT', payoutRowId)
     }
 
     return this.findPayoutRequest(requestId, currentUser)
@@ -6911,7 +6879,7 @@ export class TransactionsService {
     // debit transaction commits (best-effort; must not hold the lock). Reached
     // only when THIS call performed the flip (the ADMIN_PERSONAL guard above and
     // the company-account status re-check both throw on a lost race).
-    await this.safeAutoCreateInvoice('SALARY', id)
+    await this.lifecycle.safeAutoCreateInvoice('SALARY', id)
 
     // task-soft-delete-and-money-audit (AC5): "оплата". Best-effort, like the
     // invoice trigger above — run AFTER the debit transaction has already
@@ -7059,7 +7027,7 @@ export class TransactionsService {
           amount: emp.monthlySalary,
         })
         if (insertedId) {
-          await this.afterTransactionCreated(
+          await this.lifecycle.afterTransactionCreated(
             insertedId,
             { type: 'SALARY', amount: emp.monthlySalary, currency: 'USD' },
             actor ?? null,
@@ -7092,7 +7060,7 @@ export class TransactionsService {
           projectId: jr.projectId,
         })
         if (insertedId) {
-          await this.afterTransactionCreated(
+          await this.lifecycle.afterTransactionCreated(
             insertedId,
             { type: 'SALARY', amount: jr.monthlySalary, currency: 'USD' },
             actor ?? null,
@@ -7146,79 +7114,5 @@ export class TransactionsService {
     // docblock for why this differs from the cron's unaudited "any admin" call.
     await this.createMonthlySalaries(month, currentUser)
     return this.salaryService.resolveSalaryMonthGap(month)
-  }
-
-  /**
-   * task-soft-delete-and-money-audit (AC5): "создание" — every primary
-   * user-facing creation entry point (createAdminIncome / createSeniorIncome
-   * / createDropIncome / createExpense / createSalary / createAdminTransfer)
-   * calls this right after its `.insert(transactions)...returning()`.
-   * Best-effort (mirrors AuditInterceptor's convention): a logging hiccup
-   * must never turn a successful money-record creation into a 500 — the
-   * primary insert has already committed by the time this runs.
-   *
-   * Deliberately NOT wired into every INTERNAL cascade insert (obligation
-   * placeholders booked by `bookCompanyObligations`, the monthly salary cron,
-   * drop-payout cascade rows) — those are system-derived side-effects of an
-   * already-audited primary action, not a second independent "creation" a
-   * human decided to make.
-   */
-  /**
-   * task-notification-types-producers (позиция 6). ЕДИНСТВЕННАЯ точка, которую
-   * зовут все шесть пользовательских путей создания транзакции плюс зарплатный
-   * крон — то есть ровно тот шов, который уже существовал под аудит. Спека §10
-   * прямо предупреждает: «производители незаметно большие… пять модулей, и в
-   * каждом надо не сломать существующее». Дописать вызов в восьми местах
-   * значило бы принять ровно тот риск — «обнови везде» теряет одно место.
-   * Поэтому здесь один вызов, а восемь мест только переименованы.
-   *
-   * ПОСЛЕ КОММИТА, а не внутри транзакции — сознательно, и это допустимая по
-   * заданию половина правила («либо после её коммита с явным обоснованием»).
-   * Обоснование: путей создания шесть, и не все они открывают транзакцию
-   * (`createExpense` вне company-funded ветки вставляет на голом соединении).
-   * Требование «уведомление о несостоявшемся событии недопустимо» выполняется
-   * СИЛЬНЕЕ, чем при вставке внутрь: сюда попадают только уже
-   * зафиксированные строки. Обратное — уведомление о событии, которое
-   * откатилось, — структурно невозможно.
-   */
-  private async afterTransactionCreated(
-    txId: string,
-    created: { type: string; amount: string; currency: string },
-    currentUser: SessionUser | null,
-  ): Promise<void> {
-    // SR-L-2 (security-review круг 1): актор может отсутствовать — зарплатный
-    // крон создаёт строки по расписанию, и сессионного пользователя у него
-    // нет. Две половины этого шва относятся к актору по-разному:
-    //   - ЖУРНАЛ действий пишется про человека; без человека писать в него
-    //     нечего (у строки остаётся `createdBy` — резервный админ);
-    //   - УВЕДОМЛЕНИЕ адресовано получателю денег и от актора не зависит:
-    //     актор нужен ровно для того, чтобы не написать человеку о его же
-    //     действии (§8.1). Нет актора — некого исключать.
-    if (currentUser !== null) await this.recordCreationAudit(txId, created, currentUser)
-    await this.lifecycle.notifyTransactionAdded(txId, currentUser)
-  }
-
-  private async recordCreationAudit(
-    txId: string,
-    created: { type: string; amount: string; currency: string },
-    currentUser: SessionUser,
-  ): Promise<void> {
-    try {
-      await this.db.db.insert(transactionAuditLog).values({
-        actorId: currentUser.impersonatorId ?? currentUser.id,
-        targetId: txId,
-        action: 'CREATE',
-        metadata: {
-          type: created.type,
-          amount: created.amount,
-          currency: created.currency,
-        },
-      })
-    } catch (auditErr) {
-      this.logger.error(
-        `recordCreationAudit: failed to persist audit record for transaction=${txId}: ${(auditErr as Error).message}`,
-        (auditErr as Error).stack,
-      )
-    }
   }
 }

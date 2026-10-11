@@ -911,12 +911,26 @@ describe('backfillSalaryMonth — re-invokes the idempotent cron insert, then re
       admin: { id: 'cron-arbitrary-admin', role: 'ADMIN' },
     })
     const recordCreationAuditSpy = vi.spyOn(
-      svc as unknown as {
+      (
+        svc as unknown as {
+          lifecycle: {
+            recordCreationAudit: (
+              txId: string,
+              created: { type: string; amount: string; currency: string },
+              currentUser: SessionUser,
+            ) => Promise<void>
+          }
+        }
+      ).lifecycle,
+      'recordCreationAudit',
+    )
+    void ((_: unknown) => _)(
+      {
         recordCreationAudit: (
           txId: string,
           created: { type: string; amount: string; currency: string },
           currentUser: SessionUser,
-        ) => Promise<void>
+        ) => Promise<void>,
       },
       'recordCreationAudit',
     )

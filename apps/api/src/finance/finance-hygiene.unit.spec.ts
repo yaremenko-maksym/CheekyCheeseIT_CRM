@@ -33,6 +33,8 @@ function makeNotificationsStub() {
   return {
     notifyTransactionAdded: async () => undefined,
     notifyTransactionStatusChanged: async () => undefined,
+    afterTransactionCreated: async () => undefined,
+    safeAutoCreateInvoice: async () => undefined,
   } as never
 }
 

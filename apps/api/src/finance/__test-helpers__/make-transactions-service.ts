@@ -154,7 +154,7 @@ export function makeTransactionsService(
     notificationsService = makeDefaultNotificationsStub(),
     salaryService = new SalaryService(db),
     summaryService = new SummaryService(db, nbuCurrencyService),
-    lifecycleService = new TransactionLifecycleService(notificationsService, db),
+    lifecycleService = new TransactionLifecycleService(notificationsService, db, invoicesService),
   } = overrides
 
   return new TransactionsService(
