@@ -703,6 +703,7 @@ describe('paySalary — #11: ADMIN_PERSONAL atomic flip (no duplicate invoice)',
     const { svc, invoiceSpy } = makeSvc([{ id: 'sal-1' }])
     await expect(svc.paySalary('sal-1', payData, admin())).resolves.toBeDefined()
     expect(invoiceSpy).toHaveBeenCalledTimes(1)
+    expect(invoiceSpy).toHaveBeenCalledWith('SALARY', 'sal-1')
   })
 
   it('stores a custom salary payout date on the PAID transaction', async () => {
