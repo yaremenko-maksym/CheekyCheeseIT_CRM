@@ -2626,6 +2626,60 @@ describe('InvoicesService', () => {
       expect(result.transactionId).toBe('tx-invoice-1')
     })
 
+    it('reports the joined counterparty user id for a SENIOR_INCOME row', async () => {
+      const h = buildHarness({
+        txs: [makeInvoiceTx()],
+        sigs: [],
+        users: [{ id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' }],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-invoice-1'
+
+      const result = await h.svc.getInvoice(ADMIN, 'tx-invoice-1')
+      expect(result.counterpartyId).toBe(SENIOR.id)
+    })
+
+    it('falls back to the PAYOUT sender id when the sender relation was not joined', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-payout-cp',
+            type: 'PAYOUT',
+            senderId: SENIOR.id,
+            receiverId: null,
+            invoiceDocumentId: 'doc-inv-1',
+          }),
+        ],
+        sigs: [],
+        users: [],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-payout-cp'
+
+      const result = await h.svc.getInvoice(ADMIN, 'tx-payout-cp')
+      expect(result.counterpartyId).toBe(SENIOR.id)
+    })
+
+    it('reports an empty counterparty id when the row has no counterparty at all', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-no-cp',
+            type: 'SENIOR_INCOME',
+            receiverId: null,
+            invoiceDocumentId: 'doc-inv-1',
+          }),
+        ],
+        sigs: [],
+        users: [],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-no-cp'
+
+      const result = await h.svc.getInvoice(ADMIN, 'tx-no-cp')
+      expect(result.counterpartyId).toBe('')
+    })
+
     it('owner counterparty SENIOR sees their own invoice', async () => {
       const h = buildHarness({
         txs: [makeInvoiceTx()],

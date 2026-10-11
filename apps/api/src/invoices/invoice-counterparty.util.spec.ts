@@ -138,6 +138,21 @@ describe('buildCounterpartyInfo', () => {
     ).toEqual(['Recipient: Olena'])
   })
 
+  it('lists no details for a payment method that is neither USDT nor bank, even with data present', () => {
+    expect(
+      buildCounterpartyInfo(
+        user({
+          paymentMethod: null,
+          bankUahRecipient: 'Olena',
+          bankUahIban: 'UA00',
+          bankUahRnokpp: '123',
+          bankUahBankName: 'Mono',
+          walletUsdtErc20: '0xabc',
+        }),
+      ).paymentDetails,
+    ).toEqual([])
+  })
+
   it('no payment method yields null and no details', () => {
     expect(buildCounterpartyInfo(user({ paymentMethod: null }))).toEqual({
       displayName: 'Olena Koval',
