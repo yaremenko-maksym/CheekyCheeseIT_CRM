@@ -54,7 +54,6 @@ import type {
   InvoiceListFilters,
   InvoiceListItem,
   InvoiceStatus,
-  InvoiceType,
   InvoiceVerifyResponse,
   SessionUser,
 } from '@crm/shared'
@@ -96,15 +95,22 @@ import {
 } from '../finance/transaction-visibility.util'
 import {
   InvoicePdfService,
-  COMPANY_BRAND_NAME,
   type InvoiceCompanyInfo,
   type InvoiceSignatureInfo,
   type InvoiceTransactionInfo,
 } from './invoice-pdf.service'
-import { sha256Hex, shortHash } from '../common/pdf/pdf.utils'
+import { sha256Hex } from '../common/pdf/pdf.utils'
 import { extractIp, extractUserAgent, lastOctet } from './invoice-request.util'
 import { buildCounterpartyInfo, getCounterpartyId } from './invoice-counterparty.util'
 import { assertCanViewInvoice } from './invoice-view-access.util'
+import {
+  buildVerifyUrl,
+  sortAndMapSignatureRows,
+  toInvoiceDto,
+  toInvoiceListItem,
+  toPublicVerifySignatures,
+  type SignatureWithSignerName,
+} from './invoice-dto.util'
 
 // ---------------------------------------------------------------------------
 // Company info constants (TBD — currently hardcoded; future migration into
@@ -1138,19 +1144,7 @@ export class InvoicesService {
       .where(and(...baseConditions))
       .orderBy(desc(nonDeletedTransactions.createdAt))
 
-    return rows.map((r) => ({
-      transactionId: r.id,
-      status: (r.signedFlag ? 'SIGNED' : 'PENDING') as InvoiceStatus,
-      // Public InvoiceType is SENIOR_INCOME | SALARY. Aggregated PAYOUT
-      // invoices map to SENIOR_INCOME so the UI label («Выплата синьора»)
-      // and existing filters keep working — the aggregation is an
-      // implementation detail of the backend.
-      type: (r.type === 'PAYOUT' ? 'SENIOR_INCOME' : r.type) as InvoiceType,
-      amount: r.amount,
-      currency: r.currency,
-      counterpartyName: r.counterpartyName ?? '—',
-      createdAt: r.createdAt.toISOString(),
-    }))
+    return rows.map(toInvoiceListItem)
   }
 
   // ===========================================================================
@@ -1195,39 +1189,7 @@ export class InvoicesService {
     assertCanViewInvoice(viewer, tx)
 
     const signatures = await this.getSignaturesWithSignerNames(tx.id)
-    const status: InvoiceStatus = signatures.some((s) => s.signerRole === 'COUNTERPARTY')
-      ? 'SIGNED'
-      : 'PENDING'
-
-    // Counterparty side for the DTO depends on the row's type — for PAYOUT
-    // it's the sender (senior / drop), otherwise the receiver. See
-    // `getCounterpartyId` for the canonical rule.
-    const counterpartyUser = tx.type === 'PAYOUT' ? tx.sender : tx.receiver
-    return {
-      transactionId: tx.id,
-      documentId: tx.invoiceDocumentId,
-      status,
-      // PAYOUT-anchored invoices are surfaced as SENIOR_INCOME to the UI
-      // (the InvoiceType enum is SENIOR_INCOME | SALARY).
-      type: (tx.type === 'PAYOUT' ? 'SENIOR_INCOME' : tx.type) as InvoiceType,
-      amount: tx.amount,
-      currency: tx.currency,
-      counterpartyId: counterpartyUser?.id ?? getCounterpartyId(tx) ?? '',
-      counterpartyName: counterpartyUser?.displayName ?? '—',
-      projectName: tx.project?.name ?? null,
-      salaryMonth: tx.salaryMonth ?? null,
-      signatures: signatures.map((s) => ({
-        id: s.id,
-        transactionId: s.transactionId,
-        signerRole: s.signerRole,
-        signerId: s.signerId,
-        signerName: s.signerName,
-        signedAt: s.signedAt.toISOString(),
-        pdfHashShort: s.pdfHashShort,
-        method: s.method,
-      })),
-      createdAt: tx.createdAt.toISOString(),
-    }
+    return toInvoiceDto(tx, tx.invoiceDocumentId, signatures)
   }
 
   // ===========================================================================
@@ -1758,17 +1720,8 @@ export class InvoicesService {
       // Public InvoiceType enum is SENIOR_INCOME | SALARY — PAYOUT maps to
       // SENIOR_INCOME for the verify response.
       type: (tx.type === 'PAYOUT' ? 'SENIOR_INCOME' : tx.type) as 'SENIOR_INCOME' | 'SALARY',
-      // CRITICAL: only public fields. Strip ip / user_agent / full hash.
-      // SEC-05: mask COMPANY signer name with brand constant — the PDF already
-      // does this via drawCompanySignature; the verify API must mirror it so
-      // the admin's personal display name is never exposed to unauthenticated
-      // callers enumerating the public verify endpoint.
-      signatures: sigs.map((s) => ({
-        role: s.signerRole,
-        signerName: s.signerRole === 'COMPANY' ? COMPANY_BRAND_NAME : s.signerName,
-        signedAt: s.signedAt.toISOString(),
-        pdfHashShort: s.pdfHashShort,
-      })),
+      // Public fields only (SEC-05 COMPANY name masking) — see toPublicVerifySignatures.
+      signatures: toPublicVerifySignatures(sigs),
     }
   }
 
@@ -1933,7 +1886,7 @@ export class InvoicesService {
   /** FRONTEND_URL + /invoice/v/:id — used as the QR code payload. */
   private buildVerifyUrl(transactionId: string): string {
     const frontendUrl = this.config.get('FRONTEND_URL', { infer: true })
-    return `${frontendUrl}/invoice/v/${transactionId}`
+    return buildVerifyUrl(frontendUrl, transactionId)
   }
 
   /**
@@ -1941,22 +1894,9 @@ export class InvoicesService {
    * deterministically (COMPANY first then COUNTERPARTY) so the PDF re-render
    * pass is reproducible.
    */
-  private async getSignaturesWithSignerNames(transactionId: string): Promise<
-    Array<{
-      id: string
-      transactionId: string
-      signerRole: 'COMPANY' | 'COUNTERPARTY'
-      signerId: string
-      signerName: string
-      signedAt: Date
-      pdfHash: string
-      pdfHashShort: string
-      method: 'AUTO_COMPANY' | 'MANUAL_CLICK'
-      /** AC3 — populated only on COUNTERPARTY rows signed after this migration. */
-      amountSnapshot: string | null
-      currencySnapshot: string | null
-    }>
-  > {
+  private async getSignaturesWithSignerNames(
+    transactionId: string,
+  ): Promise<SignatureWithSignerName[]> {
     // task-invoice-signature-integrity: every caller (getInvoice, signInvoice,
     // verifyInvoice) wants signatures for the transaction's CURRENT invoice
     // only — a voided row belongs to a PRIOR, superseded invoice generation
@@ -1981,27 +1921,6 @@ export class InvoicesService {
         and(eq(invoiceSignatures.transactionId, transactionId), isNull(invoiceSignatures.voidedAt)),
       )
 
-    // Sort: COMPANY first (so the PDF always renders the same order) then
-    // COUNTERPARTY. Within the same role we sort by signedAt for stability.
-    const sorted = [...rows].sort((a, b) => {
-      if (a.signerRole === b.signerRole) {
-        return a.signedAt.getTime() - b.signedAt.getTime()
-      }
-      return a.signerRole === 'COMPANY' ? -1 : 1
-    })
-
-    return sorted.map((r) => ({
-      id: r.id,
-      transactionId: r.transactionId,
-      signerRole: r.signerRole as 'COMPANY' | 'COUNTERPARTY',
-      signerId: r.signerId,
-      signerName: r.signerName ?? '—',
-      signedAt: r.signedAt,
-      pdfHash: r.pdfHash,
-      pdfHashShort: shortHash(r.pdfHash),
-      method: r.method as 'AUTO_COMPANY' | 'MANUAL_CLICK',
-      amountSnapshot: r.amountSnapshot,
-      currencySnapshot: r.currencySnapshot,
-    }))
+    return sortAndMapSignatureRows(rows)
   }
 }
