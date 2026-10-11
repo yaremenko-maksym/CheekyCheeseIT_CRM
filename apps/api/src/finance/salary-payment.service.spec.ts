@@ -78,6 +78,8 @@ interface Harness {
   usersFindFirst: ReturnType<typeof vi.fn>
   transaction: ReturnType<typeof vi.fn>
   freshSelectWheres: unknown[]
+  selectArgs: unknown[]
+  returningArgs: unknown[]
   salary: {
     assertSalaryReceiverNotArchived: ReturnType<typeof vi.fn>
     salaryReceiverNotArchivedFilter: ReturnType<typeof vi.fn>
@@ -115,6 +117,8 @@ function make(
   const auditRows: Array<Record<string, unknown>> = []
   const inserts: Array<{ table: unknown; row: Record<string, unknown> }> = []
   const freshSelectWheres: unknown[] = []
+  const selectArgs: unknown[] = []
+  const returningArgs: unknown[] = []
   const claimQueue = [...(opts.claims ?? [])]
   const existingQueue = [...(opts.existingAutomatic ?? [])]
   const insertedQueue = [...(opts.insertedSalaryIds ?? [])]
@@ -126,21 +130,29 @@ function make(
       return {
         where: (w: unknown) => {
           updateWheres.push(w)
-          return { returning: async () => flipRows }
+          return {
+            returning: async (arg: unknown) => {
+              returningArgs.push(arg)
+              return flipRows
+            },
+          }
         },
       }
     },
   })
 
   const dbtx = {
-    select: () => ({
-      from: () => ({
-        where: async (w: unknown) => {
-          freshSelectWheres.push(w)
-          return opts.freshStatus === null ? [] : [{ status: opts.freshStatus ?? 'PENDING' }]
-        },
-      }),
-    }),
+    select: (arg: unknown) => {
+      selectArgs.push(arg)
+      return {
+        from: () => ({
+          where: async (w: unknown) => {
+            freshSelectWheres.push(w)
+            return opts.freshStatus === null ? [] : [{ status: opts.freshStatus ?? 'PENDING' }]
+          },
+        }),
+      }
+    },
     update: updateChain,
     insert: (table: unknown) => ({
       values: (row: Record<string, unknown>) => {
@@ -150,7 +162,8 @@ function make(
           onConflictDoNothing: () => ({
             returning: async () => (isClaim ? (claimQueue.shift() ?? [{ id: 'claim' }]) : []),
           }),
-          returning: async () => {
+          returning: async (arg: unknown) => {
+            returningArgs.push(arg)
             const id = insertedQueue.length ? insertedQueue.shift() : 'new-salary'
             return id === undefined ? [] : [{ id }]
           },
@@ -161,7 +174,7 @@ function make(
   }
 
   const transaction = vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(dbtx))
-  const txFindFirst = vi.fn(async () =>
+  const txFindFirst = vi.fn(async (_arg?: unknown) =>
     opts.tx === null ? undefined : (opts.tx ?? pendingSalary()),
   )
   const usersFindFirst = vi.fn(async (arg: { where: unknown }) => {
@@ -211,6 +224,8 @@ function make(
     usersFindFirst,
     transaction,
     freshSelectWheres,
+    selectArgs,
+    returningArgs,
     salary,
     lifecycle,
     dbtx,
@@ -466,6 +481,37 @@ describe('SalaryPaymentService.paySalary — ADMIN_PERSONAL flip', () => {
     expect(h.setCalls[0]).toMatchObject({ exchangeRate: null })
   })
 
+  it('loads the salary row by its id', async () => {
+    const h = make({ payer })
+    await h.svc.paySalary(SALARY_ID, { ...personal, payerAdminId: 'payer-1' }, ADMIN)
+    const arg = h.txFindFirst.mock.calls[0]![0] as { where: unknown }
+    expect(paramsOf(arg.where)).toEqual([SALARY_ID])
+  })
+
+  it('looks the payer up by the named id, or by the caller when none is named', async () => {
+    const named = make({ payer })
+    await named.svc.paySalary(SALARY_ID, { ...personal, payerAdminId: 'payer-1' }, ADMIN)
+    const namedArg = named.usersFindFirst.mock.calls[0]![0] as { where: unknown }
+    expect(paramsOf(namedArg.where)).toEqual(['payer-1'])
+
+    const dflt = make()
+    await dflt.svc.paySalary(SALARY_ID, personal, ADMIN)
+    const dfltArg = dflt.usersFindFirst.mock.calls[0]![0] as { where: unknown }
+    expect(paramsOf(dfltArg.where)).toEqual([ADMIN.id])
+  })
+
+  it('selects only the id of the flipped row', async () => {
+    const h = make({ payer })
+    await h.svc.paySalary(SALARY_ID, { ...personal, payerAdminId: 'payer-1' }, ADMIN)
+    expect(Object.keys(h.returningArgs[0] as object)).toEqual(['id'])
+  })
+
+  it('records a NULL rate for a negative obligation instead of a bogus positive ratio', async () => {
+    const h = make({ payer, tx: pendingSalary({ amount: '-5' }) })
+    await h.svc.paySalary(SALARY_ID, { ...personal, payerAdminId: 'payer-1' }, ADMIN)
+    expect(h.setCalls[0]).toMatchObject({ exchangeRate: null })
+  })
+
   it('guards the flip with id, PENDING, not-deleted and the archived-receiver filter', async () => {
     const h = make({ payer })
     await h.svc.paySalary(SALARY_ID, { ...personal, payerAdminId: 'payer-1' }, ADMIN)
@@ -568,6 +614,19 @@ describe('SalaryPaymentService.paySalary — COMPANY_ACCOUNT flip', () => {
     await expect(h2.svc.paySalary(SALARY_ID, company, ADMIN)).rejects.toMatchObject({
       response: { code: 'FINANCE_TRANSACTION_NOT_PENDING' },
     })
+  })
+
+  it('re-reads only the status of the row, by id, inside the lock', async () => {
+    const h = make()
+    await h.svc.paySalary(SALARY_ID, company, ADMIN)
+    expect(Object.keys(h.selectArgs[0] as object)).toEqual(['status'])
+    expect(h.freshSelectWheres).toHaveLength(1)
+  })
+
+  it('selects only the id of the flipped row under the lock', async () => {
+    const h = make()
+    await h.svc.paySalary(SALARY_ID, company, ADMIN)
+    expect(Object.keys(h.returningArgs[0] as object)).toEqual(['id'])
   })
 
   it('gates on the amount actually being paid, not on the obligation', async () => {
@@ -742,6 +801,14 @@ describe('SalaryPaymentService.createMonthlySalaries', () => {
     const h = make({ admin: { id: 'a' }, hr, insertedSalaryIds: [undefined] })
     await h.svc.createMonthlySalaries('2026-10')
     expect(h.lifecycle.afterTransactionCreated).not.toHaveBeenCalled()
+    // An empty RETURNING is a normal outcome, not a failure to log.
+    expect(errorSpy).not.toHaveBeenCalled()
+  })
+
+  it('selects only the id of the inserted salary row', async () => {
+    const h = make({ admin: { id: 'a' }, hr, insertedSalaryIds: ['s1'] })
+    await h.svc.createMonthlySalaries('2026-10')
+    expect(Object.keys(h.returningArgs[0] as object)).toEqual(['id'])
   })
 
   it('isolates a per-receiver failure: logs it, continues, then logs the aggregate', async () => {
@@ -755,7 +822,9 @@ describe('SalaryPaymentService.createMonthlySalaries', () => {
       junior: jr,
       insertedSalaryIds: ['s1', 's2', 's3'],
     })
-    h.lifecycle.afterTransactionCreated.mockRejectedValueOnce(new Error('hook boom'))
+    h.lifecycle.afterTransactionCreated
+      .mockRejectedValueOnce(new Error('hook boom'))
+      .mockRejectedValueOnce(new Error('hook boom 2'))
     await h.svc.createMonthlySalaries('2026-10')
 
     expect(h.lifecycle.afterTransactionCreated).toHaveBeenCalledTimes(3)
@@ -764,13 +833,16 @@ describe('SalaryPaymentService.createMonthlySalaries', () => {
       expect.any(String),
     )
     expect(errorSpy).toHaveBeenCalledWith(
-      'createMonthlySalaries: 1 HR/ACCOUNTANT salary(ies) failed for month=2026-10. Failed employee ids: hr-1',
+      'createMonthlySalaries: 2 HR/ACCOUNTANT salary(ies) failed for month=2026-10. Failed employee ids: hr-1, hr-2',
     )
   })
 
   it('isolates a junior failure and aggregates it with the project in the per-row message', async () => {
-    const h = make({ admin: { id: 'a' }, junior: jr, insertedSalaryIds: ['s1'] })
-    h.lifecycle.afterTransactionCreated.mockRejectedValueOnce('plain string')
+    const jrTwo = [...jr, { id: 'jr-2', email: 'jr2@x', monthlySalary: '130', projectId: 'proj-2' }]
+    const h = make({ admin: { id: 'a' }, junior: jrTwo, insertedSalaryIds: ['s1', 's2'] })
+    h.lifecycle.afterTransactionCreated
+      .mockRejectedValueOnce('plain string')
+      .mockRejectedValueOnce('second')
     await h.svc.createMonthlySalaries('2026-10')
 
     expect(errorSpy).toHaveBeenCalledWith(
@@ -778,7 +850,7 @@ describe('SalaryPaymentService.createMonthlySalaries', () => {
       undefined,
     )
     expect(errorSpy).toHaveBeenCalledWith(
-      'createMonthlySalaries: 1 JUNIOR salary(ies) failed for month=2026-10. Failed employee ids: jr-1',
+      'createMonthlySalaries: 2 JUNIOR salary(ies) failed for month=2026-10. Failed employee ids: jr-1, jr-2',
     )
   })
 
