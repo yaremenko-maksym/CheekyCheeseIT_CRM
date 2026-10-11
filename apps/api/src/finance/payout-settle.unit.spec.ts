@@ -156,6 +156,8 @@ function build(patch: Partial<World> = {}) {
   const world: World = { ...defaultWorld(), ...patch }
   const events: Ev[] = []
   let iouSeq = 0
+  /** Column selection handed to each `update … returning(...)` (table + field names). */
+  const returned: { table: string; keys: string[] }[] = []
 
   const record = (ev: Ev) => {
     events.push(ev)
@@ -190,7 +192,8 @@ function build(patch: Partial<World> = {}) {
                 where: compileWhere(pred),
               })
               return thenableOf(undefined, {
-                returning: async () => {
+                returning: async (fields?: Row) => {
+                  returned.push({ table: name, keys: Object.keys(fields ?? {}) })
                   if (name === 'payout_requests') return world.claimRows
                   if (name === 'transactions') return world.payoutUpdateRows
                   throw new Error(`unscripted update returning on ${name}`)
@@ -341,9 +344,9 @@ function build(patch: Partial<World> = {}) {
       events.push({ label: 'findPayoutRequest' })
       return { id, marker: 'found' } as never
     })
-  const logger = (svc as unknown as { logger: Logger }).logger
+  const logger = (svc as unknown as { payoutSettle: { logger: Logger } }).payoutSettle.logger
   // The claim path warns through OnChainClaimService's own logger; one shared
-  // mock records warnings from both the facade and the collaborator.
+  // mock records warnings from both the settlement service and the claim collaborator.
   const claimLogger = (svc as unknown as { onChainClaim: { logger: Logger } }).onChainClaim.logger
   const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined)
   vi.spyOn(claimLogger, 'warn').mockImplementation((...args) => warn(...args))
@@ -361,6 +364,7 @@ function build(patch: Partial<World> = {}) {
     svc,
     world,
     events,
+    returned,
     labels,
     find,
     one,
@@ -1833,5 +1837,83 @@ describe('applyPayoutPaidCascade — post-commit tail', () => {
     expect(h.find('tx-begin')).toHaveLength(1)
     expect(h.find('tx-commit')).toHaveLength(1)
     expect(h.find('tx-rollback')).toHaveLength(0)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Pins added when the cluster moved into PayoutSettlementService: each closes a
+// mutant the original net let through (column selections, falsy-but-present
+// inputs, per-senior share inputs).
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('PayoutSettlementService — remaining pins', () => {
+  it('the atomic claim and the PAYOUT-row flip each select exactly the id column', async () => {
+    const h = build()
+    await h.svc.manualConfirmPayout(REQUEST_ID, 'COMPANY_ACCOUNT', ADMIN)
+    expect(h.returned).toEqual([
+      { table: 'payout_requests', keys: ['id'] },
+      { table: 'transactions', keys: ['id'] },
+    ])
+  })
+
+  it('a manual confirmation without a hash never queries the consumed-hash registry (a synthetic marker is unique by construction)', async () => {
+    const h = build({ consumed: { id: 'claim-9' } })
+    await expect(h.svc.manualConfirmPayout(REQUEST_ID, 'ADMIN_USDT', ADMIN)).resolves.toBeDefined()
+    expect(h.labels()).not.toContain('base query consumedTxHashes')
+  })
+
+  it('an empty-string payment date means "no date chosen": no date check, no txDate stamped', async () => {
+    const h = build()
+    await expect(
+      h.svc.manualConfirmPayout(REQUEST_ID, 'ADMIN_USDT', ADMIN, { txDate: '' }),
+    ).resolves.toBeDefined()
+    expect(h.find('update transactions')[1]!.set).not.toHaveProperty('txDate')
+  })
+
+  it('fallback re-read of an already-PAID PAYOUT row is scoped to this request and the PAYOUT type', async () => {
+    const h = build({ payoutUpdateRows: [] })
+    await h.svc.manualConfirmPayout(REQUEST_ID, 'ADMIN_USDT', ADMIN)
+    const lastSelect = h.find('select transactions').at(-1)!
+    expect(lastSelect.where!.params).toEqual([REQUEST_ID, 'PAYOUT'])
+  })
+
+  it('a PAYOUT row without a usable id triggers no invoice', async () => {
+    const h = build({ payoutUpdateRows: [{ id: '' }] })
+    await h.svc.manualConfirmPayout(REQUEST_ID, 'ADMIN_USDT', ADMIN)
+    expect(h.safeAutoCreateInvoice).not.toHaveBeenCalled()
+  })
+
+  it('senior share: the senior’s own percent (not the system default) prices the senior IOU', async () => {
+    const base = dropWorld()
+    const h = build({
+      ...base,
+      usersById: {
+        ...base.usersById,
+        'senior-1': { id: 'senior-1', role: 'SENIOR', seniorSharePercent: 40 },
+      },
+    })
+    await h.svc.manualConfirmPayout(REQUEST_ID, 'COMPANY_ACCOUNT', ADMIN)
+    const [seniorIou] = h.find('insert transactions').map((e) => e.values!)
+    expect(seniorIou).toMatchObject({
+      amount: '493.824', // 1234.56 × 40 %
+      seniorSharePercent: 40,
+      seniorSharePercentSource: 'USER_DEFAULT',
+    })
+  })
+
+  it('the sum guard uses the resolved senior percent: 40 + 61 > 100 is refused', async () => {
+    const base = dropWorld({}, { dropSharePercent: 61 })
+    const h = build({
+      ...base,
+      usersById: {
+        ...base.usersById,
+        'senior-1': { id: 'senior-1', role: 'SENIOR', seniorSharePercent: 40 },
+      },
+    })
+    await expectApiError(
+      h.svc.manualConfirmPayout(REQUEST_ID, 'COMPANY_ACCOUNT', ADMIN),
+      'FINANCE_SHARES_SUM_EXCEEDS_100',
+      HttpStatus.BAD_REQUEST,
+    )
   })
 })
