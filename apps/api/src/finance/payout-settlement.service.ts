@@ -23,8 +23,6 @@ import {
   findConsumedTxHash,
   minorUnitsFromString,
   normalizeEthAddress,
-  normalizeOnChainTxHash,
-  settlementConsumesTransfer,
   usdtToMinorUnits,
 } from './onchain-tx'
 import { OnChainClaimService } from './onchain-claim.service'
@@ -237,8 +235,7 @@ export class PayoutSettlementService {
       // payout whose transferred amount we cannot verify.
       const payableMinor = usdtToMinorUnits(req.payableAmount)
       const onChainMinor = minorUnitsFromString(verification.amountUsdtMinor)
-      // Stryker disable next-line ConditionalExpression: equivalent — the `payableMinor === null` operand is redundant; JS evaluates `null <= 0n` as true (null coerces to 0), so a null payableMinor is rejected by the next operand with the identical error.
-      if (payableMinor === null || payableMinor <= 0n || onChainMinor !== payableMinor) {
+      if ((payableMinor ?? 0n) <= 0n || onChainMinor !== payableMinor) {
         throw apiError('FINANCE_ONCHAIN_AMOUNT_MISMATCH', HttpStatus.BAD_REQUEST)
       }
 
@@ -358,13 +355,12 @@ export class PayoutSettlementService {
     // DEPOSIT, which the payout-table scan above cannot see). Applies to EVERY
     // method — even a non-crediting ADMIN_USDT/CASH confirmation must not
     // re-use a transfer that already settled something else. Authoritative
-    // claim happens inside `applyPayoutPaidCascade`.
-    // Stryker disable next-line ConditionalExpression: equivalent — findConsumedTxHash normalizes the hash itself and returns null with no db access for a synthetic 0xMANUAL marker, so forcing this guard true cannot change the outcome.
-    if (hasRealTxHash) {
-      const consumed = await findConsumedTxHash(this.db.db, effectiveTxHash)
-      if (consumed) {
-        throw apiError('FINANCE_TX_HASH_ALREADY_CONSUMED', HttpStatus.BAD_REQUEST)
-      }
+    // claim happens inside `applyPayoutPaidCascade`. `findConsumedTxHash`
+    // re-normalizes the hash and returns null without touching the database for
+    // a synthetic 0xMANUAL marker, so the lookup is unconditional.
+    const consumed = await findConsumedTxHash(this.db.db, effectiveTxHash)
+    if (consumed) {
+      throw apiError('FINANCE_TX_HASH_ALREADY_CONSUMED', HttpStatus.BAD_REQUEST)
     }
     const auditNote = `Manual payout confirmation by ${currentUser.id} at ${new Date().toISOString()} (method=${method})${
       options.note ? ` — ${options.note}` : ''
@@ -525,33 +521,27 @@ export class PayoutSettlementService {
         // be re-spent as a deposit. Synthetic markers (0xSIM…/0xMANUAL…) are
         // no-ops — see `consumeTxHash`.
         //
-        // The condition is `hasRealTxHash`, NOT "credits the balance": a manual
+        // The claim is NOT gated on "credits the balance": a manual
         // ADMIN_USDT / CASH confirmation leaves `fundingSource` null and never
         // touches the company balance, yet it DID spend a real transfer, which
-        // must therefore not also be claimable as a deposit. See
-        // `settlementConsumesTransfer` for why the three paths differ.
-        if (
-          // Stryker disable next-line ConditionalExpression: equivalent — consumeTxHash itself re-normalizes the hash and returns { claimed: false, reclaimedAfterRelease: false } without any db access for a synthetic marker, so forcing this guard true changes nothing observable.
-          settlementConsumesTransfer({
-            kind: 'PAYOUT',
-            // Stryker disable next-line ConditionalExpression: equivalent — same reason as above: a synthetic marker reaching consumeTxHash is a no-op, so forcing hasRealTxHash true is unobservable.
-            hasRealTxHash: normalizeOnChainTxHash(effectiveTxHash) !== null,
-          })
-        ) {
-          const claim = await consumeTxHash(dbtx, {
+        // must therefore not also be claimable as a deposit. The gate is the
+        // hash itself: `consumeTxHash` re-normalizes it and returns without
+        // touching the database when it is not a real on-chain hash, so the
+        // call is unconditional (see `settlementConsumesTransfer` for why the
+        // three paths differ).
+        const claim = await consumeTxHash(dbtx, {
+          txHash: effectiveTxHash,
+          purpose: 'PAYOUT',
+          referenceId: requestId,
+          consumedByUserId: currentUser.id,
+        })
+        if (claim.reclaimedAfterRelease) {
+          await this.onChainClaim.recordReclaimAfterRelease(dbtx, {
+            path: 'applyPayoutPaidCascade',
             txHash: effectiveTxHash,
-            purpose: 'PAYOUT',
             referenceId: requestId,
-            consumedByUserId: currentUser.id,
+            actorId: currentUser.impersonatorId ?? currentUser.id,
           })
-          if (claim.reclaimedAfterRelease) {
-            await this.onChainClaim.recordReclaimAfterRelease(dbtx, {
-              path: 'applyPayoutPaidCascade',
-              txHash: effectiveTxHash,
-              referenceId: requestId,
-              actorId: currentUser.impersonatorId ?? currentUser.id,
-            })
-          }
         }
 
         // Mark linked SENIOR_INCOME transactions as PAID
