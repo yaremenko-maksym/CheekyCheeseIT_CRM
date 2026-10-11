@@ -10,6 +10,7 @@ import { BalanceService } from './balance.service'
 import { CompanyAccountController } from './company-account.controller'
 import { CompanyAccountService } from './company-account.service'
 import { EditCascadeService } from './edit-cascade.service'
+import { DropSelfService } from './drop-self.service'
 import { EtherscanService } from './etherscan.service'
 import { NbuCurrencyService } from './nbu-currency.service'
 import { PendingSettlementController } from './pending-settlement.controller'
@@ -63,6 +64,8 @@ import { TransactionTrashService } from './transaction-trash.service'
     TransactionTrashService,
     // Edit-cascade core: row locks, cascade snapshot, apply, preview (db only).
     EditCascadeService,
+    // Self-only DROP read path: summary, incomes and payments feeds (db + NBU rates only).
+    DropSelfService,
     NbuCurrencyService,
     // Phase 4-A: balance pipeline runs alongside the legacy getSummary.
     BalanceService,
