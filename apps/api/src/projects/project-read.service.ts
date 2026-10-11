@@ -20,6 +20,11 @@ type TeamOverridesBySeniorId = Map<
   { id: string; seniorSharePercentOverride: number | null }[]
 >
 
+type TeamMembershipRow = {
+  userId: string
+  team: { id: string; seniorSharePercentOverride: number | null; archivedAt: Date | null }
+}
+
 /**
  * The project-DTO read path: loads a project with its relations and assembles
  * the viewer-masked response DTO. Collaborator of `ProjectsService` (and of the
@@ -60,18 +65,13 @@ export class ProjectReadService {
     // mock rewrite. Try/catch protects against test doubles that don't even
     // stub `query.teamMembers.findMany` — those simply fall through to "no
     // overrides", which is the correct default for the resolver.
-    let rows: Array<{
-      userId: string
-      team: { id: string; seniorSharePercentOverride: number | null; archivedAt: Date | null }
-    }> = []
+    // Stryker disable next-line ArrayDeclaration: equivalent mutant — a stray element has no `team`, so the loop below skips it exactly like the empty default.
+    let rows: TeamMembershipRow[] = []
     try {
       rows = (await this.db.db.query.teamMembers.findMany({
         where: and(inArray(teamMembers.userId, seniorIds), isNull(teamMembers.leftAt)),
         with: { team: true },
-      })) as unknown as Array<{
-        userId: string
-        team: { id: string; seniorSharePercentOverride: number | null; archivedAt: Date | null }
-      }>
+      })) as unknown as TeamMembershipRow[]
     } catch {
       // Fall through with `rows` still empty.
     }
