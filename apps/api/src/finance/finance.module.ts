@@ -64,6 +64,7 @@ import { TransactionTrashService } from './transaction-trash.service'
     TransactionTrashService,
     // Edit-cascade core: row locks, cascade snapshot, apply, preview (db only).
     EditCascadeService,
+    // Self-only DROP read path: summary, incomes and payments feeds (db + NBU rates only).
     DropSelfService,
     NbuCurrencyService,
     // Phase 4-A: balance pipeline runs alongside the legacy getSummary.
