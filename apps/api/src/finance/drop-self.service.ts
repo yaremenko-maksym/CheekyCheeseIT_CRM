@@ -179,7 +179,9 @@ export class DropSelfService {
       if (query.status && mappedStatusOf(tx) !== query.status) return false
       const created =
         tx.createdAt instanceof Date ? tx.createdAt.getTime() : Date.parse(String(tx.createdAt))
+      // Stryker disable next-line ConditionalExpression,LogicalOperator: the `undefined`/NaN guards are redundant with the comparison — `created < undefined` and `created < NaN` are both false, so dropping a guard cannot change the result (the query schema also rejects unparseable dates).
       if (fromTs !== undefined && !Number.isNaN(fromTs) && created < fromTs) return false
+      // Stryker disable next-line ConditionalExpression,LogicalOperator: the `undefined`/NaN guards are redundant with the comparison — `created > undefined` and `created > NaN` are both false, so dropping a guard cannot change the result (the query schema also rejects unparseable dates).
       if (toTs !== undefined && !Number.isNaN(toTs) && created > toTs) return false
       return true
     })
