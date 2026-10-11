@@ -44,7 +44,6 @@ export function toObligationDto(row: {
 
 export function toTransactionDto(row: Transaction): TransactionDto {
   const toIso = (v: Date | string | null | undefined): string | null => {
-    if (v === null || v === undefined) return null
     if (v instanceof Date) return v.toISOString()
     return typeof v === 'string' ? v : null
   }

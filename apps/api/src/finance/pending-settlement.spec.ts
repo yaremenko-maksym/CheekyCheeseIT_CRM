@@ -671,6 +671,30 @@ describe('PendingSettlementService.settleByCompany', () => {
     expect(result.obligation.payoutRequestId).toBe(REQUEST_ID)
   })
 
+  // The post-commit read-back can come back empty (row removed between commit
+  // and read). The result must then be built from the pre-transaction snapshot
+  // with status forced to PAID, not from the (still PENDING) snapshot status.
+  it('falls back to the snapshot with status PAID when the post-commit read-back finds no row', async () => {
+    const { svc } = makeService()
+    type FindFirst = (a: unknown) => Promise<unknown>
+    const query = (
+      svc as unknown as {
+        db: { db: { query: { pendingObligations: { findFirst: FindFirst } } } }
+      }
+    ).db.db.query.pendingObligations
+    const baseFindFirst = query.findFirst
+    let reads = 0
+    query.findFirst = async (args: unknown) => {
+      reads += 1
+      // 1st read = loadObligation (real); 2nd read = post-commit read-back (gone).
+      return reads === 1 ? baseFindFirst(args) : undefined
+    }
+    const result = await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)
+    expect(reads).toBe(2)
+    expect(result.obligation.id).toBe(OBLIGATION_COMPANY)
+    expect(result.obligation.status).toBe('PAID')
+  })
+
   it('triggers invoice auto-create on the flipped SENIOR_INCOME row (self id)', async () => {
     const { svc, state } = makeService()
     await svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)
