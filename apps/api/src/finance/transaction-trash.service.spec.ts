@@ -8,7 +8,7 @@ import { and, eq, isNotNull, isNull } from 'drizzle-orm'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import type { DatabaseService } from '../database/database.service'
-import { pendingObligations, transactions } from '../database/schema'
+import { pendingObligations, transactionAuditLog, transactions, users } from '../database/schema'
 import { TransactionTrashService } from './transaction-trash.service'
 
 const TX_ID = '11111111-1111-4111-8111-111111111111'
@@ -102,6 +102,14 @@ describe('TransactionTrashService.getTransactionAuditLog', () => {
     expect(m.txFindFirst).toHaveBeenCalledWith({
       where: eq(transactions.id, TX_ID),
       columns: { deletedAt: true },
+    })
+    expect(select).toHaveBeenCalledWith({
+      id: transactionAuditLog.id,
+      action: transactionAuditLog.action,
+      actorId: transactionAuditLog.actorId,
+      actorName: users.displayName,
+      metadata: transactionAuditLog.metadata,
+      createdAt: transactionAuditLog.createdAt,
     })
   })
 
