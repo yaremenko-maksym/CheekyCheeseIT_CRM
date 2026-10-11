@@ -79,8 +79,9 @@ export class OnChainClaimService {
       // that transfer really did fund this credit and must not become
       // re-spendable — so the recorded hash stays too (column and registry
       // agree). The evidence/hash divergence is what gets recorded.
-      // Stryker disable next-line ConditionalExpression: equivalent mutant — this branch is only reachable when nextHash (null) !== currentHash, so currentHash is always non-null here and `currentHash !== null` is always true
-      return { txHashPatch: {}, claimHash: null, staleClaim: currentHash !== null }
+      // Always true: nextHash is null here and the equal-hash case returned above,
+      // so currentHash is necessarily non-null.
+      return { txHashPatch: {}, claimHash: null, staleClaim: true }
     }
 
     const consumed = await findConsumedTxHash(this.db.db, nextHash)
