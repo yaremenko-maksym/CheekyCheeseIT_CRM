@@ -222,8 +222,8 @@ function buildHarness(
         },
       },
       ...makeUpdateChain([], false),
-      transaction: vi.fn(
-        async <T>(fn: (tx: typeof txHandle) => Promise<T>): Promise<T> => fn(txHandle),
+      transaction: vi.fn(async <T>(fn: (tx: typeof txHandle) => Promise<T>): Promise<T> =>
+        fn(txHandle),
       ),
     },
   }
@@ -438,7 +438,11 @@ describe('ProjectsService — notification seam (position 6 hand-off)', () => {
       pendingSeniorSharePercentOverride: null,
     })
     const spy = vi.spyOn(
-      h.service as unknown as { notifyPendingSeniorShareProposed: (i: unknown) => void },
+      (
+        h.service as unknown as {
+          shareChange: { notifyPendingSeniorShareProposed: (i: unknown) => void }
+        }
+      ).shareChange,
       'notifyPendingSeniorShareProposed',
     )
     await h.service.update('proj-1', { seniorSharePercentOverride: 30 }, adminUser)
@@ -469,7 +473,11 @@ describe('ProjectsService — notification seam (position 6 hand-off)', () => {
       pendingSeniorSharePercentOverride: null,
     })
     const spy = vi.spyOn(
-      h.service as unknown as { notifyPendingSeniorShareProposed: (i: unknown) => void },
+      (
+        h.service as unknown as {
+          shareChange: { notifyPendingSeniorShareProposed: (i: unknown) => void }
+        }
+      ).shareChange,
       'notifyPendingSeniorShareProposed',
     )
     await h.service.update('proj-1', { seniorSharePercentOverride: 30 }, adminUser)
@@ -522,7 +530,11 @@ describe('ProjectsService — notification seam (position 6 hand-off)', () => {
       pendingSeniorSharePercentOverride: null,
     })
     const spy = vi.spyOn(
-      h.service as unknown as { notifyPendingSeniorShareProposed: (i: unknown) => void },
+      (
+        h.service as unknown as {
+          shareChange: { notifyPendingSeniorShareProposed: (i: unknown) => void }
+        }
+      ).shareChange,
       'notifyPendingSeniorShareProposed',
     )
     await h.service.update('proj-1', { seniorSharePercentOverride: 40 }, adminUser)
