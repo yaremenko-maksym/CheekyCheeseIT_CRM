@@ -804,6 +804,15 @@ describe('DocumentsService.restore', () => {
     expect(restored.uploadedByDisplayName).toBeNull()
   })
 
+  it('restored DTO carries the uploader display name when the uploader exists', async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RESUME', deletedAt: new Date() }],
+    })
+    h.db.db.query.users.findFirst = async () => ({ displayName: 'Ann Uploader' })
+    const restored = await h.service.restore(ADMIN, 'd1')
+    expect(restored.uploadedByDisplayName).toBe('Ann Uploader')
+  })
+
   it('throws DOCUMENT_NOT_FOUND when the doc row does not exist (never reaches the UPDATE)', async () => {
     const h = makeHarness({ docs: [] })
     // With an empty docsRows array the harness's own update().returning()
