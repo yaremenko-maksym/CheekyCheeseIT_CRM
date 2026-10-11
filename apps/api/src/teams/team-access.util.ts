@@ -29,6 +29,7 @@ export function assertAccess(
   // left — is unconditionally forbidden; the JUNIOR project-derivation below
   // MUST NOT grant a DROP access. Returning/throwing here keeps the contract
   // unambiguous and future-proof.
+  // Stryker disable next-line BlockStatement,ConditionalExpression,StringLiteral: equivalent mutants — with this DROP branch removed, a DROP actor falls to the generic active-membership check below (identical `leftAt === null` predicate) and, being a non-JUNIOR, to the same ForbiddenException; the branch is a deliberate explicit/fail-closed contract with no distinct observable behavior.
   if (currentUser.role === 'DROP') {
     if (team.members.some((m) => m.userId === currentUser.id && m.leftAt === null)) return
     throw new ForbiddenException()

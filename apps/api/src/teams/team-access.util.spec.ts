@@ -96,6 +96,23 @@ describe('assertAccess', () => {
       ForbiddenException,
     )
   })
+  it('a non-JUNIOR non-member (SENIOR) is NOT granted access via the project derivation', () => {
+    const p = project('s1', [{ userId: 'x', leftAt: null }])
+    expect(() => assertAccess(team([senior]), actor('x', 'SENIOR'), [p])).toThrow(
+      ForbiddenException,
+    )
+  })
+  it('JUNIOR who is not a member of the senior project is forbidden even if others are', () => {
+    const p = project('s1', [{ userId: 'other', leftAt: null }])
+    expect(() => assertAccess(team([senior]), actor('j1', 'JUNIOR'), [p])).toThrow(
+      ForbiddenException,
+    )
+  })
+  it('JUNIOR: a dangling-user member listed before the senior does not break the senior lookup', () => {
+    const t = team([{ userId: 'ghost', role: null, leftAt: null }, senior])
+    const p = project('s1', [{ userId: 'j1', leftAt: null }])
+    expect(assertAccess(t, actor('j1', 'JUNIOR'), [p])).toBeUndefined()
+  })
   it('JUNIOR: a rotated-out senior (leftAt set) does not seed the lookup', () => {
     const t = team([{ userId: 's1', role: 'SENIOR', leftAt: PAST }])
     const p = project('s1', [{ userId: 'j1', leftAt: null }])
