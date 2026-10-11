@@ -924,16 +924,6 @@ describe('backfillSalaryMonth — re-invokes the idempotent cron insert, then re
       ).lifecycle,
       'recordCreationAudit',
     )
-    void ((_: unknown) => _)(
-      {
-        recordCreationAudit: (
-          txId: string,
-          created: { type: string; amount: string; currency: string },
-          currentUser: SessionUser,
-        ) => Promise<void>,
-      },
-      'recordCreationAudit',
-    )
     await svc.createMonthlySalaries(MONTH)
 
     expect(insertedValues).toHaveLength(2) // 1 HR/ACCOUNTANT + 1 JUNIOR row

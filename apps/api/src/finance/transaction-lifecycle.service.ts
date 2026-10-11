@@ -13,7 +13,8 @@ import { NotificationsService } from '../notifications/notifications.service'
  * generation. Collaborator extraction: depends only on NotificationsService,
  * DatabaseService and InvoicesService and NEVER on TransactionsService (no
  * cycle, no forwardRef — invoices/ imports nothing from here). Every method
- * is best-effort: a delivery failure is logged, never rethrown, so a committed money write can't turn into a 500.
+ * is best-effort: a delivery failure is logged, never rethrown, so a
+ * committed money write can't turn into a 500.
  */
 @Injectable()
 export class TransactionLifecycleService {
@@ -178,21 +179,6 @@ export class TransactionLifecycleService {
   }
 
   /**
-   * task-soft-delete-and-money-audit (AC5): "создание" — every primary
-   * user-facing creation entry point (createAdminIncome / createSeniorIncome
-   * / createDropIncome / createExpense / createSalary / createAdminTransfer)
-   * calls this right after its `.insert(transactions)...returning()`.
-   * Best-effort (mirrors AuditInterceptor's convention): a logging hiccup
-   * must never turn a successful money-record creation into a 500 — the
-   * primary insert has already committed by the time this runs.
-   *
-   * Deliberately NOT wired into every INTERNAL cascade insert (obligation
-   * placeholders booked by `bookCompanyObligations`, the monthly salary cron,
-   * drop-payout cascade rows) — those are system-derived side-effects of an
-   * already-audited primary action, not a second independent "creation" a
-   * human decided to make.
-   */
-  /**
    * task-notification-types-producers (позиция 6). ЕДИНСТВЕННАЯ точка, которую
    * зовут все шесть пользовательских путей создания транзакции плюс зарплатный
    * крон — то есть ровно тот шов, который уже существовал под аудит. Спека §10
@@ -227,6 +213,21 @@ export class TransactionLifecycleService {
     await this.notifyTransactionAdded(txId, currentUser)
   }
 
+  /**
+   * task-soft-delete-and-money-audit (AC5): "создание" — every primary
+   * user-facing creation entry point (createAdminIncome / createSeniorIncome
+   * / createDropIncome / createExpense / createSalary / createAdminTransfer)
+   * calls this right after its `.insert(transactions)...returning()`.
+   * Best-effort (mirrors AuditInterceptor's convention): a logging hiccup
+   * must never turn a successful money-record creation into a 500 — the
+   * primary insert has already committed by the time this runs.
+   *
+   * Deliberately NOT wired into every INTERNAL cascade insert (obligation
+   * placeholders booked by `bookCompanyObligations`, the monthly salary cron,
+   * drop-payout cascade rows) — those are system-derived side-effects of an
+   * already-audited primary action, not a second independent "creation" a
+   * human decided to make.
+   */
   private async recordCreationAudit(
     txId: string,
     created: { type: string; amount: string; currency: string },
