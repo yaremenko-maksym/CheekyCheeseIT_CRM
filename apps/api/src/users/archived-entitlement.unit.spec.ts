@@ -494,14 +494,15 @@ describe('archived-entitlement — the inventory of everything that writes `user
     // still runs its OWN archived-refusal by hand (reusing
     // `changedEntitlementFields`/`ARCHIVED_ENTITLEMENT_CODE`) before this
     // write — see that method's own doc.
-    'users/users.service.ts::proposeSeniorShareChangeInTx': 'pending_senior_share_percent only',
-    'users/users.service.ts::rejectSeniorShareChange':
+    'users/senior-share-change.service.ts::proposeSeniorShareChangeInTx':
+      'pending_senior_share_percent only',
+    'users/senior-share-change.service.ts::rejectSeniorShareChange':
       'pending_senior_share_percent only — discards the proposal, active column untouched',
     // task-648-fix-round-1 (SR-H-1). Same category as rejectSeniorShareChange
     // above: clears the pending column without touching the active one — the
     // proposal's OWNER (ADMIN) withdrawing it, rather than the approver
     // declining it. Not an entitlement column for the same reason noted above.
-    'users/users.service.ts::cancelSeniorShareChangeCore':
+    'users/senior-share-change.service.ts::cancelSeniorShareChangeCore':
       'pending_senior_share_percent only — ADMIN withdraws the proposal, active column untouched',
   }
 

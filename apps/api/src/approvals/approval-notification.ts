@@ -25,7 +25,7 @@ export type ApprovalNotificationKind = 'PROJECT' | 'PROJECT_SHARE' | 'BASE_SHARE
 /**
  * Виды согласований, заведённые позициями 4 и 5. Значения совпадают с
  * `ProjectsService.APPROVAL_SUBJECT_TYPE` / `SENIOR_SHARE_SUBJECT_TYPE` и
- * `UsersService.SENIOR_SHARE_SUBJECT_TYPE` — это те же три строки.
+ * `SENIOR_SHARE_SUBJECT_TYPE` из `user-profile.service.ts` — это те же три строки.
  *
  * Неизвестный вид даёт `null`, и уведомление НЕ создаётся. Это честнее
  * подстановки «проект»: сказать администратору про объект, вид которого мы не

@@ -15,10 +15,18 @@ import { ForbiddenException, HttpException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { UsersService } from './users.service'
+import { loadUserById } from './user-read.util'
 import { users } from '../database/schema'
 import { resolveSeniorShare } from '../finance/senior-share-resolver'
 import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 import { makeProposeInTxStub } from '../approvals/__test-helpers__/approvals-stub'
+
+// The senior-share flow reads the viewer through the shared `loadUserById` util; wrap it so the
+// "viewer re-fetch comes back empty" branches can be forced while every other call hits the real one.
+vi.mock('./user-read.util', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./user-read.util')>()
+  return { ...actual, loadUserById: vi.fn(actual.loadUserById) }
+})
 
 const seniorUser: SessionUser = {
   id: 'senior-1',
@@ -140,8 +148,8 @@ function buildHarness(overrides: Partial<UserRow> = {}) {
       ...makeUpdateChain([], false),
       // `findById` (adminUpdateUser's pre-read) — plain `select().from().where()`.
       select: () => ({ from: () => ({ where: async () => [{ ...userRow }] }) }),
-      transaction: vi.fn(
-        async <T>(fn: (tx: typeof txHandle) => Promise<T>): Promise<T> => fn(txHandle),
+      transaction: vi.fn(async <T>(fn: (tx: typeof txHandle) => Promise<T>): Promise<T> =>
+        fn(txHandle),
       ),
     },
   }
@@ -390,7 +398,11 @@ describe('UsersService — notification seam (position 6 hand-off)', () => {
   it('notifyPendingSeniorShareProposed fires exactly once, with the proposed + previous percent, when adminUpdateUser opens a proposal', async () => {
     const h = buildHarness({ seniorSharePercent: 26, pendingSeniorSharePercent: null })
     const spy = vi.spyOn(
-      h.service as unknown as { notifyPendingSeniorShareProposed: (i: unknown) => void },
+      (
+        h.service as unknown as {
+          seniorShare: { notifyPendingSeniorShareProposed: (i: unknown) => void }
+        }
+      ).seniorShare,
       'notifyPendingSeniorShareProposed',
     )
     await h.service.adminUpdateUser('senior-1', { seniorSharePercent: 80 }, 'admin-1')
@@ -412,7 +424,11 @@ describe('UsersService — notification seam (position 6 hand-off)', () => {
   it('does NOT fire when the request is a no-op (value unchanged)', async () => {
     const h = buildHarness({ seniorSharePercent: 26, pendingSeniorSharePercent: null })
     const spy = vi.spyOn(
-      h.service as unknown as { notifyPendingSeniorShareProposed: (i: unknown) => void },
+      (
+        h.service as unknown as {
+          seniorShare: { notifyPendingSeniorShareProposed: (i: unknown) => void }
+        }
+      ).seniorShare,
       'notifyPendingSeniorShareProposed',
     )
     await h.service.adminUpdateUser('senior-1', { seniorSharePercent: 26 }, 'admin-1')
@@ -495,7 +511,7 @@ describe('UsersService.approveSeniorShareChange / rejectSeniorShareChange — ex
   // real branch the mutation gate expects a reason for, not a shrug.
   it('approve: throws (generic) ForbiddenException if the post-write viewer re-fetch comes back empty', async () => {
     const h = buildHarness()
-    vi.spyOn(h.service, 'findById').mockResolvedValue(undefined)
+    vi.mocked(loadUserById).mockResolvedValueOnce(undefined)
     await expect(h.service.approveSeniorShareChange('senior-1', seniorUser)).rejects.toThrow(
       ForbiddenException,
     )
@@ -524,7 +540,7 @@ describe('UsersService.approveSeniorShareChange / rejectSeniorShareChange — ex
   // reasoning as approve's identical test above.
   it('reject: throws (generic) ForbiddenException if the post-write viewer re-fetch comes back empty', async () => {
     const h = buildHarness()
-    vi.spyOn(h.service, 'findById').mockResolvedValue(undefined)
+    vi.mocked(loadUserById).mockResolvedValueOnce(undefined)
     await expect(
       h.service.rejectSeniorShareChange('senior-1', 'причина', seniorUser),
     ).rejects.toThrow(ForbiddenException)
@@ -723,7 +739,7 @@ describe('UsersService.cancelSeniorShareChange — RBAC + actual effect', () => 
   // round — the sibling methods already had this test, this one didn't.
   it('throws (generic) ForbiddenException if the post-write viewer re-fetch comes back empty', async () => {
     const h = buildHarness({ pendingSeniorSharePercent: 55 })
-    vi.spyOn(h.service, 'findById').mockResolvedValue(undefined)
+    vi.mocked(loadUserById).mockResolvedValueOnce(undefined)
     await expect(h.service.cancelSeniorShareChange('senior-1', adminUser)).rejects.toThrow(
       ForbiddenException,
     )
