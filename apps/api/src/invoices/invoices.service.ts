@@ -110,6 +110,7 @@ import {
   type InvoiceTransactionInfo,
 } from './invoice-pdf.service'
 import { sha256Hex, shortHash } from '../common/pdf/pdf.utils'
+import { extractIp, extractUserAgent, lastOctet } from './invoice-request.util'
 
 // ---------------------------------------------------------------------------
 // Company info constants (TBD — currently hardcoded; future migration into
@@ -1471,8 +1472,8 @@ export class InvoicesService {
     // `getInvoice` would then report the FRESH reissue as "SIGNED" even
     // though nobody signed it, attesting to bytes nobody downloaded.
     const signedAt = new Date()
-    const ip = this.extractIp(req)
-    const userAgent = this.extractUserAgent(req)
+    const ip = extractIp(req)
+    const userAgent = extractUserAgent(req)
     await this.db.db.transaction(async (dbtx) => {
       // The row-lock mode for the SELECT below — extracted to a named,
       // `as const`-asserted constant rather than inlined into the
@@ -1527,7 +1528,7 @@ export class InvoicesService {
       // this ternary from the other, or from a forced-true/false condition.
       // Stryker disable next-line ConditionalExpression,EqualityOperator,StringLiteral: both ternary branches are provably equal here — the tamper-detection throw above already enforces companySig[0].pdfHash === currentHash before this line runs.
       pdfHashFull: s.signerRole === 'COMPANY' ? companySig[0]!.pdfHash : currentHash,
-      ipLastOctet: s.signerRole === 'COUNTERPARTY' && ip ? this.lastOctet(ip) : null,
+      ipLastOctet: s.signerRole === 'COUNTERPARTY' && ip ? lastOctet(ip) : null,
     }))
 
     const { pdfBuffer: newPdf } = await this.pdfService.generateSignableInvoicePdf({
@@ -1995,36 +1996,6 @@ export class InvoicesService {
   private buildVerifyUrl(transactionId: string): string {
     const frontendUrl = this.config.get('FRONTEND_URL', { infer: true })
     return `${frontendUrl}/invoice/v/${transactionId}`
-  }
-
-  /**
-   * Extract the client IP from a Fastify request. We prefer `req.ip` (which
-   * Fastify resolves through trustProxy if configured) and fall back to
-   * `x-forwarded-for`. Returns null when neither is available so the DB
-   * column stays NULL instead of an empty string.
-   */
-  private extractIp(req: FastifyRequest): string | null {
-    if (req.ip) return req.ip
-    const xff = req.headers['x-forwarded-for']
-    if (typeof xff === 'string' && xff.length > 0) {
-      return xff.split(',')[0]!.trim()
-    }
-    if (Array.isArray(xff) && xff.length > 0) {
-      return xff[0]!.split(',')[0]!.trim()
-    }
-    return null
-  }
-
-  private extractUserAgent(req: FastifyRequest): string | null {
-    const ua = req.headers['user-agent']
-    if (typeof ua === 'string' && ua.length > 0) return ua
-    return null
-  }
-
-  /** Last octet of an IPv4 string; empty for IPv6 / null inputs. */
-  private lastOctet(ip: string): string | null {
-    const m = /^(\d+\.\d+\.\d+\.)(\d+)$/.exec(ip)
-    return m ? m[2]! : null
   }
 
   /**
