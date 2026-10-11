@@ -59,7 +59,15 @@ function makeDb(opts: {
       transaction,
     },
   }
-  return { db, setCalls, insertCalls, transaction, readBackFindFirst, txFindFirst }
+  return {
+    db,
+    setCalls,
+    insertCalls,
+    transaction,
+    readBackFindFirst,
+    txFindFirst,
+    projectsFindFirst,
+  }
 }
 
 describe('ProjectFinanceSettingsService role gate', () => {
@@ -168,5 +176,21 @@ describe('ProjectFinanceSettingsService.upsertProjectFinanceSettings writes', ()
       juniorSalaryOverride: null,
     })
     expect(setCalls[1]).toEqual({ table: 'projects', values: { seniorSharePercentOverride: null } })
+  })
+})
+
+describe('ProjectFinanceSettingsService lookups are scoped by a where clause', () => {
+  it('read, project existence check and in-transaction existing-row lookup each pass a where', async () => {
+    const { db, readBackFindFirst, projectsFindFirst, txFindFirst } = makeDb({
+      project: { status: 'ACTIVE' },
+      existing: undefined,
+    })
+    const svc = new ProjectFinanceSettingsService(db as never)
+    await svc.upsertProjectFinanceSettings('p1', { seniorSharePercentOverride: 5 }, user('ADMIN'))
+    for (const fn of [readBackFindFirst, projectsFindFirst, txFindFirst]) {
+      expect(fn).toHaveBeenCalledTimes(1)
+      const arg = (fn.mock.calls[0] as unknown as [{ where?: unknown }])[0]
+      expect(arg.where).toBeDefined()
+    }
   })
 })
