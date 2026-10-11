@@ -383,12 +383,13 @@ describe('ProjectsService.create — seniorApprovalPending/dropApprovalPending c
       .fn()
       .mockResolvedValueOnce({ id: SENIOR_ID, role: 'SENIOR', archivedAt: null })
       .mockResolvedValueOnce({ id: DROP_ID, role: 'DROP', archivedAt: null })
+    const teamMembersFindMany = vi.fn(async () => [])
     const db = {
       db: {
         query: {
           users: { findFirst: usersFindFirst },
           projects: { findFirst: async () => created },
-          teamMembers: { findFirst: async () => null, findMany: async () => [] },
+          teamMembers: { findFirst: async () => null, findMany: teamMembersFindMany },
         },
         transaction: async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => {
           const tx = {
@@ -438,6 +439,9 @@ describe('ProjectsService.create — seniorApprovalPending/dropApprovalPending c
     expect(result.seniorApprovalPending).toBe(true)
     expect(result.dropApprovalPending).toBe(true)
     expect(approvals.getPendingApproverIds).not.toHaveBeenCalled()
+    // The created project's senior is looked up for team overrides (the response
+    // is built from the freshly re-read row, not an empty project list).
+    expect(teamMembersFindMany).toHaveBeenCalledTimes(1)
   })
 })
 

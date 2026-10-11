@@ -73,7 +73,7 @@ export class ProjectReadService {
         team: { id: string; seniorSharePercentOverride: number | null; archivedAt: Date | null }
       }>
     } catch {
-      rows = []
+      // Fall through with `rows` still empty.
     }
 
     for (const row of rows) {
