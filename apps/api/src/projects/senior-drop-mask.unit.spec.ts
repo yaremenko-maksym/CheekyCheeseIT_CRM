@@ -248,9 +248,15 @@ function buildHarness(project: ReturnType<typeof makeDropProject>) {
   )
 
   // Bypass access check — we test mapping logic, not RBAC gate
-  vi.spyOn(service as never, 'assertAccess').mockResolvedValue(undefined)
+  vi.spyOn(
+    (service as unknown as { access: object }).access as never,
+    'assertAccess',
+  ).mockResolvedValue(undefined)
   // Bypass team-overrides load (irrelevant for masking tests)
-  vi.spyOn(service as never, 'loadTeamOverridesBySenior').mockResolvedValue(new Map())
+  vi.spyOn(
+    (service as unknown as { read: object }).read as never,
+    'loadTeamOverridesBySenior',
+  ).mockResolvedValue(new Map())
 
   return { service }
 }

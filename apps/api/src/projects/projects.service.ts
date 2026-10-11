@@ -12,7 +12,6 @@ import type {
   ArchiveImpact,
   CreateProjectDto,
   DropProjectDto,
-  EffectiveTeam,
   PendingSeniorShare,
   SessionUser,
   UpdateProjectDto,
@@ -38,16 +37,19 @@ import {
   type Project,
   type User,
 } from '../database/schema'
-import { ProjectAccessService, PROJECT_APPROVAL_SUBJECT_TYPE } from './project-access.service'
+import {
+  ProjectAccessService,
+  PROJECT_APPROVAL_SUBJECT_TYPE,
+  PROJECT_SENIOR_SHARE_SUBJECT_TYPE,
+} from './project-access.service'
 import { ProjectAuditLogService } from './project-audit-log.service'
 import { ProjectMembersService } from './project-members.service'
+import { ProjectReadService } from './project-read.service'
 import { canSeePendingSeniorShare } from './project-visibility.util'
 import { mapProjectToDto, type ProjectWithRelations } from './project-map.util'
 import { assertLogoDocument } from './project-logo.util'
-import { buildEffectiveTeam, type EffectiveTeamRow } from './project-team.util'
 import { UsersService } from '../users/users.service'
 import {
-  buildPendingSeniorShareDto,
   isDropOverrideChange,
   isSeniorOverrideChange,
   pickDropDefault,
@@ -101,13 +103,16 @@ export class ProjectsService {
     // built from the same db/approvals the service already holds.
     @Optional() access?: ProjectAccessService,
     @Optional() members?: ProjectMembersService,
+    @Optional() read?: ProjectReadService,
   ) {
     this.access = access ?? new ProjectAccessService(db, approvals)
+    this.read = read ?? new ProjectReadService(db, this.access, approvals)
     this.members = members ?? new ProjectMembersService(db, this.access, notifications)
   }
 
   private readonly access: ProjectAccessService
   private readonly members: ProjectMembersService
+  private readonly read: ProjectReadService
 
   /** task-project-draft-status. `subjectType` this module registers approvals under. */
   private static readonly APPROVAL_SUBJECT_TYPE = PROJECT_APPROVAL_SUBJECT_TYPE
@@ -121,61 +126,7 @@ export class ProjectsService {
    * collide — `uq_approvals_live_subject_approver` is keyed on
    * (subjectType, subjectId, approverUserId)).
    */
-  private static readonly SENIOR_SHARE_SUBJECT_TYPE = 'PROJECT_SENIOR_SHARE'
-
-  /**
-   * task-team-senior-share-override. Pre-computes the active senior-team
-   * overrides for every senior referenced by the supplied projects, in one
-   * DB hit. The result feeds `mapProject` so each row carries
-   * `effectiveSeniorSharePercent` + `effectiveSeniorShareSource` without
-   * an N+1 round-trip per project. Keyed by `senior.id`.
-   */
-  private async loadTeamOverridesBySenior(
-    projects: ProjectWithRelations[],
-  ): Promise<Map<string, { id: string; seniorSharePercentOverride: number | null }[]>> {
-    const seniorIds = Array.from(
-      new Set(
-        projects
-          .map((p) => p.seniorId)
-          .filter((id): id is string => typeof id === 'string' && id.length > 0),
-      ),
-    )
-    const map = new Map<string, { id: string; seniorSharePercentOverride: number | null }[]>()
-    if (seniorIds.length === 0) return map
-
-    // Use the relational query API instead of a raw `db.select(...).from(...)`
-    // join chain so existing service-spec mocks (which only stub the
-    // `db.query.<entity>.find*` surface) keep working without a wholesale
-    // mock rewrite. Try/catch protects against test doubles that don't even
-    // stub `query.teamMembers.findMany` — those simply fall through to "no
-    // overrides", which is the correct default for the resolver.
-    let rows: Array<{
-      userId: string
-      team: { id: string; seniorSharePercentOverride: number | null; archivedAt: Date | null }
-    }> = []
-    try {
-      rows = (await this.db.db.query.teamMembers.findMany({
-        where: and(inArray(teamMembers.userId, seniorIds), isNull(teamMembers.leftAt)),
-        with: { team: true },
-      })) as unknown as Array<{
-        userId: string
-        team: { id: string; seniorSharePercentOverride: number | null; archivedAt: Date | null }
-      }>
-    } catch {
-      rows = []
-    }
-
-    for (const row of rows) {
-      if (!row.team || row.team.archivedAt !== null) continue
-      const list = map.get(row.userId) ?? []
-      list.push({
-        id: row.team.id,
-        seniorSharePercentOverride: row.team.seniorSharePercentOverride ?? null,
-      })
-      map.set(row.userId, list)
-    }
-    return map
-  }
+  private static readonly SENIOR_SHARE_SUBJECT_TYPE = PROJECT_SENIOR_SHARE_SUBJECT_TYPE
 
   private mapProject(
     project: ProjectWithRelations,
@@ -194,42 +145,6 @@ export class ProjectsService {
       pendingApproverIdsByProjectId,
       pendingSeniorShare,
     )
-  }
-
-  /**
-   * task-pending-share (position 5). Resolves the `pendingSeniorShare` DTO
-   * field for a single project — the async counterpart to the (synchronous)
-   * masking `mapProject` applies. `null` whenever there is no live PENDING
-   * proposal, determined by `ApprovalsService.getStatus` — NEVER by
-   * `pendingSeniorSharePercentOverride`'s own null-ness (that column can
-   * legitimately hold `null` WHILE pending — see the column's own schema.ts
-   * comment).
-   */
-  private async loadPendingSeniorShare(
-    projectId: string,
-    senior:
-      { id: string; displayName: string; seniorSharePercent: number | null } | null | undefined,
-    pendingValue: number | null | undefined,
-    // task-648-fix-round-1 (AC9 mutation-gate gap-fill): NOT optional — all
-    // three call sites already compute this via `loadTeamOverridesBySenior`
-    // before calling in (same as `mapProject`'s own identically-shaped
-    // parameter), so an optional-chaining `?.` here had no live path where
-    // it could ever short-circuit — genuinely dead defensiveness, not a
-    // real "caller might omit this" contract. `.get(senior.id)` returning
-    // `undefined` (this senior has no team override) is the real, exercised
-    // case the `?? []` below still covers.
-    teamOverridesBySeniorId: Map<
-      string,
-      { id: string; seniorSharePercentOverride: number | null }[]
-    >,
-  ): Promise<PendingSeniorShare | null> {
-    if (!senior) return null
-    const status = await this.approvals.getStatus(
-      ProjectsService.SENIOR_SHARE_SUBJECT_TYPE,
-      projectId,
-    )
-    if (status !== 'PENDING') return null
-    return buildPendingSeniorShareDto(senior, pendingValue, teamOverridesBySeniorId)
   }
 
   async findAll(currentUser: SessionUser, filter: { archived?: boolean | 'all' } = {}) {
@@ -313,7 +228,7 @@ export class ProjectsService {
     // task-team-senior-share-override. Batch-load team overrides for every
     // senior referenced by the filtered set so `mapProject` resolves the
     // effective share + source without N+1 queries.
-    const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior(filtered)
+    const teamOverridesBySeniorId = await this.read.loadTeamOverridesBySenior(filtered)
     // task-project-status-filter-ui. Batch-load rejection reasons for every
     // REJECTED project in the filtered set — one round trip for the whole
     // list, not one per row. The `.length` guard here (not just inside
@@ -424,106 +339,8 @@ export class ProjectsService {
     }))
   }
 
-  async findOne(id: string, currentUser: SessionUser) {
-    const project = (await this.db.db.query.projects.findFirst({
-      where: eq(projects.id, id),
-      with: { senior: true, drop: true, members: { with: { user: true } }, legend: true },
-    })) as ProjectWithRelations | undefined
-
-    if (!project) throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
-    await this.assertAccess(project, currentUser)
-
-    const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior([project])
-    // task-project-status-filter-ui. Same batched lookup as `findAll`,
-    // narrowed to this one project — the call is skipped outright (not just
-    // internally short-circuited) for every project that isn't REJECTED.
-    const rejectionReasonByProjectId =
-      project.status === 'REJECTED'
-        ? await this.approvals.getRejectionReasons(ProjectsService.APPROVAL_SUBJECT_TYPE, [
-            project.id,
-          ])
-        : new Map<string, string>()
-    // SPEC-M-2 (PR #646 fix-round 1). Same guarded shape as the REJECTED
-    // lookup just above, for the DRAFT side.
-    const pendingApproverIdsByProjectId =
-      project.status === 'DRAFT'
-        ? await this.approvals.getPendingApproverIds(ProjectsService.APPROVAL_SUBJECT_TYPE, [
-            project.id,
-          ])
-        : new Map<string, Set<string>>()
-    // JUNIOR must not see effectiveTeam — it contains senior/HR/accountant
-    // identity. We skip the computation entirely (saves DB round-trip) and
-    // return undefined so the field is absent from the JUNIOR DTO.
-    const effectiveTeam =
-      currentUser.role === 'JUNIOR'
-        ? undefined
-        : await this.computeEffectiveTeam(project, currentUser.role)
-    // task-648-fix-round-1 (QA-HIGH-1): skip the lookup for anyone who is not
-    // ADMIN or the affected SENIOR — `mapProject` masks the field for every
-    // other role now (not just JUNIOR), same "don't pay for a value nobody
-    // sees" reasoning as effectiveTeam immediately above.
-    const pendingSeniorShare = canSeePendingSeniorShare(currentUser.role)
-      ? await this.loadPendingSeniorShare(
-          project.id,
-          project.senior,
-          project.pendingSeniorSharePercentOverride,
-          teamOverridesBySeniorId,
-        )
-      : null
-    return {
-      ...this.mapProject(
-        project,
-        teamOverridesBySeniorId,
-        currentUser.role,
-        rejectionReasonByProjectId,
-        pendingApproverIdsByProjectId,
-        pendingSeniorShare,
-      ),
-      effectiveTeam,
-    }
-  }
-
-  /**
-   * Effective team is a computed view (NOT a snapshot at archive time).
-   * - senior: project.seniorId resolved to a user row (typed for SENIOR — but we widen to allow ADMIN-owned projects).
-   * - hrs / accountants: active team_members (leftAt IS NULL) of senior's team.
-   * - juniors: active project_members of THIS project (leftAt IS NULL).
-   *
-   * After unarchive, this naturally reflects the current senior's team — if HR changed
-   * while archived, the new HR appears here without restoring leftAt rows.
-   */
-  private async computeEffectiveTeam(
-    project: ProjectWithRelations,
-    viewerRole: SessionUser['role'],
-  ): Promise<EffectiveTeam> {
-    // Resolve senior's team via team_members where userId = senior.id.
-    // The query stays here; the pure assembly + masking is `buildEffectiveTeam`.
-    const teamRows: EffectiveTeamRow[] = project.senior
-      ? await this.loadSeniorTeamRows(project.senior.id)
-      : // Stryker disable next-line ArrayDeclaration: equivalent mutant — a stray element is never a row with role 'HR'/'ACCOUNTANT', so buildEffectiveTeam's role filters discard it and hrs/accountants stay empty either way.
-        []
-    return buildEffectiveTeam(project, viewerRole, teamRows)
-  }
-
-  private async loadSeniorTeamRows(seniorId: string): Promise<EffectiveTeamRow[]> {
-    const seniorMembership = await this.db.db.query.teamMembers.findFirst({
-      where: and(eq(teamMembers.userId, seniorId), isNull(teamMembers.leftAt)),
-    })
-    if (!seniorMembership) return []
-    const teamId = seniorMembership.teamId
-    return this.db.db
-      .select({
-        id: teamMembers.id,
-        userId: teamMembers.userId,
-        displayName: users.displayName,
-        email: users.email,
-        avatarUrl: users.avatarUrl,
-        avatarDocumentId: users.avatarDocumentId,
-        role: users.role,
-      })
-      .from(teamMembers)
-      .innerJoin(users, eq(users.id, teamMembers.userId))
-      .where(and(eq(teamMembers.teamId, teamId), isNull(teamMembers.leftAt)))
+  findOne(id: string, currentUser: SessionUser) {
+    return this.read.findOne(id, currentUser)
   }
 
   async create(data: CreateProjectDto, currentUser: SessionUser) {
@@ -705,7 +522,7 @@ export class ProjectsService {
       with: { senior: true, drop: true, members: { with: { user: true } }, legend: true },
     })) as ProjectWithRelations
 
-    const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior([created])
+    const teamOverridesBySeniorId = await this.read.loadTeamOverridesBySenior([created])
     // SPEC-M-2 (PR #646 fix-round 1). Unlike rejectionReason (structurally
     // impossible here — a project this method just inserted is always
     // DRAFT, never REJECTED), a fresh DRAFT's pendingApproverIds is NOT
@@ -774,7 +591,7 @@ export class ProjectsService {
       })
       await this.applyApprovalAggregate(tx, id)
     })
-    return this.loadForResponse(id, currentUser)
+    return this.read.loadForResponse(id, currentUser)
   }
 
   /**
@@ -805,7 +622,7 @@ export class ProjectsService {
     // straight through instead of re-querying `approvals` for the row this
     // very call just wrote (also keeps this path clear of the new
     // `getRejectionReasons` query entirely, see `loadForResponse`'s doc).
-    return this.loadForResponse(id, currentUser, new Map([[id, reason]]))
+    return this.read.loadForResponse(id, currentUser, new Map([[id, reason]]))
   }
 
   /**
@@ -834,77 +651,6 @@ export class ProjectsService {
         .set({ status: newStatus, updatedAt: new Date() })
         .where(eq(projects.id, projectId))
     }
-  }
-
-  /**
-   * Re-fetches + maps a project for the approve/reject response.
-   *
-   * `rejectionReasonByProjectId` — task-project-status-filter-ui: the caller
-   * builds this directly instead of this method deriving it, because the
-   * two callers need it built two different ways: `rejectDraft` already has
-   * the reason it just wrote in scope (no query needed — passes a
-   * single-entry map); `approveDraft` omits it — its result is never
-   * REJECTED, so `mapProject`'s default empty map is exactly right, and
-   * deliberately NOT the same "batch-query `getRejectionReasons`" path
-   * `findAll`/`findOne` use (would be a DB round trip for a value that can
-   * never matter here).
-   */
-  private async loadForResponse(
-    id: string,
-    currentUser: SessionUser,
-    rejectionReasonByProjectId?: Map<string, string>,
-  ) {
-    const project = (await this.db.db.query.projects.findFirst({
-      where: eq(projects.id, id),
-      with: { senior: true, drop: true, members: { with: { user: true } }, legend: true },
-    })) as ProjectWithRelations | undefined
-    if (!project) throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
-    const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior([project])
-    // SPEC-M-2 (PR #646 fix-round 1). Computed HERE (not by the caller, unlike
-    // rejectionReasonByProjectId above) because it needs the SAME guard for
-    // BOTH callers: `rejectDraft`'s result is always REJECTED (never needs
-    // it — mapProject's own status check already yields `[]`), but
-    // `approveDraft`'s result can legitimately still be DRAFT (business
-    // spec §4.1 partial agreement — the other invited approver hasn't
-    // decided yet), and in that case the response SHOULD carry the
-    // remaining pending approver, not an empty array from a caller that
-    // never asked.
-    const pendingApproverIdsByProjectId =
-      project.status === 'DRAFT'
-        ? await this.approvals.getPendingApproverIds(ProjectsService.APPROVAL_SUBJECT_TYPE, [
-            project.id,
-          ])
-        : new Map<string, Set<string>>()
-    // task-pending-share: this response path is shared by approveDraft /
-    // rejectDraft / approveSeniorShareChange / rejectSeniorShareChange /
-    // cancelSeniorShareChange — the caller may just have resolved a share
-    // proposal (or a draft proposal while a share proposal ALSO happens to
-    // be live), so it resolves this rather than trusting which action got it
-    // here.
-    //
-    // task-648-fix-round-2 (SR-bm-3): but only for a viewer who may SEE it.
-    // `mapProject` (below) masks the field for every role except ADMIN and
-    // the affected SENIOR, so resolving it for an ACCOUNTANT — who reaches
-    // this method through `cancelSeniorShareChange` — was a round-trip whose
-    // result was thrown away one line later. `findOne` already applied this
-    // exact gate; the two response paths silently disagreed about who may
-    // even ask.
-    const pendingSeniorShare = canSeePendingSeniorShare(currentUser.role)
-      ? await this.loadPendingSeniorShare(
-          project.id,
-          project.senior,
-          project.pendingSeniorSharePercentOverride,
-          teamOverridesBySeniorId,
-        )
-      : null
-    return this.mapProject(
-      project,
-      teamOverridesBySeniorId,
-      currentUser.role,
-      rejectionReasonByProjectId,
-      pendingApproverIdsByProjectId,
-      pendingSeniorShare,
-    )
   }
 
   /**
@@ -1066,7 +812,7 @@ export class ProjectsService {
         tx,
       )
     })
-    return this.loadForResponse(id, currentUser)
+    return this.read.loadForResponse(id, currentUser)
   }
 
   /**
@@ -1094,7 +840,7 @@ export class ProjectsService {
         .set({ pendingSeniorSharePercentOverride: null, updatedAt: new Date() })
         .where(eq(projects.id, id))
     })
-    return this.loadForResponse(id, currentUser)
+    return this.read.loadForResponse(id, currentUser)
   }
 
   /**
@@ -1176,7 +922,7 @@ export class ProjectsService {
         tx,
       )
     })
-    return this.loadForResponse(id, currentUser)
+    return this.read.loadForResponse(id, currentUser)
   }
 
   /**
@@ -1467,7 +1213,7 @@ export class ProjectsService {
       with: { senior: true, drop: true, members: { with: { user: true } }, legend: true },
     })) as ProjectWithRelations
 
-    const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior([updated])
+    const teamOverridesBySeniorId = await this.read.loadTeamOverridesBySenior([updated])
     // CR-M-1 (PR #646 fix-round 1): update() is reachable on a REJECTED
     // project too — ProjectRow's row-Link is unconditional for isRejected,
     // same as isArchived — so a PATCH here must not silently answer
@@ -1499,7 +1245,7 @@ export class ProjectsService {
     // was the third response path asking `approvals` a question whose answer
     // it then threw away, the one SR-bm-3 missed in round 2.
     const pendingSeniorShare = canSeePendingSeniorShare(currentUser.role)
-      ? await this.loadPendingSeniorShare(
+      ? await this.read.loadPendingSeniorShare(
           updated.id,
           updated.senior,
           updated.pendingSeniorSharePercentOverride,

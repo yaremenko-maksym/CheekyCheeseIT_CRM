@@ -7,6 +7,7 @@ import { UsersModule } from '../users/users.module'
 import { ProjectAccessService } from './project-access.service'
 import { ProjectAuditLogService } from './project-audit-log.service'
 import { ProjectMembersService } from './project-members.service'
+import { ProjectReadService } from './project-read.service'
 import { ProjectsController } from './projects.controller'
 import { ProjectsService } from './projects.service'
 
@@ -22,7 +23,13 @@ import { ProjectsService } from './projects.service'
     forwardRef(() => UsersModule),
   ],
   controllers: [ProjectsController],
-  providers: [ProjectsService, ProjectAuditLogService, ProjectAccessService, ProjectMembersService],
+  providers: [
+    ProjectsService,
+    ProjectAuditLogService,
+    ProjectAccessService,
+    ProjectMembersService,
+    ProjectReadService,
+  ],
   exports: [ProjectsService, ProjectAuditLogService],
 })
 export class ProjectsModule {}

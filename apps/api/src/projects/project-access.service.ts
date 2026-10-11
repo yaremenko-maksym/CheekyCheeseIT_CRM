@@ -11,6 +11,15 @@ import type { ProjectWithRelations } from './project-map.util'
 export const PROJECT_APPROVAL_SUBJECT_TYPE = 'PROJECT'
 
 /**
+ * `subjectType` for a PROJECT-level senior-share-override change — distinct from
+ * the draft-confirmation subject above: the same project id can carry a live
+ * draft-confirmation proposal AND a live share-change proposal at once
+ * (`uq_approvals_live_subject_approver` is keyed on subjectType, subjectId,
+ * approverUserId).
+ */
+export const PROJECT_SENIOR_SHARE_SUBJECT_TYPE = 'PROJECT_SENIOR_SHARE'
+
+/**
  * RBAC read-access guards for projects: draft/rejected visibility (404, not
  * 403), HR cross-team scoping. Extracted verbatim from ProjectsService.
  */
