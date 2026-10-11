@@ -1,17 +1,17 @@
 import { ForbiddenException, HttpStatus, Inject, Injectable, forwardRef } from '@nestjs/common'
 import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 import type { ArchiveImpact, SessionUser } from '@crm/shared'
-import { NOTIFICATION_TITLES } from '@crm/shared'
 import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
 import { NotificationsService } from '../notifications/notifications.service'
-import type { CreateNotificationInput } from '../notifications/notifications.service'
 import { projects, teamAuditLog, teamMembers, teams, users } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
 import { UsersService } from '../users/users.service'
 import { TeamAuditLogService } from './team-audit-log.service'
+import { assertAccess, isHrOfTeam } from './team-access.util'
 import { mapTeam } from './team-mapping.util'
-import type { ProjectWithMembers, TeamWithMembers } from './team-mapping.util'
+import { buildTeamMemberAddedNotifications } from './team-notifications.util'
+import type { ProjectWithMembers } from './team-mapping.util'
 
 @Injectable()
 export class TeamsService {
@@ -24,21 +24,6 @@ export class TeamsService {
     // «вас добавили в команду» и «в команде новый участник».
     private readonly notifications: NotificationsService,
   ) {}
-
-  // HIGH-1 (security-audit authz-hardening): `team.members` returns EVERY row,
-  // including soft-deleted ones (`leftAt != null` — set by removeMember).
-  // Without the `leftAt === null` filter a member removed from the team keeps
-  // being recognized as an active HR (or, in assertAccess/findAll below, as
-  // any active member) for as long as their JWT is valid (up to 7 days) —
-  // they retain read/write access, can rename the team, remove other members,
-  // and reactivate their own row via addMember. The DROP branch of
-  // assertAccess already filtered on `leftAt === null` correctly; this is now
-  // the norm for every membership check in this file.
-  private isHrOfTeam(team: TeamWithMembers, userId: string) {
-    return team.members.some(
-      (m) => m.userId === userId && m.user?.role === 'HR' && m.leftAt === null,
-    )
-  }
 
   /**
    * MED-3 (security-review round 2, authz-hardening): plain active-membership
@@ -222,7 +207,7 @@ export class TeamsService {
       // DROP-type teams are payment-routing internals and are irrelevant to the
       // HR recruiting workflow. Filter applied before isHrOfTeam so that even if
       // an HR is technically a member of a DROP team they don't see it.
-      filtered = allTeams.filter((t) => t.type !== 'DROP' && this.isHrOfTeam(t, currentUser.id))
+      filtered = allTeams.filter((t) => t.type !== 'DROP' && isHrOfTeam(t, currentUser.id))
     } else if (currentUser.role === 'DROP') {
       // Drop role - phase 1 (task-drop-1-backend AC1). EXPLICIT branch: a DROP
       // sees ONLY teams where they are a current static member (their own
@@ -275,7 +260,7 @@ export class TeamsService {
       this.fetchAllProjects(),
     ])
     if (!team) throw apiError('TEAM_NOT_FOUND', HttpStatus.NOT_FOUND)
-    this.assertAccess(team, currentUser, allProjects)
+    assertAccess(team, currentUser, allProjects)
     return mapTeam(team, allProjects, currentUser)
   }
 
@@ -315,7 +300,7 @@ export class TeamsService {
 
     // HR scope check: HR may only update teams they are a member of.
     // ACCOUNTANT is exempt from this check — their authority is cross-team.
-    if (currentUser.role === 'HR' && !this.isHrOfTeam(team, currentUser.id)) {
+    if (currentUser.role === 'HR' && !isHrOfTeam(team, currentUser.id)) {
       throw new ForbiddenException()
     }
 
@@ -592,7 +577,7 @@ export class TeamsService {
     })
     if (!team) throw apiError('TEAM_NOT_FOUND', HttpStatus.NOT_FOUND)
 
-    if (currentUser.role === 'HR' && !this.isHrOfTeam(team, currentUser.id)) {
+    if (currentUser.role === 'HR' && !isHrOfTeam(team, currentUser.id)) {
       throw new ForbiddenException()
     }
 
@@ -674,10 +659,7 @@ export class TeamsService {
     // событием ещё до того, как событие случилось.
     const notify = async (tx: DrizzleTx): Promise<void> => {
       await this.notifications.emitInTx(tx, async (sp) => {
-        await this.notifications.createManyInTx(
-          sp,
-          this.buildTeamMemberAddedNotifications(notifyInput),
-        )
+        await this.notifications.createManyInTx(sp, buildTeamMemberAddedNotifications(notifyInput))
       })
     }
 
@@ -698,71 +680,6 @@ export class TeamsService {
     })
   }
 
-  /**
-   * Кому уходит событие «в команде прибыло» — и кому НЕ уходит.
-   *
-   * Правило раскрытия здесь не про деньги, а про личность, и оно уже
-   * зафиксировано в `mapTeam` выше: SENIOR не видит джунов вовсе, а JUNIOR
-   * видит среди джунов только себя. Уведомление обязано подчиняться тому же
-   * контуру — иначе колокольчик рассказывал бы то, что экран прячет, и это был
-   * бы обход маскировки, а не её частный случай.
-   *
-   * Автору действия не пишем: своё подтверждает тост, а не колокольчик (§8.1).
-   */
-  private buildTeamMemberAddedNotifications(input: {
-    teamId: string
-    teamName: string
-    addedUserId: string
-    addedUserRole: string
-    addedUserName: string
-    members: TeamWithMembers['members']
-    currentUser: SessionUser
-  }): CreateNotificationInput[] {
-    const actorId = input.currentUser.impersonatorId ?? input.currentUser.id
-    const out: CreateNotificationInput[] = []
-
-    if (input.addedUserId !== actorId) {
-      out.push({
-        userId: input.addedUserId,
-        type: 'TEAM_MEMBER_ADDED',
-        title: NOTIFICATION_TITLES.TEAM_MEMBER_ADDED,
-        subjectType: 'TEAM',
-        subjectId: input.teamId,
-        data: { teamName: input.teamName },
-      })
-    }
-
-    const addedIsJunior = input.addedUserRole === 'JUNIOR'
-    for (const member of input.members) {
-      if (member.leftAt !== null) continue
-      if (member.userId === input.addedUserId) continue
-      if (member.userId === actorId) continue
-      // SR-M-1 (security-review круг 1): роль НЕИЗВЕСТНА — значит самая
-      // ограниченная, а не «никакая». `?? null` открывал рассылку в
-      // непроверяемую сторону: строка членства без подтянутого профиля не
-      // попадала ни под одно условие и получала имя джуна.
-      //
-      // `mapTeam` / `mapDropTeam` в этом же файле после #541 идут именно так
-      // («a dangling identity is treated as the MOST restricted role, not the
-      // least»), и производитель обязан повторять их контур: колокольчик не
-      // имеет права рассказывать то, что прячет экран.
-      const memberRole = member.user?.role ?? 'JUNIOR'
-      // `mapTeam`: SENIOR не видит джунов, JUNIOR видит среди джунов только себя.
-      if (addedIsJunior && (memberRole === 'SENIOR' || memberRole === 'JUNIOR')) continue
-      out.push({
-        userId: member.userId,
-        type: 'TEAM_NEW_MEMBER',
-        title: NOTIFICATION_TITLES.TEAM_NEW_MEMBER,
-        subjectType: 'TEAM',
-        subjectId: input.teamId,
-        secondaryId: input.addedUserId,
-        data: { teamName: input.teamName, memberName: input.addedUserName },
-      })
-    }
-
-    return out
-  }
-
   async removeMember(teamId: string, userId: string, currentUser: SessionUser) {
     if (currentUser.role !== 'ADMIN' && currentUser.role !== 'HR') {
       throw new ForbiddenException()
@@ -774,7 +691,7 @@ export class TeamsService {
     })
     if (!team) throw apiError('TEAM_NOT_FOUND', HttpStatus.NOT_FOUND)
 
-    if (currentUser.role === 'HR' && !this.isHrOfTeam(team, currentUser.id)) {
+    if (currentUser.role === 'HR' && !isHrOfTeam(team, currentUser.id)) {
       throw new ForbiddenException()
     }
 
@@ -840,49 +757,6 @@ export class TeamsService {
         tx,
       )
     })
-  }
-
-  private assertAccess(
-    team: TeamWithMembers,
-    currentUser: SessionUser,
-    allProjects: ProjectWithMembers[],
-  ) {
-    if (currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT') return
-
-    // Drop role - phase 1 (task-drop-1-backend AC2). EXPLICIT, ACTIVE-only
-    // branch evaluated BEFORE the generic membership check below: a DROP may
-    // access a team ONLY when they are a CURRENT member (`leftAt === null`),
-    // matching the findAll DROP filter. A foreign team — or one the drop has
-    // left — is unconditionally forbidden; the JUNIOR project-derivation below
-    // MUST NOT grant a DROP access. Returning/throwing here keeps the contract
-    // unambiguous and future-proof.
-    if (currentUser.role === 'DROP') {
-      if (team.members.some((m) => m.userId === currentUser.id && m.leftAt === null)) return
-      throw new ForbiddenException()
-    }
-
-    // HIGH-1: `leftAt === null` — a soft-deleted (removed) static membership
-    // must not keep granting access. Mirrors the DROP branch above.
-    if (team.members.some((m) => m.userId === currentUser.id && m.leftAt === null)) return
-
-    // For JUNIORs: check if they have an active project with this team's senior
-    // MED-2 (security-review round 2): `leftAt === null` — same fix as
-    // findAll's JUNIOR branch above; a rotated-out senior's stale row must
-    // not seed this lookup (mirror-image bug of the DROP/general branches:
-    // it could both wrongly grant access via a departed senior AND wrongly
-    // deny access by shadowing the current one).
-    if (currentUser.role === 'JUNIOR') {
-      const senior = team.members.find((m) => m.user?.role === 'SENIOR' && m.leftAt === null)
-      if (senior) {
-        const seniorProjects = allProjects.filter((p) => p.seniorId === senior.userId)
-        const hasActiveProjectWithSenior = seniorProjects.some((p) =>
-          p.members.some((m) => m.userId === currentUser.id && m.leftAt === null),
-        )
-        if (hasActiveProjectWithSenior) return
-      }
-    }
-
-    throw new ForbiddenException()
   }
 
   // ──────────────────────────────────────────────────────────────────────────
