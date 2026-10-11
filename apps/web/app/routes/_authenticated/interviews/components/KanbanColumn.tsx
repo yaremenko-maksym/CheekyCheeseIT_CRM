@@ -7,6 +7,7 @@ import { useLingui } from '@lingui/react/macro'
 import { formatDate } from '@crm/shared'
 import type { InterviewDto, InterviewStage } from '@crm/shared'
 import { cn } from '@/lib/utils'
+import { safeHttpUrl } from '@/lib/safe-http-url'
 import { useLocale } from '@/lib/i18n'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { getInitials } from '@/components/users/UserAvatar'
@@ -68,7 +69,7 @@ export function InterviewCard({
 
       {/* Links row — vacancy + call chip */}
       <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-        {interview.vacancyUrl && (
+        {interview.vacancyUrl && safeHttpUrl(interview.vacancyUrl) && (
           <a
             href={interview.vacancyUrl}
             target="_blank"
@@ -88,7 +89,7 @@ export function InterviewCard({
           </a>
         )}
 
-        {interview.callUrl && (
+        {interview.callUrl && safeHttpUrl(interview.callUrl) && (
           <a
             href={interview.callUrl}
             target="_blank"
