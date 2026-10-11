@@ -43,6 +43,8 @@ describe('ProjectAccessService.getHrSeniorIds', () => {
     const { svc, select } = makeService({ hrTeams: ['t-1'], seniors: ['s-1', 's-2'] })
     expect(await svc.getHrSeniorIds('hr-1')).toEqual(['s-1', 's-2'])
     expect(select).toHaveBeenCalledTimes(2)
+    expect(select).toHaveBeenNthCalledWith(1, { teamId: expect.anything() })
+    expect(select).toHaveBeenNthCalledWith(2, { userId: expect.anything() })
   })
 })
 
@@ -158,5 +160,52 @@ describe('ProjectAccessService.assertAccess — ACTIVE role matrix', () => {
     await expect(svc.assertAccess(project({ dropId: 'u-2' }), user('DROP'))).rejects.toBeInstanceOf(
       ForbiddenException,
     )
+  })
+})
+
+describe('ProjectAccessService.assertAccess — no cross-role leakage', () => {
+  const trap = (over: Record<string, unknown>) =>
+    project({
+      seniorId: 'u-1',
+      dropId: 'u-1',
+      members: [{ userId: 'u-1', leftAt: null }],
+      ...over,
+    })
+
+  it('a non-owner SENIOR is not let in by HR scope, junior membership or drop ownership', async () => {
+    const { svc } = makeService({ hrTeams: ['t'], seniors: ['senior-1'] })
+    await expect(
+      svc.assertAccess(trap({ seniorId: 'senior-1' }), user('SENIOR')),
+    ).rejects.toBeInstanceOf(ForbiddenException)
+  })
+
+  it('HR is not let in by being the senior, a member or the drop of the project', async () => {
+    const { svc } = makeService({ hrTeams: ['t'], seniors: ['x'] })
+    await expect(svc.assertAccess(trap({}), user('HR'))).rejects.toBeInstanceOf(ForbiddenException)
+  })
+
+  it('a non-member JUNIOR is not let in by seniorId, HR scope or dropId', async () => {
+    const { svc } = makeService({ hrTeams: ['t'], seniors: ['u-1'] })
+    await expect(
+      svc.assertAccess(trap({ members: [{ userId: 'u-2', leftAt: null }] }), user('JUNIOR')),
+    ).rejects.toBeInstanceOf(ForbiddenException)
+  })
+
+  it('a DROP user is not let in by seniorId, HR scope or membership of another drop project', async () => {
+    const { svc } = makeService({ hrTeams: ['t'], seniors: ['u-1'] })
+    await expect(svc.assertAccess(trap({ dropId: 'other' }), user('DROP'))).rejects.toBeInstanceOf(
+      ForbiddenException,
+    )
+  })
+
+  it('JUNIOR passes when active among several members', async () => {
+    const { svc } = makeService()
+    const many = project({
+      members: [
+        { userId: 'u-1', leftAt: null },
+        { userId: 'u-2', leftAt: null },
+      ],
+    })
+    await expect(svc.assertAccess(many, user('JUNIOR'))).resolves.toBeUndefined()
   })
 })
