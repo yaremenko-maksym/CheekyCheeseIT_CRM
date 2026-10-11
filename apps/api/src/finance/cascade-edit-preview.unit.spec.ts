@@ -473,10 +473,12 @@ describe('loadCascadeSnapshot (private) — settledAmount null-vs-zero mapping',
       findManySignatures: vi.fn().mockResolvedValue([]),
     })
     const svc = makeTransactionsService({ db: dbDouble }) as unknown as {
-      loadCascadeSnapshot: (db: unknown, id: string) => Promise<CascadeSnapshot | null>
+      editCascade: {
+        loadCascadeSnapshot: (db: unknown, id: string) => Promise<CascadeSnapshot | null>
+      }
     }
 
-    const snapshot = await svc.loadCascadeSnapshot(dbDouble.db, SOURCE_ID)
+    const snapshot = await svc.editCascade.loadCascadeSnapshot(dbDouble.db, SOURCE_ID)
 
     expect(snapshot!.derivatives[0]!.settledAmount).toBeNull()
   })
