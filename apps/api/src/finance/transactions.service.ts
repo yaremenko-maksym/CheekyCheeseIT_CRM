@@ -41,8 +41,6 @@ import {
   isCascadeAmountEdit,
   cascadeEditPreviewResponseSchema,
   amountsDiffer,
-  NOTIFICATION_TITLES,
-  notificationTextPreview,
 } from '@crm/shared'
 import { apiError } from '../common/api-error'
 import { zodErrorBadRequest } from '../common/zod-error-exception'
@@ -79,7 +77,7 @@ import { InvoicesService, type InvoiceReissueOutcome } from '../invoices/invoice
 import { DocumentsService } from '../documents/documents.service'
 import { NbuCurrencyService } from './nbu-currency.service'
 import { EtherscanService } from './etherscan.service'
-import { NotificationsService } from '../notifications/notifications.service'
+import { TransactionLifecycleService } from './transaction-lifecycle.service'
 import { resolveSeniorShare } from './senior-share-resolver'
 import { resolveDropShare, DEFAULT_DROP_SHARE_PERCENT } from './drop-share-resolver'
 import { SalaryService } from './salary.service'
@@ -207,9 +205,11 @@ export class TransactionsService {
     // amount ≈ payable).
     private readonly nbuCurrency: NbuCurrencyService,
     private readonly etherscan: EtherscanService,
-    // task-notification-types-producers (позиция 6). Производитель двух типов:
-    // «транзакция добавлена» и «статус транзакции изменился».
-    private readonly notifications: NotificationsService,
+    // WC-L5a: notification plumbing (task-notification-types-producers, позиция 6:
+    // «транзакция добавлена» / «статус транзакции изменился»). Replaces the former
+    // `notifications` ctor arg in the SAME position; the collaborator never
+    // depends on this class.
+    private readonly lifecycle: TransactionLifecycleService,
     // T-L6: db-only salary logic (receiver resolvers, archived-receiver guard,
     // month-gap report). SalaryService never depends on this class.
     private readonly salaryService: SalaryService,
@@ -4380,7 +4380,7 @@ export class TransactionsService {
 
       // Позиция 6: получатель дохода ЖДЁТ этого перехода. После коммита —
       // строка уже проверена, и уведомление не может опередить факт.
-      await this.notifyTransactionStatusChanged(id, 'VALIDATED', null, currentUser)
+      await this.lifecycle.notifyTransactionStatusChanged(id, 'VALIDATED', null, currentUser)
     } else {
       if (!rejectionReason)
         throw apiError('FINANCE_REJECTION_REASON_REQUIRED', HttpStatus.BAD_REQUEST)
@@ -4417,7 +4417,12 @@ export class TransactionsService {
 
       // Позиция 6: отказ без причины сотруднику бесполезен, а узнать её иначе
       // неоткуда — причина едет в данных записи, а не в её заголовке.
-      await this.notifyTransactionStatusChanged(id, 'REJECTED', rejectionReason, currentUser)
+      await this.lifecycle.notifyTransactionStatusChanged(
+        id,
+        'REJECTED',
+        rejectionReason,
+        currentUser,
+      )
     }
 
     return this.findOne(id, currentUser)
@@ -7190,130 +7195,7 @@ export class TransactionsService {
     //     актор нужен ровно для того, чтобы не написать человеку о его же
     //     действии (§8.1). Нет актора — некого исключать.
     if (currentUser !== null) await this.recordCreationAudit(txId, created, currentUser)
-    await this.notifyTransactionAdded(txId, currentUser)
-  }
-
-  /**
-   * «Транзакция добавлена» — получателю денег и никому больше.
-   *
-   * Кому НЕ уходит и почему (§10, «уведомления о деньгах — это раскрытие»):
-   *   - ОТПРАВИТЕЛЮ. У парных строк раздела (PAYOUT_DROP / PAYOUT_ADMIN)
-   *     отправитель — контрагент, и сумма его строки есть доля другой стороны.
-   *     «Дроп не видит долю синьора и наоборот» — тот же контур, что
-   *     `mapTx(viewer)` (#381–#384).
-   *   - САМОМУ АВТОРУ действия. Своё действие подтверждает тост, а не
-   *     колокольчик (§8.1); иначе входящее обесценивается.
-   *
-   * Best-effort, как и аудит рядом: строка денег уже зафиксирована, и сбой
-   * доставки уведомления не имеет права превратить её в 500.
-   */
-  private async notifyTransactionAdded(
-    txId: string,
-    currentUser: SessionUser | null,
-  ): Promise<void> {
-    try {
-      const row = await this.db.db.query.transactions.findFirst({
-        where: eq(transactions.id, txId),
-      })
-      if (!row) return
-      const recipientId = row.receiverId
-      if (!recipientId) return
-      // Системное событие (крон) актора не имеет — исключать некого.
-      if (currentUser !== null && recipientId === (currentUser.impersonatorId ?? currentUser.id)) {
-        return
-      }
-
-      await this.notifications.create({
-        userId: recipientId,
-        type: 'TRANSACTION_ADDED',
-        title: NOTIFICATION_TITLES.TRANSACTION_ADDED,
-        subjectType: 'TRANSACTION',
-        subjectId: row.id,
-        data: {
-          amount: row.amount,
-          currency: row.currency,
-          projectName: await this.loadProjectName(row.projectId),
-        },
-        // Событие «эта строка создана» может доехать дважды только повтором —
-        // и второй раз ничего нового не сообщает.
-        dedupeKey: `TRANSACTION_ADDED:${row.id}`,
-      })
-    } catch (notifyErr) {
-      this.logger.error(
-        `notifyTransactionAdded: failed for transaction=${txId}: ${(notifyErr as Error).message}`,
-        (notifyErr as Error).stack,
-      )
-    }
-  }
-
-  /**
-   * «Статус транзакции изменился» — тому, чьи это деньги. Проверка и отклонение
-   * (`validateTransaction`) — единственный переход статуса, которого сотрудник
-   * ЖДЁТ: он внёс доход и не знает, приняли его или нет, а причину отказа иначе
-   * узнать неоткуда.
-   */
-  private async notifyTransactionStatusChanged(
-    txId: string,
-    status: 'VALIDATED' | 'REJECTED',
-    rejectionReason: string | null,
-    currentUser: SessionUser,
-  ): Promise<void> {
-    try {
-      const row = await this.db.db.query.transactions.findFirst({
-        where: eq(transactions.id, txId),
-      })
-      if (!row) return
-      const recipientId = row.receiverId
-      if (!recipientId) return
-      if (recipientId === (currentUser.impersonatorId ?? currentUser.id)) return
-
-      // SR-H-1 (круг 1): причина отказа едет превью, а не целиком — §10
-      // («уведомление несёт суть и ссылку, полный текст читают в CRM»), та же
-      // причина, что и у «сотрудник отклонил». Пустое превью = «без причины».
-      const preview = rejectionReason === null ? null : notificationTextPreview(rejectionReason)
-      await this.notifications.create({
-        userId: recipientId,
-        type: 'TRANSACTION_STATUS_CHANGED',
-        title: NOTIFICATION_TITLES.TRANSACTION_STATUS_CHANGED,
-        subjectType: 'TRANSACTION',
-        subjectId: row.id,
-        data: {
-          amount: row.amount,
-          currency: row.currency,
-          status,
-          rejectionReasonPreview: preview === '' ? null : preview,
-        },
-        // Статус входит в ключ: проверка и последующее отклонение — два разных
-        // события об одной строке, и второе обязано доехать.
-        dedupeKey: `TRANSACTION_STATUS_CHANGED:${row.id}:${status}`,
-      })
-    } catch (notifyErr) {
-      this.logger.error(
-        `notifyTransactionStatusChanged: failed for transaction=${txId}: ${(notifyErr as Error).message}`,
-        (notifyErr as Error).stack,
-      )
-    }
-  }
-
-  /**
-   * Название проекта снимается В МОМЕНТ события: уведомление живёт дольше
-   * объекта (§7.4), и строка о том, что было, не должна становиться безымянной,
-   * когда проект архивировали.
-   *
-   * ORCH-3 (fix-round 7): `companyName`, не `projects.name` — тот же экран
-   * «Ждут решения» называет проект именем компании (copy r2 на #667), и
-   * попап о деньгах обязан говорить тем же словом. Без фолбэка на `name`:
-   * `companyName` — NOT NULL в схеме и `z.string().min(1)` на обоих путях
-   * `.insert(projects)` (`create`/`createFromInterview`) — пустым не бывает;
-   * фолбэк был бы недостижимой веткой (допущение раунда 7).
-   */
-  private async loadProjectName(projectId: string | null): Promise<string | null> {
-    if (projectId === null) return null
-    const project = await this.db.db.query.projects.findFirst({
-      where: eq(projects.id, projectId),
-      columns: { companyName: true },
-    })
-    return project?.companyName ?? null
+    await this.lifecycle.notifyTransactionAdded(txId, currentUser)
   }
 
   private async recordCreationAudit(

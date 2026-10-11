@@ -30,7 +30,10 @@ function makeRates(usdUah = '40.0000', eurUah = '44.0000') {
  * проверяет самого производителя, — `transaction-notifications.unit.spec.ts`.
  */
 function makeNotificationsStub() {
-  return { create: async () => null } as never
+  return {
+    notifyTransactionAdded: async () => undefined,
+    notifyTransactionStatusChanged: async () => undefined,
+  } as never
 }
 
 interface MockTx {

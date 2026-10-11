@@ -127,7 +127,11 @@ function makeHarness(tx: TxRow, projectName: string | null = 'Acme') {
  */
 function spyOnLoggerErrors(svc: TransactionsService): string[] {
   const messages: string[] = []
-  const logger = (svc as unknown as { logger: { error: (m: string, s?: string) => void } }).logger
+  const logger = (
+    svc as unknown as {
+      lifecycle: { logger: { error: (m: string, s?: string) => void } }
+    }
+  ).lifecycle.logger
   vi.spyOn(logger, 'error').mockImplementation((m: string) => {
     messages.push(String(m))
   })

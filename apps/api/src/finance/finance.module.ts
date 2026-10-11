@@ -22,6 +22,7 @@ import {
   ProjectFinanceSettingsController,
   TransactionsController,
 } from './transactions.controller'
+import { TransactionLifecycleService } from './transaction-lifecycle.service'
 import { TransactionsService } from './transactions.service'
 
 @Module({
@@ -53,6 +54,8 @@ import { TransactionsService } from './transactions.service'
     SalaryService,
     // T-L8: read-only summaries (db + NBU rates only; never depends on TransactionsService).
     SummaryService,
+    // WC-L5a: notification plumbing collaborator (NotificationsService + db only; never depends on TransactionsService).
+    TransactionLifecycleService,
     NbuCurrencyService,
     // Phase 4-A: balance pipeline runs alongside the legacy getSummary.
     BalanceService,
