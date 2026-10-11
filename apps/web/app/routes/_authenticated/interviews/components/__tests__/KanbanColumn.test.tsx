@@ -49,21 +49,28 @@ describe('KanbanColumn — stage label from the catalog (COPY-H-proj-1)', () => 
 })
 
 describe('KanbanColumn — vacancy/call URL scheme allow-list (SR-M-1)', () => {
-  const card = (vacancyUrl: string, callUrl: string): InterviewDto =>
-    ({
-      id: '11111111-1111-4111-8111-111111111111',
-      seniorId: '22222222-2222-4222-8222-222222222222',
-      seniorName: 'Sen Ior',
-      hrId: null,
-      hrName: null,
-      companyName: 'Acme',
-      vacancyUrl,
-      callUrl,
-      stage: 'HR_SCREEN',
-      position: 0,
-      createdAt: '2026-01-01T00:00:00.000Z',
-      updatedAt: '2026-01-01T00:00:00.000Z',
-    }) as unknown as InterviewDto
+  const card = (vacancyUrl: string, callUrl: string): InterviewDto => ({
+    id: '11111111-1111-4111-8111-111111111111',
+    seniorId: '22222222-2222-4222-8222-222222222222',
+    seniorName: 'Sen Ior',
+    hrId: null,
+    hrName: null,
+    companyName: 'Acme',
+    vacancyUrl,
+    callUrl,
+    stage: 'HR_SCREEN',
+    notesDomain: null,
+    notesTechStack: null,
+    notesTeamSize: null,
+    notesBenefits: null,
+    notesPaymentType: null,
+    notesSalaryReview: null,
+    notesCorpTech: null,
+    notesGeneral: null,
+    position: 0,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  })
 
   it('renders no link for javascript:/data: URLs', async () => {
     await loadCatalog('uk')
