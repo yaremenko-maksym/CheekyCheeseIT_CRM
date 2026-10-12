@@ -92,7 +92,7 @@ msgid "Банківські реквізити ФОП"
 msgstr "Банківські реквізити ФОП"
 
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
-#: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
+#: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Дата початку"
 msgstr "Дата початку"
 
@@ -100,7 +100,7 @@ msgstr "Дата початку"
 msgid "Змінна з таким ключем уже існує"
 msgstr "Змінна з таким ключем уже існує"
 
-#: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
+#: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Загальні примітки"
 msgstr "Загальні примітки"
 
@@ -340,7 +340,7 @@ msgstr "Кроки створення користувача"
 msgid "Не призначено"
 msgstr "Не призначено"
 
-#: apps/web/app/routes/_authenticated/documents.tsx
+#: apps/web/app/routes/_authenticated/documents/components/DocumentsListSection.tsx
 msgid "Керування — з профілів користувачів."
 msgstr "Керування — з профілів користувачів."
 
@@ -999,7 +999,7 @@ msgstr "Максимальний розмір: {maxSize}. Допустимі ф�
 msgid "Розрахунок за частку дропа"
 msgstr "Розрахунок за частку дропа"
 
-#: apps/web/app/routes/_authenticated/documents.tsx
+#: apps/web/app/routes/_authenticated/documents/components/DocumentsListSection.tsx
 msgid "Рахунки створюються автоматично після оплати транзакцій. Натисніть на картку рахунку, щоб відкрити PDF, побачити підписи і підписати документ."
 msgstr "Рахунки створюються автоматично після оплати транзакцій. Натисніть на картку рахунку, щоб відкрити PDF, побачити підписи і підписати документ."
 
@@ -1219,8 +1219,8 @@ msgid "Інші розділи недоступні, поки відкритий
 msgstr "Інші розділи недоступні, поки відкритий цей."
 
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
-#: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
 #: apps/web/app/routes/_authenticated/projects/constants.ts
+#: apps/web/app/routes/_authenticated/projects/index.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancySeoFields.tsx
 msgid "Бенефіти"
 msgstr "Бенефіти"
@@ -1284,8 +1284,8 @@ msgstr "Закріплену ідентичність рекордера буд�
 msgid "Відгуків: {0}"
 msgstr "Відгуків: {0}"
 
-#: apps/web/app/routes/_authenticated/team/index.tsx
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "авто"
 msgstr "авто"
 
@@ -1457,7 +1457,7 @@ msgstr "Налаштувати секрет"
 #: apps/web/app/components/users/user-dialog/TeamSection.tsx
 #: apps/web/app/components/users/user-dialog/TeamSection.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
-#: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
+#: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "— не обрано —"
 msgstr "— не обрано —"
 
@@ -1557,7 +1557,7 @@ msgstr "Підтвердити вручну"
 msgid "Підтвердження ручної виплати партнеру або зарахування на рахунок компанії із зазначенням методу та хешу транзакції."
 msgstr "Підтвердження ручної виплати партнеру або зарахування на рахунок компанії із зазначенням методу та хешу транзакції."
 
-#: apps/web/app/routes/_authenticated/documents.tsx
+#: apps/web/app/routes/_authenticated/documents/constants.ts
 #: apps/web/app/routes/_authenticated/interviews/constants.ts
 #: apps/web/app/routes/_authenticated/projects/constants.ts
 #: apps/web/app/routes/_authenticated/projects/constants.ts
@@ -1604,7 +1604,7 @@ msgstr "Співробітник"
 msgid "В активних стадіях"
 msgstr "В активних стадіях"
 
-#: apps/web/app/routes/_authenticated/documents.tsx
+#: apps/web/app/routes/_authenticated/documents/components/DocumentsToolbar.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Пошук за назвою…"
 msgstr "Пошук за назвою…"
@@ -1638,7 +1638,7 @@ msgid "гіг-контракт"
 msgstr "гіг-контракт"
 
 #: apps/web/app/components/ui/role-select.tsx
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "HR"
 msgstr "HR"
 
@@ -1691,8 +1691,8 @@ msgstr "Всі вакансії"
 msgid "Прибрати зі складу?"
 msgstr "Прибрати зі складу?"
 
-#: apps/web/app/routes/_authenticated/documents.tsx
-#: apps/web/app/routes/_authenticated/documents.tsx
+#: apps/web/app/routes/_authenticated/documents/components/DocumentsListSection.tsx
+#: apps/web/app/routes/_authenticated/documents/components/DocumentsListSection.tsx
 msgid "Перейти до Фінансів"
 msgstr "Перейти до Фінансів"
 
@@ -3600,7 +3600,7 @@ msgid "Скопіювати Webhook URL"
 msgstr "Скопіювати Webhook URL"
 
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
-#: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
+#: apps/web/app/routes/_authenticated/projects/index.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 msgid "Назва проєкту"
 msgstr "Назва проєкту"
@@ -3671,7 +3671,7 @@ msgstr "Адмін"
 #: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
-#: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
+#: apps/web/app/routes/_authenticated/projects/index.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
 msgid "Компанія"
@@ -3748,7 +3748,7 @@ msgstr "Реквізити не заповнено"
 msgid "Задано для команди. Діє на всіх її проєктах, крім тих, де є індивідуальна частка за проєктом."
 msgstr "Задано для команди. Діє на всіх її проєктах, крім тих, де є індивідуальна частка за проєктом."
 
-#: apps/web/app/routes/_authenticated/documents.tsx
+#: apps/web/app/routes/_authenticated/documents/components/DocumentsCounterText.tsx
 msgid "в архіві"
 msgstr "в архіві"
 
@@ -3762,7 +3762,7 @@ msgid "Переказів ще не було"
 msgstr "Переказів ще не було"
 
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
-#: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
+#: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Стек технологій"
 msgstr "Стек технологій"
 
@@ -4155,8 +4155,8 @@ msgstr "Гаманець USDT ERC-20 (якщо вказано)"
 msgid "Всього: {0}"
 msgstr "Всього: {0}"
 
-#: apps/web/app/routes/_authenticated/documents.tsx
-#: apps/web/app/routes/_authenticated/documents.tsx
+#: apps/web/app/routes/_authenticated/documents/components/DocumentsToolbar.tsx
+#: apps/web/app/routes/_authenticated/documents/components/DocumentsToolbar.tsx
 msgid "Усі категорії"
 msgstr "Усі категорії"
 
@@ -4211,7 +4211,7 @@ msgstr "Вакансію приховано"
 
 #: apps/web/app/components/documents/upload-document-dialog.tsx
 #: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
-#: apps/web/app/routes/_authenticated/documents.tsx
+#: apps/web/app/routes/_authenticated/documents/components/DocumentsHeader.tsx
 msgid "Завантажити файл"
 msgstr "Завантажити файл"
 
@@ -4233,13 +4233,13 @@ msgid "Не вдалося завантажити PDF попереднього �
 msgstr "Не вдалося завантажити PDF попереднього перегляду"
 
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
-#: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
+#: apps/web/app/routes/_authenticated/projects/index.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectHero.tsx
 msgid "Ставка"
 msgstr "Ставка"
 
-#: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
+#: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "— виберіть сеньйора —"
 msgstr "— виберіть сеньйора —"
 
@@ -4304,7 +4304,7 @@ msgstr "Транзакція знову з’явиться в загально�
 msgid "Ваш персональний контракт ще не готовий до підписання — адміністратор заповнить його найближчим часом"
 msgstr "Ваш персональний контракт ще не готовий до підписання — адміністратор заповнить його найближчим часом"
 
-#: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
+#: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Корп. техніка"
 msgstr "Корп. техніка"
 
@@ -4370,7 +4370,7 @@ msgstr "За зростанням"
 
 #: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
 #: apps/web/app/components/users/user-dialog/TechStackSection.tsx
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Почніть вводити: React, Node.js…"
 msgstr "Почніть вводити: React, Node.js…"
 
@@ -4446,7 +4446,7 @@ msgstr "Підтвердження видалення учасника зі ск
 msgid "Створення транзакції"
 msgstr "Створення транзакції"
 
-#: apps/web/app/routes/_authenticated/documents.tsx
+#: apps/web/app/routes/_authenticated/documents/components/DocumentsEmptyStates.tsx
 msgid "Ще немає документів"
 msgstr "Ще немає документів"
 
@@ -4637,9 +4637,9 @@ msgid "Файл завантажено"
 msgstr "Файл завантажено"
 
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
-#: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
-#: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
 #: apps/web/app/routes/_authenticated/projects/constants.ts
+#: apps/web/app/routes/_authenticated/projects/index.tsx
+#: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Тип оплати"
 msgstr "Тип оплати"
 
@@ -5000,7 +5000,7 @@ msgid "Дохід"
 msgstr "Дохід"
 
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Бухгалтерів ще немає — зверніться до адміністратора"
 msgstr "Бухгалтерів ще немає — зверніться до адміністратора"
 
@@ -5125,7 +5125,7 @@ msgstr "Перенести в архів?"
 
 #: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
 #: apps/web/app/components/users/user-dialog/IdentitySection.tsx
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Ім’я та прізвище"
 msgstr "Ім’я та прізвище"
 
@@ -5159,7 +5159,7 @@ msgstr "Команда <0>{0}</0> і її дроп <1>{dropName}</1> — пов�
 msgid "Не вдалося перевірити, чи чекає на вас рішення щодо проєкту. Оновіть сторінку."
 msgstr "Не вдалося перевірити, чи чекає на вас рішення щодо проєкту. Оновіть сторінку."
 
-#: apps/web/app/routes/_authenticated/documents.tsx
+#: apps/web/app/routes/_authenticated/documents/components/DocumentsToolbar.tsx
 msgid "Сітка"
 msgstr "Сітка"
 
@@ -5337,7 +5337,7 @@ msgid "наприклад: основний"
 msgstr "наприклад: основний"
 
 #: apps/web/app/routes/_authenticated/team/index.tsx
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Створити сеньйора"
 msgstr "Створити сеньйора"
 
@@ -5573,15 +5573,15 @@ msgstr "чек"
 #: apps/web/app/routes/_authenticated/legend.tsx
 #: apps/web/app/routes/_authenticated/legend.tsx
 #: apps/web/app/routes/_authenticated/legend.tsx
-#: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
+#: apps/web/app/routes/_authenticated/projects/index.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectDropDialogs.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectEditDialog.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectMemberDialogs.tsx
-#: apps/web/app/routes/_authenticated/team/index.tsx
 #: apps/web/app/routes/_authenticated/team/team-detail/components/AddMemberDialog.tsx
 #: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
 #: apps/web/app/routes/_authenticated/team/team-detail/components/RotateSeniorDialog.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
@@ -5642,7 +5642,7 @@ msgstr "Команда"
 msgid "Видалити відгук"
 msgstr "Видалити відгук"
 
-#: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
+#: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Виберіть сеньйора"
 msgstr "Виберіть сеньйора"
 
@@ -5734,7 +5734,7 @@ msgstr "Правка суми цього рядка заборонена, при
 msgid "Поки немає вакансій"
 msgstr "Поки немає вакансій"
 
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Фінанси та команда"
 msgstr "Фінанси та команда"
 
@@ -5759,7 +5759,7 @@ msgstr " · усі"
 msgid "Весь дохід (gross) піде обраному отримувачу. Компанія автоматично створить зобов’язання виплатити сеньйору та дропу їхні частки."
 msgstr "Весь дохід (gross) піде обраному отримувачу. Компанія автоматично створить зобов’язання виплатити сеньйору та дропу їхні частки."
 
-#: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
+#: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Змінювати може тільки адмін або бухгалтер."
 msgstr "Змінювати може тільки адмін або бухгалтер."
 
@@ -5788,7 +5788,7 @@ msgid "Ні"
 msgstr "Ні"
 
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
-#: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
+#: apps/web/app/routes/_authenticated/projects/index.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 msgid "Логотип компанії"
 msgstr "Логотип компанії"
@@ -5849,7 +5849,7 @@ msgstr "Закрити вакансію"
 msgid "Вакансії"
 msgstr "Вакансії"
 
-#: apps/web/app/routes/_authenticated/documents.tsx
+#: apps/web/app/routes/_authenticated/documents/components/DocumentsToolbar.tsx
 msgid "Список"
 msgstr "Список"
 
@@ -6030,7 +6030,7 @@ msgstr "Повернути контракт у чернетку?"
 msgid "Адмін побачить причину і зможе запропонувати проєкт знову."
 msgstr "Адмін побачить причину і зможе запропонувати проєкт знову."
 
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Іван Іваненко"
 msgstr "Іван Іваненко"
 
@@ -6193,7 +6193,7 @@ msgstr "Транзакції у виплаті ({0})"
 msgid "Зазвичай займає кілька секунд. Сторінка оновиться сама."
 msgstr "Зазвичай займає кілька секунд. Сторінка оновиться сама."
 
-#: apps/web/app/routes/_authenticated/documents.tsx
+#: apps/web/app/routes/_authenticated/documents/components/DocumentsCounterText.tsx
 msgid "{count, plural, one {# документ} few {# документи} many {# документів} other {# документа}}"
 msgstr "{count, plural, one {# документ} few {# документи} many {# документів} other {# документа}}"
 
@@ -6559,7 +6559,7 @@ msgstr "URL-слаг"
 msgid "Вибір учасників для додавання до складу проєкту."
 msgstr "Вибір учасників для додавання до складу проєкту."
 
-#: apps/web/app/routes/_authenticated/documents.tsx
+#: apps/web/app/routes/_authenticated/documents/components/DocumentsListSection.tsx
 msgid "Немає логотипів"
 msgstr "Немає логотипів"
 
@@ -6938,7 +6938,7 @@ msgstr "Частка сеньйора у відсотках"
 #: apps/web/app/components/users/user-dialog/UserDialogFooter.tsx
 #: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Створюємо…"
 msgstr "Створюємо…"
 
@@ -6967,7 +6967,7 @@ msgstr "Користувача створено, контракт збереже
 msgid "Транскрипт порожній"
 msgstr "Транскрипт порожній"
 
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "— оберіть бухгалтера —"
 msgstr "— оберіть бухгалтера —"
 
@@ -7038,8 +7038,8 @@ msgstr "Перейменувати підключення"
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
 #: apps/web/app/routes/_authenticated/legend.tsx
-#: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/projects/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 #: apps/web/app/routes/_authenticated/vacancies/index.tsx
 msgid "Створити"
 msgstr "Створити"
@@ -7050,7 +7050,7 @@ msgstr "Назад до списку"
 
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
-#: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
+#: apps/web/app/routes/_authenticated/projects/index.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectHero.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyFormFields.tsx
@@ -7205,7 +7205,7 @@ msgstr "не підтверджено"
 msgid "(за замовчуванням)"
 msgstr "(за замовчуванням)"
 
-#: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
+#: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Дроп (опційно)"
 msgstr "Дроп (опційно)"
 
@@ -7287,8 +7287,8 @@ msgstr "Усе, що чекає рішення"
 msgid "На головну"
 msgstr "На головну"
 
-#: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
 #: apps/web/app/routes/_authenticated/projects/constants.ts
+#: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Склад команди"
 msgstr "Склад команди"
 
@@ -7389,7 +7389,7 @@ msgstr "Попередня"
 msgid "Попередній перегляд резюме кандидата {0}"
 msgstr "Попередній перегляд резюме кандидата {0}"
 
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Сеньйора створено, команду сформовано"
 msgstr "Сеньйора створено, команду сформовано"
 
@@ -7397,7 +7397,7 @@ msgstr "Сеньйора створено, команду сформовано"
 #: apps/web/app/components/users/AccountantChipField.tsx
 #: apps/web/app/components/users/AccountantChipField.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Бухгалтер"
 msgstr "Бухгалтер"
 
@@ -7450,7 +7450,7 @@ msgstr "Посилання має починатися з https://t.me/"
 msgid "Ваші правки в тексті контракту буде замінено актуальним шаблоном"
 msgstr "Ваші правки в тексті контракту буде замінено актуальним шаблоном"
 
-#: apps/web/app/routes/_authenticated/documents.tsx
+#: apps/web/app/routes/_authenticated/documents/components/DocumentsListSection.tsx
 msgid "Чеки додаються в розділі «Фінанси» під час створення транзакції."
 msgstr "Чеки додаються в розділі «Фінанси» під час створення транзакції."
 
@@ -7471,7 +7471,7 @@ msgstr "Виведення дивідендів із балансу рахунк
 msgid "Не вдалося завантажити запис."
 msgstr "Не вдалося завантажити запис."
 
-#: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
+#: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Перегляд ЗП"
 msgstr "Перегляд ЗП"
 
@@ -7500,7 +7500,7 @@ msgstr "Дані компанії"
 msgid "Сума виплати"
 msgstr "Сума виплати"
 
-#: apps/web/app/routes/_authenticated/documents.tsx
+#: apps/web/app/routes/_authenticated/documents/components/DocumentsListSection.tsx
 msgid "Немає аватарів"
 msgstr "Немає аватарів"
 
@@ -7638,7 +7638,7 @@ msgstr "Опубліковані ({0})"
 msgid "Контакт HR"
 msgstr "Контакт HR"
 
-#: apps/web/app/routes/_authenticated/documents.tsx
+#: apps/web/app/routes/_authenticated/documents/constants.ts
 #: apps/web/app/routes/_authenticated/projects/constants.ts
 #: apps/web/app/routes/_authenticated/projects/constants.ts
 #: apps/web/app/routes/_authenticated/team/index.tsx
@@ -7832,7 +7832,7 @@ msgstr "Оновіть сторінку або спробуйте пізніше
 
 #: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
 #: apps/web/app/components/users/user-dialog/ContactsSection.tsx
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Телефон"
 msgstr "Телефон"
 
@@ -8287,7 +8287,7 @@ msgstr "Проєкт: {0}"
 msgid "Примітка <0>(необов’язково)</0>"
 msgstr "Примітка <0>(необов’язково)</0>"
 
-#: apps/web/app/routes/_authenticated/documents.tsx
+#: apps/web/app/routes/_authenticated/documents/components/DocumentsListSection.tsx
 msgid "Ще немає рахунків"
 msgstr "Ще немає рахунків"
 
@@ -8311,7 +8311,7 @@ msgstr "Інші розділи"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
-#: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
+#: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Створення…"
 msgstr "Створення…"
 
@@ -8587,8 +8587,8 @@ msgstr "Керувати в розділі «Проєкти» →"
 msgid "Поповнення рахунку компанії"
 msgstr "Поповнення рахунку компанії"
 
-#: apps/web/app/routes/_authenticated/documents.tsx
-#: apps/web/app/routes/_authenticated/documents.tsx
+#: apps/web/app/routes/_authenticated/documents/components/DocumentsToolbar.tsx
+#: apps/web/app/routes/_authenticated/documents/components/DocumentsToolbar.tsx
 msgid "Усі власники"
 msgstr "Усі власники"
 
@@ -9065,7 +9065,7 @@ msgstr "Приєднатися до команди дропа"
 
 #: apps/web/app/components/users/AccountantChipField.tsx
 #: apps/web/app/components/users/HrChipsField.tsx
-#: apps/web/app/routes/_authenticated/documents.tsx
+#: apps/web/app/routes/_authenticated/documents/components/DocumentsEmptyStates.tsx
 msgid "Нічого не знайдено"
 msgstr "Нічого не знайдено"
 
@@ -9149,7 +9149,7 @@ msgstr "Видалення…"
 
 #: apps/web/app/components/users/user-dialog/FinanceSection.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Частка сеньйора (%)"
 msgstr "Частка сеньйора (%)"
 
@@ -9473,7 +9473,7 @@ msgstr "Адресу скопійовано"
 msgid "Не вдалося підтвердити вручну"
 msgstr "Не вдалося підтвердити вручну"
 
-#: apps/web/app/routes/_authenticated/documents.tsx
+#: apps/web/app/routes/_authenticated/documents/components/DocumentsToolbar.tsx
 msgid "Очистити пошук"
 msgstr "Очистити пошук"
 
@@ -9523,7 +9523,7 @@ msgstr "Для ролі «{roleLabel}» доступні лише виплати
 msgid "Скан"
 msgstr "Скан"
 
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Створіть сеньйора та сформуйте команду."
 msgstr "Створіть сеньйора та сформуйте команду."
 
@@ -9774,7 +9774,7 @@ msgid "Заповнено"
 msgstr "Заповнено"
 
 #: apps/web/app/components/users/UserRow.tsx
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Ви"
 msgstr "Ви"
 
@@ -9978,7 +9978,7 @@ msgstr "за {count, plural, one {# місяць} few {# місяці} many {# �
 #: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/users/user-dialog/TechStackSection.tsx
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Технології"
 msgstr "Технології"
 
@@ -10121,7 +10121,7 @@ msgstr "Професія"
 msgid "· Сеньйора не призначено"
 msgstr "· Сеньйора не призначено"
 
-#: apps/web/app/routes/_authenticated/documents.tsx
+#: apps/web/app/routes/_authenticated/documents/constants.ts
 #: apps/web/app/routes/_authenticated/team/index.tsx
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "Усі"
@@ -10235,7 +10235,7 @@ msgstr "Розрахунок із сеньйором проведено"
 msgid "Сплачено {0}"
 msgstr "Сплачено {0}"
 
-#: apps/web/app/routes/_authenticated/documents.tsx
+#: apps/web/app/routes/_authenticated/documents/components/DocumentsListSection.tsx
 msgid "Керування — з налаштувань проєктів."
 msgstr "Керування — з налаштувань проєктів."
 
@@ -10259,7 +10259,7 @@ msgstr "Не вдалося завантажити змінні контракт
 msgid "Зміна ERC-20 адреси для отримання USDT-депозитів"
 msgstr "Зміна ERC-20 адреси для отримання USDT-депозитів"
 
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Буде створено акаунт сеньйора та сформовано команду з вами в ролі HR."
 msgstr "Буде створено акаунт сеньйора та сформовано команду з вами в ролі HR."
 
@@ -10326,7 +10326,7 @@ msgstr "Ця електронна адреса не має доступу. Зв�
 msgid "Немає проєктів на підтвердженні"
 msgstr "Немає проєктів на підтвердженні"
 
-#: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
+#: apps/web/app/routes/_authenticated/projects/index.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Новий проєкт"
 msgstr "Новий проєкт"
@@ -10492,7 +10492,7 @@ msgstr "Не вдалося прочитати файл"
 msgid "Зберегти"
 msgstr "Зберегти"
 
-#: apps/web/app/routes/_authenticated/documents.tsx
+#: apps/web/app/routes/_authenticated/documents/components/DocumentsCounterText.tsx
 msgid "усі"
 msgstr "усі"
 
@@ -10660,7 +10660,7 @@ msgstr "Попередній перегляд умов"
 msgid "Виплата"
 msgstr "Виплата"
 
-#: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
+#: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Якщо обрано — надходження за проєктом підуть через дропа (частка 5% за замовчуванням)."
 msgstr "Якщо обрано — надходження за проєктом підуть через дропа (частка 5% за замовчуванням)."
 
@@ -11024,7 +11024,7 @@ msgstr "Видаліть — і вхід за цією адресою закри
 msgid "Команду та сеньйора відновлено"
 msgstr "Команду та сеньйора відновлено"
 
-#: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
+#: apps/web/app/routes/_authenticated/projects/index.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 msgid "Виберіть тип оплати"
 msgstr "Виберіть тип оплати"
@@ -11083,7 +11083,7 @@ msgstr "Ethereum ERC-20, починається з 0x, 42 символи"
 msgid "Перевірено системою CheekyCheeseIT CRM · {0}"
 msgstr "Перевірено системою CheekyCheeseIT CRM · {0}"
 
-#: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
+#: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Створення проєкту"
 msgstr "Створення проєкту"
 
@@ -11219,7 +11219,7 @@ msgstr "Транзакцію буде прибрано з загального �
 msgid "Попередній перегляд контракту"
 msgstr "Попередній перегляд контракту"
 
-#: apps/web/app/routes/_authenticated/documents.tsx
+#: apps/web/app/routes/_authenticated/documents/components/DocumentsListSection.tsx
 msgid "Ще немає чеків"
 msgstr "Ще немає чеків"
 
@@ -11447,7 +11447,7 @@ msgstr "Редагувати вакансію"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/LinkRecordingDialog.tsx
-#: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
+#: apps/web/app/routes/_authenticated/projects/index.tsx
 #: apps/web/app/routes/_authenticated/stats.tsx
 msgid "Сеньйор"
 msgstr "Сеньйор"
@@ -11533,7 +11533,7 @@ msgstr "HR: {0}"
 msgid "Адмін-сеньйор"
 msgstr "Адмін-сеньйор"
 
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Не вдалося створити команду — спробуйте ще раз"
 msgstr "Не вдалося створити команду — спробуйте ще раз"
 
