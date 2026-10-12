@@ -230,6 +230,17 @@ describe('wrapCellLines', () => {
     ])
   })
 
+  it('a token exactly as wide as the column stays whole even if its chars would not fit', () => {
+    // "kerned" font: the whole word measures 16.5 but its characters measure 6 each (18 total)
+    const kerned = {
+      name: 'k',
+      widthOfTextAtSize: (t: string) => (t === 'abc' ? 16.5 : t.length * 6),
+    } as unknown as PDFFont
+    expect(wrapCellLines('abc', false, 16.5, kerned, kerned)).toEqual([
+      [{ text: 'abc', bold: false }],
+    ])
+  })
+
   it('keeps consecutive whitespace as a single token', () => {
     expect(wrap('a  b', false, 500)).toEqual([
       [
@@ -359,6 +370,16 @@ describe('renderParagraph', () => {
     expect(texts()).toEqual(['a', '  ', 'b'])
   })
 
+  it('wraps a word that does not fit onto the next line and still draws it', () => {
+    const c = makeCursor(700)
+    renderParagraph(pdfGen, doc, c, [{ text: 'aaa bbbb', bold: false }], base)
+    expect(drawn.map((d) => [d.text, d.x, d.y])).toEqual([
+      ['aaa', 50, 700],
+      [' ', 65, 700],
+      ['bbbb', 50, 687],
+    ])
+  })
+
   it('applies indent to the start x and wrap origin', () => {
     const c = makeCursor(700)
     renderParagraph(pdfGen, doc, c, [{ text: 'aaa bbb', bold: false }], {
@@ -485,6 +506,15 @@ describe('renderTableBlock', () => {
   it('does not treat non-separator dashes as separators', () => {
     run(['| H | H |', '| -- | x |', '| --- | x |', '| x--- | x--- |', '| ---x | ---x |'])
     expect(texts()).toEqual(['H', 'H', '--', 'x', '---', 'x', 'x---', 'x---', '---x', '---x'])
+  })
+
+  it('a row with no cells is a blank paragraph, not a separator', () => {
+    const c = run(['', '| a | b |'])
+    expect(drawn.map((d) => [d.text, d.font])).toEqual([
+      ['a', 'regular'],
+      ['b', 'regular'],
+    ])
+    expect(c.y).toBeCloseTo(700 - 2 * LH, 6)
   })
 
   it('an empty row is a (blank) paragraph, not a separator, and consumes the header slot', () => {

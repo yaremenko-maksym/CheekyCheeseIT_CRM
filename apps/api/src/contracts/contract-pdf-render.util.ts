@@ -185,14 +185,17 @@ export function renderTableBlock(
     const totalRowLines = Math.max(leftLines.length, rightLines.length)
     const rowHeight = totalRowLines * lineHeight
 
+    const fullPageContentHeight = PDF_LAYOUT.pageHeight - PDF_LAYOUT.pageMargin * 2 - 70
+    // Stryker disable next-line EqualityOperator: rowHeight is a whole multiple of 14.3 and the threshold is 671.89, so `>` vs `>=` is unobservable (equality is unreachable).
+    const rowTallerThanPage = rowHeight > fullPageContentHeight
+
     // Available space on the current page.
     const availableSpace = cursor.y - BOTTOM_LIMIT
 
     if (rowHeight <= availableSpace) {
       // Entire row fits on the current page.
       drawTwoColRow(pdfGen, pdfDoc, cursor, leftLines, rightLines, isHeader, opts)
-      // Stryker disable next-line EqualityOperator: rowHeight is a whole multiple of 14.3 and the threshold is 671.89, so strict vs non-strict comparison is unobservable (equality is unreachable).
-    } else if (rowHeight > PDF_LAYOUT.pageHeight - PDF_LAYOUT.pageMargin * 2 - 70) {
+    } else if (rowTallerThanPage) {
       // Row is taller than a full page — draw line-by-line, paginating as needed.
       const maxIdx = Math.max(leftLines.length, rightLines.length)
       for (let i = 0; i < maxIdx; i++) {
@@ -343,7 +346,6 @@ export function wrapCellLines(
       // Skip leading whitespace when at the start of a new line.
       if (lineWidth === 0 && isWhitespaceToken(token)) continue
 
-      // Stryker disable next-line EqualityOperator: a token exactly colWidth wide takes the char-by-char path to the identical lines/lineWidth, so `<` vs `<=` is unobservable.
       if (tokenWidth <= colWidth) {
         // Token fits as-is — check if it fits on the current line.
         if (lineWidth + tokenWidth > colWidth) {
