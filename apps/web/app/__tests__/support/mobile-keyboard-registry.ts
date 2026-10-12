@@ -462,7 +462,7 @@ export const EXEMPT_FIELDS: Record<string, string> = {
     'i18n-3d-pr3 owner override (2026-09-28): the expense category is free text — prod `receiver_label` carries 16 distinct operator-authored values, not a closed set — so autocapitalize/autocorrect must not fight arbitrary operator wording.',
   'testid:admin-edit-expense-category-input':
     'i18n-3d-pr3 owner override (2026-09-28): same free-text expense category as CreateTransactionDialog — see that entry.',
-  'app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx#4':
+  'app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx#1':
     'Free-text "Заметки" field on the create-transaction dialog (non-dividend types).',
   'app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx#1':
     'Free-text rejection reason typed by ACCOUNTANT when rejecting a transaction.',
