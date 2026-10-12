@@ -6,7 +6,7 @@
  * table's own filtering, sorting and chrome, not the row's per-role actions.
  */
 import { describe, expect, it, vi, beforeAll, beforeEach, afterEach } from 'vitest'
-import { render as rtlRender, screen, within, type RenderResult } from '@testing-library/react'
+import { render as rtlRender, screen, within, act, type RenderResult } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactElement } from 'react'
 import type { TransactionDto } from '@crm/shared'
@@ -29,8 +29,12 @@ function render(ui: ReactElement): RenderResult {
   return rtlRender(ui, { wrapper: I18nTestProvider })
 }
 
+const animatePresenceProps = vi.hoisted(() => vi.fn())
 vi.mock('framer-motion', () => ({
-  AnimatePresence: ({ children }: { children: React.ReactNode }) => children,
+  AnimatePresence: (props: { children: React.ReactNode }) => {
+    animatePresenceProps(props)
+    return props.children
+  },
 }))
 
 const trackFeatureClick = vi.fn()
@@ -307,6 +311,37 @@ describe('TransactionsTable', () => {
     const statusOptions = await screen.findAllByRole('option')
     expect(statusOptions[0]).toHaveTextContent('Усі статуси')
     expect(statusOptions).toHaveLength(8)
+  })
+
+  it('keeps AnimatePresence initial={false} so first-mount rows do not replay the enter animation', () => {
+    animatePresenceProps.mockClear()
+    renderTable([a])
+    expect(animatePresenceProps).toHaveBeenCalled()
+    expect(animatePresenceProps.mock.calls[0]![0]).toMatchObject({ initial: false, mode: 'sync' })
+  })
+
+  it('re-translates the type / status option labels when the locale switches without a remount', async () => {
+    renderTable([a])
+    const [typeSelect, statusSelect] = screen.getAllByRole('combobox')
+
+    await userEvent.click(typeSelect!)
+    expect(await screen.findByRole('option', { name: 'Витрата' })).toBeVisible()
+    await userEvent.keyboard('{Escape}')
+    await userEvent.click(statusSelect!)
+    expect(await screen.findByRole('option', { name: 'Підтверджено' })).toBeVisible()
+    await userEvent.keyboard('{Escape}')
+
+    await act(async () => {
+      await loadCatalog('en')
+    })
+
+    await userEvent.click(screen.getAllByRole('combobox')[0]!)
+    expect(await screen.findByRole('option', { name: 'Expense' })).toBeVisible()
+    expect(screen.queryByRole('option', { name: 'Витрата' })).not.toBeInTheDocument()
+    await userEvent.keyboard('{Escape}')
+    await userEvent.click(screen.getAllByRole('combobox')[1]!)
+    expect(await screen.findByRole('option', { name: 'Validated' })).toBeVisible()
+    expect(screen.queryByRole('option', { name: 'Підтверджено' })).not.toBeInTheDocument()
   })
 
   it('shows the filtered empty state, then «Скинути» restores the rows', async () => {

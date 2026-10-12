@@ -241,16 +241,17 @@ export function TransactionsTable({
   // task-i18n-stage3d-pr1 (Task 1, Step 4, template G-fin). Moved off the
   // module level — a module-level `i18n._()` call would freeze every label at
   // whatever locale was active on first import (`constants.ts`'s own
-  // `activeLocale()` doc explains the mechanism this avoids). `i18n` in the
-  // deps array so a live locale switch recomputes the option list.
+  // `activeLocale()` doc explains the mechanism this avoids). The `i18n`
+  // singleton keeps the same identity across `activate()`, so deps alone on
+  // `i18n` would never invalidate; `i18n.locale` (a primitive that changes on
+  // every switch) is what makes a live locale switch recompute the options.
   const TYPE_OPTIONS = useMemo(
     () =>
       Object.keys(TYPE_LABEL_MESSAGES).map((value) => ({
         value,
         label: i18n._(TYPE_LABEL_MESSAGES[value as keyof typeof TYPE_LABEL_MESSAGES]),
       })),
-    // Stryker disable next-line ArrayDeclaration: `i18n` from useLingui() keeps the same object identity across a locale switch, so `[i18n]` and `[]` memoise identically — the mutant is behaviourally equivalent and cannot be observed
-    [i18n],
+    [i18n, i18n.locale],
   )
   const STATUS_OPTIONS = useMemo(
     () =>
@@ -258,8 +259,7 @@ export function TransactionsTable({
         value,
         label: i18n._(STATUS_LABEL_MESSAGES[value as keyof typeof STATUS_LABEL_MESSAGES]),
       })),
-    // Stryker disable next-line ArrayDeclaration: same as TYPE_OPTIONS above — `i18n` identity is stable, `[]` is behaviourally equivalent
-    [i18n],
+    [i18n, i18n.locale],
   )
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('all')
@@ -456,11 +456,7 @@ export function TransactionsTable({
                   keeps the enter/exit animations below and drops only the
                   absolute-positioning reflow trick, which tables can't use
                   anyway. */}
-              <AnimatePresence
-                mode="sync"
-                // Stryker disable next-line BooleanLiteral: `initial` only suppresses the first-mount enter animation of motion children; jsdom runs no animation and the row is not a motion element under test
-                initial={false}
-              >
+              <AnimatePresence mode="sync" initial={false}>
                 {paged.map((tx) => (
                   <TransactionRow
                     key={tx.id}
