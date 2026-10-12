@@ -7767,7 +7767,7 @@ msgstr "Awaiting signature"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/FundingSourceFields.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
-#: apps/web/app/routes/_authenticated/finance/components/TransactionRow.tsx
+#: apps/web/app/routes/_authenticated/finance/components/transaction-row/FromTo.tsx
 msgid "Рахунок компанії"
 msgstr "Company account"
 
