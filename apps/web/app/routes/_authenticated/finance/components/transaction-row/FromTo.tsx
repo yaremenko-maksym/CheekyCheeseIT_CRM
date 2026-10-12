@@ -5,7 +5,7 @@ import type { TransactionDto } from '@crm/shared'
 import { withLocalizedCompanyLabels } from '../counterparty-label'
 
 // A party (sender or receiver) — clickable if it's a known user or project
-function Party({
+export function Party({
   id,
   name,
   label,
