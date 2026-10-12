@@ -1284,8 +1284,8 @@ msgstr ""
 msgid "Відгуків: {0}"
 msgstr "Applications: {0}"
 
-#: apps/web/app/routes/_authenticated/team/index.tsx
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "авто"
 msgstr "auto"
 
@@ -1638,7 +1638,7 @@ msgid "гіг-контракт"
 msgstr "gig contract"
 
 #: apps/web/app/components/ui/role-select.tsx
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "HR"
 msgstr "HR"
 
@@ -4370,7 +4370,7 @@ msgstr "Ascending"
 
 #: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
 #: apps/web/app/components/users/user-dialog/TechStackSection.tsx
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Почніть вводити: React, Node.js…"
 msgstr "Start typing: React, Node.js…"
 
@@ -5000,7 +5000,7 @@ msgid "Дохід"
 msgstr "Income"
 
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Бухгалтерів ще немає — зверніться до адміністратора"
 msgstr "No accountants yet — ask an admin to add one"
 
@@ -5125,7 +5125,7 @@ msgstr "Move to archive?"
 
 #: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
 #: apps/web/app/components/users/user-dialog/IdentitySection.tsx
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Ім’я та прізвище"
 msgstr "Full name"
 
@@ -5337,7 +5337,7 @@ msgid "наприклад: основний"
 msgstr "e.g. main"
 
 #: apps/web/app/routes/_authenticated/team/index.tsx
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Створити сеньйора"
 msgstr "Create senior"
 
@@ -5578,10 +5578,10 @@ msgstr "receipt"
 #: apps/web/app/routes/_authenticated/projects/ProjectDropDialogs.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectEditDialog.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectMemberDialogs.tsx
-#: apps/web/app/routes/_authenticated/team/index.tsx
 #: apps/web/app/routes/_authenticated/team/team-detail/components/AddMemberDialog.tsx
 #: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
 #: apps/web/app/routes/_authenticated/team/team-detail/components/RotateSeniorDialog.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
@@ -5734,7 +5734,7 @@ msgstr "Editing the amount for this row is forbidden, reason below"
 msgid "Поки немає вакансій"
 msgstr "No vacancies yet"
 
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Фінанси та команда"
 msgstr "Finance and team"
 
@@ -6030,7 +6030,7 @@ msgstr "Revert the contract to draft?"
 msgid "Адмін побачить причину і зможе запропонувати проєкт знову."
 msgstr "The admin will see the reason and can propose the project again."
 
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Іван Іваненко"
 msgstr "Ivan Ivanenko"
 
@@ -6938,7 +6938,7 @@ msgstr "Senior's share, percent"
 #: apps/web/app/components/users/user-dialog/UserDialogFooter.tsx
 #: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Створюємо…"
 msgstr "Creating…"
 
@@ -6967,7 +6967,7 @@ msgstr "User created, the contract was saved as a draft"
 msgid "Транскрипт порожній"
 msgstr ""
 
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "— оберіть бухгалтера —"
 msgstr "— select an accountant —"
 
@@ -7039,7 +7039,7 @@ msgstr ""
 #: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
 #: apps/web/app/routes/_authenticated/legend.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 #: apps/web/app/routes/_authenticated/vacancies/index.tsx
 msgid "Створити"
 msgstr "Create"
@@ -7389,7 +7389,7 @@ msgstr "Previous"
 msgid "Попередній перегляд резюме кандидата {0}"
 msgstr "Resume preview for {0}"
 
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Сеньйора створено, команду сформовано"
 msgstr "Senior created, team formed"
 
@@ -7397,7 +7397,7 @@ msgstr "Senior created, team formed"
 #: apps/web/app/components/users/AccountantChipField.tsx
 #: apps/web/app/components/users/AccountantChipField.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Бухгалтер"
 msgstr "Accountant"
 
@@ -7832,7 +7832,7 @@ msgstr "Refresh the page or try again later"
 
 #: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
 #: apps/web/app/components/users/user-dialog/ContactsSection.tsx
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Телефон"
 msgstr "Phone"
 
@@ -9149,7 +9149,7 @@ msgstr "Deleting…"
 
 #: apps/web/app/components/users/user-dialog/FinanceSection.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Частка сеньйора (%)"
 msgstr "Senior's share (%)"
 
@@ -9523,7 +9523,7 @@ msgstr "Only USDT ERC-20 payouts are available for the “{roleLabel}” role."
 msgid "Скан"
 msgstr "Scan"
 
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Створіть сеньйора та сформуйте команду."
 msgstr "Create a senior and form a team."
 
@@ -9774,7 +9774,7 @@ msgid "Заповнено"
 msgstr "Filled in"
 
 #: apps/web/app/components/users/UserRow.tsx
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Ви"
 msgstr "You"
 
@@ -9978,7 +9978,7 @@ msgstr "over {count, plural, one {# month} other {# months}}"
 #: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/users/user-dialog/TechStackSection.tsx
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Технології"
 msgstr "Tech stack"
 
@@ -10259,7 +10259,7 @@ msgstr "Could not load the contract variables"
 msgid "Зміна ERC-20 адреси для отримання USDT-депозитів"
 msgstr "Changing the ERC-20 address used to receive USDT deposits"
 
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Буде створено акаунт сеньйора та сформовано команду з вами в ролі HR."
 msgstr "A senior account will be created and a team formed with you as HR."
 
@@ -11533,7 +11533,7 @@ msgstr "HR: {0}"
 msgid "Адмін-сеньйор"
 msgstr "Admin-senior"
 
-#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Не вдалося створити команду — спробуйте ще раз"
 msgstr "Could not create the team — try again"
 
