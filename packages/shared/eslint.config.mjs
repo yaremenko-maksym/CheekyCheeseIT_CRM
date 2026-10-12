@@ -101,7 +101,7 @@ export default [
   {
     // Technology/skill names are stored tag values (identifiers users pick and
     // the API persists), not UI copy: translating them would change the data.
-    files: ['src/data/technologies.ts'],
+    files: ['src/data/technologies.ts', 'src/data/technologies/**/*.ts'],
     rules: {
       'lingui/no-unlocalized-strings': 'off',
     },
