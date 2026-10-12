@@ -9,10 +9,10 @@ import {
   transactionAuditLog,
   transactions,
 } from '../database/schema'
-import { InvoicesService } from './invoices.service'
+import { InvoiceReissueService } from './invoice-reissue.service'
 
 /**
- * Characterization net for the void / re-issue cluster of `InvoicesService`
+ * Characterization net for the void / re-issue cluster of `InvoiceReissueService`
  * (`voidInvoiceForAmountEdit`, `reissueInvoiceIfStillPaid`,
  * `voidAndReissueInvoiceForAmountEdit`, `loadReissueState`, the state
  * predicates, `reissueAndVerify`) written BEFORE the cluster moves into its own
@@ -79,7 +79,7 @@ function recorder(answers: unknown[][] = []) {
 
 function makeService(answers: unknown[][] = []) {
   const { db, calls } = recorder(answers)
-  const svc = Object.create(InvoicesService.prototype) as InvoicesService
+  const svc = Object.create(InvoiceReissueService.prototype) as InvoiceReissueService
   const internals = svc as unknown as Record<string, unknown>
   internals['logger'] = new Logger('test')
   internals['db'] = { db }
@@ -238,7 +238,7 @@ describe('voidInvoiceForAmountEdit — one locked transaction, three writes', ()
 describe('reissueInvoiceIfStillPaid — the row read', () => {
   it('reads the whole row from the soft-delete VIEW, by id, limit 1', async () => {
     const { svc, calls, internals } = makeService([[]])
-    internals['autoCreateForSalary'] = vi.fn()
+    internals['triggers'] = { autoCreateForSalary: vi.fn(), autoCreateForSeniorPayout: vi.fn() }
     await svc.reissueInvoiceIfStillPaid('tx-9')
     expect(calls).toHaveLength(1)
     expect(calls[0]!.cols).toBeUndefined()
@@ -259,8 +259,7 @@ describe('reissueInvoiceIfStillPaid — the row read', () => {
     ])
     const hit = vi.fn(() => Promise.resolve())
     const miss = vi.fn(() => Promise.resolve())
-    internals[expected] = hit
-    internals[other] = miss
+    internals['triggers'] = { [expected]: hit, [other]: miss }
     await svc.reissueInvoiceIfStillPaid('tx-9')
     expect(hit).toHaveBeenCalledExactlyOnceWith('tx-9')
     expect(miss).not.toHaveBeenCalled()
@@ -276,8 +275,7 @@ describe('reissueInvoiceIfStillPaid — the row read', () => {
     const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
     const salary = vi.fn(() => Promise.resolve())
     const senior = vi.fn(() => Promise.resolve())
-    internals['autoCreateForSalary'] = salary
-    internals['autoCreateForSeniorPayout'] = senior
+    internals['triggers'] = { autoCreateForSalary: salary, autoCreateForSeniorPayout: senior }
     await expect(svc.reissueInvoiceIfStillPaid('tx-9')).resolves.toBeUndefined()
     expect(salary).not.toHaveBeenCalled()
     expect(senior).not.toHaveBeenCalled()
@@ -290,7 +288,10 @@ describe('reissueInvoiceIfStillPaid — the row read', () => {
     const { svc, internals } = makeService([
       [{ id: 'tx-9', type: 'SALARY', status: 'PAID', payoutRequestId: null }],
     ])
-    internals['autoCreateForSalary'] = vi.fn(() => Promise.reject(new Error('pdf down')))
+    internals['triggers'] = {
+      autoCreateForSalary: vi.fn(() => Promise.reject(new Error('pdf down'))),
+      autoCreateForSeniorPayout: vi.fn(),
+    }
     const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
     await expect(svc.reissueInvoiceIfStillPaid('tx-9')).resolves.toBeUndefined()
     expect(warn).toHaveBeenCalledExactlyOnceWith(
@@ -311,7 +312,7 @@ describe('loadReissueState — the exact queries', () => {
     invoiceDocumentId: null,
     amount: '100.000000',
   }
-  const load = (svc: InvoicesService) =>
+  const load = (svc: InvoiceReissueService) =>
     (svc as unknown as { loadReissueState: (id: string) => Promise<unknown> }).loadReissueState(
       'tx-7',
     )
@@ -519,7 +520,7 @@ describe('canRepairSalaryInvoice / reissueSalaryInvoiceIfVoided over the REAL st
       ...state({ ...ROW, invoiceDocumentId: 'doc-new' }),
     ])
     const autoCreateForSalary = vi.fn(() => Promise.resolve())
-    internals['autoCreateForSalary'] = autoCreateForSalary
+    internals['triggers'] = { autoCreateForSalary, autoCreateForSeniorPayout: vi.fn() }
     await expect(svc.reissueSalaryInvoiceIfVoided('tx', 'actor')).resolves.toBe('REISSUED')
     expect(autoCreateForSalary).toHaveBeenCalledExactlyOnceWith('tx')
     expect(calls.filter((c) => c.kind === 'select')).toHaveLength(11)
@@ -547,7 +548,7 @@ describe('voidAndReissueInvoiceForAmountEdit — sequencing and verdict', () => 
   }
 
   function make(opts: { hadInvoice: boolean; states: Array<S | null> }) {
-    const svc = Object.create(InvoicesService.prototype) as InvoicesService
+    const svc = Object.create(InvoiceReissueService.prototype) as InvoiceReissueService
     const internals = svc as unknown as Record<string, unknown>
     internals['logger'] = new Logger('test')
     const order: string[] = []
@@ -631,7 +632,7 @@ describe('voidAndReissueInvoiceForAmountEdit — sequencing and verdict', () => 
 
 describe('reissueSalaryInvoiceIfVoided — VOID-retry routing keeps the actor', () => {
   it('a stale countersigned document routes to void+reissue with the SAME tx and actor', async () => {
-    const svc = Object.create(InvoicesService.prototype) as InvoicesService
+    const svc = Object.create(InvoiceReissueService.prototype) as InvoiceReissueService
     const internals = svc as unknown as Record<string, unknown>
     const outcome = vi.fn(() => Promise.resolve('REISSUED'))
     internals['voidAndReissueInvoiceForAmountEdit'] = outcome
