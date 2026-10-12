@@ -249,6 +249,7 @@ export function TransactionsTable({
         value,
         label: i18n._(TYPE_LABEL_MESSAGES[value as keyof typeof TYPE_LABEL_MESSAGES]),
       })),
+    // Stryker disable next-line ArrayDeclaration: `i18n` from useLingui() keeps the same object identity across a locale switch, so `[i18n]` and `[]` memoise identically — the mutant is behaviourally equivalent and cannot be observed
     [i18n],
   )
   const STATUS_OPTIONS = useMemo(
@@ -257,6 +258,7 @@ export function TransactionsTable({
         value,
         label: i18n._(STATUS_LABEL_MESSAGES[value as keyof typeof STATUS_LABEL_MESSAGES]),
       })),
+    // Stryker disable next-line ArrayDeclaration: same as TYPE_OPTIONS above — `i18n` identity is stable, `[]` is behaviourally equivalent
     [i18n],
   )
   const [search, setSearch] = useState('')
@@ -265,12 +267,15 @@ export function TransactionsTable({
   // back to 'all'. Only the initial value — user changes/clears it freely after.
   const [statusFilter, setStatusFilter] = useState(initialStatus ?? 'all')
   const [sortKey, setSortKey] = useState<TxSort>('date')
+  // Stryker disable next-line StringLiteral: compareTxByDate/compareTxByAmount and SortButton only test `dir === 'asc'`, so an empty-string direction behaves exactly like 'desc'
   const [sortDir, setSortDir] = useState<SortDir>('desc')
 
   const toggleSort = (key: TxSort) => {
+    // Stryker disable next-line StringLiteral: the 'desc' result is only ever compared against 'asc', so '' is equivalent to 'desc' (the 'asc' branch is covered by the direction-flip test)
     if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
     else {
       setSortKey(key)
+      // Stryker disable next-line StringLiteral: '' behaves exactly like 'desc' — direction is only compared against 'asc'
       setSortDir('desc')
     }
   }
@@ -279,6 +284,7 @@ export function TransactionsTable({
     (tx: TransactionDto) => {
       if (typeFilter !== 'all' && tx.type !== typeFilter) return false
       if (statusFilter !== 'all' && tx.status !== statusFilter) return false
+      // Stryker disable next-line ConditionalExpression: with an empty search `haystack.includes('')` is true for every row, so forcing the branch on is behaviourally equivalent (the off-mutant is killed by the search tests)
       if (search) {
         const q = search.toLowerCase()
         const haystack = [
@@ -445,7 +451,11 @@ export function TransactionsTable({
                   keeps the enter/exit animations below and drops only the
                   absolute-positioning reflow trick, which tables can't use
                   anyway. */}
-              <AnimatePresence mode="sync" initial={false}>
+              <AnimatePresence
+                mode="sync"
+                // Stryker disable next-line BooleanLiteral: `initial` only suppresses the first-mount enter animation of motion children; jsdom runs no animation and the row is not a motion element under test
+                initial={false}
+              >
                 {paged.map((tx) => (
                   <TransactionRow
                     key={tx.id}

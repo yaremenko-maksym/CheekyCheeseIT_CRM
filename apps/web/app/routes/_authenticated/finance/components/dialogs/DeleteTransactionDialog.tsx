@@ -79,6 +79,7 @@ export function DeleteTransactionDialog({
                 Транзакцію буде прибрано з загального списку — відновити її може лише адміністратор.
               </Trans>
             </p>
+            {/* Stryker disable next-line ConditionalExpression: the dialog body only renders while `open={!!tx}`, so `tx` is never null here — forcing the guard on is equivalent (the off-mutant is killed by the summary assertion) */}
             {tx && (
               <p className="font-medium text-foreground">
                 {i18n._(TYPE_LABEL_MESSAGES[tx.type])} · {fmtAmount(tx.amount, tx.currency)}
