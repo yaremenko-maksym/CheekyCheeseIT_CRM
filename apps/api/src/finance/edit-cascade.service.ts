@@ -1,4 +1,4 @@
-import { ForbiddenException, HttpStatus, Injectable } from '@nestjs/common'
+import { ForbiddenException, HttpStatus, Injectable, Logger } from '@nestjs/common'
 import { and, eq, inArray, isNull, or } from 'drizzle-orm'
 import type {
   SessionUser,
@@ -32,6 +32,8 @@ import { fetchWritableTransactionOrThrow } from './transaction-visibility.util'
  */
 @Injectable()
 export class EditCascadeService {
+  private readonly logger = new Logger(EditCascadeService.name)
+
   constructor(private readonly db: DatabaseService) {}
 
   // ── Edit cascade preview (read-only) ────────────────────────────────────
@@ -457,7 +459,7 @@ export class EditCascadeService {
     plan: CascadePlan,
     actorId: string,
   ): Promise<{ changedDerivativeIds: string[] }> {
-    return applyEditCascade(dbtx, snapshot, plan, actorId)
+    return applyEditCascade(dbtx, snapshot, plan, actorId, this.logger)
   }
 
   /**

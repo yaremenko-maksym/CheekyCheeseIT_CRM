@@ -1,4 +1,4 @@
-import { HttpStatus, Logger } from '@nestjs/common'
+import { HttpStatus, type Logger } from '@nestjs/common'
 import { and, eq } from 'drizzle-orm'
 import type { CascadeSnapshot, CascadePlan } from '@crm/shared'
 import { amountsDiffer, floorAmountAtAccumulator, settledCurrencyMismatch } from '@crm/shared'
@@ -6,9 +6,6 @@ import { apiError } from '../common/api-error'
 import { pendingObligations, transactions, transactionAuditLog } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
 import { COMPANY_ACCOUNT_FUNDING_SOURCE } from './company-account-balance'
-
-// Same log context the method had as `EditCascadeService`'s own logger.
-const logger = new Logger('EditCascadeService')
 
 /**
  * task-cascade-apply (task 3) — apply an already-resolved cascade plan to the
@@ -33,6 +30,8 @@ export async function applyEditCascade(
   snapshot: CascadeSnapshot,
   plan: CascadePlan,
   actorId: string,
+  // The calling service's own logger, so log context stays `EditCascadeService`.
+  logger: Logger,
 ): Promise<{ changedDerivativeIds: string[] }> {
   const snapshotById = new Map(snapshot.derivatives.map((d) => [d.id, d]))
 
