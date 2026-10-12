@@ -25,7 +25,15 @@ import { getTableName, type SQL } from 'drizzle-orm'
 import { UsersService } from './users.service'
 
 type LogEntry =
-  | { op: 'select'; table: string; where: string; params: unknown[]; joined: boolean }
+  | {
+      op: 'select'
+      table: string
+      where: string
+      params: unknown[]
+      joined: boolean
+      fields?: Record<string, string>
+      join?: { table: string; on: string; params: unknown[] }
+    }
   | { op: 'update'; table: string; set: Record<string, unknown>; where: string; params: unknown[] }
   | { op: 'insert'; table: string; values: unknown }
   | { op: 'audit'; entry: Record<string, unknown>; tx: unknown }
@@ -42,21 +50,30 @@ function makeHarness(selects: unknown[][]) {
   const log: LogEntry[] = []
   const queue = [...selects]
   const tx = {
-    select: vi.fn(() => {
+    select: vi.fn((fieldMap?: Record<string, { name: string; table: never }>) => {
       let table = ''
       let joined = false
+      let join: { table: string; on: string; params: unknown[] } | undefined
+      // Projection map `{ alias: 'table.column' }` — pins what the SELECT returns.
+      const fields = fieldMap
+        ? Object.fromEntries(
+            Object.entries(fieldMap).map(([k, c]) => [k, `${getTableName(c.table)}.${c.name}`]),
+          )
+        : undefined
       const chain = {
         from: (t: never) => {
           table = getTableName(t)
           return chain
         },
-        innerJoin: () => {
+        innerJoin: (t: never, on: SQL) => {
           joined = true
+          const c = compile(on)
+          join = { table: getTableName(t), on: c.sql, params: c.params }
           return chain
         },
         where: (cond: SQL) => {
           const { sql, params } = compile(cond)
-          log.push({ op: 'select', table, where: sql, params, joined })
+          log.push({ op: 'select', table, where: sql, params, joined, fields, join })
           const rows = queue.shift()
           if (rows === undefined) throw new Error('unexpected extra tx.select()')
           const p = Promise.resolve(rows)
@@ -159,7 +176,14 @@ describe('UsersService.upsertTeamMemberTx', () => {
 describe('UsersService.updateSeniorTeamTelegramChannelTx', () => {
   it('resolves the team via the senior ACTIVE membership, then updates channel + writes team_updated audit', async () => {
     const h = makeHarness([[{ teamId: 'team-1' }], [{ id: 'team-1', telegramChannel: '@old' }]])
-    await h.priv.updateSeniorTeamTelegramChannelTx(h.tx, 'sn-1', '@new', 'admin-1')
+    vi.useFakeTimers()
+    const frozen = new Date('2026-06-01T12:00:00.000Z')
+    vi.setSystemTime(frozen)
+    try {
+      await h.priv.updateSeniorTeamTelegramChannelTx(h.tx, 'sn-1', '@new', 'admin-1')
+    } finally {
+      vi.useRealTimers()
+    }
 
     expect(h.log).toHaveLength(4)
     expect(h.log[0]).toEqual({
@@ -182,7 +206,7 @@ describe('UsersService.updateSeniorTeamTelegramChannelTx', () => {
     expect(upd.params).toEqual(['team-1'])
     expect(Object.keys(upd.set).sort()).toEqual(['telegramChannel', 'updatedAt'])
     expect(upd.set.telegramChannel).toBe('@new')
-    expect(upd.set.updatedAt).toBeInstanceOf(Date)
+    expect(upd.set.updatedAt).toEqual(frozen)
     expect(h.log[3]).toEqual({
       op: 'audit',
       entry: {
@@ -311,6 +335,12 @@ describe('UsersService.reconcileSeniorTeamTx', () => {
         where: ACTIVE_BY_TEAM,
         params: ['team-1'],
         joined: true,
+        fields: {
+          userId: 'team_members.user_id',
+          id: 'team_members.id',
+          role: 'users.role',
+        },
+        join: { table: 'users', on: '"users"."id" = "team_members"."user_id"', params: [] },
       },
     ])
     expect(h.record).not.toHaveBeenCalled()
@@ -520,12 +550,25 @@ describe('UsersService.reconcileSeniorTeamTx', () => {
         { userId: 'acc-1', id: 'tm-3', role: 'ACCOUNTANT' },
       ]),
     ])
-    await h.priv.reconcileSeniorTeamTx(h.tx, 'sn-1', { hrIds: [], accountantId: null }, 'a')
+    // Frozen clock that ticks forward before every UPDATE: a `new Date()` taken
+    // inside the loop would observe a later instant than the single `now`.
+    vi.useFakeTimers()
+    const frozen = new Date('2026-06-01T12:00:00.000Z')
+    vi.setSystemTime(frozen)
+    const realUpdate = h.tx.update
+    h.tx.update = vi.fn((t: never) => {
+      vi.advanceTimersByTime(7)
+      return realUpdate(t)
+    })
+    try {
+      await h.priv.reconcileSeniorTeamTx(h.tx, 'sn-1', { hrIds: [], accountantId: null }, 'a')
+    } finally {
+      vi.useRealTimers()
+    }
     const updates = h.log.filter((e): e is Extract<LogEntry, { op: 'update' }> => e.op === 'update')
     expect(updates.map((u) => u.params[1])).toEqual(['hr-1', 'acc-1'])
-    expect((updates[0]!.set.leftAt as Date).getTime()).toBe(
-      (updates[1]!.set.leftAt as Date).getTime(),
-    )
+    expect(updates[0]!.set.leftAt).toEqual(frozen)
+    expect(updates[1]!.set.leftAt).toEqual(frozen)
     expect(
       h.record.mock.calls.map(
         (c) => (c[0] as { changes: { role: { before: string } } }).changes.role.before,
