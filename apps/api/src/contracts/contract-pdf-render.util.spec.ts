@@ -638,6 +638,17 @@ describe('renderTableBlock', () => {
     expect(pageId(c)).toBe(left[46]!.page)
   })
 
+  it('a 46-line row (the largest that fits a page) moves to a new page whole', () => {
+    const c = makeCursor(700)
+    renderTableBlock(pdfGen, doc, c, ['| H | H |', '| ' + 'z'.repeat(43 * 46) + ' | r |'], opts)
+    const left = drawn.filter((d) => d.x === LEFT_X && d.text !== 'H')
+    expect(left).toHaveLength(46)
+    expect(left.every((d) => d.page === pageId(c))).toBe(true)
+    expect(left[0]!.y).toBeCloseTo(TOP_Y, 6)
+    expect(addPageArgs).toHaveLength(1)
+    expect(c.y).toBeCloseTo(TOP_Y - 46 * LH, 6)
+  })
+
   it('tall row with a short left cell draws only the existing left lines', () => {
     const c = makeCursor(700)
     renderTableBlock(pdfGen, doc, c, ['| H | H |', '| a | ' + 'z'.repeat(43 * 47) + ' |'], opts)

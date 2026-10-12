@@ -185,9 +185,10 @@ export function renderTableBlock(
     const totalRowLines = Math.max(leftLines.length, rightLines.length)
     const rowHeight = totalRowLines * lineHeight
 
-    const fullPageContentHeight = PDF_LAYOUT.pageHeight - PDF_LAYOUT.pageMargin * 2 - 70
-    // Stryker disable next-line EqualityOperator: rowHeight is a whole multiple of 14.3 and the threshold is 671.89, so `>` vs `>=` is unobservable (equality is unreachable).
-    const rowTallerThanPage = rowHeight > fullPageContentHeight
+    // A row of more lines than fit on one whole page can never be placed in one piece.
+    const maxLinesPerPage = Math.floor(
+      (PDF_LAYOUT.pageHeight - PDF_LAYOUT.pageMargin * 2 - 70) / lineHeight,
+    )
 
     // Available space on the current page.
     const availableSpace = cursor.y - BOTTOM_LIMIT
@@ -195,7 +196,7 @@ export function renderTableBlock(
     if (rowHeight <= availableSpace) {
       // Entire row fits on the current page.
       drawTwoColRow(pdfGen, pdfDoc, cursor, leftLines, rightLines, isHeader, opts)
-    } else if (rowTallerThanPage) {
+    } else if (totalRowLines > maxLinesPerPage) {
       // Row is taller than a full page — draw line-by-line, paginating as needed.
       const maxIdx = Math.max(leftLines.length, rightLines.length)
       for (let i = 0; i < maxIdx; i++) {
