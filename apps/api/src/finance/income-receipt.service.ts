@@ -27,9 +27,9 @@ import { assertTransactionWritable } from './transaction-visibility.util'
  * shared ordering-sensitive `replaceReceiptAtomic` they all route through.
  * Depends on the database, DocumentsService (post-commit S3 cleanup) and
  * OnChainClaimService (receipt-hash registry); never on TransactionsService.
- * Each public method resolves with the `{ id }` of the mutated row; the
- * viewer-scoped read-back (`findOne`) stays on the facade, which runs it on that
- * id exactly where the former in-place `return this.findOne(...)` sat.
+ * Each public method resolves once the write committed; the viewer-scoped
+ * read-back (`findOne`) stays on the facade, which runs it on the id it already
+ * holds exactly where the former in-place `return this.findOne(...)` sat.
  */
 @Injectable()
 export class IncomeReceiptService {
@@ -197,8 +197,6 @@ export class IncomeReceiptService {
       validatedAt: null,
       updatedAt: new Date(),
     })
-
-    return { id }
   }
 
   // ── Update REJECTED DROP_INCOME (BIZ-17) ─────────────────────────────────
@@ -283,8 +281,6 @@ export class IncomeReceiptService {
       validatedAt: null,
       updatedAt: new Date(),
     })
-
-    return { id }
   }
 
   // ── Generic attach / replace receipt (task-receipts-backend §6) ─────────────
@@ -439,7 +435,5 @@ export class IncomeReceiptService {
       }
       throw err
     }
-
-    return { id }
   }
 }

@@ -428,8 +428,8 @@ export class TransactionsService {
   // ── Income receipt cluster ───────────────────────────────────────────────
   //
   // Logic lives in IncomeReceiptService; the facade keeps the public signatures
-  // and runs the viewer-scoped `findOne` read-back on the id the collaborator
-  // returns.
+  // and runs the viewer-scoped `findOne` read-back once the collaborator's
+  // write has committed.
 
   async updateSeniorIncome(
     id: string,
