@@ -21,18 +21,7 @@ import { NotificationsService } from '../notifications/notifications.service'
 import { ApprovalsService } from '../approvals/approvals.service'
 import { HrAccessService } from '../common/hr-access.service'
 import { DatabaseService } from '../database/database.service'
-import {
-  // security-review PR #456 round 2: `nonDeletedTransactions` (VIEW), never the
-  // raw `transactions` table — this module is outside `finance/**` and the
-  // ESLint no-restricted-imports rule bans the raw import here.
-  nonDeletedTransactions,
-  projects,
-  teamMembers,
-  users,
-  type Interview,
-  type Project,
-  type User,
-} from '../database/schema'
+import { projects, teamMembers, users, type Interview, type User } from '../database/schema'
 import { ProjectAccessService, PROJECT_APPROVAL_SUBJECT_TYPE } from './project-access.service'
 import { ProjectArchiveService } from './project-archive.service'
 import { ProjectAuditLogService } from './project-audit-log.service'
@@ -40,10 +29,17 @@ import { ProjectDraftService } from './project-draft.service'
 import { ProjectInterviewSeedService } from './project-interview-seed.service'
 import { ProjectMembersService } from './project-members.service'
 import { ProjectReadService } from './project-read.service'
+import { ProjectScopedReadService } from './project-scoped-read.service'
 import { ProjectShareChangeService } from './project-share-change.service'
 import { canSeePendingSeniorShare } from './project-visibility.util'
 import { mapProjectToDto, type ProjectWithRelations } from './project-map.util'
 import { assertLogoDocument } from './project-logo.util'
+import {
+  assertFinanceFieldsAllowed,
+  buildProjectUpdateData,
+  isFinanceOnlyPatch,
+  resolveActiveDropId,
+} from './project-update-data.util'
 import { UsersService } from '../users/users.service'
 import {
   isDropOverrideChange,
@@ -77,6 +73,7 @@ export class ProjectsService {
     @Optional() archiveService?: ProjectArchiveService,
     @Optional() shareChange?: ProjectShareChangeService,
     @Optional() interviewSeed?: ProjectInterviewSeedService,
+    @Optional() scopedRead?: ProjectScopedReadService,
   ) {
     this.access = access ?? new ProjectAccessService(db, approvals)
     this.read = read ?? new ProjectReadService(db, this.access, approvals)
@@ -90,6 +87,7 @@ export class ProjectsService {
       new ProjectShareChangeService(db, approvals, this.read, projectAuditLogService, notifications)
     this.interviewSeed =
       interviewSeed ?? new ProjectInterviewSeedService(db, approvals, notifications)
+    this.scopedRead = scopedRead ?? new ProjectScopedReadService(db, hrAccess)
   }
 
   private readonly access: ProjectAccessService
@@ -99,6 +97,7 @@ export class ProjectsService {
   private readonly archiveService: ProjectArchiveService
   private readonly shareChange: ProjectShareChangeService
   private readonly interviewSeed: ProjectInterviewSeedService
+  private readonly scopedRead: ProjectScopedReadService
 
   /** task-project-draft-status. `subjectType` this module registers approvals under. */
   private static readonly APPROVAL_SUBJECT_TYPE = PROJECT_APPROVAL_SUBJECT_TYPE
@@ -261,57 +260,8 @@ export class ProjectsService {
    * incomesCount is computed from a single batched read of this drop's
    * DROP_INCOME rows (no N+1).
    */
-  async findDropOwnProjects(currentUser: SessionUser): Promise<DropProjectDto[]> {
-    if (currentUser.role !== 'DROP') {
-      throw apiError('DROP_PROJECT_ACCESS_DENIED', HttpStatus.FORBIDDEN)
-    }
-
-    const ownProjects = (await this.db.db.query.projects.findMany({
-      // No archivedAt filter: drop sees both active and closed own projects
-      // (Д1 — the drop is an invited approver, so a still-DRAFT or REJECTED
-      // project belongs on their own list too). status is derived from
-      // archivedAt + projects.status in the mapping below.
-      where: eq(projects.dropId, currentUser.id),
-      with: { senior: { columns: { displayName: true } } },
-    })) as Array<Project & { senior: { displayName: string } | null }>
-
-    // Batch-count this drop's DROP_INCOME rows per project in one read (self-
-    // scoped: receiverId = self). Avoids a per-project query.
-    // security-review PR #456 round 2: sourced from the `nonDeletedTransactions`
-    // VIEW — a deleted income cannot inflate this badge no matter what (see
-    // schema.ts's doc on the view). `projects/` is outside `finance/`, so this
-    // is exactly the cross-module case the round-1 scanner failed to hold.
-    const dropIncomes = await this.db.db
-      .select({ projectId: nonDeletedTransactions.projectId })
-      .from(nonDeletedTransactions)
-      .where(
-        and(
-          eq(nonDeletedTransactions.type, 'DROP_INCOME'),
-          eq(nonDeletedTransactions.receiverId, currentUser.id),
-        ),
-      )
-    const incomesByProject = new Map<string, number>()
-    for (const tx of dropIncomes) {
-      if (!tx.projectId) continue
-      incomesByProject.set(tx.projectId, (incomesByProject.get(tx.projectId) ?? 0) + 1)
-    }
-
-    return ownProjects.map((p) => ({
-      id: p.id,
-      companyName: p.companyName,
-      seniorDisplayName: p.senior?.displayName ?? '',
-      incomesCount: incomesByProject.get(p.id) ?? 0,
-      // SR-M-2 (task-project-draft-status, security-review round 3): this DTO
-      // only ever had a 2-value status (active/closed) — before this fix it
-      // derived it from `archivedAt` ALONE, so a DRAFT or REJECTED project
-      // (never archived) showed as 'active', indistinguishable from a
-      // confirmed one, on the drop's own finance-facing list. A DRAFT/
-      // REJECTED project cannot yet accept transactions (Д2) — it belongs on
-      // the SAME "not yet usable" side of this boolean-shaped enum as an
-      // archived one, not on the 'active' side.
-      status:
-        p.archivedAt === null && p.status === 'ACTIVE' ? ('active' as const) : ('closed' as const),
-    }))
+  findDropOwnProjects(currentUser: SessionUser): Promise<DropProjectDto[]> {
+    return this.scopedRead.findDropOwnProjects(currentUser)
   }
 
   findOne(id: string, currentUser: SessionUser) {
@@ -319,27 +269,11 @@ export class ProjectsService {
   }
 
   async create(data: CreateProjectDto, currentUser: SessionUser) {
-    // seniorSharePercentOverride is field-scoped RBAC: only ADMIN and
-    // ACCOUNTANT may set it. We check this BEFORE the create-role check so
-    // an HR caller sending the field still gets the more-specific 403
-    // (and so TS doesn't narrow `currentUser.role` away from ACCOUNTANT).
+    // Field-scoped RBAC (senior/drop override, paymentType: ADMIN/ACCOUNTANT only)
+    // runs BEFORE the create-role check so an HR caller sending a finance field
+    // still gets the more-specific 403.
     const role = currentUser.role
-    if (
-      data.seniorSharePercentOverride !== undefined &&
-      role !== 'ADMIN' &&
-      role !== 'ACCOUNTANT'
-    ) {
-      throw apiError('SENIOR_SHARE_OVERRIDE_FORBIDDEN', HttpStatus.FORBIDDEN)
-    }
-    // task-drop-share-override-and-receiver (D1/D6). Field-scoped RBAC for
-    // paymentType + dropSharePercentOverride — same contract as the senior
-    // override: only ADMIN/ACCOUNTANT may send these fields.
-    if (data.dropSharePercentOverride !== undefined && role !== 'ADMIN' && role !== 'ACCOUNTANT') {
-      throw apiError('DROP_SHARE_OVERRIDE_FORBIDDEN', HttpStatus.FORBIDDEN)
-    }
-    if (data.paymentType !== undefined && role !== 'ADMIN' && role !== 'ACCOUNTANT') {
-      throw apiError('PAYMENT_TYPE_CHANGE_FORBIDDEN', HttpStatus.FORBIDDEN)
-    }
+    assertFinanceFieldsAllowed(data, role)
 
     if (role !== 'ADMIN' && role !== 'HR') {
       throw new ForbiddenException()
@@ -375,16 +309,10 @@ export class ProjectsService {
     // Drop role - phase 2: validate `dropId` references an active DROP user.
     // `undefined`/`null` = regular senior-project (no drop). Reject any other
     // role to keep the FK invariant (`projects.dropId` → users WHERE role=DROP).
-    let resolvedDropId: string | null = null
-    if (data.dropId !== undefined && data.dropId !== null) {
-      const drop = await this.db.db.query.users.findFirst({
-        where: eq(users.id, data.dropId),
-      })
-      if (!drop) throw apiError('DROP_NOT_FOUND', HttpStatus.NOT_FOUND)
-      if (drop.role !== 'DROP') throw apiError('USER_NOT_DROP', HttpStatus.BAD_REQUEST)
-      if (drop.archivedAt) throw apiError('DROP_ARCHIVED', HttpStatus.BAD_REQUEST)
-      resolvedDropId = drop.id
-    }
+    const resolvedDropId =
+      data.dropId !== undefined && data.dropId !== null
+        ? await resolveActiveDropId(this.db.db, data.dropId)
+        : null
 
     // Validate logo document FK before insert — if it points at a non-LOGO
     // document or a deleted row, fail with 400 instead of catching a DB
@@ -541,41 +469,14 @@ export class ProjectsService {
   }
 
   async update(id: string, data: UpdateProjectDto, currentUser: SessionUser) {
-    // Field-scoped RBAC: `seniorSharePercentOverride` (including explicit
-    // null to clear) is restricted to ADMIN and ACCOUNTANT. HR keeps full
-    // edit access to every other field — we only deny when this specific
-    // field is in the payload. Check BEFORE the create/update role narrow
-    // so ACCOUNTANT-only updates (just the override) are accepted.
+    // Field-scoped RBAC (senior/drop override incl. explicit null, paymentType):
+    // ADMIN/ACCOUNTANT only. HR keeps full edit access to every other field.
+    // Checked BEFORE the role narrow so ACCOUNTANT-only finance patches pass.
     const role = currentUser.role
-    if (
-      data.seniorSharePercentOverride !== undefined &&
-      role !== 'ADMIN' &&
-      role !== 'ACCOUNTANT'
-    ) {
-      throw apiError('SENIOR_SHARE_OVERRIDE_FORBIDDEN', HttpStatus.FORBIDDEN)
-    }
-    // task-drop-share-override-and-receiver (D1/D6). Field-scoped RBAC for
-    // paymentType + dropSharePercentOverride (including explicit null) — only
-    // ADMIN/ACCOUNTANT may touch these fields.
-    if (data.dropSharePercentOverride !== undefined && role !== 'ADMIN' && role !== 'ACCOUNTANT') {
-      throw apiError('DROP_SHARE_OVERRIDE_FORBIDDEN', HttpStatus.FORBIDDEN)
-    }
-    if (data.paymentType !== undefined && role !== 'ADMIN' && role !== 'ACCOUNTANT') {
-      throw apiError('PAYMENT_TYPE_CHANGE_FORBIDDEN', HttpStatus.FORBIDDEN)
-    }
+    assertFinanceFieldsAllowed(data, role)
 
-    // ACCOUNTANT may patch only when EVERY field touched is finance-scoped
-    // (senior/drop override or paymentType) — the fields the field-level RBAC
-    // above already gated to ADMIN/ACCOUNTANT. This extends the original
-    // senior-only `hasOnlyOverride` to the drop override + paymentType.
-    const FINANCE_SCOPED_FIELDS = [
-      'seniorSharePercentOverride',
-      'dropSharePercentOverride',
-      'paymentType',
-    ]
-    const dataKeys = Object.keys(data)
-    const hasOnlyOverride =
-      dataKeys.length > 0 && dataKeys.every((k) => FINANCE_SCOPED_FIELDS.includes(k))
+    // ACCOUNTANT may patch only when EVERY field touched is finance-scoped.
+    const hasOnlyOverride = isFinanceOnlyPatch(data)
 
     if (role !== 'ADMIN' && role !== 'HR' && !(role === 'ACCOUNTANT' && hasOnlyOverride)) {
       throw new ForbiddenException()
@@ -616,17 +517,8 @@ export class ProjectsService {
     // `undefined` (key absent) → leave unchanged.
     let resolvedDropId: string | null | undefined = undefined
     if (data.dropId !== undefined) {
-      if (data.dropId === null) {
-        resolvedDropId = null
-      } else {
-        const drop = await this.db.db.query.users.findFirst({
-          where: eq(users.id, data.dropId),
-        })
-        if (!drop) throw apiError('DROP_NOT_FOUND', HttpStatus.NOT_FOUND)
-        if (drop.role !== 'DROP') throw apiError('USER_NOT_DROP', HttpStatus.BAD_REQUEST)
-        if (drop.archivedAt) throw apiError('DROP_ARCHIVED', HttpStatus.BAD_REQUEST)
-        resolvedDropId = drop.id
-      }
+      resolvedDropId =
+        data.dropId === null ? null : await resolveActiveDropId(this.db.db, data.dropId)
     }
 
     // security-review round 3 (SR-M-4, task-project-draft-status) — DECLINED,
@@ -669,63 +561,14 @@ export class ProjectsService {
       pickDropDefault(project.drop),
     )
 
-    const updateData: Partial<typeof projects.$inferInsert> = {
-      updatedAt: new Date(),
-    }
-    if (data.name !== undefined) updateData.name = data.name
-    if (data.companyName !== undefined) updateData.companyName = data.companyName
-    if (data.domain !== undefined) updateData.domain = data.domain
+    // Validate the logo FK before applying (null clears the document path).
     if (data.logoDocumentId !== undefined) {
-      // Validate the FK before applying. Null clears the document path.
       await assertLogoDocument(this.db.db, data.logoDocumentId, id)
-      updateData.logoDocumentId = data.logoDocumentId ?? null
-      // XOR invariant: setting documentId clears externalUrl, even when the
-      // caller didn't pass externalUrl explicitly. Without this the DB CHECK
-      // would block an update from "external set" to "doc set".
-      if (data.logoDocumentId !== null && data.logoExternalUrl === undefined) {
-        updateData.logoExternalUrl = null
-      }
     }
-    if (data.logoExternalUrl !== undefined) {
-      updateData.logoExternalUrl = data.logoExternalUrl ?? null
-      // Mirror invariant — setting external clears doc id when caller didn't
-      // pass it. Skip if logoDocumentId was already set above to non-null.
-      if (data.logoExternalUrl !== null && data.logoDocumentId === undefined) {
-        updateData.logoDocumentId = null
-      }
-    }
-    if (data.rate !== undefined) updateData.rate = data.rate
-    if (data.currency !== undefined) updateData.currency = data.currency
     // task-pending-share (position 5): `seniorSharePercentOverride` is
-    // DELIBERATELY excluded from `updateData` — the live column is no
-    // longer written here. `overrideEffective` (computed above, implicit-
-    // null-at-default transform unchanged) is routed through
-    // `proposeSeniorShareChange` further down instead, which requires the
-    // project's SENIOR to confirm before it takes effect.
-    // task-drop-share-override-and-receiver (D6). Write the drop override column
-    // when the caller included it (undefined = unchanged; null / default-equal
-    // → null via implicit reset above).
-    if (dropOverrideEffective !== undefined) {
-      updateData.dropSharePercentOverride = dropOverrideEffective
-    }
-    // Drop role - phase 2. Only write the column when caller explicitly
-    // included `dropId` (undefined = unchanged). `null` clears.
-    if (resolvedDropId !== undefined) {
-      updateData.dropId = resolvedDropId
-    }
-    if (data.techStack !== undefined) updateData.techStack = data.techStack ?? null
-    if (data.teamSize !== undefined) updateData.teamSize = data.teamSize ?? null
-    if (data.benefits !== undefined) updateData.benefits = data.benefits ?? null
-    // task-drop-share-override-and-receiver (D1). paymentType is a NOT NULL enum
-    // column — validate the loose write value and only apply a real value (null
-    // is ignored: you cannot clear a NOT NULL enum; the frontend Select always
-    // sends a concrete value).
-    if (data.paymentType !== undefined && data.paymentType !== null) {
-      updateData.paymentType = projectPaymentTypeSchema.parse(data.paymentType)
-    }
-    if (data.salaryReview !== undefined) updateData.salaryReview = data.salaryReview ?? null
-    if (data.corpTech !== undefined) updateData.corpTech = data.corpTech ?? null
-    if (data.notesGeneral !== undefined) updateData.notesGeneral = data.notesGeneral ?? null
+    // DELIBERATELY excluded from the patch — `overrideEffective` is routed
+    // through `proposeSeniorShareChange` below instead (SENIOR must confirm).
+    const updateData = buildProjectUpdateData(data, resolvedDropId, dropOverrideEffective)
 
     await this.db.db.update(projects).set(updateData).where(eq(projects.id, id))
 
@@ -882,7 +725,7 @@ export class ProjectsService {
    *   - HR of project's team → yes
    *   - All others → 403
    */
-  async getHrContact(
+  getHrContact(
     projectId: string,
     currentUser: SessionUser,
   ): Promise<{
@@ -891,64 +734,7 @@ export class ProjectsService {
     phone: string | null
     avatarUrl: string | null
   }> {
-    const project = (await this.db.db.query.projects.findFirst({
-      where: eq(projects.id, projectId),
-      with: { senior: true, drop: true, members: { with: { user: true } }, legend: true },
-    })) as ProjectWithRelations | undefined
-
-    if (!project) throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
-
-    // RBAC: ADMIN, active JUNIOR member, HR of project's team
-    const isAdmin = currentUser.role === 'ADMIN'
-    const isActiveJunior =
-      currentUser.role === 'JUNIOR' &&
-      project.members.some((m) => m.userId === currentUser.id && m.leftAt === null)
-    const isTeamHr =
-      currentUser.role === 'HR' &&
-      project.seniorId !== null &&
-      (await this.hrAccess.hrSharesActiveTeamWith(currentUser.id, project.seniorId))
-
-    if (!isAdmin && !isActiveJunior && !isTeamHr) {
-      throw apiError('NO_HR_CONTACT_ACCESS', HttpStatus.FORBIDDEN)
-    }
-
-    if (!project.seniorId) {
-      return { displayName: null, telegram: null, phone: null, avatarUrl: null }
-    }
-
-    // Find HR in the senior's active team
-    const seniorMembership = await this.db.db.query.teamMembers.findFirst({
-      where: and(eq(teamMembers.userId, project.seniorId), isNull(teamMembers.leftAt)),
-    })
-    if (!seniorMembership) {
-      return { displayName: null, telegram: null, phone: null, avatarUrl: null }
-    }
-
-    const hrRow = await this.db.db
-      .select({
-        displayName: users.displayName,
-        telegram: users.telegram,
-        phone: users.phone,
-        avatarUrl: users.avatarUrl,
-      })
-      .from(teamMembers)
-      .innerJoin(users, eq(users.id, teamMembers.userId))
-      .where(
-        and(
-          eq(teamMembers.teamId, seniorMembership.teamId),
-          eq(users.role, 'HR'),
-          isNull(teamMembers.leftAt),
-        ),
-      )
-      .limit(1)
-      .then((rows) => rows[0] ?? null)
-
-    return {
-      displayName: hrRow?.displayName ?? null,
-      telegram: hrRow?.telegram ?? null,
-      phone: hrRow?.phone ?? null,
-      avatarUrl: hrRow?.avatarUrl ?? null,
-    }
+    return this.scopedRead.getHrContact(projectId, currentUser)
   }
 
   // Thin delegate kept (not inlined): unit specs stub the guard via

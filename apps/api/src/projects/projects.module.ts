@@ -7,6 +7,7 @@ import { UsersModule } from '../users/users.module'
 import { ProjectAccessService } from './project-access.service'
 import { ProjectArchiveService } from './project-archive.service'
 import { ProjectInterviewSeedService } from './project-interview-seed.service'
+import { ProjectScopedReadService } from './project-scoped-read.service'
 import { ProjectShareChangeService } from './project-share-change.service'
 import { ProjectAuditLogService } from './project-audit-log.service'
 import { ProjectDraftService } from './project-draft.service'
@@ -37,6 +38,7 @@ import { ProjectsService } from './projects.service'
     ProjectArchiveService,
     ProjectInterviewSeedService,
     ProjectShareChangeService,
+    ProjectScopedReadService,
   ],
   exports: [ProjectsService, ProjectAuditLogService],
 })
