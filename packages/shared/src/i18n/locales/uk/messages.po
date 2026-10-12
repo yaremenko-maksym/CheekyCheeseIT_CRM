@@ -945,7 +945,7 @@ msgid "Дошка співбесід"
 msgstr "Дошка співбесід"
 
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
-#: apps/web/app/routes/_authenticated/finance/index.tsx
+#: apps/web/app/routes/_authenticated/finance/components/TransactionsTable.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "Нічого не знайдено — скиньте фільтри"
@@ -1061,8 +1061,8 @@ msgstr "Видалити рядок {position}"
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/routes/_authenticated/finance/components/ActiveTransactionsTable.tsx
-#: apps/web/app/routes/_authenticated/finance/index.tsx
-#: apps/web/app/routes/_authenticated/finance/index.tsx
+#: apps/web/app/routes/_authenticated/finance/components/TransactionsTable.tsx
+#: apps/web/app/routes/_authenticated/finance/components/TransactionsTable.tsx
 msgid "Учасник / Проєкт"
 msgstr "Учасник / Проєкт"
 
@@ -1252,7 +1252,7 @@ msgstr "Дроп:"
 msgid "Переведіть {0} на адресу гаманця компанії (ERC-20), потім вставте хеш транзакції."
 msgstr "Переведіть {0} на адресу гаманця компанії (ERC-20), потім вставте хеш транзакції."
 
-#: apps/web/app/routes/_authenticated/finance/index.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/RestoreTransactionDialog.tsx
 msgid "Відновити транзакцію?"
 msgstr "Відновити транзакцію?"
 
@@ -1310,7 +1310,7 @@ msgstr "Чек / підтвердження *"
 
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
-#: apps/web/app/routes/_authenticated/finance/index.tsx
+#: apps/web/app/routes/_authenticated/finance/components/TransactionsTable.tsx
 msgid "Усі типи"
 msgstr "Усі типи"
 
@@ -1648,7 +1648,7 @@ msgid "Відкрити транзакцію: {0}"
 msgstr "Відкрити транзакцію: {0}"
 
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
-#: apps/web/app/routes/_authenticated/finance/index.tsx
+#: apps/web/app/routes/_authenticated/finance/components/TransactionsTable.tsx
 msgid "Пошук…"
 msgstr "Пошук…"
 
@@ -1662,7 +1662,7 @@ msgstr "Нотатка адміністратора"
 msgid "Позначити готовим"
 msgstr "Позначити готовим"
 
-#: apps/web/app/routes/_authenticated/finance/index.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/RestoreTransactionDialog.tsx
 msgid "Наприклад: видалено помилково"
 msgstr "Наприклад: видалено помилково"
 
@@ -3587,7 +3587,7 @@ msgstr "Очікує виплати"
 msgid "Підписати рахунок"
 msgstr "Підписати рахунок"
 
-#: apps/web/app/routes/_authenticated/finance/index.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/DeleteTransactionDialog.tsx
 msgid "Видалити транзакцію?"
 msgstr "Видалити транзакцію?"
 
@@ -4296,7 +4296,7 @@ msgstr "Спершу збережіть або скасуйте правки у 
 msgid "Файл {size} — максимум {limit}, виберіть менший"
 msgstr "Файл {size} — максимум {limit}, виберіть менший"
 
-#: apps/web/app/routes/_authenticated/finance/index.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/RestoreTransactionDialog.tsx
 msgid "Транзакція знову з’явиться в загальному списку та в усіх розрахунках."
 msgstr "Транзакція знову з’явиться в загальному списку та в усіх розрахунках."
 
@@ -5044,7 +5044,7 @@ msgid "Дивіденд"
 msgstr "Дивіденд"
 
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
-#: apps/web/app/routes/_authenticated/finance/index.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/RestoreTransactionDialog.tsx
 msgid "Відновлення…"
 msgstr "Відновлення…"
 
@@ -5346,7 +5346,7 @@ msgstr "Створити сеньйора"
 msgid "Оновити перегляд"
 msgstr "Оновити перегляд"
 
-#: apps/web/app/routes/_authenticated/finance/index.tsx
+#: apps/web/app/routes/_authenticated/finance/components/TransactionsTable.tsx
 msgid "Показати видалені"
 msgstr "Показати видалені"
 
@@ -5456,8 +5456,8 @@ msgstr "Запропоновано <0>{pendingPercent}%</0>. Підтвердж�
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/DeleteTransactionDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/TransactionRow.tsx
-#: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
@@ -5557,14 +5557,14 @@ msgstr "чек"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AttachReceiptSheet.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/DeleteTransactionDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/EditSeniorIncomeDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutDetailDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PaySalaryDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/RestoreTransactionDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/SettleSeniorPayoutDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
-#: apps/web/app/routes/_authenticated/finance/index.tsx
-#: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
@@ -5955,9 +5955,9 @@ msgstr "Компанія винна ці суми — вони не входят
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
-#: apps/web/app/routes/_authenticated/finance/index.tsx
-#: apps/web/app/routes/_authenticated/finance/index.tsx
-#: apps/web/app/routes/_authenticated/finance/index.tsx
+#: apps/web/app/routes/_authenticated/finance/components/TransactionsTable.tsx
+#: apps/web/app/routes/_authenticated/finance/components/TransactionsTable.tsx
+#: apps/web/app/routes/_authenticated/finance/components/TransactionsTable.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectTransactions.tsx
@@ -6103,8 +6103,8 @@ msgstr "Мій баланс (частка)"
 msgid "Додати учасника"
 msgstr "Додати учасника"
 
-#. placeholder {0}: restoreTx.deletionReason
-#: apps/web/app/routes/_authenticated/finance/index.tsx
+#. placeholder {0}: tx.deletionReason
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/RestoreTransactionDialog.tsx
 msgid "Причина видалення: <0>{0}</0>"
 msgstr "Причина видалення: <0>{0}</0>"
 
@@ -6516,9 +6516,9 @@ msgstr "Щільно"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/SettleSeniorPayoutDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
-#: apps/web/app/routes/_authenticated/finance/index.tsx
-#: apps/web/app/routes/_authenticated/finance/index.tsx
-#: apps/web/app/routes/_authenticated/finance/index.tsx
+#: apps/web/app/routes/_authenticated/finance/components/TransactionsTable.tsx
+#: apps/web/app/routes/_authenticated/finance/components/TransactionsTable.tsx
+#: apps/web/app/routes/_authenticated/finance/components/TransactionsTable.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectTransactions.tsx
@@ -6704,7 +6704,7 @@ msgstr "Виплатити зарплату"
 msgid "Не вдалося змінити дропа"
 msgstr "Не вдалося змінити дропа"
 
-#: apps/web/app/routes/_authenticated/finance/index.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/DeleteTransactionDialog.tsx
 msgid "Наприклад: помилково створена транзакція"
 msgstr "Наприклад: помилково створена транзакція"
 
@@ -6999,8 +6999,8 @@ msgstr "Видалити {tag}"
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/routes/_authenticated/finance/components/ActiveTransactionsTable.tsx
-#: apps/web/app/routes/_authenticated/finance/index.tsx
-#: apps/web/app/routes/_authenticated/finance/index.tsx
+#: apps/web/app/routes/_authenticated/finance/components/TransactionsTable.tsx
+#: apps/web/app/routes/_authenticated/finance/components/TransactionsTable.tsx
 msgid "Дії"
 msgstr "Дії"
 
@@ -7222,7 +7222,7 @@ msgstr "Попередній перегляд: {filename}"
 msgid "Створити першу вакансію"
 msgstr "Створити першу вакансію"
 
-#: apps/web/app/routes/_authenticated/finance/index.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/RestoreTransactionDialog.tsx
 msgid "Підтвердження відновлення раніше видаленої фінансової транзакції."
 msgstr "Підтвердження відновлення раніше видаленої фінансової транзакції."
 
@@ -8992,7 +8992,7 @@ msgstr "Вже розраховано"
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
 #: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
-#: apps/web/app/routes/_authenticated/finance/index.tsx
+#: apps/web/app/routes/_authenticated/finance/components/TransactionsTable.tsx
 msgid "Усі статуси"
 msgstr "Усі статуси"
 
@@ -9143,7 +9143,7 @@ msgstr "Крок 2 з 2: оплата створеної заявки"
 msgid "Пароль *"
 msgstr "Пароль *"
 
-#: apps/web/app/routes/_authenticated/finance/index.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/DeleteTransactionDialog.tsx
 msgid "Видалення…"
 msgstr "Видалення…"
 
@@ -9409,8 +9409,8 @@ msgstr "Змінити аватар"
 #: apps/web/app/routes/_authenticated/finance/components/ActiveTransactionsTable.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx
 #: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
-#: apps/web/app/routes/_authenticated/finance/index.tsx
-#: apps/web/app/routes/_authenticated/finance/index.tsx
+#: apps/web/app/routes/_authenticated/finance/components/TransactionsTable.tsx
+#: apps/web/app/routes/_authenticated/finance/components/TransactionsTable.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/project.tsx
@@ -10017,7 +10017,7 @@ msgstr "Номер телефону"
 msgid "Назва банку (необов’язково)"
 msgstr "Назва банку (необов’язково)"
 
-#: apps/web/app/routes/_authenticated/finance/index.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/RestoreTransactionDialog.tsx
 msgid "Причина відновлення (обов’язково)"
 msgstr "Причина відновлення (обов’язково)"
 
@@ -10346,8 +10346,8 @@ msgstr "Порядок і вигляд розділів. Текст резюме
 #: apps/web/app/components/documents/document-card.tsx
 #: apps/web/app/components/documents/document-detail-dialog.tsx
 #: apps/web/app/components/documents/document-row.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/RestoreTransactionDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/TransactionRow.tsx
-#: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectUnarchive.tsx
 #: apps/web/app/routes/_authenticated/team/team-detail/components/TeamUnarchiveHeaderButton.tsx
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
@@ -10595,8 +10595,8 @@ msgstr "Пошук країни…"
 #: apps/web/app/routes/_authenticated/finance/components/ActiveTransactionsTable.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
-#: apps/web/app/routes/_authenticated/finance/index.tsx
-#: apps/web/app/routes/_authenticated/finance/index.tsx
+#: apps/web/app/routes/_authenticated/finance/components/TransactionsTable.tsx
+#: apps/web/app/routes/_authenticated/finance/components/TransactionsTable.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectTransactions.tsx
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
 msgid "Тип"
@@ -10878,8 +10878,8 @@ msgstr "Спочатку старі"
 msgid "Введіть ціле число від 0 до 100"
 msgstr "Введіть ціле число від 0 до 100"
 
-#: apps/web/app/routes/_authenticated/finance/index.tsx
-#: apps/web/app/routes/_authenticated/finance/index.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/DeleteTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/RestoreTransactionDialog.tsx
 msgid "Вкажіть щонайменше 3 символи причини"
 msgstr "Вкажіть щонайменше 3 символи причини"
 
@@ -11039,7 +11039,7 @@ msgstr "Підтвердити розрахунок"
 msgid "Назад"
 msgstr "Назад"
 
-#: apps/web/app/routes/_authenticated/finance/index.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/DeleteTransactionDialog.tsx
 msgid "Причина видалення (обов’язково)"
 msgstr "Причина видалення (обов’язково)"
 
@@ -11112,7 +11112,7 @@ msgstr "Заповніть усі обов’язкові поля"
 msgid "Немає проєктів, що очікують вашого рішення"
 msgstr "Немає проєктів, що очікують вашого рішення"
 
-#: apps/web/app/routes/_authenticated/finance/index.tsx
+#: apps/web/app/routes/_authenticated/finance/components/TransactionsTable.tsx
 msgid "Транзакцій ще немає — створіть першу кнопкою «Нова транзакція»"
 msgstr "Транзакцій ще немає — створіть першу кнопкою «Нова транзакція»"
 
@@ -11209,8 +11209,8 @@ msgstr "Підключення приймають події Meeting Recorder т
 msgid "Браузер заблокував вбудований перегляд PDF"
 msgstr "Браузер заблокував вбудований перегляд PDF"
 
-#: apps/web/app/routes/_authenticated/finance/index.tsx
-#: apps/web/app/routes/_authenticated/finance/index.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/DeleteTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/DeleteTransactionDialog.tsx
 msgid "Транзакцію буде прибрано з загального списку — відновити її може лише адміністратор."
 msgstr "Транзакцію буде прибрано з загального списку — відновити її може лише адміністратор."
 
@@ -11943,7 +11943,7 @@ msgstr "<0>{{{key}}}</0> — додана, але не використовує�
 #: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
-#: apps/web/app/routes/_authenticated/finance/index.tsx
+#: apps/web/app/routes/_authenticated/finance/components/TransactionsTable.tsx
 #: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
 msgid "Скинути"
 msgstr "Скинути"
