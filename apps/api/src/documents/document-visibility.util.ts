@@ -4,8 +4,8 @@
  * from DocumentsService; they encode owner RBAC visibility decisions (2026-08-01/08-03),
  * first-match branch order MUST NOT change.
  */
-import { and, eq, inArray, isNotNull, isNull, or, type SQL } from 'drizzle-orm'
-import type { DocumentCategory, DocumentListFilters, Role, SessionUser } from '@crm/shared'
+import { and, eq, inArray, isNull, or, type SQL } from 'drizzle-orm'
+import type { DocumentListFilters, SessionUser } from '@crm/shared'
 import type { DatabaseService } from '../database/database.service'
 import type { HrAccessService } from '../common/hr-access.service'
 import { documents } from '../database/schema'
@@ -87,14 +87,8 @@ export async function buildListWhere(
     conditions.push(eq(documents.ownerId, filters.ownerId))
   }
 
-  // Stryker disable next-line ConditionalExpression: unreachable branch (verbatim move) — the category filter above always pushes a condition, so conditions is never empty
-  if (conditions.length === 0) {
-    // No conditions = match everything. Returning `undefined` would let
-    // drizzle return all rows; explicit `isNotNull(id)` keeps types happy.
-    return isNotNull(documents.id)
-  }
-  // Stryker disable next-line ConditionalExpression: equivalent mutant — drizzle and(x) renders byte-identical SQL to x (verified via PgDialect: all three of x, and(x), or(x) render `"t"."a" = $1`)
-  if (conditions.length === 1) return conditions[0]!
+  // `conditions` is never empty: the category filter above always pushes one.
+  // drizzle's and(x) renders byte-identical SQL to x, so no single-element special case.
   return and(...conditions)!
 }
 
@@ -137,7 +131,7 @@ export async function buildVisibilityClause(
       visibleClauses.push(
         and(eq(documents.category, 'RESUME'), inArray(documents.ownerId, teammateIds))!,
       )
-    } else if (canSeeSelf(actor.role, 'RESUME')) {
+    } else if (actor.role === 'JUNIOR') {
       visibleClauses.push(and(eq(documents.category, 'RESUME'), eq(documents.ownerId, actor.id))!)
     }
   }
@@ -168,7 +162,7 @@ export async function buildVisibilityClause(
       // accountability the task needed comes from the log, not from
       // narrowing the read.
       visibleClauses.push(eq(documents.category, 'SCAN'))
-    } else if (canSeeSelf(actor.role, 'SCAN')) {
+    } else if (actor.role === 'JUNIOR') {
       visibleClauses.push(and(eq(documents.category, 'SCAN'), eq(documents.ownerId, actor.id))!)
     }
   }
@@ -176,7 +170,7 @@ export async function buildVisibilityClause(
   // DROP: self-scope for RESUME and SCAN (DROP uploads RESUME/SCAN like JUNIOR self).
   // Security: ownerId is already forced to actor.id by the `list()` caller via
   // effectiveFilters, so this clause adds the category filter to the visibility set.
-  // The canSeeSelf helper doesn't handle DROP — explicit branch here.
+  // The JUNIOR self-visibility branches above don't handle DROP — explicit branch here.
   if (actor.role === 'DROP') {
     if (!category || category === 'RESUME') {
       visibleClauses.push(and(eq(documents.category, 'RESUME'), eq(documents.ownerId, actor.id))!)
@@ -240,13 +234,6 @@ export async function buildVisibilityClause(
   }
 
   if (visibleClauses.length === 0) return 'NONE'
-  // Stryker disable next-line ConditionalExpression: equivalent mutant — drizzle or(x) renders byte-identical SQL to x (verified via PgDialect: x, and(x), or(x) all render the same)
-  if (visibleClauses.length === 1) return visibleClauses[0]!
+  // drizzle's or(x) renders byte-identical SQL to x, so no single-element special case.
   return or(...visibleClauses)!
-}
-
-function canSeeSelf(role: Role, category: DocumentCategory): boolean {
-  // Stryker disable next-line ConditionalExpression: equivalent mutant — the only call sites pass RESUME or SCAN, so the category guard is always true (verbatim move, kept for the helper's contract)
-  if (category === 'RESUME' || category === 'SCAN') return role === 'JUNIOR'
-  return false
 }
