@@ -403,24 +403,25 @@ export const EXEMPT_FIELDS: Record<string, string> = {
   'testid:legend-entry-textarea':
     "Free-text journal entry field on the default persona template page — same as ProjectLegendSection's legend-entry-input.",
 
-  // ---- routes/_authenticated/projects/index.tsx ----
-  'app/routes/_authenticated/projects/index.tsx#2':
+  // ---- routes/_authenticated/projects/components/ProjectCreateDialog.tsx ----
+  'app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx#1':
     'Название проекта — free-text project name, no taxonomy class applies.',
-  'app/routes/_authenticated/projects/index.tsx#3': 'Компания — free-text client company name.',
-  'app/routes/_authenticated/projects/index.tsx#5':
+  'app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx#2':
+    'Компания — free-text client company name.',
+  'app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx#4':
     'Dynamic labels[fieldName] (techStack/teamSize/benefits/salaryReview/corpTech) — content type varies per field, all free text by design.',
-  'app/routes/_authenticated/projects/index.tsx#6':
+  'app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx#5':
     'Общие заметки — free-text general notes textarea.',
 
   // ---- routes/_authenticated/projects/ProjectEditFields.tsx ----
   'app/routes/_authenticated/projects/ProjectEditFields.tsx#1':
-    'Название проекта (edit form) — same free-text project name as projects/index.tsx#2.',
+    'Название проекта (edit form) — same free-text project name as ProjectCreateDialog.tsx#1.',
   'app/routes/_authenticated/projects/ProjectEditFields.tsx#2':
-    'Компания (edit form) — same free-text company name as projects/index.tsx#3.',
+    'Компания (edit form) — same free-text company name as ProjectCreateDialog.tsx#2.',
   'app/routes/_authenticated/projects/ProjectEditFields.tsx#3':
-    'Dynamic labels[fieldName] (edit form) — same as projects/index.tsx#5.',
+    'Dynamic labels[fieldName] (edit form) — same as ProjectCreateDialog.tsx#4.',
   'app/routes/_authenticated/projects/ProjectEditFields.tsx#4':
-    'Общие заметки (edit form) — same free-text notes textarea as projects/index.tsx#6.',
+    'Общие заметки (edit form) — same free-text notes textarea as ProjectCreateDialog.tsx#5.',
 
   // ---- components/projects/ProjectApprovalActions.tsx (task-project-status-filter-ui) ----
   'testid:project-approval-reject-reason':
