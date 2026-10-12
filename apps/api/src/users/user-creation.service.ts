@@ -149,12 +149,11 @@ export class UserCreationService {
       }
     }
     // SR-M-1 (security-review #990): the CREATE_NEW team's HR/accountant members are
-    // validated (and, for an HR actor, coerced to self) BEFORE anything is written,
-    // so a rejection never leaves a half-created senior behind.
-    const teamStaff =
-      data.role === 'SENIOR' && data.teamMode !== 'JOIN_DROP_TEAM'
-        ? await this.resolveTeamStaff(data)
-        : { hrIds: [], accountantId: null }
+    // validated BEFORE anything is written, so a rejection never leaves a
+    // half-created senior behind.
+    if (data.role === 'SENIOR' && data.teamMode !== 'JOIN_DROP_TEAM') {
+      await this.assertTeamStaff(data)
+    }
     const existing = await this.helpers.findByEmail(data.email)
     if (existing) throw apiError('USER_EMAIL_EXISTS', HttpStatus.CONFLICT)
     // §4.4: `users.email` uniqueness alone cannot see a PERSONAL row on
@@ -268,8 +267,8 @@ export class UserCreationService {
         if (team) {
           const memberIds = [
             created.id,
-            ...teamStaff.hrIds,
-            ...(teamStaff.accountantId ? [teamStaff.accountantId] : []),
+            ...enrolledHrIds(data),
+            ...(data.accountantId ? [data.accountantId] : []),
           ]
           for (const userId of memberIds) {
             await this.db.db.insert(teamMembers).values({ teamId: team.id, userId })
@@ -290,25 +289,20 @@ export class UserCreationService {
 
   /**
    * SR-M-1: who may be enrolled into a NEW senior's team.
-   * - Every `hrIds` entry must be an existing user with role HR; `accountantId`
-   *   (when set) an existing user with role ACCOUNTANT. Universal: ADMIN and HR alike.
-   * - HR actor only: `hrIds` may contain nobody but the acting HR (403
-   *   HR_TEAM_SELF_ONLY); an empty list defaults to `[actorId]`. ADMIN keeps free
-   *   choice among valid-role users.
+   * - Every enrolled HR (see `enrolledHrIds`) must be an existing user with role HR;
+   *   `accountantId` (when set) an existing user with role ACCOUNTANT. Universal:
+   *   ADMIN and HR alike.
+   * - HR actor only: `hrIds` may contain nobody but the acting HR (403 HR_TEAM_SELF_ONLY).
+   *   ADMIN keeps free choice among valid-role users.
    */
-  private async resolveTeamStaff(
-    data: CreateUserInput,
-  ): Promise<{ hrIds: string[]; accountantId: string | null }> {
-    let hrIds = [...new Set(data.hrIds ?? [])]
-    if (data.actorRole === 'HR') {
-      if (hrIds.some((id) => id !== data.actorId)) {
-        throw apiError('HR_TEAM_SELF_ONLY', HttpStatus.FORBIDDEN)
-      }
-      hrIds = [data.actorId]
+  private async assertTeamStaff(data: CreateUserInput): Promise<void> {
+    if (data.actorRole === 'HR' && (data.hrIds ?? []).some((id) => id !== data.actorId)) {
+      throw apiError('HR_TEAM_SELF_ONLY', HttpStatus.FORBIDDEN)
     }
+    const hrIds = enrolledHrIds(data)
     const accountantId = data.accountantId ?? null
     const ids = accountantId ? [...hrIds, accountantId] : hrIds
-    if (ids.length === 0) return { hrIds, accountantId }
+    if (ids.length === 0) return
 
     const rows = await this.db.db
       .select({ id: users.id, role: users.role })
@@ -321,6 +315,14 @@ export class UserCreationService {
     if (accountantId && roleById.get(accountantId) !== 'ACCOUNTANT') {
       throw apiError('TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT', HttpStatus.BAD_REQUEST)
     }
-    return { hrIds, accountantId }
   }
+}
+
+/**
+ * SR-M-1: the HR members a new senior's team is created with. An HR actor always
+ * enrols exactly themselves (whatever `hrIds` said — `assertTeamStaff` has already
+ * rejected anyone else); anyone else gets the requested list, de-duplicated.
+ */
+function enrolledHrIds(data: CreateUserInput): string[] {
+  return data.actorRole === 'HR' ? [data.actorId] : [...new Set(data.hrIds ?? [])]
 }

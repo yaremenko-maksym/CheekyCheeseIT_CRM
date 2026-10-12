@@ -14,7 +14,7 @@ import {
   usersInsertValues,
   type CreateUserInput,
   type Log,
-} from './__test-helpers__/create-user-harness'
+} from '../test/create-user-harness'
 
 const senior = { ...CREATED, role: 'SENIOR' }
 const STAFF = {

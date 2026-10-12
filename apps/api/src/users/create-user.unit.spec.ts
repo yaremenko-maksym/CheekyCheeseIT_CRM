@@ -25,7 +25,7 @@ import {
   makeHarness,
   uniqueViolation,
   usersInsertValues,
-} from './__test-helpers__/create-user-harness'
+} from '../test/create-user-harness'
 
 const FIXED_NOW = new Date('2026-03-04T05:06:07.000Z')
 

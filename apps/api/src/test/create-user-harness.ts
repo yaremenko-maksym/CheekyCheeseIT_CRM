@@ -6,7 +6,7 @@
 import { expect, vi } from 'vitest'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { getTableName, type SQL } from 'drizzle-orm'
-import { UsersService } from '../users.service'
+import { UsersService } from '../users/users.service'
 
 export const dialect = new PgDialect()
 export const compile = (cond: SQL | undefined) => {
@@ -88,7 +88,7 @@ export function makeHarness(opts: HarnessOpts = {}) {
   const tx = { insert: vi.fn(makeInsert('tx')) }
 
   const db = {
-    select: vi.fn(() => ({
+    select: vi.fn((projection?: Record<string, unknown>) => ({
       from: (t: never) => ({
         where: (cond: SQL) => {
           const c = compile(cond)
@@ -98,7 +98,12 @@ export function makeHarness(opts: HarnessOpts = {}) {
             return Promise.resolve(
               c.params
                 .filter((id) => String(id) in roles)
-                .map((id) => ({ id, role: roles[String(id)] })),
+                // Row keys follow the caller's projection, like the real driver: a
+                // `.select({})` returns empty rows.
+                .map((id) => ({
+                  ...(projection && 'id' in projection && { id }),
+                  ...(projection && 'role' in projection && { role: roles[String(id)] }),
+                })),
             )
           }
           return Promise.resolve(opts.existingByEmail ? [opts.existingByEmail] : [])
