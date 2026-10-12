@@ -707,6 +707,44 @@ describe('InvoicesService', () => {
       )
     })
 
+    // L5 facade wiring: the creation service reaches getAdminId / buildVerifyUrl through
+    // late-bound callbacks on the facade, so a spy installed on the facade AFTER construction
+    // must still intercept — this pins the callbacks (a `() => undefined` wiring would not).
+    it('routes getAdminId and buildVerifyUrl through the facade (late-bound spies are honoured)', async () => {
+      const h = buildHarness({
+        txs: [tx({ id: 'tx-1', type: 'SENIOR_INCOME', receiverId: SENIOR.id, projectId: 'p-1' })],
+        sigs: [],
+        users: [
+          { id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' },
+          { id: ADMIN.id, displayName: ADMIN.displayName, role: 'ADMIN' },
+        ],
+        projects: [{ id: 'p-1', name: 'Acme Corp' }],
+      })
+      h.ctrl.findTxId = 'tx-1'
+      h.ctrl.userFindFirstQueue = [SENIOR.id, ADMIN.id]
+      h.ctrl.lookupProjectId = 'p-1'
+      const facade = h.svc as unknown as {
+        getAdminId: () => Promise<string>
+        buildVerifyUrl: (id: string) => string
+      }
+      const adminSpy = vi.spyOn(facade, 'getAdminId').mockResolvedValue('admin-spy')
+      const verifySpy = vi
+        .spyOn(facade, 'buildVerifyUrl')
+        .mockReturnValue('https://spy.example/verify/tx-1')
+
+      await h.svc.autoCreateForSeniorPayout('tx-1')
+
+      expect(adminSpy).toHaveBeenCalledTimes(1)
+      expect(verifySpy).toHaveBeenCalledWith('tx-1')
+      expect(h.pdfService.generateSignableInvoicePdf).toHaveBeenCalledWith(
+        expect.objectContaining({ verifyUrl: 'https://spy.example/verify/tx-1' }),
+      )
+      expect(h.uploadInternal).toHaveBeenCalledWith(
+        expect.objectContaining({ uploadedById: 'admin-spy' }),
+      )
+      expect(h.state.sigs[0]!.signerId).toBe('admin-spy')
+    })
+
     // i18n stage 5: the PDF is rendered in the RECIPIENT's locale — the
     // counterparty's own `users.locale`, never the admin's and never a default.
     it.each([
