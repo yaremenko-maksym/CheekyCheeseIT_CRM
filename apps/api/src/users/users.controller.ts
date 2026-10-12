@@ -30,6 +30,7 @@ import {
   changeSalarySchema,
   createDropSchema,
   createUserSchema,
+  hrCreateSeniorSchema,
   paymentRequisitesSchema,
   rejectPendingShareSchema,
   rejoinTeamSchema,
@@ -111,6 +112,12 @@ export class UsersController {
   // an HR/ADMIN session can burn turning this into an enumeration oracle.
   @AdminWriteThrottle()
   async createUser(@CurrentUser() currentUser: SessionUser, @Body() body: unknown) {
+    // An HR actor's ONLY provisioning ability is the team page's
+    // HrCreateSeniorDialog: a SENIOR WITHOUT payment requisites or a legal
+    // name (the senior fills requisites later via PATCH /users/me/requisites).
+    // `createUserSchema` forces USDT + wallet + legalFullName on a SENIOR, so
+    // it can never validate that payload — HR gets its own narrower schema.
+    if (currentUser.role === 'HR') return this.createSeniorAsHr(currentUser, body)
     const dto = createUserSchema.parse(body)
     // ut-12: ADMIN creation is fixed-pool — block at the HTTP boundary too.
     // Service has its own guard, but failing early avoids the email uniqueness
@@ -122,27 +129,9 @@ export class UsersController {
     if (dto.role === 'DROP') {
       throw apiError('DROP_CREATE_VIA_DEDICATED_ENDPOINT', HttpStatus.FORBIDDEN)
     }
-    if (currentUser.role === 'HR' && dto.role !== 'SENIOR') {
-      throw apiError('HR_SENIOR_ONLY_CREATION', HttpStatus.FORBIDDEN)
-    }
-    // MED (security-audit authz-hardening): an HR actor's ONLY established
-    // provisioning ability is team/index.tsx's HrCreateSeniorDialog, which
-    // deliberately exposes seniorSharePercent (and only that field) to HR.
-    // Every other finance/PII field below was previously forwarded verbatim
-    // from the raw request body — a rogue/compromised HR account could set
-    // its OWN wallet, a 100% share, an inflated salary, or a spoofed
-    // legalFullName on the account it is provisioning. For an HR actor those
-    // fields are forced to the server defaults regardless of what the body
-    // contains; ADMIN is unaffected (full control, as before).
-    const isHrActor = currentUser.role === 'HR'
     return this.usersService.createUser({
       email: dto.email,
-      // §4.4: same posture as legalFullName/wallet*/bankUah* above — an HR
-      // actor's provisioning surface is deliberately narrowed to
-      // seniorSharePercent only (see the security comment above), so a
-      // personal address (PII the invite flow will email) is forced to
-      // server-default (unset) for HR, same as everything else in this list.
-      personalEmail: isHrActor ? null : (dto.personalEmail ?? null),
+      personalEmail: dto.personalEmail ?? null,
       displayName: dto.displayName,
       role: dto.role,
       telegram: dto.telegram ?? null,
@@ -150,24 +139,66 @@ export class UsersController {
       avatarUrl: dto.avatarUrl ?? null,
       techStack: dto.techStack ?? null,
       ...(dto.seniorSharePercent !== undefined && { seniorSharePercent: dto.seniorSharePercent }),
-      monthlySalary: isHrActor ? null : (dto.monthlySalary ?? null),
-      ...(!isHrActor && dto.salaryCurrency !== undefined && { salaryCurrency: dto.salaryCurrency }),
+      monthlySalary: dto.monthlySalary ?? null,
+      ...(dto.salaryCurrency !== undefined && { salaryCurrency: dto.salaryCurrency }),
       hrIds: dto.hrIds ?? [],
       accountantId: dto.accountantId ?? null,
       projectId: dto.projectId ?? null,
-      ...(!isHrActor && dto.paymentMethod !== undefined && { paymentMethod: dto.paymentMethod }),
-      walletUsdtErc20: isHrActor ? null : (dto.walletUsdtErc20 ?? null),
-      walletUsdtLabel: isHrActor ? null : (dto.walletUsdtLabel ?? null),
-      bankUahRecipient: isHrActor ? null : (dto.bankUahRecipient ?? null),
-      bankUahIban: isHrActor ? null : (dto.bankUahIban ?? null),
-      bankUahRnokpp: isHrActor ? null : (dto.bankUahRnokpp ?? null),
-      bankUahBankName: isHrActor ? null : (dto.bankUahBankName ?? null),
+      ...(dto.paymentMethod !== undefined && { paymentMethod: dto.paymentMethod }),
+      walletUsdtErc20: dto.walletUsdtErc20 ?? null,
+      walletUsdtLabel: dto.walletUsdtLabel ?? null,
+      bankUahRecipient: dto.bankUahRecipient ?? null,
+      bankUahIban: dto.bankUahIban ?? null,
+      bankUahRnokpp: dto.bankUahRnokpp ?? null,
+      bankUahBankName: dto.bankUahBankName ?? null,
       ...(dto.teamMode !== undefined && { teamMode: dto.teamMode }),
       ...(dto.dropTeamId !== undefined && { dropTeamId: dto.dropTeamId }),
-      ...(!isHrActor && dto.legalFullName !== undefined && { legalFullName: dto.legalFullName }),
-      // task-i18n-stage2 (Task 3) — not gated by isHrActor: unlike
-      // wallet*/bankUah*/legalFullName above, locale carries no finance/PII
-      // surface, so HR-provisioned seniors also get to pick it.
+      ...(dto.legalFullName !== undefined && { legalFullName: dto.legalFullName }),
+      // task-i18n-stage2 (Task 3).
+      ...(dto.locale !== undefined && { locale: dto.locale }),
+      actorRole: currentUser.role,
+      actorId: currentUser.id,
+    })
+  }
+
+  /**
+   * HR provisioning path of `POST /users`. MED (security-audit authz-hardening):
+   * a rogue/compromised HR account must not be able to set its OWN wallet, a
+   * 100% share, an inflated salary or a spoofed legalFullName on the account it
+   * provisions. `hrCreateSeniorSchema` already strips those keys; they are
+   * ALSO forced to the server defaults here (defense-in-depth). Only
+   * `seniorSharePercent` (and `locale`, which has no finance/PII surface) is
+   * HR-settable. SENIOR is the only role HR may create — checked on the raw
+   * body first so a non-SENIOR attempt is a 403, not a schema 400.
+   */
+  private createSeniorAsHr(currentUser: SessionUser, body: unknown) {
+    const requestedRole =
+      typeof body === 'object' && body !== null ? Reflect.get(body, 'role') : undefined
+    if (requestedRole !== 'SENIOR') throw apiError('HR_SENIOR_ONLY_CREATION', HttpStatus.FORBIDDEN)
+    const dto = hrCreateSeniorSchema.parse(body)
+    return this.usersService.createUser({
+      email: dto.email,
+      // §4.4: the personal address (PII the invite flow emails) is ADMIN-only.
+      personalEmail: null,
+      displayName: dto.displayName,
+      role: dto.role,
+      telegram: dto.telegram ?? null,
+      phone: dto.phone ?? null,
+      avatarUrl: dto.avatarUrl ?? null,
+      techStack: dto.techStack ?? null,
+      ...(dto.seniorSharePercent !== undefined && { seniorSharePercent: dto.seniorSharePercent }),
+      monthlySalary: null,
+      hrIds: dto.hrIds ?? [],
+      accountantId: dto.accountantId ?? null,
+      projectId: dto.projectId ?? null,
+      walletUsdtErc20: null,
+      walletUsdtLabel: null,
+      bankUahRecipient: null,
+      bankUahIban: null,
+      bankUahRnokpp: null,
+      bankUahBankName: null,
+      ...(dto.teamMode !== undefined && { teamMode: dto.teamMode }),
+      ...(dto.dropTeamId !== undefined && { dropTeamId: dto.dropTeamId }),
       ...(dto.locale !== undefined && { locale: dto.locale }),
       // MED-3 (security-review round 2): lets the service scope
       // teamMode=JOIN_DROP_TEAM to a drop-team the HR actor actually
