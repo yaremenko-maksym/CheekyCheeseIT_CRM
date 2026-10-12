@@ -275,6 +275,8 @@ export const meetingRecorderConnectionSchema = z
     name: z.string(),
     enabled: z.boolean(),
     secretSet: z.boolean(),
+    mediaProvisioned: z.boolean(),
+    mediaTokenUpdatedAt: isoDateTimeSchema.nullable(),
     expectedSource: meetingRecorderSourceSchema.nullable(),
     signingSecretUpdatedAt: isoDateTimeSchema.nullable(),
     lastVerifiedAt: isoDateTimeSchema.nullable(),
@@ -285,6 +287,34 @@ export const meetingRecorderConnectionSchema = z
   })
   .strict()
 export type MeetingRecorderConnectionDto = z.infer<typeof meetingRecorderConnectionSchema>
+
+export const meetingRecorderMediaTokenResponseSchema = z
+  .object({
+    token: z.string().regex(/^mrmt_[A-Za-z0-9_-]{43}$/),
+  })
+  .strict()
+export type MeetingRecorderMediaTokenResponseDto = z.infer<
+  typeof meetingRecorderMediaTokenResponseSchema
+>
+
+export const meetingRecorderMediaArtifactSchema = z
+  .object({
+    artifactId: z.string().regex(/^media_[0-9a-f-]{36}$/i),
+    role: z.enum(['tab-recording', 'microphone-recording', 'self-video']),
+    filename: z.string(),
+    mimeType: z.enum(['video/webm', 'video/mp4', 'audio/webm', 'audio/mp4']),
+    bytes: z.number().int().positive().safe(),
+  })
+  .strict()
+export type MeetingRecorderMediaArtifactDto = z.infer<typeof meetingRecorderMediaArtifactSchema>
+
+export const meetingRecorderMediaPlaybackSchema = z
+  .object({
+    url: httpsUrlSchema,
+    expiresAt: isoDateTimeSchema,
+  })
+  .strict()
+export type MeetingRecorderMediaPlaybackDto = z.infer<typeof meetingRecorderMediaPlaybackSchema>
 
 export const meetingRecorderRecordingSummarySchema = z
   .object({

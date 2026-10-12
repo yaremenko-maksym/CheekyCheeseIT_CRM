@@ -6,6 +6,7 @@ import {
   Param,
   ParseUUIDPipe,
   Patch,
+  Post,
   UseGuards,
 } from '@nestjs/common'
 import { linkMeetingRecorderRecordingSchema, type SessionUser } from '@crm/shared'
@@ -15,6 +16,7 @@ import { Roles } from '../../common/decorators/roles.decorator'
 import { RolesGuard } from '../../common/guards/roles.guard'
 import { AdminWriteThrottle } from '../../config/throttle-decorators'
 import { MeetingRecorderService } from './meeting-recorder.service'
+import { RecordingMediaUploadService } from './media/recording-media-upload.service'
 
 @UseGuards(RolesGuard)
 @Controller('interviews')
@@ -32,7 +34,10 @@ export class InterviewMeetingRecordingsController {
 @UseGuards(RolesGuard)
 @Controller('interview-recordings')
 export class InterviewRecordingsController {
-  constructor(private readonly service: MeetingRecorderService) {}
+  constructor(
+    private readonly service: MeetingRecorderService,
+    private readonly media: RecordingMediaUploadService,
+  ) {}
 
   @Get('unmatched')
   @Roles('ADMIN')
@@ -49,6 +54,33 @@ export class InterviewRecordingsController {
     @CurrentUser() user: SessionUser,
   ) {
     return this.service.getRecordingDetail(recordingId, user)
+  }
+
+  @Get(':recordingId/media')
+  @Roles('ADMIN', 'SENIOR', 'HR')
+  @Header('Cache-Control', 'no-store')
+  async mediaList(
+    @Param('recordingId', ParseUUIDPipe) recordingId: string,
+    @CurrentUser() user: SessionUser,
+  ) {
+    const recording = await this.service.getRecordingDetail(recordingId, user)
+    return this.media.listReadyForCrm(recording.connectionId, recording.externalRecordingId)
+  }
+
+  @Post(':recordingId/media/:artifactId/playback')
+  @Roles('ADMIN', 'SENIOR', 'HR')
+  @Header('Cache-Control', 'no-store')
+  async mediaPlayback(
+    @Param('recordingId', ParseUUIDPipe) recordingId: string,
+    @Param('artifactId') artifactId: string,
+    @CurrentUser() user: SessionUser,
+  ) {
+    const recording = await this.service.getRecordingDetail(recordingId, user)
+    return this.media.playbackForCrm(
+      recording.connectionId,
+      recording.externalRecordingId,
+      artifactId,
+    )
   }
 
   @Patch(':id/link')

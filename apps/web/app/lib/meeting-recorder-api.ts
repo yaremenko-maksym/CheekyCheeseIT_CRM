@@ -3,6 +3,9 @@ import {
   createMeetingRecorderConnectionSchema,
   linkMeetingRecorderRecordingSchema,
   meetingRecorderConnectionSchema,
+  meetingRecorderMediaArtifactSchema,
+  meetingRecorderMediaPlaybackSchema,
+  meetingRecorderMediaTokenResponseSchema,
   meetingRecorderRecordingDetailSchema,
   meetingRecorderRecordingSummarySchema,
   meetingRecorderUnmatchedRecordingSchema,
@@ -59,6 +62,11 @@ export const meetingRecorderApi = {
     return meetingRecorderConnectionSchema.parse(response.data)
   },
 
+  async issueMediaToken(id: string) {
+    const response = await api.put(`/integrations/meeting-recorder/connections/${id}/token`)
+    return meetingRecorderMediaTokenResponseSchema.parse(response.data)
+  },
+
   async listInterviewRecordings(interviewId: string) {
     const response = await api.get(`/interviews/${interviewId}/recordings`)
     return meetingRecorderRecordingSummarySchema.array().parse(response.data)
@@ -67,6 +75,18 @@ export const meetingRecorderApi = {
   async getRecording(recordingId: string) {
     const response = await api.get(`/interview-recordings/${recordingId}`)
     return meetingRecorderRecordingDetailSchema.parse(response.data)
+  },
+
+  async listRecordingMedia(recordingId: string) {
+    const response = await api.get(`/interview-recordings/${recordingId}/media`)
+    return meetingRecorderMediaArtifactSchema.array().parse(response.data)
+  },
+
+  async prepareRecordingMediaPlayback(recordingId: string, artifactId: string) {
+    const response = await api.post(
+      `/interview-recordings/${recordingId}/media/${encodeURIComponent(artifactId)}/playback`,
+    )
+    return meetingRecorderMediaPlaybackSchema.parse(response.data)
   },
 
   async listUnmatchedRecordings() {
