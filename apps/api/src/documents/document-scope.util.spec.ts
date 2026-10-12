@@ -9,6 +9,7 @@ const dialect = new PgDialect()
 const render = (q: SQL) => dialect.sqlToQuery(q)
 
 interface Call {
+  cols: string[]
   join: boolean
   where: { sql: string; params: unknown[] }
 }
@@ -17,7 +18,7 @@ interface Call {
 function makeDb(results: unknown[][]) {
   const calls: Call[] = []
   const queue = [...results]
-  const select = vi.fn(() => {
+  const select = vi.fn((cols: Record<string, unknown>) => {
     let join = false
     const chain = {
       from: () => chain,
@@ -26,7 +27,7 @@ function makeDb(results: unknown[][]) {
         return chain
       },
       where: (w: SQL) => {
-        calls.push({ join, where: render(w) })
+        calls.push({ cols: Object.keys(cols), join, where: render(w) })
         return Promise.resolve(queue.shift() ?? [])
       },
     }
@@ -50,6 +51,7 @@ describe('getHrSeniorIds', () => {
   it('scopes the HR team lookup to userId + leftAt IS NULL', async () => {
     const { db, calls } = makeDb([[]])
     await getHrSeniorIds(db, 'hr-1')
+    expect(calls[0]!.cols).toEqual(['teamId'])
     expect(calls[0]!.join).toBe(false)
     expect(calls[0]!.where.sql).toContain('"team_members"."user_id" = $1')
     expect(calls[0]!.where.sql).toContain('"team_members"."left_at" is null')
@@ -64,6 +66,7 @@ describe('getHrSeniorIds', () => {
     ])
     expect(await getHrSeniorIds(db, 'hr-1')).toEqual(['s-1', 's-2'])
     expect(calls).toHaveLength(2)
+    expect(calls[1]!.cols).toEqual(['userId'])
     expect(calls[1]!.join).toBe(true)
     expect(calls[1]!.where.sql).toContain('"team_members"."team_id" in ($1, $2)')
     expect(calls[1]!.where.sql).toContain('"users"."role" = $3')
@@ -119,8 +122,10 @@ describe('getTeammateIds', () => {
     expect(ids.sort()).toEqual(['hr-1', 'hr-2', 'j-1', 'j-2', 'sr-1'])
     expect(calls).toHaveLength(2)
     // project lookup bound to the SENIOR peer only (not the HR peer / the HR actor)
+    expect(calls[0]!.cols).toEqual(['id'])
     expect(calls[0]!.where.params).toEqual(['sr-1'])
     // member lookup: those projects, active members only
+    expect(calls[1]!.cols).toEqual(['userId'])
     expect(calls[1]!.where.params).toEqual(['p-1', 'p-2'])
     expect(calls[1]!.where.sql).toContain('"project_members"."left_at" is null')
     expect(calls[1]!.where.sql).toContain('"project_members"."project_id" in ($1, $2)')
