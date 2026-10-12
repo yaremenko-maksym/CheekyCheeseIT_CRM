@@ -643,8 +643,7 @@ describe('L2 drop conversion — cumulativePaid and the closure rate on a top-up
     expect(t.row()['exchangeRate']).toBe('1.00000000')
   })
 
-  it('a first settle in UAH stamps rate = paid / obligation; the rate is NOT carried into a later USDT top-up', async () => {
-    // First: UAH payout of 1000 USDT.
+  it('a first settle in UAH stamps rate = paid / obligation; a later USDT top-up is refused, never blended with that rate', async () => {
     const first = makeService(dropWorld())
     await first.svc.settleByCompany(
       OBLIGATION_ID,
@@ -652,6 +651,33 @@ describe('L2 drop conversion — cumulativePaid and the closure rate on a top-up
       personal(ADMIN_A_ID, { currency: 'UAH', ...FILE }),
     )
     expect(first.row()['exchangeRate']).toBe('41.50000000')
+    expect(first.row()['settledCurrency']).toBe('UAH')
+
+    // The cascade reopens the row: PENDING_PAYMENT again, carrying the UAH
+    // accumulator, the same personal payer, and a larger USDT obligation (50000).
+    const reopened = { ...first.world.sourceTx, status: 'PENDING_PAYMENT' as const }
+    const second = makeService({
+      obligation: makeObligation({
+        creditorUserId: DROP_ID,
+        // large enough that the remainder (50000 - 41500) is positive and the
+        // refusal under test is the currency guard, not the negative-remainder one
+        amount: '50000',
+        sourceTransactionId: SOURCE_TX_ID,
+      }),
+      sourceTx: { ...reopened, type: 'DROP_PENDING_PAYOUT' },
+    })
+    await expect(
+      second.svc.settleByCompany(OBLIGATION_ID, accountantUser, personal(ADMIN_A_ID)),
+    ).rejects.toMatchObject({
+      response: {
+        code: 'FINANCE_SETTLEMENT_ALREADY_IN_OTHER_CURRENCY',
+        statusCode: 400,
+        params: { sourceSettledCurrency: 'UAH' },
+      },
+    })
+    // No second rate is ever computed or stamped over the first one.
+    expect(second.flips).toHaveLength(0)
+    expect(second.getRates).not.toHaveBeenCalled()
   })
 })
 
@@ -1197,7 +1223,9 @@ describe('L2 resolution — useCompanyAccount, debitsCompanyAccount, sender, cur
     const t = makeService({ obligation: makeObligation({ creditorUserId: ADMIN_A_ID }) })
     await expect(
       t.svc.settleByCompany(OBLIGATION_ID, accountantUser, personal(ADMIN_A_ID)),
-    ).rejects.toBeDefined()
+    ).rejects.toMatchObject({
+      response: { code: 'SENDER_RECEIVER_SAME', statusCode: 400 },
+    })
     expect(t.flips).toHaveLength(0)
   })
 
