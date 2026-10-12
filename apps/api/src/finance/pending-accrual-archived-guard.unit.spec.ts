@@ -63,6 +63,8 @@ const SRC_FILE = path.resolve(import.meta.dirname, 'transactions.service.ts')
 const SALARY_PAYMENT_FILE = path.resolve(import.meta.dirname, 'salary-payment.service.ts')
 const SCANNED_FILES = [
   SRC_FILE,
+  // SENIOR_INCOME / DROP_INCOME creation lives in the senior-drop-income collaborator.
+  path.resolve(import.meta.dirname, 'senior-drop-income.service.ts'),
   path.resolve(import.meta.dirname, 'transaction-entry.service.ts'),
   SALARY_PAYMENT_FILE,
 ]

@@ -23,6 +23,7 @@ import { SalaryPaymentService } from './salary-payment.service'
 import { AdminEditService } from './admin-edit.service'
 import { ProjectFinanceSettingsService } from './project-finance-settings.service'
 import { PayoutConfirmationService } from './payout-confirmation.service'
+import { SeniorDropIncomeService } from './senior-drop-income.service'
 import { PendingSettlementController } from './pending-settlement.controller'
 import { PendingSettlementService } from './pending-settlement.service'
 import { SalaryCronService } from './salary-cron.service'
@@ -87,6 +88,7 @@ import { TransactionTrashService } from './transaction-trash.service'
     AdminEditService,
     ProjectFinanceSettingsService,
     PayoutConfirmationService,
+    SeniorDropIncomeService,
     NbuCurrencyService,
     // Phase 4-A: balance pipeline runs alongside the legacy getSummary.
     BalanceService,
