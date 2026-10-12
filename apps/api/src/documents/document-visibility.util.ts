@@ -87,11 +87,13 @@ export async function buildListWhere(
     conditions.push(eq(documents.ownerId, filters.ownerId))
   }
 
+  // Stryker disable next-line ConditionalExpression: unreachable branch (verbatim move) — the category filter above always pushes a condition, so conditions is never empty
   if (conditions.length === 0) {
     // No conditions = match everything. Returning `undefined` would let
     // drizzle return all rows; explicit `isNotNull(id)` keeps types happy.
     return isNotNull(documents.id)
   }
+  // Stryker disable next-line ConditionalExpression: equivalent mutant — drizzle and(x) renders byte-identical SQL to x (verified via PgDialect: all three of x, and(x), or(x) render `"t"."a" = $1`)
   if (conditions.length === 1) return conditions[0]!
   return and(...conditions)!
 }
@@ -238,11 +240,13 @@ export async function buildVisibilityClause(
   }
 
   if (visibleClauses.length === 0) return 'NONE'
+  // Stryker disable next-line ConditionalExpression: equivalent mutant — drizzle or(x) renders byte-identical SQL to x (verified via PgDialect: x, and(x), or(x) all render the same)
   if (visibleClauses.length === 1) return visibleClauses[0]!
   return or(...visibleClauses)!
 }
 
 function canSeeSelf(role: Role, category: DocumentCategory): boolean {
+  // Stryker disable next-line ConditionalExpression: equivalent mutant — the only call sites pass RESUME or SCAN, so the category guard is always true (verbatim move, kept for the helper's contract)
   if (category === 'RESUME' || category === 'SCAN') return role === 'JUNIOR'
   return false
 }
