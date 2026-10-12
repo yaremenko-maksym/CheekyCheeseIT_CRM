@@ -1901,6 +1901,33 @@ describe('PayoutSettlementService — remaining pins', () => {
     })
   })
 
+  it('the cascade defaults are inert: with only the four mandatory arguments there is no in-transaction reuse scan, no sender and no payment date', async () => {
+    // Both public entry points always pass the optional arguments explicitly, so
+    // only a direct call to the private cascade can observe its defaults
+    // (`guardTxHashReuse = false`, `onChainFromAddress = null`, `txDate` unset).
+    // A competing PAID payout holds the hash: were the guard on by default, this
+    // settlement would be refused.
+    const h = build({ reusedPaid: { id: 'winner-req' } })
+    const cascade = (
+      h.svc as unknown as {
+        payoutSettle: {
+          applyPayoutPaidCascade: (
+            req: Row,
+            hash: string,
+            funding: string | null,
+            note: string | null,
+            actor: SessionUser,
+          ) => Promise<unknown>
+        }
+      }
+    ).payoutSettle.applyPayoutPaidCascade
+    const settle = cascade.bind((h.svc as unknown as { payoutSettle: object }).payoutSettle)
+    await expect(settle(requestRow(), HASH, null, null, ADMIN)).resolves.toBeDefined()
+    expect(h.find('query payoutRequests')).toHaveLength(0)
+    expect(h.one('update payout_requests').set!['txFromAddress']).toBeNull()
+    expect(h.find('update transactions')[1]!.set).not.toHaveProperty('txDate')
+  })
+
   it('the sum guard uses the resolved senior percent: 40 + 61 > 100 is refused', async () => {
     const base = dropWorld({}, { dropSharePercent: 61 })
     const h = build({
