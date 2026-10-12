@@ -231,7 +231,7 @@ export const FIELD_CATEGORIES: Record<string, Category> = {
   'testid:login-as-search': 'SEARCH',
   'app/routes/_authenticated/interviews/components/LinkRecordingDialog.tsx#id:recording-link-search':
     'SEARCH',
-  'app/routes/_authenticated/finance/index.tsx#1': 'SEARCH',
+  'app/routes/_authenticated/finance/components/TransactionsTable.tsx#1': 'SEARCH',
   'app/routes/_authenticated/team/index.tsx#1': 'SEARCH',
   'app/routes/_authenticated/users/index.tsx#1': 'SEARCH',
 
