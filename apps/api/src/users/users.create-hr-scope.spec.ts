@@ -278,3 +278,107 @@ describe('UsersController.createUser — HR dialog payload (no requisites)', () 
     expect(createUser).not.toHaveBeenCalled()
   })
 })
+
+// Pins the ADMIN (non-HR) forwarding exactly — the HR split removed its `isHrActor` ternaries,
+// so every field's pass-through / null-default is asserted by full equality here.
+describe('UsersController.createUser — ADMIN forwarding is exact', () => {
+  const DROP_TEAM_ID = 'c3c3c3c3-c3c3-4c3c-8c3c-c3c3c3c3c3c3'
+  const ACCOUNTANT_ID = 'd4d4d4d4-d4d4-4d4d-8d4d-d4d4d4d4d4d4'
+  const PROJECT_ID = 'e5e5e5e5-e5e5-4e5e-8e5e-e5e5e5e5e5e5'
+
+  it('a maximal payload is forwarded field-for-field', async () => {
+    const createUser = vi.fn().mockResolvedValue({ id: 'created-uuid' })
+    const controller = makeController({ createUser })
+
+    await controller.createUser(adminActor, {
+      ...maximalSeniorPayload,
+      personalEmail: 'personal@example.com',
+      avatarUrl: 'https://example.com/a.png',
+      accountantId: ACCOUNTANT_ID,
+      projectId: PROJECT_ID,
+      teamMode: 'JOIN_DROP_TEAM',
+      dropTeamId: DROP_TEAM_ID,
+      locale: 'en',
+    })
+
+    expect(createUser).toHaveBeenCalledWith({
+      email: maximalSeniorPayload.email,
+      personalEmail: 'personal@example.com',
+      displayName: 'New Senior',
+      role: 'SENIOR',
+      telegram: '@newsenior',
+      phone: '+380001234567',
+      avatarUrl: 'https://example.com/a.png',
+      techStack: ['TypeScript'],
+      seniorSharePercent: 100,
+      monthlySalary: 499999,
+      salaryCurrency: 'USD',
+      hrIds: [HR_ACTOR_ID],
+      accountantId: ACCOUNTANT_ID,
+      projectId: PROJECT_ID,
+      paymentMethod: 'USDT_ERC20',
+      walletUsdtErc20: maximalSeniorPayload.walletUsdtErc20,
+      walletUsdtLabel: 'HR-controlled wallet',
+      bankUahRecipient: 'HR Self',
+      bankUahIban: 'UA000000000000000000000000000',
+      bankUahRnokpp: '0000000000',
+      bankUahBankName: 'PrivatBank',
+      teamMode: 'JOIN_DROP_TEAM',
+      dropTeamId: DROP_TEAM_ID,
+      legalFullName: 'Підроблений Іван Іванович',
+      locale: 'en',
+      actorRole: 'ADMIN',
+      actorId: adminActor.id,
+    })
+  })
+
+  it('a minimal payload gets null / empty defaults and none of the optional keys', async () => {
+    const createUser = vi.fn().mockResolvedValue({ id: 'created-uuid' })
+    const controller = makeController({ createUser })
+
+    await controller.createUser(adminActor, {
+      email: 'min@example.com',
+      displayName: 'Min Senior',
+      role: 'SENIOR',
+      paymentMethod: 'USDT_ERC20',
+      walletUsdtErc20: maximalSeniorPayload.walletUsdtErc20,
+      legalFullName: 'Мінімальний Сеньйор',
+    })
+
+    // toHaveBeenCalledWith ignores keys whose value is `undefined`, so absence is pinned by key.
+    const sent = createUser.mock.calls[0]![0] as Record<string, unknown>
+    for (const key of [
+      'seniorSharePercent',
+      'salaryCurrency',
+      'teamMode',
+      'dropTeamId',
+      'locale',
+    ]) {
+      expect(sent).not.toHaveProperty(key)
+    }
+    expect(createUser).toHaveBeenCalledWith({
+      email: 'min@example.com',
+      personalEmail: null,
+      displayName: 'Min Senior',
+      role: 'SENIOR',
+      telegram: null,
+      phone: null,
+      avatarUrl: null,
+      techStack: null,
+      monthlySalary: null,
+      hrIds: [],
+      accountantId: null,
+      projectId: null,
+      paymentMethod: 'USDT_ERC20',
+      walletUsdtErc20: maximalSeniorPayload.walletUsdtErc20,
+      walletUsdtLabel: null,
+      bankUahRecipient: null,
+      bankUahIban: null,
+      bankUahRnokpp: null,
+      bankUahBankName: null,
+      legalFullName: 'Мінімальний Сеньйор',
+      actorRole: 'ADMIN',
+      actorId: adminActor.id,
+    })
+  })
+})

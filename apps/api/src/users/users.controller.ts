@@ -144,7 +144,8 @@ export class UsersController {
       hrIds: dto.hrIds ?? [],
       accountantId: dto.accountantId ?? null,
       projectId: dto.projectId ?? null,
-      ...(dto.paymentMethod !== undefined && { paymentMethod: dto.paymentMethod }),
+      // `paymentMethod` is required by createUserSchema — always defined here.
+      paymentMethod: dto.paymentMethod,
       walletUsdtErc20: dto.walletUsdtErc20 ?? null,
       walletUsdtLabel: dto.walletUsdtLabel ?? null,
       bankUahRecipient: dto.bankUahRecipient ?? null,
@@ -153,6 +154,7 @@ export class UsersController {
       bankUahBankName: dto.bankUahBankName ?? null,
       ...(dto.teamMode !== undefined && { teamMode: dto.teamMode }),
       ...(dto.dropTeamId !== undefined && { dropTeamId: dto.dropTeamId }),
+      // Stryker disable next-line ConditionalExpression: createUserSchema's superRefine requires legalFullName for every role that reaches here (ADMIN/DROP are rejected above), so the undefined branch is unreachable; the conditional only satisfies exactOptionalPropertyTypes
       ...(dto.legalFullName !== undefined && { legalFullName: dto.legalFullName }),
       // task-i18n-stage2 (Task 3).
       ...(dto.locale !== undefined && { locale: dto.locale }),

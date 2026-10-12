@@ -50,7 +50,14 @@ test.describe('HR create senior dialog', () => {
       seniorSharePercent: 26,
     })
     // HR never sends requisites or a legal name.
-    for (const key of ['paymentMethod', 'walletUsdtErc20', 'legalFullName', 'bankUahIban']) {
+    // The untouched phone widget's seeded "+380" is not sent as a phone number either.
+    for (const key of [
+      'paymentMethod',
+      'walletUsdtErc20',
+      'legalFullName',
+      'bankUahIban',
+      'phone',
+    ]) {
       expect(body).not.toHaveProperty(key)
     }
     // And no validation-failure toast.

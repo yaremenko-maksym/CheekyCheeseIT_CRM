@@ -83,6 +83,14 @@ function Field({
 const telegramFieldSchema = updateProfileSchema.shape.telegram.unwrap().unwrap()
 const phoneFieldSchema = z.string().max(30)
 
+// PhoneInput seeds this calling code (UA default) into an untouched field on mount.
+const SEEDED_CALLING_CODE = '+380'
+
+/** The phone the user actually entered, or undefined when empty / only the seeded calling code. */
+function enteredPhone(value: string): string | undefined {
+  return value && value !== SEEDED_CALLING_CODE ? value : undefined
+}
+
 // ── HR: Create Senior Dialog ──────────────────────────────────────────────────
 // HR uses this to create a new SENIOR user (which auto-creates the team).
 // hrIds is pre-filled with the current HR user; accountant is optional.
@@ -150,7 +158,7 @@ export function HrCreateSeniorDialog({
         displayName: value.displayName.trim(),
         role: 'SENIOR',
         telegram: value.telegram.trim() ? normalizeTelegram(value.telegram) : undefined,
-        phone: (value.phone as string) || undefined,
+        phone: enteredPhone(value.phone as string),
         techStack: value.techStack.length > 0 ? value.techStack : undefined,
         seniorSharePercent: value.seniorSharePercent,
         hrIds: [hrUserId],
@@ -312,7 +320,9 @@ export function HrCreateSeniorDialog({
               name="phone"
               validators={{
                 onBlur: ({ value }) => {
-                  const v = value as string
+                  // The optional phone holding only the seeded calling code is "no phone",
+                  // not an invalid one — otherwise a pristine form could not be submitted.
+                  const v = enteredPhone(value as string)
                   if (!v) return undefined
                   const r = phoneFieldSchema.safeParse(v)
                   // Stryker disable next-line OptionalChaining: issues[0] is guaranteed non-null on a failed safeParse (same invariant as the submit handler below)

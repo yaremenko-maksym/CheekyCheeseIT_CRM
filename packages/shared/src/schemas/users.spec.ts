@@ -977,6 +977,7 @@ describe('hrCreateSeniorSchema', () => {
     const issue = !bad.success ? bad.error.issues[0] : undefined
     expect(issue?.message).toBe('zod.DROP_TEAM_ID_REQUIRED')
     expect(issue?.path).toEqual(['dropTeamId'])
+    expect(issue?.code).toBe('custom')
     expect(
       hrCreateSeniorSchema.safeParse({
         ...dialogPayload,

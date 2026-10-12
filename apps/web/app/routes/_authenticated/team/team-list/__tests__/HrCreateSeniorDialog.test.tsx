@@ -330,11 +330,16 @@ describe('HrCreateSeniorDialog field validation on blur', () => {
     expect(fieldError('Telegram')).toBeNull()
   })
 
-  it('pre-fills the phone widget with +380, flags it as incomplete and accepts a full number or none', async () => {
+  it('pre-fills the phone widget with +380 (not an error), flags an incomplete number and accepts a full number or none', async () => {
     const user = userEvent.setup()
     renderDialog()
     expect(phoneEl().value.replace(/\s/g, '')).toBe('+380')
     await user.click(phoneEl())
+    await user.tab()
+    // The seeded calling code alone means "no phone" — it must not block a pristine submit.
+    expect(fieldError('Телефон')).toBeNull()
+    await user.clear(phoneEl())
+    await user.type(phoneEl(), '+3801')
     await user.tab()
     expect(fieldError('Телефон')).toBe('Введіть номер у міжнародному форматі, напр. +380671234567')
     await user.clear(phoneEl())
@@ -415,6 +420,21 @@ describe('HrCreateSeniorDialog submit', () => {
       '',
     )
     expect(screen.getByTestId('share-value').textContent).toBe('26')
+  })
+
+  it('REGRESSION: a pristine form (phone widget untouched, seeded "+380") submits without a phone', async () => {
+    const user = userEvent.setup()
+    const view = renderDialog()
+    await user.type(screen.getByPlaceholderText('senior@cheekycheese.dev'), 'sen@cheeky.dev')
+    await user.type(screen.getByPlaceholderText('Іван Іваненко'), 'Іван Сеньйор')
+    expect(phoneEl().value).toBe('+380')
+    mockedPost.mockResolvedValue({ data: {} } as never)
+    await user.click(screen.getByRole('button', { name: 'Створити' }))
+    await waitFor(() => expect(mockedPost).toHaveBeenCalledTimes(1))
+    expect((mockedPost.mock.calls[0]?.[1] as Record<string, unknown>).phone).toBeUndefined()
+    expect(fieldError('Телефон')).toBeNull()
+    await waitFor(() => expect(view.onClose).toHaveBeenCalledTimes(1))
+    expect(toast.error).not.toHaveBeenCalled()
   })
 
   it('keeps an existing @ on telegram and omits empty optional fields', async () => {
@@ -602,7 +622,8 @@ describe('HrCreateSeniorDialog data wiring and trimming', () => {
         (el.getAttribute('class') ?? '').includes('[&_input]:border-destructive'),
       )
     expect(marked()).toHaveLength(0)
-    await user.click(phoneEl())
+    await user.clear(phoneEl())
+    await user.type(phoneEl(), '+3801')
     await user.tab()
     expect(marked()).toHaveLength(1)
     await user.clear(phoneEl())
