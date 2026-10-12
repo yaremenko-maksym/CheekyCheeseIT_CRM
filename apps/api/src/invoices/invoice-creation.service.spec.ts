@@ -225,7 +225,7 @@ describe('InvoiceCreationService.autoCreateForSeniorPayout', () => {
   })
 
   it('does nothing for a non-SENIOR_INCOME row', async () => {
-    const h = makeHarness({ selects: [[row({ type: 'SALARY' })]] })
+    const h = makeHarness({ selects: [[row({ type: 'SALARY' })]], users: [SENIOR, ADMIN] })
     await h.svc.autoCreateForSeniorPayout('tx-9')
     expect(h.pdf).not.toHaveBeenCalled()
   })
@@ -252,7 +252,7 @@ describe('InvoiceCreationService.autoCreateForSalary', () => {
   })
 
   it('does nothing for a non-SALARY row', async () => {
-    const h = makeHarness({ selects: [[row({ type: 'SENIOR_INCOME' })]] })
+    const h = makeHarness({ selects: [[row({ type: 'SENIOR_INCOME' })]], users: [SENIOR, ADMIN] })
     await h.svc.autoCreateForSalary('tx-8')
     expect(h.pdf).not.toHaveBeenCalled()
   })
