@@ -20,16 +20,15 @@ vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }))
 
-// `createUserSchema.safeParse` is wrapped in a spy: the real schema currently rejects the
-// dialog's payload (USDT_ERC20 without a wallet), so success-path tests swap in a pass-through
-// while one test pins the real rejection.
+// `hrCreateSeniorSchema.safeParse` is wrapped in a spy that defaults to the REAL schema; tests
+// that need a specific verdict (a failure, or a recognisable parsed body) override it once.
 vi.mock('@crm/shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@crm/shared')>()
   return {
     ...actual,
-    createUserSchema: {
-      shape: actual.createUserSchema.shape,
-      safeParse: vi.fn((p: unknown) => actual.createUserSchema.safeParse(p)),
+    hrCreateSeniorSchema: {
+      shape: actual.hrCreateSeniorSchema.shape,
+      safeParse: vi.fn((p: unknown) => actual.hrCreateSeniorSchema.safeParse(p)),
     },
   }
 })
@@ -74,13 +73,13 @@ vi.mock('@/components/ui/share-slider', () => ({
 }))
 
 import { toast } from 'sonner'
-import { createUserSchema } from '@crm/shared'
+import { hrCreateSeniorSchema } from '@crm/shared'
 import { api } from '@/lib/axios'
 import { HrCreateSeniorDialog } from '../components/HrCreateSeniorDialog'
 
 const mockedGet = vi.mocked(api.get)
 const mockedPost = vi.mocked(api.post)
-const schemaSpy = vi.mocked(createUserSchema.safeParse)
+const schemaSpy = vi.mocked(hrCreateSeniorSchema.safeParse)
 
 const HR_ID = '11111111-1111-4111-8111-111111111111'
 const ACC_A = '22222222-2222-4222-8222-222222222222'
@@ -146,7 +145,8 @@ async function fillRequired(user: ReturnType<typeof userEvent.setup>) {
 
 beforeEach(async () => {
   vi.clearAllMocks()
-  schemaSpy.mockImplementation(((p: unknown) => ({ success: true, data: p })) as never)
+  const actual = await vi.importActual<typeof import('@crm/shared')>('@crm/shared')
+  schemaSpy.mockImplementation(((p: unknown) => actual.hrCreateSeniorSchema.safeParse(p)) as never)
   await loadCatalog('uk')
 })
 
@@ -330,11 +330,16 @@ describe('HrCreateSeniorDialog field validation on blur', () => {
     expect(fieldError('Telegram')).toBeNull()
   })
 
-  it('pre-fills the phone widget with +380, flags it as incomplete and accepts a full number or none', async () => {
+  it('pre-fills the phone widget with +380 (not an error), flags an incomplete number and accepts a full number or none', async () => {
     const user = userEvent.setup()
     renderDialog()
     expect(phoneEl().value.replace(/\s/g, '')).toBe('+380')
     await user.click(phoneEl())
+    await user.tab()
+    // The seeded calling code alone means "no phone" — it must not block a pristine submit.
+    expect(fieldError('Телефон')).toBeNull()
+    await user.clear(phoneEl())
+    await user.type(phoneEl(), '+3801')
     await user.tab()
     expect(fieldError('Телефон')).toBe('Введіть номер у міжнародному форматі, напр. +380671234567')
     await user.clear(phoneEl())
@@ -401,7 +406,6 @@ describe('HrCreateSeniorDialog submit', () => {
       telegram: '@senior_tg',
       phone: '+380501234567',
       techStack: ['React'],
-      paymentMethod: 'USDT_ERC20',
       seniorSharePercent: 40,
       hrIds: [HR_ID],
       accountantId: ACC_A,
@@ -416,6 +420,21 @@ describe('HrCreateSeniorDialog submit', () => {
       '',
     )
     expect(screen.getByTestId('share-value').textContent).toBe('26')
+  })
+
+  it('REGRESSION: a pristine form (phone widget untouched, seeded "+380") submits without a phone', async () => {
+    const user = userEvent.setup()
+    const view = renderDialog()
+    await user.type(screen.getByPlaceholderText('senior@cheekycheese.dev'), 'sen@cheeky.dev')
+    await user.type(screen.getByPlaceholderText('Іван Іваненко'), 'Іван Сеньйор')
+    expect(phoneEl().value).toBe('+380')
+    mockedPost.mockResolvedValue({ data: {} } as never)
+    await user.click(screen.getByRole('button', { name: 'Створити' }))
+    await waitFor(() => expect(mockedPost).toHaveBeenCalledTimes(1))
+    expect((mockedPost.mock.calls[0]?.[1] as Record<string, unknown>).phone).toBeUndefined()
+    expect(fieldError('Телефон')).toBeNull()
+    await waitFor(() => expect(view.onClose).toHaveBeenCalledTimes(1))
+    expect(toast.error).not.toHaveBeenCalled()
   })
 
   it('keeps an existing @ on telegram and omits empty optional fields', async () => {
@@ -446,17 +465,26 @@ describe('HrCreateSeniorDialog submit', () => {
     expect((mockedPost.mock.calls[0]?.[1] as Record<string, unknown>).telegram).toBeUndefined()
   })
 
-  it('pins the current real schema verdict: the payload is rejected for a missing USDT wallet', async () => {
+  it('REGRESSION: the real schema accepts the requisite-less payload, POSTs it and succeeds', async () => {
     const user = userEvent.setup()
-    const actual = await vi.importActual<typeof import('@crm/shared')>('@crm/shared')
-    schemaSpy.mockImplementation(((p: unknown) => actual.createUserSchema.safeParse(p)) as never)
-    renderDialog()
+    const view = renderDialog()
     await fillRequired(user)
+    mockedPost.mockResolvedValue({ data: {} } as never)
     await user.click(screen.getByRole('button', { name: 'Створити' }))
-    await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1))
-    expect(toast.error).toHaveBeenCalledWith('Вкажіть адресу USDT ERC-20')
-    expect(mockedPost).not.toHaveBeenCalled()
-    expect(toast.success).not.toHaveBeenCalled()
+    await waitFor(() => expect(mockedPost).toHaveBeenCalledTimes(1))
+    // Parsed by the REAL hrCreateSeniorSchema: HR sends no payment method, wallet or legal name.
+    expect(mockedPost).toHaveBeenCalledWith('/users', {
+      email: 'sen@cheeky.dev',
+      displayName: 'Іван Сеньйор',
+      role: 'SENIOR',
+      phone: '+380501234567',
+      seniorSharePercent: 26,
+      hrIds: [HR_ID],
+      accountantId: null,
+    })
+    await waitFor(() => expect(view.onClose).toHaveBeenCalledTimes(1))
+    expect(toast.success).toHaveBeenCalledWith('Сеньйора створено, команду сформовано')
+    expect(toast.error).not.toHaveBeenCalled()
   })
 
   it('toasts the first schema issue verbatim, or translated when it is a zod code', async () => {
@@ -594,7 +622,8 @@ describe('HrCreateSeniorDialog data wiring and trimming', () => {
         (el.getAttribute('class') ?? '').includes('[&_input]:border-destructive'),
       )
     expect(marked()).toHaveLength(0)
-    await user.click(phoneEl())
+    await user.clear(phoneEl())
+    await user.type(phoneEl(), '+3801')
     await user.tab()
     expect(marked()).toHaveLength(1)
     await user.clear(phoneEl())
