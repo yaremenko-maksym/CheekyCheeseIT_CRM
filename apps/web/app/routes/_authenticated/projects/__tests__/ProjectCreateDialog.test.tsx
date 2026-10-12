@@ -185,6 +185,7 @@ describe('ProjectCreateDialog + useCreateProjectForm', () => {
     expect(screen.getByPlaceholderText('AI Platform v2')).toHaveValue('')
     expect(screen.getByPlaceholderText('TechCorp AI')).toHaveValue('')
     expect(seniorSelect()).toHaveValue('')
+    expect(form().state.values.seniorId).toBe('')
     expect(screen.getByDisplayValue('2026-03-05')).toBeInTheDocument()
     expect(screen.getByTestId('amount-currency-amount-input')).toHaveValue('')
     expect(destructiveParagraphs()).toBe(0)
@@ -282,6 +283,7 @@ describe('ProjectCreateDialog + useCreateProjectForm', () => {
 
   it('stores a logo picked through the upload field in the form', () => {
     mount()
+    setValue('logoDocumentId', 'doc-1')
     fireEvent.click(screen.getByTestId('image-upload-field-mode-url'))
     const input = screen.getByTestId('image-upload-field-url-input')
     fireEvent.change(input, { target: { value: 'https://b.test/x.png' } })

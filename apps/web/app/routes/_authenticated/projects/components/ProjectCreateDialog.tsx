@@ -120,6 +120,7 @@ export function ProjectCreateDialog({
               validators={{
                 onBlur: ({ value }: { value: string }) => {
                   const r = createProjectSchema.shape.name.safeParse(value.trim())
+                  // Stryker disable next-line OptionalChaining: issues[0] always exists when safeParse fails; the ?. only satisfies noUncheckedIndexedAccess
                   return r.success ? undefined : r.error.issues[0]?.message
                 },
               }}
@@ -149,6 +150,7 @@ export function ProjectCreateDialog({
               validators={{
                 onBlur: ({ value }: { value: string }) => {
                   const r = createProjectSchema.shape.companyName.safeParse(value.trim())
+                  // Stryker disable next-line OptionalChaining: issues[0] always exists when safeParse fails; the ?. only satisfies noUncheckedIndexedAccess
                   return r.success ? undefined : r.error.issues[0]?.message
                 },
               }}
