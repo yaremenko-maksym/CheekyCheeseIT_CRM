@@ -271,8 +271,13 @@ export function TransactionsTable({
   const [sortDir, setSortDir] = useState<SortDir>('desc')
 
   const toggleSort = (key: TxSort) => {
-    // Stryker disable next-line StringLiteral: the 'desc' result is only ever compared against 'asc', so '' is equivalent to 'desc' (the 'asc' branch is covered by the direction-flip test)
-    if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    if (sortKey === key)
+      setSortDir((d) => {
+        if (d === 'asc')
+          // Stryker disable next-line StringLiteral: '' ≡ 'desc' — direction is only ever compared against 'asc', never produced from it
+          return 'desc'
+        return 'asc'
+      })
     else {
       setSortKey(key)
       // Stryker disable next-line StringLiteral: '' behaves exactly like 'desc' — direction is only compared against 'asc'
