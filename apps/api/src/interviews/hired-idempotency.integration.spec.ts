@@ -7,6 +7,9 @@ import type { SessionUser } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import { InterviewsService } from './interviews.service'
 import { ProjectsService } from '../projects/projects.service'
+// ProjectsService.createFromInterview delegates to this collaborator; the
+// Object.create stubs below bypass the constructor, so wire it by hand.
+import { ProjectInterviewSeedService } from '../projects/project-interview-seed.service'
 // security-review round 2 (SR-H-6): `createFromInterview` now calls
 // `ApprovalsService.proposeInTx`, whose `approvals` rows FK → `users.id`.
 // This spec's `afterAll` deletes `users` — the `approvals` rows this
@@ -135,9 +138,11 @@ describe.skipIf(!hasDatabaseUrl())(
       // `ApprovalsService` too — `createFromInterview` now calls
       // `proposeInTx`, which throws on `this.approvals === undefined`.
       const projectsSvc = Object.create(ProjectsService.prototype) as ProjectsService
+      const seedApprovals = new ApprovalsService(dbSvc, makeNotificationsStub())
+      const seedNotifications = makeNotificationsStub()
       Object.assign(projectsSvc, {
         db: dbSvc,
-        approvals: new ApprovalsService(dbSvc, makeNotificationsStub()),
+        approvals: seedApprovals,
         // SR-H-2 (security-review круг 2): круг 2 добавил на путь
         // `createFromInterview` производителя `PROJECT_CONFIRM_REQUIRED`, а
         // заглушку сюда — нет. `this.notifications` оставалось `undefined`, и
@@ -145,7 +150,8 @@ describe.skipIf(!hasDatabaseUrl())(
         // HIRED: четыре теста этой спеки краснели на `Integration Tests
         // (Postgres)`, то есть инвариант BIZ-07 на ветке не проверялся ничем.
         // Тот же приём, что кругом раньше применили к `approvals`.
-        notifications: makeNotificationsStub(),
+        notifications: seedNotifications,
+        interviewSeed: new ProjectInterviewSeedService(dbSvc, seedApprovals, seedNotifications),
       })
       svc = new InterviewsService(dbSvc, projectsSvc)
     }, 30_000)
@@ -289,10 +295,16 @@ describe.skipIf(!hasDatabaseUrl())(
       })
 
       const explodingProjects = Object.create(ProjectsService.prototype) as ProjectsService
+      const explodingApprovals = new ApprovalsService(dbSvc, makeNotificationsStub())
       Object.assign(explodingProjects, {
         db: dbSvc,
-        approvals: new ApprovalsService(dbSvc, makeNotificationsStub()),
+        approvals: explodingApprovals,
         notifications: realNotifications,
+        interviewSeed: new ProjectInterviewSeedService(
+          dbSvc,
+          explodingApprovals,
+          realNotifications,
+        ),
       })
       const explodingSvc = new InterviewsService(dbSvc, explodingProjects)
 
