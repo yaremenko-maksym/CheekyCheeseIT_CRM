@@ -2081,6 +2081,41 @@ describe('InvoicesService', () => {
       })
     })
 
+    it('returns 404 for a transaction type that is not an invoice anchor, even with a document and a counterparty signature', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-not-anchor',
+            type: 'DROP_INCOME',
+            receiverId: SENIOR.id,
+            invoiceDocumentId: 'doc-not-anchor',
+            amount: '800',
+          }),
+        ],
+        sigs: [
+          {
+            id: 's-counterparty',
+            transactionId: 'tx-not-anchor',
+            signerRole: 'COUNTERPARTY',
+            signerId: SENIOR.id,
+            pdfHash: 'c'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'MANUAL_CLICK',
+            signedAt: new Date('2026-05-26T11:00:00Z'),
+            amountSnapshot: '800.000000',
+            currencySnapshot: 'USD',
+          },
+        ],
+        users: [{ id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' }],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-not-anchor'
+      await expect(h.svc.verifyInvoice('tx-not-anchor')).rejects.toMatchObject({
+        response: { code: 'INVOICE_NOT_FOUND', statusCode: 404 },
+      })
+    })
+
     // ── SEC-05: COMPANY signature must not expose admin display name ───────────
     it('SEC-05: COMPANY signature signerName is brand name, not admin display name', async () => {
       const h = buildHarness({
