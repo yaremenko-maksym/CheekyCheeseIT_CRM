@@ -1,5 +1,5 @@
 /**
- * Characterization (unit) net for the team-reconcile cluster of UsersService:
+ * Characterization (unit) net for the team-reconcile cluster (TeamReconcileService, extracted from UsersService):
  * `reconcileSeniorTeamTx`, `updateSeniorTeamTelegramChannelTx`,
  * `upsertTeamMemberTx`.
  *
@@ -10,10 +10,9 @@
  * to SQL + params (PgDialect), so predicate mutants (dropped `leftAt IS NULL`,
  * swapped columns, `and`->`or`) are visible.
  *
- * Harness: `Object.assign(Object.create(UsersService.prototype), {...})` — the
- * real constructor is deliberately NOT used (>= 16 users specs share that
- * convention; the ctor DI graph is wide). The methods are `private`, so they
- * are reached through a typed cast.
+ * Harness: `TeamReconcileService` is built directly with a recording audit
+ * double (its only dep). Originally written against UsersService; repointed
+ * when the cluster moved into the collaborator.
  *
  * None of the three methods writes the `users` table (they write
  * `team_members` / `teams` and read `users` only via a JOIN), so the
@@ -22,7 +21,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { getTableName, type SQL } from 'drizzle-orm'
-import { UsersService } from './users.service'
+import { TeamReconcileService } from './team-reconcile.service'
 
 type LogEntry =
   | {
@@ -99,9 +98,7 @@ function makeHarness(selects: unknown[][]) {
   const record = vi.fn(async (entry: Record<string, unknown>, passedTx: unknown) => {
     log.push({ op: 'audit', entry, tx: passedTx })
   })
-  const service = Object.assign(Object.create(UsersService.prototype) as UsersService, {
-    teamAuditLogService: { record },
-  })
+  const service = new TeamReconcileService({ record } as never)
   const priv = service as unknown as {
     reconcileSeniorTeamTx: (
       tx: unknown,
@@ -126,7 +123,7 @@ const REMOVE_WHERE =
   '("team_members"."team_id" = $1 and "team_members"."user_id" = $2 and "team_members"."left_at" is null)'
 const ACTIVE_BY_TEAM = '("team_members"."team_id" = $1 and "team_members"."left_at" is null)'
 
-describe('UsersService.upsertTeamMemberTx', () => {
+describe('TeamReconcileService.upsertTeamMemberTx', () => {
   it('inserts a fresh team_members row when none exists', async () => {
     const h = makeHarness([[]])
     await h.priv.upsertTeamMemberTx(h.tx, 'team-1', 'u-1')
@@ -173,7 +170,7 @@ describe('UsersService.upsertTeamMemberTx', () => {
   })
 })
 
-describe('UsersService.updateSeniorTeamTelegramChannelTx', () => {
+describe('TeamReconcileService.updateSeniorTeamTelegramChannelTx', () => {
   it('resolves the team via the senior ACTIVE membership, then updates channel + writes team_updated audit', async () => {
     const h = makeHarness([[{ teamId: 'team-1' }], [{ id: 'team-1', telegramChannel: '@old' }]])
     vi.useFakeTimers()
@@ -273,7 +270,7 @@ describe('UsersService.updateSeniorTeamTelegramChannelTx', () => {
   })
 })
 
-describe('UsersService.reconcileSeniorTeamTx', () => {
+describe('TeamReconcileService.reconcileSeniorTeamTx', () => {
   const membership = [{ teamId: 'team-1' }]
   const actives = (rows: Array<{ userId: string; id: string; role: string }>) => rows
 
