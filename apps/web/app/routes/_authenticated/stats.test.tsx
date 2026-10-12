@@ -10,12 +10,13 @@
  *     (X/N progress per receiver + expand of projects without a counted income).
  *     The ParticipantsBalancesSection (employee/partner balances) was REMOVED.
  *
- *   ADMIN-ONLY: the partner-balances settlement card and the «Другие разделы»
- *     HR/Команда/Проекты placeholders.
+ *   COMPANY + PARTNER BALANCES card (both ADMIN + ACCOUNTANT).
+ *
+ *   ADMIN-ONLY: the «Другие разделы» HR/Команда/Проекты placeholders.
  *
  * This pins: both roles see the economic + income-compliance sections; the old
  * participants-balances section is gone for everyone; ADMIN still sees the
- * partner-balances card + placeholders (no regression), ACCOUNTANT does not.
+ * placeholders (no regression), ACCOUNTANT does not; both see the balances card.
  *
  * Heavy dependencies (router file-route, query client, recharts, finance api)
  * are mocked so the component renders in isolation.
@@ -849,9 +850,15 @@ describe('StatsPage — ACCOUNTANT economic-only (no admin-only surface)', () =>
     expect(screen.queryByTestId('stats-page-admin')).not.toBeInTheDocument()
   })
 
-  it('does NOT render the partner-balances settlement card', () => {
+  it('renders the company balance AND the partner balances for ACCOUNTANT', () => {
     setup('ACCOUNTANT')
-    expect(screen.queryByText('Баланси партнерів')).not.toBeInTheDocument()
+    expect(screen.getByTestId('stats-company-account-balance')).toHaveTextContent('4,200')
+    expect(screen.getByText('Баланси партнерів')).toBeInTheDocument()
+    const partners = screen.getByTestId('stats-partner-balances')
+    expect(partners).toHaveTextContent('Admin One')
+    expect(partners).toHaveTextContent('$4,000.00')
+    expect(partners).toHaveTextContent('Admin Two')
+    expect(screen.getByText('Разом', { exact: false })).toHaveTextContent('Разом: $5,000')
   })
 
   it('does NOT render the HR/Команда/Проекты placeholders', () => {
@@ -957,6 +964,9 @@ describe('StatsPage — Rules of Hooks (backlog #132 regression)', () => {
 
       expect(screen.queryByTestId('stats-page-admin')).not.toBeInTheDocument()
       expect(screen.queryByTestId('stats-page-accountant')).not.toBeInTheDocument()
+      // The company + partner balances card must not leak to any other role.
+      expect(screen.queryByTestId('stats-company-partners-card')).not.toBeInTheDocument()
+      expect(screen.queryByText('Баланси партнерів')).not.toBeInTheDocument()
     },
   )
 

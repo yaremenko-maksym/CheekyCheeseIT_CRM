@@ -602,4 +602,47 @@ test.describe('AC5 — Company balance KPI on /stats', () => {
       /12[\s,.]?345/,
     )
   })
+
+  // Owner decision 2026-10-12: ACCOUNTANT sees the partner (admin) balances
+  // alongside the company balance. Full FinanceSummaryDto shape so the card
+  // renders the partner section (the fixture default summary has no
+  // adminBalances).
+  async function mockSummaryWithAdminBalances(page: Page) {
+    await page.route(new RegExp(`${API_RE}/finance/summary(\\?.*)?$`), (r) =>
+      jsonOk(r, {
+        totalIncome: 10000,
+        totalExpenses: 2000,
+        totalSalaries: 3000,
+        netBalance: 5000,
+        adminBalances: [
+          { userId: 'admin-1', displayName: 'Admin One', balance: 4000 },
+          { userId: 'admin-2', displayName: 'Admin Two', balance: 1000 },
+        ],
+        dropBalances: [],
+        monthly: [{ month: '2026-06', income: 6000, expenses: 1200, salaries: 1800, profit: 3000 }],
+      }),
+    )
+  }
+
+  async function expectCompanyAndPartnerBalances(page: Page) {
+    await mockStatsRoutes(page)
+    await mockSummaryWithAdminBalances(page)
+
+    await page.goto('/stats')
+
+    const card = page.getByTestId('stats-company-partners-card')
+    await expect(card).toBeVisible()
+    await expect(card.getByTestId('stats-company-account-balance')).toContainText(/12[\s,.]?345/)
+    const partners = card.getByTestId('stats-partner-balances')
+    await expect(partners).toContainText('Admin One')
+    await expect(partners).toContainText('Admin Two')
+  }
+
+  test('ADMIN sees company + partner balances card on /stats', async ({ asAdmin }) => {
+    await expectCompanyAndPartnerBalances(asAdmin)
+  })
+
+  test('ACCOUNTANT sees company + partner balances card on /stats', async ({ asAccountant }) => {
+    await expectCompanyAndPartnerBalances(asAccountant)
+  })
 })

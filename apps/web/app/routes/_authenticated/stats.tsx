@@ -159,22 +159,22 @@ export function partnerShare(balance: number, absTotal: number): { label: string
 
 // ── Combined Company + Partners balance card ──────────────────────────────────
 // Merges CompanyAccountKpi (USDT счёт компании) and PartnerBalancesCard into
-// one Card with two sections separated by a divider. Shown for both ADMIN and
-// ACCOUNTANT; the partner-balances section renders only for ADMIN.
+// one Card with two sections separated by a divider. Both sections are shown to
+// ADMIN and ACCOUNTANT (the caller passes `canViewPartnerBalances`).
 
 function CompanyAndPartnersCard({
   summary,
-  isAdmin,
+  canViewPartnerBalances,
 }: {
   summary: FinanceSummaryDto
-  isAdmin: boolean
+  canViewPartnerBalances: boolean
 }) {
   const { data: account, isLoading: accountLoading } = useQuery({
     queryKey: ['company-account'],
     queryFn: companyAccountApi.getAccount,
   })
 
-  const partnerData = isAdmin && summary.adminBalances.length > 0 ? summary : null
+  const partnerData = canViewPartnerBalances && summary.adminBalances.length > 0 ? summary : null
   const sorted = partnerData
     ? [...partnerData.adminBalances].sort((a, b) => b.balance - a.balance)
     : []
@@ -243,8 +243,8 @@ function CompanyAndPartnersCard({
         </CardContent>
       </div>
 
-      {/* ── Секція 2: Баланси партнерів (лише ADMIN) ── */}
-      {isAdmin && sorted.length > 0 && (
+      {/* ── Секція 2: Баланси партнерів (ADMIN + ACCOUNTANT) ── */}
+      {canViewPartnerBalances && sorted.length > 0 && (
         <>
           <div className="h-px bg-border/60 mx-4" />
           <CardHeader className="pb-2 pt-3 px-4">
@@ -961,24 +961,17 @@ export function StatsPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
 
-  // ACCOUNTANT joins ADMIN as a viewer on /stats, but sees ONLY the
-  // economic part (P&L: income / expenses / salaries / Net / profit + charts +
-  // monthly breakdown). The employee/partner-level sections — participants
-  // balances, the partner-balances settlement card, and the future
-  // HR/Команда/Проекты placeholders — are hidden from ACCOUNTANT only HERE,
-  // client-side, via `isAdmin`. Other roles are bounced to the dashboard at /
-  // (defense-in-depth over the route-access guard).
-  // task-accountant-stats: economic data is the accountant's profile surface.
-  // There is no server-side prohibition backing that gate: since 2026-08-17
-  // `canSeeAdminBalances` in `TransactionsService.getSummary` is unconditionally
-  // `true` for both ADMIN and ACCOUNTANT — access to `adminBalances` was
-  // deliberately extended to ACCOUNTANT (owner decision; SEC-3 in #551, MED-1
-  // in #560). The `summary` fetched below (`enabled: isPrivilegedViewer`)
-  // already carries `adminBalances` for ACCOUNTANT too; `isAdmin` here is the
-  // ONLY thing keeping it off the ACCOUNTANT's screen. Do not remove it, and
-  // do not assume the server would catch you if you did.
+  // ACCOUNTANT joins ADMIN as a viewer on /stats. Both see the economic part
+  // (P&L + charts + monthly breakdown) AND the company + partner balances card
+  // (owner decision 2026-10-12). The server already backs this: `getSummary`
+  // returns `adminBalances` to ADMIN + ACCOUNTANT (`canSeeAdminBalances`), and
+  // GET /company-account is `@Roles('ADMIN', 'ACCOUNTANT')`. Only the HR/Команда/
+  // Проекти placeholders stay ADMIN-only (`isAdmin`). Other roles are bounced to
+  // the dashboard at / (defense-in-depth over the route-access guard).
   const isPrivilegedViewer = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
   const isAdmin = user?.role === 'ADMIN'
+  // Exactly ADMIN + ACCOUNTANT — never widen to another role.
+  const canViewCompanyBalances = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
 
   useEffect(() => {
     if (user && !isPrivilegedViewer) {
@@ -1099,8 +1092,8 @@ export function StatsPage() {
                 )}
 
                 {/* Chart + Company & Partners balance block (combined card).
-                USDT company balance (all privileged viewers) + partner balances
-                (ADMIN-only) are unified in one sidebar card next to the chart.
+                USDT company balance + partner balances
+                (ADMIN + ACCOUNTANT) are unified in one sidebar card next to the chart.
                 Chart is always lg:col-span-2. */}
                 <div className="grid items-stretch gap-4 lg:grid-cols-3">
                   <div className="lg:col-span-2 h-full">
@@ -1109,7 +1102,10 @@ export function StatsPage() {
                     </Suspense>
                   </div>
                   <div className="h-full">
-                    <CompanyAndPartnersCard summary={summary} isAdmin={isAdmin} />
+                    <CompanyAndPartnersCard
+                      summary={summary}
+                      canViewPartnerBalances={canViewCompanyBalances}
+                    />
                   </div>
                 </div>
               </>
