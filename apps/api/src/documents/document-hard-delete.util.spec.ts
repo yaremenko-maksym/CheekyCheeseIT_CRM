@@ -11,7 +11,7 @@ function makeHarness(opts: { row?: unknown; s3Reject?: (key: string) => boolean 
     calls.push('db.delete')
   })
   const del = vi.fn(() => ({ where }))
-  const findFirst = vi.fn(async () => opts.row)
+  const findFirst = vi.fn(async (_args?: unknown) => opts.row)
   const db = {
     db: { delete: del, query: { documents: { findFirst } } },
   } as unknown as DatabaseService
@@ -80,6 +80,7 @@ describe('hardDeleteById', () => {
     })
     await hardDeleteById(h.db, h.s3, 'd9')
     expect(h.findFirst).toHaveBeenCalledTimes(1)
+    expect(h.findFirst).toHaveBeenCalledWith({ where: expect.anything() })
     expect(h.calls).toEqual(['s3:m9', 's3:t9', 'db.delete'])
   })
 })
