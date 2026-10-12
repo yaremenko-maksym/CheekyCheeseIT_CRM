@@ -19,7 +19,7 @@ import type { DrizzleTx } from '../database/types'
 import { assertEmailAvailable, writeUserEmailOrConflict } from './user-emails.util'
 import { loadUserById } from './user-read.util'
 import { resolveArchivedFilter, withActiveProjectFlag } from './users-list.util'
-import { buildCreateUserInsertValues, buildDropInsertValues } from './user-insert.util'
+import { buildCreateUserInsertValues } from './user-insert.util'
 import { buildAdminUserUpdateSet } from './user-update.util'
 import { updateUserRow } from './user-write.util'
 import { assertAvatarDocument } from './user-avatar.util'
@@ -43,6 +43,7 @@ import { UserProfileService } from './user-profile.service'
 import { SeniorShareChangeService } from './senior-share-change.service'
 import { UserArchiveService } from './user-archive.service'
 import { TeamReconcileService } from './team-reconcile.service'
+import { DropCreationService, type CreateDropInput } from './drop-creation.service'
 import { PersonalEmailInviteService } from './personal-email-invite.service'
 import { PersonalEmailInviteMailerService } from './personal-email-invite-mailer.service'
 
@@ -192,6 +193,23 @@ export class UsersService {
   private _teamReconcile?: TeamReconcileService
   private get teamReconcile(): TeamReconcileService {
     return (this._teamReconcile ??= new TeamReconcileService(this.teamAuditLogService))
+  }
+
+  // Built lazily (same reason as `invites`): spec factories skip the constructor. The email helpers
+  // are SHARED with `createUser`, so they stay on this facade and are passed in as bound callbacks.
+  private _dropCreation?: DropCreationService
+  private get dropCreation(): DropCreationService {
+    return (this._dropCreation ??= new DropCreationService(
+      this.db,
+      this.auditLogService,
+      this.teamAuditLogService,
+      this.teamsService,
+      {
+        assertEmailAvailable: (...a) => this.assertEmailAvailable(...a),
+        writeUserEmailOrConflict: (...a) => this.writeUserEmailOrConflict(...a),
+        findByEmail: (...a) => this.findByEmail(...a),
+      },
+    ))
   }
 
   cancelSeniorShareChange(id: string, currentUser: SessionUser) {
@@ -1392,107 +1410,8 @@ export class UsersService {
    *
    * Returns the created user + the team id so the UI can navigate to it.
    */
-  async createDrop(
-    data: {
-      email: string
-      displayName: string
-      telegram?: string | null
-      phone?: string | null
-      avatarUrl?: string | null
-      techStack?: string[] | null
-      dropSharePercent?: number
-      paymentMethod?: 'USDT_ERC20' | 'BANK_UAH_FOP'
-      walletUsdtErc20?: string | null
-      walletUsdtLabel?: string | null
-      bankUahRecipient?: string | null
-      bankUahIban?: string | null
-      bankUahRnokpp?: string | null
-      bankUahBankName?: string | null
-      /**
-       * Legal full name (Cyrillic ФИО) for the drop's MSA contract. Required
-       * at the schema/UI boundary; persisted here so it isn't lost.
-       */
-      legalFullName?: string | null
-      /** Ukrainian registration address (ФОП) — optional; persisted when set. */
-      registrationAddress?: string | null
-      hrIds: string[]
-      accountantId?: string | null
-      telegramChannel?: string | null
-    },
-    actor: SessionUser,
-  ): Promise<{ user: User; teamId: string }> {
-    if (actor.role !== 'ADMIN') {
-      throw apiError('DROP_CREATE_ADMIN_ONLY', HttpStatus.FORBIDDEN)
-    }
-    // security-review round 2 (authz-hardening): attribute audit rows below
-    // to the REAL operator under impersonation, not the impersonated
-    // target — see sessionUserSchema.impersonatorId's doc for the full
-    // rationale. This endpoint is @Roles('ADMIN'), so in practice
-    // `impersonatorId` can only be set here if impersonation semantics
-    // ever change to allow it (RolesGuard checks the TARGET's role during
-    // impersonation, currently blocking this route) — kept in sync
-    // defensively rather than left to silently drift.
-    const effectiveActorId = actor.impersonatorId ?? actor.id
-    if (data.hrIds.length < 1) {
-      throw apiError('HR_REQUIRED_MINIMUM_ONE', HttpStatus.BAD_REQUEST)
-    }
-    const existing = await this.findByEmail(data.email)
-    if (existing) throw apiError('USER_EMAIL_EXISTS', HttpStatus.CONFLICT)
-    // §4.4 — see createUser's identical check for the full rationale.
-    await assertEmailAvailable(this.db.db, data.email)
-
-    return this.db.db.transaction(async (tx) => {
-      const insertValues = buildDropInsertValues(data)
-
-      const rows = await tx.insert(users).values(insertValues).returning()
-      const created = rows[0]
-      if (!created) throw new Error('Failed to create drop user')
-
-      // §4.4 — see createUser's identical insert for the full rationale.
-      // writeUserEmailOrConflict: SR-M-2 — same 23505-to-409 conversion as
-      // every other user_emails write in this file.
-      await writeUserEmailOrConflict(() =>
-        tx.insert(userEmails).values({
-          userId: created.id,
-          email: created.email,
-          kind: 'WORK',
-          canLogin: true,
-          verifiedAt: new Date(),
-        }),
-      )
-
-      await this.auditLogService.record(
-        {
-          actorId: effectiveActorId,
-          targetId: created.id,
-          action: 'profile_created',
-          changes: {
-            displayName: { before: null, after: created.displayName },
-            role: { before: null, after: created.role },
-          },
-        },
-        tx,
-      )
-
-      const team = await this.teamsService.createDropTeam(
-        created.id,
-        data.hrIds,
-        data.accountantId ?? null,
-        data.telegramChannel ?? null,
-        tx,
-      )
-      await this.teamAuditLogService.record(
-        {
-          actorId: effectiveActorId,
-          targetId: team.id,
-          action: 'team_created',
-          changes: { name: { before: null, after: team.name } },
-        },
-        tx,
-      )
-
-      return { user: created, teamId: team.id }
-    })
+  createDrop(data: CreateDropInput, actor: SessionUser): Promise<{ user: User; teamId: string }> {
+    return this.dropCreation.createDrop(data, actor)
   }
 
   archiveDrop(
