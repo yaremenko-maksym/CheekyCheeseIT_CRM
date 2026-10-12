@@ -7966,306 +7966,306 @@ msgid "Встановлено для цього проєкту; глобальн
 msgstr "Set for this project; the drop’s global share: {fallback}%"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.action.approval.profile"
 msgstr "Open profile"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.action.approval.project"
 msgstr "Open project"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.action.DOCUMENT_SIGN_REQUIRED"
 msgstr "Sign contract"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.action.documentSignUnavailable"
 msgstr "Signature no longer needed"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.action.INVOICE_SIGN_REQUIRED"
 msgstr "Sign invoice"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.action.INVOICE_SIGNED"
 msgstr "Open invoice"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.action.open"
 msgstr "Open"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.action.PROJECT_CONFIRM_REQUIRED"
 msgstr "Open project"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.action.PROJECT_MEMBER_ADDED"
 msgstr "Open project"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.action.SHARE_CONFIRM_REQUIRED"
 msgstr "Open proposal"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.action.TEAM_MEMBER_ADDED"
 msgstr "Open team"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.action.TEAM_NEW_MEMBER"
 msgstr "Open team"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.action.TRANSACTION_ADDED"
 msgstr "Open finance"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.action.TRANSACTION_STATUS_CHANGED"
 msgstr "Open finance"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.action.VACANCY_APPLICATION"
 msgstr "Open vacancy"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.APPROVAL_CONFIRMED.detail"
 msgstr "{approverName} — {subjectPhrase}"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.APPROVAL_CONFIRMED.title"
 msgstr "Proposal accepted"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.APPROVAL_REJECTED.noReason"
 msgstr "{approverName} — {subjectPhrase}"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.APPROVAL_REJECTED.title"
 msgstr "Proposal rejected"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.APPROVAL_REJECTED.withReason"
 msgstr ""
 "{quote}\n"
 "{approverName} — {subjectPhrase}"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.approvalDecided"
 msgstr "Decision already made"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.approvalSuperseded"
 msgstr "Decision no longer needed"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.approverUnknown"
 msgstr "Unknown"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.DOCUMENT_SIGN_REQUIRED.title"
 msgstr "Contract to sign"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.INVOICE_SIGN_REQUIRED.title"
 msgstr "Invoice to sign"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.INVOICE_SIGNED.detail"
 msgstr "{money} · {counterpartyName}"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.INVOICE_SIGNED.title"
 msgstr "Invoice signed"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.percentText"
 msgstr "{value, select, null {not set} other {{value}%}}"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.PROJECT_CONFIRM_REQUIRED.detail"
 msgstr "Project {projectName}"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.PROJECT_CONFIRM_REQUIRED.title"
 msgstr "Project awaiting decision"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.PROJECT_MEMBER_ADDED.detail"
 msgstr "Project {projectName}"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.PROJECT_MEMBER_ADDED.title"
 msgstr "You were added to a project"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.SHARE_CONFIRM_REQUIRED.base"
 msgstr "Default share: {change}"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.SHARE_CONFIRM_REQUIRED.project"
 msgstr "{change} · project {hasProject, select, no {untitled} other {{projectName}}}"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.SHARE_CONFIRM_REQUIRED.title"
 msgstr "Share proposal"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.subjectArchived.EMPLOYEE_CONTRACT"
 msgstr "Contract archived"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.subjectArchived.fallback"
 msgstr "Archived"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.subjectArchived.PROJECT"
 msgstr "Project archived"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.subjectArchived.TEAM"
 msgstr "Team archived"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.subjectArchived.TRANSACTION"
 msgstr "Transaction archived"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.subjectArchived.USER"
 msgstr "Profile archived"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.subjectMissing.EMPLOYEE_CONTRACT"
 msgstr "Contract deleted"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.subjectMissing.fallback"
 msgstr "No longer in the CRM"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.subjectMissing.PROJECT"
 msgstr "Project deleted"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.subjectMissing.TEAM"
 msgstr "Team deleted"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.subjectMissing.TRANSACTION"
 msgstr "Transaction deleted"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.subjectMissing.USER"
 msgstr "Profile deleted"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.subjectPhrase"
 msgstr "{kind, select, PROJECT {project {hasName, select, no {untitled} other {{name}}}} PROJECT_SHARE {share on project {hasName, select, no {untitled} other {{name}}}} other {default share}}"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.TEAM_MEMBER_ADDED.detail"
 msgstr "Team {teamName}"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.TEAM_MEMBER_ADDED.title"
 msgstr "You were added to a team"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.TEAM_NEW_MEMBER.detail"
 msgstr "{memberName} · team {teamName}"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.TEAM_NEW_MEMBER.title"
 msgstr "New team member"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.TRANSACTION_ADDED.detail"
 msgstr "{hasProject, select, no {{money}} other {{money} · project {projectName}}}"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.TRANSACTION_ADDED.title"
 msgstr "Transaction added for you"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.TRANSACTION_STATUS_CHANGED.rejected"
 msgstr "Rejected: {money}"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.TRANSACTION_STATUS_CHANGED.rejectedWithReason"
 msgstr ""
 "{quote}\n"
 "Rejected: {money}"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.TRANSACTION_STATUS_CHANGED.title"
 msgstr "Decision on income"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.TRANSACTION_STATUS_CHANGED.validated"
 msgstr "Validated: {money}"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.VACANCY_APPLICATION.detail"
 msgstr "Vacancy “{vacancyTitle}”"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
+#: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.VACANCY_APPLICATION.title"
 msgstr "New vacancy application"
 

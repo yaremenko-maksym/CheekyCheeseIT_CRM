@@ -92,6 +92,7 @@ export default [
     files: [
       'src/schemas/api-errors/**/*.ts',
       'src/schemas/*-registry.ts',
+      'src/schemas/*-registry/**/*.ts',
       'src/schemas/zod-errors.ts',
     ],
     rules: {
