@@ -47,7 +47,7 @@ const RIGHT_COL_X = PDF_LAYOUT.pageMargin + COL_WIDTH + TABLE_GUTTER
  * (`---`, `:---`, `---:`, `:---:`).
  */
 function isSeparatorRow(cells: string[]): boolean {
-  return cells.length > 0 && cells.every((c) => /^:?-{3,}:?$/.test(c.trim()))
+  return cells.length > 0 && cells.every((c) => /^:?-{3,}:?$/.test(c))
 }
 
 /**
@@ -55,6 +55,19 @@ function isSeparatorRow(cells: string[]): boolean {
  * Handles escaped pipes `\|` by treating them as a literal `|` in cell text.
  * Outer empty strings from leading/trailing `|` are discarded.
  */
+/**
+ * Split text into alternating non-whitespace / whitespace tokens (whitespace
+ * runs are preserved as their own tokens for width calculation).
+ */
+function tokenize(text: string): string[] {
+  return text.match(/\s+|\S+/g) ?? []
+}
+
+/** True for a non-empty token made only of whitespace (tokens are never empty). */
+function isWhitespaceToken(token: string): boolean {
+  return token.trim() === ''
+}
+
 function parseCells(line: string): string[] {
   // Replace escaped pipes with a placeholder, split, restore.
   const PIPE_PLACEHOLDER = '\x00PIPE\x00'
@@ -178,6 +191,7 @@ export function renderTableBlock(
     if (rowHeight <= availableSpace) {
       // Entire row fits on the current page.
       drawTwoColRow(pdfGen, pdfDoc, cursor, leftLines, rightLines, isHeader, opts)
+      // Stryker disable next-line EqualityOperator: rowHeight is a whole multiple of 14.3 and the threshold is 671.89, so strict vs non-strict comparison is unobservable (equality is unreachable).
     } else if (rowHeight > PDF_LAYOUT.pageHeight - PDF_LAYOUT.pageMargin * 2 - 70) {
       // Row is taller than a full page — draw line-by-line, paginating as needed.
       const maxIdx = Math.max(leftLines.length, rightLines.length)
@@ -321,19 +335,20 @@ export function wrapCellLines(
   for (const run of parsedRuns) {
     const font = isHeader || run.bold ? boldFont : regularFont
     // Split on whitespace, preserving the whitespace tokens for width calc.
-    const tokens = run.text.split(/(\s+)/).filter((t) => t.length > 0)
+    const tokens = tokenize(run.text)
 
     for (const token of tokens) {
       const tokenWidth = font.widthOfTextAtSize(token, BODY_SIZE)
 
       // Skip leading whitespace when at the start of a new line.
-      if (lineWidth === 0 && /^\s+$/.test(token)) continue
+      if (lineWidth === 0 && isWhitespaceToken(token)) continue
 
+      // Stryker disable next-line EqualityOperator: a token exactly colWidth wide takes the char-by-char path to the identical lines/lineWidth, so `<` vs `<=` is unobservable.
       if (tokenWidth <= colWidth) {
         // Token fits as-is — check if it fits on the current line.
-        if (lineWidth + tokenWidth > colWidth && lineWidth > 0) {
+        if (lineWidth + tokenWidth > colWidth) {
           pushCurrentLine()
-          if (/^\s+$/.test(token)) continue
+          if (isWhitespaceToken(token)) continue
         }
         currentLine.push({ text: token, bold: run.bold })
         lineWidth += tokenWidth
@@ -356,10 +371,8 @@ export function wrapCellLines(
           charBufWidth += chWidth
         }
 
-        if (charBuf.length > 0) {
-          currentLine.push({ text: charBuf, bold: run.bold })
-          lineWidth = charBufWidth
-        }
+        currentLine.push({ text: charBuf, bold: run.bold })
+        lineWidth = charBufWidth
       }
     }
   }
@@ -407,14 +420,14 @@ export function renderParagraph(
 
   for (const run of runs) {
     const font = opts.forceBold || run.bold ? opts.boldFont : opts.regularFont
-    const tokens = run.text.split(/(\s+)/).filter((t) => t.length > 0)
+    const tokens = tokenize(run.text)
     for (const token of tokens) {
       const tokenWidth = font.widthOfTextAtSize(token, opts.size)
       if (x + tokenWidth > maxRight && x > startX) {
         cursor.y -= lineHeight
         ensureSpace(pdfDoc, cursor, lineHeight)
         x = startX
-        if (/^\s+$/.test(token)) continue
+        if (isWhitespaceToken(token)) continue
       }
       pdfGen.drawText(cursor.page, token, {
         x,

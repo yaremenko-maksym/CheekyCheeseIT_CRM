@@ -210,6 +210,51 @@ describe('wrapCellLines', () => {
     ])
   })
 
+  it('header/bold widths differ from regular: width 22 fits regular "abcd" but not bold', () => {
+    expect(wrap('abcd', false, 22)).toEqual([[{ text: 'abcd', bold: false }]])
+    expect(wrap('abcd', true, 22)).toEqual([
+      [{ text: 'abc', bold: false }],
+      [{ text: 'd', bold: false }],
+    ])
+    expect(wrap('**abcd**', false, 22)).toEqual([
+      [{ text: 'abc', bold: true }],
+      [{ text: 'd', bold: true }],
+    ])
+  })
+
+  it('a column narrower than one character still emits one char per line (no empty line)', () => {
+    expect(wrap('abc', false, 3)).toEqual([
+      [{ text: 'a', bold: false }],
+      [{ text: 'b', bold: false }],
+      [{ text: 'c', bold: false }],
+    ])
+  })
+
+  it('keeps consecutive whitespace as a single token', () => {
+    expect(wrap('a  b', false, 500)).toEqual([
+      [
+        { text: 'a', bold: false },
+        { text: '  ', bold: false },
+        { text: 'b', bold: false },
+      ],
+    ])
+  })
+
+  it('does not flush a zero-width line before a hard-broken token', () => {
+    const zw = {
+      name: 'zw',
+      widthOfTextAtSize: (t: string, s: number) => (t === 'Z' ? 0 : t.length * s * 0.5),
+    } as unknown as PDFFont
+    expect(wrapCellLines('Z abcdefgh', false, 16.5, zw, zw)).toEqual([
+      [{ text: 'abc', bold: false }],
+      [{ text: 'def', bold: false }],
+      [
+        { text: 'Z', bold: false },
+        { text: 'gh', bold: false },
+      ],
+    ])
+  })
+
   it('represents an empty cell as one empty line', () => {
     expect(wrap('', false, 100)).toEqual([[{ text: '', bold: false }]])
   })
@@ -298,6 +343,20 @@ describe('renderParagraph', () => {
       ['ccc', 50, 687, 10, TEXT],
     ])
     expect(c.y).toBe(674)
+  })
+
+  it('draws consecutive whitespace as one token and handles empty runs', () => {
+    renderParagraph(
+      pdfGen,
+      doc,
+      makeCursor(700),
+      [
+        { text: 'a  b', bold: false },
+        { text: '', bold: false },
+      ],
+      { ...base, rightEdge: 500 },
+    )
+    expect(texts()).toEqual(['a', '  ', 'b'])
   })
 
   it('applies indent to the start x and wrap origin', () => {
@@ -424,8 +483,32 @@ describe('renderTableBlock', () => {
   })
 
   it('does not treat non-separator dashes as separators', () => {
-    run(['| -- | x |'])
-    expect(texts()).toEqual(['--', 'x'])
+    run(['| H | H |', '| -- | x |', '| --- | x |', '| x--- | x--- |', '| ---x | ---x |'])
+    expect(texts()).toEqual(['H', 'H', '--', 'x', '---', 'x', 'x---', 'x---', '---x', '---x'])
+  })
+
+  it('an empty row is a (blank) paragraph, not a separator, and consumes the header slot', () => {
+    const c = run(['| |', '| a | b |'])
+    expect(drawn.map((d) => [d.text, d.font])).toEqual([
+      ['a', 'regular'],
+      ['b', 'regular'],
+    ])
+    expect(c.y).toBeCloseTo(700 - 2 * LH, 6)
+  })
+
+  it('restores every escaped pipe and keeps interior empty cells (3 cells -> fallback)', () => {
+    run(['| H | H |', '| a\\|b\\|c | d |', '| a | | b |'])
+    expect(texts()).toEqual(['H', 'H', 'a|b|c', 'd', 'a', ' ', '|', '  ', '|', ' ', 'b'])
+  })
+
+  it('rows without outer pipes keep their edge cells', () => {
+    run(['H | H', 'a | b'])
+    expect(drawn.map((d) => [d.text, d.x])).toEqual([
+      ['H', LEFT_X],
+      ['H', RIGHT_X],
+      ['a', LEFT_X],
+      ['b', RIGHT_X],
+    ])
   })
 
   it('non-2-column first row is a bold paragraph; later ones are not, and header is consumed', () => {
@@ -475,6 +558,26 @@ describe('renderTableBlock', () => {
     expect(addPageArgs).toHaveLength(0)
   })
 
+  it('a row that exactly fits the remaining space stays on the page', () => {
+    // header cell of 73 bold chars = 3 lines (36/line) = 42.9; 162.9 - 120 === 42.9
+    const c = run(['| ' + 'H'.repeat(73) + ' | H |'], 162.9)
+    expect(addPageArgs).toHaveLength(0)
+    expect(drawn[0]!.y).toBe(162.9)
+    expect(c.y).toBeCloseTo(162.9 - 3 * LH, 6)
+  })
+
+  it('a multi-line row that does not fit moves wholly to a new page', () => {
+    // 2 lines = 28.6 > 140 - 120; the first line alone would fit, but the row must not split
+    const c = run(['| ' + 'H'.repeat(37) + ' | H |'], 140)
+    expect(addPageArgs).toHaveLength(1)
+    expect(drawn.every((d) => d.page === pageId(c))).toBe(true)
+    expect(drawn.map((d) => d.y)).toEqual([
+      expect.closeTo(TOP_Y, 6),
+      expect.closeTo(TOP_Y - LH, 6),
+      expect.closeTo(TOP_Y, 6),
+    ])
+  })
+
   it('moves a non-fitting row to a new page and draws it at the top', () => {
     const c = makeCursor(130)
     renderTableBlock(pdfGen, doc, c, ['| a | b |'], opts)
@@ -503,6 +606,13 @@ describe('renderTableBlock', () => {
     expect(addPageArgs).toHaveLength(1)
     expect(c.y).toBeCloseTo(TOP_Y - 8 * LH, 6)
     expect(pageId(c)).toBe(left[46]!.page)
+  })
+
+  it('tall row with a short left cell draws only the existing left lines', () => {
+    const c = makeCursor(700)
+    renderTableBlock(pdfGen, doc, c, ['| H | H |', '| a | ' + 'z'.repeat(43 * 47) + ' |'], opts)
+    expect(drawn.filter((d) => d.x === LEFT_X).map((d) => d.text)).toEqual(['H', 'a'])
+    expect(drawn.filter((d) => d.x === RIGHT_X)).toHaveLength(48)
   })
 
   it('exposes BODY_SIZE 11', () => {
