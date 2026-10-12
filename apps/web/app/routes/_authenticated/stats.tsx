@@ -160,24 +160,15 @@ export function partnerShare(balance: number, absTotal: number): { label: string
 // ── Combined Company + Partners balance card ──────────────────────────────────
 // Merges CompanyAccountKpi (USDT счёт компании) and PartnerBalancesCard into
 // one Card with two sections separated by a divider. Both sections are shown to
-// ADMIN and ACCOUNTANT (the caller passes `canViewPartnerBalances`).
+// ADMIN and ACCOUNTANT (the page only renders for those roles).
 
-function CompanyAndPartnersCard({
-  summary,
-  canViewPartnerBalances,
-}: {
-  summary: FinanceSummaryDto
-  canViewPartnerBalances: boolean
-}) {
+function CompanyAndPartnersCard({ summary }: { summary: FinanceSummaryDto }) {
   const { data: account, isLoading: accountLoading } = useQuery({
     queryKey: ['company-account'],
     queryFn: companyAccountApi.getAccount,
   })
 
-  const partnerData = canViewPartnerBalances && summary.adminBalances.length > 0 ? summary : null
-  const sorted = partnerData
-    ? [...partnerData.adminBalances].sort((a, b) => b.balance - a.balance)
-    : []
+  const sorted = [...summary.adminBalances].sort((a, b) => b.balance - a.balance)
   const [rich, poor] = sorted.length >= 2 ? [sorted[0]!, sorted[sorted.length - 1]!] : [null, null]
   const debt =
     rich && poor && rich.userId !== poor.userId ? Math.abs(rich.balance - poor.balance) / 2 : 0
@@ -244,7 +235,7 @@ function CompanyAndPartnersCard({
       </div>
 
       {/* ── Секція 2: Баланси партнерів (ADMIN + ACCOUNTANT) ── */}
-      {canViewPartnerBalances && sorted.length > 0 && (
+      {sorted.length > 0 && (
         <>
           <div className="h-px bg-border/60 mx-4" />
           <CardHeader className="pb-2 pt-3 px-4">
@@ -970,8 +961,6 @@ export function StatsPage() {
   // the dashboard at / (defense-in-depth over the route-access guard).
   const isPrivilegedViewer = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
   const isAdmin = user?.role === 'ADMIN'
-  // Exactly ADMIN + ACCOUNTANT — never widen to another role.
-  const canViewCompanyBalances = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
 
   useEffect(() => {
     if (user && !isPrivilegedViewer) {
@@ -1102,10 +1091,7 @@ export function StatsPage() {
                     </Suspense>
                   </div>
                   <div className="h-full">
-                    <CompanyAndPartnersCard
-                      summary={summary}
-                      canViewPartnerBalances={canViewCompanyBalances}
-                    />
+                    <CompanyAndPartnersCard summary={summary} />
                   </div>
                 </div>
               </>

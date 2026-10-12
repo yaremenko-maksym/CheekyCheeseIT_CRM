@@ -215,11 +215,12 @@ function makeCompliance(): IncomeComplianceOverviewDto {
   }
 }
 
-function setup(role: SessionUser['role']) {
+function setup(role: SessionUser['role'], summaryOverrides: Partial<FinanceSummaryDto> = {}) {
   useAuthMock.mockReturnValue({ user: makeUser(role), isLoading: false })
   useQueryMock.mockImplementation((opts: { queryKey?: unknown[] }) => {
     const key = opts?.queryKey?.[0]
-    if (key === 'finance-summary') return { data: makeSummary(), isLoading: false }
+    if (key === 'finance-summary')
+      return { data: { ...makeSummary(), ...summaryOverrides }, isLoading: false }
     if (key === 'income-compliance') return { data: makeCompliance(), isLoading: false }
     if (key === 'company-account')
       return {
@@ -866,6 +867,26 @@ describe('StatsPage — ACCOUNTANT economic-only (no admin-only surface)', () =>
     expect(screen.queryByTestId('stats-placeholders-section')).not.toBeInTheDocument()
     expect(screen.queryByText('Інші розділи')).not.toBeInTheDocument()
     expect(screen.queryByText('HR — воронка співбесід')).not.toBeInTheDocument()
+  })
+})
+
+describe('StatsPage — partner section with no admin balances', () => {
+  it.each<SessionUser['role']>(['ADMIN', 'ACCOUNTANT'])(
+    '%s sees the company balance but no partner section when adminBalances is empty',
+    (role) => {
+      setup(role, { adminBalances: [] })
+      expect(screen.getByTestId('stats-company-account-balance')).toBeInTheDocument()
+      expect(screen.queryByTestId('stats-partner-balances')).not.toBeInTheDocument()
+      expect(screen.queryByText('Баланси партнерів')).not.toBeInTheDocument()
+    },
+  )
+
+  it('a single admin balance renders the partner list without a settlement transfer', () => {
+    setup('ACCOUNTANT', {
+      adminBalances: [{ userId: 'admin-1', displayName: 'Admin One', balance: 4000 }],
+    })
+    expect(screen.getByTestId('stats-partner-balances')).toHaveTextContent('Admin One')
+    expect(screen.queryByText('Для вирівнювання')).not.toBeInTheDocument()
   })
 })
 
