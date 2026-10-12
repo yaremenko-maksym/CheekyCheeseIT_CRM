@@ -2,7 +2,8 @@
  * Unit tests — project-update-data.util (leaf of the projects.service decomposition).
  * Expected values are hand-written literals.
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { PgDialect } from 'drizzle-orm/pg-core'
 import type { UpdateProjectDto } from '@crm/shared'
 import {
   assertFinanceFieldsAllowed,
@@ -104,6 +105,21 @@ describe('isFinanceOnlyPatch', () => {
 })
 
 describe('resolveActiveDropId', () => {
+  it.each([undefined, null])('%s means no drop and never queries', async (v) => {
+    const findFirst = vi.fn()
+    const db = { query: { users: { findFirst } } } as never
+    await expect(resolveActiveDropId(db, v)).resolves.toBeNull()
+    expect(findFirst).not.toHaveBeenCalled()
+  })
+
+  it('looks the user up by the given id', async () => {
+    const findFirst = vi.fn().mockResolvedValue({ id: 'd9', role: 'DROP', archivedAt: null })
+    const db = { query: { users: { findFirst } } } as never
+    await resolveActiveDropId(db, 'd9')
+    const arg = findFirst.mock.calls[0]![0] as { where: Parameters<PgDialect['sqlToQuery']>[0] }
+    expect(new PgDialect().sqlToQuery(arg.where).params).toEqual(['d9'])
+  })
+
   const dbWith = (row: unknown) =>
     ({ query: { users: { findFirst: () => Promise.resolve(row) } } }) as never
 
@@ -159,21 +175,41 @@ describe('buildProjectUpdateData', () => {
     const r = buildProjectUpdateData(
       {
         techStack: 'ts',
-        teamSize: null,
+        teamSize: '5',
         benefits: 'b',
-        salaryReview: null,
+        salaryReview: 'rv',
         corpTech: 'c',
-        notesGeneral: null,
+        notesGeneral: 'nt',
       },
       undefined,
       undefined,
     )
     expect(r).toMatchObject({
       techStack: 'ts',
-      teamSize: null,
+      teamSize: '5',
       benefits: 'b',
-      salaryReview: null,
+      salaryReview: 'rv',
       corpTech: 'c',
+      notesGeneral: 'nt',
+    })
+    const nulls = buildProjectUpdateData(
+      {
+        techStack: null,
+        teamSize: null,
+        benefits: null,
+        salaryReview: null,
+        corpTech: null,
+        notesGeneral: null,
+      },
+      undefined,
+      undefined,
+    )
+    expect(nulls).toMatchObject({
+      techStack: null,
+      teamSize: null,
+      benefits: null,
+      salaryReview: null,
+      corpTech: null,
       notesGeneral: null,
     })
   })

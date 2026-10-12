@@ -34,11 +34,13 @@ export function assertFinanceFieldsAllowed(
 /**
  * Loads the user a `dropId` points at and asserts it is an active DROP user
  * (keeps the FK invariant `projects.dropId` -> users WHERE role = DROP).
+ * `undefined` / `null` = no drop (regular senior project) -> `null`.
  */
 export async function resolveActiveDropId(
   db: DatabaseService['db'],
-  dropId: string,
-): Promise<string> {
+  dropId: string | null | undefined,
+): Promise<string | null> {
+  if (dropId === undefined || dropId === null) return null
   const drop = await db.query.users.findFirst({ where: eq(users.id, dropId) })
   if (!drop) throw apiError('DROP_NOT_FOUND', HttpStatus.NOT_FOUND)
   if (drop.role !== 'DROP') throw apiError('USER_NOT_DROP', HttpStatus.BAD_REQUEST)
@@ -81,10 +83,10 @@ export function buildProjectUpdateData(
   if (data.domain !== undefined) updateData.domain = data.domain
   if (data.logoDocumentId !== undefined) {
     updateData.logoDocumentId = data.logoDocumentId ?? null
-    // XOR invariant: setting documentId clears externalUrl, even when the
-    // caller didn't pass externalUrl explicitly. Without this the DB CHECK
-    // would block an update from "external set" to "doc set".
-    if (data.logoDocumentId !== null && data.logoExternalUrl === undefined) {
+    // XOR invariant: setting documentId clears externalUrl. Without this the DB
+    // CHECK would block an update from "external set" to "doc set". When the
+    // caller also sent externalUrl, the block below overwrites this null.
+    if (data.logoDocumentId !== null) {
       updateData.logoExternalUrl = null
     }
   }

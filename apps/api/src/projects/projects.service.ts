@@ -309,10 +309,7 @@ export class ProjectsService {
     // Drop role - phase 2: validate `dropId` references an active DROP user.
     // `undefined`/`null` = regular senior-project (no drop). Reject any other
     // role to keep the FK invariant (`projects.dropId` → users WHERE role=DROP).
-    const resolvedDropId =
-      data.dropId !== undefined && data.dropId !== null
-        ? await resolveActiveDropId(this.db.db, data.dropId)
-        : null
+    const resolvedDropId = await resolveActiveDropId(this.db.db, data.dropId)
 
     // Validate logo document FK before insert — if it points at a non-LOGO
     // document or a deleted row, fail with 400 instead of catching a DB

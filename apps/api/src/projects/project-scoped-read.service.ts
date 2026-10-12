@@ -54,9 +54,8 @@ export class ProjectScopedReadService {
           eq(nonDeletedTransactions.receiverId, currentUser.id),
         ),
       )
-    const incomesByProject = new Map<string, number>()
+    const incomesByProject = new Map<string | null, number>()
     for (const tx of dropIncomes) {
-      if (!tx.projectId) continue
       incomesByProject.set(tx.projectId, (incomesByProject.get(tx.projectId) ?? 0) + 1)
     }
 
