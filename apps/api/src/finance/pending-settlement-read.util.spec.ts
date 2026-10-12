@@ -149,12 +149,21 @@ describe('denormalise', () => {
   })
 
   it('joins senior / debtor / project names and ISO-formats createdAt', async () => {
-    const { db } = makeDb({
+    const { db, calls } = makeDb({
       users: { 'u-sen': { displayName: 'Senior' }, 'u-deb': { displayName: 'Debtor' } },
       tx: { projectId: 'p-1' },
       project: { id: 'p-1', name: 'Proj' },
     })
     const out = await denormalise(db, [row({ debtorType: 'DROP', debtorUserId: 'u-deb' })])
+    expect(compiled(calls.tx[0]!.where)).toMatchObject({
+      sql: '"transactions"."id" = $1',
+      params: ['tx-1'],
+    })
+    expect(compiled(calls.project[0]!.where)).toMatchObject({
+      sql: '"projects"."id" = $1',
+      params: ['p-1'],
+    })
+    expect(calls.user.map((c) => compiled(c.where).params[0])).toEqual(['u-sen', 'u-deb'])
     expect(out).toEqual([
       {
         obligationId: 'ob-1',
