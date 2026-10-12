@@ -927,7 +927,7 @@ describe('hrCreateSeniorSchema', () => {
     expect(createUserSchema.safeParse(dialogPayload).success).toBe(false)
     const r = hrCreateSeniorSchema.safeParse(dialogPayload)
     expect(r.success).toBe(true)
-    if (r.success) expect(r.data.seniorSharePercent).toBe(26)
+    expect(r.success && r.data.seniorSharePercent).toBe(26)
   })
 
   it('rejects any role other than SENIOR', () => {
@@ -974,10 +974,9 @@ describe('hrCreateSeniorSchema', () => {
   it('requires dropTeamId when teamMode is JOIN_DROP_TEAM', () => {
     const bad = hrCreateSeniorSchema.safeParse({ ...dialogPayload, teamMode: 'JOIN_DROP_TEAM' })
     expect(bad.success).toBe(false)
-    if (!bad.success) {
-      expect(bad.error.issues[0]?.message).toBe('zod.DROP_TEAM_ID_REQUIRED')
-      expect(bad.error.issues[0]?.path).toEqual(['dropTeamId'])
-    }
+    const issue = !bad.success ? bad.error.issues[0] : undefined
+    expect(issue?.message).toBe('zod.DROP_TEAM_ID_REQUIRED')
+    expect(issue?.path).toEqual(['dropTeamId'])
     expect(
       hrCreateSeniorSchema.safeParse({
         ...dialogPayload,
