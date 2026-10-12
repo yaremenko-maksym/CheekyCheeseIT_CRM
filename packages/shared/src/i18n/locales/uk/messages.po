@@ -160,8 +160,8 @@ msgstr "Нова версія умов"
 
 #. placeholder {0}: totals.completeReceivers
 #. placeholder {0}: totals.laggingReceivers
-#: apps/web/app/routes/_authenticated/stats.tsx
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
+#: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "{0, plural, one {отримувач} few {отримувачі} many {отримувачів} other {отримувача}}"
 msgstr "{0, plural, one {отримувач} few {отримувачі} many {отримувачів} other {отримувача}}"
 
@@ -242,7 +242,7 @@ msgstr "Виплату переведено у статус ОПЛАЧЕНО"
 msgid "Назад до умов використання"
 msgstr "Назад до умов використання"
 
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "Усі отримано"
 msgstr "Усі отримано"
 
@@ -733,7 +733,7 @@ msgid "Підписи ({0} з 2)"
 msgstr "Підписи ({0} з 2)"
 
 #. placeholder {0}: receiver.expected
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "{0, plural, one {# активний проєкт} few {# активні проєкти} many {# активних проєктів} other {# активного проєкту}}"
 msgstr "{0, plural, one {# активний проєкт} few {# активні проєкти} many {# активних проєктів} other {# активного проєкту}}"
 
@@ -964,7 +964,7 @@ msgstr "Документ видалено остаточно"
 msgid "Попередній перегляд персонального контракту"
 msgstr "Попередній перегляд персонального контракту"
 
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/CompanyAndPartnersCard.tsx
 msgid "Баланси партнерів"
 msgstr "Баланси партнерів"
 
@@ -3677,8 +3677,8 @@ msgstr "Адмін"
 msgid "Компанія"
 msgstr "Компанія"
 
-#: apps/web/app/routes/_authenticated/stats.tsx
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
+#: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "На валідації"
 msgstr "На валідації"
 
@@ -3834,7 +3834,7 @@ msgstr "Залиште порожнім, щоб не змінювати"
 #: apps/web/app/routes/_authenticated/interviews/unmatched.tsx
 #: apps/web/app/routes/_authenticated/pending/index.tsx
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "Повторити"
 msgstr "Повторити"
 
@@ -5900,7 +5900,7 @@ msgstr "Підтвердження незворотної дії."
 msgid "Застосувати"
 msgstr "Застосувати"
 
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "Закриті повністю"
 msgstr "Закриті повністю"
 
@@ -6671,7 +6671,7 @@ msgstr "Позначити готовим до підписання"
 msgid "Публічне посилання для верифікації"
 msgstr "Публічне посилання для верифікації"
 
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/CompanyAndPartnersCard.tsx
 msgid "Рахунок компанії · USDT"
 msgstr "Рахунок компанії · USDT"
 
@@ -7008,7 +7008,7 @@ msgstr "Дії"
 msgid "Не вдалося змінити стан підключення"
 msgstr "Не вдалося змінити стан підключення"
 
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/CompanyAndPartnersCard.tsx
 msgid "Ніхто нікому не винен"
 msgstr "Ніхто нікому не винен"
 
@@ -7401,7 +7401,7 @@ msgstr "Сеньйора створено, команду сформовано"
 msgid "Бухгалтер"
 msgstr "Бухгалтер"
 
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "Контроль доходів"
 msgstr "Контроль доходів"
 
@@ -7483,7 +7483,7 @@ msgstr "Оновити сторінку"
 msgid "Сторона компанії підписала документ автоматично. Контрагент ще не підтвердив підпис."
 msgstr "Сторона компанії підписала документ автоматично. Контрагент ще не підтвердив підпис."
 
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "Відстають"
 msgstr "Відстають"
 
@@ -7621,7 +7621,7 @@ msgstr "Переказ між партнерами"
 msgid "Ще дії"
 msgstr "Ще дії"
 
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/CompanyAndPartnersCard.tsx
 msgid "Гаманець не налаштовано"
 msgstr "Гаманець не налаштовано"
 
@@ -7686,7 +7686,7 @@ msgstr "Не вдалося приєднатися до команди — сп�
 msgid "Немає прикріпленого чека"
 msgstr "Немає прикріпленого чека"
 
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "Немає доходів"
 msgstr "Немає доходів"
 
@@ -7788,7 +7788,7 @@ msgstr "{0, plural, one {# учасник} few {# учасники} many {# уч
 msgid "Фільтр документів"
 msgstr "Фільтр документів"
 
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/CompanyAndPartnersCard.tsx
 msgid "Накопичений баланс кожного партнера: усі оплачені надходження та дохід адмінів мінус перекази між адмінами."
 msgstr "Накопичений баланс кожного партнера: усі оплачені надходження та дохід адмінів мінус перекази між адмінами."
 
@@ -8328,7 +8328,7 @@ msgstr "Дані в контракті — ім’я, email і реквізит�
 msgid "USDT партнера"
 msgstr "USDT партнера"
 
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "На валідації у бухгалтера"
 msgstr "На валідації у бухгалтера"
 
@@ -8386,7 +8386,7 @@ msgid "Не вдалося зберегти зміни — дані залиши
 msgstr "Не вдалося зберегти зміни — дані залишилися у формі, спробуйте ще раз"
 
 #. placeholder {0}: receiver.pendingCount + receiver.accruedCount
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "{0, plural, one {# у процесі} few {# у процесі} many {# у процесі} other {# у процесі}}"
 msgstr "{0, plural, one {# у процесі} few {# у процесі} many {# у процесі} other {# у процесі}}"
 
@@ -8593,7 +8593,7 @@ msgid "Усі власники"
 msgstr "Усі власники"
 
 #. placeholder {0}: receiver.expected - receiver.submitted
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "{0, plural, one {# без доходу} few {# без доходу} many {# без доходу} other {# без доходу}}"
 msgstr "{0, plural, one {# без доходу} few {# без доходу} many {# без доходу} other {# без доходу}}"
 
@@ -9162,7 +9162,7 @@ msgstr "Виплатити"
 msgid "Не вдалося завантажити документ — спробуйте ще раз"
 msgstr "Не вдалося завантажити документ — спробуйте ще раз"
 
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "Немає доходу"
 msgstr "Немає доходу"
 
@@ -9352,7 +9352,7 @@ msgstr "Редагувати розділ «{title}»"
 msgid "Замінити наявний чек?"
 msgstr "Замінити наявний чек?"
 
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/CompanyAndPartnersCard.tsx
 msgid "Разом"
 msgstr "Разом"
 
@@ -9420,7 +9420,7 @@ msgstr "Змінити аватар"
 msgid "Статус"
 msgstr "Статус"
 
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/CompanyAndPartnersCard.tsx
 msgid "Баланси вирівняно"
 msgstr "Баланси вирівняно"
 
@@ -9428,7 +9428,7 @@ msgstr "Баланси вирівняно"
 msgid "Назва і опис вакансії для лендингу іншими мовами."
 msgstr "Назва і опис вакансії для лендингу іншими мовами."
 
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "Усього доходів"
 msgstr "Усього доходів"
 
@@ -9588,7 +9588,7 @@ msgstr "Нараховано: {0}"
 msgid "Проєкт заархівовано"
 msgstr "Проєкт заархівовано"
 
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "Нараховано"
 msgstr "Нараховано"
 
@@ -9650,7 +9650,7 @@ msgid "Активних проєктів"
 msgstr "Активних проєктів"
 
 #. placeholder {0}: totals.pendingProjects
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "{0, plural, one {дохід} few {доходи} many {доходів} other {доходу}}"
 msgstr "{0, plural, one {дохід} few {доходи} many {доходів} other {доходу}}"
 
@@ -9702,7 +9702,7 @@ msgstr "Увійдіть через Google"
 msgid "Частка сеньйора:"
 msgstr "Частка сеньйора:"
 
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/CompanyAndPartnersCard.tsx
 msgid "Накопичений USDT-баланс на рахунку компанії — поповнюється через підтверджені виплати (метод «Рахунок компанії») і зменшується виведенням дивідендів."
 msgstr "Накопичений USDT-баланс на рахунку компанії — поповнюється через підтверджені виплати (метод «Рахунок компанії») і зменшується виведенням дивідендів."
 
@@ -9845,7 +9845,7 @@ msgstr "Архівуємо…"
 msgid "Чернетки ({0})"
 msgstr "Чернетки ({0})"
 
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "Нараховано · очікує розрахунку"
 msgstr "Нараховано · очікує розрахунку"
 
@@ -9877,7 +9877,7 @@ msgstr "Додати місце роботи"
 msgid "Посада для клієнта"
 msgstr "Посада для клієнта"
 
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "покриття {coverage}% · {monthLabel}"
 msgstr "покриття {coverage}% · {monthLabel}"
 
@@ -10214,7 +10214,7 @@ msgid "Редагувати кавер-сторі"
 msgstr "Редагувати кавер-сторі"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/CompanyAndPartnersCard.tsx
 msgid "надсилає"
 msgstr "надсилає"
 
@@ -10297,7 +10297,7 @@ msgid "Остання подія"
 msgstr "Остання подія"
 
 #. placeholder {0}: receiver.accruedCount
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "{0, plural, one {# нараховано} few {# нараховано} many {# нараховано} other {# нараховано}}"
 msgstr "{0, plural, one {# нараховано} few {# нараховано} many {# нараховано} other {# нараховано}}"
 
@@ -10558,7 +10558,7 @@ msgid "Перша сторінка"
 msgstr "Перша сторінка"
 
 #. placeholder {0}: receiver.pendingCount
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "{0, plural, one {# на валідації} few {# на валідації} many {# на валідації} other {# на валідації}}"
 msgstr "{0, plural, one {# на валідації} few {# на валідації} many {# на валідації} other {# на валідації}}"
 
@@ -10608,7 +10608,7 @@ msgstr "Тип"
 msgid "Аналіз обробляється"
 msgstr "Аналіз обробляється"
 
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "Проєкти без зарахованого доходу"
 msgstr "Проєкти без зарахованого доходу"
 
@@ -10777,7 +10777,7 @@ msgstr "Немає перевірених доходів"
 msgid "— оберіть сеньйора —"
 msgstr "— оберіть сеньйора —"
 
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "Не вдалося завантажити дані контролю доходів."
 msgstr "Не вдалося завантажити дані контролю доходів."
 
@@ -10903,7 +10903,7 @@ msgstr "Перенаправляємо на дашборд…"
 msgid "Змінити адресу гаманця компанії"
 msgstr "Змінити адресу гаманця компанії"
 
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "Зараховується дохід у статусі «валідовано» або «виплачено» за поточний місяць. Згодом: ручні винятки (пауза / відпустка) і автоматичні нагадування."
 msgstr "Зараховується дохід у статусі «валідовано» або «виплачено» за поточний місяць. Згодом: ручні винятки (пауза / відпустка) і автоматичні нагадування."
 
@@ -11152,7 +11152,7 @@ msgid "Цей метод поповнює баланс рахунку компа
 msgstr "Цей метод поповнює баланс рахунку компанії"
 
 #: apps/web/app/components/ui/role-select.tsx
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "Дроп"
 msgstr "Дроп"
 
@@ -11448,7 +11448,7 @@ msgstr "Редагувати вакансію"
 #: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/LinkRecordingDialog.tsx
 #: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "Сеньйор"
 msgstr "Сеньйор"
 
@@ -11529,7 +11529,7 @@ msgstr "Зовнішнє посилання на зображення (https://�
 msgid "HR: {0}"
 msgstr "HR: {0}"
 
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "Адмін-сеньйор"
 msgstr "Адмін-сеньйор"
 
@@ -11920,7 +11920,7 @@ msgstr "Значення змінної не може перевищувати 2
 msgid "Освіта"
 msgstr "Освіта"
 
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/CompanyAndPartnersCard.tsx
 msgid "Для вирівнювання"
 msgstr "Для вирівнювання"
 
@@ -11974,12 +11974,12 @@ msgstr "Для цієї співбесіди записів немає"
 msgid "Не вдалося завантажити дані виплати. Спробуйте пізніше."
 msgstr "Не вдалося завантажити дані виплати. Спробуйте пізніше."
 
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "Немає активних проєктів-отримувачів доходу за {monthLabel}."
 msgstr "Немає активних проєктів-отримувачів доходу за {monthLabel}."
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
-#: apps/web/app/routes/_authenticated/stats.tsx
+#: apps/web/app/routes/_authenticated/stats/components/CompanyAndPartnersCard.tsx
 msgid "отримує"
 msgstr "отримує"
 
