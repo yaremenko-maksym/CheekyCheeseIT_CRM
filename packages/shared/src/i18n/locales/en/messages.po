@@ -38,8 +38,8 @@ msgstr ""
 msgid "Опис (Markdown)"
 msgstr "Description (Markdown)"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ProjectSelectSection.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ProjectSelectSection.tsx
 msgid "На всіх ваших проєктах дохід декларує адміністратор (USDT). Звертайтеся до адміністратора."
 msgstr "On all of your projects, the administrator declares income (USDT). Contact the administrator."
 
@@ -82,7 +82,7 @@ msgstr "Edit {0}"
 msgid "Частка дропа з цієї виплати не проходила через рахунок компанії — оберіть особистий рахунок адміна"
 msgstr "The drop's share from this payout did not go through the company account — choose an admin's personal account"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/AdminIncomeReceiverField.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
 msgid "Рахунок отримувача"
 msgstr "Recipient account"
@@ -133,7 +133,7 @@ msgstr "No team members to show"
 msgid "Додати змінну"
 msgstr "Add variable"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/useCreateTransactionValidator.ts
 msgid "Виберіть співробітника"
 msgstr "Select an employee"
 
@@ -630,7 +630,7 @@ msgstr "Create a new project based on the interview “{0}”?"
 msgid "Проєктна робота"
 msgstr "Contract"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ObligationPreviewBanner.tsx
 msgid "буде створена частка "
 msgstr "a share will be created "
 
@@ -680,8 +680,8 @@ msgstr "Continue"
 msgid "Готовий до підписання"
 msgstr "Ready to sign"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/TransferSwapField.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/TransferSwapField.tsx
 msgid "Натисніть, щоб змінити напрямок"
 msgstr "Click to change the direction"
 
@@ -1015,7 +1015,7 @@ msgstr "Minimum"
 msgid "Змінити адресу"
 msgstr "Change address"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/useCreateTransactionValidator.ts
 msgid "Виберіть отримувача-партнера"
 msgstr "Select a recipient partner"
 
@@ -1302,7 +1302,7 @@ msgstr "Sort direction: ascending"
 msgid "Не вдалося порахувати наслідки архівації"
 msgstr "Could not calculate the consequences of archiving"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ReceiptField.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PaySalaryDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/SettleSeniorPayoutDialog.tsx
 msgid "Чек / підтвердження *"
@@ -1596,7 +1596,7 @@ msgstr "Vacancy deleted"
 msgid "Проєкт «{companyName}» підтверджено"
 msgstr "Project “{companyName}” confirmed"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/SalaryFields.tsx
 msgid "Співробітник"
 msgstr "Employee"
 
@@ -3800,7 +3800,7 @@ msgstr "Settlement date"
 
 #. placeholder {0}: p.percent
 #. placeholder {1}: p.sourceLabel
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ObligationPreviewBanner.tsx
 msgid "(частка {0}%, джерело: <0>{1}</0>)"
 msgstr "(share {0}%, source: <0>{1}</0>)"
 
@@ -3868,7 +3868,7 @@ msgstr "Mark all read"
 msgid "Дохід зарахується на рахунок адміністратора-власника проєкту"
 msgstr "Income will be credited to the project-owner administrator’s account"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/shared.tsx
 msgid "Дохід із власного проєкту"
 msgstr "Income from your own project"
 
@@ -3967,7 +3967,7 @@ msgstr "Rejection form: reason"
 msgid "Година"
 msgstr "Hour"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/TransferSwapField.tsx
 msgid "Натисніть на картки або стрілку, щоб змінити напрямок"
 msgstr "Click a card or the arrow to change the direction"
 
@@ -4933,7 +4933,7 @@ msgstr "Drop income"
 
 #: apps/web/app/components/documents/upload-document-dialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ExpenseCategoryField.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 msgid "Категорія"
 msgstr "Category"
@@ -5039,7 +5039,7 @@ msgstr "Loading PDF…"
 msgid "Оплата"
 msgstr "Payment"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/shared.tsx
 msgid "Дивіденд"
 msgstr "Dividend"
 
@@ -5402,7 +5402,7 @@ msgstr "PNG image"
 msgid "За замовчуванням 5%"
 msgstr "5% by default"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ProjectSelectSection.tsx
 msgid "Дохід за USDT-проєктами може провести лише адміністратор."
 msgstr "Only an administrator can register income for USDT projects."
 
@@ -5755,7 +5755,7 @@ msgstr "Company obligations ({0})"
 msgid " · усі"
 msgstr " · all"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/AdminIncomeReceiverField.tsx
 msgid "Весь дохід (gross) піде обраному отримувачу. Компанія автоматично створить зобов’язання виплатити сеньйору та дропу їхні частки."
 msgstr "The entire (gross) income will go to the selected recipient. The company will automatically create obligations to pay the senior and drop their shares."
 
@@ -5917,7 +5917,7 @@ msgstr "Remove file"
 msgid "Немає доступу до профілю — якщо він потрібен для роботи, напишіть адміністратору"
 msgstr "No access to this profile — if you need it for work, contact an admin"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/TransferSwapField.tsx
 msgid "Поміняти напрямок"
 msgstr "Swap direction"
 
@@ -5985,7 +5985,7 @@ msgstr "Awaiting others’ decisions"
 msgid "Дохід зарахується на рахунок адміністратора — {0}"
 msgstr "Income will be credited to the administrator’s account — {0}"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/useCreateTransactionValidator.ts
 msgid "Вкажіть коректну суму"
 msgstr "Enter a valid amount"
 
@@ -6567,7 +6567,7 @@ msgstr "No logos"
 msgid "Нотатки за часом"
 msgstr ""
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/DividendFields.tsx
 msgid "Отримувач (партнер)"
 msgstr "Recipient (partner)"
 
@@ -7088,7 +7088,7 @@ msgid "Секрет"
 msgstr ""
 
 #. placeholder {0}: fmtUsdt(p.amount)
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ObligationPreviewBanner.tsx
 msgid "буде нараховано <0>{0} USDT</0> "
 msgstr "will be credited <0>{0} USDT</0> "
 
@@ -7143,7 +7143,7 @@ msgid "Контракт підписано, номер {0}"
 msgstr "Contract No. {0} signed"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/SalaryFields.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PaySalaryDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
@@ -7463,7 +7463,7 @@ msgstr "No drop assigned"
 msgid "Дозволено лише PNG, JPEG, GIF, WebP"
 msgstr "Only PNG, JPEG, GIF, WebP are allowed"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/shared.tsx
 msgid "Виведення дивідендів із балансу рахунку компанії"
 msgstr "Withdraw dividends from the company account balance"
 
@@ -7613,7 +7613,7 @@ msgstr "Awaiting {drop}"
 msgid "Дата підпису"
 msgstr "Signature date"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/shared.tsx
 msgid "Переказ між партнерами"
 msgstr "Transfer between partners"
 
@@ -7763,8 +7763,8 @@ msgstr "Awaiting signature"
 #: apps/web/app/components/finance/ConfirmPayoutDialog.tsx
 #: apps/web/app/components/finance/ConfirmPayoutDialog.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/AdminIncomeReceiverField.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/renderFundingSourceToggle.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/FundingSourceFields.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 #: apps/web/app/routes/_authenticated/finance/components/TransactionRow.tsx
@@ -7899,7 +7899,7 @@ msgstr "Vacancy sourcing"
 msgid "Зображення JPEG"
 msgstr "JPEG image"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/shared.tsx
 msgid "Витрата компанії"
 msgstr "Company expense"
 
@@ -8368,7 +8368,7 @@ msgstr "Template variables"
 msgid "Валідовано"
 msgstr "Validated"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/shared.tsx
 msgid "Дохід дропа з проєкту"
 msgstr "Drop income from a project"
 
@@ -8627,7 +8627,7 @@ msgstr "Not earlier than the transaction date: {0}"
 msgid "Залишається вам"
 msgstr "Left for you"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/TransferSwapField.tsx
 msgid "Напрямок переказу"
 msgstr "Transfer direction"
 
@@ -8833,7 +8833,7 @@ msgstr "— select a drop team —"
 msgid "Відновлено: проєкт, сеньйор, команда"
 msgstr "Restored: project, senior, team"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/shared.tsx
 msgid "Зарплата співробітнику"
 msgstr "Employee salary"
 
@@ -9073,7 +9073,7 @@ msgstr "No results"
 msgid "Оберіть сеньйора, знайдіть потрібну співбесіду та підтвердьте прив'язування запису «{recordingTitle}»."
 msgstr ""
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/useCreateTransactionValidator.ts
 msgid "Сума перевищує баланс рахунку компанії"
 msgstr "The amount exceeds the company account balance"
 
@@ -9461,7 +9461,7 @@ msgstr "Choose the event date"
 msgid "Контракти"
 msgstr "Contracts"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/useCreateTransactionMutation.ts
 msgid "Дивіденди виведено"
 msgstr "Dividends withdrawn"
 
@@ -9628,7 +9628,7 @@ msgstr "Bank"
 msgid "Транзакцію буде підтверджено і переведено у статус «Валідовано»."
 msgstr "The transaction will be confirmed and moved to “Validated” status."
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/useCreateTransactionMutation.ts
 msgid "Дохід зареєстровано, очікує валідації"
 msgstr "Income registered, awaiting validation"
 
@@ -9765,7 +9765,7 @@ msgstr "Signing is available to the counterparty only"
 msgid "Дивіденди адміну"
 msgstr "Dividends to admin"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/DividendFields.tsx
 msgid "Виберіть партнера"
 msgstr "Select a partner"
 
@@ -9886,7 +9886,7 @@ msgstr "coverage {coverage}% · {monthLabel}"
 msgid "Перегляд зарплати"
 msgstr "Salary review"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/DividendFields.tsx
 msgid "Сума дивідендів у USDT"
 msgstr "Dividend amount in USDT"
 
@@ -10213,7 +10213,7 @@ msgstr "Drag a file here or click to choose one"
 msgid "Редагувати кавер-сторі"
 msgstr "Edit the cover story"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/TransferSwapField.tsx
 #: apps/web/app/routes/_authenticated/stats.tsx
 msgid "надсилає"
 msgstr "sends"
@@ -10275,7 +10275,7 @@ msgstr "Auto (by payment method)"
 msgid "Наприклад: помилилися з розрахунком"
 msgstr "For example: the calculation was wrong"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/TypeSelector.tsx
 msgid "Тип операції"
 msgstr "Operation type"
 
@@ -10375,7 +10375,7 @@ msgid "Не вдалося створити підключення"
 msgstr ""
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ExpenseCategoryField.tsx
 msgid "Категорія витрати"
 msgstr "Expense category"
 
@@ -10437,7 +10437,7 @@ msgstr "Invalid amount"
 #: apps/web/app/components/finance/ConfirmPayoutDialog.tsx
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 #: apps/web/app/components/users/user-dialog/TeamSection.tsx
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ProjectSelectSection.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/EditSeniorIncomeDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/SettleSeniorPayoutDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
@@ -10530,14 +10530,14 @@ msgstr "Drag a file into the window or click the button above"
 msgid "Проєкти, де ви сеньйор"
 msgstr "Your projects as senior"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ProjectSelectSection.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/useCreateTransactionValidator.ts
 msgid "Виберіть проєкт"
 msgstr "Select a project"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/AdminIncomeReceiverField.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/useCreateTransactionValidator.ts
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/useCreateTransactionValidator.ts
 msgid "Виберіть отримувача"
 msgstr "Select a recipient"
 
@@ -10633,7 +10633,7 @@ msgstr "Publishing…"
 msgid "Немає доступних проєктів"
 msgstr "No projects available"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/SalaryFields.tsx
 msgid "Виберіть…"
 msgstr "Select…"
 
@@ -11161,7 +11161,7 @@ msgstr "Drop"
 msgid "До доплати"
 msgstr "Remaining to pay"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/DividendFields.tsx
 msgid "Сума (USDT)"
 msgstr "Amount (USDT)"
 
@@ -11397,7 +11397,7 @@ msgstr "Transfer"
 msgid "Виплачено"
 msgstr "Paid"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/shared.tsx
 msgid "Дохід сеньйора з проєкту"
 msgstr "Senior income from a project"
 
@@ -11541,9 +11541,9 @@ msgstr "Could not create the team — try again"
 msgid "Ставку не призначено"
 msgstr "No rate assigned"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/AdminIncomeReceiverField.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/DividendFields.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/renderFundingSourceToggle.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/FundingSourceFields.tsx
 msgid "Баланс рахунку компанії"
 msgstr "Company account balance"
@@ -11978,7 +11978,7 @@ msgstr "Could not load the payout data. Try again later."
 msgid "Немає активних проєктів-отримувачів доходу за {monthLabel}."
 msgstr "There are no active income-receiving projects for {monthLabel}."
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/TransferSwapField.tsx
 #: apps/web/app/routes/_authenticated/stats.tsx
 msgid "отримує"
 msgstr "receives"
