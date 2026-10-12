@@ -46,17 +46,12 @@ import { DatabaseService } from '../database/database.service'
 // anywhere in this file (confirmed: it was already unused here even
 // before this merge, a leftover from the round-2 accountant-scoping
 // revert).
-import {
-  documentAccessLog,
-  documents,
-  invoiceSignatures,
-  nonDeletedTransactions,
-  users,
-} from '../database/schema'
+import { documents, invoiceSignatures, nonDeletedTransactions, users } from '../database/schema'
 import { HrAccessService } from '../common/hr-access.service'
 import { getHrSeniorIds, getTeammateIds } from './document-scope.util'
 import { buildListWhere } from './document-visibility.util'
-import { S3Service, isSensitiveCategory, presignTtlForCategory } from './s3.service'
+import { S3Service } from './s3.service'
+import { presignDocument, presignThumbnail } from './document-presign.util'
 import { CompressionService, CompressionError, detectMimeFromBuffer } from './compression.service'
 import type { DrizzleTx } from '../database/types'
 import { apiError } from '../common/api-error'
@@ -562,112 +557,23 @@ export class DocumentsService {
   }
 
   // -------------------------------------------------------------------------
-  // Presigned download URL
+  // Presigned URLs — access gate (findActiveOrThrow) stays here; the presign
+  // build + access logging live in document-presign.util.ts (L10 leaf).
   // -------------------------------------------------------------------------
 
   async getDownloadUrl(actor: SessionUser, docId: string): Promise<PresignedDownload> {
     const doc = await this.findActiveOrThrow(docId, actor)
-    // Variant 3 hybrid: download-as filename = original (unicode) when
-    // available, falling back to the sanitized ASCII `name` for legacy rows
-    // that pre-date migration 0011.
-    const downloadAs = doc.originalName ?? doc.name
-    // Use category-based TTL: sensitive categories (CONTRACT/RECEIPT/INVOICE/
-    // RESUME/SCAN) get 30 min; AVATAR/LOGO keep 24h default.
-    const ttl = presignTtlForCategory(doc.category as DocumentCategory)
-    await this.logAccess(actor, doc.id, doc.category as DocumentCategory, 'DOWNLOAD')
-    // s3/documents hygiene: force Content-Disposition: attachment so the browser
-    // always downloads the file rather than opening it inline (e.g. a PDF opened
-    // inline in a new tab could be shared via URL — attachment forces Save dialog).
-    return this.s3.getPresignedDownloadUrl(
-      doc.s3Key,
-      ttl,
-      downloadAs,
-      'attachment',
-      doc.category as DocumentCategory,
-    )
+    return presignDocument(this.s3, this.db, this.logger, actor, doc, 'DOWNLOAD')
   }
-
-  // -------------------------------------------------------------------------
-  // Presigned inline preview URL (for iframe embed — browser renders in-place)
-  // -------------------------------------------------------------------------
 
   /**
    * Like `getDownloadUrl` but forces `Content-Disposition: inline` so the
    * browser renders the PDF inside an iframe instead of triggering a Save
-   * dialog. Used by the invoice PDF preview panel and any other in-app PDF
-   * viewer that embeds content via <iframe src={url}>.
-   *
-   * Security note: the same category-based TTL applies (sensitive categories
-   * get 30 min). The URL is still presigned (authenticated via S3 signature)
-   * so it cannot be accessed without the signed query params.
+   * dialog. Same category-based TTL applies (sensitive categories get 30 min).
    */
   async getPreviewUrl(actor: SessionUser, docId: string): Promise<PresignedDownload> {
     const doc = await this.findActiveOrThrow(docId, actor)
-    const downloadAs = doc.originalName ?? doc.name
-    const ttl = presignTtlForCategory(doc.category as DocumentCategory)
-    await this.logAccess(actor, doc.id, doc.category as DocumentCategory, 'PREVIEW')
-    // disposition='inline' tells the browser to render the PDF in-place
-    // rather than offering a Save dialog (contrast with getDownloadUrl which
-    // uses 'attachment' to force a download prompt for the explicit download
-    // button flow).
-    return this.s3.getPresignedDownloadUrl(
-      doc.s3Key,
-      ttl,
-      downloadAs,
-      'inline',
-      doc.category as DocumentCategory,
-    )
-  }
-
-  /**
-   * task-file-storage-hardening §7: best-effort access-log entry — "who
-   * downloaded/previewed/thumbnail-viewed this document and when" was
-   * previously unanswerable. Only sensitive categories are logged
-   * (CONTRACT/RECEIPT/INVOICE/RESUME/SCAN) — AVATAR/LOGO fetch constantly as
-   * part of ordinary list rendering and carry no meaningful "who accessed
-   * this" question. Never records the presigned URL itself, only
-   * actor/document/category. A logging failure must not block the actual
-   * download/preview/thumbnail fetch.
-   *
-   * MED-5 (security-review round 1): thumbnails are now logged too — a
-   * thumbnail of a sensitive SCAN/RESUME still exposes the same underlying
-   * image content (the earlier version of this method deliberately skipped
-   * `getThumbnailUrl` to avoid noise, but the review correctly pointed out
-   * that "who viewed this" is exactly as meaningful for a thumbnail as for
-   * the full download when the category is sensitive — the noise concern
-   * doesn't apply here the way it does for AVATAR/LOGO, which are already
-   * excluded by the `isSensitiveCategory` gate below regardless of action).
-   *
-   * MED-1 (security-review round 3): `actorId` must be the REAL human
-   * behind the request, `actor.impersonatorId ?? actor.id` — the same
-   * convention every other audit trail in this codebase already follows
-   * (transaction audit log, projects, teams, users). This was wrongly
-   * recording `actor.id` alone, which under impersonation attributes the
-   * download to the IMPERSONATED account instead of the ADMIN who was
-   * actually driving it. Doesn't widen any RBAC decision on its own, but
-   * this log is the SOLE compensating control the owner's 2026-08-03
-   * decision leans on for ACCOUNTANT's unconditional SCAN access — a wrong
-   * actor here quietly weakens that justification.
-   */
-  private async logAccess(
-    actor: SessionUser,
-    docId: string,
-    category: DocumentCategory,
-    action: 'DOWNLOAD' | 'PREVIEW' | 'THUMBNAIL',
-  ): Promise<void> {
-    if (!isSensitiveCategory(category)) return
-    try {
-      await this.db.db.insert(documentAccessLog).values({
-        actorId: actor.impersonatorId ?? actor.id,
-        targetId: docId,
-        action,
-        metadata: { category },
-      })
-    } catch (err) {
-      this.logger.warn(
-        `logAccess: failed to write access-log row for docId=${docId}: ${(err as Error).message}`,
-      )
-    }
+    return presignDocument(this.s3, this.db, this.logger, actor, doc, 'PREVIEW')
   }
 
   // -------------------------------------------------------------------------
@@ -905,13 +811,7 @@ export class DocumentsService {
 
   async getThumbnailUrl(actor: SessionUser, docId: string): Promise<PresignedDownload | null> {
     const doc = await this.findActiveOrThrow(docId, actor)
-    if (!doc.thumbnailS3Key) return null
-    // Thumbnails inherit the same TTL as the main document for consistency:
-    // a leaked thumbnail URL should expire at the same time as the full file.
-    const category = doc.category as DocumentCategory
-    const ttl = presignTtlForCategory(category)
-    await this.logAccess(actor, doc.id, category, 'THUMBNAIL')
-    return this.s3.getPresignedDownloadUrl(doc.thumbnailS3Key, ttl, undefined, 'inline', category)
+    return presignThumbnail(this.s3, this.db, this.logger, actor, doc)
   }
 }
 
