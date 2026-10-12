@@ -328,10 +328,10 @@ describe('TransferSwapField', () => {
   it('shows both parties: initial, name and role caption', () => {
     renderField()
     const [senderCard, , receiverCard] = screen.getAllByRole('button')
-    expect(senderCard).toHaveTextContent('A')
+    expect(within(senderCard!).getByText('A')).toBeInTheDocument()
     expect(senderCard).toHaveTextContent('Alice Admin')
     expect(senderCard).toHaveTextContent('надсилає')
-    expect(receiverCard).toHaveTextContent('B')
+    expect(within(receiverCard!).getByText('B')).toBeInTheDocument()
     expect(receiverCard).toHaveTextContent('Bob Admin')
     expect(receiverCard).toHaveTextContent('отримує')
   })

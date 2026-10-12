@@ -47,7 +47,11 @@ export function ProjectSelectSection({
           </Label>
           <Select value={projectId} onValueChange={onProjectChange}>
             <SelectTrigger
-              className={cn('h-9 text-sm', fieldErrors.project && 'border-destructive')}
+              className={cn(
+                // Stryker disable next-line StringLiteral: `SelectTrigger`'s own base classes already include `h-9` and `text-sm`, and `cn` (tailwind-merge) de-duplicates them — dropping this redundant pair from the className changes no rendered class, so it is unobservable by construction (the `border-destructive` literal on the next line IS pinned by the error-state tests).
+                'h-9 text-sm',
+                fieldErrors.project && 'border-destructive',
+              )}
               data-testid="create-transaction-project-trigger"
             >
               <SelectValue
