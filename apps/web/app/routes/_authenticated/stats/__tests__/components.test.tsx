@@ -120,13 +120,14 @@ describe('computeExtraStats', () => {
     const a = { month: '2026-04', income: 300, expenses: 0, salaries: 0, profit: 30 }
     const b = { month: '2026-05', income: 100, expenses: 0, salaries: 0, profit: 10 }
     const c = { month: '2026-06', income: 200, expenses: 0, salaries: 0, profit: 40 }
-    const r = computeExtraStats(summaryWith([a, b, c]))!
+    const first = { month: '2026-03', income: 150, expenses: 0, salaries: 0, profit: 15 }
+    const r = computeExtraStats(summaryWith([first, a, b, c]))!
     expect(r.lastMonth).toBe(c)
     expect(r.prevMonth).toBe(b)
     expect(r.incomeTrend).toBe(100) // (200-100)/100*100
     expect(r.profitMargin).toBe(20) // 40/200*100
-    expect(r.avgMonthlyIncome).toBe(200) // 600/3
-    expect(r.avgMonthlyProfit).toBeCloseTo(80 / 3)
+    expect(r.avgMonthlyIncome).toBe(187.5) // 750/4
+    expect(r.avgMonthlyProfit).toBe(23.75) // 95/4
     expect(r.bestMonth).toBe(a)
   })
 
