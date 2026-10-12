@@ -370,6 +370,15 @@ describe('UsersService.adminUpdateUser — teamTelegramChannel is SENIOR-only', 
     })
     await expect(edit(h, { teamTelegramChannel: '@team' }, 'admin-1')).resolves.toBeDefined()
   })
+
+  it('the propagation is gated on the role of the ROW THE UPDATE RETURNED, not on the pre-write check', async () => {
+    const h = makeHarness({
+      existing: makeUser({ role: 'SENIOR' }),
+      updated: [makeUser({ role: 'JUNIOR' })],
+    })
+    await edit(h, { teamTelegramChannel: '@team' }, 'admin-1')
+    expect(h.updateSeniorTeamTelegramChannelTx).not.toHaveBeenCalled()
+  })
 })
 
 describe('UsersService.adminUpdateUser — email change checks', () => {
