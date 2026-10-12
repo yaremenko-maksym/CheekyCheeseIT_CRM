@@ -37,6 +37,7 @@ import {
   normalizeOnChainTxHash,
   settlementConsumesTransfer,
 } from './onchain-tx'
+import { toDepositDto } from './company-account-mapper.util'
 import { assertFoundAndVisible } from './transaction-visibility.util'
 import { resolveTransactionDate } from './transaction-date.util'
 
@@ -321,7 +322,7 @@ export class CompanyAccountService {
       ),
     })
     if (existing) {
-      return this.toDepositDto(existing, account.confirmationThreshold)
+      return toDepositDto(existing, account.confirmationThreshold)
     }
 
     // ── SECURITY (task-onchain-payment-integrity, HOLE 2): CROSS-PATH fast-fail.
@@ -433,13 +434,13 @@ export class CompanyAccountService {
             sql`lower(${transactions.txHash}) = ${txHash}`,
           ),
         })
-        if (winner) return this.toDepositDto(winner, account.confirmationThreshold)
+        if (winner) return toDepositDto(winner, account.confirmationThreshold)
         throw apiError('FINANCE_TX_HASH_ALREADY_CONSUMED', HttpStatus.BAD_REQUEST)
       }
       throw err
     }
 
-    return this.toDepositDto(tx, account.confirmationThreshold, verification)
+    return toDepositDto(tx, account.confirmationThreshold, verification)
   }
 
   /**
@@ -786,30 +787,6 @@ export class CompanyAccountService {
       // rows — those return early above with their own parseFloat calls.
       amount: input.amount,
       receiverId: tx.receiverId ?? receiverId,
-    }
-  }
-
-  // ── Mapping helpers ─────────────────────────────────────────────────────────
-
-  private toDepositDto(
-    tx: typeof transactions.$inferSelect,
-    threshold: number,
-    verification?: {
-      toMatches: boolean
-      confirmations: number
-      amountUsdt: number | null
-    },
-  ): CompanyDepositDto {
-    const amountUsdt = parseFloat(tx.amount)
-    return {
-      id: tx.id,
-      txHash: tx.txHash ?? '',
-      amountUsdt: Number.isFinite(amountUsdt) ? amountUsdt : null,
-      status: (tx.status === 'PAID' ? 'PAID' : 'PENDING') as CompanyDepositDto['status'],
-      confirmations: verification?.confirmations ?? (tx.status === 'PAID' ? threshold : 0),
-      threshold,
-      toMatches: verification?.toMatches ?? tx.status === 'PAID',
-      createdAt: tx.createdAt.toISOString(),
     }
   }
 }
