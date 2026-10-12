@@ -42,8 +42,8 @@ const ROLE_LABEL_MESSAGES = {
   DROP: msg`Дроп`, // en: Drop
 } satisfies Record<IncomeComplianceReceiverDto['role'], MessageDescriptor>
 
-function receiverInitials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean)
+export function receiverInitials(name: string): string {
+  const parts = name.split(/\s/).filter(Boolean)
   if (parts.length === 0) return '—'
   if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase()
   return (parts[0]![0]! + parts[1]![0]!).toUpperCase()
@@ -104,7 +104,7 @@ export function receiverStatus(r: IncomeComplianceReceiverDto): 'complete' | 'pe
   return 'lagging'
 }
 
-function ComplianceKpi({
+export function ComplianceKpi({
   label,
   value,
   sub,
@@ -132,7 +132,7 @@ function ComplianceKpi({
   )
 }
 
-function ComplianceReceiverRow({ receiver }: { receiver: IncomeComplianceReceiverDto }) {
+export function ComplianceReceiverRow({ receiver }: { receiver: IncomeComplianceReceiverDto }) {
   const [open, setOpen] = useState(false)
   const status = receiverStatus(receiver)
   const pct =
@@ -303,7 +303,7 @@ function ComplianceReceiverRow({ receiver }: { receiver: IncomeComplianceReceive
         )}
       </button>
 
-      <AnimatePresence initial={false}>
+      <AnimatePresence>
         {open && hasMissing && (
           <motion.div
             key="detail"

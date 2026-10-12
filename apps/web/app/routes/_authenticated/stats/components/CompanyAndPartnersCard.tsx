@@ -15,11 +15,11 @@ import { companyAccountApi } from '../../finance/api'
 
 // USDT balance formatting + short address — mirrors the (removed) CompanyAccountCard
 // so the company-account KPI reads identically on /stats.
-function fmtUsdt(n: number): string {
+export function fmtUsdt(n: number): string {
   return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-function shortAddress(addr: string): string {
+export function shortAddress(addr: string): string {
   return addr.length > 12 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr
 }
 // ── Partner share computation (audit 2026-06-28 #14) ──────────────────────────
@@ -51,20 +51,24 @@ export function CompanyAndPartnersCard({
     queryFn: companyAccountApi.getAccount,
   })
 
-  const partnerData = isAdmin && summary.adminBalances.length > 0 ? summary : null
-  const sorted = partnerData
-    ? [...partnerData.adminBalances].sort((a, b) => b.balance - a.balance)
-    : []
-  const [rich, poor] = sorted.length >= 2 ? [sorted[0]!, sorted[sorted.length - 1]!] : [null, null]
-  const debt =
-    rich && poor && rich.userId !== poor.userId ? Math.abs(rich.balance - poor.balance) / 2 : 0
+  // Partner balances are ADMIN-only: for any other viewer `sorted` stays empty, which
+  // also keeps the partner section below hidden (single gate: `sorted.length > 0`).
+  const sorted = isAdmin ? [...summary.adminBalances].sort((a, b) => b.balance - a.balance) : []
+  // The richest and poorest partner, when there are two distinct ones to settle between.
+  const settlement =
+    sorted.length >= 2 && sorted[0]!.userId !== sorted[sorted.length - 1]!.userId
+      ? {
+          rich: sorted[0]!,
+          poor: sorted[sorted.length - 1]!,
+          debt: Math.abs(sorted[0]!.balance - sorted[sorted.length - 1]!.balance) / 2,
+        }
+      : null
   const total = sorted.reduce((s, b) => s + b.balance, 0)
   // Audit 2026-06-28 (#14): the share % must be computed over the sum of ABSOLUTE
   // balances. A partner with a negative HOLDING balance (or a net total ≤ 0) made
   // `balance / total` render a negative / garbled percentage. `absTotal` keeps the
   // denominator positive; a negative balance renders «—» instead of a bogus %.
   const absTotal = sorted.reduce((s, b) => s + Math.abs(b.balance), 0)
-  const isSettled = debt <= 0.01
 
   return (
     <Card
@@ -121,7 +125,7 @@ export function CompanyAndPartnersCard({
       </div>
 
       {/* ── Секція 2: Баланси партнерів (лише ADMIN) ── */}
-      {isAdmin && sorted.length > 0 && (
+      {sorted.length > 0 && (
         <>
           <div className="h-px bg-border/60 mx-4" />
           <CardHeader className="pb-2 pt-3 px-4">
@@ -211,7 +215,7 @@ export function CompanyAndPartnersCard({
             <div className="h-px bg-border/60" />
 
             {/* Settlement block */}
-            {isSettled ? (
+            {settlement === null || settlement.debt <= 0.01 ? (
               <div className="flex items-center gap-2 rounded-lg bg-emerald-500/8 border border-emerald-500/20 px-3 py-2.5">
                 <div className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/15 shrink-0">
                   <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" aria-hidden="true" />
@@ -225,7 +229,7 @@ export function CompanyAndPartnersCard({
                   </div>
                 </div>
               </div>
-            ) : rich && poor ? (
+            ) : (
               <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 overflow-hidden">
                 <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-amber-500/10">
                   <Info className="h-3 w-3 text-amber-400/70 shrink-0" />
@@ -237,13 +241,13 @@ export function CompanyAndPartnersCard({
                   {/* Sender */}
                   <div className="flex flex-col items-center gap-1 min-w-0 flex-1">
                     <div className="h-8 w-8 rounded-full bg-violet-500/15 flex items-center justify-center text-xs font-bold text-violet-400">
-                      {rich.displayName.charAt(0)}
+                      {settlement.rich.displayName.charAt(0)}
                     </div>
                     <span
                       className="text-[11px] font-medium text-center leading-tight truncate w-full text-center"
-                      title={rich.displayName}
+                      title={settlement.rich.displayName}
                     >
-                      {rich.displayName}
+                      {settlement.rich.displayName}
                     </span>
                     <span className="text-[10px] text-muted-foreground">
                       <Trans>надсилає</Trans>
@@ -253,7 +257,7 @@ export function CompanyAndPartnersCard({
                   <div className="flex flex-col items-center gap-0.5 shrink-0">
                     <span className="text-lg font-black tabular-nums text-amber-400">
                       $
-                      {debt.toLocaleString('en-US', {
+                      {settlement.debt.toLocaleString('en-US', {
                         minimumFractionDigits: 2,
                         maximumFractionDigits: 2,
                       })}
@@ -268,13 +272,13 @@ export function CompanyAndPartnersCard({
                   {/* Receiver */}
                   <div className="flex flex-col items-center gap-1 min-w-0 flex-1">
                     <div className="h-8 w-8 rounded-full bg-sky-500/15 flex items-center justify-center text-xs font-bold text-sky-400">
-                      {poor.displayName.charAt(0)}
+                      {settlement.poor.displayName.charAt(0)}
                     </div>
                     <span
                       className="text-[11px] font-medium text-center leading-tight truncate w-full text-center"
-                      title={poor.displayName}
+                      title={settlement.poor.displayName}
                     >
-                      {poor.displayName}
+                      {settlement.poor.displayName}
                     </span>
                     <span className="text-[10px] text-muted-foreground">
                       <Trans>отримує</Trans>
@@ -282,7 +286,7 @@ export function CompanyAndPartnersCard({
                   </div>
                 </div>
               </div>
-            ) : null}
+            )}
           </CardContent>
         </>
       )}
