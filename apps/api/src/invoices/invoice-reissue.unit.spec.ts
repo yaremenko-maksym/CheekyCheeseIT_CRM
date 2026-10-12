@@ -269,8 +269,11 @@ describe('reissueInvoiceIfStillPaid — the row read', () => {
   it.each([
     ['not PAID', { status: 'PENDING', payoutRequestId: null }],
     ['payout-linked', { status: 'PAID', payoutRequestId: 'pr-1' }],
+    ['PAYOUT-type', { type: 'PAYOUT', status: 'PAID', payoutRequestId: null }],
+    ['DROP_INCOME-type', { type: 'DROP_INCOME', status: 'PAID', payoutRequestId: null }],
   ])('a %s row is a pure no-op — neither trigger fires', async (_l, patch) => {
-    const { svc, internals } = makeService([[{ id: 'tx-9', type: 'SALARY', ...patch }]])
+    const { svc, calls, internals } = makeService([[{ id: 'tx-9', type: 'SALARY', ...patch }]])
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
     const salary = vi.fn(() => Promise.resolve())
     const senior = vi.fn(() => Promise.resolve())
     internals['autoCreateForSalary'] = salary
@@ -278,6 +281,9 @@ describe('reissueInvoiceIfStillPaid — the row read', () => {
     await expect(svc.reissueInvoiceIfStillPaid('tx-9')).resolves.toBeUndefined()
     expect(salary).not.toHaveBeenCalled()
     expect(senior).not.toHaveBeenCalled()
+    // the single row read is all that happened: no writes, no warning
+    expect(calls.map((c) => c.kind)).toEqual(['select'])
+    expect(warn).not.toHaveBeenCalled()
   })
 
   it('a failure is logged as a warning that names the row and the cause, and never thrown', async () => {
