@@ -94,6 +94,11 @@ describe('formatAmount', () => {
     ['1234.567000', '1 234.56'],
     ['1.12345', '1.12'],
     ['1.120000', '1.12'],
+    ['1.500000', '1.5'],
+    ['1.000000', '1.00'],
+    ['2.100000', '2.1'],
+    // exponent form (>= 1e21): toFixed gives no '.', so no decimals are appended
+    ['1e21', '1e+21'],
   ])('formats %s as %s', (input, expected) => {
     expect(formatAmount(input)).toBe(expected)
   })
