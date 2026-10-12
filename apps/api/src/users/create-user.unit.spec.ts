@@ -774,6 +774,16 @@ describe('UsersService.createUser — team / project linkage (post-commit, plain
     expect(ops.indexOf('addSeniorToDropTeam')).toBeGreaterThan(ops.indexOf('audit'))
   })
 
+  it('SENIOR in CREATE_NEW mode ignores a stray dropTeamId: auto-team, no drop-team attach', async () => {
+    const h = makeHarness({ created: senior })
+    await h.service.createUser(
+      baseInput({ role: 'SENIOR', teamMode: 'CREATE_NEW', dropTeamId: 'dt-1' }),
+    )
+    expect(h.addSeniorToDropTeam).not.toHaveBeenCalled()
+    expect(inserts(h.log, 'teams')).toHaveLength(1)
+    expect(inserts(h.log, 'team_members')).toHaveLength(1)
+  })
+
   it.each(['HR', 'ACCOUNTANT', 'JUNIOR'] as const)(
     'role %s never gets an auto-team even with hrIds / accountantId',
     async (role) => {
