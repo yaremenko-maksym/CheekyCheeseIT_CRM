@@ -7,7 +7,6 @@ import {
   lowerEmail,
   projectMembers,
   teamMembers,
-  teams,
   userAuditLog,
   userEmails,
   users,
@@ -40,6 +39,7 @@ import { DropCreationService, type CreateDropInput } from './drop-creation.servi
 import { UserCreationService, type CreateUserInput } from './user-creation.service'
 import { AdminUserUpdateService, type AdminUpdateUserInput } from './admin-user-update.service'
 import { SalaryService } from './salary.service'
+import { RejoinTeamService } from './rejoin-team.service'
 import { PersonalEmailInviteService } from './personal-email-invite.service'
 import { PersonalEmailInviteMailerService } from './personal-email-invite-mailer.service'
 
@@ -242,6 +242,15 @@ export class UsersService {
     return (this._salary ??= new SalaryService(this.db, {
       findById: (...a) => this.findById(...a),
       proposeSeniorShareChangeInTx: (...a) => this.seniorShare.proposeSeniorShareChangeInTx(...a),
+    }))
+  }
+
+  // Built lazily (same reason as `invites`): spec factories skip the constructor. `teamsService` is
+  // held eagerly on the facade and reused; `findById` is passed in as a bound callback.
+  private _rejoinTeam?: RejoinTeamService
+  private get rejoinTeamSvc(): RejoinTeamService {
+    return (this._rejoinTeam ??= new RejoinTeamService(this.db, this.teamsService, {
+      findById: (...a) => this.findById(...a),
     }))
   }
 
@@ -713,7 +722,7 @@ export class UsersService {
    * (`JOIN_DROP_TEAM`). Caller must be the senior themselves (controller
    * enforces that the path is `me`).
    */
-  async rejoinTeam(
+  rejoinTeam(
     seniorId: string,
     data: {
       teamMode: 'CREATE_NEW' | 'JOIN_DROP_TEAM'
@@ -722,65 +731,7 @@ export class UsersService {
       accountantId?: string | null
     },
   ): Promise<{ teamId: string }> {
-    const user = await this.findById(seniorId)
-    if (!user) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
-    if (user.role !== 'SENIOR') {
-      throw apiError('REJOIN_TEAM_SENIOR_ONLY', HttpStatus.BAD_REQUEST)
-    }
-    // Caller must currently have NO active team membership.
-    const activeMembership = await this.db.db
-      .select()
-      .from(teamMembers)
-      .where(and(eq(teamMembers.userId, seniorId), isNull(teamMembers.leftAt)))
-      .then((rows) => rows[0])
-    if (activeMembership) {
-      throw apiError('ALREADY_HAS_ACTIVE_TEAM', HttpStatus.BAD_REQUEST)
-    }
-
-    if (data.teamMode === 'JOIN_DROP_TEAM') {
-      if (!data.dropTeamId) {
-        throw apiError('DROP_TEAM_ID_REQUIRED', HttpStatus.BAD_REQUEST)
-      }
-      // LOW (security-review round 3, follow-up to #436): this is a
-      // self-service call — the SENIOR is the caller, so there is no
-      // HR/ADMIN actor to scope against (unlike createUser's HR check
-      // above `isActiveMemberOfTeam`). Without a check here a teamless
-      // SENIOR could self-attach to ANY drop-team with a free slot, not
-      // just one they used to belong to — see
-      // TeamsService.wasFormerMemberOfTeam's docblock for the full
-      // rationale and the chain this closes.
-      const wasFormerMember = await this.teamsService.wasFormerMemberOfTeam(
-        data.dropTeamId,
-        seniorId,
-      )
-      if (!wasFormerMember) {
-        throw apiError('REJOIN_TEAM_MUST_BE_FORMER_MEMBER', HttpStatus.FORBIDDEN)
-      }
-      await this.teamsService.addSeniorToDropTeam(data.dropTeamId, seniorId)
-      return { teamId: data.dropTeamId }
-    }
-
-    // CREATE_NEW path — mirrors createUser SENIOR branch.
-    if (!data.hrIds || data.hrIds.length < 1) {
-      throw apiError('HR_REQUIRED_MINIMUM_ONE', HttpStatus.BAD_REQUEST)
-    }
-    return this.db.db.transaction(async (tx) => {
-      const inserted = await tx
-        .insert(teams)
-        .values({ name: `Команда ${user.displayName}` })
-        .returning()
-      const team = inserted[0]
-      if (!team) throw new Error('Failed to create senior team')
-      const memberIds = [
-        seniorId,
-        ...data.hrIds!,
-        ...(data.accountantId ? [data.accountantId] : []),
-      ]
-      for (const userId of memberIds) {
-        await tx.insert(teamMembers).values({ teamId: team.id, userId })
-      }
-      return { teamId: team.id }
-    })
+    return this.rejoinTeamSvc.rejoinTeam(seniorId, data)
   }
 
   /**
