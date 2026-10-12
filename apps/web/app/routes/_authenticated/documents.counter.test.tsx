@@ -12,7 +12,9 @@ import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { i18n } from '@lingui/core'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
-import { DocumentsCounterText, DocumentsGenericEmpty, STATUS_TAB_LABEL_MESSAGES } from './documents'
+import { DocumentsCounterText } from './documents/components/DocumentsCounterText'
+import { DocumentsGenericEmpty } from './documents/components/DocumentsEmptyStates'
+import { STATUS_TAB_LABEL_MESSAGES } from './documents/constants'
 
 const CASES: Array<[n: number, uk: string]> = [
   [1, '1 документ'],

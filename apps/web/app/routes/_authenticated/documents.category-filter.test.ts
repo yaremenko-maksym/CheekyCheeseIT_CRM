@@ -10,7 +10,7 @@
  *   AC3 — Other roles unchanged → ALL
  */
 import { describe, expect, it } from 'vitest'
-import { initialCategoryForRole } from './documents'
+import { initialCategoryForRole } from './documents/constants'
 
 describe('initialCategoryForRole', () => {
   // ── AC1: ALL roles default to ALL (task-ui-header-scroll-overhaul AC3) ─────
