@@ -3,7 +3,7 @@
  * storage key. Expected values are hand-written literals (the spec table
  * «Видимость табов по ролям»), not derived from the code under test.
  */
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   TAB_VISIBILITY,
   UPLOADABLE_PER_ROLE,
@@ -66,5 +66,15 @@ describe('view preference storage', () => {
     expect(getStoredView()).toBe('grid')
     localStorage.setItem('crm.documents.view', 'bogus')
     expect(getStoredView()).toBe('list')
+  })
+
+  it('falls back to list when there is no window (SSR guard)', () => {
+    localStorage.setItem('crm.documents.view', 'grid')
+    vi.stubGlobal('window', undefined)
+    try {
+      expect(getStoredView()).toBe('list')
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })
