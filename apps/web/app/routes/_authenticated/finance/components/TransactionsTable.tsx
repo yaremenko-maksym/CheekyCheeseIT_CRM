@@ -284,21 +284,21 @@ export function TransactionsTable({
     (tx: TransactionDto) => {
       if (typeFilter !== 'all' && tx.type !== typeFilter) return false
       if (statusFilter !== 'all' && tx.status !== statusFilter) return false
-      // Stryker disable next-line ConditionalExpression: with an empty search `haystack.includes('')` is true for every row, so forcing the branch on is behaviourally equivalent (the off-mutant is killed by the search tests)
-      if (search) {
-        const q = search.toLowerCase()
-        const haystack = [
-          tx.senderName,
-          tx.receiverName,
-          tx.senderLabel,
-          tx.receiverLabel,
-          tx.projectName,
-        ]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase()
-        if (!haystack.includes(q)) return false
-      }
+      // `search` is always a string (useState('')). No empty-search guard needed:
+      // `haystack.includes('')` is true for every row, so an empty query keeps
+      // all rows exactly as skipping the text filter did.
+      const q = search.toLowerCase()
+      const haystack = [
+        tx.senderName,
+        tx.receiverName,
+        tx.senderLabel,
+        tx.receiverLabel,
+        tx.projectName,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+      if (!haystack.includes(q)) return false
       return true
     },
     [search, typeFilter, statusFilter],
