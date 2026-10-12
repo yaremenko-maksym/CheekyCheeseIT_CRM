@@ -2844,6 +2844,11 @@ msgstr "HR може створювати лише сеньйорів"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.HR_TEAM_SELF_ONLY"
+msgstr "HR може додати до команди лише себе як HR"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.IMPERSONATION_ALREADY_ACTIVE"
 msgstr "Ви вже увійшли як інший співробітник — спершу поверніться до свого облікового запису"
 
@@ -3228,6 +3233,11 @@ msgid "api-error.SIGNED_CONTRACT_NOT_FOUND"
 msgstr "Підписаний контракт не знайдено"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT"
+msgstr "Бухгалтером команди може бути лише користувач із роллю бухгалтера"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.TEAM_ACCOUNTANT_REQUIRED_MINIMUM_ONE"
 msgstr "У команді має залишитися щонайменше один бухгалтер"
@@ -3261,6 +3271,11 @@ msgstr "Прибрати сеньйора з команди не можна — 
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.TEAM_DROP_TEAMS_ONLY"
 msgstr "Ця дія доступна лише для команд-дропів"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.TEAM_HR_MEMBER_MUST_BE_HR"
+msgstr "HR команди може бути лише користувач із роллю HR"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts

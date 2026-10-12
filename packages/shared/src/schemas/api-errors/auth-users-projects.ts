@@ -52,6 +52,7 @@ export const AUTH_USERS_PROJECTS_ERROR_CODES = [
   'HR_JOIN_OWN_DROP_TEAM_ONLY',
   'HR_REQUIRED_MINIMUM_ONE',
   'HR_SENIOR_ONLY_CREATION',
+  'HR_TEAM_SELF_ONLY',
   'IMPERSONATION_ALREADY_ACTIVE',
   'IMPERSONATION_NOT_ACTIVE',
   'IMPERSONATION_ORIGIN_UNAVAILABLE',
@@ -90,6 +91,8 @@ export const AUTH_USERS_PROJECTS_ERROR_CODES = [
   'SHARE_CANCEL_ADMIN_ONLY',
   'SHARE_CHANGE_REQUESTER_REQUIRED',
   'SHARE_REJECT_IMPERSONATION_FORBIDDEN',
+  'TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT',
+  'TEAM_HR_MEMBER_MUST_BE_HR',
   'TELEGRAM_CHANNEL_SENIOR_ONLY',
   'USER_ALREADY_ARCHIVED',
   'USER_EMAIL_EXISTS',
@@ -141,6 +144,7 @@ export const AUTH_USERS_PROJECTS_ERROR_PARAMS = {
   HR_JOIN_OWN_DROP_TEAM_ONLY: [],
   HR_REQUIRED_MINIMUM_ONE: [],
   HR_SENIOR_ONLY_CREATION: [],
+  HR_TEAM_SELF_ONLY: [],
   IMPERSONATION_ALREADY_ACTIVE: [],
   IMPERSONATION_NOT_ACTIVE: [],
   IMPERSONATION_ORIGIN_UNAVAILABLE: [],
@@ -179,6 +183,8 @@ export const AUTH_USERS_PROJECTS_ERROR_PARAMS = {
   SHARE_CANCEL_ADMIN_ONLY: [],
   SHARE_CHANGE_REQUESTER_REQUIRED: [],
   SHARE_REJECT_IMPERSONATION_FORBIDDEN: [],
+  TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT: [],
+  TEAM_HR_MEMBER_MUST_BE_HR: [],
   TELEGRAM_CHANNEL_SENIOR_ONLY: [],
   USER_ALREADY_ARCHIVED: [],
   USER_EMAIL_EXISTS: [],
@@ -352,6 +358,10 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
     id: 'api-error.HR_SENIOR_ONLY_CREATION',
     message: 'HR може створювати лише сеньйорів',
   },
+  HR_TEAM_SELF_ONLY: /* i18n */ {
+    id: 'api-error.HR_TEAM_SELF_ONLY',
+    message: 'HR може додати до команди лише себе як HR',
+  },
   IMPERSONATION_ALREADY_ACTIVE: /* i18n */ {
     id: 'api-error.IMPERSONATION_ALREADY_ACTIVE',
     message: 'Ви вже увійшли як інший співробітник — спершу поверніться до свого облікового запису',
@@ -504,6 +514,14 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
     id: 'api-error.SHARE_REJECT_IMPERSONATION_FORBIDDEN',
     message: 'Ви увійшли як інший співробітник — відхилити його частку може лише він сам',
   },
+  TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT: /* i18n */ {
+    id: 'api-error.TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT',
+    message: 'Бухгалтером команди може бути лише користувач із роллю бухгалтера',
+  },
+  TEAM_HR_MEMBER_MUST_BE_HR: /* i18n */ {
+    id: 'api-error.TEAM_HR_MEMBER_MUST_BE_HR',
+    message: 'HR команди може бути лише користувач із роллю HR',
+  },
   TELEGRAM_CHANNEL_SENIOR_ONLY: /* i18n */ {
     id: 'api-error.TELEGRAM_CHANNEL_SENIOR_ONLY',
     message: 'Telegram-канал можна вказати лише сеньйору',
@@ -581,6 +599,7 @@ export const AUTH_USERS_PROJECTS_ERROR_FALLBACK_EN: Record<AuthUsersProjectsErro
   HR_JOIN_OWN_DROP_TEAM_ONLY: 'HR can only add a senior to their own drop team',
   HR_REQUIRED_MINIMUM_ONE: 'At least one HR is required',
   HR_SENIOR_ONLY_CREATION: 'HR can only create seniors',
+  HR_TEAM_SELF_ONLY: 'HR can only add themselves as the HR of the new team',
   IMPERSONATION_ALREADY_ACTIVE:
     "You're already signed in as another employee — return to your own account first",
   IMPERSONATION_NOT_ACTIVE: "You're not signed in as another employee",
@@ -627,6 +646,8 @@ export const AUTH_USERS_PROJECTS_ERROR_FALLBACK_EN: Record<AuthUsersProjectsErro
   SHARE_CHANGE_REQUESTER_REQUIRED: "Couldn't change the share. Try again",
   SHARE_REJECT_IMPERSONATION_FORBIDDEN:
     "You're signed in as another employee — only they can reject their share",
+  TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT: 'The team accountant must be a user with the accountant role',
+  TEAM_HR_MEMBER_MUST_BE_HR: 'A team HR must be a user with the HR role',
   TELEGRAM_CHANNEL_SENIOR_ONLY: 'A Telegram channel can only be set for a senior',
   USER_ALREADY_ARCHIVED: 'The user is already archived',
   USER_EMAIL_EXISTS: 'This email is already taken. Enter a different one',

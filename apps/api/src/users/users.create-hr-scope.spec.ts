@@ -110,6 +110,19 @@ describe('UsersController.createUser — MED: HR provisioning scope', () => {
     expect(args['legalFullName']).toBeUndefined()
   })
 
+  it('SR-M-2 pin: HR may set the base share at creation across the whole range (0 is forwarded, not dropped)', async () => {
+    const createUser = vi.fn().mockResolvedValue({ id: 'created-uuid' })
+    const controller = makeController({ createUser })
+
+    await controller.createUser(hrActor, { ...maximalSeniorPayload, seniorSharePercent: 0 })
+
+    const args = createUser.mock.calls[0]![0] as Record<string, unknown>
+    expect(args['seniorSharePercent']).toBe(0)
+    // The service enforces the team-staff rules from the real session identity.
+    expect(args['actorRole']).toBe('HR')
+    expect(args['actorId']).toBe(HR_ACTOR_ID)
+  })
+
   it('REGRESSION: ADMIN actor sending the same payload gets every field passed through unchanged', async () => {
     const createUser = vi.fn().mockResolvedValue({ id: 'created-uuid' })
     const controller = makeController({ createUser })

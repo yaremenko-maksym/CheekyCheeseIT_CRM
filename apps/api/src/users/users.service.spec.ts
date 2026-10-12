@@ -166,6 +166,8 @@ interface MakeDbOptions {
   insertedTeam?: { id: string; name: string } | null
   updatedUser?: ReturnType<typeof makeUser>
   deletedRows?: ReturnType<typeof makeUser>[]
+  /** SR-M-1: rows returned by the team-staff role probe, which now runs FIRST in createUser. */
+  staffRoles?: Array<{ id: string; role: string }>
 }
 
 function makeDb({
@@ -174,6 +176,7 @@ function makeDb({
   insertedTeam = { id: 'team-1', name: 'Команда Senior Dev' },
   updatedUser = makeUser(),
   deletedRows = [makeUser()],
+  staffRoles,
 }: MakeDbOptions = {}): DrizzleDb {
   // select chain: used by findByEmail / findById / findAll
   const selectChain = {
@@ -185,7 +188,12 @@ function makeDb({
   // findByEmail (first call in createUser) returns existingUser;
   // findById (second+ calls) returns createdUser
   let selectCallCount = 0
+  let staffProbePending = staffRoles !== undefined
   selectChain.where.mockImplementation(() => {
+    if (staffProbePending) {
+      staffProbePending = false
+      return Promise.resolve(staffRoles)
+    }
     selectCallCount++
     if (selectCallCount === 1) return Promise.resolve(existingUser ? [existingUser] : [])
     return Promise.resolve(createdUser ? [createdUser] : [])
@@ -1977,7 +1985,15 @@ describe('UsersService.createUser — SENIOR', () => {
 
   it('creates a SENIOR team with HR and accountant members', async () => {
     const senior = makeSenior()
-    const db = makeDb({ existingUser: undefined, createdUser: senior })
+    const db = makeDb({
+      existingUser: undefined,
+      createdUser: senior,
+      staffRoles: [
+        { id: 'hr-1', role: 'HR' },
+        { id: 'hr-2', role: 'HR' },
+        { id: 'acc-1', role: 'ACCOUNTANT' },
+      ],
+    })
     const service = makeUsersService(db)
 
     await service.createUser({
@@ -1998,7 +2014,11 @@ describe('UsersService.createUser — SENIOR', () => {
 
   it('creates a SENIOR team with HR only (no accountant)', async () => {
     const senior = makeSenior()
-    const db = makeDb({ existingUser: undefined, createdUser: senior })
+    const db = makeDb({
+      existingUser: undefined,
+      createdUser: senior,
+      staffRoles: [{ id: 'hr-1', role: 'HR' }],
+    })
     const service = makeUsersService(db)
 
     await service.createUser({
