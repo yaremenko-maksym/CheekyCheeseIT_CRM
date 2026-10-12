@@ -316,6 +316,7 @@ export function ProjectCreateDialog({
                   techStack: t`Стек технологій`,
                   teamSize: t`Склад команди`,
                   benefits: t`Бенефіти`,
+                  // Stryker disable next-line StringLiteral: dead entry - the paymentType branch below returns before labels[fieldName] is read
                   paymentType: t`Тип оплати`,
                   salaryReview: t`Перегляд ЗП`,
                   corpTech: t`Корп. техніка`,
