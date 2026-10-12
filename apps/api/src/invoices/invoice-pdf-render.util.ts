@@ -302,9 +302,10 @@ export function formatAmount(amount: string): string {
   const num = Number(amount)
   if (!Number.isFinite(num)) return amount
   const fixed = num.toFixed(6)
-  // Trim trailing zeros but keep at least 2 decimals.
-  // After the first pass at most one trailing zero remains (exactly two decimals).
-  const trimmed = fixed.replace(/(\.\d{2})\d*?0$/, '$1').replace(/(\.[1-9])0$/, '$1')
+  // Trim ONLY trailing zeros, always keeping at least 2 decimals. Significant
+  // digits are never dropped (no rounding or truncation: toFixed(6) already
+  // matches the DB scale). Exponent form (|amount| >= 1e21) has no '.', no-op.
+  const trimmed = fixed.replace(/(\.\d{2}\d*?)0+$/, '$1')
   // Thousand separators using a plain space. `decPart` is undefined only for
   // exponent-form output (|amount| >= 1e21).
   const [intPart, decPart] = trimmed.split('.') as [string, string | undefined]
