@@ -580,6 +580,23 @@ test.describe('AC5 — Company balance KPI on /stats', () => {
     await page.route(new RegExp(`${API_RE}/transactions(\\?.*)?$`), (r) => jsonOk(r, []))
     await page.route(new RegExp(`${API_RE}/payout-requests(\\?.*)?$`), (r) => jsonOk(r, []))
     await page.route(`${API_GLOB}/users`, (r) => jsonOk(r, []))
+    // Full FinanceSummaryDto shape (the fixture default summary predates
+    // `adminBalances`). Owner decision 2026-10-12: ADMIN and ACCOUNTANT both see
+    // the partner (admin) balances next to the company balance.
+    await page.route(new RegExp(`${API_RE}/finance/summary(\\?.*)?$`), (r) =>
+      jsonOk(r, {
+        totalIncome: 10000,
+        totalExpenses: 2000,
+        totalSalaries: 3000,
+        netBalance: 5000,
+        adminBalances: [
+          { userId: 'admin-1', displayName: 'Admin One', balance: 4000 },
+          { userId: 'admin-2', displayName: 'Admin Two', balance: 1000 },
+        ],
+        dropBalances: [],
+        monthly: [{ month: '2026-06', income: 6000, expenses: 1200, salaries: 1800, profit: 3000 }],
+      }),
+    )
   }
 
   test('ADMIN sees company balance KPI on /stats', async ({ asAdmin }) => {
@@ -601,5 +618,35 @@ test.describe('AC5 — Company balance KPI on /stats', () => {
     await expect(asAccountant.getByTestId('stats-company-account-balance')).toContainText(
       /12[\s,.]?345/,
     )
+  })
+
+  async function expectCompanyAndPartnerBalances(page: Page) {
+    await mockStatsRoutes(page)
+
+    await page.goto('/stats')
+
+    const card = page.getByTestId('stats-company-partners-card')
+    await expect(card).toBeVisible()
+    await expect(card.getByTestId('stats-company-account-balance')).toContainText(/12[\s,.]?345/)
+    const partners = card.getByTestId('stats-partner-balances')
+    await expect(partners).toContainText('Admin One')
+    await expect(partners).toContainText('Admin Two')
+  }
+
+  test('ADMIN sees company + partner balances card on /stats', async ({ asAdmin }) => {
+    await expectCompanyAndPartnerBalances(asAdmin)
+  })
+
+  test('ACCOUNTANT sees company + partner balances card on /stats', async ({ asAccountant }) => {
+    await expectCompanyAndPartnerBalances(asAccountant)
+  })
+
+  test('JUNIOR does NOT see the company + partner balances card', async ({ asJunior }) => {
+    await mockStatsRoutes(asJunior)
+
+    await asJunior.goto('/stats')
+
+    await expect(asJunior.getByTestId('stats-company-partners-card')).toHaveCount(0)
+    await expect(asJunior.getByTestId('stats-partner-balances')).toHaveCount(0)
   })
 })

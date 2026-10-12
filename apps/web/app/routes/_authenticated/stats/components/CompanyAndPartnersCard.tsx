@@ -36,24 +36,17 @@ export function partnerShare(balance: number, absTotal: number): { label: string
 
 // ── Combined Company + Partners balance card ──────────────────────────────────
 // Merges CompanyAccountKpi (USDT счёт компании) and PartnerBalancesCard into
-// one Card with two sections separated by a divider. Shown for both ADMIN and
-// ACCOUNTANT; the partner-balances section renders only for ADMIN.
+// one Card with two sections separated by a divider. Both sections are shown to
+// ADMIN and ACCOUNTANT (the page only renders for those roles).
 
-export function CompanyAndPartnersCard({
-  summary,
-  isAdmin,
-}: {
-  summary: FinanceSummaryDto
-  isAdmin: boolean
-}) {
+export function CompanyAndPartnersCard({ summary }: { summary: FinanceSummaryDto }) {
   const { data: account, isLoading: accountLoading } = useQuery({
     queryKey: ['company-account'],
     queryFn: companyAccountApi.getAccount,
   })
 
-  // Partner balances are ADMIN-only: for any other viewer `sorted` stays empty, which
-  // also keeps the partner section below hidden (single gate: `sorted.length > 0`).
-  const sorted = isAdmin ? [...summary.adminBalances].sort((a, b) => b.balance - a.balance) : []
+  // Partner section is hidden only when there are no admin balances (`sorted.length > 0`).
+  const sorted = [...summary.adminBalances].sort((a, b) => b.balance - a.balance)
   // The richest and poorest partner, when there are two distinct ones to settle between.
   const settlement =
     sorted.length >= 2 && sorted[0]!.userId !== sorted[sorted.length - 1]!.userId

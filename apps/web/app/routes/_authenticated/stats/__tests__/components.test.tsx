@@ -269,7 +269,7 @@ function summaryBalances(balances: { id: string; name: string; balance: number }
 describe('CompanyAndPartnersCard — company account section', () => {
   it('queries the company-account key', () => {
     mockAccount({ balance: 1, walletAddress: null })
-    render(<CompanyAndPartnersCard summary={summaryWith([])} isAdmin={false} />)
+    render(<CompanyAndPartnersCard summary={summaryWith([])} />)
     expect(useQueryMock).toHaveBeenCalledWith(
       expect.objectContaining({ queryKey: ['company-account'], queryFn: expect.any(Function) }),
     )
@@ -277,7 +277,7 @@ describe('CompanyAndPartnersCard — company account section', () => {
 
   it('renders the balance and the shortened wallet address', () => {
     mockAccount({ balance: 4200, walletAddress: '0x1234567890abcdef1234567890abcdef12345678' })
-    render(<CompanyAndPartnersCard summary={summaryWith([])} isAdmin={false} />)
+    render(<CompanyAndPartnersCard summary={summaryWith([])} />)
     const section = screen.getByTestId('stats-company-account-balance')
     expect(section).toHaveTextContent('4,200.00 USDT')
     expect(section).toHaveTextContent('0x1234…5678')
@@ -286,7 +286,7 @@ describe('CompanyAndPartnersCard — company account section', () => {
 
   it('shows the not-configured note and an em dash when there is no account / wallet', () => {
     mockAccount(undefined)
-    render(<CompanyAndPartnersCard summary={summaryWith([])} isAdmin={false} />)
+    render(<CompanyAndPartnersCard summary={summaryWith([])} />)
     const section = screen.getByTestId('stats-company-account-balance')
     expect(section).toHaveTextContent('—')
     expect(screen.getByText('Гаманець не налаштовано')).toBeInTheDocument()
@@ -294,14 +294,14 @@ describe('CompanyAndPartnersCard — company account section', () => {
 
   it('not-configured note when the account exists but the wallet is null', () => {
     mockAccount({ balance: 0, walletAddress: null })
-    render(<CompanyAndPartnersCard summary={summaryWith([])} isAdmin={false} />)
+    render(<CompanyAndPartnersCard summary={summaryWith([])} />)
     expect(screen.getByTestId('stats-company-account-balance')).toHaveTextContent('0.00 USDT')
     expect(screen.getByText('Гаманець не налаштовано')).toBeInTheDocument()
   })
 
   it('renders a skeleton (no balance, no note) while loading', () => {
     mockAccount(undefined, true)
-    render(<CompanyAndPartnersCard summary={summaryWith([])} isAdmin={false} />)
+    render(<CompanyAndPartnersCard summary={summaryWith([])} />)
     const section = screen.getByTestId('stats-company-account-balance')
     expect(section).not.toHaveTextContent('USDT —')
     expect(screen.queryByText('Гаманець не налаштовано')).not.toBeInTheDocument()
@@ -312,22 +312,21 @@ describe('CompanyAndPartnersCard — company account section', () => {
 describe('CompanyAndPartnersCard — partner balances section', () => {
   beforeEach(() => mockAccount({ balance: 1, walletAddress: null }))
 
-  it('is hidden for non-admin viewers even when balances exist', () => {
+  it('is shown whenever balances exist (ADMIN and ACCOUNTANT both reach the card)', () => {
     render(
       <CompanyAndPartnersCard
         summary={summaryBalances([
           { id: 'a', name: 'Alpha', balance: 10 },
           { id: 'b', name: 'Beta', balance: 5 },
         ])}
-        isAdmin={false}
       />,
     )
-    expect(screen.queryByTestId('stats-partner-balances')).not.toBeInTheDocument()
-    expect(screen.queryByText('Баланси партнерів')).not.toBeInTheDocument()
+    expect(screen.getByTestId('stats-partner-balances')).toHaveTextContent('Alpha')
+    expect(screen.getByText('Баланси партнерів')).toBeInTheDocument()
   })
 
-  it('is hidden for an admin when there are no balances', () => {
-    render(<CompanyAndPartnersCard summary={summaryBalances([])} isAdmin />)
+  it('is hidden when there are no balances', () => {
+    render(<CompanyAndPartnersCard summary={summaryBalances([])} />)
     expect(screen.queryByTestId('stats-partner-balances')).not.toBeInTheDocument()
     expect(screen.queryByText('Баланси партнерів')).not.toBeInTheDocument()
   })
@@ -339,7 +338,6 @@ describe('CompanyAndPartnersCard — partner balances section', () => {
           { id: 'b', name: 'Beta', balance: 1000 },
           { id: 'a', name: 'Alpha', balance: 3000 },
         ])}
-        isAdmin
       />,
     )
     const list = screen.getByTestId('stats-partner-balances')
@@ -374,7 +372,6 @@ describe('CompanyAndPartnersCard — partner balances section', () => {
           { id: 'a', name: 'Alpha', balance: 3000.4 },
           { id: 'b', name: 'Beta', balance: 1000.3 },
         ])}
-        isAdmin
       />,
     )
     expect(screen.getByText('$4,001')).toBeInTheDocument()
@@ -387,7 +384,6 @@ describe('CompanyAndPartnersCard — partner balances section', () => {
           { id: 'a', name: 'Alpha', balance: 1000 },
           { id: 'b', name: 'Beta', balance: 0 },
         ])}
-        isAdmin
       />,
     )
     const bars = screen
@@ -403,7 +399,6 @@ describe('CompanyAndPartnersCard — partner balances section', () => {
           { id: 'a', name: 'Alpha', balance: 3000 },
           { id: 'b', name: 'Beta', balance: -1000 },
         ])}
-        isAdmin
       />,
     )
     const neg = screen.getByText('$-1,000.00')
@@ -426,7 +421,6 @@ describe('CompanyAndPartnersCard — partner balances section', () => {
           { id: 'a', name: 'Alpha', balance: 100 },
           { id: 'b', name: 'Beta', balance: 0 },
         ])}
-        isAdmin
       />,
     )
     const zero = screen.getByText('$0.00')
@@ -443,7 +437,6 @@ describe('CompanyAndPartnersCard — partner balances section', () => {
           { id: 'c', name: 'Gamma', balance: 2000 },
           { id: 'b', name: 'Beta', balance: 1000 },
         ])}
-        isAdmin
       />,
     )
     expect(screen.getByText('Для вирівнювання')).toBeInTheDocument()
@@ -470,7 +463,6 @@ describe('CompanyAndPartnersCard — partner balances section', () => {
           { id: 'a', name: 'Alpha', balance: 500 },
           { id: 'b', name: 'Beta', balance: 500 },
         ])}
-        isAdmin
       />,
     )
     expect(screen.getByText('Баланси вирівняно')).toBeInTheDocument()
@@ -485,7 +477,6 @@ describe('CompanyAndPartnersCard — partner balances section', () => {
           { id: 'a', name: 'Alpha', balance: 0.02 },
           { id: 'b', name: 'Beta', balance: 0 },
         ])}
-        isAdmin
       />,
     )
     expect(screen.getByText('Баланси вирівняно')).toBeInTheDocument()
@@ -498,7 +489,6 @@ describe('CompanyAndPartnersCard — partner balances section', () => {
           { id: 'a', name: 'Alpha', balance: 0.04 },
           { id: 'b', name: 'Beta', balance: 0 },
         ])}
-        isAdmin
       />,
     )
     expect(screen.getByText('Для вирівнювання')).toBeInTheDocument()
@@ -509,7 +499,6 @@ describe('CompanyAndPartnersCard — partner balances section', () => {
     render(
       <CompanyAndPartnersCard
         summary={summaryBalances([{ id: 'a', name: 'Alpha', balance: 700 }])}
-        isAdmin
       />,
     )
     expect(screen.getByText('Баланси вирівняно')).toBeInTheDocument()
@@ -523,7 +512,6 @@ describe('CompanyAndPartnersCard — partner balances section', () => {
           { id: 'same', name: 'Alpha', balance: 900 },
           { id: 'same', name: 'Beta', balance: 100 },
         ])}
-        isAdmin
       />,
     )
     expect(screen.getByText('Баланси вирівняно')).toBeInTheDocument()
@@ -535,7 +523,7 @@ describe('CompanyAndPartnersCard — partner balances section', () => {
       { id: 'b', name: 'Beta', balance: 1 },
       { id: 'a', name: 'Alpha', balance: 9 },
     ])
-    render(<CompanyAndPartnersCard summary={summary} isAdmin />)
+    render(<CompanyAndPartnersCard summary={summary} />)
     expect(summary.adminBalances.map((b) => b.userId)).toEqual(['b', 'a'])
   })
 })
