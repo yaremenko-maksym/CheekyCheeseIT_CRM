@@ -580,6 +580,23 @@ test.describe('AC5 — Company balance KPI on /stats', () => {
     await page.route(new RegExp(`${API_RE}/transactions(\\?.*)?$`), (r) => jsonOk(r, []))
     await page.route(new RegExp(`${API_RE}/payout-requests(\\?.*)?$`), (r) => jsonOk(r, []))
     await page.route(`${API_GLOB}/users`, (r) => jsonOk(r, []))
+    // Full FinanceSummaryDto shape (the fixture default summary predates
+    // `adminBalances`). Owner decision 2026-10-12: ADMIN and ACCOUNTANT both see
+    // the partner (admin) balances next to the company balance.
+    await page.route(new RegExp(`${API_RE}/finance/summary(\\?.*)?$`), (r) =>
+      jsonOk(r, {
+        totalIncome: 10000,
+        totalExpenses: 2000,
+        totalSalaries: 3000,
+        netBalance: 5000,
+        adminBalances: [
+          { userId: 'admin-1', displayName: 'Admin One', balance: 4000 },
+          { userId: 'admin-2', displayName: 'Admin Two', balance: 1000 },
+        ],
+        dropBalances: [],
+        monthly: [{ month: '2026-06', income: 6000, expenses: 1200, salaries: 1800, profit: 3000 }],
+      }),
+    )
   }
 
   test('ADMIN sees company balance KPI on /stats', async ({ asAdmin }) => {
@@ -603,30 +620,8 @@ test.describe('AC5 — Company balance KPI on /stats', () => {
     )
   })
 
-  // Owner decision 2026-10-12: ACCOUNTANT sees the partner (admin) balances
-  // alongside the company balance. Full FinanceSummaryDto shape so the card
-  // renders the partner section (the fixture default summary has no
-  // adminBalances).
-  async function mockSummaryWithAdminBalances(page: Page) {
-    await page.route(new RegExp(`${API_RE}/finance/summary(\\?.*)?$`), (r) =>
-      jsonOk(r, {
-        totalIncome: 10000,
-        totalExpenses: 2000,
-        totalSalaries: 3000,
-        netBalance: 5000,
-        adminBalances: [
-          { userId: 'admin-1', displayName: 'Admin One', balance: 4000 },
-          { userId: 'admin-2', displayName: 'Admin Two', balance: 1000 },
-        ],
-        dropBalances: [],
-        monthly: [{ month: '2026-06', income: 6000, expenses: 1200, salaries: 1800, profit: 3000 }],
-      }),
-    )
-  }
-
   async function expectCompanyAndPartnerBalances(page: Page) {
     await mockStatsRoutes(page)
-    await mockSummaryWithAdminBalances(page)
 
     await page.goto('/stats')
 
@@ -644,5 +639,14 @@ test.describe('AC5 — Company balance KPI on /stats', () => {
 
   test('ACCOUNTANT sees company + partner balances card on /stats', async ({ asAccountant }) => {
     await expectCompanyAndPartnerBalances(asAccountant)
+  })
+
+  test('JUNIOR does NOT see the company + partner balances card', async ({ asJunior }) => {
+    await mockStatsRoutes(asJunior)
+
+    await asJunior.goto('/stats')
+
+    await expect(asJunior.getByTestId('stats-company-partners-card')).toHaveCount(0)
+    await expect(asJunior.getByTestId('stats-partner-balances')).toHaveCount(0)
   })
 })
