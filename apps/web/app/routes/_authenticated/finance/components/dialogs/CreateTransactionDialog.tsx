@@ -577,6 +577,7 @@ export function CreateTransactionDialog({
             myProjects={myProjects}
             adminOwnProjects={adminOwnProjects}
             projects={projects}
+            // Stryker disable next-line OptionalChaining: user is always defined once this dialog renders (gated by the authenticated route it lives on) — `?.` is a defensive no-op here, not an observable branch; same reasoning as the identical `user?.id` suppressions on the project pools above.
             userId={user?.id}
             isAccountant={isAccountant}
             onProjectChange={handleProjectChange}

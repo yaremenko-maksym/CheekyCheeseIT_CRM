@@ -227,12 +227,10 @@ export function useCreateTransactionMutation({
       // knows their tx is registered + queued for validation. Other types
       // already surface via the table refresh so a toast would be noise.
       if (type === 'DROP_INCOME') {
-        // Stryker disable next-line StringLiteral: onSuccess toast text — this test file's `useMutation` mock never invokes `onSuccess` (mutate is a no-op stub), so no unit test in this suite reaches this line; the toast is pinned end-to-end by `drop-income-ui.spec.ts`.
         toast.success(t`Дохід зареєстровано, очікує валідації`)
       }
       if (type === 'DIVIDEND') {
         void qc.invalidateQueries({ queryKey: ['company-account'] })
-        // Stryker disable next-line StringLiteral: same onSuccess-not-invoked reasoning as the DROP_INCOME toast above; pinned end-to-end by drop-share-usdt-income.spec.ts's dividend flow.
         toast.success(t`Дивіденди виведено`)
       }
       // Invalidate company-account balance when any company-account debit/credit
