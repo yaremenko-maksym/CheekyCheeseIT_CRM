@@ -232,13 +232,15 @@ export const FIELD_CATEGORIES: Record<string, Category> = {
   'app/routes/_authenticated/interviews/components/LinkRecordingDialog.tsx#id:recording-link-search':
     'SEARCH',
   'app/routes/_authenticated/finance/index.tsx#1': 'SEARCH',
-  'app/routes/_authenticated/team/index.tsx#4': 'SEARCH',
+  'app/routes/_authenticated/team/index.tsx#1': 'SEARCH',
   'app/routes/_authenticated/users/index.tsx#1': 'SEARCH',
 
-  // ---- routes/_authenticated/team/index.tsx (create-senior form — admin fills ANOTHER person's data) ----
-  'app/routes/_authenticated/team/index.tsx#1': 'EMAIL_NO_AUTOFILL',
-  'app/routes/_authenticated/team/index.tsx#2': 'PERSON_NAME_NO_AUTOFILL',
-  'app/routes/_authenticated/team/index.tsx#3': 'HANDLE',
+  // ---- routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx (create-senior form — admin fills ANOTHER person's data) ----
+  'app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx#1':
+    'EMAIL_NO_AUTOFILL',
+  'app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx#2':
+    'PERSON_NAME_NO_AUTOFILL',
+  'app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx#3': 'HANDLE',
 
   // ---- routes/_authenticated/admin/ChangeWalletAddressDialog.tsx ----
   'app/routes/_authenticated/admin/ChangeWalletAddressDialog.tsx#2': 'WALLET_HASH', // "Новый адрес" — #1 (current, readOnly) is auto-exempt
