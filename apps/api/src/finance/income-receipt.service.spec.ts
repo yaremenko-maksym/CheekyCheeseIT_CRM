@@ -207,7 +207,8 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
       events.push('claim:record-divergence')
     }),
   }
-  ;(svc as unknown as { onChainClaim: unknown }).onChainClaim = onChain
+  const collaborator = (svc as unknown as { incomeReceipt: Record<string, unknown> }).incomeReceipt
+  collaborator.onChainClaim = onChain
 
   consumeTxHashMock.mockImplementation(async () => {
     events.push('claim:consume')
@@ -215,7 +216,7 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
   })
 
   const debug = vi.fn()
-  ;(svc as unknown as { logger: { debug: unknown } }).logger.debug = debug
+  ;(collaborator.logger as { debug: unknown }).debug = debug
 
   return {
     svc,

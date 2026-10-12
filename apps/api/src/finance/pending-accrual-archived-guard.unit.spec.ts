@@ -65,6 +65,8 @@ const SCANNED_FILES = [
   SRC_FILE,
   // SENIOR_INCOME / DROP_INCOME creation lives in the senior-drop-income collaborator.
   path.resolve(import.meta.dirname, 'senior-drop-income.service.ts'),
+  // updateSeniorIncome / updateDropIncome resubmit lives in the income-receipt collaborator.
+  path.resolve(import.meta.dirname, 'income-receipt.service.ts'),
   path.resolve(import.meta.dirname, 'transaction-entry.service.ts'),
   SALARY_PAYMENT_FILE,
 ]
@@ -712,7 +714,8 @@ describe('updateSeniorIncome — AC1/MED-1: an archived receiver is refused befo
     // out of scope here. Spying it lets this test prove ONLY the ordering
     // question: does the archived-guard run before it.
     vi.spyOn(
-      svc as unknown as { replaceReceiptAtomic: () => Promise<never> },
+      (svc as unknown as { incomeReceipt: { replaceReceiptAtomic: () => Promise<never> } })
+        .incomeReceipt,
       'replaceReceiptAtomic',
     ).mockRejectedValue(new Error('REPLACE REACHED'))
     return { svc, usersFindFirst }
@@ -779,7 +782,8 @@ describe('updateDropIncome — AC1/MED-1: an archived receiver is refused before
     } as never
     const svc = makeTransactionsService({ db })
     vi.spyOn(
-      svc as unknown as { replaceReceiptAtomic: () => Promise<never> },
+      (svc as unknown as { incomeReceipt: { replaceReceiptAtomic: () => Promise<never> } })
+        .incomeReceipt,
       'replaceReceiptAtomic',
     ).mockRejectedValue(new Error('REPLACE REACHED'))
     return { svc, usersFindFirst }

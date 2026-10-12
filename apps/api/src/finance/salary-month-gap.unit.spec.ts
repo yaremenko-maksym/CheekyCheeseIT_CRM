@@ -758,7 +758,11 @@ describe('backfillSalaryMonth — re-invokes the idempotent cron insert, then re
       missingInsertedReceiverIds: ['hr-1'],
     })
     const loggerError = vi.spyOn(
-      (svc as unknown as { logger: { error: (...args: unknown[]) => void } }).logger,
+      (
+        svc as unknown as {
+          salaryPay: { logger: { error: (...args: unknown[]) => void } }
+        }
+      ).salaryPay.logger,
       'error',
     )
 
