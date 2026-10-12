@@ -122,15 +122,8 @@ export function FromTo({ tx: rawTx }: { tx: TransactionDto }) {
         </div>
       )
 
+    // PAYOUT_ADMIN shares the PAYOUT_CONFIRMED body (the two arms were byte-identical).
     case 'PAYOUT_ADMIN':
-      return (
-        <div className="flex items-center gap-1.5 min-w-0">
-          <Party id={tx.senderId} name={tx.senderName} label={tx.senderLabel} type="user" />
-          <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
-          <Party id={tx.receiverId} name={tx.receiverName} label={tx.receiverLabel} type="user" />
-        </div>
-      )
-
     // Drop role - phase 3 (spec §8.4). Sender mirrors the original PAYOUT
     // (drop / senior). Receiver is the admin partner chosen during manual
     // confirmation — surfaced through receiverId/receiverName.
@@ -147,15 +140,8 @@ export function FromTo({ tx: rawTx }: { tx: TransactionDto }) {
     // senderLabel='COMPANY' (no senderId) and receiverId = the senior, so the
     // sender renders as the non-clickable company alias and the receiver as the
     // clickable senior — instead of the previous «—» default.
+    // (SENIOR_PENDING_PAYOUT shares the DROP_PENDING_PAYOUT body — byte-identical arms.)
     case 'SENIOR_PENDING_PAYOUT':
-      return (
-        <div className="flex items-center gap-1.5 min-w-0">
-          <Party id={null} name={null} label={tx.senderLabel ?? 'CheekyCheeseIT'} type="user" />
-          <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
-          <Party id={tx.receiverId} name={tx.receiverName} label={tx.receiverLabel} type="user" />
-        </div>
-      )
-
     // Manual QA #367 fix: mirror of SENIOR_PENDING_PAYOUT above — the company
     // owes a drop their USDT-project share (booked by bookCompanyObligations,
     // same row shape: senderLabel='COMPANY', receiverId = the drop). Without
