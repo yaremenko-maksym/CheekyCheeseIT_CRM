@@ -81,7 +81,8 @@ function renderSides(tx: TransactionDto): Side[] | 'dash-only' {
   // eslint-disable-next-line testing-library/no-node-access
   const parts = Array.from(root.children)
   expect(parts).toHaveLength(3) // sender, arrow, receiver
-  return [parts[0], parts[2]].map((el) => ({
+  const [left, , right] = parts as [Element, Element, Element]
+  return [left, right].map((el) => ({
     text: el.textContent ?? '',
     link: el.tagName === 'A' ? 'user' : null,
   }))
