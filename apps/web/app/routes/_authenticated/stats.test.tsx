@@ -881,6 +881,20 @@ describe('StatsPage — partner section with no admin balances', () => {
     },
   )
 
+  it('lists partners by balance, richest first, regardless of input order', () => {
+    setup('ACCOUNTANT', {
+      adminBalances: [
+        { userId: 'a-low', displayName: 'Low Admin', balance: 100 },
+        { userId: 'a-high', displayName: 'High Admin', balance: 900 },
+        { userId: 'a-mid', displayName: 'Mid Admin', balance: 500 },
+      ],
+    })
+    const text = screen.getByTestId('stats-partner-balances').textContent ?? ''
+    expect(text.indexOf('High Admin')).toBeGreaterThanOrEqual(0)
+    expect(text.indexOf('High Admin')).toBeLessThan(text.indexOf('Mid Admin'))
+    expect(text.indexOf('Mid Admin')).toBeLessThan(text.indexOf('Low Admin'))
+  })
+
   it('a single admin balance renders the partner list without a settlement transfer', () => {
     setup('ACCOUNTANT', {
       adminBalances: [{ userId: 'admin-1', displayName: 'Admin One', balance: 4000 }],
