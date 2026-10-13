@@ -47,11 +47,11 @@ describe('user_emails writer inventory — every `.insert(users)` pairs with a u
    * test/spec, referenced here) or is not a real request path.
    */
   const KNOWN_USERS_EMAIL_WRITERS: Record<string, string> = {
-    'users/users.service.ts::createUser':
+    'users/user-creation.service.ts::createUser':
       'wraps users+user_emails(WORK[+PERSONAL]) inserts in one transaction — users.service.spec.ts "user_emails writes (§4.4)"',
-    'users/users.service.ts::createDrop':
+    'users/drop-creation.service.ts::createDrop':
       'already tx-wrapped; WORK insert via writeUserEmailOrConflict — users.drop.spec.ts',
-    'database/seed.ts::main':
+    'database/seed/users.ts::seedUsers':
       'fixture data, not a request path — inserts a matching user_emails WORK row for every SEED_USERS entry immediately after (see that file)',
   }
 
@@ -142,7 +142,9 @@ describe('user_emails writer inventory — every `.insert(users)` pairs with a u
     // by comparing two empty sets. Pin the one entry whose absence means
     // the parse broke rather than the code changed.
     const actual = collectUsersInsertWriters()
-    expect(actual['users/users.service.ts::createUser']).toMatch(/^users\/users\.service\.ts:\d+$/)
+    expect(actual['users/user-creation.service.ts::createUser']).toMatch(
+      /^users\/user-creation\.service\.ts:\d+$/,
+    )
     expect(Object.keys(actual)).toHaveLength(Object.keys(KNOWN_USERS_EMAIL_WRITERS).length)
   })
 })

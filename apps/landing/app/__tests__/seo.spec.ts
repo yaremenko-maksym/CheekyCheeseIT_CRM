@@ -17,6 +17,7 @@ import {
   buildItemListJsonLd,
   buildJobPostingJsonLd,
   buildOrganizationJsonLd,
+  buildVacancyCanonical,
   buildWebSiteJsonLd,
   canonicalUrl,
   markdownToPlainText,
@@ -38,6 +39,43 @@ describe('canonicalUrl', () => {
 
   it('is idempotent — does not double the trailing slash if already present', () => {
     expect(canonicalUrl('/careers/')).toBe(`${SITE_ORIGIN}/careers/`)
+  })
+})
+
+describe('buildVacancyCanonical (GSC duplicate-canonical, Variant A)', () => {
+  const path = '/careers/senior-ml-engineer'
+  const excludes = ['es', 'pt'] as const
+
+  it('untranslated locale canonicals to the default-locale URL', () => {
+    expect(buildVacancyCanonical('es', path, excludes)).toBe(
+      'https://cheekycheese.tech/careers/senior-ml-engineer/',
+    )
+    expect(buildVacancyCanonical('pt', path, excludes)).toBe(
+      'https://cheekycheese.tech/careers/senior-ml-engineer/',
+    )
+  })
+
+  it('translated non-default locale stays self-canonical', () => {
+    expect(buildVacancyCanonical('uk', path, excludes)).toBe(
+      'https://cheekycheese.tech/uk/careers/senior-ml-engineer/',
+    )
+  })
+
+  it('default locale stays self-canonical', () => {
+    expect(buildVacancyCanonical('en', path, excludes)).toBe(
+      'https://cheekycheese.tech/careers/senior-ml-engineer/',
+    )
+  })
+
+  it('no excludes (default arg) means self-canonical', () => {
+    expect(buildVacancyCanonical('es', path)).toBe(
+      'https://cheekycheese.tech/es/careers/senior-ml-engineer/',
+    )
+  })
+
+  it('excluded-locale canonical === the x-default hreflang href of the same cluster', () => {
+    const xDefault = buildHreflangAlternates(path, excludes).find((a) => a.hreflang === 'x-default')
+    expect(buildVacancyCanonical('es', path, excludes)).toBe(xDefault?.href)
   })
 })
 

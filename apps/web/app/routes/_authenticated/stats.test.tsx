@@ -10,12 +10,13 @@
  *     (X/N progress per receiver + expand of projects without a counted income).
  *     The ParticipantsBalancesSection (employee/partner balances) was REMOVED.
  *
- *   ADMIN-ONLY: the partner-balances settlement card and the «Другие разделы»
- *     HR/Команда/Проекты placeholders.
+ *   COMPANY + PARTNER BALANCES card (both ADMIN + ACCOUNTANT).
+ *
+ *   ADMIN-ONLY: the «Другие разделы» HR/Команда/Проекты placeholders.
  *
  * This pins: both roles see the economic + income-compliance sections; the old
  * participants-balances section is gone for everyone; ADMIN still sees the
- * partner-balances card + placeholders (no regression), ACCOUNTANT does not.
+ * placeholders (no regression), ACCOUNTANT does not; both see the balances card.
  *
  * Heavy dependencies (router file-route, query client, recharts, finance api)
  * are mocked so the component renders in isolation.
@@ -214,11 +215,12 @@ function makeCompliance(): IncomeComplianceOverviewDto {
   }
 }
 
-function setup(role: SessionUser['role']) {
+function setup(role: SessionUser['role'], summaryOverrides: Partial<FinanceSummaryDto> = {}) {
   useAuthMock.mockReturnValue({ user: makeUser(role), isLoading: false })
   useQueryMock.mockImplementation((opts: { queryKey?: unknown[] }) => {
     const key = opts?.queryKey?.[0]
-    if (key === 'finance-summary') return { data: makeSummary(), isLoading: false }
+    if (key === 'finance-summary')
+      return { data: { ...makeSummary(), ...summaryOverrides }, isLoading: false }
     if (key === 'income-compliance') return { data: makeCompliance(), isLoading: false }
     if (key === 'company-account')
       return {
@@ -849,9 +851,15 @@ describe('StatsPage — ACCOUNTANT economic-only (no admin-only surface)', () =>
     expect(screen.queryByTestId('stats-page-admin')).not.toBeInTheDocument()
   })
 
-  it('does NOT render the partner-balances settlement card', () => {
+  it('renders the company balance AND the partner balances for ACCOUNTANT', () => {
     setup('ACCOUNTANT')
-    expect(screen.queryByText('Баланси партнерів')).not.toBeInTheDocument()
+    expect(screen.getByTestId('stats-company-account-balance')).toHaveTextContent('4,200')
+    expect(screen.getByText('Баланси партнерів')).toBeInTheDocument()
+    const partners = screen.getByTestId('stats-partner-balances')
+    expect(partners).toHaveTextContent('Admin One')
+    expect(partners).toHaveTextContent('$4,000.00')
+    expect(partners).toHaveTextContent('Admin Two')
+    expect(screen.getByText('Разом', { exact: false })).toHaveTextContent('Разом: $5,000')
   })
 
   it('does NOT render the HR/Команда/Проекты placeholders', () => {
@@ -859,6 +867,40 @@ describe('StatsPage — ACCOUNTANT economic-only (no admin-only surface)', () =>
     expect(screen.queryByTestId('stats-placeholders-section')).not.toBeInTheDocument()
     expect(screen.queryByText('Інші розділи')).not.toBeInTheDocument()
     expect(screen.queryByText('HR — воронка співбесід')).not.toBeInTheDocument()
+  })
+})
+
+describe('StatsPage — partner section with no admin balances', () => {
+  it.each<SessionUser['role']>(['ADMIN', 'ACCOUNTANT'])(
+    '%s sees the company balance but no partner section when adminBalances is empty',
+    (role) => {
+      setup(role, { adminBalances: [] })
+      expect(screen.getByTestId('stats-company-account-balance')).toBeInTheDocument()
+      expect(screen.queryByTestId('stats-partner-balances')).not.toBeInTheDocument()
+      expect(screen.queryByText('Баланси партнерів')).not.toBeInTheDocument()
+    },
+  )
+
+  it('lists partners by balance, richest first, regardless of input order', () => {
+    setup('ACCOUNTANT', {
+      adminBalances: [
+        { userId: 'a-low', displayName: 'Low Admin', balance: 100 },
+        { userId: 'a-high', displayName: 'High Admin', balance: 900 },
+        { userId: 'a-mid', displayName: 'Mid Admin', balance: 500 },
+      ],
+    })
+    const text = screen.getByTestId('stats-partner-balances').textContent ?? ''
+    expect(text.indexOf('High Admin')).toBeGreaterThanOrEqual(0)
+    expect(text.indexOf('High Admin')).toBeLessThan(text.indexOf('Mid Admin'))
+    expect(text.indexOf('Mid Admin')).toBeLessThan(text.indexOf('Low Admin'))
+  })
+
+  it('a single admin balance renders the partner list without a settlement transfer', () => {
+    setup('ACCOUNTANT', {
+      adminBalances: [{ userId: 'admin-1', displayName: 'Admin One', balance: 4000 }],
+    })
+    expect(screen.getByTestId('stats-partner-balances')).toHaveTextContent('Admin One')
+    expect(screen.queryByText('Для вирівнювання')).not.toBeInTheDocument()
   })
 })
 
@@ -957,6 +999,9 @@ describe('StatsPage — Rules of Hooks (backlog #132 regression)', () => {
 
       expect(screen.queryByTestId('stats-page-admin')).not.toBeInTheDocument()
       expect(screen.queryByTestId('stats-page-accountant')).not.toBeInTheDocument()
+      // The company + partner balances card must not leak to any other role.
+      expect(screen.queryByTestId('stats-company-partners-card')).not.toBeInTheDocument()
+      expect(screen.queryByText('Баланси партнерів')).not.toBeInTheDocument()
     },
   )
 

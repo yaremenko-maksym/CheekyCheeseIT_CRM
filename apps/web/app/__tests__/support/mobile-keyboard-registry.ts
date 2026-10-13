@@ -231,14 +231,16 @@ export const FIELD_CATEGORIES: Record<string, Category> = {
   'testid:login-as-search': 'SEARCH',
   'app/routes/_authenticated/interviews/components/LinkRecordingDialog.tsx#id:recording-link-search':
     'SEARCH',
-  'app/routes/_authenticated/finance/index.tsx#1': 'SEARCH',
-  'app/routes/_authenticated/team/index.tsx#4': 'SEARCH',
+  'app/routes/_authenticated/finance/components/TransactionsTable.tsx#1': 'SEARCH',
+  'app/routes/_authenticated/team/index.tsx#1': 'SEARCH',
   'app/routes/_authenticated/users/index.tsx#1': 'SEARCH',
 
-  // ---- routes/_authenticated/team/index.tsx (create-senior form — admin fills ANOTHER person's data) ----
-  'app/routes/_authenticated/team/index.tsx#1': 'EMAIL_NO_AUTOFILL',
-  'app/routes/_authenticated/team/index.tsx#2': 'PERSON_NAME_NO_AUTOFILL',
-  'app/routes/_authenticated/team/index.tsx#3': 'HANDLE',
+  // ---- routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx (create-senior form — admin fills ANOTHER person's data) ----
+  'app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx#1':
+    'EMAIL_NO_AUTOFILL',
+  'app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx#2':
+    'PERSON_NAME_NO_AUTOFILL',
+  'app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx#3': 'HANDLE',
 
   // ---- routes/_authenticated/admin/ChangeWalletAddressDialog.tsx ----
   'app/routes/_authenticated/admin/ChangeWalletAddressDialog.tsx#2': 'WALLET_HASH', // "Новый адрес" — #1 (current, readOnly) is auto-exempt
@@ -403,24 +405,25 @@ export const EXEMPT_FIELDS: Record<string, string> = {
   'testid:legend-entry-textarea':
     "Free-text journal entry field on the default persona template page — same as ProjectLegendSection's legend-entry-input.",
 
-  // ---- routes/_authenticated/projects/index.tsx ----
-  'app/routes/_authenticated/projects/index.tsx#2':
+  // ---- routes/_authenticated/projects/components/ProjectCreateDialog.tsx ----
+  'app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx#1':
     'Название проекта — free-text project name, no taxonomy class applies.',
-  'app/routes/_authenticated/projects/index.tsx#3': 'Компания — free-text client company name.',
-  'app/routes/_authenticated/projects/index.tsx#5':
+  'app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx#2':
+    'Компания — free-text client company name.',
+  'app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx#4':
     'Dynamic labels[fieldName] (techStack/teamSize/benefits/salaryReview/corpTech) — content type varies per field, all free text by design.',
-  'app/routes/_authenticated/projects/index.tsx#6':
+  'app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx#5':
     'Общие заметки — free-text general notes textarea.',
 
   // ---- routes/_authenticated/projects/ProjectEditFields.tsx ----
   'app/routes/_authenticated/projects/ProjectEditFields.tsx#1':
-    'Название проекта (edit form) — same free-text project name as projects/index.tsx#2.',
+    'Название проекта (edit form) — same free-text project name as ProjectCreateDialog.tsx#1.',
   'app/routes/_authenticated/projects/ProjectEditFields.tsx#2':
-    'Компания (edit form) — same free-text company name as projects/index.tsx#3.',
+    'Компания (edit form) — same free-text company name as ProjectCreateDialog.tsx#2.',
   'app/routes/_authenticated/projects/ProjectEditFields.tsx#3':
-    'Dynamic labels[fieldName] (edit form) — same as projects/index.tsx#5.',
+    'Dynamic labels[fieldName] (edit form) — same as ProjectCreateDialog.tsx#4.',
   'app/routes/_authenticated/projects/ProjectEditFields.tsx#4':
-    'Общие заметки (edit form) — same free-text notes textarea as projects/index.tsx#6.',
+    'Общие заметки (edit form) — same free-text notes textarea as ProjectCreateDialog.tsx#5.',
 
   // ---- components/projects/ProjectApprovalActions.tsx (task-project-status-filter-ui) ----
   'testid:project-approval-reject-reason':
@@ -459,7 +462,7 @@ export const EXEMPT_FIELDS: Record<string, string> = {
     'i18n-3d-pr3 owner override (2026-09-28): the expense category is free text — prod `receiver_label` carries 16 distinct operator-authored values, not a closed set — so autocapitalize/autocorrect must not fight arbitrary operator wording.',
   'testid:admin-edit-expense-category-input':
     'i18n-3d-pr3 owner override (2026-09-28): same free-text expense category as CreateTransactionDialog — see that entry.',
-  'app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx#4':
+  'app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx#1':
     'Free-text "Заметки" field on the create-transaction dialog (non-dividend types).',
   'app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx#1':
     'Free-text rejection reason typed by ACCOUNTANT when rejecting a transaction.',

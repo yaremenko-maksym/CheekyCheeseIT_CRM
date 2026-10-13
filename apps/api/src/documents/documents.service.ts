@@ -21,7 +21,7 @@
  */
 import { HttpStatus, Injectable, Logger } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
-import { and, desc, eq, inArray, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm'
+import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import {
   DOCUMENT_MAX_BYTES,
   DOCUMENT_MIME_WHITELIST,
@@ -31,7 +31,6 @@ import {
   type DocumentCategory,
   type DocumentListFilters,
   type PresignedDownload,
-  type Role,
   type SessionUser,
 } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
@@ -47,18 +46,17 @@ import { DatabaseService } from '../database/database.service'
 // anywhere in this file (confirmed: it was already unused here even
 // before this merge, a leftover from the round-2 accountant-scoping
 // revert).
-import {
-  documentAccessLog,
-  documents,
-  invoiceSignatures,
-  nonDeletedTransactions,
-  projectMembers,
-  teamMembers,
-  users,
-  visibleProjects,
-} from '../database/schema'
+import { documents, invoiceSignatures, nonDeletedTransactions, users } from '../database/schema'
 import { HrAccessService } from '../common/hr-access.service'
-import { S3Service, isSensitiveCategory, presignTtlForCategory } from './s3.service'
+import { getHrSeniorIds, getTeammateIds } from './document-scope.util'
+import { buildListWhere } from './document-visibility.util'
+import { S3Service } from './s3.service'
+import {
+  deleteS3Keys as deleteS3KeysUtil,
+  executeHardDelete,
+  hardDeleteById,
+} from './document-hard-delete.util'
+import { presignDocument, presignThumbnail } from './document-presign.util'
 import { CompressionService, CompressionError, detectMimeFromBuffer } from './compression.service'
 import type { DrizzleTx } from '../database/types'
 import { apiError } from '../common/api-error'
@@ -366,7 +364,7 @@ export class DocumentsService {
     // cross-user document enumeration (OWASP IDOR / A01).
     const effectiveFilters: DocumentListFilters =
       actor.role === 'DROP' ? { ...filters, ownerId: actor.id } : filters
-    const where = await this.buildListWhere(actor, effectiveFilters)
+    const where = await buildListWhere(this.db, this.hrAccess, actor, effectiveFilters)
     if (where === 'NONE') return []
 
     // LEFT JOIN users so the response carries the uploader's display name
@@ -564,112 +562,23 @@ export class DocumentsService {
   }
 
   // -------------------------------------------------------------------------
-  // Presigned download URL
+  // Presigned URLs — access gate (findActiveOrThrow) stays here; the presign
+  // build + access logging live in document-presign.util.ts (L10 leaf).
   // -------------------------------------------------------------------------
 
   async getDownloadUrl(actor: SessionUser, docId: string): Promise<PresignedDownload> {
     const doc = await this.findActiveOrThrow(docId, actor)
-    // Variant 3 hybrid: download-as filename = original (unicode) when
-    // available, falling back to the sanitized ASCII `name` for legacy rows
-    // that pre-date migration 0011.
-    const downloadAs = doc.originalName ?? doc.name
-    // Use category-based TTL: sensitive categories (CONTRACT/RECEIPT/INVOICE/
-    // RESUME/SCAN) get 30 min; AVATAR/LOGO keep 24h default.
-    const ttl = presignTtlForCategory(doc.category as DocumentCategory)
-    await this.logAccess(actor, doc.id, doc.category as DocumentCategory, 'DOWNLOAD')
-    // s3/documents hygiene: force Content-Disposition: attachment so the browser
-    // always downloads the file rather than opening it inline (e.g. a PDF opened
-    // inline in a new tab could be shared via URL — attachment forces Save dialog).
-    return this.s3.getPresignedDownloadUrl(
-      doc.s3Key,
-      ttl,
-      downloadAs,
-      'attachment',
-      doc.category as DocumentCategory,
-    )
+    return presignDocument(this.s3, this.db, this.logger, actor, doc, 'DOWNLOAD')
   }
-
-  // -------------------------------------------------------------------------
-  // Presigned inline preview URL (for iframe embed — browser renders in-place)
-  // -------------------------------------------------------------------------
 
   /**
    * Like `getDownloadUrl` but forces `Content-Disposition: inline` so the
    * browser renders the PDF inside an iframe instead of triggering a Save
-   * dialog. Used by the invoice PDF preview panel and any other in-app PDF
-   * viewer that embeds content via <iframe src={url}>.
-   *
-   * Security note: the same category-based TTL applies (sensitive categories
-   * get 30 min). The URL is still presigned (authenticated via S3 signature)
-   * so it cannot be accessed without the signed query params.
+   * dialog. Same category-based TTL applies (sensitive categories get 30 min).
    */
   async getPreviewUrl(actor: SessionUser, docId: string): Promise<PresignedDownload> {
     const doc = await this.findActiveOrThrow(docId, actor)
-    const downloadAs = doc.originalName ?? doc.name
-    const ttl = presignTtlForCategory(doc.category as DocumentCategory)
-    await this.logAccess(actor, doc.id, doc.category as DocumentCategory, 'PREVIEW')
-    // disposition='inline' tells the browser to render the PDF in-place
-    // rather than offering a Save dialog (contrast with getDownloadUrl which
-    // uses 'attachment' to force a download prompt for the explicit download
-    // button flow).
-    return this.s3.getPresignedDownloadUrl(
-      doc.s3Key,
-      ttl,
-      downloadAs,
-      'inline',
-      doc.category as DocumentCategory,
-    )
-  }
-
-  /**
-   * task-file-storage-hardening §7: best-effort access-log entry — "who
-   * downloaded/previewed/thumbnail-viewed this document and when" was
-   * previously unanswerable. Only sensitive categories are logged
-   * (CONTRACT/RECEIPT/INVOICE/RESUME/SCAN) — AVATAR/LOGO fetch constantly as
-   * part of ordinary list rendering and carry no meaningful "who accessed
-   * this" question. Never records the presigned URL itself, only
-   * actor/document/category. A logging failure must not block the actual
-   * download/preview/thumbnail fetch.
-   *
-   * MED-5 (security-review round 1): thumbnails are now logged too — a
-   * thumbnail of a sensitive SCAN/RESUME still exposes the same underlying
-   * image content (the earlier version of this method deliberately skipped
-   * `getThumbnailUrl` to avoid noise, but the review correctly pointed out
-   * that "who viewed this" is exactly as meaningful for a thumbnail as for
-   * the full download when the category is sensitive — the noise concern
-   * doesn't apply here the way it does for AVATAR/LOGO, which are already
-   * excluded by the `isSensitiveCategory` gate below regardless of action).
-   *
-   * MED-1 (security-review round 3): `actorId` must be the REAL human
-   * behind the request, `actor.impersonatorId ?? actor.id` — the same
-   * convention every other audit trail in this codebase already follows
-   * (transaction audit log, projects, teams, users). This was wrongly
-   * recording `actor.id` alone, which under impersonation attributes the
-   * download to the IMPERSONATED account instead of the ADMIN who was
-   * actually driving it. Doesn't widen any RBAC decision on its own, but
-   * this log is the SOLE compensating control the owner's 2026-08-03
-   * decision leans on for ACCOUNTANT's unconditional SCAN access — a wrong
-   * actor here quietly weakens that justification.
-   */
-  private async logAccess(
-    actor: SessionUser,
-    docId: string,
-    category: DocumentCategory,
-    action: 'DOWNLOAD' | 'PREVIEW' | 'THUMBNAIL',
-  ): Promise<void> {
-    if (!isSensitiveCategory(category)) return
-    try {
-      await this.db.db.insert(documentAccessLog).values({
-        actorId: actor.impersonatorId ?? actor.id,
-        targetId: docId,
-        action,
-        metadata: { category },
-      })
-    } catch (err) {
-      this.logger.warn(
-        `logAccess: failed to write access-log row for docId=${docId}: ${(err as Error).message}`,
-      )
-    }
+    return presignDocument(this.s3, this.db, this.logger, actor, doc, 'PREVIEW')
   }
 
   // -------------------------------------------------------------------------
@@ -728,81 +637,20 @@ export class DocumentsService {
   // -------------------------------------------------------------------------
 
   /**
-   * Internal hard-delete bypass — permanently removes the S3 object(s) and
-   * the DB row **without** any RBAC check. Intended for trusted server code
-   * that owns the lifecycle of the document (e.g. TransactionsService
-   * replacing a SENIOR_INCOME receipt after a REJECTED resubmit).
-   *
-   * Mirrors `hardDelete()` (ADMIN public path) except:
-   *  - No actor / role check (mirrors the `uploadInternal` / `softDeleteInternal`
-   *    internal-bypass pattern).
-   *  - Does NOT require the document to be soft-deleted first — the caller
-   *    controls deletion as part of a higher-level atomic operation.
-   *
-   * Order chosen for safety:
-   *  1. S3 delete first (idempotent in S3Service — missing key swallowed).
-   *  2. DB row delete second — after S3, so a crash between the two leaves at
-   *     most a dangling S3 object (cheap) rather than a missing S3 object with
-   *     a DB row pointing at it (broken download).
-   *
-   * Throws NotFoundException when the row does not exist (defensive — callers
-   * should hold a valid ID from a prior FK read). Idempotent only in the sense
-   * that a second call on the same ID will throw NotFoundException (row gone).
+   * Internal hard-delete bypass — no RBAC, trusted server code only (e.g.
+   * TransactionsService replacing a SENIOR_INCOME receipt). Execution lives in
+   * document-hard-delete.util.
    */
   async hardDeleteInternal(docId: string): Promise<void> {
-    const doc = await this.db.db.query.documents.findFirst({
-      where: eq(documents.id, docId),
-    })
-    if (!doc) throw apiError('DOCUMENT_NOT_FOUND', HttpStatus.NOT_FOUND)
-
-    // S3 deletes are idempotent in S3Service (missing key → 204, errors
-    // logged + swallowed). Delete main object first, then thumbnail if present.
-    await this.s3.delete(doc.s3Key)
-    if (doc.thumbnailS3Key) {
-      await this.s3.delete(doc.thumbnailS3Key)
-    }
-
-    // Remove DB row. FK on transactions.receipt_document_id is ON DELETE SET NULL
-    // so a half-deleted state (row gone but FK still pointing) is prevented by
-    // the schema — callers must re-point the FK before calling this.
-    await this.db.db.delete(documents).where(eq(documents.id, docId))
+    await hardDeleteById(this.db, this.s3, docId)
   }
 
   /**
-   * Best-effort S3-only cleanup — deletes the given S3 keys without touching
-   * the DB row. Intended for post-commit cleanup in `TransactionsService.updateSeniorIncome`
-   * where the DB row has already been deleted inside a Drizzle transaction
-   * (using `dbtx.delete`) and only the S3 objects remain to be cleaned up.
-   *
-   * Why separate from hardDeleteInternal:
-   *   `hardDeleteInternal` uses `this.db.db` (the connection pool) for both
-   *   the SELECT and the DELETE. If called from inside a Drizzle `db.transaction(dbtx)`
-   *   callback it would try to acquire a second pool connection while one is
-   *   already held by the outer transaction → PostgreSQL deadlock / pool exhaustion.
-   *   Splitting S3 cleanup into this method lets `updateSeniorIncome` do:
-   *     - DB-delete inside dbtx using `dbtx.delete(documents).where(...)`
-   *     - S3-delete post-commit using `deleteS3Keys(oldS3Key, oldThumbKey)`
-   *
-   * Errors are swallowed — a dangling S3 object costs pennies and an ADMIN can
-   * clean it up; rolling back the DB for an S3 hiccup would be worse.
+   * Best-effort S3-only cleanup for post-commit callers
+   * (`TransactionsService.updateSeniorIncome`); errors swallowed + warned.
    */
   async deleteS3Keys(mainKey: string, thumbKey: string | null | undefined): Promise<void> {
-    try {
-      await this.s3.delete(mainKey)
-    } catch (err) {
-      this.logger['warn'](
-        `deleteS3Keys: failed to delete main key="${mainKey}": ${(err as Error).message}`,
-      )
-    }
-    if (thumbKey) {
-      try {
-        await this.s3.delete(thumbKey)
-      } catch (err) {
-        this.logger['warn'](
-          `deleteS3Keys: failed to delete thumb key="${thumbKey}": ${(err as Error).message}`,
-        )
-      }
-    }
+    await deleteS3KeysUtil(this.s3, this.logger, mainKey, thumbKey)
   }
 
   // -------------------------------------------------------------------------
@@ -823,367 +671,7 @@ export class DocumentsService {
       throw apiError('DOCUMENT_HARD_DELETE_REQUIRES_SOFT_DELETE', HttpStatus.BAD_REQUEST)
     }
 
-    // S3 deletes are idempotent in S3Service (errors logged + swallowed).
-    // Thumbnail key is read from the row (NULL when no thumb exists, e.g. PDFs).
-    await this.s3.delete(doc.s3Key)
-    if (doc.thumbnailS3Key) {
-      await this.s3.delete(doc.thumbnailS3Key)
-    }
-
-    // DB row + FK cascades (ON DELETE SET NULL on referencing tables)
-    await this.db.db.delete(documents).where(eq(documents.id, docId))
-  }
-
-  // =========================================================================
-  // RBAC helpers
-  // =========================================================================
-
-  /**
-   * Build the WHERE clause for `list()`. Returns 'NONE' if the caller has
-   * no access to anything matching the filters (so we can short-circuit to
-   * `[]` without a query).
-   *
-   * Visibility (from pm-brief.md "RBAC матрица для GET", team-scoping per
-   * task-file-storage-hardening §1 / owner decision 2026-08-01, corrected
-   * per security-review round 1 (HIGH-1) and round 2 (ACCOUNTANT, owner
-   * decision 2026-08-03) — see `docs/business/modules/documents.md` for the
-   * authoritative matrix):
-   *   ADMIN: any category, any ownerId
-   *   SENIOR: resume/scan — TEAM + PROJECT (active team_members overlap
-   *       PLUS JUNIORs on the viewer's own projects — see getTeammateIds
-   *       for why team_members alone excludes every JUNIOR); contract/
-   *       receipt own; avatar own; logo all (read)
-   *   JUNIOR: resume/scan own; avatar own; nothing else
-   *   HR: resume/scan — TEAM + PROJECT (same predicate as SENIOR, see
-   *       above); contract — for seniors in HR's teams; avatar own; logo
-   *       all (read); receipt none
-   *   ACCOUNTANT: scan ALL, unconditionally — owner decision 2026-08-03
-   *       (round-1's transaction-scoped attempt was rejected: self-
-   *       satisfying + broke onboarding, see the SCAN branch below for the
-   *       full rationale); receipt all (read); avatar own;
-   *       resume/contract/logo none
-   */
-  private async buildListWhere(
-    actor: SessionUser,
-    filters: DocumentListFilters,
-  ): Promise<SQL | 'NONE'> {
-    const conditions: SQL[] = []
-
-    // ---- Soft-delete filter ----
-    if (filters.includeDeleted && actor.role === 'ADMIN') {
-      // No filter — return both active and deleted
-    } else {
-      conditions.push(isNull(documents.deletedAt))
-    }
-
-    // ---- Project filter (caller can ask for one project) ----
-    if (filters.projectId) {
-      conditions.push(eq(documents.projectId, filters.projectId))
-    }
-
-    // ---- Category filter ----
-    // Default behavior: hide internal categories (AVATAR, LOGO) unless an
-    // ADMIN explicitly requests them. INVOICE is system-generated but is
-    // now exposed as a regular tab in /crm/documents (read-only — uploads
-    // still go through InvoicesService), so it's part of the default set.
-    if (filters.category) {
-      // Caller asked for a specific category — RBAC check below decides
-      // whether they're allowed to see it.
-      conditions.push(eq(documents.category, filters.category))
-    } else {
-      // No explicit category → exclude internals (AVATAR/LOGO)
-      conditions.push(
-        // not in (AVATAR, LOGO)
-        // Drizzle: use `notInArray` would be cleaner, but `notInArray` exists
-        // in newer drizzle versions; we use a NOT IN via SQL fallback below.
-        // For consistency with the rest of the codebase, use inArray + NOT
-        // via an explicit OR of equality with non-internal categories.
-        inArray(documents.category, ['RESUME', 'SCAN', 'CONTRACT', 'RECEIPT', 'INVOICE']),
-      )
-    }
-
-    // ---- Per-role visibility ----
-    const visibility = await this.buildVisibilityClause(actor, filters)
-    if (visibility === 'NONE') return 'NONE'
-    if (visibility !== null) conditions.push(visibility)
-
-    // ---- Owner filter from caller (further narrow) ----
-    if (filters.ownerId) {
-      conditions.push(eq(documents.ownerId, filters.ownerId))
-    }
-
-    if (conditions.length === 0) {
-      // No conditions = match everything. Returning `undefined` would let
-      // drizzle return all rows; explicit `isNotNull(id)` keeps types happy.
-      return isNotNull(documents.id)
-    }
-    if (conditions.length === 1) return conditions[0]!
-    return and(...conditions)!
-  }
-
-  /**
-   * Returns a SQL clause for "what categories + ownerIds this user can see"
-   * or 'NONE' if the user has zero visibility for the requested filter.
-   */
-  private async buildVisibilityClause(
-    actor: SessionUser,
-    filters: DocumentListFilters,
-  ): Promise<SQL | null | 'NONE'> {
-    const category = filters.category
-
-    // ADMIN can see anything. internal-include toggle handled in buildListWhere.
-    if (actor.role === 'ADMIN') {
-      // ADMIN-only: includeInternal — currently controlled by `category`
-      // filter (if ADMIN asks for AVATAR/LOGO they get them).
-      return null
-    }
-
-    // Non-ADMIN trying to use the includeDeleted flag → silently ignored
-    // (the soft-delete filter already added isNull above).
-
-    // Build a set of (category, ownerScope) tuples the actor is allowed to see.
-    const visibleClauses: SQL[] = []
-
-    // task-file-storage-hardening §1: SENIOR/HR resume+scan visibility is
-    // TEAM-and-PROJECT-SCOPED (security-review round 1 HIGH-1 fix — see
-    // getTeammateIds' own doc for why team_members alone is wrong), resolved
-    // once since both categories share the same scoped-id set.
-    const teammateIds =
-      actor.role === 'SENIOR' || actor.role === 'HR'
-        ? await this.getTeammateIds(actor.id, actor.role)
-        : null
-
-    if (!category || category === 'RESUME') {
-      if (teammateIds) {
-        visibleClauses.push(
-          and(eq(documents.category, 'RESUME'), inArray(documents.ownerId, teammateIds))!,
-        )
-      } else if (this.canSeeSelf(actor.role, 'RESUME')) {
-        visibleClauses.push(and(eq(documents.category, 'RESUME'), eq(documents.ownerId, actor.id))!)
-      }
-    }
-
-    if (!category || category === 'SCAN') {
-      if (teammateIds) {
-        visibleClauses.push(
-          and(eq(documents.category, 'SCAN'), inArray(documents.ownerId, teammateIds))!,
-        )
-      } else if (actor.role === 'ACCOUNTANT') {
-        // task-file-storage-hardening — OWNER DECISION 2026-08-03 (security-
-        // review round 2, reversing the round-1 MED-1 "transaction-scoped"
-        // attempt): ACCOUNTANT sees ALL scans, unconditionally. The
-        // transaction-EXISTS scope tried in round 1 was rejected for two
-        // independent reasons, either one fatal on its own:
-        //   1. Self-satisfying: ACCOUNTANT is the role that CREATES/
-        //      validates transactions — they can unlock their own access to
-        //      any scan by creating one transaction naming that person, so
-        //      the "restriction" was not actually a restriction.
-        //   2. Broke onboarding in practice: live data at review time showed
-        //      transactions exist for only 5 of 21 people; HR and DROP users
-        //      have ZERO — an ACCOUNTANT verifying a brand-new hire's scan
-        //      before any money has moved would 404 on exactly the case that
-        //      matters most.
-        // Kept broad on the strength of: ACCOUNTANT is a read-only audit
-        // role (cannot upload RESUME/SCAN at all, see assertCanUpload), and
-        // every access is now recorded in document_access_log (§7) — the
-        // accountability the task needed comes from the log, not from
-        // narrowing the read.
-        visibleClauses.push(eq(documents.category, 'SCAN'))
-      } else if (this.canSeeSelf(actor.role, 'SCAN')) {
-        visibleClauses.push(and(eq(documents.category, 'SCAN'), eq(documents.ownerId, actor.id))!)
-      }
-    }
-
-    // DROP: self-scope for RESUME and SCAN (DROP uploads RESUME/SCAN like JUNIOR self).
-    // Security: ownerId is already forced to actor.id by the `list()` caller via
-    // effectiveFilters, so this clause adds the category filter to the visibility set.
-    // The canSeeSelf helper doesn't handle DROP — explicit branch here.
-    if (actor.role === 'DROP') {
-      if (!category || category === 'RESUME') {
-        visibleClauses.push(and(eq(documents.category, 'RESUME'), eq(documents.ownerId, actor.id))!)
-      }
-      if (!category || category === 'SCAN') {
-        visibleClauses.push(and(eq(documents.category, 'SCAN'), eq(documents.ownerId, actor.id))!)
-      }
-    }
-
-    if (!category || category === 'CONTRACT') {
-      if (actor.role === 'SENIOR') {
-        visibleClauses.push(
-          and(eq(documents.category, 'CONTRACT'), eq(documents.ownerId, actor.id))!,
-        )
-      } else if (actor.role === 'HR') {
-        const seniorIds = await this.getHrSeniorIds(actor.id)
-        if (seniorIds.length > 0) {
-          visibleClauses.push(
-            and(eq(documents.category, 'CONTRACT'), inArray(documents.ownerId, seniorIds))!,
-          )
-        }
-      } else if (actor.role === 'DROP') {
-        // DROP can see their own uploaded CONTRACT documents (RESUME/SCAN/CONTRACT allowed per spec).
-        visibleClauses.push(
-          and(eq(documents.category, 'CONTRACT'), eq(documents.ownerId, actor.id))!,
-        )
-      }
-      // JUNIOR/ACCOUNTANT see no contracts
-    }
-
-    if (!category || category === 'RECEIPT') {
-      if (actor.role === 'ACCOUNTANT') {
-        visibleClauses.push(eq(documents.category, 'RECEIPT'))
-      } else if (actor.role === 'SENIOR') {
-        visibleClauses.push(
-          and(eq(documents.category, 'RECEIPT'), eq(documents.ownerId, actor.id))!,
-        )
-      }
-      // HR/JUNIOR/DROP see no receipts
-    }
-
-    if (!category || category === 'AVATAR') {
-      // Every authenticated user can see their own avatar row (useful for
-      // managing the override). ADMIN already returned above.
-      visibleClauses.push(and(eq(documents.category, 'AVATAR'), eq(documents.ownerId, actor.id))!)
-    }
-
-    if (!category || category === 'LOGO') {
-      // LOGO is readable for ADMIN/HR/SENIOR (all). ADMIN handled above.
-      if (actor.role === 'HR' || actor.role === 'SENIOR') {
-        visibleClauses.push(eq(documents.category, 'LOGO'))
-      }
-    }
-
-    if (!category || category === 'INVOICE') {
-      // INVOICE documents are produced by InvoicesService — the row's
-      // `ownerId` is the counterparty (SENIOR / JUNIOR), so visibility is
-      // scoped to `documents.ownerId == viewer.id` for non-admins.
-      // ACCOUNTANT is allowed to see ALL invoices (finance audit role,
-      // same scope as RECEIPT). ADMIN handled above. JUNIOR/HR/SENIOR
-      // only see invoices they themselves are the counterparty for.
-      if (actor.role === 'ACCOUNTANT') {
-        visibleClauses.push(eq(documents.category, 'INVOICE'))
-      } else {
-        visibleClauses.push(
-          and(eq(documents.category, 'INVOICE'), eq(documents.ownerId, actor.id))!,
-        )
-      }
-    }
-
-    if (visibleClauses.length === 0) return 'NONE'
-    if (visibleClauses.length === 1) return visibleClauses[0]!
-    return or(...visibleClauses)!
-  }
-
-  private canSeeSelf(role: Role, category: DocumentCategory): boolean {
-    if (category === 'RESUME' || category === 'SCAN') return role === 'JUNIOR'
-    return false
-  }
-
-  // Mirrors ProjectsService.getHrSeniorIds — leftAt semantics MUST stay in
-  // sync: an HR who left the team retains no access (HC-6 pins the predicate).
-  private async getHrSeniorIds(hrId: string): Promise<string[]> {
-    const hrTeams = await this.db.db
-      .select({ teamId: teamMembers.teamId })
-      .from(teamMembers)
-      .where(and(eq(teamMembers.userId, hrId), isNull(teamMembers.leftAt)))
-    if (!hrTeams.length) return []
-    const teamIds = hrTeams.map((r) => r.teamId)
-    const seniors = await this.db.db
-      .select({ userId: teamMembers.userId })
-      .from(teamMembers)
-      .innerJoin(users, eq(users.id, teamMembers.userId))
-      .where(
-        and(
-          inArray(teamMembers.teamId, teamIds),
-          eq(users.role, 'SENIOR'),
-          isNull(teamMembers.leftAt),
-        ),
-      )
-    return seniors.map((r) => r.userId)
-  }
-
-  /**
-   * task-file-storage-hardening §1 (owner decision 2026-08-01): "sузить
-   * доступ к резюме/сканам до команды" for SENIOR and HR.
-   *
-   * HIGH-1 fix (security-review round 1): the FIRST version of this method
-   * scoped to `team_members` alone, which silently excludes EVERY JUNIOR —
-   * a JUNIOR is never a `team_members` row by system design
-   * (`UsersService.createUser` inserts a JUNIOR into `project_members`
-   * only; `TeamsService.addMember` explicitly REJECTS adding a JUNIOR who
-   * has an active project, see teams.service.ts). Live data at review time:
-   * 0 active JUNIOR `team_members` rows company-wide. The old code's actual
-   * effect was "SENIOR/HR can no longer see ANY junior's resume/scan",
-   * which is the opposite of the intended narrowing.
-   *
-   * Correct membership model — union of two relationships, mirroring
-   * `UsersAccessService.isHrInTargetTeam`'s JUNIOR branch /
-   * `isSeniorViewingOwnProjectMember` (the established pattern for
-   * "does this SENIOR/HR reach this JUNIOR" elsewhere in the codebase):
-   *   1. Active team overlap (any role on the target side) — delegated to
-   *      `HrAccessService.getActiveTeamPeers` (LOW-1: was a third private
-   *      copy of the same `team_members` self-join `getHrSeniorIds` above
-   *      already implements; now shares one canonical query).
-   *   2. JUNIORs reachable transitively: the SENIOR(s) found in step 1 (or
-   *      the actor itself, if the actor IS the SENIOR) → those SENIORs'
-   *      projects → active (`leftAt IS NULL`) `project_members` rows on
-   *      those projects.
-   * PLUS `actorId` itself always — "собственные документы у всех остаются
-   * доступны всегда" must hold even with zero active team membership.
-   *
-   * ACCOUNTANT is NOT routed through this helper at all — they keep
-   * unconditional SCAN access (owner decision 2026-08-03, security-review
-   * round 2 — see the SCAN branch of `buildVisibilityClause` for the full
-   * rationale). Routing them through this predicate would not even be a
-   * narrowing in practice: ACCOUNTANT IS added to every team at creation
-   * time, so it would resolve to "the whole company" anyway — the round-1
-   * attempt at scoping ACCOUNTANT used a DIFFERENT mechanism (a
-   * transaction-existence check, since reverted) precisely because this
-   * team/project predicate can't meaningfully restrict a role that's a
-   * member of literally every team.
-   */
-  private async getTeammateIds(actorId: string, actorRole: 'SENIOR' | 'HR'): Promise<string[]> {
-    const scopedIds = new Set<string>([actorId])
-
-    const peers = await this.hrAccess.getActiveTeamPeers(actorId)
-    for (const p of peers) scopedIds.add(p.userId)
-
-    // Resolve the SENIOR(s) whose project rosters extend this actor's
-    // reach: the actor itself if they ARE a SENIOR, else any SENIOR found
-    // among their active team peers (the HR case).
-    const seniorIds =
-      actorRole === 'SENIOR'
-        ? [actorId]
-        : peers.filter((p) => p.role === 'SENIOR').map((p) => p.userId)
-
-    if (seniorIds.length > 0) {
-      // MED (security-review round 2): exclude ARCHIVED projects explicitly
-      // — do not rely solely on `project_members.leftAt` as the archival
-      // signal. `ProjectsService.archive()` DOES set `leftAt` for active
-      // JUNIORs at archive time, but `unarchive()` deliberately does NOT
-      // restore it ("project_members.leftAt intentionally NOT restored" —
-      // see its own comment), so a re-activated project can drift out of
-      // sync with its members' `leftAt`. Filtering on `projects.archivedAt`
-      // directly matches the stricter precedent already established by
-      // `UsersAccessService.isJuniorUnderLegendSubject` (the other
-      // established project-lookup for the SAME kind of relationship).
-      // task-project-draft-status: sourced from `visibleProjects` — a DRAFT
-      // or REJECTED project's senior must not extend document visibility to
-      // "teammates" any more than an archived one does.
-      const seniorProjects = await this.db.db
-        .select({ id: visibleProjects.id })
-        .from(visibleProjects)
-        .where(inArray(visibleProjects.seniorId, seniorIds))
-      if (seniorProjects.length > 0) {
-        const projectIds = seniorProjects.map((p) => p.id)
-        const juniors = await this.db.db
-          .select({ userId: projectMembers.userId })
-          .from(projectMembers)
-          .where(and(inArray(projectMembers.projectId, projectIds), isNull(projectMembers.leftAt)))
-        for (const j of juniors) scopedIds.add(j.userId)
-      }
-    }
-
-    return [...scopedIds]
+    await executeHardDelete(this.db, this.s3, doc)
   }
 
   // -------------------------------------------------------------------------
@@ -1216,7 +704,7 @@ export class DocumentsService {
       (actor.role === 'SENIOR' || actor.role === 'HR') &&
       (doc.category === 'RESUME' || doc.category === 'SCAN')
     ) {
-      const teammateIds = await this.getTeammateIds(actor.id, actor.role)
+      const teammateIds = await getTeammateIds(this.db, this.hrAccess, actor.id, actor.role)
       if (teammateIds.includes(doc.ownerId)) return doc
       throw apiError('DOCUMENT_NOT_FOUND', HttpStatus.NOT_FOUND)
     }
@@ -1231,7 +719,7 @@ export class DocumentsService {
 
     // HR + CONTRACT: special team-scope check.
     if (actor.role === 'HR' && doc.category === 'CONTRACT') {
-      const seniorIds = await this.getHrSeniorIds(actor.id)
+      const seniorIds = await getHrSeniorIds(this.db, actor.id)
       if (seniorIds.includes(doc.ownerId)) return doc
     }
 
@@ -1259,13 +747,7 @@ export class DocumentsService {
 
   async getThumbnailUrl(actor: SessionUser, docId: string): Promise<PresignedDownload | null> {
     const doc = await this.findActiveOrThrow(docId, actor)
-    if (!doc.thumbnailS3Key) return null
-    // Thumbnails inherit the same TTL as the main document for consistency:
-    // a leaked thumbnail URL should expire at the same time as the full file.
-    const category = doc.category as DocumentCategory
-    const ttl = presignTtlForCategory(category)
-    await this.logAccess(actor, doc.id, category, 'THUMBNAIL')
-    return this.s3.getPresignedDownloadUrl(doc.thumbnailS3Key, ttl, undefined, 'inline', category)
+    return presignThumbnail(this.s3, this.db, this.logger, actor, doc)
   }
 }
 

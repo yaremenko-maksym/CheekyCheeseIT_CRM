@@ -1,14 +1,12 @@
 import { HttpStatus, Inject, Injectable, forwardRef } from '@nestjs/common'
-import { and, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm'
+import { and, desc, eq, isNull, ne, sql } from 'drizzle-orm'
 import type { ArchiveImpact, SessionUser } from '@crm/shared'
 import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
 import {
   lowerEmail,
   projectMembers,
-  projects,
   teamMembers,
-  teams,
   userAuditLog,
   userEmails,
   users,
@@ -19,8 +17,6 @@ import type { DrizzleTx } from '../database/types'
 import { assertEmailAvailable, writeUserEmailOrConflict } from './user-emails.util'
 import { loadUserById } from './user-read.util'
 import { resolveArchivedFilter, withActiveProjectFlag } from './users-list.util'
-import { buildCreateUserInsertValues, buildDropInsertValues } from './user-insert.util'
-import { buildAdminUserUpdateSet } from './user-update.util'
 import { updateUserRow } from './user-write.util'
 import { assertAvatarDocument } from './user-avatar.util'
 import { type EntitlementSnapshot } from './archived-entitlement'
@@ -32,28 +28,24 @@ import { ApprovalsService } from '../approvals/approvals.service'
 import type { Locale } from '@crm/shared'
 import { NotificationsService } from '../notifications/notifications.service'
 import { AuditLogService } from './audit-log.service'
-import {
-  assertAdminTargetEditableForRoleChange,
-  assertAdminTargetEditableForUpdate,
-  assertAssignableRole,
-  assertAssignableRoleOnChange,
-} from './role-guards.util'
+import { assertAdminTargetEditableForRoleChange, assertAssignableRole } from './role-guards.util'
 import { UsersAccessService } from './users-access.service'
 import { UserProfileService } from './user-profile.service'
 import { SeniorShareChangeService } from './senior-share-change.service'
 import { UserArchiveService } from './user-archive.service'
+import { TeamReconcileService } from './team-reconcile.service'
+import { TeamMembersPreviewService, type TeamMemberPreview } from './team-members-preview.service'
+import { DropCreationService, type CreateDropInput } from './drop-creation.service'
+import { UserCreationService, type CreateUserInput } from './user-creation.service'
+import { AdminUserUpdateService, type AdminUpdateUserInput } from './admin-user-update.service'
+import { SalaryService } from './salary.service'
+import { RejoinTeamService } from './rejoin-team.service'
 import { PersonalEmailInviteService } from './personal-email-invite.service'
 import { PersonalEmailInviteMailerService } from './personal-email-invite-mailer.service'
 
 export type AppRole = 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT' | 'DROP'
 
-export interface TeamMemberPreview {
-  id: string
-  displayName: string
-  role: User['role']
-  avatarUrl: string | null
-  avatarDocumentId: string | null
-}
+export type { TeamMemberPreview }
 
 // Slim list-item projection for GET /api/users. ONLY directory fields the UI
 // pickers (CreateTransactionDialog, team/project dropdowns, nav, admin user
@@ -185,6 +177,87 @@ export class UsersService {
       this.auditLogService,
       this.teamsService,
     ))
+  }
+
+  // Built lazily (same reason as `invites`): spec factories skip the constructor.
+  private _teamReconcile?: TeamReconcileService
+  private get teamReconcile(): TeamReconcileService {
+    return (this._teamReconcile ??= new TeamReconcileService(this.teamAuditLogService))
+  }
+
+  // Built lazily (same reason as `invites`): spec factories skip the constructor. The email helpers
+  // are SHARED with `createUser`, so they stay on this facade and are passed in as bound callbacks.
+  private _dropCreation?: DropCreationService
+  private get dropCreation(): DropCreationService {
+    return (this._dropCreation ??= new DropCreationService(
+      this.db,
+      this.auditLogService,
+      this.teamAuditLogService,
+      this.teamsService,
+      {
+        assertEmailAvailable: (...a) => this.assertEmailAvailable(...a),
+        writeUserEmailOrConflict: (...a) => this.writeUserEmailOrConflict(...a),
+        findByEmail: (...a) => this.findByEmail(...a),
+      },
+    ))
+  }
+
+  // Built lazily (same reason as `invites`): spec factories skip the constructor. The shared helpers
+  // stay on this facade and are passed in as bound callbacks.
+  private _userCreation?: UserCreationService
+  private get userCreation(): UserCreationService {
+    return (this._userCreation ??= new UserCreationService(
+      this.db,
+      this.teamsService,
+      this.auditLogService,
+      this.inviteMailer,
+      {
+        issuePersonalEmailInviteTx: (...a) => this.invites.issuePersonalEmailInviteTx(...a),
+        assertEmailAvailable: (...a) => this.assertEmailAvailable(...a),
+        writeUserEmailOrConflict: (...a) => this.writeUserEmailOrConflict(...a),
+        findByEmail: (...a) => this.findByEmail(...a),
+      },
+    ))
+  }
+
+  // Built lazily (same reason as `invites`): spec factories skip the constructor. The shared email
+  // helpers and the sibling collaborators' tx writers are passed in as bound callbacks.
+  private _adminUserUpdate?: AdminUserUpdateService
+  private get adminUserUpdate(): AdminUserUpdateService {
+    return (this._adminUserUpdate ??= new AdminUserUpdateService(this.db, {
+      upsertWorkEmail: (...a) => this.upsertWorkEmail(...a),
+      findByEmail: (...a) => this.findByEmail(...a),
+      findById: (...a) => this.findById(...a),
+      proposeSeniorShareChangeInTx: (...a) => this.seniorShare.proposeSeniorShareChangeInTx(...a),
+      reconcileSeniorTeamTx: (...a) => this.teamReconcile.reconcileSeniorTeamTx(...a),
+      updateSeniorTeamTelegramChannelTx: (...a) =>
+        this.teamReconcile.updateSeniorTeamTelegramChannelTx(...a),
+    }))
+  }
+
+  // Built lazily (same reason as `invites`): spec factories skip the constructor. `findById` and the
+  // senior-share proposer stay on the facade / sibling and are passed in as bound callbacks.
+  private _salary?: SalaryService
+  private get salary(): SalaryService {
+    return (this._salary ??= new SalaryService(this.db, {
+      findById: (...a) => this.findById(...a),
+      proposeSeniorShareChangeInTx: (...a) => this.seniorShare.proposeSeniorShareChangeInTx(...a),
+    }))
+  }
+
+  // Built lazily (same reason as `invites`): spec factories skip the constructor. `teamsService` is
+  // held eagerly on the facade and reused; `findById` is passed in as a bound callback.
+  private _rejoinTeam?: RejoinTeamService
+  private get rejoinTeamSvc(): RejoinTeamService {
+    return (this._rejoinTeam ??= new RejoinTeamService(this.db, this.teamsService, {
+      findById: (...a) => this.findById(...a),
+    }))
+  }
+
+  // Built lazily (same reason as `invites`): spec factories skip the constructor.
+  private _teamMembersPreview?: TeamMembersPreviewService
+  private get teamMembersPreview(): TeamMembersPreviewService {
+    return (this._teamMembersPreview ??= new TeamMembersPreviewService(this.db))
   }
 
   cancelSeniorShareChange(id: string, currentUser: SessionUser) {
@@ -408,614 +481,16 @@ export class UsersService {
     return user
   }
 
-  async createUser(data: {
-    email: string
-    /** §4.4 — optional personal address, ADMIN-entered at creation only. */
-    personalEmail?: string | null
-    displayName: string
-    role: AppRole
-    telegram?: string | null
-    phone?: string | null
-    avatarUrl?: string | null
-    techStack?: string[] | null
-    seniorSharePercent?: number
-    monthlySalary?: number | null
-    salaryCurrency?: 'USDT' | 'USD' | 'EUR' | 'UAH'
-    hrIds?: string[]
-    accountantId?: string | null
-    projectId?: string | null
-    paymentMethod?: 'USDT_ERC20' | 'BANK_UAH_FOP'
-    walletUsdtErc20?: string | null
-    walletUsdtLabel?: string | null
-    bankUahRecipient?: string | null
-    bankUahIban?: string | null
-    bankUahRnokpp?: string | null
-    bankUahBankName?: string | null
-    /**
-     * Legal full name (Cyrillic, order: Surname First Patronymic).
-     * Used in MSA contract instead of displayName. Optional at creation time.
-     */
-    legalFullName?: string
-    /**
-     * task-i18n-stage2 (Task 3) — interface language selected in the create
-     * wizard's "Данные" step. Defaults to 'uk' below when omitted (matches
-     * the DB column default).
-     */
-    locale?: Locale
-    /**
-     * Drop role - phase 1: senior-only opt-in. `CREATE_NEW` (default)
-     * preserves the legacy auto-team flow. `JOIN_DROP_TEAM` skips auto-team
-     * and attaches the new senior to an existing drop-team.
-     */
-    teamMode?: 'CREATE_NEW' | 'JOIN_DROP_TEAM'
-    /** Required when `teamMode='JOIN_DROP_TEAM'`. */
-    dropTeamId?: string
-    /**
-     * MED-3 (security-review round 2, authz-hardening): identity of the
-     * caller, used to scope `teamMode='JOIN_DROP_TEAM'` for an HR actor to a
-     * drop-team they actually belong to (see the check below).
-     *
-     * LOW (security-review round 3, follow-up to #436): REQUIRED, not
-     * optional. The scope check below only fires `if (data.actorRole ===
-     * 'HR')` — an optional field that silently defaults to `undefined` lets
-     * a *future* caller (a new controller endpoint, a script, a refactor
-     * that drops the two lines) skip the check by simply forgetting to pass
-     * it, with no signal anywhere that protection was lost. Making both
-     * fields mandatory means a forgetful caller fails `tsc`, not authz.
-     * Every current caller already supplies both (`UsersController.createUser`
-     * from `CurrentUser()`; tests pass an explicit `actorRole: 'ADMIN'` stub).
-     */
-    actorRole: AppRole
-    actorId: string
-  }): Promise<User> {
-    // ut-12: ADMIN creation is reserved to the seed pool — block here as a
-    // defense-in-depth measure even if the controller / Roles guard let it slip.
-    if (data.role === 'ADMIN') {
-      throw apiError('ADMIN_CREATION_FORBIDDEN', HttpStatus.FORBIDDEN)
-    }
-    // Drop role - phase 1: DROP must be created via `createDrop` (mandatory
-    // team section). Reject here defensively in case a malformed request
-    // reaches the legacy endpoint.
-    if (data.role === 'DROP') {
-      throw apiError('DROP_CREATE_VIA_DEDICATED_ENDPOINT', HttpStatus.BAD_REQUEST)
-    }
-    if (data.teamMode === 'JOIN_DROP_TEAM') {
-      if (data.role !== 'SENIOR') {
-        throw apiError('JOIN_DROP_TEAM_SENIOR_ONLY', HttpStatus.BAD_REQUEST)
-      }
-      if (!data.dropTeamId) {
-        throw apiError('DROP_TEAM_ID_REQUIRED', HttpStatus.BAD_REQUEST)
-      }
-      // MED-3 (security-review round 2): `TeamsService.addSeniorToDropTeam`
-      // explicitly delegates RBAC to its caller (see that method's own
-      // docblock) — without this check, an HR actor could attach the SENIOR
-      // they are provisioning to ANY drop-team with a free senior slot, not
-      // just their own, reaching into another team's payment routing. ADMIN
-      // is exempt (full control, as everywhere else in this method).
-      if (data.actorRole === 'HR') {
-        // LOW (security-review round 3, follow-up to #436): `actorId` is a
-        // required field now (see its docblock) — the `?? ''` fallback here
-        // was dead code protecting against an `undefined` that can no
-        // longer occur, and (worse) would have silently passed an empty
-        // string to `isActiveMemberOfTeam` instead of failing loudly.
-        const isMember = await this.teamsService.isActiveMemberOfTeam(data.dropTeamId, data.actorId)
-        if (!isMember) {
-          throw apiError('HR_JOIN_OWN_DROP_TEAM_ONLY', HttpStatus.FORBIDDEN)
-        }
-      }
-    }
-    const existing = await this.findByEmail(data.email)
-    if (existing) throw apiError('USER_EMAIL_EXISTS', HttpStatus.CONFLICT)
-    // §4.4: `users.email` uniqueness alone cannot see a PERSONAL row on
-    // another user — check the whole `user_emails` table too, for both the
-    // work address AND the optional personal one, BEFORE creating anything.
-    await assertEmailAvailable(this.db.db, data.email)
-    if (data.personalEmail) {
-      await assertEmailAvailable(this.db.db, data.personalEmail)
-    }
-
-    // Build insert payload — only include payment columns when relevant so we
-    // keep "no requisites" rows clean (null in DB rather than empty string).
-    // Single source for the invitee's locale: the SAME const feeds the `users.locale`
-    // column and the invite mail, so they cannot diverge by construction.
-    const locale: Locale = data.locale ?? 'uk'
-    const insertValues = buildCreateUserInsertValues(data, locale)
-
-    // security-review PR #623 (SR-M-1, MED): these three writes used to be
-    // three separate statements with no transaction — a personalEmail long
-    // enough to pass Zod's `.email()` (unbounded) but too long for the
-    // column (255, same bound as `email`) died on the DB constraint AFTER
-    // the `users` row already existed, leaving a half-created account an
-    // admin could never attach a personal address to again (the field is
-    // create-only). Wrapping in one transaction makes any write failure —
-    // this one, a 23505 from `writeUserEmailOrConflict`, anything else —
-    // roll back the whole creation instead of leaving a partial row.
-    // task-user-emails-invite: set inside the transaction below when
-    // `data.personalEmail` is present — read afterwards to send the invite
-    // email OUTSIDE the transaction (a network call has no business holding
-    // a DB transaction open, same reasoning `ContactService`'s send-after-
-    // validate ordering already follows).
-    let personalInviteToken: string | undefined
-
-    const rows = await this.db.db.transaction(async (tx) => {
-      const insertedRows = await tx.insert(users).values(insertValues).returning()
-      const createdUser = insertedRows[0]
-      if (!createdUser) throw new Error('Failed to create user')
-
-      // §4.4: the WORK row is what login now actually reads (see
-      // findLoginableUserByEmail) — without it this user could never sign in.
-      // Already verified/loginable, mirroring the trust `users.email` carries
-      // today.
-      await writeUserEmailOrConflict(() =>
-        tx.insert(userEmails).values({
-          userId: createdUser.id,
-          email: createdUser.email,
-          kind: 'WORK',
-          canLogin: true,
-          verifiedAt: new Date(),
-        }),
-      )
-      if (data.personalEmail) {
-        // canLogin defaults false (column default) — a personal address is
-        // NOT a login method until the invite-accept flow below issues a
-        // token AND the holder actually accepts it
-        // (UsersService.acceptPersonalEmailInvite).
-        const personalRows = await writeUserEmailOrConflict(() =>
-          tx
-            .insert(userEmails)
-            .values({ userId: createdUser.id, email: data.personalEmail!, kind: 'PERSONAL' })
-            .returning(),
-        )
-        const personalRow = personalRows[0]
-        if (personalRow) {
-          personalInviteToken = await this.invites.issuePersonalEmailInviteTx(tx, personalRow.id)
-        }
-      }
-      return insertedRows
-    })
-
-    const created = rows[0]
-    if (!created) throw new Error('Failed to create user')
-
-    // Seed initial audit event — always has changes so record() won't skip it
-    await this.auditLogService.record({
-      actorId: null,
-      targetId: created.id,
-      action: 'profile_created',
-      changes: {
-        displayName: { before: null, after: created.displayName },
-        role: { before: null, after: created.role },
-      },
-    })
-
-    // task-user-emails-invite: best-effort, AFTER the transaction has
-    // committed — see PersonalEmailInviteMailerService's doc for why a
-    // delivery failure here must never fail user creation (the row + token
-    // already exist; "resend invite" is the recovery path).
-    if (data.personalEmail && personalInviteToken) {
-      await this.inviteMailer.sendInvite({
-        to: data.personalEmail,
-        displayName: data.displayName,
-        rawToken: personalInviteToken,
-        // The INVITEE's locale — the same const as the inserted `users.locale` column; never the admin's.
-        locale,
-      })
-    }
-
-    if (data.role === 'SENIOR') {
-      if (data.teamMode === 'JOIN_DROP_TEAM' && data.dropTeamId) {
-        // Drop role - phase 1: skip auto-team creation. Attach the new
-        // SENIOR to the requested drop-team. `addSeniorToDropTeam` enforces
-        // type+empty-slot+other-team checks; surfaces clear 400 on conflict.
-        await this.teamsService.addSeniorToDropTeam(data.dropTeamId, created.id)
-      } else {
-        // Default `CREATE_NEW` path — unchanged from pre-drop legacy.
-        const [team] = await this.db.db
-          .insert(teams)
-          .values({ name: `Команда ${data.displayName}` })
-          .returning()
-        if (team) {
-          const memberIds = [
-            created.id,
-            ...(data.hrIds ?? []),
-            ...(data.accountantId ? [data.accountantId] : []),
-          ]
-          for (const userId of memberIds) {
-            await this.db.db.insert(teamMembers).values({ teamId: team.id, userId })
-          }
-        }
-      }
-    }
-
-    if (data.role === 'JUNIOR' && data.projectId) {
-      await this.db.db.insert(projectMembers).values({
-        projectId: data.projectId,
-        userId: created.id,
-      })
-    }
-
-    return created
+  createUser(data: CreateUserInput): Promise<User> {
+    return this.userCreation.createUser(data)
   }
 
-  async adminUpdateUser(
+  adminUpdateUser(
     id: string,
-    data: {
-      email?: string
-      displayName?: string
-      role?: AppRole
-      telegram?: string | null | undefined
-      phone?: string | null | undefined
-      avatarUrl?: string | null | undefined
-      avatarDocumentId?: string | null | undefined
-      techStack?: string[] | null | undefined
-      seniorSharePercent?: number | undefined
-      dropSharePercent?: number | undefined
-      monthlySalary?: number | null | undefined
-      salaryCurrency?: 'USDT' | 'USD' | 'EUR' | 'UAH' | undefined
-      paymentMethod?: 'USDT_ERC20' | 'BANK_UAH_FOP' | undefined
-      walletUsdtErc20?: string | null | undefined
-      walletUsdtLabel?: string | null | undefined
-      bankUahRecipient?: string | null | undefined
-      bankUahIban?: string | null | undefined
-      bankUahRnokpp?: string | null | undefined
-      bankUahBankName?: string | null | undefined
-      hrIds?: string[] | undefined
-      accountantId?: string | null | undefined
-      teamTelegramChannel?: string | null | undefined
-      /**
-       * Legal full name (Cyrillic, order: Surname First Patronymic).
-       * Used in MSA contract instead of displayName. Optional in admin update.
-       */
-      legalFullName?: string | undefined
-      /**
-       * Ukrainian registration address (ФОП).
-       * Used in contract template as {{registrationAddress}}.
-       */
-      registrationAddress?: string | null | undefined
-    },
+    data: AdminUpdateUserInput,
     actorId: string | null = null,
   ): Promise<User> {
-    // ut-10/11: ADMIN protection. Fetch the existing row first so we can apply
-    // role-aware guards before any UPDATE statement.
-    const existing = await this.findById(id)
-    if (!existing) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
-
-    assertAdminTargetEditableForUpdate(existing, data.role, actorId)
-    // MED (security-audit authz-hardening): mirror changeRole's privilege-
-    // escalation guards here. PATCH /:id/role already forbids elevating
-    // anyone to ADMIN (fixed pool) and moving a user to DROP (must go
-    // through POST /users/drops, which atomically provisions the mandatory
-    // drop-team). Without this, the SAME `role` field on the general
-    // PATCH /:id body bypassed both invariants — this only fires on an
-    // ACTUAL role change (data.role !== existing.role) so the routine
-    // round-trip of resubmitting the current role (e.g. an ADMIN self-edit,
-    // or editing a DROP user's other fields) is unaffected.
-    assertAssignableRoleOnChange(data.role, existing.role)
-    // ut-17: Telegram channel of the team is a SENIOR-only field. The pair
-    // invariant SENIOR ≡ team means setting it for any other role would be a
-    // contract violation — reject early with 400.
-    const effectiveRole = data.role ?? existing.role
-    if (data.teamTelegramChannel !== undefined && effectiveRole !== 'SENIOR') {
-      throw apiError('TELEGRAM_CHANNEL_SENIOR_ONLY', HttpStatus.BAD_REQUEST)
-    }
-    // Email uniqueness check — only when actually changing it.
-    if (data.email !== undefined && data.email !== existing.email) {
-      const conflict = await this.findByEmail(data.email)
-      if (conflict && conflict.id !== id) {
-        throw apiError('USER_EMAIL_EXISTS', HttpStatus.CONFLICT)
-      }
-      // COPY-M-15 (copy-review PR #623 closing round): the routine case of
-      // this SAME user's own WORK/PERSONAL swap, named and dispatched with
-      // its own message BEFORE `assertEmailAvailable` below — that check's
-      // `isOwnRow` pass-through deliberately lets a same-user collision
-      // through (see its own doc) and leaves the DB's unique index as the
-      // ONLY thing catching it, which surfaces as the generic 409
-      // `writeUserEmailOrConflict` throws downstream. The frontend's
-      // `explainUserMutationError` (`UserDialog.tsx`) overwrites EVERY 409
-      // from this endpoint with a hardcoded "already exists" toast — an
-      // admin who set the WORK address to this SAME employee's own
-      // PERSONAL address would read that and go looking for a second
-      // account that does not exist. 400 is not intercepted by that
-      // handler (only 409 is), so this message reaches the toast verbatim.
-      // Mirrors `changePersonalEmail`'s identical check from the other
-      // direction (`newEmail.toLowerCase() === target.email.toLowerCase()`
-      // → "Личный email должен отличаться от рабочего").
-      const ownPersonalRow = await this.db.db.query.userEmails.findFirst({
-        where: and(eq(userEmails.userId, id), eq(userEmails.kind, 'PERSONAL')),
-      })
-      if (ownPersonalRow && ownPersonalRow.email.toLowerCase() === data.email.toLowerCase()) {
-        throw apiError('WORK_EMAIL_MUST_DIFFER_FROM_PERSONAL', HttpStatus.BAD_REQUEST)
-      }
-      // §4.4 — see createUser's identical check: users.email alone cannot
-      // see a collision with someone else's PERSONAL row.
-      await assertEmailAvailable(this.db.db, data.email, id)
-    }
-
-    // Pure set-builder (see user-update.util.ts). Never throws, so moving the
-    // avatar assertion after it leaves the error order unchanged.
-    const { set, requestedSeniorSharePercent } = buildAdminUserUpdateSet(data, effectiveRole)
-    if ('avatarDocumentId' in data) {
-      // The avatar document must be an AVATAR owned by the target user `id`.
-      // The owner check is unconditional: there is no ADMIN/invoker bypass.
-      await assertAvatarDocument(this.db.db, data.avatarDocumentId ?? null, id)
-      set.avatarDocumentId = data.avatarDocumentId ?? null
-    }
-
-    // The user UPDATE + downstream SENIOR-only side effects (team composition
-    // reconcile + team telegram channel propagation) are committed as one
-    // transaction. Pair invariant SENIOR ≡ team means a partial commit (user
-    // saved but team comms lost) would leave inconsistent state on the
-    // critical comms field — atomicity matters here.
-    const updated = await this.db.db.transaction(async (tx) => {
-      // task-archived-user-completeness (AC2): routed through `updateUserRow`
-      // so this endpoint refuses exactly what `PATCH /:id/role` refuses. Note
-      // it refuses on an ACTUAL change only — an admin fixing an archived
-      // employee's IBAN so their earned payout can be sent resubmits the whole
-      // form, unchanged `role` and `monthlySalary` included, and must not be
-      // blocked (that edit is settlement, not a new entitlement).
-      const u = await this.updateUserRow(tx, id, existing, set)
-
-      // task-pending-share (position 5): a requested base-share change opens
-      // a proposal instead of writing `seniorSharePercent` directly — see
-      // `requestedSeniorSharePercent`'s own comment above. Runs in the SAME
-      // transaction as `updateUserRow` so an interruption between the two
-      // cannot leave the rest of this PATCH applied while the share change
-      // silently vanished (or vice versa).
-      if (requestedSeniorSharePercent !== undefined) {
-        if (!actorId) {
-          throw apiError('SHARE_CHANGE_REQUESTER_REQUIRED', HttpStatus.BAD_REQUEST)
-        }
-        const shareChangeResult = await this.seniorShare.proposeSeniorShareChangeInTx(
-          tx,
-          existing,
-          requestedSeniorSharePercent,
-          actorId,
-        )
-        // `u` was already fetched (via updateUserRow's own `.returning()`)
-        // BEFORE this call ran its own write, in the SAME transaction — patch
-        // it here so the HTTP response reflects what the DB now actually
-        // holds, not a stale pre-propose snapshot (see this method's own doc).
-        // task-648-fix-round-1 (SR-H-1): `shareChangeResult` is non-null for
-        // BOTH propose and cancel outcomes now — either way, its
-        // `pendingSeniorSharePercent` is what the DB now holds.
-        if (shareChangeResult)
-          u.pendingSeniorSharePercent = shareChangeResult.pendingSeniorSharePercent
-      }
-
-      // §4.4: keep the WORK row in `user_emails` in sync — login now reads
-      // THAT table (findLoginableUserByEmail), so without this an admin
-      // changing a user's email would silently lock them out of the new
-      // address (and leave the old one still working, which is worse).
-      if (data.email !== undefined && data.email !== existing.email) {
-        await this.upsertWorkEmail(tx, u.id, u.email)
-      }
-
-      // SENIOR-only: optional team composition reconcile.
-      if (u.role === 'SENIOR' && (data.hrIds !== undefined || data.accountantId !== undefined)) {
-        await this.reconcileSeniorTeamTx(
-          tx,
-          u.id,
-          {
-            hrIds: data.hrIds,
-            accountantId: data.accountantId,
-          },
-          actorId,
-        )
-      }
-
-      // ut-17: propagate teamTelegramChannel onto the senior's team (same tx).
-      if (u.role === 'SENIOR' && data.teamTelegramChannel !== undefined) {
-        await this.updateSeniorTeamTelegramChannelTx(tx, u.id, data.teamTelegramChannel, actorId)
-      }
-
-      return u
-    })
-
-    return updated
-  }
-
-  /**
-   * Update `teams.telegram_channel` for the team owned by `seniorId` and write
-   * a `team_updated` audit row inside the SAME transaction. No-op if the value
-   * hasn't actually changed (avoids spurious audit entries for re-saves).
-   */
-  private async updateSeniorTeamTelegramChannelTx(
-    tx: DrizzleTx,
-    seniorId: string,
-    value: string | null,
-    actorId: string | null,
-  ): Promise<void> {
-    const seniorMembership = await tx
-      .select()
-      .from(teamMembers)
-      .where(and(eq(teamMembers.userId, seniorId), isNull(teamMembers.leftAt)))
-      .then((rows) => rows[0])
-    if (!seniorMembership) return
-    const teamId = seniorMembership.teamId
-
-    const team = await tx
-      .select()
-      .from(teams)
-      .where(eq(teams.id, teamId))
-      .then((rows) => rows[0])
-    if (!team) return
-
-    const previous = team.telegramChannel ?? null
-    const next = value ?? null
-    if (previous === next) return
-
-    await tx
-      .update(teams)
-      .set({ telegramChannel: next, updatedAt: new Date() })
-      .where(eq(teams.id, teamId))
-
-    await this.teamAuditLogService.record(
-      {
-        actorId,
-        targetId: teamId,
-        action: 'team_updated',
-        changes: { telegramChannel: { before: previous, after: next } },
-      },
-      tx,
-    )
-  }
-
-  /**
-   * Transactional variant of reconcileSeniorTeam. All membership writes and
-   * audit log entries use the supplied `tx` so adminUpdateUser's outer
-   * transaction can commit them atomically with the user UPDATE.
-   *
-   * Active members (`leftAt IS NULL`) are diffed against the target sets:
-   *  - new HR/Acc -> insert team_member or restore via leftAt=NULL on existing row
-   *  - removed HR/Acc -> set leftAt=now()
-   * Each delta is logged into `team_audit_log`.
-   */
-  private async reconcileSeniorTeamTx(
-    tx: DrizzleTx,
-    seniorId: string,
-    data: { hrIds?: string[] | undefined; accountantId?: string | null | undefined },
-    actorId: string | null,
-  ): Promise<void> {
-    // Resolve the senior's team via team_members (teams has no seniorId column —
-    // a SENIOR is always team_member of exactly one team by business invariant).
-    const seniorMembership = await tx
-      .select()
-      .from(teamMembers)
-      .where(and(eq(teamMembers.userId, seniorId), isNull(teamMembers.leftAt)))
-      .then((rows) => rows[0])
-    if (!seniorMembership) return
-    const teamId = seniorMembership.teamId
-
-    const activeMembers: Array<{ userId: string; id: string; role: User['role'] }> = await tx
-      .select({
-        userId: teamMembers.userId,
-        id: teamMembers.id,
-        role: users.role,
-      })
-      .from(teamMembers)
-      .innerJoin(users, eq(users.id, teamMembers.userId))
-      .where(and(eq(teamMembers.teamId, teamId), isNull(teamMembers.leftAt)))
-
-    const now = new Date()
-
-    if (data.hrIds !== undefined) {
-      const desiredHrIds = new Set(data.hrIds)
-      const currentHrIds = new Set(
-        activeMembers.filter((m) => m.role === 'HR').map((m) => m.userId),
-      )
-
-      // To remove: currently active HR not in desired set.
-      const toRemove = [...currentHrIds].filter((id) => !desiredHrIds.has(id))
-      // To add: desired but not currently active.
-      const toAdd = [...desiredHrIds].filter((id) => !currentHrIds.has(id))
-
-      for (const userId of toRemove) {
-        await tx
-          .update(teamMembers)
-          .set({ leftAt: now })
-          .where(
-            and(
-              eq(teamMembers.teamId, teamId),
-              eq(teamMembers.userId, userId),
-              isNull(teamMembers.leftAt),
-            ),
-          )
-        await this.teamAuditLogService.record(
-          {
-            actorId,
-            targetId: teamId,
-            action: 'team_member_removed',
-            changes: {
-              userId: { before: userId, after: null },
-              role: { before: 'HR', after: null },
-            },
-          },
-          tx,
-        )
-      }
-      for (const userId of toAdd) {
-        await this.upsertTeamMemberTx(tx, teamId, userId)
-        await this.teamAuditLogService.record(
-          {
-            actorId,
-            targetId: teamId,
-            action: 'team_member_added',
-            changes: {
-              userId: { before: null, after: userId },
-              role: { before: null, after: 'HR' },
-            },
-          },
-          tx,
-        )
-      }
-    }
-
-    if (data.accountantId !== undefined) {
-      const desiredId = data.accountantId ?? null
-      const currentAcc = activeMembers.find((m) => m.role === 'ACCOUNTANT')
-      const currentId = currentAcc?.userId ?? null
-
-      if (currentId !== desiredId) {
-        if (currentId) {
-          await tx
-            .update(teamMembers)
-            .set({ leftAt: now })
-            .where(
-              and(
-                eq(teamMembers.teamId, teamId),
-                eq(teamMembers.userId, currentId),
-                isNull(teamMembers.leftAt),
-              ),
-            )
-          await this.teamAuditLogService.record(
-            {
-              actorId,
-              targetId: teamId,
-              action: 'team_member_removed',
-              changes: {
-                userId: { before: currentId, after: null },
-                role: { before: 'ACCOUNTANT', after: null },
-              },
-            },
-            tx,
-          )
-        }
-        if (desiredId) {
-          await this.upsertTeamMemberTx(tx, teamId, desiredId)
-          await this.teamAuditLogService.record(
-            {
-              actorId,
-              targetId: teamId,
-              action: 'team_member_added',
-              changes: {
-                userId: { before: null, after: desiredId },
-                role: { before: null, after: 'ACCOUNTANT' },
-              },
-            },
-            tx,
-          )
-        }
-      }
-    }
-  }
-
-  /**
-   * Insert team_member; if row already exists (left previously) — clear leftAt to restore.
-   * Uses the supplied transaction handle so it shares the outer atomicity boundary.
-   */
-  private async upsertTeamMemberTx(tx: DrizzleTx, teamId: string, userId: string): Promise<void> {
-    const existing = await tx
-      .select()
-      .from(teamMembers)
-      .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)))
-      .then((rows) => rows[0])
-    if (existing) {
-      if (existing.leftAt !== null) {
-        await tx.update(teamMembers).set({ leftAt: null }).where(eq(teamMembers.id, existing.id))
-      }
-      return
-    }
-    await tx.insert(teamMembers).values({ teamId, userId })
+    return this.adminUserUpdate.adminUpdateUser(id, data, actorId)
   }
 
   async updateProfile(
@@ -1118,74 +593,17 @@ export class UsersService {
     return this.updateUserRow(this.db.db, id, existing, { role, updatedAt: new Date() })
   }
 
-  async changeSalary(
+  changeSalary(
     id: string,
     data: {
       monthlySalary?: number | null
       salaryCurrency?: 'USDT' | 'USD' | 'EUR' | 'UAH'
       seniorSharePercent?: number
     },
-    // Optional: only consulted (and required) when `data.seniorSharePercent`
-    // is actually present — every OTHER call of this method (monthlySalary /
-    // salaryCurrency only) is unaffected and does not need to supply one.
+    // Optional: only consulted (and required) when `data.seniorSharePercent` is present.
     actorId?: string,
   ): Promise<User> {
-    const set: Record<string, unknown> = { updatedAt: new Date() }
-    if (data.monthlySalary !== undefined)
-      set.monthlySalary = data.monthlySalary != null ? String(data.monthlySalary) : null
-    if (data.salaryCurrency !== undefined) set.salaryCurrency = data.salaryCurrency
-    // task-pending-share (position 5): `seniorSharePercent` is DELIBERATELY
-    // excluded from `set` — this was a second, un-gated direct-write door
-    // onto the same column `adminUpdateUser` already routes through
-    // proposal+confirmation (this endpoint had no role check at all, unlike
-    // that one — closing it here, not widening it). See
-    // `proposeSeniorShareChangeInTx`'s doc for the full reasoning.
-    // task-archived-user-completeness (AC2): this method wrote blind (no read
-    // of the target at all), so it could not have known the user was archived.
-    // The read is what `updateUserRow` compares against — without it every
-    // resubmit of an unchanged salary would look like a change and 400.
-    const existing = await this.findById(id)
-    if (!existing) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
-    // task-648-fix-round-4 (SR-L-5): the same role gate `adminUpdateUser`
-    // applies to its own propose (`effectiveRole === 'SENIOR'`). This
-    // endpoint carries no `role` field, so the effective role is simply the
-    // target's current one. Without this line the second door onto this
-    // column opened a `USER_SENIOR_SHARE` proposal against a DROP/JUNIOR
-    // target — a confirmation row for a share that role does not have,
-    // hanging fail-closed forever because the client never offers those
-    // buttons. Nothing was exploitable; the two doors onto one column simply
-    // disagreed, which is the shape every finding on this path started as.
-    //
-    // Ignoring the field rather than 400-ing is deliberate: it is exactly
-    // what `adminUpdateUser` does with the same input (its
-    // `requestedSeniorSharePercent` ternary), and a gate that answers
-    // differently depending on which endpoint you knock at is the drift this
-    // is closing.
-    const requestedSeniorSharePercent: number | undefined =
-      existing.role === 'SENIOR' ? data.seniorSharePercent : undefined
-    // No share change requested — byte-for-byte the pre-existing single
-    // statement, no transaction wrapper added (keeps this the SAME shape
-    // every OTHER caller of this method already relies on).
-    if (requestedSeniorSharePercent === undefined) {
-      return this.updateUserRow(this.db.db, id, existing, set)
-    }
-    if (!actorId) {
-      throw apiError('SHARE_CHANGE_REQUESTER_REQUIRED', HttpStatus.BAD_REQUEST)
-    }
-    return this.db.db.transaction(async (tx) => {
-      const updated = await this.updateUserRow(tx, id, existing, set)
-      const shareChangeResult = await this.seniorShare.proposeSeniorShareChangeInTx(
-        tx,
-        existing,
-        requestedSeniorSharePercent,
-        actorId,
-      )
-      // Same stale-response fix as adminUpdateUser — see proposeSeniorShareChangeInTx's own doc.
-      // task-648-fix-round-1 (SR-H-1): non-null for BOTH propose/cancel now.
-      if (shareChangeResult)
-        updated.pendingSeniorSharePercent = shareChangeResult.pendingSeniorSharePercent
-      return updated
-    })
+    return this.salary.changeSalary(id, data, actorId)
   }
 
   async setAdminNote(id: string, note: string | null): Promise<User> {
@@ -1215,306 +633,9 @@ export class UsersService {
     return this.archiveSvc.getArchiveImpact(id, currentUser)
   }
 
-  /**
-   * Returns flat list of teammates for a given user. Combines:
-   *  - team_members of teams associated with the user (HR, ACCOUNTANT, SENIOR)
-   *  - JUNIORs active in projects owned by those teams' seniors
-   * Excludes the user themselves.
-   *
-   * Mapping of "user → their team(s)":
-   *  - SENIOR: teams owned by this senior (teams.senior_id = user.id is implicit via team_members)
-   *  - JUNIOR: teams of seniors whose projects this junior is active in
-   *  - HR / ACCOUNTANT: teams where the user is a team_member
-   *  - ADMIN: no teams (returns empty)
-   */
-  /**
-   * security-review PR #541 follow-up (HIGH): `viewerRole` is REQUIRED, not
-   * optional. Before this fix the method had no notion of a viewer at all,
-   * so masking JUNIOR identity from a SENIOR was structurally impossible —
-   * `TeamTab.tsx` (GET /users/:id/team, this method's only caller) renders
-   * the real displayName/avatar and a `/profile/$userId` link built from the
-   * real id, the exact identity `ProjectsService.mapProject` and
-   * `TeamsService.mapTeam` already redact for a SENIOR viewer elsewhere in
-   * the CRM. This method is the data source for a SENIOR's OWN "Команда"
-   * profile tab (self-view) — owner decision: RBAC rule #1 ("SENIOR must not
-   * see JUNIOR identity anywhere") applies there too, self-view included.
-   *
-   * security-review PR #541 round 3 (single-exit hardening): the method used
-   * to have FIVE exit points, and the viewerRole filter only guarded the
-   * last one — the DROP branch `return`ed its own query result directly,
-   * structurally bypassing the filter. Safe today only via two invariants
-   * OUTSIDE this method (SENIOR can never reach a DROP target's "Команда"
-   * tab per the access matrix; no JUNIOR row can exist in `team_members`),
-   * neither of which this method itself enforces — widen the access matrix
-   * and the bypass opens silently, with no test going red. Refactored so
-   * every branch assigns into `rows` instead of returning; the viewerRole
-   * filter at the bottom is now the ONLY return statement past the
-   * not-found guard, so it cannot be skipped by construction.
-   *
-   * security-review PR #541 round 5 (mutation-gate suppression rework): the
-   * round-4 patch wrapped every downstream query in an
-   * `if (x.length > 0)` / `if (x.size > 0)` "skip when empty" guard, each
-   * justified as an equivalence proof (`inArray(col, [])` compiles to SQL
-   * `false`, so entering with an empty collection finds nothing regardless)
-   * and suppressed accordingly. That was correct about the SQL, but wrong
-   * about what a single `// Stryker disable next-line <mutator>` comment
-   * actually silences: Stryker's `IgnoreRule` matches by (line, mutator
-   * name) only, never by which replacement value, so a directive aimed at
-   * "always-true is a no-op" also silenced "always-false", and for most of
-   * these guards the always-false direction was real and had a real test
-   * (BRANCH-SELECT-1/3) — silently swallowed, never executed by the gate.
-   * Fixed by removing the guards outright instead of re-suppressing them:
-   * every one of them was a pure "skip one DB round-trip" optimization with
-   * no observable effect on `rows`, so deleting the condition deletes the
-   * mutant along with it. The one remaining outer gate, `user.role !==
-   * 'DROP'`, is NOT suppressed — unlike the guards it replaced
-   * (`mayDeriveSeniorRoster`), both of its directions are genuine bugs with
-   * genuine tests (see the comment at its `if` above).
-   */
-  async getTeamMembersForUser(userId: string, viewerRole: AppRole): Promise<TeamMemberPreview[]> {
-    const user = await this.findById(userId)
-    if (!user) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
-
-    // Equivalence proof: every reachable path below (the `if` branch AND the
-    // `else` branch, exhaustive on `user.role === 'DROP'`) unconditionally
-    // reassigns `rows` before it is ever read — there is no path left where
-    // this initial value survives to the RBAC filter at the bottom. A
-    // mutated placeholder here can never be observed by any test.
-    // Stryker disable next-line ArrayDeclaration: provably equivalent — see the paragraph immediately above (rows is unconditionally reassigned by every branch of the if/else below before it is ever read)
-    let rows: TeamMemberPreview[] = []
-
-    // security-review PR #541 round 5 (mutation-gate follow-up): a real
-    // `if/else` here, not the two independent top-level `if`s round 4 used
-    // (`if (user.role === 'DROP')` ... `if (user.role !== 'DROP')`). With two
-    // independent conditions, forcing the FIRST one to always-true was a
-    // no-op for every non-DROP role: the SECOND condition still evaluated
-    // unmutated, Step 1-3 still ran, and its unconditional final assignment
-    // silently overwrote whatever this branch produced — an equivalent
-    // mutant Stryker could not be told apart from the real "force-always-false
-    // skips a real DROP roster" direction (DROP-BRANCH-MASK-1/2), so it could
-    // not be safely suppressed either (see the round-5 note in the method
-    // docblock). Merging into one `if/else` ties both directions to this
-    // SAME condition: force-always-true now means EVERY role — DROP or not —
-    // takes this branch and Step 1-3 never runs at all, which BRANCH-SELECT-
-    // 1/2/3 (non-DROP targets that need Step 1-3's roster) catch; force-
-    // always-false means a DROP target falls through to Step 1-3 instead
-    // (whose inner checks don't match 'DROP', producing `[]`), which DROP-
-    // BRANCH-MASK-1/2 (non-empty DROP rosters) catch. No suppression needed.
-    if (user.role === 'DROP') {
-      // Drop role - phase 1: drop's "team members" are the drop-team itself
-      // (HR + accountant + optional active senior). JUNIORs are not surfaced
-      // (no JUNIOR row can exist in `team_members` — that table only ever
-      // gets SENIOR/HR/ACCOUNTANT/DROP rows). The viewerRole filter below
-      // still applies to whatever this branch produces regardless.
-      //
-      // security-review PR #541 round 5 (mutation-gate suppression rework):
-      // no `if (dropMemberships.length > 0)` guard here on purpose — it used
-      // to exist purely as a DB-round-trip optimization, never a correctness
-      // requirement. Verified empirically against this repo's drizzle-orm
-      // version: `inArray(teamMembers.teamId, [])` compiles to the literal
-      // SQL fragment `false` (never `IN ()`, which would be a syntax error),
-      // so running the query below with an empty `dropTeamIds` returns zero
-      // rows anyway — identical to skipping it. The guard was removed rather
-      // than suppressed because Stryker's `IgnoreRule` matches by (line,
-      // mutator name) only, never by which replacement — it cannot silence
-      // "always-true" without also silencing "always-false", and the
-      // "always-false" direction here is real (killed by
-      // DROP-BRANCH-MASK-3). Removing the condition removes the ambiguity
-      // instead of trying to suppress half of it.
-      const dropMemberships = await this.db.db
-        .select({ teamId: teamMembers.teamId })
-        .from(teamMembers)
-        .where(and(eq(teamMembers.userId, userId), isNull(teamMembers.leftAt)))
-      const dropTeamIds = dropMemberships.map((m) => m.teamId)
-      rows = await this.db.db
-        .select({
-          id: users.id,
-          displayName: users.displayName,
-          role: users.role,
-          avatarUrl: users.avatarUrl,
-          avatarDocumentId: users.avatarDocumentId,
-        })
-        .from(teamMembers)
-        .innerJoin(users, eq(users.id, teamMembers.userId))
-        .where(
-          and(
-            inArray(teamMembers.teamId, dropTeamIds),
-            isNull(teamMembers.leftAt),
-            ne(users.id, userId),
-          ),
-        )
-    } else {
-      // Step 1: Resolve set of seniorIds whose teams this user belongs to.
-      // Left at `[]` for ADMIN (none of the branches below match 'ADMIN'),
-      // which is what makes Step 2/3 below resolve nothing for an ADMIN
-      // target — DROP-BRANCH-MASK-4 pins that outcome.
-
-      // Equivalence proof: `seniorIds` is always overwritten synchronously or
-      // via a DB lookup by exactly one of the four role branches below before
-      // it is ever read (SENIOR: `[user.id]`; JUNIOR: derived from active
-      // projects; HR/ACCOUNTANT: derived from team_members, or left `[]` when
-      // this user has no team memberships of their own). In that last case a
-      // mutated placeholder value is "washed out" downstream: `seniorIds`
-      // only ever feeds `inArray(...)` filters (never returned directly), and
-      // an arbitrary non-matching string finds the same zero rows a
-      // genuinely empty array would — the RETURNED `rows` converge to the
-      // identical result either way, for any real (non-Stryker-placeholder)
-      // seed data. BRANCH-SELECT-1/2/3 each exercise a role whose branch DOES
-      // overwrite `seniorIds`, which is the only way this variable's value
-      // is ever actually read downstream.
-      // Stryker disable next-line ArrayDeclaration: provably equivalent — see the paragraph immediately above (seniorIds only ever feeds inArray(...) filters that are washed out by a non-matching placeholder, never returned directly)
-      let seniorIds: string[] = []
-
-      if (user.role === 'SENIOR') {
-        seniorIds = [user.id]
-      } else if (user.role === 'JUNIOR') {
-        const activeProjects = await this.db.db
-          .select({ seniorId: projects.seniorId })
-          .from(projectMembers)
-          .innerJoin(projects, eq(projectMembers.projectId, projects.id))
-          .where(and(eq(projectMembers.userId, userId), isNull(projectMembers.leftAt)))
-        seniorIds = Array.from(new Set(activeProjects.map((p) => p.seniorId)))
-      } else if (user.role === 'HR' || user.role === 'ACCOUNTANT') {
-        // MED-2 (security-review round 2): `isNull(leftAt)` — a soft-removed
-        // HR/ACCOUNTANT membership must not resolve a team roster anymore.
-        // Mirrors the HIGH-1 fix in teams.service.ts (isHrOfTeam/assertAccess).
-        //
-        // security-review PR #541 round 5: no `if (memberships.length > 0)`
-        // guard — same "remove, don't suppress" reasoning as the DROP branch
-        // above. `inArray(teamMembers.teamId, [])` -> SQL `false`, so running
-        // the query below with an empty `membershipTeamIds` finds nothing,
-        // same as skipping it; the "force skip" direction is real and killed
-        // by BRANCH-SELECT-3.
-        const memberships = await this.db.db
-          .select({ teamId: teamMembers.teamId })
-          .from(teamMembers)
-          .where(and(eq(teamMembers.userId, userId), isNull(teamMembers.leftAt)))
-        const membershipTeamIds = memberships.map((m) => m.teamId)
-        // LOW (security-review round 3, follow-up to #436): `isNull(leftAt)`
-        // here too — without it a SENIOR rotated OUT of one of this HR's teams
-        // (team_members.leftAt set, TeamsService.rotateSenior) still resolves
-        // into `seniorIds` below, and their JUNIORs surface in this HR's
-        // roster. No incremental data exposure (the same fields are visible
-        // via the general user list this HR already has), but this brings the
-        // check to the same "leftAt === null is the norm for every membership
-        // check in this file" shape as everywhere else (see HIGH-1 above).
-        const seniorsInTeams = await this.db.db
-          .select({ userId: teamMembers.userId })
-          .from(teamMembers)
-          .innerJoin(users, eq(teamMembers.userId, users.id))
-          .where(
-            and(
-              inArray(teamMembers.teamId, membershipTeamIds),
-              eq(users.role, 'SENIOR'),
-              isNull(teamMembers.leftAt),
-            ),
-          )
-        seniorIds = Array.from(new Set(seniorsInTeams.map((s) => s.userId)))
-      }
-
-      // Step 2: Collect team_members (SENIOR + HR + ACCOUNTANT) across those seniors' teams.
-      // Teams are linked to senior via team_members (the SENIOR is itself a member).
-      // MED-2 (security-review round 2): `isNull(leftAt)` on BOTH queries below —
-      // a detached (rotated-out) senior's team_members row must not resolve a
-      // team, and a departed HR/ACCOUNTANT/SENIOR row must not surface in the
-      // roster returned to the caller (stale-member leak, distinct from the
-      // team-access class of bug already fixed in teams.service.ts).
-      //
-      // security-review PR #541 round 5: no `if (seniorIds.length > 0)` guard
-      // around Step 2/3 — same "remove, don't suppress" reasoning. Every
-      // `inArray(..., [])` below compiles to SQL `false`, so an empty
-      // `seniorIds` flows through Step 2 and Step 3 finding nothing at each
-      // stage, converging on the same `rows` as skipping the whole block
-      // would. The "force skip" direction is real and killed by
-      // BRANCH-SELECT-1.
-      const seniorMemberships = await this.db.db
-        .select({ teamId: teamMembers.teamId })
-        .from(teamMembers)
-        .innerJoin(users, eq(teamMembers.userId, users.id))
-        .where(
-          and(
-            inArray(teamMembers.userId, seniorIds),
-            eq(users.role, 'SENIOR'),
-            isNull(teamMembers.leftAt),
-          ),
-        )
-      const teamIds = Array.from(new Set(seniorMemberships.map((m) => m.teamId)))
-
-      const memberIds = new Set<string>()
-      // security-review PR #541 round 5: no `if (teamIds.length > 0)` guard —
-      // `inArray(teamMembers.teamId, [])` -> SQL `false`; the "force skip"
-      // direction is real and killed by BRANCH-SELECT-1.
-      const tmRows = await this.db.db
-        .select({ userId: teamMembers.userId })
-        .from(teamMembers)
-        .where(and(inArray(teamMembers.teamId, teamIds), isNull(teamMembers.leftAt)))
-      tmRows.forEach((r) => memberIds.add(r.userId))
-
-      // Step 3: Add active JUNIORs from projects of those seniors.
-      //
-      // MED-3 (security-review round 3, follow-up to #436, reverted same PR):
-      // an earlier round of this fix derived this list from `seniorMemberships`
-      // above (i.e. required an ACTIVE team_members row) instead of the raw
-      // `seniorIds` from Step 1. That silently narrowed the SENIOR self-view
-      // case: rotation/archive-drop-team detaches a senior from their team
-      // WITHOUT archiving their projects (`TeamsService.rotateSenior`,
-      // `archiveDropTeam` — see their own docs), so a teamless senior still
-      // legitimately owns active projects with active JUNIOR members during
-      // that gap, and this method is also how a SENIOR views their OWN "team"
-      // tab (`seniorIds = [user.id]` in Step 1's SENIOR branch, always exactly
-      // themselves — never contaminated by the HR/ACCOUNTANT leak this PR
-      // actually closes). Restored to raw `seniorIds`: the real vulnerability
-      // (a rotated-out senior surfacing in an HR VIEWER's roster) is already
-      // closed at its actual source — the `isNull(teamMembers.leftAt)` filter
-      // added to Step 1's `seniorsInTeams` query above, which is the only
-      // branch that ever populated `seniorIds` with someone other than the
-      // viewer themselves or their own currently-active project seniors.
-      const seniorProjects = await this.db.db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(inArray(projects.seniorId, seniorIds))
-      const projectIds = seniorProjects.map((p) => p.id)
-      // security-review PR #541 round 5: no `if (projectIds.length > 0)`
-      // guard — `inArray(projectMembers.projectId, [])` -> SQL `false`; the
-      // "force skip" direction is real and killed by BRANCH-SELECT-1.
-      const juniorRows = await this.db.db
-        .select({ userId: projectMembers.userId })
-        .from(projectMembers)
-        .where(and(inArray(projectMembers.projectId, projectIds), isNull(projectMembers.leftAt)))
-      juniorRows.forEach((r) => memberIds.add(r.userId))
-
-      memberIds.delete(userId)
-      // security-review PR #541 round 5: no `if (memberIds.size > 0)` guard —
-      // `inArray(users.id, [])` -> SQL `false`; the "force skip" direction is
-      // real and killed by DROP-BRANCH-MASK-3 (a non-DROP-branch empty roster
-      // must leave `rows` at `[]`, not error or hang on an unbounded query).
-      rows = await this.db.db
-        .select({
-          id: users.id,
-          displayName: users.displayName,
-          role: users.role,
-          avatarUrl: users.avatarUrl,
-          avatarDocumentId: users.avatarDocumentId,
-        })
-        .from(users)
-        .where(inArray(users.id, Array.from(memberIds)))
-    }
-    // user.role === 'ADMIN': Step 1's inner checks never match 'ADMIN', so
-    // seniorIds stays [] and Step 2/3 resolve nothing — rows ends up [].
-
-    // RBAC rule #1 (security-review PR #541 follow-up, HIGH): SENIOR viewers
-    // must not see JUNIOR identity anywhere in the CRM, including their own
-    // "Команда" profile tab (self-view is not exempt — owner decision).
-    // Blanket-filtered rather than per-item redacted, mirroring the safer
-    // shape TeamsService.mapTeam's `filteredJuniorMembers = []` and
-    // ProjectsService.computeEffectiveTeam's `juniors = []` already use for
-    // the same viewer role — there is no per-item boolean here a future
-    // refactor could silently drop. This is the SINGLE return statement for
-    // every branch above (round 3 hardening — see method docblock).
-    if (viewerRole === 'SENIOR') {
-      return rows.filter((r) => r.role !== 'JUNIOR')
-    }
-    return rows
+  /** Per-viewer-masked teammate roster. Delegates to {@link TeamMembersPreviewService}. */
+  getTeamMembersForUser(userId: string, viewerRole: AppRole): Promise<TeamMemberPreview[]> {
+    return this.teamMembersPreview.getTeamMembersForUser(userId, viewerRole)
   }
 
   /** Per-viewer masked profile (GET profile). Delegates to {@link UserProfileService}. */
@@ -1584,107 +705,8 @@ export class UsersService {
    *
    * Returns the created user + the team id so the UI can navigate to it.
    */
-  async createDrop(
-    data: {
-      email: string
-      displayName: string
-      telegram?: string | null
-      phone?: string | null
-      avatarUrl?: string | null
-      techStack?: string[] | null
-      dropSharePercent?: number
-      paymentMethod?: 'USDT_ERC20' | 'BANK_UAH_FOP'
-      walletUsdtErc20?: string | null
-      walletUsdtLabel?: string | null
-      bankUahRecipient?: string | null
-      bankUahIban?: string | null
-      bankUahRnokpp?: string | null
-      bankUahBankName?: string | null
-      /**
-       * Legal full name (Cyrillic ФИО) for the drop's MSA contract. Required
-       * at the schema/UI boundary; persisted here so it isn't lost.
-       */
-      legalFullName?: string | null
-      /** Ukrainian registration address (ФОП) — optional; persisted when set. */
-      registrationAddress?: string | null
-      hrIds: string[]
-      accountantId?: string | null
-      telegramChannel?: string | null
-    },
-    actor: SessionUser,
-  ): Promise<{ user: User; teamId: string }> {
-    if (actor.role !== 'ADMIN') {
-      throw apiError('DROP_CREATE_ADMIN_ONLY', HttpStatus.FORBIDDEN)
-    }
-    // security-review round 2 (authz-hardening): attribute audit rows below
-    // to the REAL operator under impersonation, not the impersonated
-    // target — see sessionUserSchema.impersonatorId's doc for the full
-    // rationale. This endpoint is @Roles('ADMIN'), so in practice
-    // `impersonatorId` can only be set here if impersonation semantics
-    // ever change to allow it (RolesGuard checks the TARGET's role during
-    // impersonation, currently blocking this route) — kept in sync
-    // defensively rather than left to silently drift.
-    const effectiveActorId = actor.impersonatorId ?? actor.id
-    if (data.hrIds.length < 1) {
-      throw apiError('HR_REQUIRED_MINIMUM_ONE', HttpStatus.BAD_REQUEST)
-    }
-    const existing = await this.findByEmail(data.email)
-    if (existing) throw apiError('USER_EMAIL_EXISTS', HttpStatus.CONFLICT)
-    // §4.4 — see createUser's identical check for the full rationale.
-    await assertEmailAvailable(this.db.db, data.email)
-
-    return this.db.db.transaction(async (tx) => {
-      const insertValues = buildDropInsertValues(data)
-
-      const rows = await tx.insert(users).values(insertValues).returning()
-      const created = rows[0]
-      if (!created) throw new Error('Failed to create drop user')
-
-      // §4.4 — see createUser's identical insert for the full rationale.
-      // writeUserEmailOrConflict: SR-M-2 — same 23505-to-409 conversion as
-      // every other user_emails write in this file.
-      await writeUserEmailOrConflict(() =>
-        tx.insert(userEmails).values({
-          userId: created.id,
-          email: created.email,
-          kind: 'WORK',
-          canLogin: true,
-          verifiedAt: new Date(),
-        }),
-      )
-
-      await this.auditLogService.record(
-        {
-          actorId: effectiveActorId,
-          targetId: created.id,
-          action: 'profile_created',
-          changes: {
-            displayName: { before: null, after: created.displayName },
-            role: { before: null, after: created.role },
-          },
-        },
-        tx,
-      )
-
-      const team = await this.teamsService.createDropTeam(
-        created.id,
-        data.hrIds,
-        data.accountantId ?? null,
-        data.telegramChannel ?? null,
-        tx,
-      )
-      await this.teamAuditLogService.record(
-        {
-          actorId: effectiveActorId,
-          targetId: team.id,
-          action: 'team_created',
-          changes: { name: { before: null, after: team.name } },
-        },
-        tx,
-      )
-
-      return { user: created, teamId: team.id }
-    })
+  createDrop(data: CreateDropInput, actor: SessionUser): Promise<{ user: User; teamId: string }> {
+    return this.dropCreation.createDrop(data, actor)
   }
 
   archiveDrop(
@@ -1700,7 +722,7 @@ export class UsersService {
    * (`JOIN_DROP_TEAM`). Caller must be the senior themselves (controller
    * enforces that the path is `me`).
    */
-  async rejoinTeam(
+  rejoinTeam(
     seniorId: string,
     data: {
       teamMode: 'CREATE_NEW' | 'JOIN_DROP_TEAM'
@@ -1709,65 +731,7 @@ export class UsersService {
       accountantId?: string | null
     },
   ): Promise<{ teamId: string }> {
-    const user = await this.findById(seniorId)
-    if (!user) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
-    if (user.role !== 'SENIOR') {
-      throw apiError('REJOIN_TEAM_SENIOR_ONLY', HttpStatus.BAD_REQUEST)
-    }
-    // Caller must currently have NO active team membership.
-    const activeMembership = await this.db.db
-      .select()
-      .from(teamMembers)
-      .where(and(eq(teamMembers.userId, seniorId), isNull(teamMembers.leftAt)))
-      .then((rows) => rows[0])
-    if (activeMembership) {
-      throw apiError('ALREADY_HAS_ACTIVE_TEAM', HttpStatus.BAD_REQUEST)
-    }
-
-    if (data.teamMode === 'JOIN_DROP_TEAM') {
-      if (!data.dropTeamId) {
-        throw apiError('DROP_TEAM_ID_REQUIRED', HttpStatus.BAD_REQUEST)
-      }
-      // LOW (security-review round 3, follow-up to #436): this is a
-      // self-service call — the SENIOR is the caller, so there is no
-      // HR/ADMIN actor to scope against (unlike createUser's HR check
-      // above `isActiveMemberOfTeam`). Without a check here a teamless
-      // SENIOR could self-attach to ANY drop-team with a free slot, not
-      // just one they used to belong to — see
-      // TeamsService.wasFormerMemberOfTeam's docblock for the full
-      // rationale and the chain this closes.
-      const wasFormerMember = await this.teamsService.wasFormerMemberOfTeam(
-        data.dropTeamId,
-        seniorId,
-      )
-      if (!wasFormerMember) {
-        throw apiError('REJOIN_TEAM_MUST_BE_FORMER_MEMBER', HttpStatus.FORBIDDEN)
-      }
-      await this.teamsService.addSeniorToDropTeam(data.dropTeamId, seniorId)
-      return { teamId: data.dropTeamId }
-    }
-
-    // CREATE_NEW path — mirrors createUser SENIOR branch.
-    if (!data.hrIds || data.hrIds.length < 1) {
-      throw apiError('HR_REQUIRED_MINIMUM_ONE', HttpStatus.BAD_REQUEST)
-    }
-    return this.db.db.transaction(async (tx) => {
-      const inserted = await tx
-        .insert(teams)
-        .values({ name: `Команда ${user.displayName}` })
-        .returning()
-      const team = inserted[0]
-      if (!team) throw new Error('Failed to create senior team')
-      const memberIds = [
-        seniorId,
-        ...data.hrIds!,
-        ...(data.accountantId ? [data.accountantId] : []),
-      ]
-      for (const userId of memberIds) {
-        await tx.insert(teamMembers).values({ teamId: team.id, userId })
-      }
-      return { teamId: team.id }
-    })
+    return this.rejoinTeamSvc.rejoinTeam(seniorId, data)
   }
 
   /**

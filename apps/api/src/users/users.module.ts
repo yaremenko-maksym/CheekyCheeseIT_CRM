@@ -16,6 +16,7 @@ import { AuditLogService } from './audit-log.service'
 import { PersonalEmailInviteMailerService } from './personal-email-invite-mailer.service'
 import { UsersService } from './users.service'
 import { UserArchiveService } from './user-archive.service'
+import { TeamReconcileService } from './team-reconcile.service'
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { UserArchiveService } from './user-archive.service'
   providers: [
     UsersService,
     UserArchiveService,
+    TeamReconcileService,
     UsersAccessService,
     AuditLogService,
     AuditInterceptor,

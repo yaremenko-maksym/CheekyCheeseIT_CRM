@@ -1,16 +1,13 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { StickyPageHeader } from '@/components/crm/StickyPageHeader'
-import { useForm } from '@tanstack/react-form'
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
-import { Archive, Check, Plus, Search, Send, UserPlus, Users } from 'lucide-react'
+import { Archive, Plus, Search, Send, Users } from 'lucide-react'
 import { useEffect, useMemo, useState, useTransition } from 'react'
-import { isValidPhoneNumber } from 'react-phone-number-input'
-import type { Value as PhoneValue } from 'react-phone-number-input'
 import { z } from 'zod'
-import type { CreateUserDto, ProjectDto, TeamDto, UserProfileDto } from '@crm/shared'
-import { compareNames, createUserSchema, updateProfileSchema } from '@crm/shared'
+import type { ProjectDto, TeamDto } from '@crm/shared'
+import { compareNames } from '@crm/shared'
 import { Plural, Trans, useLingui } from '@lingui/react/macro'
 import { cn } from '@/lib/utils'
 import { getInitialsBySpaceSplit } from '@/lib/initials'
@@ -18,24 +15,12 @@ import { useAuth } from '@/context/auth'
 import { useLocale } from '@/lib/i18n'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import { api } from '@/lib/axios'
-import { getApiErrorMessage, translateZodCode, translateZodMessage } from '@/lib/axios-utils'
 import { trackFeatureClick } from '@/lib/telemetry'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { ROLE_LABEL_MESSAGES } from '@/components/ui/role-select'
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  CrmDialogContent,
-  CrmDialogHeader,
-  CrmDialogBody,
-  CrmDialogFooter,
-  DialogTitle,
-  DialogDescription,
-} from '@/components/ui/crm-dialog'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { PhoneInput } from '@/components/ui/phone-input'
 import {
   Select,
   SelectContent,
@@ -44,9 +29,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ShareSlider } from '@/components/ui/share-slider'
-import { toast } from 'sonner'
-import { TechAutocompleteInput } from '@/components/ui/tech-autocomplete-input'
+import { HrCreateSeniorDialog } from './team-list/components/HrCreateSeniorDialog'
 
 const teamSearchSchema = z.object({
   archived: z.boolean().optional(),
@@ -66,412 +49,14 @@ const item = {
   show: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.25, 0.1, 0.25, 1] as const } },
 }
 
-type UserOption = {
-  id: string
-  displayName: string
-  email: string
-  role: string
-  avatarUrl: string | null
-  avatarDocumentId: string | null
-}
-
 async function fetchTeams(archivedQuery: '' | 'true' | 'all' = ''): Promise<TeamDto[]> {
   const res = await api.get<TeamDto[]>(`/teams${archivedQuery ? `?archived=${archivedQuery}` : ''}`)
-  return res.data
-}
-
-async function fetchAllUsers(): Promise<UserOption[]> {
-  const res = await api.get<UserOption[]>('/users')
   return res.data
 }
 
 async function fetchProjects(): Promise<ProjectDto[]> {
   const res = await api.get<ProjectDto[]>('/projects')
   return res.data
-}
-
-// ── Field wrapper ─────────────────────────────────────────────────────────────
-
-function Field({
-  label,
-  error,
-  required,
-  children,
-}: {
-  label: string
-  error?: string | undefined
-  required?: boolean | undefined
-  children: React.ReactNode
-}) {
-  return (
-    <div className="grid gap-1.5">
-      <Label className={cn(error && 'text-destructive')}>
-        {label}
-        {required && <span className="ml-0.5 text-destructive">*</span>}
-      </Label>
-      {children}
-      {error && <p className="text-xs text-destructive">{error}</p>}
-    </div>
-  )
-}
-
-// ── Share slider ──────────────────────────────────────────────────────────────
-// The component lives in `@/components/ui/share-slider` (relocated from
-// `components/users/` in PR #39 round 1). `value` is the SENIOR's share
-// (matches API field `seniorSharePercent`). Visual order [company %] [senior %].
-
-const telegramFieldSchema = updateProfileSchema.shape.telegram.unwrap().unwrap()
-const phoneFieldSchema = z.string().max(30)
-
-function normalizeTelegram(value: string): string {
-  const trimmed = value.trim()
-  if (!trimmed) return ''
-  return trimmed.startsWith('@') ? trimmed : `@${trimmed}`
-}
-
-// ── HR: Create Senior Dialog ──────────────────────────────────────────────────
-// HR uses this to create a new SENIOR user (which auto-creates the team).
-// hrIds is pre-filled with the current HR user; accountant is optional.
-
-function HrCreateSeniorDialog({
-  open,
-  onClose,
-  hrUserId,
-}: {
-  open: boolean
-  onClose: () => void
-  hrUserId: string
-}) {
-  const { t } = useLingui()
-  const queryClient = useQueryClient()
-
-  const { data: allUsers } = useQuery({
-    queryKey: ['users'],
-    queryFn: fetchAllUsers,
-    enabled: open,
-  })
-
-  const accountantUsers = useMemo(
-    () => (allUsers ?? []).filter((u) => u.role === 'ACCOUNTANT'),
-    [allUsers],
-  )
-
-  const [selectedAccountantId, setSelectedAccountantId] = useState('')
-
-  useEffect(() => {
-    if (!open) return
-    setSelectedAccountantId(
-      accountantUsers.length === 1 && accountantUsers[0] ? accountantUsers[0].id : '',
-    )
-  }, [open, accountantUsers])
-
-  const mutation = useMutation({
-    mutationFn: (data: CreateUserDto) => api.post<UserProfileDto>('/users', data),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['teams'] })
-      void queryClient.invalidateQueries({ queryKey: ['users'] })
-      toast.success(t`Сеньйора створено, команду сформовано`)
-      onClose()
-      form.reset()
-    },
-    onError: (err: unknown) => {
-      toast.error(getApiErrorMessage(err, t`Не вдалося створити команду — спробуйте ще раз`))
-    },
-  })
-
-  const form = useForm({
-    defaultValues: {
-      email: '',
-      displayName: '',
-      telegram: '',
-      phone: '' as PhoneValue | '',
-      techStack: [] as string[],
-      seniorSharePercent: 26 as number,
-    },
-    onSubmit: async ({ value }) => {
-      const payload: CreateUserDto = {
-        email: value.email.trim(),
-        displayName: value.displayName.trim(),
-        role: 'SENIOR',
-        telegram: value.telegram.trim() ? normalizeTelegram(value.telegram) : undefined,
-        phone: (value.phone as string) || undefined,
-        techStack: value.techStack.length > 0 ? value.techStack : undefined,
-        paymentMethod: 'USDT_ERC20' as const,
-        seniorSharePercent: value.seniorSharePercent,
-        hrIds: [hrUserId],
-        accountantId: selectedAccountantId || null,
-      }
-      const result = createUserSchema.safeParse(payload)
-      if (!result.success) {
-        // fix-round 2 (SR-M-6/COPY-H-3): translate the actual issue when it
-        // is a migrated code, same pattern as every other submit-toast in
-        // UserDialog.tsx — was a fixed Russian literal regardless of which
-        // field actually failed.
-        const first = result.error.issues[0]
-        toast.error(
-          // Stryker disable next-line OptionalChaining: issues[0] is guaranteed non-null on a failed safeParse — see UserDialog.tsx's own field validators for the same invariant
-          translateZodMessage(first?.message) ?? translateZodCode('VALIDATION_FAILED_FORM'),
-        )
-        return
-      }
-      mutation.mutate(result.data)
-    },
-  })
-
-  const handleClose = () => {
-    form.reset()
-    setSelectedAccountantId('')
-    onClose()
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
-      <CrmDialogContent maxWidth="sm:max-w-md">
-        <CrmDialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <UserPlus className="h-4 w-4" />
-            <Trans>Створити сеньйора</Trans>
-          </DialogTitle>
-          <DialogDescription className="sr-only">
-            <Trans>Створіть сеньйора та сформуйте команду.</Trans>
-          </DialogDescription>
-          <p className="text-xs text-muted-foreground mt-1">
-            <Trans>Буде створено акаунт сеньйора та сформовано команду з вами в ролі HR.</Trans>
-          </p>
-        </CrmDialogHeader>
-        <CrmDialogBody>
-          <div className="grid gap-4 py-2">
-            {/* Email */}
-            <form.Field
-              name="email"
-              validators={{
-                onBlur: ({ value }) => {
-                  const r = createUserSchema.shape.email.safeParse(value.trim())
-                  return r.success ? undefined : translateZodMessage(r.error.issues[0]?.message)
-                },
-              }}
-            >
-              {(field) => {
-                const err = field.state.meta.isTouched
-                  ? (field.state.meta.errors[0] as string | undefined)
-                  : undefined
-                return (
-                  <Field label="Email" error={err} required>
-                    <Input
-                      type="email"
-                      autoCapitalize="off"
-                      autoCorrect="off"
-                      spellCheck={false}
-                      placeholder="senior@cheekycheese.dev"
-                      value={field.state.value}
-                      onChange={(e) => field.handleChange(e.target.value)}
-                      onBlur={field.handleBlur}
-                      className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
-                      autoComplete="off"
-                    />
-                  </Field>
-                )
-              }}
-            </form.Field>
-
-            {/* Name */}
-            <form.Field
-              name="displayName"
-              validators={{
-                onBlur: ({ value }) => {
-                  const r = createUserSchema.shape.displayName.safeParse(value.trim())
-                  return r.success ? undefined : translateZodMessage(r.error.issues[0]?.message)
-                },
-              }}
-            >
-              {(field) => {
-                const err = field.state.meta.isTouched
-                  ? (field.state.meta.errors[0] as string | undefined)
-                  : undefined
-                return (
-                  <Field label={t`Ім’я та прізвище`} error={err} required>
-                    <Input
-                      placeholder={t`Іван Іваненко`}
-                      value={field.state.value}
-                      onChange={(e) => field.handleChange(e.target.value)}
-                      onBlur={field.handleBlur}
-                      autoCapitalize="words"
-                      autoComplete="off"
-                      className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
-                    />
-                  </Field>
-                )
-              }}
-            </form.Field>
-
-            {/* Tech Stack */}
-            <form.Field name="techStack">
-              {(field) => (
-                <Field label={t`Технології`}>
-                  <TechAutocompleteInput
-                    value={field.state.value}
-                    onChange={field.handleChange}
-                    onBlur={field.handleBlur}
-                    placeholder={t`Почніть вводити: React, Node.js…`}
-                  />
-                </Field>
-              )}
-            </form.Field>
-
-            {/* Telegram */}
-            <form.Field
-              name="telegram"
-              validators={{
-                onBlur: ({ value }) => {
-                  if (!value.trim()) return undefined
-                  const r = telegramFieldSchema.safeParse(value.trim())
-                  return r.success ? undefined : translateZodMessage(r.error.issues[0]?.message)
-                },
-              }}
-            >
-              {(field) => {
-                const err = field.state.meta.isTouched
-                  ? (field.state.meta.errors[0] as string | undefined)
-                  : undefined
-                return (
-                  <Field label="Telegram" error={err}>
-                    <Input
-                      placeholder="@username"
-                      value={field.state.value}
-                      onChange={(e) => field.handleChange(e.target.value)}
-                      onBlur={field.handleBlur}
-                      autoCapitalize="off"
-                      autoCorrect="off"
-                      className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
-                    />
-                  </Field>
-                )
-              }}
-            </form.Field>
-
-            {/* Phone */}
-            <form.Field
-              name="phone"
-              validators={{
-                onBlur: ({ value }) => {
-                  const v = value as string
-                  if (!v) return undefined
-                  const r = phoneFieldSchema.safeParse(v)
-                  if (!r.success) return translateZodMessage(r.error.issues[0]?.message)
-                  if (!isValidPhoneNumber(v)) return translateZodCode('PHONE_INVALID')
-                  return undefined
-                },
-              }}
-            >
-              {(field) => {
-                const err = field.state.meta.isTouched
-                  ? (field.state.meta.errors[0] as string | undefined)
-                  : undefined
-                return (
-                  <Field label={t`Телефон`} error={err}>
-                    <PhoneInput
-                      value={field.state.value as PhoneValue | undefined}
-                      onChange={(v) => field.handleChange((v ?? '') as PhoneValue | '')}
-                      onBlur={field.handleBlur}
-                      className={cn(err && '[&_input]:border-destructive')}
-                    />
-                  </Field>
-                )
-              }}
-            </form.Field>
-
-            {/* Financials + team */}
-            <div className="rounded-md border border-border/60 bg-muted/20 p-3 space-y-3">
-              <p className="text-xs font-medium text-muted-foreground">
-                <Trans>Фінанси та команда</Trans>
-              </p>
-
-              {/* Share % */}
-              <form.Field
-                name="seniorSharePercent"
-                validators={{
-                  onBlur: ({ value }) => {
-                    if (value < 1 || value > 100)
-                      return translateZodCode('SHARE_PERCENT_RANGE_1_100')
-                    return undefined
-                  },
-                }}
-              >
-                {(field) => {
-                  // ut-31: value is SENIOR's share (default 26 → 74% company / 26% senior).
-                  const val = field.state.value ?? 26
-                  const err = field.state.meta.isTouched
-                    ? (field.state.meta.errors[0] as string | undefined)
-                    : undefined
-                  return (
-                    <Field label={t`Частка сеньйора (%)`} error={err} required>
-                      <ShareSlider
-                        value={val}
-                        onChange={(v) => field.handleChange(v)}
-                        onBlur={field.handleBlur}
-                        error={!!err}
-                      />
-                    </Field>
-                  )
-                }}
-              </form.Field>
-
-              {/* HR — auto (current user) */}
-              <Field label={t`HR`}>
-                <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
-                  <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                  <span>
-                    <Trans>Ви</Trans>
-                  </span>
-                  <span className="text-xs text-muted-foreground ml-auto">
-                    <Trans>авто</Trans>
-                  </span>
-                </div>
-              </Field>
-
-              {/* Accountant */}
-              <Field label={t`Бухгалтер`}>
-                {accountantUsers.length === 0 ? (
-                  <p className="text-xs text-muted-foreground italic">
-                    <Trans>Бухгалтерів ще немає — зверніться до адміністратора</Trans>
-                  </p>
-                ) : accountantUsers.length === 1 ? (
-                  <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
-                    <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                    <span>{accountantUsers[0]!.displayName}</span>
-                    <span className="text-xs text-muted-foreground ml-auto">
-                      <Trans>авто</Trans>
-                    </span>
-                  </div>
-                ) : (
-                  <Select value={selectedAccountantId} onValueChange={setSelectedAccountantId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder={t`— оберіть бухгалтера —`} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {accountantUsers.map((u) => (
-                        <SelectItem key={u.id} value={u.id}>
-                          {u.displayName}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              </Field>
-            </div>
-          </div>
-        </CrmDialogBody>
-        <CrmDialogFooter>
-          <Button variant="ghost" onClick={handleClose}>
-            <Trans>Скасувати</Trans>
-          </Button>
-          <Button onClick={() => void form.handleSubmit()} disabled={mutation.isPending}>
-            {mutation.isPending ? t`Створюємо…` : t`Створити`}
-          </Button>
-        </CrmDialogFooter>
-      </CrmDialogContent>
-    </Dialog>
-  )
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────

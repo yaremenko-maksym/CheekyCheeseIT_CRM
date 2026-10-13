@@ -553,6 +553,17 @@ describe('ContractPdfService', () => {
   // <br> inline line break
   // ---------------------------------------------------------------------------
 
+  describe('heading markers', () => {
+    it('## and # prefixes are stripped; the heading text is drawn at its size', async () => {
+      const calls = await drawnCalls(makeParams({ bodyMarkdown: '## Second\n# First' }))
+      const h2 = calls.find((c) => c.text === 'Second')
+      const h1 = calls.find((c) => c.text === 'First')
+      expect(h2?.opts.size).toBe(13)
+      expect(h1?.opts.size).toBe(16)
+      expect(calls.some((c) => c.text.includes('#'))).toBe(false)
+    })
+  })
+
   describe('<br> inline line break', () => {
     it('<br> inside a heading splits it into two draw calls', async () => {
       const body = '# Договір № [ВПИШИ]<br>SOFTWARE SERVICES AGREEMENT'

@@ -247,6 +247,30 @@ const envSchema = z
     CLOUDFLARE_ACCOUNT_ID: z.string().min(1).optional(),
     CLOUDFLARE_AI_TOKEN: z.string().min(1).optional(),
 
+    // Shared inference layer (@crm/inference). All optional, no default: an absent key
+    // degrades the feature to NOT_CONFIGURED, never fails boot. The hosts for JEV/OpenRouter are
+    // package constants (no env base-URL); the LOCAL provider is operator-configured and must be
+    // HTTPS or loopback. Distinct from CLOUDFLARE_* above.
+    JEV_API_KEY: z.string().min(1).optional(),
+    OPENROUTER_API_KEY: z.string().min(1).optional(),
+    LOCAL_MODEL_URL: z
+      .string()
+      .url()
+      .refine(
+        (v) => {
+          const u = new URL(v)
+          return u.protocol === 'https:' || ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname)
+        },
+        {
+          message:
+            'LOCAL_MODEL_URL must be https:// or a loopback host (localhost/127.0.0.1/[::1])',
+        },
+      )
+      .optional(),
+    LOCAL_MODEL_KEY: z.string().min(1).optional(),
+    LOCAL_MODEL_NAME: z.string().min(1).optional(),
+    INFERENCE_EXTRACTION_PROVIDER: z.enum(['local', 'openrouter']).optional(),
+
     // task-vacancy-matching §3 — the stack-match score below which a suggestion
     // is COLLAPSED (still counted, still one click away; never discarded).
     //

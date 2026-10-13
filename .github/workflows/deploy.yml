@@ -939,13 +939,21 @@ jobs:
           # Workers AI".
           CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # shared-inference-layer (@crm/inference): provider keys + optional
+          # self-hosted model. Omitted from .env.production when unset.
+          JEV_API_KEY: ${{ secrets.JEV_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          LOCAL_MODEL_URL: ${{ secrets.LOCAL_MODEL_URL }}
+          LOCAL_MODEL_KEY: ${{ secrets.LOCAL_MODEL_KEY }}
+          LOCAL_MODEL_NAME: ${{ secrets.LOCAL_MODEL_NAME }}
+          INFERENCE_EXTRACTION_PROVIDER: ${{ secrets.INFERENCE_EXTRACTION_PROVIDER }}
           GH_ACTOR: ${{ github.actor }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           # Pass env vars declared above into the remote shell.
-          envs: IMAGE_TAG,POSTGRES_PASSWORD,GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET,JWT_SECRET,SESSION_SECRET,CREDENTIALS_ENC_KEY,S3_ENDPOINT,S3_FORCE_PATH_STYLE,S3_REGION,S3_BUCKET,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,TURNSTILE_SECRET_KEY,TELEMETRY_DIGEST_TOKEN,TELEMETRY_SESSION_SALT,GOOGLE_INDEXING_SA_EMAIL,GOOGLE_INDEXING_SA_KEY_B64,PUBLIC_LANDING_ORIGIN,RESEND_API_KEY,CLOUDFLARE_AI_TOKEN,CLOUDFLARE_ACCOUNT_ID,GH_ACTOR
+          envs: IMAGE_TAG,POSTGRES_PASSWORD,GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET,JWT_SECRET,SESSION_SECRET,CREDENTIALS_ENC_KEY,S3_ENDPOINT,S3_FORCE_PATH_STYLE,S3_REGION,S3_BUCKET,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,TURNSTILE_SECRET_KEY,TELEMETRY_DIGEST_TOKEN,TELEMETRY_SESSION_SALT,GOOGLE_INDEXING_SA_EMAIL,GOOGLE_INDEXING_SA_KEY_B64,PUBLIC_LANDING_ORIGIN,RESEND_API_KEY,CLOUDFLARE_AI_TOKEN,CLOUDFLARE_ACCOUNT_ID,JEV_API_KEY,OPENROUTER_API_KEY,LOCAL_MODEL_URL,LOCAL_MODEL_KEY,LOCAL_MODEL_NAME,INFERENCE_EXTRACTION_PROVIDER,GH_ACTOR
           script: |
             set -euo pipefail
 
@@ -1078,6 +1086,27 @@ jobs:
             fi
             if [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then
               printf 'CLOUDFLARE_ACCOUNT_ID=%s\n' "$CLOUDFLARE_ACCOUNT_ID" >> /opt/crm/.env.production
+            fi
+
+            # shared-inference-layer: same conditional-write pattern — a key that
+            # is unset is skipped entirely, never written blank.
+            if [ -n "$JEV_API_KEY" ]; then
+              printf 'JEV_API_KEY=%s\n' "$JEV_API_KEY" >> /opt/crm/.env.production
+            fi
+            if [ -n "$OPENROUTER_API_KEY" ]; then
+              printf 'OPENROUTER_API_KEY=%s\n' "$OPENROUTER_API_KEY" >> /opt/crm/.env.production
+            fi
+            if [ -n "$LOCAL_MODEL_URL" ]; then
+              printf 'LOCAL_MODEL_URL=%s\n' "$LOCAL_MODEL_URL" >> /opt/crm/.env.production
+            fi
+            if [ -n "$LOCAL_MODEL_KEY" ]; then
+              printf 'LOCAL_MODEL_KEY=%s\n' "$LOCAL_MODEL_KEY" >> /opt/crm/.env.production
+            fi
+            if [ -n "$LOCAL_MODEL_NAME" ]; then
+              printf 'LOCAL_MODEL_NAME=%s\n' "$LOCAL_MODEL_NAME" >> /opt/crm/.env.production
+            fi
+            if [ -n "$INFERENCE_EXTRACTION_PROVIDER" ]; then
+              printf 'INFERENCE_EXTRACTION_PROVIDER=%s\n' "$INFERENCE_EXTRACTION_PROVIDER" >> /opt/crm/.env.production
             fi
 
             printf 'IMAGE_TAG=%s\n'               "$IMAGE_TAG"         >> /opt/crm/.env.production
