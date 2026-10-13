@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -31,11 +31,17 @@ import { vitestTestQualityRules } from '../../eslint.test-rules.mjs'
  * OWN maintenance instead of just the code it scans.
  */
 function deriveProjectRelationKeys() {
-  const schemaPath = path.resolve(
+  // The schema is split by domain under `src/database/schema/` (the barrel
+  // `schema.ts` only re-exports), so the relation definitions live in every
+  // module of that directory — scan all of them.
+  const schemaDir = path.resolve(
     fileURLToPath(new URL('.', import.meta.url)),
-    'src/database/schema.ts',
+    'src/database/schema',
   )
-  const src = readFileSync(schemaPath, 'utf8')
+  const src = readdirSync(schemaDir)
+    .filter((file) => file.endsWith('.ts'))
+    .map((file) => readFileSync(path.join(schemaDir, file), 'utf8'))
+    .join('\n')
   const keys = new Set()
   // `<identifier>: one(projects` / `<identifier>: many(projects` — the exact
   // call shape Drizzle relation definitions use to point AT this table (see
