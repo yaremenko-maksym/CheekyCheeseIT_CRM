@@ -50,7 +50,6 @@ import {
   buildPdfWithRawContentStream,
   repeatedBuffer,
   buildPdfWithText,
-  buildAttributeBombDocx,
   buildDocxRawBody,
   buildPerCharacterFormattedDocx,
   buildWordDensityDocx,
@@ -715,7 +714,13 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
   it.skipIf(!CPU_RLIMIT_ENFORCED)(
     'says the same actionable thing however the sandbox ended the work',
     async () => {
-      const bomb = buildAttributeBombDocx(60_000)
+      // The same ~4.15 MB / ~354 000-tag document as the test above: ~4.8 s of
+      // parse on @xmldom/xmldom 0.8.15, so it needs several CPU-seconds and the
+      // 1 s rlimit below ends it deterministically. The previous
+      // `buildAttributeBombDocx(60_000)` leaned on xmldom's quadratic attribute
+      // path, which 0.8.15 fixed: it now parses inside the budget and resolves.
+      const run = '<w:p><w:r><w:t>a</w:t></w:r></w:p>'
+      const bomb = buildDocxRawBody(run.repeat(Math.floor(4_150_000 / run.length)))
 
       // Path 1 — the wall-clock deadline (`timedOut`).
       await expect(service.extract(bomb, RESUME_DOCX_MIME, { timeoutMs: 50 })).rejects.toThrow(
