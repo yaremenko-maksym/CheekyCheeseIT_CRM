@@ -947,6 +947,16 @@ describe('hrCreateSeniorSchema', () => {
     expect(
       hrCreateSeniorSchema.safeParse({ ...dialogPayload, seniorSharePercent: 101 }).success,
     ).toBe(false)
+    expect(
+      hrCreateSeniorSchema.safeParse({ ...dialogPayload, seniorSharePercent: -1 }).success,
+    ).toBe(false)
+  })
+
+  // SR-M-2 pin: HR sets the base share at creation, the whole 0..100 range.
+  it.each([0, 100])('accepts seniorSharePercent %i at creation', (pct) => {
+    expect(
+      hrCreateSeniorSchema.parse({ ...dialogPayload, seniorSharePercent: pct }).seniorSharePercent,
+    ).toBe(pct)
   })
 
   it('strips finance / PII keys instead of passing them through', () => {

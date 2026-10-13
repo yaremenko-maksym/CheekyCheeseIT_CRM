@@ -2844,6 +2844,11 @@ msgstr "HR can only create seniors"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.HR_TEAM_SELF_ONLY"
+msgstr "HR can only add themselves as the HR of the new team"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.IMPERSONATION_ALREADY_ACTIVE"
 msgstr "You're already signed in as another employee — return to your own account first"
 
@@ -3228,6 +3233,11 @@ msgid "api-error.SIGNED_CONTRACT_NOT_FOUND"
 msgstr "Signed contract not found"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT"
+msgstr "The team accountant must be a user with the accountant role"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.TEAM_ACCOUNTANT_REQUIRED_MINIMUM_ONE"
 msgstr "The team must keep at least one accountant"
@@ -3261,6 +3271,11 @@ msgstr "The senior can't be removed from a team — delete the team instead"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.TEAM_DROP_TEAMS_ONLY"
 msgstr "This action is only available for drop teams"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.TEAM_HR_MEMBER_MUST_BE_HR"
+msgstr "A team HR must be a user with the HR role"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts

@@ -1,4 +1,5 @@
 import { HttpStatus } from '@nestjs/common'
+import { and, inArray, isNull } from 'drizzle-orm'
 import type { Locale } from '@crm/shared'
 import { apiError } from '../common/api-error'
 import type { DatabaseService } from '../database/database.service'
@@ -147,6 +148,12 @@ export class UserCreationService {
         }
       }
     }
+    // SR-M-1 (security-review #990): the CREATE_NEW team's HR/accountant members are
+    // validated BEFORE anything is written, so a rejection never leaves a
+    // half-created senior behind.
+    if (data.role === 'SENIOR' && data.teamMode !== 'JOIN_DROP_TEAM') {
+      await this.assertTeamStaff(data)
+    }
     const existing = await this.helpers.findByEmail(data.email)
     if (existing) throw apiError('USER_EMAIL_EXISTS', HttpStatus.CONFLICT)
     // §4.4: `users.email` uniqueness alone cannot see a PERSONAL row on
@@ -260,7 +267,7 @@ export class UserCreationService {
         if (team) {
           const memberIds = [
             created.id,
-            ...(data.hrIds ?? []),
+            ...enrolledHrIds(data),
             ...(data.accountantId ? [data.accountantId] : []),
           ]
           for (const userId of memberIds) {
@@ -279,4 +286,44 @@ export class UserCreationService {
 
     return created
   }
+
+  /**
+   * SR-M-1: who may be enrolled into a NEW senior's team.
+   * - Every enrolled HR (see `enrolledHrIds`) must be an existing user with role HR;
+   *   `accountantId` (when set) an existing user with role ACCOUNTANT. Universal:
+   *   ADMIN and HR alike.
+   * - HR actor only: `hrIds` may contain nobody but the acting HR (403 HR_TEAM_SELF_ONLY).
+   *   ADMIN keeps free choice among valid-role users.
+   */
+  private async assertTeamStaff(data: CreateUserInput): Promise<void> {
+    if (data.actorRole === 'HR' && (data.hrIds ?? []).some((id) => id !== data.actorId)) {
+      throw apiError('HR_TEAM_SELF_ONLY', HttpStatus.FORBIDDEN)
+    }
+    const hrIds = enrolledHrIds(data)
+    const accountantId = data.accountantId ?? null
+    const ids = accountantId ? [...hrIds, accountantId] : hrIds
+    if (ids.length === 0) return
+
+    const rows = await this.db.db
+      .select({ id: users.id, role: users.role })
+      .from(users)
+      // CR-M-1 / SR-L-1: an archived user falls out of the result, i.e. counts as not found.
+      .where(and(inArray(users.id, ids), isNull(users.archivedAt)))
+    const roleById = new Map(rows.map((r) => [r.id, r.role]))
+    if (hrIds.some((id) => roleById.get(id) !== 'HR')) {
+      throw apiError('TEAM_HR_MEMBER_MUST_BE_HR', HttpStatus.BAD_REQUEST)
+    }
+    if (accountantId && roleById.get(accountantId) !== 'ACCOUNTANT') {
+      throw apiError('TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT', HttpStatus.BAD_REQUEST)
+    }
+  }
+}
+
+/**
+ * SR-M-1: the HR members a new senior's team is created with. An HR actor always
+ * enrols exactly themselves (whatever `hrIds` said — `assertTeamStaff` has already
+ * rejected anyone else); anyone else gets the requested list, de-duplicated.
+ */
+function enrolledHrIds(data: CreateUserInput): string[] {
+  return data.actorRole === 'HR' ? [data.actorId] : [...new Set(data.hrIds ?? [])]
 }
