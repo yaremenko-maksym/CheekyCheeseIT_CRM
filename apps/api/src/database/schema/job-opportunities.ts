@@ -53,6 +53,17 @@ function revisionIdColumn(): AnyPgColumn {
   return jobSourceRecordRevisions.id
 }
 
+/**
+ * Stored navigation URLs: https only, with a host, no whitespace, no embedded
+ * credentials. Mirrors `externalHttpsUrlSchema` (`^https://\S+$`) and is stricter
+ * where the zod schema defers to `.url()`: the authority (up to the first
+ * `/`, `?` or `#`) must be non-empty and free of `@`, so `https://`,
+ * `https:// x` and `https://user:pass@host/` are all rejected.
+ */
+const HTTPS_URL_PATTERN = '^https://[^[:space:]/?#@]+([/?#][^[:space:]]*)?$'
+const httpsUrlOrNull = (column: AnyPgColumn) =>
+  sql`${column} IS NULL OR ${column} ~* ${sql.raw(`'${HTTPS_URL_PATTERN}'`)}`
+
 /** Content-addressed text: identical descriptions are stored once. */
 export const jobTextBlobs = pgTable(
   'job_text_blobs',
@@ -97,27 +108,17 @@ export const jobSourceRecords = pgTable(
     // the same native job resolve to this one row.
     unique('uq_job_source_records_identity').on(t.sourceType, t.namespace, t.identityKey),
     index('idx_job_source_records_last_observed').on(t.lastObservedAt),
+    // At least one non-whitespace character ('' / '   ' / tabs / newlines all rejected).
+    check('ck_job_source_records_identity_key_nonempty', sql`${t.identityKey} ~ '[^[:space:]]'`),
     foreignKey({
       name: 'fk_job_source_records_latest_revision',
       columns: [t.latestRevisionId],
       foreignColumns: [revisionIdColumn()],
     }).onDelete('set null'),
-    check(
-      'ck_job_source_records_original_url_https',
-      sql`${t.originalUrl} IS NULL OR ${t.originalUrl} ~* '^https://'`,
-    ),
-    check(
-      'ck_job_source_records_display_url_https',
-      sql`${t.displayUrl} IS NULL OR ${t.displayUrl} ~* '^https://'`,
-    ),
-    check(
-      'ck_job_source_records_source_url_https',
-      sql`${t.sourceUrl} IS NULL OR ${t.sourceUrl} ~* '^https://'`,
-    ),
-    check(
-      'ck_job_source_records_application_url_https',
-      sql`${t.applicationUrl} IS NULL OR ${t.applicationUrl} ~* '^https://'`,
-    ),
+    check('ck_job_source_records_original_url_https', httpsUrlOrNull(t.originalUrl)),
+    check('ck_job_source_records_display_url_https', httpsUrlOrNull(t.displayUrl)),
+    check('ck_job_source_records_source_url_https', httpsUrlOrNull(t.sourceUrl)),
+    check('ck_job_source_records_application_url_https', httpsUrlOrNull(t.applicationUrl)),
   ],
 )
 
@@ -172,6 +173,8 @@ export const jobSourceRecordRevisions = pgTable(
       t.contentHash,
     ),
     index('idx_job_source_record_revisions_record_seq').on(t.sourceRecordId, t.receivedSeq.desc()),
+    // FK child index: RESTRICT on job_text_blobs needs a cheap referencing-row probe.
+    index('idx_job_source_record_revisions_description').on(t.descriptionSha256),
     check(
       'ck_job_source_record_revisions_content_hash_hex',
       sql`${t.contentHash} ~ '^[0-9a-f]{64}$'`,
@@ -222,15 +225,13 @@ export const jobOpportunities = pgTable(
     index('idx_job_opportunities_application_url_key').on(t.applicationUrlKey),
     index('idx_job_opportunities_stack_keywords').using('gin', t.stackKeywords),
     index('idx_job_opportunities_availability').on(t.availability),
+    index('idx_job_opportunities_description').on(t.descriptionSha256),
     check('ck_job_opportunities_revision_positive', sql`${t.revision} > 0`),
     check(
       'ck_job_opportunities_verified_has_key',
       sql`NOT ${t.employerVerified} OR ${t.employerKey} IS NOT NULL`,
     ),
-    check(
-      'ck_job_opportunities_application_url_https',
-      sql`${t.applicationUrl} IS NULL OR ${t.applicationUrl} ~* '^https://'`,
-    ),
+    check('ck_job_opportunities_application_url_https', httpsUrlOrNull(t.applicationUrl)),
   ],
 )
 
@@ -266,6 +267,9 @@ export const jobOpportunitySources = pgTable(
       .on(t.sourceRecordId)
       .where(sql`${t.unlinkedAt} IS NULL`),
     index('idx_job_opportunity_sources_opportunity').on(t.opportunityId),
+    // The partial unique index above covers ACTIVE links only; history lookups
+    // by record (and the RESTRICT FK probe) need a full index.
+    index('idx_job_opportunity_sources_record').on(t.sourceRecordId),
     check(
       'ck_job_opportunity_sources_unlink_pair',
       sql`(${t.unlinkedAt} IS NULL) = (${t.unlinkReason} IS NULL)`,
@@ -331,6 +335,7 @@ export const jobOpportunityTeamTriage = pgTable(
     }).onDelete('cascade'),
     unique('uq_job_opportunity_team_triage_opportunity_team').on(t.opportunityId, t.teamId),
     index('idx_job_opportunity_team_triage_team').on(t.teamId, t.expiresAt),
+    index('idx_job_opportunity_team_triage_assigned_by').on(t.assignedBy),
   ],
 )
 

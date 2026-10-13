@@ -2998,6 +2998,26 @@ msgid "api-error.INVOICE_VOIDED"
 msgstr "Рахунок анульовано — оновіть сторінку"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_OPPORTUNITY_NOT_FOUND"
+msgstr "Зовнішню вакансію не знайдено"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_SOURCE_RECORD_ALREADY_LINKED"
+msgstr "Запис джерела вже прив’язано до вакансії"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_SOURCE_RECORD_NOT_FOUND"
+msgstr "Запис джерела не знайдено"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_TRIAGE_ASSIGNMENT_NOT_ALLOWED"
+msgstr "Не можна призначити цю вакансію на розгляд команді"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.JOIN_DROP_TEAM_SENIOR_ONLY"
 msgstr "Приєднати до команди дропа можна лише сеньйора"

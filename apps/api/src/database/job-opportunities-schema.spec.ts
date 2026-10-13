@@ -152,7 +152,25 @@ describe('job_source_records', () => {
       (x) => x.name === 'ck_job_source_records_source_url_https',
     )
     expect(render(c?.value)).toContain('~*')
-    expect(render(c?.value)).toContain('^https://')
+    // host required, no whitespace, no embedded credentials (real-catalog proof:
+    // job-opportunities.integration.spec.ts)
+    expect(render(c?.value)).toContain('^https://[^[:space:]/?#@]+([/?#][^[:space:]]*)?$')
+  })
+  it('identity_key must contain a non-whitespace character', () => {
+    const c = getTableConfig(jobSourceRecords).checks.find(
+      (x) => x.name === 'ck_job_source_records_identity_key_nonempty',
+    )
+    expect(render(c?.value)).toContain('[^[:space:]]')
+  })
+  it('FK-child lookup indexes exist', () => {
+    expect(
+      index(jobSourceRecordRevisions, 'idx_job_source_record_revisions_description'),
+    ).toBeDefined()
+    expect(index(jobOpportunities, 'idx_job_opportunities_description')).toBeDefined()
+    expect(index(jobOpportunitySources, 'idx_job_opportunity_sources_record')).toBeDefined()
+    expect(
+      index(jobOpportunityTeamTriage, 'idx_job_opportunity_team_triage_assigned_by'),
+    ).toBeDefined()
   })
   it('latest revision is a nullable FK that nulls out', () => {
     expect(col(jobSourceRecords, 'latest_revision_id').notNull).toBe(false)
