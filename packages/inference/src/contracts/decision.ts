@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { InferenceErrorCode } from './errors'
 
 export const MAX_DECISION_QUESTIONS = 50
 export const MAX_CHOICE_OPTIONS = 255
@@ -34,15 +35,9 @@ export const decisionRequestSchema = z.object({
 })
 export type DecisionRequest = z.infer<typeof decisionRequestSchema>
 
-export type DecisionFailureCode =
-  | 'NOT_CONFIGURED'
-  | 'PROVIDER_ERROR'
-  | 'INVALID_OUTPUT'
-  | 'RATE_LIMITED'
-  | 'TIMEOUT'
 export type DecisionResult =
   | { ok: true; answers: DecisionAnswer[] }
-  | { ok: false; code: DecisionFailureCode }
+  | { ok: false; code: InferenceErrorCode }
 
 export interface DecisionPort {
   decide(req: DecisionRequest): Promise<DecisionResult>
