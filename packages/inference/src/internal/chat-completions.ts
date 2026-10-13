@@ -17,6 +17,9 @@ const envelopeSchema = z.object({
   usage: z.object({ total_tokens: z.number().optional() }).optional(),
 })
 
+/** Upper bound for a caller-supplied system instruction (alongside MAX_EXTRACTION_INPUT_CHARS for the input). */
+export const MAX_EXTRACTION_INSTRUCTION_CHARS = 4000
+
 /** `MODEL_UNAVAILABLE` is an INTERNAL code (reactive refresh only); never a public error code. */
 export type ChatCallResult =
   | { ok: true; text: string; totalTokens?: number }
@@ -32,13 +35,21 @@ export type ChatCompletionOptions = {
   timeoutMs?: number
   allowLoopbackHttp?: boolean
   detectModelUnavailable?: boolean
+  /** OpenRouter ZDR: ask the router to route only to providers that do not retain/train on the data. */
+  denyDataCollection?: boolean
   fetchImpl?: FetchLike
 }
 
 /** One OpenAI-compatible chat/completions call through the bounded transport. Never throws. */
 export async function sendChatCompletion(opts: ChatCompletionOptions): Promise<ChatCallResult> {
   const messages = [
-    { role: 'system', content: opts.instruction ?? DEFAULT_EXTRACTION_INSTRUCTION },
+    {
+      role: 'system',
+      content: (opts.instruction ?? DEFAULT_EXTRACTION_INSTRUCTION).slice(
+        0,
+        MAX_EXTRACTION_INSTRUCTION_CHARS,
+      ),
+    },
     { role: 'user', content: opts.input.slice(0, MAX_EXTRACTION_INPUT_CHARS) },
     ...(opts.correction !== undefined
       ? [{ role: 'user', content: `Your previous answer was rejected. ${opts.correction}` }]
@@ -51,7 +62,12 @@ export async function sendChatCompletion(opts: ChatCompletionOptions): Promise<C
       'Content-Type': 'application/json',
       ...(opts.apiKey !== undefined && { Authorization: `Bearer ${opts.apiKey}` }),
     },
-    body: JSON.stringify({ model: opts.model, messages, temperature: 0.1 }),
+    body: JSON.stringify({
+      model: opts.model,
+      messages,
+      temperature: 0.1,
+      ...(opts.denyDataCollection === true && { provider: { data_collection: 'deny' } }),
+    }),
     timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     maxBytes: DEFAULT_MAX_BYTES,
     ...(opts.allowLoopbackHttp !== undefined && { allowLoopbackHttp: opts.allowLoopbackHttp }),

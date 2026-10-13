@@ -11,9 +11,22 @@ export type LocalExtractionConfig = {
   fetchImpl?: FetchLike
 }
 
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
+
+function isLoopbackBase(baseUrl: string): boolean {
+  try {
+    return LOOPBACK_HOSTS.has(new URL(baseUrl).hostname)
+  } catch {
+    return false
+  }
+}
+
 export function createLocalExtractionAdapter(cfg: LocalExtractionConfig): ExtractionPort {
+  // A non-loopback "local" base is a config error: the local adapter must never reach a remote host.
+  const loopback = isLoopbackBase(cfg.baseUrl)
   return {
     async extract<T>(req: ExtractionRequest<T>): Promise<ExtractionResult<T>> {
+      if (!loopback) return { ok: false, code: 'PROVIDER_ERROR' }
       let totalTokens: number | undefined
       const outcome = await runExtraction({
         schema: req.schema,
@@ -29,7 +42,9 @@ export function createLocalExtractionAdapter(cfg: LocalExtractionConfig): Extrac
             ...(cfg.timeoutMs !== undefined && { timeoutMs: cfg.timeoutMs }),
             ...(cfg.fetchImpl !== undefined && { fetchImpl: cfg.fetchImpl }),
           })
-          if (res.ok) totalTokens = res.totalTokens
+          if (res.ok && res.totalTokens !== undefined) {
+            totalTokens = (totalTokens ?? 0) + res.totalTokens
+          }
           return res
         },
       })

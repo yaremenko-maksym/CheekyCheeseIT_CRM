@@ -77,3 +77,59 @@ describe('fetchOpenRouterCatalog', () => {
     expect(r.ok && r.models.map((m) => m.id)).toEqual(['good/m'])
   })
 })
+
+describe('fetchOpenRouterCatalog hardening', () => {
+  const good = { id: 'g/ok', context_length: 32000, pricing: { prompt: '0.0000002' } }
+  const ids = async (data: unknown[], baseUrl?: string) => {
+    const r = await fetchOpenRouterCatalog({
+      ...(baseUrl !== undefined && { baseUrl }),
+      fetchImpl: fakeFetch(200, { data }),
+    })
+    return r.ok ? r.models.map((m) => m.id) : 'ERR'
+  }
+  it('drops empty / whitespace / non-numeric / negative prices instead of treating them as free', async () => {
+    const mk = (id: string, prompt: unknown) => ({
+      id,
+      context_length: 32000,
+      pricing: { prompt },
+    })
+    expect(
+      await ids([
+        mk('e/empty', ''),
+        mk('e/space', '   '),
+        mk('e/abc', 'abc'),
+        mk('e/neg', '-1'),
+        mk('e/nan', 'NaN'),
+        mk('e/inf', 'Infinity'),
+        good,
+      ]),
+    ).toEqual(['g/ok'])
+  })
+  it('keeps a legitimately free model (0)', async () => {
+    expect(await ids([{ ...good, id: 'f/free', pricing: { prompt: '0' } }])).toEqual(['f/free'])
+  })
+  it('drops a single malformed entry but keeps the rest', async () => {
+    expect(
+      await ids([
+        good,
+        { id: 'b/nopricing', context_length: 32000 },
+        { id: 'b/noctx', pricing: { prompt: '0.1' } },
+        { id: 5, context_length: 1, pricing: { prompt: '0.1' } },
+        { id: 'b/badtype', context_length: 'x', pricing: { prompt: {} } },
+        null,
+        { ...good, id: 'g/ok2' },
+      ]),
+    ).toEqual(['g/ok', 'g/ok2'])
+  })
+  it('fails only when data itself is not an array', async () => {
+    expect(await ids([])).toEqual([])
+  })
+  it('strips a trailing slash from a provided baseUrl', async () => {
+    const capture: { url?: string } = {}
+    await fetchOpenRouterCatalog({
+      baseUrl: 'https://proxy.test/api/v1//',
+      fetchImpl: fakeFetch(200, { data: [] }, capture),
+    })
+    expect(capture.url).toBe('https://proxy.test/api/v1/models')
+  })
+})

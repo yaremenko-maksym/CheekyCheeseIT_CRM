@@ -73,3 +73,15 @@ describe('isModelUnavailable', () => {
   it('false when status is absent', () =>
     expect(isModelUnavailable({ kind: 'transport' })).toBe(false))
 })
+
+describe('isModelUnavailable bounded scan (LOW)', () => {
+  it('ignores a marker that only appears far beyond the bounded slice', () => {
+    const text = `model ${'x'.repeat(5000)} not found`
+    expect(isModelUnavailable({ kind: 'transport', status: 400, text })).toBe(false)
+  })
+  it('still matches a marker within the slice', () => {
+    expect(
+      isModelUnavailable({ kind: 'transport', status: 400, text: 'model foo is not found' }),
+    ).toBe(true)
+  })
+})

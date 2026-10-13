@@ -26,6 +26,36 @@ export function extractJsonObject(text: string): string | null {
   return null
 }
 
+const MAX_CORRECTION_CHARS = 500
+const SAFE_PATH_SEGMENT = /^[A-Za-z0-9_]{1,32}$/
+
+/**
+ * Corrective hint from issue LOCATIONS only, with a fixed generic message. It never carries offending
+ * values, unexpected keys or model text (prompt-injection / echo vector). Path segments can be
+ * model-controlled (record keys), so anything that is not a short identifier is masked.
+ */
+function buildSchemaHint(issues: readonly { path: PropertyKey[] }[]): string {
+  const locations = [
+    ...new Set(
+      issues.map((issue) =>
+        issue.path.length === 0
+          ? '(root)'
+          : issue.path
+              .map((seg) =>
+                typeof seg === 'number'
+                  ? String(seg)
+                  : SAFE_PATH_SEGMENT.test(String(seg))
+                    ? String(seg)
+                    : '*',
+              )
+              .join('.'),
+      ),
+    ),
+  ]
+  const hint = `The JSON did not match the required schema; invalid or missing at: ${locations.join(', ')}.`
+  return hint.slice(0, MAX_CORRECTION_CHARS)
+}
+
 type ParseOutcome<T> = { ok: true; data: T } | { ok: false; reason: string }
 
 function parseDetailed<T>(rawText: string, schema: z.ZodType<T>): ParseOutcome<T> {
@@ -41,10 +71,7 @@ function parseDetailed<T>(rawText: string, schema: z.ZodType<T>): ParseOutcome<T
   }
   const parsed = schema.safeParse(json)
   if (parsed.success) return { ok: true, data: parsed.data }
-  const issues = parsed.error.issues
-    .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
-    .join('; ')
-  return { ok: false, reason: `The JSON did not match the required schema: ${issues}` }
+  return { ok: false, reason: buildSchemaHint(parsed.error.issues) }
 }
 
 /** extract -> JSON.parse (guarded) -> control-char strip on string leaves -> schema.safeParse. */

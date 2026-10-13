@@ -7,6 +7,8 @@ export type OpenRouterModel = {
   contextTokens: number
 }
 
+const MARKER_SCAN_CHARS = 2000
+
 function passesGuardrails(model: OpenRouterModel, g: ExtractionModelGuardrails): boolean {
   return (
     model.promptPriceUsdPerMTok <= g.maxPromptPriceUsdPerMTok &&
@@ -44,8 +46,7 @@ export function selectModel(
 export function isModelUnavailable(result: Extract<BoundedResult, { kind: 'transport' }>): boolean {
   if (result.status === 404) return true
   if (result.status !== 400 || result.text === undefined) return false
-  return (
-    /model/i.test(result.text) &&
-    /(not found|not a valid|no endpoints|unavailable)/i.test(result.text)
-  )
+  // Bounded slice: the marker regexes never run over an unbounded provider-controlled string.
+  const slice = result.text.slice(0, MARKER_SCAN_CHARS)
+  return /model/i.test(slice) && /(not found|not a valid|no endpoints|unavailable)/i.test(slice)
 }

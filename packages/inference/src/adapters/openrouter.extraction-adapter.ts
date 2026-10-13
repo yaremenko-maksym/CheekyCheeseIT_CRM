@@ -20,8 +20,15 @@ export function createOpenRouterExtractionAdapter(cfg: OpenRouterExtractionConfi
 
   return {
     async extract<T>(req: ExtractionRequest<T>): Promise<ExtractionResult<T>> {
-      let modelId = cfg.resolveModelId()
-      if (modelId === null) return { ok: false, code: 'NOT_CONFIGURED' }
+      // Caller-supplied hooks may throw; adapters never do.
+      let resolved: string | null
+      try {
+        resolved = cfg.resolveModelId()
+      } catch {
+        return { ok: false, code: 'PROVIDER_ERROR' }
+      }
+      if (resolved === null) return { ok: false, code: 'NOT_CONFIGURED' }
+      let modelId: string = resolved
       let totalTokens: number | undefined
 
       const run = () =>
@@ -30,16 +37,19 @@ export function createOpenRouterExtractionAdapter(cfg: OpenRouterExtractionConfi
           call: async (correction?: string): Promise<ChatCallResult> => {
             const res = await sendChatCompletion({
               baseUrl: cfg.baseUrl ?? DEFAULT_BASE_URL,
-              model: modelId as string,
+              model: modelId,
               apiKey: cfg.apiKey,
               input: req.input,
               detectModelUnavailable: true,
+              denyDataCollection: true,
               ...(req.instruction !== undefined && { instruction: req.instruction }),
               ...(correction !== undefined && { correction }),
               ...(cfg.timeoutMs !== undefined && { timeoutMs: cfg.timeoutMs }),
               ...(cfg.fetchImpl !== undefined && { fetchImpl: cfg.fetchImpl }),
             })
-            if (res.ok) totalTokens = res.totalTokens
+            if (res.ok && res.totalTokens !== undefined) {
+              totalTokens = (totalTokens ?? 0) + res.totalTokens
+            }
             return res
           },
         })
@@ -47,8 +57,14 @@ export function createOpenRouterExtractionAdapter(cfg: OpenRouterExtractionConfi
       let outcome = await run()
       if (!outcome.ok && outcome.code === 'MODEL_UNAVAILABLE') {
         // Single swap: at most one refresh and one retry, never a loop.
-        const fresh = await onModelUnavailable(modelId)
-        if (fresh !== null) {
+        let fresh: string | null
+        try {
+          fresh = await onModelUnavailable(modelId)
+        } catch {
+          return { ok: false, code: 'PROVIDER_ERROR' }
+        }
+        // Never retry the same dead model.
+        if (fresh !== null && fresh !== modelId) {
           modelId = fresh
           outcome = await run()
         }

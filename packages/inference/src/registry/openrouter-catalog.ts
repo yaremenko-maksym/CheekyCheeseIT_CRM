@@ -10,15 +10,22 @@ import type { OpenRouterModel } from './model-registry'
 
 const DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1'
 
-const catalogSchema = z.object({
-  data: z.array(
-    z.object({
-      id: z.string().min(1),
-      context_length: z.number().nullish(),
-      pricing: z.object({ prompt: z.union([z.string(), z.number()]) }),
-    }),
-  ),
+// The envelope only requires `data` to be an array; entries are validated one by one so a single
+// malformed entry is dropped instead of failing the whole refresh.
+const catalogSchema = z.object({ data: z.array(z.unknown()) })
+
+const entrySchema = z.object({
+  id: z.string().min(1),
+  context_length: z.number(),
+  pricing: z.object({ prompt: z.union([z.string(), z.number()]) }),
 })
+
+/** Price per token as a finite, non-negative number; blank or non-numeric input is rejected (never "free"). */
+function parsePerTokenPrice(raw: string | number): number | null {
+  if (typeof raw === 'string' && raw.trim() === '') return null
+  const n = Number(raw)
+  return Number.isFinite(n) && n >= 0 ? n : null
+}
 
 export type OpenRouterCatalogResult =
   { ok: true; models: OpenRouterModel[] } | { ok: false; code: InferenceErrorCode }
@@ -30,7 +37,7 @@ export async function fetchOpenRouterCatalog(opts: {
   fetchImpl?: FetchLike
 }): Promise<OpenRouterCatalogResult> {
   const res = await boundedRequest({
-    url: `${opts.baseUrl ?? DEFAULT_BASE_URL}/models`,
+    url: `${(opts.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '')}/models`,
     method: 'GET',
     ...(opts.apiKey !== undefined && { headers: { Authorization: `Bearer ${opts.apiKey}` } }),
     timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
@@ -52,12 +59,19 @@ export async function fetchOpenRouterCatalog(opts: {
   if (!parsed.success) return { ok: false, code: 'PROVIDER_ERROR' }
 
   const models: OpenRouterModel[] = []
-  for (const m of parsed.data.data) {
-    const price = Number(m.pricing.prompt) * 1_000_000
+  for (const raw of parsed.data.data) {
+    const entry = entrySchema.safeParse(raw)
+    if (!entry.success) continue
+    const m = entry.data
+    const perToken = parsePerTokenPrice(m.pricing.prompt)
     // Unpriced/odd entries are dropped, never trusted: a model without a valid price cannot pass the ceiling.
-    if (!Number.isFinite(price) || price < 0) continue
-    if (typeof m.context_length !== 'number' || !(m.context_length > 0)) continue
-    models.push({ id: m.id, promptPriceUsdPerMTok: price, contextTokens: m.context_length })
+    if (perToken === null) continue
+    if (!(m.context_length > 0)) continue
+    models.push({
+      id: m.id,
+      promptPriceUsdPerMTok: perToken * 1_000_000,
+      contextTokens: m.context_length,
+    })
   }
   return { ok: true, models }
 }

@@ -183,3 +183,21 @@ describe('boundedRequest', () => {
     expect(seen?.signal).toBeInstanceOf(AbortSignal)
   })
 })
+
+describe('boundedRequest redirects (SR-M-1)', () => {
+  it('passes redirect: error to fetch', async () => {
+    let seen: string | undefined
+    const f: FetchLike = async (_url, init) => {
+      seen = init?.redirect
+      return { status: 200, body: null, text: async () => 'ok' }
+    }
+    await boundedRequest({ ...base, fetchImpl: f })
+    expect(seen).toBe('error')
+  })
+  it('maps a redirect failure to transport', async () => {
+    const f: FetchLike = async () => {
+      throw new TypeError('fetch failed: redirect mode is set to error')
+    }
+    expect(await boundedRequest({ ...base, fetchImpl: f })).toEqual({ kind: 'transport' })
+  })
+})

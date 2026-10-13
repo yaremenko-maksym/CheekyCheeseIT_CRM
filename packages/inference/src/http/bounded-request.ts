@@ -3,7 +3,13 @@ export const DEFAULT_MAX_BYTES = 2 * 1024 * 1024
 
 export type FetchLike = (
   url: string,
-  init?: { method?: string; headers?: Record<string, string>; body?: string; signal?: AbortSignal },
+  init?: {
+    method?: string
+    headers?: Record<string, string>
+    body?: string
+    signal?: AbortSignal
+    redirect?: 'error'
+  },
 ) => Promise<{
   status: number
   body: ReadableStream<Uint8Array> | null
@@ -93,6 +99,8 @@ export async function boundedRequest(opts: BoundedRequestOptions): Promise<Bound
       ...(opts.headers !== undefined && { headers: opts.headers }),
       ...(opts.body !== undefined && { body: opts.body }),
       signal: controller.signal,
+      // A 3xx must never escape the HTTPS/loopback allow-policy: it becomes a transport failure.
+      redirect: 'error',
     })
     const { status } = response
 
