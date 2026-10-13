@@ -1,1 +1,1 @@
-export const INFERENCE_PACKAGE = '@crm/inference'
+export * from './contracts/decision'
