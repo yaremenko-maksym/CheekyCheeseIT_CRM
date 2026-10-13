@@ -12,11 +12,14 @@ export type InferenceResolverOptions = {
 }
 
 const DEFAULT_COOLDOWN_MS = 60_000
+// A hanging catalog must never tie up a refresh (or the process) for long.
+const CATALOG_TIMEOUT_MS = 10_000
 
 /**
- * Reactive, single-flight OpenRouter model resolver. The catalog is fetched once at boot and again
- * only when the adapter reports the current model unavailable; concurrent callers share one in-flight
- * refresh (this is the rate limit), and a short cooldown bounds repeat refreshes. Never throws and
+ * Reactive, single-flight OpenRouter model resolver. The catalog is fetched in the background at boot
+ * (boot never waits on OpenRouter), again when the adapter reports the current model unavailable (a
+ * real signal: bypasses the cooldown), and lazily when a caller finds no model selected (self-heal
+ * after a failed boot, throttled by the cooldown). Concurrent callers share one in-flight refresh. Never throws and
  * never logs the key or any provider body. Inactive (returns null) unless OpenRouter is configured.
  */
 @Injectable()
@@ -46,22 +49,24 @@ export class InferenceModelResolverService implements OnModuleInit {
 
   async onModuleInit(): Promise<void> {
     if (!this.active) return
-    await this.refresh()
+    void this.refresh() // fire-and-forget: boot must not block on OpenRouter (never rejects)
   }
 
   getSelectedModelId(): string | null {
+    if (this.active && this.currentModelId === null) void this.refresh() // self-heal, cooldown-throttled
     return this.currentModelId
   }
 
   async onModelUnavailable(deadId: string): Promise<string | null> {
     if (!this.active) return null
-    if (deadId === this.currentModelId) await this.refresh()
+    if (deadId === this.currentModelId) await this.refresh(true)
     return this.currentModelId
   }
 
-  private async refresh(): Promise<void> {
+  private async refresh(force = false): Promise<void> {
     if (this.inFlight !== null) return this.inFlight
-    if (this.lastRefreshAt !== null && this.now() - this.lastRefreshAt < this.cooldownMs) return
+    if (!force && this.lastRefreshAt !== null && this.now() - this.lastRefreshAt < this.cooldownMs)
+      return
     this.lastRefreshAt = this.now()
     this.inFlight = this.doRefresh().finally(() => {
       this.inFlight = null
@@ -71,7 +76,10 @@ export class InferenceModelResolverService implements OnModuleInit {
 
   private async doRefresh(): Promise<void> {
     try {
-      const res = await this.fetchCatalog(this.apiKey === undefined ? {} : { apiKey: this.apiKey })
+      const res = await this.fetchCatalog({
+        ...(this.apiKey !== undefined && { apiKey: this.apiKey }),
+        timeoutMs: CATALOG_TIMEOUT_MS,
+      })
       if (!res.ok) {
         this.logger.warn(`OpenRouter catalog refresh failed (${res.code}); keeping last model`)
         return
