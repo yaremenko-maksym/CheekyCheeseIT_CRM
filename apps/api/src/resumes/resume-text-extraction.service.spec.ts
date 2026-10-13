@@ -50,7 +50,7 @@ import {
   buildPdfWithRawContentStream,
   repeatedBuffer,
   buildPdfWithText,
-  buildAttributeBombDocx,
+  buildDocxRawBody,
   buildPerCharacterFormattedDocx,
   buildWordDensityDocx,
   buildZip,
@@ -589,17 +589,43 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
    * three previous fixes each moved one of the two constants.
    *
    * THE PREMISE WAS WRONG. There is no bounded worst case for the budgets to
-   * permit. Measured through this pipeline, everything inside every budget:
+   * permit. Measured through this pipeline on `@xmldom/xmldom` 0.8.13, everything
+   * inside every budget:
    *
    *   4.18 MB, 695 731 tags (`<w:p/>`)                     1 609 ms
    *   1.33 MB,      15 tags (120 000 attributes on one)   18 310 ms
    *
-   * The expensive one is 3x SMALLER and carries 15 tags, because attribute
-   * handling in `@xmldom/xmldom` is quadratic per element and attributes hold
-   * no `<`. A byte budget missed node count; a node budget misses attributes;
+   * The expensive one was 3x SMALLER and carried 15 tags, because attribute
+   * handling in `@xmldom/xmldom` was quadratic per element and attributes hold
+   * no `<`. A byte budget missed node count; a node budget missed attributes;
    * a parser with several superlinear paths will always have one dimension
    * more than the scalar chosen to bound it. Chasing a fourth unit would be
    * the same move that failed three times.
+   *
+   * ==========================================================================
+   * REBUILT FOR @xmldom/xmldom 0.8.15 (the security patch for 8 HIGH CVEs)
+   * ==========================================================================
+   * 0.8.15 fixed the quadratic attribute path, so the 120 000-attribute fixture
+   * now parses in ~0.6 s end to end and RESOLVES — the old fixture no longer
+   * exceeds anything, and the test built on it stopped proving the sandbox.
+   * Re-measured on 0.8.15 through the real pipeline, every shape that still
+   * passes the byte budget (`MAX_DOCX_PARSED_BYTES`, 4 MiB):
+   *
+   *   attributes, 330 000 on one element (3.8 MB)     1.3 s   (was ~minutes)
+   *   namespace decls, 230 000 on one element (4.0 MB) 2.0 s
+   *   `<w:p a="1"/>` x ~345 000 (4.15 MB)              3.4 s
+   *   `<w:p><w:r><w:t>a</w:t></w:r></w:p>` x ~118 000
+   *     (4.15 MB)                                      4.8 s
+   *
+   * The quadratic cliff is gone (attributes are now linear-ish and cheap), but
+   * the thesis above survives in its weaker, still-true form: the byte budget
+   * does not see NODE count, and a document made of ~118 000 small runs costs
+   * several seconds of parse while passing every acceptance budget. That shape
+   * is the fixture below. Its cost is linear in nodes and therefore
+   * machine-dependent (a loaded CI runner is several times slower), so the
+   * deadline is set low (1 s) rather than the fixture's cost chased upward:
+   * the margin is ~5x on the machine that measured it and only grows on
+   * slower ones.
    *
    * So this test asserts what is actually true and actually load-bearing: the
    * SANDBOX contains work of any shape. The document below defeats every
@@ -612,8 +638,10 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
    * previous version of this test a coin flip on a busy runner.
    */
   it('contains an expensive document no budget can see', async () => {
-    // 120 000 attributes on ONE element: ~15 tags, 1.3 MB, ~18 s of parse.
-    const unbudgetable = buildAttributeBombDocx(120_000)
+    // ~118 000 one-character runs: 4.15 MB of XML (just under the 4 MiB parsed
+    // budget), ~354 000 tags, ~4.8 s of parse on 0.8.15 against a 1 s deadline.
+    const run = '<w:p><w:r><w:t>a</w:t></w:r></w:p>'
+    const unbudgetable = buildDocxRawBody(run.repeat(Math.floor(4_150_000 / run.length)))
 
     // Non-vacuity FIRST: prove every acceptance budget really does wave this
     // through, so the containment below is doing the work rather than a budget
@@ -627,7 +655,7 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
     // and it is a property of isolation, not of any budget.
     const meter = startLagMeter()
     const outcome = await service
-      .extract(unbudgetable, RESUME_DOCX_MIME, { timeoutMs: 2_000 })
+      .extract(unbudgetable, RESUME_DOCX_MIME, { timeoutMs: 1_000 })
       .then(() => 'resolved')
       .catch((e: unknown) => (e as Error).message)
     const { worstStall } = meter.stop()
@@ -638,7 +666,7 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
     expect(worstStall).toBeLessThan(500)
 
     // UNCONDITIONALLY, because the outcome is not in doubt: this document needs
-    // ~18 s and the deadline above is 2 s. Wrapping these in `if (outcome !==
+    // ~4.8 s and the deadline above is 1 s. Wrapping these in `if (outcome !==
     // 'resolved')` would have been a test that quietly asserts nothing on the
     // day the containment breaks — which is the one day it matters.
     expect(outcome).toMatch(/слишком сложный/)
@@ -686,7 +714,13 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
   it.skipIf(!CPU_RLIMIT_ENFORCED)(
     'says the same actionable thing however the sandbox ended the work',
     async () => {
-      const bomb = buildAttributeBombDocx(60_000)
+      // The same ~4.15 MB / ~354 000-tag document as the test above: ~4.8 s of
+      // parse on @xmldom/xmldom 0.8.15, so it needs several CPU-seconds and the
+      // 1 s rlimit below ends it deterministically. The previous
+      // `buildAttributeBombDocx(60_000)` leaned on xmldom's quadratic attribute
+      // path, which 0.8.15 fixed: it now parses inside the budget and resolves.
+      const run = '<w:p><w:r><w:t>a</w:t></w:r></w:p>'
+      const bomb = buildDocxRawBody(run.repeat(Math.floor(4_150_000 / run.length)))
 
       // Path 1 — the wall-clock deadline (`timedOut`).
       await expect(service.extract(bomb, RESUME_DOCX_MIME, { timeoutMs: 50 })).rejects.toThrow(

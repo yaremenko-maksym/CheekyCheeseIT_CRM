@@ -5,6 +5,7 @@ overrides:
   find-my-way: '>=9.7.0 <10.0.0'
   fast-uri: '>=3.1.8 <4.0.0'
   ws: '>=8.20.1'
+  '@xmldom/xmldom': '>=0.8.15 <0.9.0'
   brace-expansion: '>=5.0.12'
   '@babel/core': '>=7.29.6 <8.0.0'
   js-yaml: '>=4.3.2 <5.0.0'
@@ -6960,10 +6961,9 @@ packages:
       '@xtuc/long': 4.2.2
     dev: true
 
-  /@xmldom/xmldom/0.8.13:
-    resolution: {integrity: sha512-KRYzxepc14G/CEpEGc3Yn+JKaAeT63smlDr+vjB8jRfgTBBI9wRj/nkQEO+ucV8p8I9bfKLWp37uHgFrbntPvw==}
+  /@xmldom/xmldom/0.8.15:
+    resolution: {integrity: sha512-/5NV/vDALVFDXgLmfsy9TRCBlKwO2LNBFzpzvb9iIj+jR+eSc6DLYYvVOdivT/jm7MtU6TebYuRmzEOI7w40UA==}
     engines: {node: '>=10.0.0'}
-    deprecated: this version has critical issues, please update to the latest version
     dev: false
 
   /@xtuc/ieee754/1.2.0:
@@ -10388,7 +10388,7 @@ packages:
     engines: {node: '>=12.0.0'}
     hasBin: true
     dependencies:
-      '@xmldom/xmldom': 0.8.13
+      '@xmldom/xmldom': 0.8.15
       argparse: 1.0.10
       base64-js: 1.5.1
       dingbat-to-unicode: 1.0.1
