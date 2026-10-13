@@ -624,9 +624,7 @@ async function captureRoute(browser, baseUrl, url, expectNoindex, route) {
   // `PrerenderRoute` to derive this from — `routes/__root.tsx`'s
   // `NotFoundPage` hardcodes `canonicalUrl('/404')`, mirrored literally here
   // (plain Node ESM, same duplication rationale as `SITE_ORIGIN` above).
-  const expectedCanonical = route
-    ? localizedUrl(route.locale ?? DEFAULT_LOCALE, route.path)
-    : `${SITE_ORIGIN}/404/`
+  const expectedCanonical = route ? routeCanonicalUrl(route) : `${SITE_ORIGIN}/404/`
   /** @type {unknown} */
   let lastError
   for (let attempt = 1; attempt <= MAX_CAPTURE_ATTEMPTS; attempt++) {
@@ -869,12 +867,49 @@ function assertJsonLd(html, route) {
 // ---------------------------------------------------------------------------
 
 /**
+ * A vacancy-detail page in a locale the vacancy is NOT translated into
+ * (`route.locale` is in its own `hreflangExcludes`) serves the default-locale
+ * fallback content: a duplicate of the default-locale page. Its canonical
+ * points at the default-locale URL (matches the hreflang x-default) and it is
+ * left out of sitemap.xml, so Google consolidates instead of reporting
+ * "duplicate, Google chose different canonical". Home / careers-list and
+ * translated vacancies are fully localized and unaffected.
+ *
+ * @param {Pick<PrerenderRoute, 'pageType' | 'locale' | 'hreflangExcludes'>} route
+ * @returns {boolean}
+ */
+function isUntranslatedVacancyRoute(route) {
+  return (
+    route.pageType === 'vacancy' &&
+    route.locale !== undefined &&
+    route.hreflangExcludes.includes(route.locale)
+  )
+}
+
+/**
+ * Single source of truth for the canonical URL a captured route must carry:
+ * used by the in-flight capture wait (`captureRoute`) and `assertCanonicalSelf`
+ * so they cannot drift.
+ *
+ * @param {PrerenderRoute} route
+ * @returns {string}
+ */
+function routeCanonicalUrl(route) {
+  const locale = isUntranslatedVacancyRoute(route)
+    ? DEFAULT_LOCALE
+    : (route.locale ?? DEFAULT_LOCALE)
+  return localizedUrl(locale, route.path)
+}
+
+/**
  * @param {string} html
  * @param {PrerenderRoute} route
  * @returns {void}
  */
 function assertCanonicalSelf(html, route) {
-  const expected = localizedUrl(route.locale ?? DEFAULT_LOCALE, route.path)
+  // Untranslated-locale vacancy pages canonical to the default-locale URL
+  // (see `isUntranslatedVacancyRoute`), every other route is self-canonical.
+  const expected = routeCanonicalUrl(route)
   const match = html.match(/<link rel="canonical" href="([^"]*)"/)
   const actual = match?.[1]
   if (actual !== expected) {
@@ -1096,6 +1131,7 @@ function assertSitemapMatchesDist(sitemapXml, readFileFn) {
 function assertEveryIndexableRouteInSitemap(routes, sitemapXml) {
   const locs = new Set([...sitemapXml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]))
   const missing = routes
+    .filter((route) => !isUntranslatedVacancyRoute(route))
     .map((route) => localizedUrl(route.locale ?? DEFAULT_LOCALE, route.path))
     .filter((expected) => !locs.has(expected))
   if (missing.length > 0) {
@@ -1184,32 +1220,6 @@ function buildXhtmlAlternates(path, excludeLocales) {
 }
 
 /**
- * task-sitemap-missing-vacancy-locales.md (backlog #177) AC1/AC3/AC5 — the
- * hreflang cluster for a vacancy `<url>` whose OWN locale is a fallback
- * (untranslated duplicate of `en`, see `buildSitemapXml`'s call site doc).
- * Deliberately NOT `buildXhtmlAlternates(path, LOCALES.filter(l => l !==
- * locale))`: that would still splice in an `en`/`uk` cross-reference this
- * locale cannot reciprocate (their own clusters correctly do NOT list a
- * fallback locale — backlog #39), which `assertSitemapHreflangClusters`
- * below would then rightfully reject as non-reciprocal. A single
- * self-referencing tag is the SEO-neutral floor: per Google's hreflang
- * docs a page that only lists itself is equivalent to carrying no hreflang
- * annotation at all — it claims no cross-language relationship, so it
- * cannot misrepresent duplicate content as a translation, while still
- * satisfying `assertSitemapHreflangClusters`' "every address must appear
- * in its own cluster" rule (that rule exists to catch a DIFFERENT bug —
- * an address with literally nothing describing it at all, see that
- * function's "mutation B" test — not to forbid a deliberately minimal one).
- *
- * @param {string} locale
- * @param {string} path
- * @returns {string}
- */
-function buildSelfOnlyXhtmlAlternate(locale, path) {
-  return `    <xhtml:link rel="alternate" hreflang="${locale}" href="${xmlEscape(localizedUrl(locale, path))}" />`
-}
-
-/**
  * @param {VacancyListItem[] | null} vacancies
  * @param {string} buildTime
  * @param {PerLocaleVacancies} perLocaleVacancies
@@ -1235,50 +1245,16 @@ function buildSitemapXml(vacancies, buildTime, perLocaleVacancies = {}) {
     for (const v of vacancies ?? []) {
       const excludeLocales = vacancyHreflangExcludes(v.slug, perLocaleVacancies)
       const path = `/careers/${v.slug}`
-      // task-sitemap-missing-vacancy-locales.md (backlog #177, Search
-      // Console report 2026-08-22) AC1/AC2 — this used to `continue` (skip
-      // the <url> entry) whenever THIS locale itself was in its own
-      // `excludeLocales` (i.e. THIS locale's copy of the vacancy is a
-      // fallback/untranslated duplicate of `en`). That conflated two
-      // DIFFERENT signals that `vacancyHreflangExcludes` was only ever
-      // meant to answer once each:
-      //   1. "should locale L be ADVERTISED AS AN ALTERNATE inside some
-      //      OTHER locale's cluster" — yes, keep excluding L there (a
-      //      fallback page is not a genuine translation; claiming it is
-      //      would misrepresent duplicate content as a real language
-      //      variant — task-sitemap-hreflang-clusters.md AC2/AC5, backlog
-      //      #39, still enforced below).
-      //   2. "should locale L's OWN page even be IN the sitemap at all" —
-      //      this is what the `continue` actually did, and it was wrong:
-      //      the live page is `index, follow`, self-canonical, and linked
-      //      from its own `/careers` list regardless of translation status
-      //      (`captureRoute`'s `expectNoindex: false` for every route,
-      //      `careers-page-content.tsx` → `CareersList` → `VacancyCard`
-      //      has no fallback filter). Every OTHER signal the app emits for
-      //      this exact URL says "please index this" — only the sitemap
-      //      disagreed. That is precisely the contradiction Search Console
-      //      flagged (backlog #177): a page can promise itself as
-      //      indexable without being a sitemap orphan.
-      //
-      // Fix: ALWAYS emit the <url> entry (matches AC3 — "карта включает
-      // все живые индексируемые страницы"). What changes is the ALTERNATES
-      // cluster attached to THIS locale's own block:
-      //   - locale is NOT its own fallback (a real translation, or `en`
-      //     itself) → unchanged: the full reciprocal cluster minus
-      //     whichever OTHER locales are fallback for this vacancy.
-      //   - locale IS its own fallback → a SELF-ONLY cluster (one
-      //     `<xhtml:link>` pointing at itself, hreflang = its own locale).
-      //     This still does not claim to be a translation of `en`/`uk` —
-      //     preserving backlog #39's guard, `assertSitemapHreflangClusters`
-      //     below accepts this shape explicitly — while no longer being
-      //     erased from the map of every URL Google is told to crawl.
-      const ownLocaleIsFallback = excludeLocales.includes(locale)
+      // GSC "duplicate, Google chose different canonical" fix: an untranslated
+      // locale's page is a fallback duplicate of `en` whose canonical points
+      // at `en` (see `isUntranslatedVacancyRoute`) — it is still prerendered
+      // (crawlable 200) but NOT advertised. Superseded backlog #177, which
+      // listed it as a self-canonical page.
+      if (excludeLocales.includes(locale)) continue
       urls.push({
         loc: localizedUrl(locale, path),
         lastmod: v.publishedAt,
-        alternates: ownLocaleIsFallback
-          ? buildSelfOnlyXhtmlAlternate(locale, path)
-          : buildXhtmlAlternates(path, excludeLocales),
+        alternates: buildXhtmlAlternates(path, excludeLocales),
       })
     }
   }
@@ -1604,6 +1580,7 @@ export {
   assertRobotsMeta,
   assertHtmlLang,
   assertCanonicalSelf,
+  routeCanonicalUrl,
   assertAlternatesMatch,
   assertNoHomeJsonLdLeak,
   assertNotFoundDoesNotImpersonateHome,

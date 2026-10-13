@@ -7,6 +7,7 @@ import {
   buildFAQPageJsonLd,
   buildHreflangAlternates,
   buildJobPostingJsonLd,
+  buildVacancyCanonical,
   canonicalUrl,
   markdownToPlainText,
   truncateForMetaDescription,
@@ -180,7 +181,12 @@ function VacancyDetailContent({
     // becomes the OG title via useDocumentHead's shared `title` prop.
     title: `${title} — ${vacancy.location} | ${t.vacancy.titleSuffix}`,
     description: metaDescription,
-    canonical: canonicalUrl(localizedPath(locale, path)),
+    // A locale this vacancy has no translation for serves the default-locale
+    // fallback content: canonical points at the default-locale URL (== the
+    // hreflang x-default below) so Google consolidates instead of reporting
+    // a duplicate with a different canonical. Consistent with the hreflang
+    // exclusion; page stays index,follow (not noindex).
+    canonical: buildVacancyCanonical(locale, path, hreflangExcludes),
     htmlLang: locale,
     // plan §3/A10, round-4 — locales with no real translation never
     // advertise this vacancy's URL as an hreflang alternate (avoids
