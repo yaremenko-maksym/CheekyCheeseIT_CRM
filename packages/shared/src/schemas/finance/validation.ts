@@ -212,14 +212,17 @@ export const BLOCKCHAIN_EXPLORER_HOSTS: ReadonlySet<string> = new Set([
  */
 export function isExplorerUrl(url: string): boolean {
   // Require https + capture the authority (up to the first / ? or #) and rest.
+  // Stryker disable next-line Regex: equivalent mutant - making the ([/?#].*) group mandatory only turns a bare host into a regex miss, which already returns false via the rest.length > 0 check (400k-input differential fuzz, 0 diffs)
   const match = /^https:\/\/([^/?#]+)([/?#].*)?$/i.exec(url)
   if (!match) return false
   let authority = match[1]!.toLowerCase()
   // Strip userinfo (`user:pass@host`) — keep only the segment after the last `@`.
   const atIdx = authority.lastIndexOf('@')
+  // Stryker disable next-line ConditionalExpression: equivalent mutant - for atIdx === -1, slice(atIdx + 1) is slice(0), a no-op, so the condition is irrelevant (400k-input differential fuzz, 0 diffs)
   if (atIdx >= 0) authority = authority.slice(atIdx + 1)
   // Strip the port.
   const colonIdx = authority.indexOf(':')
+  // Stryker disable next-line EqualityOperator: equivalent mutant - colonIdx === 0 means the authority starts with ':', which is not an allowlisted host whether or not it is sliced to '' (verified by differential fuzz, 0 diffs)
   if (colonIdx >= 0) authority = authority.slice(0, colonIdx)
   const host = authority.replace(/^www\./, '')
   if (!BLOCKCHAIN_EXPLORER_HOSTS.has(host)) return false
@@ -227,6 +230,7 @@ export function isExplorerUrl(url: string): boolean {
   // ('' or a lone '/') is not a tx proof. Do NOT strip the fragment first:
   // hash-routed explorers keep the tx id in the fragment, e.g.
   // tronscan.org/#/transaction/<hash>.
+  // Stryker disable next-line Regex: equivalent mutant - dropping the ^ anchor removes the first '/' anywhere; a remainder not starting with '/' keeps its first char, so rest.length > 0 is unchanged (verified by differential fuzz, 0 diffs)
   const rest = (match[2] ?? '').replace(/^\//, '')
   return rest.length > 0
 }
@@ -438,7 +442,12 @@ export const ON_CHAIN_TX_HASH_RE = /0x[0-9a-fA-F]{64}/
  * the IDENTICAL rule (a divergence between them is the bug this closes).
  */
 export function extractOnChainTxHash(raw: string | null | undefined): string | null {
-  const match = ON_CHAIN_TX_HASH_RE.exec(raw?.trim() ?? '')
+  const match = ON_CHAIN_TX_HASH_RE.exec(
+    // Stryker disable next-line MethodExpression: equivalent mutant - ON_CHAIN_TX_HASH_RE is unanchored and a 0x+64-hex match cannot contain whitespace, so trim() cannot change whether or what it matches
+    raw?.trim() ??
+      // Stryker disable next-line StringLiteral: equivalent mutant - the fallback only feeds the unanchored hash regex; any non-hash string (including the mutated one) yields no match, same as ''
+      '',
+  )
   return match ? match[0].toLowerCase() : null
 }
 

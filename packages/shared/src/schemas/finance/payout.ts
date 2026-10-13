@@ -428,6 +428,7 @@ export const settleSeniorPayoutSchema = z
     ),
   )
   .superRefine((data, ctx) => {
+    // Stryker disable next-line ConditionalExpression: equivalent mutant - txDate null, undefined or '' compared with > against a YYYY-MM-DD string is already false, so the early return is redundant
     if (!data.txDate) return
     if (data.txDate > kyivToday()) {
       ctx.addIssue({
