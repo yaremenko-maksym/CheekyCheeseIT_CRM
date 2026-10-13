@@ -3,6 +3,7 @@ import { and, eq, isNull } from 'drizzle-orm'
 import { teamMembers, teams, users, type User } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
 import { TeamAuditLogService } from '../teams/team-audit-log.service'
+import { assertTeamStaffRoles } from './team-staff.util'
 
 /**
  * Team-composition reconcile for a SENIOR's team, extracted from UsersService
@@ -101,16 +102,23 @@ export class TeamReconcileService {
 
     const now = new Date()
 
-    if (data.hrIds !== undefined) {
-      const desiredHrIds = new Set(data.hrIds)
-      const currentHrIds = new Set(
-        activeMembers.filter((m) => m.role === 'HR').map((m) => m.userId),
-      )
+    const desiredHrIds = new Set(data.hrIds ?? [])
+    const currentHrIds = new Set(activeMembers.filter((m) => m.role === 'HR').map((m) => m.userId))
+    const currentAccId = activeMembers.find((m) => m.role === 'ACCOUNTANT')?.userId ?? null
+    // To add: desired but not currently active.
+    const hrToAdd =
+      data.hrIds === undefined ? [] : [...desiredHrIds].filter((id) => !currentHrIds.has(id))
+    const accToAdd =
+      data.accountantId && data.accountantId !== currentAccId ? data.accountantId : null
+    // SR-M-1 follow-up (#999): only NEWLY enrolled members are role-checked (an existing member
+    // who was archived since must not block unrelated edits), and BEFORE the first write below
+    // so a rejection leaves the team untouched.
+    await assertTeamStaffRoles(tx, hrToAdd, accToAdd)
 
+    if (data.hrIds !== undefined) {
       // To remove: currently active HR not in desired set.
       const toRemove = [...currentHrIds].filter((id) => !desiredHrIds.has(id))
-      // To add: desired but not currently active.
-      const toAdd = [...desiredHrIds].filter((id) => !currentHrIds.has(id))
+      const toAdd = hrToAdd
 
       for (const userId of toRemove) {
         await tx
@@ -155,8 +163,7 @@ export class TeamReconcileService {
 
     if (data.accountantId !== undefined) {
       const desiredId = data.accountantId ?? null
-      const currentAcc = activeMembers.find((m) => m.role === 'ACCOUNTANT')
-      const currentId = currentAcc?.userId ?? null
+      const currentId = currentAccId
 
       if (currentId !== desiredId) {
         if (currentId) {
