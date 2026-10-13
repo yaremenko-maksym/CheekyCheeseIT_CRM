@@ -442,6 +442,254 @@ export const dismissJobQueueItemSchema = z.object({
 })
 
 // ---------------------------------------------------------------------------
+// Opportunity store (r5 Phase 1 — job_opportunities family)
+//
+// The NEW canonical store: provider-scoped source records, immutable revisions,
+// canonical opportunities, per-senior matches, ADMIN team triage. It lives next
+// to the legacy posting DTOs above (extend-in-place) and shares none of their
+// identity: records are keyed by NATIVE scoped identity, never by the legacy
+// `sha256(sourceType|canonicalUrl)` fingerprint. All content is UNTRUSTED.
+//
+// "Opportunity" is deliberate: `Vacancy` is reserved for the studio's own
+// landing postings (CONTEXT.md).
+// ---------------------------------------------------------------------------
+
+/** Whether the posting is still open at the provider. Order = pg enum `job_availability`. */
+export const jobAvailabilitySchema = z.enum(['OPEN', 'UNKNOWN', 'CLOSED', 'EXPIRED'])
+
+/** Outcome of one collection attempt. A valid empty feed is SUCCEEDED, not FAILED. */
+export const jobCollectionOutcomeSchema = z.enum([
+  'STARTED',
+  'PARTIAL',
+  'SUCCEEDED',
+  'FAILED',
+  'CANCELLED',
+])
+
+/** How much of the provider's inventory an attempt covered. */
+export const jobCollectionCoverageSchema = z.enum(['FULL_INVENTORY', 'WINDOW', 'PARTIAL'])
+
+/** NATIVE_ID = provider-issued id; URL_FALLBACK = canonical URL when no id exists. */
+export const jobIdentityKindSchema = z.enum(['NATIVE_ID', 'URL_FALLBACK'])
+
+/** Stored outcome of a per-senior evaluation. A plain mismatch is recomputed on demand, never stored. */
+export const jobOpportunityMatchOutcomeSchema = z.enum(['LEAD', 'TRIAGE', 'EXCLUDED'])
+
+/** How a source record was attached to a canonical opportunity. */
+export const jobOpportunityLinkDecisionSchema = z.enum(['AUTO', 'CONFIRMED'])
+
+const sha256HexSchema = z.string().regex(/^[0-9a-f]{64}$/, 'must be 64 lowercase hex characters')
+
+/** Scoped native identity of a source record: UNIQUE(provider type, namespace, key). */
+export const jobSourceIdentitySchema = z
+  .object({
+    sourceType: jobSourceTypeSchema,
+    /** Board / account scope (e.g. an ATS company slug). Empty for global providers. */
+    namespace: z.string().max(200).default(''),
+    identityKind: jobIdentityKindSchema,
+    identityKey: z.string().min(1).max(2048),
+  })
+  .strict()
+
+/** field name -> id of the revision that supplied the selected value. */
+export const jobFieldProvenanceSchema = z
+  .record(z.string().min(1).max(60), z.string().uuid())
+  .refine((v) => Object.keys(v).length <= 40, 'too many provenance entries')
+
+/** One immutable observation of a source record. */
+export const jobSourceRevisionSchema = z.object({
+  id: z.string().uuid(),
+  sourceRecordId: z.string().uuid(),
+  adapterVersion: z.string().min(1).max(100),
+  normalizerVersion: z.string().min(1).max(100),
+  /** UNIQUE(record, contentHash, normalizerVersion): re-observing identical content adds no row. */
+  contentHash: sha256HexSchema,
+  /** Key into content-addressed `job_text_blobs`; the description text is not duplicated per revision. */
+  descriptionSha256: sha256HexSchema.nullable(),
+  title: z.string().max(500),
+  companyName: z.string().max(255).nullable(),
+  location: z.string().max(500).nullable(),
+  applicationUrl: externalHttpsUrlSchema.nullable(),
+  /** The date exactly as the provider sent it, and what we parsed from it. */
+  publishedAtRaw: z.string().max(200).nullable(),
+  publishedAt: z.string().datetime().nullable(),
+  fieldProvenance: jobFieldProvenanceSchema,
+  /** Monotonic arrival order — revisions can arrive out of order of their publish date. */
+  receivedSeq: z.number().int().positive(),
+  receivedAt: z.string().datetime(),
+})
+
+const countSchema = z.number().int().nonnegative()
+
+/**
+ * Report of one collection attempt. Exactly one disposition per input item;
+ * persistence failures are their own bucket (they are OUR fault, not the
+ * provider's) and a SUCCEEDED attempt cannot contain any.
+ */
+export const jobCollectionReportSchema = z
+  .object({
+    sourceId: z.string().uuid(),
+    outcome: jobCollectionOutcomeSchema,
+    coverage: jobCollectionCoverageSchema,
+    received: countSchema,
+    created: countSchema,
+    revised: countSchema,
+    unchanged: countSchema,
+    duplicates: countSchema,
+    invalid: countSchema,
+    persistenceErrors: countSchema,
+  })
+  .superRefine((r, ctx) => {
+    const dispositions =
+      r.created + r.revised + r.unchanged + r.duplicates + r.invalid + r.persistenceErrors
+    if (dispositions !== r.received) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'exactly one disposition per received item',
+        path: ['received'],
+      })
+    }
+    if (r.outcome === 'SUCCEEDED' && r.persistenceErrors > 0) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'a SUCCEEDED attempt cannot carry persistence errors',
+        path: ['persistenceErrors'],
+      })
+    }
+  })
+
+// --- team scope --------------------------------------------------------------
+
+/** Every list / card / continuation / action request names the team it acts for. */
+export const jobQueueScopedQuerySchema = jobQueueQuerySchema.extend({
+  teamId: z.string().uuid(),
+})
+
+export const jobQueueSeniorPageSchema = z.object({
+  items: z.array(jobQueueMatchedSeniorSchema).max(200),
+  totalMatchedSeniorCount: countSchema,
+  nextCursor: z.string().max(300).nullable(),
+})
+
+export const jobQueueSourceItemSchema = z.object({
+  sourceRecordId: z.string().uuid(),
+  sourceType: jobSourceTypeSchema,
+  /** The source's own posting URL; kept apart from the application URL. */
+  url: externalHttpsUrlSchema,
+  linkedAt: z.string().datetime(),
+})
+
+export const jobQueueSourcePageSchema = z
+  .object({
+    items: z.array(jobQueueSourceItemSchema).max(50),
+    totalSourceCount: countSchema,
+    /** Always max(totalSourceCount - 1, 0): the primary source is not "also seen on". */
+    totalAlsoSeenOnCount: countSchema,
+    primarySourceRecordId: z.string().uuid().nullable(),
+    relationVersion: countSchema,
+    nextCursor: z.string().max(300).nullable(),
+  })
+  .refine((p) => p.totalAlsoSeenOnCount === Math.max(p.totalSourceCount - 1, 0), {
+    message: 'totalAlsoSeenOnCount must equal max(totalSourceCount - 1, 0)',
+    path: ['totalAlsoSeenOnCount'],
+  })
+
+export const jobPossibleDuplicateSchema = z.object({
+  opportunityId: z.string().uuid(),
+  title: z.string().max(500),
+  companyName: z.string().max(255).nullable(),
+})
+
+/** Bounded preview; the full set is paged separately. */
+export const jobPossibleDuplicatesPreviewSchema = z.object({
+  items: z.array(jobPossibleDuplicateSchema).max(5),
+  totalCount: z.number().int().positive(),
+})
+
+export const confirmPossibleDuplicateSchema = z
+  .object({
+    opportunityId: z.string().uuid(),
+    duplicateOpportunityId: z.string().uuid(),
+    expectedRelationVersion: countSchema,
+  })
+  .strict()
+  .refine((v) => v.opportunityId !== v.duplicateOpportunityId, {
+    message: 'an opportunity cannot be a duplicate of itself',
+    path: ['duplicateOpportunityId'],
+  })
+
+// --- ADMIN team triage -------------------------------------------------------
+
+const triageReasonSchema = z.string().trim().min(1).max(500)
+
+export const createJobQueueTeamTriageGrantSchema = z
+  .object({
+    opportunityId: z.string().uuid(),
+    teamId: z.string().uuid(),
+    expectedOpportunityRevision: countSchema,
+    policyVersion: countSchema,
+    reason: triageReasonSchema,
+    expiresAt: z.string().datetime(),
+  })
+  .strict()
+
+export const revokeJobQueueTeamTriageGrantSchema = z
+  .object({
+    opportunityId: z.string().uuid(),
+    teamId: z.string().uuid(),
+    expectedGrantVersion: countSchema,
+    reason: triageReasonSchema,
+  })
+  .strict()
+
+export const jobQueueTeamTriageGrantSchema = z.object({
+  id: z.string().uuid(),
+  opportunityId: z.string().uuid(),
+  teamId: z.string().uuid(),
+  assignedBy: z.string().uuid(),
+  policyVersion: countSchema,
+  opportunityRevision: countSchema,
+  grantVersion: countSchema,
+  evidence: z.record(z.string(), z.unknown()),
+  expiresAt: z.string().datetime(),
+  revokedAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+})
+
+export const createJobQueueTeamTriageSubscriptionSchema = z
+  .object({
+    teamId: z.string().uuid(),
+    roleFamily: z.string().trim().min(1).max(100),
+    /** Empty = every source. Bounded by the number of provider types. */
+    sourceTypes: z.array(jobSourceTypeSchema).max(jobSourceTypeSchema.options.length),
+    policyVersion: countSchema,
+    expiresAt: z.string().datetime(),
+    reason: triageReasonSchema,
+  })
+  .strict()
+
+export const revokeJobQueueTeamTriageSubscriptionSchema = z
+  .object({
+    subscriptionId: z.string().uuid(),
+    expectedSubscriptionVersion: countSchema,
+    reason: triageReasonSchema,
+  })
+  .strict()
+
+export const jobQueueTeamTriageSubscriptionSchema = z.object({
+  id: z.string().uuid(),
+  teamId: z.string().uuid(),
+  roleFamily: z.string().max(100),
+  sourceTypes: z.array(jobSourceTypeSchema).max(jobSourceTypeSchema.options.length),
+  policyVersion: countSchema,
+  subscriptionVersion: countSchema,
+  actorId: z.string().uuid(),
+  expiresAt: z.string().datetime(),
+  revokedAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+})
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -476,3 +724,27 @@ export type JobQueueCardDto = z.infer<typeof jobQueueCardSchema>
 export type JobQueueListDto = z.infer<typeof jobQueueListSchema>
 export type JobQueueQuery = z.infer<typeof jobQueueQuerySchema>
 export type DismissJobQueueItemDto = z.infer<typeof dismissJobQueueItemSchema>
+export type JobAvailability = z.infer<typeof jobAvailabilitySchema>
+export type JobCollectionOutcome = z.infer<typeof jobCollectionOutcomeSchema>
+export type JobCollectionCoverage = z.infer<typeof jobCollectionCoverageSchema>
+export type JobIdentityKind = z.infer<typeof jobIdentityKindSchema>
+export type JobOpportunityMatchOutcome = z.infer<typeof jobOpportunityMatchOutcomeSchema>
+export type JobOpportunityLinkDecision = z.infer<typeof jobOpportunityLinkDecisionSchema>
+export type JobSourceIdentity = z.infer<typeof jobSourceIdentitySchema>
+export type JobSourceRevisionDto = z.infer<typeof jobSourceRevisionSchema>
+export type JobCollectionReport = z.infer<typeof jobCollectionReportSchema>
+export type JobQueueScopedQuery = z.infer<typeof jobQueueScopedQuerySchema>
+export type JobQueueSeniorPage = z.infer<typeof jobQueueSeniorPageSchema>
+export type JobQueueSourcePage = z.infer<typeof jobQueueSourcePageSchema>
+export type JobPossibleDuplicatesPreview = z.infer<typeof jobPossibleDuplicatesPreviewSchema>
+export type ConfirmPossibleDuplicateDto = z.infer<typeof confirmPossibleDuplicateSchema>
+export type CreateJobQueueTeamTriageGrantDto = z.infer<typeof createJobQueueTeamTriageGrantSchema>
+export type RevokeJobQueueTeamTriageGrantDto = z.infer<typeof revokeJobQueueTeamTriageGrantSchema>
+export type JobQueueTeamTriageGrantDto = z.infer<typeof jobQueueTeamTriageGrantSchema>
+export type CreateJobQueueTeamTriageSubscriptionDto = z.infer<
+  typeof createJobQueueTeamTriageSubscriptionSchema
+>
+export type RevokeJobQueueTeamTriageSubscriptionDto = z.infer<
+  typeof revokeJobQueueTeamTriageSubscriptionSchema
+>
+export type JobQueueTeamTriageSubscriptionDto = z.infer<typeof jobQueueTeamTriageSubscriptionSchema>
