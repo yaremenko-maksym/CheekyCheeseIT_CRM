@@ -1,5 +1,5 @@
 import { HttpStatus } from '@nestjs/common'
-import { inArray } from 'drizzle-orm'
+import { and, inArray, isNull } from 'drizzle-orm'
 import type { Locale } from '@crm/shared'
 import { apiError } from '../common/api-error'
 import type { DatabaseService } from '../database/database.service'
@@ -307,7 +307,8 @@ export class UserCreationService {
     const rows = await this.db.db
       .select({ id: users.id, role: users.role })
       .from(users)
-      .where(inArray(users.id, ids))
+      // CR-M-1 / SR-L-1: an archived user falls out of the result, i.e. counts as not found.
+      .where(and(inArray(users.id, ids), isNull(users.archivedAt)))
     const roleById = new Map(rows.map((r) => [r.id, r.role]))
     if (hrIds.some((id) => roleById.get(id) !== 'HR')) {
       throw apiError('TEAM_HR_MEMBER_MUST_BE_HR', HttpStatus.BAD_REQUEST)

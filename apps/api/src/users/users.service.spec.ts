@@ -179,21 +179,25 @@ function makeDb({
   staffRoles,
 }: MakeDbOptions = {}): DrizzleDb {
   // select chain: used by findByEmail / findById / findAll
+  // CR-M-2: the SR-M-1 team-staff role probe is matched by its PROJECTION
+  // (`select({ id, role })`), not by its position in the call order.
+  let lastProjection: Record<string, unknown> | undefined
   const selectChain = {
-    select: vi.fn().mockReturnThis(),
+    select: vi.fn(),
     from: vi.fn().mockReturnThis(),
     where: vi.fn(),
   }
+  selectChain.select.mockImplementation((projection?: Record<string, unknown>) => {
+    lastProjection = projection
+    return selectChain
+  })
 
   // findByEmail (first call in createUser) returns existingUser;
   // findById (second+ calls) returns createdUser
   let selectCallCount = 0
-  let staffProbePending = staffRoles !== undefined
   selectChain.where.mockImplementation(() => {
-    if (staffProbePending) {
-      staffProbePending = false
-      return Promise.resolve(staffRoles)
-    }
+    const keys = Object.keys(lastProjection ?? {}).sort()
+    if (staffRoles !== undefined && keys.join() === 'id,role') return Promise.resolve(staffRoles)
     selectCallCount++
     if (selectCallCount === 1) return Promise.resolve(existingUser ? [existingUser] : [])
     return Promise.resolve(createdUser ? [createdUser] : [])

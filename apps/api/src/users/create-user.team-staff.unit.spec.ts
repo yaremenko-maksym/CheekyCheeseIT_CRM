@@ -73,7 +73,7 @@ describe('createUser team staff — role invariant (ADMIN actor)', () => {
       {
         op: 'select',
         table: 'users',
-        where: '"users"."id" in ($1, $2, $3)',
+        where: '("users"."id" in ($1, $2, $3) and "users"."archived_at" is null)',
         params: ['hr-1', 'hr-2', 'acc-1'],
       },
     ])
@@ -120,6 +120,43 @@ describe('createUser team staff — role invariant (ADMIN actor)', () => {
     })
     expect(roleProbes(h.log)).toEqual([])
     expect(h.addSeniorToDropTeam).toHaveBeenCalledWith('dt-1', 'user-new')
+  })
+})
+
+describe('createUser team staff — archived users are not enrollable (CR-M-1 / SR-L-1)', () => {
+  const withArchived = (...archivedStaffIds: string[]) =>
+    makeHarness({ created: senior, staffRoles: STAFF, archivedStaffIds })
+
+  it('an archived HR in hrIds -> 400 TEAM_HR_MEMBER_MUST_BE_HR, nothing written', async () => {
+    const h = withArchived('hr-2')
+    await expect(create(h, { hrIds: ['hr-1', 'hr-2'] })).rejects.toMatchObject(
+      code('TEAM_HR_MEMBER_MUST_BE_HR', 400),
+    )
+    nothingWritten(h)
+  })
+
+  it('an archived ACCOUNTANT -> 400 TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT, nothing written', async () => {
+    const h = withArchived('acc-1')
+    await expect(create(h, { hrIds: ['hr-1'], accountantId: 'acc-1' })).rejects.toMatchObject(
+      code('TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT', 400),
+    )
+    nothingWritten(h)
+  })
+
+  it('the probe WHERE carries the archived_at IS NULL predicate', async () => {
+    const h = withArchived()
+    await create(h, { hrIds: ['hr-1'], accountantId: 'acc-1' })
+    expect(roleProbes(h.log)[0]).toMatchObject({
+      where: expect.stringContaining('"users"."archived_at" is null'),
+    })
+  })
+
+  it('an archived acting HR is rejected too', async () => {
+    const h = withArchived('hr-9')
+    await expect(create(h, { actorRole: 'HR', actorId: 'hr-9' })).rejects.toMatchObject(
+      code('TEAM_HR_MEMBER_MUST_BE_HR', 400),
+    )
+    nothingWritten(h)
   })
 })
 

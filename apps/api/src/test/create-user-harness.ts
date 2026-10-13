@@ -30,6 +30,8 @@ export interface HarnessOpts {
   isMember?: boolean
   /** id -> users.role for the team-staff role probe (`users.id IN (...)`) */
   staffRoles?: Record<string, string>
+  /** ids in `staffRoles` that are archived: returned by the probe ONLY if its WHERE lacks `archived_at IS NULL` */
+  archivedStaffIds?: string[]
   txReturnsEmpty?: boolean
 }
 
@@ -98,6 +100,11 @@ export function makeHarness(opts: HarnessOpts = {}) {
             return Promise.resolve(
               c.params
                 .filter((id) => String(id) in roles)
+                .filter(
+                  (id) =>
+                    !c.sql.includes('"archived_at" is null') ||
+                    !opts.archivedStaffIds?.includes(String(id)),
+                )
                 // Row keys follow the caller's projection, like the real driver: a
                 // `.select({})` returns empty rows.
                 .map((id) => ({
