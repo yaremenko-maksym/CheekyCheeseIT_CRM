@@ -44,9 +44,22 @@ const compile = (cond: SQL | undefined) => {
   return { sql: q.sql, params: q.params }
 }
 
-/** Recording tx-double. `selects` is consumed FIFO, one entry per `tx.select()`. */
-function makeHarness(selects: unknown[][]) {
+/**
+ * Default role of a staff id probed by `assertTeamStaffRoles` (SR-M-1 follow-up): `hr-*` are
+ * HR, `acc-*` ACCOUNTANT; `staff` overrides per id (an id mapped to `null` is archived/unknown,
+ * i.e. absent from the probe result).
+ */
+const defaultStaffRole = (id: string): string | null =>
+  id.startsWith('hr-') ? 'HR' : id.startsWith('acc-') ? 'ACCOUNTANT' : null
+
+/**
+ * Recording tx-double. `selects` is consumed FIFO, one entry per `tx.select()`. The team-staff
+ * role probe (`users` select by id list) is answered out-of-band from `staff` and recorded in
+ * `probes`, NOT in `log`/the FIFO, so the pre-existing positional assertions are untouched.
+ */
+function makeHarness(selects: unknown[][], staff: Record<string, string | null> = {}) {
   const log: LogEntry[] = []
+  const probes: Array<{ where: string; params: unknown[]; logLenAtProbe: number }> = []
   const queue = [...selects]
   const tx = {
     select: vi.fn((fieldMap?: Record<string, { name: string; table: never }>) => {
@@ -72,6 +85,18 @@ function makeHarness(selects: unknown[][]) {
         },
         where: (cond: SQL) => {
           const { sql, params } = compile(cond)
+          if (table === 'users' && !joined) {
+            probes.push({ where: sql, params, logLenAtProbe: log.length })
+            const rows = params
+              .map((id) => ({
+                id: id as string,
+                role:
+                  (id as string) in staff ? staff[id as string] : defaultStaffRole(id as string),
+              }))
+              .filter((r) => r.role !== null)
+            const p = Promise.resolve(rows)
+            return { then: p.then.bind(p) }
+          }
           log.push({ op: 'select', table, where: sql, params, joined, fields, join })
           const rows = queue.shift()
           if (rows === undefined) throw new Error('unexpected extra tx.select()')
@@ -114,7 +139,7 @@ function makeHarness(selects: unknown[][]) {
     ) => Promise<void>
     upsertTeamMemberTx: (tx: unknown, teamId: string, userId: string) => Promise<void>
   }
-  return { tx, log, priv, record, remaining: () => queue.length }
+  return { tx, log, probes, priv, record, remaining: () => queue.length }
 }
 
 const ACTIVE_WHERE_USER = '("team_members"."user_id" = $1 and "team_members"."left_at" is null)'
@@ -573,5 +598,102 @@ describe('TeamReconcileService.reconcileSeniorTeamTx', () => {
     ).toEqual(['HR', 'ACCOUNTANT'])
     // every audit row is written on the SAME tx handle
     for (const c of h.record.mock.calls) expect(c[1]).toBe(h.tx)
+  })
+})
+
+describe('TeamReconcileService.reconcileSeniorTeamTx — SR-M-1 team-staff role invariant', () => {
+  const membership = [{ teamId: 'team-1' }]
+  const code = (c: string) => ({ response: { code: c }, status: 400 })
+  const nothingWritten = (h: ReturnType<typeof makeHarness>) => {
+    expect(h.tx.update).not.toHaveBeenCalled()
+    expect(h.tx.insert).not.toHaveBeenCalled()
+    expect(h.record).not.toHaveBeenCalled()
+  }
+
+  it.each([
+    ['a non-HR user', { 'user-x': 'ADMIN' }],
+    ['an archived/unknown user', { 'user-x': null }],
+  ])(
+    'rejects %s in hrIds with 400 TEAM_HR_MEMBER_MUST_BE_HR, nothing written',
+    async (_n, staff) => {
+      // hr-1 would be REMOVED (absent from desired) — it must not be removed when the add is rejected.
+      const h = makeHarness(
+        [membership, [{ userId: 'hr-1', id: 'tm-1', role: 'HR' }]],
+        staff as Record<string, string | null>,
+      )
+      await expect(
+        h.priv.reconcileSeniorTeamTx(h.tx, 'sn-1', { hrIds: ['user-x'] }, 'admin-1'),
+      ).rejects.toMatchObject(code('TEAM_HR_MEMBER_MUST_BE_HR'))
+      nothingWritten(h)
+    },
+  )
+
+  it.each([
+    ['a non-ACCOUNTANT user', { 'user-x': 'HR' }],
+    ['an archived/unknown user', { 'user-x': null }],
+  ])(
+    'rejects %s as accountantId with 400 TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT, nothing written',
+    async (_n, staff) => {
+      const h = makeHarness([membership, []], staff as Record<string, string | null>)
+      await expect(
+        h.priv.reconcileSeniorTeamTx(h.tx, 'sn-1', { accountantId: 'user-x' }, 'admin-1'),
+      ).rejects.toMatchObject(code('TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT'))
+      nothingWritten(h)
+    },
+  )
+
+  it('probes ONLY the newly enrolled ids, once, before the first write; valid staff succeed', async () => {
+    const h = makeHarness([
+      membership,
+      [
+        { userId: 'hr-keep', id: 'tm-1', role: 'HR' },
+        { userId: 'hr-old', id: 'tm-2', role: 'HR' },
+        { userId: 'acc-old', id: 'tm-3', role: 'ACCOUNTANT' },
+      ],
+      [],
+      [],
+    ])
+    await h.priv.reconcileSeniorTeamTx(
+      h.tx,
+      'sn-1',
+      { hrIds: ['hr-keep', 'hr-new'], accountantId: 'acc-new' },
+      'admin-1',
+    )
+    expect(h.probes).toEqual([
+      {
+        where: '("users"."id" in ($1, $2) and "users"."archived_at" is null)',
+        params: ['hr-new', 'acc-new'],
+        logLenAtProbe: 2,
+      },
+    ])
+    expect(h.log.filter((e) => e.op === 'insert')).toHaveLength(2)
+  })
+
+  it('already-active HRs and an unchanged accountant are not re-probed (archived incumbents do not block edits)', async () => {
+    const h = makeHarness(
+      [
+        membership,
+        [
+          { userId: 'hr-1', id: 'tm-1', role: 'HR' },
+          { userId: 'acc-1', id: 'tm-2', role: 'ACCOUNTANT' },
+        ],
+      ],
+      { 'hr-1': null, 'acc-1': null },
+    )
+    await h.priv.reconcileSeniorTeamTx(
+      h.tx,
+      'sn-1',
+      { hrIds: ['hr-1'], accountantId: 'acc-1' },
+      'admin-1',
+    )
+    expect(h.probes).toEqual([])
+    nothingWritten(h)
+  })
+
+  it('clearing the accountant (null) needs no role check', async () => {
+    const h = makeHarness([membership, [{ userId: 'acc-1', id: 'tm-3', role: 'ACCOUNTANT' }]])
+    await h.priv.reconcileSeniorTeamTx(h.tx, 'sn-1', { accountantId: null }, 'admin-1')
+    expect(h.probes).toEqual([])
+    expect(h.tx.update).toHaveBeenCalledTimes(1)
   })
 })

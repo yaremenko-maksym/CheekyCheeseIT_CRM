@@ -52,19 +52,40 @@ interface HarnessOpts {
   insertedTeams?: Row[]
   /** error thrown by the Nth (0-based) team_members insert */
   failMemberInsertAt?: number
+  /** role per staff id for the team-staff probe; `null` => archived/unknown (absent from result) */
+  staff?: Record<string, string | null>
 }
+
+/** Default probe role: `hr-*` are HR, `acc-*` ACCOUNTANT; anything else is unknown. */
+const defaultStaffRole = (id: string): string | null =>
+  id.startsWith('hr-') ? 'HR' : id.startsWith('acc-') ? 'ACCOUNTANT' : null
 
 function makeHarness(opts: HarnessOpts = {}) {
   const log: Log = []
+  const probes: Array<{ on: string; where: string; params: unknown[]; logLen: number }> = []
+  const staff = opts.staff ?? {}
   const user = 'user' in opts ? opts.user : makeUser()
   let memberInserts = 0
 
   const makeHandle = (on: 'tx' | 'db') => ({
-    select: () => ({
+    select: (fields?: unknown) => ({
       from: (t: never) => ({
         where: (cond: SQL) => {
           const c = compile(cond)
           const table = getTableName(t)
+          if (fields && table === 'users') {
+            // SR-M-1 team-staff role probe: answered out-of-band so the positional log is untouched.
+            probes.push({ on, where: c.sql, params: c.params, logLen: log.length })
+            return Promise.resolve(
+              c.params
+                .map((id) => ({
+                  id: id as string,
+                  role:
+                    (id as string) in staff ? staff[id as string] : defaultStaffRole(id as string),
+                }))
+                .filter((r) => r.role !== null),
+            )
+          }
           log.push({ op: 'select', on, table, where: c.sql, params: c.params })
           const rows =
             table === 'users'
@@ -122,7 +143,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     db: { db },
     teamsService: { wasFormerMemberOfTeam, addSeniorToDropTeam },
   })
-  return { service, log, db, wasFormerMemberOfTeam, addSeniorToDropTeam }
+  return { service, log, probes, db, wasFormerMemberOfTeam, addSeniorToDropTeam }
 }
 
 const code = (c: string, statusCode: number) => ({
@@ -346,5 +367,74 @@ describe('UsersService.rejoinTeam — CREATE_NEW', () => {
     // senior ok, hr-1 failed => hr-2 / accountant never attempted; no tx-end
     expect(memberRows.map((e) => (e.values as Row).userId)).toEqual([SENIOR_ID, 'hr-1'])
     expect(ops(h.log)).not.toContain('tx-end')
+  })
+})
+
+describe('UsersService.rejoinTeam — CREATE_NEW team-staff role invariant (SR-M-1 follow-up)', () => {
+  const nothingWritten = (h: ReturnType<typeof makeHarness>) => {
+    expect(h.db.transaction).not.toHaveBeenCalled()
+    expect(ops(h.log)).not.toContain('insert')
+  }
+
+  it.each([
+    ['an ADMIN', { 'adm-1': 'ADMIN' }],
+    ['an ACCOUNTANT', { 'acc-9': 'ACCOUNTANT' }],
+    ['a SENIOR', { 'sen-2': 'SENIOR' }],
+    ['an archived/unknown user', { 'ghost-1': null }],
+  ])('rejects %s in hrIds -> 400 TEAM_HR_MEMBER_MUST_BE_HR, nothing written', async (_n, staff) => {
+    const bad = Object.keys(staff)[0]!
+    const h = makeHarness({ staff })
+    await expect(rejoin(h, { teamMode: 'CREATE_NEW', hrIds: ['hr-1', bad] })).rejects.toMatchObject(
+      code('TEAM_HR_MEMBER_MUST_BE_HR', 400),
+    )
+    nothingWritten(h)
+  })
+
+  it('rejects the caller themselves as their own HR (a SENIOR is not an HR)', async () => {
+    const h = makeHarness({ staff: { [SENIOR_ID]: 'SENIOR' } })
+    await expect(rejoin(h, { teamMode: 'CREATE_NEW', hrIds: [SENIOR_ID] })).rejects.toMatchObject(
+      code('TEAM_HR_MEMBER_MUST_BE_HR', 400),
+    )
+    nothingWritten(h)
+  })
+
+  it.each([
+    ['an HR', { 'hr-9': 'HR' }],
+    ['an ADMIN', { 'adm-1': 'ADMIN' }],
+    ['an archived/unknown user', { 'ghost-1': null }],
+  ])(
+    'rejects %s as accountantId -> 400 TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT, nothing written',
+    async (_n, staff) => {
+      const bad = Object.keys(staff)[0]!
+      const h = makeHarness({ staff })
+      await expect(
+        rejoin(h, { teamMode: 'CREATE_NEW', hrIds: ['hr-1'], accountantId: bad }),
+      ).rejects.toMatchObject(code('TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT', 400))
+      nothingWritten(h)
+    },
+  )
+
+  it('valid HRs + ACCOUNTANT: ONE probe (non-archived ids, de-duplicated) before the transaction, team created with them', async () => {
+    const h = makeHarness()
+    await expect(
+      rejoin(h, { teamMode: 'CREATE_NEW', hrIds: ['hr-1', 'hr-1', 'hr-2'], accountantId: 'acc-1' }),
+    ).resolves.toEqual({ teamId: NEW_TEAM_ID })
+    expect(h.probes).toEqual([
+      {
+        on: 'db',
+        where: '("users"."id" in ($1, $2, $3) and "users"."archived_at" is null)',
+        params: ['hr-1', 'hr-2', 'acc-1'],
+        // after the caller select + membership probe, before tx-begin / any insert
+        logLen: 2,
+      },
+    ])
+  })
+
+  it('the role probe is not run for JOIN_DROP_TEAM (hrIds are ignored there)', async () => {
+    const h = makeHarness({ former: true, staff: { 'adm-1': 'ADMIN' } })
+    await expect(
+      rejoin(h, { teamMode: 'JOIN_DROP_TEAM', dropTeamId: 'drop-1', hrIds: ['adm-1'] }),
+    ).resolves.toEqual({ teamId: 'drop-1' })
+    expect(h.probes).toEqual([])
   })
 })

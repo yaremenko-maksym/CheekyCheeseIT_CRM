@@ -4,6 +4,7 @@ import { apiError } from '../common/api-error'
 import type { DatabaseService } from '../database/database.service'
 import { teamMembers, teams, type User } from '../database/schema'
 import type { TeamsService } from '../teams/teams.service'
+import { assertTeamStaffRoles } from './team-staff.util'
 
 /** Helpers owned by the `UsersService` facade, passed in as bound callbacks. */
 export interface RejoinTeamHelpers {
@@ -79,6 +80,9 @@ export class RejoinTeamService {
     if (!data.hrIds || data.hrIds.length < 1) {
       throw apiError('HR_REQUIRED_MINIMUM_ONE', HttpStatus.BAD_REQUEST)
     }
+    // SR-M-1 follow-up (#999): same role invariant as createUser CREATE_NEW — a teamless SENIOR
+    // may only enrol real, non-archived HRs / an ACCOUNTANT. Validated BEFORE any write.
+    await assertTeamStaffRoles(this.db.db, [...new Set(data.hrIds)], data.accountantId)
     return this.db.db.transaction(async (tx) => {
       const inserted = await tx
         .insert(teams)

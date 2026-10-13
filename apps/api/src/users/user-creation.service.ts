@@ -1,5 +1,4 @@
 import { HttpStatus } from '@nestjs/common'
-import { and, inArray, isNull } from 'drizzle-orm'
 import type { Locale } from '@crm/shared'
 import { apiError } from '../common/api-error'
 import type { DatabaseService } from '../database/database.service'
@@ -15,6 +14,7 @@ import type { DrizzleTx } from '../database/types'
 import type { TeamsService } from '../teams/teams.service'
 import type { AuditLogService } from './audit-log.service'
 import type { PersonalEmailInviteMailerService } from './personal-email-invite-mailer.service'
+import { assertTeamStaffRoles } from './team-staff.util'
 import { buildCreateUserInsertValues } from './user-insert.util'
 
 type AppRole = 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT' | 'DROP'
@@ -299,23 +299,7 @@ export class UserCreationService {
     if (data.actorRole === 'HR' && (data.hrIds ?? []).some((id) => id !== data.actorId)) {
       throw apiError('HR_TEAM_SELF_ONLY', HttpStatus.FORBIDDEN)
     }
-    const hrIds = enrolledHrIds(data)
-    const accountantId = data.accountantId ?? null
-    const ids = accountantId ? [...hrIds, accountantId] : hrIds
-    if (ids.length === 0) return
-
-    const rows = await this.db.db
-      .select({ id: users.id, role: users.role })
-      .from(users)
-      // CR-M-1 / SR-L-1: an archived user falls out of the result, i.e. counts as not found.
-      .where(and(inArray(users.id, ids), isNull(users.archivedAt)))
-    const roleById = new Map(rows.map((r) => [r.id, r.role]))
-    if (hrIds.some((id) => roleById.get(id) !== 'HR')) {
-      throw apiError('TEAM_HR_MEMBER_MUST_BE_HR', HttpStatus.BAD_REQUEST)
-    }
-    if (accountantId && roleById.get(accountantId) !== 'ACCOUNTANT') {
-      throw apiError('TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT', HttpStatus.BAD_REQUEST)
-    }
+    await assertTeamStaffRoles(this.db.db, enrolledHrIds(data), data.accountantId)
   }
 }
 
