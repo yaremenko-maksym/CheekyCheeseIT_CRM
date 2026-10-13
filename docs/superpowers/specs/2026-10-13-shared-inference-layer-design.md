@@ -111,24 +111,40 @@ caller ── decision.decide({ state, questions })
 All model output is **UNTRUSTED**: adapters validate it with Zod before returning typed data, and never return raw
 provider output to the caller.
 
-### 5.1 DecisionPort (general; Jev-shaped)
+### 5.1 DecisionPort (provider-agnostic; mirrors the TypeSafe System One primitives)
+
+The port mirrors the real System One primitives (verified against `docs.typesafe.ai/api.md`, 2026-10-13): each question
+carries an **`instructions` prompt** and a per-kind **criteria** payload. The caller passes an array of questions (keyed
+by `id` for ergonomics); the **Jev adapter translates** it to System One's keyed-map wire format and back, so consumers
+never touch Jev-specific JSON.
 
 ```
 interface DecisionPort { decide(req: DecisionRequest): Promise<DecisionResult> }
 
-DecisionRequest = { state: BoundedJson, questions: DecisionQuestion[] }
+DecisionRequest = { state: BoundedJson, questions: DecisionQuestion[] }   // state: string | object | array, bounded
 DecisionQuestion =
-  | { id: string; kind: 'choice'; options: string[] }   // options length 1..255
-  | { id: string; kind: 'score'; min: number; max: number }
-  | { id: string; kind: 'noul' }                         // yes/no probability
-DecisionAnswer  = { id: string; value: <per kind>; confidence: number }  // confidence 0..1
-DecisionResult  = { ok: true; answers: DecisionAnswer[] } | { ok: false; code: InferenceErrorCode }
+  | { id; kind: 'choice'; instructions: string; options: { value: string; description?: string }[] }  // 1..255
+  | { id; kind: 'score';  instructions: string; levels: string[] }        // 2..10 ordered level labels
+  | { id; kind: 'noul';   instructions: string; trueLabel?: string; falseLabel?: string }  // yes/no
+DecisionAnswer =
+  | { id; kind: 'choice'; value: string; confidence: number; probabilities: Record<string, number> }  // value = top option
+  | { id; kind: 'score';  value: number; confidence: number }             // value = probability-weighted score
+  | { id; kind: 'noul';   value: boolean; probability: number }           // probability 0..1; value = probability >= 0.5
+DecisionResult = { ok: true; answers: DecisionAnswer[] } | { ok: false; code: InferenceErrorCode }
 ```
 
+Wire mapping (Jev adapter): `POST {baseUrl}/v1/systemone` body `{ state, model: 'jev-latest', questions: { <id>: { type, instructions, criteria } } }`
+where choice.criteria = `{ <option value>: <description ?? value> }`, score.criteria = `levels` (array), noul.criteria =
+`{ "true": trueLabel, "false": falseLabel }` (omitted if both absent). The response `answers` map is read back per id.
+
 - `state` is bounded (size cap) and carries no secrets; the caller composes it.
-- Answer `id`s must map one-to-one to the request's question `id`s; a mismatch is `INVALID_OUTPUT`.
-- The relevance consumer (later, in the vacancy feature) builds the questions and interprets `confidence`; the port
-  stays domain-agnostic.
+- **Per-question validation (SR-M-2):** each returned answer is validated against its own question — the `choice`
+  `value` must be one of the question's option values, the `score` must fall within the `levels` range, every
+  requested `id` must be answered and no extra ids returned; any violation → `INVALID_OUTPUT`. Probabilities and
+  confidence are range-checked (0..1). (Note: System One `noul` answers carry no confidence — the port exposes the
+  `probability` instead, honestly, rather than inventing one.)
+- The relevance consumer (later, in the vacancy feature) builds the questions and interprets the answers; the port
+  stays domain-agnostic — the colleague reuses it for any typed decision.
 
 ### 5.2 ExtractionPort
 
@@ -142,7 +158,11 @@ ExtractionResult<T>  = { ok: true; data: T; usage?: { totalTokens?: number } }
 
 - Untrusted-output pipeline mirrors `resume-ai.service.ts`: `extractJsonObject` (balanced-brace scan) →
   `safeJsonParse` → `schema.safeParse` → link sanitization; **exactly two attempts** (initial + one corrective retry
-  that feeds the parse error back), never a loop.
+  that feeds the parse error back), never a loop. `input` and `instruction` are length-capped before the request.
+- **Corrective-prompt safety (SR-M-3):** the retry hint is a short, length-capped, **generic** message about the
+  expected shape (the failing Zod field _locations_, never the offending _values_) — model-controlled strings
+  (unexpected JSON keys, `record` keys, echoed text) are never fed back into the next prompt, so a malicious payload
+  cannot amplify a prompt injection.
 
 ### 5.3 Errors
 
@@ -194,6 +214,12 @@ choice for the future.
   (raw `fetch` + inline `AbortController` + byte/time caps — the repo precedent for fixed hosts). HTTPS-only, except
   `http` is permitted only for a loopback/local host. Hosts are constants, never admin-supplied. The client runs with a
   clean environment (no `DATABASE_URL` etc.).
+  - **No redirects (SR-M-1):** `fetch` is called with `redirect: 'error'` — a 3xx is a transport failure, so a redirect
+    can never escape the HTTPS/loopback allow-policy to `http`/an internal address.
+- **Upstream data retention (SR-M-5):** OpenRouter requests send `provider: { data_collection: 'deny' }` so our
+  vacancy/senior text is never routed to a provider that retains it (ZDR). Catalog prices that are empty or non-finite
+  are **rejected**, not treated as free (SR-M-4/CR-M-4), and a single malformed catalog entry is dropped rather than
+  failing the whole refresh (CR-M-5).
 - **Graceful degradation**: when `JEV_API_KEY` is absent, the decision port returns `NOT_CONFIGURED` rather than
   throwing (the `isConfigured()` precedent). Same for extraction when neither provider is configured.
 

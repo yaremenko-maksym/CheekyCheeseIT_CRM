@@ -120,6 +120,8 @@ git commit -m "chore(inference): scaffold @crm/inference package"
 
 ### Task 1: Decision contracts
 
+> **SUPERSEDED for the decision shapes (2026-10-13):** the real TypeSafe System One wire format was verified after this task was written. The authoritative decision contract is **spec §5.1** — `DecisionQuestion` carries `instructions` + per-kind criteria (`choice.options:{value,description?}[]`, `score.levels:string[]`, `noul.{trueLabel?,falseLabel?}`) and `DecisionAnswer` is a per-kind union. The code was corrected in commit `f212e0b78`; follow spec §5.1, not the old shapes below.
+
 **Files:**
 
 - Create: `packages/inference/src/contracts/decision.ts`, `packages/inference/src/contracts/decision.spec.ts`
@@ -206,14 +208,9 @@ export const decisionRequestSchema = z.object({
 export type DecisionRequest = z.infer<typeof decisionRequestSchema>
 
 export type DecisionFailureCode =
-  | 'NOT_CONFIGURED'
-  | 'PROVIDER_ERROR'
-  | 'INVALID_OUTPUT'
-  | 'RATE_LIMITED'
-  | 'TIMEOUT'
+  'NOT_CONFIGURED' | 'PROVIDER_ERROR' | 'INVALID_OUTPUT' | 'RATE_LIMITED' | 'TIMEOUT'
 export type DecisionResult =
-  | { ok: true; answers: DecisionAnswer[] }
-  | { ok: false; code: DecisionFailureCode }
+  { ok: true; answers: DecisionAnswer[] } | { ok: false; code: DecisionFailureCode }
 
 export interface DecisionPort {
   decide(req: DecisionRequest): Promise<DecisionResult>
@@ -634,6 +631,8 @@ git commit -m "feat(inference): untrusted-output extraction pipeline with one co
 ---
 
 ### Task 8: Jev decision adapter
+
+> **SUPERSEDED (2026-10-13):** the real `/v1/systemone` wire format is a **keyed-map** of questions `{ "<id>": { type, instructions, criteria } }` and a keyed-map of answers (noul=`{noul}` no-confidence; choice=`{choice,probabilities,confidence}`; score=`{score,legend,probabilities,confidence}`) — see spec §5.1's wire-mapping. The adapter validates each answer against its question (choice value ∈ options, score in `0..levels.length-1`, all ids, 0..1) → else `INVALID_OUTPUT` (SR-M-2/CR-M-8). Corrected in `f212e0b78`; follow spec §5.1.
 
 **Files:**
 
