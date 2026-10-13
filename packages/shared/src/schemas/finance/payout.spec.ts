@@ -67,6 +67,7 @@ describe('manualConfirmPayoutSchema', () => {
   it('txHash may be absent, null, empty or a real hash — and nothing else', () => {
     expect(parse({ method: 'CASH' }).success).toBe(true)
     expect(parse({ method: 'CASH', txHash: null }).success).toBe(true)
+    expect(parse({ method: 'CASH', txHash: undefined }).success).toBe(true)
     expect(parse({ method: 'CASH', txHash: '' }).success).toBe(true)
     expect(parse({ method: 'COMPANY_ACCOUNT', txHash: HASH }).success).toBe(true)
     const bad = parse({ method: 'CASH', txHash: 'not-a-hash' })
@@ -100,6 +101,12 @@ describe('confirmPayoutSchema', () => {
     expect(issues(parse({ recipientAdminId: lax, method: 'CRYPTO', txHash: '123456789' }))).toEqual(
       MIN_LENGTH_ISSUE,
     )
+  })
+
+  it('CRYPTO measures the TRIMMED txHash', () => {
+    expect(
+      issues(parse({ recipientAdminId: lax, method: 'CRYPTO', txHash: '   0x12   ' })),
+    ).toEqual(MIN_LENGTH_ISSUE)
   })
 
   it('CASH needs no txHash', () => {

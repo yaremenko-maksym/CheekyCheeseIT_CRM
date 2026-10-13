@@ -86,6 +86,18 @@ describe('notes is capped at 1000 characters on every write schema', () => {
   }
 })
 
+describe('createSalarySchema.currency default', () => {
+  it('is USD when omitted', () => {
+    const r = createSalarySchema.safeParse({
+      receiverId: UUID,
+      amount: 10,
+      salaryMonth: '2026-07',
+      idempotencyKey: UUID2,
+    })
+    expect(r.data?.currency).toBe('USD')
+  })
+})
+
 describe('validateTransactionSchema', () => {
   it('keeps both fields and accepts exactly validate / reject', () => {
     const body = { action: 'reject', rejectionReason: 'wrong amount' }
