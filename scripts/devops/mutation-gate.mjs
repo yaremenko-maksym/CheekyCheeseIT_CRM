@@ -331,6 +331,25 @@ const PACKAGES = [
       'src/**/*.module.ts',
       'src/test/**',
       'src/db/**',
+      // ── DECLARATIVE DRIZZLE SCHEMA DEFINITIONS — PATH-SCOPED EXCLUSION ────────
+      // OWNER DECISION 2026-10-13 ("Исключить schema/** из mutation-гейта").
+      // These files are pure declarations (`pgTable` / `pgEnum` / `relations`).
+      // Their mutants (column-name strings, defaults, enum literals) are COVERED —
+      // the tables are imported by tests everywhere — yet UNKILLABLE by a unit
+      // assertion. Schema correctness is gated elsewhere: drizzle-kit (no-diff
+      // against the migrations) + the integration suite. Applies to BOTH
+      // `--changed` and `--full`, because both derive from this one list.
+      // Trigger: the schema.ts split (#1003) exposed ~213 covered-but-unkillable
+      // definition mutants.
+      //
+      // THIS IS NOT `ignoreStatic`. The owner rejected `ignoreStatic` globally on
+      // 2026-09-03 because it hid module-level SECURITY-LOGIC constants (XSS
+      // defenses) in ANY file. This exclusion names ONE directory + its barrel;
+      // every module-level const anywhere else (services, validation, guards)
+      // stays fully mutated. Do NOT widen this to a wildcard outside
+      // `database/schema` — tests/test-mutation-gate-schema-exclude.sh pins it.
+      'src/database/schema/**',
+      'src/database/schema.ts',
     ],
   },
   {
@@ -384,6 +403,11 @@ function globToRegExp(glob) {
 
 function matchesAny(relPath, globs) {
   return globs.some((g) => globToRegExp(g).test(relPath))
+}
+
+/** True when `rel` (path relative to the package dir) is on the package's never-mutate list. */
+function isExcludedFromMutation(pkg, rel) {
+  return matchesAny(rel, pkg.exclude)
 }
 
 function git(args, { allowFail = false } = {}) {
@@ -609,7 +633,7 @@ function planChanged(baseSha) {
       if (!repoPath.startsWith(pkg.dir + '/')) continue
       const rel = repoPath.slice(pkg.dir.length + 1)
       if (!matchesAny(rel, pkg.globs)) continue
-      if (matchesAny(rel, pkg.exclude)) {
+      if (isExcludedFromMutation(pkg, rel)) {
         skipped.push(`${repoPath} (excluded from mutation — see PACKAGES in mutation-gate.mjs)`)
         continue
       }
@@ -1535,6 +1559,9 @@ if (isMain) {
 }
 
 export {
+  PACKAGES,
+  isExcludedFromMutation,
+  planFull,
   groupSuppressions,
   looksIntegrationOnly,
   splitUncoveredByIntegrationHint,
