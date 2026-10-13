@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Hand-crafted DOU RSS 2.0 sample for the r5 compatibility fixture gate.
+  Field grammar copied from the live feed (https://jobs.dou.ua/vacancies/feeds/):
+  <title> = "<position> в <company>, <city>, ...", <guid> carries a fresh
+  timestamp query on every fetch, <link> carries ?utm_source=jobsrss and the
+  description is entity-escaped HTML. NOT fetched live — edit deliberately:
+  every item below is pinned by dou-golden.spec.ts.
+-->
+<rss version="2.0">
+  <channel>
+    <title>Channel title that must NOT be read as an item</title>
+    <link>https://jobs.dou.ua/vacancies/</link>
+    <description>DOU vacancies</description>
+
+    <!-- 1. typical: city + remote, rich HTML description -->
+    <item>
+      <title>Senior Frontend Engineer (React, TypeScript) в EPAM, Київ, віддалено</title>
+      <link>https://jobs.dou.ua/companies/epam-systems/vacancies/356562/?utm_source=jobsrss</link>
+      <guid isPermaLink="false">https://jobs.dou.ua/companies/epam-systems/vacancies/356562/?1786092518</guid>
+      <pubDate>Fri, 07 Aug 2026 11:48:38 +0300</pubDate>
+      <description>&lt;p&gt;We are &lt;strong&gt;hiring&lt;/strong&gt; a Senior Frontend Engineer.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;React 18, TypeScript&lt;/li&gt;&lt;li&gt;GraphQL &amp;amp; REST&lt;/li&gt;&lt;li&gt;CI/CD, Docker&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Apply: &lt;a href="https://epam.example/apply"&gt;our page&lt;/a&gt;&lt;/p&gt;</description>
+    </item>
+
+    <!-- 2. legal-form tail is re-attached to the company (Wetelo, Inc.) -->
+    <item>
+      <title>Middle Node.js Developer в Wetelo, Inc., Луцьк, віддалено</title>
+      <link>https://jobs.dou.ua/companies/wetelo/vacancies/360001/?utm_source=jobsrss</link>
+      <guid isPermaLink="false">https://jobs.dou.ua/companies/wetelo/vacancies/360001/?1786092519</guid>
+      <pubDate>Thu, 06 Aug 2026 09:00:00 +0300</pubDate>
+      <description>&lt;p&gt;Node.js, PostgreSQL, Kubernetes. Remote.&lt;/p&gt;</description>
+    </item>
+
+    <!-- 3. parenthesised company sub-name + salary segment kept in location -->
+    <item>
+      <title>JS Fullstack Developer (Jun+) в Advanced Software Development (ASD Team), $1100–1300, віддалено</title>
+      <link>https://jobs.dou.ua/companies/asd-team/vacancies/360002/?utm_source=jobsrss</link>
+      <guid isPermaLink="false">https://jobs.dou.ua/companies/asd-team/vacancies/360002/?1786092520</guid>
+      <pubDate>Wed, 05 Aug 2026 18:30:00 +0300</pubDate>
+      <description>&lt;p&gt;Junior-plus fullstack. Vue.js and Node.&lt;/p&gt;</description>
+    </item>
+
+    <!-- 4. preposition inside the position: split on the LAST " в " -->
+    <item>
+      <title>Продажі в IT в Ciklum, Львів</title>
+      <link>https://jobs.dou.ua/companies/ciklum/vacancies/360003/?utm_source=jobsrss</link>
+      <guid isPermaLink="false">https://jobs.dou.ua/companies/ciklum/vacancies/360003/?1786092521</guid>
+      <pubDate>Tue, 04 Aug 2026 12:00:00 +0300</pubDate>
+      <description>&lt;p&gt;Менеджер з продажів. Досвід від 2 років.&lt;/p&gt;</description>
+    </item>
+
+    <!-- 5. no " в " grammar: company falls back to the /companies/<slug>/ path -->
+    <item>
+      <title>Plain title with no separator</title>
+      <link>https://jobs.dou.ua/companies/soft-serve/vacancies/360004/</link>
+      <guid isPermaLink="false">https://jobs.dou.ua/companies/soft-serve/vacancies/360004/?1786092522</guid>
+      <pubDate>Mon, 03 Aug 2026 10:15:00 +0300</pubDate>
+      <description>&lt;p&gt;Java, Spring Boot, AWS.&lt;/p&gt;</description>
+    </item>
+
+    <!-- 6. MALFORMED: javascript: link and guid -> skipped -->
+    <item>
+      <title>Evil Engineer в Hacker, Київ</title>
+      <link>javascript:alert(1)</link>
+      <guid isPermaLink="false">javascript:alert(1)</guid>
+      <pubDate>Mon, 03 Aug 2026 10:15:00 +0300</pubDate>
+      <description>&lt;p&gt;should never be stored&lt;/p&gt;</description>
+    </item>
+
+    <!-- 7. MALFORMED: plain http link and guid -> skipped (https only) -->
+    <item>
+      <title>Insecure Dev в Plainhttp, Одеса</title>
+      <link>http://jobs.dou.ua/companies/plainhttp/vacancies/360005/</link>
+      <guid isPermaLink="false">http://jobs.dou.ua/companies/plainhttp/vacancies/360005/?1</guid>
+      <pubDate>Mon, 03 Aug 2026 10:15:00 +0300</pubDate>
+      <description>&lt;p&gt;http only&lt;/p&gt;</description>
+    </item>
+
+    <!-- 8. MALFORMED: empty title -> skipped -->
+    <item>
+      <title></title>
+      <link>https://jobs.dou.ua/companies/notitle/vacancies/360006/</link>
+      <guid isPermaLink="false">https://jobs.dou.ua/companies/notitle/vacancies/360006/?1</guid>
+      <pubDate>Mon, 03 Aug 2026 10:15:00 +0300</pubDate>
+      <description>&lt;p&gt;no title&lt;/p&gt;</description>
+    </item>
+
+    <!-- 9. MALFORMED: no company in title and no /companies/ path -> skipped -->
+    <item>
+      <title>Mystery Role</title>
+      <link>https://jobs.dou.ua/vacancies/360007/</link>
+      <guid isPermaLink="false">https://jobs.dou.ua/vacancies/360007/?1</guid>
+      <pubDate>Mon, 03 Aug 2026 10:15:00 +0300</pubDate>
+      <description>&lt;p&gt;no company&lt;/p&gt;</description>
+    </item>
+
+    <!-- 10. CDATA title, no pubDate, no description, <link> missing -> guid fallback -->
+    <item>
+      <title><![CDATA[Senior Java Developer в R&D Labs, Одеса]]></title>
+      <guid isPermaLink="false">https://jobs.dou.ua/companies/rnd-labs/vacancies/360008/?1786092523</guid>
+    </item>
+
+    <!-- 11. Cyrillic legal form + guillemets; unparseable pubDate -> null -->
+    <item>
+      <title>QA Automation Engineer в ТОВ «Ромашка», Дніпро, офіс</title>
+      <link>https://jobs.dou.ua/companies/romashka/vacancies/360009/?utm_source=jobsrss</link>
+      <guid isPermaLink="false">https://jobs.dou.ua/companies/romashka/vacancies/360009/?1786092524</guid>
+      <pubDate>yesterday-ish</pubDate>
+      <description>&lt;p&gt;Тестування, автоматизація: Playwright, Python.&lt;/p&gt;&lt;p&gt;Ми пропонуємо: гнучкий графік.&lt;/p&gt;</description>
+    </item>
+
+    <!-- 12. script/iframe/event-handler junk in the description must not survive -->
+    <item>
+      <title>DevOps Engineer в Ciklum, Київ</title>
+      <link>https://jobs.dou.ua/companies/ciklum/vacancies/360010/?utm_source=jobsrss</link>
+      <guid isPermaLink="false">https://jobs.dou.ua/companies/ciklum/vacancies/360010/?1786092525</guid>
+      <pubDate>Mon, 03 Aug 2026 08:00:00 +0300</pubDate>
+      <description>&lt;script&gt;alert(1)&lt;/script&gt;&lt;p onclick="x()"&gt;Terraform, AWS, Kubernetes&lt;/p&gt;&lt;img src="https://evil.example/p.png"&gt;</description>
+    </item>
+
+    <!-- 13. SAME vacancy as item 1, re-fetched: new guid timestamp, different utm.
+         Must canonicalize to the identical URL + fingerprint (dedupe spine). -->
+    <item>
+      <title>Senior Frontend Engineer (React, TypeScript) в EPAM, Київ, віддалено</title>
+      <link>https://JOBS.dou.ua/companies/epam-systems/vacancies/356562/?utm_source=other&amp;utm_medium=x#top</link>
+      <guid isPermaLink="false">https://jobs.dou.ua/companies/epam-systems/vacancies/356562/?1999999999</guid>
+      <pubDate>Fri, 07 Aug 2026 11:48:38 +0300</pubDate>
+      <description>&lt;p&gt;re-fetch&lt;/p&gt;</description>
+    </item>
+  </channel>
+</rss>
