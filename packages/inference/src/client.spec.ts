@@ -12,7 +12,7 @@ function jsonFetch(body: unknown): { fetchImpl: FetchLike; urls: string[] } {
   return { fetchImpl, urls }
 }
 
-const noul = { state: {}, questions: [{ id: 'n', kind: 'noul' as const }] }
+const noul = { state: {}, questions: [{ id: 'n', kind: 'noul' as const, instructions: 'ok?' }] }
 const extractReq = { input: 'x', schema: z.object({ a: z.number() }) }
 const chat = (content: string) => ({ choices: [{ message: { content } }] })
 
@@ -33,11 +33,11 @@ describe('InferenceClient', () => {
   })
 
   it('routes decision to Jev when configured', async () => {
-    const { fetchImpl, urls } = jsonFetch({ answers: [{ id: 'n', value: true, confidence: 0.4 }] })
+    const { fetchImpl, urls } = jsonFetch({ answers: { n: { type: 'noul', noul: 0.8 } } })
     const c = new InferenceClient({ decision: { jev: { apiKey: 'k' } } }, { fetchImpl })
     expect(await c.decision.decide(noul)).toEqual({
       ok: true,
-      answers: [{ id: 'n', value: true, confidence: 0.4 }],
+      answers: [{ id: 'n', kind: 'noul', value: true, probability: 0.8 }],
     })
     expect(urls[0]).toBe('https://api.typesafe.ai/v1/systemone')
   })

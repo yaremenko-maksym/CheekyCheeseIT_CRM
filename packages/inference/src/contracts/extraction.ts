@@ -10,8 +10,7 @@ export type ExtractionRequest<T> = {
 }
 
 export type ExtractionResult<T> =
-  | { ok: true; data: T; usage?: { totalTokens?: number } }
-  | { ok: false; code: InferenceErrorCode }
+  { ok: true; data: T; usage?: { totalTokens?: number } } | { ok: false; code: InferenceErrorCode }
 
 export interface ExtractionPort {
   extract<T>(req: ExtractionRequest<T>): Promise<ExtractionResult<T>>

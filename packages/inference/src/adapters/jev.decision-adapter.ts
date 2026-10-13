@@ -25,16 +25,50 @@ const DEFAULT_BASE_URL = 'https://api.typesafe.ai'
 const MODEL = 'jev-latest'
 export const MAX_DECISION_STATE_BYTES = 256 * 1024
 
-const envelopeSchema = z.object({ answers: z.array(z.unknown()) })
+const unit = z.number().min(0).max(1)
+
+const envelopeSchema = z.object({
+  answers: z.record(z.string(), z.unknown()),
+  usage: z.object({ input_tokens: z.number(), output_tokens: z.number() }).optional(),
+})
+
+const wireAnswerSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('choice'),
+    choice: z.string(),
+    probabilities: z.record(z.string(), unit),
+    confidence: unit,
+  }),
+  z.object({
+    type: z.literal('score'),
+    score: z.number(),
+    probabilities: z.record(z.string(), unit).optional(),
+    confidence: unit,
+  }),
+  z.object({ type: z.literal('noul'), noul: unit }),
+])
 
 function toSystemOneQuestion(q: DecisionQuestion): Record<string, unknown> {
   switch (q.kind) {
     case 'choice':
-      return { id: q.id, type: 'choice', options: q.options }
+      return {
+        type: 'choice',
+        instructions: q.instructions,
+        criteria: Object.fromEntries(q.options.map((o) => [o.value, o.description ?? o.value])),
+      }
     case 'score':
-      return { id: q.id, type: 'score', min: q.min, max: q.max }
-    case 'noul':
-      return { id: q.id, type: 'noul' }
+      return { type: 'score', instructions: q.instructions, criteria: q.levels }
+    case 'noul': {
+      const criteria = {
+        ...(q.trueLabel !== undefined && { true: q.trueLabel }),
+        ...(q.falseLabel !== undefined && { false: q.falseLabel }),
+      }
+      return {
+        type: 'noul',
+        instructions: q.instructions,
+        ...(Object.keys(criteria).length > 0 && { criteria }),
+      }
+    }
   }
 }
 
@@ -53,24 +87,57 @@ function serializeBody(req: DecisionRequest): string | null {
     return null
   }
   return JSON.stringify({
-    model: MODEL,
     state: JSON.parse(state) as unknown,
-    questions: req.questions.map(toSystemOneQuestion),
+    model: MODEL,
+    questions: Object.fromEntries(req.questions.map((q) => [q.id, toSystemOneQuestion(q)])),
   })
 }
 
-/** Validates untrusted answers: per-answer schema, and every id must be a requested question id. */
-function validateAnswers(raw: unknown[], req: DecisionRequest): DecisionResult {
-  const requested = new Set(req.questions.map((q) => q.id))
-  const answers: DecisionAnswer[] = []
-  for (const item of raw) {
-    const parsed = decisionAnswerSchema.safeParse(item)
-    if (!parsed.success || !requested.has(parsed.data.id)) {
-      return { ok: false, code: 'INVALID_OUTPUT' }
+/** Validates one untrusted wire answer against ITS question; null when invalid. */
+function mapAnswer(q: DecisionQuestion, raw: unknown): DecisionAnswer | null {
+  const wire = wireAnswerSchema.safeParse(raw)
+  if (!wire.success || wire.data.type !== q.kind) return null
+  const w = wire.data
+  let candidate: unknown
+  if (w.type === 'choice' && q.kind === 'choice') {
+    if (!q.options.some((o) => o.value === w.choice)) return null
+    candidate = {
+      id: q.id,
+      kind: 'choice',
+      value: w.choice,
+      confidence: w.confidence,
+      probabilities: w.probabilities,
     }
-    answers.push(parsed.data)
+  } else if (w.type === 'score' && q.kind === 'score') {
+    if (w.score < 0 || w.score > q.levels.length - 1) return null
+    candidate = { id: q.id, kind: 'score', value: w.score, confidence: w.confidence }
+  } else if (w.type === 'noul') {
+    candidate = { id: q.id, kind: 'noul', value: w.noul >= 0.5, probability: w.noul }
+  } else {
+    return null
   }
-  return { ok: true, answers }
+  const parsed = decisionAnswerSchema.safeParse(candidate)
+  return parsed.success ? parsed.data : null
+}
+
+/** Every requested id answered exactly once, no extras, each validated against its question. */
+function validateAnswers(
+  raw: Record<string, unknown>,
+  req: DecisionRequest,
+  totalTokens: number | undefined,
+): DecisionResult {
+  const requested = new Set(req.questions.map((q) => q.id))
+  if (Object.keys(raw).some((id) => !requested.has(id)))
+    return { ok: false, code: 'INVALID_OUTPUT' }
+  const answers: DecisionAnswer[] = []
+  for (const q of req.questions) {
+    if (!Object.prototype.hasOwnProperty.call(raw, q.id))
+      return { ok: false, code: 'INVALID_OUTPUT' }
+    const a = mapAnswer(q, raw[q.id])
+    if (a === null) return { ok: false, code: 'INVALID_OUTPUT' }
+    answers.push(a)
+  }
+  return { ok: true, answers, ...(totalTokens !== undefined && { usage: { totalTokens } }) }
 }
 
 export function createJevDecisionAdapter(cfg: JevDecisionConfig): DecisionPort {
@@ -105,7 +172,12 @@ export function createJevDecisionAdapter(cfg: JevDecisionConfig): DecisionPort {
           }
           const env = envelopeSchema.safeParse(json)
           if (!env.success) return { ok: false, code: 'PROVIDER_ERROR' }
-          return validateAnswers(env.data.answers, req)
+          const u = env.data.usage
+          return validateAnswers(
+            env.data.answers,
+            req,
+            u === undefined ? undefined : u.input_tokens + u.output_tokens,
+          )
         }
       }
     },
