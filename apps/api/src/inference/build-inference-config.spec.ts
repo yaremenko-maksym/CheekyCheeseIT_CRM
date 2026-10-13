@@ -94,4 +94,62 @@ describe('buildInferenceConfig', () => {
       decision: { jev: { apiKey: 'jk' } },
     })
   })
+
+  it('omits local extraction unless the provider is local AND both url and name are set', () => {
+    const url = 'http://localhost:11434/v1'
+    expect(
+      buildInferenceConfig({ INFERENCE_EXTRACTION_PROVIDER: 'local', LOCAL_MODEL_URL: url }),
+    ).toStrictEqual({})
+    expect(
+      buildInferenceConfig({ INFERENCE_EXTRACTION_PROVIDER: 'local', LOCAL_MODEL_NAME: 'q' }),
+    ).toStrictEqual({})
+    expect(buildInferenceConfig({ LOCAL_MODEL_URL: url, LOCAL_MODEL_NAME: 'q' })).toStrictEqual({})
+    expect(
+      buildInferenceConfig({
+        INFERENCE_EXTRACTION_PROVIDER: 'openrouter',
+        LOCAL_MODEL_URL: url,
+        LOCAL_MODEL_NAME: 'q',
+      }),
+    ).toStrictEqual({})
+  })
+
+  it('local block carries no apiKey property when the key is absent', () => {
+    const cfg = buildInferenceConfig({
+      INFERENCE_EXTRACTION_PROVIDER: 'local',
+      LOCAL_MODEL_URL: 'http://localhost:11434/v1',
+      LOCAL_MODEL_NAME: 'q',
+    })
+    expect(cfg.extraction?.local).toStrictEqual({
+      baseUrl: 'http://localhost:11434/v1',
+      model: 'q',
+    })
+  })
+
+  it('selects exactly one extraction provider and keeps decision independent', () => {
+    expect(
+      buildInferenceConfig({
+        JEV_API_KEY: 'jk',
+        OPENROUTER_API_KEY: 'or',
+        INFERENCE_EXTRACTION_PROVIDER: 'openrouter',
+        LOCAL_MODEL_URL: 'http://x/v1',
+        LOCAL_MODEL_NAME: 'q',
+      }),
+    ).toStrictEqual({
+      decision: { jev: { apiKey: 'jk' } },
+      extraction: {
+        provider: 'openrouter',
+        openrouter: { apiKey: 'or', guardrails: EXTRACTION_MODEL_GUARDRAILS },
+      },
+    })
+  })
+})
+
+describe('EXTRACTION_MODEL_GUARDRAILS', () => {
+  it('pins the tunable guardrail values', () => {
+    expect(EXTRACTION_MODEL_GUARDRAILS).toStrictEqual({
+      maxPromptPriceUsdPerMTok: 1,
+      minContextTokens: 16000,
+      preferredModelIds: [],
+    })
+  })
 })

@@ -1,6 +1,7 @@
 import type { ConfigService } from '@nestjs/config'
 import type { OpenRouterModel } from '@crm/inference'
-import { describe, expect, it, vi } from 'vitest'
+import { Logger } from '@nestjs/common'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Env } from '../config/env'
 import { InferenceModelResolverService } from './inference-model-resolver.service'
 
@@ -11,7 +12,10 @@ const m = (id: string, price: number, ctx = 32000): OpenRouterModel => ({
 })
 
 function cfg(values: Record<string, string | undefined>): ConfigService<Env, true> {
-  return { get: (k: string) => values[k] } as unknown as ConfigService<Env, true>
+  // Typed-config reads must pass `{ infer: true }`; without it the real ConfigService is untyped.
+  return {
+    get: (k: string, opts?: { infer?: boolean }) => (opts?.infer === true ? values[k] : undefined),
+  } as unknown as ConfigService<Env, true>
 }
 const ACTIVE = { OPENROUTER_API_KEY: 'k', INFERENCE_EXTRACTION_PROVIDER: 'openrouter' }
 
@@ -24,6 +28,16 @@ function make(
     fetchCatalog: fetchCatalog as never,
     now: () => clock.t,
     cooldownMs: 1000,
+  })
+  return { svc, clock }
+}
+
+function makeAt(fetchCatalog: ReturnType<typeof vi.fn>, startAt: number, cooldownMs = 1000) {
+  const clock = { t: startAt }
+  const svc = new InferenceModelResolverService(cfg(ACTIVE), {
+    fetchCatalog: fetchCatalog as never,
+    now: () => clock.t,
+    cooldownMs,
   })
   return { svc, clock }
 }
@@ -186,5 +200,109 @@ describe('InferenceModelResolverService', () => {
       expect(await svc.onModelUnavailable('a/one')).toBeNull()
     }
     expect(f).not.toHaveBeenCalled()
+  })
+
+  describe('defaults, cooldown boundary and alerts', () => {
+    afterEach(() => vi.restoreAllMocks())
+
+    it('constructs without options (real fetcher / clock / cooldown defaults)', () => {
+      const svc = new InferenceModelResolverService(cfg({}))
+      expect(svc.getSelectedModelId()).toBeNull()
+    })
+
+    it('uses a 60s default cooldown when none is injected', async () => {
+      const f = vi.fn().mockResolvedValue({ ok: false, code: 'PROVIDER_ERROR' })
+      vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {})
+      const clock = { t: 0 }
+      const svc = new InferenceModelResolverService(cfg(ACTIVE), {
+        fetchCatalog: f as never,
+        now: () => clock.t,
+      })
+      await svc.onModuleInit()
+      await settle()
+      clock.t = 59_999
+      svc.getSelectedModelId()
+      expect(f).toHaveBeenCalledTimes(1)
+      clock.t = 60_000
+      svc.getSelectedModelId()
+      expect(f).toHaveBeenCalledTimes(2)
+    })
+
+    it('the first refresh runs even when the clock reads below the cooldown', async () => {
+      const f = vi.fn().mockResolvedValue({ ok: true, models: [m('a/one', 0.5)] })
+      const { svc } = makeAt(f, 0)
+      svc.getSelectedModelId()
+      await settle()
+      expect(f).toHaveBeenCalledTimes(1)
+      expect(svc.getSelectedModelId()).toBe('a/one')
+    })
+
+    it('cooldown boundary: throttled just inside the window, refreshes at exactly cooldownMs', async () => {
+      const f = vi.fn().mockResolvedValue({ ok: false, code: 'PROVIDER_ERROR' })
+      vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {})
+      const { svc, clock } = makeAt(f, 5000)
+      await svc.onModuleInit()
+      await settle()
+      clock.t = 5999
+      svc.getSelectedModelId()
+      await settle()
+      expect(f).toHaveBeenCalledTimes(1)
+      clock.t = 6000
+      svc.getSelectedModelId()
+      await settle()
+      expect(f).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not refresh once a model is selected, even after the cooldown lapsed', async () => {
+      const f = vi.fn().mockResolvedValue({ ok: true, models: [m('a/one', 0.5)] })
+      const { svc, clock } = make(f)
+      await svc.onModuleInit()
+      await settle()
+      clock.t += 10_000
+      expect(svc.getSelectedModelId()).toBe('a/one')
+      await settle()
+      expect(f).toHaveBeenCalledTimes(1)
+    })
+
+    it('alerts with the failure code when the catalog fetch fails', async () => {
+      const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {})
+      const f = vi.fn().mockResolvedValue({ ok: false, code: 'PROVIDER_ERROR' })
+      const { svc } = make(f)
+      await svc.onModuleInit()
+      await settle()
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(warn).toHaveBeenCalledWith(
+        'OpenRouter catalog refresh failed (PROVIDER_ERROR); keeping last model',
+      )
+    })
+
+    it('alerts when no model satisfies the guardrails', async () => {
+      const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {})
+      const f = vi.fn().mockResolvedValue({ ok: true, models: [m('x/pricey', 5)] })
+      const { svc } = make(f)
+      await svc.onModuleInit()
+      await settle()
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(warn).toHaveBeenCalledWith(
+        'No OpenRouter model satisfies the extraction guardrails; extraction stays unavailable until the guardrails are widened',
+      )
+    })
+
+    it('alerts when the fetcher throws, and does not alert on success', async () => {
+      const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {})
+      const boom = vi.fn().mockRejectedValue(new Error('secret-detail'))
+      const a = make(boom)
+      await a.svc.onModuleInit()
+      await settle()
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(warn).toHaveBeenCalledWith('OpenRouter catalog refresh threw; keeping last model')
+
+      warn.mockClear()
+      const ok = vi.fn().mockResolvedValue({ ok: true, models: [m('a/one', 0.5)] })
+      const b = make(ok)
+      await b.svc.onModuleInit()
+      await settle()
+      expect(warn).not.toHaveBeenCalled()
+    })
   })
 })
