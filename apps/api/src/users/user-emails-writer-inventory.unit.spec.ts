@@ -51,7 +51,7 @@ describe('user_emails writer inventory — every `.insert(users)` pairs with a u
       'wraps users+user_emails(WORK[+PERSONAL]) inserts in one transaction — users.service.spec.ts "user_emails writes (§4.4)"',
     'users/drop-creation.service.ts::createDrop':
       'already tx-wrapped; WORK insert via writeUserEmailOrConflict — users.drop.spec.ts',
-    'database/seed.ts::main':
+    'database/seed/users.ts::seedUsers':
       'fixture data, not a request path — inserts a matching user_emails WORK row for every SEED_USERS entry immediately after (see that file)',
   }
 
