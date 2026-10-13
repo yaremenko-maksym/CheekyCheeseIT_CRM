@@ -150,6 +150,13 @@ An external feed from which `jobPostings` arrive; the filtered and scored ones b
 — a suggestion to the recruiter.
 _Avoid_: «парсер», «скрапер», «интеграция»
 
+**Job opportunity** (product term: «Вакансія» in the recruiter queue UI; code `jobOpportunities`, `jobSourceRecords`):
+The canonical, de-duplicated external job in the new vacancy-sourcing store. One opportunity is backed by one
+or more **source records** (the provider-native posting, identified by provider type + namespace + native key,
+each with immutable revisions) and is evaluated per senior (`jobOpportunityMatches`, outcome LEAD / TRIAGE /
+EXCLUDED). It is a separate concept from our own landing **Vacancy** and from the legacy `jobPostings`.
+_Avoid_: `job_vacancies*` / «vacancy» in code (reserved for the studio's own landing postings), «пост», «объявление»
+
 ## Documents
 
 **Invoice** (product term: «Счёт»; `invoices`, `invoiceSignatures`):
