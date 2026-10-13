@@ -106,8 +106,7 @@ export class TeamReconcileService {
     const currentHrIds = new Set(activeMembers.filter((m) => m.role === 'HR').map((m) => m.userId))
     const currentAccId = activeMembers.find((m) => m.role === 'ACCOUNTANT')?.userId ?? null
     // To add: desired but not currently active.
-    const hrToAdd =
-      data.hrIds === undefined ? [] : [...desiredHrIds].filter((id) => !currentHrIds.has(id))
+    const hrToAdd = [...desiredHrIds].filter((id) => !currentHrIds.has(id))
     const accToAdd =
       data.accountantId && data.accountantId !== currentAccId ? data.accountantId : null
     // SR-M-1 follow-up (#999): only NEWLY enrolled members are role-checked (an existing member
