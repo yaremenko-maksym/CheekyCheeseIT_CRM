@@ -624,9 +624,7 @@ async function captureRoute(browser, baseUrl, url, expectNoindex, route) {
   // `PrerenderRoute` to derive this from — `routes/__root.tsx`'s
   // `NotFoundPage` hardcodes `canonicalUrl('/404')`, mirrored literally here
   // (plain Node ESM, same duplication rationale as `SITE_ORIGIN` above).
-  const expectedCanonical = route
-    ? localizedUrl(route.locale ?? DEFAULT_LOCALE, route.path)
-    : `${SITE_ORIGIN}/404/`
+  const expectedCanonical = route ? routeCanonicalUrl(route) : `${SITE_ORIGIN}/404/`
   /** @type {unknown} */
   let lastError
   for (let attempt = 1; attempt <= MAX_CAPTURE_ATTEMPTS; attempt++) {
@@ -889,6 +887,21 @@ function isUntranslatedVacancyRoute(route) {
 }
 
 /**
+ * Single source of truth for the canonical URL a captured route must carry:
+ * used by the in-flight capture wait (`captureRoute`) and `assertCanonicalSelf`
+ * so they cannot drift.
+ *
+ * @param {PrerenderRoute} route
+ * @returns {string}
+ */
+function routeCanonicalUrl(route) {
+  const locale = isUntranslatedVacancyRoute(route)
+    ? DEFAULT_LOCALE
+    : (route.locale ?? DEFAULT_LOCALE)
+  return localizedUrl(locale, route.path)
+}
+
+/**
  * @param {string} html
  * @param {PrerenderRoute} route
  * @returns {void}
@@ -896,10 +909,7 @@ function isUntranslatedVacancyRoute(route) {
 function assertCanonicalSelf(html, route) {
   // Untranslated-locale vacancy pages canonical to the default-locale URL
   // (see `isUntranslatedVacancyRoute`), every other route is self-canonical.
-  const expected = localizedUrl(
-    isUntranslatedVacancyRoute(route) ? DEFAULT_LOCALE : (route.locale ?? DEFAULT_LOCALE),
-    route.path,
-  )
+  const expected = routeCanonicalUrl(route)
   const match = html.match(/<link rel="canonical" href="([^"]*)"/)
   const actual = match?.[1]
   if (actual !== expected) {
@@ -1570,6 +1580,7 @@ export {
   assertRobotsMeta,
   assertHtmlLang,
   assertCanonicalSelf,
+  routeCanonicalUrl,
   assertAlternatesMatch,
   assertNoHomeJsonLdLeak,
   assertNotFoundDoesNotImpersonateHome,

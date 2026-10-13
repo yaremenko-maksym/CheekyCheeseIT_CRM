@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import {
   assertAlternatesMatch,
   assertCanonicalSelf,
+  routeCanonicalUrl,
   assertEveryIndexableRouteInSitemap,
   assertHtmlLang,
   assertJsonLd,
@@ -793,6 +794,16 @@ describe('assertCanonicalSelf', () => {
     ).toThrow(/expected "https:\/\/cheekycheese\.tech\/careers\/a\/"/)
     expect(computeAlternateHrefs('/careers/a', ['es', 'pt'])).toContain(
       'https://cheekycheese.tech/careers/a/',
+    )
+  })
+
+  it('routeCanonicalUrl (shared by the capture wait and this assert) agrees with the expectations', () => {
+    expect(routeCanonicalUrl(esVacancyRoute(['es']))).toBe('https://cheekycheese.tech/careers/a/')
+    expect(routeCanonicalUrl(esVacancyRoute(['pt']))).toBe(
+      'https://cheekycheese.tech/es/careers/a/',
+    )
+    expect(routeCanonicalUrl({ ...esVacancyRoute(['es']), pageType: 'careers' })).toBe(
+      'https://cheekycheese.tech/es/careers/a/',
     )
   })
 
