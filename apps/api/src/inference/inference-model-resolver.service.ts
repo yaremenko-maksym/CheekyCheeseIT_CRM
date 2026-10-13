@@ -28,7 +28,9 @@ export class InferenceModelResolverService implements OnModuleInit {
   private currentModelId: string | null = null
   private inFlight: Promise<void> | null = null
   private lastRefreshAt: number | null = null
-  private readonly apiKey: string | undefined
+  // Non-null exactly when the resolver is active: the key and the provider switch are decided once, so
+  // the catalog call can spread it without re-checking (an inactive resolver never reaches it).
+  private readonly credentials: { apiKey: string } | null
   private readonly active: boolean
   private readonly fetchCatalog: typeof fetchOpenRouterCatalog
   private readonly now: () => number
@@ -38,10 +40,13 @@ export class InferenceModelResolverService implements OnModuleInit {
     config: ConfigService<Env, true>,
     @Optional() @Inject(INFERENCE_RESOLVER_OPTIONS) options?: InferenceResolverOptions,
   ) {
-    this.apiKey = config.get('OPENROUTER_API_KEY', { infer: true })
-    this.active =
-      this.apiKey !== undefined &&
+    const apiKey = config.get('OPENROUTER_API_KEY', { infer: true })
+    this.credentials =
+      apiKey !== undefined &&
       config.get('INFERENCE_EXTRACTION_PROVIDER', { infer: true }) === 'openrouter'
+        ? { apiKey }
+        : null
+    this.active = this.credentials !== null
     this.fetchCatalog = options?.fetchCatalog ?? fetchOpenRouterCatalog
     this.now = options?.now ?? Date.now
     this.cooldownMs = options?.cooldownMs ?? DEFAULT_COOLDOWN_MS
@@ -58,8 +63,8 @@ export class InferenceModelResolverService implements OnModuleInit {
   }
 
   async onModelUnavailable(deadId: string): Promise<string | null> {
-    // Stryker disable next-line ConditionalExpression: equivalent — when inactive currentModelId is never set (null) so the deadId check below is false anyway and the same null is returned
-    if (!this.active) return null
+    // No activity guard needed: an inactive resolver never selects a model (currentModelId stays null),
+    // so no deadId can match and the same null is returned.
     if (deadId === this.currentModelId) await this.refresh(true)
     return this.currentModelId
   }
@@ -78,8 +83,7 @@ export class InferenceModelResolverService implements OnModuleInit {
   private async doRefresh(): Promise<void> {
     try {
       const res = await this.fetchCatalog({
-        // Stryker disable next-line ConditionalExpression: equivalent — doRefresh only runs when active, which requires apiKey !== undefined, so the guard is always true
-        ...(this.apiKey !== undefined && { apiKey: this.apiKey }),
+        ...this.credentials,
         timeoutMs: CATALOG_TIMEOUT_MS,
       })
       if (!res.ok) {
