@@ -168,6 +168,26 @@ A document between the company and an employee, which the employee signs during 
 «template / signed contract» pair, not their state: it has its own lifecycle and its own addressee.
 _Avoid_: «договор с сотрудником», «документ на подпись»
 
+## AI / Inference
+
+**Inference layer** (`@crm/inference`):
+A shared, framework-agnostic monorepo package that both the vacancy auto-sourcing feature and a colleague's
+feature call for model inference, through one `InferenceClient` exposing two ports. Design:
+`docs/superpowers/specs/2026-10-13-shared-inference-layer-design.md`.
+_Avoid_: «AI-сервис», «LLM-клиент», «обёртка над моделью»
+
+**Extraction (port)** (`ExtractionPort`):
+Turns untrusted text (e.g. a job posting) into schema-validated structured fields. Backends: a local
+OpenAI-compatible model or OpenRouter (the model is chosen reactively under cost/context guardrails).
+_Avoid_: «парсинг моделью», «structured output»
+
+**Decision (port)** (`DecisionPort`):
+Answers typed questions (choice / score / noul) against a bounded state and returns structured answers with
+confidence. Backend: TypeSafe **Jev** (System One). The vacancy↔senior **relevance** check is its first consumer.
+Using a model for relevance (not only extraction) is a deliberate owner amendment (2026-10-13) to the r4/r5
+"model use is extraction only" constraint — see the spec above.
+_Avoid_: «матчинг моделью», «скоринг через LLM»
+
 ---
 
 ## `uk`/`en` forms

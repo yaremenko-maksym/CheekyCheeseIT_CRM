@@ -20,6 +20,7 @@ import { DatabaseModule } from './database/database.module'
 import { DocumentsModule } from './documents/documents.module'
 import { HealthModule } from './health/health.module'
 import { FinanceModule } from './finance/finance.module'
+import { InferenceModule } from './inference/inference.module'
 import { InterviewsModule } from './interviews/interviews.module'
 import { JobSourcingModule } from './job-sourcing/job-sourcing.module'
 import { InvoicesModule } from './invoices/invoices.module'
@@ -110,6 +111,8 @@ import { MeetingRecorderModule } from './integrations/meeting-recorder/meeting-r
     // POST /api/public/csp-report, aggregated storage, digest visibility.
     CspReportsModule,
     MeetingRecorderModule,
+    // Shared inference layer (@crm/inference): InferenceClient DI + reactive model resolver.
+    InferenceModule,
     // Position 3 of docs/superpowers/specs/2026-09-01-notifications-and-
     // confirmations-design.md — foundation for employee-facing confirmations
     // (propose/approve/reject). Consumed by ProjectsModule/UsersModule
