@@ -19,6 +19,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1146.0",
     "@aws-sdk/s3-request-presigner": "^3.1146.0",
+    "@crm/inference": "workspace:*",
     "@crm/shared": "workspace:*",
     "@fastify/cookie": "^11.1.2",
     "@fastify/helmet": "^13.1.1",
