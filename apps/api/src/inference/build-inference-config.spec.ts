@@ -40,6 +40,35 @@ describe('inference env keys', () => {
   it('rejects an unknown provider selector', () => {
     expect(() => validateEnv({ ...BASE_DEV, INFERENCE_EXTRACTION_PROVIDER: 'groq' })).toThrow()
   })
+
+  it('accepts both provider selector members', () => {
+    expect(
+      validateEnv({ ...BASE_DEV, INFERENCE_EXTRACTION_PROVIDER: 'local' })
+        .INFERENCE_EXTRACTION_PROVIDER,
+    ).toBe('local')
+    expect(
+      validateEnv({ ...BASE_DEV, INFERENCE_EXTRACTION_PROVIDER: 'openrouter' })
+        .INFERENCE_EXTRACTION_PROVIDER,
+    ).toBe('openrouter')
+  })
+
+  it('accepts a multi-character LOCAL_MODEL_KEY', () => {
+    expect(validateEnv({ ...BASE_DEV, LOCAL_MODEL_KEY: 'local-secret-key' }).LOCAL_MODEL_KEY).toBe(
+      'local-secret-key',
+    )
+  })
+
+  it('accepts a multi-character LOCAL_MODEL_NAME', () => {
+    expect(validateEnv({ ...BASE_DEV, LOCAL_MODEL_NAME: 'llama-3.1-8b' }).LOCAL_MODEL_NAME).toBe(
+      'llama-3.1-8b',
+    )
+  })
+
+  it('rejects a remote plain-http LOCAL_MODEL_URL with the refine message', () => {
+    expect(() => validateEnv({ ...BASE_DEV, LOCAL_MODEL_URL: 'http://evil.example' })).toThrow(
+      /LOCAL_MODEL_URL must be/,
+    )
+  })
 })
 
 describe('buildInferenceConfig', () => {
