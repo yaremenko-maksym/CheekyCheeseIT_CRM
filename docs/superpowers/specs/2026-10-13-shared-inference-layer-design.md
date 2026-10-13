@@ -35,8 +35,9 @@ The package is framework-agnostic (no `@nestjs` dependency). Each consuming app 
   the same monorepo.
 - The shared contract is **two ports: `extraction` + a general `decision`** (not a narrow relevance-only port), because
   Jev is a general decision engine and the colleague may use the decision port for other typed decisions.
-- OpenRouter's model pool changes daily, so model selection must never trust a model id at call time: a **registry**
-  refreshes a vetted, pinned allow-list ahead of use (see §5).
+- OpenRouter's model pool changes unpredictably, so model selection is **reactive and guardrailed** (owner 2026-10-13):
+  refresh the model list on a "model unavailable" error, auto-select the best currently-available model that passes
+  guardrails (price ceiling, min context), retry the paused request once, cache it; no guessed fixed schedule (see §6).
 - Jev is early-access / waitlist with self-reported benchmarks and no public SLA; the design must stay
   provider-independent and degrade gracefully when Jev is not configured.
 
@@ -72,7 +73,7 @@ packages/inference/src/
     openrouter.extraction-adapter.ts # ExtractionPort via OpenRouter (OpenAI-compatible chat/completions)
     local.extraction-adapter.ts      # ExtractionPort via a local OpenAI-compatible endpoint
   registry/
-    model-registry.ts                # pinned allow-list + reconcile(live) + ordered selection (pure)
+    model-registry.ts                # guardrailed selectModel(catalog) + model-unavailable classifier (pure)
     openrouter-catalog.ts            # bounded GET of the OpenRouter /models catalog
   http/
     bounded-request.ts               # fetch + AbortController, byte/time caps, typed transport errors
@@ -150,24 +151,34 @@ Adapters **never throw** to the caller (typed result union, per `resume-ai.servi
 rate-limit signal) → `RATE_LIMITED`; abort/timeout → `TIMEOUT`; transport/5xx/malformed envelope → `PROVIDER_ERROR`;
 missing credentials → `NOT_CONFIGURED`. Tokens and request/response bodies are never logged.
 
-## 6. Model registry (OpenRouter safety)
+## 6. Model registry (OpenRouter freshness + safety)
 
-Addresses the owner's concern that the OpenRouter model pool changes daily.
+The OpenRouter model pool changes unpredictably, so model selection is **reactive and self-healing** (owner decision
+2026-10-13), not a guessed fixed schedule: we refresh the list exactly when a model turns out to be unavailable, pick
+the best currently-available model that passes cost/context guardrails, retry the paused request on it, and cache the
+choice for the future.
 
-- A **pinned allow-list** is a code constant (provenance/SSRF): an ordered list of vetted
-  `ModelPin = { id, purpose: 'extraction', minContext }` entries per purpose. Nothing admin-stored, nothing from env
-  for ids.
-- `openrouter-catalog.ts`: a **bounded GET** of `https://openrouter.ai/api/v1/models` returning the set of live ids.
-- `model-registry.ts`:
-  - `reconcile(pinned, liveIds) -> { usableInOrder: ModelPin[], missing: ModelPin[] }` — a **pure** function.
-  - Selection = the first pinned entry present in `liveIds`. If a higher-priority pin is missing, selection falls to
-    the next and `missing` is surfaced for an alert.
-  - A model id that is live but **not pinned is never selected**.
-- **Refresh-ahead mechanism (in `apps/api`, not in the package):** a scheduled job runs daily (ahead of use), fetches
-  the catalog, calls `reconcile`, and caches the chosen usable model. If the catalog fetch fails, the last good
-  snapshot is kept and an alert is surfaced; inference calls do not hard-fail on a failed refresh. The package exposes
-  the pure `reconcile` and the bounded catalog fetch; the app owns the schedule and the snapshot cache.
-- Jev (`jev-latest`) and the local model use a single fixed alias and bypass the registry.
+- **Catalog** (`openrouter-catalog.ts`): a **bounded GET** of `https://openrouter.ai/api/v1/models` returning, per
+  model, `{ id, promptPriceUsdPerMTok, contextTokens }` (from `pricing.prompt` and `context_length`), Zod-validated.
+- **Guardrails** (code constants, not env/admin — cost/provenance): `MAX_PROMPT_PRICE_USD_PER_MTOK` (price ceiling)
+  and `MIN_CONTEXT_TOKENS`; an optional ordered `PREFERRED_MODEL_IDS` hint.
+- **Selection** (`selectModel(catalog, guardrails)` — pure): among catalog models that pass **both** guardrails, pick
+  the first `PREFERRED_MODEL_IDS` entry present, else the **cheapest** qualifying model. No qualifying model → `null`.
+  A model over the price ceiling or under the min context is **never** selected, even if it is the only one available.
+- **Reactive refresh (the mechanism):**
+  1. At boot, one catalog fetch + `selectModel` sets the current model (so the first call has one).
+  2. On a call, the OpenRouter adapter **classifies** the error. **Only a "model unavailable / unknown" class**
+     (HTTP 404 / an OpenRouter "model not found" / invalid-model signal) triggers a refresh — **not** 429 / timeout /
+     5xx, which stay `RATE_LIMITED` / `TIMEOUT` / `PROVIDER_ERROR` and never switch models.
+  3. On that class: the pending request is paused; a **single-flight** refresh (one in-flight fetch; concurrent callers
+     await it; a short cooldown prevents hammering the catalog) re-fetches and re-selects under the guardrails; the
+     cached current model is updated for future calls.
+  4. If a fresh qualifying model exists, the paused request **retries once** on it. If it is still unavailable, or no
+     qualifying model exists → stop (no loop), surface `PROVIDER_ERROR` / `NOT_CONFIGURED`, and **alert** (so the owner
+     can widen the guardrails or check OpenRouter).
+- Quality of an auto-selected model is insured by the extraction pipeline's Zod validation + one corrective retry
+  (§5.2); cost is bounded by the price ceiling. Jev (`jev-latest`) and the local model use a fixed alias and bypass the
+  registry entirely.
 
 ## 7. Config, secrets, egress
 
@@ -192,7 +203,7 @@ Addresses the owner's concern that the OpenRouter model pool changes daily.
   JSON-shape errors.
 - Testing (vitest, co-located; the mutation gate sees these pure units):
   - Contract schemas: round-trip parse + rejection of malformed/oversized input and non-matching answer ids.
-  - `reconcile`: pinned ordering, `missing` surfacing, never selecting an unpinned live id, empty/duplicate live lists.
+  - `selectModel` / `isModelUnavailable`: guardrail filtering (price ceiling, min context), preferred-then-cheapest, never selecting a failing model; classifying only the model-unavailable error class (404 / 400-with-model-marker), not 429/timeout/5xx. The single-flight resolver's reactive swap + boot warm are tested app-side (Task 10).
   - Extraction sanitization pipeline: untrusted text → typed data or typed failure; the two-attempt corrective retry;
     link sanitization.
   - Adapters: request building and response parsing with an **injected fake `fetch`** (no network in CI); 429 →
@@ -206,7 +217,7 @@ Addresses the owner's concern that the OpenRouter model pool changes daily.
 `"@crm/inference": "workspace:*"`.
 
 **Modified (apps/api):** `apps/api/src/config/env.ts` (new optional keys); a new `apps/api/src/inference/` thin NestJS
-module (token + factory + the daily registry-refresh scheduled job + snapshot cache); `apps/api/package.json`
+module (token + factory + the reactive single-flight model resolver with a boot warm-up); `apps/api/package.json`
 (`workspace:*` dependency).
 
 **Modified (DevOps):** `.github/workflows/deploy.yml` (secrets list + `envs:` allow-list + `.env.production` append for
@@ -219,8 +230,9 @@ amendment).
 
 - **Jev maturity** — early-access, self-reported benchmarks, no SLA. Mitigation: provider-independent decision port,
   graceful `NOT_CONFIGURED`, first adapter only; a second decision backend can be added behind the same port.
-- **OpenRouter pool churn** — mitigated by the pinned allow-list + refresh-ahead reconcile (§6); a call never adopts an
-  unvetted id.
+- **OpenRouter pool churn** — mitigated by reactive, guardrailed refresh (§6): a "model unavailable" error triggers a
+  single-flight catalog re-fetch and auto-selection of the best model passing the cost/context guardrails, with a
+  one-shot retry; a model over the price ceiling or under min context is never selected (cost stays bounded).
 - **Local model capacity on the prod VPS** — unresolved until measured (r5 MP-04 / MP-05); the local adapter is wired
   but the host/model decision is deferred. No compose change until measured.
 - **Secret handling** — provider keys are optional-no-default and flow through the existing `deploy.yml` mechanism;

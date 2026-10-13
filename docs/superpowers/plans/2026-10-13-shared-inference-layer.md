@@ -4,7 +4,7 @@
 
 **Goal:** Build a framework-agnostic in-monorepo package that both the vacancy feature and a colleague's feature call for two inference jobs — extraction (text → schema-validated fields) and general typed decision (Choice/Score/Noul via TypeSafe Jev) — with a model registry that keeps OpenRouter model choices pinned and safe.
 
-**Architecture:** A new `packages/inference` (mirrors `@crm/shared`, no `@nestjs` dep) exposes `InferenceClient(config)` with `extraction` and `decision` ports, three adapters (Jev / OpenRouter / local), a pure model-registry `reconcile`, and a bounded HTTP helper. Each consuming app wraps the client in a thin NestJS provider on a `Symbol` DI token (the `OUTBOX_GATEWAY` precedent) and runs a daily OpenRouter catalog reconcile. All model output is untrusted and Zod-validated inside adapters; adapters never throw.
+**Architecture:** A new `packages/inference` (mirrors `@crm/shared`, no `@nestjs` dep) exposes `InferenceClient(config)` with `extraction` and `decision` ports, three adapters (Jev / OpenRouter / local), a pure guardrailed model-selection registry, and a bounded HTTP helper. Each consuming app wraps the client in a thin NestJS provider on a `Symbol` DI token (the `OUTBOX_GATEWAY` precedent) and runs a reactive, single-flight OpenRouter model resolver that re-selects on a model-unavailable error. All model output is untrusted and Zod-validated inside adapters; adapters never throw.
 
 **Tech Stack:** TypeScript (CommonJS/Node), Zod v4, Vitest; NestJS 11 + `@nestjs/schedule` (consumer side only); raw `fetch` + `AbortController` (no model SDK).
 
@@ -29,7 +29,7 @@ Each task implicitly includes this section.
 
 Input classes/failure modes the spec implies that deserve an explicit pinning test (each added to the owning task):
 
-- **A live-but-unpinned OpenRouter model id** must never be selected, even when it is the only id returned — Task 5 (`reconcile`).
+- **An OpenRouter model failing the guardrails** (over the price ceiling or under min context) must never be selected, even if it is the only one available — Task 4 (`selectModel`); and a model-unavailable error triggers exactly one reactive refresh + one retry (not a loop; never on 429/timeout/5xx) — Tasks 6 + 10.
 - **A provider returns HTTP 200 with a body that parses as JSON but fails the caller's Zod schema** → one corrective retry, then `INVALID_OUTPUT`, never a throw or partial data — Task 6 (extraction pipeline).
 - **A Jev answer whose `id` does not match any requested question id, or `confidence` outside 0..1** → `INVALID_OUTPUT`, not a silently-accepted answer — Task 8 (Jev adapter).
 - **A response that exceeds the byte cap or never completes** → streamed abort → `TIMEOUT`/`transport`, not unbounded memory/time — Task 4 (bounded request).
@@ -37,21 +37,21 @@ Input classes/failure modes the spec implies that deserve an explicit pinning te
 
 ## Dispatch map (Master orchestrates; no PM agent)
 
-| Task                                        | Zone / Agent    | Model  | Gates                                  |
-| ------------------------------------------- | --------------- | ------ | -------------------------------------- |
-| 0 scaffold                                  | Coder (package) | haiku  | code-reviewer                          |
-| 1 decision contracts                        | Coder           | sonnet | code-reviewer                          |
-| 2 extraction/errors/config contracts        | Coder           | sonnet | code-reviewer                          |
-| 3 bounded-request                           | Coder           | sonnet | code + **security**                    |
-| 4 registry reconcile + catalog              | Coder           | sonnet | code-reviewer                          |
-| 5 extraction pipeline                       | Coder           | sonnet | code + **security** (untrusted output) |
-| 6 OpenRouter adapter                        | Coder           | sonnet | code + **security**                    |
-| 7 local adapter                             | Coder           | sonnet | code + **security**                    |
-| 8 Jev adapter                               | Coder           | sonnet | code + **security**                    |
-| 9 InferenceClient                           | Coder           | sonnet | code-reviewer                          |
-| 10 apps/api env + Nest module + refresh job | Coder           | sonnet | code + **security** + spec-reviewer    |
-| 11 deploy.yml secrets wiring                | DevOps          | sonnet | code + **security**                    |
-| 12 CONTEXT.md glossary + r5 amendment       | Coder (light)   | haiku  | code-reviewer                          |
+| Task                                         | Zone / Agent    | Model  | Gates                                  |
+| -------------------------------------------- | --------------- | ------ | -------------------------------------- |
+| 0 scaffold                                   | Coder (package) | haiku  | code-reviewer                          |
+| 1 decision contracts                         | Coder           | sonnet | code-reviewer                          |
+| 2 extraction/errors/config contracts         | Coder           | sonnet | code-reviewer                          |
+| 3 bounded-request                            | Coder           | sonnet | code + **security**                    |
+| 4 registry select + catalog + classifier     | Coder           | sonnet | code-reviewer                          |
+| 5 extraction pipeline                        | Coder           | sonnet | code + **security** (untrusted output) |
+| 6 OpenRouter adapter                         | Coder           | sonnet | code + **security**                    |
+| 7 local adapter                              | Coder           | sonnet | code + **security**                    |
+| 8 Jev adapter                                | Coder           | sonnet | code + **security**                    |
+| 9 InferenceClient                            | Coder           | sonnet | code-reviewer                          |
+| 10 apps/api env + module + reactive resolver | Coder           | sonnet | code + **security** + spec-reviewer    |
+| 11 deploy.yml secrets wiring                 | DevOps          | sonnet | code + **security**                    |
+| 12 CONTEXT.md glossary + r5 amendment        | Coder (light)   | haiku  | code-reviewer                          |
 
 Parallelism (`orchestration-routing.md`): Tasks 1 & 2 independent after 0; Tasks 6/7/8 independent after 3/4/5 (disjoint files) → a wave of ≤3. Everything else single-pipeline. Fan-out ≤3 at once.
 
@@ -66,9 +66,9 @@ Parallelism (`orchestration-routing.md`): Tasks 1 & 2 independent after 0; Tasks
 | `packages/inference/src/contracts/decision.ts`                                               | `DecisionPort`, question/answer/state Zod schemas + types               |
 | `packages/inference/src/contracts/extraction.ts`                                             | `ExtractionPort`, request/result types                                  |
 | `packages/inference/src/contracts/errors.ts`                                                 | `INFERENCE_ERROR_CODES`, `InferenceErrorCode`                           |
-| `packages/inference/src/contracts/config.ts`                                                 | `InferenceConfig`, `ModelPin`                                           |
+| `packages/inference/src/contracts/config.ts`                                                 | `InferenceConfig`, `ExtractionModelGuardrails`                          |
 | `packages/inference/src/http/bounded-request.ts`                                             | bounded `fetch` + `AbortController`, typed transport result             |
-| `packages/inference/src/registry/model-registry.ts`                                          | pure `reconcile` + `selectModel`                                        |
+| `packages/inference/src/registry/model-registry.ts`                                          | pure guardrailed `selectModel` + `isModelUnavailable`                   |
 | `packages/inference/src/registry/openrouter-catalog.ts`                                      | bounded fetch + parse of `/models`                                      |
 | `packages/inference/src/internal/extraction-pipeline.ts`                                     | `extractJsonObject` + `parseExtraction` (untrusted → typed, 2 attempts) |
 | `packages/inference/src/internal/strip-unstorable.ts`                                        | NUL/control-char hygiene for untrusted strings                          |
@@ -78,8 +78,8 @@ Parallelism (`orchestration-routing.md`): Tasks 1 & 2 independent after 0; Tasks
 | `packages/inference/src/client.ts`                                                           | `InferenceClient` factory                                               |
 | `apps/api/src/config/env.ts` (MOD)                                                           | new optional keys                                                       |
 | `apps/api/src/inference/inference.module.ts` (NEW)                                           | token + factory + exports                                               |
-| `apps/api/src/inference/inference-model-refresh.service.ts` (NEW)                            | daily reconcile + snapshot holder                                       |
-| `apps/api/src/inference/pinned-models.ts` (NEW)                                              | the code-constant pinned list                                           |
+| `apps/api/src/inference/inference-model-resolver.service.ts` (NEW)                           | reactive single-flight model resolver                                   |
+| `apps/api/src/inference/extraction-guardrails.ts` (NEW)                                      | the code-constant cost/context guardrails                               |
 | `.github/workflows/deploy.yml` (MOD, DevOps)                                                 | secrets list + `envs:` + `.env.production` append                       |
 | `CONTEXT.md` (MOD)                                                                           | glossary + r5 amendment                                                 |
 
@@ -242,36 +242,45 @@ git commit -m "feat(inference): decision port contracts (choice/score/noul)"
 - Produces:
   - `errors.ts`: `export const INFERENCE_ERROR_CODES = ['NOT_CONFIGURED','PROVIDER_ERROR','INVALID_OUTPUT','RATE_LIMITED','TIMEOUT'] as const`; `export type InferenceErrorCode = (typeof INFERENCE_ERROR_CODES)[number]`
   - `extraction.ts`: `type ExtractionRequest<T> = { input: string; schema: z.ZodType<T>; instruction?: string }`; `type ExtractionResult<T> = { ok: true; data: T; usage?: { totalTokens?: number } } | { ok: false; code: InferenceErrorCode }`; `interface ExtractionPort { extract<T>(req: ExtractionRequest<T>): Promise<ExtractionResult<T>> }`; const `MAX_EXTRACTION_INPUT_CHARS = 50000`
-  - `config.ts`: `type ModelPin = { id: string; purpose: 'extraction'; minContext?: number }`; `modelPinSchema`; `inferenceConfigSchema` + `type InferenceConfig` with shape:
+  - `config.ts`: `type ExtractionModelGuardrails = { maxPromptPriceUsdPerMTok: number; minContextTokens: number; preferredModelIds?: string[] }`; `extractionModelGuardrailsSchema`; `inferenceConfigSchema` + `type InferenceConfig` with shape:
     ```
     {
       decision?: { jev?: { apiKey: string; baseUrl?: string; timeoutMs?: number } }
       extraction?: {
         provider: 'local' | 'openrouter'
-        openrouter?: { apiKey: string; pinnedModels: ModelPin[]; baseUrl?: string; timeoutMs?: number }
+        openrouter?: { apiKey: string; guardrails: ExtractionModelGuardrails; baseUrl?: string; timeoutMs?: number }
         local?: { baseUrl: string; apiKey?: string; model: string; timeoutMs?: number }
       }
     }
     ```
+    The OpenRouter model id is NOT configured — it is chosen at runtime from the live catalog under the guardrails (reactive, §6 of the spec). `guardrails` carries the cost/context ceilings + an optional ordered preference hint.
 
 - [ ] **Step 1: Failing test** (`config.spec.ts`)
 
 ```ts
 import { describe, expect, it } from 'vitest'
-import { inferenceConfigSchema, modelPinSchema } from './config'
+import { inferenceConfigSchema, extractionModelGuardrailsSchema } from './config'
 
 describe('inference config', () => {
-  it('accepts an openrouter extraction config with pins', () => {
+  it('accepts an openrouter extraction config with guardrails', () => {
     const cfg = inferenceConfigSchema.parse({
       extraction: {
         provider: 'openrouter',
-        openrouter: { apiKey: 'k', pinnedModels: [{ id: 'a/b', purpose: 'extraction' }] },
+        openrouter: {
+          apiKey: 'k',
+          guardrails: { maxPromptPriceUsdPerMTok: 1, minContextTokens: 16000 },
+        },
       },
     })
     expect(cfg.extraction?.provider).toBe('openrouter')
   })
-  it('rejects a pin without a non-empty id', () =>
-    expect(() => modelPinSchema.parse({ id: '', purpose: 'extraction' })).toThrow())
+  it('rejects guardrails with a non-positive price ceiling', () =>
+    expect(() =>
+      extractionModelGuardrailsSchema.parse({
+        maxPromptPriceUsdPerMTok: 0,
+        minContextTokens: 16000,
+      }),
+    ).toThrow())
   it('accepts an empty config (nothing configured)', () =>
     expect(inferenceConfigSchema.parse({})).toEqual({}))
 })
@@ -282,12 +291,12 @@ describe('inference config', () => {
 
 ```ts
 import { z } from 'zod'
-export const modelPinSchema = z.object({
-  id: z.string().min(1),
-  purpose: z.literal('extraction'),
-  minContext: z.number().int().positive().optional(),
+export const extractionModelGuardrailsSchema = z.object({
+  maxPromptPriceUsdPerMTok: z.number().positive(),
+  minContextTokens: z.number().int().positive(),
+  preferredModelIds: z.array(z.string().min(1)).optional(),
 })
-export type ModelPin = z.infer<typeof modelPinSchema>
+export type ExtractionModelGuardrails = z.infer<typeof extractionModelGuardrailsSchema>
 export const inferenceConfigSchema = z.object({
   decision: z
     .object({
@@ -306,7 +315,7 @@ export const inferenceConfigSchema = z.object({
       openrouter: z
         .object({
           apiKey: z.string().min(1),
-          pinnedModels: z.array(modelPinSchema).min(1),
+          guardrails: extractionModelGuardrailsSchema,
           baseUrl: z.string().url().optional(),
           timeoutMs: z.number().int().positive().optional(),
         })
@@ -347,10 +356,10 @@ git commit -m "feat(inference): extraction/errors/config contracts"
 
 - Produces:
   - `type FetchLike = (url: string, init?: { method?: string; headers?: Record<string,string>; body?: string; signal?: AbortSignal }) => Promise<{ status: number; body: ReadableStream<Uint8Array> | null; text: () => Promise<string> }>` (structurally satisfied by global `fetch`)
-  - `type BoundedResult = { kind: 'ok'; status: number; text: string } | { kind: 'rate_limited'; status: number } | { kind: 'timeout' } | { kind: 'transport'; status?: number }`
+  - `type BoundedResult = { kind: 'ok'; status: number; text: string } | { kind: 'rate_limited'; status: number } | { kind: 'timeout' } | { kind: 'transport'; status?: number; text?: string }` (the `transport` variant carries the bounded error body when present, so adapters can classify provider-specific errors such as "model unavailable")
   - `async function boundedRequest(opts: { url: string; method?: string; headers?: Record<string,string>; body?: string; timeoutMs: number; maxBytes: number; allowLoopbackHttp?: boolean; fetchImpl?: FetchLike }): Promise<BoundedResult>`
   - consts `DEFAULT_TIMEOUT_MS = 60000`, `DEFAULT_MAX_BYTES = 2 * 1024 * 1024`
-- URL policy: reject non-`https:` unless `allowLoopbackHttp` and host ∈ {`localhost`,`127.0.0.1`,`[::1]`} → `{ kind: 'transport' }`. 429 → `rate_limited`. Abort/timeout → `timeout`. Non-2xx (non-429) → `transport` with status. Over `maxBytes` while reading → abort → `transport`.
+- URL policy: reject non-`https:` unless `allowLoopbackHttp` and host ∈ {`localhost`,`127.0.0.1`,`[::1]`} → `{ kind: 'transport' }`. 429 → `rate_limited`. Abort/timeout → `timeout`. Non-2xx (non-429) → `transport` with status **and the bounded response body as `text`** (for error classification). Over `maxBytes` while reading → abort → `transport`.
 
 - [ ] **Step 1: Failing test**
 
@@ -437,7 +446,7 @@ git commit -m "feat(inference): bounded HTTP request with typed transport result
 
 ---
 
-### Task 4: Model registry — `reconcile` + OpenRouter catalog
+### Task 4: Model registry — guardrailed `selectModel` + OpenRouter catalog + model-unavailable classifier
 
 **Files:**
 
@@ -446,47 +455,69 @@ git commit -m "feat(inference): bounded HTTP request with typed transport result
 
 **Interfaces:**
 
-- Consumes: `ModelPin` (Task 2), `boundedRequest`/`FetchLike`/`BoundedResult` (Task 3), `InferenceErrorCode` (Task 2).
+- Consumes: `ExtractionModelGuardrails` (Task 2), `boundedRequest`/`FetchLike`/`BoundedResult` (Task 3), `InferenceErrorCode` (Task 2).
 - Produces:
-  - `function reconcile(pinned: ModelPin[], liveIds: Iterable<string>): { usableInOrder: ModelPin[]; missing: ModelPin[] }`
-  - `function selectModel(pinned: ModelPin[], liveIds: Iterable<string>): ModelPin | null` (= `reconcile(...).usableInOrder[0] ?? null`)
-  - `async function fetchOpenRouterModelIds(opts: { apiKey?: string; baseUrl?: string; timeoutMs?: number; fetchImpl?: FetchLike }): Promise<{ ok: true; ids: string[] } | { ok: false; code: InferenceErrorCode }>` (bounded GET `https://openrouter.ai/api/v1/models`, parse `{ data: [{ id }] }` with Zod, map `BoundedResult` to codes)
+  - `type OpenRouterModel = { id: string; promptPriceUsdPerMTok: number; contextTokens: number }`
+  - `function selectModel(catalog: OpenRouterModel[], guardrails: ExtractionModelGuardrails): OpenRouterModel | null` — among catalog models passing **both** guardrails (`promptPriceUsdPerMTok <= guardrails.maxPromptPriceUsdPerMTok` AND `contextTokens >= guardrails.minContextTokens`), returns the first `guardrails.preferredModelIds` entry present, else the **cheapest** qualifying model (tie → lexicographic id). No qualifier → `null`.
+  - `function isModelUnavailable(result: Extract<BoundedResult, { kind: 'transport' }>): boolean` — true when `status === 404`, or `status === 400` and `text` matches a model-missing marker (`/model/i` AND `/(not found|not a valid|no endpoints|unavailable)/i`). Everything else (429/timeout/5xx/other 400) is NOT model-unavailable.
+  - `async function fetchOpenRouterCatalog(opts: { apiKey?: string; baseUrl?: string; timeoutMs?: number; fetchImpl?: FetchLike }): Promise<{ ok: true; models: OpenRouterModel[] } | { ok: false; code: InferenceErrorCode }>` — bounded GET `https://openrouter.ai/api/v1/models`, Zod-parse `{ data: [{ id, context_length, pricing: { prompt } }] }`, map each to `OpenRouterModel` (`promptPriceUsdPerMTok = Number(pricing.prompt) * 1_000_000`), map `BoundedResult` → codes.
 
 - [ ] **Step 1: Failing test** (`model-registry.spec.ts`)
 
 ```ts
 import { describe, expect, it } from 'vitest'
-import { reconcile, selectModel } from './model-registry'
-const pins = [
-  { id: 'a/top', purpose: 'extraction' as const },
-  { id: 'b/mid', purpose: 'extraction' as const },
+import { selectModel, isModelUnavailable, type OpenRouterModel } from './model-registry'
+
+const catalog: OpenRouterModel[] = [
+  { id: 'cheap/ok', promptPriceUsdPerMTok: 0.2, contextTokens: 32000 },
+  { id: 'pricey/ok', promptPriceUsdPerMTok: 5, contextTokens: 128000 },
+  { id: 'cheap/tiny', promptPriceUsdPerMTok: 0.1, contextTokens: 4000 },
 ]
-describe('reconcile', () => {
-  it('selects the highest pin that is live', () => {
-    const r = reconcile(pins, ['b/mid', 'a/top'])
-    expect(r.usableInOrder.map((p) => p.id)).toEqual(['a/top', 'b/mid'])
-    expect(selectModel(pins, ['b/mid', 'a/top'])?.id).toBe('a/top')
+const guard = { maxPromptPriceUsdPerMTok: 1, minContextTokens: 16000 }
+
+describe('selectModel (guardrailed)', () => {
+  it('picks the cheapest model passing BOTH guardrails', () =>
+    expect(selectModel(catalog, guard)?.id).toBe('cheap/ok'))
+  it('honours a preferred id when it qualifies', () =>
+    expect(
+      selectModel(catalog, { ...guard, preferredModelIds: ['pricey/ok', 'cheap/ok'] })?.id,
+    ).toBe('cheap/ok')) // pricey/ok fails price → next preferred
+  it('NEVER selects a model over the price ceiling or under min context', () => {
+    expect(
+      selectModel([{ id: 'x/pricey', promptPriceUsdPerMTok: 9, contextTokens: 200000 }], guard),
+    ).toBeNull()
+    expect(
+      selectModel([{ id: 'x/tiny', promptPriceUsdPerMTok: 0.01, contextTokens: 2000 }], guard),
+    ).toBeNull()
   })
-  it('falls to the next pin and reports the missing one', () => {
-    const r = reconcile(pins, ['b/mid'])
-    expect(r.missing.map((p) => p.id)).toEqual(['a/top'])
-    expect(selectModel(pins, ['b/mid'])?.id).toBe('b/mid')
-  })
-  it('NEVER selects a live-but-unpinned id', () => {
-    expect(selectModel(pins, ['c/new-unpinned'])).toBeNull()
+})
+
+describe('isModelUnavailable', () => {
+  it('true on 404', () => expect(isModelUnavailable({ kind: 'transport', status: 404 })).toBe(true))
+  it('true on 400 with a model-missing body', () =>
+    expect(
+      isModelUnavailable({
+        kind: 'transport',
+        status: 400,
+        text: 'No endpoints found for model foo/bar',
+      }),
+    ).toBe(true))
+  it('false on a plain 400 and on 503', () => {
+    expect(isModelUnavailable({ kind: 'transport', status: 400, text: 'bad request' })).toBe(false)
+    expect(isModelUnavailable({ kind: 'transport', status: 503 })).toBe(false)
   })
 })
 ```
 
 - [ ] **Step 2: Run — FAIL.**
-- [ ] **Step 3: Implement** `reconcile` (filter pins by membership in the live set, preserving pin order; `missing` = pins not in the set) and `selectModel`. This is the **Review-focus test** for the unpinned-id rule.
-- [ ] **Step 4: Failing test + implement `openrouter-catalog.ts`.** Test with a fake `FetchLike` returning `{ data: [{ id: 'x/y' }] }`; assert `{ ok: true, ids: ['x/y'] }`; a 429 fake → `{ ok: false, code: 'RATE_LIMITED' }`; malformed body → `{ ok: false, code: 'PROVIDER_ERROR' }`. Implement using `boundedRequest` + a Zod schema `z.object({ data: z.array(z.object({ id: z.string() })) })`.
+- [ ] **Step 3: Implement** `selectModel` (filter by both guardrails; preferred-first then cheapest) and `isModelUnavailable`. This Task owns the **Review-focus test** "a model failing the guardrails is never selected".
+- [ ] **Step 4: Failing test + implement `openrouter-catalog.ts`.** Test with a fake `FetchLike` returning `{ data: [{ id: 'x/y', context_length: 32000, pricing: { prompt: '0.0000002' } }] }`; assert `{ ok: true, models: [{ id: 'x/y', promptPriceUsdPerMTok: 0.2, contextTokens: 32000 }] }`; a 429 fake → `{ ok: false, code: 'RATE_LIMITED' }`; malformed body → `{ ok: false, code: 'PROVIDER_ERROR' }`. Implement using `boundedRequest` + the Zod catalog schema.
 - [ ] **Step 5: Run — PASS** (both specs), barrel exports.
 - [ ] **Step 6: Commit**
 
 ```bash
 git add packages/inference/src/registry packages/inference/src/index.ts
-git commit -m "feat(inference): model registry reconcile + OpenRouter catalog fetch"
+git commit -m "feat(inference): guardrailed model selection + OpenRouter catalog + unavailability classifier"
 ```
 
 ---
@@ -506,7 +537,7 @@ git commit -m "feat(inference): model registry reconcile + OpenRouter catalog fe
   - `extraction-pipeline.ts`:
     - `function extractJsonObject(text: string): string | null` (balanced-brace scan returning the first top-level `{...}`)
     - `function parseExtraction<T>(rawText: string, schema: z.ZodType<T>): { ok: true; data: T } | { ok: false }` (extract → `JSON.parse` in try/catch → `stripUnstorableChars` on string leaves via schema → `schema.safeParse`)
-    - `async function runExtraction<T>(args: { schema: z.ZodType<T>; call: (correction?: string) => Promise<{ ok: true; text: string } | { ok: false; code: 'PROVIDER_ERROR'|'RATE_LIMITED'|'TIMEOUT'|'NOT_CONFIGURED' }> }): Promise<{ ok: true; data: T } | { ok: false; code: 'INVALID_OUTPUT'|'PROVIDER_ERROR'|'RATE_LIMITED'|'TIMEOUT'|'NOT_CONFIGURED' }>` — calls `call()`, parses; on parse failure calls `call(<the zod error message>)` **once** and re-parses; else `INVALID_OUTPUT`. Transport failures short-circuit to their code.
+    - `async function runExtraction<T, C extends string>(args: { schema: z.ZodType<T>; call: (correction?: string) => Promise<{ ok: true; text: string } | { ok: false; code: C }> }): Promise<{ ok: true; data: T } | { ok: false; code: C | 'INVALID_OUTPUT' }>` — generic over the transport-failure code `C` so adapters can pass their own internal codes (e.g. the OpenRouter adapter's `'MODEL_UNAVAILABLE'`, Task 6) straight through. Calls `call()`, parses; on parse failure calls `call(<the zod error message>)` **once** and re-parses; else `INVALID_OUTPUT`. Transport failures short-circuit to their code (no JSON retry).
 
 - [ ] **Step 1: Failing test** (`extraction-pipeline.spec.ts`)
 
@@ -569,15 +600,16 @@ git commit -m "feat(inference): untrusted-output extraction pipeline with one co
 
 **Interfaces:**
 
-- Consumes: `ExtractionPort`/`ExtractionRequest`/`ExtractionResult`/`MAX_EXTRACTION_INPUT_CHARS` (Task 2), `boundedRequest`/`FetchLike` (Task 3), `runExtraction` (Task 5), `InferenceErrorCode` (Task 2).
-- Produces: `function createOpenRouterExtractionAdapter(cfg: { apiKey: string; resolveModelId: () => string | null; baseUrl?: string; timeoutMs?: number; fetchImpl?: FetchLike }): ExtractionPort`
-  - `resolveModelId` returns the currently-selected pinned model id (the app's refresh service backs it); `null` → `NOT_CONFIGURED`.
+- Consumes: `ExtractionPort`/`ExtractionRequest`/`ExtractionResult`/`MAX_EXTRACTION_INPUT_CHARS` (Task 2), `boundedRequest`/`FetchLike` (Task 3), `runExtraction` (Task 5), `isModelUnavailable` (Task 4), `InferenceErrorCode` (Task 2).
+- Produces: `function createOpenRouterExtractionAdapter(cfg: { apiKey: string; resolveModelId: () => string | null; onModelUnavailable?: (deadModelId: string) => Promise<string | null>; baseUrl?: string; timeoutMs?: number; fetchImpl?: FetchLike }): ExtractionPort`
+  - `resolveModelId` returns the currently-selected model id (the app's resolver backs it); `null` → `NOT_CONFIGURED`.
+  - `onModelUnavailable(deadModelId)` is the reactive-refresh hook (§6): when a call fails because the model is unavailable, it returns a fresh model id to retry with, or `null`. Default: `async () => null` (package works standalone; the app supplies the real single-flight refresh).
 
-- [ ] **Step 1: Failing test** — a fake `FetchLike` returning an OpenAI-compatible `{ choices: [{ message: { content: '{"title":"x"}' } }], usage: { total_tokens: 5 } }`; assert `{ ok: true, data: { title: 'x' }, usage: { totalTokens: 5 } }`. A `resolveModelId: () => null` → `{ ok: false, code: 'NOT_CONFIGURED' }`. An input over `MAX_EXTRACTION_INPUT_CHARS` → caller truncates (assert the request body's content length is capped). A 429 fake → `RATE_LIMITED`.
+- [ ] **Step 1: Failing test** — a fake `FetchLike` returning an OpenAI-compatible `{ choices: [{ message: { content: '{"title":"x"}' } }], usage: { total_tokens: 5 } }`; assert `{ ok: true, data: { title: 'x' }, usage: { totalTokens: 5 } }`. A `resolveModelId: () => null` → `{ ok: false, code: 'NOT_CONFIGURED' }`. An input over `MAX_EXTRACTION_INPUT_CHARS` → caller truncates (assert the request body's content length is capped). A 429 fake → `RATE_LIMITED`. **Reactive-refresh tests (this Task owns them):** (a) first call returns a model-unavailable response (status 404 / `No endpoints found for model …`), `onModelUnavailable` returns `'fresh/model'`, the retry on `'fresh/model'` returns a valid body → `{ ok: true, data }` and the second request used `model: 'fresh/model'`; (b) `onModelUnavailable` is **not** called on a 429/timeout; (c) when `onModelUnavailable` returns `null` (no qualifying model) → `{ ok: false, code: 'PROVIDER_ERROR' }`, and no infinite loop (the model is swapped at most once).
 - [ ] **Step 2: Run — FAIL.**
-- [ ] **Step 3: Implement** — `extract` builds a `POST {baseUrl ?? 'https://openrouter.ai/api/v1'}/chat/completions` with `Authorization: Bearer`, `model: resolveModelId()`, messages (system instruction + user input truncated to `MAX_EXTRACTION_INPUT_CHARS`), `temperature: 0.1`; wraps the call in `runExtraction` where `call(correction?)` sends the correction as an extra user message; parses `choices[0].message.content` as the raw text; maps `BoundedResult` → codes.
+- [ ] **Step 3: Implement** — `extract`: `let modelId = resolveModelId()`; `null` → `NOT_CONFIGURED`. A local `sendChat(correction?)` builds `POST {baseUrl ?? 'https://openrouter.ai/api/v1'}/chat/completions` (`Authorization: Bearer`, `model: modelId`, messages = system instruction + user input truncated to `MAX_EXTRACTION_INPUT_CHARS` + optional correction, `temperature: 0.1`), calls `boundedRequest`, and returns `{ ok: true, text: choices[0].message.content }` or `{ ok: false, code }` where a `transport` result with `isModelUnavailable(...)` maps to the internal code `'MODEL_UNAVAILABLE'` (else 429→`RATE_LIMITED`, timeout→`TIMEOUT`, other→`PROVIDER_ERROR`). Run `runExtraction({ schema, call: sendChat })`. If it fails with `'MODEL_UNAVAILABLE'` and the model has not yet been swapped and `onModelUnavailable` is set: `const fresh = await onModelUnavailable(modelId)`; if `fresh` → `modelId = fresh` and run `runExtraction` **once more**; else map to `PROVIDER_ERROR`. Any residual `'MODEL_UNAVAILABLE'` after the single swap → `PROVIDER_ERROR` (it is never surfaced publicly). Capture `usage.total_tokens` on success.
 - [ ] **Step 4: Run — PASS.**
-- [ ] **Step 5: Commit** `feat(inference): OpenRouter extraction adapter`
+- [ ] **Step 5: Commit** `feat(inference): OpenRouter extraction adapter with reactive model refresh`
 
 ---
 
@@ -632,8 +664,8 @@ git commit -m "feat(inference): untrusted-output extraction pipeline with one co
 
 - Consumes: `InferenceConfig` (Task 2), the three adapter factories (Tasks 6–8), `selectModel` (Task 4), the ports (Tasks 1–2).
 - Produces:
-  - `class InferenceClient { constructor(cfg: InferenceConfig, deps?: { fetchImpl?: FetchLike; resolveOpenRouterModelId?: () => string | null }); readonly decision: DecisionPort; readonly extraction: ExtractionPort }`
-  - When `cfg.decision?.jev` is absent → `decision.decide` returns `{ ok: false, code: 'NOT_CONFIGURED' }`. When `cfg.extraction` is absent, or the selected provider's block is absent → `extraction.extract` returns `NOT_CONFIGURED`. For OpenRouter, if `deps.resolveOpenRouterModelId` is not supplied, default it to `() => selectModel(cfg.extraction.openrouter.pinnedModels, [])` (→ `null` until the app wires the live-reconciled resolver).
+  - `class InferenceClient { constructor(cfg: InferenceConfig, deps?: { fetchImpl?: FetchLike; resolveOpenRouterModelId?: () => string | null; onOpenRouterModelUnavailable?: (deadModelId: string) => Promise<string | null> }); readonly decision: DecisionPort; readonly extraction: ExtractionPort }`
+  - When `cfg.decision?.jev` is absent → `decision.decide` returns `{ ok: false, code: 'NOT_CONFIGURED' }`. When `cfg.extraction` is absent, or the selected provider's block is absent → `extraction.extract` returns `NOT_CONFIGURED`. For OpenRouter, `deps.resolveOpenRouterModelId` (default `() => null`, so extraction is `NOT_CONFIGURED` until the app wires the resolver) feeds the adapter's `resolveModelId`, and `deps.onOpenRouterModelUnavailable` (default `async () => null`) feeds the adapter's `onModelUnavailable` reactive hook. The app supplies both from its single-flight resolver (Task 10).
 
 - [ ] **Step 1: Failing test**
 
@@ -667,34 +699,40 @@ describe('InferenceClient', () => {
 
 ---
 
-### Task 10: apps/api env, Nest module, daily model refresh
+### Task 10: apps/api env, Nest module, reactive model resolver
 
 **Files:**
 
 - Modify: `apps/api/src/config/env.ts`
-- Create: `apps/api/src/inference/pinned-models.ts`, `apps/api/src/inference/inference.module.ts`, `apps/api/src/inference/inference-model-refresh.service.ts`, `apps/api/src/inference/inference-model-refresh.service.spec.ts`, `apps/api/src/inference/inference.tokens.ts`
+- Create: `apps/api/src/inference/extraction-guardrails.ts`, `apps/api/src/inference/inference.module.ts`, `apps/api/src/inference/inference-model-resolver.service.ts`, `apps/api/src/inference/inference-model-resolver.service.spec.ts`, `apps/api/src/inference/inference.tokens.ts`
 - Modify: `apps/api/src/app.module.ts` (import `InferenceModule`)
 
 **Interfaces:**
 
-- Consumes: `@crm/inference` (`InferenceClient`, `reconcile`/`selectModel`, `fetchOpenRouterModelIds`, `ModelPin`).
+- Consumes: `@crm/inference` (`InferenceClient`, `selectModel`, `fetchOpenRouterCatalog`, `ExtractionModelGuardrails`, `OpenRouterModel`).
 - Produces:
   - `inference.tokens.ts`: `export const INFERENCE_CLIENT = Symbol('INFERENCE_CLIENT')`
-  - `pinned-models.ts`: `export const PINNED_EXTRACTION_MODELS: ModelPin[] = []` (empty until the MP-03 measurement fills it; a comment references the measurement runbook)
-  - `inference-model-refresh.service.ts`: `class InferenceModelRefreshService { getSelectedOpenRouterModelId(): string | null; refresh(): Promise<void> }` — `@Cron` daily `Europe/Kyiv`; `refresh()` calls `fetchOpenRouterModelIds`, `reconcile(PINNED_EXTRACTION_MODELS, ids)`, stores `selectModel(...)?.id ?? null` in a private field; on catalog failure keeps the last good value and `logger.warn`s; `missing.length > 0` → `logger.warn` (alert). Never rethrows (cron convention, `job-sourcing.cron.ts`).
-  - `inference.module.ts`: provides `InferenceModelRefreshService`; provides `{ provide: INFERENCE_CLIENT, useFactory: (cfg: ConfigService<Env,true>, refresh: InferenceModelRefreshService) => new InferenceClient(buildConfig(cfg), { resolveOpenRouterModelId: () => refresh.getSelectedOpenRouterModelId() }), inject: [ConfigService, InferenceModelRefreshService] }`; `exports: [INFERENCE_CLIENT]`.
-  - `env.ts`: new optional keys `JEV_API_KEY`, `OPENROUTER_API_KEY`, `LOCAL_MODEL_URL`, `LOCAL_MODEL_KEY`, `LOCAL_MODEL_NAME`, `INFERENCE_EXTRACTION_PROVIDER` (`z.enum(['local','openrouter']).optional()`) — all `.optional()` no-default (the resume-ai pattern). `buildConfig` maps env → `InferenceConfig` (only including a provider block when its keys are present).
+  - `extraction-guardrails.ts`: `export const EXTRACTION_MODEL_GUARDRAILS: ExtractionModelGuardrails = { maxPromptPriceUsdPerMTok: 1, minContextTokens: 16000, preferredModelIds: [] }` — tunable constants (cost ceiling + min context + optional preference); a comment notes they are tuned from the MP-03 measurement and the owner can widen them.
+  - `inference-model-resolver.service.ts`: `class InferenceModelResolverService { getSelectedModelId(): string | null; onModelUnavailable(deadId: string): Promise<string | null>; onModuleInit(): Promise<void> }` — the **reactive, single-flight** resolver (§6):
+    - a private `currentModelId: string | null` and a private in-flight `Promise | null` (single-flight) plus a `lastRefreshAt` cooldown stamp;
+    - `refresh()` (private): if a refresh is already in flight, await it; if within the cooldown window, skip; else `fetchOpenRouterCatalog({ apiKey, fetchImpl })` → `selectModel(models, EXTRACTION_MODEL_GUARDRAILS)` → set `currentModelId` to the chosen id (or keep the last good one and `logger.warn` on catalog failure / `logger.warn` an alert when nothing qualifies). Never throws.
+    - `onModuleInit()` warms the selection once (so the first call has a model), guarded by try/catch (boot must not fail if OpenRouter is down / unconfigured).
+    - `getSelectedModelId()` returns `currentModelId`.
+    - `onModelUnavailable(deadId)`: if `deadId === currentModelId`, run `refresh()` (single-flight); return the new `currentModelId` (may equal `deadId` if nothing better — the adapter's single-swap guard prevents a loop).
+    - Only constructed/active when `OPENROUTER_API_KEY` + `INFERENCE_EXTRACTION_PROVIDER=openrouter` are set; otherwise it is a no-op returning `null`.
+  - `inference.module.ts`: provides `InferenceModelResolverService`; provides `{ provide: INFERENCE_CLIENT, useFactory: (cfg: ConfigService<Env,true>, resolver: InferenceModelResolverService) => new InferenceClient(buildConfig(cfg), { resolveOpenRouterModelId: () => resolver.getSelectedModelId(), onOpenRouterModelUnavailable: (id) => resolver.onModelUnavailable(id) }), inject: [ConfigService, InferenceModelResolverService] }`; `exports: [INFERENCE_CLIENT]`.
+  - `env.ts`: new optional keys `JEV_API_KEY`, `OPENROUTER_API_KEY`, `LOCAL_MODEL_URL`, `LOCAL_MODEL_KEY`, `LOCAL_MODEL_NAME`, `INFERENCE_EXTRACTION_PROVIDER` (`z.enum(['local','openrouter']).optional()`) — all `.optional()` no-default (the resume-ai pattern). `buildConfig` maps env → `InferenceConfig` (a provider block only when its keys are present; the OpenRouter block carries `guardrails: EXTRACTION_MODEL_GUARDRAILS`, never a model id).
 
-- [ ] **Step 1: Failing test (env).** In the existing env test (or a new `inference.module.spec.ts`), assert `validateEnv({...valid base...})` accepts absent inference keys and that `buildConfig` of an env with `OPENROUTER_API_KEY` + `INFERENCE_EXTRACTION_PROVIDER=openrouter` yields `{ extraction: { provider: 'openrouter', openrouter: { apiKey, pinnedModels: PINNED_EXTRACTION_MODELS } } }`.
-- [ ] **Step 2: Failing test (refresh, pure-ish).** Unit test `InferenceModelRefreshService.refresh()` with an injected `fetchOpenRouterModelIds` double: given live ids ⊇ one pin → `getSelectedOpenRouterModelId()` returns it; given a catalog failure after a good refresh → keeps the previous id; given `missing` → still succeeds. (The selection logic itself is already pinned in Task 4; here assert the service's caching/last-good behavior.)
+- [ ] **Step 1: Failing test (env).** In the existing env test (or a new `inference.module.spec.ts`), assert `validateEnv({...valid base...})` accepts absent inference keys and that `buildConfig` of an env with `OPENROUTER_API_KEY` + `INFERENCE_EXTRACTION_PROVIDER=openrouter` yields `{ extraction: { provider: 'openrouter', openrouter: { apiKey, guardrails: EXTRACTION_MODEL_GUARDRAILS } } }`.
+- [ ] **Step 2: Failing test (resolver).** Unit test `InferenceModelResolverService` with an injected `fetchOpenRouterCatalog` double: after `onModuleInit`, `getSelectedModelId()` returns the guardrail-qualifying model; `onModelUnavailable(current)` with a catalog that now drops the current id and offers a cheaper qualifying one switches `getSelectedModelId()` to it; a catalog failure keeps the last good id; **single-flight** — two concurrent `onModelUnavailable` calls perform one catalog fetch (assert the double was called once).
 - [ ] **Step 3: Run — FAIL** both.
-- [ ] **Step 4: Implement** `pinned-models.ts`, `inference.tokens.ts`, `buildConfig`, `env.ts` keys, the refresh service, and the module; wire `InferenceModule` into `app.module.ts`.
+- [ ] **Step 4: Implement** `extraction-guardrails.ts`, `inference.tokens.ts`, `buildConfig`, `env.ts` keys, the resolver service, and the module; wire `InferenceModule` into `app.module.ts`.
 - [ ] **Step 5: Run — PASS**; `pnpm --filter @crm/api typecheck`, `lint`; `pnpm --filter @crm/api exec vitest run src/inference`.
 - [ ] **Step 6: Commit**
 
 ```bash
 git add apps/api/src/inference apps/api/src/config/env.ts apps/api/src/app.module.ts
-git commit -m "feat(api): InferenceModule — DI client + daily OpenRouter model refresh"
+git commit -m "feat(api): InferenceModule — DI client + reactive guardrailed OpenRouter model resolver"
 ```
 
 ---
@@ -734,9 +772,9 @@ git commit -m "infra(deploy): wire inference provider secrets to .env.production
 
 ## Self-review
 
-- **Spec coverage:** §4 package/layout → Tasks 0–9; §4.2 consumer wiring → Task 10; §5 contracts → Tasks 1,2,8 (decision), 2,5,6,7 (extraction); §6 registry/refresh → Tasks 4 (pure) + 10 (schedule/cache); §7 config/secrets/egress → Tasks 2,3,10,11; §8 errors/testing → every task (TDD) + §Review Focus; §2 r5 amendment → Task 12. No uncovered section.
-- **Placeholders:** none; `PINNED_EXTRACTION_MODELS = []` is an intentional, documented empty-until-measured constant, not a placeholder (the measurement that fills it is out of scope here).
-- **Type consistency:** `InferenceErrorCode` (Task 2) is the single failure-code source; Task 1's forward-declared `DecisionFailureCode` is explicitly replaced in Task 2 Step 4. `FetchLike`/`BoundedResult` (Task 3) reused by Tasks 4,6,7,8. `resolveModelId`/`resolveOpenRouterModelId` naming: adapter param is `resolveModelId` (Task 6), client dep is `resolveOpenRouterModelId` (Task 9) which is passed into the adapter's `resolveModelId` — consistent by wiring, named per scope.
+- **Spec coverage:** §4 package/layout → Tasks 0–9; §4.2 consumer wiring → Task 10; §5 contracts → Tasks 1,2,8 (decision), 2,5,6,7 (extraction); §6 registry + reactive refresh → Tasks 4 (pure selection + `isModelUnavailable`) + 6 (adapter swap/retry) + 10 (single-flight resolver + boot warm); §7 config/secrets/egress → Tasks 2,3,10,11; §8 errors/testing → every task (TDD) + §Review Focus; §2 r5 amendment → Task 12. No uncovered section.
+- **Placeholders:** none; `EXTRACTION_MODEL_GUARDRAILS` carries concrete starter cost/context values (tuned later from MP-03, owner-widenable), not a placeholder.
+- **Type consistency:** `InferenceErrorCode` (Task 2) is the single public failure-code source; Task 1's forward-declared `DecisionFailureCode` is replaced in Task 2 Step 4; `'MODEL_UNAVAILABLE'` is an internal adapter code (Task 6) never surfaced publicly (mapped to `PROVIDER_ERROR`), carried through the generic `runExtraction<T,C>` (Task 5). `ExtractionModelGuardrails` (Task 2) is consumed by `selectModel` (Task 4) and `buildConfig` (Task 10). `FetchLike`/`BoundedResult` (Task 3) reused by Tasks 4,6,7,8. The adapter's `resolveModelId`/`onModelUnavailable` (Task 6) are fed by the client's `resolveOpenRouterModelId`/`onOpenRouterModelUnavailable` deps (Task 9), which the app backs with `InferenceModelResolverService.getSelectedModelId`/`onModelUnavailable` (Task 10) — consistent by wiring, named per scope.
 - **Review Focus:** all five lines have an owning task with an explicit test (Tasks 5, 8, 4, 3, 9/10).
 
 ```
