@@ -288,121 +288,34 @@ describe('buildSitemapXml', () => {
   })
 
   it(
-    'task-sitemap-missing-vacancy-locales.md (backlog #177) AC1/AC3 — an UNTRANSLATED locale ' +
-      "still gets its OWN <loc> entry (superseding task-sitemap-hreflang-clusters.md's older " +
-      'expectation below), because the live page is index/follow/self-canonical regardless of ' +
-      'translation status',
+    'GSC duplicate-canonical fix (Variant A) — an UNTRANSLATED locale vacancy URL is NOT a <loc> ' +
+      '(it canonicals to the default locale), while en, translated locales and every ' +
+      'home/careers-list <loc> stay listed',
     () => {
-      // Bug repro (backlog #177, Search Console 2026-08-22 "проиндексируйте
-      // — но её нет в карте сайта"): the PREVIOUS fix (backlog #39) made
-      // `/uk/careers/senior-ml-engineer/` (and es/pt) disappear from the
-      // sitemap's own <loc> set entirely — not just from other blocks'
-      // clusters — while every OTHER signal (robots meta, canonical,
-      // careers-list internal link) kept saying "index this". That is
-      // three contradictory claims about the SAME URL — the actual defect,
-      // independent of which claim is "right". This test asserts the <loc>
-      // is back, on top of the pre-existing sibling test above (which only
-      // checked the EN block's own alternates, unaffected by this change).
-      const xml = buildSitemapXml(
-        [
-          {
-            slug: 'senior-ml-engineer',
-            publishedAt: '2026-07-01T00:00:00.000Z',
-            isFallback: false,
-          },
-        ],
-        '2026-07-23T00:00:00.000Z',
-        {
-          ru: [
-            {
-              slug: 'senior-ml-engineer',
-              publishedAt: '2026-07-01T00:00:00.000Z',
-              isFallback: false,
-            },
-          ],
-          uk: [
-            {
-              slug: 'senior-ml-engineer',
-              publishedAt: '2026-07-01T00:00:00.000Z',
-              isFallback: true,
-            },
-          ],
-          es: [
-            {
-              slug: 'senior-ml-engineer',
-              publishedAt: '2026-07-01T00:00:00.000Z',
-              isFallback: true,
-            },
-          ],
-          pt: [
-            {
-              slug: 'senior-ml-engineer',
-              publishedAt: '2026-07-01T00:00:00.000Z',
-              isFallback: true,
-            },
-          ],
-        },
-      )
+      const v = { slug: 'senior-ml-engineer', publishedAt: '2026-07-01T00:00:00.000Z' }
+      const xml = buildSitemapXml([{ ...v, isFallback: false }], '2026-07-23T00:00:00.000Z', {
+        ru: [{ ...v, isFallback: false }],
+        uk: [{ ...v, isFallback: true }],
+        es: [{ ...v, isFallback: true }],
+        pt: [{ ...v, isFallback: true }],
+      })
       expect(xml).toContain('<loc>https://cheekycheese.tech/careers/senior-ml-engineer/</loc>')
       expect(xml).toContain('<loc>https://cheekycheese.tech/ru/careers/senior-ml-engineer/</loc>')
-      expect(xml).toContain('<loc>https://cheekycheese.tech/uk/careers/senior-ml-engineer/</loc>')
-      expect(xml).toContain('<loc>https://cheekycheese.tech/es/careers/senior-ml-engineer/</loc>')
-      expect(xml).toContain('<loc>https://cheekycheese.tech/pt/careers/senior-ml-engineer/</loc>')
-      // Home/careers-list <loc>s for uk/es/pt were never affected either way.
-      expect(xml).toContain('<loc>https://cheekycheese.tech/uk/careers/</loc>')
-      expect(xml).toContain('<loc>https://cheekycheese.tech/es/careers/</loc>')
-      expect(xml).toContain('<loc>https://cheekycheese.tech/pt/careers/</loc>')
-    },
-  )
-
-  it(
-    "task-sitemap-missing-vacancy-locales.md AC5 — a fallback locale's OWN <url> block carries " +
-      'a SELF-ONLY hreflang cluster (no false claim to be a translation of en/uk)',
-    () => {
-      const xml = buildSitemapXml(
-        [
-          {
-            slug: 'senior-ml-engineer',
-            publishedAt: '2026-07-01T00:00:00.000Z',
-            isFallback: false,
-          },
-        ],
-        '2026-07-23T00:00:00.000Z',
-        {
-          ru: [
-            {
-              slug: 'senior-ml-engineer',
-              publishedAt: '2026-07-01T00:00:00.000Z',
-              isFallback: true,
-            },
-          ],
-        },
+      expect(xml).not.toContain(
+        '<loc>https://cheekycheese.tech/uk/careers/senior-ml-engineer/</loc>',
       )
-      const block = xml.slice(
-        xml.indexOf('<loc>https://cheekycheese.tech/ru/careers/senior-ml-engineer/</loc>'),
-        xml.indexOf(
-          '</url>',
-          xml.indexOf('<loc>https://cheekycheese.tech/ru/careers/senior-ml-engineer/</loc>'),
-        ),
+      expect(xml).not.toContain(
+        '<loc>https://cheekycheese.tech/es/careers/senior-ml-engineer/</loc>',
       )
-      expect(block).toContain(
-        '<xhtml:link rel="alternate" hreflang="ru" href="https://cheekycheese.tech/ru/careers/senior-ml-engineer/" />',
+      expect(xml).not.toContain(
+        '<loc>https://cheekycheese.tech/pt/careers/senior-ml-engineer/</loc>',
       )
-      // No cross-locale claim at all — not even x-default — for a page
-      // that cannot honestly reciprocate with en/uk's own cluster.
-      expect(block).not.toContain('hreflang="en"')
-      expect(block).not.toContain('hreflang="uk"')
-      expect(block).not.toContain('hreflang="x-default"')
-      // Un-translated en/uk's OWN block is untouched — still the full
-      // reciprocal {en, x-default} pair minus the fallback ru.
-      const enBlock = xml.slice(
-        xml.indexOf('<loc>https://cheekycheese.tech/careers/senior-ml-engineer/</loc>'),
-        xml.indexOf(
-          '</url>',
-          xml.indexOf('<loc>https://cheekycheese.tech/careers/senior-ml-engineer/</loc>'),
-        ),
-      )
-      expect(enBlock).not.toContain('hreflang="ru"')
+      for (const l of ['', '/uk', '/ru', '/es', '/pt']) {
+        expect(xml).toContain(`<loc>https://cheekycheese.tech${l}/</loc>`)
+        expect(xml).toContain(`<loc>https://cheekycheese.tech${l}/careers/</loc>`)
+      }
+      // hreflang reciprocity is unchanged and still valid.
+      expect(() => assertSitemapHreflangClusters(xml)).not.toThrow()
     },
   )
 
@@ -525,20 +438,14 @@ describe('assertSitemapHreflangClusters (task-sitemap-hreflang-clusters.md AC2/A
     'task-sitemap-missing-vacancy-locales.md AC5 — accepts a self-only singleton cluster ' +
       '(fallback locale, restored by backlog #177) without requiring an en/x-default entry',
     () => {
-      // realisticSitemap() already contains 6 self-only singleton blocks
-      // (ru/es/pt for senior-ml-engineer, uk/es/pt for backend-dev) — the
-      // "passes for the real, unmutated generator output" test above only
-      // proves the WHOLE document doesn't throw; this isolates ONE such
-      // block to prove specifically that the RELAXED rule (not just an
-      // accidental pass elsewhere) is what let it through.
-      const xml = realisticSitemap()
+      // Isolated singleton block (the shape backlog #177 emitted; the generator no
+      // longer produces it, the validator still tolerates it).
       const block =
         '  <url>\n' +
         '    <loc>https://cheekycheese.tech/ru/careers/senior-ml-engineer/</loc>\n' +
         '    <lastmod>2026-07-01T00:00:00.000Z</lastmod>\n' +
         '    <xhtml:link rel="alternate" hreflang="ru" href="https://cheekycheese.tech/ru/careers/senior-ml-engineer/" />\n' +
         '  </url>'
-      expect(xml).toContain(block)
       // Isolate: a document containing ONLY this one singleton block still
       // must not throw — proves the singleton itself is sufficient, not
       // some interaction with the rest of the document.
@@ -595,24 +502,23 @@ describe('assertEveryIndexableRouteInSitemap (task-sitemap-missing-vacancy-local
   })
 
   it(
-    'REDNESS PROOF (backlog #177 repro) — throws listing exactly the 6 addresses that were ' +
-      'silently dropped by the pre-fix `buildSitemapXml` (ru/es/pt × 1 vacancy here, 6 total ' +
-      'in the real 2-vacancy prod case)',
+    'GSC duplicate-canonical fix — an untranslated-locale vacancy route is exempt (it is ' +
+      'canonical-to-default and deliberately NOT in the sitemap), but a missing TRANSLATED ' +
+      'locale <loc> still throws',
     () => {
       const routes = buildRoutes(vacancies, perLocaleVacancies)
-      // Simulate the OLD buggy sitemap: strip every ru/es/pt vacancy <url>
-      // block, same shape `git diff` would show for the pre-fix code.
       const fullXml = buildSitemapXml(vacancies, '2026-08-22T00:00:00.000Z', perLocaleVacancies)
+      // Strip the translated uk vacancy <url> block: must be reported.
       const rigged = fullXml.replace(
-        /  <url>\n {4}<loc>https:\/\/cheekycheese\.tech\/(ru|es|pt)\/careers\/senior-java-developer-fintech\/<\/loc>[\s\S]*?<\/url>\n/g,
+        /  <url>\n {4}<loc>https:\/\/cheekycheese\.tech\/uk\/careers\/senior-java-developer-fintech\/<\/loc>[\s\S]*?<\/url>\n/g,
         '',
       )
       expect(rigged).not.toBe(fullXml)
       expect(() => assertEveryIndexableRouteInSitemap(routes, rigged)).toThrow(
-        /3 indexable route\(s\).*missing from sitemap\.xml.*ru\/careers\/senior-java-developer-fintech.*es\/careers\/senior-java-developer-fintech.*pt\/careers\/senior-java-developer-fintech/s,
+        /1 indexable route\(s\).*uk\/careers\/senior-java-developer-fintech/s,
       )
-      // Restored (the real, unrigged sitemap) passes again — proves the
-      // failure above was caused by the rigging, not a broken gate.
+      // The untranslated ru/es/pt routes exist (prerendered) yet are not required in the sitemap.
+      expect(routes.map((r) => r.url)).toContain('/ru/careers/senior-java-developer-fintech')
       expect(() => assertEveryIndexableRouteInSitemap(routes, fullXml)).not.toThrow()
     },
   )
@@ -865,6 +771,41 @@ describe('computeAlternateHrefs', () => {
 })
 
 describe('assertCanonicalSelf', () => {
+  const esVacancyRoute = (hreflangExcludes: string[]) => ({
+    url: '/es/careers/a',
+    file: 'es/careers/a/index.html',
+    locale: 'es',
+    path: '/careers/a',
+    pageType: 'vacancy' as const,
+    hreflangExcludes,
+    requireJsonLd: 'job-posting-breadcrumb' as const,
+  })
+  const canonicalHtml = (href: string) =>
+    `<html><head><link rel="canonical" href="${href}"></head></html>`
+
+  it('untranslated-locale vacancy expects the DEFAULT-locale canonical (== x-default)', () => {
+    const route = esVacancyRoute(['es', 'pt'])
+    expect(() =>
+      assertCanonicalSelf(canonicalHtml('https://cheekycheese.tech/careers/a/'), route),
+    ).not.toThrow()
+    expect(() =>
+      assertCanonicalSelf(canonicalHtml('https://cheekycheese.tech/es/careers/a/'), route),
+    ).toThrow(/expected "https:\/\/cheekycheese\.tech\/careers\/a\/"/)
+    expect(computeAlternateHrefs('/careers/a', ['es', 'pt'])).toContain(
+      'https://cheekycheese.tech/careers/a/',
+    )
+  })
+
+  it('translated-locale vacancy stays self-canonical', () => {
+    const route = esVacancyRoute(['pt'])
+    expect(() =>
+      assertCanonicalSelf(canonicalHtml('https://cheekycheese.tech/es/careers/a/'), route),
+    ).not.toThrow()
+    expect(() =>
+      assertCanonicalSelf(canonicalHtml('https://cheekycheese.tech/careers/a/'), route),
+    ).toThrow()
+  })
+
   const ruCareersRoute = {
     url: '/ru/careers',
     file: 'ru/careers/index.html',
