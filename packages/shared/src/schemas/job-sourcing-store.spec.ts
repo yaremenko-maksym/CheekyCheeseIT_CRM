@@ -384,3 +384,257 @@ describe('team triage grants and subscriptions', () => {
     ).toBe(true)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Mutation-gate coverage: exact messages / paths / boundaries / output shapes.
+// ---------------------------------------------------------------------------
+
+const issuesOf = (r: { success: boolean; error?: { issues: readonly unknown[] } }) =>
+  (r.error?.issues ?? []).map((i) => {
+    const { code, message, path } = i as { code: string; message: string; path: unknown[] }
+    return { code, message, path }
+  })
+
+describe('mutation coverage: revision', () => {
+  const rev = {
+    id: U1,
+    sourceRecordId: U2,
+    adapterVersion: 'greenhouse@1',
+    normalizerVersion: 'norm@1',
+    contentHash: SHA,
+    descriptionSha256: SHA,
+    title: 'Senior Engineer',
+    companyName: 'Acme',
+    location: 'Kyiv',
+    applicationUrl: 'https://example.com/apply',
+    publishedAtRaw: 'yesterday',
+    publishedAt: null,
+    fieldProvenance: { title: U1 },
+    receivedSeq: 1,
+    receivedAt: NOW,
+  }
+
+  it('hash is anchored on both ends and carries its message', () => {
+    expect(jobSourceRevisionSchema.safeParse({ ...rev, contentHash: `g${SHA}` }).success).toBe(
+      false,
+    )
+    expect(jobSourceRevisionSchema.safeParse({ ...rev, contentHash: `${SHA}g` }).success).toBe(
+      false,
+    )
+    const bad = jobSourceRevisionSchema.safeParse({ ...rev, contentHash: 'zz' })
+    expect(issuesOf(bad)[0]?.message).toBe('must be 64 lowercase hex characters')
+  })
+
+  it('companyName / location accept ordinary values and are capped at 255 / 500', () => {
+    const parsed = jobSourceRevisionSchema.parse(rev)
+    expect(parsed.companyName).toBe('Acme')
+    expect(parsed.location).toBe('Kyiv')
+    expect(
+      jobSourceRevisionSchema.safeParse({ ...rev, companyName: 'c'.repeat(255) }).success,
+    ).toBe(true)
+    expect(
+      jobSourceRevisionSchema.safeParse({ ...rev, companyName: 'c'.repeat(256) }).success,
+    ).toBe(false)
+    expect(jobSourceRevisionSchema.safeParse({ ...rev, location: 'l'.repeat(500) }).success).toBe(
+      true,
+    )
+    expect(jobSourceRevisionSchema.safeParse({ ...rev, location: 'l'.repeat(501) }).success).toBe(
+      false,
+    )
+  })
+
+  it('field provenance holds at most 40 entries, with a message', () => {
+    const entries = (n: number) =>
+      Object.fromEntries(Array.from({ length: n }, (_, i) => [`f${i}`, U1]))
+    expect(
+      jobSourceRevisionSchema.safeParse({ ...rev, fieldProvenance: entries(40) }).success,
+    ).toBe(true)
+    const over = jobSourceRevisionSchema.safeParse({ ...rev, fieldProvenance: entries(41) })
+    expect(over.success).toBe(false)
+    expect(issuesOf(over).map((i) => i.message)).toContain('too many provenance entries')
+  })
+})
+
+describe('mutation coverage: collection report issues', () => {
+  const ok = {
+    sourceId: U1,
+    outcome: 'SUCCEEDED',
+    coverage: 'FULL_INVENTORY',
+    received: 10,
+    created: 4,
+    revised: 3,
+    unchanged: 1,
+    duplicates: 1,
+    invalid: 1,
+    persistenceErrors: 0,
+  }
+  it('a wrong disposition sum reports one custom issue on `received`', () => {
+    expect(issuesOf(jobCollectionReportSchema.safeParse({ ...ok, received: 11 }))).toEqual([
+      {
+        code: 'custom',
+        message: 'exactly one disposition per received item',
+        path: ['received'],
+      },
+    ])
+  })
+  it('a SUCCEEDED report with persistence errors reports one custom issue on `persistenceErrors`', () => {
+    expect(
+      issuesOf(jobCollectionReportSchema.safeParse({ ...ok, created: 3, persistenceErrors: 1 })),
+    ).toEqual([
+      {
+        code: 'custom',
+        message: 'a SUCCEEDED attempt cannot carry persistence errors',
+        path: ['persistenceErrors'],
+      },
+    ])
+  })
+})
+
+describe('mutation coverage: pages and duplicates', () => {
+  const sourceBase = {
+    items: [],
+    totalSourceCount: 3,
+    totalAlsoSeenOnCount: 2,
+    primarySourceRecordId: null,
+    relationVersion: 1,
+  }
+  it('nextCursor is capped at 300 on both pages and accepts ordinary cursors', () => {
+    const seniorPage = (nextCursor: string) =>
+      jobQueueSeniorPageSchema.safeParse({ items: [], totalMatchedSeniorCount: 0, nextCursor })
+    expect(seniorPage('abc').success).toBe(true)
+    expect(seniorPage('c'.repeat(300)).success).toBe(true)
+    expect(seniorPage('c'.repeat(301)).success).toBe(false)
+    const sourcePage = (nextCursor: string) =>
+      jobQueueSourcePageSchema.safeParse({ ...sourceBase, nextCursor })
+    expect(sourcePage('abc').success).toBe(true)
+    expect(sourcePage('c'.repeat(300)).success).toBe(true)
+    expect(sourcePage('c'.repeat(301)).success).toBe(false)
+  })
+  it('a wrong alsoSeenOn count reports its message on totalAlsoSeenOnCount', () => {
+    expect(
+      issuesOf(
+        jobQueueSourcePageSchema.safeParse({
+          ...sourceBase,
+          totalAlsoSeenOnCount: 3,
+          nextCursor: null,
+        }),
+      ),
+    ).toEqual([
+      {
+        code: 'custom',
+        message: 'totalAlsoSeenOnCount must equal max(totalSourceCount - 1, 0)',
+        path: ['totalAlsoSeenOnCount'],
+      },
+    ])
+  })
+  it('possible duplicate keeps its fields and bounds title 500 / companyName 255', () => {
+    const dup = { opportunityId: U2, title: 'Dev', companyName: 'Acme' }
+    const preview = (d: unknown) =>
+      jobPossibleDuplicatesPreviewSchema.safeParse({ items: [d], totalCount: 1 })
+    const parsed = jobPossibleDuplicatesPreviewSchema.parse({ items: [dup], totalCount: 1 })
+    expect(parsed.items).toEqual([dup])
+    expect(preview({ ...dup, companyName: 'c'.repeat(255) }).success).toBe(true)
+    expect(preview({ ...dup, companyName: 'c'.repeat(256) }).success).toBe(false)
+    expect(preview({ ...dup, title: 't'.repeat(500) }).success).toBe(true)
+    expect(preview({ ...dup, title: 't'.repeat(501) }).success).toBe(false)
+    expect(preview({ title: 'Dev', companyName: null }).success).toBe(false)
+  })
+  it('self-duplicate is rejected with its message on duplicateOpportunityId', () => {
+    expect(
+      issuesOf(
+        confirmPossibleDuplicateSchema.safeParse({
+          opportunityId: U1,
+          duplicateOpportunityId: U1,
+          expectedRelationVersion: 1,
+        }),
+      ),
+    ).toEqual([
+      {
+        code: 'custom',
+        message: 'an opportunity cannot be a duplicate of itself',
+        path: ['duplicateOpportunityId'],
+      },
+    ])
+  })
+})
+
+describe('mutation coverage: triage', () => {
+  const grant = {
+    opportunityId: U1,
+    teamId: U2,
+    expectedOpportunityRevision: 1,
+    policyVersion: 1,
+    reason: 'wrong team',
+    expiresAt: NOW,
+  }
+  it('reason is trimmed and a whitespace-only reason is rejected', () => {
+    expect(createJobQueueTeamTriageGrantSchema.parse({ ...grant, reason: '  why  ' }).reason).toBe(
+      'why',
+    )
+    expect(createJobQueueTeamTriageGrantSchema.safeParse({ ...grant, reason: '   ' }).success).toBe(
+      false,
+    )
+  })
+  it('roleFamily is trimmed, whitespace-only is rejected, and capped at 100', () => {
+    const s = {
+      teamId: U1,
+      roleFamily: 'backend',
+      sourceTypes: [],
+      policyVersion: 1,
+      expiresAt: NOW,
+      reason: 'standing triage',
+    }
+    expect(
+      createJobQueueTeamTriageSubscriptionSchema.parse({ ...s, roleFamily: '  backend  ' })
+        .roleFamily,
+    ).toBe('backend')
+    expect(
+      createJobQueueTeamTriageSubscriptionSchema.safeParse({ ...s, roleFamily: '   ' }).success,
+    ).toBe(false)
+    expect(
+      createJobQueueTeamTriageSubscriptionSchema.safeParse({ ...s, roleFamily: 'r'.repeat(100) })
+        .success,
+    ).toBe(true)
+  })
+  it('grant row round-trips every field and rejects a missing one', () => {
+    const row = {
+      id: U1,
+      opportunityId: U2,
+      teamId: U3,
+      assignedBy: U1,
+      policyVersion: 1,
+      opportunityRevision: 2,
+      grantVersion: 3,
+      evidence: { why: 'x' },
+      expiresAt: NOW,
+      revokedAt: null,
+      createdAt: NOW,
+    }
+    expect(jobQueueTeamTriageGrantSchema.parse(row)).toEqual(row)
+    expect(
+      jobQueueTeamTriageGrantSchema.safeParse({ ...row, grantVersion: undefined }).success,
+    ).toBe(false)
+  })
+  it('subscription row round-trips every field and rejects a missing one', () => {
+    const row = {
+      id: U1,
+      teamId: U2,
+      roleFamily: 'backend',
+      sourceTypes: ['DJINNI_RSS'],
+      policyVersion: 1,
+      subscriptionVersion: 2,
+      actorId: U3,
+      expiresAt: NOW,
+      revokedAt: null,
+      createdAt: NOW,
+    }
+    expect(jobQueueTeamTriageSubscriptionSchema.parse(row)).toEqual(row)
+    expect(
+      jobQueueTeamTriageSubscriptionSchema.safeParse({ ...row, actorId: undefined }).success,
+    ).toBe(false)
+    expect(
+      jobQueueTeamTriageSubscriptionSchema.safeParse({ ...row, roleFamily: 'r'.repeat(101) })
+        .success,
+    ).toBe(false)
+  })
+})
