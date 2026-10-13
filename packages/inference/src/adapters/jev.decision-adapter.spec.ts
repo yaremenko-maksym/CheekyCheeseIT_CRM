@@ -126,6 +126,19 @@ describe('createJevDecisionAdapter', () => {
     expect(await run([goodAnswers.fit])).toEqual({ ok: false, code: 'PROVIDER_ERROR' })
   })
 
+  it('rejects duplicate question ids before calling the provider (CR-M-9)', async () => {
+    const { fetchImpl, calls } = fakeFetch(envelope(goodAnswers))
+    const res = await createJevDecisionAdapter({ apiKey: 'k', fetchImpl }).decide({
+      state: {},
+      questions: [
+        { id: 'rem', kind: 'noul', instructions: 'Remote?' },
+        { id: 'rem', kind: 'noul', instructions: 'Onsite?' },
+      ],
+    })
+    expect(res).toEqual({ ok: false, code: 'INVALID_OUTPUT' })
+    expect(calls).toHaveLength(0)
+  })
+
   it('returns NOT_CONFIGURED for an empty apiKey without calling', async () => {
     const { fetchImpl, calls } = fakeFetch({})
     expect(await createJevDecisionAdapter({ apiKey: '', fetchImpl }).decide(req)).toEqual({

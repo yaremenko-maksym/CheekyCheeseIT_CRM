@@ -54,10 +54,15 @@ export const decisionAnswerSchema = z.discriminatedUnion('kind', [
 ])
 export type DecisionAnswer = z.infer<typeof decisionAnswerSchema>
 
-export const decisionRequestSchema = z.object({
-  state: z.unknown(),
-  questions: z.array(decisionQuestionSchema).min(1).max(MAX_DECISION_QUESTIONS),
-})
+export const decisionRequestSchema = z
+  .object({
+    state: z.unknown(),
+    questions: z.array(decisionQuestionSchema).min(1).max(MAX_DECISION_QUESTIONS),
+  })
+  .refine((req) => new Set(req.questions.map((q) => q.id)).size === req.questions.length, {
+    message: 'question ids must be unique',
+    path: ['questions'],
+  })
 export type DecisionRequest = z.infer<typeof decisionRequestSchema>
 
 export type DecisionResult =

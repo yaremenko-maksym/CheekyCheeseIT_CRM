@@ -144,6 +144,9 @@ export function createJevDecisionAdapter(cfg: JevDecisionConfig): DecisionPort {
   return {
     async decide(req: DecisionRequest): Promise<DecisionResult> {
       if (cfg.apiKey === '') return { ok: false, code: 'NOT_CONFIGURED' }
+      // The wire request is a map keyed by question id: duplicates would silently collapse.
+      if (new Set(req.questions.map((q) => q.id)).size !== req.questions.length)
+        return { ok: false, code: 'INVALID_OUTPUT' }
       const body = serializeBody(req)
       if (body === null) return { ok: false, code: 'PROVIDER_ERROR' }
 

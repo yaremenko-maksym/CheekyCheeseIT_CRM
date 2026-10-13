@@ -77,6 +77,15 @@ describe('decision contracts', () => {
     })
     expect(req.questions.map((q) => q.kind)).toEqual(['choice', 'score', 'noul'])
   })
+  it('rejects a request with two questions sharing an id (CR-M-9)', () => {
+    expect(() =>
+      decisionRequestSchema.parse({ state: {}, questions: [noulQ(1), noulQ(1)] }),
+    ).toThrow(/question ids must be unique/)
+  })
+  it('accepts a request whose question ids are all unique', () => {
+    const req = decisionRequestSchema.parse({ state: {}, questions: [noulQ(1), noulQ(2)] })
+    expect(req.questions.map((q) => q.id)).toEqual(['q1', 'q2'])
+  })
   it('accepts exactly 50 questions and rejects 51', () => {
     const mk = (n: number) => Array.from({ length: n }, (_, i) => noulQ(i))
     expect(decisionRequestSchema.parse({ state: {}, questions: mk(50) }).questions).toHaveLength(50)
