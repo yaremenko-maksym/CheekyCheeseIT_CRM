@@ -690,6 +690,317 @@ export const jobQueueTeamTriageSubscriptionSchema = z.object({
 })
 
 // ---------------------------------------------------------------------------
+// Collection machinery (r5 Task 1.2 part 2) — cycles, attempts, metering
+// ---------------------------------------------------------------------------
+//
+// These describe HOW a collection is driven, not what it found (that is
+// `jobCollectionReportSchema` above). The legacy one-unit `chargeBudget` path
+// and `jobSourceBudgetSchema` stay exactly as they are for DOU (A1h): the
+// meters below are the real-unit accounting the new sources need, and the two
+// never share a counter.
+
+/** What caused an occurrence: the cron, or a human pressing the button. */
+export const jobCollectionTriggerSchema = z.enum(['SCHEDULED', 'MANUAL'])
+
+/** A cycle is OPEN until every child run / work item is terminal or deferred. */
+export const jobCollectionCycleStatusSchema = z.enum(['OPEN', 'CLOSED'])
+
+/**
+ * A seeded row is a CANDIDATE config, not a verified one: HTTP 200 is not
+ * readiness (r5 Phase 3 common protocol). BLOCKED is a policy / credential
+ * refusal and is reported apart from `enabled` and from the paused admin state.
+ */
+export const jobSourceReadinessSchema = z.enum(['CANDIDATE', 'VERIFIED', 'BLOCKED'])
+
+/** Administrative state. RETIRED is a soft state: provenance is never deleted. */
+export const jobSourceAdminStateSchema = z.enum(['ACTIVE', 'PAUSED', 'RETIRED'])
+
+/**
+ * What a meter counts. Request / record / model units never share a counter
+ * (r5): TheirStack bills per returned record, JSearch per request, the HTML
+ * extractor per model call, OpenRouter in money.
+ */
+export const jobMeterUnitSchema = z.enum(['REQUEST', 'RECORD', 'MODEL_CALL', 'USD_MICROS'])
+
+/** LIFETIME meters never reset and are kept distinct from the rolling windows. */
+export const jobMeterWindowSchema = z.enum(['DAY', 'MONTH', 'LIFETIME'])
+
+/**
+ * RESERVED before any I/O; SENT once the request provably left; USED on
+ * exactly-once conversion; RELEASED only for provably unsent cost; UNCERTAIN
+ * held until reconciliation (a timeout may or may not have been billed).
+ */
+export const jobMeterReservationStatusSchema = z.enum([
+  'RESERVED',
+  'SENT',
+  'USED',
+  'RELEASED',
+  'UNCERTAIN',
+])
+
+/** The dirty producers r5 names: revisions, senior edits, exclusions, client changes. */
+export const jobDirtyWorkEntityKindSchema = z.enum([
+  'SOURCE_RECORD',
+  'OPPORTUNITY',
+  'SENIOR',
+  'EXCLUSION',
+  'PROJECT_CLIENT',
+])
+
+/** DEFERRED is terminal for cycle-closing purposes, not a failure. */
+export const jobDirtyWorkStatusSchema = z.enum(['PENDING', 'CLAIMED', 'DONE', 'FAILED', 'DEFERRED'])
+
+/** A stable attempt id: it survives retries, so a retry re-uses the reservation. */
+const attemptIdSchema = z.string().min(1).max(200)
+
+/**
+ * An account identity that carries NO secrets: a short lowercase id, never a
+ * key, a token or a URL with credentials. The same shape the database CHECK
+ * enforces (`ck_job_account_meters_account_key_format`), so an identity that
+ * parses here is accepted there.
+ */
+export const jobAccountKeySchema = z
+  .string()
+  .regex(/^[a-z0-9][a-z0-9._:-]{0,99}$/, 'must be a short lowercase account id without secrets')
+
+/**
+ * One account meter. `limit` NULL = no published limit — the single value that
+ * means that, exactly as on `jobSourceBudgetSchema` above.
+ *
+ * `remaining` is derived, not stored: `limit - (used + reserved + uncertain)`.
+ */
+export const jobAccountMeterSchema = z
+  .object({
+    id: z.string().uuid(),
+    accountKey: jobAccountKeySchema,
+    unit: jobMeterUnitSchema,
+    window: jobMeterWindowSchema,
+    limit: z.number().int().nonnegative().nullable(),
+    used: countSchema,
+    reserved: countSchema,
+    uncertain: countSchema,
+    /** `null` for a LIFETIME meter, which has no window to start. */
+    windowStartedAt: z.string().datetime().nullable(),
+    /** `null` when unlimited OR when the meter is LIFETIME (it never resets). */
+    resetsAt: z.string().datetime().nullable(),
+    policyVersion: z.number().int().positive(),
+  })
+  .superRefine((m, ctx) => {
+    if (m.limit !== null && m.used + m.reserved + m.uncertain > m.limit) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'used + reserved + uncertain may not exceed the limit',
+        path: ['used'],
+      })
+    }
+    if (m.window === 'LIFETIME' && (m.resetsAt !== null || m.windowStartedAt !== null)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'a LIFETIME meter never resets and has no window start',
+        path: ['window'],
+      })
+    }
+  })
+
+/** One reservation against a meter, keyed by its attempt so a retry is idempotent. */
+export const jobMeterReservationSchema = z
+  .object({
+    id: z.string().uuid(),
+    meterId: z.string().uuid(),
+    attemptId: attemptIdSchema,
+    /** `null` for a reservation that is not a collection attempt (e.g. a model call). */
+    runId: z.string().uuid().nullable(),
+    /** Every reservation carries its cycle (r5): reservations are taken before spawn. */
+    cycleId: z.string().uuid(),
+    status: jobMeterReservationStatusSchema,
+    /** Worst-case cost reserved up front. */
+    amount: z.number().int().positive(),
+    /** Cost provably converted to `used`; never more than was reserved. */
+    usedAmount: countSchema,
+    reservedAt: z.string().datetime(),
+    sentAt: z.string().datetime().nullable(),
+    settledAt: z.string().datetime().nullable(),
+  })
+  .superRefine((r, ctx) => {
+    if (r.usedAmount > r.amount) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'used cost may not exceed the reserved amount',
+        path: ['usedAmount'],
+      })
+    }
+    if (r.status === 'RELEASED' && r.usedAmount !== 0) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'only provably unsent cost may be released',
+        path: ['usedAmount'],
+      })
+    }
+    if (r.status !== 'RESERVED' && r.status !== 'RELEASED' && r.sentAt === null) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'a request that left must carry its send instant',
+        path: ['sentAt'],
+      })
+    }
+  })
+
+/** One trigger occurrence. `triggerKey` is the dedupe key across replicas. */
+export const jobCollectionCycleSchema = z
+  .object({
+    id: z.string().uuid(),
+    trigger: jobCollectionTriggerSchema,
+    /** Schedule slot for SCHEDULED, the client request id for MANUAL. */
+    triggerKey: z.string().min(1).max(200),
+    /** The ADMIN who pressed the button; `null` for the cron. */
+    requestedBy: z.string().uuid().nullable(),
+    /** Shared HTML call budget for this occurrence — 20 across all HTML providers. */
+    htmlCallReservation: z.number().int().positive(),
+    status: jobCollectionCycleStatusSchema,
+    startedAt: z.string().datetime(),
+    closedAt: z.string().datetime().nullable(),
+  })
+  .superRefine((c, ctx) => {
+    if ((c.trigger === 'MANUAL') !== (c.requestedBy !== null)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'a MANUAL cycle names its actor; a SCHEDULED cycle has none',
+        path: ['requestedBy'],
+      })
+    }
+    if ((c.status === 'CLOSED') !== (c.closedAt !== null)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'a CLOSED cycle carries its closing instant',
+        path: ['closedAt'],
+      })
+    }
+  })
+
+/**
+ * One collection attempt. This is the run/cycle gap `jobCollectionReportSchema`
+ * does not cover: the report says what an attempt found, this says who owned
+ * it, under which versions, and where it got to.
+ */
+export const jobCollectionAttemptSchema = z
+  .object({
+    id: z.string().uuid(),
+    sourceId: z.string().uuid(),
+    cycleId: z.string().uuid(),
+    /** Stable across retries: UNIQUE(source, attemptId) in the database. */
+    attemptId: attemptIdSchema,
+    /** A change here invalidates the checkpoint — it belongs to the old config. */
+    configVersion: z.number().int().positive(),
+    adapterVersion: z.string().min(1).max(100),
+    trigger: jobCollectionTriggerSchema,
+    outcome: jobCollectionOutcomeSchema,
+    coverage: jobCollectionCoverageSchema,
+    /** Who holds the run. Present exactly while the run is STARTED. */
+    ownerToken: z.string().min(1).max(200).nullable(),
+    /** Monotonic epoch: a write from a fenced-out owner is refused. */
+    fencingEpoch: z.number().int().positive(),
+    leaseExpiresAt: z.string().datetime().nullable(),
+    startedAt: z.string().datetime(),
+    endedAt: z.string().datetime().nullable(),
+    /** Typed and sanitized — never a provider secret, never a raw upstream body. */
+    errorCode: z.string().max(100).nullable(),
+    errorMessage: z.string().max(500).nullable(),
+  })
+  .superRefine((a, ctx) => {
+    if ((a.outcome === 'STARTED') !== (a.endedAt === null)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'a terminal attempt carries its end instant; a running one does not',
+        path: ['endedAt'],
+      })
+    }
+    if (a.outcome === 'STARTED' && (a.ownerToken === null || a.leaseExpiresAt === null)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'a running attempt is owned under a lease',
+        path: ['ownerToken'],
+      })
+    }
+  })
+
+/**
+ * Operational health of one source. Deliberately a SEPARATE schema rather than
+ * fields added to `jobSourceSchema`: that DTO is already on the wire, and
+ * disabled / paused / readiness-blocked are three distinct states (r5 6.5, 7.5)
+ * that an existing client must not have to understand to keep parsing.
+ */
+export const jobSourceHealthSchema = z
+  .object({
+    sourceId: z.string().uuid(),
+    /** `null` until Task 3.7 backfills the stable manifest identity (C-16). */
+    manifestId: z.string().max(100).nullable(),
+    namespace: z.string().max(200),
+    manifestVersion: z.number().int().positive(),
+    policyVersion: z.number().int().positive(),
+    configVersion: z.number().int().positive(),
+    readiness: jobSourceReadinessSchema,
+    readinessReason: z.string().max(500).nullable(),
+    adminState: jobSourceAdminStateSchema,
+    lastAttemptAt: z.string().datetime().nullable(),
+    lastSuccessAt: z.string().datetime().nullable(),
+    /** Last attempt that returned at least one record — a SUCCEEDED attempt may return none. */
+    lastNonemptyAt: z.string().datetime().nullable(),
+    nextAttemptAt: z.string().datetime().nullable(),
+    cooldownUntil: z.string().datetime().nullable(),
+    consecutiveFailures: countSchema,
+    lastErrorCode: z.string().max(100).nullable(),
+    lastErrorMessage: z.string().max(500).nullable(),
+  })
+  .superRefine((s, ctx) => {
+    if (s.readiness === 'BLOCKED' && s.readinessReason === null) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'a BLOCKED source states why',
+        path: ['readinessReason'],
+      })
+    }
+  })
+
+/** One durable unit of recompute work, keyed so a producer can enqueue idempotently. */
+export const jobDirtyWorkItemSchema = z
+  .object({
+    id: z.string().uuid(),
+    entityKind: jobDirtyWorkEntityKindSchema,
+    entityId: z.string().uuid(),
+    /** The version the worker must reach before installing output. */
+    targetVersion: z.number().int().positive(),
+    /** UNIQUE(entityKind, entityId, targetVersion, reason) in the database. */
+    reason: z.string().min(1).max(100),
+    status: jobDirtyWorkStatusSchema,
+    claimOwner: z.string().min(1).max(200).nullable(),
+    claimedAt: z.string().datetime().nullable(),
+    leaseExpiresAt: z.string().datetime().nullable(),
+    fencingEpoch: z.number().int().positive(),
+    retryCount: countSchema,
+    cycleId: z.string().uuid().nullable(),
+    lastErrorCode: z.string().max(100).nullable(),
+    createdAt: z.string().datetime(),
+    completedAt: z.string().datetime().nullable(),
+  })
+  .superRefine((w, ctx) => {
+    if ((w.status === 'CLAIMED') !== (w.claimOwner !== null && w.leaseExpiresAt !== null)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'a CLAIMED item is owned under a lease, and only a CLAIMED item is',
+        path: ['claimOwner'],
+      })
+    }
+    const terminal = w.status === 'DONE' || w.status === 'FAILED' || w.status === 'DEFERRED'
+    if (terminal !== (w.completedAt !== null)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'a terminal item (DONE / FAILED / DEFERRED) carries its completion instant',
+        path: ['completedAt'],
+      })
+    }
+  })
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -748,3 +1059,19 @@ export type RevokeJobQueueTeamTriageSubscriptionDto = z.infer<
   typeof revokeJobQueueTeamTriageSubscriptionSchema
 >
 export type JobQueueTeamTriageSubscriptionDto = z.infer<typeof jobQueueTeamTriageSubscriptionSchema>
+export type JobCollectionTrigger = z.infer<typeof jobCollectionTriggerSchema>
+export type JobCollectionCycleStatus = z.infer<typeof jobCollectionCycleStatusSchema>
+export type JobSourceReadiness = z.infer<typeof jobSourceReadinessSchema>
+export type JobSourceAdminState = z.infer<typeof jobSourceAdminStateSchema>
+export type JobMeterUnit = z.infer<typeof jobMeterUnitSchema>
+export type JobMeterWindow = z.infer<typeof jobMeterWindowSchema>
+export type JobMeterReservationStatus = z.infer<typeof jobMeterReservationStatusSchema>
+export type JobDirtyWorkEntityKind = z.infer<typeof jobDirtyWorkEntityKindSchema>
+export type JobDirtyWorkStatus = z.infer<typeof jobDirtyWorkStatusSchema>
+export type JobAccountKey = z.infer<typeof jobAccountKeySchema>
+export type JobAccountMeterDto = z.infer<typeof jobAccountMeterSchema>
+export type JobMeterReservationDto = z.infer<typeof jobMeterReservationSchema>
+export type JobCollectionCycleDto = z.infer<typeof jobCollectionCycleSchema>
+export type JobCollectionAttemptDto = z.infer<typeof jobCollectionAttemptSchema>
+export type JobSourceHealthDto = z.infer<typeof jobSourceHealthSchema>
+export type JobDirtyWorkItemDto = z.infer<typeof jobDirtyWorkItemSchema>

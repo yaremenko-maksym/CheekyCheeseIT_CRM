@@ -370,3 +370,78 @@ export const jobOpportunityLinkDecisionEnum = pgEnum('job_opportunity_link_decis
   'AUTO',
   'CONFIRMED',
 ])
+
+// r5 Task 1.2 (part 2) — the collection machinery. Every one of these mirrors a
+// shared zod enum member for member and in order; the parity is asserted from
+// both sides in job-collection-schema.spec.ts, which is why the member lists
+// below carry no individual Stryker suppressions: a mutated member dies there.
+
+export const jobCollectionTriggerEnum = pgEnum('job_collection_trigger', ['SCHEDULED', 'MANUAL'])
+
+export const jobCollectionOutcomeEnum = pgEnum('job_collection_outcome', [
+  'STARTED',
+  'PARTIAL',
+  'SUCCEEDED',
+  'FAILED',
+  'CANCELLED',
+])
+
+export const jobCollectionCoverageEnum = pgEnum('job_collection_coverage', [
+  'FULL_INVENTORY',
+  'WINDOW',
+  'PARTIAL',
+])
+
+export const jobCollectionCycleStatusEnum = pgEnum('job_collection_cycle_status', [
+  'OPEN',
+  'CLOSED',
+])
+
+/** A seeded config is a CANDIDATE; HTTP 200 is not readiness (r5 Phase 3). */
+export const jobSourceReadinessEnum = pgEnum('job_source_readiness', [
+  'CANDIDATE',
+  'VERIFIED',
+  'BLOCKED',
+])
+
+/** RETIRED is soft: provenance is never deleted by removing a source (r5). */
+export const jobSourceAdminStateEnum = pgEnum('job_source_admin_state', [
+  'ACTIVE',
+  'PAUSED',
+  'RETIRED',
+])
+
+/** Request / record / model units never share a counter (r5). */
+export const jobMeterUnitEnum = pgEnum('job_meter_unit', [
+  'REQUEST',
+  'RECORD',
+  'MODEL_CALL',
+  'USD_MICROS',
+])
+
+/** LIFETIME is distinct from the rolling DAY / MONTH windows and never resets. */
+export const jobMeterWindowEnum = pgEnum('job_meter_window', ['DAY', 'MONTH', 'LIFETIME'])
+
+export const jobMeterReservationStatusEnum = pgEnum('job_meter_reservation_status', [
+  'RESERVED',
+  'SENT',
+  'USED',
+  'RELEASED',
+  'UNCERTAIN',
+])
+
+export const jobDirtyWorkEntityKindEnum = pgEnum('job_dirty_work_entity_kind', [
+  'SOURCE_RECORD',
+  'OPPORTUNITY',
+  'SENIOR',
+  'EXCLUSION',
+  'PROJECT_CLIENT',
+])
+
+export const jobDirtyWorkStatusEnum = pgEnum('job_dirty_work_status', [
+  'PENDING',
+  'CLAIMED',
+  'DONE',
+  'FAILED',
+  'DEFERRED',
+])

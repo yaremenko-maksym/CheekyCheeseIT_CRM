@@ -4,6 +4,8 @@
 import { isNull, relations, sql } from 'drizzle-orm'
 import {
   boolean,
+  check,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -19,11 +21,14 @@ import {
   jobQueueStatusEnum,
   jobSeniorityEnum,
   jobSignalKindEnum,
+  jobSourceAdminStateEnum,
   jobSourceBudgetWindowEnum,
+  jobSourceReadinessEnum,
   jobSourceTriggerModeEnum,
   jobSourceTypeEnum,
   jobSuggestionStatusEnum,
 } from './enums'
+import { jobAccountMeters } from './job-metering'
 import { users } from './users'
 
 // ---------------------------------------------------------------------------
@@ -85,13 +90,132 @@ export const jobSources = pgTable(
     /** Why the source was switched off (auto-disable on 403, or by an admin). */
     disabledReason: text('disabled_reason'),
 
+    // --- stable identity and versioning (r5 Task 1.2, correction C-16) -------
+    //
+    // The seed identity TODAY is the `(type, config)` pair below, which is why
+    // editing a config silently creates a DIFFERENT source instead of a new
+    // version of the same one. `manifest_id` is the durable identity that
+    // replaces it.
+    //
+    // NULLABLE, and that is the whole point: the 2026-10-05 seed files are
+    // immutable (C-16) and carry no manifest id, so a NOT NULL column — even
+    // with a default — would either make the seed unappliable or invent an
+    // identity for sixteen rows nobody has verified. Task 3.7 backfills real
+    // ids from the typed manifest; until then NULL means "not yet claimed",
+    // and the partial UNIQUE below keeps the claimed ones distinct.
+    manifestId: text('manifest_id'),
+    /** Board / account scope (an ATS company slug); '' for global providers — never NULL. */
+    namespace: text('namespace').notNull().default(''),
+    /** Which manifest entry revision this row was provisioned from. */
+    manifestVersion: integer('manifest_version').notNull().default(1),
+    /** Policy (limits, cooldowns, coverage rules) frozen under this version. */
+    policyVersion: integer('policy_version').notNull().default(1),
+    /**
+     * Bumped on every change to `config`. A CHECKPOINT BELONGS TO ITS CONFIG
+     * VERSION: `job_collection_runs.config_version` records the version a
+     * checkpoint was taken under, so a bump here invalidates every stored
+     * checkpoint without deleting the run history that proves it existed.
+     */
+    configVersion: integer('config_version').notNull().default(1),
+
+    // --- real-unit account metering (r5 Task 1.2 / 3.7) ---------------------
+    //
+    // Several sources can share ONE account (the three seeded JSearch queries
+    // bill against a single RapidAPI key), so the counter lives on the meter,
+    // not here. The legacy `budget_*` columns above stay for DOU (r5 A1h) and
+    // the two never share a counter.
+    accountMeterId: uuid('account_meter_id'),
+
+    // --- readiness and administrative state ---------------------------------
+    //
+    // `enabled`, the admin state and readiness are THREE separate states
+    // (r5 6.5 / 7.5): a source can be switched on, not paused, and still
+    // unusable because its credentials were never verified. HTTP 200 is not
+    // readiness, and the sixteen seeded rows are candidates, not verified
+    // configs (C-16).
+    readiness: jobSourceReadinessEnum('readiness').notNull().default('CANDIDATE'),
+    /** Typed reason a source is readiness-BLOCKED (policy / credential / contract). */
+    readinessReason: text('readiness_reason'),
+    adminState: jobSourceAdminStateEnum('admin_state').notNull().default('ACTIVE'),
+    /**
+     * Append-only JSON array of administrative transitions. "Never delete
+     * provenance by removing a source" (r5): retiring is a state recorded here,
+     * never a DELETE — and `job_collection_runs` holds a RESTRICT foreign key
+     * to make that mechanical rather than advisory.
+     */
+    adminStateHistory: jsonb('admin_state_history')
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+
+    // --- attempt history and cooldown ---------------------------------------
+    lastAttemptAt: timestamp('last_attempt_at', { withTimezone: true }),
+    lastSuccessAt: timestamp('last_success_at', { withTimezone: true }),
+    /**
+     * Last attempt that returned at least one record — kept APART from
+     * `last_success_at` because a SUCCEEDED attempt may legitimately carry zero
+     * items, and "succeeding and finding nothing for a week" is the symptom
+     * only this column can show.
+     */
+    lastNonemptyAt: timestamp('last_nonempty_at', { withTimezone: true }),
+    nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }),
+    cooldownUntil: timestamp('cooldown_until', { withTimezone: true }),
+    consecutiveFailures: integer('consecutive_failures').notNull().default(0),
+    /** Typed classification from a documented status / error code, never page text. */
+    lastErrorCode: text('last_error_code'),
+    /** Sanitized sentence — never a provider secret, never a raw upstream body. */
+    lastErrorMessage: text('last_error_message'),
+
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [
     // One row per (type, settings) pair — re-seeding the same source is a
-    // no-op instead of silently doubling every collection run.
+    // no-op instead of silently doubling every collection run. KEPT: the
+    // immutable seed's `ON CONFLICT (type, config) DO NOTHING` targets this
+    // constraint by name, so dropping it would break re-application.
     unique('uq_job_sources_type_config').on(t.type, t.config),
+    // Unique only WHERE PRESENT: every unclaimed row holds NULL, and a plain
+    // UNIQUE would be satisfied by those NULLs anyway — the partial index says
+    // so explicitly instead of relying on that reading.
+    uniqueIndex('uq_job_sources_manifest_id')
+      .on(t.manifestId)
+      .where(sql`${t.manifestId} IS NOT NULL`),
+    foreignKey({
+      name: 'fk_job_sources_account_meter',
+      columns: [t.accountMeterId],
+      foreignColumns: [jobAccountMeters.id],
+      // SET NULL, not RESTRICT: retiring a provider account must not pin the
+      // source row. The spend history lives on the meter's reservations.
+    }).onDelete('set null'),
+    index('idx_job_sources_account_meter').on(t.accountMeterId),
+    // The cron's scan: which sources are due.
+    index('idx_job_sources_next_attempt').on(t.nextAttemptAt),
+    // Same shape as the account key: a short lowercase id, no secrets, no URL.
+    check(
+      'ck_job_sources_manifest_id_format',
+      sql`${t.manifestId} IS NULL OR ${t.manifestId} ~ '^[a-z0-9][a-z0-9._:-]{0,99}$'`,
+    ),
+    check(
+      'ck_job_sources_versions_positive',
+      sql`${t.manifestVersion} > 0 AND ${t.policyVersion} > 0 AND ${t.configVersion} > 0`,
+    ),
+    check('ck_job_sources_consecutive_failures_nonneg', sql`${t.consecutiveFailures} >= 0`),
+    // A source nobody may collect from says why — otherwise the ADMIN screen
+    // can only show "blocked" with no way to act on it.
+    check(
+      'ck_job_sources_blocked_has_reason',
+      sql`${t.readiness} <> 'BLOCKED' OR ${t.readinessReason} IS NOT NULL`,
+    ),
+    check(
+      'ck_job_sources_last_error_bounded',
+      sql`${t.lastErrorMessage} IS NULL OR length(${t.lastErrorMessage}) <= 500`,
+    ),
+    // History is an ARRAY: an object or a scalar here would silently become a
+    // one-entry "history" that no append can extend.
+    check(
+      'ck_job_sources_admin_state_history_array',
+      sql`jsonb_typeof(${t.adminStateHistory}) = 'array'`,
+    ),
   ],
 )
 
