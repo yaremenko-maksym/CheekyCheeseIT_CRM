@@ -1,6 +1,6 @@
 ---
 name: ua-crypto-compliance
-description: When the Legal agent advises on USDT / crypto payouts in CRM Phase 8 (smart contracts) or when reviewing PRs touching wallets/transactions. UA-specific snapshot — Law 2074-IX status (NOT in force, awaiting 10225-d), AML thresholds (Law 361-IX), the State Tax Service ban on crypto under the Single Tax. Use in Mode A consultation about the crypto channel + Mode B PR-review.
+description: 'Use when Legal advises on USDT/crypto payouts (Phase 8 smart contracts) or reviews a PR touching wallets/transactions. UA snapshot: Law 2074-IX status, AML thresholds, Single Tax crypto ban. Modes A and B.'
 when_to_use: "Use when Legal advises on USDT / crypto payouts (Phase 8 smart contracts) or reviews a PR touching wallets/transactions. Examples: 'can we pay in USDT', 'VASP license', 'AML thresholds', 'is crypto banned under the Single Tax?', 'status of law 2074-IX', 'PR touches walletAddress/smart-contract'."
 allowed-tools:
   - Read

@@ -1,6 +1,6 @@
 ---
 name: resolving-merge-conflicts
-description: 'Resolving conflicts of an in-progress merge/rebase by the INTENT of each side, traced to the primary source (commit, PR, task), not by picking lines. Hunk by hunk, preserving both intents where possible; incompatible ones — in favor of the stated goal of the merge, with the compromise recorded. Never --abort: the operation is always carried to the end.'
+description: "Use when a merge or rebase is already in conflict, or a stacked PR must be rebased onto a squashed base. Resolve hunk by hunk by each side's intent traced to its commit/PR/task; never --abort, carry the operation to the end."
 when_to_use: "Use when a merge or rebase is already in conflict, or a stacked PR needs rebasing onto a squashed base. Examples: 'conflict during rebase', 'CONFLICT (content)', 'the base collapsed into a squash, the stack fell off', 'which side to take', 'git status shows unmerged paths'."
 allowed-tools:
   - Read

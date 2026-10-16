@@ -1,6 +1,6 @@
 ---
 name: decomposing-large-code
-description: "A reproducible discipline for safely splitting giant files and modules: the Mikado Method (goal → naive attempt → revert at the first blocker → prerequisite node into the graph → recursion down to the leaves) on top of Michael Feathers' characterization tests. Execution by leaves bottom-up, each leaf an atomic PR, the base always green. Behavior-preserving: zero changes to observable behavior."
+description: 'Use when about to split a giant file or module (>800 lines, god file) whose seam is already chosen via codebase-design. Mikado Method + characterization tests, leaves bottom-up, one atomic PR per leaf, behavior-preserving.'
 when_to_use: "Use when about to split a giant file or module whose seam is already chosen (via codebase-design): a >800-line service/route/component, a god file, a module that is 'too big'. Examples: 'split a giant file', 'decompose god file', 'split of a module >800 lines', 'transactions.service.ts is too big', 'this file is too big to edit safely', 'split schema.ts', 'how to safely cut up UserDialog.tsx'."
 allowed-tools:
   - Read

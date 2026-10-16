@@ -1,6 +1,6 @@
 ---
 name: decision-frontier
-description: "Autonomous version of a grilling session: the agent builds the task's decision tree itself, extinguishes each branch with facts from the repository, and classifies only the irreducible remainder by autonomy levels A1/A2/A3. The reversible it decides itself on the record, the irreversible it accumulates into a decision brief. Replaces interviewing the owner where the owner is unavailable."
+description: "Use when an agent hits a fork it cannot resolve from the task file, or is about to write '.blocked.md' or ask the owner. Builds the decision tree, resolves branches from repo facts, classifies the rest A1/A2/A3 and batches questions into a decision brief."
 when_to_use: "Use when an agent hits a fork it cannot resolve from the task file: Master task decomposition, a Coder facing an unspecified case, any agent about to write '.blocked.md' or ask the owner. Examples: 'unclear which of the two options to do', 'the task does not describe the edge-case', 'I want to ask the owner', 'gather questions into one batch', 'what decisions are there even here', 'does this need to be blocked'."
 allowed-tools:
   - Read

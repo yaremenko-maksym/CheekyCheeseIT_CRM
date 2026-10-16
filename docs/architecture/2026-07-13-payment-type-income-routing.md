@@ -16,7 +16,7 @@ key Decision items.
 The owner's contract (FIXED):
 
 1. **Project payment type** → enum FOP / gig-contract / USDT (currently `projects.paymentType` —
-   a free `varchar(100)`, `schema.ts:299`). Changed by ADMIN + ACCOUNTANT (field-scoped RBAC like
+   a free `varchar(100)`, `schema.ts`). Changed by ADMIN + ACCOUNTANT (field-scoped RBAC like
    `seniorSharePercentOverride`). Data migration: all existing → FOP, GamingTec → USDT (dev + prod).
 2. **Declaration gate by payment type:** FOP/gig — SENIOR/DROP declare their incomes as
    now, without a receiver selector. USDT — ONLY ADMINs declare; a mandatory receiver:
@@ -33,25 +33,25 @@ The feature splits into **Part A** (per-project drop override — standalone, fe
 
 ### The existing money model (verified by the code — the foundation of the decisions)
 
-- **Company-account ledger** (`company-account-balance.ts:21-45`, the single SSOT of the balance):
+- **Company-account ledger** (`company-account-balance.ts`, the single SSOT of the balance):
   `+ COMPANY_DEPOSIT(PAID,USDT)  + PAYOUT(PAID, funding=COMPANY_ACCOUNT)  + ADMIN_INCOME(PAID,
 funding=COMPANY_ACCOUNT)  − DIVIDEND_TO_ADMIN  − SALARY(COMPANY_ACCOUNT)  − EXPENSE(COMPANY_ACCOUNT)
 − SENIOR_INCOME(COMPANY_ACCOUNT)`. All USDT. **`PAYOUT_DROP` is absent from the ledger** (the drop-slice
   was never a debt of the company).
-- **`ADMIN_INCOME`** (`transactions.service.ts:961-1053`): created immediately `PAID` (without validation),
+- **`ADMIN_INCOME`** (`transactions.service.ts`): created immediately `PAID` (without validation),
   `fundingSource` routes: `COMPANY_ACCOUNT` → credit of the pool (USDT-forced, excluded from the admin's personal
-  balance in `getSummary:3056`); `null` → credit of the receiverId admin personally. `totalIncome`
-  (`getSummary:2996`) counts ALL `ADMIN_INCOME` as gross.
+  balance in `getSummary`); `null` → credit of the receiverId admin personally. `totalIncome`
+  (`getSummary`) counts ALL `ADMIN_INCOME` as gross.
 - **The IOU "the company owes X"** — is born in the `applyPayoutPaidCascade` drop-branch
-  (`transactions.service.ts:2760-2804`): `SENIOR_PENDING_PAYOUT` (PENDING_PAYMENT, a visible-row) +
+  (`transactions.service.ts`): `SENIOR_PENDING_PAYOUT` (PENDING_PAYMENT, a visible-row) +
   `pending_obligations` (creditor=senior, `debtorType='COMPANY'`, `sourceTransactionId`=the IOU-row).
   `pending_obligations` does **NOT** store the creditor's role — the IOU type is resolved via the source transaction.
-- **Settle** (`pending-settlement.service.ts:151-345`, `settleByCompany`): an atomic
+- **Settle** (`pending-settlement.service.ts`, `settleByCompany`): an atomic
   conditional-UPDATE PENDING→PAID (anti-double-settle, TOCTOU-safe), **hardcodes the insert of
   `SENIOR_INCOME`(PAID)** + the trigger `autoCreateForSeniorPayout` (gate `type==='SENIOR_INCOME'`,
-  `invoices.service.ts:147`). Funding at pay-time: `COMPANY_ACCOUNT` (debit of the pool, balance gate) |
+  `invoices.service.ts`). Funding at pay-time: `COMPANY_ACCOUNT` (debit of the pool, balance gate) |
   `ADMIN_PERSONAL` (sender=admin, the pool is not touched; only USD/USDT — BIZ-03).
-- **Drop balance** = `Σ PAYOUT_DROP received − sent` (`computeDropAggregate:593-598`). The only
+- **Drop balance** = `Σ PAYOUT_DROP received − sent` (`computeDropAggregate`). The only
   type crediting the drop's balance.
 - **The senior-share resolver** (`senior-share-resolver.ts`): project override → single-team → user
   (26). The drop has NO team level (`projects.dropId` — a direct link, not via a team).
@@ -81,7 +81,7 @@ override-aware). The receiver — ADMIN X **or** the "company account".
 **Consistency invariant:** the funding choice at settle is tied to where the gross arrived.
 receiver=pool → settle from `COMPANY_ACCOUNT`; receiver=ADMIN X → settle `ADMIN_PERSONAL`(payer=X).
 This is **not** hard-enforced (mirroring the existing manual model), but it sets up the default and is
-protected by the balance gate (`settleByCompany:276` throws "Insufficient funds"). MED — see Q3.
+protected by the balance gate (`settleByCompany` throws "Insufficient funds"). MED — see Q3.
 
 ### D1. `paymentType` free-text → enum — **Confidence: HIGH**
 
@@ -90,15 +90,15 @@ protected by the balance gate (`settleByCompany:276` throws "Insufficient funds"
 - pgEnum `project_payment_type` in `schema.ts`; `projects.paymentType` → `project_payment_type
 NOT NULL DEFAULT 'FOP'`.
 - Field-scoped RBAC in `createProjectSchema`/`updateProjectSchema` + `projects.service.ts`
-  create/update — the pattern 1:1 with `seniorSharePercentOverride` (`:610-618`, `:739-747`): only
+  create/update — the pattern 1:1 with `seniorSharePercentOverride` (): only
   ADMIN/ACCOUNTANT can send the field, otherwise `ForbiddenException`; the ACCOUNTANT `hasOnlyOverride` branch
   is extended to `paymentType`.
-- `mapProject` (`:196-209`) returns `paymentType` in the DTO (do not mask — not PII; but a JUNIOR masking
+- `mapProject` () returns `paymentType` in the DTO (do not mask — not PII; but a JUNIOR masking
   at the owner's taste — see Q5).
 
 ### D2. The declaration gate by payment type (bidirectional) — **Confidence: HIGH**
 
-- `createSeniorIncome` / `createDropIncome` (`:1069`, `:1151`): add a check — if
+- `createSeniorIncome` / `createDropIncome` (): add a check — if
   `project.paymentType === 'USDT'` → `ForbiddenException('On a USDT project the income is declared by an
 administrator')`. The FOP/GIG lifecycle does NOT change.
 - The new admin-USDT method (D3): reject if `project.paymentType !== 'USDT'`.
@@ -115,7 +115,7 @@ administrator')`. The FOP/GIG lifecycle does NOT change.
   the ledger + `getSummary` + `totalIncome` are already integrated → **zero churn** across the exhaustive maps /
   summary / ledger for the income-row.
 - A new enum-type for the income-row would give a huge blast-radius (every ledger term, every
-  summary, `Record<TransactionType>` in `constants.ts:4,:67`, the dialog ICON/DESC maps, invoices) without
+  summary, `Record<TransactionType>` in `constants.ts`, the dialog ICON/DESC maps, invoices) without
   a gain — the money semantics are identical to `ADMIN_INCOME`.
 
 **A separate method**, NOT an edit of `createAdminIncome` (regression-safe): `declareUsdtProjectIncome`
@@ -137,14 +137,14 @@ administrator')`. The FOP/GIG lifecycle does NOT change.
   `project.dropSharePercentOverride ?? user.dropSharePercent ?? 5`, source `'PROJECT'|'USER_DEFAULT'`.
   Used BOTH in the admin-USDT obligation math AND in the DROP_INCOME snapshot (Part A).
 - **Extract a shared helper** `bookCompanyObligations(dbtx, {project, income, senior, drop})` from
-  `applyPayoutPaidCascade:2760-2804` (the senior IOU) + add a drop branch. Reuse in both
+  `applyPayoutPaidCascade` (the senior IOU) + add a drop branch. Reuse in both
   call-sites (drop-payout cascade AND admin-USDT) → no ledger drift.
 - The senior-share on GROSS via `resolveSeniorShareSnapshot` (project/team-aware), only if
   `senior.role !== 'ADMIN'`. The drop-share on GROSS via `resolveDropShare`, only if
   `project.dropId != null`. Snapshot of the shares+source on the IOU-rows.
 - **`DROP_PENDING_PAYOUT`** — a new enum-value (M1 already laid it into Zod). In `schema.ts`
   add `transactionTypeEnum` LAST (after `COMPANY_DEPOSIT`) — a clean `ALTER TYPE ADD
-VALUE`. Mandatory follow-up: `constants.ts` `TYPE_LABELS`(`:4`)+`TYPE_COLORS`(`:67`) —
+VALUE`. Mandatory follow-up: `constants.ts` `TYPE_LABELS`()+`TYPE_COLORS`() —
   the exhaustive `Record<TransactionType>` break without an entry (the reason M1 was not pushed).
 - **Idempotency (anti-BIZ-02):** a double-submit of a declaration = 2 different income-rows, each with its own
   obligations (not a double-settle of one obligation) — the same landing as `createAdminIncome`
@@ -169,7 +169,7 @@ the source transaction (`sourceTransactionId` → tx.type):
 
 ### D6. Part A — per-project drop override (unchanged from the prior cycle) — **Confidence: HIGH**
 
-CRUD 1:1 with `seniorSharePercentOverride` in `projects.service.ts` create(`:604-725`)/update(`:732-804`):
+CRUD 1:1 with `seniorSharePercentOverride` in `projects.service.ts` create()/update():
 field-scoped RBAC ADMIN/ACCOUNTANT, implicit-null-reset (value === eff. drop-default → `null`),
 the `hasOnlyOverride` branch. **Differences:** default = `user.dropSharePercent ?? 5` (not 26); only for
 drop projects (`dropId != null`); **no** `project_finance_settings` mirror (the senior has a legacy
@@ -198,22 +198,22 @@ dropSharePercentOverride`, `DROP_PENDING_PAYOUT` in `transactionTypeSchema`.
 
 Each item: conflict yes/no + resolution.
 
-| #   | Surface                                                                             | Conflict?                | Resolution                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| --- | ----------------------------------------------------------------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| C1  | **ACCOUNTANT validation** (`validateTransaction:1539`, `getAccountantSummary:3212`) | **No**                   | The admin-USDT income = `ADMIN_INCOME` PAID immediately, does NOT go through the validate cascade. `pendingValidation` filters only `SENIOR_INCOME/DROP_INCOME` → the admin-USDT does not get in. Correct.                                                                                                                                                                                                                                                                                                                                                 |
-| C2  | **Payout bundling** (`createPayoutRequest:2061`)                                    | **No**                   | Only one's own `SENIOR_INCOME/DROP_INCOME` (receiverId=caller) is bundled. The admin-USDT does not create a bundle-able income for the senior/drop; their money goes through the obligation settle, not through a payout. Decoupled.                                                                                                                                                                                                                                                                                                                       |
-| C3  | **salary-cron** (`createMonthlySalaries:3909`)                                      | **No**                   | Salaries do not depend on paymentType / admin-income. Does not intersect.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| C4  | **totalIncome double-count** (`getSummary:2991-3007`)                               | **YES (MED)**            | receiver=ADMIN X + settle senior `ADMIN_PERSONAL` → `SENIOR_INCOME(funding=null)` **is counted** in totalIncome (line `:3003`), although this slice is already part of the counted `ADMIN_INCOME` gross. **Pre-existing** (task-senior-settle-owner), but this feature MAKES IT MORE FREQUENT. Fix: extend the exclusion — a settlement `SENIOR_INCOME` (closing an obligation) is NOT counted in totalIncome regardless of funding. A discriminator is needed (e.g. a `closingTransactionId` join OR a marker field). **A regression test is mandatory.** |
-| C5  | **adminBalances / 50-50** (`getSummary:3039-3073`)                                  | **No (verified)**        | receiver=X: `ADMIN_INCOME(null)` +X.received; settle `ADMIN_PERSONAL` → `PAYOUT_DROP/SENIOR_INCOME senderId=X` +X.sent. The HOLDING model reconciles (+gross −shares = +residual). receiver=pool: `funding=COMPANY_ACCOUNT` excluded from the personal. Consistent.                                                                                                                                                                                                                                                                                        |
-| C6  | **drop-aggregate** (`computeDropAggregate:553`)                                     | **YES (low)**            | `pendingCount`/`debtToCompany` match `receiverId===drop.id` / `senderId===drop.id`. admin-USDT: income receiverId=admin (not the drop) → will NOT get into pendingCount (correct — the drop does not declare). Settle `PAYOUT_DROP` receiverId=drop → `balance.received` +=the drop-share (correct). A unit test is needed that the settle `PAYOUT_DROP` is not double-counted as `sent` (senderId≠drop).                                                                                                                                                  |
-| C7  | **company-account ledger** (`company-account-balance.ts`)                           | **YES (needs an edit)**  | Add the `− PAYOUT_DROP(COMPANY_ACCOUNT)` term (D5). The `ADMIN_INCOME(COMPANY_ACCOUNT)` credit term already exists → receiver=pool works without edits. A ledger-balance integration test.                                                                                                                                                                                                                                                                                                                                                                 |
-| C8  | **invoices/PDF** (`invoices.service.ts:147,197`)                                    | **No**                   | senior-settle → `SENIOR_INCOME` → `autoCreateForSeniorPayout` (the existing gate). drop-settle → `PAYOUT_DROP` → the gate does not fire, no invoice (see Q6). The admin `ADMIN_INCOME` does not generate an invoice (no trigger on ADMIN_INCOME). Consistent.                                                                                                                                                                                                                                                                                              |
-| C9  | **RBAC visibility of transactions** (`assertReadAccess:4071`, `mapTx:279`)          | **YES (check)**          | A new `DROP_PENDING_PAYOUT` visible-row + `ADMIN_INCOME` on someone else's project. Check: the drop sees its own `DROP_PENDING_PAYOUT`/`PAYOUT_DROP`; the senior — its own `SENIOR_PENDING_PAYOUT`; a JUNIOR does not see finance. An RBAC integration test on the new rows is needed (not mocked — the mocked-guards lesson).                                                                                                                                                                                                                             |
-| C10 | **seed / E2E fixtures** (`seed.ts`)                                                 | **YES**                  | The seed projects do not fill `paymentType` (→ the default 'FOP' migration). GamingTec is NOT in the dev seed. Add to the seed at least 1 USDT drop-project fixture (dev can run the admin-USDT flow + obligations). `notesPaymentType` on interviews — do not touch (a different field).                                                                                                                                                                                                                                                                  |
-| C11 | **GamingTec history**                                                               | **No**                   | Old DROP_INCOME on GamingTec we do not touch (the gate is only on the new). The migration only sets `paymentType='USDT'` for the project.                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| C12 | **interaction with the per-project drop override** (Part A↔B)                       | **Coupling (by design)** | The drop-obligation amount = income × `resolveDropShare` (project override → user → 5). The same resolver snapshots DROP_INCOME. A single `resolveDropShare` — SSOT.                                                                                                                                                                                                                                                                                                                                                                                       |
-| C13 | **free-text `paymentType` UI fields** (existing prod values!)                       | **YES (data-migration)** | Prod `payment_type` — arbitrary free-text. Migration: normalize all → 'FOP', GamingTec → 'USDT', then `ALTER COLUMN TYPE enum USING`. A manual prod DDL (`apps/api/drizzle/manual/`). Verify the prod values BEFORE the conversion (no unexpected strings that should be USDT/GIG).                                                                                                                                                                                                                                                                        |
-| C14 | **createDropIncome M1 `receiverId REQUIRED`**                                       | **YES (M1 bug)**         | Revert (D7): the FOP/GIG drop declares without a receiver. receiverId — in the admin-USDT DTO.                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| #   | Surface                                                                   | Conflict?                | Resolution                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| --- | ------------------------------------------------------------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C1  | **ACCOUNTANT validation** (`validateTransaction`, `getAccountantSummary`) | **No**                   | The admin-USDT income = `ADMIN_INCOME` PAID immediately, does NOT go through the validate cascade. `pendingValidation` filters only `SENIOR_INCOME/DROP_INCOME` → the admin-USDT does not get in. Correct.                                                                                                                                                                                                                                                                                                                                         |
+| C2  | **Payout bundling** (`createPayoutRequest`)                               | **No**                   | Only one's own `SENIOR_INCOME/DROP_INCOME` (receiverId=caller) is bundled. The admin-USDT does not create a bundle-able income for the senior/drop; their money goes through the obligation settle, not through a payout. Decoupled.                                                                                                                                                                                                                                                                                                               |
+| C3  | **salary-cron** (`createMonthlySalaries`)                                 | **No**                   | Salaries do not depend on paymentType / admin-income. Does not intersect.                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| C4  | **totalIncome double-count** (`getSummary`)                               | **YES (MED)**            | receiver=ADMIN X + settle senior `ADMIN_PERSONAL` → `SENIOR_INCOME(funding=null)` **is counted** in totalIncome (line), although this slice is already part of the counted `ADMIN_INCOME` gross. **Pre-existing** (task-senior-settle-owner), but this feature MAKES IT MORE FREQUENT. Fix: extend the exclusion — a settlement `SENIOR_INCOME` (closing an obligation) is NOT counted in totalIncome regardless of funding. A discriminator is needed (e.g. a `closingTransactionId` join OR a marker field). **A regression test is mandatory.** |
+| C5  | **adminBalances / 50-50** (`getSummary`)                                  | **No (verified)**        | receiver=X: `ADMIN_INCOME(null)` +X.received; settle `ADMIN_PERSONAL` → `PAYOUT_DROP/SENIOR_INCOME senderId=X` +X.sent. The HOLDING model reconciles (+gross −shares = +residual). receiver=pool: `funding=COMPANY_ACCOUNT` excluded from the personal. Consistent.                                                                                                                                                                                                                                                                                |
+| C6  | **drop-aggregate** (`computeDropAggregate`)                               | **YES (low)**            | `pendingCount`/`debtToCompany` match `receiverId===drop.id` / `senderId===drop.id`. admin-USDT: income receiverId=admin (not the drop) → will NOT get into pendingCount (correct — the drop does not declare). Settle `PAYOUT_DROP` receiverId=drop → `balance.received` +=the drop-share (correct). A unit test is needed that the settle `PAYOUT_DROP` is not double-counted as `sent` (senderId≠drop).                                                                                                                                          |
+| C7  | **company-account ledger** (`company-account-balance.ts`)                 | **YES (needs an edit)**  | Add the `− PAYOUT_DROP(COMPANY_ACCOUNT)` term (D5). The `ADMIN_INCOME(COMPANY_ACCOUNT)` credit term already exists → receiver=pool works without edits. A ledger-balance integration test.                                                                                                                                                                                                                                                                                                                                                         |
+| C8  | **invoices/PDF** (`invoices.service.ts`)                                  | **No**                   | senior-settle → `SENIOR_INCOME` → `autoCreateForSeniorPayout` (the existing gate). drop-settle → `PAYOUT_DROP` → the gate does not fire, no invoice (see Q6). The admin `ADMIN_INCOME` does not generate an invoice (no trigger on ADMIN_INCOME). Consistent.                                                                                                                                                                                                                                                                                      |
+| C9  | **RBAC visibility of transactions** (`assertReadAccess`, `mapTx`)         | **YES (check)**          | A new `DROP_PENDING_PAYOUT` visible-row + `ADMIN_INCOME` on someone else's project. Check: the drop sees its own `DROP_PENDING_PAYOUT`/`PAYOUT_DROP`; the senior — its own `SENIOR_PENDING_PAYOUT`; a JUNIOR does not see finance. An RBAC integration test on the new rows is needed (not mocked — the mocked-guards lesson).                                                                                                                                                                                                                     |
+| C10 | **seed / E2E fixtures** (`seed.ts`)                                       | **YES**                  | The seed projects do not fill `paymentType` (→ the default 'FOP' migration). GamingTec is NOT in the dev seed. Add to the seed at least 1 USDT drop-project fixture (dev can run the admin-USDT flow + obligations). `notesPaymentType` on interviews — do not touch (a different field).                                                                                                                                                                                                                                                          |
+| C11 | **GamingTec history**                                                     | **No**                   | Old DROP_INCOME on GamingTec we do not touch (the gate is only on the new). The migration only sets `paymentType='USDT'` for the project.                                                                                                                                                                                                                                                                                                                                                                                                          |
+| C12 | **interaction with the per-project drop override** (Part A↔B)             | **Coupling (by design)** | The drop-obligation amount = income × `resolveDropShare` (project override → user → 5). The same resolver snapshots DROP_INCOME. A single `resolveDropShare` — SSOT.                                                                                                                                                                                                                                                                                                                                                                               |
+| C13 | **free-text `paymentType` UI fields** (existing prod values!)             | **YES (data-migration)** | Prod `payment_type` — arbitrary free-text. Migration: normalize all → 'FOP', GamingTec → 'USDT', then `ALTER COLUMN TYPE enum USING`. A manual prod DDL (`apps/api/drizzle/manual/`). Verify the prod values BEFORE the conversion (no unexpected strings that should be USDT/GIG).                                                                                                                                                                                                                                                                |
+| C14 | **createDropIncome M1 `receiverId REQUIRED`**                             | **YES (M1 bug)**         | Revert (D7): the FOP/GIG drop declares without a receiver. receiverId — in the admin-USDT DTO.                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 ---
 
@@ -333,27 +333,27 @@ files with the following content (the expanded Part A+B scope):
 
 ## Sources
 
-- `apps/api/src/finance/transactions.service.ts`: `createAdminIncome:961`, `createSeniorIncome:1057`,
-  `createDropIncome:1139`, `validateTransaction:1539`, `createPayoutRequest:2061`,
-  `applyPayoutPaidCascade:2482` (SENIOR_PENDING_PAYOUT+obligation `:2760-2804`),
-  `computeDropDistribution:480`, `computeDropAggregate:553`, `getSummary:2937` (totalIncome `:2991`,
-  adminBalances `:3039`), `getAccountantSummary:3193`, `getSeniorSummary:3286`,
-  `resolveSeniorShareSnapshot:351`.
-- `apps/api/src/finance/pending-settlement.service.ts`: `settleByCompany:151`,
-  `settleByCompanySourceTransaction:366`, `SettleFunding:75`.
+- `apps/api/src/finance/transactions.service.ts`: `createAdminIncome`, `createSeniorIncome`,
+  `createDropIncome`, `validateTransaction`, `createPayoutRequest`,
+  `applyPayoutPaidCascade` (SENIOR_PENDING_PAYOUT+obligation),
+  `computeDropDistribution`, `computeDropAggregate`, `getSummary` (totalIncome,
+  adminBalances), `getAccountantSummary`, `getSeniorSummary`,
+  `resolveSeniorShareSnapshot`.
+- `apps/api/src/finance/pending-settlement.service.ts`: `settleByCompany`,
+  `settleByCompanySourceTransaction`, `SettleFunding:75`.
 - `apps/api/src/finance/senior-share-resolver.ts` (the resolver model for `resolveDropShare`).
-- `apps/api/src/finance/company-account-balance.ts:21-45,130-186` (the ledger SSOT).
-- `apps/api/src/invoices/invoices.service.ts:142-202` (`autoCreateForSeniorPayout` gate `:147`).
-- `apps/api/src/database/schema.ts`: `transactionTypeEnum:57-107`, `pendingObligationDebtorTypeEnum:115`,
-  `projects.paymentType:299`, `dropId:284`, `seniorSharePercentOverride:309`, `users.dropSharePercent:202`.
-- `apps/api/src/projects/projects.service.ts`: the override CRUD create `:604-725` / update `:732-804`,
-  `mapProject:120-209`.
-- `apps/web/app/routes/_authenticated/finance/constants.ts:4,67` (the exhaustive `Record<TransactionType>`).
+- `apps/api/src/finance/company-account-balance.ts` (the ledger SSOT).
+- `apps/api/src/invoices/invoices.service.ts` (`autoCreateForSeniorPayout` gate).
+- `apps/api/src/database/schema.ts`: `transactionTypeEnum:57-107`, `pendingObligationDebtorTypeEnum`,
+  `projects.paymentType`, `dropId`, `seniorSharePercentOverride`, `users.dropSharePercent`.
+- `apps/api/src/projects/projects.service.ts`: the override CRUD create / update,
+  `mapProject`.
+- `apps/web/app/routes/_authenticated/finance/constants.ts` (the exhaustive `Record<TransactionType>`).
 - `apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx`
-  (`availableTypes:127-134`, the receiver-Select SALARY `:572-634`, DROP_INCOME `:342`).
+  (`availableTypes`, the receiver-Select SALARY, DROP_INCOME).
 - `docs/design/drop-share-override-and-receiver.md` (spec — Surface B is outdated under the contract).
 - WIP `119e3f60` (M1 shared schemas — a partial cherry-pick, D7).
-- `apps/api/src/database/seed.ts:968+` (`notesPaymentType` — interviews, not projects; GamingTec is not in the seed).
+- `apps/api/src/database/seed.ts` (`notesPaymentType` — interviews, not projects; GamingTec is not in the seed).
 - Rules: `.claude/rules/common/{version-pins,zone-of-write,git-policy,model-routing,design-gate,
 design-fidelity-review}.md`. Memory: `project_phase8_redefined_company_account`,
   `project_accounting_migration`, `project_drop_attach_2026_07_12`, `feedback_mocked_e2e_guards`,

@@ -1,6 +1,6 @@
 ---
 name: security-review
-description: 'Project-local security-review for the CRM: recurring classes of leaks that a generic OWASP checklist does not catch — a NO-OP RolesGuard, RBAC in the service body, denylist masking, mocked-E2E over global guards, prod-DDL without SSH, tokens in CI. A DELTA on top of the OWASP/secrets/npm-audit in security-reviewer.md — it does not duplicate them. Each pattern is confirmed by a real incident with a PR number.'
+description: 'Use when a PR touches auth / RBAC / finance / wallets / transactions / company-account, or a Coder is about to write an endpoint or DTO there. CRM delta over OWASP: no-op RolesGuard, RBAC in service body, denylist masking, mocked E2E, prod DDL, CI tokens.'
 when_to_use: "Use when a PR touches auth / RBAC / finance / wallets / transactions / company-account, or when a Coder is about to write an endpoint or DTO on those paths. Examples: 'PR touches finance — what to check', 'adding a field to the profile, who will see it', 'a new junior-facing screen reuses a DTO', 'endpoint behind a global guard', 'need to apply DDL on prod', 'review of CI/workflow with tokens'."
 allowed-tools:
   - Read

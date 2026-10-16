@@ -1,6 +1,6 @@
 ---
 name: prototype
-description: 'A throwaway prototype that answers ONE design question. Two branches: UI — several structurally different variants on one route via ?variant= with a switcher hidden in prod; logic — one self-contained HTML file with buttons and scenarios that the owner opens from a phone. Cheaper than a full design-gate Tier 1 where it is not yet decided what the screen should be.'
+description: 'Use when a design question cannot be settled on paper (how a screen looks, whether a state model holds). Throwaway prototype for ONE question: UI variants via ?variant=, or a single HTML logic demo. Cheaper than design-gate Tier 1.'
 when_to_use: "Use when a design question cannot be settled on paper: what should this screen look like, does this state model hold up, is this flow right. Examples: 'we have not decided how the screen should look', 'show dashboard variants', 'is the state model correct', 'poke at the logic before implementation', 'three options to choose from'."
 allowed-tools:
   - Read

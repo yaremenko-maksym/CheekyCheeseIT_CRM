@@ -16,10 +16,10 @@ battle-tested patterns rather than inventing locally**.
 
 Three reference files became the basis for the transfer:
 
-| Leak file                                   | What it serves as a reference for us                                                               |
-| ------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `coordinator/coordinatorMode.ts`            | Anthropic's multi-agent coordinator system prompt -> our `pm.md`                                   |
-| `services/autoDream/consolidationPrompt.ts` | The memory consolidation prompt -> our MEMORY.md / lessons system                                  |
+| Leak file                                   | What it serves as a reference for us                                                                  |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `coordinator/coordinatorMode.ts`            | Anthropic's multi-agent coordinator system prompt -> our `pm.md`                                      |
+| `services/autoDream/consolidationPrompt.ts` | The memory consolidation prompt -> our MEMORY.md / lessons system                                     |
 | `skills/bundled/skillify.ts`                | The canonical SKILL.md schema (frontmatter + per-step annotations) -> our `.claude/skills/*/SKILL.md` |
 
 ---
@@ -34,7 +34,7 @@ synthesizing `coordinatorMode.ts` §4–5 for our stack. 5 principles:
 1. **Synthesis is PM's main work, it cannot be delegated.** A hard ban on phrasings like
    "figure it out from the research results" / "based on the agent's findings". PM reads the research
    agent's findings itself and writes a spec with concrete paths + line numbers. An anti-pattern vs good example
-   on our paths (`apps/api/src/finance/finance.controller.ts:88`).
+   on our paths (`apps/api/src/finance/finance.controller.ts`).
 2. **A purpose-statement** in every dispatch prompt (depth calibration).
 3. Explicit phases **Research(∥) -> Synthesis(PM) -> Implementation -> Verification**, taking into account our
    real concurrency ceiling ≈3-4 (see failure-mode FM-1 below).

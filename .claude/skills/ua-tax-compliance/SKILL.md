@@ -1,6 +1,6 @@
 ---
 name: ua-tax-compliance
-description: When the Legal agent answers UA tax / company structure questions for the CRM founder — FOP regimes, TOV-Diia City, CFC rules, hybrid offshore structures, banking caps, mandatory audit. UA-specific knowledge not covered by ECC. Use in Mode A (consultation) before any company-structure advice + in Mode B (PR-review) when a PR touches payment/tax-related fields in users/transactions.
+description: 'Use when Legal advises on UA tax or company structure for the founder (FOP regimes, Diia City, CFC, banking caps, audit) or reviews a PR touching payment/tax fields in users/transactions. Modes A and B.'
 when_to_use: "Use when Legal advises on UA tax or company structure for the founder, or reviews a PR touching payment/tax fields. Examples: 'which FOP regime to choose', 'Diia City vs FOP', 'CFC rules', 'banking limits on the Single Tax', 'mandatory TOV audit', 'PR touches transactions/users tax fields'."
 allowed-tools:
   - Read

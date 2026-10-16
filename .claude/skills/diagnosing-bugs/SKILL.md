@@ -1,6 +1,6 @@
 ---
 name: diagnosing-bugs
-description: 'The discipline of diagnosing hard bugs and flakes: a phased cycle with the gate "no red command — no hypotheses". First a tight feedback loop is built (one fast deterministic command that goes red on EXACTLY this bug), then minimization of the repro, then ranked falsifiable hypotheses, targeted instrumentation, a fix with a regression test, and cleanup.'
+description: 'Use when a bug resists a first look, an E2E is flaky, a regression crept in between two good states, or something is slow. Gate: no red command, no hypotheses. Feedback loop, minimal repro, ranked hypotheses, fix with regression test.'
 when_to_use: "Use when a bug resists a first look, an E2E goes flaky, a regression crept in between two good states, or something is slow. Examples: 'the test is flaky in CI', 'the bug does not reproduce locally', 'something broke between releases', 'the page is slow', 'did we find the root cause?', 'it fails only sometimes'."
 allowed-tools:
   - Read

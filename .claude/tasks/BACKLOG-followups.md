@@ -92,14 +92,14 @@ The second discrepancy (item 28) turned out to be **my** misreading, see the cor
   required contexts appeared at all.
 - **41 + 49** — dead steps about `2026-08-07_senior_resume.sql` in `deploy.yml`:
   the copy (1037–1055) and the apply (2232–2256).
-- **47** — `describeLimits` is exported (`resume-typst.service.ts:438`), zero callers.
-- **60** — `mutation-gate.mjs:154` still excludes `src/**/*.module.ts`.
+- **47** — `describeLimits` is exported (`resume-typst.service.ts`), zero callers.
+- **60** — `mutation-gate.mjs` still excludes `src/**/*.module.ts`.
 
 ### Confirmed closed (no need to re-check)
 
 **5** (RBAC is deliberately delegated to callers and this is recorded in the docstring; the remainder is a test that
 every caller checks permissions, also in `task-authz-followups.md`) · **10**
-(`deploy-alert.yml`) · **11** (`ci.yml:821` seeds vacancies, `:833` builds the landing —
+(`deploy-alert.yml`) · **11** (`ci.yml` seeds vacancies builds the landing —
 the build runs against a non-empty set) · **17** (`vitest.config.mts` prints an explicit banner
 about skipping integration specs with the command to run them) · **21** · **26** · **31** · **33**
 (`not.toBeNull()` + a written explanation of why the previous form could not fail) ·
@@ -177,7 +177,7 @@ anywhere and lives only on the owner's machine. 59 findings rest on a single dis
 
 ## Hygiene
 
-6. **Docs drift** (BA zone): `docs/business/modules/auth.md:30` and `docs/business/user-flows.md:27`
+6. **Docs drift** (BA zone): `docs/business/modules/auth.md` and `docs/business/user-flows.md`
    describe the removed `GET /api/auth/logout`.
 7. **`dotenv@17.4.2` prints advertising lines to stdout**, including a link to a third-party service.
    Baked into the package itself, not a compromise. Take into account when updating dependencies; check as
@@ -282,7 +282,7 @@ anywhere and lives only on the owner's machine. 59 findings rest on a single dis
 
 14. **Test files are excluded from type checking** (`apps/api/tsconfig.json`). Consequence: a spec
     constructing a service without a required dependency is NOT caught by the compiler — discovered
-    in review of #455, where `teams.archive.spec.ts:159` creates a service without the audit dependency.
+    in review of #455, where `teams.archive.spec.ts` creates a service without the audit dependency.
     The test is "green" but checks not the configuration that runs in prod. Evaluate
     including specs in type checking: how many places would need fixing and whether it's worth doing once.
 15. **The money-operations log is write-only.** Across the whole API there is not a single read
@@ -328,15 +328,15 @@ update workflow .github/workflows/ci.yml without workflows permission`. Two PRs 
    message so it does not look like a check failure.
    **CLOSED.** The second path was chosen. Verified on PR #498 (2026-08-07): the automation detects
    such PRs, leaves a comment in the PR with an explanation («это НЕ сбой проверок, нужен ручной
-   мерж») and finishes successfully rather than silently. The `workflow` permission is intentionally not granted to auto-merge:
+   мерж») and finishes successfully rather than silently. The `workflow`permission is intentionally not granted to auto-merge:
    it is GitHub's built-in protection against uncontrolled pipeline changes by automation, and a bypass
-   for convenience would be a security downgrade. Manually merging such PRs is an ordinary `gh pr merge --squash`, without `--admin`.
+   for convenience would be a security downgrade. Manually merging such PRs is an ordinary`gh pr merge --squash`, without `--admin`.
 10. **A deploy failure does not raise an alert.** The deploy failed 2026-07-27 21:22 and stayed red for
     **four days** — nobody found out, prod quietly ran on old code. We set up a notification about a red
     main branch (#441/#446), but not on `Deploy → failure`. Set it up.
 11. **The structured-data check is enabled only when vacancies exist.** While there were
     zero, the build passed and pages went to prod without markup for search engines. This is already
-    the second case of this class in the same file (see the comment `prerender.mjs:481-484`).
+    the second case of this class in the same file (see the comment `prerender.mjs`).
     A CI build run against a non-empty set of vacancies is needed, otherwise the class will reproduce a third time.
 
 12. **ESLint does not run in `packages/shared` and `apps/e2e` — neither locally nor in CI.**
@@ -361,7 +361,7 @@ update workflow .github/workflows/ci.yml without workflows permission`. Two PRs 
     its identifier. Check where the shared path `scratchpad/rev<PR>` comes from —
     probably from a template in the prompt or from a skill.
 
-14. **The prod-migration wiring guard is satisfied by a comment.** `check-prod-ddl-wiring.py:103`:
+14. **The prod-migration wiring guard is satisfied by a comment.** `check-prod-ddl-wiring.py`:
     `wired = {f for f in all_files if f in deploy_yml_content}` — a substring search over the whole
     content of `deploy.yml`. It proves that the file name is mentioned somewhere, not that the migration
     is copied to the server and applied. A comment or a step name containing that name is enough.
@@ -401,9 +401,9 @@ update workflow .github/workflows/ci.yml without workflows permission`. Two PRs 
     went through a relative path, while the stubs in the specs listened on an absolute one and did not intercept.
     With correct setup: 1 failed, 1 skipped, 10 passed.
     What turned out to be real:
-    - `:203` dies on a **positive** assertion (strict mode, 2 matches — the viewer
+    - dies on a **positive** assertion (strict mode, 2 matches — the viewer
       is itself "Senior Dev"), so its "junior is hidden" checks are never executed;
-    - `:249` **was never executed**: both preconditions are under `if (isVisible)`, and the needed
+    - **was never executed**: both preconditions are under `if (isVisible)`, and the needed
       card is not rendered in this flow. It now honestly reports a skip.
     - **MAIN POINT, needs a task:** the hiding lives on the server (`ProjectsService.mapProject`:
       `viewerRole === 'SENIOR' && isJuniorMember` → empty `displayName`, `userId: '[redacted]'`)
@@ -416,14 +416,14 @@ update workflow .github/workflows/ci.yml without workflows permission`. Two PRs 
 
 19. **`projects.spec.ts`: the selectors never matched anything — a test defect, not a product one.**
     Triaged 2026-08-08. The create dialog **renders** all six metadata fields
-    (`index.tsx:775` — a loop over the key list), there is no product defect. But the fields render without
+    (`index.tsx` — a loop over the key list), there is no product defect. But the fields render without
     a `name` attribute, while the spec looks them up via `getByPlaceholder(/стек технологий/i)` and
     `input[name*="tech"]` — these selectors never matched. This was hidden by two conditions:
     `if (isVisible)` on the fill and `if (body.techStack)` on the check. The fix requires tying the label to the field
     or adding `data-testid` — that is a product edit, which is why it is raised here.
 
 20. **A check that cannot fail in the payouts spec.**
-    `apps/e2e/tests/drop-confirm-payout-rbac.spec.ts:155` —
+    `apps/e2e/tests/drop-confirm-payout-rbac.spec.ts` —
     `expect(confirmed?.recipientId ?? MAKSYM_ID).toBe(MAKSYM_ID)`. When `confirmed` is `null`
     (the comment one line above itself allows this), the expression reduces to comparing a value with
     itself. Found by the code-reviewer on #500. The degradation versus `main` is not in behavior but in
@@ -547,7 +547,7 @@ update workflow .github/workflows/ci.yml without workflows permission`. Two PRs 
     Found on #511 (2026-08-11). The function has **zero callers in the whole repository**, yet
     its docstring promises "so that a test can check the limits without the platform check" —
     there is no such test. The limit itself is live: `RENDER_ADDRESS_SPACE_KB` goes into the arguments directly
-    (`resume-typst.service.ts:411`).
+    (`resume-typst.service.ts`).
     **The task is not "write a test", but first to decide whether the accessor is needed.** Writing a test just to call
     a function nobody calls means pinning dead code as live — the same class as
     the rest of this list.
@@ -604,7 +604,7 @@ update workflow .github/workflows/ci.yml without workflows permission`. Two PRs 
     `JobSourceProvider`: either the provider itself reports how many requests it used, or pagination
     within a single unit is forbidden for it. Decide **before** connecting paid sources.
 
-38. **The `/collect` throttler counts per address, not per user** (`app.module.ts:116-119`).
+38. **The `/collect` throttler counts per address, not per user** (`app.module.ts`).
     From the same review (LOW). Acceptable, because the real protection is the counter in the DB and the throttler
     is a second line. Recorded so that when expensive sources appear this is reconsidered deliberately,
     not discovered.
@@ -711,7 +711,7 @@ update workflow .github/workflows/ci.yml without workflows permission`. Two PRs 
     Worked around by a manual mutation, which does not scale and leaves no trace in CI.
 
 48. **`chargeBudget` names the wrong cause: budget exhaustion instead of contention.** Found by
-    code-review on #532 (2026-08-16), `apps/api/src/job-sourcing/job-sourcing.service.ts:867-871`.
+    code-review on #532 (2026-08-16), `apps/api/src/job-sourcing/job-sourcing.service.ts`.
     When the CAS is lost `CHARGE_BUDGET_MAX_ATTEMPTS` times in a row, the tail branch unconditionally throws
     `JobSourceBudgetExhaustedError` — without re-reading whether the budget is really exhausted. The outcome is
     conservative (we will not spend extra), so it costs no money; but the operator is told
@@ -763,7 +763,7 @@ update workflow .github/workflows/ci.yml without workflows permission`. Two PRs 
     the rollout — decide at the same time whether it is alive or dead weight. DevOps zone, a separate small PR.
 
 52. **An old crutch for the same frame bug, and its comment has become wrong.** Found by
-    code-review on #540 (2026-08-17). `apps/web/app/styles/globals.css:197-212` —
+    code-review on #540 (2026-08-17). `apps/web/app/styles/globals.css` —
     `.nav-active-accent[data-status='active'] { border-left-color: var(--primary) !important; }`
     from PR #287: a point workaround for exactly the defect that #540 closed at the root.
     No regression (the semantics of `!important` in layers were verified by the reviewer), but the accompanying
@@ -798,7 +798,7 @@ update workflow .github/workflows/ci.yml without workflows permission`. Two PRs 
 55. **Two junior masking surfaces are built oppositely — and this is deliberate.**
     Recorded by security-review on #541 (2026-08-17), so that nobody later "brings them to
     uniformity" by reverting one of the sides.
-    - **The project surface** (`projects.service.ts:613-615`): member rows are
+    - **The project surface** (`projects.service.ts`): member rows are
       KEPT, fields are blanked. The code states directly that the cardinality of the set
       is preserved deliberately — the senior sees that a member exists but does not see who.
     - **The «Команда» tab** (`getTeamMembersForUser`): rows are REMOVED entirely, the count is lost.
@@ -836,7 +836,7 @@ infrastructure and dependency chain. Run via the `codebase-audit` skill (read-on
     narrow its check in the same patch, `RAISE EXCEPTION` will crash the migration step **in prod**.
     Narrowing the source and narrowing the check must be one patch.
 
-71. **"0 surviving mutants" says nothing about the uncovered ones.** `check-mutation-tally.mjs:101-110`
+71. **"0 surviving mutants" says nothing about the uncovered ones.** `check-mutation-tally.mjs`
     goes red only on `Survived > 0`; `NoCoverage` passes silently. Claimed coverage must be
     checked against the facts, not against the gate's verdict. Separately: Stryker has **no
     mutator for operators inside template strings**, so SQL fragments are structurally unprovable
@@ -870,7 +870,7 @@ infrastructure and dependency chain. Run via the `codebase-audit` skill (read-on
 
 77. **A date-without-time is rendered in the operator's local time zone but sorted in UTC.** Found
     by the reviewer on #601 (MED, not a blocker). `dayOf()` in `finance/sort.ts` truncates to **UTC** days,
-    while the "Date" column goes through `fmtDate()` (`finance/constants.ts:243`) — `toLocaleDateString`
+    while the "Date" column goes through `fmtDate()` (`finance/constants.ts`) — `toLocaleDateString`
     **without** `timeZone: 'UTC'`, i.e. in the browser's zone. The rationale for the round 2 fix
     was "truncate to the day the column shows" — when the zones diverge, this rationale
     stops being true.
@@ -879,7 +879,7 @@ infrastructure and dependency chain. Run via the `codebase-audit` skill (read-on
     for any operator west of UTC, `fmtDate` will show a date-without-time as the **previous day**.
     The fix belongs in `fmtDate`, not `dayOf`: dates-without-time need an explicit `timeZone: 'UTC'`.
     **Not provable by tests:** the project environment is pinned to `TZ=UTC` (see the comment in
-    `SettleSeniorPayoutDialog.tsx:462`), so the divergence physically cannot be reproduced
+    `SettleSeniorPayoutDialog.tsx`), so the divergence physically cannot be reproduced
     in unit, E2E, or the mutation gate.
 
 78. **A signed payout act and its own QR verification name different amounts in different currencies.**
@@ -901,7 +901,7 @@ infrastructure and dependency chain. Run via the `codebase-audit` skill (read-on
     DB queries to it must be tightly bounded by the row set.
 
 81. **A flake in the unit run triggers on a FAST machine, not a slow one.**
-    `resume-render-responsiveness.spec.ts:183` — `Math.max(...samples)`. `samples` is filled by
+    `resume-render-responsiveness.spec.ts` — `Math.max(...samples)`. `samples` is filled by
     a probe loop for the whole duration of the render: the faster the runner, the more probes get through, the
     likelier it is to hit the call-argument limit and get a stack overflow. That is,
     the usual intuition "flake = slow runner" points the opposite way here.
@@ -931,7 +931,7 @@ infrastructure and dependency chain. Run via the `codebase-audit` skill (read-on
 
 84. **Mixed currencies in a batch are an intentional configuration, not an edge case.** Important to remember on any
     change to this path: the previous hard guard was removed **as a bug** —
-    `transactions.service.ts:4208-4214`, "the previous hard guard blocked legitimate mixed-currency
+    `transactions.service.ts`, "the previous hard guard blocked legitimate mixed-currency
     batches". Any decision to "just forbid mixed currencies" would be a reintroduction of the same
     bug.
 
@@ -974,7 +974,7 @@ infrastructure and dependency chain. Run via the `codebase-audit` skill (read-on
 90. **Manual cleanup of `payout_requests` will break act signing.** Noted on #600 round 6.
     Currently unreachable (neither code nor manual migrations delete `payout_requests`), but the schema **itself**
     calls "future cleanup of payout_requests" realistic — `dropCascadeOrigin` was introduced in #443
-    for that. With such a cleanup, the FK `ON DELETE SET NULL` (`schema.ts:706-708`) will null out
+    for that. With such a cleanup, the FK `ON DELETE SET NULL` (`schema.ts`) will null out
     `payoutRequestId`, and `signInvoice` will start failing with 409. If the cleanup is ever done —
     look here first.
 
@@ -987,7 +987,7 @@ infrastructure and dependency chain. Run via the `codebase-audit` skill (read-on
     up and is that part of the plan for the upcoming work". In a multi-task cascade, an invariant
     propping up someone else's code is an obligation both sides must know about.
     **An asymmetry worth remembering:** on the write side in this same codebase
-    (`pending-settlement.service.ts:806`) they refuse **loudly** on an invariant that is unreachable today.
+    (`pending-settlement.service.ts`) they refuse **loudly** on an invariant that is unreachable today.
     The write side chose a loud refusal, the read side a silent assumption. Align to the write side.
 
 92. **A "will go red when the literal changes" test is almost always self-deception.** A continuation of item 91: such
@@ -2629,7 +2629,7 @@ On a large diff (integrator of #667: the first run died on the budget, a full on
 
 ## 185. `notifications-popup-overflow.spec.ts` (mocked-auth) does not pass against the dev proxy on non-standard ports
 
-On the integrator's stand `notifications-bell-trigger` was not found even on `origin/main` (isolation by file substitution). The spec is tied to the default `localhost:3000/3001`; agents bring stands up on 30xx. Behavior: the spec reads addresses from `baseURL`/env, like its neighbors. Check: the spec is green with `API_PORT=3084`/web 3085.
+On the integrator's stand `notifications-bell-trigger` was not found even on `origin/main` (isolation by file substitution). The spec is tied to the default `localhost/3001`; agents bring stands up on 30xx. Behavior: the spec reads addresses from `baseURL`/env, like its neighbors. Check: the spec is green with `API_PORT=3084`/web 3085.
 
 ## 186. The legacy producer of `INVOICE_SIGNED` can give a 500 on an already-signed invoice (security r3 on #664, outside the diff)
 
@@ -2671,7 +2671,7 @@ Safe today (React text, `line-clamp-2`), will become significant if `detail` is 
 
 (coders of #667 r3 and #664 r2/r5, DevOps #668 — four independent observations on pushes under load): fails on different cases (CP-7; CP-28+CP-29), in isolation 41/41, the full web suite separately — green; in the DOM snapshot `data-scroll-locked` on `<body>` — a leaked Radix overlay of a neighboring test. Behavior: the test is isolated from its neighbors (cleanup of the overlay/`scroll-lock` in `afterEach`, or `test.sequential`/a separate file), green with `--threads` under load. Check: three full `@crm/web` runs in a row at LA > 30 without failures of this file.
 
-## 196. `pnpm test` from the root pulls the full E2E on `localhost:3000/3001`
+## 196. `pnpm test` from the root pulls the full E2E on `localhost/3001`
 
 (coder of #664 r5 ran it accidentally: hundreds of `ECONNREFUSED`, and with a live stack on the default ports it would have hit it): the root script must not include `@crm/e2e` by default — E2E is run explicitly (`pnpm --filter @crm/e2e test`). Check: `pnpm test` in the root does not bring up Playwright.
 
