@@ -1,6 +1,6 @@
 ---
 name: writing-for-agents
-description: 'How to write documents that agents read: rules, agent prompts, skills, CLAUDE.md, docs behind a pointer. The levers — the wording of the pointer, information hierarchy and progressive disclosure, completion criteria (clarity and demandingness), leading words, negation as an anti-pattern. Plus the discipline of weeding: tests for no-op, the environment cache, and relevance.'
+description: 'Use when creating or editing anything an agent reads (rules, agent prompts, SKILL.md, CLAUDE.md, task templates), or when a rule is ignored and wording may be why. Pointer wording, progressive disclosure, completion criteria, weeding no-op rules.'
 when_to_use: "Use when creating or editing anything an agent reads: a rule in rules/common, an agent system prompt, a SKILL.md, CLAUDE.md, a task template. Also when a rule is not being followed and the wording may be the cause. Examples: 'write a new rule', 'the rule is not followed', 'clean up the rules', 'this doc has grown', 'the agent ignores the instruction', 'reduce the agent's context'."
 allowed-tools:
   - Read

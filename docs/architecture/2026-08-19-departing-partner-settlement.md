@@ -17,18 +17,18 @@ relevant at that point.
 
 ### AC1. Reconciliation of the backlog's claims with the code (facts, not memory)
 
-| Claim (backlog 135 / security-review #564)                                    | Verdict                                              | Proof at `beb9aad2`                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| ----------------------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `pending_obligations` has exactly two writers                                 | **CONFIRMED**                                        | `grep insert(pendingObligations)` outside the specs → exactly 2 matches: `transactions.service.ts:4498` and `:4542`                                                                                                                                                                                                                                                                                                                        |
-| Both — inside `bookCompanyObligations`                                        | **CONFIRMED**                                        | the method is declared at `:4434`, both inserts are in its body                                                                                                                                                                                                                                                                                                                                                                            |
-| Both set the debtor to `senior.id` or `drop.id`                               | **CLARIFICATION**                                    | the debtor in the row is `debtorType: 'COMPANY'`, `debtorUserId: null`. `senior.id` / `drop.id` go into **`creditorUserId`**. The essence is the same (there is no third party), but the wording in the backlog is inverted — when implementing, it is important not to start looking for the admin in `debtor_user_id`                                                                                                                    |
-| The senior branch explicitly excludes the admin                               | **CONFIRMED**                                        | `if (senior && senior.role !== 'ADMIN')`, `transactions.service.ts:4472`                                                                                                                                                                                                                                                                                                                                                                   |
-| The "admin as senior" configuration is really supported                       | **CONFIRMED and wider than in the record**           | `projects.service.ts:170-186` — a whole `task-admin-as-senior` block (masking the link to the admin-senior's profile). `createProject` does **not check** the role of `seniorId` at all (it only checks `dropId`, `:729`). By memory about prod — the active projects WebLab / GeeksForLess / GO7 have senior = Maksym (ADMIN)                                                                                                             |
-| `PAYOUT_ADMIN` is no longer created by anyone in prod — "only seed and tests" | **CONFIRMED, the record is slightly outdated**       | `type: 'PAYOUT_ADMIN'` does not appear in any non-spec file; **it is also no longer in `seed.ts`** (grep empty). Only 3 inserts remain in `transactions.get-summary.spec.ts`. The absence of an auto-split is locked in by the test `payout-no-admin-split.integration.spec.ts`                                                                                                                                                            |
-| The list of five paths is complete                                            | **CONFIRMED**                                        | `createAdminIncome` `:1789`, `declareUsdtProjectIncome` `:2026`, `confirmPayout` `:3361`, `createAdminTransfer` `:3827`, `createDividend` `company-account.service.ts:717`. There is no sixth path addressing money to an ADMIN recipient                                                                                                                                                                                                  |
-| An archived ADMIN does not exist today (4 locks)                              | **CONFIRMED**                                        | self-archiving — `users.controller.ts:384`; an admin archiving an admin — `users.service.ts:1070`; promotion to ADMIN — `:976`; a role change of an admin — `:994`/`:999`                                                                                                                                                                                                                                                                  |
-| A departed senior still has **two** settlement paths                          | **CONFIRMED, with a clarification of which exactly** | reachable by an operator: (1) `settleByCompany` (two entry points — by obligation id and by source transaction id), (2) `manualConfirmPayout` (ADMIN/ACCOUNTANT). The third path from the `archived-entitlement.ts` docblock — `payPayoutRequest` — is **structurally unreachable** for an archived user: it requires a caller with the SENIOR/DROP role (`:4134`), and an archived user does not pass authentication (`jwt.guard.ts:276`) |
-| A departed admin — has neither a row nor a path                               | **CONFIRMED and worse**                              | see AC2: there is no row, no path, and **the amount itself does not exist either** — in the code there are three non-matching definitions of it, and the one actually used by the owner is not computed at all                                                                                                                                                                                                                             |
+| Claim (backlog 135 / security-review #564)                                    | Verdict                                              | Proof at `beb9aad2`                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ----------------------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pending_obligations` has exactly two writers                                 | **CONFIRMED**                                        | `grep insert(pendingObligations)` outside the specs → exactly 2 matches: `transactions.service.ts` and                                                                                                                                                                                                                                                                                                                          |
+| Both — inside `bookCompanyObligations`                                        | **CONFIRMED**                                        | the method is declared at, both inserts are in its body                                                                                                                                                                                                                                                                                                                                                                         |
+| Both set the debtor to `senior.id` or `drop.id`                               | **CLARIFICATION**                                    | the debtor in the row is `debtorType: 'COMPANY'`, `debtorUserId: null`. `senior.id` / `drop.id` go into **`creditorUserId`**. The essence is the same (there is no third party), but the wording in the backlog is inverted — when implementing, it is important not to start looking for the admin in `debtor_user_id`                                                                                                         |
+| The senior branch explicitly excludes the admin                               | **CONFIRMED**                                        | `if (senior && senior.role !== 'ADMIN')`, `transactions.service.ts`                                                                                                                                                                                                                                                                                                                                                             |
+| The "admin as senior" configuration is really supported                       | **CONFIRMED and wider than in the record**           | `projects.service.ts` — a whole `task-admin-as-senior` block (masking the link to the admin-senior's profile). `createProject` does **not check** the role of `seniorId` at all (it only checks `dropId`). By memory about prod — the active projects WebLab / GeeksForLess / GO7 have senior = Maksym (ADMIN)                                                                                                                  |
+| `PAYOUT_ADMIN` is no longer created by anyone in prod — "only seed and tests" | **CONFIRMED, the record is slightly outdated**       | `type: 'PAYOUT_ADMIN'` does not appear in any non-spec file; **it is also no longer in `seed.ts`** (grep empty). Only 3 inserts remain in `transactions.get-summary.spec.ts`. The absence of an auto-split is locked in by the test `payout-no-admin-split.integration.spec.ts`                                                                                                                                                 |
+| The list of five paths is complete                                            | **CONFIRMED**                                        | `createAdminIncome`, `declareUsdtProjectIncome`, `confirmPayout`, `createAdminTransfer`, `createDividend` `company-account.service.ts`. There is no sixth path addressing money to an ADMIN recipient                                                                                                                                                                                                                           |
+| An archived ADMIN does not exist today (4 locks)                              | **CONFIRMED**                                        | self-archiving — `users.controller.ts`; an admin archiving an admin — `users.service.ts`; promotion to ADMIN; a role change of an admin —                                                                                                                                                                                                                                                                                       |
+| A departed senior still has **two** settlement paths                          | **CONFIRMED, with a clarification of which exactly** | reachable by an operator: (1) `settleByCompany` (two entry points — by obligation id and by source transaction id), (2) `manualConfirmPayout` (ADMIN/ACCOUNTANT). The third path from the `archived-entitlement.ts` docblock — `payPayoutRequest` — is **structurally unreachable** for an archived user: it requires a caller with the SENIOR/DROP role (), and an archived user does not pass authentication (`jwt.guard.ts`) |
+| A departed admin — has neither a row nor a path                               | **CONFIRMED and worse**                              | see AC2: there is no row, no path, and **the amount itself does not exist either** — in the code there are three non-matching definitions of it, and the one actually used by the owner is not computed at all                                                                                                                                                                                                                  |
 
 **Nothing in the record is substantively outdated.** The three clarifications above (creditor vs debtor, seed, which
 exactly the third unreachable path is) are wording fixes, not a change of conclusion.
@@ -38,12 +38,12 @@ exactly the third unreachable path is) are wording fixes, not a change of conclu
 The partner's share — not one number, but three different ones, and none of them is a row in the DB.
 
 **(a) HOLDING — how much of the company's money the partner holds in hand.**
-`getSummary.adminBalances` (`transactions.service.ts:5322-5352`):
+`getSummary.adminBalances` (`transactions.service.ts`):
 `received − sent`, where
 `received` = PAID rows with `receiver_id = admin` and type ∈ {`PAYOUT_ADMIN` (legacy, no live writer),
 `ADMIN_INCOME` with `funding_source ≠ 'COMPANY_ACCOUNT'`, `ADMIN_TRANSFER`, `PAYOUT_CONFIRMED`};
 `sent` = **all** PAID rows with `sender_id = admin`, of any type.
-There is no filter by `archivedAt` here — deliberately (`:5306`, "departure ≠ automatic zero-out").
+There is no filter by `archivedAt` here — deliberately (, "departure ≠ automatic zero-out").
 A positive HOLDING means the partner **holds** the company's money, not that the company owes them.
 
 **(b) DEBT — equalizing holdings between partners 50/50.**
@@ -54,11 +54,11 @@ only the drop's `debtToCompany`). It exists only in the owner's spreadsheet
 **This number is exactly the "settlement with a departing partner"**, and the system does not know it.
 
 **(c) The share in the company account — an indivisible pool.**
-`computeCompanyAccountBalanceFromLedger` (`company-account-balance.ts:21-28`) — 8 terms, one scalar.
+`computeCompanyAccountBalanceFromLedger` (`company-account-balance.ts`) — 8 terms, one scalar.
 There is no "admin's share" column in `users` (there is only `senior_share_percent` / `drop_share_percent`).
 50/50 — an agreement, not data. The account spec explicitly fixes the mode: **"Free withdrawal, accounting
 after the fact"** — the admin withdraws an arbitrary amount of dividends, there is no "available to withdraw" gate
-(`docs/business/2026-06-17-company-account-spec.md:23,42`). That is, the system **deliberately** does not model
+(`docs/business/2026-06-17-company-account-spec.md`). That is, the system **deliberately** does not model
 the partner's right to the pool.
 
 **Three readers of the "admin's balance" give three different numbers — and the code already knows this:**
@@ -69,7 +69,7 @@ the partner's right to the pool.
 | `BalanceService.getAdminBalance`               | `ADMIN_INCOME(≠pool) + DIVIDEND_TO_ADMIN − PAID EXPENSE`                            | counted         | by `recipient_id ?? receiver_id`                                         |
 | `BalanceService.getTotalEarned` (ADMIN branch) | `PAYOUT_ADMIN + DIVIDEND_TO_ADMIN + ADMIN_INCOME_CASH/CRYPTO`                       | counted         | `ADMIN_INCOME` **not** counted; two of the four types were never emitted |
 
-The comment at `transactions.service.ts:5175-5186` in plain text: "Reconciling the two MODELS into one
+The comment at `transactions.service.ts` in plain text: "Reconciling the two MODELS into one
 number is a separate, not-yet-scoped decision". Until this decision is made, **any automatic
 settlement will pick one of the three numbers silently**.
 
@@ -88,20 +88,20 @@ settlement will pick one of the three numbers silently**.
 
 1. **The settlement is bidirectional.** The departing partner may owe the company (if their HOLDING is higher) —
    in prod today this is exactly so for Kostia. `pending_obligations` **cannot** express "a user
-   owes the company": `creditor_user_id NOT NULL` (`schema.ts:1262`), and the company has no row in `users`;
-   the `debtor_type` enum (`:143-148`) describes only the debtor, but not the creditor-company. That is,
+   owes the company": `creditor_user_id NOT NULL` (`schema.ts`), and the company has no row in `users`;
+   the `debtor_type` enum () describes only the debtor, but not the creditor-company. That is,
    "just create an obligation like a senior's" covers only half the cases.
 2. **Half of the settlement is already open, and from the wrong side.** The guards close only the incoming payment
-   to an archived user. The departure **from** an archived user is not closed deliberately (`:3805-3811`) — and `ACCOUNTANT` can
-   carry out an `ADMIN_TRANSFER` with an explicit `senderId` of another admin (`:3778`, BIZ-06 forbids this only
+   to an archived user. The departure **from** an archived user is not closed deliberately () — and `ACCOUNTANT` can
+   carry out an `ADMIN_TRANSFER` with an explicit `senderId` of another admin (, BIZ-06 forbids this only
    to an ADMIN caller). Neither `settleByCompany` nor `paySalary` check `archivedAt` of the
-   `payerAdminId` (`pending-settlement.service.ts:396`, `transactions.service.ts:6406`).
+   `payerAdminId` (`pending-settlement.service.ts`, `transactions.service.ts`).
    The practical conclusion: **the "partner pays" direction works today without a single edit**, while
    the "partner is paid" direction is fully closed. An additional side effect: the remaining
    partners can draw down the departed one's HOLDING by appointing them the payer of others' salaries and obligations.
 
 **Another trap nearby, the same root.** The cascade archiving branches on `user.role`
-(`users.service.ts:1078` — the `SENIOR` branch), while project ownership lives in `projects.senior_id`, which
+(`users.service.ts` — the `SENIOR` branch), while project ownership lives in `projects.senior_id`, which
 does not check the role. In the "admin as senior" configuration these two keys diverge: archiving a partner
 will not touch their active projects at all, and the owner's rule of 2026-08-19 ("a senior cannot be removed
 one at a time — the team and the projects at once") will not apply to them. On prod this is not hypothetical —
@@ -154,7 +154,7 @@ settlement" is possible, which no branch provides for). Amount = 0 → the row i
   manual flow (DIVIDEND_TO_ADMIN)"). It already has: a term in the account formula, an advisory-lock,
   the "do not drive the account negative" gate, a mandatory check, idempotency.
 - `COMPANY_OWES`, the equalization of holdings → **`ADMIN_TRANSFER`** from the remaining partner. The company account
-  is not involved (there is no `ADMIN_TRANSFER` term in the 8-term formula — `company-account-balance.ts:348`),
+  is not involved (there is no `ADMIN_TRANSFER` term in the 8-term formula — `company-account-balance.ts`),
   which is arithmetically correct: this is a shift between holdings.
 - `PARTNER_OWES` → **`ADMIN_TRANSFER` with the `senderId` of the departed one**, filed by ACCOUNTANT. **Works
   already today**, nothing to fix.
@@ -168,18 +168,18 @@ if (receiver.archivedAt) throw new BadRequestException(...)
 if (receiver.archivedAt && !hasOpenSettlementBudget(receiver.id, amount)) throw ...
 ```
 
-Only in `createDividend` (`company-account.service.ts:717`) and `createAdminTransfer`
-(`transactions.service.ts:3827`). The other three (`createAdminIncome`, `declareUsdtProjectIncome`,
+Only in `createDividend` (`company-account.service.ts`) and `createAdminTransfer`
+(`transactions.service.ts`). The other three (`createAdminIncome`, `declareUsdtProjectIncome`,
 `confirmPayout`) are **not touched**: there the reason is different — "an active party is needed for the posting", not
-"it is forbidden to pay" (this distinction is already fixed in the code at `:3679-3685`).
+"it is forbidden to pay" (this distinction is already fixed in the code at).
 
 The settlement row — not a flag, but a **budget**: the sum of the allowed payouts cannot exceed `amount`; on
 exhaustion `status → SETTLED` and the guard closes again by itself. No row → the behavior is byte-for-byte
 today's.
 
-**What archiving does (the modal).** The ADMIN branch of `getArchiveImpact` (`users.service.ts:1473`) today
+**What archiving does (the modal).** The ADMIN branch of `getArchiveImpact` (`users.service.ts`) today
 returns `{ noDependencies: true }`, and the dialog prints **"No related entities"**
-(`ArchiveConfirmDialog.tsx:248`) — for a departing partner this is untrue. The branch is extended to the same
+(`ArchiveConfirmDialog.tsx`) — for a departing partner this is untrue. The branch is extended to the same
 set of sections as the modal from `task-archive-pending-modal` (AC8): (1) unsettled PENDING,
 (2) active projects/teams under the cascade — **including projects where the partner is the `senior_id`**,
 (3) a new settlement section: the three reference numbers + the mandatory fields "amount" and "basis".
@@ -238,14 +238,14 @@ a single edit), and only then is archived. One gate in `archive` is needed.
 Maximum symmetry with the senior: an IOU-row + an obligation + settlement via `settleByCompany`.
 
 - **What breaks:** `settleByCompany` parses the source type into two cases, and "everything else"
-  falls into the senior branch (`pending-settlement.service.ts:305,309`) — the partner payout will become
+  falls into the senior branch (`pending-settlement.service.ts`) — the partner payout will become
   `SENIOR_INCOME` and **will trigger `autoCreateForSeniorPayout`**, that is, generate a signable
   senior invoice for a partner payout. A third branch is needed.
 - The company account formula — a **9th term**, otherwise the payout from the pool will not be debited from the pool
   (phantom money, the same class of defect that was already fixed in `computeCompanyAccountBalanceFromLedger`).
 - The new type must be carried through **every** aggregate by hand. A precedent in this very file:
   `getAdminBalance` for years summed types that nobody emits and silently returned 0
-  (`balance.service.ts:123-140`) — the compiler catches only the `Record<TransactionType, string>` in the UI,
+  (`balance.service.ts`) — the compiler catches only the `Record<TransactionType, string>` in the UI,
   but not the formulas.
 - The bidirectionality is still not expressed: `creditor_user_id NOT NULL`.
 - **Good in that:** one obligation model for all, one "company debts" screen, zero new tables.
@@ -388,17 +388,17 @@ by that time there are 0..N rows of data, each with an author and a basis).
 
 ## Sources
 
-- `apps/api/src/finance/transactions.service.ts` — `bookCompanyObligations` `:4434`/`:4472`/`:4498`/`:4542`; the guards `:1789`, `:2026`, `:3361`, `:3685`, `:3827`; HOLDING `:5290-5352`, the absence of the archived filter `:5306`; the model discrepancy `:5175-5186`; BIZ-06 `:3778`; `payerAdminId` `:6402-6407`; `payPayoutRequest` RBAC `:4134`
-- `apps/api/src/finance/company-account.service.ts:664-718` — dividends, the guard and its docblock
-- `apps/api/src/finance/company-account-balance.ts:20-29,348` — 8 terms, the absence of the `ADMIN_TRANSFER` term
-- `apps/api/src/finance/balance.service.ts:113-215,300-446` — the second and third readers
-- `apps/api/src/finance/pending-settlement.service.ts:198-262,300-400,741-995` — the lists, the type parsing, the flip
+- `apps/api/src/finance/transactions.service.ts` — `bookCompanyObligations`; the guards; HOLDING, the absence of the archived filter; the model discrepancy; BIZ-06; `payerAdminId`; `payPayoutRequest` RBAC
+- `apps/api/src/finance/company-account.service.ts` — dividends, the guard and its docblock
+- `apps/api/src/finance/company-account-balance.ts` — 8 terms, the absence of the `ADMIN_TRANSFER` term
+- `apps/api/src/finance/balance.service.ts` — the second and third readers
+- `apps/api/src/finance/pending-settlement.service.ts` — the lists, the type parsing, the flip
 - `apps/api/src/users/archived-entitlement.ts` — the boundary "a new right vs settling what is earned"
-- `apps/api/src/users/users.service.ts:1058-1170,1365-1473`, `users.controller.ts:378-401` — archiving, cascade, `ArchiveImpact`
-- `apps/api/src/database/schema.ts:67-100,143-153,1257-1297` — transaction types, the debtor enum, `pending_obligations`
-- `apps/api/src/auth/jwt.guard.ts:248-281` — an archived user does not authenticate
-- `apps/web/app/components/users/ArchiveConfirmDialog.tsx:246-249` — "No related entities"
-- `apps/api/src/finance/payout-no-admin-split.integration.spec.ts:30-40` — the partner's share = a manual `DIVIDEND_TO_ADMIN`
+- `apps/api/src/users/users.service.ts`, `users.controller.ts` — archiving, cascade, `ArchiveImpact`
+- `apps/api/src/database/schema.ts` — transaction types, the debtor enum, `pending_obligations`
+- `apps/api/src/auth/jwt.guard.ts` — an archived user does not authenticate
+- `apps/web/app/components/users/ArchiveConfirmDialog.tsx` — "No related entities"
+- `apps/api/src/finance/payout-no-admin-split.integration.spec.ts` — the partner's share = a manual `DIVIDEND_TO_ADMIN`
 - `.claude/tasks/task-archive-pending-modal.md` — the owner's decisions 2026-08-18 and 2026-08-19
-- `docs/business/2026-06-17-company-account-spec.md:23,42,71` — free dividend withdrawal, accounting after the fact, 50/50
+- `docs/business/2026-06-17-company-account-spec.md` — free dividend withdrawal, accounting after the fact, 50/50
 - Memory `project_accounting_migration` — the owner's model: HOLDING = received − spent; DEBT = (difference)/2
