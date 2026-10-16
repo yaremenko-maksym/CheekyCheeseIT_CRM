@@ -18,26 +18,25 @@ CRM for recruiting workspaces (outsource/outstaffing company: AI, EdTech, E-Comm
 
 ## Pointer map (where the truth lives)
 
-| What you need                                                                                 | Where                                                                              |
-| --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| **Project language** (domain glossary; a term from `_Avoid_` = a review finding)              | `CONTEXT.md` (root)                                                                |
-| Phases and status, RBAC matrix, business rules, migrations, schemas, auth, tech gotchas       | `.claude/agents/project-state.md`                                                  |
-| Cross-agent rules — entry point (TOC)                                                         | `.claude/RULES.md`                                                                 |
-| Specific rules: MCP-first, git-policy, zone-of-write, versions, language, skills triggers     | `.claude/rules/common/*.md` (auto-loaded)                                          |
-| Light vs full development track                                                               | `.claude/rules/common/light-track.md`                                              |
-| **How much human a decision needs** (A1 decide yourself / A2 accumulate / A3 stop)            | `.claude/rules/common/autonomy-levels.md` + `.claude/skills/decision-frontier/`    |
-| What to do with context at a phase boundary (continue / clear / handoff / subagent / compact) | `.claude/rules/common/phase-boundaries.md`                                         |
-| Actions only the owner can perform (and how to kill them)                                     | `docs/runbooks/human-only.md`                                                      |
-| Deliberately rejected requests (so they are not reconsidered again)                           | `.out-of-scope/README.md`                                                          |
-| Claude Design UI gate + workflow                                                              | `.claude/rules/common/design-gate.md` + `.claude/skills/claude-design-workflow/`   |
-| Workflow/fan-out vs agent vs light-track (degree of parallelism) + codebase-audit             | `.claude/rules/common/orchestration-routing.md` + `.claude/skills/codebase-audit/` |
-| Agent system prompts (start — README)                                                         | `.claude/agents/<agent>.md`                                                        |
-| Cross-agent state machine                                                                     | `.claude/agents/contracts.md`                                                      |
-| Active task files                                                                             | `.claude/tasks/`                                                                   |
-| ADRs, deliverables, RCA                                                                       | `docs/architecture/`                                                               |
-| Business docs                                                                                 | `docs/business/`                                                                   |
-| Legal contract drafts                                                                         | `docs/legal/`                                                                      |
-| Agent lessons                                                                                 | `.claude/agents/memory/<agent>/lessons.md`                                         |
+- **Project language** (domain glossary; a term from `_Avoid_` = a review finding) → `CONTEXT.md` (root)
+- Phases and status, RBAC matrix, business rules, migrations, schemas, auth, tech gotchas → `.claude/agents/project-state.md`
+- Cross-agent rules — entry point (TOC) → `.claude/RULES.md`
+- Specific rules: MCP-first, git-policy, zone-of-write, versions, language, skills triggers → `.claude/rules/common/*.md` (auto-loaded)
+- **Why a rule says what it says** (incidents, precedents, rejected alternatives) → `docs/architecture/rules-rationale/<rule>.md` (NOT auto-loaded — read on demand)
+- Light vs full development track → `.claude/rules/common/light-track.md`
+- **How much human a decision needs** (A1 decide yourself / A2 accumulate / A3 stop) → `.claude/rules/common/autonomy-levels.md` + `.claude/skills/decision-frontier/`
+- What to do with context at a phase boundary (continue / clear / handoff / subagent / compact) → `.claude/rules/common/phase-boundaries.md`
+- Actions only the owner can perform (and how to kill them) → `docs/runbooks/human-only.md`
+- Deliberately rejected requests (so they are not reconsidered again) → `.out-of-scope/README.md`
+- Claude Design UI gate + workflow → `.claude/rules/common/design-gate.md` + `.claude/skills/claude-design-workflow/`
+- Workflow/fan-out vs agent vs light-track (degree of parallelism) + codebase-audit → `.claude/rules/common/orchestration-routing.md` + `.claude/skills/codebase-audit/`
+- Agent system prompts (start — README) → `.claude/agents/<agent>.md`
+- Cross-agent state machine → `.claude/agents/contracts.md`
+- Active task files → `.claude/tasks/`
+- ADRs, deliverables, RCA → `docs/architecture/`
+- Business docs → `docs/business/`
+- Legal contract drafts → `docs/legal/`
+- Agent lessons → `.claude/agents/memory/<agent>/lessons.md`
 
 ## Stack (summary)
 
@@ -75,14 +74,12 @@ task files (`.claude/tasks/`), launching in waves, monitoring, aggregate verdict
 User Testing. There is no separate PM agent (removed 2026-10-05; details — `contracts.md`).
 The agent GHA workflows in `.github/workflows/archive/` are stale, do not use them.
 
-| Agent                                          | Role                                                                                                  |
-| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| Master (USER session)                          | Orchestrator: decomposition → dispatch → monitoring → User Testing; agent infrastructure; light track |
-| Coder / AutoTest / DevOps                      | Implementation / E2E specs / CI-CD — each in its own zone-of-write                                    |
-| spec-reviewer                                  | Second review axis: diff ↔ task (uncovered AC / scope creep)                                          |
-| code-reviewer + security-reviewer              | Review; security-reviewer is MANDATORY for auth/finance/RBAC                                          |
-| copy-reviewer                                  | Review of client/candidate-facing text (multilingual)                                                 |
-| manual-qa / ui-ux-designer / legal / architect | Visual QA on the real stack / design / legal / ADR (ad-hoc)                                           |
+- Master (USER session) — orchestrator: decomposition → dispatch → monitoring → User Testing; agent infrastructure; light track
+- Coder / AutoTest / DevOps — implementation / E2E specs / CI-CD, each in its own zone-of-write
+- spec-reviewer — second review axis: diff ↔ task (uncovered AC / scope creep)
+- code-reviewer + security-reviewer — review; security-reviewer is MANDATORY for auth/finance/RBAC
+- copy-reviewer — review of client/candidate-facing text (multilingual)
+- manual-qa / ui-ux-designer / legal / architect — visual QA on the real stack / design / legal / ADR (ad-hoc)
 
 **Development flow:** Master decomposes a task → task files (`.claude/tasks/`) →
 dispatch of agents (in waves) → PR → review agents (all H/M/L findings are resolved) →
