@@ -90,15 +90,15 @@ protected by the balance gate (`settleByCompany` throws "Insufficient funds"). M
 - pgEnum `project_payment_type` in `schema.ts`; `projects.paymentType` → `project_payment_type
 NOT NULL DEFAULT 'FOP'`.
 - Field-scoped RBAC in `createProjectSchema`/`updateProjectSchema` + `projects.service.ts`
-  create/update — the pattern 1:1 with `seniorSharePercentOverride` (): only
+  create/update — the pattern 1:1 with `seniorSharePercentOverride` : only
   ADMIN/ACCOUNTANT can send the field, otherwise `ForbiddenException`; the ACCOUNTANT `hasOnlyOverride` branch
   is extended to `paymentType`.
-- `mapProject` () returns `paymentType` in the DTO (do not mask — not PII; but a JUNIOR masking
+- `mapProject` returns `paymentType` in the DTO (do not mask — not PII; but a JUNIOR masking
   at the owner's taste — see Q5).
 
 ### D2. The declaration gate by payment type (bidirectional) — **Confidence: HIGH**
 
-- `createSeniorIncome` / `createDropIncome` (): add a check — if
+- `createSeniorIncome` / `createDropIncome` : add a check — if
   `project.paymentType === 'USDT'` → `ForbiddenException('On a USDT project the income is declared by an
 administrator')`. The FOP/GIG lifecycle does NOT change.
 - The new admin-USDT method (D3): reject if `project.paymentType !== 'USDT'`.
@@ -144,7 +144,7 @@ administrator')`. The FOP/GIG lifecycle does NOT change.
   `project.dropId != null`. Snapshot of the shares+source on the IOU-rows.
 - **`DROP_PENDING_PAYOUT`** — a new enum-value (M1 already laid it into Zod). In `schema.ts`
   add `transactionTypeEnum` LAST (after `COMPANY_DEPOSIT`) — a clean `ALTER TYPE ADD
-VALUE`. Mandatory follow-up: `constants.ts` `TYPE_LABELS`()+`TYPE_COLORS`() —
+VALUE`. Mandatory follow-up: `constants.ts` `TYPE_LABELS`+`TYPE_COLORS` —
   the exhaustive `Record<TransactionType>` break without an entry (the reason M1 was not pushed).
 - **Idempotency (anti-BIZ-02):** a double-submit of a declaration = 2 different income-rows, each with its own
   obligations (not a double-settle of one obligation) — the same landing as `createAdminIncome`
@@ -340,11 +340,11 @@ files with the following content (the expanded Part A+B scope):
   adminBalances), `getAccountantSummary`, `getSeniorSummary`,
   `resolveSeniorShareSnapshot`.
 - `apps/api/src/finance/pending-settlement.service.ts`: `settleByCompany`,
-  `settleByCompanySourceTransaction`, `SettleFunding:75`.
+  `settleByCompanySourceTransaction`, `SettleFunding`.
 - `apps/api/src/finance/senior-share-resolver.ts` (the resolver model for `resolveDropShare`).
 - `apps/api/src/finance/company-account-balance.ts` (the ledger SSOT).
 - `apps/api/src/invoices/invoices.service.ts` (`autoCreateForSeniorPayout` gate).
-- `apps/api/src/database/schema.ts`: `transactionTypeEnum:57-107`, `pendingObligationDebtorTypeEnum`,
+- `apps/api/src/database/schema.ts`: `transactionTypeEnum`, `pendingObligationDebtorTypeEnum`,
   `projects.paymentType`, `dropId`, `seniorSharePercentOverride`, `users.dropSharePercent`.
 - `apps/api/src/projects/projects.service.ts`: the override CRUD create / update,
   `mapProject`.

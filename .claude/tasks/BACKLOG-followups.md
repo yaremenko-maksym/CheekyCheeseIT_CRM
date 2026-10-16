@@ -53,7 +53,7 @@ The second discrepancy (item 28) turned out to be **my** misreading, see the cor
 > `wired = {f for f in all_files if f in deploy_yml_content}` in `check-prod-ddl-wiring.py`
 > and took it for the implementation. It sits **inside the module docstring** describing how the guard
 > worked BEFORE and why that was bad. The real implementation parses steps
-> (`parse_steps`, `source_values`) and in the comment on line 238 explicitly calls
+> (`parse_steps`, `source_values`) and a comment beside them explicitly calls
 > "name mentioned, therefore wired" the naive approach it avoids.
 > Verified by execution: a devops agent built a fake `deploy.yml` in which the file name
 > appears three times in prose and never in the real steps — the guard returned FAIL.
@@ -64,7 +64,7 @@ The second discrepancy (item 28) turned out to be **my** misreading, see the cor
 > **a guard is verified by running it, not by reading it.**
 
 - **42 — alive, confirmed on `origin/main`.** `apps/api/src/app.module.spec.ts` (from #532)
-  looks by name like it closes the item, but its own docstring (line 33) says it
+  looks by name like it closes the item, but its own docstring says it
   **deliberately does not call** `Test.createTestingModule(...).compile()`: it reads the `@Module` metadata
   via `Reflect.getMetadata`. It checks the registration order of the three `APP_GUARD`s —
   useful, but the item asked for something else: build the DI container so that the class
@@ -90,9 +90,10 @@ The second discrepancy (item 28) turned out to be **my** misreading, see the cor
   `sitemap.xml` additionally has `ru`, `es`, `pt`. Six addresses outside the language clusters.
 - **40** — auto-merge is still `gh pr checks --watch --required`, with no check that both
   required contexts appeared at all.
-- **41 + 49** — dead steps about `2026-08-07_senior_resume.sql` in `deploy.yml`:
-  the copy (1037–1055) and the apply (2232–2256).
-- **47** — `describeLimits` is exported (`resume-typst.service.ts`), zero callers.
+- **41 + 49** — the pair of steps in `deploy.yml` around
+  `2026-08-10_senior_resume_template.sql` (the SCP copy in the build job and the matching apply in
+  the deploy job). Both now notice-skip when the file is absent, so they are inert rather than dead;
+  the item is whether they should exist at all now that the template has merged.
 - **60** — `mutation-gate.mjs` still excludes `src/**/*.module.ts`.
 
 ### Confirmed closed (no need to re-check)
@@ -103,7 +104,8 @@ every caller checks permissions, also in `task-authz-followups.md`) · **10**
 the build runs against a non-empty set) · **17** (`vitest.config.mts` prints an explicit banner
 about skipping integration specs with the command to run them) · **21** · **26** · **31** · **33**
 (`not.toBeNull()` + a written explanation of why the previous form could not fail) ·
-**34** · **35**.
+**34** · **35** · **47** (`describeLimits` was deleted outright by #544 — `grep describeLimits` over
+`apps/` and `packages/` returns nothing; the same closes the prose entry 33 below).
 
 ### Rule derived from this reconciliation
 
@@ -330,7 +332,7 @@ update workflow .github/workflows/ci.yml without workflows permission`. Two PRs 
    such PRs, leaves a comment in the PR with an explanation («это НЕ сбой проверок, нужен ручной
    мерж») and finishes successfully rather than silently. The `workflow`permission is intentionally not granted to auto-merge:
    it is GitHub's built-in protection against uncontrolled pipeline changes by automation, and a bypass
-   for convenience would be a security downgrade. Manually merging such PRs is an ordinary`gh pr merge --squash`, without `--admin`.
+   for convenience would be a security downgrade. Manually merging such PRs is an ordinary `gh pr merge --squash`, without `--admin`.
 10. **A deploy failure does not raise an alert.** The deploy failed 2026-07-27 21:22 and stayed red for
     **four days** — nobody found out, prod quietly ran on old code. We set up a notification about a red
     main branch (#441/#446), but not on `Deploy → failure`. Set it up.
@@ -551,6 +553,7 @@ update workflow .github/workflows/ci.yml without workflows permission`. Two PRs 
     **The task is not "write a test", but first to decide whether the accessor is needed.** Writing a test just to call
     a function nobody calls means pinning dead code as live — the same class as
     the rest of this list.
+    **Closed by #544** — the accessor was deleted rather than tested; the symbol no longer exists in the repo.
 
 34. **A limiter that receives a corrupted value must become stricter, not weaker.**
     Surfaced on #511. The `cpuSeconds` seam with `NaN`, `Infinity`, `-1` and **`1e21`** left the process

@@ -1175,7 +1175,7 @@ sets `"aggregationMethod": "median"` at the `ci.assert` level — do not remove 
 next to `numberOfRuns`. A red assertion colors the PR check (`Lighthouse (mobile)` / `Lighthouse
 (desktop)`) — **this is NOT a required
 status check** (branch protection without required checks — see `devops.md` "Branch Protection"), so
-the red flag is visible, but does not block the merge hard; the PM/reviewer must require green before
+the red flag is visible, but does not block the merge hard; the orchestrator/reviewer must require green before
 `merge-approved` on any PR touching `apps/landing/**`.
 
 **5. Google Search Console — the ONLY step that is not automated (owner-TODO):**
