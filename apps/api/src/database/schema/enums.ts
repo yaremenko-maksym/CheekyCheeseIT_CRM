@@ -348,3 +348,25 @@ export const resumeRenderStatusEnum = pgEnum('resume_render_status', [
   'READY',
   'FAILED',
 ])
+
+// r5 Phase 1 — job_opportunities store. Mirror the shared zod enums member for
+// member and in order (asserted in job-opportunities-schema.spec.ts).
+export const jobAvailabilityEnum = pgEnum('job_availability', [
+  'OPEN',
+  'UNKNOWN',
+  'CLOSED',
+  'EXPIRED',
+])
+
+export const jobIdentityKindEnum = pgEnum('job_identity_kind', ['NATIVE_ID', 'URL_FALLBACK'])
+
+export const jobOpportunityMatchOutcomeEnum = pgEnum('job_opportunity_match_outcome', [
+  'LEAD',
+  'TRIAGE',
+  'EXCLUDED',
+])
+
+export const jobOpportunityLinkDecisionEnum = pgEnum('job_opportunity_link_decision', [
+  'AUTO',
+  'CONFIRMED',
+])
