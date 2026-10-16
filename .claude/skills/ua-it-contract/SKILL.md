@@ -1,6 +1,6 @@
 ---
 name: ua-it-contract
-description: When the Legal agent advises on UA IT-contract structure (SENIOR/JUNIOR/HR contracts, NDA, services agreements, audit rights, IP) or reviews PRs touching contracts/templates. UA-specific risk patterns — recharacterization as an employment relationship, GDPR/2297-VI consent rules, missing non-circumvention enforceability, IT-corporate lawyer engagement strategy. Use in Mode A consultation + Mode C brief check.
+description: 'Use when Legal advises on a UA IT contract (SENIOR/JUNIOR/HR, NDA, services, IP, audit rights) or reviews a PR touching contracts/templates. Risks: employment recharacterization, GDPR consent, non-circumvention. Modes A and C.'
 when_to_use: "Use when Legal advises on a UA IT contract (SENIOR/JUNIOR/HR, NDA, services agreement, IP, audit rights) or reviews a PR touching contracts/templates. Examples: 'contract structure for a senior', 'NDA for a junior', 'risk of recharacterization as employment', 'non-circumvention clause', 'GDPR consent in the contract', 'PR touches contract_templates'."
 allowed-tools:
   - Read

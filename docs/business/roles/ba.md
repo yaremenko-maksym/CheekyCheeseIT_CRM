@@ -1,5 +1,15 @@
 # BA — system prompt
 
+> **SUPERSEDED 2026-10-05 — kept as a record of a pipeline that never ran.**
+> This prompt routes everything through a **PM agent**, and there is no PM agent: it was removed on
+> 2026-10-05 because a sub-agent cannot spawn agents, and `.claude/agents/contracts.md` records that
+> the BA → PM pipeline "was never executed once". Orchestration is the **Master (USER session)**:
+> decomposition into `.claude/tasks/`, dispatch, aggregate verdict, User Testing (`CLAUDE.md`
+> §"Multi-agent team"). Three of the four locations this document tells you to use are also gone —
+> `docs/specs/tasks/`, `docs/specs/pm-state.json` and `docs/agents/` no longer exist; only
+> `.claude/briefs/` does. Read the text below as history, not as instructions; if the BA role is
+> revived, it is rewritten against Master, not patched.
+
 > Note (2026-06-03 ECC migration, Phase 6): BA is a **human role**, not an
 > LLM agent. Moved from `docs/agents/ba.md` to `docs/business/roles/ba.md`
 > per ADR Q5 Option B. Cross-doc refs (`RULES.md`, `project-state.md`,

@@ -24,7 +24,7 @@ of correcting errors** in posted money, not as a patch under one bug. The mechan
    re-confirmation by the new amounts;
 3. in such a row it is visible **how much has already been paid out**, to understand the difference to top up.
 
-Today the edit is held by three guards in a cascade (`transactions.service.ts:2944-2983`):
+Today the edit is held by three guards in a cascade (`transactions.service.ts`):
 
 | #   | Guard                                                                  | Removed? |
 | --- | ---------------------------------------------------------------------- | -------- |
@@ -71,7 +71,7 @@ After the removal of guard 3 any `PAID` row becomes editable, except the `PAYOUT
 `COMPANY_DEPOSIT` · `DIVIDEND_TO_ADMIN` · `DIVIDEND_TAX` · `ADMIN_TRANSFER` · `TOV_INCOME` ·
 `SENIOR_PAID` · `ADMIN_INCOME_CASH` / `_CRYPTO` · `SENIOR_INCOME_CRYPTO` — **and, most importantly,
 flipped obligations** (`SENIOR_INCOME` / `PAYOUT_DROP`, for which `settleByCompany` reset
-`payoutRequestId := null`, `pending-settlement.service.ts:857`). That is, not only the source
+`payoutRequestId := null`, `pending-settlement.service.ts`). That is, not only the source
 but the derivative itself becomes editable.
 
 ### The map
@@ -83,11 +83,11 @@ Format: **(a)** how it is linked technically · **(b)** what will happen on an e
 
 #### L1. `ADMIN_INCOME` → the senior IOU (`SENIOR_PENDING_PAYOUT`) + a `pending_obligations` row
 
-- **(a)** `declareUsdtProjectIncome` (`transactions.service.ts:2166-2183`) in one DB transaction
-  inserts the income and calls `bookCompanyObligations` (`:4629-4759`). It writes an IOU-row with
-  `amount` = `roundShareAmount(incomeAmount, seniorSharePercent)` (`:4671`) and
+- **(a)** `declareUsdtProjectIncome` (`transactions.service.ts`) in one DB transaction
+  inserts the income and calls `bookCompanyObligations` . It writes an IOU-row with
+  `amount` = `roundShareAmount(incomeAmount, seniorSharePercent)` and
   `sourceIncomeTransactionId` = the income id, and next to it — a `pending_obligations` row
-  with **the same number as a second copy** (`:4693-4707`).
+  with **the same number as a second copy** .
 - **(b)** Both copies will remain old. The income will become, say, 10,000, and the obligation to the
   senior — as it was from 8,000. The money the company owes is computed from an amount that no longer
   exists.
@@ -97,9 +97,9 @@ Format: **(a)** how it is linked technically · **(b)** what will happen on an e
 
 #### L2. `ADMIN_INCOME` → the drop IOU (`DROP_PENDING_PAYOUT`) + `pending_obligations`
 
-- **(a)** The same, the `drop` branch in `bookCompanyObligations` (`:4712-4755`), `amount` =
-  `roundShareAmount(incomeAmount, dropSharePercent)` (`:4713`). Protected from a double booking by the partial
-  unique index `uq_transactions_source_income_drop_link` (`schema.ts:1072-1076`) — **one**
+- **(a)** The same, the `drop` branch in `bookCompanyObligations` , `amount` =
+  `roundShareAmount(incomeAmount, dropSharePercent)` . Protected from a double booking by the partial
+  unique index `uq_transactions_source_income_drop_link` (`schema.ts`) — **one**
   `DROP_PENDING_PAYOUT`/`PAYOUT_DROP` per one `source_income_transaction_id`.
 - **(b)** Like L1.
 - **(c)** No. **An important consequence for the design:** this index makes it physically impossible to create
@@ -110,8 +110,8 @@ Format: **(a)** how it is linked technically · **(b)** what will happen on an e
 
 - **(a)** The same number lives in two tables. Different readers take different copies:
   the funds-sufficiency money-gate reads **`obligation.amount`**
-  (`pending-settlement.service.ts:780`), and the company account ledger debits by
-  **`transactions.amount`** (`company-account-balance.ts:333-357`).
+  (`pending-settlement.service.ts`), and the company account ledger debits by
+  **`transactions.amount`** (`company-account-balance.ts`).
 - **(b)** An edit of one side desynchronizes the gate and the ledger: the system will check one amount, and
   debit another.
 - **(c)** **No — and this is already broken, independently of the task.** An IOU-row born of
@@ -124,27 +124,27 @@ Format: **(a)** how it is linked technically · **(b)** what will happen on an e
 #### L4. An already-**closed** obligation (settle done) — the heaviest case
 
 - **(a)** `settleByCompany` closes an obligation not by inserting a second row, but by a **flip
-  of the original in place** (`pending-settlement.service.ts:805-893`, ADR 2026-07-14). On the flip:
-  `type` → `SENIOR_INCOME` / `PAYOUT_DROP`; `status` → `PAID`; `payoutRequestId` → `null` (`:857`);
-  the obligation's `closingTransactionId` → a reference to **this very row** (`:918`);
-  and — critically — **`seniorSharePercent` / `dropSharePercent` are zeroed** (`:869-872`).
+  of the original in place** (`pending-settlement.service.ts`, ADR 2026-07-14). On the flip:
+  `type` → `SENIOR_INCOME` / `PAYOUT_DROP`; `status` → `PAID`; `payoutRequestId` → `null` ;
+  the obligation's `closingTransactionId` → a reference to **this very row** ;
+  and — critically — **`seniorSharePercent` / `dropSharePercent` are zeroed** .
 - **(b)** Editing the source amount requires recomputing the share, but **the percent by which it was computed
   is physically destroyed**. Deriving the new share from the derivative row itself is impossible. The live resolver
   cannot be called (that would rewrite the price of an already-made deal — see C1). Plus the money has already
   left: either from the company account, or from the admin's personal account.
 - **(c)** No. The zeroed percent does not even look like a loss — it is zeroed **deliberately**: the balances
-  read `seniorSharePercent` as a GROSS↔NET discriminator (`balance.service.ts:265-272`, `:385-388`),
+  read `seniorSharePercent` as a GROSS↔NET discriminator (`balance.service.ts`),
   and a non-zero value on a flipped row would give a ~26-fold undercount of the senior. That is, the field can be
   neither left nor restored "as it was" — a separate storage place is needed (AC3).
 
 #### L5. `payout_requests.incomeAmount` / `payableAmount` — a stored derivative
 
-- **(a)** `createPayoutRequest` (`transactions.service.ts:4207-4233`) sums the `amount` of the selected
+- **(a)** `createPayoutRequest` (`transactions.service.ts`) sums the `amount` of the selected
   `VALIDATED` incomes, applies the percent and the NBU rate, and **writes the result into two columns**.
-  The placeholder `PAYOUT` row gets `amount = payableAmount` (`:4284`) — a third copy.
+  The placeholder `PAYOUT` row gets `amount = payableAmount` — a third copy.
 - **(b)** There is no recompute either on a read or on an edit. Worse: `payPayoutRequest` requires the
   on-chain transfer to match `payableAmount` **exactly, without a percent tolerance**
-  (`:4439-4464`, "The amount of the on-chain transaction must match exactly"). After the payment this transfer is already
+  (, "The amount of the on-chain transaction must match exactly"). After the payment this transfer is already
   in the blockchain — recomputing `payableAmount` for the new income amount means declaring the completed
   transfer wrong.
 - **(c)** Partially: the discrepancy will surface on the next attempt to pay the same payout (the exact-match
@@ -154,7 +154,7 @@ Format: **(a)** how it is linked technically · **(b)** what will happen on an e
 #### L6. The drop-payout chain (two-level)
 
 - **(a)** `DROP_INCOME` → `createPayoutRequest` → `PAYOUT` → `applyPayoutPaidCascade` →
-  `bookCompanyObligations` (`:5153-5162`) → the senior IOU **and** the drop IOU → `settleByCompany` → the flip.
+  `bookCompanyObligations` → the senior IOU **and** the drop IOU → `settleByCompany` → the flip.
 - **(b)** Editing the source `DROP_INCOME` would have to go through two levels: recompute
   `payout_requests`, then both IOUs.
 - **(c)** Not applicable: the chain's entry carries a `payoutRequestId`, guard 2 blocks. **This is exactly what
@@ -163,7 +163,7 @@ Format: **(a)** how it is linked technically · **(b)** what will happen on an e
 #### L7. The company account balance (`sumLedgerTerms`, 8 terms)
 
 - **(a)** The balance is **not stored**, it is derived from the ledger on every read
-  (`company-account-balance.ts:267-370`): `COMPANY_DEPOSIT + PAYOUT(COMPANY_ACCOUNT) +
+  (`company-account-balance.ts`): `COMPANY_DEPOSIT + PAYOUT(COMPANY_ACCOUNT) +
 ADMIN_INCOME(COMPANY_ACCOUNT) − DIVIDEND_TO_ADMIN − SALARY(CA) − EXPENSE(CA) − SENIOR_INCOME(CA) −
 PAYOUT_DROP(CA)`, all terms with `status='PAID' AND currency='USDT'`.
 - **(b)** By **amount** — it will recompute itself, the edit is sufficient. By **currency** — a catastrophe, see L8.
@@ -174,14 +174,14 @@ PAYOUT_DROP(CA)`, all terms with `status='PAID' AND currency='USDT'`.
 
 #### L8. The company account currency guard
 
-- **(a)** `assertNoOffCurrencyCompanyRows` (`company-account-balance.ts:228-254`) counts `PAID`
+- **(a)** `assertNoOffCurrencyCompanyRows` (`company-account-balance.ts`) counts `PAID`
   company-rows with `currency <> 'USDT'` and **throws an exception** if there are any.
   On `computeCompanyAccountBalanceFromLedger` hang **four money gates**: `createExpense`,
-  `paySalary`, `settleByCompany`, `createDividend` (`:372-380`) — they are fail-closed by design.
+  `paySalary`, `settleByCompany`, `createDividend` — they are fail-closed by design.
 - **(b)** One edit of the **currency** of one paid company-row stops **all** payouts in the
   system with a 500 error, until the row is fixed. The comment in the code describes this situation
   verbatim: "Every write path that creates one of these rows hardcodes 'USDT' today … it is a trap
-  for a FUTURE write path that forgets to, not a live bug" (`:184-190`). Removing the currency condition of
+  for a FUTURE write path that forgets to, not a live bug" . Removing the currency condition of
   BIZ-18 **is that very future write path**.
 - **(c)** Yes, loudly — but at the price of a full stop of money operations. The diagnostic screen in doing so
   survives (`computeCompanyAccountBalanceForDisplay`, degraded mode).
@@ -189,14 +189,14 @@ PAYOUT_DROP(CA)`, all terms with `status='PAID' AND currency='USDT'`.
 #### L9. Personal balances and summaries (`getSummary`, `getSeniorBalance`, `getTotalEarned`, `computeDropAggregate`, `getAdminBalance`)
 
 - **(a)** All computed on the fly by a full scan of the ledger with the filter `deleted_at IS NULL` + `status='PAID'`
-  (`transactions.service.ts:5385+`, `balance.service.ts:171/230/330`). Conversion to the base currency —
+  (`transactions.service.ts`, `balance.service.ts`). Conversion to the base currency —
   `convertToBase` by the **live** NBU rates.
 - **(b)** They recompute themselves. The amount edit is sufficient.
 - **(c)** Not required — no discrepancy arises.
 
 #### L10. The GROSS↔NET discriminator on `SENIOR_INCOME`
 
-- **(a)** `balance.service.ts:265-272` and `:385-388`: `seniorSharePercent IS NOT NULL` ⇒ `amount` is
+- **(a)** `balance.service.ts` (the GROSS↔NET discriminator): `seniorSharePercent IS NOT NULL` ⇒ `amount` is
   GROSS, the senior's share = `amount × percent/100`; `NULL` ⇒ `amount` is already NET (a row after settle).
 - **(b)** An `amount` edit recomputes itself, because the percent is taken **from the row** (a snapshot) —
   correct behavior. But this also means: **the percent must not be touched** (C1), otherwise what changes is not
@@ -205,25 +205,25 @@ PAYOUT_DROP(CA)`, all terms with `status='PAID' AND currency='USDT'`.
 
 #### L11. Salary: `salaryMonth` and the monthly aggregates
 
-- **(a)** `getOwnSalaryStatus` (`salary-status.helper.ts:56-66`) looks for a row by the pair
+- **(a)** `getOwnSalaryStatus` (`salary-status.helper.ts`) looks for a row by the pair
   `(receiverId, salaryMonth)`; the partial unique index `uq_transactions_salary_receiver_month`
-  (`schema.ts:1024-1026`) forbids two `SALARY` rows per pair. The report on missed months —
+  (`schema.ts`) forbids two `SALARY` rows per pair. The report on missed months —
   `getSalaryMonthGapReport`.
 - **(b)** Editing `salaryMonth` moves the payout between months; on a collision with an existing row
-  a 23505 will arrive, and the error handler accounts for this explicitly (`transactions.service.ts:3099-3109`).
+  a 23505 will arrive, and the error handler accounts for this explicitly (`transactions.service.ts`).
 - **(c)** **Partially no: a month change is not written to the journal at all.** The write condition is
-  `amountChanged || currencyChanged || receiverLabelChanged` (`:3056`), `salaryMonthChanged`
-  is computed (`:2973`), participates in the BIZ-18 guard (`:2979`), but is **not** in the journaling
+  `amountChanged || currencyChanged || receiverLabelChanged` , `salaryMonthChanged`
+  is computed , participates in the BIZ-18 guard , but is **not** in the journaling
   condition. Confirmed; this is exactly the gap named in the preamble.
 
 #### L12. The payment-fact triplet: `originalAmount` / `originalCurrency` / `exchangeRate`
 
-- **(a)** Written by `paySalary` and the drop branch of `settleByCompany` (`schema.ts:629-687`,
-  `pending-settlement.service.ts:820-826`). `amount` = how much really left, `originalAmount` = what
+- **(a)** Written by `paySalary` and the drop branch of `settleByCompany` (`schema.ts`,
+  `pending-settlement.service.ts`). `amount` = how much really left, `originalAmount` = what
   the obligation was, `exchangeRate` = `paid / original` — the **effective applied rate**.
 - **(b)** The schema comment directly warns: "A SNAPSHOT of what was applied at pay time (like
   `senior_share_percent`) — a later `adminEditTransaction` on `amount` does not rewrite it"
-  (`schema.ts:665-668`). That is, after an `amount` edit the identity
+  (`schema.ts`). That is, after an `amount` edit the identity
   `exchangeRate == amount / originalAmount` stops holding. The row will start asserting a rate that did not exist.
 - **(c)** **No.** No reader checks this identity.
 
@@ -233,12 +233,12 @@ PAYOUT_DROP(CA)`, all terms with `status='PAID' AND currency='USDT'`.
   SHA-256 of the signed document; `transactions.invoiceDocumentId` points at the active PDF.
 - **(b)** Three different consequences, all hidden:
   1. The counterparty's signature **will not break**: the verification reconciles the hash of the **file stored in S3**, not
-     of a re-render (`invoices.service.ts:773-782`). The amount edit does not touch the file.
-  2. But after the counterparty signs, the PDF is **re-rendered from the live `tx.amount`** (`:800-925`) and
+     of a re-render (`invoices.service.ts`). The amount edit does not touch the file.
+  2. But after the counterparty signs, the PDF is **re-rendered from the live `tx.amount`** and
      replaces the previous one. The final two-sided-signed document will contain the **new** amount,
      while the hashes fixed in `invoice_signatures` refer to the **old** file. After this no one
      reconciles them — the discrepancy is mute.
-  3. The public verification by the QR code from the paper (`verifyInvoice`, `:985`) returns the **live** `tx.amount`.
+  3. The public verification by the QR code from the paper (`verifyInvoice`) returns the **live** `tx.amount`.
      A counterparty with a printout of 8,000 will scan the code and see 10,000.
 - **(c)** **No.** This is exactly the class of item 168: in the CRM everything looks consistent, while the discrepancy lives
   outside — in a document that is already with the counterparty.
@@ -246,7 +246,7 @@ PAYOUT_DROP(CA)`, all terms with `status='PAID' AND currency='USDT'`.
 #### L14. On-chain observed amounts
 
 - **(a)** `COMPANY_DEPOSIT.amount` — not our computation, but **what really arrived over the blockchain**
-  (`company-account.service.ts:356-377`, `amount = verification.amountUsdt`). `payout_requests.payableAmount`
+  (`company-account.service.ts`, `amount = verification.amountUsdt`). `payout_requests.payableAmount`
   is reconciled with the actual transfer exactly (L5). In the row itself lies a reference to the explorer.
 - **(b)** The edit makes the ledger contradict the blockchain — with a live proof reference right in
   this same row.
@@ -255,15 +255,15 @@ PAYOUT_DROP(CA)`, all terms with `status='PAID' AND currency='USDT'`.
 
 #### L15. Notifications
 
-- **(a)** The amount is formatted into the notification text at creation (`invoices.service.ts:369`, `:531`,
-  `:936`).
+- **(a)** The amount is formatted into the notification text at creation (`invoices.service.ts`,
+  ).
 - **(b)** A sent notification contains the old amount forever.
 - **(c)** Not applicable — this is a fact of communication, not a state. Not subject to an edit.
 
 #### L16. Soft deletion — a parallel (not closed) hole
 
 - **(a)** `adminDeleteTransaction` refuses to delete a row referenced by an obligation
-  (`transactions.service.ts:3187-3194`, a check by `pending_obligations.sourceTransactionId`).
+  (`transactions.service.ts`, a check by `pending_obligations.sourceTransactionId`).
 - **(b)** But the obligation references the **IOU**, not the income. So the `ADMIN_INCOME` that generated the
   obligations **is deleted without obstruction already today** — the `sourceIncomeTransactionId` link
   is not covered by this check.
@@ -272,7 +272,7 @@ PAYOUT_DROP(CA)`, all terms with `status='PAID' AND currency='USDT'`.
 
 #### L17. `users.service.ts` — the warning on archiving
 
-- **(a)** `getPendingTransactionsForArchiveWarning` (`:1355-1374`) shows the amounts of the employee's `PENDING` rows
+- **(a)** `getPendingTransactionsForArchiveWarning` shows the amounts of the employee's `PENDING` rows
   before archiving.
 - **(b)** Reads live, only `PENDING`. Recomputes itself.
 - **(c)** Not required.
@@ -281,10 +281,10 @@ PAYOUT_DROP(CA)`, all terms with `status='PAID' AND currency='USDT'`.
 
 The column was added by PR #590 (backlog 74/B-1) after the posing of this task — accounted for separately.
 
-- **(a)** Stamped **once** at booking (`bookCompanyObligations`, `:4706` and `:4753`) with the same
+- **(a)** Stamped **once** at booking (`bookCompanyObligations` and) with the same
   `payoutRequestId` that the IOU-row gets. This is a **deliberately separate** column from
   `transactions.payoutRequestId`, which `settleByCompany` resets to `null` on the flip
-  (`:857`) — and which the reset therefore does not affect (`schema.ts:1310-1330`). It exists exactly
+  — and which the reset therefore does not affect (`schema.ts`). It exists exactly
   so that after the obligation is closed the detailed payout screen can still answer "which
   obligations arose from it".
 - **(b)** It does **not depend** on the amount at all — an `amount` edit does not affect it. But it is important to the cascade from
@@ -296,19 +296,19 @@ The column was added by PR #590 (backlog 74/B-1) after the posing of this task �
   `ON DELETE SET NULL` and the schema directly marks the column as "informational (display only), never a
   security/money gate" — **it cannot be relied on as a guard**. For the discrimination
   "cascade vs declaration" a positive marker `transactions.dropCascadeOrigin` exists
-  (`schema.ts:709-765`), which is stamped once and is not derived from the FK precisely because
+  (`schema.ts`), which is stamped once and is not derived from the FK precisely because
   `SET NULL` would make such a guard refuse **in the open** direction.
 
 #### L19. Idempotency of incomes (#587) — what the cascade is obliged not to break
 
 - **(a)** `SENIOR_INCOME` and `DROP_INCOME` got client idempotency keys with partial
   unique indexes `uq_transactions_senior_income_idempotency_key` /
-  `uq_transactions_drop_income_idempotency_key` (`schema.ts:1044-1065`), in one namespace
+  `uq_transactions_drop_income_idempotency_key` (`schema.ts`), in one namespace
   with those already existing for `ADMIN_INCOME` and `DIVIDEND_TO_ADMIN`.
 - **(b)** An amount edit does **not** change `idempotencyKey`, and it must not change it: the key is
   the "intention" of a specific request, not a property of the amount. The same contract is already fixed for
   `ADMIN_INCOME`: a repeat of the key with a DIFFERENT payload returns the first fixed row and
-  ignores the new amount (`transactions.service.ts:2010-2015`).
+  ignores the new amount (`transactions.service.ts`).
 - **(c)** Yes, physically: an attempt by the cascade to insert a duplicate will run into a 23505. The practical consequence for
   the implementation — the cascade is obliged to **update** the derivatives, not to insert (AC3, idempotency item 4);
   the keys here work as insurance, not as the mechanism.
@@ -346,7 +346,7 @@ This is the most dangerous category, because "recompute along the way" looks her
 #### C1. `seniorSharePercent` / `dropSharePercent` (+ their `*Source`)
 
 **Why a snapshot is obliged to remain a snapshot.** The percent is resolved by the hierarchy
-`project → team → user` **at the moment of the deal** (`senior-share-resolver.ts:73-103`) and
+`project → team → user` **at the moment of the deal** (`senior-share-resolver.ts`) and
 written onto the row "verbatim … and is never recomputed on read" (there, the doc-comment).
 Three independent arguments, each sufficient:
 
@@ -354,11 +354,11 @@ Three independent arguments, each sufficient:
    value retroactively rewrites the terms of a completed deal: a change of the senior's rate in
    February would re-price all last year's incomes.
 2. **Technical.** The value is read as a GROSS↔NET discriminator on **every** balance read
-   (`balance.service.ts:272`, `:388`). A percent change changes not the number, but the **meaning** of the `amount` column
+   (`balance.service.ts`). A percent change changes not the number, but the **meaning** of the `amount` column
    for this row.
 3. **Determinism.** The schema comment fixes this as a contract: "makes the distribution
    deterministic (changing `users.dropSharePercent` later does not retroactively re-price existing
-   rows)" (`schema.ts:773-777`).
+   rows)" (`schema.ts`).
 
 **What this means for the cascade:** the new share = `roundShareAmount(new_income, THE_OLD_percent_from_the_row)`.
 The live resolver must **never** be called in the cascade. If there is no snapshot (a legacy row or a row after
@@ -369,7 +369,7 @@ settle, where it is zeroed) — the cascade is obliged to **refuse**, not to gue
 **Why a snapshot.** This is the protocol of the actual payment: "800 USD of obligation was closed by 30,000 UAH at
 rate 37.5". The rate is not a reference value, but `paid / original` **of that very transfer**. A recompute by
 today's NBU rate would lie about the rate at which the bank payment really went; the statement
-after this cannot be reconciled. The schema fixes this explicitly (`schema.ts:665-668`).
+after this cannot be reconciled. The schema fixes this explicitly (`schema.ts`).
 
 **A trap easy to miss:** an `amount` edit on such a row breaks the identity
 `exchangeRate == amount / originalAmount`, and no one checks this (L12). Hence the recommendation
@@ -393,7 +393,7 @@ a discrepancy with an independent source of truth that is verified in one click.
 
 **Why a snapshot.** Not money, but the same nature: the company name at the moment of booking. The schema explains
 this as "the one thing a money-history view must never do" — renaming a project must not
-rewrite the history of already-booked money (`schema.ts:852-877`). Mentioned for the completeness of the
+rewrite the history of already-booked money (`schema.ts`). Mentioned for the completeness of the
 contract: the cascade must not "refresh" it.
 
 #### C6. Delivered notifications
@@ -409,9 +409,9 @@ cascade one must correct the **difference to top up**, not rewrite the closed am
 #### C8. `pending_obligations.payoutRequestId` and `transactions.dropCascadeOrigin` (L18)
 
 **Why a snapshot.** Both are stamped **once at creation** and deliberately **not derived** from
-the live FKs — because `transactions.payoutRequestId` is reset on the flip (`:857`), and the FK itself
+the live FKs — because `transactions.payoutRequestId` is reset on the flip , and the FK itself
 has `ON DELETE SET NULL`. The schema explains the cost of deriving instead of stamping in plain text: a guard
-relying on the live FK would, on zeroing, **refuse in the open** direction (`schema.ts:731-742`).
+relying on the live FK would, on zeroing, **refuse in the open** direction (`schema.ts`).
 The cascade is obliged to read these columns, but has no right to "refresh" or recompute them: they
 describe the row's origin, and the origin does not change from someone having corrected an amount.
 
@@ -439,25 +439,25 @@ The first case is simple and is obliged to be done together with the second, oth
 The flip of `settleByCompany` — reversible by form, but not by meaning. The reverse move:
 
 1. `pending_obligations`: `status: 'PAID' → 'PENDING'`, `closingTransactionId → null`.
-   The partial unique index `uq_pending_obligations_source_pending` (`schema.ts:1346-1348`)
+   The partial unique index `uq_pending_obligations_source_pending` (`schema.ts`)
    allows exactly one `PENDING` obligation per source — there is no conflict, but the rollback is obliged to be a
    **conditional UPDATE** (`WHERE status='PAID'`) with a check of the affected row count, otherwise a double
    rollback will create a second `PENDING` and run into a 23505.
 2. `transactions`: `type` back to `SENIOR_PENDING_PAYOUT` / `DROP_PENDING_PAYOUT`,
    `status: 'PAID' → 'PENDING_PAYMENT'`, `amount` = the **new** share.
-3. **Restore the percent snapshot** that settle zeroed (`:869-872`) — without it the next
+3. **Restore the percent snapshot** that settle zeroed — without it the next
    preview cannot compute the share. There is nowhere to take it from except a new storage (see below).
 4. `fundingSource`, `receiptDocumentId`/`receiptExternalUrl`, `senderId`, `validatedBy/At` —
    refer to the payment that happened. **Do not erase**: this is proof that the payout was.
 5. The journal: a new action, for example `CASCADE_REOPEN`, with `{ obligationId, before: {amount, type,
 status}, after: {...}, causedBy: <the id of the edited row>, settledAmount }` — **inside the same
-   DB transaction** as the rollback itself (modeled on `adminDeleteTransaction:3213-3225`, where the journal
+   DB transaction** as the rollback itself (modeled on `adminDeleteTransaction`, where the journal
    record is deliberately inseparable from the action).
 
 ### A mandatory companion: a ledger term. Without it the mechanism creates a hole
 
 **This is the most important thing in AC3.** The company account debit hangs on `status='PAID'`
-(`company-account-balance.ts:333-357`). The rollback `PAID → PENDING_PAYMENT` **removes the debit** — and the balance
+(`company-account-balance.ts`). The rollback `PAID → PENDING_PAYMENT` **removes the debit** — and the balance
 of the company account **grows by exactly the already-paid amount**. The money has physically left meanwhile.
 
 The consequence is not cosmetic: an overstated balance is an input to the money-gate
@@ -484,7 +484,7 @@ is the owner's, but **the option without a compensation in the ledger is not one
 `settled_currency`, a monotonic accumulator of actual payouts.** (Confidence: HIGH)
 
 - The currency is needed separately because a drop obligation could have been closed in another currency
-  (`settleByCompany` writes `amount` = the fact in the payment currency, `pending-settlement.service.ts:820-826`).
+  (`settleByCompany` writes `amount` = the fact in the payment currency, `pending-settlement.service.ts`).
   One number without a currency is already a wrong answer.
 - **Monotonicity is the key to "survives subsequent edits".** The **sum of all actual
   payouts on the row** is stored, increases on each settle, never decreases. "To top up" is
@@ -495,11 +495,11 @@ is the owner's, but **the option without a compensation in the ledger is not one
   not to do.
 - The columns are additive-nullable, without a backfill: `NULL` reads as "did not pass through the mechanism",
   which for all existing rows is the literal truth (the same technique as with
-  `originalAmount`/`sourceIncomeTransactionId` — `schema.ts:673-677`, `:808-812`).
+  `originalAmount`/`sourceIncomeTransactionId` — `schema.ts`).
 
 **Why not from the journal `transaction_audit_log`.** (Confidence: HIGH — verified by the code.)
 The `PAY` record at settle is made **best-effort, after the commit of the money transaction**, and its error
-is only logged (`pending-settlement.service.ts:936-963`: "Best-effort, run AFTER the settle
+is only logged (`pending-settlement.service.ts`: "Best-effort, run AFTER the settle
 transaction has already committed … a logging hiccup must not turn a successful settlement into a
 500"). So the journal **may not contain a payout that really happened**. Deriving money from a
 log that by construction allows a miss is not allowed. The journal remains what it is —
@@ -543,9 +543,9 @@ is reconciled with an already-completed transfer in the blockchain — that is, 
 The case: `new_share < settled_amount`. This is **not a debt of the company, but an overpayment to the employee**.
 
 - One **must not** record a negative obligation. `pending_obligations.amount` participates in the
-  money-gate `amount > balance` (`pending-settlement.service.ts:780-785`) and in all aggregates;
+  money-gate `amount > balance` (`pending-settlement.service.ts`) and in all aggregates;
   a negative value would distort both the gate and the balances. Besides, `settledAmountError`
-  (`exchange-rate.util.ts:53-60`) explicitly rejects negative payout amounts — the invariant is already
+  (`exchange-rate.util.ts`) explicitly rejects negative payout amounts — the invariant is already
   fixed in the code.
 - **Recommendation:** on `delta ≤ 0` **do not return the row to `PENDING`**. Leave it `PAID`,
   record in the journal the fact of the overpayment with both amounts and show in the interface an explicit mark
@@ -559,18 +559,18 @@ The case: `new_share < settled_amount`. This is **not a debt of the company, but
 Four levels, all — a repetition of techniques already existing in the project, not new inventions:
 
 1. **Editing the same amount twice.** Already solved: `amountChanged` compares
-   `Number(x).toFixed(6) !== Number(tx.amount).toFixed(6)` (`transactions.service.ts:2970-2971`).
+   `Number(x).toFixed(6) !== Number(tx.amount).toFixed(6)` (`transactions.service.ts`).
    If the amount did not change — the cascade does not launch, the journal is not written. **Reuse this
    comparison, do not write a second one** (otherwise we get two descriptions of one rule — item 170).
 2. **A repeat rollback of an already-rolled-back row.** A conditional UPDATE with a check of the affected row count —
-   the pattern from `settleByCompany:756-769`, `adminDeleteTransaction:3199-3211`, `restoreTransaction:3263-3275`.
+   the pattern from `settleByCompany`, `adminDeleteTransaction`, `restoreTransaction`.
    Zero rows ⇒ the rollback already happened ⇒ exit without a second journal record.
 3. **The accumulator is not overwritten.** `settled_amount` only **increases** on each settle.
    The scenario "edit → top-up → edit → top-up" is obliged to give a monotonically growing accumulator;
    the second rollback has no right to zero or reset it.
 4. **The cascade does not multiply rows.** The derivatives are **updated** (lookup by `sourceIncomeTransactionId`),
    not created. For the drop-row this is additionally guaranteed physically —
-   `uq_transactions_source_income_drop_link` (`schema.ts:1072-1076`) will not allow a second insert.
+   `uq_transactions_source_income_drop_link` (`schema.ts`) will not allow a second insert.
 
 ---
 
@@ -600,7 +600,7 @@ changed between the reads — and this is closed by the item below.
 
 A precedent in the project worth repeating verbatim: `roundShareAmount` is moved out into `@crm/shared`
 precisely so that two counters do not diverge, and in the code this is fixed by a comment — "both
-stay pinned to identical numbers" (`transactions.service.ts:5127-5130`). We do the same thing one
+stay pinned to identical numbers" (`transactions.service.ts`). We do the same thing one
 level up.
 
 ### Optimistic locking — otherwise the preview is honest but not current
@@ -631,7 +631,7 @@ a divergence of the preview from the fact, only masked as a success.
 1. **Do not remove guard 2 (`payoutRequestId`).**
    It is the only thing holding the cascade one-level (the proof in AC3). Behind it is
    `payout_requests.payableAmount`, which is reconciled with the actual on-chain transfer **exactly, without a
-   tolerance** (`transactions.service.ts:4439-4464`). The transfer is already in the blockchain; it cannot be
+   tolerance** (`transactions.service.ts`). The transfer is already in the blockchain; it cannot be
    "recomputed". Errors in such rows are corrected by a **reversing transaction**, not by editing.
 
 2. **Do not remove guard 1 (the `PAYOUT` family).**
@@ -639,12 +639,12 @@ a divergence of the preview from the fact, only masked as a success.
    in place destroys the link with the original `PAYOUT` (the reason the type was added to the guard).
 
 3. **Do not allow editing the CURRENCY on `PAID` rows.** This is the most likely way to accidentally break the
-   system, because the currency stands in BIZ-18 **in one condition with the amount** (`:2979`) and is removed
+   system, because the currency stands in BIZ-18 **in one condition with the amount** and is removed
    "along the way" in one motion. The consequence is exact: one `PAID` company-row with `currency <> 'USDT'`
    makes `assertNoOffCurrencyCompanyRows` throw an exception, and on it hang **four** money
    gates — `createExpense`, `paySalary`, `settleByCompany`, `createDividend`
-   (`company-account-balance.ts:372-380`). All payouts in the system stop with a 500, until the row is
-   fixed. The comment in the code calls this "trap for a FUTURE write path" (`:184-190`) — removing
+   (`company-account-balance.ts`). All payouts in the system stop with a 500, until the row is
+   fixed. The comment in the code calls this "trap for a FUTURE write path" — removing
    the currency condition is that write path. The currency is corrected by a reversal + a new row.
    **In BIZ-18 one must remove only `amountChanged`**, leaving `currencyChanged || salaryMonthChanged`
    blocking.
@@ -676,7 +676,7 @@ a divergence of the preview from the fact, only masked as a success.
    be checked, but will participate in every future review and in every reasoning about money.
 
 9. **Do not count "already paid out" from the journal.** The `PAY` record is best-effort and after the commit
-   (`pending-settlement.service.ts:936-963`) — the journal may not contain a payout that happened (AC3).
+   (`pending-settlement.service.ts`) — the journal may not contain a payout that happened (AC3).
 
 10. **Do not fix "along the way" neighboring defects in this same task.** Three were found; each needs its own
     check and its own review:
@@ -844,42 +844,46 @@ task 3 without 1 and 2 is meaningless and is rolled back together with them.
 
 ## Sources
 
-Everything verified by reading the code on `origin/main` = **`166897df`**, not from memory. Four reference points
-were re-confirmed by a `grep` of the symbol name after writing the map: the BIZ-18 guard — `:2981`,
-the journaling condition — `:3056`, the insert of `AMOUNT_OR_RECEIVER_CHANGE` — `:3060`,
-`bookCompanyObligations` — `:4629`. Both PRs merged last are accounted for: **#587** (idempotency of
+Everything verified by reading the code on `origin/main` = **`166897df`**, not from memory. Four reference
+points were re-confirmed by a `grep` of the symbol name after writing the map: the BIZ-18 guard and the
+journaling condition inside `adminUpdateTransaction`, the insert of `AMOUNT_OR_RECEIVER_CHANGE`, and
+`bookCompanyObligations`. Both PRs merged last are accounted for: **#587** (idempotency of
 `SENIOR_INCOME` / `DROP_INCOME` — L19) and **#590** (`pending_obligations.payoutRequestId` — L18, C8).
 
-- `apps/api/src/finance/transactions.service.ts` — `:2944-2983` (the three guards), `:2970-2973`
-  (the change comparison), `:3056-3073` (the journaling condition), `:3187-3194` (the deletion guard),
-  `:2166-2183` (`declareUsdtProjectIncome` → the booking), `:4207-4233` / `:4284` / `:4439-4464`
-  (the payout amounts and the exact on-chain reconciliation), `:4629-4759` (`bookCompanyObligations`),
-  `:5090-5162` (the drop-payout cascade), `:5127-5130` ("both stay pinned to identical numbers"),
-  `:5385+` (`getSummary`), `:4045` + `:4111` (`createPayoutRequest`, the selection strictly by
-  `status='VALIDATED'` — the proof of the cascade's limited depth).
-- `apps/api/src/finance/pending-settlement.service.ts` — `:756-769` (the conditional claim), `:777-786`
-  (the money-gate by `obligation.amount`), `:805-922` (the flip in place: `:820-826` the fact/obligation,
-  `:857` the reset of `payoutRequestId`, `:869-872` the zeroing of the percents, `:918` the self-`closingTransactionId`),
-  `:936-963` (the best-effort journal after the commit).
-- `apps/api/src/finance/company-account-balance.ts` — `:175-190` (the comment about the "future write
-  path"), `:228-254` (the currency guard), `:267-370` (the 8 terms), `:372-388` (the gates vs the display).
-- `apps/api/src/finance/balance.service.ts` — `:265-272`, `:385-388` (the GROSS↔NET discriminator).
-- `apps/api/src/finance/salary-status.helper.ts` — `:56-66`.
-- `apps/api/src/finance/exchange-rate.util.ts` — `:28-30`, `:53-60`.
-- `apps/api/src/finance/senior-share-resolver.ts` — `:73-103` (the hierarchy + the contract "never
-  recomputed on read"); `drop-share-resolver.ts`.
-- `apps/api/src/finance/company-account.service.ts` — `:346-377`, `:513-532` (the observed on-chain
-  amount).
-- `apps/api/src/invoices/invoices.service.ts` — `:735-782` (the hash reconciliation with the stored PDF),
-  `:800-925` (the re-render from the live `tx.amount`), `:951-1000` (`verifyInvoice`, the public return of
-  the live `tx.amount`).
-- `apps/api/src/users/users.service.ts` — `:1355-1374`.
-- `apps/api/src/database/schema.ts` — `:68-125` (the types), `:156-168` (the statuses), `:571-618`
-  (`payout_requests`), `:620-1100` (`transactions`: `:626-687` the amounts and the triplet, `:766-781` the percent
-  snapshots, `:848` `sourceIncomeTransactionId`, `:1024-1026` the salary uniqueness,
-  `:1072-1076` the drop-link uniqueness), `:1287-1350` (`pending_obligations`),
-  `:1429-1452` (`invoice_signatures`), `:1842-1857` (`transaction_audit_log`).
-- `packages/shared/src/utils/money.ts` — `:24-33` (`roundShareAmount`, deterministic).
+The list below keys on **symbol names**, because the files have since moved under them: the monolithic
+`transactions.service.ts` was split into per-concern services and `database/schema.ts` became a directory.
+Every symbol named here kept its name through those moves, so `grep` finds it wherever it now lives.
+
+- `adminUpdateTransaction` — the three guards on a PAID row, the change comparison
+  (`amountChanged || currencyChanged || receiverLabelChanged`), the journaling condition and the insert of
+  `AMOUNT_OR_RECEIVER_CHANGE`.
+- `adminDeleteTransaction` — the deletion guard (a row referenced by a `pending_obligations` entry).
+- `declareUsdtProjectIncome` — admin USDT income → the obligation booking.
+- `createPayoutRequest` — the payout amounts, and the selection strictly by `status='VALIDATED'` (the proof
+  of the cascade's limited depth). `payPayoutRequest` — the exact on-chain reconciliation, no percentage band.
+- `bookCompanyObligations` — IOU booking (the senior branch and the drop branch).
+- `applyPayoutPaidCascade` — the drop-payout cascade, and the comment "both stay pinned to identical numbers"
+  (fact and obligation share one snapshot through `roundShareAmount`).
+- `getSummary` — the `settlementTxIds` discriminator that keeps a settled `SENIOR_INCOME` out of income.
+- `settleByCompany` (and `settleByCompanySourceTransaction`) — the conditional claim, the money-gate by
+  `obligation.amount`, the flip in place (the fact/obligation pair, the reset of `payoutRequestId`, the zeroing
+  of the percents, the self-`closingTransactionId`), and the best-effort journal after the commit.
+- `sumLedgerTerms` / `computeCompanyAccountBalanceFromLedger` — the 8 ledger terms and the gates vs the
+  display; `assertNoOffCurrencyCompanyRows` — the currency guard; the docstring about the "future write path".
+- `getSeniorBalance` / `getTotalEarned` — the GROSS↔NET discriminator (`seniorSharePercent IS NOT NULL` ⇒
+  `amount` is gross).
+- `getOwnSalaryStatus` — the salary-status derivation.
+- `isStorableExchangeRate` with `EXCHANGE_RATE_MIN` / `EXCHANGE_RATE_MAX_EXCLUSIVE`, and `settledAmountError`.
+- `resolveSeniorShare` — the hierarchy plus the contract "never recomputed on read"; `resolveDropShare` is
+  its twin.
+- `submitDeposit` / `getDepositStatus` — the observed on-chain amount.
+- `signInvoice` — the hash reconciliation with the stored PDF and the re-render from the live `tx.amount`;
+  `verifyInvoice` — the public return of the live `tx.amount`.
+- `getPendingTransactionsForArchiveWarning` — the archive warning over pending rows.
+- Schema: the transaction type and status enums, `payout_requests`, `transactions` (the amount triplet, the
+  percent snapshots, `sourceIncomeTransactionId`, the salary uniqueness constraint, the drop-link uniqueness
+  constraint), `pending_obligations`, `invoice_signatures`, `transaction_audit_log`.
+- `roundShareAmount` (`packages/shared/src/utils/money.ts`) — deterministic rounding shared by both sides.
 - ADR `docs/architecture/2026-07-14-settle-transition-in-place.md` — §"Silo-consumers of the created
   row" (the map's completeness reconciliation).
 - Rules: `.claude/rules/common/live-db-access.md`, `zone-of-write.md`, `design-gate.md`.

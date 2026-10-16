@@ -1,6 +1,6 @@
 ---
 name: claude-design-workflow
-description: 'When the orchestrator (Master) or ui-ux-designer drives Claude Design (claude.ai/design) for a UI task: syncing the design system, generating a screen, exporting the bridge artifact for a headless coder, handoff. A cookbook on top of the native /design-* commands (CLI ≥ 2.1.185) + Chrome MCP drive + a fallback to the owner.'
+description: 'Use when the orchestrator (Master) or ui-ux-designer drives Claude Design (claude.ai/design) for a UI task: syncing the design system, generating a screen, exporting the bridge artifact for a headless coder, handoff. Cookbook over /design-* commands and Chrome MCP.'
 when_to_use: "Use when the orchestrator (Master) or ui-ux-designer needs to drive Claude Design for a UI task or produce the handoff artifact (design-gate Tier 1/2). Examples: 'generate a screen design in Claude Design', 'sync the design system', 'export the artifact for the coder', 'let's go, HR-dashboard design', 'need design.html + design.png for the PR', 'how to drive claude.ai/design via Chrome MCP'."
 allowed-tools:
   - Read

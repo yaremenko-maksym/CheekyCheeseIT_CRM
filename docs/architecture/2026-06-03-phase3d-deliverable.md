@@ -13,20 +13,20 @@
 
 ### 3d.1 (PR #93, merged)
 
-| File                          | Change                                                                                       |
-| ----------------------------- | -------------------------------------------------------------------------------------------- |
-| `docs/agents/coder.md`        | Added YAML frontmatter (name / description / tools / model) — ECC agent format, lines 1-6    |
-| `docs/agents/CLAUDE-coder.md` | No changes (9-line deprecated stub without manual TDD/Reviewer mentions)                     |
+| File                          | Change                                                                                    |
+| ----------------------------- | ----------------------------------------------------------------------------------------- |
+| `docs/agents/coder.md`        | Added YAML frontmatter (name / description / tools / model) — ECC agent format, lines 1-6 |
+| `docs/agents/CLAUDE-coder.md` | No changes (9-line deprecated stub without manual TDD/Reviewer mentions)                  |
 
 ### 3d.2 (current PR)
 
-| File                                                  | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| File                                                  | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `docs/agents/coder.md`                                | (a) Extended the "Mandatory skill invocation" table — added ECC `tdd-guide` + `typescript-reviewer` rows + a note about D1-D4 preservation. (b) Added section §1.5 "ECC tdd-guide invocation" (workflow Step 1.5 for new features). (c) Added section §2.5 "ECC typescript-reviewer self-review" (workflow Step 2.5 — BEFORE `git push`). (d) Extended the "Reference (on-demand)" — a section of ECC sub-agents catalog references + a stack-specific skills note (after Phase 4). |
-| `docs/agents/memory/coder/lessons.md`                 | Append-only lesson `2026-06-03 [phase3d.2-ecc-migration]` about the tdd-guide / typescript-reviewer delegation rules.                                                                                                                                                                                                                                                                                                                                                       |
-| `docs/agents/pm-snippets.md`                          | In "Coder — new feature" + "Coder — fix in an existing branch" added notes about the Coder's self-delegation to ECC sub-agents (PM does not pass additional prompts).                                                                                                                                                                                                                                                                                                       |
-| `docs/agents/CLAUDE-coder.md`                         | No changes (no mentions of manual TDD/Reviewer to update).                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `docs/architecture/2026-06-03-phase3d-deliverable.md` | New file — this document.                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `docs/agents/memory/coder/lessons.md`                 | Append-only lesson `2026-06-03 [phase3d.2-ecc-migration]` about the tdd-guide / typescript-reviewer delegation rules.                                                                                                                                                                                                                                                                                                                                                               |
+| `docs/agents/pm-snippets.md`                          | In "Coder — new feature" + "Coder — fix in an existing branch" added notes about the Coder's self-delegation to ECC sub-agents (PM does not pass additional prompts).                                                                                                                                                                                                                                                                                                               |
+| `docs/agents/CLAUDE-coder.md`                         | No changes (no mentions of manual TDD/Reviewer to update).                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `docs/architecture/2026-06-03-phase3d-deliverable.md` | New file — this document.                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
 ---
 
@@ -78,13 +78,13 @@
 
 ## 3. Invocation matrix — who-when-why invokes ECC sub-agents
 
-| Diff in the milestone                                     | Task type   | sub-agent                             | When to invoke                                          | Why                                                                      |
-| --------------------------------------------------------- | ----------- | ------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------ |
-| New feature — production                                  | New feature | `tdd-guide`                           | Step 1.5 (after the branch, BEFORE §2 Development)      | TDD plan: RED→GREEN→IMPROVE + 80% coverage scaffolding                   |
-| Bugfix in an existing branch                              | Bug fix     | (do not dispatch tdd-guide)           | — Use the `superpowers:systematic-debugging` skill      | A TDD plan is not applicable — a bug-isolated repro is needed            |
-| Milestone with `.ts` / `.tsx`                             | Any         | `typescript-reviewer`                 | Step 2.5 (AFTER Development, BEFORE `git push`)         | Self-review: strict types / ESLint / Zod usage — reduces review iterations |
-| Milestone without `.ts` / `.tsx` (only docs / config / yml) | Any         | (skip typescript-reviewer)            | —                                                       | No TS code — nothing to review                                           |
-| Coder UI task                                             | New feature | `tdd-guide` + `frontend-design` skill | §1.5 + during frontend development                      | TDD plan + design quality primitives                                     |
+| Diff in the milestone                                       | Task type   | sub-agent                             | When to invoke                                     | Why                                                                        |
+| ----------------------------------------------------------- | ----------- | ------------------------------------- | -------------------------------------------------- | -------------------------------------------------------------------------- |
+| New feature — production                                    | New feature | `tdd-guide`                           | Step 1.5 (after the branch, BEFORE §2 Development) | TDD plan: RED→GREEN→IMPROVE + 80% coverage scaffolding                     |
+| Bugfix in an existing branch                                | Bug fix     | (do not dispatch tdd-guide)           | — Use the `superpowers:systematic-debugging` skill | A TDD plan is not applicable — a bug-isolated repro is needed              |
+| Milestone with `.ts` / `.tsx`                               | Any         | `typescript-reviewer`                 | Step 2.5 (AFTER Development, BEFORE `git push`)    | Self-review: strict types / ESLint / Zod usage — reduces review iterations |
+| Milestone without `.ts` / `.tsx` (only docs / config / yml) | Any         | (skip typescript-reviewer)            | —                                                  | No TS code — nothing to review                                             |
+| Coder UI task                                               | New feature | `tdd-guide` + `frontend-design` skill | §1.5 + during frontend development                 | TDD plan + design quality primitives                                       |
 
 **IMPORTANT (do not confuse):**
 
@@ -98,14 +98,14 @@ Three different reviewers, three different moments in the pipeline.
 
 ## 4. Preservation — what did not move to ECC
 
-| What is preserved                                    | Where it lives                                                                          | Why                                                 |
-| ---------------------------------------------------- | --------------------------------------------------------------------------------------- | --------------------------------------------------- |
-| **D1-D4 resilience layer**                           | `docs/agents/coder.md` §3 (wip-push), §4 (watchdog), §7 (AC-in-diff), §8 (final commit) | Project-specific contract — ECC does not cover it   |
-| **Intent markers**                                   | `scripts/coder/coder-intent.sh` + §4 Coder workflow                                     | Layer 8.1.1 — semantic context for PM recovery      |
-| **Sentinel progress files**                          | `docs/specs/tasks/<task>.progress.md` + §4 Coder workflow                               | Recovery through PM (see `contracts.md` §7)         |
-| **ac_verified pre-push gate**                        | `hooks-ecc/coder-push-gate.sh` + §8 Coder workflow                                      | Layer C3 enforcement (see ADR D3 fix)               |
-| **Zone-of-write enforcement**                        | `docs/agents/RULES.md` §5 + Coder Golden rule §6                                        | Multi-agent specific (not in ECC)                   |
-| **Bizlogic blocker mechanism** (`<task>.blocked.md`) | `docs/agents/coder.md` §Blocker                                                         | Custom escalation pattern for PM                    |
+| What is preserved                                    | Where it lives                                                                          | Why                                                    |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| **D1-D4 resilience layer**                           | `docs/agents/coder.md` §3 (wip-push), §4 (watchdog), §7 (AC-in-diff), §8 (final commit) | Project-specific contract — ECC does not cover it      |
+| **Intent markers**                                   | `scripts/coder/coder-intent.sh` + §4 Coder workflow                                     | Layer 8.1.1 — semantic context for PM recovery         |
+| **Sentinel progress files**                          | `docs/specs/tasks/<task>.progress.md` + §4 Coder workflow                               | Recovery through PM (see `contracts.md` §7)            |
+| **ac_verified pre-push gate**                        | `hooks-ecc/coder-push-gate.sh` + §8 Coder workflow                                      | Layer C3 enforcement (see ADR D3 fix)                  |
+| **Zone-of-write enforcement**                        | `docs/agents/RULES.md` §5 + Coder Golden rule §6                                        | Multi-agent specific (not in ECC)                      |
+| **Bizlogic blocker mechanism** (`<task>.blocked.md`) | `docs/agents/coder.md` §Blocker                                                         | Custom escalation pattern for PM                       |
 | **`coder.md` workflow §0-§11**                       | `docs/agents/coder.md`                                                                  | The Coder's orchestration layer — ECC only augments it |
 
 ECC sub-agents (`tdd-guide` / `typescript-reviewer`) — _augmentation_, not _replacement_. The Coder remains a narrowly specialized orchestrator for the project.
@@ -114,13 +114,13 @@ ECC sub-agents (`tdd-guide` / `typescript-reviewer`) — _augmentation_, not _re
 
 ## 5. Risk assessment + mitigation
 
-| Risk                                                                  | Severity | Mitigation                                                                                                                                                                                                  |
-| --------------------------------------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tdd-guide` invocation may slow down the Coder (extra round-trip)     | MED      | The trigger is gated on "new feature only" — a bugfix skips it (see invocation matrix §3). For small fixes — the `superpowers:systematic-debugging` skill, not a sub-agent.                                 |
-| `typescript-reviewer` self-review duplicates `code-reviewer` post-push | LOW      | Different scope: typescript-reviewer = TS-only (narrow), code-reviewer = architecture/zone-of-write/ESLint comprehensive. typescript-reviewer reduces the _number_ of code-reviewer iterations, does not duplicate it. |
-| The Coder may forget to invoke the ECC sub-agents (workflow drift)    | MED      | (a) The mandatory skill table lists them explicitly. (b) In the final report the Coder is required to state the invoked skills/sub-agents (see coder.md §Mandatory skill invocation footer). PM checks it in Mode 2 verify. |
-| `tdd-guide` 80% coverage may conflict with E2E-only tests             | LOW      | The coverage rule is from ECC AGENTS.upstream.md § Testing Requirements. If the Coder does only E2E (apps/e2e/\*\*) — the coverage criterion is not applicable, and the Coder records this in the final report as "scope: E2E only". |
-| Confusion `typescript-reviewer` ↔ `code-reviewer`                     | LOW      | An explicit "IMPORTANT:" note in coder.md §2.5 + a lesson in memory/coder/lessons.md (2026-06-03) + the invocation matrix of this deliverable.                                                              |
+| Risk                                                                   | Severity | Mitigation                                                                                                                                                                                                                           |
+| ---------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `tdd-guide` invocation may slow down the Coder (extra round-trip)      | MED      | The trigger is gated on "new feature only" — a bugfix skips it (see invocation matrix §3). For small fixes — the `superpowers:systematic-debugging` skill, not a sub-agent.                                                          |
+| `typescript-reviewer` self-review duplicates `code-reviewer` post-push | LOW      | Different scope: typescript-reviewer = TS-only (narrow), code-reviewer = architecture/zone-of-write/ESLint comprehensive. typescript-reviewer reduces the _number_ of code-reviewer iterations, does not duplicate it.               |
+| The Coder may forget to invoke the ECC sub-agents (workflow drift)     | MED      | (a) The mandatory skill table lists them explicitly. (b) In the final report the Coder is required to state the invoked skills/sub-agents (see coder.md §Mandatory skill invocation footer). PM checks it in Mode 2 verify.          |
+| `tdd-guide` 80% coverage may conflict with E2E-only tests              | LOW      | The coverage rule is from ECC AGENTS.upstream.md § Testing Requirements. If the Coder does only E2E (apps/e2e/\*\*) — the coverage criterion is not applicable, and the Coder records this in the final report as "scope: E2E only". |
+| Confusion `typescript-reviewer` ↔ `code-reviewer`                      | LOW      | An explicit "IMPORTANT:" note in coder.md §2.5 + a lesson in memory/coder/lessons.md (2026-06-03) + the invocation matrix of this deliverable.                                                                                       |
 
 ---
 
@@ -186,8 +186,8 @@ After 3e, Phase 3 (agent migration) is fully closed. Next — Phase 4-6.
 
 ## 9. Links
 
-- ADR: `docs/architecture/2026-05-31-ecc-migration-design.md` § 2.1.3 (lines 111-122)
-- ECC catalog: `docs/architecture/ecc-reference/AGENTS.upstream.md` (`tdd-guide` line 21, `typescript-reviewer` line 48)
+- ADR: `docs/architecture/2026-05-31-ecc-migration-design.md` § 2.1.3
+- ECC catalog: `docs/architecture/ecc-reference/AGENTS.upstream.md` (entries `tdd-guide`, `typescript-reviewer`)
 - Phase 3b deliverable: `docs/architecture/2026-06-03-phase3b-deliverable.md` (Reviewer split precedent)
 - Phase 3c deliverable: `docs/architecture/2026-06-03-phase3c-deliverable.md` (PM Modes 1-5)
 - Coder agent: `docs/agents/coder.md` (305 → ~340 lines after 3d.2)

@@ -1,6 +1,6 @@
 ---
 name: code-review-discipline
-description: 'When the code-reviewer or security-reviewer agent prepares a PR review for the CRM. Contains a DELTA of patterns on top of ECC code-reviewer.md / security-reviewer.md — the owner==reviewer conflict (REQUEST_CHANGES forbidden, use COMMENT + Verdict: BLOCK first-line), write-then-post resilience (MCP hang recovery), zone-of-write violations → automatic BLOCK. Use before every posted review, especially when the conclusions are blocking.'
+description: 'Use when code-reviewer or security-reviewer formulates a Verdict and posts a PR review: owner==reviewer (REQUEST_CHANGES forbidden, use COMMENT + Verdict: BLOCK first line), write-then-post against MCP hangs, zone-of-write violation = BLOCK.'
 when_to_use: "Use when the code-reviewer or security-reviewer formulates a Verdict and posts a PR review for the CRM. Examples: 'posting a review on a PR', 'need Verdict BLOCK', 'owner==reviewer, how to review my own PR', 'zone-of-write violation in the diff', 'write-then-post so the review is not lost on an MCP hang'."
 allowed-tools:
   - Read
