@@ -23,9 +23,9 @@ transaction** — it should change the status `PENDING_PAYMENT → PAID` **in pl
 **Booking of the obligation** — `TransactionsService.bookCompanyObligations`
 (`apps/api/src/finance/transactions.service.ts`). Called from TWO places:
 
-1. `declareUsdtProjectIncome` () — ADMIN declares a USDT income → `ADMIN_INCOME`(PAID) +
+1. `declareUsdtProjectIncome` — ADMIN declares a USDT income → `ADMIN_INCOME`(PAID) +
    a senior IOU (`SENIOR_PENDING_PAYOUT`) + a drop IOU (`DROP_PENDING_PAYOUT`).
-2. `applyPayoutPaidCascade`, the drop branch () — a drop-payout payment → a direct `PAYOUT_DROP`
+2. `applyPayoutPaidCascade`, the drop branch — a drop-payout payment → a direct `PAYOUT_DROP`
    (the drop's share) + a senior IOU (`SENIOR_PENDING_PAYOUT`); a drop IOU is NOT created here (`drop:null`).
 
 Each IOU: `type ∈ {SENIOR_PENDING_PAYOUT, DROP_PENDING_PAYOUT}`, `status=PENDING_PAYMENT`,
@@ -114,7 +114,7 @@ remain untouched. **Recommendation: Option A.**
 
 #### Critical: reset `payoutRequestId := null` on the flip (Confidence: HIGH)
 
-The IOU from the cascade branch () carries `payoutRequestId = requestId`. If not reset, the flipped
+The IOU from the cascade branch carries `payoutRequestId = requestId`. If not reset, the flipped
 `SENIOR_INCOME` will keep this `payoutRequestId` and:
 
 - will get into the `autoCreateForPayout` selection (aggregation of `SENIOR_INCOME/DROP_INCOME` by `payoutRequestId`);
