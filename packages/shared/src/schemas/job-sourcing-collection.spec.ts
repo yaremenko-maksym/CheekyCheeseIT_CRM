@@ -1,3 +1,9 @@
+/*
+ * `failsWith` and `refusedAt` below ARE the assertions of this file — they call
+ * `expect` internally. Teach the rule about them rather than disabling it, so a
+ * test that genuinely asserts nothing is still caught.
+ */
+/* eslint vitest/expect-expect: ["error", { assertFunctionNames: ["expect", "failsWith", "refusedAt"] }] */
 import { describe, expect, it } from 'vitest'
 import {
   jobAccountKeySchema,
@@ -5,8 +11,8 @@ import {
   jobCollectionAttemptSchema,
   jobCollectionCycleSchema,
   jobCollectionCycleStatusSchema,
-  jobCollectionTriggerSchema,
   jobCollectionResultSchema,
+  jobCollectionTriggerSchema,
   jobDirtyWorkEntityKindSchema,
   jobDirtyWorkItemSchema,
   jobDirtyWorkStatusSchema,
@@ -28,7 +34,60 @@ import {
  * catalog in `apps/api/src/database/job-collection.integration.spec.ts`). The
  * duplication is the point: a row the database accepted must serialize, and a
  * DTO the wire accepted must store.
+ *
+ * ASSERTION STYLE — read before adding a case. A refusal is asserted by its
+ * **issue path and message**, never by `success === false` alone. The reason is
+ * concrete: `safeParse(...).success === false` is satisfied by *any* failure, so
+ * it cannot tell "refused for the stated reason" from "refused because the
+ * fixture was malformed" — and it leaves the whole `addIssue` payload
+ * unobserved. The mutation gate caught exactly that on the first draft of this
+ * file (73 surviving mutants: emptied issue objects, blanked messages, erased
+ * paths, and `.max(n)` flipped to `.min(n)`, all invisible to a bare
+ * success check). `failsWith` is what closes it.
  */
+
+/**
+ * The slice of a zod result these helpers read. Declared structurally rather
+ * than imported: zod v4 dropped the `SafeParseReturnType` alias, and a local
+ * shape keeps the helpers working across that rename.
+ */
+type Issue = { path: ReadonlyArray<PropertyKey>; message: string; code: string }
+type ParseResult = { success: true } | { success: false; error: { issues: ReadonlyArray<Issue> } }
+type Parseable = { safeParse: (value: unknown) => ParseResult }
+
+/** Assert the value is refused, at `path`, for the stated reason. */
+function failsWith(
+  schema: Parseable,
+  value: unknown,
+  path: ReadonlyArray<string>,
+  messageFragment: string,
+) {
+  const result = schema.safeParse(value)
+  expect(result.success, 'expected the value to be refused').toBe(false)
+  if (result.success) return
+  const wanted = path.join('.')
+  const issue = result.error.issues.find((i) => i.path.join('.') === wanted)
+  expect(
+    issue,
+    `no issue at path "${wanted}" — got ${JSON.stringify(
+      result.error.issues.map((i) => ({ path: i.path, message: i.message })),
+    )}`,
+  ).toBeDefined()
+  expect(issue?.code).toBe('custom')
+  expect(issue?.message).toContain(messageFragment)
+}
+
+/** Assert the value is refused at `path` by a built-in (non-custom) rule. */
+function refusedAt(schema: Parseable, value: unknown, path: ReadonlyArray<string>) {
+  const result = schema.safeParse(value)
+  expect(result.success, 'expected the value to be refused').toBe(false)
+  if (result.success) return
+  const wanted = path.join('.')
+  expect(
+    result.error.issues.map((i) => i.path.join('.')),
+    `expected an issue at "${wanted}"`,
+  ).toContain(wanted)
+}
 
 const UUID = '11111111-2222-4333-8444-555555555555'
 const UUID2 = '66666666-7777-4888-9999-aaaaaaaaaaaa'
@@ -74,6 +133,19 @@ describe('legacy DTOs are untouched (C-01)', () => {
     })
     expect(parsed.merged).toBe(0)
     expect(parsed.filtered).toBe(0)
+    // ... and still carry an explicit value when one is given.
+    expect(
+      jobCollectionResultSchema.parse({
+        sourceType: 'DOU_RSS',
+        fetched: 10,
+        created: 2,
+        duplicates: 7,
+        invalid: 1,
+        suggestionsCreated: 4,
+        merged: 3,
+        filtered: 5,
+      }),
+    ).toMatchObject({ merged: 3, filtered: 5 })
   })
 
   it('keeps jobSourceSchema parsing exactly as before, with no new required field', () => {
@@ -102,20 +174,28 @@ describe('legacy DTOs are untouched (C-01)', () => {
 })
 
 describe('jobAccountKeySchema — a bounded lowercase id, never a credential', () => {
-  it.each(['jsearch:rapidapi-main', 'openrouter:studio', 'a', 'dou.rss_1'])('accepts %s', (key) => {
-    expect(jobAccountKeySchema.parse(key)).toBe(key)
-  })
+  it.each(['jsearch:rapidapi-main', 'openrouter:studio', 'a', 'dou.rss_1', 'a'.repeat(100)])(
+    'accepts %s',
+    (key) => {
+      expect(jobAccountKeySchema.parse(key)).toBe(key)
+    },
+  )
 
   it.each([
     ['Bearer ABC', 'uppercase and a space'],
     ['aGVsbG8+d29ybGQ=', 'base64'],
     ['https://user:pass@api.example.com', 'a URL'],
-    ['a'.repeat(101), 'over the 100-char bound'],
+    ['a'.repeat(101), 'one over the 100-char bound'],
     ['', 'empty'],
     [' leading', 'leading whitespace'],
     ['-leading-dash', 'a leading separator'],
-  ])('refuses %s (%s)', (key) => {
-    expect(jobAccountKeySchema.safeParse(key).success).toBe(false)
+  ])('refuses %s (%s), stating why', (key) => {
+    const result = jobAccountKeySchema.safeParse(key)
+    expect(result.success).toBe(false)
+    if (result.success) return
+    expect(result.error.issues[0]?.message).toContain(
+      'must be a short lowercase account id without secrets',
+    )
   })
 })
 
@@ -134,15 +214,20 @@ describe('jobAccountMeterSchema — the spend guard on the wire', () => {
     policyVersion: 1,
   }
 
-  it('accepts a meter inside its limit', () => {
+  it('accepts a meter inside its limit, and one exactly at it', () => {
     expect(jobAccountMeterSchema.parse(meter).used).toBe(100)
+    expect(jobAccountMeterSchema.parse({ ...meter, used: 185 }).used).toBe(185)
   })
 
   it('counts reserved and uncertain against the limit, not only used', () => {
     // 190 used + 10 reserved + 5 uncertain = 205 > 200, even though `used`
     // alone is under. Spending what is already held is the bug this prevents.
-    const over = jobAccountMeterSchema.safeParse({ ...meter, used: 190 })
-    expect(over.success).toBe(false)
+    failsWith(
+      jobAccountMeterSchema,
+      { ...meter, used: 190 },
+      ['used'],
+      'used + reserved + uncertain may not exceed the limit',
+    )
   })
 
   it('lets an unlimited meter (null limit) hold any amount', () => {
@@ -151,11 +236,20 @@ describe('jobAccountMeterSchema — the spend guard on the wire', () => {
     ).toBe(true)
   })
 
-  it('refuses a LIFETIME meter that resets or carries a window start', () => {
-    expect(
-      jobAccountMeterSchema.safeParse({ ...meter, window: 'LIFETIME', windowStartedAt: null })
-        .success,
-    ).toBe(false)
+  it('refuses a LIFETIME meter that resets OR carries a window start', () => {
+    failsWith(
+      jobAccountMeterSchema,
+      { ...meter, window: 'LIFETIME', windowStartedAt: null },
+      ['window'],
+      'a LIFETIME meter never resets and has no window start',
+    )
+    failsWith(
+      jobAccountMeterSchema,
+      { ...meter, window: 'LIFETIME', resetsAt: null },
+      ['window'],
+      'a LIFETIME meter never resets and has no window start',
+    )
+    // Both absent is the only valid LIFETIME shape.
     expect(
       jobAccountMeterSchema.safeParse({
         ...meter,
@@ -167,8 +261,9 @@ describe('jobAccountMeterSchema — the spend guard on the wire', () => {
   })
 
   it('refuses a negative counter and a non-positive policy version', () => {
-    expect(jobAccountMeterSchema.safeParse({ ...meter, reserved: -1 }).success).toBe(false)
-    expect(jobAccountMeterSchema.safeParse({ ...meter, policyVersion: 0 }).success).toBe(false)
+    refusedAt(jobAccountMeterSchema, { ...meter, reserved: -1 }, ['reserved'])
+    refusedAt(jobAccountMeterSchema, { ...meter, policyVersion: 0 }, ['policyVersion'])
+    refusedAt(jobAccountMeterSchema, { ...meter, limit: -1 }, ['limit'])
   })
 })
 
@@ -196,45 +291,65 @@ describe('jobMeterReservationSchema — reserve before I/O, settle exactly once'
   })
 
   it('requires a cycle on every reservation', () => {
-    expect(jobMeterReservationSchema.safeParse({ ...reservation, cycleId: null }).success).toBe(
-      false,
-    )
+    refusedAt(jobMeterReservationSchema, { ...reservation, cycleId: null }, ['cycleId'])
   })
 
-  it('refuses used cost above the reserved amount', () => {
+  it('refuses used cost above the reserved amount, and allows it exactly at', () => {
+    failsWith(
+      jobMeterReservationSchema,
+      { ...reservation, status: 'USED', sentAt: NOW, settledAt: NOW, usedAmount: 6 },
+      ['usedAmount'],
+      'used cost may not exceed the reserved amount',
+    )
     expect(
       jobMeterReservationSchema.safeParse({
         ...reservation,
         status: 'USED',
         sentAt: NOW,
         settledAt: NOW,
-        usedAmount: 6,
+        usedAmount: 5,
       }).success,
-    ).toBe(false)
+    ).toBe(true)
   })
 
   it('releases only provably unsent cost', () => {
-    expect(
-      jobMeterReservationSchema.safeParse({
-        ...reservation,
-        status: 'RELEASED',
-        usedAmount: 3,
-      }).success,
-    ).toBe(false)
+    failsWith(
+      jobMeterReservationSchema,
+      { ...reservation, status: 'RELEASED', usedAmount: 3 },
+      ['usedAmount'],
+      'only provably unsent cost may be released',
+    )
+    // A RELEASED reservation that spent nothing is fine — and needs no send
+    // instant, which is why RELEASED sits beside RESERVED in the rule below.
     expect(
       jobMeterReservationSchema.safeParse({ ...reservation, status: 'RELEASED' }).success,
     ).toBe(true)
   })
 
   it.each(['SENT', 'USED', 'UNCERTAIN'] as const)('requires a send instant for %s', (status) => {
-    expect(jobMeterReservationSchema.safeParse({ ...reservation, status }).success).toBe(false)
+    failsWith(
+      jobMeterReservationSchema,
+      { ...reservation, status, usedAmount: status === 'USED' ? 5 : 0, settledAt: NOW },
+      ['sentAt'],
+      'a request that left must carry its send instant',
+    )
     expect(
-      jobMeterReservationSchema.safeParse({ ...reservation, status, sentAt: NOW }).success,
+      jobMeterReservationSchema.safeParse({
+        ...reservation,
+        status,
+        sentAt: NOW,
+        settledAt: NOW,
+        usedAmount: status === 'USED' ? 5 : 0,
+      }).success,
     ).toBe(true)
   })
 
+  it('needs no send instant while merely RESERVED', () => {
+    expect(jobMeterReservationSchema.safeParse({ ...reservation, sentAt: null }).success).toBe(true)
+  })
+
   it('refuses a zero-cost reservation', () => {
-    expect(jobMeterReservationSchema.safeParse({ ...reservation, amount: 0 }).success).toBe(false)
+    refusedAt(jobMeterReservationSchema, { ...reservation, amount: 0 }, ['amount'])
   })
 })
 
@@ -255,27 +370,47 @@ describe('jobCollectionCycleSchema — one occurrence, attributed correctly', ()
   })
 
   it('ties MANUAL to an actor and SCHEDULED to none, in both directions', () => {
-    expect(jobCollectionCycleSchema.safeParse({ ...cycle, trigger: 'MANUAL' }).success).toBe(false)
+    failsWith(
+      jobCollectionCycleSchema,
+      { ...cycle, trigger: 'MANUAL' },
+      ['requestedBy'],
+      'a MANUAL cycle names its actor; a SCHEDULED cycle has none',
+    )
+    failsWith(
+      jobCollectionCycleSchema,
+      { ...cycle, requestedBy: UUID2 },
+      ['requestedBy'],
+      'a MANUAL cycle names its actor; a SCHEDULED cycle has none',
+    )
     expect(
       jobCollectionCycleSchema.safeParse({ ...cycle, trigger: 'MANUAL', requestedBy: UUID2 })
         .success,
     ).toBe(true)
-    expect(jobCollectionCycleSchema.safeParse({ ...cycle, requestedBy: UUID2 }).success).toBe(false)
   })
 
   it('pairs CLOSED with its closing instant, in both directions', () => {
-    expect(jobCollectionCycleSchema.safeParse({ ...cycle, status: 'CLOSED' }).success).toBe(false)
-    expect(jobCollectionCycleSchema.safeParse({ ...cycle, closedAt: NOW }).success).toBe(false)
+    failsWith(
+      jobCollectionCycleSchema,
+      { ...cycle, status: 'CLOSED' },
+      ['closedAt'],
+      'a CLOSED cycle carries its closing instant',
+    )
+    failsWith(
+      jobCollectionCycleSchema,
+      { ...cycle, closedAt: NOW },
+      ['closedAt'],
+      'a CLOSED cycle carries its closing instant',
+    )
     expect(
       jobCollectionCycleSchema.safeParse({ ...cycle, status: 'CLOSED', closedAt: NOW }).success,
     ).toBe(true)
   })
 
   it('refuses a blank trigger key and a non-positive reservation', () => {
-    expect(jobCollectionCycleSchema.safeParse({ ...cycle, triggerKey: '' }).success).toBe(false)
-    expect(jobCollectionCycleSchema.safeParse({ ...cycle, htmlCallReservation: 0 }).success).toBe(
-      false,
-    )
+    refusedAt(jobCollectionCycleSchema, { ...cycle, triggerKey: '' }, ['triggerKey'])
+    refusedAt(jobCollectionCycleSchema, { ...cycle, htmlCallReservation: 0 }, [
+      'htmlCallReservation',
+    ])
   })
 })
 
@@ -298,50 +433,80 @@ describe('jobCollectionAttemptSchema — owned while running, ended when termina
     errorCode: null,
     errorMessage: null,
   }
+  const failed = {
+    ...running,
+    outcome: 'FAILED' as const,
+    endedAt: NOW,
+    errorCode: 'HTTP_403',
+    errorMessage: 'provider refused: forbidden',
+  }
 
   it('accepts a running attempt that is owned under a lease', () => {
     expect(jobCollectionAttemptSchema.parse(running).ownerToken).toBe('worker-1')
   })
 
-  it('refuses a running attempt with no owner or no lease', () => {
-    expect(jobCollectionAttemptSchema.safeParse({ ...running, ownerToken: null }).success).toBe(
-      false,
+  it('accepts a terminal attempt carrying a short typed error code and sentence', () => {
+    // A short code must PARSE — otherwise a bound of `max(100)` is
+    // indistinguishable from `min(100)`.
+    const parsed = jobCollectionAttemptSchema.parse(failed)
+    expect(parsed.errorCode).toBe('HTTP_403')
+    expect(parsed.errorMessage).toBe('provider refused: forbidden')
+  })
+
+  it('refuses a running attempt with no owner, or no lease', () => {
+    failsWith(
+      jobCollectionAttemptSchema,
+      { ...running, ownerToken: null },
+      ['ownerToken'],
+      'a running attempt is owned under a lease',
     )
-    expect(jobCollectionAttemptSchema.safeParse({ ...running, leaseExpiresAt: null }).success).toBe(
-      false,
+    failsWith(
+      jobCollectionAttemptSchema,
+      { ...running, leaseExpiresAt: null },
+      ['ownerToken'],
+      'a running attempt is owned under a lease',
+    )
+  })
+
+  it('lets a TERMINAL attempt keep no lease: the rule binds running attempts only', () => {
+    expect(jobCollectionAttemptSchema.safeParse({ ...failed, leaseExpiresAt: null }).success).toBe(
+      true,
     )
   })
 
   it('pairs a terminal outcome with an end instant, in both directions', () => {
-    expect(jobCollectionAttemptSchema.safeParse({ ...running, outcome: 'SUCCEEDED' }).success).toBe(
-      false,
+    failsWith(
+      jobCollectionAttemptSchema,
+      { ...running, outcome: 'SUCCEEDED' },
+      ['endedAt'],
+      'a terminal attempt carries its end instant; a running one does not',
     )
-    expect(jobCollectionAttemptSchema.safeParse({ ...running, endedAt: NOW }).success).toBe(false)
+    failsWith(
+      jobCollectionAttemptSchema,
+      { ...running, endedAt: NOW },
+      ['endedAt'],
+      'a terminal attempt carries its end instant; a running one does not',
+    )
     expect(
       jobCollectionAttemptSchema.safeParse({ ...running, outcome: 'SUCCEEDED', endedAt: NOW })
         .success,
     ).toBe(true)
   })
 
-  it('refuses an error message long enough to be a raw upstream body', () => {
+  it('bounds the error code and the sanitized message (no raw upstream body)', () => {
+    refusedAt(jobCollectionAttemptSchema, { ...failed, errorMessage: 'x'.repeat(501) }, [
+      'errorMessage',
+    ])
+    refusedAt(jobCollectionAttemptSchema, { ...failed, errorCode: 'c'.repeat(101) }, ['errorCode'])
+    // Exactly at the bound still parses.
     expect(
-      jobCollectionAttemptSchema.safeParse({
-        ...running,
-        outcome: 'FAILED',
-        endedAt: NOW,
-        errorCode: 'HTTP_403',
-        errorMessage: 'x'.repeat(501),
-      }).success,
-    ).toBe(false)
+      jobCollectionAttemptSchema.safeParse({ ...failed, errorMessage: 'x'.repeat(500) }).success,
+    ).toBe(true)
   })
 
   it('refuses a non-positive fencing epoch or config version', () => {
-    expect(jobCollectionAttemptSchema.safeParse({ ...running, fencingEpoch: 0 }).success).toBe(
-      false,
-    )
-    expect(jobCollectionAttemptSchema.safeParse({ ...running, configVersion: 0 }).success).toBe(
-      false,
-    )
+    refusedAt(jobCollectionAttemptSchema, { ...running, fencingEpoch: 0 }, ['fencingEpoch'])
+    refusedAt(jobCollectionAttemptSchema, { ...running, configVersion: 0 }, ['configVersion'])
   })
 })
 
@@ -370,8 +535,25 @@ describe('jobSourceHealthSchema — disabled, paused and readiness-blocked are s
     expect(jobSourceHealthSchema.parse(health).manifestId).toBeNull()
   })
 
+  it('carries a claimed manifest identity once Task 3.7 backfills one, bounded', () => {
+    // The nullable field needs a NON-null case too: with only `null` exercised,
+    // `max(100)` is indistinguishable from `min(100)`.
+    expect(jobSourceHealthSchema.parse({ ...health, manifestId: 'remoteok.v1' }).manifestId).toBe(
+      'remoteok.v1',
+    )
+    refusedAt(jobSourceHealthSchema, { ...health, manifestId: 'm'.repeat(101) }, ['manifestId'])
+    expect(
+      jobSourceHealthSchema.safeParse({ ...health, manifestId: 'm'.repeat(100) }).success,
+    ).toBe(true)
+  })
+
   it('requires a stated reason before a source may be BLOCKED', () => {
-    expect(jobSourceHealthSchema.safeParse({ ...health, readiness: 'BLOCKED' }).success).toBe(false)
+    failsWith(
+      jobSourceHealthSchema,
+      { ...health, readiness: 'BLOCKED' },
+      ['readinessReason'],
+      'a BLOCKED source states why',
+    )
     expect(
       jobSourceHealthSchema.safeParse({
         ...health,
@@ -379,6 +561,10 @@ describe('jobSourceHealthSchema — disabled, paused and readiness-blocked are s
         readinessReason: 'no API key configured',
       }).success,
     ).toBe(true)
+  })
+
+  it('leaves a non-BLOCKED source free to carry no reason', () => {
+    expect(jobSourceHealthSchema.safeParse({ ...health, readiness: 'VERIFIED' }).success).toBe(true)
   })
 
   it('reports succeeding-but-empty apart from succeeding at all', () => {
@@ -393,13 +579,26 @@ describe('jobSourceHealthSchema — disabled, paused and readiness-blocked are s
     expect(parsed.lastNonemptyAt).toBeNull()
   })
 
-  it('refuses a negative failure count and an unbounded last error', () => {
-    expect(jobSourceHealthSchema.safeParse({ ...health, consecutiveFailures: -1 }).success).toBe(
-      false,
-    )
-    expect(
-      jobSourceHealthSchema.safeParse({ ...health, lastErrorMessage: 'x'.repeat(501) }).success,
-    ).toBe(false)
+  it('accepts a short typed last error and bounds the message', () => {
+    const parsed = jobSourceHealthSchema.parse({
+      ...health,
+      lastErrorCode: 'HTTP_429',
+      lastErrorMessage: 'rate limited',
+    })
+    expect(parsed.lastErrorCode).toBe('HTTP_429')
+    refusedAt(jobSourceHealthSchema, { ...health, lastErrorMessage: 'x'.repeat(501) }, [
+      'lastErrorMessage',
+    ])
+    refusedAt(jobSourceHealthSchema, { ...health, lastErrorCode: 'c'.repeat(101) }, [
+      'lastErrorCode',
+    ])
+  })
+
+  it('refuses a negative failure count and a non-positive version', () => {
+    refusedAt(jobSourceHealthSchema, { ...health, consecutiveFailures: -1 }, [
+      'consecutiveFailures',
+    ])
+    refusedAt(jobSourceHealthSchema, { ...health, configVersion: 0 }, ['configVersion'])
   })
 })
 
@@ -421,16 +620,26 @@ describe('jobDirtyWorkItemSchema — claimed under a lease, terminal when finish
     createdAt: NOW,
     completedAt: null,
   }
+  const CLAIM_RULE = 'a CLAIMED item is owned under a lease, and only a CLAIMED item is'
 
   it('accepts a freshly enqueued pending item', () => {
     expect(jobDirtyWorkItemSchema.parse(item).status).toBe('PENDING')
   })
 
-  it('pairs CLAIMED with an owner and a lease, and only CLAIMED', () => {
-    expect(jobDirtyWorkItemSchema.safeParse({ ...item, status: 'CLAIMED' }).success).toBe(false)
-    expect(
-      jobDirtyWorkItemSchema.safeParse({ ...item, claimOwner: 'w1', leaseExpiresAt: NOW }).success,
-    ).toBe(false)
+  it('needs BOTH an owner and a lease to be CLAIMED — one alone is not enough', () => {
+    failsWith(jobDirtyWorkItemSchema, { ...item, status: 'CLAIMED' }, ['claimOwner'], CLAIM_RULE)
+    failsWith(
+      jobDirtyWorkItemSchema,
+      { ...item, status: 'CLAIMED', claimOwner: 'w1', claimedAt: NOW },
+      ['claimOwner'],
+      CLAIM_RULE,
+    )
+    failsWith(
+      jobDirtyWorkItemSchema,
+      { ...item, status: 'CLAIMED', leaseExpiresAt: NOW },
+      ['claimOwner'],
+      CLAIM_RULE,
+    )
     expect(
       jobDirtyWorkItemSchema.safeParse({
         ...item,
@@ -442,10 +651,28 @@ describe('jobDirtyWorkItemSchema — claimed under a lease, terminal when finish
     ).toBe(true)
   })
 
+  it('refuses an owner or a lease left behind on work that is not CLAIMED', () => {
+    failsWith(
+      jobDirtyWorkItemSchema,
+      { ...item, claimOwner: 'w1', leaseExpiresAt: NOW },
+      ['claimOwner'],
+      CLAIM_RULE,
+    )
+    // A half-released item (owner cleared, lease left, or vice versa) stays
+    // refused too — that asymmetry is how a stale lease comes back.
+    expect(jobDirtyWorkItemSchema.safeParse({ ...item, claimOwner: 'w1' }).success).toBe(true)
+    expect(jobDirtyWorkItemSchema.safeParse({ ...item, leaseExpiresAt: NOW }).success).toBe(true)
+  })
+
   it.each(['DONE', 'FAILED', 'DEFERRED'] as const)(
     'treats %s as terminal: it carries a completion instant',
     (status) => {
-      expect(jobDirtyWorkItemSchema.safeParse({ ...item, status }).success).toBe(false)
+      failsWith(
+        jobDirtyWorkItemSchema,
+        { ...item, status },
+        ['completedAt'],
+        'a terminal item (DONE / FAILED / DEFERRED) carries its completion instant',
+      )
       expect(jobDirtyWorkItemSchema.safeParse({ ...item, status, completedAt: NOW }).success).toBe(
         true,
       )
@@ -453,12 +680,28 @@ describe('jobDirtyWorkItemSchema — claimed under a lease, terminal when finish
   )
 
   it('refuses a completion instant on work that is still pending', () => {
-    expect(jobDirtyWorkItemSchema.safeParse({ ...item, completedAt: NOW }).success).toBe(false)
+    failsWith(
+      jobDirtyWorkItemSchema,
+      { ...item, completedAt: NOW },
+      ['completedAt'],
+      'a terminal item (DONE / FAILED / DEFERRED) carries its completion instant',
+    )
   })
 
-  it('refuses a non-positive target version, a blank reason and a negative retry count', () => {
-    expect(jobDirtyWorkItemSchema.safeParse({ ...item, targetVersion: 0 }).success).toBe(false)
-    expect(jobDirtyWorkItemSchema.safeParse({ ...item, reason: '' }).success).toBe(false)
-    expect(jobDirtyWorkItemSchema.safeParse({ ...item, retryCount: -1 }).success).toBe(false)
+  it('accepts a short typed last error code', () => {
+    expect(
+      jobDirtyWorkItemSchema.parse({ ...item, lastErrorCode: 'VERSION_STALE' }).lastErrorCode,
+    ).toBe('VERSION_STALE')
+    refusedAt(jobDirtyWorkItemSchema, { ...item, lastErrorCode: 'c'.repeat(101) }, [
+      'lastErrorCode',
+    ])
+  })
+
+  it('refuses a non-positive target version, a blank or oversized reason, a negative retry', () => {
+    refusedAt(jobDirtyWorkItemSchema, { ...item, targetVersion: 0 }, ['targetVersion'])
+    refusedAt(jobDirtyWorkItemSchema, { ...item, reason: '' }, ['reason'])
+    refusedAt(jobDirtyWorkItemSchema, { ...item, reason: 'r'.repeat(101) }, ['reason'])
+    refusedAt(jobDirtyWorkItemSchema, { ...item, retryCount: -1 }, ['retryCount'])
+    refusedAt(jobDirtyWorkItemSchema, { ...item, fencingEpoch: 0 }, ['fencingEpoch'])
   })
 })
