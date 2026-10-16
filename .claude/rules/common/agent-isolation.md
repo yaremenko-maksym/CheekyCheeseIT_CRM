@@ -10,23 +10,16 @@
 
 ## One cause
 
-> **An agent works in a directory that does not belong to it,** because the working directory was not
-> issued to it — it inherited it.
-
-Then the second half kicks in, no longer an error but a property of the environment: **an agent's
-working directory is reset to its session's directory between Bash calls.** So a `cd` at the start of
-work is **not retained**, and an agent that was not issued its own directory returns to the shared
-one on every next call.
-
-A cwd reset is harmless by itself — it is harmful exactly when the session directory is shared. Hence
-the cure:
-
 > **An agent's session directory is derived from the agent's own identifier and is never inherited
 > from the orchestrator.**
 
-For a write-agent this gives `isolation="worktree"`; for a reviewer — its own checkout in its own
-scratchpad (and only when it really needs one); for everyone — the fact that a cwd reset now returns
-them to **their own** tree.
+Why that is the cure: **an agent's working directory is reset to its session's directory between Bash
+calls** (a property of the harness, not a bug). So a `cd` at the start of work is **not retained**,
+and an agent that was not issued its own directory returns to the shared one on every next call. The
+reset is harmless by itself — it is harmful exactly when the session directory is shared.
+
+In practice: a write-agent gets `isolation="worktree"`; a reviewer gets its own checkout in its own
+scratchpad, and only when it really needs one.
 
 ## What the harness already does itself (do not duplicate)
 
@@ -133,9 +126,8 @@ A rule without observability is not a rule. For each one above:
 Worktree: /abs/path (verified: toplevel == dispatched path)
 ```
 
-No line → Master returns the agent for rework, as for a missing verdict. This is the only thing that
-makes rules 7 and 8 observable: the harness gives no hook for "an agent reads the wrong directory",
-and a Bash hook cannot know which path was issued to the agent at dispatch.
+No line → Master returns the agent for rework, as for a missing verdict. It is the only thing that
+makes rules 7 and 8 observable: the harness gives no hook for "an agent reads the wrong directory".
 
 ## Checking the gates
 
@@ -143,10 +135,10 @@ and a Bash hook cannot know which path was issued to the agent at dispatch.
 bash .claude/hooks/tests/cross-agent-hooks-smoke.sh   # both sides: refusals and silence
 ```
 
-Called from `scripts/devops/tests/test-pre-bash-cross-agent-blast.sh`, which is part of
-`run-guard-tests.sh` — a step inside a **required** check. Each of the two hooks also has its own set
-of cases in `scripts/devops/tests/`, because the meta-guard `check-guard-tests-exist.sh` takes the
-list of hooks from `.claude/settings.json` and requires a negative case from every one that can refuse.
+Called from `scripts/devops/tests/test-pre-bash-cross-agent-blast.sh`, part of `run-guard-tests.sh` —
+a step inside a **required** check. Each hook also has its own cases in `scripts/devops/tests/`,
+because the meta-guard `check-guard-tests-exist.sh` reads the hook list from `.claude/settings.json`
+and requires a negative case from every hook that can refuse.
 
 The smoke test first does `bash -n` on both hooks and requires of a blocked case not only exit code 2
 but also the body `{"decision":"block"}`: a syntax error in a hook also gives exit code 2 and is

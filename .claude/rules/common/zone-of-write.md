@@ -69,14 +69,14 @@ Each entry below is one zone row: **may** / **may NOT**.
 - may: `.claude/tasks/task-legal-*`, `docs/legal/**`, `.claude/knowledge/legal/**`
 - may NOT: `apps/**`, `packages/**`, `.claude/agents/**`, prod code, `.github/workflows/**`
 
-> **The AutoTest zone — by the nature of the file, not by directory.** **The boundary runs between
-> the test and the product code, not between directories.** The danger was never that AutoTest edits
-> specs — it is that it edits **product code** to make a test go green. That is exactly what is forbidden.
+> **The AutoTest boundary runs between the test and the product code, not between directories.** The
+> danger was never that AutoTest edits specs — it is that it edits **product code** to make a test go
+> green. That is what is forbidden.
 >
-> **Notes on zones:** `ui-ux-designer` ↔ `manual-qa` both write cosmetic in `apps/web/**` /
-> `apps/landing/**` — the designer per the design spec (Mode B/D conformance/polish), manual-qa fixes
-> what is found on a live pass; the delineation is in `contracts.md §3.1/§3.2`. `architect` and
-> `legal` are launched **USER / Master ad-hoc** — intentionally (strategic / on-request roles), not a gap.
+> **Overlaps that are intentional, not gaps:** `ui-ux-designer` ↔ `manual-qa` both write cosmetic in
+> `apps/web/**` / `apps/landing/**` — the designer per the design spec (Mode B/D), manual-qa fixes what
+> a live pass finds; delineated in `contracts.md §3.1/§3.2`. `architect` and `legal` are launched USER
+> / Master ad-hoc by design.
 
 ## Enforcement
 

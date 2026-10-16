@@ -16,11 +16,22 @@ Two independent reasons, and the second is recent:
    so the skill-loader can auto-invoke by trigger phrases. That field is a reflection of the table,
    so the table is the source of truth and both must be edited together (see
    `docs/architecture/2026-06-16-agent-infra-wisdom-transfer.md` D2).
-2. **The skill listing is now truncated.** The owner's global settings set
-   `skillListingMaxDescChars: 300`; 17 of the 23 project skills have descriptions longer than that,
-   so their listing entries are cut mid-sentence. The table in the rule is the only place an agent can
-   read a complete trigger. This is why the table stayed always-on in full through the 2026-10-16
-   progressive-disclosure restructure while most other prose moved out.
+2. **The listing's `description` cannot carry the trigger.** The operator's global settings set
+   `skillListingMaxDescChars: 300`, and a longer description is silently cut mid-sentence in the
+   listing.
+
+   This was acute on 2026-10-16, when the restructure began: 17 of the 23 project skills were over
+   the limit and therefore truncated, which was the stated reason for keeping the mapping whole. PR
+   #1012 landed the same day and trimmed **all 23** descriptions to within 300 characters, so no
+   description is truncated today (verified: max 267 chars). The wording in the core rule was
+   corrected accordingly — the claim "most descriptions are truncated" was true for a few hours and
+   is now false.
+
+   The mapping still stays always-on in full, for a reason that does not expire with the character
+   count: a `description` and a `when_to_use` are written **for the skill's own reader** and say when
+   that one skill applies. Only the mapping states trigger → skill → **which agents it binds**, and
+   that third column is not recoverable from any skill file. The truncation argument was always the
+   weaker of the two.
 
 ## The table-drift incident (2026-07-28)
 

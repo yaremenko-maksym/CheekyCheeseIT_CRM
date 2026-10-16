@@ -45,19 +45,16 @@ vision: ✓ /team, /team/$teamId    # ONLY for UI tasks — affected routes
 
 Claude PreToolUse:Bash hook `.claude/hooks/pre-bash-coder-push-gate.sh` (id
 `pre:bash:coder-push-gate`) blocks `git push` if the last commit **on any branch** does not contain an
-`ac_verified:` line. Do not bypass — finish the AC. Enforced at the harness level (PreToolUse), not
-via husky: in a fresh `isolation=worktree` worktree the husky hooks are silently skipped (`.husky/_/`
-gitignored, generated only on `pnpm install`).
+`ac_verified:` line. Do not bypass — finish the AC. It is a PreToolUse hook rather than husky because
+in a fresh `isolation=worktree` worktree the husky hooks are silently skipped (`.husky/_/` gitignored,
+generated only on `pnpm install`).
 
-**The gate closes everything but three exceptions.** Free from the mark are only:
+**The gate closes everything but three exceptions:** `main` / `master` (not a work branch), and
+`architect/*` and `legal/*` (their tasks have no AC list in the task file). The cost of each exception
+is spelled out in the hook's header — read it **before** adding a fourth.
 
-- `main` / `master` (not a work branch),
-- `architect/*` and `legal/*` (their tasks have no AC list in the task file).
-
-The cost of each exception is spelled out in the hook's header — read it **before** adding a fourth.
-
-A branch that honestly has nothing to verify (screenshots, notes) has two answers available, and both
-are an assertion, not a bypass: `wip:` in the commit subject or `ac_verified: n/a (<why>)`.
+A branch that honestly has nothing to verify (screenshots, notes) has two answers, both an assertion
+rather than a bypass: `wip:` in the commit subject, or `ac_verified: n/a (<why>)`.
 
 Test: `scripts/devops/tests/test-pre-bash-coder-push-gate.sh` (28 cases, by execution).
 
@@ -65,13 +62,12 @@ Test: `scripts/devops/tests/test-pre-bash-coder-push-gate.sh` (28 cases, by exec
 
 Claude PreToolUse:Bash hook `.claude/hooks/pre-bash-prettier-gate.sh` (id `pre:bash:prettier-gate`)
 blocks `git push` if the files changed vs `origin/main` (`ts/tsx/js/jsx/json/md/yml`) did not pass
-`prettier --check` — a local mirror of the CI gate `check-no-skip-hooks.yml`. Reason: in a fresh
-worktree the pre-commit hook (lint-staged → `prettier --write`) is silently skipped (no
-husky/node_modules), and unformatted code used to go to CI and redden the PR (#259/#261/#263).
+`prettier --check` — a local mirror of the CI gate `check-no-skip-hooks.yml`. Same reason as above:
+in a fresh worktree the pre-commit `lint-staged → prettier --write` is silently skipped.
 
-The hook resolves prettier worktree-safe (local `.bin` → MAIN-repo `.bin` via git-common-dir → `pnpm
-exec`); if prettier is unreachable — **fail-loud BLOCK** with the instruction `pnpm install`, not a
-silent skip. On a block it outputs the exact fix command `prettier --write <files>`.
+It resolves prettier worktree-safe (local `.bin` → MAIN-repo `.bin` via git-common-dir → `pnpm exec`);
+if prettier is unreachable — **fail-loud BLOCK** with the instruction `pnpm install`, not a silent
+skip. On a block it prints the exact fix command `prettier --write <files>`.
 
 ## WIP commits & chunking
 
@@ -103,9 +99,8 @@ domain area (`finance`, `documents`, `auth`, `projects`, `teams`, `contracts`) o
 zone (`infra`, `deploy`, `ci`, `hooks`, `agents`). The list is **not closed** — take what describes
 the area more precisely.
 
-The commit message body is in English (Conventional Commits standard). Assistant / agent output is
-also English (see `.claude/rules/common/russian-language.md`); Russian — only in the owner's personal
-chat with Claude.
+The commit message body is in English, as is all agent output
+(`.claude/rules/common/russian-language.md`).
 
 ## Related rules
 

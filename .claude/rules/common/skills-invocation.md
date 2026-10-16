@@ -16,10 +16,15 @@ is an explicit failure (better than a silent skip).
 
 In the final report — state which skills you invoked. Master checks.
 
-**This table is the only complete source of triggers.** The owner's global settings set
-`skillListingMaxDescChars: 300`, so most project skills have truncated descriptions in the skill
-listing; `when_to_use` in each `SKILL.md` mirrors the mapping below, and **the mapping below is the
-source of truth**. When changing a trigger, edit BOTH: the entry here and `when_to_use` in the skill.
+**The mapping below is the source of truth for triggers**, and it is kept here in full. `when_to_use`
+in each `SKILL.md` and the skill listing's `description` are both **mirrors** of it: they say when a
+skill applies to its own reader, while this mapping is the only place that states the trigger, the
+skill and **which agents it binds** together. When changing a trigger, edit BOTH: the entry here and
+`when_to_use` in the skill.
+
+A skill's `description` must stay within the operator's `skillListingMaxDescChars` (currently 300) or
+it is silently cut in the listing — so the description cannot be relied on to carry a full trigger,
+and this mapping is not derivable from the listing.
 
 Each entry reads `trigger → skill · agents it applies to`.
 

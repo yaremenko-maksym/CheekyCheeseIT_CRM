@@ -68,13 +68,13 @@ does not, the effect is achieved by choosing the tier — do not invent a separa
 ONLY for really complex tasks, not by default.**
 
 The catch: the tier aliases (`sonnet`/`opus` in `Agent()` and in frontmatter) resolve to the
-**newest** version (5.x). The levers:
+**newest** version (5.x). Two separate levers:
 
-- **The tier** (haiku < sonnet < opus < fable) — controlled from `Agent(model=)`; this is the MAIN
-  saving: take the minimal sufficient tier, do not use fable.
-- **The minor version** (4.x vs 5.x behind the alias) — set by the Claude Code config (the default
-  model / subagents), NOT by a dispatch parameter (the enum accepts only tier aliases). Keep the
-  default on 4.x; 5+/fable — deliberately and rarely.
+- **The tier** (haiku < sonnet < opus < fable) — from `Agent(model=)`. The MAIN saving: minimal
+  sufficient tier, never fable.
+- **The minor version** (4.x vs 5.x behind the alias) — set by the Claude Code config (default model /
+  subagents), NOT by a dispatch parameter (the enum accepts only tier aliases). Keep the default on
+  4.x; 5+/fable deliberately and rarely.
 
 ## Dynamic overrides — Master passes `model=` into `Agent()`
 
@@ -105,12 +105,11 @@ migrations, `*.spec.ts` **with new logic**, everything in critical-path zones.
 
 ## Accounting (otherwise the policy is not verifiable)
 
-1. Task file: the `## Model:` field — the tier per the "Task type → tier" table (`haiku` on
-   mechanics, `sonnet` on ordinary logic, `opus` — with one line of rationale per the trigger table).
-   The field absent → `sonnet` as the ceiling, but Master still reconciles the task type against the
-   table before dispatch.
-2. Master records the chosen tier in the `## Model:` field of the task file (and in the dispatch prompt).
-3. Dispatch without `model=` → Master adds the parameter itself per this table.
+1. Every task file carries a `## Model:` field — the tier per "Task type → tier" (`opus` additionally
+   needs one line of rationale per the escalation triggers). The field absent → `sonnet` as the
+   ceiling, but Master still reconciles the task type against the table before dispatch.
+2. Master records the chosen tier in that field **and** in the dispatch prompt.
+3. Dispatch without `model=` → Master adds the parameter itself per this rule.
 
 ## USER main session (recommendation; chosen via `/model`)
 

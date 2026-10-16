@@ -8,30 +8,23 @@
 
 ---
 
-## Why this axis exists
-
-This rule adds ONE decision axis — **the degree of parallelism**: one agent pipeline vs a parallel
-wave vs a read-only audit-fanout. It does **not** introduce a second orchestrator and does **not**
-rewrite the dispatch logic.
-
-The two already-existing decision axes are **NOT duplicated** here — they fire earlier as they are:
-
-- **Cost-of-error** (auth / finance / RBAC / wallets / transactions / Drizzle migrations /
-  company-account (USDT) → FULL PIPELINE + a **MANDATORY** security-reviewer) — `contracts.md` §2.1
-  "Critical-path trigger zones". It fires FIRST and beats everything below.
-- **Triviality / reversibility** (docs / cosmetic / ≤30 LOC / 1 file without business logic and
-  without a security surface → light-track single-pass) — `light-track.md`.
-- **The model tier** (haiku / sonnet / opus + escalation triggers) — orthogonal, `model-routing.md`
-  (tier ≠ track).
-
 ## The rule — the parallelism axis (evaluate top to bottom; the first match wins)
 
-**Precondition** (not part of this tree, fires earlier — do NOT rewrite):
+This rule adds ONE decision axis — **the degree of parallelism**. It does **not** introduce a second
+orchestrator and does **not** rewrite the dispatch logic.
 
-- a task in critical-path zones (`contracts.md` §2.1) → FULL PIPELINE + security-reviewer. Not overridden by anything below.
-- trivial / reversible / docs (`light-track.md`) → LIGHT-TRACK single-pass (Master himself). STOP — workflows/agents are not needed.
+**Preconditions** — these fire FIRST, beat everything below, and are owned elsewhere (do NOT rewrite them here):
 
-If the task passed the precondition and requires code / agent work — choose ONE:
+- A task in critical-path zones — auth / finance / RBAC / wallets / transactions / Drizzle migrations
+  / company-account (USDT) — → FULL PIPELINE + a **MANDATORY** security-reviewer (`contracts.md` §2.1
+  "Critical-path trigger zones").
+- Trivial / reversible / docs — cosmetic / ≤30 LOC / 1 file without business logic and without a
+  security surface → LIGHT-TRACK single-pass, Master himself (`light-track.md`). STOP —
+  workflows/agents are not needed.
+- **The model tier** (haiku / sonnet / opus + escalation triggers) is orthogonal to all of this:
+  `model-routing.md`. Tier ≠ track.
+
+If the task passed the preconditions and requires code / agent work — choose ONE:
 
 ### Decision 1 — one pipeline vs a parallel wave
 
@@ -75,14 +68,13 @@ the compounding-context tax of a fan-out. A full fan-out — only on genuine bre
 ## Coupling agents + workflows (integration model)
 
 - **Master (the Agent tool) is the sole owner** of the interactive pipeline: decomposition, the launch
-  decision (this tree), event→action monitoring, the aggregate verdict, User Testing, merge-gating.
-  Master is **ABOVE** workflows, not a stage within.
-- **The Workflow tool / fan-out is a narrow instrument UNDER the orchestrator**, justified where the
-  logic is predicate-based and there is measurable new value — in fact, read-only audit / research.
-  **We do NOT encode the dev pipeline in a JS workflow** — it would duplicate Master's orchestration
-  (a second executable source of truth, desync).
-- **The deterministic layer that already exists and is NOT touched:** `auto-merge-on-label.yml`
-  (label → squash) + CI gates.
+  decision, monitoring, the aggregate verdict, User Testing, merge-gating. Master is **ABOVE**
+  workflows, not a stage within.
+- **The Workflow tool / fan-out is a narrow instrument UNDER the orchestrator** — read-only audit /
+  research. **We do NOT encode the dev pipeline in a JS workflow** (a second executable source of
+  truth, desync).
+- **The deterministic layer already in place and NOT touched:** `auto-merge-on-label.yml` (label →
+  squash) + CI gates.
 
 ## Enforcement and tracking
 

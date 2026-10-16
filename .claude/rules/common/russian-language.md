@@ -14,8 +14,8 @@
 
 ## The rule
 
-English is the language of **collaboration and the repository**. Ukrainian and English are the
-languages of the **product** (unchanged — see below).
+English is the language of **collaboration and the repository**; `uk` + `en` are the languages of the
+**product** (unchanged — see below).
 
 **English (required) — everything an agent writes or that lands in the repo:**
 
@@ -48,8 +48,7 @@ The product ships in **`uk` (default) and `en`** through Lingui catalogs. Catalo
 
 Russian product text is **removed module by module** (stage 3 of the spec). Until a module is
 migrated, its existing Russian strings are left untouched; **new and changed** strings are written in
-`uk` + `en` and wrapped in Lingui macros right away — a literal string in any language inside a
-migrated module is a review finding.
+`uk` + `en` and wrapped in Lingui macros right away.
 
 ### Forbidden in the product
 
@@ -57,15 +56,11 @@ migrated module is a review finding.
   and the guard on the letters `ы э ъ ё` — stage 6)
 - A hardcoded visible string bypassing the catalog inside a migrated module
 
-## Landing
+**Landing:** `apps/landing` ships in five languages (en/uk/ru/es/pt) through its own dictionary
+mechanism; this file does not change it.
 
-`apps/landing` ships in five languages (en/uk/ru/es/pt) through its own dictionary mechanism; this
-file does not change it.
-
-## ECC-imported agents
-
-If Master / Architect / Coder invoke an ECC catalog agent and its output reaches the repo or the
-owner, that output is English — the same rule as every other agent.
+**ECC-imported agents:** if their output reaches the repo or the owner, it is English — the same rule
+as every other agent.
 
 ## Enforcement and verification
 
