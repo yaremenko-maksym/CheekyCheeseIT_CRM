@@ -8,6 +8,29 @@ Single source of truth for rules applicable to all agents (Coder, AutoTest, Revi
 
 ---
 
+## 0. Two layers: mechanism (always-on) and rationale (on demand)
+
+**Added 2026-10-16** (progressive-disclosure restructure).
+
+A rule file under `.claude/rules/common/` **without** a `paths:` frontmatter block is injected into
+**every** request of every session and every subagent. So the always-on layer is kept to what an agent
+must obey, and the reasons behind it live one pointer away:
+
+| Layer         | Location                                      | Loaded                              | Contains                                                                                                                                                                      |
+| ------------- | --------------------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Mechanism** | `.claude/rules/common/<rule>.md`              | **always** (unless `paths:`-scoped) | Hook ids and refusal predicates, gates, mandatory report lines, zero-tolerance patterns, commit format, exact pins, zone rows, classifiers, "how we know it is violated" rows |
+| **Rationale** | `docs/architecture/rules-rationale/<rule>.md` | on demand                           | Incidents and dates, precedent lists, rejected alternatives, root-cause analyses, measurement narratives, `Sources`                                                           |
+
+Each core rule carries one pointer line near the top. **Read the rationale file before changing a
+rule** — most of those files exist because the obvious alternative was already tried and failed in a
+recorded way. Index and reading guidance: `docs/architecture/rules-rationale/README.md`.
+
+**Path-scoped (NOT always-on), load only when matching files are touched:** `design-gate.md`,
+`design-fidelity-review.md`, `responsive-design.md` (`apps/web/**`, `apps/landing/**`),
+`eslint-mcp-first.md` (`**/*.ts(x)`), `mutation-gate-integration-specs.md` (`**/*.spec.ts(x)`).
+
+---
+
 ## 1. Tool priority — `.claude/rules/common/mcp-first.md`
 
 **Summary:** An MCP tool fits → MCP. No MCP, there is a native one (Read / Edit / Write) → native. Shell only → Bash. Never use Bash where a suitable MCP exists.
@@ -185,7 +208,8 @@ See the full list with rationale + forbidden overrides: **[`.claude/rules/common
 | Doc                                         | For whom                | Size   | What's inside                                                 |
 | ------------------------------------------- | ----------------------- | ------ | ------------------------------------------------------------- |
 | `RULES.md` (this file)                      | All                     | ~5 KB  | TOC + summary + links to .claude/rules/common/                |
-| `.claude/rules/common/*.md`                 | On-demand               | varies | Per-topic detailed rules (MCP / git / skills / ...)           |
+| `.claude/rules/common/*.md`                 | **Auto-loaded**         | varies | Per-topic mechanism (MCP / git / skills / ...) — see §0       |
+| `docs/architecture/rules-rationale/*.md`    | On-demand               | varies | Why each rule says what it says — see §0                      |
 | `project-state.md`                          | All                     | ~7 KB  | Phases, migrations, RBAC, tech stack                          |
 | `contracts.md`                              | Master, Coder, Reviewer | ~6 KB  | Master-direct-dispatch contracts + labels + verdict semantics |
 | `coder.md`                                  | Coder                   | ~11 KB | Golden rules + workflow + recovery                            |
