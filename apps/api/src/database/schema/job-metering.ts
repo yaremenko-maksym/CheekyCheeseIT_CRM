@@ -38,7 +38,15 @@ export const jobAccountMeters = pgTable(
     /** e.g. `jsearch:rapidapi-main`, `openrouter:studio`. Never a credential. */
     accountKey: text('account_key').notNull(),
     unit: jobMeterUnitEnum('unit').notNull(),
-    window: jobMeterWindowEnum('window').notNull(),
+    /**
+     * Named `window_kind`, not `window`: `WINDOW` is a reserved word (SQL
+     * window functions), so a column called that has to be double-quoted in
+     * every hand-written statement — and the one that is forgotten is a syntax
+     * error in the forward SQL of Task 1.3, not here. Same reasoning as
+     * `limit_amount` below. Caught by the integration spec before it could get
+     * that far.
+     */
+    window: jobMeterWindowEnum('window_kind').notNull(),
     /**
      * NULL = no published limit, and it is the ONLY value that means that — the
      * same single meaning `job_sources.budget_limit` carries, so a nonsense

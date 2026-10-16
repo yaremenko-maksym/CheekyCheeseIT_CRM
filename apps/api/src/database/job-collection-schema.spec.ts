@@ -399,7 +399,7 @@ describe('job_account_meters (AC4)', () => {
         'id',
         'account_key',
         'unit',
-        'window',
+        'window_kind',
         'limit_amount',
         'used',
         'reserved',
@@ -428,7 +428,7 @@ describe('job_account_meters (AC4)', () => {
     expect(uniqueCols(jobAccountMeters, 'uq_job_account_meters_identity')).toEqual([
       'account_key',
       'unit',
-      'window',
+      'window_kind',
     ])
   })
 
