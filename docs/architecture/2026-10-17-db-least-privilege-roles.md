@@ -235,36 +235,55 @@ during review).
 **What must change before any of them can become class B** (each a separate task, outside this
 ADR; `transaction_audit_log` is critical-path and needs a security review):
 
-1. **FKs — drop them and keep the ids as plain data; `SET NULL` is not a target shape.** A class B
-   table may carry only FKs whose referential action never writes the log row: `RESTRICT` /
-   `NO ACTION`, or no FK at all (§3 layer 3 states the rule and why). `SET NULL` does not qualify —
-   it is an `UPDATE` of the log row, which the immutability trigger refuses — so changing these
-   six to `SET NULL` would be an interim shape only, valid exactly while there is no trigger, and
-   it would have to be undone to make the transition. The target shape is therefore:
-   - **Preferred: drop the FK on each column that points at a deletable row, keeping the `uuid` as
-     plain data** (`transaction_audit_log`'s target column is already shaped this way). Deleting a
-     parent then touches no log row, so the trigger is not involved, and **no test-suite work is
-     needed**: the roughly 110 spec teardowns that delete users, teams and projects keep passing. The
-     log keeps the id of whoever acted, which is what an audit trail is for; the id becomes dangling,
-     which is correct here and is why erasure must come from the end-of-retention path rather than
-     from a cascade (item 3).
+1. **FKs — drop them and keep the ids as plain data.** A class B table may carry only FKs whose
+   referential action never writes the log row: `RESTRICT` / `NO ACTION`, or no FK at all (§3
+   layer 3 states the rule and why). `SET NULL` does not qualify — it is an `UPDATE` of the log
+   row, which the immutability trigger refuses — so changing these six to `SET NULL` would be an
+   interim shape only, valid exactly while there is no trigger, and it would have to be undone to
+   make the transition.
+
+   **Dropping the FKs is not a concession; against the current schema it is strictly more
+   evidentiary.** Today `target_id` is `CASCADE` on the user, team and project logs, so deleting a
+   parent destroys that subject's entire audit history, and `actor_id` is `SET NULL` everywhere, so
+   deleting a person erases the record of who acted. With no FK, both rows survive intact with
+   their ids — the delete touches nothing. What is given up is referential enforcement, and here it
+   protects almost nothing: a class B table keeps `INSERT` by design, so the FK never stopped a
+   forged row, it only required the forged `actor_id` to name an **existing** user — which is
+   worse, because it means a real person can be framed by a value that passes every constraint.
+
+   This generalises a precedent already reviewed and in the schema, rather than inventing a shape:
+   `transaction_audit_log.target_id` and `document_access_log.target_id` carry no FK **by
+   decision**, with the rationale in a comment beside them ("an audit trail must OUTLIVE the row it
+   describes"). The six tables simply extend it from the target to every column pointing at a
+   deletable row.
+
+   - **Preferred: drop the FK on each such column, keeping the `uuid` as plain data.** Deleting a
+     parent touches no log row, so the trigger is not involved, and **no test-suite work is
+     needed**: the roughly 110 spec teardowns that delete users, teams and projects keep passing.
+     The id becomes dangling, which is correct here, and is why erasure must come from the
+     end-of-retention path rather than from a cascade (item 3).
    - **Acceptable: `RESTRICT`.** It keeps referential integrity but forbids deleting a referenced
      parent at all, so every teardown that deletes a user, team or project must first delete the
-     log rows **as the migration role** (the application cannot). That is the test-suite work this
-     option costs — around 110 teardowns — and it is the reason the preferred shape is the other one.
+     log rows **as the migration role** — `crm_app` gets `permission denied` trying to clear the
+     way, which is the point of the class but also the cost. That is the test-suite work this
+     option carries, around 110 teardowns, and it is why the other shape is preferred.
 
    Either way the schema change itself is doable now and breaks no production behaviour, because
    nothing in production deletes these parents.
 
 2. **Pruning.** `document_access_log` retention moves off the API's credential onto the
    end-of-retention path §3 defines — whichever option the owner decides there.
-3. **Erasure.** The same legal question the memo of PR #1019 answers for `job_queue_actions`
-   applies to these tables; their end-of-retention path follows the same owner decision.
-
-**Never granted to `crm_app` or `crm_collector`, on any class:** `TRUNCATE`, `REFERENCES`,
-`TRIGGER` (the right to _create_ triggers on a table), and any `WITH GRANT OPTION`. `crm_collector`
-gets nothing on finance, session or credential tables, per r5 — this is enforced by class D being
-column-level and by the default privileges below granting the collector **nothing**.
+3. **Erasure — and the obligation the dropped FKs create.** The same legal question the memo of
+   PR #1019 answers for `job_queue_actions` applies to these tables; their end-of-retention path
+   follows the same owner decision. **With the FKs dropped, nothing sweeps these tables when a user
+   is deleted or pseudonymised, so the end-of-retention path must name all six explicitly** — see
+   §3, "What the end-of-retention path must cover". An erasure job written for
+   `job_queue_actions` alone, trusting a cascade that no longer exists, would leave
+   `user_audit_log.changes` holding plain-text personal data indefinitely.
+   **Never granted to `crm_app` or `crm_collector`, on any class:** `TRUNCATE`, `REFERENCES`,
+   `TRIGGER` (the right to _create_ triggers on a table), and any `WITH GRANT OPTION`. `crm_collector`
+   gets nothing on finance, session or credential tables, per r5 — this is enforced by class D being
+   column-level and by the default privileges below granting the collector **nothing**.
 
 **Sequences.** `crm_app`: `USAGE, SELECT` (calls `nextval`, reads `currval`). Never `UPDATE`, which
 is `setval` — the ability to rewind a sequence and collide ids. `crm_collector`: `USAGE` on the
@@ -436,9 +455,13 @@ statement. So a writing referential action does not quietly weaken the boundary;
 ordinary parent delete into a runtime error. That is the trade the two allowed shapes make
 explicitly:
 
-- **No FK:** deleting a parent touches no log row, so nothing fails and the log keeps the id of
-  whoever acted. The id becomes dangling — acceptable and intended for an audit trail, and the
-  reason erasure must come from the end-of-retention path rather than from a cascade.
+- **No FK (preferred):** deleting a parent touches no log row, so nothing fails and the log keeps
+  the id of whoever acted. The id becomes dangling — intended for an audit trail, and the reason
+  erasure must come from the end-of-retention path rather than from a cascade. The referential
+  enforcement given up protects little here: a class B table keeps `INSERT` by design, so the FK
+  never stopped a forged row; it only required the forged id to name an existing person. This is
+  the shape `transaction_audit_log.target_id` and `document_access_log.target_id` already use by
+  reviewed decision.
 - **`RESTRICT`:** referential integrity is kept and the refusal becomes a declared, testable part
   of the schema, but deleting a referenced parent is then impossible until the log rows are removed
   **by the migration role**. Any test teardown that deletes such a parent must do that first.
@@ -446,6 +469,39 @@ explicitly:
 PR #1017 already declares the actor FKs `restrict`; Task 1.3 must hold every FK on the log to this
 rule and write its teardowns accordingly. The same rule is what the six existing audit logs must
 satisfy before they can leave their interim class (§2).
+
+**What a class B log may carry — and what it may not.** Immutability turns a column choice into a
+permanent one, so the shape of the row is part of this design, not a later detail.
+
+- **Do not denormalise raw identity into the row:** no email, display name, legal name, phone or
+  any other direct identifier copied from `users`. In a mutable table such a copy is a redundancy;
+  in an append-only one it is **PII that nothing can ever reach again** — pseudonymising or
+  deleting the `users` row leaves every copy intact, which defeats the minimisation step the legal
+  memo relies on and converts the trigger into a guarantee that personal data cannot be erased.
+- **Do carry the actor's role at the time of the action** (and the scope it was exercised in). It
+  is the authorisation fact the row exists to prove, it is **unrecoverable afterwards** — roles
+  change, and today's `users` row cannot say what the role was last March — and it survives
+  pseudonymisation, because a role is not an identifier.
+- **Reference people only by id**, and accept that the id is dangling after erasure (layer 3).
+
+Note what this does **not** claim about the six existing logs: they are not "only ids". Their
+`changes` column is unconstrained `jsonb` holding before-and-after values of whatever fields were
+edited, so a name change records the plain-text name on both sides. That is exactly why item 3 of
+§2 makes the end-of-retention path enumerate them, and why this rule exists before any of them
+becomes append-only — freezing those rows first and discovering the PII afterwards is the
+irreversible version of this mistake.
+
+**What the end-of-retention path must cover** (whichever of R-A / R-B / R-C the owner chooses):
+`job_queue_actions` **and** each of the six existing audit logs — `user_audit_log`,
+`team_audit_log`, `project_audit_log`, `transaction_audit_log`, `document_access_log`,
+`meeting_recorder_audit_log` — **named one by one, not by a pattern and not by assuming a cascade**.
+Once their FKs are dropped (§2, item 1), deleting or pseudonymising a `users` row sweeps nothing:
+every one of these tables keeps its ids, and `user_audit_log.changes` keeps plain-text personal
+data, until a job written for that table removes or re-points it. A retention design scoped to the
+action log alone silently retains the rest forever. The retention-policy table (class E) therefore
+carries one row per table and per event kind, and the catalog check asserts that every class B and
+A-log table appears in it — the same arithmetic device used elsewhere in this ADR, so an added
+table cannot be forgotten.
 
 **What the three layers guarantee, by actor.** "Refused" means the statement fails and no row
 changes.
