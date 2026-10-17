@@ -19,6 +19,19 @@
 # and assert a real exit code 2; the positive ones assert the resolved action. Every
 # red case below FAILS against the pre-fix script (no pin: the function does not exist,
 # the import throws, exit 1 without the version message).
+#
+# SIGNAL CASES (cases 11, 13, 14): the re-executed child is a real child process.
+#   - SIGTERM / SIGHUP sent to the parent are forwarded to it (case 11);
+#   - SIGINT is deliberately NOT forwarded: parent and child share a process group, so a
+#     terminal Ctrl-C already reaches the child and forwarding it too delivers it twice.
+#     Case 14 runs the gate in its own fresh process group (python3 setpgrp + exec, so a
+#     child's `kill -INT 0` can never hit the test runner) and asserts the child's INT
+#     trap fires exactly once; it also needs the parent's no-op SIGINT handler, since
+#     without it the parent would die and lose the child's exit status;
+#   - a child that dies by signal (`kill -KILL $$`) makes the parent exit exactly 2 and
+#     name the signal (case 13), the gate's "could not run" contract.
+# Residual, by design and not tested: a SIGINT sent to the parent's pid ALONE does not
+# reach the child (see pinNodeOrExit's docblock for why it is not detached instead).
 set -u
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SELF_DIR/lib/harness.sh"
