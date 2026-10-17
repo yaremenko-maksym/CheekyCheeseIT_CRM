@@ -18,11 +18,17 @@
  *   - inside a quoted identifier;
  *   - inside a `--` or nested block comment, which is most of these files by volume.
  *
- * What it refuses rather than guesses (CR-L-1 / SR-L-4): a psql meta-command. Those are
- * interpreted by the psql CLIENT, never sent to the server, so a file containing one
- * cannot be verified by sending its statements to Postgres — the server would reject the
- * line with a bare syntax error that says nothing about the cause. It throws instead,
- * naming the command.
+ * What it refuses rather than guesses (CR-L-1 / SR-L-4), in both cases because the
+ * alternative is a SILENT wrong answer:
+ *   - a psql meta-command, which the psql CLIENT interprets and never sends to the
+ *     server, so a file containing one cannot be verified by sending its statements to
+ *     Postgres — the server would reject the line with a bare syntax error that says
+ *     nothing about the cause;
+ *   - an `E'…'` escape string, whose backslash escapes would make the ordinary scan cut
+ *     the statement at an escaped quote.
+ * Neither appears in the two files this verifies. Both throw, naming the construct, so
+ * the first file that does carry one fails in CI with an instruction rather than on
+ * production with a half-statement.
  *
  * It copies text verbatim and never unescapes it, and that is what makes a doubled quote
  * (`'it''s'`) need no special case: `''` is an EVEN number of quote characters, so
@@ -32,9 +38,10 @@
  * removed after a brute-force comparison over 488,280 strings drawn from
  * `' " ; a <space>` found ZERO inputs on which the two versions disagree (the reviewer
  * of PR #1022 repeated it over 1,111,111 strings on a wider alphabet, also zero), and
- * the mutation gate was right to report its mutants as surviving. An `E'…'` string is a
- * different matter and IS handled below: there a backslash really does escape the next
- * character, so `E'a\'b'` is one literal and the parity argument does not hold.
+ * the mutation gate was right to report its mutants as surviving. An `E'…'` string is
+ * the one case where the parity argument does NOT hold — there a backslash really does
+ * escape the next character — and that is exactly why one is REFUSED rather than
+ * guessed at; see the throw below.
  * If this module is ever extended to return literal CONTENT rather than literal TEXT,
  * the parity reasoning stops holding and `''` needs real escape handling again.
  */
@@ -81,32 +88,6 @@ function endOfBlockComment(sql: string, start: number): number {
   throw new Error('unterminated block comment')
 }
 
-/**
- * Index just past the closing quote of the `E'…'` escape string starting at `start`
- * (which points at the `E`). Inside one, a backslash escapes the next character, so
- * `E'a\'b'` is a single literal — the only place in this module where that is true.
- */
-function endOfEscapeString(sql: string, start: number): number {
-  let i = start + 2
-  while (i < sql.length) {
-    const ch = sql[i]
-    if (ch === '\\') {
-      i += 2
-      continue
-    }
-    if (ch === "'") {
-      // A doubled quote is legal inside an E-string too, and means the same thing.
-      if (sql[i + 1] === "'") {
-        i += 2
-        continue
-      }
-      return i + 1
-    }
-    i += 1
-  }
-  throw new Error('unterminated escape string')
-}
-
 export function splitSqlStatements(sql: string): string[] {
   const statements: string[] = []
   let current = ''
@@ -142,11 +123,10 @@ export function splitSqlStatements(sql: string): string[] {
 
     // A psql meta-command. Refused, not guessed — see the header.
     if (rest.startsWith('\\') && !current.trim()) {
-      const line = rest.slice(0, rest.indexOf('\n') === -1 ? rest.length : rest.indexOf('\n'))
+      const command = rest.split('\n')[0]!.trim()
       throw new Error(
-        `psql meta-command is not supported by this splitter: ${line.trim()} — ` +
-          'it is interpreted by the psql client and never reaches the server, so a file ' +
-          'containing one cannot be applied by sending its statements to Postgres',
+        `psql meta-command is not supported by this splitter: ${command} — it is ` +
+          'interpreted by the psql client and never reaches the server',
       )
     }
 
@@ -169,12 +149,19 @@ export function splitSqlStatements(sql: string): string[] {
 
     const ch = sql[i]!
 
-    // An `E'…'` / `e'…'` escape string, where a backslash escapes the next character.
+    // An `E'…'` escape string is REFUSED, not scanned (CR-L-1). Inside one a backslash
+    // escapes the next character, so `E'a\\';b'` is a single literal — scanned the
+    // ordinary way it would end at that quote and the `;` after it would split the
+    // statement in half, SILENTLY producing two fragments that are each valid-looking
+    // SQL. Neither manual file contains an E-string, and handling one properly is a
+    // second escape dialect to carry and test for a case that does not occur. Refusing
+    // turns the silent mis-split into a loud error that names the fix.
     if ((ch === 'E' || ch === 'e') && sql[i + 1] === "'" && !followsIdentifier(sql, i)) {
-      const end = endOfEscapeString(sql, i)
-      current += sql.slice(i, end)
-      i = end
-      continue
+      throw new Error(
+        `escape string (E'…') at offset ${i} is not supported by this splitter: a ` +
+          'backslash inside one escapes the next character, so splitting it the ' +
+          'ordinary way would silently cut the statement at an escaped quote',
+      )
     }
 
     if (ch === "'" || ch === '"') {

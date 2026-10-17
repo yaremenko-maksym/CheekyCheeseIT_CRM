@@ -69,6 +69,11 @@ describe('splitSqlStatements', () => {
       expect(splitSqlStatements('SELECT $1 FROM t;')).toEqual(['SELECT $1 FROM t'])
     })
 
+    it('recognises a tag that starts the input (offset 0)', () => {
+      // The other half of the `at > 0` guard in `followsIdentifier`.
+      expect(splitSqlStatements('$$a;b$$;')).toEqual(['$$a;b$$'])
+    })
+
     it('does not read a `$` inside an identifier as a tag (SR-L-4)', () => {
       // `tab$le$x` is a legal unquoted Postgres identifier. Treating its `$le$` as an
       // opener mis-slices the statement around it.
@@ -104,25 +109,60 @@ describe('splitSqlStatements', () => {
       expect(() => splitSqlStatements("SELECT 'oops")).toThrow(/unterminated string/)
     })
 
-    it('treats a backslash inside an E-string as an escape (CR-L-1)', () => {
-      // Standard-conforming strings make `\\` ordinary inside `'…'`, but NOT inside an
-      // `E'…'`, where `\\'` is an escaped quote. Scanning an E-string the plain way ends
-      // the literal at that quote and lets the `;` after it split the statement.
-      expect(splitSqlStatements(`SELECT E'a\\';b' FROM t;`)).toEqual([`SELECT E'a\\';b' FROM t`])
+    it("refuses an E'…' escape string by name rather than mis-splitting it (CR-L-1)", () => {
+      // Inside an E-string a backslash escapes the next character, so this is ONE
+      // literal. Scanned the ordinary way it would end at the escaped quote and the `;`
+      // after it would split the statement into two valid-looking fragments — silently.
+      // The WHOLE message, not just its opening clause: an error that names the
+      // construct but not the reason sends the next author to read this module instead
+      // of the header.
+      expect(() => splitSqlStatements(`SELECT E'a\\';b' FROM t;`)).toThrow(
+        "escape string (E'\u2026') at offset 7 is not supported by this splitter: a " +
+          'backslash inside one escapes the next character, so splitting it the ordinary ' +
+          'way would silently cut the statement at an escaped quote',
+      )
     })
 
-    it('accepts a lowercase e-string prefix', () => {
-      expect(splitSqlStatements(`SELECT e'a\\';b';`)).toEqual([`SELECT e'a\\';b'`])
+    it('refuses a lowercase e-string prefix too', () => {
+      expect(() => splitSqlStatements(`SELECT e'x';`)).toThrow(/escape string/)
+    })
+
+    it('refuses an E-string that starts the input (offset 0)', () => {
+      // Pins the `at > 0` guard in `followsIdentifier`: read as "index 0 follows an
+      // identifier character", every construct at the very start of a file stops being
+      // recognised — and a manual file may legally begin with one.
+      expect(() => splitSqlStatements(`E'x' FROM t;`)).toThrow(/escape string .* offset 0/)
+    })
+
+    it('leaves a bare `e` token alone when no quote follows it', () => {
+      // A table alias is the common case, and `e` is the common alias. Pins that the
+      // branch checks for the QUOTE as well as the letter: without that check every
+      // `e`/`E` not preceded by an identifier character would be refused.
+      expect(splitSqlStatements('SELECT e.x FROM t e;')).toEqual(['SELECT e.x FROM t e'])
+      expect(splitSqlStatements('SELECT E FROM t;')).toEqual(['SELECT E FROM t'])
     })
 
     it('does not read a trailing `e` of an identifier as an E-string prefix', () => {
-      // `table'x'` is not valid SQL, but `some_table` followed by a literal is, and the
-      // `e` of the identifier must not swallow it.
+      // `some_name` followed by a literal is ordinary SQL, and the `e` ending the
+      // identifier must not swallow it.
       expect(splitSqlStatements(`SELECT name'x' FROM t;`)).toEqual([`SELECT name'x' FROM t`])
     })
 
-    it('refuses an unterminated E-string', () => {
-      expect(() => splitSqlStatements(`SELECT E'oops`)).toThrow(/unterminated escape string/)
+    it('treats a quote after a non-identifier character as an ordinary literal', () => {
+      // Pins that the E-string branch fires on `E'` and nothing else. A branch that
+      // triggered on ANY character before a quote would refuse this perfectly ordinary
+      // statement, because `(` is not an identifier character either.
+      expect(splitSqlStatements(`SELECT ('a;b');`)).toEqual([`SELECT ('a;b')`])
+    })
+
+    it('keeps standard-conforming semantics for a backslash in a PLAIN literal', () => {
+      // With `standard_conforming_strings` on (the default since PG 9.1), `'a\\'` is a
+      // COMPLETE literal whose content is `a\\` — the quote is NOT escaped. So the `;`
+      // after it is a real terminator, the `'` later in the line opens a literal that
+      // never closes, and refusing is correct. Asserted because the obvious intuition
+      // ("a backslash escapes the quote") is the wrong one, and an E-string is the only
+      // place where that intuition holds.
+      expect(() => splitSqlStatements(`SELECT ('a\\';b');`)).toThrow(/unterminated string/)
     })
 
     it('refuses an unterminated quoted identifier, naming it as an identifier', () => {
@@ -210,14 +250,18 @@ describe('splitSqlStatements', () => {
       // containing one cannot be applied by sending its statements to Postgres. The
       // splitter says so; the server would only have said `syntax error at or near "\\"`.
       expect(() => splitSqlStatements('\\pset format unaligned\nSELECT 1;')).toThrow(
-        /psql meta-command is not supported/,
+        /psql meta-command is not supported by this splitter: \\pset format unaligned — it is/,
       )
-      expect(() => splitSqlStatements('SELECT 1;\n\\copy t FROM x\n')).toThrow(/\\copy t FROM x/)
+      // The command is reported TRIMMED and cut at the newline: the surrounding
+      // whitespace and the rest of the file are not part of the message.
+      expect(() => splitSqlStatements('SELECT 1;\n   \\copy t FROM x   \nSELECT 2;')).toThrow(
+        /: \\copy t FROM x — it is interpreted by the psql client and never reaches the server/,
+      )
     })
 
     it('leaves a backslash INSIDE a statement alone', () => {
-      // Only a backslash that starts a statement is a meta-command.
-      expect(splitSqlStatements(`SELECT E'a\\\\b';`)).toEqual([`SELECT E'a\\\\b'`])
+      // Only a backslash where a statement STARTS is a meta-command.
+      expect(splitSqlStatements(`SELECT 'a\\\\b';`)).toEqual([`SELECT 'a\\\\b'`])
     })
   })
 })

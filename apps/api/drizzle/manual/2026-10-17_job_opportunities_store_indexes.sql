@@ -7,7 +7,9 @@
 -- `CREATE INDEX CONCURRENTLY`, which Postgres refuses inside a transaction block, and
 -- because a failed concurrent build is the one thing in this task that leaves an
 -- object behind. See part 1's header for the idempotency contract and the deploy
--- mechanics; everything there applies here too.
+-- mechanics; everything there applies here too. Both files are wired into
+-- .github/workflows/deploy.yml as hard-required apply steps, part 1 then this one, so
+-- the next deploy after the merge applies them — this is not a hand-run script.
 --
 -- The 15 UNIQUE and PRIMARY KEY indexes of the new tables are NOT here: they are
 -- declared inline in part 1's `CREATE TABLE` as constraints, which is how
@@ -40,8 +42,34 @@
 -- and unlike `DROP INDEX CONCURRENTLY` it is allowed inside the `DO` block that
 -- selects the names. None of the 44 backs a constraint, so none can be undroppable.
 --
+-- THE GUARANTEE THE SWEEP GIVES, and why `NOT indisvalid` alone was not it (SR-M-2)
+-- --------------------------------------------------------------------------------
+-- `indisvalid = false` is NOT only the state of an abandoned build. It is also the
+-- state of a `CREATE INDEX CONCURRENTLY` that is still RUNNING: the index row exists
+-- from the first phase onward and only turns valid at the very end. Measured on a
+-- 2,000,000-row `job_opportunities` with the build parked in its "waiting for old
+-- snapshots" phase, the first version of this sweep dropped a LIVE build — no lock
+-- wait, no error, and the building session then failed with `relation ... does not
+-- exist`. Two deploys can overlap for real: the workflow's `concurrency` block uses
+-- `cancel-in-progress: true`, so a cancelled deploy's build can still be running while
+-- the next one reaches this file.
+--
+-- So the predicate now excludes anything `pg_stat_progress_create_index` reports for
+-- this database, matching BOTH the index being built and any build or REINDEX on the
+-- same TABLE (a REINDEX reports the new index's OID, not the old one's). The guarantee
+-- is therefore: *the sweep drops an index that is invalid AND has no build in progress
+-- for it or its table* — i.e. an ABANDONED one. A build that is merely slow is left
+-- alone; `CREATE INDEX CONCURRENTLY IF NOT EXISTS` below then sees the name, skips, and
+-- the other session finishes it. If that session dies instead, the index becomes a
+-- genuine leftover and the NEXT deploy sweeps it. The one case this cannot see is a
+-- build from a backend that has already gone away — which is exactly an abandoned
+-- index, and exactly what should be swept.
+--
 -- To see whether a leftover exists before deploying:
---   SELECT c.relname FROM pg_class c JOIN pg_index i ON i.indexrelid = c.oid
+--   SELECT c.relname, i.indisvalid,
+--          EXISTS (SELECT 1 FROM pg_stat_progress_create_index p
+--                   WHERE p.index_relid = c.oid OR p.relid = i.indrelid) AS building
+--     FROM pg_class c JOIN pg_index i ON i.indexrelid = c.oid
 --    WHERE NOT i.indisvalid AND c.relname LIKE '%job%';
 --
 -- `statement_timeout` is deliberately LOOSER here than in part 1: a concurrent build
@@ -55,13 +83,34 @@ SET statement_timeout = '30min';
 
 
 -- ---------------------------------------------------------------------------
--- 0. Drop INVALID leftovers of the 44 indexes below, so the rebuild can happen
+-- 0. Drop ABANDONED invalid leftovers of the 44 indexes below, so the rebuild
+--    can happen — but never an index whose build is still in progress (SR-M-2)
 -- ---------------------------------------------------------------------------
 
 DO $$
 DECLARE
   leftover text;
+  building text;
 BEGIN
+  -- Reported first and separately: if a build is in flight, the operator should see
+  -- why an invalid index was left in place rather than wonder why nothing happened.
+  FOR building IN
+    SELECT c.relname
+      FROM pg_class c
+      JOIN pg_index i ON i.indexrelid = c.oid
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = current_schema()
+       AND NOT i.indisvalid
+       AND EXISTS (
+             SELECT 1
+               FROM pg_stat_progress_create_index p
+              WHERE p.datid = (SELECT oid FROM pg_database WHERE datname = current_database())
+                AND (p.index_relid = c.oid OR p.relid = i.indrelid)
+           )
+  LOOP
+    RAISE NOTICE 'index % is invalid because a build is IN PROGRESS — leaving it alone', building;
+  END LOOP;
+
   FOR leftover IN
     SELECT c.relname
       FROM pg_class c
@@ -69,6 +118,15 @@ BEGIN
       JOIN pg_namespace n ON n.oid = c.relnamespace
      WHERE n.nspname = current_schema()
        AND NOT i.indisvalid
+       -- An in-flight `CREATE INDEX CONCURRENTLY` (or `REINDEX CONCURRENTLY`) is also
+       -- `indisvalid = false`. Dropping one kills a live build in another session; see
+       -- the header's "THE GUARANTEE THE SWEEP GIVES" for the measurement.
+       AND NOT EXISTS (
+             SELECT 1
+               FROM pg_stat_progress_create_index p
+              WHERE p.datid = (SELECT oid FROM pg_database WHERE datname = current_database())
+                AND (p.index_relid = c.oid OR p.relid = i.indrelid)
+           )
        AND c.relname = ANY (ARRAY[
          'idx_job_account_meter_reservations_cycle',
          'idx_job_account_meter_reservations_meter_status',

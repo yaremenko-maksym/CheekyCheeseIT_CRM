@@ -43,6 +43,22 @@
 -- catalog is diffed between the runs — see
 -- `src/database/job-opportunities-store-forward-ddl.integration.spec.ts`.
 --
+-- WHAT THE `duplicate_object` GUARD DOES NOT CHECK (SR-L-3)
+-- --------------------------------------------------------
+-- It keys on the NAME, not the definition. If a constraint of the same name already
+-- exists with a DIFFERENT expression — hand-applied during an incident, or left by an
+-- earlier revision of this file — the guard swallows the error and the old definition
+-- stays, silently. The file is then "applied" while the database disagrees with it. The
+-- same is true of `CREATE TABLE IF NOT EXISTS` (a table that exists with the wrong
+-- columns is left alone) and of `ADD COLUMN IF NOT EXISTS` (an existing column of the
+-- wrong type is kept). That is a deliberate trade: the alternative — dropping and
+-- recreating to be sure — is destructive on a live database, and this file must be safe
+-- to re-run on every deploy. What closes the gap is not the guard but the catalog
+-- equivalence spec named above, which compares DEFINITIONS and not names, and would
+-- fail on exactly this divergence. If it ever does fail that way on production, the
+-- remedy is a new, dated migration that drops and recreates the offending object by
+-- name — never an edit to this file, which is immutable once merged.
+--
 -- Locks
 -- -----
 -- `lock_timeout` is set below so this file FAILS FAST rather than queueing behind a
@@ -54,7 +70,25 @@
 -- is an admin-managed catalogue of a few dozen rows. `NOT VALID` would also leave
 -- `convalidated = false` in the catalog, which is a real difference from what
 -- `db:push` produces, and the equivalence spec would (correctly) fail on it.
--- Every default is a constant or `now()`, so the existing rows satisfy all 11.
+--
+-- TEN of the eleven CHECKs read only columns this file ADDS, with constant defaults, so
+-- no existing row can fail them. `ck_job_sources_config_bounded` is the EXCEPTION: it
+-- reads `config`, which predates this store, and it requires a JSON OBJECT of at most
+-- 8192 bytes. A row whose `config` is an array or a scalar aborts the file AT THAT
+-- STATEMENT — and because the CHECK block precedes the foreign keys, the deploy stops
+-- with the 18 tables created but no FK and no index applied. It fails loudly and a
+-- re-run after fixing the row recovers completely, but an operator should not discover
+-- it mid-deploy. RUN THIS PREFLIGHT FIRST (it must return zero rows):
+--
+--   SELECT id, type, jsonb_typeof(config) AS kind, length(config::text) AS bytes
+--     FROM job_sources
+--    WHERE jsonb_typeof(config) <> 'object' OR length(config::text) > 8192;
+--
+-- Expected to be empty: the 16 rows seeded by 2026-10-05_vacancy_sources_seed.sql are
+-- all small objects, and no application code path writes `config`. The equivalence spec
+-- now applies this file to a `job_sources` that HAS rows (previously it had none, so
+-- all 11 CHECKs validated against an empty table and CI could not have caught this),
+-- and it pins the abort and this very query as a test.
 --
 -- Why two files
 -- -------------
@@ -78,15 +112,30 @@
 -- Until 1.3b lands, both tables accept UPDATE and DELETE exactly as they do on the
 -- `db:push` schema today. This file does not widen that gap and does not hide it.
 --
+-- WHAT THIS MAKES HARDER LATER, recorded on purpose (SR-L-5)
+-- ---------------------------------------------------------
+-- Twelve of the 45 foreign keys point at `users` with `ON DELETE RESTRICT` — every
+-- actor column of the queue audit log and of the collection tables. That is deliberate:
+-- no parent delete may erase audit rows through a cascade. The consequence is that
+-- DELETING A USER becomes impossible once they have acted on the queue, and the
+-- erasure design (PR #1019) is still open. The application archives users rather than
+-- deleting them, so nothing is blocked today — but whoever settles #1019 should know
+-- that "delete the user row" is not among the options this schema leaves open, and that
+-- an erasure path will have to anonymise in place or re-point these FKs. Filed as a
+-- consequence to see, NOT as a change requested here: weakening them to SET NULL would
+-- give up the audit guarantee the store is being built for.
+--
 -- How to apply
 -- ------------
 --   docker compose -f docker-compose.prod.yml exec -T postgres psql \
 --     -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 \
 --     < apps/api/drizzle/manual/2026-10-17_job_opportunities_store.sql
 --
--- DevOps wires both files into the "Pull, up, migrate, health-check" step of
--- .github/workflows/deploy.yml, part 1 then part 2, in the hard-required list (the
--- API will not start usefully without the store). That wiring is a separate PR.
+-- On production this is not run by hand: BOTH FILES ARE WIRED INTO
+-- .github/workflows/deploy.yml (part 1 then part 2) as hard-required apply steps, in
+-- the same commit series as this file — so merging the PR that adds this file also
+-- changes the deploy pipeline, and the next deploy applies it. The command above is for
+-- a manual re-run or a preflight on a copy.
 -- =============================================================================
 
 SET lock_timeout = '10s';
