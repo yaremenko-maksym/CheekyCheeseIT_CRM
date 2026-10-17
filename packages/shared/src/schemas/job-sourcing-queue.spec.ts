@@ -7,11 +7,12 @@
 import { describe, expect, it } from 'vitest'
 import {
   jobQueueActionKindSchema,
-  jobQueueActionSchema,
+  jobQueueActionWorkerSchema,
   jobQueueAssignmentSchema,
   jobQueueAssignmentStateSchema,
   jobQueueAssignmentWorkerSchema,
   jobQueueDismissalSchema,
+  jobQueueDismissalWorkerSchema,
   jobQueueGenerationEntryWorkerSchema,
   jobQueueGenerationSchema,
   jobQueueGenerationStatusSchema,
@@ -298,42 +299,89 @@ const dismissal = {
 }
 const UNDO_PAIR = 'an undo records who undid it and when — both or neither'
 
-describe('jobQueueDismissalSchema', () => {
+describe('jobQueueDismissalWorkerSchema — the stored row', () => {
   it('accepts a TEAM, a STUDIO and an undone dismissal', () => {
-    expect(jobQueueDismissalSchema.parse(dismissal)).toEqual(dismissal)
-    expect(jobQueueDismissalSchema.safeParse({ ...dismissal, scope: STUDIO }).success).toBe(true)
+    expect(jobQueueDismissalWorkerSchema.parse(dismissal)).toEqual(dismissal)
+    expect(jobQueueDismissalWorkerSchema.safeParse({ ...dismissal, scope: STUDIO }).success).toBe(
+      true,
+    )
     expect(
-      jobQueueDismissalSchema.safeParse({ ...dismissal, undoneAt: LATER, undoneBy: U1 }).success,
+      jobQueueDismissalWorkerSchema.safeParse({ ...dismissal, undoneAt: LATER, undoneBy: U1 })
+        .success,
     ).toBe(true)
   })
 
   it('refuses each half of the undo pair alone', () => {
-    expectOnlyIssue(jobQueueDismissalSchema, { ...dismissal, undoneAt: LATER }, UNDO_PAIR, [
+    expectOnlyIssue(jobQueueDismissalWorkerSchema, { ...dismissal, undoneAt: LATER }, UNDO_PAIR, [
       'undoneAt',
     ])
-    expectOnlyIssue(jobQueueDismissalSchema, { ...dismissal, undoneBy: U1 }, UNDO_PAIR, [
+    expectOnlyIssue(jobQueueDismissalWorkerSchema, { ...dismissal, undoneBy: U1 }, UNDO_PAIR, [
       'undoneAt',
     ])
   })
 
   it('bounds the reason and the version', () => {
-    refusedAt(jobQueueDismissalSchema, { ...dismissal, reason: '' }, ['reason'])
-    expect(jobQueueDismissalSchema.safeParse({ ...dismissal, reason: 'r' }).success).toBe(true)
-    refusedAt(jobQueueDismissalSchema, { ...dismissal, reason: 'r'.repeat(501) }, ['reason'])
-    refusedAt(jobQueueDismissalSchema, { ...dismissal, version: 0 }, ['version'])
-    refusedAt(jobQueueDismissalSchema, { ...dismissal, version: PG_INT_MAX + 1 }, ['version'])
+    refusedAt(jobQueueDismissalWorkerSchema, { ...dismissal, reason: '' }, ['reason'])
+    expect(jobQueueDismissalWorkerSchema.safeParse({ ...dismissal, reason: 'r' }).success).toBe(
+      true,
+    )
+    refusedAt(jobQueueDismissalWorkerSchema, { ...dismissal, reason: 'r'.repeat(501) }, ['reason'])
+    refusedAt(jobQueueDismissalWorkerSchema, { ...dismissal, version: 0 }, ['version'])
+    refusedAt(jobQueueDismissalWorkerSchema, { ...dismissal, version: PG_INT_MAX + 1 }, ['version'])
   })
 
   it('refuses a scope whose shape is wrong for its kind', () => {
-    refusedAt(jobQueueDismissalSchema, { ...dismissal, scope: { kind: 'STUDIO', teamId: U2 } }, [
-      'scope',
-      'teamId',
-    ])
+    refusedAt(
+      jobQueueDismissalWorkerSchema,
+      { ...dismissal, scope: { kind: 'STUDIO', teamId: U2 } },
+      ['scope', 'teamId'],
+    )
+  })
+})
+
+describe('jobQueueDismissalSchema — the public shape (CR-M-2 / SR-M-4)', () => {
+  it('carries no actor identity', () => {
+    expect(jobQueueDismissalSchema.parse({ ...dismissal, undoneAt: LATER, undoneBy: U1 })).toEqual({
+      id: U1,
+      opportunityId: U2,
+      scope: TEAM,
+      reason: 'not our stack',
+      dismissedAt: NOW,
+      version: 1,
+      undoneAt: LATER,
+    })
+  })
+})
+
+describe('stored text is described, not normalised (CR-L-2)', () => {
+  it('returns a stored reason byte for byte — no trim on read', () => {
+    expect(jobQueueDismissalWorkerSchema.parse({ ...dismissal, reason: '  padded  ' }).reason).toBe(
+      '  padded  ',
+    )
+    expect(
+      jobQueueAssignmentWorkerSchema.parse({ ...released, releaseReason: ' why ' }).releaseReason,
+    ).toBe(' why ')
+  })
+
+  it('accepts a value whose only character is NBSP — Postgres stores it as non-blank', () => {
+    // Measured on PG16 (en_US.utf8): U+00A0 is NOT in [[:space:]], so the
+    // column CHECK accepts it; JS `\s` and `.trim()` would have refused it.
+    expect(
+      jobQueueDismissalWorkerSchema.safeParse({ ...dismissal, reason: '\u00a0' }).success,
+    ).toBe(true)
+  })
+
+  it('refuses an all-ASCII-whitespace value — blank in every Postgres locale', () => {
+    for (const reason of [' ', '\t\n', ' \r\f\v '])
+      expect(
+        issuesOf(jobQueueDismissalWorkerSchema.safeParse({ ...dismissal, reason })),
+        JSON.stringify(reason),
+      ).toEqual([{ code: 'invalid_format', message: 'must not be blank', path: ['reason'] }])
   })
 })
 
 // ---------------------------------------------------------------------------
-// The append-only action log
+// The action log (append-only by intent; not yet enforced — see job-queue.ts)
 // ---------------------------------------------------------------------------
 
 const opened = {
@@ -376,85 +424,102 @@ const CLICKED = 'OPENED / DEAD_LINK / SPAM reference the clicked source record'
 const SUBJECT_TEAM = 'a TRIAGE_* action names the team it concerns, and only a TRIAGE_* action does'
 const SUBJECT_USER = 'a REASSIGNED action names the new assignee, and only a REASSIGNED action does'
 const VERSIONS =
-  'telemetry (OPENED / DEAD_LINK / SPAM) carries no version; every other action moves the version forward'
+  'telemetry (OPENED / DEAD_LINK / SPAM) carries no version; SUPPRESSED may carry none; every other action moves the version forward'
 
-describe('jobQueueActionSchema', () => {
+describe('jobQueueActionWorkerSchema — server-internal (actor, key, subject user)', () => {
   it('accepts one valid row per shape: telemetry, a claim, a subscription, a grant, a reassign', () => {
-    expect(jobQueueActionSchema.parse(opened)).toEqual(opened)
+    expect(jobQueueActionWorkerSchema.parse(opened)).toEqual(opened)
     for (const kind of ['DEAD_LINK', 'SPAM'])
-      expect(jobQueueActionSchema.safeParse({ ...opened, kind }).success).toBe(true)
-    expect(jobQueueActionSchema.parse(takeAction)).toEqual(takeAction)
-    expect(jobQueueActionSchema.parse(subscribed)).toEqual(subscribed)
+      expect(jobQueueActionWorkerSchema.safeParse({ ...opened, kind }).success).toBe(true)
+    expect(jobQueueActionWorkerSchema.parse(takeAction)).toEqual(takeAction)
+    expect(jobQueueActionWorkerSchema.parse(subscribed)).toEqual(subscribed)
     expect(
-      jobQueueActionSchema.safeParse({ ...subscribed, kind: 'TRIAGE_UNSUBSCRIBED' }).success,
+      jobQueueActionWorkerSchema.safeParse({ ...subscribed, kind: 'TRIAGE_UNSUBSCRIBED' }).success,
     ).toBe(true)
     const granted = { ...takeAction, kind: 'TRIAGE_GRANTED', scope: STUDIO, subjectTeamId: U2 }
-    expect(jobQueueActionSchema.safeParse(granted).success).toBe(true)
-    expect(jobQueueActionSchema.safeParse({ ...granted, kind: 'TRIAGE_REVOKED' }).success).toBe(
-      true,
-    )
+    expect(jobQueueActionWorkerSchema.safeParse(granted).success).toBe(true)
     expect(
-      jobQueueActionSchema.safeParse({ ...takeAction, kind: 'REASSIGNED', subjectUserId: U1 })
+      jobQueueActionWorkerSchema.safeParse({ ...granted, kind: 'TRIAGE_REVOKED' }).success,
+    ).toBe(true)
+    expect(
+      jobQueueActionWorkerSchema.safeParse({ ...takeAction, kind: 'REASSIGNED', subjectUserId: U1 })
         .success,
     ).toBe(true)
     for (const kind of ['DISMISSED', 'UNDONE', 'RELEASED', 'SUPPRESSED'])
-      expect(jobQueueActionSchema.safeParse({ ...takeAction, kind }).success).toBe(true)
+      expect(jobQueueActionWorkerSchema.safeParse({ ...takeAction, kind }).success).toBe(true)
     // An optional source record on a non-telemetry action is allowed (r5).
-    expect(jobQueueActionSchema.safeParse({ ...takeAction, sourceRecordId: U3 }).success).toBe(true)
+    expect(
+      jobQueueActionWorkerSchema.safeParse({ ...takeAction, sourceRecordId: U3 }).success,
+    ).toBe(true)
   })
 
   it('refuses every wrong target combination', () => {
     // An opportunity action without an opportunity.
-    expectOnlyIssue(jobQueueActionSchema, { ...takeAction, opportunityId: null }, TARGET, [
+    expectOnlyIssue(jobQueueActionWorkerSchema, { ...takeAction, opportunityId: null }, TARGET, [
       'opportunityId',
     ])
     // An opportunity action that also names a subscription.
-    expectOnlyIssue(jobQueueActionSchema, { ...takeAction, subscriptionId: U1 }, TARGET, [
+    expectOnlyIssue(jobQueueActionWorkerSchema, { ...takeAction, subscriptionId: U1 }, TARGET, [
       'opportunityId',
     ])
     // A subscription action without its subscription.
-    expectOnlyIssue(jobQueueActionSchema, { ...subscribed, subscriptionId: null }, TARGET, [
+    expectOnlyIssue(jobQueueActionWorkerSchema, { ...subscribed, subscriptionId: null }, TARGET, [
       'opportunityId',
     ])
     // A subscription action that also names an opportunity.
-    expectOnlyIssue(jobQueueActionSchema, { ...subscribed, opportunityId: U2 }, TARGET, [
+    expectOnlyIssue(jobQueueActionWorkerSchema, { ...subscribed, opportunityId: U2 }, TARGET, [
       'opportunityId',
     ])
     // A subscription action that names a source record.
-    expectOnlyIssue(jobQueueActionSchema, { ...subscribed, sourceRecordId: U3 }, TARGET, [
+    expectOnlyIssue(jobQueueActionWorkerSchema, { ...subscribed, sourceRecordId: U3 }, TARGET, [
       'opportunityId',
     ])
   })
 
   it('requires the clicked source record on every telemetry kind', () => {
     for (const kind of ['OPENED', 'DEAD_LINK', 'SPAM'])
-      expectOnlyIssue(jobQueueActionSchema, { ...opened, kind, sourceRecordId: null }, CLICKED, [
-        'sourceRecordId',
-      ])
+      expectOnlyIssue(
+        jobQueueActionWorkerSchema,
+        { ...opened, kind, sourceRecordId: null },
+        CLICKED,
+        ['sourceRecordId'],
+      )
   })
 
   it('names the subject team on TRIAGE_* actions only', () => {
-    expectOnlyIssue(jobQueueActionSchema, { ...subscribed, subjectTeamId: null }, SUBJECT_TEAM, [
-      'subjectTeamId',
-    ])
     expectOnlyIssue(
-      jobQueueActionSchema,
+      jobQueueActionWorkerSchema,
+      { ...subscribed, subjectTeamId: null },
+      SUBJECT_TEAM,
+      ['subjectTeamId'],
+    )
+    expectOnlyIssue(
+      jobQueueActionWorkerSchema,
       { ...takeAction, kind: 'TRIAGE_GRANTED', subjectTeamId: null },
       SUBJECT_TEAM,
       ['subjectTeamId'],
     )
-    expectOnlyIssue(jobQueueActionSchema, { ...takeAction, subjectTeamId: U2 }, SUBJECT_TEAM, [
-      'subjectTeamId',
-    ])
+    expectOnlyIssue(
+      jobQueueActionWorkerSchema,
+      { ...takeAction, subjectTeamId: U2 },
+      SUBJECT_TEAM,
+      ['subjectTeamId'],
+    )
   })
 
   it('names the new assignee on REASSIGNED only', () => {
-    expectOnlyIssue(jobQueueActionSchema, { ...takeAction, kind: 'REASSIGNED' }, SUBJECT_USER, [
-      'subjectUserId',
-    ])
-    expectOnlyIssue(jobQueueActionSchema, { ...takeAction, subjectUserId: U1 }, SUBJECT_USER, [
-      'subjectUserId',
-    ])
+    expectOnlyIssue(
+      jobQueueActionWorkerSchema,
+      { ...takeAction, kind: 'REASSIGNED' },
+      SUBJECT_USER,
+      ['subjectUserId'],
+    )
+    expectOnlyIssue(
+      jobQueueActionWorkerSchema,
+      { ...takeAction, subjectUserId: U1 },
+      SUBJECT_USER,
+      ['subjectUserId'],
+    )
   })
 
   it('refuses every wrong version combination', () => {
@@ -463,7 +528,7 @@ describe('jobQueueActionSchema', () => {
       { afterVersion: 1 },
       { beforeVersion: 0, afterVersion: 1 },
     ])
-      expectOnlyIssue(jobQueueActionSchema, { ...opened, ...v }, VERSIONS, ['afterVersion'])
+      expectOnlyIssue(jobQueueActionWorkerSchema, { ...opened, ...v }, VERSIONS, ['afterVersion'])
     for (const v of [
       { beforeVersion: null },
       { afterVersion: null },
@@ -471,36 +536,71 @@ describe('jobQueueActionSchema', () => {
       { beforeVersion: 1, afterVersion: 1 },
       { beforeVersion: 2, afterVersion: 1 },
     ])
-      expectOnlyIssue(jobQueueActionSchema, { ...takeAction, ...v }, VERSIONS, ['afterVersion'])
+      expectOnlyIssue(jobQueueActionWorkerSchema, { ...takeAction, ...v }, VERSIONS, [
+        'afterVersion',
+      ])
     expect(
-      jobQueueActionSchema.safeParse({ ...takeAction, beforeVersion: 4, afterVersion: 5 }).success,
+      jobQueueActionWorkerSchema.safeParse({ ...takeAction, beforeVersion: 4, afterVersion: 5 })
+        .success,
     ).toBe(true)
   })
 
+  it('lets SUPPRESSED carry no version, or a forward pair, and nothing else (SPEC-M-1)', () => {
+    const suppressed = { ...takeAction, kind: 'SUPPRESSED', scope: STUDIO }
+    for (const v of [
+      { beforeVersion: null, afterVersion: null },
+      { beforeVersion: 0, afterVersion: 1 },
+    ])
+      expect(jobQueueActionWorkerSchema.safeParse({ ...suppressed, ...v }).success).toBe(true)
+    for (const v of [
+      { beforeVersion: 0, afterVersion: null },
+      { beforeVersion: null, afterVersion: 1 },
+      { beforeVersion: 1, afterVersion: 1 },
+    ])
+      expectOnlyIssue(jobQueueActionWorkerSchema, { ...suppressed, ...v }, VERSIONS, [
+        'afterVersion',
+      ])
+    // A triage grant targets `grant_version`: it stays versioned.
+    expectOnlyIssue(
+      jobQueueActionWorkerSchema,
+      {
+        ...takeAction,
+        kind: 'TRIAGE_GRANTED',
+        scope: STUDIO,
+        subjectTeamId: U2,
+        beforeVersion: null,
+        afterVersion: null,
+      },
+      VERSIONS,
+      ['afterVersion'],
+    )
+  })
+
   it('bounds the idempotency key, the reason and the version columns', () => {
-    refusedAt(jobQueueActionSchema, { ...takeAction, idempotencyKey: '' }, ['idempotencyKey'])
+    refusedAt(jobQueueActionWorkerSchema, { ...takeAction, idempotencyKey: '' }, ['idempotencyKey'])
     // Whitespace-only is blank: the column CHECK (`~ '[^[:space:]]'`) refuses it,
     // so the contract must too, or a DTO that parsed would not store.
     expect(
-      issuesOf(jobQueueActionSchema.safeParse({ ...takeAction, idempotencyKey: ' \t ' })),
+      issuesOf(jobQueueActionWorkerSchema.safeParse({ ...takeAction, idempotencyKey: ' \t ' })),
     ).toEqual([{ code: 'invalid_format', message: 'must not be blank', path: ['idempotencyKey'] }])
-    expect(jobQueueActionSchema.safeParse({ ...takeAction, idempotencyKey: 'k' }).success).toBe(
-      true,
-    )
     expect(
-      jobQueueActionSchema.safeParse({ ...takeAction, idempotencyKey: 'k'.repeat(200) }).success,
+      jobQueueActionWorkerSchema.safeParse({ ...takeAction, idempotencyKey: 'k' }).success,
     ).toBe(true)
-    refusedAt(jobQueueActionSchema, { ...takeAction, idempotencyKey: 'k'.repeat(201) }, [
+    expect(
+      jobQueueActionWorkerSchema.safeParse({ ...takeAction, idempotencyKey: 'k'.repeat(200) })
+        .success,
+    ).toBe(true)
+    refusedAt(jobQueueActionWorkerSchema, { ...takeAction, idempotencyKey: 'k'.repeat(201) }, [
       'idempotencyKey',
     ])
-    refusedAt(jobQueueActionSchema, { ...takeAction, reason: ' ' }, ['reason'])
-    refusedAt(jobQueueActionSchema, { ...takeAction, reason: 'r'.repeat(501) }, ['reason'])
-    expect(jobQueueActionSchema.safeParse({ ...takeAction, reason: 'r'.repeat(500) }).success).toBe(
-      true,
-    )
-    refusedAt(jobQueueActionSchema, { ...takeAction, beforeVersion: -1 }, ['beforeVersion'])
+    refusedAt(jobQueueActionWorkerSchema, { ...takeAction, reason: ' ' }, ['reason'])
+    refusedAt(jobQueueActionWorkerSchema, { ...takeAction, reason: 'r'.repeat(501) }, ['reason'])
+    expect(
+      jobQueueActionWorkerSchema.safeParse({ ...takeAction, reason: 'r'.repeat(500) }).success,
+    ).toBe(true)
+    refusedAt(jobQueueActionWorkerSchema, { ...takeAction, beforeVersion: -1 }, ['beforeVersion'])
     refusedAt(
-      jobQueueActionSchema,
+      jobQueueActionWorkerSchema,
       { ...takeAction, beforeVersion: 1, afterVersion: PG_INT_MAX + 1 },
       ['afterVersion'],
     )
