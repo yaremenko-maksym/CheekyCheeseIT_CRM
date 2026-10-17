@@ -32,11 +32,6 @@ bash scripts/check-lessons-cap.sh || true
 # to double-check a cross-package change before opening the PR):
 #   PREPUSH_FULL=1 git push
 #
-# run_full_suite (code review 5112543557, CR-M-1): this body used to be
-# duplicated byte-for-byte at every call site below (PREPUSH_FULL=1,
-# merge-base unresolvable, and now the dependency/build-config case a diff
-# below adds) — one function, three callers, instead of three copies that
-# could drift out of sync with each other.
 # ensure_node -- run the gate on the project's canonical Node, never on whatever
 # `node` the calling shell happens to have first on PATH (2026-10-17).
 #
@@ -60,53 +55,128 @@ bash scripts/check-lessons-cap.sh || true
 # fallback to the wrong Node and no escape-hatch variable: a loud refusal is the
 # acceptable failure mode, a green gate on the wrong runtime is not.
 #
+# The minimum is read from the `engines.node` field SPECIFICALLY (awk over the
+# "engines" block -- node itself cannot be used to parse package.json, the whole
+# premise being that the resolved node may be the wrong one), never by a regex over
+# the whole file: an earlier ">=22.1.0" elsewhere (volta, overrides) must not mask
+# it. Understood lower bounds: ">=22.19[.p]", "^22.19[.p]", "~22.19[.p]", "22.19[.p]"
+# (minimum 19), and "22.x" / ">=22" / "^22" / "22" (minimum 0, declared by the
+# author, not guessed). Upper bounds ("<23") are skipped. Anything else -- no
+# engines.node, "||" ranges, a form not listed -- REFUSES: an undeterminable
+# minimum must never degrade to "any v22".
+#
 # Called lazily (from run_full_suite and before the first scoped turbo call), not
 # at the top of the file, so a docs-only push -- which needs no node at all --
 # is never refused over a toolchain it does not use.
+die() {
+  echo "pre-push: REFUSING to run the gate -- $1" >&2
+  exit 1
+}
+
 node_ok() {
   nv="${1#v}"
   nmaj="${nv%%.*}"
   nrest="${nv#*.}"
   nmin="${nrest%%.*}"
   case "$nmaj$nmin" in *[!0-9]* | "") return 1 ;; esac
-  [ "$nmaj" = "$want_major" ] && [ "$nmin" -ge "${want_minor:-0}" ]
+  [ "$nmaj" = "$want_major" ] && [ "$nmin" -ge "$want_minor" ]
+}
+
+engines_min() {
+  eng="$(awk '
+    /"engines"[ \t]*:/ { inb = 1 }
+    inb && /"node"[ \t]*:/ {
+      s = $0
+      sub(/.*"node"[ \t]*:[ \t]*"/, "", s)
+      sub(/".*/, "", s)
+      print s
+      exit
+    }
+    inb && /}/ && !/"engines"/ { exit }
+  ' package.json 2>/dev/null || true)"
+  want_minor=""
+  case "$eng" in *"||"*) eng="" ;; esac
+  for t in $eng; do
+    case "$t" in "<"* | ">"[!=]*) continue ;; esac
+    c="${t#>=}"
+    c="${c#^}"
+    c="${c#\~}"
+    case "$c" in
+      "$want_major") m=0 ;;
+      "$want_major".[xX*]) m=0 ;;
+      "$want_major".[0-9]*)
+        m="${c#*.}"
+        m="${m%%.*}"
+        ;;
+      *) continue ;;
+    esac
+    case "$m" in "" | *[!0-9]*) continue ;; esac
+    want_minor="$m"
+    break
+  done
+  if [ -z "$want_minor" ]; then
+    die "cannot determine the Node ${want_major} minimum from package.json engines.node (found: '${eng}'); supported: >=${want_major}.N, ^${want_major}.N, ~${want_major}.N, ${want_major}.N, ${want_major}.x, >=${want_major}."
+  fi
 }
 
 ensure_node() {
   want_major="$(sed -n '1s/^v\{0,1\}\([0-9][0-9]*\).*/\1/p' .nvmrc 2>/dev/null || true)"
   if [ -z "$want_major" ]; then
-    echo "pre-push: cannot read the required Node major from .nvmrc (run the push from the repo root)" >&2
-    exit 1
+    die "cannot read the required Node major from .nvmrc (run the push from the repo root)"
   fi
-  want_minor="$(sed -n 's/.*">=\{0,1\}'"$want_major"'\.\([0-9][0-9]*\).*/\1/p' package.json 2>/dev/null | head -n 1 || true)"
+  engines_min
   cur="$(node -v 2>/dev/null || true)"
   if node_ok "$cur"; then
     return 0
   fi
-  nvm_root="${NVM_DIR:-$HOME/.nvm}/versions/node"
-  # Sorted on the bare "v22.<minor>.<patch>" name, newest first -- never on the
-  # full path, whose own dots (e.g. /Users/first.last) would shift the sort keys.
-  cand="$( (cd "$nvm_root" 2>/dev/null && ls -d v"$want_major".* 2>/dev/null) | sort -t. -k2,2nr -k3,3nr | while IFS= read -r d; do
-    if [ -x "$nvm_root/$d/bin/node" ] && node_ok "$("$nvm_root/$d/bin/node" -v 2>/dev/null)"; then
-      echo "$nvm_root/$d/bin"
-      break
-    fi
-  done)"
+  # Resolved to an ABSOLUTE path up front: a relative NVM_DIR would otherwise end up
+  # as a relative PATH entry that silently points somewhere else after any `cd`.
+  # (An unresolvable dir yields "" -> no candidate -> the loud refusal below.)
+  nvm_root="$(cd "${NVM_DIR:-$HOME/.nvm}/versions/node" 2>/dev/null && pwd || true)"
+  cand=""
+  if [ -n "$nvm_root" ]; then
+    # Sorted on the bare "v22.<minor>.<patch>" name, newest first, NUMERICALLY per
+    # key -- never on the full path, whose own dots (e.g. /Users/first.last) would
+    # shift the sort keys; and never lexically (v22.9.0 must lose to v22.10.0).
+    cand="$( (cd "$nvm_root" 2>/dev/null && ls -d v"$want_major".* 2>/dev/null) | sort -t. -k2,2nr -k3,3nr | while IFS= read -r d; do
+      if [ -x "$nvm_root/$d/bin/node" ] && node_ok "$("$nvm_root/$d/bin/node" -v 2>/dev/null)"; then
+        echo "$nvm_root/$d/bin"
+        break
+      fi
+    done)"
+  fi
   if [ -n "$cand" ]; then
-    echo "pre-push: node ${cur:-<none>} on PATH does not satisfy Node ${want_major}.${want_minor:-0}+ (.nvmrc / engines); using $cand for this push"
+    echo "pre-push: node ${cur:-<none>} on PATH does not satisfy Node ${want_major}.${want_minor}+ (.nvmrc / engines); using $cand for this push"
     PATH="$cand:$PATH"
     export PATH
     hash -r 2>/dev/null || true
     if node_ok "$(node -v 2>/dev/null || true)"; then
+      # Prepending that bin dir can also change which `pnpm` wins (an install's
+      # global pnpm shadows the one the caller had). The repo pins pnpm via
+      # "packageManager": "pnpm@x.y.z" (strict, version-pins.md) -- verify it
+      # instead of assuming, but only here: when no switch happened pnpm
+      # resolution is exactly what the caller already had.
+      pnpm_pin="$(sed -n 's/^[[:space:]]*"packageManager"[[:space:]]*:[[:space:]]*"pnpm@\([^"]*\)".*/\1/p' package.json 2>/dev/null | head -n 1 || true)"
+      if [ -n "$pnpm_pin" ]; then
+        pnpm_got="$(pnpm --version 2>/dev/null || true)"
+        if [ "$pnpm_got" != "$pnpm_pin" ]; then
+          die "after switching to $cand, pnpm resolves to '${pnpm_got:-<none>}' but package.json pins pnpm@${pnpm_pin} -- that node's global pnpm shadows the pinned one; fix it there (npm i -g pnpm@${pnpm_pin}) or put the pinned pnpm first on PATH"
+        fi
+      fi
       return 0
     fi
   fi
-  echo "pre-push: REFUSING to run the gate -- node ${cur:-<none>} on PATH does not satisfy Node ${want_major}.${want_minor:-0}+ (.nvmrc / package.json engines)." >&2
+  echo "pre-push: REFUSING to run the gate -- node ${cur:-<none>} on PATH does not satisfy Node ${want_major}.${want_minor}+ (.nvmrc / package.json engines)." >&2
   echo "pre-push: on the wrong Node the uk-catalog specs in @crm/shared and @crm/api fail with 'Cannot use import statement outside a module'." >&2
   echo "pre-push: install and select it, then push again:  nvm install ${want_major} && nvm use ${want_major}   (or put a Node ${want_major} bin dir first on PATH)" >&2
   exit 1
 }
 
+# run_full_suite (code review 5112543557, CR-M-1): this body used to be
+# duplicated byte-for-byte at every call site below (PREPUSH_FULL=1,
+# merge-base unresolvable, and now the dependency/build-config case a diff
+# below adds) — one function, three callers, instead of three copies that
+# could drift out of sync with each other.
 run_full_suite() {
   ensure_node
   pnpm typecheck
@@ -169,6 +239,10 @@ fi
 # shared+api+web+landing — running those four in parallel would reproduce
 # the exact timeout class #206 fixed, just scoped to fewer packages).
 #
+# Product code is in the diff, so turbo is about to run: pin the runtime first
+# (ensure_node, defined above -- switches to the project's Node 22 or refuses).
+ensure_node
+
 # Two separate invocations, not one `turbo run typecheck test`: @crm/e2e's
 # own "test" script is `playwright test` (apps/e2e/package.json) -- a real
 # browser E2E run that this hook has never driven and cannot: no app stack
@@ -189,7 +263,6 @@ fi
 # common cross-package regression there is -- a changed shared type breaking
 # every package that consumes it -- which is exactly the class worth paying
 # for locally before a push.
-ensure_node
 pnpm exec turbo run typecheck --filter="...[$base]" --concurrency=1
 
 # TEST uses "[$base]" (changed packages ONLY, no leading "..." -> no

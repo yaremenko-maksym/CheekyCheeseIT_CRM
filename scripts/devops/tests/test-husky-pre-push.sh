@@ -34,6 +34,9 @@
 # invocation paths (see CR-M-3 above): if the hook's own `set -e` makes THIS
 # invocation correct, it is correct under husky's `sh -e` too, because that
 # invocation only adds strictness this one already has to supply for itself.
+# The node-pinning refuse/switch cases at the end of the file ALSO run under
+# `sh -e` (HOOK_SHELL, CR-L-2): that is husky's real invocation (.husky/_/h), and
+# the pinning code is plain POSIX sh that must behave the same under both.
 set -u
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SELF_DIR/lib/harness.sh"
@@ -41,6 +44,10 @@ SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOOK="$REPO_ROOT/.husky/pre-push"
 
 WS="$(guard_test_workspace)"
+# Normalized (TMPDIR may end in "/", giving "T//guard-test-X"): the hook resolves
+# NVM_DIR to an absolute path with `cd && pwd` and prints THAT, so the expected
+# strings below must be built from the same normalized form.
+WS="$(cd "$WS" && pwd)"
 trap 'rm -rf "$WS"' EXIT
 
 echo "== test-husky-pre-push.sh =="
@@ -64,6 +71,10 @@ fi
 # hook now pins the runtime (ensure_node, 2026-10-17), and the only honest proof
 # that it did is what a child process of the hook actually resolves.
 PNPM_SHIM='args="$*"
+if [ "$args" = "--version" ]; then
+  echo "${FAKE_PNPM_VERSION:-7.32.4}"
+  exit 0
+fi
 echo "pnpm $args" >> "$FAKE_PNPM_LOG"
 echo "node-seen $(node -v)" >> "$FAKE_PNPM_LOG"
 if [ -n "${FAKE_PNPM_FAIL_ON:-}" ]; then
@@ -93,6 +104,18 @@ make_nvm() {
   done
 }
 
+# package.json for a fixture. $FAKE_ENGINES = the engines.node value (default: the
+# real repo's), $FAKE_DECOY=1 puts a ">=22.1.0" node range in a block BEFORE
+# engines -- the shape that used to mask the real minimum (CR-M-1). The pnpm pin
+# mirrors the real repo's "packageManager".
+write_pkg() {
+  printf '{\n  "packageManager": "pnpm@7.32.4",\n'
+  if [ "${FAKE_DECOY:-0}" = "1" ]; then
+    printf '  "volta": {\n    "node": ">=22.1.0"\n  },\n'
+  fi
+  printf '  "engines": {\n    "node": "%s"\n  }\n}\n' "${FAKE_ENGINES:->=22.19 <23}"
+}
+
 # ── fixtures ────────────────────────────────────────────────────────────────
 # $1 = dir name, $2 = space-separated relative file paths to add on top of an
 # initial commit that origin/main stays pinned to — this is what makes
@@ -111,7 +134,7 @@ make_repo() {
     # package.json engines minimum. In the SEED commit (before origin/main is
     # pinned), so they never show up as part of any case's diff.
     echo 22 >.nvmrc
-    printf '{\n  "engines": {\n    "node": ">=22.19 <23"\n  }\n}\n' >package.json
+    write_pkg >package.json
     git add README.md .nvmrc package.json
     git commit -q -m "init"
     git update-ref refs/remotes/origin/main HEAD
@@ -141,7 +164,7 @@ make_repo_no_origin() {
     git config commit.gpgsign false
     echo seed >README.md
     echo 22 >.nvmrc
-    printf '{\n  "engines": {\n    "node": ">=22.19 <23"\n  }\n}\n' >package.json
+    write_pkg >package.json
     git add README.md .nvmrc package.json
     git commit -q -m "init"
   ) >/dev/null 2>&1
@@ -167,7 +190,8 @@ run_hook() {
     PATH="$WS/bin:$PATH" FAKE_PNPM_LOG="$log" \
       FAKE_PNPM_FAIL_ON="${FAKE_PNPM_FAIL_ON:-}" PREPUSH_FULL="${PREPUSH_FULL:-}" \
       FAKE_NODE_VERSION="${FAKE_NODE_VERSION:-v22.23.1}" NVM_DIR="${FAKE_NVM_DIR:-$WS/no-nvm}" \
-      bash "$HOOK"
+      FAKE_PNPM_VERSION="${FAKE_PNPM_VERSION:-7.32.4}" \
+      ${HOOK_SHELL:-bash} "$HOOK"
   )
   rc=$?
   cat "$log"
@@ -335,5 +359,135 @@ assert_green "node v22.19.0 (exactly the engines minimum) -> no switch, no refus
   --contains "node-seen v22.19.0" \
   -- run_hook "$(make_repo c14-node-ok "apps/api/src/foo.ts")"
 unset FAKE_NODE_VERSION
+
+# ── cases 15-16 (CR-M-2): the sort must be NUMERIC -- the property this fix exists for.
+# The fixtures above (minors 4, 19, 23) order identically under a lexical sort, so
+# they pinned nothing. These pairs order DIFFERENTLY lexically ("9" > "10"), so a
+# lexical `sort -r` (or per-key lexical) picks the older install and goes red.
+export FAKE_NODE_VERSION="v20.15.1"
+NVM_MINOR="$WS/nvm-minor"
+make_nvm "$NVM_MINOR" v22.9.0 v22.10.0
+export FAKE_NVM_DIR="$NVM_MINOR"
+# engines ">=22" (declared minimum 0) so BOTH installs qualify and only the order decides.
+assert_green "minor pair v22.9.0 vs v22.10.0 -> numeric order picks v22.10.0" \
+  --contains "using $NVM_MINOR/versions/node/v22.10.0/bin" \
+  --contains "node-seen v22.10.0" \
+  --not-contains "node-seen v22.9.0" \
+  -- run_hook "$(FAKE_ENGINES=">=22" make_repo c15-sort-minor "apps/api/src/foo.ts")"
+
+NVM_PATCH="$WS/nvm-patch"
+make_nvm "$NVM_PATCH" v22.19.9 v22.19.10
+export FAKE_NVM_DIR="$NVM_PATCH"
+assert_green "patch pair v22.19.9 vs v22.19.10 -> numeric order picks v22.19.10" \
+  --contains "using $NVM_PATCH/versions/node/v22.19.10/bin" \
+  --contains "node-seen v22.19.10" \
+  --not-contains "node-seen v22.19.9" \
+  -- run_hook "$(make_repo c16-sort-patch "apps/api/src/foo.ts")"
+unset FAKE_NVM_DIR
+
+# ── cases 17-24 (CR-M-1): the engines minimum is parsed from engines.node, and a
+# miss REFUSES instead of degrading to "any v22". Node v22.5.0 is on PATH, no nvm.
+export FAKE_NODE_VERSION="v22.5.0"
+assert_red "engines '>=22.19 <23' + an earlier '>=22.1.0' decoy block -> decoy cannot mask it; v22.5.0 refused" \
+  --contains "REFUSING" \
+  --not-contains "pnpm " \
+  -- run_hook "$(FAKE_DECOY=1 make_repo c17-decoy "apps/api/src/foo.ts")"
+
+assert_red "engines '^22.19.0' -> minimum 19 understood; v22.5.0 refused" \
+  --contains "REFUSING" \
+  --not-contains "pnpm " \
+  -- run_hook "$(FAKE_ENGINES="^22.19.0" make_repo c18-caret "apps/api/src/foo.ts")"
+
+assert_red "engines '22.19' -> minimum 19 understood; v22.5.0 refused" \
+  --contains "REFUSING" \
+  --not-contains "pnpm " \
+  -- run_hook "$(FAKE_ENGINES="22.19" make_repo c19-bare "apps/api/src/foo.ts")"
+
+assert_red "engines '~22.19.0' -> minimum 19 understood; v22.5.0 refused" \
+  --contains "REFUSING" \
+  --not-contains "pnpm " \
+  -- run_hook "$(FAKE_ENGINES="~22.19.0" make_repo c20-tilde "apps/api/src/foo.ts")"
+
+assert_red "engines 'latest' (undeterminable) -> refuses loudly, naming the field" \
+  --contains "REFUSING" \
+  --contains "engines.node" \
+  --not-contains "pnpm " \
+  -- run_hook "$(FAKE_ENGINES="latest" make_repo c21-unparseable "apps/api/src/foo.ts")"
+
+assert_red "engines '>=22.19 || >=24' (alternation, ambiguous) -> refuses loudly" \
+  --contains "engines.node" \
+  --not-contains "pnpm " \
+  -- run_hook "$(FAKE_ENGINES=">=22.19 || >=24" make_repo c22-alternation "apps/api/src/foo.ts")"
+
+# The author DECLARING no minor-level minimum is determinable, not a miss.
+assert_green "engines '22.x' -> declared minimum 0; v22.5.0 accepted" \
+  --not-contains "REFUSING" \
+  --contains "node-seen v22.5.0" \
+  -- run_hook "$(FAKE_ENGINES="22.x" make_repo c23-x "apps/api/src/foo.ts")"
+
+assert_green "engines '>=22' -> declared minimum 0; v22.5.0 accepted" \
+  --not-contains "REFUSING" \
+  --contains "node-seen v22.5.0" \
+  -- run_hook "$(FAKE_ENGINES=">=22" make_repo c24-ge-major "apps/api/src/foo.ts")"
+
+export FAKE_NODE_VERSION="v22.19.0"
+assert_green "engines '^22.19.0' + node v22.19.0 -> accepted (the parse is not merely refusing everything)" \
+  --not-contains "REFUSING" \
+  --contains "node-seen v22.19.0" \
+  -- run_hook "$(FAKE_ENGINES="^22.19.0" make_repo c25-caret-ok "apps/api/src/foo.ts")"
+unset FAKE_NODE_VERSION
+
+# ── case 26 (CR-L-1): a RELATIVE NVM_DIR must not become a relative PATH entry.
+export FAKE_NODE_VERSION="v20.15.1"
+REL_ROOT="$(make_repo c26-relative-nvm "apps/api/src/foo.ts")"
+make_nvm "$REL_ROOT/rel-nvm" v22.23.1
+export FAKE_NVM_DIR="rel-nvm"
+assert_green "relative NVM_DIR -> resolved to an absolute PATH entry before use" \
+  --contains "using /" \
+  --contains "rel-nvm/versions/node/v22.23.1/bin" \
+  --contains "node-seen v22.23.1" \
+  -- run_hook "$REL_ROOT"
+unset FAKE_NVM_DIR
+
+# ── case 27 (CR-L-4): the switched-to install's global pnpm can shadow the pinned
+# one; the hook verifies the packageManager pin after a switch and refuses on a
+# mismatch. With no switch (node already right) pnpm resolution is untouched, so
+# a different pnpm there is not this hook's business.
+make_nvm "$WS/nvm-pnpm" v22.23.1
+export FAKE_NVM_DIR="$WS/nvm-pnpm"
+export FAKE_PNPM_VERSION="8.15.0"
+assert_red "switch to v22 whose pnpm (8.15.0) shadows the pinned pnpm@7.32.4 -> refuses" \
+  --contains "REFUSING" \
+  --contains "pnpm@7.32.4" \
+  --not-contains "pnpm exec" \
+  -- run_hook "$(make_repo c27-pnpm-shadow "apps/api/src/foo.ts")"
+unset FAKE_NVM_DIR
+export FAKE_NODE_VERSION="v22.23.1"
+assert_green "node already v22 + a different pnpm -> not checked (no switch happened)" \
+  --not-contains "REFUSING" \
+  -- run_hook "$(make_repo c28-pnpm-noswitch "apps/api/src/foo.ts")"
+unset FAKE_PNPM_VERSION FAKE_NODE_VERSION
+
+# ── cases 29-31 (CR-L-2): husky invokes hooks as `sh -e "$s"` (.husky/_/h), not
+# `bash`. The refusal and the switch must behave identically under it.
+export HOOK_SHELL="sh -e"
+export FAKE_NODE_VERSION="v20.15.1"
+assert_red "[sh -e] node v20 + no v22 install, scoped path -> refuses, pnpm never runs" \
+  --contains "REFUSING" \
+  --not-contains "pnpm " \
+  -- run_hook "$(make_repo c29-sh-refuse-scoped "apps/api/src/foo.ts")"
+
+assert_red "[sh -e] node v20 + no v22 install, full-suite path -> refuses, pnpm never runs" \
+  --contains "REFUSING" \
+  --not-contains "pnpm typecheck" \
+  -- run_hook "$(make_repo c30-sh-refuse-full "pnpm-lock.yaml")"
+
+export FAKE_NVM_DIR="$NVM_OK"
+assert_green "[sh -e] node v20 + v22 in nvm -> switches to the newest satisfying v22" \
+  --contains "using $NVM_OK/versions/node/v22.23.1/bin" \
+  --contains "node-seen v22.23.1" \
+  --not-contains "REFUSING" \
+  -- run_hook "$(make_repo c31-sh-switch "apps/api/src/foo.ts")"
+unset FAKE_NVM_DIR HOOK_SHELL FAKE_NODE_VERSION
 
 guard_test_summary "test-husky-pre-push.sh"
