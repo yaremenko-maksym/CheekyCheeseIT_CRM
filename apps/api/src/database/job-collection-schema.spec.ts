@@ -641,6 +641,68 @@ describe('job_dirty_work (AC5)', () => {
   })
 })
 
+describe('bounded shapes the schema must not leave open (SR-M-1 / SR-M-3 / CR-M-2)', () => {
+  it('refuses a long unbroken lowercase run in an account key or a manifest id (SR-M-1)', () => {
+    // The alphabet guard rejects uppercase, base64 and URLs but still admitted
+    // a pasted raw hex key: a legal id is SEGMENTED, so a run of 24+ characters
+    // with no separator is refused and the paste fails loudly.
+    for (const [t, name] of [
+      [jobAccountMeters, 'ck_job_account_meters_account_key_segmented'],
+      [jobSources, 'ck_job_sources_manifest_id_segmented'],
+    ] as const) {
+      const sql_ = checkSql(t, name)
+      expect(sql_).toContain('[a-z0-9]{24}')
+      expect(sql_).toContain('!~')
+    }
+  })
+
+  it('bounds every JSONB column by type AND by serialized size (SR-M-3)', () => {
+    for (const [t, name, column] of [
+      [jobCollectionRuns, 'ck_job_collection_runs_checkpoint_bounded', 'checkpoint'],
+      [
+        jobCollectionRuns,
+        'ck_job_collection_runs_config_snapshot_bounded',
+        'source_config_snapshot',
+      ],
+      [jobDirtyWork, 'ck_job_dirty_work_checkpoint_bounded', 'checkpoint'],
+    ] as const) {
+      const sql_ = checkSql(t, name)
+      expect(sql_).toContain('jsonb_typeof')
+      expect(sql_).toContain(column)
+      expect(sql_).toContain('8192')
+    }
+  })
+
+  it('gives every text column the length limit its zod schema already carried (SR-M-3)', () => {
+    for (const [t, name, bound] of [
+      [jobCollectionCycles, 'ck_job_collection_cycles_trigger_key_bounded', '200'],
+      [jobCollectionRuns, 'ck_job_collection_runs_attempt_id_bounded', '200'],
+      [jobCollectionRuns, 'ck_job_collection_runs_owner_token_bounded', '200'],
+      [jobCollectionRuns, 'ck_job_collection_runs_adapter_version_bounded', '100'],
+      [jobAccountMeterReservations, 'ck_job_account_meter_reservations_attempt_id_bounded', '200'],
+      [jobDirtyWork, 'ck_job_dirty_work_claim_owner_bounded', '200'],
+      [jobSources, 'ck_job_sources_namespace_bounded', '200'],
+    ] as const) {
+      const sql_ = checkSql(t, name)
+      expect(sql_).toContain('length')
+      expect(sql_).toContain(bound)
+    }
+  })
+
+  it('stores the meter and reservation counters as bigint (CR-M-2)', () => {
+    // `integer` tops out near 2.1e9 — about USD 2,147 for a USD_MICROS meter,
+    // and the shared contract accepted values the column could not store. It
+    // failed loudly (22003) rather than corrupting, but contract and table
+    // disagreed; now the column is the wider of the two.
+    for (const c of ['limit_amount', 'used', 'reserved', 'uncertain']) {
+      expect(col(jobAccountMeters, c).getSQLType()).toBe('bigint')
+    }
+    for (const c of ['amount', 'used_amount']) {
+      expect(col(jobAccountMeterReservations, c).getSQLType()).toBe('bigint')
+    }
+  })
+})
+
 describe('timestamps are timestamptz everywhere (UTC store)', () => {
   it.each([
     [jobCollectionCycles, ['started_at', 'closed_at', 'created_at']],

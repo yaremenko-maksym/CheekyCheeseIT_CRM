@@ -47,7 +47,13 @@ import {
   jobMeterReservationStatusEnum,
 } from './enums'
 import { jobAccountMeters } from './job-metering'
-import { JOB_ERROR_CODE_PATTERN, JOB_SANITIZED_TEXT_MAX } from './job-patterns'
+import {
+  JOB_ERROR_CODE_PATTERN,
+  JOB_HANDLE_MAX,
+  JOB_JSONB_TEXT_MAX,
+  JOB_SANITIZED_TEXT_MAX,
+  JOB_SHORT_TEXT_MAX,
+} from './job-patterns'
 import { jobSources } from './job-sourcing'
 import { users } from './users'
 
@@ -96,6 +102,11 @@ export const jobCollectionCycles = pgTable(
     index('idx_job_collection_cycles_requested_by').on(t.requestedBy),
     index('idx_job_collection_cycles_html_meter').on(t.htmlCallMeterId),
     check('ck_job_collection_cycles_trigger_key_nonempty', sql`${t.triggerKey} ~ '[^[:space:]]'`),
+    // SR-M-3: the limit `jobCollectionCycleSchema.triggerKey` already carried.
+    check(
+      'ck_job_collection_cycles_trigger_key_bounded',
+      sql`length(${t.triggerKey}) <= ${sql.raw(String(JOB_HANDLE_MAX))}`,
+    ),
     // WORKER OBLIGATION the database only half-covers: the status may be set to
     // CLOSED only once every child run and work item is terminal or deferred.
     // What the CHECK guarantees is that a CLOSED cycle always says WHEN.
@@ -205,6 +216,36 @@ export const jobCollectionRuns = pgTable(
     // FK child index: the RESTRICT probe on cycle close, and the cycle fan-out.
     index('idx_job_collection_runs_cycle').on(t.cycleId),
     check('ck_job_collection_runs_attempt_id_nonempty', sql`${t.attemptId} ~ '[^[:space:]]'`),
+    // SR-M-3: the limits the shared schemas already carried, which the columns
+    // did not. A text column with no bound is where an adapter puts a payload.
+    check(
+      'ck_job_collection_runs_attempt_id_bounded',
+      sql`length(${t.attemptId}) <= ${sql.raw(String(JOB_HANDLE_MAX))}`,
+    ),
+    check(
+      'ck_job_collection_runs_owner_token_bounded',
+      sql`${t.ownerToken} IS NULL OR length(${t.ownerToken}) <= ${sql.raw(String(JOB_HANDLE_MAX))}`,
+    ),
+    check(
+      'ck_job_collection_runs_adapter_version_bounded',
+      sql`length(${t.adapterVersion}) <= ${sql.raw(String(JOB_SHORT_TEXT_MAX))}`,
+    ),
+    /**
+     * SR-M-3. JSONB with neither a type nor a size bound: a checkpoint is a
+     * page cursor plus remaining ids (bounded resume), and the snapshot is one
+     * source's config. An array or a scalar here is a different shape than
+     * every reader expects, and `source_config_snapshot` copies `config`
+     * verbatim into history that is never deleted — so the size is bounded at
+     * the write, where it can still fail loudly.
+     */
+    check(
+      'ck_job_collection_runs_checkpoint_bounded',
+      sql`jsonb_typeof(${t.checkpoint}) = 'object' AND length(${t.checkpoint}::text) <= ${sql.raw(String(JOB_JSONB_TEXT_MAX))}`,
+    ),
+    check(
+      'ck_job_collection_runs_config_snapshot_bounded',
+      sql`jsonb_typeof(${t.sourceConfigSnapshot}) = 'object' AND length(${t.sourceConfigSnapshot}::text) <= ${sql.raw(String(JOB_JSONB_TEXT_MAX))}`,
+    ),
     check('ck_job_collection_runs_config_version_positive', sql`${t.configVersion} > 0`),
     check('ck_job_collection_runs_fencing_epoch_positive', sql`${t.fencingEpoch} > 0`),
     // A terminal run has an end; a running one does not. Both directions.
@@ -267,10 +308,10 @@ export const jobAccountMeterReservations = pgTable(
     /** Every reservation carries its cycle (r5): reservations are taken before spawn. */
     cycleId: uuid('cycle_id').notNull(),
     status: jobMeterReservationStatusEnum('status').notNull().default('RESERVED'),
-    /** Worst-case cost, reserved and COMMITTED before any I/O. */
-    amount: integer('amount').notNull(),
+    /** Worst-case cost, reserved and COMMITTED before any I/O. CR-M-2: `bigint`, like the meter it draws on. */
+    amount: bigint('amount', { mode: 'number' }).notNull(),
     /** Cost provably converted to used — exactly once (r5). */
-    usedAmount: integer('used_amount').notNull().default(0),
+    usedAmount: bigint('used_amount', { mode: 'number' }).notNull().default(0),
     reservedAt: timestamp('reserved_at', { withTimezone: true }).defaultNow().notNull(),
     sentAt: timestamp('sent_at', { withTimezone: true }),
     settledAt: timestamp('settled_at', { withTimezone: true }),
@@ -300,6 +341,11 @@ export const jobAccountMeterReservations = pgTable(
     check(
       'ck_job_account_meter_reservations_attempt_id_nonempty',
       sql`${t.attemptId} ~ '[^[:space:]]'`,
+    ),
+    // SR-M-3: the limit `jobMeterReservationSchema.attemptId` already carried.
+    check(
+      'ck_job_account_meter_reservations_attempt_id_bounded',
+      sql`length(${t.attemptId}) <= ${sql.raw(String(JOB_HANDLE_MAX))}`,
     ),
     // A zero-cost reservation reserves nothing and would make the guard a no-op.
     check('ck_job_account_meter_reservations_amount_positive', sql`${t.amount} > 0`),
@@ -391,7 +437,19 @@ export const jobDirtyWork = pgTable(
     }).onDelete('restrict'),
     check('ck_job_dirty_work_target_version_positive', sql`${t.targetVersion} > 0`),
     check('ck_job_dirty_work_reason_nonempty', sql`${t.reason} ~ '[^[:space:]]'`),
-    check('ck_job_dirty_work_reason_bounded', sql`length(${t.reason}) <= 100`),
+    check(
+      'ck_job_dirty_work_reason_bounded',
+      sql`length(${t.reason}) <= ${sql.raw(String(JOB_SHORT_TEXT_MAX))}`,
+    ),
+    // SR-M-3: the limits the shared schema already carried.
+    check(
+      'ck_job_dirty_work_claim_owner_bounded',
+      sql`${t.claimOwner} IS NULL OR length(${t.claimOwner}) <= ${sql.raw(String(JOB_HANDLE_MAX))}`,
+    ),
+    check(
+      'ck_job_dirty_work_checkpoint_bounded',
+      sql`jsonb_typeof(${t.checkpoint}) = 'object' AND length(${t.checkpoint}::text) <= ${sql.raw(String(JOB_JSONB_TEXT_MAX))}`,
+    ),
     check('ck_job_dirty_work_retry_count_nonneg', sql`${t.retryCount} >= 0`),
     check('ck_job_dirty_work_fencing_epoch_positive', sql`${t.fencingEpoch} > 0`),
     /**

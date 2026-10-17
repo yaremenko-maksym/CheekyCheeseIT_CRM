@@ -769,7 +769,9 @@ describe.skipIf(!hasDatabaseUrl())('job collection machinery (real Postgres cata
       const { rows } = await q(`SELECT used, limit_amount FROM job_account_meters WHERE id = $1`, [
         meter,
       ])
-      expect(rows[0]).toMatchObject({ used: 1000000, limit_amount: null })
+      // `used` is bigint now (CR-M-2), and node-postgres renders bigint as a
+      // string — the same way `fencing_epoch` already came back.
+      expect(rows[0]).toMatchObject({ used: '1000000', limit_amount: null })
     })
 
     it('refuses a LIFETIME meter that resets, and a windowed meter with no start', async () => {
@@ -822,7 +824,7 @@ describe.skipIf(!hasDatabaseUrl())('job collection machinery (real Postgres cata
       const cycle = await newCycle()
       const attempt = nextTag()
       const { rows } = await reserve(meter, cycle, attempt)
-      expect(rows[0]).toMatchObject({ status: 'RESERVED', used_amount: 0 })
+      expect(rows[0]).toMatchObject({ status: 'RESERVED', used_amount: '0' })
       const r = await rejected(
         `INSERT INTO job_account_meter_reservations (meter_id, attempt_id, cycle_id, amount)
          VALUES ($1, $2, $3, 1)`,
@@ -1129,6 +1131,152 @@ describe.skipIf(!hasDatabaseUrl())('job collection machinery (real Postgres cata
    * against A's committed state and refused by the database — no advisory lock
    * and no application arithmetic anywhere in the path.
    */
+  describe('bounded shapes (SR-M-1 / SR-M-3 / CR-M-2)', () => {
+    it('refuses a pasted raw key as an account key or a manifest id (SR-M-1)', async () => {
+      const pasted = '0123456789abcdef01234567'
+      const key = await rejected(
+        `INSERT INTO job_account_meters (account_key, unit, window_kind, window_started_at)
+         VALUES ($1, 'REQUEST', 'DAY', now())`,
+        [pasted],
+      )
+      expect(key).toEqual({
+        code: CHECK_VIOLATION,
+        constraint: 'ck_job_account_meters_account_key_segmented',
+      })
+      const id = await newSource()
+      const manifest = await rejected(`UPDATE job_sources SET manifest_id = $1 WHERE id = $2`, [
+        `sk.live.${pasted}`,
+        id,
+      ])
+      expect(manifest.constraint).toBe('ck_job_sources_manifest_id_segmented')
+      // A segmented id of the same length is accepted: the rule is about the
+      // RUN, not the length, which the format CHECK already bounds.
+      await q(`UPDATE job_sources SET manifest_id = $1 WHERE id = $2`, [
+        `dou.rss.${nextTag().toLowerCase()}`,
+        id,
+      ])
+    })
+
+    it('refuses an oversized or wrongly typed JSONB checkpoint and snapshot (SR-M-3)', async () => {
+      const source = await newSource()
+      const cycle = await newCycle()
+      const { rows } = await startRun(source, cycle)
+      const id = rows[0].id
+      const bigCheckpoint = JSON.stringify({ cursor: 'c'.repeat(9000) })
+      const oversized = await rejected(
+        `UPDATE job_collection_runs SET checkpoint = $1::jsonb WHERE id = $2`,
+        [bigCheckpoint, id],
+      )
+      expect(oversized).toEqual({
+        code: CHECK_VIOLATION,
+        constraint: 'ck_job_collection_runs_checkpoint_bounded',
+      })
+      const asArray = await rejected(
+        `UPDATE job_collection_runs SET checkpoint = '[]'::jsonb WHERE id = $1`,
+        [id],
+      )
+      expect(asArray.constraint).toBe('ck_job_collection_runs_checkpoint_bounded')
+      const snapshot = await rejected(
+        `UPDATE job_collection_runs SET source_config_snapshot = $1::jsonb WHERE id = $2`,
+        [bigCheckpoint, id],
+      )
+      expect(snapshot.constraint).toBe('ck_job_collection_runs_config_snapshot_bounded')
+      // An ordinary checkpoint object is accepted.
+      await q(`UPDATE job_collection_runs SET checkpoint = $1::jsonb WHERE id = $2`, [
+        JSON.stringify({ page: 3, remaining: ['a', 'b'] }),
+        id,
+      ])
+
+      const work = await q(
+        `INSERT INTO job_dirty_work (entity_kind, entity_id, target_version, reason)
+         VALUES ('OPPORTUNITY', $1, 1, $2) RETURNING id`,
+        [randomUUID(), `${TAG}-checkpoint`],
+      )
+      const workCheckpoint = await rejected(
+        `UPDATE job_dirty_work SET checkpoint = '"scalar"'::jsonb WHERE id = $1`,
+        [work.rows[0].id],
+      )
+      expect(workCheckpoint.constraint).toBe('ck_job_dirty_work_checkpoint_bounded')
+    })
+
+    it('gives every handle column the bound its shared schema already carried (SR-M-3)', async () => {
+      const source = await newSource()
+      const cycle = await newCycle()
+      const over = 'h'.repeat(201)
+      const triggerKey = await rejected(
+        `INSERT INTO job_collection_cycles (trigger, trigger_key) VALUES ('SCHEDULED', $1)`,
+        [over],
+      )
+      expect(triggerKey).toEqual({
+        code: CHECK_VIOLATION,
+        constraint: 'ck_job_collection_cycles_trigger_key_bounded',
+      })
+      const attempt = await rejected(
+        `INSERT INTO job_collection_runs
+           (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger,
+            owner_token, lease_expires_at)
+         VALUES ($1, $2, $3, 1, 'v1', 'SCHEDULED', 'owner', now() + interval '5 min')`,
+        [source, cycle, over],
+      )
+      expect(attempt.constraint).toBe('ck_job_collection_runs_attempt_id_bounded')
+      const { rows } = await startRun(source, cycle)
+      const owner = await rejected(
+        `UPDATE job_collection_runs SET owner_token = $1 WHERE id = $2`,
+        [over, rows[0].id],
+      )
+      expect(owner.constraint).toBe('ck_job_collection_runs_owner_token_bounded')
+      const adapter = await rejected(
+        `UPDATE job_collection_runs SET adapter_version = $1 WHERE id = $2`,
+        ['v'.repeat(101), rows[0].id],
+      )
+      expect(adapter.constraint).toBe('ck_job_collection_runs_adapter_version_bounded')
+      const namespace = await rejected(`UPDATE job_sources SET namespace = $1 WHERE id = $2`, [
+        over,
+        source,
+      ])
+      expect(namespace.constraint).toBe('ck_job_sources_namespace_bounded')
+      // Exactly at the bound is accepted on both.
+      await q(`UPDATE job_sources SET namespace = $1 WHERE id = $2`, ['h'.repeat(200), source])
+    })
+
+    it('stores a USD_MICROS amount an integer column could not hold (CR-M-2)', async () => {
+      // 2_147_483_648 micros = USD 2,147.48, one past the old `integer` ceiling.
+      const meter = await newMeter({ unit: 'USD_MICROS', window: 'LIFETIME' })
+      await q(`UPDATE job_account_meters SET used = $1 WHERE id = $2`, [2147483648, meter])
+      const { rows } = await q(`SELECT used FROM job_account_meters WHERE id = $1`, [meter])
+      expect(rows[0].used).toBe('2147483648')
+
+      const source = await newSource()
+      const cycle = await newCycle()
+      const run = await startRun(source, cycle)
+      const { rows: res } = await q(
+        `INSERT INTO job_account_meter_reservations (meter_id, attempt_id, run_id, cycle_id, amount)
+         VALUES ($1, $2, $3, $4, $5) RETURNING amount`,
+        [meter, nextTag(), run.rows[0].id, cycle, 4294967296],
+      )
+      expect(res[0].amount).toBe('4294967296')
+    })
+
+    it('refuses a claim owner longer than its shared bound (SR-M-3)', async () => {
+      const { rows } = await q(
+        `INSERT INTO job_dirty_work (entity_kind, entity_id, target_version, reason)
+         VALUES ('SENIOR', $1, 1, $2) RETURNING id`,
+        [randomUUID(), `${TAG}-owner-bound`],
+      )
+      const r = await rejected(
+        `UPDATE job_dirty_work
+         SET status = 'CLAIMED', claim_owner = $1, claimed_at = now(),
+             lease_expires_at = now() + interval '1 min'
+         WHERE id = $2`,
+        ['w'.repeat(201), rows[0].id],
+      )
+      expect(r).toEqual({
+        code: CHECK_VIOLATION,
+        constraint: 'ck_job_dirty_work_claim_owner_bounded',
+      })
+    })
+  })
+
   describe('real-DB concurrency (AC8)', () => {
     it('two workers racing a start: exactly one holds the (source, config) slot', async () => {
       const source = await newSource()
@@ -1189,7 +1337,12 @@ describe.skipIf(!hasDatabaseUrl())('job collection machinery (real Postgres cata
           `SELECT used, reserved, uncertain, limit_amount FROM job_account_meters WHERE id = $1`,
           [meter],
         )
-        expect(rows[0]).toMatchObject({ used: 0, reserved: 1, uncertain: 0, limit_amount: 1 })
+        expect(rows[0]).toMatchObject({
+          used: '0',
+          reserved: '1',
+          uncertain: '0',
+          limit_amount: '1',
+        })
       } finally {
         a.release()
         b.release()

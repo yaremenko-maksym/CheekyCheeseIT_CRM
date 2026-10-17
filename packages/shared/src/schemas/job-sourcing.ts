@@ -522,6 +522,19 @@ export const jobSourceRevisionSchema = z.object({
 const countSchema = z.number().int().nonnegative()
 
 /**
+ * CR-M-2. The ceiling of a PostgreSQL `integer` column. Zod v4's `.int()`
+ * already refuses anything past `Number.MAX_SAFE_INTEGER`, which is what a
+ * `bigint` column holds comfortably — so the meter and reservation counters
+ * were widened to `bigint` instead of being narrowed here. The counters that
+ * rightly stay `integer` (version numbers, retry and failure counts, the
+ * per-cycle HTML call budget) get the column's own ceiling, so the contract
+ * never accepts a value the column answers with 22003.
+ */
+const PG_INT_MAX = 2_147_483_647
+const intColumnCountSchema = countSchema.max(PG_INT_MAX)
+const intColumnPositiveSchema = z.number().int().positive().max(PG_INT_MAX)
+
+/**
  * Report of one collection attempt. Exactly one disposition per input item;
  * persistence failures are their own bucket (they are OUR fault, not the
  * provider's) and a SUCCEEDED attempt cannot contain any.
@@ -762,6 +775,19 @@ const attemptIdSchema = z.string().min(1).max(200)
 export const jobAccountKeySchema = z
   .string()
   .regex(/^[a-z0-9][a-z0-9._:-]{0,99}$/, 'must be a short lowercase account id without secrets')
+  /**
+   * SR-M-1. The alphabet above rejects uppercase, base64 (`+ / =`), URLs and
+   * anything over 100 characters — but a pasted raw lowercase hex or
+   * alphanumeric key still reads as a lawful id. A real identity is SEGMENTED
+   * (`jsearch:rapidapi-main`, `dou.rss.jobs`), so a run of 24 or more
+   * characters with no separator is refused and the paste fails loudly. Still
+   * not a secret detector; it is the one structural difference between an
+   * identity and a credential that a pattern CAN see.
+   */
+  .refine(
+    (v) => !/[a-z0-9]{24}/.test(v),
+    'must be segmented: a run of 24 or more characters without a separator is a pasted key',
+  )
 
 /**
  * A TYPED error code — never free text, never an upstream body. Upper-snake,
@@ -876,7 +902,7 @@ export const jobCollectionCycleSchema = z
     /** The ADMIN who pressed the button; `null` for the cron. */
     requestedBy: z.string().uuid().nullable(),
     /** Shared HTML call budget for this occurrence — 20 across all HTML providers. */
-    htmlCallReservation: z.number().int().positive(),
+    htmlCallReservation: intColumnPositiveSchema,
     status: jobCollectionCycleStatusSchema,
     startedAt: z.string().datetime(),
     closedAt: z.string().datetime().nullable(),
@@ -911,7 +937,7 @@ export const jobCollectionAttemptSchema = z
     /** Stable across retries: UNIQUE(source, attemptId) in the database. */
     attemptId: attemptIdSchema,
     /** A change here invalidates the checkpoint — it belongs to the old config. */
-    configVersion: z.number().int().positive(),
+    configVersion: intColumnPositiveSchema,
     adapterVersion: z.string().min(1).max(100),
     trigger: jobCollectionTriggerSchema,
     outcome: jobCollectionOutcomeSchema,
@@ -956,9 +982,9 @@ export const jobSourceHealthSchema = z
     /** `null` until Task 3.7 backfills the stable manifest identity (C-16). */
     manifestId: z.string().max(100).nullable(),
     namespace: z.string().max(200),
-    manifestVersion: z.number().int().positive(),
-    policyVersion: z.number().int().positive(),
-    configVersion: z.number().int().positive(),
+    manifestVersion: intColumnPositiveSchema,
+    policyVersion: intColumnPositiveSchema,
+    configVersion: intColumnPositiveSchema,
     readiness: jobSourceReadinessSchema,
     /** Bounded here and by `ck_job_sources_readiness_reason_bounded`. */
     readinessReason: z.string().max(500).nullable(),
@@ -969,7 +995,7 @@ export const jobSourceHealthSchema = z
     lastNonemptyAt: z.string().datetime().nullable(),
     nextAttemptAt: z.string().datetime().nullable(),
     cooldownUntil: z.string().datetime().nullable(),
-    consecutiveFailures: countSchema,
+    consecutiveFailures: intColumnCountSchema,
     lastErrorCode: jobErrorCodeSchema.nullable(),
     lastErrorMessage: z.string().max(500).nullable(),
   })
@@ -998,7 +1024,7 @@ export const jobDirtyWorkItemSchema = z
     claimedAt: z.string().datetime().nullable(),
     leaseExpiresAt: z.string().datetime().nullable(),
     fencingEpoch: z.number().int().positive(),
-    retryCount: countSchema,
+    retryCount: intColumnCountSchema,
     cycleId: z.string().uuid().nullable(),
     lastErrorCode: jobErrorCodeSchema.nullable(),
     createdAt: z.string().datetime(),

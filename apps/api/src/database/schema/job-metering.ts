@@ -19,17 +19,20 @@
  * DOU (r5 A1h) and the two never share a counter.
  */
 import { sql } from 'drizzle-orm'
-import { check, integer, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
+import { bigint, check, integer, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
 import { jobMeterUnitEnum, jobMeterWindowEnum } from './enums'
+import { JOB_PUBLIC_ID_PATTERN, JOB_UNBROKEN_RUN_PATTERN } from './job-patterns'
 
 /**
- * An account identity that carries NO secrets. The CHECK is the mechanical part
- * of that promise: a short lowercase id (≤ 100 chars) over a deliberately
+ * An account identity that carries NO secrets. Two CHECKs are the mechanical
+ * part of that promise: a short lowercase id (<= 100 chars) over a deliberately
  * narrow alphabet that excludes the base64 characters `+ / =` and every
- * uppercase letter, so an API key, a bearer token or a URL with credentials
- * cannot be stored here even by accident. Mirrors `jobAccountKeySchema`.
+ * uppercase letter, AND a refusal of any unbroken 24-character run, which is
+ * what a pasted raw key looks like inside that alphabet (SR-M-1). So an API
+ * key, a bearer token or a URL with credentials cannot be stored here even by
+ * accident. Mirrors `jobAccountKeySchema`; the patterns live in
+ * `job-patterns.ts`, declared once for the four tables that share them.
  */
-const ACCOUNT_KEY_PATTERN = '^[a-z0-9][a-z0-9._:-]{0,99}$'
 
 export const jobAccountMeters = pgTable(
   'job_account_meters',
@@ -56,13 +59,22 @@ export const jobAccountMeters = pgTable(
      * column that must be quoted in every hand-written statement is a
      * permanent source of forward-SQL / Drizzle drift.
      */
-    limitAmount: integer('limit_amount'),
-    /** Cost provably spent. */
-    used: integer('used').notNull().default(0),
+    limitAmount: bigint('limit_amount', { mode: 'number' }),
+    /**
+     * Cost provably spent.
+     *
+     * CR-M-2: `bigint`, not `integer`. An `integer` tops out near 2.1e9 — about
+     * USD 2,147 for a `USD_MICROS` meter — while the shared `countSchema`
+     * accepts anything up to `Number.MAX_SAFE_INTEGER`. The column failed
+     * loudly (22003) rather than corrupting, but contract and table disagreed;
+     * widening the column (rather than narrowing the contract) is what makes a
+     * money meter usable past two thousand dollars.
+     */
+    used: bigint('used', { mode: 'number' }).notNull().default(0),
     /** Cost held for attempts that have not settled yet. */
-    reserved: integer('reserved').notNull().default(0),
+    reserved: bigint('reserved', { mode: 'number' }).notNull().default(0),
     /** Cost that may or may not have been billed (a timeout), held until reconciliation. */
-    uncertain: integer('uncertain').notNull().default(0),
+    uncertain: bigint('uncertain', { mode: 'number' }).notNull().default(0),
     windowStartedAt: timestamp('window_started_at', { withTimezone: true }),
     resetsAt: timestamp('resets_at', { withTimezone: true }),
     /** Limits are frozen by policy; a policy change is a new version, not an edit in place. */
@@ -97,7 +109,13 @@ export const jobAccountMeters = pgTable(
     ),
     check(
       'ck_job_account_meters_account_key_format',
-      sql`${t.accountKey} ~ ${sql.raw(`'${ACCOUNT_KEY_PATTERN}'`)}`,
+      sql`${t.accountKey} ~ ${sql.raw(`'${JOB_PUBLIC_ID_PATTERN}'`)}`,
+    ),
+    // SR-M-1: the alphabet above still admits a pasted raw lowercase key. A
+    // real account identity is segmented, so an unbroken run is refused.
+    check(
+      'ck_job_account_meters_account_key_segmented',
+      sql`${t.accountKey} !~ ${sql.raw(`'${JOB_UNBROKEN_RUN_PATTERN}'`)}`,
     ),
     // A LIFETIME meter has nothing to reset and no window to start.
     check(

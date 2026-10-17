@@ -29,7 +29,13 @@ import {
   jobSuggestionStatusEnum,
 } from './enums'
 import { jobAccountMeters } from './job-metering'
-import { JOB_ERROR_CODE_PATTERN, JOB_SANITIZED_TEXT_MAX } from './job-patterns'
+import {
+  JOB_ERROR_CODE_PATTERN,
+  JOB_HANDLE_MAX,
+  JOB_PUBLIC_ID_PATTERN,
+  JOB_SANITIZED_TEXT_MAX,
+  JOB_UNBROKEN_RUN_PATTERN,
+} from './job-patterns'
 import { users } from './users'
 
 // ---------------------------------------------------------------------------
@@ -194,7 +200,18 @@ export const jobSources = pgTable(
     // Same shape as the account key: a short lowercase id, no secrets, no URL.
     check(
       'ck_job_sources_manifest_id_format',
-      sql`${t.manifestId} IS NULL OR ${t.manifestId} ~ '^[a-z0-9][a-z0-9._:-]{0,99}$'`,
+      sql`${t.manifestId} IS NULL OR ${t.manifestId} ~ ${sql.raw(`'${JOB_PUBLIC_ID_PATTERN}'`)}`,
+    ),
+    // SR-M-1: same refusal as the account key — an identity is segmented, a
+    // pasted key is one unbroken run.
+    check(
+      'ck_job_sources_manifest_id_segmented',
+      sql`${t.manifestId} IS NULL OR ${t.manifestId} !~ ${sql.raw(`'${JOB_UNBROKEN_RUN_PATTERN}'`)}`,
+    ),
+    // SR-M-3: the limit `jobSourceHealthSchema.namespace` already carried.
+    check(
+      'ck_job_sources_namespace_bounded',
+      sql`length(${t.namespace}) <= ${sql.raw(String(JOB_HANDLE_MAX))}`,
     ),
     check(
       'ck_job_sources_versions_positive',

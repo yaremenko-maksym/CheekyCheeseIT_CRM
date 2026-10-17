@@ -178,12 +178,34 @@ describe('legacy DTOs are untouched (C-01)', () => {
 })
 
 describe('jobAccountKeySchema — a bounded lowercase id, never a credential', () => {
-  it.each(['jsearch:rapidapi-main', 'openrouter:studio', 'a', 'dou.rss_1', 'a'.repeat(100)])(
-    'accepts %s',
-    (key) => {
-      expect(jobAccountKeySchema.parse(key)).toBe(key)
-    },
-  )
+  it.each([
+    'jsearch:rapidapi-main',
+    'openrouter:studio',
+    'a',
+    'dou.rss_1',
+    // Exactly 100 characters, the inclusive bound — and SEGMENTED, because an
+    // unbroken run of 24+ is refused (SR-M-1). 4 x 'abcdefghijklmnopqrstuvw.'
+    // = 96 + 'abcd' = 100.
+    `${'abcdefghijklmnopqrstuvw.'.repeat(4)}abcd`,
+    // 23 unbroken characters: one under the refusal, so the bound is observed
+    // from the accepting side too.
+    'a'.repeat(23),
+  ])('accepts %s', (key) => {
+    expect(jobAccountKeySchema.parse(key)).toBe(key)
+  })
+
+  it.each([
+    ['0123456789abcdef01234567', 'a pasted raw hex key — 24 unbroken characters'],
+    ['sk.live.0123456789abcdef01234567', 'a segmented prefix with a pasted key after it'],
+    ['a'.repeat(24), 'the refusal boundary itself'],
+  ])('refuses %s (%s) — an identity is segmented, a key is not', (key) => {
+    const result = jobAccountKeySchema.safeParse(key)
+    expect(result.success).toBe(false)
+    if (result.success) return
+    expect(result.error.issues.map((i) => i.message)).toContain(
+      'must be segmented: a run of 24 or more characters without a separator is a pasted key',
+    )
+  })
 
   it.each([
     ['Bearer ABC', 'uppercase and a space'],
@@ -200,6 +222,157 @@ describe('jobAccountKeySchema — a bounded lowercase id, never a credential', (
     expect(result.error.issues[0]?.message).toContain(
       'must be a short lowercase account id without secrets',
     )
+  })
+})
+
+describe('numeric ceilings agree with the columns that store them (CR-M-2)', () => {
+  // A PostgreSQL `integer` tops out at 2_147_483_647; the meter and reservation
+  // counters are `bigint`, and JSON carries integers exactly only up to
+  // Number.MAX_SAFE_INTEGER, which is therefore the contract's ceiling.
+  const PG_INT_MAX = 2_147_483_647
+  const JSON_INT_MAX = Number.MAX_SAFE_INTEGER
+
+  const meter = {
+    id: UUID,
+    accountKey: 'jsearch:main',
+    unit: 'USD_MICROS' as const,
+    window: 'LIFETIME' as const,
+    limit: null,
+    used: 0,
+    reserved: 0,
+    uncertain: 0,
+    windowStartedAt: null,
+    resetsAt: null,
+    policyVersion: 1,
+  }
+
+  it('lets a USD_MICROS meter hold far more than an integer column could (the ceiling CR-M-2 raised)', () => {
+    // 2_147_483_648 micros is USD 2,147.48 — the point where the old `integer`
+    // column raised 22003 on a value the contract had accepted.
+    expect(jobAccountMeterSchema.parse({ ...meter, used: PG_INT_MAX + 1 }).used).toBe(
+      PG_INT_MAX + 1,
+    )
+    expect(jobAccountMeterSchema.parse({ ...meter, used: JSON_INT_MAX }).used).toBe(JSON_INT_MAX)
+  })
+
+  it('needs no explicit ceiling on the bigint-backed counters: `.int()` already caps them', () => {
+    // Zod v4's `.int()` refuses anything past Number.MAX_SAFE_INTEGER, which
+    // is three orders of magnitude inside a bigint column. So widening the
+    // columns — not narrowing the contract — is what made the two agree.
+    expect(jobAccountMeterSchema.parse({ ...meter, used: JSON_INT_MAX }).used).toBe(JSON_INT_MAX)
+    refusedAt(jobAccountMeterSchema, { ...meter, used: JSON_INT_MAX + 2 }, ['used'])
+    refusedAt(jobAccountMeterSchema, { ...meter, limit: JSON_INT_MAX + 2 }, ['limit'])
+  })
+
+  it('keeps the reservation amounts inside the same bigint ceiling', () => {
+    const reservation = {
+      id: UUID,
+      meterId: UUID2,
+      attemptId: 'attempt-1',
+      runId: null,
+      cycleId: UUID2,
+      status: 'RESERVED' as const,
+      amount: JSON_INT_MAX,
+      usedAmount: 0,
+      reservedAt: NOW,
+      sentAt: null,
+      settledAt: null,
+    }
+    expect(jobMeterReservationSchema.parse(reservation).amount).toBe(JSON_INT_MAX)
+    refusedAt(jobMeterReservationSchema, { ...reservation, amount: JSON_INT_MAX + 2 }, ['amount'])
+  })
+
+  it('caps the counters that stay in an INTEGER column at that column ceiling', () => {
+    const cycle = {
+      id: UUID,
+      trigger: 'SCHEDULED' as const,
+      triggerKey: 'slot-1',
+      requestedBy: null,
+      htmlCallReservation: PG_INT_MAX,
+      status: 'OPEN' as const,
+      startedAt: NOW,
+      closedAt: null,
+    }
+    expect(jobCollectionCycleSchema.parse(cycle).htmlCallReservation).toBe(PG_INT_MAX)
+    refusedAt(jobCollectionCycleSchema, { ...cycle, htmlCallReservation: PG_INT_MAX + 1 }, [
+      'htmlCallReservation',
+    ])
+  })
+
+  it('caps the attempt and health version counters at the same column ceiling', () => {
+    const attempt = {
+      id: UUID,
+      sourceId: UUID2,
+      cycleId: UUID2,
+      attemptId: 'attempt-1',
+      configVersion: PG_INT_MAX,
+      adapterVersion: 'v1',
+      trigger: 'SCHEDULED' as const,
+      outcome: 'SUCCEEDED' as const,
+      coverage: 'WINDOW' as const,
+      ownerToken: null,
+      fencingEpoch: 1,
+      leaseExpiresAt: null,
+      startedAt: NOW,
+      endedAt: NOW,
+      errorCode: null,
+      errorMessage: null,
+    }
+    expect(jobCollectionAttemptSchema.parse(attempt).configVersion).toBe(PG_INT_MAX)
+    refusedAt(jobCollectionAttemptSchema, { ...attempt, configVersion: PG_INT_MAX + 1 }, [
+      'configVersion',
+    ])
+
+    const health = {
+      sourceId: UUID,
+      manifestId: null,
+      namespace: '',
+      manifestVersion: PG_INT_MAX,
+      policyVersion: PG_INT_MAX,
+      configVersion: PG_INT_MAX,
+      readiness: 'CANDIDATE' as const,
+      readinessReason: null,
+      adminState: 'ACTIVE' as const,
+      lastAttemptAt: null,
+      lastSuccessAt: null,
+      lastNonemptyAt: null,
+      nextAttemptAt: null,
+      cooldownUntil: null,
+      consecutiveFailures: PG_INT_MAX,
+      lastErrorCode: null,
+      lastErrorMessage: null,
+    }
+    expect(jobSourceHealthSchema.parse(health).manifestVersion).toBe(PG_INT_MAX)
+    for (const field of [
+      'manifestVersion',
+      'policyVersion',
+      'configVersion',
+      'consecutiveFailures',
+    ] as const) {
+      refusedAt(jobSourceHealthSchema, { ...health, [field]: PG_INT_MAX + 1 }, [field])
+    }
+  })
+
+  it('caps the dirty-work retry count at the integer column ceiling', () => {
+    const item = {
+      id: UUID,
+      entityKind: 'OPPORTUNITY' as const,
+      entityId: UUID2,
+      targetVersion: 1,
+      reason: 'revision',
+      status: 'PENDING' as const,
+      claimOwner: null,
+      claimedAt: null,
+      leaseExpiresAt: null,
+      fencingEpoch: 1,
+      retryCount: PG_INT_MAX,
+      cycleId: null,
+      lastErrorCode: null,
+      createdAt: NOW,
+      completedAt: null,
+    }
+    expect(jobDirtyWorkItemSchema.parse(item).retryCount).toBe(PG_INT_MAX)
+    refusedAt(jobDirtyWorkItemSchema, { ...item, retryCount: PG_INT_MAX + 1 }, ['retryCount'])
   })
 })
 
