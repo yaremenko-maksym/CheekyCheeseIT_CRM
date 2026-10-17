@@ -890,6 +890,16 @@ export const jobMeterReservationSchema = z
         path: ['sentAt'],
       })
     }
+    // CR-L-1, the converse the rule above did not state: a RELEASED
+    // reservation spent nothing, so it never left. Mirrors
+    // `ck_job_account_meter_reservations_released_unsent`.
+    if (r.status === 'RELEASED' && r.sentAt !== null) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'a released reservation never left, so it carries no send instant',
+        path: ['sentAt'],
+      })
+    }
   })
 
 /** One trigger occurrence. `triggerKey` is the dedupe key across replicas. */
@@ -929,46 +939,72 @@ export const jobCollectionCycleSchema = z
  * does not cover: the report says what an attempt found, this says who owned
  * it, under which versions, and where it got to.
  */
-export const jobCollectionAttemptSchema = z
-  .object({
-    id: z.string().uuid(),
-    sourceId: z.string().uuid(),
-    cycleId: z.string().uuid(),
-    /** Stable across retries: UNIQUE(source, attemptId) in the database. */
-    attemptId: attemptIdSchema,
-    /** A change here invalidates the checkpoint — it belongs to the old config. */
-    configVersion: intColumnPositiveSchema,
-    adapterVersion: z.string().min(1).max(100),
-    trigger: jobCollectionTriggerSchema,
-    outcome: jobCollectionOutcomeSchema,
-    coverage: jobCollectionCoverageSchema,
-    /** Who holds the run. Present exactly while the run is STARTED. */
-    ownerToken: z.string().min(1).max(200).nullable(),
-    /** Monotonic epoch: a write from a fenced-out owner is refused. */
-    fencingEpoch: z.number().int().positive(),
-    leaseExpiresAt: z.string().datetime().nullable(),
-    startedAt: z.string().datetime(),
-    endedAt: z.string().datetime().nullable(),
-    /** Typed and sanitized — never a provider secret, never a raw upstream body. */
-    errorCode: jobErrorCodeSchema.nullable(),
-    errorMessage: z.string().max(500).nullable(),
-  })
-  .superRefine((a, ctx) => {
-    if ((a.outcome === 'STARTED') !== (a.endedAt === null)) {
-      ctx.addIssue({
-        code: 'custom',
-        message: 'a terminal attempt carries its end instant; a running one does not',
-        path: ['endedAt'],
-      })
-    }
-    if (a.outcome === 'STARTED' && (a.ownerToken === null || a.leaseExpiresAt === null)) {
-      ctx.addIssue({
-        code: 'custom',
-        message: 'a running attempt is owned under a lease',
-        path: ['ownerToken'],
-      })
-    }
-  })
+const jobCollectionAttemptFields = z.object({
+  id: z.string().uuid(),
+  sourceId: z.string().uuid(),
+  cycleId: z.string().uuid(),
+  /** Stable across retries: UNIQUE(source, attemptId) in the database. */
+  attemptId: attemptIdSchema,
+  /** A change here invalidates the checkpoint — it belongs to the old config. */
+  configVersion: intColumnPositiveSchema,
+  adapterVersion: z.string().min(1).max(100),
+  trigger: jobCollectionTriggerSchema,
+  outcome: jobCollectionOutcomeSchema,
+  coverage: jobCollectionCoverageSchema,
+  /** Who holds the run. Present exactly while the run is STARTED. */
+  ownerToken: z.string().min(1).max(200).nullable(),
+  /** Monotonic epoch: a write from a fenced-out owner is refused. */
+  fencingEpoch: z.number().int().positive(),
+  leaseExpiresAt: z.string().datetime().nullable(),
+  startedAt: z.string().datetime(),
+  endedAt: z.string().datetime().nullable(),
+  /** Typed and sanitized — never a provider secret, never a raw upstream body. */
+  errorCode: jobErrorCodeSchema.nullable(),
+  errorMessage: z.string().max(500).nullable(),
+})
+
+/** A terminal attempt carries its end instant; a running one does not. */
+const refineAttemptTermination = (
+  a: { outcome: string; endedAt: string | null },
+  ctx: z.RefinementCtx,
+) => {
+  if ((a.outcome === 'STARTED') !== (a.endedAt === null)) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'a terminal attempt carries its end instant; a running one does not',
+      path: ['endedAt'],
+    })
+  }
+}
+
+/**
+ * The WORKER-INTERNAL attempt shape. Carries `ownerToken` and `fencingEpoch`,
+ * which a worker needs and nobody else does.
+ */
+export const jobCollectionAttemptSchema = jobCollectionAttemptFields.superRefine((a, ctx) => {
+  refineAttemptTermination(a, ctx)
+  if (a.outcome === 'STARTED' && (a.ownerToken === null || a.leaseExpiresAt === null)) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'a running attempt is owned under a lease',
+      path: ['ownerToken'],
+    })
+  }
+})
+
+/**
+ * SR-M-4. The shape a NON-WORKER response is built from. `ownerToken` and
+ * `fencingEpoch` are lease-and-fencing bookkeeping — who holds the row and with
+ * what authority — and an operator screen has no use for either.
+ *
+ * Omitted structurally rather than documented as "Phase 6 must strip these":
+ * a note is honoured by whoever reads it, while a field the schema does not
+ * have cannot be serialized by accident. No endpoint consumes the attempt yet,
+ * so this costs nothing now and removes the leak before it can exist.
+ */
+export const jobCollectionAttemptPublicSchema = jobCollectionAttemptFields
+  .omit({ ownerToken: true, fencingEpoch: true })
+  .superRefine(refineAttemptTermination)
 
 /**
  * Operational health of one source. Deliberately a SEPARATE schema rather than
@@ -1010,50 +1046,68 @@ export const jobSourceHealthSchema = z
   })
 
 /** One durable unit of recompute work, keyed so a producer can enqueue idempotently. */
-export const jobDirtyWorkItemSchema = z
-  .object({
-    id: z.string().uuid(),
-    entityKind: jobDirtyWorkEntityKindSchema,
-    entityId: z.string().uuid(),
-    /** The version the worker must reach before installing output. */
-    targetVersion: z.number().int().positive(),
-    /** UNIQUE(entityKind, entityId, targetVersion, reason) in the database. */
-    reason: z.string().min(1).max(100),
-    status: jobDirtyWorkStatusSchema,
-    claimOwner: z.string().min(1).max(200).nullable(),
-    claimedAt: z.string().datetime().nullable(),
-    leaseExpiresAt: z.string().datetime().nullable(),
-    fencingEpoch: z.number().int().positive(),
-    retryCount: intColumnCountSchema,
-    cycleId: z.string().uuid().nullable(),
-    lastErrorCode: jobErrorCodeSchema.nullable(),
-    createdAt: z.string().datetime(),
-    completedAt: z.string().datetime().nullable(),
-  })
-  .superRefine((w, ctx) => {
-    // CR-M-1. NOT one equality of two booleans: `status !== 'CLAIMED'` with an
-    // owner and NO lease made both sides false, so the equality held and the
-    // state this message calls impossible parsed. Each branch therefore names
-    // the columns it requires, and the OTHER branch names them cleared.
-    const claimed = w.status === 'CLAIMED'
-    const owned = w.claimOwner !== null && w.leaseExpiresAt !== null
-    const cleared = w.claimOwner === null && w.leaseExpiresAt === null
-    if (claimed ? !owned : !cleared) {
-      ctx.addIssue({
-        code: 'custom',
-        message: 'a CLAIMED item is owned under a lease, and only a CLAIMED item is',
-        path: ['claimOwner'],
-      })
-    }
-    const terminal = w.status === 'DONE' || w.status === 'FAILED' || w.status === 'DEFERRED'
-    if (terminal !== (w.completedAt !== null)) {
-      ctx.addIssue({
-        code: 'custom',
-        message: 'a terminal item (DONE / FAILED / DEFERRED) carries its completion instant',
-        path: ['completedAt'],
-      })
-    }
-  })
+const jobDirtyWorkItemFields = z.object({
+  id: z.string().uuid(),
+  entityKind: jobDirtyWorkEntityKindSchema,
+  entityId: z.string().uuid(),
+  /** The version the worker must reach before installing output. */
+  targetVersion: z.number().int().positive(),
+  /** UNIQUE(entityKind, entityId, targetVersion, reason) in the database. */
+  reason: z.string().min(1).max(100),
+  status: jobDirtyWorkStatusSchema,
+  claimOwner: z.string().min(1).max(200).nullable(),
+  claimedAt: z.string().datetime().nullable(),
+  leaseExpiresAt: z.string().datetime().nullable(),
+  fencingEpoch: z.number().int().positive(),
+  retryCount: intColumnCountSchema,
+  cycleId: z.string().uuid().nullable(),
+  lastErrorCode: jobErrorCodeSchema.nullable(),
+  createdAt: z.string().datetime(),
+  completedAt: z.string().datetime().nullable(),
+})
+
+/** A terminal item (DONE / FAILED / DEFERRED) carries its completion instant. */
+const refineDirtyWorkTermination = (
+  w: { status: string; completedAt: string | null },
+  ctx: z.RefinementCtx,
+) => {
+  const terminal = w.status === 'DONE' || w.status === 'FAILED' || w.status === 'DEFERRED'
+  if (terminal !== (w.completedAt !== null)) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'a terminal item (DONE / FAILED / DEFERRED) carries its completion instant',
+      path: ['completedAt'],
+    })
+  }
+}
+
+/** The WORKER-INTERNAL item shape: it carries the claim and the fencing epoch. */
+export const jobDirtyWorkItemSchema = jobDirtyWorkItemFields.superRefine((w, ctx) => {
+  // CR-M-1. NOT one equality of two booleans: `status !== 'CLAIMED'` with an
+  // owner and NO lease made both sides false, so the equality held and the
+  // state this message calls impossible parsed. Each branch therefore names
+  // the columns it requires, and the OTHER branch names them cleared.
+  const claimed = w.status === 'CLAIMED'
+  const owned = w.claimOwner !== null && w.leaseExpiresAt !== null
+  const cleared = w.claimOwner === null && w.leaseExpiresAt === null
+  if (claimed ? !owned : !cleared) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'a CLAIMED item is owned under a lease, and only a CLAIMED item is',
+      path: ['claimOwner'],
+    })
+  }
+  refineDirtyWorkTermination(w, ctx)
+})
+
+/**
+ * SR-M-4. The shape a NON-WORKER response is built from: no `claimOwner`, no
+ * `fencingEpoch`. Same reasoning as `jobCollectionAttemptPublicSchema` — the
+ * boundary is structural, so Phase 6 cannot forget to strip them.
+ */
+export const jobDirtyWorkItemPublicSchema = jobDirtyWorkItemFields
+  .omit({ claimOwner: true, fencingEpoch: true })
+  .superRefine(refineDirtyWorkTermination)
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1129,5 +1183,7 @@ export type JobAccountMeterDto = z.infer<typeof jobAccountMeterSchema>
 export type JobMeterReservationDto = z.infer<typeof jobMeterReservationSchema>
 export type JobCollectionCycleDto = z.infer<typeof jobCollectionCycleSchema>
 export type JobCollectionAttemptDto = z.infer<typeof jobCollectionAttemptSchema>
+export type JobCollectionAttemptPublicDto = z.infer<typeof jobCollectionAttemptPublicSchema>
+export type JobDirtyWorkItemPublicDto = z.infer<typeof jobDirtyWorkItemPublicSchema>
 export type JobSourceHealthDto = z.infer<typeof jobSourceHealthSchema>
 export type JobDirtyWorkItemDto = z.infer<typeof jobDirtyWorkItemSchema>

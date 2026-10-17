@@ -75,7 +75,18 @@ export const jobCollectionCycles = pgTable(
     triggerKey: text('trigger_key').notNull(),
     /** The ADMIN who pressed the button; NULL for the cron. */
     requestedBy: uuid('requested_by'),
-    /** The meter the shared HTML call budget is drawn from, when one applies. */
+    /**
+     * The meter the shared HTML call budget is drawn from, when one applies.
+     *
+     * SPEC-L-1, recorded rather than enforced: NULLABLE because a cycle whose
+     * sources need no HTML extraction draws on no HTML meter at all, and the
+     * database cannot know, at INSERT time, whether this occurrence will spawn
+     * an HTML run — the runs do not exist yet. So "an occurrence that spawns an
+     * HTML run names the meter that run draws on" is PHASE-2 WORKER OBLIGATION
+     * 11 in the PR body, not a constraint. Making the column NOT NULL would
+     * instead force every non-HTML cycle to invent a meter reference, which is
+     * worse than the gap it closes.
+     */
     htmlCallMeterId: uuid('html_call_meter_id'),
     /** All HTML runs of THIS occurrence share these calls. */
     htmlCallReservation: integer('html_call_reservation').notNull().default(HTML_CALLS_PER_CYCLE),
@@ -87,6 +98,13 @@ export const jobCollectionCycles = pgTable(
   (t) => [
     // The dedupe is a CONSTRAINT, not an application convention (AC3).
     unique('uq_job_collection_cycles_trigger_key').on(t.trigger, t.triggerKey),
+    /**
+     * CR-L-2 / SPEC-L-1. The composite target for `job_collection_runs`'s
+     * trigger FK below. `id` is already the primary key, so this UNIQUE adds no
+     * new identity — it exists only so a child row can reference the PAIR and
+     * Postgres can refuse a disagreement. A CHECK cannot read another row.
+     */
+    unique('uq_job_collection_cycles_id_trigger').on(t.id, t.trigger),
     foreignKey({
       name: 'fk_job_collection_cycles_requested_by',
       columns: [t.requestedBy],
@@ -201,8 +219,26 @@ export const jobCollectionRuns = pgTable(
       columns: [t.cycleId],
       foreignColumns: [jobCollectionCycles.id],
     }).onDelete('restrict'),
+    /**
+     * CR-L-2 / SPEC-L-1. A run's trigger must BE its cycle's trigger: a
+     * SCHEDULED occurrence cannot contain a run that reports itself MANUAL, and
+     * the provenance a reader draws from either column would otherwise depend
+     * on which one they read. Enforced as a composite FK because a CHECK sees
+     * only its own row.
+     */
+    foreignKey({
+      name: 'fk_job_collection_runs_cycle_trigger',
+      columns: [t.cycleId, t.trigger],
+      foreignColumns: [jobCollectionCycles.id, jobCollectionCycles.trigger],
+    }).onDelete('restrict'),
     // Stable attempt ids: a retry under the same id is one row, not two.
     unique('uq_job_collection_runs_attempt').on(t.sourceId, t.attemptId),
+    /**
+     * CR-L-2 / SPEC-L-1. The composite target for the reservation's cycle FK:
+     * same device as `uq_job_collection_cycles_id_trigger` — no new identity,
+     * just a referencable pair.
+     */
+    unique('uq_job_collection_runs_id_cycle').on(t.id, t.cycleId),
     /**
      * ONE RUNNING OWNER PER (source, config). The same device
      * `job_opportunity_sources` uses for its active link: a partial unique index
@@ -330,6 +366,18 @@ export const jobAccountMeterReservations = pgTable(
       columns: [t.runId],
       foreignColumns: [jobCollectionRuns.id],
     }).onDelete('restrict'),
+    /**
+     * CR-L-2 / SPEC-L-1. A reservation taken FOR a run belongs to that run's
+     * occurrence. MATCH SIMPLE is what makes this exactly right rather than too
+     * strict: with `run_id` NULL (a model call, which is not a collection
+     * attempt) the pair is not checked at all, so such a reservation still names
+     * its own cycle freely.
+     */
+    foreignKey({
+      name: 'fk_job_account_meter_reservations_run_cycle',
+      columns: [t.runId, t.cycleId],
+      foreignColumns: [jobCollectionRuns.id, jobCollectionRuns.cycleId],
+    }).onDelete('restrict'),
     foreignKey({
       name: 'fk_job_account_meter_reservations_cycle',
       columns: [t.cycleId],
@@ -364,6 +412,16 @@ export const jobAccountMeterReservations = pgTable(
     check(
       'ck_job_account_meter_reservations_sent_pair',
       sql`${t.status} IN ('RESERVED', 'RELEASED') OR ${t.sentAt} IS NOT NULL`,
+    ),
+    /**
+     * CR-L-1. ... and the converse, which the pair above did not say: a
+     * RELEASED reservation has no send instant. "Release ONLY provably unsent
+     * cost" (r5) — a row claiming both that the request left and that nothing
+     * was spent is the state the release path must never produce.
+     */
+    check(
+      'ck_job_account_meter_reservations_released_unsent',
+      sql`${t.status} <> 'RELEASED' OR ${t.sentAt} IS NULL`,
     ),
     // Exactly-once conversion: a USED reservation has settled, with cost.
     check(

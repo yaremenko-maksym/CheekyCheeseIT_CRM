@@ -848,10 +848,13 @@ describe.skipIf(!hasDatabaseUrl())('job collection machinery (real Postgres cata
       const meter = await newMeter({ limit: 100 })
       const cycle = await newCycle()
       const { rows } = await reserve(meter, cycle, nextTag(), 5)
-      await q(
-        `UPDATE job_account_meter_reservations SET status = 'SENT', sent_at = now(), used_amount = 5 WHERE id = $1`,
-        [rows[0].id],
-      )
+      // Cost converted but NOT yet sent, so the refusal below is the
+      // used-amount rule and not CR-L-1's send-instant rule, which has its own
+      // case under "cross-row consistency". Postgres reports whichever CHECK it
+      // evaluates first, so each rule is exercised on a row only it refuses.
+      await q(`UPDATE job_account_meter_reservations SET used_amount = 5 WHERE id = $1`, [
+        rows[0].id,
+      ])
       const r = await rejected(
         `UPDATE job_account_meter_reservations SET status = 'RELEASED' WHERE id = $1`,
         [rows[0].id],
@@ -1274,6 +1277,71 @@ describe.skipIf(!hasDatabaseUrl())('job collection machinery (real Postgres cata
         code: CHECK_VIOLATION,
         constraint: 'ck_job_dirty_work_claim_owner_bounded',
       })
+    })
+  })
+
+  describe('cross-row consistency (CR-L-1 / CR-L-2 / SPEC-L-1)', () => {
+    it('refuses a send instant on a RELEASED reservation (CR-L-1)', async () => {
+      const meter = await newMeter({ limit: 100 })
+      const source = await newSource()
+      const cycle = await newCycle()
+      const run = await startRun(source, cycle)
+      const { rows } = await q(
+        `INSERT INTO job_account_meter_reservations (meter_id, attempt_id, run_id, cycle_id, amount)
+         VALUES ($1, $2, $3, $4, 5) RETURNING id`,
+        [meter, nextTag(), run.rows[0].id, cycle],
+      )
+      const r = await rejected(
+        `UPDATE job_account_meter_reservations SET status = 'RELEASED', sent_at = now()
+         WHERE id = $1`,
+        [rows[0].id],
+      )
+      expect(r).toEqual({
+        code: CHECK_VIOLATION,
+        constraint: 'ck_job_account_meter_reservations_released_unsent',
+      })
+      // A release with nothing sent is what the status is FOR.
+      await q(`UPDATE job_account_meter_reservations SET status = 'RELEASED' WHERE id = $1`, [
+        rows[0].id,
+      ])
+    })
+
+    it("refuses a run whose trigger disagrees with its cycle's (CR-L-2 / SPEC-L-1)", async () => {
+      const source = await newSource()
+      const cycle = await newCycle() // SCHEDULED
+      const r = await rejected(
+        `INSERT INTO job_collection_runs
+           (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger,
+            owner_token, lease_expires_at)
+         VALUES ($1, $2, $3, 1, 'v1', 'MANUAL', 'owner', now() + interval '5 min')`,
+        [source, cycle, nextTag()],
+      )
+      expect(r.code).toBe(FK_VIOLATION)
+      expect(r.constraint).toBe('fk_job_collection_runs_cycle_trigger')
+      // The matching trigger is accepted — the rule is agreement, not a ban.
+      await startRun(source, cycle)
+    })
+
+    it("refuses a reservation whose cycle is not its run's cycle (CR-L-2 / SPEC-L-1)", async () => {
+      const meter = await newMeter({ limit: 100 })
+      const source = await newSource()
+      const cycle = await newCycle()
+      const otherCycle = await newCycle()
+      const run = await startRun(source, cycle)
+      const r = await rejected(
+        `INSERT INTO job_account_meter_reservations (meter_id, attempt_id, run_id, cycle_id, amount)
+         VALUES ($1, $2, $3, $4, 5)`,
+        [meter, nextTag(), run.rows[0].id, otherCycle],
+      )
+      expect(r.code).toBe(FK_VIOLATION)
+      expect(r.constraint).toBe('fk_job_account_meter_reservations_run_cycle')
+      // A reservation with NO run (a model call) is still free to name its own
+      // cycle: the composite FK is MATCH SIMPLE, so a NULL run_id skips it.
+      await q(
+        `INSERT INTO job_account_meter_reservations (meter_id, attempt_id, run_id, cycle_id, amount)
+         VALUES ($1, $2, NULL, $3, 5)`,
+        [meter, nextTag(), otherCycle],
+      )
     })
   })
 

@@ -8,12 +8,14 @@ import { describe, expect, it } from 'vitest'
 import {
   jobAccountKeySchema,
   jobAccountMeterSchema,
+  jobCollectionAttemptPublicSchema,
   jobCollectionAttemptSchema,
   jobCollectionCycleSchema,
   jobCollectionCycleStatusSchema,
   jobCollectionResultSchema,
   jobCollectionTriggerSchema,
   jobDirtyWorkEntityKindSchema,
+  jobDirtyWorkItemPublicSchema,
   jobDirtyWorkItemSchema,
   jobDirtyWorkStatusSchema,
   jobMeterReservationSchema,
@@ -221,6 +223,88 @@ describe('jobAccountKeySchema — a bounded lowercase id, never a credential', (
     if (result.success) return
     expect(result.error.issues[0]?.message).toContain(
       'must be a short lowercase account id without secrets',
+    )
+  })
+})
+
+describe('worker-internal fields cannot reach a non-worker response (SR-M-4)', () => {
+  // `ownerToken`, `fencingEpoch` and `claimOwner` are lease-and-fencing
+  // bookkeeping: they say WHO holds a row and with what authority, which is a
+  // worker's business and nobody else's. No endpoint consumes them yet, so the
+  // fix is structural — the public shape does not HAVE the fields, so a
+  // response built from it cannot leak them by accident later.
+  const attempt = {
+    id: UUID,
+    sourceId: UUID2,
+    cycleId: UUID2,
+    attemptId: 'attempt-1',
+    configVersion: 1,
+    adapterVersion: 'v1',
+    trigger: 'SCHEDULED' as const,
+    outcome: 'SUCCEEDED' as const,
+    coverage: 'WINDOW' as const,
+    ownerToken: 'secret-owner-token',
+    fencingEpoch: 7,
+    leaseExpiresAt: null,
+    startedAt: NOW,
+    endedAt: NOW,
+    errorCode: null,
+    errorMessage: null,
+  }
+
+  const item = {
+    id: UUID,
+    entityKind: 'OPPORTUNITY' as const,
+    entityId: UUID2,
+    targetVersion: 3,
+    reason: 'revision',
+    status: 'CLAIMED' as const,
+    claimOwner: 'worker-42',
+    claimedAt: NOW,
+    leaseExpiresAt: NOW,
+    fencingEpoch: 2,
+    retryCount: 0,
+    cycleId: null,
+    lastErrorCode: null,
+    createdAt: NOW,
+    completedAt: null,
+  }
+
+  it('strips the attempt owner token and fencing epoch from the public shape', () => {
+    const parsed = jobCollectionAttemptPublicSchema.parse(attempt)
+    expect(Object.keys(parsed)).not.toContain('ownerToken')
+    expect(Object.keys(parsed)).not.toContain('fencingEpoch')
+    // Everything an operator may rightly see survives.
+    expect(parsed.outcome).toBe('SUCCEEDED')
+    expect(parsed.attemptId).toBe('attempt-1')
+    expect(parsed.leaseExpiresAt).toBeNull()
+  })
+
+  it('strips the dirty-work claim owner and fencing epoch from the public shape', () => {
+    const parsed = jobDirtyWorkItemPublicSchema.parse(item)
+    expect(Object.keys(parsed)).not.toContain('claimOwner')
+    expect(Object.keys(parsed)).not.toContain('fencingEpoch')
+    expect(parsed.status).toBe('CLAIMED')
+    expect(parsed.reason).toBe('revision')
+  })
+
+  it('keeps the worker shape carrying them, because the worker needs them', () => {
+    expect(jobCollectionAttemptSchema.parse(attempt).ownerToken).toBe('secret-owner-token')
+    expect(jobDirtyWorkItemSchema.parse(item).claimOwner).toBe('worker-42')
+  })
+
+  it('still enforces the invariants that survive the omission', () => {
+    expectOnlyIssue(
+      jobCollectionAttemptPublicSchema,
+      { ...attempt, endedAt: null },
+      'a terminal attempt carries its end instant; a running one does not',
+      ['endedAt'],
+    )
+    expectOnlyIssue(
+      jobDirtyWorkItemPublicSchema,
+      { ...item, status: 'DONE' },
+      'a terminal item (DONE / FAILED / DEFERRED) carries its completion instant',
+      ['completedAt'],
     )
   })
 })
@@ -496,6 +580,16 @@ describe('jobMeterReservationSchema — reserve before I/O, settle exactly once'
       'only provably unsent cost may be released',
       ['usedAmount'],
     )
+    // CR-L-1: and a RELEASED reservation that DID leave is refused. The pair
+    // rule said only "anything past RESERVED/RELEASED carries a send instant",
+    // which left a released row free to claim both that the request left and
+    // that nothing was spent.
+    expectOnlyIssue(
+      jobMeterReservationSchema,
+      { ...reservation, status: 'RELEASED', sentAt: NOW },
+      'a released reservation never left, so it carries no send instant',
+      ['sentAt'],
+    )
     // A RELEASED reservation that spent nothing is fine — and needs no send
     // instant, which is why RELEASED sits beside RESERVED in the rule below.
     expect(
@@ -715,6 +809,15 @@ describe('jobCollectionAttemptSchema — owned while running, ended when termina
     refusedAt(jobCollectionAttemptSchema, { ...failed, errorCode: 'HTTP 403' }, ['errorCode'])
     refusedAt(jobCollectionAttemptSchema, { ...failed, errorCode: '403_HTTP' }, ['errorCode'])
     refusedAt(jobCollectionAttemptSchema, { ...failed, errorCode: '' }, ['errorCode'])
+    // The refusal states WHY, in the one place the message is read: `refusedAt`
+    // asserts the path only, so without this the message is an unobserved
+    // string — a surviving StringLiteral mutant on the first gate run.
+    const refused = jobCollectionAttemptSchema.safeParse({ ...failed, errorCode: 'http_403' })
+    expect(refused.success).toBe(false)
+    if (refused.success) return
+    expect(refused.error.issues.map((i) => i.message)).toContain(
+      'must be a typed upper-snake error code of at most 64 characters',
+    )
   })
 
   it('refuses a non-positive fencing epoch or config version', () => {

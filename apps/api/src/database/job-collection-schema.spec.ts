@@ -703,6 +703,46 @@ describe('bounded shapes the schema must not leave open (SR-M-1 / SR-M-3 / CR-M-
   })
 })
 
+describe('cross-row rules the schema CAN enforce (CR-L-1 / CR-L-2 / SPEC-L-1)', () => {
+  it('refuses a send instant on a RELEASED reservation (CR-L-1)', () => {
+    // "Release ONLY provably unsent cost" (r5). The status pair CHECK let a
+    // RELEASED row keep a `sent_at`, i.e. claim both that the request left and
+    // that nothing was spent.
+    const sql_ = checkSql(
+      jobAccountMeterReservations,
+      'ck_job_account_meter_reservations_released_unsent',
+    )
+    expect(sql_).toContain('RELEASED')
+    expect(sql_).toContain('"sent_at" IS NULL')
+  })
+
+  it("ties a run's trigger to its cycle's trigger with a composite FK (CR-L-2 / SPEC-L-1)", () => {
+    // A CHECK cannot read another row, but a composite FK can: the pair
+    // (cycle_id, trigger) must exist as (id, trigger) on the cycle, so a run
+    // cannot claim a trigger its own occurrence does not have.
+    expect(uniqueCols(jobCollectionCycles, 'uq_job_collection_cycles_id_trigger')).toEqual([
+      'id',
+      'trigger',
+    ])
+    const f = fkByName(jobCollectionRuns, 'fk_job_collection_runs_cycle_trigger')
+    expect(f.reference().columns.map((c) => c.name)).toEqual(['cycle_id', 'trigger'])
+    expect(f.reference().foreignColumns.map((c) => c.name)).toEqual(['id', 'trigger'])
+    expect(f.reference().foreignTable).toBe(jobCollectionCycles)
+    expect(f.onDelete).toBe('restrict')
+  })
+
+  it("ties a reservation's cycle to its run's cycle with a composite FK (CR-L-2 / SPEC-L-1)", () => {
+    expect(uniqueCols(jobCollectionRuns, 'uq_job_collection_runs_id_cycle')).toEqual([
+      'id',
+      'cycle_id',
+    ])
+    const f = fkByName(jobAccountMeterReservations, 'fk_job_account_meter_reservations_run_cycle')
+    expect(f.reference().columns.map((c) => c.name)).toEqual(['run_id', 'cycle_id'])
+    expect(f.reference().foreignColumns.map((c) => c.name)).toEqual(['id', 'cycle_id'])
+    expect(f.reference().foreignTable).toBe(jobCollectionRuns)
+  })
+})
+
 describe('timestamps are timestamptz everywhere (UTC store)', () => {
   it.each([
     [jobCollectionCycles, ['started_at', 'closed_at', 'created_at']],
