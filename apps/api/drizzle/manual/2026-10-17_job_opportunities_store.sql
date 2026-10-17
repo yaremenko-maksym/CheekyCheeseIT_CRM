@@ -650,10 +650,12 @@ CREATE TABLE IF NOT EXISTS "job_queue_generation_entries" (
 --
 -- The one pre-existing table this store touches. The manifest columns carry the
 -- source's declared identity and its policy / config versions; the readiness and
--- admin_state columns carry the operational state the collector reads. Legacy rows
--- (the 31 seeded by 2026-10-05_vacancy_sources_seed.sql) keep manifest_id NULL,
--- namespace '', every version 1 and readiness CANDIDATE — which is why all 11 CHECKs
--- below validate against the existing data without a backfill.
+-- admin_state columns carry the operational state the collector reads. Rows that predate the
+-- store (the 16 seeded by 2026-10-05_vacancy_sources_seed.sql, plus any an ADMIN added)
+-- take the defaults: manifest_id NULL, namespace '', every version 1, readiness
+-- CANDIDATE, admin_state ACTIVE, consecutive_failures 0, admin_state_history '[]'. That
+-- is what makes all 11 CHECKs below validate against the existing data with no backfill
+-- step — verified by applying this file to a database carrying that very seed.
 
 ALTER TABLE job_sources
   ADD COLUMN IF NOT EXISTS "manifest_id" text,
