@@ -110,6 +110,12 @@ const TRIAGE_KINDS = sql.raw(
  * thing that serializes two re-takes — proven by the integration spec's race)
  * is a Phase-6 obligation, as is bumping `version` on every mutation.
  *
+ * CR-L-3 — `released_by`, `reassigned_by`, `reassigned_from_id` (and the
+ * actor columns of dismissals and subscriptions) are deliberately NOT indexed:
+ * nothing reads by them, and the only probe they would serve is a RESTRICT
+ * check on a user DELETE, which the application never issues (users are
+ * archived, not deleted). A manual delete pays a sequential scan, once.
+ *
  * PHASE-6 OBLIGATIONS: a claim in STUDIO scope is an ADMIN's; release and
  * reassign are ADMIN-only; "already taken" is shown without the assignee's
  * name outside the viewer's scope (`jobQueueAssignmentSchema` carries no
@@ -254,7 +260,9 @@ export const jobQueueDismissals = pgTable(
       columns: [t.undoneBy],
       foreignColumns: [users.id],
     }).onDelete('restrict'),
-    index('idx_job_queue_dismissals_scope').on(t.scopeKind, t.teamId),
+    // Led by `team_id`: it serves the team-scoped read (`scope_kind` is implied
+    // by the scope-shape CHECK) AND the cascade probe on a team delete.
+    index('idx_job_queue_dismissals_team').on(t.teamId),
     check('ck_job_queue_dismissals_scope_shape', scopeShape(t.scopeKind, t.teamId)),
     check('ck_job_queue_dismissals_version_positive', sql`${t.version} > 0`),
     check('ck_job_queue_dismissals_reason_bounded', boundedText(t.reason, JOB_SANITIZED_TEXT_MAX)),
@@ -337,6 +345,16 @@ export const jobTeamTriageSubscriptions = pgTable(
       'ck_job_team_triage_subscriptions_source_types_bounded',
       sql`cardinality(${t.sourceTypes}) <= cardinality(enum_range(NULL::job_source_type))`,
     ),
+    // CR-M-1. `cardinality` counts a NULL element as a member and ignores
+    // dimensionality, so '{NULL}' and a 2-D array were stored although the
+    // contract (a flat array of enum members) refuses both. The CASE is
+    // load-bearing, not style: `array_position` RAISES on a multi-dimensional
+    // array, so dimensionality is decided first. The empty filter has NO
+    // dimensions (`array_ndims('{}')` is NULL), hence the COALESCE to 1.
+    check(
+      'ck_job_team_triage_subscriptions_source_types_shape',
+      sql`CASE WHEN COALESCE(array_ndims(${t.sourceTypes}), 1) <> 1 THEN false ELSE array_position(${t.sourceTypes}, NULL) IS NULL END`,
+    ),
     check('ck_job_team_triage_subscriptions_policy_version_nonneg', sql`${t.policyVersion} >= 0`),
     check('ck_job_team_triage_subscriptions_version_positive', sql`${t.subscriptionVersion} > 0`),
     check(
@@ -370,8 +388,9 @@ export const jobTeamTriageSubscriptions = pgTable(
  *     kinds the source record is optional;
  *   - TRIAGE_* name the team concerned (`subject_team_id`), REASSIGNED names the
  *     new assignee (`subject_user_id`), and no other kind carries either;
- *   - telemetry carries no version; every other kind moves it forward
- *     (`before_version` 0 = the row did not exist yet).
+ *   - telemetry carries no version; SUPPRESSED may carry none (no r5 entity
+ *     holds suppression state); every other kind moves its target's version
+ *     forward (`before_version` 0 = the row did not exist yet).
  * The idempotency key is UNIQUE PER ACTOR, not globally: a global key would let
  * one actor's 23505 reveal that someone else used a key. OPENED is idempotent
  * click telemetry per actor + opportunity + source record (partial UNIQUE).
@@ -446,9 +465,12 @@ export const jobQueueActions = pgTable(
     index('idx_job_queue_actions_opportunity').on(t.opportunityId, t.createdAt),
     index('idx_job_queue_actions_team').on(t.teamId, t.createdAt),
     index('idx_job_queue_actions_subject_team').on(t.subjectTeamId, t.createdAt),
-    // The RESTRICT probes on a parent delete need an index on the child column.
+    // CR-L-3. Every FK column of the log is index-led: `actor_id` by
+    // `uq_job_queue_actions_actor_idempotency`, the rest by the indexes here, so
+    // a RESTRICT probe on any parent delete is an index lookup.
     index('idx_job_queue_actions_source_record').on(t.sourceRecordId),
     index('idx_job_queue_actions_subscription').on(t.subscriptionId),
+    index('idx_job_queue_actions_subject_user').on(t.subjectUserId),
     check('ck_job_queue_actions_scope_shape', scopeShape(t.scopeKind, t.teamId)),
     check(
       'ck_job_queue_actions_target',
@@ -471,12 +493,21 @@ export const jobQueueActions = pgTable(
           OR (${t.kind} <> 'REASSIGNED' AND ${t.subjectUserId} IS NULL)`,
     ),
     // Same UNKNOWN trap: `NULL >= 0` is UNKNOWN and a CHECK passes on UNKNOWN,
-    // so the mutation branch names both versions NOT NULL before comparing
+    // so each versioned branch names both versions NOT NULL before comparing
     // them (a DISMISSED row with a NULL before-version was accepted on the
     // first draft).
+    //
+    // SPEC-M-1. Three branches by what the action's TARGET carries:
+    //   - telemetry: no target state, no version;
+    //   - SUPPRESSED: no r5 entity holds suppression state, so it MAY carry
+    //     none — but if it carries a pair, the pair still moves forward;
+    //   - everything else targets a versioned row (assignment / dismissal
+    //     `version`, triage grant `grant_version`, subscription
+    //     `subscription_version`) and must move it forward.
     check(
       'ck_job_queue_actions_versions',
       sql`(${t.kind} IN ${TELEMETRY_KINDS} AND ${t.beforeVersion} IS NULL AND ${t.afterVersion} IS NULL)
+          OR (${t.kind} = 'SUPPRESSED' AND ${t.beforeVersion} IS NULL AND ${t.afterVersion} IS NULL)
           OR (${t.kind} NOT IN ${TELEMETRY_KINDS} AND ${t.beforeVersion} IS NOT NULL AND ${t.afterVersion} IS NOT NULL AND ${t.beforeVersion} >= 0 AND ${t.afterVersion} > ${t.beforeVersion})`,
     ),
     check(
@@ -540,6 +571,9 @@ export const jobQueueGenerations = pgTable(
       .on(t.scopeKind)
       .where(sql`${t.status} = 'PUBLISHED' AND ${t.scopeKind} = 'STUDIO'`),
     index('idx_job_queue_generations_status_expiry').on(t.status, t.expiresAt),
+    // The two partial UNIQUEs cover PUBLISHED rows only; the team cascade probe
+    // and an ADMIN's per-team history read need a full index.
+    index('idx_job_queue_generations_team').on(t.teamId),
     // CASCADE: a derived projection of that team's view.
     foreignKey({
       name: 'fk_job_queue_generations_team',

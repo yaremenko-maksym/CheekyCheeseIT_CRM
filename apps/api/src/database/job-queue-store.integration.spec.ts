@@ -561,6 +561,20 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
       await insert({ role: 'r'.repeat(100) })
     })
 
+    it('refuses a NULL element and a multi-dimensional filter (CR-M-1)', async () => {
+      // The cardinality bound counts a NULL element as a member, and nothing
+      // looked at dimensionality: '{NULL}' and a 2-D array were both stored
+      // although the contract (an array of enum members) refuses them.
+      for (const types of ['{NULL}', '{DOU_RSS,NULL}', '{{DOU_RSS},{DJINNI_RSS}}'])
+        expect(await refused({ types }), types).toEqual({
+          code: CHECK_VIOLATION,
+          constraint: 'ck_job_team_triage_subscriptions_source_types_shape',
+        })
+      // The empty filter ("every source") has NO dimensions at all — it must pass.
+      await insert({ types: '{}' })
+      await insert({ types: '{DOU_RSS}' })
+    })
+
     it('accepts only provider types, at most as many as the enum has', async () => {
       expect((await refused({ types: '{NOT_A_SOURCE}' })).code).toBe(INVALID_TEXT)
       const { rows } = await q(`SELECT cardinality(enum_range(NULL::job_source_type))::int AS n`)
@@ -775,6 +789,39 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
         code: CHECK_VIOLATION,
         constraint: 'ck_job_queue_actions_subject_user',
       })
+    })
+
+    it('lets SUPPRESSED carry no version — its target has none (SPEC-M-1)', async () => {
+      // No r5 entity holds suppression state, so there is no version to move.
+      await insertAction({
+        kind: 'SUPPRESSED',
+        actor: admin,
+        scope: 'STUDIO',
+        before: null,
+        after: null,
+      })
+      // ... but a half-set or backward pair is still refused.
+      for (const v of [
+        { before: 0, after: null },
+        { before: null, after: 1 },
+        { before: 1, after: 1 },
+      ])
+        expect(
+          await actionRefused({ kind: 'SUPPRESSED', actor: admin, scope: 'STUDIO', ...v }),
+          JSON.stringify(v),
+        ).toEqual({ code: CHECK_VIOLATION, constraint: 'ck_job_queue_actions_versions' })
+      // A triage grant DOES have a version (`job_opportunity_team_triage.grant_version`),
+      // so it stays versioned.
+      expect(
+        await actionRefused({
+          kind: 'TRIAGE_GRANTED',
+          actor: admin,
+          scope: 'STUDIO',
+          subjectTeam: teamB,
+          before: null,
+          after: null,
+        }),
+      ).toEqual({ code: CHECK_VIOLATION, constraint: 'ck_job_queue_actions_versions' })
     })
 
     it('leaves telemetry unversioned and moves every mutation strictly forward', async () => {

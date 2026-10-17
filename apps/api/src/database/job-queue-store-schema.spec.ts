@@ -85,12 +85,15 @@ const fkShape = (t: Table, n: string) => {
   }
 }
 
-/** The per-kind scope rule every scoped table carries, in two explicit branches. */
+/**
+ * The per-kind scope rule every scoped table carries, in two explicit branches.
+ * Pinned as the WHOLE expression (CR-L-1): a `toContain` per branch would let a
+ * widening third `OR` branch through unseen.
+ */
 function expectScopeShape(t: Table, name: string) {
-  const s = checkSql(t, name)
-  expect(s).toContain(`("scope_kind" = 'TEAM' AND "team_id" IS NOT NULL)`)
-  expect(s).toContain(`("scope_kind" = 'STUDIO' AND "team_id" IS NULL)`)
-  expect(s).toContain(' OR ')
+  expect(checkSql(t, name)).toBe(
+    `("scope_kind" = 'TEAM' AND "team_id" IS NOT NULL) OR ("scope_kind" = 'STUDIO' AND "team_id" IS NULL)`,
+  )
 }
 
 describe('enum parity (pg <-> shared zod)', () => {
@@ -223,12 +226,8 @@ describe('job_queue_assignments (AC1)', () => {
   })
 
   it('pairs the release in two explicit branches (no boolean equality)', () => {
-    const s = checkSql(t, 'ck_job_queue_assignments_release_pair')
-    expect(s).toContain(
-      `("state" = 'TAKEN' AND "released_at" IS NULL AND "released_by" IS NULL AND "release_reason" IS NULL)`,
-    )
-    expect(s).toContain(
-      `("state" = 'RELEASED' AND "released_at" IS NOT NULL AND "released_by" IS NOT NULL)`,
+    expect(checkSql(t, 'ck_job_queue_assignments_release_pair')).toBe(
+      `("state" = 'TAKEN' AND "released_at" IS NULL AND "released_by" IS NULL AND "release_reason" IS NULL) OR ("state" = 'RELEASED' AND "released_at" IS NOT NULL AND "released_by" IS NOT NULL)`,
     )
   })
 
@@ -236,12 +235,8 @@ describe('job_queue_assignments (AC1)', () => {
     expect(checkSql(t, 'ck_job_queue_assignments_release_reason_bounded')).toBe(
       `"release_reason" IS NULL OR ("release_reason" ~ '[^[:space:]]' AND length("release_reason") <= 500)`,
     )
-    const s = checkSql(t, 'ck_job_queue_assignments_reassign_triple')
-    expect(s).toContain(
-      `("reassigned_at" IS NULL AND "reassigned_by" IS NULL AND "reassigned_from_id" IS NULL)`,
-    )
-    expect(s).toContain(
-      `("reassigned_at" IS NOT NULL AND "reassigned_by" IS NOT NULL AND "reassigned_from_id" IS NOT NULL)`,
+    expect(checkSql(t, 'ck_job_queue_assignments_reassign_triple')).toBe(
+      `("reassigned_at" IS NULL AND "reassigned_by" IS NULL AND "reassigned_from_id" IS NULL) OR ("reassigned_at" IS NOT NULL AND "reassigned_by" IS NOT NULL AND "reassigned_from_id" IS NOT NULL)`,
     )
   })
 })
@@ -308,7 +303,7 @@ describe('job_queue_dismissals (AC2)', () => {
   })
 
   it('indexes the scope for a team-scoped read', () => {
-    expect(idxCols(t, 'idx_job_queue_dismissals_scope')).toEqual(['scope_kind', 'team_id'])
+    expect(idxCols(t, 'idx_job_queue_dismissals_team')).toEqual(['team_id'])
   })
 
   it('declares the scope shape, the bounds and the undo pair', () => {
@@ -401,6 +396,7 @@ describe('job_team_triage_subscriptions (AC3)', () => {
     expect(checkNames(t)).toEqual([
       'ck_job_team_triage_subscriptions_role_family_bounded',
       'ck_job_team_triage_subscriptions_source_types_bounded',
+      'ck_job_team_triage_subscriptions_source_types_shape',
       'ck_job_team_triage_subscriptions_policy_version_nonneg',
       'ck_job_team_triage_subscriptions_version_positive',
       'ck_job_team_triage_subscriptions_reason_bounded',
@@ -411,6 +407,9 @@ describe('job_team_triage_subscriptions (AC3)', () => {
     )
     expect(checkSql(t, 'ck_job_team_triage_subscriptions_source_types_bounded')).toBe(
       `cardinality("source_types") <= cardinality(enum_range(NULL::job_source_type))`,
+    )
+    expect(checkSql(t, 'ck_job_team_triage_subscriptions_source_types_shape')).toBe(
+      `CASE WHEN COALESCE(array_ndims("source_types"), 1) <> 1 THEN false ELSE array_position("source_types", NULL) IS NULL END`,
     )
     expect(checkSql(t, 'ck_job_team_triage_subscriptions_policy_version_nonneg')).toBe(
       '"policy_version" >= 0',
@@ -523,6 +522,7 @@ describe('job_queue_actions (AC4)', () => {
     ])
     expect(idxCols(t, 'idx_job_queue_actions_source_record')).toEqual(['source_record_id'])
     expect(idxCols(t, 'idx_job_queue_actions_subscription')).toEqual(['subscription_id'])
+    expect(idxCols(t, 'idx_job_queue_actions_subject_user')).toEqual(['subject_user_id'])
   })
 
   it('declares every guard', () => {
@@ -562,7 +562,7 @@ describe('job_queue_actions (AC4)', () => {
 
   it('leaves telemetry unversioned and moves every mutation forward', () => {
     expect(checkSql(t, 'ck_job_queue_actions_versions')).toBe(
-      `("kind" IN ('OPENED', 'DEAD_LINK', 'SPAM') AND "before_version" IS NULL AND "after_version" IS NULL) OR ("kind" NOT IN ('OPENED', 'DEAD_LINK', 'SPAM') AND "before_version" IS NOT NULL AND "after_version" IS NOT NULL AND "before_version" >= 0 AND "after_version" > "before_version")`,
+      `("kind" IN ('OPENED', 'DEAD_LINK', 'SPAM') AND "before_version" IS NULL AND "after_version" IS NULL) OR ("kind" = 'SUPPRESSED' AND "before_version" IS NULL AND "after_version" IS NULL) OR ("kind" NOT IN ('OPENED', 'DEAD_LINK', 'SPAM') AND "before_version" IS NOT NULL AND "after_version" IS NOT NULL AND "before_version" >= 0 AND "after_version" > "before_version")`,
     )
   })
 
@@ -625,6 +625,7 @@ describe('job_queue_generations (AC5)', () => {
       `"job_queue_generations"."status" = 'PUBLISHED' AND "job_queue_generations"."scope_kind" = 'STUDIO'`,
     )
     expect(idxCols(t, 'idx_job_queue_generations_status_expiry')).toEqual(['status', 'expires_at'])
+    expect(idxCols(t, 'idx_job_queue_generations_team')).toEqual(['team_id'])
   })
 
   it('references the team with cascade (a derived projection)', () => {
