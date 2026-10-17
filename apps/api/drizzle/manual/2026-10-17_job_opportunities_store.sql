@@ -741,226 +741,226 @@ END $$;
 -- entries), SET NULL where the reference is provenance rather than structure.
 
 DO $$ BEGIN
-  ALTER TABLE "job_account_meter_reservations" ADD CONSTRAINT "fk_job_account_meter_reservations_cycle" FOREIGN KEY ("cycle_id") REFERENCES "public"."job_collection_cycles"("id") ON DELETE restrict ON UPDATE no action;
+  ALTER TABLE "job_account_meter_reservations" ADD CONSTRAINT "fk_job_account_meter_reservations_cycle" FOREIGN KEY ("cycle_id") REFERENCES "job_collection_cycles"("id") ON DELETE restrict ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_account_meter_reservations" ADD CONSTRAINT "fk_job_account_meter_reservations_meter" FOREIGN KEY ("meter_id") REFERENCES "public"."job_account_meters"("id") ON DELETE restrict ON UPDATE no action;
+  ALTER TABLE "job_account_meter_reservations" ADD CONSTRAINT "fk_job_account_meter_reservations_meter" FOREIGN KEY ("meter_id") REFERENCES "job_account_meters"("id") ON DELETE restrict ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_account_meter_reservations" ADD CONSTRAINT "fk_job_account_meter_reservations_run" FOREIGN KEY ("run_id") REFERENCES "public"."job_collection_runs"("id") ON DELETE restrict ON UPDATE no action;
+  ALTER TABLE "job_account_meter_reservations" ADD CONSTRAINT "fk_job_account_meter_reservations_run" FOREIGN KEY ("run_id") REFERENCES "job_collection_runs"("id") ON DELETE restrict ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_account_meter_reservations" ADD CONSTRAINT "fk_job_account_meter_reservations_run_cycle" FOREIGN KEY ("run_id","cycle_id") REFERENCES "public"."job_collection_runs"("id","cycle_id") ON DELETE restrict ON UPDATE no action;
+  ALTER TABLE "job_account_meter_reservations" ADD CONSTRAINT "fk_job_account_meter_reservations_run_cycle" FOREIGN KEY ("run_id","cycle_id") REFERENCES "job_collection_runs"("id","cycle_id") ON DELETE restrict ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_collection_cycles" ADD CONSTRAINT "fk_job_collection_cycles_html_meter" FOREIGN KEY ("html_call_meter_id") REFERENCES "public"."job_account_meters"("id") ON DELETE set null ON UPDATE no action;
+  ALTER TABLE "job_collection_cycles" ADD CONSTRAINT "fk_job_collection_cycles_html_meter" FOREIGN KEY ("html_call_meter_id") REFERENCES "job_account_meters"("id") ON DELETE set null ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_collection_cycles" ADD CONSTRAINT "fk_job_collection_cycles_requested_by" FOREIGN KEY ("requested_by") REFERENCES "public"."users"("id") ON DELETE restrict ON UPDATE no action;
+  ALTER TABLE "job_collection_cycles" ADD CONSTRAINT "fk_job_collection_cycles_requested_by" FOREIGN KEY ("requested_by") REFERENCES "users"("id") ON DELETE restrict ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_collection_runs" ADD CONSTRAINT "fk_job_collection_runs_cycle" FOREIGN KEY ("cycle_id") REFERENCES "public"."job_collection_cycles"("id") ON DELETE restrict ON UPDATE no action;
+  ALTER TABLE "job_collection_runs" ADD CONSTRAINT "fk_job_collection_runs_cycle" FOREIGN KEY ("cycle_id") REFERENCES "job_collection_cycles"("id") ON DELETE restrict ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_collection_runs" ADD CONSTRAINT "fk_job_collection_runs_cycle_trigger" FOREIGN KEY ("cycle_id","trigger") REFERENCES "public"."job_collection_cycles"("id","trigger") ON DELETE restrict ON UPDATE no action;
+  ALTER TABLE "job_collection_runs" ADD CONSTRAINT "fk_job_collection_runs_cycle_trigger" FOREIGN KEY ("cycle_id","trigger") REFERENCES "job_collection_cycles"("id","trigger") ON DELETE restrict ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_collection_runs" ADD CONSTRAINT "fk_job_collection_runs_source" FOREIGN KEY ("source_id") REFERENCES "public"."job_sources"("id") ON DELETE restrict ON UPDATE no action;
+  ALTER TABLE "job_collection_runs" ADD CONSTRAINT "fk_job_collection_runs_source" FOREIGN KEY ("source_id") REFERENCES "job_sources"("id") ON DELETE restrict ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_dirty_work" ADD CONSTRAINT "fk_job_dirty_work_cycle" FOREIGN KEY ("cycle_id") REFERENCES "public"."job_collection_cycles"("id") ON DELETE restrict ON UPDATE no action;
+  ALTER TABLE "job_dirty_work" ADD CONSTRAINT "fk_job_dirty_work_cycle" FOREIGN KEY ("cycle_id") REFERENCES "job_collection_cycles"("id") ON DELETE restrict ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_opportunities" ADD CONSTRAINT "job_opportunities_description_sha256_job_text_blobs_sha256_fk" FOREIGN KEY ("description_sha256") REFERENCES "public"."job_text_blobs"("sha256") ON DELETE restrict ON UPDATE no action;
+  ALTER TABLE "job_opportunities" ADD CONSTRAINT "job_opportunities_description_sha256_job_text_blobs_sha256_fk" FOREIGN KEY ("description_sha256") REFERENCES "job_text_blobs"("sha256") ON DELETE restrict ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_opportunity_matches" ADD CONSTRAINT "job_opportunity_matches_opportunity_id_job_opportunities_id_fk" FOREIGN KEY ("opportunity_id") REFERENCES "public"."job_opportunities"("id") ON DELETE cascade ON UPDATE no action;
+  ALTER TABLE "job_opportunity_matches" ADD CONSTRAINT "job_opportunity_matches_opportunity_id_job_opportunities_id_fk" FOREIGN KEY ("opportunity_id") REFERENCES "job_opportunities"("id") ON DELETE cascade ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_opportunity_matches" ADD CONSTRAINT "job_opportunity_matches_senior_id_users_id_fk" FOREIGN KEY ("senior_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;
+  ALTER TABLE "job_opportunity_matches" ADD CONSTRAINT "job_opportunity_matches_senior_id_users_id_fk" FOREIGN KEY ("senior_id") REFERENCES "users"("id") ON DELETE cascade ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_opportunity_sources" ADD CONSTRAINT "fk_job_opportunity_sources_opportunity" FOREIGN KEY ("opportunity_id") REFERENCES "public"."job_opportunities"("id") ON DELETE restrict ON UPDATE no action;
+  ALTER TABLE "job_opportunity_sources" ADD CONSTRAINT "fk_job_opportunity_sources_opportunity" FOREIGN KEY ("opportunity_id") REFERENCES "job_opportunities"("id") ON DELETE restrict ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_opportunity_sources" ADD CONSTRAINT "fk_job_opportunity_sources_record" FOREIGN KEY ("source_record_id") REFERENCES "public"."job_source_records"("id") ON DELETE restrict ON UPDATE no action;
+  ALTER TABLE "job_opportunity_sources" ADD CONSTRAINT "fk_job_opportunity_sources_record" FOREIGN KEY ("source_record_id") REFERENCES "job_source_records"("id") ON DELETE restrict ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_opportunity_team_triage" ADD CONSTRAINT "fk_job_opportunity_team_triage_opportunity" FOREIGN KEY ("opportunity_id") REFERENCES "public"."job_opportunities"("id") ON DELETE cascade ON UPDATE no action;
+  ALTER TABLE "job_opportunity_team_triage" ADD CONSTRAINT "fk_job_opportunity_team_triage_opportunity" FOREIGN KEY ("opportunity_id") REFERENCES "job_opportunities"("id") ON DELETE cascade ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_opportunity_team_triage" ADD CONSTRAINT "job_opportunity_team_triage_assigned_by_users_id_fk" FOREIGN KEY ("assigned_by") REFERENCES "public"."users"("id") ON DELETE restrict ON UPDATE no action;
+  ALTER TABLE "job_opportunity_team_triage" ADD CONSTRAINT "job_opportunity_team_triage_assigned_by_users_id_fk" FOREIGN KEY ("assigned_by") REFERENCES "users"("id") ON DELETE restrict ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_opportunity_team_triage" ADD CONSTRAINT "job_opportunity_team_triage_team_id_teams_id_fk" FOREIGN KEY ("team_id") REFERENCES "public"."teams"("id") ON DELETE cascade ON UPDATE no action;
+  ALTER TABLE "job_opportunity_team_triage" ADD CONSTRAINT "job_opportunity_team_triage_team_id_teams_id_fk" FOREIGN KEY ("team_id") REFERENCES "teams"("id") ON DELETE cascade ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_queue_actions" ADD CONSTRAINT "fk_job_queue_actions_actor" FOREIGN KEY ("actor_id") REFERENCES "public"."users"("id") ON DELETE restrict ON UPDATE no action;
+  ALTER TABLE "job_queue_actions" ADD CONSTRAINT "fk_job_queue_actions_actor" FOREIGN KEY ("actor_id") REFERENCES "users"("id") ON DELETE restrict ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_queue_actions" ADD CONSTRAINT "fk_job_queue_actions_opportunity" FOREIGN KEY ("opportunity_id") REFERENCES "public"."job_opportunities"("id") ON DELETE restrict ON UPDATE no action;
+  ALTER TABLE "job_queue_actions" ADD CONSTRAINT "fk_job_queue_actions_opportunity" FOREIGN KEY ("opportunity_id") REFERENCES "job_opportunities"("id") ON DELETE restrict ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_queue_actions" ADD CONSTRAINT "fk_job_queue_actions_source_record" FOREIGN KEY ("source_record_id") REFERENCES "public"."job_source_records"("id") ON DELETE restrict ON UPDATE no action;
+  ALTER TABLE "job_queue_actions" ADD CONSTRAINT "fk_job_queue_actions_source_record" FOREIGN KEY ("source_record_id") REFERENCES "job_source_records"("id") ON DELETE restrict ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_queue_actions" ADD CONSTRAINT "fk_job_queue_actions_subject_team" FOREIGN KEY ("subject_team_id") REFERENCES "public"."teams"("id") ON DELETE restrict ON UPDATE no action;
+  ALTER TABLE "job_queue_actions" ADD CONSTRAINT "fk_job_queue_actions_subject_team" FOREIGN KEY ("subject_team_id") REFERENCES "teams"("id") ON DELETE restrict ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_queue_actions" ADD CONSTRAINT "fk_job_queue_actions_subject_user" FOREIGN KEY ("subject_user_id") REFERENCES "public"."users"("id") ON DELETE restrict ON UPDATE no action;
+  ALTER TABLE "job_queue_actions" ADD CONSTRAINT "fk_job_queue_actions_subject_user" FOREIGN KEY ("subject_user_id") REFERENCES "users"("id") ON DELETE restrict ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_queue_actions" ADD CONSTRAINT "fk_job_queue_actions_subscription" FOREIGN KEY ("subscription_id") REFERENCES "public"."job_team_triage_subscriptions"("id") ON DELETE restrict ON UPDATE no action;
+  ALTER TABLE "job_queue_actions" ADD CONSTRAINT "fk_job_queue_actions_subscription" FOREIGN KEY ("subscription_id") REFERENCES "job_team_triage_subscriptions"("id") ON DELETE restrict ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_queue_actions" ADD CONSTRAINT "fk_job_queue_actions_team" FOREIGN KEY ("team_id") REFERENCES "public"."teams"("id") ON DELETE restrict ON UPDATE no action;
+  ALTER TABLE "job_queue_actions" ADD CONSTRAINT "fk_job_queue_actions_team" FOREIGN KEY ("team_id") REFERENCES "teams"("id") ON DELETE restrict ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_queue_assignments" ADD CONSTRAINT "fk_job_queue_assignments_assignee" FOREIGN KEY ("assignee_id") REFERENCES "public"."users"("id") ON DELETE restrict ON UPDATE no action;
+  ALTER TABLE "job_queue_assignments" ADD CONSTRAINT "fk_job_queue_assignments_assignee" FOREIGN KEY ("assignee_id") REFERENCES "users"("id") ON DELETE restrict ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_queue_assignments" ADD CONSTRAINT "fk_job_queue_assignments_opportunity" FOREIGN KEY ("opportunity_id") REFERENCES "public"."job_opportunities"("id") ON DELETE cascade ON UPDATE no action;
+  ALTER TABLE "job_queue_assignments" ADD CONSTRAINT "fk_job_queue_assignments_opportunity" FOREIGN KEY ("opportunity_id") REFERENCES "job_opportunities"("id") ON DELETE cascade ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_queue_assignments" ADD CONSTRAINT "fk_job_queue_assignments_reassigned_by" FOREIGN KEY ("reassigned_by") REFERENCES "public"."users"("id") ON DELETE restrict ON UPDATE no action;
+  ALTER TABLE "job_queue_assignments" ADD CONSTRAINT "fk_job_queue_assignments_reassigned_by" FOREIGN KEY ("reassigned_by") REFERENCES "users"("id") ON DELETE restrict ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_queue_assignments" ADD CONSTRAINT "fk_job_queue_assignments_reassigned_from" FOREIGN KEY ("reassigned_from_id") REFERENCES "public"."users"("id") ON DELETE restrict ON UPDATE no action;
+  ALTER TABLE "job_queue_assignments" ADD CONSTRAINT "fk_job_queue_assignments_reassigned_from" FOREIGN KEY ("reassigned_from_id") REFERENCES "users"("id") ON DELETE restrict ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_queue_assignments" ADD CONSTRAINT "fk_job_queue_assignments_released_by" FOREIGN KEY ("released_by") REFERENCES "public"."users"("id") ON DELETE restrict ON UPDATE no action;
+  ALTER TABLE "job_queue_assignments" ADD CONSTRAINT "fk_job_queue_assignments_released_by" FOREIGN KEY ("released_by") REFERENCES "users"("id") ON DELETE restrict ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_queue_assignments" ADD CONSTRAINT "fk_job_queue_assignments_team" FOREIGN KEY ("team_id") REFERENCES "public"."teams"("id") ON DELETE restrict ON UPDATE no action;
+  ALTER TABLE "job_queue_assignments" ADD CONSTRAINT "fk_job_queue_assignments_team" FOREIGN KEY ("team_id") REFERENCES "teams"("id") ON DELETE restrict ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_queue_dismissals" ADD CONSTRAINT "fk_job_queue_dismissals_dismissed_by" FOREIGN KEY ("dismissed_by") REFERENCES "public"."users"("id") ON DELETE restrict ON UPDATE no action;
+  ALTER TABLE "job_queue_dismissals" ADD CONSTRAINT "fk_job_queue_dismissals_dismissed_by" FOREIGN KEY ("dismissed_by") REFERENCES "users"("id") ON DELETE restrict ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_queue_dismissals" ADD CONSTRAINT "fk_job_queue_dismissals_opportunity" FOREIGN KEY ("opportunity_id") REFERENCES "public"."job_opportunities"("id") ON DELETE cascade ON UPDATE no action;
+  ALTER TABLE "job_queue_dismissals" ADD CONSTRAINT "fk_job_queue_dismissals_opportunity" FOREIGN KEY ("opportunity_id") REFERENCES "job_opportunities"("id") ON DELETE cascade ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_queue_dismissals" ADD CONSTRAINT "fk_job_queue_dismissals_team" FOREIGN KEY ("team_id") REFERENCES "public"."teams"("id") ON DELETE cascade ON UPDATE no action;
+  ALTER TABLE "job_queue_dismissals" ADD CONSTRAINT "fk_job_queue_dismissals_team" FOREIGN KEY ("team_id") REFERENCES "teams"("id") ON DELETE cascade ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_queue_dismissals" ADD CONSTRAINT "fk_job_queue_dismissals_undone_by" FOREIGN KEY ("undone_by") REFERENCES "public"."users"("id") ON DELETE restrict ON UPDATE no action;
+  ALTER TABLE "job_queue_dismissals" ADD CONSTRAINT "fk_job_queue_dismissals_undone_by" FOREIGN KEY ("undone_by") REFERENCES "users"("id") ON DELETE restrict ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_queue_generation_entries" ADD CONSTRAINT "fk_job_queue_generation_entries_generation" FOREIGN KEY ("generation_id") REFERENCES "public"."job_queue_generations"("id") ON DELETE cascade ON UPDATE no action;
+  ALTER TABLE "job_queue_generation_entries" ADD CONSTRAINT "fk_job_queue_generation_entries_generation" FOREIGN KEY ("generation_id") REFERENCES "job_queue_generations"("id") ON DELETE cascade ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_queue_generation_entries" ADD CONSTRAINT "fk_job_queue_generation_entries_opportunity" FOREIGN KEY ("opportunity_id") REFERENCES "public"."job_opportunities"("id") ON DELETE cascade ON UPDATE no action;
+  ALTER TABLE "job_queue_generation_entries" ADD CONSTRAINT "fk_job_queue_generation_entries_opportunity" FOREIGN KEY ("opportunity_id") REFERENCES "job_opportunities"("id") ON DELETE cascade ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_queue_generations" ADD CONSTRAINT "fk_job_queue_generations_team" FOREIGN KEY ("team_id") REFERENCES "public"."teams"("id") ON DELETE cascade ON UPDATE no action;
+  ALTER TABLE "job_queue_generations" ADD CONSTRAINT "fk_job_queue_generations_team" FOREIGN KEY ("team_id") REFERENCES "teams"("id") ON DELETE cascade ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_source_record_revisions" ADD CONSTRAINT "fk_job_source_record_revisions_description" FOREIGN KEY ("description_sha256") REFERENCES "public"."job_text_blobs"("sha256") ON DELETE restrict ON UPDATE no action;
+  ALTER TABLE "job_source_record_revisions" ADD CONSTRAINT "fk_job_source_record_revisions_description" FOREIGN KEY ("description_sha256") REFERENCES "job_text_blobs"("sha256") ON DELETE restrict ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_source_record_revisions" ADD CONSTRAINT "fk_job_source_record_revisions_record" FOREIGN KEY ("source_record_id") REFERENCES "public"."job_source_records"("id") ON DELETE cascade ON UPDATE no action;
+  ALTER TABLE "job_source_record_revisions" ADD CONSTRAINT "fk_job_source_record_revisions_record" FOREIGN KEY ("source_record_id") REFERENCES "job_source_records"("id") ON DELETE cascade ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_source_records" ADD CONSTRAINT "fk_job_source_records_latest_revision" FOREIGN KEY ("latest_revision_id") REFERENCES "public"."job_source_record_revisions"("id") ON DELETE set null ON UPDATE no action;
+  ALTER TABLE "job_source_records" ADD CONSTRAINT "fk_job_source_records_latest_revision" FOREIGN KEY ("latest_revision_id") REFERENCES "job_source_record_revisions"("id") ON DELETE set null ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_sources" ADD CONSTRAINT "fk_job_sources_account_meter" FOREIGN KEY ("account_meter_id") REFERENCES "public"."job_account_meters"("id") ON DELETE set null ON UPDATE no action;
+  ALTER TABLE "job_sources" ADD CONSTRAINT "fk_job_sources_account_meter" FOREIGN KEY ("account_meter_id") REFERENCES "job_account_meters"("id") ON DELETE set null ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_team_triage_subscriptions" ADD CONSTRAINT "fk_job_team_triage_subscriptions_actor" FOREIGN KEY ("actor_id") REFERENCES "public"."users"("id") ON DELETE restrict ON UPDATE no action;
+  ALTER TABLE "job_team_triage_subscriptions" ADD CONSTRAINT "fk_job_team_triage_subscriptions_actor" FOREIGN KEY ("actor_id") REFERENCES "users"("id") ON DELETE restrict ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_team_triage_subscriptions" ADD CONSTRAINT "fk_job_team_triage_subscriptions_revoked_by" FOREIGN KEY ("revoked_by") REFERENCES "public"."users"("id") ON DELETE restrict ON UPDATE no action;
+  ALTER TABLE "job_team_triage_subscriptions" ADD CONSTRAINT "fk_job_team_triage_subscriptions_revoked_by" FOREIGN KEY ("revoked_by") REFERENCES "users"("id") ON DELETE restrict ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE "job_team_triage_subscriptions" ADD CONSTRAINT "fk_job_team_triage_subscriptions_team" FOREIGN KEY ("team_id") REFERENCES "public"."teams"("id") ON DELETE cascade ON UPDATE no action;
+  ALTER TABLE "job_team_triage_subscriptions" ADD CONSTRAINT "fk_job_team_triage_subscriptions_team" FOREIGN KEY ("team_id") REFERENCES "teams"("id") ON DELETE cascade ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
