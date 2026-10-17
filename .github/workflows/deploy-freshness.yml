@@ -1,0 +1,44 @@
+name: Deploy Freshness
+
+# 2026-10-17 — `Deploy` failed 16 times in a row over four days (apps/api/Dockerfile
+# never built the new @crm/inference package); prod silently stayed on the
+# pre-10-13 image. deploy-alert.yml reacts via `workflow_run` and did fire for
+# the 6 push-triggered failures, but NOT for the 10-11 failures that
+# auto-merge-on-label.yml dispatched as github-actions[bot], and its channel
+# is an issue in a private repo. This workflow is the independent second leg:
+# it polls the run history, so it does not care how a run was triggered, and a
+# failing scheduled run is surfaced by GitHub itself (red run + the
+# "workflow failed" notification). No secrets needed.
+#
+# Cost: one step, ~10 s, every 3 hours. No extra jobs (golden rule #4).
+# Logic + exit codes: scripts/devops/check-deploy-freshness.sh (tested).
+on:
+  schedule:
+    # Off the hour (shared runner pool), every 3 hours.
+    - cron: '23 */3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-freshness-${{ github.event_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  check:
+    name: Newest Deploy run on main is not red
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Fail loudly if Deploy has been red for more than the grace window
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: scripts/devops/check-deploy-freshness.sh
