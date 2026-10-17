@@ -37,7 +37,78 @@ bash scripts/check-lessons-cap.sh || true
 # merge-base unresolvable, and now the dependency/build-config case a diff
 # below adds) — one function, three callers, instead of three copies that
 # could drift out of sync with each other.
+# ensure_node -- run the gate on the project's canonical Node, never on whatever
+# `node` the calling shell happens to have first on PATH (2026-10-17).
+#
+# Incident: two coder agents lost several push attempts each. The hook ran on the
+# sandbox default (Node 20.15.1) and `@crm/shared` + `@crm/api` failed on every
+# uk-catalog spec: packages/shared/src/i18n/catalog.ts loads the compiled
+# `messages.ts` via `require('<path>.ts')`, which only works with Node >= 22's
+# built-in type stripping (".nvmrc" = 22; "engines" = ">=22.19 <23"; rationale in
+# .claude/rules/common/version-pins.md). On Node 20 that is "SyntaxError: Cannot use
+# import statement outside a module". The "workaround" (warm the turbo cache from
+# a Node 22 shell, then push "from cache") worked for a reason that is itself a
+# hazard: turbo's task hash does NOT include the Node version, so a pass cached
+# under Node 22 replays as a hit under Node 20 -- measured, identical hash
+# b51541a6e1d5a75f on both. Pinning the runtime here removes the need for it.
+#
+# Behaviour: (1) node already satisfies .nvmrc major + engines minimum -> nothing
+# to do. (2) otherwise look for a satisfying install under nvm's standard layout
+# ("${NVM_DIR:-$HOME/.nvm}/versions/node/v<major>.*", derived from the
+# environment, nothing machine-specific committed), prepend it to PATH and SAY SO.
+# (3) otherwise REFUSE with an actionable message. There is deliberately no silent
+# fallback to the wrong Node and no escape-hatch variable: a loud refusal is the
+# acceptable failure mode, a green gate on the wrong runtime is not.
+#
+# Called lazily (from run_full_suite and before the first scoped turbo call), not
+# at the top of the file, so a docs-only push -- which needs no node at all --
+# is never refused over a toolchain it does not use.
+node_ok() {
+  nv="${1#v}"
+  nmaj="${nv%%.*}"
+  nrest="${nv#*.}"
+  nmin="${nrest%%.*}"
+  case "$nmaj$nmin" in *[!0-9]* | "") return 1 ;; esac
+  [ "$nmaj" = "$want_major" ] && [ "$nmin" -ge "${want_minor:-0}" ]
+}
+
+ensure_node() {
+  want_major="$(sed -n '1s/^v\{0,1\}\([0-9][0-9]*\).*/\1/p' .nvmrc 2>/dev/null || true)"
+  if [ -z "$want_major" ]; then
+    echo "pre-push: cannot read the required Node major from .nvmrc (run the push from the repo root)" >&2
+    exit 1
+  fi
+  want_minor="$(sed -n 's/.*">=\{0,1\}'"$want_major"'\.\([0-9][0-9]*\).*/\1/p' package.json 2>/dev/null | head -n 1 || true)"
+  cur="$(node -v 2>/dev/null || true)"
+  if node_ok "$cur"; then
+    return 0
+  fi
+  nvm_root="${NVM_DIR:-$HOME/.nvm}/versions/node"
+  # Sorted on the bare "v22.<minor>.<patch>" name, newest first -- never on the
+  # full path, whose own dots (e.g. /Users/first.last) would shift the sort keys.
+  cand="$( (cd "$nvm_root" 2>/dev/null && ls -d v"$want_major".* 2>/dev/null) | sort -t. -k2,2nr -k3,3nr | while IFS= read -r d; do
+    if [ -x "$nvm_root/$d/bin/node" ] && node_ok "$("$nvm_root/$d/bin/node" -v 2>/dev/null)"; then
+      echo "$nvm_root/$d/bin"
+      break
+    fi
+  done)"
+  if [ -n "$cand" ]; then
+    echo "pre-push: node ${cur:-<none>} on PATH does not satisfy Node ${want_major}.${want_minor:-0}+ (.nvmrc / engines); using $cand for this push"
+    PATH="$cand:$PATH"
+    export PATH
+    hash -r 2>/dev/null || true
+    if node_ok "$(node -v 2>/dev/null || true)"; then
+      return 0
+    fi
+  fi
+  echo "pre-push: REFUSING to run the gate -- node ${cur:-<none>} on PATH does not satisfy Node ${want_major}.${want_minor:-0}+ (.nvmrc / package.json engines)." >&2
+  echo "pre-push: on the wrong Node the uk-catalog specs in @crm/shared and @crm/api fail with 'Cannot use import statement outside a module'." >&2
+  echo "pre-push: install and select it, then push again:  nvm install ${want_major} && nvm use ${want_major}   (or put a Node ${want_major} bin dir first on PATH)" >&2
+  exit 1
+}
+
 run_full_suite() {
+  ensure_node
   pnpm typecheck
   # Run packages sequentially so each vitest worker gets full CPU budget.
   # Parallel fork-pools (shared + api + web) competed for CPU under load,
@@ -118,6 +189,7 @@ fi
 # common cross-package regression there is -- a changed shared type breaking
 # every package that consumes it -- which is exactly the class worth paying
 # for locally before a push.
+ensure_node
 pnpm exec turbo run typecheck --filter="...[$base]" --concurrency=1
 
 # TEST uses "[$base]" (changed packages ONLY, no leading "..." -> no
