@@ -491,7 +491,9 @@ function resolveNodePin({ execPath = process.execPath, env = process.env, cwd = 
   if (probe.error || probe.status !== 0) {
     return {
       action: 'refuse',
-      message: (notice.trim() || String(probe.error ?? `probe exited ${probe.status}`)).trim(),
+      message: (notice.trim() || String(probe.error ?? `probe exited ${probe.status}`))
+        .replace(/^mutation-gate: /gm, '')
+        .trim(),
     }
   }
   const [nodePath, pinnedPath] = (probe.stdout ?? '').split('\n').filter(Boolean)
@@ -509,19 +511,56 @@ function resolveNodePin({ execPath = process.execPath, env = process.env, cwd = 
   return { action: 'reexec', node: nodePath, path: pinnedPath, notice }
 }
 
+/**
+ * Returns 'continue' when this process may go on to main(); returns 'reexec' when a
+ * child under the pinned node has taken over (the parent must NOT run main() -- the
+ * child's exit code becomes the parent's); exits 2 (fail) when no acceptable node exists.
+ *
+ * MUTATION_GATE_NODE_PINNED=1 marks "this process was already re-executed under the
+ * node the lib chose". It is NOT a bypass: the running node is still judged, and the
+ * only accepted answer is 'continue'. A preset variable on a wrong Node (or a child
+ * that somehow still runs on one) therefore refuses, with the reason, instead of either
+ * running unpinned or re-executing forever.
+ *
+ * Re-exec details, each deliberate:
+ *   - async spawn (not spawnSync) so SIGINT / SIGTERM / SIGHUP reach the child. A parent
+ *     killed with a catchable signal no longer orphans a Node 22 Stryker run. SIGKILL
+ *     cannot be intercepted by any process; that residual case is the harness's
+ *     process-group cleanup, not something this file can close.
+ *   - process.execArgv is forwarded, so `node --max-old-space-size=... mutation-gate.mjs`
+ *     keeps its flags under the pinned node.
+ *   - a spawn failure or a signal-killed child is reported by name and exits 2 (the
+ *     gate's "could not run" contract), never a bare exit with no message.
+ */
 function pinNodeOrExit(opts = {}) {
-  // The re-executed child was already resolved by the lib; do not loop.
-  if ((opts.env ?? process.env).MUTATION_GATE_NODE_PINNED === '1') return
+  const env = opts.env ?? process.env
   const pin = resolveNodePin(opts)
+  if (env.MUTATION_GATE_NODE_PINNED === '1') {
+    if (pin.action === 'continue') return 'continue'
+    if (pin.action === 'reexec') {
+      const found = (pin.notice ?? '').replace(/^mutation-gate: /gm, '').split('\n')[0]
+      fail(
+        `MUTATION_GATE_NODE_PINNED=1 is set but the running node is not acceptable (${found}); ` +
+          'refusing instead of re-executing again.',
+      )
+    }
+    fail(pin.message)
+  }
   if (pin.action === 'refuse') fail(pin.message)
   if (pin.notice) process.stderr.write(pin.notice)
-  if (pin.action === 'reexec') {
-    const child = spawnSync(pin.node, [process.argv[1], ...process.argv.slice(2)], {
-      stdio: 'inherit',
-      env: { ...(opts.env ?? process.env), PATH: pin.path, MUTATION_GATE_NODE_PINNED: '1' },
-    })
-    process.exit(child.status ?? 2)
-  }
+  if (pin.action === 'continue') return 'continue'
+
+  const child = spawn(pin.node, [...process.execArgv, process.argv[1], ...process.argv.slice(2)], {
+    stdio: 'inherit',
+    env: { ...env, PATH: pin.path, MUTATION_GATE_NODE_PINNED: '1' },
+  })
+  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => child.kill(sig))
+  child.on('error', (err) => fail(`could not start ${pin.node}: ${err.message}`))
+  child.on('exit', (code, signal) => {
+    if (signal) fail(`${pin.node} was terminated by ${signal}`)
+    process.exit(code ?? 2)
+  })
+  return 'reexec'
 }
 
 function summary(lines) {
@@ -1635,11 +1674,14 @@ function budgetExceeded(pkg, budgetSeconds, elapsedMs, perPackage) {
 // file.
 const isMain = process.argv[1] && import.meta.url === `file://${process.argv[1]}`
 if (isMain) {
-  pinNodeOrExit()
-  main().then(
-    (code) => process.exit(code),
-    (err) => fail(`unexpected failure: ${err?.stack ?? err}`),
-  )
+  // 'reexec': a child under the pinned node owns the run and the exit code, so the
+  // parent must not also run main().
+  if (pinNodeOrExit() === 'continue') {
+    main().then(
+      (code) => process.exit(code),
+      (err) => fail(`unexpected failure: ${err?.stack ?? err}`),
+    )
+  }
 }
 
 export {

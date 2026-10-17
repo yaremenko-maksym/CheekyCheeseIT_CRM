@@ -136,10 +136,135 @@ assert_green "running node v22.23.1 -> action continue, nothing re-executed" \
   --contains "ACTION=continue" \
   -- resolve_pin "$N22" "$(make_repo r6)" "$NO_NVM"
 
-# 7 -- the loop guard: the re-executed child was already resolved by the lib and must
-# not probe again (it would fail only if the pin recursed forever).
-assert_green "MUTATION_GATE_NODE_PINNED=1 -> the pin steps aside (re-exec loop guard)" \
+# 7 -- the loop guard is NOT a bypass (CR-M-1): MUTATION_GATE_NODE_PINNED=1 means "the
+# lib already chose this node", so a wrong running node under it must refuse, never run
+# unpinned and never re-execute again.
+assert_red "MUTATION_GATE_NODE_PINNED=1 on a v20 running node -> refuses (the guard is not a bypass)" \
+  --contains "MUTATION_GATE_NODE_PINNED=1 is set" \
+  --contains "v20.15.1" \
+  --not-contains "RETURNED" \
+  -- run_pin "$N20" "$(make_repo r7)" "$NVM_OK" ", MUTATION_GATE_NODE_PINNED: '1'"
+
+assert_green "MUTATION_GATE_NODE_PINNED=1 on an acceptable running node -> continues (the re-executed child)" \
   --contains "RETURNED" \
-  -- run_pin "$N20" "$(make_repo r7)" "$NO_NVM" ", MUTATION_GATE_NODE_PINNED: '1'"
+  -- run_pin "$N22" "$(make_repo r7b)" "$NO_NVM" ", MUTATION_GATE_NODE_PINNED: '1'"
+
+# ---------------------------------------------------------------------------
+# Cases 8-14 run mutation-gate.mjs AS A SCRIPT (CR-M-2 / SPEC-M-1). Cases 1-7 call the
+# exported functions, so deleting the pinNodeOrExit() call inside `if (isMain)` -- the
+# line that IS the fix -- left all of them green. These execute the file the way the
+# harness hook does: `node mutation-gate.mjs --changed`.
+#
+# The "running node" must be a real executable whose process.execPath sits in a
+# directory we control, so the probe's `node -v` sees OUR shim: <dir>/real-node is a
+# copy of the host node (a copy, not a symlink -- execPath is the resolved path on
+# Linux), and <dir>/node is a shim that reports a chosen version for `-v` and otherwise
+# execs real-node.
+# ---------------------------------------------------------------------------
+make_script_node() {
+  local dir="$1" version="$2"
+  mkdir -p "$dir"
+  cp "$(command -v node)" "$dir/real-node"
+  cat >"$dir/node" <<SHIM
+#!/bin/sh
+case "\$1" in
+  -v) echo $version ;;
+  *) exec "\$(dirname "\$0")/real-node" "\$@" ;;
+esac
+SHIM
+  chmod +x "$dir/node"
+}
+
+# An nvm layout whose v22.23.1 "node" answers -v, and otherwise runs the given shell body
+# (it plays the re-executed child).
+make_child_nvm() {
+  local root="$1" body="$2" bin="$1/versions/node/v22.23.1/bin"
+  mkdir -p "$bin"
+  cat >"$bin/node" <<SHIM
+#!/bin/sh
+if [ "\$1" = "-v" ]; then echo v22.23.1; exit 0; fi
+$body
+SHIM
+  chmod +x "$bin/node"
+  # A real nvm bin carries the pnpm installed under that node; the shared lib verifies it
+  # against package.json's packageManager pin after a switch (the #1016 shadowing guard).
+  printf '#!/bin/sh\necho 7.32.4\n' >"$bin/pnpm"
+  chmod +x "$bin/pnpm"
+}
+
+S20="$WS/script-node20"
+make_script_node "$S20" v20.15.1
+
+# run_gate <running-node-dir> <NVM_DIR> [VAR=value ...] [-- node-flags...]
+run_gate() {
+  local dir="$1" nvm="$2"
+  shift 2
+  local envs=() flags=()
+  while [ $# -gt 0 ]; do
+    if [ "$1" = "--" ]; then
+      shift
+      flags=("$@")
+      break
+    fi
+    envs+=("$1")
+    shift
+  done
+  env -i PATH="$dir:/usr/bin:/bin" HOME="$HOME" NVM_DIR="$nvm" ${envs[@]+"${envs[@]}"} \
+    "$dir/node" ${flags[@]+"${flags[@]}"} "$GATE" --changed
+}
+
+# 8 -- the incident as the harness hook runs it: a v20 running node, no v22 anywhere ->
+# exit 2, both versions named, and no doubled "mutation-gate:" prefix (CR-L-2).
+assert_red "[script] v20 running node, no v22 install -> exits non-zero naming both versions" \
+  --contains "::error::mutation-gate: REFUSING" \
+  --contains "v20.15.1" \
+  --contains "22.19" \
+  --not-contains "mutation-gate: mutation-gate" \
+  -- run_gate "$S20" "$NO_NVM"
+
+# 9 -- the switch: v20 running + a v22 shim that exits 7 -> the switch line is printed
+# and the parent's exit code IS the child's.
+NVM_EXIT7="$WS/nvm-exit7"
+make_child_nvm "$NVM_EXIT7" 'echo "CHILD-RAN pinned=$MUTATION_GATE_NODE_PINNED"; exit 7'
+assert_red "[script] v20 + a v22 child that exits 7 -> switch line printed, child ran, exit code is the child's" \
+  --contains "using $NVM_EXIT7/versions/node/v22.23.1/bin for this run" \
+  --contains "CHILD-RAN pinned=1" \
+  -- run_gate "$S20" "$NVM_EXIT7"
+
+# 9b -- the exit code itself must be 7, not merely non-zero.
+code_is() {
+  local want="$1"
+  shift
+  "$@" >/dev/null 2>&1
+  local got=$?
+  echo "EXIT=$got"
+  [ "$got" = "$want" ]
+}
+assert_green "[script] the parent exits with the child's code (7), not 0 / 1 / 2" \
+  --contains "EXIT=7" \
+  -- code_is 7 run_gate "$S20" "$NVM_EXIT7"
+
+# 10 -- argv and execArgv reach the child.
+NVM_ARGS="$WS/nvm-args"
+make_child_nvm "$NVM_ARGS" 'echo "CHILD-ARGS $*"; exit 0'
+assert_green "[script] the child receives the script path, --changed and the parent's node flags" \
+  --contains "CHILD-ARGS --max-old-space-size=123" \
+  --contains "mutation-gate.mjs --changed" \
+  -- run_gate "$S20" "$NVM_ARGS" -- --max-old-space-size=123
+
+# 11 -- a catchable signal sent to the parent reaches the child (no orphaned Node 22
+# Stryker run). The child signals ITS parent, then waits for the forwarded TERM.
+NVM_SIG="$WS/nvm-sig"
+make_child_nvm "$NVM_SIG" 'trap "echo CHILD-GOT-TERM; exit 9" TERM; kill -TERM $PPID; sleep 5 & wait $!; echo CHILD-NOT-SIGNALLED; exit 0'
+assert_red "[script] SIGTERM to the parent is forwarded to the child" \
+  --contains "CHILD-GOT-TERM" \
+  --not-contains "CHILD-NOT-SIGNALLED" \
+  -- run_gate "$S20" "$NVM_SIG"
+
+# 12 -- the loop guard on the real script: a preset guard on a wrong running node refuses.
+assert_red "[script] MUTATION_GATE_NODE_PINNED=1 preset on a v20 running node -> refuses, child never runs" \
+  --contains "MUTATION_GATE_NODE_PINNED=1 is set" \
+  --not-contains "CHILD-RAN" \
+  -- run_gate "$S20" "$NVM_EXIT7" MUTATION_GATE_NODE_PINNED=1
 
 guard_test_summary "test-mutation-gate-node-pin.sh"
