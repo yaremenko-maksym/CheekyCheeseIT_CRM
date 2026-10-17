@@ -181,7 +181,85 @@ are invisible until production.
 
 ### 3. The append-only audit log under the new model
 
-TODO
+Applies to `job_queue_actions` and to every future class B table. Task 1.3 implements from this
+text; everything below is stated as a property the schema **delivers** and a test that proves it,
+because a guarantee without its test is the failure mode of the previous PR on this feature.
+
+**Layer 1 — privileges (binds `crm_app`, `crm_collector`; does not bind `crm_user`).**
+`crm_app` holds `SELECT, INSERT` only. `UPDATE`, `DELETE` and `TRUNCATE` are revoked explicitly
+(`REVOKE UPDATE, DELETE, TRUNCATE ON job_queue_actions FROM crm_app`) — explicit because the
+default privileges of §2 grant `UPDATE, DELETE` to every new table. `crm_collector` holds nothing
+on the log unless r5 names a reason. Consequences for application code: idempotent writes use
+`INSERT … ON CONFLICT DO NOTHING` (needs `INSERT` only); `ON CONFLICT DO UPDATE` needs `UPDATE`
+and is therefore refused — by design.
+
+**Layer 2 — triggers (binds every role that does not disable them, superuser included).**
+
+- A `BEFORE UPDATE OR DELETE … FOR EACH ROW` trigger that raises an exception unconditionally.
+- A `BEFORE TRUNCATE … FOR EACH STATEMENT` trigger that raises. A row-level `DELETE` trigger does
+  **not** fire on `TRUNCATE`; without this second trigger, `TRUNCATE` empties the log silently.
+- Both set to `ENABLE ALWAYS` (`ALTER TABLE … ENABLE ALWAYS TRIGGER …`). A trigger in the default
+  state is skipped when `session_replication_role = replica`; an `ALWAYS` trigger fires in every
+  mode. This removes the replication-role bypass even for a superuser who has not touched the
+  trigger itself.
+- The exception carries a dedicated SQLSTATE and message, so a test can tell "refused by the
+  trigger" from "refused by a privilege" (SQLSTATE `42501`).
+
+**Layer 3 — foreign keys out of the log.** Every FK **from** a class B table uses `ON DELETE
+RESTRICT` (or `NO ACTION`) and `ON UPDATE NO ACTION` — never `CASCADE`, `SET NULL` or `SET
+DEFAULT`. The reason is exact: referential actions run with the privileges of the table's
+**owner**, not of the role that deleted the parent row. A cascading FK would let `crm_app` delete
+or rewrite log rows by deleting a parent it is allowed to delete; layer 1 would not see it. Layer 2
+would still fire (row triggers fire for rows changed by referential actions) and refuse the whole
+statement — loud, but it turns an ordinary parent delete into an error at runtime. `RESTRICT` makes
+the same refusal a declared, testable part of the schema. PR #1017 already declares the actor FKs
+`restrict`; Task 1.3 must hold every FK on the log to this rule.
+
+**What the three layers guarantee, by actor.** "Refused" means the statement fails and no row
+changes.
+
+| Actor                                                                                     | Can it UPDATE / DELETE a log row?                                                                              | TRUNCATE?              | Disable or drop a trigger?                                                                                                            | Forge a new row?          |
+| ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| A bug in API code (`crm_app`, ORM SQL)                                                    | Refused by layer 1; layer 2 refuses even if a grant is wrongly added                                           | Refused (layers 1 + 2) | No — not the owner                                                                                                                    | **Yes** — it has `INSERT` |
+| SQL injection / compromised API process (`crm_app`, arbitrary SQL)                        | Refused (layers 1 + 2; layer 3 closes the cascade path)                                                        | Refused                | No — not the owner, no membership in `crm_user`, not a superuser, and `crm_user`'s password is not in its environment after §4 step 5 | **Yes**                   |
+| Collector process (`crm_collector`)                                                       | Refused — no grant                                                                                             | Refused                | No                                                                                                                                    | No — no `INSERT`          |
+| Deploy DDL / anyone holding `crm_user`                                                    | **Not protected.** Can `DISABLE TRIGGER` or `DROP TRIGGER` (owner), then `UPDATE` / `DELETE`; can `DROP TABLE` | **Not protected**      | **Yes**                                                                                                                               | Yes                       |
+| Superuser / anyone with shell on the VPS (`docker exec` reaches the trusted local socket) | **Not protected**                                                                                              | **Not protected**      | **Yes**                                                                                                                               | Yes                       |
+
+What remains unprotected, stated so that nobody documents more than the schema delivers:
+
+1. **Nothing in the database protects the log from `crm_user`.** Ownership alone suffices to
+   disable the triggers; demoting `crm_user` from superuser would not change this. The protection
+   against the migration role is **procedural and detective only**: DDL reaches production only as
+   reviewed files applied by `deploy.yml`; the nightly `pg_dump` keeps earlier copies of the log.
+2. **Append-only is not authenticity.** `crm_app` can insert a row with any actor, kind and reason
+   that passes the table's `CHECK` constraints. The log proves "nothing written was later changed
+   through the API's credential", not "every row is true". Tamper evidence (hash chaining,
+   external anchoring) is out of scope.
+3. **Insert volume is not bounded** by these layers (a compromised API can flood the log); that is
+   a rate-limit concern, not an immutability one.
+4. **Retention of class B rows** — if r5 Task 1.4 ever requires deleting old action rows, that
+   deletion is a reviewed migration-role operation (a DDL file that disables the trigger, deletes,
+   and re-enables it inside one transaction). The application never receives `DELETE` on the log.
+
+**Tests that prove the layers** (AutoTest zone; Task 1.3 replaces the "GAP PIN" test of PR #1017
+with these). Each layer needs its own test, run as the role it is about — a test run as `crm_user`
+proves the trigger and **nothing** about privileges:
+
+| Test                                                             | Connects as                  | Expect                                                             |
+| ---------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------ |
+| `UPDATE` / `DELETE` of a log row                                 | `crm_app`                    | SQLSTATE `42501` (privilege)                                       |
+| `UPDATE` / `DELETE` of a log row                                 | `crm_user`                   | the trigger's SQLSTATE (trigger fires for the owner while enabled) |
+| `TRUNCATE`                                                       | `crm_user`                   | the trigger's SQLSTATE                                             |
+| `UPDATE` under `SET session_replication_role = replica`          | `crm_user` (superuser in CI) | the trigger's SQLSTATE — proves `ENABLE ALWAYS`                    |
+| Delete a parent row referenced by a log row                      | `crm_app`                    | FK violation (`23503`), log row intact                             |
+| `ALTER TABLE … DISABLE TRIGGER`                                  | `crm_app`                    | `42501` (must be owner)                                            |
+| `INSERT … ON CONFLICT DO NOTHING` on a duplicate idempotency key | `crm_app`                    | succeeds, no new row                                               |
+
+Confidence **HIGH** on every PostgreSQL behaviour above (documented in the PostgreSQL 16 manual:
+`CREATE TRIGGER` — truncate triggers; `ALTER TABLE` — `ENABLE ALWAYS`, ownership for `DISABLE
+TRIGGER`; `INSERT` — privileges for `ON CONFLICT`). The implementing task re-proves each with the
+tests above rather than citing this ADR.
 
 ### 4. Rollout without downtime
 
