@@ -959,6 +959,15 @@ describe('jobSourceHealthSchema — disabled, paused and readiness-blocked are s
     refusedAt(jobSourceHealthSchema, { ...health, manifestId: 'JSearch:Main' }, ['manifestId'])
     refusedAt(jobSourceHealthSchema, { ...health, manifestId: 'https://x/y' }, ['manifestId'])
     refusedAt(jobSourceHealthSchema, { ...health, manifestId: '.leading-dot' }, ['manifestId'])
+    // The refusal names the FIELD, not "account id": the two schemas share one
+    // declaration and only the noun differs, so without this the noun is
+    // unobserved — a mutant blanking it passed every other case here.
+    const refused = jobSourceHealthSchema.safeParse({ ...health, manifestId: 'JSearch:Main' })
+    expect(refused.success).toBe(false)
+    if (refused.success) return
+    expect(refused.error.issues.map((i) => i.message)).toContain(
+      'must be a short lowercase manifest id without secrets',
+    )
   })
 
   it('requires a stated reason before a source may be BLOCKED', () => {
