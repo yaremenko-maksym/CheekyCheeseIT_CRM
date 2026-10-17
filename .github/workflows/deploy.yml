@@ -653,6 +653,8 @@ jobs:
             apps/api/drizzle/manual/2026-10-05_vacancy_sourcing_schema.sql \
             apps/api/drizzle/manual/2026-10-05_vacancy_sources_seed.sql \
             apps/api/drizzle/manual/2026-10-07_meeting_recorder_integration.sql \
+            apps/api/drizzle/manual/2026-10-17_job_opportunities_store.sql \
+            apps/api/drizzle/manual/2026-10-17_job_opportunities_store_indexes.sql \
             scripts/devops/check-security-headers.sh \
             scripts/devops/check-nginx-perimeter.sh \
             scripts/devops/pg-backup.sh \
@@ -2315,6 +2317,30 @@ jobs:
           target: '/opt/crm'
           # apps/api/drizzle/manual/2026-10-07_meeting_recorder_integration.sql
           #   → /opt/crm/apps/api/drizzle/manual/2026-10-07_meeting_recorder_integration.sql
+
+      # ── job opportunities store: part 1 (types/tables/FKs) THEN part 2 (indexes) ──
+
+      - name: Copy job opportunities store DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-10-17_job_opportunities_store.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-10-17_job_opportunities_store.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-10-17_job_opportunities_store.sql
+
+      - name: Copy job opportunities store indexes DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-10-17_job_opportunities_store_indexes.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-10-17_job_opportunities_store_indexes.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-10-17_job_opportunities_store_indexes.sql
 
       # Multipart salary changes one invariant in two deploy phases. The prepare
       # migration is backward-compatible with the currently-running API; the
@@ -4199,6 +4225,53 @@ jobs:
               psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
               < "$MEETING_RECORDER_INTEGRATION_FILE"
             echo "==> meeting recorder integration DDL applied successfully"
+
+            # ── job opportunities store: part 1 (enum types, tables, job_sources extension, FKs) ──
+            # MUST run strictly before part 2 (the indexes reference these tables).
+            # Bare `psql -v ON_ERROR_STOP=1 < file` (no `-1`): statement-level autocommit.
+
+            # Source: apps/api/drizzle/manual/2026-10-17_job_opportunities_store.sql
+            JOB_OPPORTUNITIES_STORE_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-17_job_opportunities_store.sql"
+
+            if [ ! -f "$JOB_OPPORTUNITIES_STORE_FILE" ]; then
+              echo "ERROR: DDL file not found at $JOB_OPPORTUNITIES_STORE_FILE — scp-action may have flattened the tree."
+              ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+              exit 1
+            fi
+
+            echo "==> Applying job opportunities store DDL (idempotent) — user=${PGUSER} db=${PGDB}"
+            docker compose \
+              -f docker-compose.prod.yml \
+              -f docker-compose.ghcr.yml \
+              --env-file .env.production \
+              exec -T postgres \
+              psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+              < "$JOB_OPPORTUNITIES_STORE_FILE"
+            echo "==> job opportunities store DDL applied successfully"
+
+            # ── job opportunities store: part 2 (indexes, CREATE INDEX CONCURRENTLY) ──
+            # CONCURRENTLY cannot run inside a transaction block; this invocation has no
+            # `-1`/`--single-transaction`, so each statement autocommits and it is safe.
+            # The file's BEGIN is a plpgsql DO block, not a transaction.
+
+            # Source: apps/api/drizzle/manual/2026-10-17_job_opportunities_store_indexes.sql
+            JOB_OPPORTUNITIES_STORE_INDEXES_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-17_job_opportunities_store_indexes.sql"
+
+            if [ ! -f "$JOB_OPPORTUNITIES_STORE_INDEXES_FILE" ]; then
+              echo "ERROR: DDL file not found at $JOB_OPPORTUNITIES_STORE_INDEXES_FILE — scp-action may have flattened the tree."
+              ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+              exit 1
+            fi
+
+            echo "==> Applying job opportunities store indexes (CONCURRENTLY, idempotent) — user=${PGUSER} db=${PGDB}"
+            docker compose \
+              -f docker-compose.prod.yml \
+              -f docker-compose.ghcr.yml \
+              --env-file .env.production \
+              exec -T postgres \
+              psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+              < "$JOB_OPPORTUNITIES_STORE_INDEXES_FILE"
+            echo "==> job opportunities store indexes applied successfully"
 
             # ── multipart salary: PREPARE while the previous API may still serve ──
             # Adds salary_origin + the durable cron marker and backfills existing
