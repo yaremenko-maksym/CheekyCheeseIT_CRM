@@ -827,6 +827,15 @@ export const jobQueueAssignmentWorkerSchema = jobQueueAssignmentFields.superRefi
       path: ['releasedBy'],
     })
   }
+  // One direction only: a release reason is optional, but a TAKEN row (a
+  // re-take included) must not keep the previous holder's reason.
+  if (!releasedState && a.releaseReason !== null) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'only a RELEASED assignment carries a release reason',
+      path: ['releaseReason'],
+    })
+  }
   const all = a.reassignedAt !== null && a.reassignedBy !== null && a.reassignedFromId !== null
   const none = a.reassignedAt === null && a.reassignedBy === null && a.reassignedFromId === null
   if (!all && !none) {

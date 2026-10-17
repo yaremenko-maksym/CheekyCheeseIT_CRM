@@ -445,3 +445,43 @@ export const jobDirtyWorkStatusEnum = pgEnum('job_dirty_work_status', [
   'FAILED',
   'DEFERRED',
 ])
+
+// r5 Task 1.2 (part 3) — the queue workflow store. Every one mirrors a shared
+// zod enum member for member and in order; the parity is asserted from both
+// sides in job-queue-store-schema.spec.ts (the same reasoning as part 2 above:
+// a mutated member dies there, so no individual Stryker suppressions).
+
+/** TEAM = one team's view; STUDIO = the studio-wide view (ADMIN-only — Phase 6). */
+export const jobQueueScopeKindEnum = pgEnum('job_queue_scope_kind', ['TEAM', 'STUDIO'])
+
+export const jobQueueAssignmentStateEnum = pgEnum('job_queue_assignment_state', [
+  'TAKEN',
+  'RELEASED',
+])
+
+/**
+ * The append-only action log's kinds. A NEW type: the legacy
+ * `job_posting_signal_kind` (OPENED/TAKEN/DEAD_LINK/SPAM) and its table stay
+ * untouched (r5).
+ */
+export const jobQueueActionKindEnum = pgEnum('job_queue_action_kind', [
+  'OPENED',
+  'TAKEN',
+  'DEAD_LINK',
+  'SPAM',
+  'DISMISSED',
+  'UNDONE',
+  'RELEASED',
+  'REASSIGNED',
+  'SUPPRESSED',
+  'TRIAGE_GRANTED',
+  'TRIAGE_REVOKED',
+  'TRIAGE_SUBSCRIBED',
+  'TRIAGE_UNSUBSCRIBED',
+])
+
+export const jobQueueGenerationStatusEnum = pgEnum('job_queue_generation_status', [
+  'BUILDING',
+  'PUBLISHED',
+  'INVALIDATED',
+])

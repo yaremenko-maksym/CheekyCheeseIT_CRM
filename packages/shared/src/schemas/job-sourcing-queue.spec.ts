@@ -29,7 +29,7 @@ import {
  * the append-only action log, published generations and their entries.
  *
  * Every cross-field rule here is also a database CHECK, proven against a real
- * catalog in `apps/api/src/database/job-queue.integration.spec.ts`. A row the
+ * catalog in `apps/api/src/database/job-queue-store.integration.spec.ts`. A row the
  * database accepted must serialize, and a DTO the wire accepted must store.
  *
  * Assertion style is the one `job-sourcing-collection.spec.ts` documents: a
@@ -219,6 +219,19 @@ describe('jobQueueAssignmentWorkerSchema — the server-internal claim row', () 
       jobQueueAssignmentWorkerSchema.safeParse({ ...taken, version: PG_INT_MAX }).success,
     ).toBe(true)
     refusedAt(jobQueueAssignmentWorkerSchema, { ...taken, version: PG_INT_MAX + 1 }, ['version'])
+  })
+
+  it('carries a release reason on a RELEASED row only (a re-take clears it)', () => {
+    expectOnlyIssue(
+      jobQueueAssignmentWorkerSchema,
+      { ...taken, releaseReason: 'left over' },
+      'only a RELEASED assignment carries a release reason',
+      ['releaseReason'],
+    )
+    // The reason is optional on a release.
+    expect(
+      jobQueueAssignmentWorkerSchema.safeParse({ ...released, releaseReason: null }).success,
+    ).toBe(true)
   })
 
   it('bounds the release reason (blank refused, 500 accepted, 501 refused)', () => {
