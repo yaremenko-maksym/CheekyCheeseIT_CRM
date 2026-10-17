@@ -72,6 +72,12 @@ const PART_1 = '2026-10-17_job_opportunities_store.sql'
 const PART_2 = '2026-10-17_job_opportunities_store_indexes.sql'
 const SCHEMA = 'ddl_job_opportunities_store'
 const CONFIG_GUARD_SCHEMA = 'ddl_job_sources_config_guard'
+/** A non-superuser used to reproduce the masked-progress-row case (SR-M-4). */
+const UNPRIVILEGED_ROLE = 'ddl_forward_ddl_probe'
+/** Two indexes on one table, so "a build on the same table" is expressible. */
+const PARKABLE_TABLE = 'job_opportunities'
+const PARKED_INDEX = 'idx_job_opportunities_availability'
+const OTHER_INDEX_SAME_TABLE = 'idx_job_opportunities_candidate_key'
 
 /** The Drizzle modules that, between them, declare exactly this store's tables. */
 const STORE_MODULES = [
@@ -185,10 +191,16 @@ async function readCatalog(client: PoolClient, schema: string): Promise<Catalog>
   )
 
   // CR-L-2: identity, generated, collation and ordinal position are compared too.
-  // `attnum` is compared only for the store's OWN tables, where both sides are built by
+  // Position is compared only for the store's OWN tables, where both sides are built by
   // a single `CREATE TABLE`: on `job_sources` the reference gets the new columns inside
   // its `CREATE TABLE` while the candidate appends them with `ALTER TABLE`, so the
   // physical order legitimately differs there and carries no meaning either way.
+  // CR-L-4: the DENSE rank of `attnum`, not `attnum` itself. A raw `attnum` differs
+  // between two catalogs that agree on everything observable as soon as one of them has
+  // ever had a column dropped — `attnum` values are never reused — so comparing it would
+  // fail on a developer's long-lived database while CI, which is always freshly pushed,
+  // stayed green. The rank compares the ORDER, which is the only part that means
+  // anything, and is identical whatever the gaps.
   const columns = await client.query(
     `SELECT c.relname AS table_name, a.attname AS column_name,
             format_type(a.atttypid, a.atttypmod) AS data_type,
@@ -197,7 +209,10 @@ async function readCatalog(client: PoolClient, schema: string): Promise<Catalog>
             a.attidentity AS identity,
             a.attgenerated AS generated,
             coalesce(co.collname, '') AS collation,
-            CASE WHEN c.relname = 'job_sources' THEN NULL ELSE a.attnum END AS position
+            CASE
+              WHEN c.relname = 'job_sources' THEN NULL
+              ELSE row_number() OVER (PARTITION BY c.relname ORDER BY a.attnum)
+            END AS position
        FROM pg_class c
        JOIN pg_namespace n ON n.oid = c.relnamespace
        JOIN pg_attribute a ON a.attrelid = c.oid
@@ -263,8 +278,146 @@ async function readCatalog(client: PoolClient, schema: string): Promise<Catalog>
   }
 }
 
-async function applyBothParts(client: PoolClient): Promise<void> {
-  for (const part of [PART_1, PART_2]) {
+/**
+ * Part 2's INVALID-index sweep on its own. Needed because the sweep must be exercised
+ * under a role that could not run the rest of the file, and because a test about the
+ * sweep should fail on the sweep rather than on an unrelated statement.
+ */
+function part2Blocks(): { sweep: string; finalCheck: string } {
+  const blocks = readPart(PART_2).match(/DO \$\$\nDECLARE[\s\S]*?\nEND \$\$;/g)
+  if (blocks?.length !== 2) {
+    throw new Error(`expected 2 DO blocks in ${PART_2}, found ${blocks?.length ?? 0}`)
+  }
+  return { sweep: blocks[0]!, finalCheck: blocks[1]! }
+}
+
+/**
+ * Parks a `CREATE INDEX CONCURRENTLY` in its "waiting for old snapshots" phase, which
+ * is the state where the index row EXISTS with `indisvalid = false` while a build is
+ * genuinely in progress — the state the sweep has to tell apart from an abandoned
+ * leftover.
+ *
+ * Deterministic, and not a timing trick: a concurrent build must wait out every
+ * transaction holding a snapshot older than its own, so a third session sitting in
+ * REPEATABLE READ parks it for as long as that session lives, whatever the table size.
+ * Returns the handles the caller must settle.
+ */
+async function parkConcurrentBuild(
+  pool: Pool,
+  indexName: string,
+): Promise<{ release: () => Promise<void> }> {
+  const holder = await pool.connect()
+  const builder = await pool.connect()
+  await builder.query(`SET search_path TO ${SCHEMA}`)
+  await holder.query(`SET search_path TO ${SCHEMA}`)
+
+  // The definition is taken from the REFERENCE catalog, never written out here: an
+  // approximation of it would rebuild the index with the wrong columns and leave the
+  // schema silently diverged for every test that runs afterwards. (It did, once.)
+  const definition = await holder.query(
+    `SELECT pg_get_indexdef(i.indexrelid) AS def
+       FROM pg_index i
+       JOIN pg_class ic ON ic.oid = i.indexrelid
+       JOIN pg_class c ON c.oid = i.indrelid
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public' AND ic.relname = $1`,
+    [indexName],
+  )
+  if (definition.rowCount !== 1) {
+    throw new Error(`no reference definition for index ${indexName}`)
+  }
+  const create = String(definition.rows[0]['def'])
+    .replace(
+      /^CREATE (UNIQUE )?INDEX /,
+      (_m, unique) => `CREATE ${unique ?? ''}INDEX CONCURRENTLY `,
+    )
+    .split('public.')
+    .join('')
+
+  await holder.query('BEGIN ISOLATION LEVEL REPEATABLE READ')
+  await holder.query(`SELECT count(*) FROM ${PARKABLE_TABLE}`)
+
+  // Deliberately not awaited: this call does not return until the holder commits.
+  const building = builder.query(create).catch((error: Error) => {
+    // Surfaced by the assertions on the index's state; swallowing here keeps an
+    // expected cancellation from becoming an unhandled rejection.
+    return error
+  })
+
+  // Polled through the POOL, never through `holder`: the holder is sitting in a
+  // REPEATABLE READ transaction, so its view of `pg_index` is frozen at a snapshot taken
+  // before the build existed and it can never see the new index row. (It cost a run to
+  // learn that `pg_stat_progress_create_index` is NOT frozen — it reads shared memory —
+  // so the progress count moved while the catalog lookup stayed empty forever.)
+  const deadline = Date.now() + 20_000
+  for (;;) {
+    const progress = await pool.query(
+      `SELECT count(*)::int AS n FROM pg_stat_progress_create_index
+        WHERE datid = (SELECT oid FROM pg_database WHERE datname = current_database())`,
+    )
+    const index = await pool.query(
+      `SELECT i.indisvalid FROM pg_index i
+         JOIN pg_class c ON c.oid = i.indexrelid
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = $1 AND c.relname = $2`,
+      [SCHEMA, indexName],
+    )
+    if (
+      progress.rows[0]['n'] > 0 &&
+      index.rowCount === 1 &&
+      index.rows[0]['indisvalid'] === false
+    ) {
+      break
+    }
+    if (Date.now() > deadline) {
+      await holder.query('ROLLBACK').catch(() => undefined)
+      holder.release()
+      builder.release()
+      throw new Error(`build of ${indexName} did not park within 20s`)
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+
+  return {
+    release: async () => {
+      await holder.query('COMMIT').catch(() => undefined)
+      await building
+      holder.release()
+      builder.release()
+    },
+  }
+}
+
+/** Collects the server's NOTICEs for the duration of one call. */
+async function withNotices<T>(
+  client: PoolClient,
+  run: () => Promise<T>,
+): Promise<{ result: T; notices: string[] }> {
+  const notices: string[] = []
+  const listener = (message: { message?: string }): void => {
+    if (message.message) notices.push(message.message)
+  }
+  client.on('notice', listener)
+  try {
+    const result = await run()
+    return { result, notices }
+  } finally {
+    client.off('notice', listener)
+  }
+}
+
+/**
+ * Applies the named files statement by statement, the way `psql < file` would.
+ *
+ * The part list is a parameter because the sweep tests must apply PART 2 ALONE: part 1
+ * takes a ShareRowExclusive lock on `job_opportunities` for each of its foreign keys
+ * (an `ALTER TABLE … ADD CONSTRAINT` acquires the lock before the `duplicate_object`
+ * guard can swallow anything), that conflicts with a concurrent index build on the same
+ * table, and the file's own `lock_timeout` then correctly fails the apply. That is
+ * right behaviour and has nothing to do with the sweep.
+ */
+async function applyParts(client: PoolClient, parts: readonly string[]): Promise<void> {
+  for (const part of parts) {
     for (const statement of splitSqlStatements(readPart(part))) {
       try {
         await client.query(statement)
@@ -278,6 +431,9 @@ async function applyBothParts(client: PoolClient): Promise<void> {
     }
   }
 }
+
+const applyBothParts = (client: PoolClient): Promise<void> => applyParts(client, [PART_1, PART_2])
+const applyIndexesOnly = (client: PoolClient): Promise<void> => applyParts(client, [PART_2])
 
 /**
  * Builds "production before this store" inside `schema`: the objects the forward DDL
@@ -396,6 +552,11 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
 
     await applyBothParts(client)
     afterFirstApply = await readCatalog(client, SCHEMA)
+
+    // For the SR-M-4 test. NOINHERIT and no grants: it needs to be a role the session's
+    // own role is not a member of, nothing more.
+    await client.query(`DROP ROLE IF EXISTS ${UNPRIVILEGED_ROLE}`)
+    await client.query(`CREATE ROLE ${UNPRIVILEGED_ROLE} NOSUPERUSER NOINHERIT NOLOGIN`)
   }, 180_000)
 
   afterAll(async () => {
@@ -403,6 +564,7 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
     await client
       ?.query(`DROP SCHEMA IF EXISTS ${CONFIG_GUARD_SCHEMA} CASCADE`)
       .catch(() => undefined)
+    await client?.query(`DROP ROLE IF EXISTS ${UNPRIVILEGED_ROLE}`).catch(() => undefined)
     client?.release()
     await pool?.end()
   })
@@ -426,6 +588,34 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
     )
     const standaloneIndexes = reference.indexes.filter((r) => !constraintBacked.has(r['name']))
     expect(standaloneIndexes).toHaveLength(EXPECTED.indexes)
+  })
+
+  it('creates NOTHING beyond the Drizzle set — the other direction (CR-L-5)', async () => {
+    // Round 1 closed "an object missing from the SQL". This closes the converse: a table
+    // or enum type the SQL creates that the Drizzle schema does not declare. Such an
+    // object is invisible to every comparison above, because they are all restricted to
+    // the expected set — and on production it would be a table nothing reads, or an enum
+    // whose values no code knows, drifting from the schema from the day it lands.
+    const tables = await client.query(
+      `SELECT c.relname AS name FROM pg_class c
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = $1 AND c.relkind = 'r' ORDER BY c.relname`,
+      [SCHEMA],
+    )
+    // The three stubs are what `buildPreStoreStub` creates to stand in for production.
+    expect(tables.rows.map((r: { name: string }) => r.name)).toEqual(
+      [...STORE_TABLES, 'job_sources', 'teams', 'users'].sort(),
+    )
+
+    const types = await client.query(
+      `SELECT t.typname AS name FROM pg_type t
+         JOIN pg_namespace n ON n.oid = t.typnamespace
+        WHERE n.nspname = $1 AND t.typtype = 'e' ORDER BY t.typname`,
+      [SCHEMA],
+    )
+    expect(types.rows.map((r: { name: string }) => r.name)).toEqual(
+      [...STORE_ENUMS, ...PRE_STORE_ENUMS].sort(),
+    )
   })
 
   it('creates every enum type the Drizzle schema declares for the store, value order included', () => {
@@ -486,14 +676,55 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
       await buildPreStoreStub(guard, CONFIG_GUARD_SCHEMA)
       await guard.query(`INSERT INTO job_sources (type, config) VALUES ('DOU_RSS', '[1,2]'::jsonb)`)
 
-      // The preflight query, verbatim from part 1's header.
+      // The preflight query, VERBATIM from part 1's header — not a `count(*)` variant of
+      // it (CR-L-6). The point of this test is that the query an operator is told to run
+      // finds the row that would abort the deploy, so it has to be that query.
       const preflight = await guard.query(
-        `SELECT count(*)::int AS n FROM job_sources
+        `SELECT id, type, jsonb_typeof(config) AS kind, length(config::text) AS chars
+           FROM job_sources
           WHERE jsonb_typeof(config) <> 'object' OR length(config::text) > 8192`,
       )
-      expect(preflight.rows[0]['n']).toBe(1)
+      expect(preflight.rowCount).toBe(1)
+      expect(preflight.rows[0]['kind']).toBe('array')
 
-      await expect(applyBothParts(guard)).rejects.toThrow(/ck_job_sources_config_bounded/)
+      // The header's SECOND preflight (SR-L-7), also verbatim: on a database that has
+      // not had any of the 18 columns hand-added, it must return nothing. Here the stub
+      // is exactly that database, so zero rows is the expected answer — what this pins
+      // is that the query runs and selects the right 18 names.
+      const handAdded = await guard.query(
+        `SELECT column_name, data_type FROM information_schema.columns
+          WHERE table_schema = current_schema() AND table_name = 'job_sources'
+            AND column_name IN ('manifest_id','namespace','manifest_version','policy_version',
+                'config_version','account_meter_id','readiness','readiness_reason',
+                'admin_state','admin_state_history','last_attempt_at','last_success_at',
+                'last_nonempty_at','next_attempt_at','cooldown_until','consecutive_failures',
+                'last_error_code','last_error_message')`,
+      )
+      expect(handAdded.rowCount).toBe(0)
+
+      // Zero rows is cheap to achieve with the WRONG list, so the list itself is checked
+      // against the reference: the names the header tells an operator to look for must be
+      // exactly the columns this file adds to `job_sources`.
+      const namesInHeader = [
+        ...readPart(PART_1)
+          .slice(readPart(PART_1).indexOf("AND column_name IN ('manifest_id'"))
+          .slice(0, 900)
+          .matchAll(/'([a-z_]+)'/g),
+      ].map((m) => m[1]!)
+      const namesAdded = reference.columns
+        .filter((r) => r['table_name'] === 'job_sources')
+        .map((r) => String(r['column_name']))
+      expect(namesInHeader.sort()).toEqual(namesAdded.sort())
+
+      // The assertion is on POSTGRES'S OWN message, not on the constraint name (CR-L-6).
+      // `applyBothParts` echoes the failing statement into the error it throws, and that
+      // statement is the `ADD CONSTRAINT "ck_job_sources_config_bounded" CHECK (…)` text
+      // — so a regex on the name alone passes for ANY failure of that statement,
+      // including one that has nothing to do with the data. `is violated by some row`
+      // appears only in the server's error.
+      await expect(applyBothParts(guard)).rejects.toThrow(
+        /check constraint "ck_job_sources_config_bounded" of relation "job_sources" is violated by some row/,
+      )
     } finally {
       await guard
         .query(`DROP SCHEMA IF EXISTS ${CONFIG_GUARD_SCHEMA} CASCADE`)
@@ -501,6 +732,135 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
       guard.release()
     }
   }, 180_000)
+
+  describe('the INVALID-index sweep (SR-M-2 / SR-M-3 / SR-M-4 / SR-M-5)', () => {
+    // Nothing pinned the PROTECTIVE half of the sweep before this block: the suite had
+    // no reference to `pg_stat_progress_create_index` at all, and the one
+    // invalid-index test ran with nothing in flight — which the OLD, defective sweep
+    // passed just as well. Deleting the guard clause left CI green.
+
+    afterAll(async () => {
+      // Leave the schema in the state the rest of the file expects.
+      await client.query(`SET search_path TO ${SCHEMA}`)
+      await applyIndexesOnly(client)
+    })
+
+    it('spares an index whose build is still running, and the build completes', async () => {
+      await client.query(`DROP INDEX IF EXISTS ${PARKED_INDEX}`)
+      const parked = await parkConcurrentBuild(pool, PARKED_INDEX)
+      try {
+        // The SWEEP alone, not the whole of part 2 — and the reason is a property worth
+        // knowing: `CREATE INDEX CONCURRENTLY IF NOT EXISTS` takes ShareUpdateExclusive
+        // on the table BEFORE it notices the index already exists, and that lock
+        // conflicts with itself. So while any build is in flight on one of these tables,
+        // every remaining `CREATE INDEX CONCURRENTLY` in part 2 blocks and the file's own
+        // `lock_timeout` fails the apply. Measured, not assumed. It is correct behaviour
+        // (fail loud, re-run) and part 2's header now says so; it is simply not what this
+        // test is about. The sweep itself takes no table lock.
+        const { notices } = await withNotices(client, () => client.query(part2Blocks().sweep))
+
+        expect(notices.join('\n')).toMatch(
+          new RegExp(`index ${PARKED_INDEX} is invalid because a build is IN PROGRESS`),
+        )
+        const after = await readCatalog(client, SCHEMA)
+        const row = after.indexes.find((r) => r['name'] === PARKED_INDEX)
+        // Still there, still invalid — NOT dropped. Before the fix this was gone, and
+        // the building session failed with `relation ... does not exist`.
+        expect(row).toBeDefined()
+        expect(row?.['valid']).toBe(false)
+      } finally {
+        await parked.release()
+      }
+
+      const settled = await readCatalog(client, SCHEMA)
+      expect(settled.indexes.find((r) => r['name'] === PARKED_INDEX)?.['valid']).toBe(true)
+    }, 180_000)
+
+    it('sweeps nothing at all when it cannot attribute a build to a role (SR-M-4)', async () => {
+      // `pg_stat_progress_create_index` does not hide a foreign session's ROW — it NULLs
+      // `relid` / `index_relid` / `phase` for a build started by a role the reader is not
+      // a member of. `NULL = oid` is NULL, so a naive `NOT EXISTS` comes back TRUE and
+      // the guard evaporates exactly when it is needed. Measured here rather than argued:
+      // the same session, after `SET ROLE` to a non-superuser, sees the row but not its
+      // columns.
+      //
+      // This is not hypothetical maintenance work: the deploy connects as a superuser
+      // today, and r5 Task 1.3c introduces least-privileged roles.
+      await client.query(`DROP INDEX IF EXISTS ${PARKED_INDEX}`)
+      const parked = await parkConcurrentBuild(pool, PARKED_INDEX)
+      const probe = await pool.connect()
+      try {
+        await probe.query(`SET search_path TO ${SCHEMA}`)
+        const masked = await probe.query(
+          `SELECT count(*)::int AS total, count(relid)::int AS attributable
+             FROM pg_stat_progress_create_index
+            WHERE datid = (SELECT oid FROM pg_database WHERE datname = current_database())`,
+        )
+        expect(masked.rows[0]).toEqual({ total: 1, attributable: 1 })
+
+        await probe.query(`SET ROLE ${UNPRIVILEGED_ROLE}`)
+        const maskedAsRole = await probe.query(
+          `SELECT count(*)::int AS total, count(relid)::int AS attributable
+             FROM pg_stat_progress_create_index
+            WHERE datid = (SELECT oid FROM pg_database WHERE datname = current_database())`,
+        )
+        // The row is visible; its target is not. This is the whole mechanism.
+        expect(maskedAsRole.rows[0]).toEqual({ total: 1, attributable: 0 })
+
+        const { notices } = await withNotices(probe, () => probe.query(part2Blocks().sweep))
+        expect(notices.join('\n')).toMatch(/cannot prove no build is in progress/)
+        expect(notices.join('\n')).not.toMatch(/dropping INVALID index/)
+
+        await probe.query('RESET ROLE')
+        const row = (await readCatalog(client, SCHEMA)).indexes.find(
+          (r) => r['name'] === PARKED_INDEX,
+        )
+        expect(row).toBeDefined()
+        expect(row?.['valid']).toBe(false)
+      } finally {
+        await probe.query('RESET ROLE').catch(() => undefined)
+        probe.release()
+        await parked.release()
+      }
+    }, 180_000)
+
+    it('refuses to finish when an index is left invalid with nothing building it (SR-M-5)', async () => {
+      // The sweep spares an invalid index while ANY build on its table is in flight,
+      // including a build of a different index. `IF NOT EXISTS` then skips re-creating
+      // it, so without the closing check part 2 exits 0 having left a named invalid
+      // index — and six of the 44 are UNIQUE, so that is an unenforced store invariant.
+      await client.query(`DROP INDEX IF EXISTS ${OTHER_INDEX_SAME_TABLE}`)
+      await client.query(
+        `UPDATE pg_index SET indisvalid = false
+          WHERE indexrelid = format('%I.%I', $1::text, $2::text)::regclass`,
+        [SCHEMA, PARKED_INDEX],
+      )
+      const parked = await parkConcurrentBuild(pool, OTHER_INDEX_SAME_TABLE)
+      try {
+        // Sweep then final check, for the lock reason explained in the test above.
+        const { sweep, finalCheck } = part2Blocks()
+        const { notices } = await withNotices(client, () => client.query(sweep))
+        // The collateral spare is the premise of this test, not an accident.
+        expect(notices.join('\n')).toMatch(
+          new RegExp(`index ${PARKED_INDEX} is invalid because a build is IN PROGRESS`),
+        )
+        const stillInvalid = await readCatalog(client, SCHEMA)
+        expect(stillInvalid.indexes.find((r) => r['name'] === PARKED_INDEX)?.['valid']).toBe(false)
+
+        // …and this is what stops the file claiming success in that state.
+        await expect(client.query(finalCheck)).rejects.toThrow(
+          /index\(es\) of this store are INVALID with no build in progress/,
+        )
+      } finally {
+        await parked.release()
+      }
+
+      // And re-running once nothing is in flight really is the repair.
+      await applyIndexesOnly(client)
+      const repaired = await readCatalog(client, SCHEMA)
+      expect(repaired.indexes.filter((r) => r['valid'] !== true)).toEqual([])
+    }, 180_000)
+  })
 
   it('applies a second time without error and changes nothing', async () => {
     // What every deploy after the first one does: `deploy.yml` has no applied-migrations

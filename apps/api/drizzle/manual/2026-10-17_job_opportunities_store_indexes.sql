@@ -36,7 +36,10 @@
 --
 -- The sweep drops any INVALID index AMONG EXACTLY THE 44 NAMES THIS FILE CREATES —
 -- never anything else, so another feature's interrupted build is not collateral — and
--- the statement that follows rebuilds it. Hence: RE-RUNNING THIS FILE IS THE REPAIR.
+-- the statement that follows rebuilds it. Hence: RE-RUNNING THIS FILE IS THE REPAIR —
+-- and section 18 at the bottom is what makes that claim true rather than merely
+-- intended: a run that leaves one of these indexes invalid with nothing building it
+-- FAILS, instead of exiting 0 on a half-repaired database (SR-M-5).
 -- No manual step, no runbook entry. `DROP INDEX` (non-concurrent) is used on purpose:
 -- it needs a brief ACCESS EXCLUSIVE lock, which is correct for a nonfunctional index,
 -- and unlike `DROP INDEX CONCURRENTLY` it is allowed inside the `DO` block that
@@ -65,6 +68,26 @@
 -- build from a backend that has already gone away — which is exactly an abandoned
 -- index, and exactly what should be swept.
 --
+-- A DEPENDENCY ON THE DATABASE ROLE MODEL, stated because it is load-bearing (SR-M-4)
+-- ----------------------------------------------------------------------------------
+-- That exclusion only works while the applying role can READ the progress rows.
+-- `pg_stat_progress_create_index` does not hide a foreign session's row; it NULLs the
+-- columns (`relid`, `index_relid`, `phase`) for a build started by a role the reader is
+-- not a member of. `NULL = oid` is NULL, not TRUE, so a naive `NOT EXISTS` comes back
+-- TRUE and the guard evaporates — silently, in exactly the situation it exists for.
+-- Measured: as a non-superuser with a foreign build parked, `count(*) = 1` and
+-- `count(relid) = 0`.
+-- Today the deploy connects as `crm_user`, a SUPERUSER, so every row is readable — an
+-- invariant that was written down nowhere until this paragraph. **r5 Task 1.3c, which
+-- this file's part 1 names, introduces least-privileged roles (ADR in PR #1018). The
+-- day the applying role stops being a superuser, this guard would have gone quiet.**
+-- So the sweep does not rely on the invariant: it counts the rows it cannot attribute
+-- and, if there are any, sweeps NOTHING and says so. Refusing on "cannot verify"
+-- instead of acting on "did not see a problem" is the same rule as this repo's
+-- WORKTREE-OPAQUE refusal (rules/common/agent-isolation.md): where the majority of
+-- affected operations are destructive and the bypass is cheap, unverifiability is
+-- treated as danger.
+--
 -- To see whether a leftover exists before deploying:
 --   SELECT c.relname, i.indisvalid,
 --          EXISTS (SELECT 1 FROM pg_stat_progress_create_index p
@@ -76,6 +99,17 @@
 -- makes two passes over the table and waits out transactions older than itself, so a
 -- tight bound would turn a slow deploy into a failed one. `lock_timeout` stays tight —
 -- the lock a concurrent build takes is brief, and waiting for it is what blocks others.
+--
+-- THIS FILE CANNOT RUN ALONGSIDE AN INDEX BUILD ON ONE OF ITS OWN TABLES, and that is
+-- worth knowing before it surprises someone mid-deploy. Measured while writing the
+-- sweep's tests: `CREATE INDEX CONCURRENTLY IF NOT EXISTS` acquires ShareUpdateExclusive
+-- on the TABLE **before** it notices the index already exists, and that lock conflicts
+-- with itself — so if any concurrent build is in flight on, say, `job_opportunities`,
+-- the very next `CREATE INDEX CONCURRENTLY` here blocks and `lock_timeout` fails the
+-- apply, even for an index that is already present and valid. The outcome is correct
+-- (fail loudly, re-run when the other build is done) and it is why the tests for the
+-- sweep run the `DO` blocks directly rather than the whole file: the sweep takes no
+-- table lock, so it is the part that CAN be exercised under those conditions.
 -- =============================================================================
 
 SET lock_timeout = '10s';
@@ -91,7 +125,31 @@ DO $$
 DECLARE
   leftover text;
   building text;
+  total_builds int;
+  attributable_builds int;
 BEGIN
+  -- FAIL-SAFE ON UNVERIFIABILITY (SR-M-4). `pg_stat_progress_create_index` does not
+  -- hide another session's ROW from a non-superuser — it masks the columns this block
+  -- reads. A build started by a role this one is not a member of therefore shows up
+  -- with `relid`, `index_relid` and `phase` all NULL, and `NULL = oid` is NULL rather
+  -- than TRUE, so the `NOT EXISTS` below would evaluate to TRUE and the sweep would
+  -- drop a LIVE build. Measured: as a non-superuser with a foreign build parked,
+  -- `count(*) = 1` while `count(relid) = 0`, and the old predicate's EXISTS was FALSE.
+  -- So: a row that cannot be attributed means NOTHING is swept this run. Refusing on
+  -- "could not verify" rather than on "verified dangerous" is the same rule as this
+  -- repo's WORKTREE-OPAQUE refusal — see rules/common/agent-isolation.md.
+  SELECT count(*), count(p.relid)
+    INTO total_builds, attributable_builds
+    FROM pg_stat_progress_create_index p
+   WHERE p.datid = (SELECT oid FROM pg_database WHERE datname = current_database());
+
+  IF total_builds <> attributable_builds THEN
+    RAISE NOTICE
+      'pg_stat_progress_create_index reports % index build(s) in this database and % of them are masked from role % — cannot prove no build is in progress, so NOTHING is swept this run; re-run when no build is in flight',
+      total_builds, total_builds - attributable_builds, current_user;
+    RETURN;
+  END IF;
+
   -- Reported first and separately: if a build is in flight, the operator should see
   -- why an invalid index was left in place rather than wonder why nothing happened.
   FOR building IN
@@ -345,3 +403,104 @@ CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "uq_job_sources_manifest_id" ON "
 -- ---------------------------------------------------------------------------
 
 CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx_job_team_triage_subscriptions_team" ON "job_team_triage_subscriptions" USING btree ("team_id","expires_at");
+
+
+-- ---------------------------------------------------------------------------
+-- 18. Final check: no index this file owns may be left invalid and unattended
+-- ---------------------------------------------------------------------------
+--
+-- SR-M-5. The sweep above deliberately spares an invalid index while a build is in
+-- progress — including a build on the SAME TABLE but a DIFFERENT index, which is the
+-- collateral case that makes the spare too generous for one run: the abandoned index
+-- is skipped, `CREATE INDEX CONCURRENTLY IF NOT EXISTS` then sees the name and skips
+-- too, and the file would exit 0 having left it invalid. Six of the 44 are UNIQUE, so
+-- that is a store invariant silently unenforced until some later deploy.
+--
+-- So the file does not get to claim success in that state. This check keys on the
+-- index ITSELF (`p.index_relid = c.oid`, not `p.relid`), so a genuine in-flight build
+-- of that very index is still fine; anything else invalid is an error and
+-- `ON_ERROR_STOP=1` turns it into a failed deploy. "RE-RUNNING THIS FILE IS THE
+-- REPAIR" is true again, because a run that did not repair now fails.
+--
+-- The deliberate false positive: under a role that cannot read the progress columns
+-- (see the sweep's own note), a real in-flight build of one of these indexes is
+-- invisible here too, so this raises when it need not have. That is the direction to
+-- err in — a failed deploy an operator re-runs, rather than a UNIQUE index that is
+-- quietly not enforcing. The name list is repeated rather than shared because every
+-- statement in this file must be independently applicable; no temp table, no session
+-- state carried between statements.
+DO $$
+DECLARE
+  unusable text;
+  found int := 0;
+BEGIN
+  FOR unusable IN
+    SELECT c.relname
+      FROM pg_class c
+      JOIN pg_index i ON i.indexrelid = c.oid
+      JOIN pg_namespace ns ON ns.oid = c.relnamespace
+     WHERE ns.nspname = current_schema()
+       AND NOT i.indisvalid
+       AND NOT EXISTS (
+             SELECT 1
+               FROM pg_stat_progress_create_index p
+              WHERE p.datid = (SELECT oid FROM pg_database WHERE datname = current_database())
+                AND p.index_relid = c.oid
+           )
+       AND c.relname = ANY (ARRAY[
+         'idx_job_account_meter_reservations_cycle',
+         'idx_job_account_meter_reservations_meter_status',
+         'idx_job_account_meter_reservations_run',
+         'idx_job_collection_cycles_html_meter',
+         'idx_job_collection_cycles_requested_by',
+         'idx_job_collection_cycles_status',
+         'idx_job_collection_runs_cycle',
+         'idx_job_collection_runs_source_started',
+         'idx_job_dirty_work_cycle',
+         'idx_job_dirty_work_entity',
+         'idx_job_dirty_work_pending',
+         'idx_job_opportunities_application_url_key',
+         'idx_job_opportunities_availability',
+         'idx_job_opportunities_candidate_key',
+         'idx_job_opportunities_description',
+         'idx_job_opportunities_stack_keywords',
+         'idx_job_opportunity_matches_senior',
+         'idx_job_opportunity_sources_opportunity',
+         'idx_job_opportunity_sources_record',
+         'idx_job_opportunity_team_triage_assigned_by',
+         'idx_job_opportunity_team_triage_team',
+         'idx_job_queue_actions_opportunity',
+         'idx_job_queue_actions_source_record',
+         'idx_job_queue_actions_subject_team',
+         'idx_job_queue_actions_subscription',
+         'idx_job_queue_actions_team',
+         'idx_job_queue_assignments_assignee',
+         'idx_job_queue_assignments_team',
+         'idx_job_queue_dismissals_team',
+         'idx_job_queue_generation_entries_opportunity',
+         'idx_job_queue_generations_status_expiry',
+         'idx_job_queue_generations_team',
+         'idx_job_source_record_revisions_description',
+         'idx_job_source_record_revisions_record_seq',
+         'idx_job_source_records_last_observed',
+         'idx_job_sources_account_meter',
+         'idx_job_sources_next_attempt',
+         'idx_job_team_triage_subscriptions_team',
+         'uq_job_collection_runs_running_owner',
+         'uq_job_opportunity_sources_active_record',
+         'uq_job_queue_actions_opened_once',
+         'uq_job_queue_generations_published_studio',
+         'uq_job_queue_generations_published_team',
+         'uq_job_sources_manifest_id'
+       ])
+  LOOP
+    found := found + 1;
+    RAISE WARNING 'index % is INVALID and no build is in progress for it', unusable;
+  END LOOP;
+
+  IF found > 0 THEN
+    RAISE EXCEPTION
+      '% index(es) of this store are INVALID with no build in progress — this run did not reach the intended state; re-run this file (it drops and rebuilds them)',
+      found;
+  END IF;
+END $$;

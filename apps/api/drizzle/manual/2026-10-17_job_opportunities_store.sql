@@ -74,13 +74,15 @@
 -- TEN of the eleven CHECKs read only columns this file ADDS, with constant defaults, so
 -- no existing row can fail them. `ck_job_sources_config_bounded` is the EXCEPTION: it
 -- reads `config`, which predates this store, and it requires a JSON OBJECT of at most
--- 8192 bytes. A row whose `config` is an array or a scalar aborts the file AT THAT
+-- 8192 CHARACTERS — the CHECK uses `length()`, which counts characters, not bytes, so a
+-- config of multi-byte text may be larger than 8 KB on disk and still pass (CR-L-6).
+-- A row whose `config` is an array or a scalar aborts the file AT THAT
 -- STATEMENT — and because the CHECK block precedes the foreign keys, the deploy stops
 -- with the 18 tables created but no FK and no index applied. It fails loudly and a
 -- re-run after fixing the row recovers completely, but an operator should not discover
 -- it mid-deploy. RUN THIS PREFLIGHT FIRST (it must return zero rows):
 --
---   SELECT id, type, jsonb_typeof(config) AS kind, length(config::text) AS bytes
+--   SELECT id, type, jsonb_typeof(config) AS kind, length(config::text) AS chars
 --     FROM job_sources
 --    WHERE jsonb_typeof(config) <> 'object' OR length(config::text) > 8192;
 --
@@ -89,6 +91,27 @@
 -- now applies this file to a `job_sources` that HAS rows (previously it had none, so
 -- all 11 CHECKs validated against an empty table and CI could not have caught this),
 -- and it pins the abort and this very query as a test.
+--
+-- AND A SECOND PREFLIGHT, because the first one's sufficiency is an argument about this
+-- REPOSITORY rather than about production (SR-L-7). "Only the `config` CHECK can fail on
+-- existing data" holds because the other ten read columns THIS FILE adds. If any of
+-- those 18 names was ever added to production BY HAND — during an incident, say — then
+-- `ADD COLUMN IF NOT EXISTS` skips it, the column keeps whatever legacy values it has,
+-- and its CHECK validates against them. That aborts mid-file in a way the query above
+-- cannot see, because it only looks at `config`. One more read-only, bounded check
+-- (expected: zero rows):
+--
+--   SELECT column_name, data_type FROM information_schema.columns
+--    WHERE table_schema = current_schema() AND table_name = 'job_sources'
+--      AND column_name IN ('manifest_id','namespace','manifest_version','policy_version',
+--          'config_version','account_meter_id','readiness','readiness_reason',
+--          'admin_state','admin_state_history','last_attempt_at','last_success_at',
+--          'last_nonempty_at','next_attempt_at','cooldown_until','consecutive_failures',
+--          'last_error_code','last_error_message');
+--
+-- A non-empty result is not "do not deploy" — it is "read those rows first", because a
+-- column that already exists will NOT be re-typed or re-defaulted by this file. Same
+-- class of silence as the `duplicate_object` note above.
 --
 -- Why two files
 -- -------------
