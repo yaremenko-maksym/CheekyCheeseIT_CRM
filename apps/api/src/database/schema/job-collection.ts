@@ -267,12 +267,14 @@ export const jobCollectionRuns = pgTable(
       sql`length(${t.adapterVersion}) <= ${sql.raw(String(JOB_SHORT_TEXT_MAX))}`,
     ),
     /**
-     * SR-M-3. JSONB with neither a type nor a size bound: a checkpoint is a
+     * SR-M-3. JSONB with neither a type nor a length bound: a checkpoint is a
      * page cursor plus remaining ids (bounded resume), and the snapshot is one
      * source's config. An array or a scalar here is a different shape than
      * every reader expects, and `source_config_snapshot` copies `config`
-     * verbatim into history that is never deleted — so the size is bounded at
-     * the write, where it can still fail loudly.
+     * verbatim into history that is never deleted — so the length is bounded
+     * at the write, where it can still fail loudly. CR-L-4: the bound counts
+     * CHARACTERS of jsonb's rendered text (`length(x::text)`), not bytes — see
+     * `JOB_JSONB_TEXT_MAX`.
      */
     check(
       'ck_job_collection_runs_checkpoint_bounded',

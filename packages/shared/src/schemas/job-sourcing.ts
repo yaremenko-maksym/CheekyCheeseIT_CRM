@@ -1008,8 +1008,15 @@ const refineAttemptTermination = (
 /**
  * The WORKER-INTERNAL attempt shape. Carries `ownerToken` and `fencingEpoch`,
  * which a worker needs and nobody else does.
+ *
+ * SR-M-5 — the NAMING CONVENTION for this module, and the reason for it: the
+ * PLAIN name (`jobCollectionAttemptSchema`) is the shape safe to answer a
+ * request with, and the internal one is marked `...Worker...`. Round 1 had it
+ * the other way round, so the name a Phase-6 endpoint author reaches for first
+ * resolved to the leaky shape, with only a doc comment between the import and
+ * the leak. A wrong import now has to read "Worker" to be written.
  */
-export const jobCollectionAttemptSchema = jobCollectionAttemptFields.superRefine((a, ctx) => {
+export const jobCollectionAttemptWorkerSchema = jobCollectionAttemptFields.superRefine((a, ctx) => {
   refineAttemptTermination(a, ctx)
   if (a.outcome === 'STARTED' && (a.ownerToken === null || a.leaseExpiresAt === null)) {
     ctx.addIssue({
@@ -1021,16 +1028,17 @@ export const jobCollectionAttemptSchema = jobCollectionAttemptFields.superRefine
 })
 
 /**
- * SR-M-4. The shape a NON-WORKER response is built from. `ownerToken` and
- * `fencingEpoch` are lease-and-fencing bookkeeping — who holds the row and with
- * what authority — and an operator screen has no use for either.
+ * SR-M-4. The shape a NON-WORKER response is built from — and, per SR-M-5, the
+ * one holding the plain name. `ownerToken` and `fencingEpoch` are
+ * lease-and-fencing bookkeeping — who holds the row and with what authority —
+ * and an operator screen has no use for either.
  *
  * Omitted structurally rather than documented as "Phase 6 must strip these":
  * a note is honoured by whoever reads it, while a field the schema does not
  * have cannot be serialized by accident. No endpoint consumes the attempt yet,
  * so this costs nothing now and removes the leak before it can exist.
  */
-export const jobCollectionAttemptPublicSchema = jobCollectionAttemptFields
+export const jobCollectionAttemptSchema = jobCollectionAttemptFields
   .omit({ ownerToken: true, fencingEpoch: true })
   .superRefine(refineAttemptTermination)
 
@@ -1109,8 +1117,11 @@ const refineDirtyWorkTermination = (
   }
 }
 
-/** The WORKER-INTERNAL item shape: it carries the claim and the fencing epoch. */
-export const jobDirtyWorkItemSchema = jobDirtyWorkItemFields.superRefine((w, ctx) => {
+/**
+ * The WORKER-INTERNAL item shape: it carries the claim and the fencing epoch.
+ * Marked `...Worker...` for the reason given on the attempt above (SR-M-5).
+ */
+export const jobDirtyWorkItemWorkerSchema = jobDirtyWorkItemFields.superRefine((w, ctx) => {
   // CR-M-1. NOT one equality of two booleans: `status !== 'CLAIMED'` with an
   // owner and NO lease made both sides false, so the equality held and the
   // state this message calls impossible parsed. Each branch therefore names
@@ -1130,10 +1141,11 @@ export const jobDirtyWorkItemSchema = jobDirtyWorkItemFields.superRefine((w, ctx
 
 /**
  * SR-M-4. The shape a NON-WORKER response is built from: no `claimOwner`, no
- * `fencingEpoch`. Same reasoning as `jobCollectionAttemptPublicSchema` — the
- * boundary is structural, so Phase 6 cannot forget to strip them.
+ * `fencingEpoch`, and the plain name (SR-M-5). Same reasoning as
+ * `jobCollectionAttemptSchema` — the boundary is structural, so Phase 6 cannot
+ * forget to strip them.
  */
-export const jobDirtyWorkItemPublicSchema = jobDirtyWorkItemFields
+export const jobDirtyWorkItemSchema = jobDirtyWorkItemFields
   .omit({ claimOwner: true, fencingEpoch: true })
   .superRefine(refineDirtyWorkTermination)
 
@@ -1210,8 +1222,8 @@ export type JobErrorCode = z.infer<typeof jobErrorCodeSchema>
 export type JobAccountMeterDto = z.infer<typeof jobAccountMeterSchema>
 export type JobMeterReservationDto = z.infer<typeof jobMeterReservationSchema>
 export type JobCollectionCycleDto = z.infer<typeof jobCollectionCycleSchema>
+export type JobCollectionAttemptWorkerDto = z.infer<typeof jobCollectionAttemptWorkerSchema>
 export type JobCollectionAttemptDto = z.infer<typeof jobCollectionAttemptSchema>
-export type JobCollectionAttemptPublicDto = z.infer<typeof jobCollectionAttemptPublicSchema>
-export type JobDirtyWorkItemPublicDto = z.infer<typeof jobDirtyWorkItemPublicSchema>
-export type JobSourceHealthDto = z.infer<typeof jobSourceHealthSchema>
 export type JobDirtyWorkItemDto = z.infer<typeof jobDirtyWorkItemSchema>
+export type JobSourceHealthDto = z.infer<typeof jobSourceHealthSchema>
+export type JobDirtyWorkItemWorkerDto = z.infer<typeof jobDirtyWorkItemWorkerSchema>

@@ -8,16 +8,16 @@ import { describe, expect, it } from 'vitest'
 import {
   jobAccountKeySchema,
   jobAccountMeterSchema,
-  jobCollectionAttemptPublicSchema,
   jobCollectionAttemptSchema,
+  jobCollectionAttemptWorkerSchema,
   jobCollectionCycleSchema,
   jobCollectionCycleStatusSchema,
   jobCollectionReportSchema,
   jobCollectionResultSchema,
   jobCollectionTriggerSchema,
   jobDirtyWorkEntityKindSchema,
-  jobDirtyWorkItemPublicSchema,
   jobDirtyWorkItemSchema,
+  jobDirtyWorkItemWorkerSchema,
   jobDirtyWorkStatusSchema,
   jobMeterReservationSchema,
   jobMeterReservationStatusSchema,
@@ -272,7 +272,7 @@ describe('worker-internal fields cannot reach a non-worker response (SR-M-4)', (
   }
 
   it('strips the attempt owner token and fencing epoch from the public shape', () => {
-    const parsed = jobCollectionAttemptPublicSchema.parse(attempt)
+    const parsed = jobCollectionAttemptSchema.parse(attempt)
     expect(Object.keys(parsed)).not.toContain('ownerToken')
     expect(Object.keys(parsed)).not.toContain('fencingEpoch')
     // Everything an operator may rightly see survives.
@@ -282,7 +282,7 @@ describe('worker-internal fields cannot reach a non-worker response (SR-M-4)', (
   })
 
   it('strips the dirty-work claim owner and fencing epoch from the public shape', () => {
-    const parsed = jobDirtyWorkItemPublicSchema.parse(item)
+    const parsed = jobDirtyWorkItemSchema.parse(item)
     expect(Object.keys(parsed)).not.toContain('claimOwner')
     expect(Object.keys(parsed)).not.toContain('fencingEpoch')
     expect(parsed.status).toBe('CLAIMED')
@@ -290,19 +290,19 @@ describe('worker-internal fields cannot reach a non-worker response (SR-M-4)', (
   })
 
   it('keeps the worker shape carrying them, because the worker needs them', () => {
-    expect(jobCollectionAttemptSchema.parse(attempt).ownerToken).toBe('secret-owner-token')
-    expect(jobDirtyWorkItemSchema.parse(item).claimOwner).toBe('worker-42')
+    expect(jobCollectionAttemptWorkerSchema.parse(attempt).ownerToken).toBe('secret-owner-token')
+    expect(jobDirtyWorkItemWorkerSchema.parse(item).claimOwner).toBe('worker-42')
   })
 
   it('still enforces the invariants that survive the omission', () => {
     expectOnlyIssue(
-      jobCollectionAttemptPublicSchema,
+      jobCollectionAttemptSchema,
       { ...attempt, endedAt: null },
       'a terminal attempt carries its end instant; a running one does not',
       ['endedAt'],
     )
     expectOnlyIssue(
-      jobDirtyWorkItemPublicSchema,
+      jobDirtyWorkItemSchema,
       { ...item, status: 'DONE' },
       'a terminal item (DONE / FAILED / DEFERRED) carries its completion instant',
       ['completedAt'],
@@ -403,8 +403,8 @@ describe('numeric ceilings agree with the columns that store them (CR-M-2)', () 
       errorCode: null,
       errorMessage: null,
     }
-    expect(jobCollectionAttemptSchema.parse(attempt).configVersion).toBe(PG_INT_MAX)
-    refusedAt(jobCollectionAttemptSchema, { ...attempt, configVersion: PG_INT_MAX + 1 }, [
+    expect(jobCollectionAttemptWorkerSchema.parse(attempt).configVersion).toBe(PG_INT_MAX)
+    refusedAt(jobCollectionAttemptWorkerSchema, { ...attempt, configVersion: PG_INT_MAX + 1 }, [
       'configVersion',
     ])
 
@@ -456,8 +456,8 @@ describe('numeric ceilings agree with the columns that store them (CR-M-2)', () 
       createdAt: NOW,
       completedAt: null,
     }
-    expect(jobDirtyWorkItemSchema.parse(item).retryCount).toBe(PG_INT_MAX)
-    refusedAt(jobDirtyWorkItemSchema, { ...item, retryCount: PG_INT_MAX + 1 }, ['retryCount'])
+    expect(jobDirtyWorkItemWorkerSchema.parse(item).retryCount).toBe(PG_INT_MAX)
+    refusedAt(jobDirtyWorkItemWorkerSchema, { ...item, retryCount: PG_INT_MAX + 1 }, ['retryCount'])
   })
 
   it('caps the meter policy version at the integer column ceiling (CR-M-3)', () => {
@@ -758,7 +758,7 @@ describe('jobCollectionCycleSchema — one occurrence, attributed correctly', ()
   })
 })
 
-describe('jobCollectionAttemptSchema — owned while running, ended when terminal', () => {
+describe('jobCollectionAttemptWorkerSchema — owned while running, ended when terminal', () => {
   const running = {
     id: UUID,
     sourceId: UUID2,
@@ -786,26 +786,26 @@ describe('jobCollectionAttemptSchema — owned while running, ended when termina
   }
 
   it('accepts a running attempt that is owned under a lease', () => {
-    expect(jobCollectionAttemptSchema.parse(running).ownerToken).toBe('worker-1')
+    expect(jobCollectionAttemptWorkerSchema.parse(running).ownerToken).toBe('worker-1')
   })
 
   it('accepts a terminal attempt carrying a short typed error code and sentence', () => {
     // A short code must PARSE — otherwise a bound of `max(100)` is
     // indistinguishable from `min(100)`.
-    const parsed = jobCollectionAttemptSchema.parse(failed)
+    const parsed = jobCollectionAttemptWorkerSchema.parse(failed)
     expect(parsed.errorCode).toBe('HTTP_403')
     expect(parsed.errorMessage).toBe('provider refused: forbidden')
   })
 
   it('refuses a running attempt with no owner, or no lease', () => {
     expectOnlyIssue(
-      jobCollectionAttemptSchema,
+      jobCollectionAttemptWorkerSchema,
       { ...running, ownerToken: null },
       'a running attempt is owned under a lease',
       ['ownerToken'],
     )
     expectOnlyIssue(
-      jobCollectionAttemptSchema,
+      jobCollectionAttemptWorkerSchema,
       { ...running, leaseExpiresAt: null },
       'a running attempt is owned under a lease',
       ['ownerToken'],
@@ -813,38 +813,41 @@ describe('jobCollectionAttemptSchema — owned while running, ended when termina
   })
 
   it('lets a TERMINAL attempt keep no lease: the rule binds running attempts only', () => {
-    expect(jobCollectionAttemptSchema.safeParse({ ...failed, leaseExpiresAt: null }).success).toBe(
-      true,
-    )
+    expect(
+      jobCollectionAttemptWorkerSchema.safeParse({ ...failed, leaseExpiresAt: null }).success,
+    ).toBe(true)
   })
 
   it('pairs a terminal outcome with an end instant, in both directions', () => {
     expectOnlyIssue(
-      jobCollectionAttemptSchema,
+      jobCollectionAttemptWorkerSchema,
       { ...running, outcome: 'SUCCEEDED' },
       'a terminal attempt carries its end instant; a running one does not',
       ['endedAt'],
     )
     expectOnlyIssue(
-      jobCollectionAttemptSchema,
+      jobCollectionAttemptWorkerSchema,
       { ...running, endedAt: NOW },
       'a terminal attempt carries its end instant; a running one does not',
       ['endedAt'],
     )
     expect(
-      jobCollectionAttemptSchema.safeParse({ ...running, outcome: 'SUCCEEDED', endedAt: NOW })
+      jobCollectionAttemptWorkerSchema.safeParse({ ...running, outcome: 'SUCCEEDED', endedAt: NOW })
         .success,
     ).toBe(true)
   })
 
   it('bounds the error code and the sanitized message (no raw upstream body)', () => {
-    refusedAt(jobCollectionAttemptSchema, { ...failed, errorMessage: 'x'.repeat(501) }, [
+    refusedAt(jobCollectionAttemptWorkerSchema, { ...failed, errorMessage: 'x'.repeat(501) }, [
       'errorMessage',
     ])
-    refusedAt(jobCollectionAttemptSchema, { ...failed, errorCode: 'C'.repeat(65) }, ['errorCode'])
+    refusedAt(jobCollectionAttemptWorkerSchema, { ...failed, errorCode: 'C'.repeat(65) }, [
+      'errorCode',
+    ])
     // Exactly at the bound still parses.
     expect(
-      jobCollectionAttemptSchema.safeParse({ ...failed, errorMessage: 'x'.repeat(500) }).success,
+      jobCollectionAttemptWorkerSchema.safeParse({ ...failed, errorMessage: 'x'.repeat(500) })
+        .success,
     ).toBe(true)
   })
 
@@ -854,17 +857,19 @@ describe('jobCollectionAttemptSchema — owned while running, ended when termina
     // space, punctuation, or anything over 64 characters — is refused here as
     // it now is by the database CHECK.
     expect(
-      jobCollectionAttemptSchema.safeParse({ ...failed, errorCode: 'A'.repeat(64) }).success,
+      jobCollectionAttemptWorkerSchema.safeParse({ ...failed, errorCode: 'A'.repeat(64) }).success,
     ).toBe(true)
-    refusedAt(jobCollectionAttemptSchema, { ...failed, errorCode: 'A'.repeat(65) }, ['errorCode'])
-    refusedAt(jobCollectionAttemptSchema, { ...failed, errorCode: 'http_403' }, ['errorCode'])
-    refusedAt(jobCollectionAttemptSchema, { ...failed, errorCode: 'HTTP 403' }, ['errorCode'])
-    refusedAt(jobCollectionAttemptSchema, { ...failed, errorCode: '403_HTTP' }, ['errorCode'])
-    refusedAt(jobCollectionAttemptSchema, { ...failed, errorCode: '' }, ['errorCode'])
+    refusedAt(jobCollectionAttemptWorkerSchema, { ...failed, errorCode: 'A'.repeat(65) }, [
+      'errorCode',
+    ])
+    refusedAt(jobCollectionAttemptWorkerSchema, { ...failed, errorCode: 'http_403' }, ['errorCode'])
+    refusedAt(jobCollectionAttemptWorkerSchema, { ...failed, errorCode: 'HTTP 403' }, ['errorCode'])
+    refusedAt(jobCollectionAttemptWorkerSchema, { ...failed, errorCode: '403_HTTP' }, ['errorCode'])
+    refusedAt(jobCollectionAttemptWorkerSchema, { ...failed, errorCode: '' }, ['errorCode'])
     // The refusal states WHY, in the one place the message is read: `refusedAt`
     // asserts the path only, so without this the message is an unobserved
     // string — a surviving StringLiteral mutant on the first gate run.
-    const refused = jobCollectionAttemptSchema.safeParse({ ...failed, errorCode: 'http_403' })
+    const refused = jobCollectionAttemptWorkerSchema.safeParse({ ...failed, errorCode: 'http_403' })
     expect(refused.success).toBe(false)
     if (refused.success) return
     expect(refused.error.issues.map((i) => i.message)).toContain(
@@ -873,26 +878,28 @@ describe('jobCollectionAttemptSchema — owned while running, ended when termina
   })
 
   it('refuses a non-positive fencing epoch or config version', () => {
-    refusedAt(jobCollectionAttemptSchema, { ...running, fencingEpoch: 0 }, ['fencingEpoch'])
-    refusedAt(jobCollectionAttemptSchema, { ...running, configVersion: 0 }, ['configVersion'])
+    refusedAt(jobCollectionAttemptWorkerSchema, { ...running, fencingEpoch: 0 }, ['fencingEpoch'])
+    refusedAt(jobCollectionAttemptWorkerSchema, { ...running, configVersion: 0 }, ['configVersion'])
   })
 
   it('takes 1-character owner / attempt / adapter values and refuses empty (.min(1))', () => {
     expect(
-      jobCollectionAttemptSchema.safeParse({
+      jobCollectionAttemptWorkerSchema.safeParse({
         ...running,
         ownerToken: 'w',
         attemptId: 'a',
         adapterVersion: 'v',
       }).success,
     ).toBe(true)
-    refusedAt(jobCollectionAttemptSchema, { ...running, ownerToken: '' }, ['ownerToken'])
-    refusedAt(jobCollectionAttemptSchema, { ...running, attemptId: '' }, ['attemptId'])
-    refusedAt(jobCollectionAttemptSchema, { ...running, adapterVersion: '' }, ['adapterVersion'])
-    refusedAt(jobCollectionAttemptSchema, { ...running, ownerToken: 'w'.repeat(201) }, [
+    refusedAt(jobCollectionAttemptWorkerSchema, { ...running, ownerToken: '' }, ['ownerToken'])
+    refusedAt(jobCollectionAttemptWorkerSchema, { ...running, attemptId: '' }, ['attemptId'])
+    refusedAt(jobCollectionAttemptWorkerSchema, { ...running, adapterVersion: '' }, [
+      'adapterVersion',
+    ])
+    refusedAt(jobCollectionAttemptWorkerSchema, { ...running, ownerToken: 'w'.repeat(201) }, [
       'ownerToken',
     ])
-    refusedAt(jobCollectionAttemptSchema, { ...running, adapterVersion: 'v'.repeat(101) }, [
+    refusedAt(jobCollectionAttemptWorkerSchema, { ...running, adapterVersion: 'v'.repeat(101) }, [
       'adapterVersion',
     ])
   })
@@ -1026,7 +1033,7 @@ describe('jobSourceHealthSchema — disabled, paused and readiness-blocked are s
   })
 })
 
-describe('jobDirtyWorkItemSchema — claimed under a lease, terminal when finished', () => {
+describe('jobDirtyWorkItemWorkerSchema — claimed under a lease, terminal when finished', () => {
   const item = {
     id: UUID,
     entityKind: 'OPPORTUNITY' as const,
@@ -1047,27 +1054,27 @@ describe('jobDirtyWorkItemSchema — claimed under a lease, terminal when finish
   const CLAIM_RULE = 'a CLAIMED item is owned under a lease, and only a CLAIMED item is'
 
   it('accepts a freshly enqueued pending item', () => {
-    expect(jobDirtyWorkItemSchema.parse(item).status).toBe('PENDING')
+    expect(jobDirtyWorkItemWorkerSchema.parse(item).status).toBe('PENDING')
   })
 
   it('needs BOTH an owner and a lease to be CLAIMED — one alone is not enough', () => {
-    expectOnlyIssue(jobDirtyWorkItemSchema, { ...item, status: 'CLAIMED' }, CLAIM_RULE, [
+    expectOnlyIssue(jobDirtyWorkItemWorkerSchema, { ...item, status: 'CLAIMED' }, CLAIM_RULE, [
       'claimOwner',
     ])
     expectOnlyIssue(
-      jobDirtyWorkItemSchema,
+      jobDirtyWorkItemWorkerSchema,
       { ...item, status: 'CLAIMED', claimOwner: 'w1', claimedAt: NOW },
       CLAIM_RULE,
       ['claimOwner'],
     )
     expectOnlyIssue(
-      jobDirtyWorkItemSchema,
+      jobDirtyWorkItemWorkerSchema,
       { ...item, status: 'CLAIMED', leaseExpiresAt: NOW },
       CLAIM_RULE,
       ['claimOwner'],
     )
     expect(
-      jobDirtyWorkItemSchema.safeParse({
+      jobDirtyWorkItemWorkerSchema.safeParse({
         ...item,
         status: 'CLAIMED',
         claimOwner: 'w1',
@@ -1079,7 +1086,7 @@ describe('jobDirtyWorkItemSchema — claimed under a lease, terminal when finish
 
   it('refuses an owner or a lease left behind on work that is not CLAIMED', () => {
     expectOnlyIssue(
-      jobDirtyWorkItemSchema,
+      jobDirtyWorkItemWorkerSchema,
       { ...item, claimOwner: 'w1', leaseExpiresAt: NOW },
       CLAIM_RULE,
       ['claimOwner'],
@@ -1088,16 +1095,16 @@ describe('jobDirtyWorkItemSchema — claimed under a lease, terminal when finish
     // was one equality of two booleans, so `status <> 'CLAIMED'` with an owner
     // and NO lease made both sides false, the equality held, and the state the
     // message calls impossible parsed. Each half alone is refused now.
-    expectOnlyIssue(jobDirtyWorkItemSchema, { ...item, claimOwner: 'w1' }, CLAIM_RULE, [
+    expectOnlyIssue(jobDirtyWorkItemWorkerSchema, { ...item, claimOwner: 'w1' }, CLAIM_RULE, [
       'claimOwner',
     ])
-    expectOnlyIssue(jobDirtyWorkItemSchema, { ...item, leaseExpiresAt: NOW }, CLAIM_RULE, [
+    expectOnlyIssue(jobDirtyWorkItemWorkerSchema, { ...item, leaseExpiresAt: NOW }, CLAIM_RULE, [
       'claimOwner',
     ])
     // ... on every non-CLAIMED status, not only PENDING.
     for (const status of ['DONE', 'FAILED', 'DEFERRED'] as const) {
       expectOnlyIssue(
-        jobDirtyWorkItemSchema,
+        jobDirtyWorkItemWorkerSchema,
         { ...item, status, completedAt: NOW, claimOwner: 'w1' },
         CLAIM_RULE,
         ['claimOwner'],
@@ -1105,7 +1112,7 @@ describe('jobDirtyWorkItemSchema — claimed under a lease, terminal when finish
     }
     // And the legitimate released shape — both cleared — still parses.
     expect(
-      jobDirtyWorkItemSchema.safeParse({
+      jobDirtyWorkItemWorkerSchema.safeParse({
         ...item,
         status: 'DONE',
         completedAt: NOW,
@@ -1119,20 +1126,20 @@ describe('jobDirtyWorkItemSchema — claimed under a lease, terminal when finish
     'treats %s as terminal: it carries a completion instant',
     (status) => {
       expectOnlyIssue(
-        jobDirtyWorkItemSchema,
+        jobDirtyWorkItemWorkerSchema,
         { ...item, status },
         'a terminal item (DONE / FAILED / DEFERRED) carries its completion instant',
         ['completedAt'],
       )
-      expect(jobDirtyWorkItemSchema.safeParse({ ...item, status, completedAt: NOW }).success).toBe(
-        true,
-      )
+      expect(
+        jobDirtyWorkItemWorkerSchema.safeParse({ ...item, status, completedAt: NOW }).success,
+      ).toBe(true)
     },
   )
 
   it('refuses a completion instant on work that is still pending', () => {
     expectOnlyIssue(
-      jobDirtyWorkItemSchema,
+      jobDirtyWorkItemWorkerSchema,
       { ...item, completedAt: NOW },
       'a terminal item (DONE / FAILED / DEFERRED) carries its completion instant',
       ['completedAt'],
@@ -1141,9 +1148,11 @@ describe('jobDirtyWorkItemSchema — claimed under a lease, terminal when finish
 
   it('accepts a short typed last error code', () => {
     expect(
-      jobDirtyWorkItemSchema.parse({ ...item, lastErrorCode: 'VERSION_STALE' }).lastErrorCode,
+      jobDirtyWorkItemWorkerSchema.parse({ ...item, lastErrorCode: 'VERSION_STALE' }).lastErrorCode,
     ).toBe('VERSION_STALE')
-    refusedAt(jobDirtyWorkItemSchema, { ...item, lastErrorCode: 'C'.repeat(65) }, ['lastErrorCode'])
+    refusedAt(jobDirtyWorkItemWorkerSchema, { ...item, lastErrorCode: 'C'.repeat(65) }, [
+      'lastErrorCode',
+    ])
   })
 
   it('refuses a dirty-work error code that is not a typed one (SR-M-2 / SPEC-M-1)', () => {
@@ -1152,30 +1161,38 @@ describe('jobDirtyWorkItemSchema — claimed under a lease, terminal when finish
     // space, punctuation, or anything over 64 characters — is refused here as
     // it now is by the database CHECK.
     expect(
-      jobDirtyWorkItemSchema.safeParse({ ...item, lastErrorCode: 'A'.repeat(64) }).success,
+      jobDirtyWorkItemWorkerSchema.safeParse({ ...item, lastErrorCode: 'A'.repeat(64) }).success,
     ).toBe(true)
-    refusedAt(jobDirtyWorkItemSchema, { ...item, lastErrorCode: 'A'.repeat(65) }, ['lastErrorCode'])
-    refusedAt(jobDirtyWorkItemSchema, { ...item, lastErrorCode: 'http_403' }, ['lastErrorCode'])
-    refusedAt(jobDirtyWorkItemSchema, { ...item, lastErrorCode: 'HTTP 403' }, ['lastErrorCode'])
-    refusedAt(jobDirtyWorkItemSchema, { ...item, lastErrorCode: '403_HTTP' }, ['lastErrorCode'])
-    refusedAt(jobDirtyWorkItemSchema, { ...item, lastErrorCode: '' }, ['lastErrorCode'])
+    refusedAt(jobDirtyWorkItemWorkerSchema, { ...item, lastErrorCode: 'A'.repeat(65) }, [
+      'lastErrorCode',
+    ])
+    refusedAt(jobDirtyWorkItemWorkerSchema, { ...item, lastErrorCode: 'http_403' }, [
+      'lastErrorCode',
+    ])
+    refusedAt(jobDirtyWorkItemWorkerSchema, { ...item, lastErrorCode: 'HTTP 403' }, [
+      'lastErrorCode',
+    ])
+    refusedAt(jobDirtyWorkItemWorkerSchema, { ...item, lastErrorCode: '403_HTTP' }, [
+      'lastErrorCode',
+    ])
+    refusedAt(jobDirtyWorkItemWorkerSchema, { ...item, lastErrorCode: '' }, ['lastErrorCode'])
   })
 
   it('refuses a non-positive target version, a blank or oversized reason, a negative retry', () => {
-    refusedAt(jobDirtyWorkItemSchema, { ...item, targetVersion: 0 }, ['targetVersion'])
-    refusedAt(jobDirtyWorkItemSchema, { ...item, reason: '' }, ['reason'])
-    refusedAt(jobDirtyWorkItemSchema, { ...item, reason: 'r'.repeat(101) }, ['reason'])
-    refusedAt(jobDirtyWorkItemSchema, { ...item, retryCount: -1 }, ['retryCount'])
-    refusedAt(jobDirtyWorkItemSchema, { ...item, fencingEpoch: 0 }, ['fencingEpoch'])
+    refusedAt(jobDirtyWorkItemWorkerSchema, { ...item, targetVersion: 0 }, ['targetVersion'])
+    refusedAt(jobDirtyWorkItemWorkerSchema, { ...item, reason: '' }, ['reason'])
+    refusedAt(jobDirtyWorkItemWorkerSchema, { ...item, reason: 'r'.repeat(101) }, ['reason'])
+    refusedAt(jobDirtyWorkItemWorkerSchema, { ...item, retryCount: -1 }, ['retryCount'])
+    refusedAt(jobDirtyWorkItemWorkerSchema, { ...item, fencingEpoch: 0 }, ['fencingEpoch'])
   })
 
   it('takes a 1-character reason and claim owner (.min(1) boundary)', () => {
-    expect(jobDirtyWorkItemSchema.safeParse({ ...item, reason: 'r' }).success).toBe(true)
-    expect(jobDirtyWorkItemSchema.safeParse({ ...item, reason: 'r'.repeat(100) }).success).toBe(
-      true,
-    )
+    expect(jobDirtyWorkItemWorkerSchema.safeParse({ ...item, reason: 'r' }).success).toBe(true)
     expect(
-      jobDirtyWorkItemSchema.safeParse({
+      jobDirtyWorkItemWorkerSchema.safeParse({ ...item, reason: 'r'.repeat(100) }).success,
+    ).toBe(true)
+    expect(
+      jobDirtyWorkItemWorkerSchema.safeParse({
         ...item,
         status: 'CLAIMED',
         claimOwner: 'w',
@@ -1184,12 +1201,12 @@ describe('jobDirtyWorkItemSchema — claimed under a lease, terminal when finish
       }).success,
     ).toBe(true)
     refusedAt(
-      jobDirtyWorkItemSchema,
+      jobDirtyWorkItemWorkerSchema,
       { ...item, status: 'CLAIMED', claimOwner: '', claimedAt: NOW, leaseExpiresAt: NOW },
       ['claimOwner'],
     )
     refusedAt(
-      jobDirtyWorkItemSchema,
+      jobDirtyWorkItemWorkerSchema,
       {
         ...item,
         status: 'CLAIMED',

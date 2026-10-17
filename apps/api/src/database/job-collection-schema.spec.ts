@@ -234,6 +234,7 @@ describe('job_sources (extended in place — AC1)', () => {
       expect.arrayContaining([
         'ck_job_sources_last_error_code_format',
         'ck_job_sources_readiness_reason_bounded',
+        'ck_job_sources_config_bounded',
       ]),
     )
     // A documented classification, not free text: the column was `text` with no
@@ -665,6 +666,10 @@ describe('bounded shapes the schema must not leave open (SR-M-1 / SR-M-3 / CR-M-
         'source_config_snapshot',
       ],
       [jobDirtyWork, 'ck_job_dirty_work_checkpoint_bounded', 'checkpoint'],
+      // CR-L-3: the snapshot required an object and a size bound while the
+      // column it snapshots had neither — so an oversized or non-object config
+      // could be stored and would fail only when a run tried to copy it.
+      [jobSources, 'ck_job_sources_config_bounded', 'config'],
     ] as const) {
       const sql_ = checkSql(t, name)
       expect(sql_).toContain('jsonb_typeof')

@@ -1260,6 +1260,57 @@ describe.skipIf(!hasDatabaseUrl())('job collection machinery (real Postgres cata
       expect(res[0].amount).toBe('4294967296')
     })
 
+    it('refuses an oversized or wrongly typed job_sources config (CR-L-3)', async () => {
+      // CR-L-3. `source_config_snapshot` was bounded while the column it
+      // copies was not, so a source could be created that no run could ever
+      // snapshot. The constraint was added to a fresh database carrying all
+      // SIXTEEN seeded rows (2026-10-05 seed) before being written here: the
+      // longest seeded config serializes to 76 characters, every one is an
+      // object, so `ALTER TABLE ... ADD CONSTRAINT` validated all 16.
+      const seeded = await q(
+        `SELECT count(*) FILTER (WHERE jsonb_typeof(config) <> 'object') AS wrong_type,
+                max(length(config::text)) AS longest
+           FROM job_sources`,
+      )
+      expect(Number(seeded.rows[0].wrong_type)).toBe(0)
+      expect(Number(seeded.rows[0].longest)).toBeLessThanOrEqual(8192)
+
+      const oversized = await rejected(
+        `INSERT INTO job_sources (type, config) VALUES ('DOU_RSS', $1::jsonb)`,
+        [JSON.stringify({ tag: nextTag(), pad: 'p'.repeat(9000) })],
+      )
+      expect(oversized).toEqual({
+        code: CHECK_VIOLATION,
+        constraint: 'ck_job_sources_config_bounded',
+      })
+      const asArray = await rejected(
+        `INSERT INTO job_sources (type, config) VALUES ('DOU_RSS', '[]'::jsonb)`,
+      )
+      expect(asArray.constraint).toBe('ck_job_sources_config_bounded')
+      const asScalar = await rejected(
+        `INSERT INTO job_sources (type, config) VALUES ('DOU_RSS', '3'::jsonb)`,
+      )
+      expect(asScalar.constraint).toBe('ck_job_sources_config_bounded')
+      // An ordinary knobs object is accepted, and so is one EXACTLY at the
+      // bound — the padding is sized in SQL because `length(config::text)`
+      // measures jsonb's own rendering (`{"pad": "..."}`, with the space),
+      // not the bytes we sent.
+      await newSource()
+      const atBound = await q(
+        `INSERT INTO job_sources (type, config)
+         VALUES ('DOU_RSS', jsonb_build_object(
+                   'pad', repeat('p', 8192 - length(jsonb_build_object('pad', '')::text))))
+         RETURNING length(config::text) AS len`,
+      )
+      expect(Number(atBound.rows[0].len)).toBe(8192)
+      const overBound = await rejected(
+        `INSERT INTO job_sources (type, config)
+         VALUES ('DOU_RSS', jsonb_build_object(
+                   'pad', repeat('p', 8193 - length(jsonb_build_object('pad', '')::text))))`,
+      )
+      expect(overBound.constraint).toBe('ck_job_sources_config_bounded')
+    })
+
     it('refuses a claim owner longer than its shared bound (SR-M-3)', async () => {
       const { rows } = await q(
         `INSERT INTO job_dirty_work (entity_kind, entity_id, target_version, reason)

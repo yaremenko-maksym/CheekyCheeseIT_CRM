@@ -32,6 +32,7 @@ import { jobAccountMeters } from './job-metering'
 import {
   JOB_ERROR_CODE_PATTERN,
   JOB_HANDLE_MAX,
+  JOB_JSONB_TEXT_MAX,
   JOB_PUBLIC_ID_PATTERN,
   JOB_SANITIZED_TEXT_MAX,
   JOB_UNBROKEN_RUN_PATTERN,
@@ -110,6 +111,15 @@ export const jobSources = pgTable(
     // identity for sixteen rows nobody has verified. Task 3.7 backfills real
     // ids from the typed manifest; until then NULL means "not yet claimed",
     // and the partial UNIQUE below keeps the claimed ones distinct.
+    //
+    // SR-L-1 — AN OBLIGATION ON TASK 3.7'S BACKFILL, not a constraint it can
+    // discover later: `ck_job_sources_manifest_id_segmented` refuses any
+    // unbroken run of 24+ lowercase alphanumerics, so a 32-character hex
+    // digest, a base32 token or a UUID with its hyphens stripped FAILS on
+    // INSERT. The backfill must emit segmented ids
+    // (`jsearch:rapidapi-main`, `dou.rss.jobs`) or a hyphenated UUID. The rule
+    // is kept rather than relaxed: refusing a pasted raw key is the whole
+    // point of it, and a digest is not an identity a human can read.
     manifestId: text('manifest_id'),
     /** Board / account scope (an ATS company slug); '' for global providers — never NULL. */
     namespace: text('namespace').notNull().default(''),
@@ -141,7 +151,13 @@ export const jobSources = pgTable(
     // readiness, and the sixteen seeded rows are candidates, not verified
     // configs (C-16).
     readiness: jobSourceReadinessEnum('readiness').notNull().default('CANDIDATE'),
-    /** Typed reason a source is readiness-BLOCKED (policy / credential / contract). Bounded by CHECK. */
+    /**
+     * Sanitized sentence saying why a source is readiness-BLOCKED (policy /
+     * credential / contract). SPEC-L-2: the only constraint is
+     * `length(...) <= 500` (`ck_job_sources_readiness_reason_bounded`) — there
+     * is NO alphabet rule and no enum here, unlike `last_error_code` below, so
+     * Task 1.3 must not transcribe one.
+     */
     readinessReason: text('readiness_reason'),
     adminState: jobSourceAdminStateEnum('admin_state').notNull().default('ACTIVE'),
     /**
@@ -239,6 +255,23 @@ export const jobSources = pgTable(
     check(
       'ck_job_sources_readiness_reason_bounded',
       sql`${t.readinessReason} IS NULL OR length(${t.readinessReason}) <= ${sql.raw(String(JOB_SANITIZED_TEXT_MAX))}`,
+    ),
+    /**
+     * CR-L-3. `job_collection_runs.source_config_snapshot` required an object
+     * and a bounded serialized length while THIS column — the one it copies
+     * verbatim — required neither, so a source with an oversized or non-object
+     * config could be created and would fail only later, when a run tried to
+     * snapshot it. Same bound, same reason, and the bound is on
+     * `length(config::text)`: CHARACTERS of jsonb's own rendering, not bytes.
+     *
+     * Proven against all SIXTEEN rows of the immutable 2026-10-05 seed on a
+     * fresh database (`ALTER TABLE ... ADD CONSTRAINT` validates existing
+     * rows): every seeded config is an object and the longest renders to 76
+     * characters.
+     */
+    check(
+      'ck_job_sources_config_bounded',
+      sql`jsonb_typeof(${t.config}) = 'object' AND length(${t.config}::text) <= ${sql.raw(String(JOB_JSONB_TEXT_MAX))}`,
     ),
     // History is an ARRAY: an object or a scalar here would silently become a
     // one-entry "history" that no append can extend.

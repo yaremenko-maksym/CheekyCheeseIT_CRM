@@ -53,5 +53,13 @@ export const JOB_SHORT_TEXT_MAX = 100
  * bounded by their serialized length so an adapter cannot grow history without
  * limit; `length(x::text)` is deterministic, unlike `pg_column_size`, which
  * depends on compression.
+ *
+ * CR-L-4 — THE UNIT IS CHARACTERS, not bytes, and 8192 is not 8 KiB. The
+ * constraints read `length(x::text) <= 8192`, and `length()` on `text` counts
+ * CHARACTERS; a cursor of Cyrillic or CJK code points therefore occupies more
+ * bytes on disk than this number suggests. Chosen deliberately over
+ * `octet_length` as well as over `pg_column_size`: a bound a reader can
+ * reproduce by eye on the rendered JSON is worth more here than one that
+ * tracks storage exactly.
  */
 export const JOB_JSONB_TEXT_MAX = 8192
