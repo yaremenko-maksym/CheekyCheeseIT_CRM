@@ -263,7 +263,84 @@ tests above rather than citing this ADR.
 
 ### 4. Rollout without downtime
 
-TODO
+"Without downtime" means: no maintenance window and no step that stops the API beyond the
+container swap every deploy already does. Steps marked **[OWNER]** can be performed only by the
+owner (production shell, CI secrets, merge); per `docs/runbooks/human-only.md` each is reduced to
+one line, everything else is automated. Each step leaves a working production.
+
+**Shape of the DDL (two files, for ordering).** The deploy re-applies every manual file on every
+deploy, in a fixed order. Roles must exist before any file mentions them, and table-wide grants
+must run after every table exists. So:
+
+- **File 1 — roles** (applied **first**): creates `crm_app` (and later `crm_collector`) if missing
+  (a `DO` block — `CREATE ROLE` has no `IF NOT EXISTS`), sets attributes, sets the password, the
+  database and schema rules, and the default privileges of §2.
+- **File 2 — grants** (applied **last**): `GRANT … ON ALL TABLES / ALL SEQUENCES IN SCHEMA public`
+  for class A, the class B revokes, the collector's class C / D grants. Idempotent; re-applying it
+  every deploy also repairs drift.
+
+Both follow the existing wiring contract (r5 C-15: scp `source:` entry, an apply step, the
+hard-required file list, runbook §9 mirror; `check-prod-ddl-wiring.py` stays green).
+**The password is never in a file:** it reaches `psql` through the environment (`docker compose
+exec -e` + psql `\getenv`, available since psql 15), not as a `-v` argument visible in the process
+list or a literal in the repository. Re-applying the file every deploy makes rotation "change the
+secret, deploy". Confidence **MED** on the exact plumbing (DevOps chooses); **HIGH** on the
+ordering and on "no password in a file or argv".
+
+| #   | Step                                                                                                                                                                                                                                                                                         | Who                                                                                     | Effect on production                            | Done when                                       |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ----------------------------------------------- | ----------------------------------------------- |
+| 0   | Read-only check of the current role (command below)                                                                                                                                                                                                                                          | **[OWNER]**                                                                             | none                                            | The answer is recorded in the implementing PR   |
+| 1   | Add the CI secret `CRM_APP_DB_PASSWORD` (value: `openssl rand -hex 32` — hex, so it is URL-safe in `DATABASE_URL`). One line: "Settings → Secrets → New: `CRM_APP_DB_PASSWORD`, value from `openssl rand -hex 32`"                                                                           | **[OWNER]**                                                                             | none                                            | The deploy fails loudly if the secret is absent |
+| 2   | PR A (DevOps): files 1 and 2, their wiring, the catalog check (§2) as a deploy step after the DDL steps and as a CI job. The API still connects as `crm_user`                                                                                                                                | DevOps; merge **[OWNER]**                                                               | Roles and grants exist; behaviour unchanged     | Deploy green, catalog check green               |
+| 3   | Automated post-apply probes, in the same deploy: log in as `crm_app` **over TCP** inside the postgres container (the local socket is trusted and would prove nothing about the password); inside a rolled-back transaction, `UPDATE job_queue_actions` as `crm_app` must fail with `42501`   | DevOps (in PR A)                                                                        | none                                            | Probes green                                    |
+| 4   | CI runs the API **as `crm_app`** (§5) on `main` — the only real proof that the grants are sufficient for every query the code makes                                                                                                                                                          | DevOps + AutoTest                                                                       | none                                            | CI green on `main` with the new connection      |
+| 5   | PR B (DevOps): the deploy writes `DATABASE_URL` with `crm_app` and `CRM_APP_DB_PASSWORD`, **and** `POSTGRES_PASSWORD` leaves the API's environment — the `postgres` service gets it from a file only it loads; `POSTGRES_USER` / `POSTGRES_DB` (not secrets, read by the DDL steps) may stay | DevOps; merge **[OWNER]**                                                               | The API restarts as `crm_app`, as on any deploy | Deploy green                                    |
+| 6   | Verify (commands below): API sessions are `crm_app` only; the API container's environment has no `POSTGRES_PASSWORD`; a sign-in, a finance page read and one write work; no `permission denied` in API logs for 48 h                                                                         | DevOps automates the first two as deploy steps; the smoke and the log watch **[OWNER]** | none                                            | All four hold                                   |
+| 7   | Collector, when the worker ships as its own process: `CRM_COLLECTOR_DB_PASSWORD` **[OWNER]**, the role in file 1, class C / D grants in file 2, the URL only in the worker's environment                                                                                                     | r5 Task 1.3 / DevOps                                                                    | Worker runs as `crm_collector`                  | Catalog check covers `crm_collector`            |
+
+**Step 0 — the owner's read-only check.** The brief's form, plus the attributes this design depends
+on:
+
+```bash
+ssh crm-vps "docker exec crm-postgres-1 psql -U crm_user -d crm_db -tAc \"SELECT rolname, rolsuper FROM pg_roles WHERE rolname = current_user\""
+# extended (same, read-only):
+ssh crm-vps "docker exec crm-postgres-1 psql -U crm_user -d crm_db -tAc \"SELECT rolname, rolsuper, rolcreaterole, rolcanlogin FROM pg_roles WHERE rolname = current_user; SHOW log_statement;\""
+```
+
+How each answer changes the plan:
+
+- `rolsuper = t` (expected): the plan as written.
+- `rolsuper = f, rolcreaterole = t`: the plan as written (`CREATE ROLE` needs `CREATEROLE`).
+- `rolsuper = f, rolcreaterole = f`: file 1 cannot run as `crm_user`. **Stop (A3)** — the owner must
+  find who holds superuser in that cluster; nothing is changed until then.
+- `log_statement` is `ddl` or `all`: `ALTER ROLE … PASSWORD` would land in the server log in clear
+  text. File 1 must then send a pre-hashed SCRAM verifier instead of the plain password.
+
+**Step 6 — verification commands** (read-only; the deploy runs the first two itself after PR B):
+
+```bash
+ssh crm-vps "docker exec crm-postgres-1 psql -U crm_user -d crm_db -tAc \"SELECT usename, count(*) FROM pg_stat_activity WHERE datname = 'crm_db' AND backend_type = 'client backend' GROUP BY 1\""
+#  expect: crm_app with the pool's sessions; crm_user only for this check itself
+ssh crm-vps "docker exec crm-api-1 printenv POSTGRES_PASSWORD >/dev/null && echo LEAK || echo clean"
+#  expect: clean
+```
+
+**Rollback (by step).**
+
+- **After step 2 or 3** — nothing is using the roles. Leave them; or a forward file that drops them
+  (`REASSIGN OWNED` is not needed — they own nothing). The API is unaffected.
+- **After step 5 — the main rollback: switch the URL back.** Revert PR B and let it deploy; the
+  deploy writes `DATABASE_URL` for `crm_user` again and the API restarts on the old credential.
+  Roles and grants stay and are harmless. **Emergency path [OWNER]** if a deploy is too slow:
+  edit `DATABASE_URL` in `/opt/crm/.env.production` back to `crm_user` and its password, then
+  `docker compose -f docker-compose.prod.yml -f docker-compose.ghcr.yml --env-file .env.production up -d api`.
+  The next deploy overwrites the file again, so the revert PR is still required.
+- **A single missing grant** with narrow impact — prefer a forward fix (a line in file 2) over a
+  rollback; the rollback re-opens the boundary for everything.
+- **Note on image rollback.** `workflow_dispatch` with `image_tag` (runbook §9) redeploys an old
+  image but writes the environment from the current workflow, so after step 5 an old image also
+  runs as `crm_app`. That is safe: class A grants are table-wide, so older code finds every table it
+  used. It is not a way to undo step 5.
 
 ### 5. Impact on local development, CI and the integration-test guards
 
