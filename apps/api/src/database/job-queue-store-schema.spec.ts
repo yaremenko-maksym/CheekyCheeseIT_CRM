@@ -522,7 +522,13 @@ describe('job_queue_actions (AC4)', () => {
     ])
     expect(idxCols(t, 'idx_job_queue_actions_source_record')).toEqual(['source_record_id'])
     expect(idxCols(t, 'idx_job_queue_actions_subscription')).toEqual(['subscription_id'])
-    expect(idxCols(t, 'idx_job_queue_actions_subject_user')).toEqual(['subject_user_id'])
+    // CR-L-6: deliberately unindexed, like every other user FK (users are
+    // archived, never deleted, so the RESTRICT probe never fires).
+    expect(
+      getTableConfig(t).indexes.some((i) =>
+        i.config.columns.some((c) => 'name' in c && c.name === 'subject_user_id'),
+      ),
+    ).toBe(false)
   })
 
   it('declares every guard', () => {

@@ -17,7 +17,8 @@ import { assertRealDbSchema, hasDatabaseUrl } from '../test/require-real-db'
  * trigger, so the append-only action log and the immutable entries still
  * accept UPDATE / DELETE. That is the honest state of this PR (Task 1.3 adds
  * the triggers; a grant boundary waits on the API getting a non-superuser
- * role — an owner decision); the pin keeps the comment in
+ * role — `crm_user` is a superuser on the scratch catalog, production to be
+ * re-checked by the owner; an owner decision); the pin keeps the comment in
  * `schema/job-queue.ts` from drifting into a claim the database does not keep.
  *
  * CLEANUP: every row is reachable from this suite's TAG (users by email, teams

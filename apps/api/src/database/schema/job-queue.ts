@@ -56,8 +56,11 @@
  * TASK 1.3 OBLIGATION (forward DDL, by hand from this comment)
  * ------------------------------------------------------------
  * SR-M-1 — THE VIABLE MECHANISM IS TRIGGERS. The API connects as `crm_user`,
- * the bootstrap role that also applies the DDL, and it is a SUPERUSER
- * (`rolsuper = t`, checked on the scratch catalog). A superuser is not limited
+ * the bootstrap role that also applies the DDL, and it is a SUPERUSER.
+ * VERIFIED ON THE SCRATCH CATALOG ONLY (`rolsuper = t` for `crm_user` on the
+ * docker-compose PG16): production MUST be re-checked by the owner with
+ * `SELECT rolsuper FROM pg_roles WHERE rolname = 'crm_user'` before Task 1.3
+ * relies on this paragraph. A superuser is not limited
  * by GRANT / REVOKE, so a grant-based boundary does NOTHING for the API today;
  * r5 Task 1.3 creates a least-privileged role only for the collection worker.
  * Triggers DO fire for a superuser, except under
@@ -69,24 +72,41 @@
  *       `BEFORE TRUNCATE` statement trigger. The generation purge deletes the
  *       generation and lets the FK cascade remove its entries, so the entries
  *       trigger must allow a DELETE that arrives through that cascade and refuse
- *       a direct one. SR-L-3: `pg_trigger_depth() > 0` is ALSO true inside any
- *       other trigger or function, so it is not proof of the cascade — its
- *       tests need a direct DELETE (refused) plus BOTH cascade paths (purged
- *       generation, deleted opportunity) allowed;
+ *       a direct one. Do NOT use `pg_trigger_depth() > 0` for that: MEASURED
+ *       on the scratch catalog (rolled-back probe trigger), the entries trigger
+ *       sees depth 1 on a DIRECT delete and 2 under a cascade, so `> 0` would
+ *       allow the very delete it must refuse — and any depth test is also true
+ *       inside other triggers or functions (SR-L-3). Use SR-L-5's test instead,
+ *       "the parent row no longer exists", which the same probe confirmed: on
+ *       a direct delete both parents exist; under the cascade from a purged
+ *       generation `job_queue_generations(OLD.generation_id)` is gone, and
+ *       under the cascade from a deleted opportunity
+ *       `job_opportunities(OLD.opportunity_id)` is gone. So: allow the DELETE
+ *       only when one of those two rows `NOT EXISTS`. Its tests need a direct
+ *       DELETE (refused) plus BOTH cascade paths allowed;
  *   (b) SR-M-3 — the team-boundary controls on `job_queue_generations` and its
  *       entries (a late insert, or an UPDATE that repoints a generation, is a
  *       path to serving one team's opportunities to another):
  *         - refuse an INSERT into `job_queue_generation_entries` whose
  *           generation is not `BUILDING`;
- *         - freeze `scope_kind` and `team_id` of a generation on UPDATE;
+ *         - freeze `scope_kind`, `team_id` and `expires_at` of a generation
+ *           on UPDATE (SR-L-5: an UPDATE of `expires_at` could revive an
+ *           expired generation);
  *         - make the status one-way (BUILDING -> PUBLISHED -> INVALIDATED,
  *           BUILDING -> INVALIDATED; never back);
  *         - refuse a DELETE of a generation whose status is not `INVALIDATED`
- *           ("invalidate before purge").
+ *           ("invalidate before purge"). SR-L-5 consequence: deleting a TEAM
+ *           cascades into its generations, so once this trigger exists a team
+ *           delete is REFUSED until that team's generations are invalidated
+ *           (teams are archived, not deleted, by the application today).
  *   (c) A GRANT boundary (INSERT + SELECT only on the two tables) is worth
  *       adding only once the API connects as a NON-superuser role. Whether it
  *       does is a decision PENDING WITH THE OWNER; this file does not assume
  *       either answer, and (a)-(b) do not depend on it.
+ *   (d) OPTIONAL hardening (SR-L-7), not required: detect a disabled trigger —
+ *       an event trigger on `ALTER TABLE ... DISABLE TRIGGER`, or an API
+ *       startup assertion that the triggers above exist and are enabled
+ *       (`pg_trigger.tgenabled <> 'D'`).
  *
  * RETENTION — CR-L-4 / SR-L-4
  * ---------------------------
@@ -98,12 +118,27 @@
  * the row, so the audit FK stays satisfied. Task 1.4 obligations that follow:
  *   - its "legal deletion" path for an opportunity is a tombstone, not a
  *     DELETE — a DELETE is refused with 23503 by design;
- *   - its "audit minimization" of the LOG itself (free-text `reason`, actor
- *     ids of a departed person) is an UPDATE on an append-only table, which
- *     the Task 1.3 trigger in (a) would refuse. The two tasks therefore need
- *     one sanctioned redaction path (for example, the trigger permitting only
- *     `reason := NULL` under a dedicated role or setting). That design is
- *     OPEN — it is not decided here.
+ *   - SR-M-5 — ERASURE OF A PERSON: WHAT THIS SCHEMA ALLOWS TODAY. An actor
+ *     id CANNOT be removed from these tables: `job_queue_actions.actor_id`,
+ *     `job_queue_assignments.assignee_id`, `job_queue_dismissals.dismissed_by`
+ *     and `job_team_triage_subscriptions.actor_id` are NOT NULL with a RESTRICT
+ *     FK to `users`; `subject_user_id` is forced NOT NULL for REASSIGNED by
+ *     `ck_job_queue_actions_subject_user`; the paired actor columns
+ *     (`released_by`, `reassigned_*`, `undone_by`, `revoked_by`) cannot be
+ *     NULLed without also clearing their pair. The ONLY available path to
+ *     remove a person's identity is to PSEUDONYMISE the `users` row (keep its
+ *     id, overwrite what identifies the person); every FK here stays valid.
+ *     Free text: `job_queue_actions.reason` and
+ *     `job_queue_assignments.release_reason` are nullable; the `reason` of a
+ *     dismissal and of a subscription (and a revoke reason) are NOT NULL and
+ *     cannot be redacted to NULL — only overwritten with a non-blank
+ *     placeholder. Any UPDATE of the action log is also what the Task 1.3
+ *     trigger in (a) refuses.
+ *     THE ERASURE DESIGN IS AN OPEN DECISION, pending with the owner and
+ *     legal: whether pseudonymisation of `users` suffices, whether any column
+ *     above must become nullable, and what sanctioned redaction path the
+ *     append-only trigger allows. It must be settled BEFORE Task 1.3 freezes
+ *     that trigger. Nothing here decides it.
  */
 import { type SQL, sql } from 'drizzle-orm'
 import {
@@ -327,7 +362,9 @@ export const jobQueueDismissals = pgTable(
  * Standing ADMIN triage for one team: opportunities of a role family (and,
  * optionally, only from some sources) become visible to that team without a
  * per-opportunity grant. Agrees with the #1011 contracts
- * (`create/revoke/jobQueueTeamTriageSubscriptionSchema`): one column per
+ * (`create/revokeJobQueueTeamTriageSubscriptionSchema` and the row shape
+ * `jobQueueTeamTriageSubscriptionWorkerSchema`, whose public variant drops
+ * `actorId` — SR-M-6): one column per
  * contract field, plus the create reason and the revoke triple for audit.
  *
  * "NEVER COVERS UNVERIFIABLE-EMPLOYER ITEMS" (r5) IS A PHASE-6 OBLIGATION, NOT
@@ -515,12 +552,15 @@ export const jobQueueActions = pgTable(
     index('idx_job_queue_actions_opportunity').on(t.opportunityId, t.createdAt),
     index('idx_job_queue_actions_team').on(t.teamId, t.createdAt),
     index('idx_job_queue_actions_subject_team').on(t.subjectTeamId, t.createdAt),
-    // CR-L-3. Every FK column of the log is index-led: `actor_id` by
-    // `uq_job_queue_actions_actor_idempotency`, the rest by the indexes here, so
-    // a RESTRICT probe on any parent delete is an index lookup.
+    // CR-L-3 / CR-L-6. Index-led FK columns: `actor_id` (by
+    // `uq_job_queue_actions_actor_idempotency`), opportunity, team, subject
+    // team, source record and subscription — parents the application does
+    // delete or cascade from, or that a scoped read filters on.
+    // `subject_user_id` is deliberately NOT indexed, for the same reason as the
+    // other user FKs (see `job_queue_assignments`): nothing reads by it and
+    // users are archived, never deleted, so its RESTRICT probe never fires.
     index('idx_job_queue_actions_source_record').on(t.sourceRecordId),
     index('idx_job_queue_actions_subscription').on(t.subscriptionId),
-    index('idx_job_queue_actions_subject_user').on(t.subjectUserId),
     check('ck_job_queue_actions_scope_shape', scopeShape(t.scopeKind, t.teamId)),
     check(
       'ck_job_queue_actions_target',
@@ -660,7 +700,8 @@ export const jobQueueGenerations = pgTable(
  * keeps two entries from sharing a position.
  *
  * IMMUTABILITY IS NOT ENFORCED BY THIS SCHEMA — see the file header (Task 1.3
- * triggers, items (a)-(b); a grant would not bind the superuser API role). Both parents CASCADE: purging a generation removes its
+ * triggers, items (a)-(b); a grant would not bind the API role, a superuser on the scratch catalog —
+ * production to be re-checked by the owner, see the header). Both parents CASCADE: purging a generation removes its
  * entries, and deleting an opportunity removes it from every generation, which
  * r5 Task 6.2 allows ("removals allowed, additions/moves only on refresh").
  */
