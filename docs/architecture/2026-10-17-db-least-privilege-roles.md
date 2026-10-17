@@ -3,6 +3,31 @@
 ## Status
 
 Proposed (2026-10-17). Direction approved by the owner on 2026-10-17 ("do it the right way").
+Acceptance of this ADR is the owner's decision and has not been given.
+
+## Summary of decisions
+
+1. **Roles (§1).** `crm_user` stays the owner and migration role. Its password is rotated in the
+   database and its TCP login refused, so only local-socket use remains. The API connects as
+   `crm_app`, which owns nothing, is a member of no role and is not a superuser. The collection
+   worker gets `crm_collector`.
+2. **Privileges (§2).** Every table is in one class: A ordinary, A-log (the six existing audit
+   tables: insert-only for the API, no triggers yet), B append-only, C job-sourcing, D collector
+   inputs, E migration-internal. Default privileges cover new tables; `EXECUTE` is revoked from
+   `PUBLIC`. A nine-part catalog check fails CI and the deploy on any drift.
+3. **Append-only log (§3).** Revoked privileges, `ENABLE ALWAYS` row and `TRUNCATE` triggers, and
+   `RESTRICT`-only foreign keys. Nothing in the database protects the log from `crm_user`, and
+   that is stated. End of retention is an **open owner decision** (R-A interim; R-B or R-C final),
+   tied to the legal memo of PR #1019.
+4. **Rollout (§4).** Nine steps, owner-only ones marked. Roles are created first; the API
+   switches to `crm_app` with the owner password moved to a postgres-only env file; then the
+   `crm_user` password is rotated and `pg_hba.conf` refuses its TCP login, with validation before
+   and after the reload. Rollback is forward-only and never restores the owner credential to the
+   API. Restores follow an ordered procedure.
+5. **Local development, CI and guards (§5).** Two connection strings. CI runs the API as `crm_app`.
+   Every guard checks every connection variable it finds.
+6. **Migration ledger (§6).** This ADR comes first; the two stay separate, with a five-point
+   interface.
 
 ## Context
 
@@ -121,7 +146,7 @@ list lives in one manifest that a catalog check reads (below). Confidence **HIGH
 | **A-log — existing audit logs, not yet append-only** | The six existing audit tables, listed below                                                  | `SELECT, INSERT`; `DELETE` **only** on `document_access_log` (its retention cron); no `UPDATE`, no `TRUNCATE` | nothing                                                                                           |
 | **E — migration-internal**                           | The migration ledger (§6), any deploy bookkeeping                                            | nothing                                                                                                       | nothing                                                                                           |
 
-**The existing audit logs (SR-M-1) — this reaches beyond the vacancy feature.** The CRM already
+**The existing audit logs — this reaches beyond the vacancy feature.** The CRM already
 has six audit tables. Under a blanket class A they would give `crm_app` `UPDATE` and `DELETE` on
 the finance audit trail, which is exactly what an injected statement would want. They cannot simply
 become class B either, because class B's triggers would break today's behaviour:
@@ -190,7 +215,7 @@ sequences of its class C tables only. Identity columns need no sequence grant; `
 `gen_random_uuid()` defaults need none.
 
 **Functions.** By default, PostgreSQL grants `EXECUTE` on every new function to `PUBLIC`. File 1
-revokes that, both for what exists and for what is created later (SR-L-4):
+revokes that, both for what exists and for what is created later:
 
 ```sql
 REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC;
@@ -212,7 +237,7 @@ other definer function needs its own ADR-level justification.
 implicit `CONNECT` and `TEMPORARY`), then `GRANT CONNECT` to `crm_app` and `crm_collector`. On the
 **other** databases of the cluster — `postgres` (the maintenance database) and `template1` —
 `REVOKE CONNECT, TEMPORARY … FROM PUBLIC` as well; otherwise `crm_app` can still connect to
-`postgres` and create temporary tables there (SR-L-2). `pg_hba.conf` (§4 step 7) confines both
+`postgres` and create temporary tables there. `pg_hba.conf` (§4 step 7) confines both
 application roles to `crm_db` at the network layer too. Schema: `GRANT USAGE ON SCHEMA public` to
 both; `REVOKE CREATE ON SCHEMA public FROM PUBLIC` — already the default on a cluster initialised
 by PostgreSQL 15+, issued explicitly so the file is correct on any cluster. No `TEMPORARY` for
@@ -246,9 +271,11 @@ What this gives, exactly:
   `crm_user` today; that must stay true, and the catalog check below catches it if it does not.
 
 **The catalog check — what makes "silently" impossible.** One check, run in CI against a scratch
-database built from the same DDL, and as a deploy step right after the DDL apply steps. It reads
-five catalogs, because `has_table_privilege` alone sees neither sequences, nor column grants, nor
-default privileges (SPEC-M-3):
+database built from the same DDL, and as a deploy step right after the DDL apply steps. It has nine
+parts and reads `pg_class`, `pg_roles`, `pg_auth_members`, `pg_default_acl`, `pg_proc`,
+`pg_namespace`, `pg_trigger` and `information_schema.column_privileges`, plus the
+`has_*_privilege` functions — because `has_table_privilege` alone sees neither sequences, nor
+column grants, nor default privileges:
 
 1. **Manifest coverage.** Every table in `public` appears in the class manifest exactly once. A
    table missing from the manifest **fails the check** — the author of a new table must choose its
@@ -650,10 +677,15 @@ API's environment, and none can leave the API without a working credential.**
 
 - **After step 2 or 3** — nothing uses the roles. Leave them, or a forward file that drops them
   (`DROP OWNED` + `DROP ROLE`; they own nothing). The API is unaffected.
-- **After step 5, before step 7 — a missing grant or a wrong class.** Fix forward: a line in file 2,
-  deployed. If production needs relief faster than a PR, the emergency file widens `crm_app` to the
-  class A grant on every table (still not the owner, still no DDL, no `TRUNCATE`, no trigger
-  control) — the boundary narrows, it does not disappear.
+- **After step 5 — a missing grant or a wrong class.** Fix forward, and only forward: correct the
+  table's class in the manifest and the matching line in file 2, in a PR that the catalog check
+  covers, deployed like any other. The grant added is the **one** the failing query needs, on the
+  **one** table it names in its `permission denied` error. There is deliberately **no**
+  pre-built "widen everything" file: a blanket class A grant would hand `crm_app` `UPDATE` and
+  `DELETE` on the trigger-less audit logs and the ledger, undoing the over-grant protection this ADR
+  builds, and a file that is never wired, tested or run is not a path anyone can trust in an
+  emergency. If the fix is urgent, the same PR is fast-tracked through review; the path does not
+  change. The cost is accepted: one feature may be down for the length of a small PR and a deploy.
 - **After step 5, before step 7 — `crm_app` cannot log in at all** (a wrong verifier, a secret
   mismatch). File 1 re-asserts the password from the secret on the next deploy; the **[OWNER]**
   re-enters `CRM_APP_DB_PASSWORD` and re-runs the deploy. To keep this case from ever reaching
@@ -733,7 +765,7 @@ experiment):
    live one — the class of the 2026-08-18 incident, where an inherited variable let a seed wipe the
    live `crm_db`. Concretely, a shell-inherited `MIGRATION_DATABASE_URL` pointing at `crm_db`
    would survive `DATABASE_URL= git push` untouched, and any setup code reading it would run.
-   Hard requirements for the implementing PR (SPEC-M-4):
+   Hard requirements for the implementing PR:
    - every code path that reads `MIGRATION_DATABASE_URL` is gated by the **same** skip predicate as
      the specs, and the predicate is false unless **both** variables are set;
    - `integration-db-guard.ts` `setup` and the seed / push guards run their database-name check on
@@ -836,13 +868,13 @@ r5 Task 1.3 implements on top of both: the collector's concrete table list (clas
 Per step: §4, "Rollback". The rule there: no rollback puts the `crm_user` credential back into
 the API's environment, and none can leave the API without a working credential. Summary:
 
-| What to undo                                   | How                                                                                                                                                               | Expected state                                                              | Verify                                                                           |
-| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| This ADR (docs only)                           | Revert its merge commit                                                                                                                                           | The file is gone; nothing else changed                                      | The revert's file list shows only this ADR                                       |
-| A missing or wrong grant after step 5          | A forward line in file 2, deployed; in an emergency, the file that widens `crm_app` to class A on every table                                                     | The API works as `crm_app`; still no DDL, no `TRUNCATE`, no trigger control | The catalog check passes for the new manifest; no `42501` in API logs            |
-| `crm_app` cannot log in                        | **[OWNER]** re-enters `CRM_APP_DB_PASSWORD`, deploy; file 1 re-asserts the password; the probe-before-recreate ordering keeps the old container serving meanwhile | The API connects as `crm_app`                                               | The step 3 probes pass                                                           |
-| The URL switch (PR B), **before** step 7 only  | Not a rollback path — it restores the owner credential to the API. If the owner nevertheless decides it (A3), revert PR B and deploy                              | The API connects as `crm_user` again, and the boundary is gone              | The `pg_stat_activity` query of §4 step 6 shows `crm_user` sessions from the API |
-| The roles (PR A), only while nothing uses them | A forward file that drops `crm_app` / `crm_collector` (they own nothing, so `DROP OWNED` + `DROP ROLE` suffice) and removes the default privileges                | No new roles; their grants gone with them                                   | `SELECT rolname FROM pg_roles` lists neither role                                |
+| What to undo                                   | How                                                                                                                                                               | Expected state                                                 | Verify                                                                           |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| This ADR (docs only)                           | Revert its merge commit                                                                                                                                           | The file is gone; nothing else changed                         | The revert's file list shows only this ADR                                       |
+| A missing or wrong grant after step 5          | A forward fix: the table's class in the manifest and the one missing grant in file 2, deployed; no blanket widen-grants file exists                               | The API works as `crm_app`; every other table keeps its class  | The catalog check passes for the new manifest; no `42501` in API logs            |
+| `crm_app` cannot log in                        | **[OWNER]** re-enters `CRM_APP_DB_PASSWORD`, deploy; file 1 re-asserts the password; the probe-before-recreate ordering keeps the old container serving meanwhile | The API connects as `crm_app`                                  | The step 3 probes pass                                                           |
+| The URL switch (PR B), **before** step 7 only  | Not a rollback path — it restores the owner credential to the API. If the owner nevertheless decides it (A3), revert PR B and deploy                              | The API connects as `crm_user` again, and the boundary is gone | The `pg_stat_activity` query of §4 step 6 shows `crm_user` sessions from the API |
+| The roles (PR A), only while nothing uses them | A forward file that drops `crm_app` / `crm_collector` (they own nothing, so `DROP OWNED` + `DROP ROLE` suffice) and removes the default privileges                | No new roles; their grants gone with them                      | `SELECT rolname FROM pg_roles` lists neither role                                |
 
 ## Sources
 
