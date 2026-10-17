@@ -284,8 +284,16 @@
  *   2  the gate could not run (bad base ref, Stryker crash, budget exceeded).
  *      Deliberately NOT 0: "we could not check" is not "it is fine".
  */
-import { execFileSync, spawn } from 'node:child_process'
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync, spawn, spawnSync } from 'node:child_process'
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { cpus } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -439,6 +447,81 @@ function spawnSyncCapture(cmd, args) {
 function fail(message) {
   console.error(`::error::mutation-gate: ${message}`)
   process.exit(2)
+}
+
+/**
+ * Pin the runtime BEFORE anything else (2026-10-17 follow-up to PR #1016).
+ *
+ * The gate drives Stryker over the vitest specs, and the shared i18n specs only run on
+ * the project's Node (.nvmrc major + engines.node minimum): on Node 20 the compiled
+ * catalog fails to load with "Cannot use import statement outside a module". The
+ * harness hook pre:bash:mutation-gate runs `node mutation-gate.mjs --changed` on the
+ * SHELL's node BEFORE git starts husky, so .husky/pre-push's pin never gets a chance;
+ * the old outcome was an unmutated dry run that was red for a reason unrelated to the
+ * diff, reported as "the suite itself is red" and downgraded to a SKIP.
+ *
+ * The rule lives in scripts/devops/lib/ensure-node.sh (ONE implementation, shared with
+ * .husky/pre-push). This probes it with the RUNNING node first on PATH, so it judges
+ * the node actually executing this file:
+ *   - acceptable            -> action 'continue';
+ *   - a satisfying nvm node -> action 'reexec' (node + the PATH to run it with);
+ *   - none / undeterminable -> action 'refuse', message = the lib's own explanation
+ *     (names the version found and the version required). Exit 2, the gate's existing
+ *     "could not run" contract -- never a silent run on the wrong runtime.
+ *
+ * Pure of process-level side effects (no exit, no re-exec) so it is testable by import;
+ * pinNodeOrExit() below is the single entry-point caller.
+ */
+function resolveNodePin({ execPath = process.execPath, env = process.env, cwd = REPO_ROOT } = {}) {
+  const lib = path.join(SELF_DIR, 'lib/ensure-node.sh')
+  const probe = spawnSync(
+    'sh',
+    ['-c', '. "$1" && ensure_node && command -v node && printf "%s\\n" "$PATH"', 'sh', lib],
+    {
+      cwd,
+      encoding: 'utf8',
+      env: {
+        ...env,
+        PATH: `${path.dirname(execPath)}${path.delimiter}${env.PATH ?? ''}`,
+        ENSURE_NODE_TAG: 'mutation-gate',
+      },
+    },
+  )
+  const notice = probe.stderr ?? ''
+  if (probe.error || probe.status !== 0) {
+    return {
+      action: 'refuse',
+      message: (notice.trim() || String(probe.error ?? `probe exited ${probe.status}`)).trim(),
+    }
+  }
+  const [nodePath, pinnedPath] = (probe.stdout ?? '').split('\n').filter(Boolean)
+  if (!nodePath || !pinnedPath) {
+    return { action: 'refuse', message: 'node pin probe returned no node path' }
+  }
+  const real = (p) => {
+    try {
+      return realpathSync(p)
+    } catch {
+      return p
+    }
+  }
+  if (real(nodePath) === real(execPath)) return { action: 'continue', notice }
+  return { action: 'reexec', node: nodePath, path: pinnedPath, notice }
+}
+
+function pinNodeOrExit(opts = {}) {
+  // The re-executed child was already resolved by the lib; do not loop.
+  if ((opts.env ?? process.env).MUTATION_GATE_NODE_PINNED === '1') return
+  const pin = resolveNodePin(opts)
+  if (pin.action === 'refuse') fail(pin.message)
+  if (pin.notice) process.stderr.write(pin.notice)
+  if (pin.action === 'reexec') {
+    const child = spawnSync(pin.node, [process.argv[1], ...process.argv.slice(2)], {
+      stdio: 'inherit',
+      env: { ...(opts.env ?? process.env), PATH: pin.path, MUTATION_GATE_NODE_PINNED: '1' },
+    })
+    process.exit(child.status ?? 2)
+  }
 }
 
 function summary(lines) {
@@ -1552,6 +1635,7 @@ function budgetExceeded(pkg, budgetSeconds, elapsedMs, perPackage) {
 // file.
 const isMain = process.argv[1] && import.meta.url === `file://${process.argv[1]}`
 if (isMain) {
+  pinNodeOrExit()
   main().then(
     (code) => process.exit(code),
     (err) => fail(`unexpected failure: ${err?.stack ?? err}`),
@@ -1569,4 +1653,6 @@ export {
   formatKilled,
   parseInstrumentedMutantCount,
   parseDryRunTimeoutMinutes,
+  resolveNodePin,
+  pinNodeOrExit,
 }
