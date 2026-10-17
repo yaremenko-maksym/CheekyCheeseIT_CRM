@@ -344,11 +344,82 @@ ssh crm-vps "docker exec crm-api-1 printenv POSTGRES_PASSWORD >/dev/null && echo
 
 ### 5. Impact on local development, CI and the integration-test guards
 
-TODO
+Today one variable, `DATABASE_URL`, serves the API, `drizzle-kit` (`drizzle.config.ts`),
+`db:seed`, the integration specs and the guards. After this ADR there are **two connection
+strings with two jobs**:
+
+| Variable                                                                 | Role       | Used by                                                                                                                                                                                                     |
+| ------------------------------------------------------------------------ | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                                                           | `crm_app`  | The API process (`DatabaseService`) and the service code integration specs exercise                                                                                                                         |
+| `MIGRATION_DATABASE_URL` (name to be confirmed by the implementing task) | `crm_user` | `drizzle.config.ts` (`db:push`), `db:seed` (it `TRUNCATE`s, and `crm_app` has no `TRUNCATE`), applying the manual SQL and files 1 / 2 to scratch databases, fixture setup and teardown in integration specs |
+
+Decisions (confidence **MED** — the direction is clear; the mechanics need the implementing task's
+experiment):
+
+1. **CI runs the API as `crm_app`.** The CI service containers keep `POSTGRES_USER: crm_user`
+   (bootstrap superuser, as in production); a setup step applies files 1 and 2 to `crm_ci`; the
+   E2E API process and the integration specs' service code get the `crm_app` URL. This is §4
+   step 4: a missing grant fails CI, not production. Without it the role split is tested only in
+   production.
+2. **Local development follows in two stages.** First release: `.env.example` documents both
+   variables, and `DATABASE_URL` may still point at `crm_user` locally — nothing breaks. Second
+   release, once CI has been green as `crm_app`: `.env.example` points `DATABASE_URL` at
+   `crm_app`, and one bootstrap command applies files 1 and 2 to the local database.
+   `docker-compose.yml` keeps `POSTGRES_USER: crm_user`.
+3. **`db:push` ordering locally.** Default privileges are attached to `crm_user`, so tables that
+   `db:push` creates as `crm_user` after the bootstrap get class A grants automatically; class B
+   tables need file 2 re-applied (the bootstrap command does both). The catalog check (§2) is the
+   same script locally and in CI.
+4. **The guards: whichever variable a destructive command uses, its guard reads that same
+   variable.** `seed-db-guard.ts` (`extractDbName`, `assertSeedTargetIsDisposable`,
+   `assertDbPushTargetIsDisposable`), `integration-db-guard.ts` (`setup`), `require-real-db.ts`
+   (`hasDatabaseUrl`) and the hook `pre-bash-live-db-guard.sh` key off the **database name** in the
+   URL path, not the user name, so a user-name change alone breaks none of them. What would break
+   them is moving `db:seed` / `db:push` to `MIGRATION_DATABASE_URL` while the guard keeps reading
+   `DATABASE_URL`: the guard would inspect a harmless URL while the command truncates the live
+   one — the class of the 2026-08-18 incident, where an inherited variable let a seed wipe the live
+   `crm_db`. Hard requirement for the implementing PR: the guard and the command read the same
+   variable, and the guard's tests gain a case with the migration variable pointing at `crm_db`.
+   Because the migration URL is now the more dangerous one, the live-db hook must recognise both
+   variable names.
+5. **`live-db-access.md` is unchanged in substance.** Reading the local `crm_db` stays allowed; the
+   rule is about read vs write, not about which role reads. The implementing PR updates its wording
+   where it names the single variable.
+6. **Unit tests** open no database and are unaffected.
 
 ### 6. Relationship to the migration-ledger ADR
 
-TODO
+**Decision: this ADR precedes the ledger ADR; they stay separate.** Confidence **HIGH**.
+
+- **Why not merge.** They change different axes: this ADR changes **who** connects and **who**
+  applies; the ledger changes **how** files are applied (applied ID + checksum, fail on mismatch,
+  catalog validation after partial DDL, a deployment lock). Merging couples an urgent security
+  boundary to a larger redesign of deploy mechanics, and delays the boundary until both are agreed.
+- **Why not follow.** Waiting for the ledger keeps the API on the owner credential — probably a
+  superuser — while r5 adds the first append-only table, whose triggers mean little against that
+  credential.
+- **Why preceding is safe.** Files 1 and 2 fit the **current** contract (idempotent, re-applied
+  every deploy, wired per C-15) and need nothing from the ledger.
+
+The interface the ledger ADR must respect:
+
+1. **The ledger runner connects as `crm_user`** over the container's local socket, like today's
+   apply steps. It never uses `crm_app`.
+2. **The ledger table is class E:** owned by `crm_user`, no grants to `crm_app` or `crm_collector`;
+   the class manifest lists it, so the catalog check passes.
+3. **Files 1 and 2 keep re-apply semantics** under the ledger: they are the drift-repair mechanism
+   and the password-rotation path. The ledger marks them "re-apply always" or exempts them by name;
+   it must not run them once and skip them thereafter. Their checksum stays stable because the
+   password comes from the environment, not from the file.
+4. **The catalog check of §2 is a candidate for the ledger's "catalog validation" step.** If the
+   ledger builds a validation stage, the privilege check runs there; until then it is a standalone
+   deploy step. Either way it runs after every apply.
+5. **Default privileges depend on DDL running as `crm_user`.** If the ledger ever introduces a
+   separate DDL role, it inherits §2's trap: `ALTER DEFAULT PRIVILEGES FOR ROLE` that role, or
+   `SET ROLE crm_user` before DDL.
+
+r5 Task 1.3 implements on top of both: the collector's concrete table list (classes C and D), the
+`job_queue_actions` revokes and triggers of §3, and the tests of §3.
 
 ## Consequences
 
