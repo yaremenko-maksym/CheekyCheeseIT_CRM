@@ -965,8 +965,10 @@ export const jobQueueActionSchema = z
       })
     }
     const unversioned = a.beforeVersion === null && a.afterVersion === null
-    const forward =
-      a.beforeVersion !== null && a.afterVersion !== null && a.afterVersion > a.beforeVersion
+    // A NULL after-version reads as -1, so it can never move forward from a
+    // before-version >= 0 (a separate `!== null` operand was redundant — the
+    // mutation gate showed it could be replaced by `true` unobserved).
+    const forward = a.beforeVersion !== null && (a.afterVersion ?? -1) > a.beforeVersion
     if (telemetry ? !unversioned : !forward) {
       ctx.addIssue({
         code: 'custom',
