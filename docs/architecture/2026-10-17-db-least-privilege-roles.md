@@ -287,7 +287,11 @@ and is therefore refused — by design.
 
 **Layer 2 — triggers (binds every role that does not disable them, superuser included).**
 
-- A `BEFORE UPDATE OR DELETE … FOR EACH ROW` trigger that raises an exception unconditionally.
+- A `BEFORE UPDATE OR DELETE … FOR EACH ROW` trigger that raises an exception. **Whether it raises
+  unconditionally, or admits a narrow end-of-retention / redaction exception, is an open owner
+  decision** — see "End of retention" below. Until the owner decides, Task 1.3 ships the
+  unconditional form; every option below replaces the trigger function by a forward file, so
+  nothing shipped now has to be undone.
 - A `BEFORE TRUNCATE … FOR EACH STATEMENT` trigger that raises. A row-level `DELETE` trigger does
   **not** fire on `TRUNCATE`; without this second trigger, `TRUNCATE` empties the log silently.
 - Both set to `ENABLE ALWAYS` (`ALTER TABLE … ENABLE ALWAYS TRIGGER …`). A trigger in the default
@@ -335,9 +339,51 @@ What remains unprotected, stated so that nobody documents more than the schema d
    external anchoring) is out of scope.
 3. **Insert volume is not bounded** by these layers (a compromised API can flood the log); that is
    a rate-limit concern, not an immutability one.
-4. **Retention of class B rows** — if r5 Task 1.4 ever requires deleting old action rows, that
-   deletion is a reviewed migration-role operation (a DDL file that disables the trigger, deletes,
-   and re-enables it inside one transaction). The application never receives `DELETE` on the log.
+4. **End of retention and redaction are not designed here** — see the next subsection. The
+   application never receives a plain `DELETE` or `UPDATE` on the log under any option.
+
+**End of retention — an open owner decision (conflict with the legal memo, PR #1019).** The legal
+memo on erasure in the action log (`docs/legal/2026-10-17-job-queue-actions-erasure.md`, PR #1019)
+requires two things this ADR's first draft did not provide: a **recurring end-of-retention path**
+(delete expired rows, or re-point `actor_id` / `subject_user_id` to a shared "former staff"
+sentinel), run only by the retention job through "a second, narrow, privileged exception" in the
+trigger; and a **redaction path for `reason`** only (replace the text with a fixed token, append a
+`REASON_REDACTED` event, through one privileged function). The memo states the first is required
+whichever erasure option is chosen, because a log that is append-only forever breaches storage
+limitation (GDPR Art. 5(1)(e); UA Law 2297-VI art. 6(8)). The first draft instead had the trigger
+raise unconditionally, with deletion as an occasional migration-role DDL file. The erasure design
+is pending with the owner, so this ADR does **not** pick; it lays out the options in database
+terms.
+
+|                                 | R-A — no exception                                                                                           | R-B — bounded exception through definer functions                                                                                                                                                                                         | R-C — bounded exception for a separate retention role                                      |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Trigger                         | Raises unconditionally                                                                                       | Admits **only** (1) `DELETE` of rows whose kind's retention has expired, (2) re-pointing the two person columns to the sentinel on expired rows, (3) `UPDATE` of `reason` to the fixed token — and only when `current_user` is `crm_user` | Same three shapes, admitted only when `current_user` is a dedicated `crm_retention` login  |
+| Who runs it                     | A reviewed DDL file per run, applied by the deploy as `crm_user` with the trigger disabled for the statement | Two `SECURITY DEFINER` functions owned by `crm_user` (purge expired; redact one row's reason with a request id, appending `REASON_REDACTED`); `EXECUTE` granted to `crm_app` by name; called by an API cron                               | A separate scheduled process holding the `crm_retention` credential; the API holds nothing |
+| Where "expired" comes from      | The file's own `WHERE`                                                                                       | A retention-policy table (class E: owned by `crm_user`, no grants to the API), read by the trigger                                                                                                                                        | Same                                                                                       |
+| Recurring, as the memo requires | **No** — each run is a PR and a deploy                                                                       | Yes                                                                                                                                                                                                                                       | Yes                                                                                        |
+| What a compromised API can do   | Nothing to the log beyond inserting                                                                          | Purge rows that are already due (no loss); **redact any row's `reason`** — evidence text lost, but each redaction leaves a `REASON_REDACTED` row                                                                                          | Nothing to the log beyond inserting                                                        |
+| Cost                            | Manual, slow; an on-request redaction takes a PR + deploy                                                    | Two definer functions (the only ones allowed, §2 Functions); the trigger must validate the shape of every admitted change                                                                                                                 | One more credential, secret and process; the same trigger validation                       |
+| Fit with the memo               | Fails the "recurring" requirement once any retention period is set                                           | Meets it; "only by the retention job" is procedural (only the cron calls the function)                                                                                                                                                    | Meets it, and "only by the retention job" is enforced by the database                      |
+
+What holds under every option: the exception is bounded by **data shape** (expired rows; one
+column to one fixed token), not merely by who calls it, so even a misuse of the exception cannot
+delete a row that is not yet due or rewrite any column other than `reason`. The trigger checks
+`current_user` because inside a definer function it is the function's owner; a `crm_user` session
+also passes, which loses nothing, since §3 already states that `crm_user` is not protected.
+
+**Why shipping R-A now is not a breach.** No row has reached the end of retention: the retention
+periods are themselves pending with the owner, and r5 Task 1.4 keeps new-store cleanup disabled
+until they are frozen. R-A becomes non-compliant on the day a period is set and rows expire under
+it; the owner's decision must land before that day. A redaction request that arrives earlier can be
+served under R-A by a reviewed DDL file — slow, but possible.
+
+**Recommendation (for the owner, A2):** R-B now, moving to R-C once a separately scheduled process
+exists (the r5 collection worker is the natural host); the move changes only who holds `EXECUTE`,
+or swaps the `current_user` check. Reason: R-B meets the memo's recurring requirement without a new
+credential, and its only extra exposure — a compromised API redacting reasons — is self-logging and
+bounded to one column. Confidence **MED**: the database mechanics are standard, but the
+trigger-side shape validation is new code and needs its own tests (one per admitted shape, plus one
+per refused near-miss — a non-expired row, a second column changed, a non-token value).
 
 **Tests that prove the layers** (AutoTest zone; Task 1.3 replaces the "GAP PIN" test of PR #1017
 with these). Each layer needs its own test, run as the role it is about — a test run as `crm_user`
