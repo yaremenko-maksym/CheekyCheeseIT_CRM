@@ -163,6 +163,18 @@ function declaredStoreEnums(): string[] {
 const STORE_TABLES = declaredStoreTables()
 const STORE_ENUMS = declaredStoreEnums()
 
+/**
+ * How a column's ordinal position is compared. Shared with the test that pins it, so
+ * reverting it to a raw `attnum` fails there (CR-L-8) — `attnum` values are never
+ * reused, so any catalog that has ever dropped a column carries gaps that a fresh
+ * `db:push` does not, and comparing the raw number would fail on a developer's
+ * long-lived database while CI stayed green. The RANK is what carries meaning.
+ */
+const POSITION_EXPRESSION = `CASE
+              WHEN c.relname = 'job_sources' THEN NULL
+              ELSE row_number() OVER (PARTITION BY c.relname ORDER BY a.attnum)
+            END`
+
 type Row = Record<string, unknown>
 type Catalog = { enums: Row[]; columns: Row[]; constraints: Row[]; indexes: Row[] }
 
@@ -209,10 +221,7 @@ async function readCatalog(client: PoolClient, schema: string): Promise<Catalog>
             a.attidentity AS identity,
             a.attgenerated AS generated,
             coalesce(co.collname, '') AS collation,
-            CASE
-              WHEN c.relname = 'job_sources' THEN NULL
-              ELSE row_number() OVER (PARTITION BY c.relname ORDER BY a.attnum)
-            END AS position
+            ${POSITION_EXPRESSION} AS position
        FROM pg_class c
        JOIN pg_namespace n ON n.oid = c.relnamespace
        JOIN pg_attribute a ON a.attrelid = c.oid
@@ -326,13 +335,15 @@ async function parkConcurrentBuild(
   if (definition.rowCount !== 1) {
     throw new Error(`no reference definition for index ${indexName}`)
   }
+  // Only the `ON public.<table>` qualification is rewritten — not every occurrence of the
+  // string anywhere in the definition, which would also hit a predicate or an operator
+  // class that happened to name the schema (CR-L-10).
   const create = String(definition.rows[0]['def'])
     .replace(
       /^CREATE (UNIQUE )?INDEX /,
       (_m, unique) => `CREATE ${unique ?? ''}INDEX CONCURRENTLY `,
     )
-    .split('public.')
-    .join('')
+    .replace(/ ON public\./, ' ON ')
 
   await holder.query('BEGIN ISOLATION LEVEL REPEATABLE READ')
   await holder.query(`SELECT count(*) FROM ${PARKABLE_TABLE}`)
@@ -370,7 +381,12 @@ async function parkConcurrentBuild(
       break
     }
     if (Date.now() > deadline) {
+      // CR-L-9: the ROLLBACK first, so the build can finish, then AWAIT it before either
+      // client goes back to the pool. Releasing a client whose query is still running
+      // hands a busy connection to the next caller, and the failure surfaces somewhere
+      // unrelated — which is the worst way for a timeout path to fail.
       await holder.query('ROLLBACK').catch(() => undefined)
+      await building
       holder.release()
       builder.release()
       throw new Error(`build of ${indexName} did not park within 20s`)
@@ -618,6 +634,46 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
     )
   })
 
+  it('keeps the three copies of the index-name list in agreement (SR-M-6)', () => {
+    // Part 2 names its 44 indexes THREE times: once per `CREATE INDEX CONCURRENTLY`, once
+    // in the sweep's `ARRAY[…]`, and once in section 18's. Nothing but this test keeps
+    // them equal. An index added to the creates and forgotten in the two arrays is
+    // created, is compared against the reference, and passes everything — while being
+    // invisible to the sweep (an interrupted build of it is never repaired) and to
+    // section 18 (which therefore reports success). That is precisely the state section
+    // 18 exists to prevent, reached through a copy-paste omission.
+    //
+    // The arrays cannot be factored into one place: every statement in that file has to
+    // be independently applicable, so there is no temp table and no session state to
+    // share a list through. Three copies is the design; this is the check that makes it
+    // safe.
+    const created = [
+      ...readPart(PART_2).matchAll(
+        /^CREATE (?:UNIQUE )?INDEX CONCURRENTLY IF NOT EXISTS "([a-z_0-9]+)"/gm,
+      ),
+    ].map((m) => m[1]!)
+    const { sweep, finalCheck } = part2Blocks()
+    const quoted = (block: string): string[] =>
+      [...block.matchAll(/^\s+'([a-z_0-9]+)',?$/gm)].map((m) => m[1]!)
+
+    const sweepNames = quoted(sweep)
+    const finalNames = quoted(finalCheck)
+
+    // Sizes first, so a regex that silently matched nothing fails here rather than
+    // comparing two empty sets.
+    expect(created).toHaveLength(EXPECTED.indexes)
+    expect(sweepNames).toHaveLength(EXPECTED.indexes)
+    expect(finalNames).toHaveLength(EXPECTED.indexes)
+    // No duplicates: a name listed twice would make the sizes agree while a different
+    // name is missing.
+    expect(new Set(created).size).toBe(created.length)
+    expect(new Set(sweepNames).size).toBe(sweepNames.length)
+    expect(new Set(finalNames).size).toBe(finalNames.length)
+
+    expect(sweepNames.slice().sort()).toEqual(created.slice().sort())
+    expect(finalNames.slice().sort()).toEqual(created.slice().sort())
+  })
+
   it('creates every enum type the Drizzle schema declares for the store, value order included', () => {
     // Order, not membership: `ALTER TYPE … ADD VALUE BEFORE/AFTER` and a fresh
     // `CREATE TYPE` can agree on the set and disagree on `enumsortorder`, and the order
@@ -639,6 +695,49 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
 
   it('creates every index the reference has — partial predicates, NULLS NOT DISTINCT, sort order', () => {
     expect(afterFirstApply.indexes).toEqual(reference.indexes)
+  })
+
+  it('compares column ORDER in a way a dropped column cannot shift (CR-L-8)', async () => {
+    // Two schemas with the SAME surviving columns, one of which once had a column in the
+    // middle and dropped it — the shape of a developer's database after a schema change.
+    // Raw `attnum` disagrees there; the rank does not. Without this, reverting
+    // POSITION_EXPRESSION to `a.attnum` breaks nothing, because every other test runs
+    // against a freshly pushed catalog that has no gaps.
+    await client.query('DROP SCHEMA IF EXISTS pos_fresh CASCADE')
+    await client.query('DROP SCHEMA IF EXISTS pos_dropped CASCADE')
+    try {
+      await client.query('CREATE SCHEMA pos_fresh')
+      await client.query('CREATE TABLE pos_fresh.t (a int, b int, c int)')
+      await client.query('CREATE SCHEMA pos_dropped')
+      await client.query('CREATE TABLE pos_dropped.t (a int, obsolete int, b int, c int)')
+      await client.query('ALTER TABLE pos_dropped.t DROP COLUMN obsolete')
+
+      const read = async (schema: string, expression: string): Promise<unknown[]> => {
+        const rows = await client.query(
+          `SELECT ${expression} AS position
+             FROM pg_class c
+             JOIN pg_namespace n ON n.oid = c.relnamespace
+             JOIN pg_attribute a ON a.attrelid = c.oid
+            WHERE n.nspname = $1 AND c.relkind = 'r'
+              AND a.attnum > 0 AND NOT a.attisdropped
+            ORDER BY a.attname`,
+          [schema],
+        )
+        return rows.rows.map((r: { position: unknown }) => r.position)
+      }
+
+      // The premise: the two catalogs really do differ on the raw number.
+      expect(await read('pos_fresh', 'a.attnum')).toEqual([1, 2, 3])
+      expect(await read('pos_dropped', 'a.attnum')).toEqual([1, 3, 4])
+
+      // The property: the expression this spec actually compares with does not.
+      expect(await read('pos_dropped', POSITION_EXPRESSION)).toEqual(
+        await read('pos_fresh', POSITION_EXPRESSION),
+      )
+    } finally {
+      await client.query('DROP SCHEMA IF EXISTS pos_fresh CASCADE').catch(() => undefined)
+      await client.query('DROP SCHEMA IF EXISTS pos_dropped CASCADE').catch(() => undefined)
+    }
   })
 
   it('leaves no INVALID index behind', () => {
@@ -705,12 +804,15 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
       // Zero rows is cheap to achieve with the WRONG list, so the list itself is checked
       // against the reference: the names the header tells an operator to look for must be
       // exactly the columns this file adds to `job_sources`.
-      const namesInHeader = [
-        ...readPart(PART_1)
-          .slice(readPart(PART_1).indexOf("AND column_name IN ('manifest_id'"))
-          .slice(0, 900)
-          .matchAll(/'([a-z_]+)'/g),
-      ].map((m) => m[1]!)
+      // The parenthesised list, matched as a unit rather than by a fixed-length slice
+      // (CR-L-10): a slice that is one edit too short silently drops names from the
+      // comparison, and dropping names is the very thing being checked for.
+      const headerList = /AND column_name IN \(([\s\S]*?)\);/.exec(readPart(PART_1))
+      expect(
+        headerList,
+        "part 1's header must carry the hand-added-column preflight",
+      ).not.toBeNull()
+      const namesInHeader = [...headerList![1]!.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]!)
       const namesAdded = reference.columns
         .filter((r) => r['table_name'] === 'job_sources')
         .map((r) => String(r['column_name']))

@@ -88,12 +88,50 @@
 -- affected operations are destructive and the bypass is cheap, unverifiability is
 -- treated as danger.
 --
--- To see whether a leftover exists before deploying:
+-- Why counting cannot be fooled by an ABSENT row: `pg_stat_get_progress_info` exposes
+-- `pid` and `datid` to every caller and masks only the remaining columns, so the
+-- `datid` filter can never discard a row it should have counted. A row is absent only
+-- for a build in a DIFFERENT database or from a backend that has already gone — and
+-- the second of those is the definition of an abandoned index, which is what should be
+-- swept.
+--
+-- THE PRICE OF THIS, recorded rather than reduced (SR-L-9). The count is
+-- DATABASE-WIDE: it is not restricted to the 44 indexes or even to this store's tables,
+-- because the masked columns are exactly the ones that would say which table a build
+-- belongs to — there is nothing left to narrow on. So once the applying role is not a
+-- superuser (1.3c), ANY foreign-role index build anywhere in this database makes the
+-- sweep refuse; if one of these 44 is invalid at that moment, section 18 then fails the
+-- deploy. A re-run fixes it, and failing is the safe direction — an unenforced UNIQUE
+-- index is worse than a deploy an operator repeats — so this is written down, not
+-- engineered away. If it ever becomes a nuisance in practice, the measured mitigation
+-- is to grant the applying role `pg_read_all_stats`. Measured on PG16, one parked build,
+-- counts as `total/attributable`:
+--   superuser                                 1/1
+--   no grant, NOINHERIT                       1/0   <- the refusal case
+--   pg_read_all_stats, NOINHERIT              1/0   <- GRANTED AND STILL MASKED
+--   pg_read_all_stats, INHERIT                1/1
+--   pg_read_all_stats, NOINHERIT + SET ROLE   1/1
+-- So the grant restores attribution only if the role is `INHERIT`, or if the session
+-- explicitly `SET ROLE`s to the granted role. On a `NOINHERIT` role the grant looks
+-- applied — `\du` shows it — and changes nothing, which is the failure mode to watch for
+-- if 1.3c makes the applying role `NOINHERIT`.
+--
+-- To see whether a leftover exists before deploying. Deliberately carries the SAME two
+-- filters the executable blocks below apply — `nspname` and `datid` (SR-L-10). Without
+-- them this preview answers a different question than the guard that acts: it would
+-- report an identically-named index in another schema, and it would call a build in
+-- ANOTHER DATABASE "building" when the sweep does not:
 --   SELECT c.relname, i.indisvalid,
 --          EXISTS (SELECT 1 FROM pg_stat_progress_create_index p
---                   WHERE p.index_relid = c.oid OR p.relid = i.indrelid) AS building
---     FROM pg_class c JOIN pg_index i ON i.indexrelid = c.oid
---    WHERE NOT i.indisvalid AND c.relname LIKE '%job%';
+--                   WHERE p.datid = (SELECT oid FROM pg_database
+--                                     WHERE datname = current_database())
+--                     AND (p.index_relid = c.oid OR p.relid = i.indrelid)) AS building
+--     FROM pg_class c
+--     JOIN pg_index i ON i.indexrelid = c.oid
+--     JOIN pg_namespace n ON n.oid = c.relnamespace
+--    WHERE n.nspname = current_schema()
+--      AND NOT i.indisvalid
+--      AND c.relname LIKE '%job%';
 --
 -- `statement_timeout` is deliberately LOOSER here than in part 1: a concurrent build
 -- makes two passes over the table and waits out transactions older than itself, so a
