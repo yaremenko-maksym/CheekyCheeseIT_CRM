@@ -80,6 +80,14 @@ describe('splitSqlStatements', () => {
       expect(splitSqlStatements('SELECT c FROM tab$le$x;')).toEqual(['SELECT c FROM tab$le$x'])
     })
 
+    it('counts `$` itself as an identifier character (CR-L-3)', () => {
+      // The run of dollars is what pins it: with `$` missing from IDENTIFIER_CHAR, the
+      // second and third `$` here are preceded by a `$` that no longer counts as part of
+      // an identifier, so `$$` is read as a dollar-quote opener and the scan runs off the
+      // end looking for a closing `$$`. Nothing else in this suite has a `$` run.
+      expect(splitSqlStatements('SELECT x$$$ FROM t;')).toEqual(['SELECT x$$$ FROM t'])
+    })
+
     it('refuses an unterminated body instead of returning a truncated statement', () => {
       expect(() => splitSqlStatements('DO $$ BEGIN NULL;')).toThrow(/unterminated dollar-quoted/)
     })
@@ -259,9 +267,26 @@ describe('splitSqlStatements', () => {
       )
     })
 
-    it('leaves a backslash INSIDE a statement alone', () => {
-      // Only a backslash where a statement STARTS is a meta-command.
+    it('refuses one reached MID-STATEMENT, not only where a statement starts (CR-M-5)', () => {
+      // The gap this closes: with the old `&& !current.trim()` operand, a backslash was
+      // only checked where a statement began, and the one test on the subject put its
+      // backslash inside a quoted literal — so nothing ever reached the check with a
+      // non-empty `current` and removing the operand left all 39 tests green. Stryker
+      // does not mutate individual operands of `&&`, so the gate could not see it.
+      // psql 16 really does run these mid-line: `SELECT 1 \\g` executes the query.
+      expect(() => splitSqlStatements('SELECT 1 \\g\n')).toThrow(
+        /psql meta-command is not supported by this splitter: \\g — it is/,
+      )
+      expect(() => splitSqlStatements('SELECT 2 \\echo hi\n')).toThrow(/: \\echo hi — it is/)
+    })
+
+    it('leaves a backslash inside a literal or a dollar-quoted body alone', () => {
+      // Those branches consume their whole span, so the scanner never lands on the
+      // backslash — which is why refusing EVERY backslash it does reach is safe.
       expect(splitSqlStatements(`SELECT 'a\\\\b';`)).toEqual([`SELECT 'a\\\\b'`])
+      expect(splitSqlStatements("DO $$ SELECT 'a\\\\b'; $$;")).toEqual([
+        "DO $$ SELECT 'a\\\\b'; $$",
+      ])
     })
   })
 })

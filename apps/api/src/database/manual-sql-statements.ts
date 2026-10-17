@@ -20,10 +20,13 @@
  *
  * What it refuses rather than guesses (CR-L-1 / SR-L-4), in both cases because the
  * alternative is a SILENT wrong answer:
- *   - a psql meta-command, which the psql CLIENT interprets and never sends to the
- *     server, so a file containing one cannot be verified by sending its statements to
- *     Postgres — the server would reject the line with a bare syntax error that says
- *     nothing about the cause;
+ *   - a psql meta-command ANYWHERE, not only where a statement starts: psql runs a
+ *     mid-line `\g` or `\echo` as a meta-command too (measured). The psql CLIENT
+ *     interprets them and never sends them to the server, so a file containing one
+ *     cannot be verified by sending its statements to Postgres — the server would
+ *     reject the line with a bare syntax error that says nothing about the cause. A
+ *     backslash is not a legal operator character either, so one reaching this scanner
+ *     outside a literal is never valid SQL;
  *   - an `E'…'` escape string, whose backslash escapes would make the ordinary scan cut
  *     the statement at an escaped quote.
  * Neither appears in the two files this verifies. Both throw, naming the construct, so
@@ -122,7 +125,22 @@ export function splitSqlStatements(sql: string): string[] {
     }
 
     // A psql meta-command. Refused, not guessed — see the header.
-    if (rest.startsWith('\\') && !current.trim()) {
+    //
+    // Position-INsensitive, and that is a correction (CR-M-5). An earlier revision only
+    // looked where a statement STARTS, with a comment claiming that is the only place a
+    // meta-command can appear. Measured in psql 16: `SELECT 1 \g` executes the query as
+    // a meta-command, and `SELECT 2 \echo X` prints X and then runs the query — so
+    // mid-line is a real position. The condition was also the kind of gap a mutation
+    // gate cannot see: Stryker does not mutate individual operands of `&&`, so removing
+    // `&& !current.trim()` left all 39 tests green while the gate still reported zero
+    // survivors.
+    //
+    // Refusing EVERY backslash the scanner reaches is safe, not merely conservative: a
+    // backslash is not a legal Postgres operator character, so one outside a literal is
+    // never valid SQL — `SELECT 1 \ 2` is `syntax error at or near "\"` on the server.
+    // A backslash INSIDE a literal or a dollar-quoted body never reaches here, because
+    // those branches consume their whole span.
+    if (rest.startsWith('\\')) {
       const command = rest.split('\n')[0]!.trim()
       throw new Error(
         `psql meta-command is not supported by this splitter: ${command} — it is ` +
