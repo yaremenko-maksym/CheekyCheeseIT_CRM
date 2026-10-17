@@ -347,6 +347,50 @@ cycle closes when all children are terminal/deferred.
       tables; SELECT on evaluation inputs — users/team memberships, project-derived exclusion inputs, legacy résumé
       inputs; no DDL; no finance/session/credential tables). The single app `DATABASE_URL` cannot satisfy Task 2.2.
 
+- [ ] **Carried from Task 1.2 (PR #1017).** The source text for the items below is the header comment of `apps/api/src/database/schema/job-queue.ts`, section
+      "TASK 1.3 OBLIGATION"; correct it there if the implementation diverges. Each item below is written to be
+      testable on its own, so that none is lost in transfer (PR #1017 review finding SR-M-2).
+- [ ] (a) `BEFORE UPDATE OR DELETE` row triggers and a `BEFORE TRUNCATE` statement trigger on `job_queue_actions` and
+      `job_queue_generation_entries`. The entries trigger permits a DELETE only when its parent generation or
+      opportunity row no longer exists (the cascade). **Never test `pg_trigger_depth()`**: measured, it is 1 on a
+      direct delete, so `> 0` admits the very delete it must refuse. Tests: direct DELETE refused, both cascades
+      allowed.
+- [ ] (b) On `job_queue_generations`: refuse an entries INSERT unless the generation is `BUILDING`; freeze
+      `scope_kind` and `team_id`, and freeze `expires_at` because an UPDATE of it could revive an expired generation;
+      allow only the status transitions `BUILDING → PUBLISHED → INVALIDATED` and `BUILDING → INVALIDATED`, never back;
+      refuse DELETE unless `INVALIDATED`. Consequence: a team delete is refused until that team's generations are
+      invalidated (teams are archived, not deleted, today).
+- [ ] (c) A grant boundary on these tables means something only once the API connects as a non-superuser. Items (a)
+      and (b) do not depend on that decision.
+- [ ] (d) Optional hardening: detect a disabled trigger, via an event trigger or an API startup assertion on
+      `pg_trigger.tgenabled`.
+- [ ] State in the DDL file that these triggers stop an application bug, not a superuser, who can disable them.
+- [ ] **Two pending owner decisions bear on this task, and on different items.** **Database roles** (ADR
+      `docs/architecture/2026-10-17-db-least-privilege-roles.md`, PR #1018): the API connects as `crm_user`, a
+      superuser on the scratch catalog (production unverified; only the owner can check it). The ADR proposes an
+      application role `crm_app`, the collection-worker role above built as part of it, and removal of the owner
+      credential from the API container's environment, which loads the whole `.env.production`. This decides item (c)
+      and who can bypass the triggers; it does **not** change what (a) and (b) permit. Implementation requires the
+      owner's acceptance of the ADR.
+- [ ] **Erasing a person from the audit log** (legal memo `docs/legal/2026-10-17-job-queue-actions-erasure.md`, PR
+      #1019). The memo finds pseudonymising the `users` row is minimisation during a lawful retention period, **not
+      erasure**, and recommends a hybrid. Pseudonymisation touches no log row and needs no trigger exception. Two
+      parts do change what trigger (a) must permit: a narrow redaction path for free-text reasons, each redaction
+      itself logged; and an end-of-retention path (delete the rows, or re-point them to one shared "former staff"
+      user), run only by the retention job. The memo is a preliminary AI check at MED overall confidence; its LOW
+      conclusions need a practising privacy lawyer before any real request is answered. Owner decision pending, with
+      the memo's facts F1–F8.
+- [ ] **Reconcile the ADR and the memo before writing trigger (a); they conflict on two points.** First, the ADR has
+      the `job_queue_actions` trigger raise unconditionally and treats deleting old action rows as an occasional
+      migration-role DDL operation that disables the trigger, while the memo requires a recurring end-of-retention
+      path through a narrow trigger exception, required whichever erasure option is chosen. Second, the ADR mandates
+      RESTRICT on every FK out of the log, which is what Task 1.2 built, while the memo suggests `ON DELETE SET NULL`
+      for consistency with the existing `user_audit_log`, `team_audit_log` and `project_audit_log`, to avoid a trap if
+      hard deletion of users is ever introduced.
+- [ ] Separately, outside this plan: `user_audit_log` keeps a person's `displayName` history in plain text, because
+      `AuditLogService.diff` redacts only `SENSITIVE_FIELDS` (PR #1019). That is a users-module task with
+      security-reviewer.
+
 ### Task 1.4: Retention and `last_seen_at`
 
 **Files:** ✓ `retention.ts`, ✓ `job-sourcing.service.ts:purgeStalePostings`; new store retention job + specs.
@@ -361,6 +405,16 @@ cycle closes when all children are terminal/deferred.
 - [ ] Tests: active > 90 days, archived descriptions, rediscovery with changed tracking URL, duplicate native identity,
       reopened opportunity, expired generations, legal deletion, audit minimization; reruns never recreate rejected
       suggestions.
+
+- [ ] **Carried from Task 1.2** (the header comment of `apps/api/src/database/schema/job-queue.ts`, section "RETENTION"): every parent FK of the action log is RESTRICT, so an
+      opportunity, a source record or a subscription with any logged action is never deleted. Their "legal deletion"
+      is a **tombstone** (an UPDATE clearing text, keeping the row); a DELETE is refused with 23503 by design.
+- [ ] **Storage limitation applies to the action log too** (PR #1019): a log that refuses DELETE forever breaks it.
+      The memo's per-event retention: OPENED / DEAD_LINK / SPAM short; TAKEN, RELEASED, REASSIGNED, DISMISSED, UNDONE
+      and SUPPRESSED for the contract term plus three years from its end; TRIAGE events the same only if they support
+      a security or abuse investigation, otherwise shorter. The memo says to "treat 3 years as a minimum, not a firm
+      limit", because a martial-law rule on limitation periods is unverified; the tier also depends on fact F5 (whether TAKEN / REASSIGNED decide compensation). Decided
+      with the erasure design in Task 1.3, not separately.
 
 # Phase 2 — Provider kit
 
@@ -862,6 +916,18 @@ policy revalidation on mutation.
       unknown stack at restricted company/source; team triage; foreign counts/keywords/rank/name; live exclusion
       changes; fail closed when policy evaluation is unavailable.
 
+- [ ] **Carried from Task 1.2 — reads** (the header comment of `apps/api/src/database/schema/job-queue.ts` and its per-table blocks). A read never returns a row of a team the
+      viewer is not scoped to: HR audit reads filter on `team_id` / `subject_team_id`; ADMIN audit reads may span
+      teams. A STUDIO generation is served only to an ADMIN, a TEAM generation only within that team's authorized
+      scope, and a cached projection never replaces the current authorization check. An expired published generation
+      (`expires_at <= now()`) is never served. "Already taken" is shown without the assignee's name outside the
+      viewer's scope.
+- [ ] **Carried from Task 1.2 — triage subscriptions** (PR #1017 review finding SR-L-2). Applying a subscription adds
+      `employer_verified = true` on `job_opportunities`: "never covers unverifiable-employer items" is a query
+      predicate, because a CHECK cannot see another table. An unverifiable item reaches a team only through an
+      explicit per-opportunity grant (`job_opportunity_team_triage`). An expired or revoked subscription grants
+      nothing.
+
 ### Task 6.2: `JobQueueService` — list and card
 
 Reads `job_opportunities`, scoped matches/dismissals/assignments/associations — never the Phase-1 columns on
@@ -897,6 +963,17 @@ never blocking navigation; legacy `job_posting_signals` untouched; new indexes v
       split conflicts; two-copy click signals; no leaks; negative paths leave no partial writes; two concurrent takes
       of unmerged copies → exactly one succeeds without confirmation.
 
+- [ ] **Carried from Task 1.2 — who may write** (the header comment of `apps/api/src/database/schema/job-queue.ts`). A STUDIO-scoped row is written only by an ADMIN; a
+      TEAM-scoped row only by an ADMIN or an HR who is a current active member of that team, re-checked inside the
+      write transaction. A STUDIO dismissal is ADMIN-only; a TEAM dismissal only for a team the actor currently belongs
+      to. Release, reassign, suppress, triage grant, and subscription create and revoke are ADMIN-only. A reassignment's
+      **target** must be an active, non-archived HR or ADMIN who may see that opportunity.
+- [ ] **Carried from Task 1.2 — how writes happen.** Every assignment mutation bumps its `version`; a re-dismiss
+      UPDATE matches the expected `version`; a subscription revoke matches `subscription_version`; a SUPPRESSED action
+      may carry no version, because its target has none. Each mutation writes its `job_queue_actions` row in the same
+      transaction, with `actor_id` the authenticated actor and the scope the one the request was authorized in. The
+      take transaction locks the target and its possible-duplicate set in sorted id order.
+
 ### Task 6.4: `/job-queue` controller + RBAC integration spec (new)
 
 Explicit `@Inject`, `@UseGuards(RolesGuard)` + `@Roles`, parsed request/response schemas, `@Throttle` per route on
@@ -923,6 +1000,11 @@ audit kinds TRIAGE\_\*; subscriptions same pattern; invalidation marks generatio
 
 - [ ] Real controller/guard/team DB tests + action matrix on a scratch DB with checks enabled (never silently
       skipped); card JSON exposes no foreign identity, secrets, raw HTML or unbounded payload; empty authorized list is 200.
+
+- [ ] **RBAC integration cases for the Task 1.2 obligations above**, against the real database: a cross-team read
+      refused; a STUDIO write by HR refused; a TEAM dismissal by a non-member refused; reassignment to an ineligible
+      target refused; an expired generation not served; an expired or revoked subscription granting nothing; a triage
+      subscription never surfacing an opportunity whose employer is unverified.
 
 ### Task 6.5: ADMIN — source switch and extended source DTO (new endpoint — C-10)
 
