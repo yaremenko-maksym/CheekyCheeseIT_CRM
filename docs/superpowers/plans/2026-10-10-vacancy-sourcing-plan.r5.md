@@ -365,7 +365,7 @@ cycle closes when all children are terminal/deferred.
 - [ ] (d) Optional hardening: detect a disabled trigger, via an event trigger or an API startup assertion on
       `pg_trigger.tgenabled`.
 - [ ] State in the DDL file that these triggers stop an application bug, not a superuser, who can disable them.
-- [ ] **Two owner decisions precede the triggers, and they affect different things.** **Database roles** (ADR
+- [ ] **Two pending owner decisions bear on this task, and on different items.** **Database roles** (ADR
       `docs/architecture/2026-10-17-db-least-privilege-roles.md`, PR #1018): the API connects as `crm_user`, a
       superuser on the scratch catalog (production unverified; only the owner can check it). The ADR proposes an
       application role `crm_app`, the collection-worker role above built as part of it, and removal of the owner
@@ -380,10 +380,13 @@ cycle closes when all children are terminal/deferred.
       user), run only by the retention job. The memo is a preliminary AI check at MED overall confidence; its LOW
       conclusions need a practising privacy lawyer before any real request is answered. Owner decision pending, with
       the memo's facts F1–F8.
-- [ ] **Reconcile the ADR and the memo before writing trigger (a); they currently conflict.** The ADR has the
-      `job_queue_actions` trigger raise unconditionally and treats deleting old action rows as an occasional
-      migration-role DDL operation that disables the trigger. The memo requires a recurring end-of-retention path
-      through a narrow trigger exception, required whichever erasure option is chosen.
+- [ ] **Reconcile the ADR and the memo before writing trigger (a); they conflict on two points.** First, the ADR has
+      the `job_queue_actions` trigger raise unconditionally and treats deleting old action rows as an occasional
+      migration-role DDL operation that disables the trigger, while the memo requires a recurring end-of-retention
+      path through a narrow trigger exception, required whichever erasure option is chosen. Second, the ADR mandates
+      RESTRICT on every FK out of the log, which is what Task 1.2 built, while the memo suggests `ON DELETE SET NULL`
+      for consistency with the existing `user_audit_log`, `team_audit_log` and `project_audit_log`, to avoid a trap if
+      hard deletion of users is ever introduced.
 - [ ] Separately, outside this plan: `user_audit_log` keeps a person's `displayName` history in plain text, because
       `AuditLogService.diff` redacts only `SENSITIVE_FIELDS` (PR #1019). That is a users-module task with
       security-reviewer.
@@ -409,8 +412,8 @@ cycle closes when all children are terminal/deferred.
 - [ ] **Storage limitation applies to the action log too** (PR #1019): a log that refuses DELETE forever breaks it.
       The memo's per-event retention: OPENED / DEAD_LINK / SPAM short; TAKEN, RELEASED, REASSIGNED, DISMISSED, UNDONE
       and SUPPRESSED for the contract term plus three years from its end; TRIAGE events the same only if they support
-      a security or abuse investigation, otherwise shorter. Three years is a minimum, subject to an unverified
-      martial-law rule on limitation periods and to fact F5 (whether TAKEN / REASSIGNED decide compensation). Decided
+      a security or abuse investigation, otherwise shorter. The memo says to "treat 3 years as a minimum, not a firm
+      limit", because a martial-law rule on limitation periods is unverified; the tier also depends on fact F5 (whether TAKEN / REASSIGNED decide compensation). Decided
       with the erasure design in Task 1.3, not separately.
 
 # Phase 2 — Provider kit
@@ -967,7 +970,7 @@ never blocking navigation; legacy `job_posting_signals` untouched; new indexes v
       **target** must be an active, non-archived HR or ADMIN who may see that opportunity.
 - [ ] **Carried from Task 1.2 — how writes happen.** Every assignment mutation bumps its `version`; a re-dismiss
       UPDATE matches the expected `version`; a subscription revoke matches `subscription_version`; a SUPPRESSED action
-      carries no version, because its target has none. Each mutation writes its `job_queue_actions` row in the same
+      may carry no version, because its target has none. Each mutation writes its `job_queue_actions` row in the same
       transaction, with `actor_id` the authenticated actor and the scope the one the request was authorized in. The
       take transaction locks the target and its possible-duplicate set in sorted id order.
 
