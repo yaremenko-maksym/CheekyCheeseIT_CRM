@@ -322,18 +322,22 @@ INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER` equals what the class pre
    - **Branch 2 (`crm_user` is not a superuser but has `CREATEROLE`):** exactly one row per
      application role — `member` = `crm_user`, `admin_option` = true, `inherit_option` = false,
      `set_option` = false. PostgreSQL 16 records this grant automatically whenever a
-     non-superuser with `CREATEROLE` creates a role (reproduced by the security review on 16.15);
-     the `ADMIN` part cannot be avoided, because it is what lets the creator manage the role it
-     created. File 1 pins the other two options by setting `createrole_self_grant = ''` for its
-     session before `CREATE ROLE`, so the creator does not inherit or `SET ROLE` into the
-     application role. The row is harmless for the boundary: it lets the owner administer the
-     application role, and the owner is already more powerful than it.
+     non-superuser with `CREATEROLE` creates a role (reproduced on 16.15 during review); the
+     `ADMIN` part cannot be avoided, because it is what lets the creator manage the role it
+     created. File 1 sets `createrole_self_grant = ''` for its session before `CREATE ROLE` so the
+     grant is **made** without `INHERIT` or `SET`. The row is harmless for the boundary: it lets
+     the owner administer the application role, and the owner is already more powerful than it.
    - Any other row — another member, or this row with `inherit_option` or `set_option` true —
      fails the check.
 
-   The check names the column it tests and the branch it expects; "no membership" without a
-   direction is how a check passes while testing the harmless side, and a blanket "zero rows"
-   would fail every deploy in branch 2.
+   **The assertion is the guarantee; the setting is not.** `createrole_self_grant` constrains the
+   grant at the moment it is made, not the creator's reach afterwards: holding `admin_option`,
+   `crm_user` can re-grant the role to itself `WITH SET TRUE` at any time (done during review). So
+   the protection is this check running on **every** deploy and failing on exactly that row — not
+   the setting in file 1, which only keeps the initial state clean. The same reasoning is why the
+   check names the column and the branch it expects: "no membership" without a direction is how a
+   check passes while testing the harmless side, and a blanket "zero rows" would fail every deploy
+   in branch 2.
 
 9. **Triggers.** Every class B table has its §3 triggers, in state `A` (`ENABLE ALWAYS`) in
    `pg_trigger.tgenabled`.
@@ -461,7 +465,9 @@ subject_user_id)` on it, `INSERT` on it (for the `REASON_REDACTED` event), and `
    identity inside the functions.
 2. **A pinned `search_path` ending in `pg_temp`:** `SET search_path = pg_catalog, public, pg_temp`
    on each function. Without `pg_temp` listed explicitly, PostgreSQL searches the temporary schema
-   **first**, so a caller could shadow a table or operator with a temporary object.
+   **first**, so a caller could shadow a table or operator with a temporary object. This is
+   load-bearing, not hygiene: during review a definer function without the explicit `pg_temp`
+   read its data from the caller's temporary table instead of the real one.
 3. **Static SQL only.** No dynamic `EXECUTE` built from arguments, no `format()` into statements.
    Arguments are used only as bound values (`WHERE id = p_id`), and validated in the body (the
    request id is non-empty and bounded).
@@ -471,7 +477,9 @@ subject_user_id)` on it, `INSERT` on it (for the `REASON_REDACTED` event), and `
 6. **The catalog check pins both functions:** they exist with the expected signatures;
    `prosecdef` = true; `proowner` = `crm_retention_owner`; `proconfig` is exactly the
    `search_path` above; `proacl` grants `EXECUTE` to `crm_app` and to no one else (no `PUBLIC`);
-   and the body's checksum (`md5(prosrc)`) equals the manifest's, so a body changed outside a
+   and the body's checksum — `md5(pg_get_functiondef(oid))`, **not** `md5(prosrc)`, which is the
+   empty string for a `BEGIN ATOMIC` body and would make the check pass on any such function —
+   equals the manifest's, so a body changed outside a
    reviewed file is caught. `crm_retention_owner` passes the same attribute, ownership and
    membership checks as the application roles, except that it owns exactly these two functions.
 
