@@ -890,6 +890,27 @@ describe('request reasons refuse what the column refuses (CR-M-3)', () => {
     ).toBe(false)
   })
 
+  it('refuses every blank code point INSIDE a value trim() cannot shorten', () => {
+    // U+0085 is not JS whitespace, so trim() leaves '\u0085<c>\u0085' intact and
+    // the refine alone decides — this is where an ASCII member of the class is
+    // observable (the mutation gate found `\v` unobserved without it).
+    for (const c of PG_BLANK)
+      expect(
+        issuesOf(
+          createJobQueueTeamTriageSubscriptionSchema.safeParse({
+            ...create,
+            reason: `\u0085${c}\u0085`,
+          }),
+        ),
+        `U+${c.charCodeAt(0).toString(16)}`,
+      ).toEqual([BLANK])
+    // ... and the letter the `\v` -> `\V` mutant would have treated as blank.
+    expect(
+      createJobQueueTeamTriageSubscriptionSchema.safeParse({ ...create, reason: '\u0085V\u0085' })
+        .success,
+    ).toBe(true)
+  })
+
   it('still accepts a reason with one real character among the blanks', () => {
     expect(
       createJobQueueTeamTriageSubscriptionSchema.parse({ ...create, reason: '\u0085x\u3000' })
