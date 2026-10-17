@@ -184,21 +184,33 @@ revoke does not see it:
   and the person columns of `meeting_recorder_audit_log`; the rows survive without saying who acted.
 - **`document_access_log`** stays fully deletable by the API (its retention cron).
 
+**How reachable is that cascade today?** Narrowly, and that matters for the priority. Users, teams
+and projects are **archived, never deleted**: `DELETE /api/users/:id` routes to the controller's
+`archiveUser`, and no production code path issues a row delete against `users`, `teams` or
+`projects` (checked 2026-10-17: no Drizzle `.delete(users|teams|projects)` and no raw `DELETE`
+outside specs). So the cascade is reachable only by arbitrary SQL — injection, or a future hard
+delete added without noticing what it drags with it.
+
 **Is that acceptable for an audit log?** As an interim, yes: it is today's behaviour, and the
 revoke makes nothing worse while closing the direct rewrite and delete. As a final state, **no**
 for the `CASCADE` tables — an audit log whose rows vanish with their subject cannot show what
-happened to that subject — and the `CASCADE` FKs are the first thing that must change before
-those three tables can leave the interim class (item 1 below). One caution for that task: the
-cascade may currently be the CRM's de facto erasure of a departed person's history, so replacing it
-is tied to the same erasure decision as item 3, not a pure schema fix. Confidence **HIGH** on the
-privilege and referential behaviour (reproduced).
+happened to that subject — and the `CASCADE` FKs are the first thing that must change before those
+three tables can leave the interim class (item 1 below). That change is **not** blocked by the
+erasure decision: because nothing deletes these parents today, replacing the cascade is a plain
+schema fix that breaks no current behaviour, and it can proceed ahead of items 2 and 3. Confidence
+**HIGH** on the privilege and referential behaviour (both reproduced on `postgres:16-alpine` 16.15
+during review).
 
 **What must change before any of them can become class B** (each a separate task, outside this
 ADR; `transaction_audit_log` is critical-path and needs a security review):
 
-1. **FKs.** `SET NULL` / `CASCADE` → `RESTRICT`, or drop the FK and keep the id as plain data. That
-   requires a decided user / team / project deletion policy (soft delete, or sentinel
-   re-pointing), because with `RESTRICT` a hard delete of a referenced user fails.
+1. **FKs — `CASCADE` → `SET NULL`, not `RESTRICT`.** The audit row must survive its subject, which
+   `SET NULL` delivers while keeping the row; `RESTRICT` would additionally forbid ever deleting a
+   referenced parent, and that collides with the test suite, where around 110 spec teardowns delete
+   users, teams and projects to clean up. `RESTRICT` is right for a log's own FKs (§3 layer 3,
+   where the log is new and no teardown depends on cascading); for these six existing tables
+   `SET NULL` is the correct shape. Dropping the FK and keeping the id as plain data is an
+   acceptable alternative. Doable now — nothing in production deletes these parents.
 2. **Pruning.** `document_access_log` retention moves off the API's credential onto the
    end-of-retention path §3 defines — whichever option the owner decides there.
 3. **Erasure.** The same legal question the memo of PR #1019 answers for `job_queue_actions`
@@ -579,11 +591,42 @@ production has no use for it, because every production DDL path goes over the lo
 | 1   | Add the CI secret `CRM_APP_DB_PASSWORD` (value: `openssl rand -hex 32` — hex, so it is URL-safe in `DATABASE_URL`). One line: "Settings → Secrets → New: `CRM_APP_DB_PASSWORD`, value from `openssl rand -hex 32`"                                                                                                                                                                                                                                                                                                                                                        | **[OWNER]**                                                                             | none                                                                                                                                                                                                                                                                                                                       | The deploy fails loudly if the secret is absent                                                                                                                                                                                                                                                           |
 | 2   | PR A (DevOps): files 1 and 2, their wiring, the catalog check (§2) as a deploy step after the DDL steps and as a CI job. The API still connects as `crm_user`                                                                                                                                                                                                                                                                                                                                                                                                             | DevOps; merge **[OWNER]**                                                               | Roles and grants exist; behaviour unchanged                                                                                                                                                                                                                                                                                | Deploy green, catalog check green                                                                                                                                                                                                                                                                         |
 | 3   | Automated probes, in the same deploy, **from a throwaway client container on the backend network** (e.g. a one-off `postgres:16-alpine` run with `--no-deps`), connecting to host `postgres` — never from inside the postgres container, where `127.0.0.1` and `::1` are `trust` and a wrong password also succeeds. Probes: `crm_app` with the right password → accepted; `crm_app` with a deliberately wrong password → **refused** (proves the probe is not hitting a trust rule); inside a rolled-back transaction, `UPDATE job_queue_actions` as `crm_app` → `42501` | DevOps (in PR A)                                                                        | none                                                                                                                                                                                                                                                                                                                       | All probes as expected                                                                                                                                                                                                                                                                                    |
-| 4   | CI runs the API **as `crm_app`** (§5) on `main` — the only real proof that the grants are sufficient for every query the code makes                                                                                                                                                                                                                                                                                                                                                                                                                                       | DevOps + AutoTest                                                                       | none                                                                                                                                                                                                                                                                                                                       | CI green on `main` with the new connection                                                                                                                                                                                                                                                                |
+| 4   | CI runs the API **as `crm_app`** (§5) on `main` — the strongest proof that the grants are sufficient for every query the code makes; **plus** one real-database spec per cron service whose job issues `DELETE` or `UPDATE` (see "What step 4 does not reach"), each asserting the statement succeeds as `crm_app`                                                                                                                                                                                                                                                        | DevOps + AutoTest                                                                       | none                                                                                                                                                                                                                                                                                                                       | CI green on `main` with the new connection                                                                                                                                                                                                                                                                |
 | 5   | PR B (DevOps): the deploy writes `DATABASE_URL` with `crm_app` and `CRM_APP_DB_PASSWORD`, and splits the environment as in the table above. **Order inside the deploy:** apply file 1 → run the step 3 `crm_app` login probe → only then recreate the `api` container. If `crm_app` cannot log in, the deploy stops while the old container is still serving; recreation is a plain `docker compose up -d`, not a health-gated swap, so this order is the only thing that guarantees it                                                                                   | DevOps; merge **[OWNER]**                                                               | The API restarts as `crm_app`, as on any deploy                                                                                                                                                                                                                                                                            | Deploy green and step 6 checks green                                                                                                                                                                                                                                                                      |
 | 6   | Verify (commands below): API sessions are `crm_app` only; the API container's environment contains neither the `crm_user` password **value**, nor any `crm_user@` URL, nor `MIGRATION_DATABASE_URL`; a sign-in, a finance page read and one write work; no `permission denied` in API logs for 48 h                                                                                                                                                                                                                                                                       | DevOps automates the first two as deploy steps; the smoke and the log watch **[OWNER]** | none                                                                                                                                                                                                                                                                                                                       | All four hold                                                                                                                                                                                                                                                                                             |
 | 7   | **Revoke the old owner credential (PR C, DevOps).** (a) **[OWNER]** sets the CI secret `POSTGRES_PASSWORD` to a new `openssl rand -hex 32`; (b) the deploy rotates `crm_user`'s password **in the database** to that value (file 1 does it on every deploy over the local socket, so the database and the secret cannot drift); (c) `pg_hba.conf` refuses TCP login for `crm_user` (below); (d) the deploy refuses to write any `DATABASE_URL` whose user is `crm_user`                                                                                                   | DevOps; secret and merge **[OWNER]**                                                    | A few seconds of database unavailability: the postgres-only env file changes, so `docker compose up -d` recreates the `postgres` container; the API's pool sees dropped connections and reconnects. Nothing legitimate logs in as `crm_user` over TCP after step 5. Schedule it like any deploy that restarts the database | The step 3 probes, extended with **one** probe: `crm_user` over TCP → refused. One probe suffices because the `reject` rule fires before authentication, so the result does not depend on which password is tried (the old one is no longer available once the secret is overwritten); `crm_app` accepted |
 | 8   | Collector, when the worker ships as its own process: `CRM_COLLECTOR_DB_PASSWORD` **[OWNER]**, the role in file 1, class C / D grants in file 2, the URL only in the worker's environment                                                                                                                                                                                                                                                                                                                                                                                  | r5 Task 1.3 / DevOps                                                                    | Worker runs as `crm_collector`                                                                                                                                                                                                                                                                                             | Catalog check covers `crm_collector`                                                                                                                                                                                                                                                                      |
+
+**What step 4 does not reach — the scheduled jobs, and what it costs.** Step 4's proof is only as
+wide as the code CI actually executes against a real database, and the gap is exactly where the
+risk is. Of the eight cron services, one has a real-database spec; six use a fully mocked
+`DatabaseService`, and those six are the `DELETE`-heavy ones: telemetry retention
+(`telemetry_events`, `telemetry_errors`, `csp_reports`), vacancy-application retention
+(`vacancy_applications`), meeting-recorder retention (`meeting_recorder_webhook_receipts`), and
+document-access-log retention. A mocked spec passes whatever the grants are, so a table
+misclassified as class B or A-log would be found not by CI but by the first cron fire — daily or
+monthly, i.e. plausibly **after** step 6's 48-hour log watch, as a `42501` inside a handler that
+deliberately swallows its errors so a failed run cannot crash the process. With no widen-grants
+file (by decision, §Rollback) the fix is a PR and a deploy.
+
+Three measures, all of them cheap, none of them a widen file:
+
+1. **Extend step 4's proof to those paths** (the main one, in the step 4 row above): every cron
+   service whose job issues `DELETE` or `UPDATE` gets one real-database spec that runs the
+   statement as `crm_app`. This converts "found on the first fire in production" into "found in
+   CI", and it is the only measure that closes the gap rather than shortening it.
+2. **Alert on `42501`.** The API logs it; the deploy's log watch and the standing alerting must
+   match `permission denied` / SQLSTATE `42501` and page, not merely record. Without an alert the
+   exposure lasts until someone reads logs; with it, until the next fire.
+3. **Classify with the cron jobs in view.** Any table a retention job prunes is class A (or
+   A-log with an explicit `DELETE`, as `document_access_log` has) — never class B. The manifest
+   review for each new table asks "does any scheduled job delete from this?".
+
+**The bound, stated plainly:** between step 5 and the first fire of each cron, a misclassified
+table is undetected; the blast radius is one retention job failing to prune (no data loss, no
+user-facing error, growing storage), and the recovery is one grant in file 2. That is the accepted
+cost of not having a widen-grants file. Confidence **HIGH** on the exposure (the mocked-spec
+coverage was measured during review); **MED** on measure 2's exact alerting wiring (DevOps).
 
 **Step 7 — why rotation, and why refusing TCP is required, not recommended.** The `crm_user`
 password has been readable from the API's environment since the first deploy, so it must be
@@ -617,29 +660,48 @@ error, `pg_reload_conf()` still returns `true`, the server keeps the **old** rul
 next restart the server refuses to start and the container exits. So the step, run on every
 deploy, is:
 
-1. **Write** the candidate file into the data directory under a temporary name, then move it into
-   place.
+1. **Write** the candidate file into the data directory under a temporary name, keep the previous
+   file alongside it, then move the candidate into place. A shell `trap` restores the previous file
+   on any non-zero exit from here to the end of step 4 — without it, a failure between the move and
+   the assertion leaves a file on disk that the next **restart** would reject, which is the same
+   outage this sequence exists to prevent.
 2. **Validate before reloading:** `SELECT … FROM pg_hba_file_rules` (which parses the file on disk
    now) must return **no row with a non-NULL `error`**, and its rows must equal the three expected
-   rules exactly. Failure aborts the deploy **before** the reload; the previous file is restored
-   from the move.
-3. **Reload without a database superuser:** send `SIGHUP` to the postmaster as the container's
-   `postgres` OS user (`docker compose exec -u postgres postgres pg_ctl reload -D "$PGDATA"`).
-   This needs no SQL privilege, so it works in step 0's branch 2 as well, where `pg_reload_conf()`
-   would need an explicit `EXECUTE` grant. In branch 2, `pg_hba_file_rules` is readable only by a
-   superuser unless granted; the cluster's superuser grants `SELECT` on it to `crm_user` once, as
-   part of the A3 resolution of that branch.
-4. **Assert after reloading** that the expected rules are live. No catalog shows the **loaded** rules
-   (`pg_hba_file_rules` shows the file), so this is done by behaviour and by the log: from a
-   throwaway container on the backend network, `crm_user` → refused; `crm_app` → accepted on
+   rules exactly. Failure aborts the deploy **before** the reload, and the `trap` restores the
+   previous file.
+3. **Reload without a database superuser:** `docker compose exec -u postgres postgres pg_ctl reload
+-D "$PGDATA"`, as the container's `postgres` OS user. Verified during review: it works and needs
+   no SQL privilege, so it also covers step 0's branch 2, where `pg_reload_conf()` would need an
+   explicit `EXECUTE` grant. **Its exit code is not a check:** `pg_ctl reload` exits 0 for a
+   malformed file too — it only delivers the signal. That is why validation precedes it and the
+   assertion follows it; neither is optional.
+4. **Assert after reloading** that the expected rules are live. No catalog shows the **loaded**
+   rules (`pg_hba_file_rules` shows the file on disk), so this is done by behaviour and by the log:
+   from a throwaway container on the backend network, `crm_user` → refused; `crm_app` → accepted on
    `crm_db` and refused on `postgres`; and the server log since the reload must not contain
-   `pg_hba.conf was not reloaded`. Any failure fails the deploy.
+   `pg_hba.conf was not reloaded`. Any failure fails the deploy and the `trap` restores the previous
+   file.
 
+**Branch 2 needs a one-time grant, and it is two statements, not one.** Reading
+`pg_hba_file_rules` as a non-superuser requires both of these, and the first alone fails with
+`permission denied for function pg_hba_file_rules`:
+
+```sql
+GRANT SELECT ON pg_hba_file_rules TO crm_user;
+GRANT EXECUTE ON FUNCTION pg_hba_file_rules() TO crm_user;
+```
+
+The view and the function behind it are separate objects with separate ACLs. Membership in
+`pg_read_all_settings` does **not** cover either. Both statements are run once by the cluster's
+superuser, as part of resolving branch 2 (an owner action — see step 0). Verified during review in
+exactly this form. Omitting the second statement fails closed, which is why it is written out here:
+it is the half that gets forgotten.
 The file lives in the data volume, so it is **not** in a `pg_dump` and is lost on a restore onto a
 fresh volume; the restore procedure therefore re-runs this step (see "Restore from backup").
 Pointing `hba_file` at a mounted file instead would need a restart and would not remove the need
-to validate. Confidence **HIGH** on the need and on the ignore-on-error behaviour (reproduced by the
-security review on `postgres:16-alpine` 16.15); **MED** on the exact commands (DevOps chooses).
+to validate. Confidence **HIGH** throughout: the ignore-on-error behaviour, the reload command, the
+`pg_ctl reload` exit code, and the two-statement grant were each reproduced on
+`postgres:16-alpine` 16.15 during review.
 
 **Step 0 — the owner's read-only check.** The brief's form, plus the attributes this design depends
 on:
@@ -653,9 +715,13 @@ ssh crm-vps "docker exec crm-postgres-1 psql -U crm_user -d crm_db -tAc \"SELECT
 How each answer changes the plan:
 
 - `rolsuper = t` (expected): the plan as written.
-- `rolsuper = f, rolcreaterole = t`: the plan as written (`CREATE ROLE` needs `CREATEROLE`), except
-  that file 1 cannot `SET log_min_error_statement`; the SCRAM verifier alone keeps passwords out of
-  the log.
+- `rolsuper = f, rolcreaterole = t` (**branch 2**): the plan as written (`CREATE ROLE` needs
+  `CREATEROLE`), with three additions. (a) File 1 cannot `SET log_min_error_statement`; the SCRAM
+  verifier alone keeps passwords out of the log. (b) **An owner action, once:** the cluster's
+  superuser runs both grants that let `crm_user` read `pg_hba_file_rules` — `GRANT SELECT ON
+pg_hba_file_rules TO crm_user;` **and** `GRANT EXECUTE ON FUNCTION pg_hba_file_rules() TO
+crm_user;`. One without the other fails. (c) `crm_user` is automatically made a member of each
+  role it creates, which the catalog check expects in this branch and only this one (§2, item 8).
 - `rolsuper = f, rolcreaterole = f`: file 1 cannot run as `crm_user`. **Stop (A3)** — the owner must
   find who holds superuser in that cluster; nothing is changed until then.
 
