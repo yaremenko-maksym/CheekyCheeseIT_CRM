@@ -1220,3 +1220,29 @@ the red flag is visible, but does not block the merge hard; the orchestrator/rev
   through Cloudflare (not only directly on the origin); `mcr.microsoft.com/playwright:v1.59.1-noble` as
   the base image of `landing-builder` does not increase the deploy build time above an acceptable level (the first
   real prod deploy after merge — measure it).
+
+## 13. Is prod actually receiving merges? (deploy freshness)
+
+Incident 2026-10-13..17: `Deploy` failed 16 times in a row (the API image did
+not build the new `@crm/inference` workspace package) and prod stayed on the
+old image for four days. Two independent signals now exist:
+
+- `deploy-alert.yml` (reaction): opens/updates an issue in the private
+  telemetry repo. **Blind spot:** it is a `workflow_run` trigger and did not
+  fire for any of the 10 deploys that `auto-merge-on-label.yml` dispatched as
+  `github-actions[bot]`.
+- `deploy-freshness.yml` (poll, every 3 h): runs
+  `scripts/devops/check-deploy-freshness.sh`, which fails the scheduled run
+  when the newest conclusive (success/failure) `deploy.yml` run on `main` is a
+  failure whose streak started more than 2 hours ago. Independent of trigger
+  type. Exit 1 = deploy is red; exit 2 = the check could not see (fails closed).
+
+Manual check at any time:
+
+```bash
+REPO=yaremenko-maksym/CheekyCheeseIT_CRM scripts/devops/check-deploy-freshness.sh
+```
+
+When adding a `workspace:*` dependency to `apps/api`, the same package needs
+`COPY` of its `package.json` and sources plus a `pnpm --filter <pkg> build` in
+`apps/api/Dockerfile` (builder stage), before `@crm/api build`.
