@@ -65,6 +65,14 @@ bash scripts/check-lessons-cap.sh || true
 # engines.node, "||" ranges, a form not listed -- REFUSES: an undeterminable
 # minimum must never degrade to "any v22".
 #
+# SCOPE (2026-10-17 follow-up): this pins ONLY what this file runs. A `git push` from
+# a Claude Code session ALSO passes the harness PreToolUse hook
+# `pre:bash:mutation-gate` (.claude/hooks/pre-bash-mutation-gate.sh), which runs
+# `node scripts/devops/mutation-gate.mjs --changed` -- Stryker over the shared
+# vitest specs -- BEFORE git starts this hook, on the shell's own node. On Node 20
+# the i18n specs fail there with the same "Cannot use import statement outside a
+# module", and that hook prints no "using v22" line because it has no pin.
+#
 # Called lazily (from run_full_suite and before the first scoped turbo call), not
 # at the top of the file, so a docs-only push -- which needs no node at all --
 # is never refused over a toolchain it does not use.
