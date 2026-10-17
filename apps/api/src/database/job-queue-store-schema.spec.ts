@@ -441,7 +441,7 @@ describe('job_team_triage_subscriptions (AC3)', () => {
 describe('job_queue_actions (AC4)', () => {
   const t = jobQueueActions
 
-  it('has exactly the r5 fields and NO updated_at (an append-only row is never edited)', () => {
+  it('has exactly the r5 fields and NO updated_at (nothing in the schema invites an edit)', () => {
     expect(names(t)).toEqual([
       'id',
       'kind',

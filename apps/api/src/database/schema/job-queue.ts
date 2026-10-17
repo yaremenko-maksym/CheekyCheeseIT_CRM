@@ -6,7 +6,8 @@
  *   job_queue_assignments          the studio-wide claim on an opportunity
  *   job_queue_dismissals           a TEAM- or STUDIO-scoped "not for us"
  *   job_team_triage_subscriptions  standing ADMIN triage per team
- *   job_queue_actions              append-only audit of every mutation and click
+ *   job_queue_actions              audit of every mutation and click (append-only
+ *                                  by intent — NOT yet enforced, see below)
  *   job_queue_generations          a published, scoped snapshot of the queue order
  *   job_queue_generation_entries   one ranked opportunity inside a generation
  *
@@ -32,6 +33,12 @@
  *     transaction, not taken from a cached projection);
  *   - release / reassign / suppress / triage grant / triage subscription are
  *     ADMIN-only;
+ *   - SR-L-3: a reassignment's TARGET must be eligible too (an active,
+ *     non-archived HR or ADMIN who may see that opportunity) — checking only
+ *     the acting ADMIN hands a claim to someone outside its scope;
+ *   - SR-L-3: an EXPIRED published generation is never served
+ *     (`expires_at <= now()` means refresh-required, even while it is still
+ *     the PUBLISHED row of its scope);
  *   - a read never returns a row of a team the viewer is not scoped to.
  *
  * APPEND-ONLY AND IMMUTABLE — WHAT ACTUALLY ENFORCES THEM IN THIS PR
@@ -45,15 +52,58 @@
  *   - no `updated_at` on either table — nothing in the schema invites an edit;
  *   - every parent FK of the action log is RESTRICT, so no parent delete can
  *     erase audit rows through a cascade.
- * TASK 1.3 OBLIGATION (forward DDL, by hand from this comment): BOTH
- *   (a) a `BEFORE UPDATE OR DELETE` row trigger on each of the two tables that
- *       raises, plus a `BEFORE TRUNCATE` statement trigger; and
- *   (b) the least-privileged application role gets only INSERT + SELECT on
- *       both (no UPDATE, DELETE, TRUNCATE).
- *   The generation purge (see below) runs as a role that may DELETE entries,
- *   or deletes the generation and lets the CASCADE remove them — the trigger
- *   on entries must therefore allow a DELETE that arrives through that FK
- *   cascade (pg_trigger_depth() > 0) and refuse a direct one.
+ *
+ * TASK 1.3 OBLIGATION (forward DDL, by hand from this comment)
+ * ------------------------------------------------------------
+ * SR-M-1 — THE VIABLE MECHANISM IS TRIGGERS. The API connects as `crm_user`,
+ * the bootstrap role that also applies the DDL, and it is a SUPERUSER
+ * (`rolsuper = t`, checked on the scratch catalog). A superuser is not limited
+ * by GRANT / REVOKE, so a grant-based boundary does NOTHING for the API today;
+ * r5 Task 1.3 creates a least-privileged role only for the collection worker.
+ * Triggers DO fire for a superuser, except under
+ * `session_replication_role = replica` or an explicit `DISABLE TRIGGER` —
+ * both of which a superuser may itself issue, so triggers stop an application
+ * bug or a mistaken statement, not a determined superuser.
+ *   (a) on `job_queue_actions` and `job_queue_generation_entries`: a
+ *       `BEFORE UPDATE OR DELETE` row trigger that raises, plus a
+ *       `BEFORE TRUNCATE` statement trigger. The generation purge deletes the
+ *       generation and lets the FK cascade remove its entries, so the entries
+ *       trigger must allow a DELETE that arrives through that cascade and refuse
+ *       a direct one. SR-L-3: `pg_trigger_depth() > 0` is ALSO true inside any
+ *       other trigger or function, so it is not proof of the cascade — its
+ *       tests need a direct DELETE (refused) plus BOTH cascade paths (purged
+ *       generation, deleted opportunity) allowed;
+ *   (b) SR-M-3 — the team-boundary controls on `job_queue_generations` and its
+ *       entries (a late insert, or an UPDATE that repoints a generation, is a
+ *       path to serving one team's opportunities to another):
+ *         - refuse an INSERT into `job_queue_generation_entries` whose
+ *           generation is not `BUILDING`;
+ *         - freeze `scope_kind` and `team_id` of a generation on UPDATE;
+ *         - make the status one-way (BUILDING -> PUBLISHED -> INVALIDATED,
+ *           BUILDING -> INVALIDATED; never back);
+ *         - refuse a DELETE of a generation whose status is not `INVALIDATED`
+ *           ("invalidate before purge").
+ *   (c) A GRANT boundary (INSERT + SELECT only on the two tables) is worth
+ *       adding only once the API connects as a NON-superuser role. Whether it
+ *       does is a decision PENDING WITH THE OWNER; this file does not assume
+ *       either answer, and (a)-(b) do not depend on it.
+ *
+ * RETENTION — CR-L-4 / SR-L-4
+ * ---------------------------
+ * Every parent FK of the action log is RESTRICT, so an opportunity (or source
+ * record, or subscription) with any logged action can NEVER be deleted. That
+ * is compatible with r5 Task 1.4 only through TOMBSTONING, which r5 already
+ * names ("tombstones keep identity + decision scope without full text"): the
+ * retention job clears the opportunity's text fields with an UPDATE and keeps
+ * the row, so the audit FK stays satisfied. Task 1.4 obligations that follow:
+ *   - its "legal deletion" path for an opportunity is a tombstone, not a
+ *     DELETE — a DELETE is refused with 23503 by design;
+ *   - its "audit minimization" of the LOG itself (free-text `reason`, actor
+ *     ids of a departed person) is an UPDATE on an append-only table, which
+ *     the Task 1.3 trigger in (a) would refuse. The two tasks therefore need
+ *     one sanctioned redaction path (for example, the trigger permitting only
+ *     `reason := NULL` under a dedicated role or setting). That design is
+ *     OPEN — it is not decided here.
  */
 import { type SQL, sql } from 'drizzle-orm'
 import {
@@ -538,10 +588,9 @@ export const jobQueueActions = pgTable(
  * while the generation is BUILDING and never after it is PUBLISHED; "invalidate
  * before purge" — the purge deletes only `status = 'INVALIDATED'` rows
  * (`idx_job_queue_generations_status_expiry` serves that scan). A FK or CHECK
- * cannot refuse the DELETE of a PUBLISHED row; the Task 1.3 trigger on entries
- * (file header) does not cover the generation row itself, so a Task 1.3
- * `BEFORE DELETE` trigger refusing `status <> 'INVALIDATED'` is part of the
- * same obligation.
+ * cannot refuse the DELETE of a PUBLISHED row, an INSERT into a published
+ * generation, or an UPDATE that repoints one: the Task 1.3 triggers that do
+ * are listed in the file header, item (b).
  *
  * PHASE-6 OBLIGATION: a STUDIO generation is served only to an ADMIN, a TEAM
  * generation only within that team's authorized scope; cached projections never
@@ -611,7 +660,7 @@ export const jobQueueGenerations = pgTable(
  * keeps two entries from sharing a position.
  *
  * IMMUTABILITY IS NOT ENFORCED BY THIS SCHEMA — see the file header (Task 1.3
- * trigger + grant). Both parents CASCADE: purging a generation removes its
+ * triggers, items (a)-(b); a grant would not bind the superuser API role). Both parents CASCADE: purging a generation removes its
  * entries, and deleting an opportunity removes it from every generation, which
  * r5 Task 6.2 allows ("removals allowed, additions/moves only on refresh").
  */
@@ -645,6 +694,10 @@ export const jobQueueGenerationEntries = pgTable(
     }).onDelete('cascade'),
     // The PK leads with generation_id; the opportunity cascade probe and the
     // "which generations contain this opportunity" invalidation need their own.
+    // SR-L-1: this index is for INVALIDATION and the cascade only. A
+    // user-facing read of entries goes through `generation_id` (of a generation
+    // the viewer is authorized for), never "by opportunity" across generations —
+    // that read would span every team's generations.
     index('idx_job_queue_generation_entries_opportunity').on(t.opportunityId),
     check('ck_job_queue_generation_entries_order_key_nonneg', sql`${t.orderKey} >= 0`),
     check('ck_job_queue_generation_entries_revision_positive', sql`${t.opportunityRevision} > 0`),

@@ -460,7 +460,8 @@ export const jobQueueAssignmentStateEnum = pgEnum('job_queue_assignment_state', 
 ])
 
 /**
- * The append-only action log's kinds. A NEW type: the legacy
+ * The action log's kinds (the log is append-only by intent; not yet enforced
+ * by the database — see schema/job-queue.ts). A NEW type: the legacy
  * `job_posting_signal_kind` (OPENED/TAKEN/DEAD_LINK/SPAM) and its table stay
  * untouched (r5).
  */

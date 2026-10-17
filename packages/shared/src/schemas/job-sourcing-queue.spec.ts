@@ -27,7 +27,8 @@ import {
 
 /**
  * r5 Task 1.2 (part 3) — the QUEUE workflow contracts: assignments, dismissals,
- * the append-only action log, published generations and their entries.
+ * the action log (append-only by intent; not yet enforced by the database),
+ * published generations and their entries.
  *
  * Every cross-field rule here is also a database CHECK, proven against a real
  * catalog in `apps/api/src/database/job-queue-store.integration.spec.ts`. A row the
