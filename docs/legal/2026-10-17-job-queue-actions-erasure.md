@@ -1,6 +1,7 @@
 # Erasure vs an append-only staff audit log (`job_queue_actions`)
 
-**Mode:** consult (A) · **Date:** 2026-10-17 · **Revision:** 3 (all facts F1–F8 answered; F1 confirmed) · **Author:** Legal agent (AI preliminary check)
+**Mode:** consult (A) · **Date:** 2026-10-17 · **Revision:** 4 (owner's decisions recorded) · **Author:** Legal agent (AI preliminary check)
+**Status:** policy **decided** on retention, deletion and free text (§8.1). Several legal questions remain **open** and still need a human lawyer (§8.1, §10).
 **Overall confidence:** MED. Each conclusion carries its own tag below.
 **Question from:** Master, on behalf of the owner. Pseudonymisation is approved as the engineering direction, on condition of this answer.
 
@@ -27,6 +28,16 @@ Revision 1 asked for eight facts. Seven came back. This section says plainly wha
 
 **No open premises remain.** F1 was confirmed by the owner in revision 3: the Netherlands B.V. is his legal entity. What that changes is in §0.1.
 
+### 0.0 Revision 4 — the owner's decisions
+
+Recorded 2026-10-17, in response to §8. **Three decisions, all now settled policy:**
+
+1. **Retention: two years, uniform across all event kinds** (§6.2). Not the graduated schedule proposed. My remaining reservation — two years is hard to defend for OPENED / DEAD_LINK / SPAM — is recorded there alongside the decision, with the reasoning, and the decision stands as the decision.
+2. **End of retention: DELETE the expired rows** (§8 item 4), over the sentinel alternative. Aggregate counts must be computed into a separate counters table **before** deletion if they are wanted.
+3. **Free text: prevention at input** — reason codes plus input-side stripping, with the logged redaction path as backstop (§8 item 3). Still cheap because all four reason columns are pre-UI; the window closes when the queue UI ships.
+
+**What this does not settle:** the open legal questions in **§8.1** — above all UA art. 15(2)(2), which the two-year period makes _more_ relevant, not less. Those need the lawyer review in §10 before any real erasure request is answered.
+
 ### 0.1 Revision 3 — F1 confirmed: the operator is EU-established
 
 The owner confirmed that the Netherlands B.V. in `CONTRACT_COMPANY` is his own legal entity. **One conclusion moves, and it moves a long way.**
@@ -46,7 +57,7 @@ The owner confirmed that the Netherlands B.V. in `CONTRACT_COMPANY` is his own l
 - **Pseudonymising the `users` row is not erasure.** For the company it produces pseudonymised data, which is still personal data (GDPR Recital 26; UA Law 2297-VI art. 2, which requires removing _indirect_ identifiers too). The direction still holds, but as a **data-minimisation measure for a lawful retention period**, not as the answer to an erasure request. **[HIGH]** (upgraded from "HIGH on the principle, MED on this repo" — F7 settles the repo half).
 - **Option (a) is not enough on its own, and option (b) is not needed.** Use a **hybrid**: (a) for `actor_id` / `subject_user_id` while the log is retained, **plus** prevention at input for `reason` with a narrow logged redaction path as a backstop, **plus** an end-of-retention path that **deletes** expired rows. **[MED]**
 - **With two-member teams, deletion is the only end-of-retention option that works.** Re-pointing `actor_id` to a shared sentinel leaves `team_id` plus `team_members` to name the person by elimination. **[MED→HIGH, new in r2]**
-- **Retention is now short.** Attribution does not drive pay (F5), so the multi-year evidence argument is gone. Months, not years (§6.2).
+- **Retention: two years, uniform — decided by the owner** (§6.2). Longer than the 90 days I proposed for the low-value telemetry kinds, where I would still argue for 90 days; shorter than r1's "contract + 3 years" for attribution events, correctly, since F5 removed the basis for that. **Side effect:** at two years, departing staff leave live rows behind, so the deletion path and the open UA art. 15(2)(2) question both matter more than they did at 90 days.
 - **The GDPR applies in full**, through the EU establishment (F1 confirmed in r3). That does not change the table design, but it does switch on obligations around it, including a Chapter V transfer tool for data reaching Ukraine. **[HIGH on applicability, MED on the transfer point]** (§3.1, §3.2).
 
 ---
@@ -189,20 +200,31 @@ If the controller is the Netherlands B.V., then personal data reaching Ukraine �
 
 **Re-opening condition, to be recorded now so the change is deliberate [MED].** The legal-claims basis and the multi-year tier come back **if, and only if, queue attribution starts to affect money** — for example if taking or being reassigned a vacancy feeds a commission, a bonus, or a senior-share adjustment, or if the log starts being cited to settle who earned a placement. The practical trigger is a code change that makes `apps/api/src/finance` or `apps/api/src/transactions` read any `job_queue_*` table. **Whoever makes that change must revisit this section**, because the retention period, the privacy notice and the erasure answer all change with it. It is worth writing this into the retention policy next to the periods, not only here.
 
-### 6.2 How long is defensible — shortened after F5
+### 6.2 How long — DECIDED: two years, uniform
 
-**[MED]**
+**Owner's decision, 2026-10-17: two years for all event kinds.** This is **the** retention period; the graduated schedule below is kept only to show what was proposed and where the decision departs from it.
 
-| Event kinds                                                | Purpose after F5                                                  | Suggested retention                                                                                                                                                                                                                                                         |
-| ---------------------------------------------------------- | ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| OPENED, DEAD_LINK, SPAM                                    | operational telemetry                                             | **90 days**, aligned with the existing `POSTING_RETENTION_DAYS` for postings. Unchanged from r1, and the alignment is now the whole justification                                                                                                                           |
-| TAKEN, RELEASED, REASSIGNED, DISMISSED, UNDONE, SUPPRESSED | queue integrity, undo, conflict resolution — **not** pay evidence | **90 days, and at most 12 months.** Down from "contract + 3 years" in r1. Undo and conflict windows are days; the longer end is only defensible as an abuse-investigation margin. **Anything beyond 12 months now needs the re-opening condition in §6.1 to have been met** |
-| TRIAGE\_\* (GRANTED/REVOKED/SUBSCRIBED/UNSUBSCRIBED)       | access-governance trail (who granted whom access to what)         | **12 months.** Access-control history has a genuine security purpose that outlives an individual queue action, and it is the kind of record a security review would expect to exist                                                                                         |
+| Event kinds                                                | Purpose after F5                                                  | **DECIDED** | What §6.2 had proposed                                                                                                |
+| ---------------------------------------------------------- | ----------------------------------------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------- |
+| OPENED, DEAD_LINK, SPAM                                    | operational telemetry                                             | **2 years** | 90 days, aligned with `POSTING_RETENTION_DAYS` — **the decision is longer**                                           |
+| TAKEN, RELEASED, REASSIGNED, DISMISSED, UNDONE, SUPPRESSED | queue integrity, undo, conflict resolution — **not** pay evidence | **2 years** | 90 days to 12 months — **the decision is longer**                                                                     |
+| TRIAGE\_\* (GRANTED/REVOKED/SUBSCRIBED/UNSUBSCRIBED)       | access-governance trail                                           | **2 years** | 12 months — **the decision is longer**                                                                                |
+| _(r1's proposal, superseded)_                              | attribution evidence                                              | **2 years** | contract term + 3 years — **the decision is shorter**, correctly: F5 removed the legal-claims basis that justified it |
 
-Two consequences worth stating plainly:
+**A uniform figure has a real virtue, and it is not just simplicity of code.** One period is one rule: it can be stated in a privacy notice in a sentence, implemented as one predicate, and audited by one query. Graduated schedules drift — a kind gets added, nobody re-reads the table, and rows outlive the schedule silently. Against the usual failure mode, "two years for everything, deleted by a job" is a more reliable form of compliance than a well-argued four-tier table that nobody maintains. **[MED]**
 
-- **The retention period is now shorter than the time staff typically stay.** So in the common case, by the time someone leaves, most of their rows have already expired, and the erasure question answers itself. That makes the whole design easier, not harder.
-- **Storage limitation still binds.** A trigger that refuses DELETE forever, with no exception, does not meet GDPR [Art. 5(1)(e)](https://gdpr-info.eu/art-5-gdpr/) or Law 2297-VI art. 6(8). This holds whichever of option (a) or (b) is chosen. **[HIGH]**
+**Where I would still push back, as §6 asked me to say plainly. [MED]**
+
+- **Two years for OPENED / DEAD_LINK / SPAM is hard to defend on the stated purpose.** "Who clicked a vacancy link" has no evidential value after a few weeks, the only basis is legitimate interest (F5 removed the others), and under [Art. 5(1)(c)/(e)](https://gdpr-info.eu/art-5-gdpr/) the question is always "necessary for what?". Two years is roughly eight times the 90 days the adjacent postings already use, which invites exactly the question a regulator asks. **My recommendation remains 90 days for these three kinds**, which would also make the log cheaper and smaller.
+- **For the other kinds, two years is defensible**, if on the generous side. An abuse-investigation and conflict-resolution margin of two years is arguable for a studio that does not look at this log weekly.
+- **If the owner prefers one number over a split, the honest version of that is a shorter single number.** "Twelve months for everything" would be uniform _and_ comfortably defensible across all kinds. Two years uniform is the more exposed of the two uniform options.
+- **Recorded as the decision regardless.** This is the owner's call to make, it is written down, and it is implementable. If a regulator ever asks, the answer is a documented decision with a stated purpose — which is a far better position than an undocumented one, whatever the figure.
+
+Three consequences worth stating plainly:
+
+- **Reversal of what r2 said here.** With 90 days, most of a departing person's rows had already expired by the time they left, so the erasure question largely answered itself. **At two years that is no longer true**: a departing contractor will normally leave behind up to two years of live rows naming them. So the deletion path (§8 item 4), the pseudonymisation routine (§8 item 1) and the **unresolved UA art. 15(2)(2) question (§5.2)** all become load-bearing rather than theoretical. The decision makes the open legal question matter more, not less. **[MED]**
+- **The re-opening condition still stands** (§6.1): if queue attribution ever starts to affect money, both the basis and the period must be revisited. Two years was chosen on today's facts.
+- **Storage limitation still binds.** A trigger that refuses DELETE forever, with no exception, does not meet GDPR [Art. 5(1)(e)](https://gdpr-info.eu/art-5-gdpr/) or Law 2297-VI art. 6(8). **[HIGH]**
 
 ### 6.3 Is there a Ukrainian retention duty that overrides erasure for this log?
 
@@ -237,20 +259,49 @@ Two consequences worth stating plainly:
 
 1. **Keep option (a) for `actor_id` / `subject_user_id` during the retention period**, named **pseudonymisation**, not erasure. The routine must cover **everything that identifies the person**: the `users` profile and requisite fields, all `user_emails` rows, `google_id`, avatar and identity documents (S3 objects included), and **the plain-text `displayName` history in `user_audit_log.changes` (R3)**. Without R3 it does not achieve its goal even as pseudonymisation.
 2. **Fix R3 in any case**, separately from this feature: add `displayName` to `SENSITIVE_FIELDS` going forward, and decide what to do with existing rows. Coder task with security-reviewer (`apps/api/src/users/**`).
-3. **Prevention at input for all four reason columns, with a narrow logged redaction path as a backstop** (§7). Leave `actor_id` / `subject_user_id` NOT NULL and untouchable during retention. Option (b)'s general mutability is not needed.
-4. **End-of-retention path: DELETE the expired rows. The sentinel alternative does not work here. [changed in r2, MED→HIGH]** In r1 I offered two options — delete, or re-point `actor_id` to a shared "former staff" sentinel. **F7 rules out the second.** Re-pointing leaves `team_id` and `subject_team_id` in place, and `team_members` still records who those two people were, including after they left (R10). The reader rejoins the two tables and recovers the actor by elimination, so the sentinel destroys the pointer without destroying the linkability — the appearance of anonymisation without its substance, which is worse than doing nothing because it invites the claim that the data was anonymised. The alternatives are:
-   - **DELETE the expired rows** — destroys linkability, simple to verify, and loses only aggregate counts. **Recommended.**
-   - Keep rows but null **both** the actor columns **and** the team scope — leaves a row that no longer says who or where, which is close to worthless. If the aggregate matters, compute it into a separate counters table before deleting; counts per period with no user or team reference are genuinely anonymous.
-     Either way the trigger needs a second narrow, privileged exception used only by the retention job. **An append-only table with no expiry path is not compliant (§6.2).**
+3. **DECIDED — prevention at input for all four reason columns, with the narrow logged redaction path as a backstop** (§7). Owner's decision, 2026-10-17. Concretely: a required reason **code** from a fixed list, free text optional and short, **input-side stripping** of e-mails, phone numbers and URLs, and a UI hint ("describe the vacancy, not a person"). The redaction path stays as the backstop for whatever free text survives. Leave `actor_id` / `subject_user_id` NOT NULL and untouchable during retention; option (b)'s general mutability is not needed.
+   **The window is open now and closes when the UI ships.** All four columns are pre-UI with no writer (R11), so codes and stripping cost a schema decision today. Once a UI exists and rows accumulate, the same change means a backfill over free text nobody can safely parse. **Decide the code list as part of the first queue-UI task, not after it.**
+4. **DECIDED — end-of-retention path: DELETE the expired rows.** Owner's decision, 2026-10-17, choosing deletion over the sentinel. The reasoning that led here **[MED→HIGH]**: re-pointing `actor_id` to a shared "former staff" sentinel leaves `team_id` and `subject_team_id` in place, and `team_members` still records who those two people were, including after they left (R10). A reader rejoins the two tables and recovers the actor by elimination (F7, k = 2), so the sentinel destroys the pointer without destroying the linkability — the appearance of anonymisation without its substance, which is worse than doing nothing because it invites the claim that the data was anonymised.
+   **The consequence to design around: aggregate counts are lost at deletion.** If any dashboard or report needs "vacancies dismissed per month" beyond two years, those figures must be **computed into a separate counters table before the rows are deleted**. Counts per period carrying no user and no team reference are genuinely anonymous and may be kept indefinitely. Decide this when the retention job is built — recovering the numbers afterwards is impossible by construction.
+   The trigger needs one narrow, privileged exception used only by the retention job. **An append-only table with no expiry path is not compliant (§6.2).**
 5. **Consider `ON DELETE SET NULL` instead of `RESTRICT`** for consistency with the existing audit tables (R5). Under an archive-only policy it makes no practical difference today; it removes a trap if hard deletion of users is ever introduced to meet UA art. 15(2)(2).
-6. **Paperwork** — cheaper than code and it is what a regulator asks for: a written legitimate-interest balancing test; the retention schedule from §6.2 **written into the blank ToS §6.5** (R7); the **re-opening condition** from §6.1 recorded next to it; a staff privacy notice mentioning the log (UA art. 12; GDPR [Art. 13](https://gdpr-info.eu/art-13-gdpr/)); and a template reply for partial refusal of erasure (§5.1 point 5). The blank DPO contact in ToS §6.2 should also be filled, since a GDPR commitment with no contact point is an invitation to complain elsewhere.
+6. **Paperwork** — cheaper than code and it is what a regulator asks for: a written legitimate-interest balancing test; **the two-year period written into the blank ToS §6.5** (R7, text below); the **re-opening condition** from §6.1 recorded next to it; a staff privacy notice mentioning the log (UA art. 12; GDPR [Art. 13](https://gdpr-info.eu/art-13-gdpr/)); and a template reply for partial refusal of erasure (§5.1 point 5). The blank DPO contact in ToS §6.2 should also be filled, since a GDPR commitment with no contact point is an invitation to complain elsewhere.
+
+   **Text for ToS §6.5, now that the figure is fixed.** A drafting proposal, not a final clause — the ToS is a whole-document job for a lawyer (§10), and §6.5 covers every data category, not only this log. For the queue-log row:
+
+   > **6.5. Хранение данных.** Персональные данные хранятся не дольше, чем это необходимо для целей обработки, и не дольше сроков, установленных применимым законодательством. Для отдельных категорий установлены следующие сроки: … **записи о действиях сотрудников в очереди вакансий (кто открыл, взял, отклонил, переназначил, приостановил или выдал доступ к триажу) — 2 (два) года с момента действия, после чего записи удаляются**; … По истечении срока данные удаляются из рабочих систем; из резервных копий — в течение 30 дней (п. 6.5.1).
+
+   Three notes on that draft: (a) it states **deletion**, not anonymisation, which matches the decision in item 4 and is the claim the system can actually honour; (b) the 30-day backup sentence pairs with item 7 — do not promise instant erasure the backups contradict; (c) the surrounding periods for other categories (documents, finance, contracts) are **not** covered by this memo and still need filling.
+
 7. **Backups: no action, one disclosure. [new in r2]** F8 confirms backups are pruned at **30 days** by default (R12). So a deletion completes in the live database immediately and in backups within about a month, which is a defensible position under both laws. Say so in the privacy notice ("deletion takes effect immediately in the system and within 30 days in backups") rather than leaving it unstated. No design change — this was a worry in r1 and the answer closed it.
 
-**Does the owner's condition hold?** Yes, as an **engineering direction**, and r2 makes it hold more firmly on a shorter retention period. It does not hold as a claim that "pseudonymisation equals erasure", and with two-member teams that gap is wider than r1 suggested. The direction needs items 1–4.
+**Does the owner's condition hold?** Yes, as an **engineering direction**. It does not hold as a claim that "pseudonymisation equals erasure", and with two-member teams that gap is wider than r1 suggested. The direction needs items 1–4, three of which are now decided.
+
+### 8.1 What is decided, and what is still open
+
+**Added in r4, so the memo is not read as more settled than it is.**
+
+| Decided (owner, 2026-10-17)                                     | Where                      |
+| --------------------------------------------------------------- | -------------------------- |
+| Retention: **2 years, uniform** across all event kinds          | §6.2                       |
+| End of retention: **DELETE** the expired rows                   | §8 item 4                  |
+| Free text: **prevention at input** + redaction path as backstop | §8 item 3, §7              |
+| Direction: pseudonymisation for `actor_id` / `subject_user_id`  | §8 item 1 (approved in r1) |
+
+| Still open — **a decision by the owner does not close any of these**                                                                                                                                                                         | Confidence | Who closes it                                   |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | ----------------------------------------------- |
+| **UA art. 15(2)(2):** does legitimate interest count as «інше передбачено законом», so that a two-year retention survives a contractor's departure? Now **load-bearing**, because at two years departing staff leave live rows behind (§6.2) | **LOW**    | practising privacy lawyer                       |
+| **Chapter V transfers to Ukraine** — SCCs and a transfer impact assessment (§3.2)                                                                                                                                                            | **MED**    | lawyer; company-wide, not this feature          |
+| **EU-establishment duties** — Art. 30 record, breach-notification readiness, Art. 35 DPIA scoping (§3.1)                                                                                                                                     | MED / LOW  | lawyer                                          |
+| **Martial-law effect on limitation periods** — unverified (§12)                                                                                                                                                                              | **LOW**    | lawyer, if limitation ever matters again (§6.1) |
+| **ToS adoption status** on production, and the blank DPO contact and transfer clause                                                                                                                                                         | LOW        | owner (status) + lawyer (text)                  |
+| **`CONTRACT_COMPANY` name string** — not a legal premise of this memo, but it prints on every signed contract (§2.1, §10)                                                                                                                    | MED        | owner, from the KVK extract                     |
+
+**Put plainly:** the owner has chosen _how long_ and _what happens at the end_. Whether keeping these rows at all after a Ukrainian contractor leaves is lawful under UA art. 15(2)(2) is a **separate question that remains unanswered**, and the two-year decision makes it arise more often rather than less. Do not treat this memo as clearance to answer a real erasure request without the lawyer review in §10.
 
 ---
 
-## 9. Facts: status after revision 2
+## 9. Facts: status (answered in revisions 2–3)
 
 | #   | Status                                                                                                                                                                                                                                                                                                                                                          |
 | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
