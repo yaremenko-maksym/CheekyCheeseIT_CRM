@@ -5,12 +5,34 @@
 Proposed (2026-10-17). Direction approved by the owner on 2026-10-17 ("do it the right way").
 Acceptance of this ADR is the owner's decision and has not been given.
 
+## For the owner
+
+**What you are accepting** — the six decisions summarised below: the role model, the privilege
+classes, the append-only guarantees, the nine-step rollout, the effect on local work and CI, and
+the ordering against the migration-ledger ADR. Accepting them authorises the implementing tasks,
+not any production change: every step that touches production is listed separately and the
+owner-only ones are marked **[OWNER]**.
+
+**What you are choosing** — one question, now: how expired rows leave the action log (§3).
+R-A keeps the trigger absolute and handles deletion by a reviewed file per run (interim only);
+R-B adds a narrow exception reached through two privileged functions the API's cron calls;
+R-C puts the same exception behind a separate retention process. **Recommendation: R-B now, R-C
+once a separate scheduled process exists.** It is tied to the erasure design pending in PR #1019,
+so it can also wait for that.
+
+**What is deferred, with nothing needed from you today** — demoting `crm_user` from superuser
+(A3: it is the cluster's only superuser); a separate `NOLOGIN` owner role (`crm_owner`); a
+read-only role (`crm_readonly`). Each has its conditions for revisiting in §1. The full list,
+including the legal confirmation behind R-A and the audit-log foreign-key change, is under
+"Open owner decisions" near the end.
+
 ## Summary of decisions
 
 1. **Roles (§1).** `crm_user` stays the owner and migration role. Its password is rotated in the
    database and its TCP login refused, so only local-socket use remains. The API connects as
    `crm_app`, which owns nothing, is a member of no role and is not a superuser. The collection
-   worker gets `crm_collector`.
+   worker gets `crm_collector`. Three login roles; option R-B of §3, if chosen, adds a fourth —
+   the `NOLOGIN` function owner `crm_retention_owner`.
 2. **Privileges (§2).** Every table is in one class: A ordinary, A-log (the six existing audit
    tables: insert-only for the API, no triggers yet), B append-only, C job-sourcing, D collector
    inputs, E migration-internal. Default privileges cover new tables; `EXECUTE` is revoked from
@@ -97,7 +119,9 @@ in-application write filters or row-level security as the primary boundary. Prio
 architect hierarchy (hard safety) is what makes the pattern mandatory rather than taste; nothing in
 the project requirements (priority 2) conflicts with it.
 
-Three roles. Confidence **HIGH** on the model; it is the textbook split.
+Three login roles. Confidence **HIGH** on the model; it is the textbook split. If the owner
+chooses option R-B for end-of-retention (§3), a fourth is added there: `crm_retention_owner`,
+`NOLOGIN`, which exists only to own the two privileged functions and never connects.
 
 | Role            | Kind  | Becomes / is                                                                                                                                                     | Attributes                                                                                                                                                                                                                                                                                          |
 | --------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -162,7 +186,7 @@ become class B either, because class B's triggers would break today's behaviour:
 
 ("None found" = no Drizzle `.update(…)` / `.delete(…)` and no raw `UPDATE` / `DELETE` / `TRUNCATE`
 against the table in `apps/api/src` outside specs, checked 2026-10-17; the seed truncates them as
-`crm_user`. The security review counted five; the sixth, `meeting_recorder_audit_log`, lives in the
+`crm_user`. An earlier count of these tables missed one: the sixth, `meeting_recorder_audit_log`, lives in the
 interviews schema module. The implementing task re-runs the search.)
 
 **Decision for now — class A-log, privileges only, no triggers.** Revoking `UPDATE`, `DELETE` and
@@ -177,7 +201,7 @@ revoke does not see it:
 
 - **`CASCADE` FKs delete audit rows outright.** Deleting a user deletes every `user_audit_log` row
   whose `target_id` is that user; deleting a team deletes its `team_audit_log` rows; deleting a
-  project deletes its `project_audit_log` rows (reproduced by the security review). So an attacker
+  project deletes its `project_audit_log` rows (reproduced). So an attacker
   who may delete the parent through the API — or an ordinary hard delete — erases that subject's
   whole audit history, not just a link.
 - **`SET NULL` FKs erase the link only.** Deleting a user nulls `actor_id` in every audit table,
@@ -934,8 +958,35 @@ r5 Task 1.3 implements on top of both: the collector's concrete table list (clas
 
 **Open owner decisions (not taken here)**
 
-- End of retention / redaction for `job_queue_actions` (§3): R-A, R-B or R-C; recommendation R-B,
-  moving to R-C. Tied to the erasure design pending from PR #1019.
+- **End of retention / redaction for `job_queue_actions`** (§3): R-A, R-B or R-C; recommendation
+  R-B, moving to R-C. Tied to the erasure design pending from PR #1019.
+- **Legal confirmation that shipping R-A as the interim is acceptable** (§3) — a legal conclusion
+  this ADR assumes and does not make; needed before Task 1.3 relies on it.
+- **Changing the `CASCADE` FKs on `user_audit_log`, `team_audit_log` and `project_audit_log` to
+  `SET NULL`** (§2) — doable now, breaks no current behaviour, and is the prerequisite for those
+  tables ever becoming append-only.
+- **Demoting `crm_user` from superuser** (§1) — deferred, A3: it is the cluster's only superuser,
+  so it needs a break-glass superuser first, and it changes nothing for the API boundary.
+- **A separate `NOLOGIN` owner role (`crm_owner`) and a read-only role (`crm_readonly`)** (§1) —
+  considered and deferred, with the conditions for revisiting stated there.
+
+**Not verified by running — the implementing task proves each before relying on it**
+
+Everything this ADR asserts about PostgreSQL's own behaviour was reproduced on a throwaway
+`postgres:16-alpine` 16.15 container (the list is in Sources), including the two items earlier
+editions of this ADR left open: the reload command `pg_ctl reload -D "$PGDATA"` as the container's
+`postgres` OS user, which needs no SQL privilege, and the one-off `pg_hba_file_rules` grant, which
+is needed and takes **two** statements (§4, step 0 branch 2). What remains unproved is plumbing —
+all of it inside our own deploy, none of it a claim about the database:
+
+| Unproved                                                                                                   | Where                            | How the implementing task proves it                                                                                                                            |
+| ---------------------------------------------------------------------------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Writing and moving `pg_hba.conf` inside the data volume, and the `trap` that restores it                   | §4, install sequence             | A deliberately malformed candidate file on a scratch container: the deploy must fail at validation and leave the previous file live and the server restartable |
+| Computing the SCRAM verifier on the CI runner, and `\getenv` reaching psql without the value touching argv | §4, password handling            | Apply file 1 to a scratch database, then log in with the secret; `ps` output captured during the run contains no secret                                        |
+| The env-file split and `0600`, with Compose no longer interpolating the owner password from the API's file | §4, environment split            | The step 6 environment check, run against a scratch stack                                                                                                      |
+| Alerting on `42501` reaching a person                                                                      | §4, "What step 4 does not reach" | A forced `42501` in staging must page, not merely log                                                                                                          |
+| The class manifest's format, and where the catalog check runs from                                         | §2, §6                           | The check runs in CI and in the deploy against a scratch database built from the same DDL                                                                      |
+| Two connection strings in CI and locally, and the guard changes                                            | §5                               | The guards' own tests, including the new both-directions cases                                                                                                 |
 
 ## Rollback
 
@@ -963,10 +1014,17 @@ the API's environment, and none can leave the API without a working credential. 
   ledger ADR), reconciliation row C-15 (wiring contract), the `job_queue_actions` row of the store
   table.
 - PR #1017 — the security finding, and the "GAP PIN: no trigger exists yet" test.
-- PR #1018 review round 1 — the security review verified on a throwaway `postgres:16-alpine` 16.15
-  container: in-container `127.0.0.1` / `::1` are `trust`; a failing `ALTER ROLE … PASSWORD` is
-  logged in clear text with `log_statement = none`; owner-run referential actions; the image
-  applying `POSTGRES_PASSWORD` only at first initialisation.
+- Behaviours reproduced on a throwaway `postgres:16-alpine` 16.15 container while this ADR was
+  being written and reviewed (each is re-proved by the implementing task's tests, not cited from
+  here): in-container `127.0.0.1` / `::1` are `trust`; a failing `ALTER ROLE … PASSWORD` is logged
+  in clear text with `log_statement = none`; referential actions run as the table owner; the image
+  applies `POSTGRES_PASSWORD` only at first initialisation; a malformed `pg_hba.conf` is ignored on
+  reload while `pg_reload_conf()` returns true and `pg_ctl reload` exits 0; `pg_ctl reload -D
+"$PGDATA"` as the container's `postgres` OS user needs no SQL privilege; `pg_hba_file_rules`
+  needs both a view `SELECT` and a function `EXECUTE` grant; a non-superuser with `CREATEROLE` is
+  auto-granted `ADMIN` on roles it creates and can later re-grant itself `SET`; a `SECURITY
+DEFINER` function without an explicit `pg_temp` in its `search_path` reads a caller's temporary
+  table; `md5(prosrc)` is the md5 of the empty string for a `BEGIN ATOMIC` body.
 - `docs/legal/2026-10-17-job-queue-actions-erasure.md` (PR #1019) — the end-of-retention and
   redaction requirements of §3.
 - Audit tables by symbol: `userAuditLog`, `teamAuditLog`, `projectAuditLog`,
