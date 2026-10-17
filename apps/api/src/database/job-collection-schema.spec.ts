@@ -228,6 +228,22 @@ describe('job_sources (extended in place — AC1)', () => {
       'jsonb_typeof',
     )
   })
+
+  it('bounds the typed error CODE and the readiness reason (SR-M-2 / SPEC-M-1)', () => {
+    expect(checkNames(jobSources)).toEqual(
+      expect.arrayContaining([
+        'ck_job_sources_last_error_code_format',
+        'ck_job_sources_readiness_reason_bounded',
+      ]),
+    )
+    // A documented classification, not free text: the column was `text` with no
+    // CHECK while obligation 7 of the PR body claimed alphabet AND length were
+    // bound. Task 1.3 transcribes this by hand, so the claim has to be true.
+    expect(checkSql(jobSources, 'ck_job_sources_last_error_code_format')).toContain(
+      '^[A-Z][A-Z0-9_]{0,63}$',
+    )
+    expect(checkSql(jobSources, 'ck_job_sources_readiness_reason_bounded')).toContain('500')
+  })
 })
 
 describe('job_collection_cycles (AC3)', () => {
@@ -380,6 +396,13 @@ describe('job_collection_runs (AC2)', () => {
   it('keeps the sanitized error bounded (no raw upstream body)', () => {
     expect(checkSql(jobCollectionRuns, 'ck_job_collection_runs_error_message_bounded')).toContain(
       'length',
+    )
+  })
+
+  it('bounds the typed error CODE too, not only the message (SR-M-2 / SPEC-M-1)', () => {
+    expect(checkNames(jobCollectionRuns)).toContain('ck_job_collection_runs_error_code_format')
+    expect(checkSql(jobCollectionRuns, 'ck_job_collection_runs_error_code_format')).toContain(
+      '^[A-Z][A-Z0-9_]{0,63}$',
     )
   })
 
@@ -571,10 +594,16 @@ describe('job_dirty_work (AC5)', () => {
     expect(col(jobDirtyWork, 'checkpoint').notNull).toBe(true)
   })
 
-  it('pairs CLAIMED with an owner and a lease', () => {
+  it('pairs CLAIMED with an owner and a lease, and names the cleared state (CR-M-1)', () => {
     const s = checkSql(jobDirtyWork, 'ck_job_dirty_work_claim_pair')
     expect(s).toContain('CLAIMED')
     expect(s).toContain('claim_owner')
+    // The old predicate was a single equality of two booleans, so a row with
+    // status <> 'CLAIMED', an owner and NO lease made both sides false and
+    // passed. The non-claimed branch must state the cleared columns itself.
+    expect(s).toContain('<>')
+    expect(s).toContain('"claim_owner" IS NULL')
+    expect(s).toContain('"lease_expires_at" IS NULL')
   })
 
   it('pairs every terminal status (including DEFERRED) with a completion instant', () => {
@@ -601,6 +630,13 @@ describe('job_dirty_work (AC5)', () => {
         'ck_job_dirty_work_retry_count_nonneg',
         'ck_job_dirty_work_fencing_epoch_positive',
       ]),
+    )
+  })
+
+  it('bounds its typed last error code (SR-M-2 / SPEC-M-1)', () => {
+    expect(checkNames(jobDirtyWork)).toContain('ck_job_dirty_work_last_error_code_format')
+    expect(checkSql(jobDirtyWork, 'ck_job_dirty_work_last_error_code_format')).toContain(
+      '^[A-Z][A-Z0-9_]{0,63}$',
     )
   })
 })

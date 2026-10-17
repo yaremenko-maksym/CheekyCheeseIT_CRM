@@ -12,8 +12,11 @@
  * its one-unit `budget_*` counters on `job_sources` stay for DOU (r5 A1h).
  *
  * Everything an adapter brings back is UNTRUSTED, so the stored error text is
- * bounded by CHECK: a typed code plus a sanitized sentence, never a provider
- * secret and never a raw upstream body.
+ * bounded by CHECK on BOTH halves: `error_code` / `last_error_code` must match
+ * the typed upper-snake alphabet of `JOB_ERROR_CODE_PATTERN` (<= 64 chars), and
+ * `error_message` is capped at `JOB_SANITIZED_TEXT_MAX` characters. A CHECK
+ * cannot recognise a secret; what it does is make a raw upstream body — the
+ * thing that carries one — fail loudly instead of persisting quietly.
  *
  * WHAT THE SCHEMA CANNOT ENFORCE (Phase 2 worker obligations) is listed in the
  * comment above each constraint it half-covers — a reviewer should be able to
@@ -44,6 +47,7 @@ import {
   jobMeterReservationStatusEnum,
 } from './enums'
 import { jobAccountMeters } from './job-metering'
+import { JOB_ERROR_CODE_PATTERN, JOB_SANITIZED_TEXT_MAX } from './job-patterns'
 import { jobSources } from './job-sourcing'
 import { users } from './users'
 
@@ -240,7 +244,13 @@ export const jobCollectionRuns = pgTable(
     // fail loudly instead of quietly persisting one.
     check(
       'ck_job_collection_runs_error_message_bounded',
-      sql`${t.errorMessage} IS NULL OR length(${t.errorMessage}) <= 500`,
+      sql`${t.errorMessage} IS NULL OR length(${t.errorMessage}) <= ${sql.raw(String(JOB_SANITIZED_TEXT_MAX))}`,
+    ),
+    // SR-M-2 / SPEC-M-1: the CODE was unbounded `text` while the module header
+    // claimed a typed code. Now the claim is enforced, not asserted.
+    check(
+      'ck_job_collection_runs_error_code_format',
+      sql`${t.errorCode} IS NULL OR ${t.errorCode} ~ ${sql.raw(`'${JOB_ERROR_CODE_PATTERN}'`)}`,
     ),
   ],
 )
@@ -384,11 +394,26 @@ export const jobDirtyWork = pgTable(
     check('ck_job_dirty_work_reason_bounded', sql`length(${t.reason}) <= 100`),
     check('ck_job_dirty_work_retry_count_nonneg', sql`${t.retryCount} >= 0`),
     check('ck_job_dirty_work_fencing_epoch_positive', sql`${t.fencingEpoch} > 0`),
-    // A CLAIMED item is owned under a lease, and ONLY a claimed item is: an
-    // owner left behind on a released item is how a stale lease comes back.
+    /**
+     * A CLAIMED item is owned under a lease, and ONLY a claimed item is: an
+     * owner left behind on a released item is how a stale lease comes back.
+     *
+     * CR-M-1 — NOT written as one equality of two booleans. That form
+     * (`(status = 'CLAIMED') = (owner IS NOT NULL AND lease IS NOT NULL)`) is
+     * satisfied when BOTH sides are false, so a row with `status <> 'CLAIMED'`,
+     * an owner and a NULL lease passed — exactly the state this comment calls
+     * impossible. Each branch names the columns it requires, and the
+     * non-claimed branch names them CLEARED.
+     */
     check(
       'ck_job_dirty_work_claim_pair',
-      sql`(${t.status} = 'CLAIMED') = (${t.claimOwner} IS NOT NULL AND ${t.leaseExpiresAt} IS NOT NULL)`,
+      sql`(${t.status} = 'CLAIMED' AND ${t.claimOwner} IS NOT NULL AND ${t.leaseExpiresAt} IS NOT NULL)
+          OR (${t.status} <> 'CLAIMED' AND ${t.claimOwner} IS NULL AND ${t.leaseExpiresAt} IS NULL)`,
+    ),
+    // SR-M-2 / SPEC-M-1: a typed code here too.
+    check(
+      'ck_job_dirty_work_last_error_code_format',
+      sql`${t.lastErrorCode} IS NULL OR ${t.lastErrorCode} ~ ${sql.raw(`'${JOB_ERROR_CODE_PATTERN}'`)}`,
     ),
     // DEFERRED counts as terminal here: a cycle closes when all its children
     // are terminal OR deferred (r5), so both must record when they finished.

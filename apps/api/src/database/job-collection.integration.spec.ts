@@ -307,6 +307,45 @@ describe.skipIf(!hasDatabaseUrl())('job collection machinery (real Postgres cata
       )
     })
 
+    it('refuses an error code that is not a TYPED code, and bounds the readiness reason', async () => {
+      const id = await newSource()
+      // What the column was documented as refusing and in fact accepted: a raw
+      // upstream body, which is where a leaked credential travels.
+      const body = await rejected(`UPDATE job_sources SET last_error_code = $1 WHERE id = $2`, [
+        'Forbidden: the provider returned {"api_key":"sk_live_0123456789abcdef"}',
+        id,
+      ])
+      expect(body).toEqual({
+        code: CHECK_VIOLATION,
+        constraint: 'ck_job_sources_last_error_code_format',
+      })
+      const long = await rejected(`UPDATE job_sources SET last_error_code = $1 WHERE id = $2`, [
+        'C'.repeat(65),
+        id,
+      ])
+      expect(long.constraint).toBe('ck_job_sources_last_error_code_format')
+      const lower = await rejected(`UPDATE job_sources SET last_error_code = $1 WHERE id = $2`, [
+        'http_403',
+        id,
+      ])
+      expect(lower.constraint).toBe('ck_job_sources_last_error_code_format')
+      const reason = await rejected(
+        `UPDATE job_sources SET readiness = 'BLOCKED', readiness_reason = $1 WHERE id = $2`,
+        ['x'.repeat(501), id],
+      )
+      expect(reason).toEqual({
+        code: CHECK_VIOLATION,
+        constraint: 'ck_job_sources_readiness_reason_bounded',
+      })
+      // Both bounds are inclusive: 64 characters of code, 500 of reason.
+      await q(
+        `UPDATE job_sources
+         SET last_error_code = $1, readiness = 'BLOCKED', readiness_reason = $2
+         WHERE id = $3`,
+        ['C'.repeat(64), 'x'.repeat(500), id],
+      )
+    })
+
     it('releases the meter reference instead of pinning the source when an account is retired', async () => {
       const id = await newSource()
       const meter = await newMeter()
@@ -618,6 +657,20 @@ describe.skipIf(!hasDatabaseUrl())('job collection machinery (real Postgres cata
         ['x'.repeat(501), id],
       )
       expect(long.constraint).toBe('ck_job_collection_runs_error_message_bounded')
+      const freeText = await rejected(
+        `UPDATE job_collection_runs SET error_code = $1 WHERE id = $2`,
+        ['Forbidden: upstream said {"token":"abcdef0123456789abcdef"}', id],
+      )
+      expect(freeText).toEqual({
+        code: CHECK_VIOLATION,
+        constraint: 'ck_job_collection_runs_error_code_format',
+      })
+      const longCode = await rejected(
+        `UPDATE job_collection_runs SET error_code = $1 WHERE id = $2`,
+        ['C'.repeat(65), id],
+      )
+      expect(longCode.constraint).toBe('ck_job_collection_runs_error_code_format')
+      await q(`UPDATE job_collection_runs SET error_code = 'HTTP_429' WHERE id = $1`, [id])
     })
 
     it('never lets a source or a cycle be deleted out from under its history', async () => {
@@ -950,6 +1003,67 @@ describe.skipIf(!hasDatabaseUrl())('job collection machinery (real Postgres cata
          WHERE id = $1`,
         [id],
       )
+    })
+
+    it('refuses a HALF-SET claim on work that is not CLAIMED (CR-M-1)', async () => {
+      // The hole: `(status = 'CLAIMED') = (owner IS NOT NULL AND lease IS NOT
+      // NULL)` is satisfied when BOTH sides are false, so a non-CLAIMED row
+      // with an owner and a NULL lease passed — the stale-owner state the
+      // constraint exists to forbid.
+      const { rows } = await enqueue('SOURCE_RECORD', randomUUID(), 1, `${TAG}-halfclaim`)
+      const id = rows[0].id
+      const ownerNoLease = await rejected(
+        `UPDATE job_dirty_work SET claim_owner = 'w1' WHERE id = $1`,
+        [id],
+      )
+      expect(ownerNoLease).toEqual({
+        code: CHECK_VIOLATION,
+        constraint: 'ck_job_dirty_work_claim_pair',
+      })
+      const leaseNoOwner = await rejected(
+        `UPDATE job_dirty_work SET lease_expires_at = now() WHERE id = $1`,
+        [id],
+      )
+      expect(leaseNoOwner.constraint).toBe('ck_job_dirty_work_claim_pair')
+      // ... and on a TERMINAL row too: releasing must clear both halves.
+      await q(
+        `UPDATE job_dirty_work
+         SET status = 'CLAIMED', claim_owner = 'w1', claimed_at = now(),
+             lease_expires_at = now() + interval '1 min'
+         WHERE id = $1`,
+        [id],
+      )
+      const doneWithOwner = await rejected(
+        `UPDATE job_dirty_work SET status = 'DONE', completed_at = now() WHERE id = $1`,
+        [id],
+      )
+      expect(doneWithOwner.constraint).toBe('ck_job_dirty_work_claim_pair')
+      // The release that clears both is accepted.
+      await q(
+        `UPDATE job_dirty_work
+         SET status = 'DONE', completed_at = now(), claim_owner = NULL, lease_expires_at = NULL
+         WHERE id = $1`,
+        [id],
+      )
+    })
+
+    it('refuses a last error code that is not a TYPED code (SR-M-2 / SPEC-M-1)', async () => {
+      const { rows } = await enqueue('OPPORTUNITY', randomUUID(), 1, `${TAG}-errcode`)
+      const id = rows[0].id
+      const free = await rejected(`UPDATE job_dirty_work SET last_error_code = $1 WHERE id = $2`, [
+        'could not reach the opportunity store (timeout after 30s)',
+        id,
+      ])
+      expect(free).toEqual({
+        code: CHECK_VIOLATION,
+        constraint: 'ck_job_dirty_work_last_error_code_format',
+      })
+      const longCode = await rejected(
+        `UPDATE job_dirty_work SET last_error_code = $1 WHERE id = $2`,
+        ['C'.repeat(65), id],
+      )
+      expect(longCode.constraint).toBe('ck_job_dirty_work_last_error_code_format')
+      await q(`UPDATE job_dirty_work SET last_error_code = 'VERSION_STALE' WHERE id = $1`, [id])
     })
 
     it('pairs DONE, FAILED and DEFERRED alike with a completion instant', async () => {

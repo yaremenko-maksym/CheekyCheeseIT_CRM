@@ -29,6 +29,7 @@ import {
   jobSuggestionStatusEnum,
 } from './enums'
 import { jobAccountMeters } from './job-metering'
+import { JOB_ERROR_CODE_PATTERN, JOB_SANITIZED_TEXT_MAX } from './job-patterns'
 import { users } from './users'
 
 // ---------------------------------------------------------------------------
@@ -134,7 +135,7 @@ export const jobSources = pgTable(
     // readiness, and the sixteen seeded rows are candidates, not verified
     // configs (C-16).
     readiness: jobSourceReadinessEnum('readiness').notNull().default('CANDIDATE'),
-    /** Typed reason a source is readiness-BLOCKED (policy / credential / contract). */
+    /** Typed reason a source is readiness-BLOCKED (policy / credential / contract). Bounded by CHECK. */
     readinessReason: text('readiness_reason'),
     adminState: jobSourceAdminStateEnum('admin_state').notNull().default('ACTIVE'),
     /**
@@ -208,7 +209,19 @@ export const jobSources = pgTable(
     ),
     check(
       'ck_job_sources_last_error_bounded',
-      sql`${t.lastErrorMessage} IS NULL OR length(${t.lastErrorMessage}) <= 500`,
+      sql`${t.lastErrorMessage} IS NULL OR length(${t.lastErrorMessage}) <= ${sql.raw(String(JOB_SANITIZED_TEXT_MAX))}`,
+    ),
+    // SR-M-2 / SPEC-M-1: a TYPED code, not free text. The column was unbounded
+    // `text`, so a 400-character upstream body — which may carry a key — was
+    // accepted into a column documented as holding a classification.
+    check(
+      'ck_job_sources_last_error_code_format',
+      sql`${t.lastErrorCode} IS NULL OR ${t.lastErrorCode} ~ ${sql.raw(`'${JOB_ERROR_CODE_PATTERN}'`)}`,
+    ),
+    // The reason reaches an ADMIN screen; a sentence, never a pasted response.
+    check(
+      'ck_job_sources_readiness_reason_bounded',
+      sql`${t.readinessReason} IS NULL OR length(${t.readinessReason}) <= ${sql.raw(String(JOB_SANITIZED_TEXT_MAX))}`,
     ),
     // History is an ARRAY: an object or a scalar here would silently become a
     // one-entry "history" that no append can extend.

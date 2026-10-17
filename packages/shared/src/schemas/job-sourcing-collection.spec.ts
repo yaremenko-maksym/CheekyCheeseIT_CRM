@@ -522,11 +522,26 @@ describe('jobCollectionAttemptSchema — owned while running, ended when termina
     refusedAt(jobCollectionAttemptSchema, { ...failed, errorMessage: 'x'.repeat(501) }, [
       'errorMessage',
     ])
-    refusedAt(jobCollectionAttemptSchema, { ...failed, errorCode: 'c'.repeat(101) }, ['errorCode'])
+    refusedAt(jobCollectionAttemptSchema, { ...failed, errorCode: 'C'.repeat(65) }, ['errorCode'])
     // Exactly at the bound still parses.
     expect(
       jobCollectionAttemptSchema.safeParse({ ...failed, errorMessage: 'x'.repeat(500) }).success,
     ).toBe(true)
+  })
+
+  it('refuses a run error code that is not a typed one (SR-M-2 / SPEC-M-1)', () => {
+    // The column is documented as holding a typed code from a documented status
+    // or error classification. Free text — a lowercase upstream sentence, a
+    // space, punctuation, or anything over 64 characters — is refused here as
+    // it now is by the database CHECK.
+    expect(
+      jobCollectionAttemptSchema.safeParse({ ...failed, errorCode: 'A'.repeat(64) }).success,
+    ).toBe(true)
+    refusedAt(jobCollectionAttemptSchema, { ...failed, errorCode: 'A'.repeat(65) }, ['errorCode'])
+    refusedAt(jobCollectionAttemptSchema, { ...failed, errorCode: 'http_403' }, ['errorCode'])
+    refusedAt(jobCollectionAttemptSchema, { ...failed, errorCode: 'HTTP 403' }, ['errorCode'])
+    refusedAt(jobCollectionAttemptSchema, { ...failed, errorCode: '403_HTTP' }, ['errorCode'])
+    refusedAt(jobCollectionAttemptSchema, { ...failed, errorCode: '' }, ['errorCode'])
   })
 
   it('refuses a non-positive fencing epoch or config version', () => {
@@ -634,7 +649,7 @@ describe('jobSourceHealthSchema — disabled, paused and readiness-blocked are s
     refusedAt(jobSourceHealthSchema, { ...health, lastErrorMessage: 'x'.repeat(501) }, [
       'lastErrorMessage',
     ])
-    refusedAt(jobSourceHealthSchema, { ...health, lastErrorCode: 'c'.repeat(101) }, [
+    refusedAt(jobSourceHealthSchema, { ...health, lastErrorCode: 'C'.repeat(65) }, [
       'lastErrorCode',
     ])
   })
@@ -644,6 +659,23 @@ describe('jobSourceHealthSchema — disabled, paused and readiness-blocked are s
       'consecutiveFailures',
     ])
     refusedAt(jobSourceHealthSchema, { ...health, configVersion: 0 }, ['configVersion'])
+  })
+
+  it('refuses a source-health error code that is not a typed one (SR-M-2 / SPEC-M-1)', () => {
+    // The column is documented as holding a typed code from a documented status
+    // or error classification. Free text — a lowercase upstream sentence, a
+    // space, punctuation, or anything over 64 characters — is refused here as
+    // it now is by the database CHECK.
+    expect(
+      jobSourceHealthSchema.safeParse({ ...health, lastErrorCode: 'A'.repeat(64) }).success,
+    ).toBe(true)
+    refusedAt(jobSourceHealthSchema, { ...health, lastErrorCode: 'A'.repeat(65) }, [
+      'lastErrorCode',
+    ])
+    refusedAt(jobSourceHealthSchema, { ...health, lastErrorCode: 'http_403' }, ['lastErrorCode'])
+    refusedAt(jobSourceHealthSchema, { ...health, lastErrorCode: 'HTTP 403' }, ['lastErrorCode'])
+    refusedAt(jobSourceHealthSchema, { ...health, lastErrorCode: '403_HTTP' }, ['lastErrorCode'])
+    refusedAt(jobSourceHealthSchema, { ...health, lastErrorCode: '' }, ['lastErrorCode'])
   })
 })
 
@@ -705,10 +737,35 @@ describe('jobDirtyWorkItemSchema — claimed under a lease, terminal when finish
       CLAIM_RULE,
       ['claimOwner'],
     )
-    // A half-released item (owner cleared, lease left, or vice versa) stays
-    // refused too — that asymmetry is how a stale lease comes back.
-    expect(jobDirtyWorkItemSchema.safeParse({ ...item, claimOwner: 'w1' }).success).toBe(true)
-    expect(jobDirtyWorkItemSchema.safeParse({ ...item, leaseExpiresAt: NOW }).success).toBe(true)
+    // CR-M-1. A HALF-SET claim on work that is not CLAIMED: the old predicate
+    // was one equality of two booleans, so `status <> 'CLAIMED'` with an owner
+    // and NO lease made both sides false, the equality held, and the state the
+    // message calls impossible parsed. Each half alone is refused now.
+    expectOnlyIssue(jobDirtyWorkItemSchema, { ...item, claimOwner: 'w1' }, CLAIM_RULE, [
+      'claimOwner',
+    ])
+    expectOnlyIssue(jobDirtyWorkItemSchema, { ...item, leaseExpiresAt: NOW }, CLAIM_RULE, [
+      'claimOwner',
+    ])
+    // ... on every non-CLAIMED status, not only PENDING.
+    for (const status of ['DONE', 'FAILED', 'DEFERRED'] as const) {
+      expectOnlyIssue(
+        jobDirtyWorkItemSchema,
+        { ...item, status, completedAt: NOW, claimOwner: 'w1' },
+        CLAIM_RULE,
+        ['claimOwner'],
+      )
+    }
+    // And the legitimate released shape — both cleared — still parses.
+    expect(
+      jobDirtyWorkItemSchema.safeParse({
+        ...item,
+        status: 'DONE',
+        completedAt: NOW,
+        claimOwner: null,
+        leaseExpiresAt: null,
+      }).success,
+    ).toBe(true)
   })
 
   it.each(['DONE', 'FAILED', 'DEFERRED'] as const)(
@@ -739,9 +796,22 @@ describe('jobDirtyWorkItemSchema — claimed under a lease, terminal when finish
     expect(
       jobDirtyWorkItemSchema.parse({ ...item, lastErrorCode: 'VERSION_STALE' }).lastErrorCode,
     ).toBe('VERSION_STALE')
-    refusedAt(jobDirtyWorkItemSchema, { ...item, lastErrorCode: 'c'.repeat(101) }, [
-      'lastErrorCode',
-    ])
+    refusedAt(jobDirtyWorkItemSchema, { ...item, lastErrorCode: 'C'.repeat(65) }, ['lastErrorCode'])
+  })
+
+  it('refuses a dirty-work error code that is not a typed one (SR-M-2 / SPEC-M-1)', () => {
+    // The column is documented as holding a typed code from a documented status
+    // or error classification. Free text — a lowercase upstream sentence, a
+    // space, punctuation, or anything over 64 characters — is refused here as
+    // it now is by the database CHECK.
+    expect(
+      jobDirtyWorkItemSchema.safeParse({ ...item, lastErrorCode: 'A'.repeat(64) }).success,
+    ).toBe(true)
+    refusedAt(jobDirtyWorkItemSchema, { ...item, lastErrorCode: 'A'.repeat(65) }, ['lastErrorCode'])
+    refusedAt(jobDirtyWorkItemSchema, { ...item, lastErrorCode: 'http_403' }, ['lastErrorCode'])
+    refusedAt(jobDirtyWorkItemSchema, { ...item, lastErrorCode: 'HTTP 403' }, ['lastErrorCode'])
+    refusedAt(jobDirtyWorkItemSchema, { ...item, lastErrorCode: '403_HTTP' }, ['lastErrorCode'])
+    refusedAt(jobDirtyWorkItemSchema, { ...item, lastErrorCode: '' }, ['lastErrorCode'])
   })
 
   it('refuses a non-positive target version, a blank or oversized reason, a negative retry', () => {

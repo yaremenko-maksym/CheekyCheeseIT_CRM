@@ -764,6 +764,27 @@ export const jobAccountKeySchema = z
   .regex(/^[a-z0-9][a-z0-9._:-]{0,99}$/, 'must be a short lowercase account id without secrets')
 
 /**
+ * A TYPED error code — never free text, never an upstream body. Upper-snake,
+ * at most 64 characters, starting with a letter: the shape a documented status
+ * or error classification has (`HTTP_403`, `VERSION_STALE`, `QUOTA_EXHAUSTED`).
+ *
+ * The bound is the enforceable half of "classify from documented status codes,
+ * never from page text" (r5): a 400-character provider body — which may carry a
+ * key — cannot be stored in a column documented as holding a code. The same
+ * shape the database CHECKs enforce (`ck_job_sources_last_error_code_format`,
+ * `ck_job_collection_runs_error_code_format`,
+ * `ck_job_dirty_work_last_error_code_format`), so a code that parses here is
+ * accepted there. It is NOT a closed enum: the vocabulary is per adapter and
+ * r5 does not fix one, so inventing one would constrain Phase 2 on no evidence.
+ */
+export const jobErrorCodeSchema = z
+  .string()
+  .regex(
+    /^[A-Z][A-Z0-9_]{0,63}$/,
+    'must be a typed upper-snake error code of at most 64 characters',
+  )
+
+/**
  * One account meter. `limit` NULL = no published limit — the single value that
  * means that, exactly as on `jobSourceBudgetSchema` above.
  *
@@ -903,7 +924,7 @@ export const jobCollectionAttemptSchema = z
     startedAt: z.string().datetime(),
     endedAt: z.string().datetime().nullable(),
     /** Typed and sanitized — never a provider secret, never a raw upstream body. */
-    errorCode: z.string().max(100).nullable(),
+    errorCode: jobErrorCodeSchema.nullable(),
     errorMessage: z.string().max(500).nullable(),
   })
   .superRefine((a, ctx) => {
@@ -939,6 +960,7 @@ export const jobSourceHealthSchema = z
     policyVersion: z.number().int().positive(),
     configVersion: z.number().int().positive(),
     readiness: jobSourceReadinessSchema,
+    /** Bounded here and by `ck_job_sources_readiness_reason_bounded`. */
     readinessReason: z.string().max(500).nullable(),
     adminState: jobSourceAdminStateSchema,
     lastAttemptAt: z.string().datetime().nullable(),
@@ -948,7 +970,7 @@ export const jobSourceHealthSchema = z
     nextAttemptAt: z.string().datetime().nullable(),
     cooldownUntil: z.string().datetime().nullable(),
     consecutiveFailures: countSchema,
-    lastErrorCode: z.string().max(100).nullable(),
+    lastErrorCode: jobErrorCodeSchema.nullable(),
     lastErrorMessage: z.string().max(500).nullable(),
   })
   .superRefine((s, ctx) => {
@@ -978,12 +1000,19 @@ export const jobDirtyWorkItemSchema = z
     fencingEpoch: z.number().int().positive(),
     retryCount: countSchema,
     cycleId: z.string().uuid().nullable(),
-    lastErrorCode: z.string().max(100).nullable(),
+    lastErrorCode: jobErrorCodeSchema.nullable(),
     createdAt: z.string().datetime(),
     completedAt: z.string().datetime().nullable(),
   })
   .superRefine((w, ctx) => {
-    if ((w.status === 'CLAIMED') !== (w.claimOwner !== null && w.leaseExpiresAt !== null)) {
+    // CR-M-1. NOT one equality of two booleans: `status !== 'CLAIMED'` with an
+    // owner and NO lease made both sides false, so the equality held and the
+    // state this message calls impossible parsed. Each branch therefore names
+    // the columns it requires, and the OTHER branch names them cleared.
+    const claimed = w.status === 'CLAIMED'
+    const owned = w.claimOwner !== null && w.leaseExpiresAt !== null
+    const cleared = w.claimOwner === null && w.leaseExpiresAt === null
+    if (claimed ? !owned : !cleared) {
       ctx.addIssue({
         code: 'custom',
         message: 'a CLAIMED item is owned under a lease, and only a CLAIMED item is',
@@ -1069,6 +1098,7 @@ export type JobMeterReservationStatus = z.infer<typeof jobMeterReservationStatus
 export type JobDirtyWorkEntityKind = z.infer<typeof jobDirtyWorkEntityKindSchema>
 export type JobDirtyWorkStatus = z.infer<typeof jobDirtyWorkStatusSchema>
 export type JobAccountKey = z.infer<typeof jobAccountKeySchema>
+export type JobErrorCode = z.infer<typeof jobErrorCodeSchema>
 export type JobAccountMeterDto = z.infer<typeof jobAccountMeterSchema>
 export type JobMeterReservationDto = z.infer<typeof jobMeterReservationSchema>
 export type JobCollectionCycleDto = z.infer<typeof jobCollectionCycleSchema>
