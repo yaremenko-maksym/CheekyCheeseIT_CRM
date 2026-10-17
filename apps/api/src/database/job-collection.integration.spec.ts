@@ -1293,20 +1293,38 @@ describe.skipIf(!hasDatabaseUrl())('job collection machinery (real Postgres cata
       expect(asScalar.constraint).toBe('ck_job_sources_config_bounded')
       // An ordinary knobs object is accepted, and so is one EXACTLY at the
       // bound — the padding is sized in SQL because `length(config::text)`
-      // measures jsonb's own rendering (`{"pad": "..."}`, with the space),
-      // not the bytes we sent.
+      // measures jsonb's own rendering (`{"tag": "...", "pad": "..."}`, with
+      // the spaces), not the bytes we sent.
+      //
+      // Both rows carry the suite's `tag` key, and that is load-bearing, not
+      // tidiness: `afterAll` deletes this suite's sources by
+      // `config->>'tag'`, a `job_sources` row defaults to `enabled = true`,
+      // and the legacy DOU suite asserts `collectAll()` sees exactly ONE
+      // enabled source. An untagged row here survives cleanup and breaks that
+      // suite in the shared integration database — which is exactly what the
+      // first draft of this test did.
       await newSource()
+      const atBoundTag = nextTag()
       const atBound = await q(
         `INSERT INTO job_sources (type, config)
          VALUES ('DOU_RSS', jsonb_build_object(
-                   'pad', repeat('p', 8192 - length(jsonb_build_object('pad', '')::text))))
-         RETURNING length(config::text) AS len`,
+                   'tag', $1::text,
+                   'pad', repeat('p', 8192 - length(
+                            jsonb_build_object('tag', $1::text, 'pad', '')::text))))
+         RETURNING length(config::text) AS len, config->>'tag' AS tag`,
+        [atBoundTag],
       )
       expect(Number(atBound.rows[0].len)).toBe(8192)
+      // Asserted, not assumed: the row this test leaves behind must be visible
+      // to the `afterAll` predicate (`config->>'tag' LIKE '<TAG>%'`).
+      expect(String(atBound.rows[0].tag).startsWith(TAG)).toBe(true)
       const overBound = await rejected(
         `INSERT INTO job_sources (type, config)
          VALUES ('DOU_RSS', jsonb_build_object(
-                   'pad', repeat('p', 8193 - length(jsonb_build_object('pad', '')::text))))`,
+                   'tag', $1::text,
+                   'pad', repeat('p', 8193 - length(
+                            jsonb_build_object('tag', $1::text, 'pad', '')::text))))`,
+        [nextTag()],
       )
       expect(overBound.constraint).toBe('ck_job_sources_config_bounded')
     })
