@@ -108,8 +108,16 @@ make_nvm() {
 # real repo's), $FAKE_DECOY=1 puts a ">=22.1.0" node range in a block BEFORE
 # engines -- the shape that used to mask the real minimum (CR-M-1). The pnpm pin
 # mirrors the real repo's "packageManager".
+#
+# $FAKE_PM overrides the packageManager value (corepack's "pnpm@7.32.4+sha512.<hex>"
+# form, CR-M-3); $FAKE_PKG_RAW, when set, is written verbatim -- for the one-line
+# `engines` shapes that the structured options above cannot express (CR-L-5).
 write_pkg() {
-  printf '{\n  "packageManager": "pnpm@7.32.4",\n'
+  if [ -n "${FAKE_PKG_RAW:-}" ]; then
+    printf '%s\n' "$FAKE_PKG_RAW"
+    return 0
+  fi
+  printf '{\n  "packageManager": "%s",\n' "${FAKE_PM:-pnpm@7.32.4}"
   if [ "${FAKE_DECOY:-0}" = "1" ]; then
     printf '  "volta": {\n    "node": ">=22.1.0"\n  },\n'
   fi
@@ -489,5 +497,87 @@ assert_green "[sh -e] node v20 + v22 in nvm -> switches to the newest satisfying
   --not-contains "REFUSING" \
   -- run_hook "$(make_repo c31-sh-switch "apps/api/src/foo.ts")"
 unset FAKE_NVM_DIR HOOK_SHELL FAKE_NODE_VERSION
+
+# ── case 32 (CR-M-3): a corepack-style pin carries an integrity suffix
+# ("pnpm@7.32.4+sha512.<hex>"); `pnpm --version` prints only "7.32.4". The suffix
+# must be stripped, or every push from a switched shell would refuse with a
+# misleading "shadows" message the moment the pin moves to corepack's format.
+export FAKE_NODE_VERSION="v20.15.1"
+export FAKE_NVM_DIR="$NVM_OK"
+assert_green "corepack pin 'pnpm@7.32.4+sha512.<hex>' + matching pnpm after a switch -> accepted" \
+  --contains "node-seen v22.23.1" \
+  --not-contains "REFUSING" \
+  --not-contains "shadows" \
+  -- run_hook "$(FAKE_PM="pnpm@7.32.4+sha512.0a1b2c3d4e5f60718293a4b5c6d7e8f9" make_repo c32-corepack-pin "apps/api/src/foo.ts")"
+
+# The strip must not turn the check off: a suffixed pin still catches a real mismatch.
+export FAKE_PNPM_VERSION="8.15.0"
+assert_red "corepack pin + a DIFFERENT pnpm (8.15.0) after a switch -> still refuses, naming the bare version" \
+  --contains "REFUSING" \
+  --contains "pnpm@7.32.4 --" \
+  -- run_hook "$(FAKE_PM="pnpm@7.32.4+sha512.0a1b2c3d4e5f60718293a4b5c6d7e8f9" make_repo c33-corepack-mismatch "apps/api/src/foo.ts")"
+unset FAKE_PNPM_VERSION FAKE_NVM_DIR
+
+# ── cases 34-36 (CR-L-5): the engines scan is bounded by the engines object's OWN
+# braces. Node v22.5.0 on PATH, no nvm; a later "volta" block carries a decoy node.
+export FAKE_NODE_VERSION="v22.5.0"
+assert_red "empty one-line engines {} + a later volta node '22.1.0' -> refuses (decoy not read)" \
+  --contains "engines.node" \
+  --not-contains "pnpm " \
+  -- run_hook "$(FAKE_PKG_RAW='{
+  "packageManager": "pnpm@7.32.4",
+  "engines": {},
+  "volta": { "node": "22.1.0" }
+}' make_repo c34-empty-engines "apps/api/src/foo.ts")"
+
+assert_red "one-line engines with no node key + a later volta node -> refuses (decoy not read)" \
+  --contains "engines.node" \
+  --not-contains "pnpm " \
+  -- run_hook "$(FAKE_PKG_RAW='{
+  "packageManager": "pnpm@7.32.4",
+  "engines": { "pnpm": "7" },
+  "volta": { "node": "22.1.0" }
+}' make_repo c35-no-node-key "apps/api/src/foo.ts")"
+
+# A later "node" on the SAME line as a one-line engines must not win over engines.node:
+# engines says >=22.5 (v22.5.0 satisfies it); the decoy "22.19.0" would refuse it.
+assert_green "one-line engines {node >=22.5} followed on the same line by a volta node '22.19.0' -> engines.node wins" \
+  --not-contains "REFUSING" \
+  --contains "node-seen v22.5.0" \
+  -- run_hook "$(FAKE_PKG_RAW='{
+  "packageManager": "pnpm@7.32.4",
+  "engines": { "node": ">=22.5" }, "volta": { "node": "22.19.0" }
+}' make_repo c36-same-line-decoy "apps/api/src/foo.ts")"
+
+# Minified package.json (everything on one line) with a later volta decoy: the scan
+# must stop at engines' own closing brace -> minimum 19 -> v22.5.0 refused.
+assert_red "minified package.json: engines {node >=22.19} then volta node '22.1.0' -> decoy not read, v22.5.0 refused" \
+  --contains "REFUSING" \
+  --not-contains "pnpm " \
+  -- run_hook "$(FAKE_PKG_RAW='{"packageManager":"pnpm@7.32.4","engines":{"node":">=22.19 <23","pnpm":"7.32.4"},"volta":{"node":"22.1.0"}}' make_repo c37-minified "apps/api/src/foo.ts")"
+
+# Braces and escaped quotes INSIDE strings must not move the object boundaries: a
+# description that merely looks like an engines key, and a "}" string value inside
+# engines. Parsed correctly -> ^22.19.0 (minimum 19): v22.19.0 accepted.
+export FAKE_NODE_VERSION="v22.19.0"
+assert_green "braces / escaped quotes inside strings do not confuse the engines scan -> ^22.19.0 read, v22.19.0 accepted" \
+  --not-contains "REFUSING" \
+  --contains "node-seen v22.19.0" \
+  -- run_hook "$(FAKE_PKG_RAW='{ "description": "an \"engines\": { fake } string", "engines": { "x": "}", "node": "^22.19.0" } }' make_repo c38-strings "apps/api/src/foo.ts")"
+
+# The REAL repo package.json through the same parser: its engines (">=22.19 <23")
+# must read as minimum 19 -- v22.19.0 accepted above the floor, v22.5.0 refused below.
+REAL_PKG="$(cat "$REPO_ROOT/package.json")"
+export FAKE_NODE_VERSION="v22.19.0"
+assert_green "the repo's real package.json: node v22.19.0 satisfies its engines" \
+  --not-contains "REFUSING" \
+  --contains "node-seen v22.19.0" \
+  -- run_hook "$(FAKE_PKG_RAW="$REAL_PKG" make_repo c39-real-pkg-ok "apps/api/src/foo.ts")"
+export FAKE_NODE_VERSION="v22.5.0"
+assert_red "the repo's real package.json: node v22.5.0 is below its engines minimum" \
+  --contains "REFUSING" \
+  --not-contains "pnpm " \
+  -- run_hook "$(FAKE_PKG_RAW="$REAL_PKG" make_repo c40-real-pkg-low "apps/api/src/foo.ts")"
+unset FAKE_NODE_VERSION
 
 guard_test_summary "test-husky-pre-push.sh"

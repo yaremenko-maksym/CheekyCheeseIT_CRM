@@ -83,16 +83,51 @@ node_ok() {
 }
 
 engines_min() {
+  # The whole file is one awk record (RS = control-A, which a JSON file cannot
+  # contain); the scan walks characters from the "{" that opens the engines object
+  # and stops at ITS matching "}", string-aware (a brace or quote inside a string,
+  # or an escaped quote, does not count). So a one-line `"engines": {}` or
+  # `{ "pnpm": "7" }` ends the scan right there and a later "node" key in another
+  # block (volta, scripts) is never seen, and on a one-line object with a later
+  # "node" on the same line the engines value still wins. No "node" key inside the
+  # object -> empty output -> engines_min refuses.
   eng="$(awk '
-    /"engines"[ \t]*:/ { inb = 1 }
-    inb && /"node"[ \t]*:/ {
+    BEGIN { RS = "\001" }
+    {
       s = $0
-      sub(/.*"node"[ \t]*:[ \t]*"/, "", s)
-      sub(/".*/, "", s)
-      print s
-      exit
+      if (!match(s, /"engines"[ \t\n\r]*:[ \t\n\r]*\{/)) exit
+      p = RSTART + RLENGTH
+      n = length(s)
+      depth = 1
+      instr = 0
+      blk = ""
+      while (p <= n) {
+        ch = substr(s, p, 1)
+        if (instr) {
+          if (ch == "\\") {
+            blk = blk ch substr(s, p + 1, 1)
+            p += 2
+            continue
+          }
+          if (ch == "\"") instr = 0
+        } else if (ch == "\"") {
+          instr = 1
+        } else if (ch == "{") {
+          depth++
+        } else if (ch == "}") {
+          depth--
+          if (depth == 0) break
+        }
+        blk = blk ch
+        p++
+      }
+      if (match(blk, /"node"[ \t\n\r]*:[ \t\n\r]*"[^"]*"/)) {
+        v = substr(blk, RSTART, RLENGTH)
+        sub(/^"node"[ \t\n\r]*:[ \t\n\r]*"/, "", v)
+        sub(/"$/, "", v)
+        print v
+      }
     }
-    inb && /}/ && !/"engines"/ { exit }
   ' package.json 2>/dev/null || true)"
   want_minor=""
   case "$eng" in *"||"*) eng="" ;; esac
@@ -157,6 +192,9 @@ ensure_node() {
       # instead of assuming, but only here: when no switch happened pnpm
       # resolution is exactly what the caller already had.
       pnpm_pin="$(sed -n 's/^[[:space:]]*"packageManager"[[:space:]]*:[[:space:]]*"pnpm@\([^"]*\)".*/\1/p' package.json 2>/dev/null | head -n 1 || true)"
+      # Corepack's format appends an integrity suffix ("pnpm@7.32.4+sha512.<hex>");
+      # `pnpm --version` prints only the version, so compare against the bare one.
+      pnpm_pin="${pnpm_pin%%+*}"
       if [ -n "$pnpm_pin" ]; then
         pnpm_got="$(pnpm --version 2>/dev/null || true)"
         if [ "$pnpm_got" != "$pnpm_pin" ]; then
