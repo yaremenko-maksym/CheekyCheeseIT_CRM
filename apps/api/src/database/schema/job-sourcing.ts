@@ -183,7 +183,11 @@ export const jobSources = pgTable(
     nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }),
     cooldownUntil: timestamp('cooldown_until', { withTimezone: true }),
     consecutiveFailures: integer('consecutive_failures').notNull().default(0),
-    /** Typed classification from a documented status / error code, never page text. */
+    /**
+     * Typed classification: the UPPER_SNAKE shape is CHECK-enforced
+     * (`ck_job_sources_last_error_code_format`). "From a documented status /
+     * error code, never page text" is worker obligation 7 — unenforceable here.
+     */
     lastErrorCode: text('last_error_code'),
     /** Sanitized sentence — never a provider secret, never a raw upstream body. */
     lastErrorMessage: text('last_error_message'),

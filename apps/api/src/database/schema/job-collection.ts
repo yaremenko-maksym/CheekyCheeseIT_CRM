@@ -198,7 +198,11 @@ export const jobCollectionRuns = pgTable(
     invalid: integer('invalid').notNull().default(0),
     /** OUR fault, not the provider's — and a SUCCEEDED run may carry none. */
     persistenceErrors: integer('persistence_errors').notNull().default(0),
-    /** Typed code; the classification never comes from page text (r5). */
+    /**
+     * Typed code: the UPPER_SNAKE shape is CHECK-enforced. That the
+     * classification comes from a documented status code rather than page text
+     * is a worker obligation (7), not something a CHECK can see.
+     */
     errorCode: text('error_code'),
     errorMessage: text('error_message'),
     startedAt: timestamp('started_at', { withTimezone: true }).defaultNow().notNull(),
