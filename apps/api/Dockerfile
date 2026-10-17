@@ -57,8 +57,8 @@ RUN set -eu; \
 
 # ============================================================
 # Stage 2: builder
-# Installs all workspace deps, builds @crm/shared then @crm/api.
-# Turbo dependency order: shared must compile before api (^build).
+# Installs all workspace deps, builds @crm/shared and @crm/inference, then @crm/api.
+# Both packages must compile before api (^build).
 # ============================================================
 FROM node:22-alpine AS builder
 
@@ -71,6 +71,7 @@ WORKDIR /app
 # pnpm needs all package.json files to resolve the workspace graph.
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY packages/shared/package.json ./packages/shared/
+COPY packages/inference/package.json ./packages/inference/
 COPY apps/api/package.json ./apps/api/
 
 # Install all workspace deps (frozen lockfile — no implicit upgrades in CI/Docker).
@@ -78,6 +79,7 @@ RUN pnpm install --frozen-lockfile
 
 # Copy source AFTER install so source changes don't bust the dependency layer.
 COPY packages/shared/ ./packages/shared/
+COPY packages/inference/ ./packages/inference/
 COPY apps/api/ ./apps/api/
 COPY tsconfig.base.json lingui.config.ts ./
 
@@ -86,6 +88,14 @@ COPY tsconfig.base.json lingui.config.ts ./
 # (gitignored) BEFORE the shared build, so dist carries them and the Vite plugin finds lingui.config.ts.
 RUN pnpm i18n:compile
 RUN pnpm --filter @crm/shared build
+
+# Build @crm/inference (api depends on it via workspace:*; its package.json
+# resolves "main"/"types" to ./dist, so api's nest build fails with TS2307
+# until this has run — the 2026-10-13..17 deploy outage). It depends only on
+# zod, NOT on @crm/shared, so the order relative to shared is not significant;
+# it just has to precede the api build. Every workspace package that apps/api
+# lists as `workspace:*` needs the same COPY x2 + build here.
+RUN pnpm --filter @crm/inference build
 
 # Build @crm/api (nest build → dist/).
 RUN pnpm --filter @crm/api build
