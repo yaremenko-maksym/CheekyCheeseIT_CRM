@@ -340,10 +340,14 @@ export const jobTeamTriageSubscriptions = pgTable(
       'ck_job_team_triage_subscriptions_reason_bounded',
       boundedText(t.reason, JOB_SANITIZED_TEXT_MAX),
     ),
+    // The explicit `revoke_reason IS NOT NULL` is load-bearing: without it a
+    // NULL reason makes `boundedText` UNKNOWN, the OR is UNKNOWN, and a CHECK
+    // PASSES on UNKNOWN — a revoked row with no reason was accepted (caught by
+    // the integration spec on the first draft).
     check(
       'ck_job_team_triage_subscriptions_revoke_triple',
       sql`(${t.revokedAt} IS NULL AND ${t.revokedBy} IS NULL AND ${t.revokeReason} IS NULL)
-          OR (${t.revokedAt} IS NOT NULL AND ${t.revokedBy} IS NOT NULL AND ${boundedText(t.revokeReason, JOB_SANITIZED_TEXT_MAX)})`,
+          OR (${t.revokedAt} IS NOT NULL AND ${t.revokedBy} IS NOT NULL AND ${t.revokeReason} IS NOT NULL AND ${boundedText(t.revokeReason, JOB_SANITIZED_TEXT_MAX)})`,
     ),
   ],
 )
@@ -463,10 +467,14 @@ export const jobQueueActions = pgTable(
       sql`(${t.kind} = 'REASSIGNED' AND ${t.subjectUserId} IS NOT NULL)
           OR (${t.kind} <> 'REASSIGNED' AND ${t.subjectUserId} IS NULL)`,
     ),
+    // Same UNKNOWN trap: `NULL >= 0` is UNKNOWN and a CHECK passes on UNKNOWN,
+    // so the mutation branch names both versions NOT NULL before comparing
+    // them (a DISMISSED row with a NULL before-version was accepted on the
+    // first draft).
     check(
       'ck_job_queue_actions_versions',
       sql`(${t.kind} IN ${TELEMETRY_KINDS} AND ${t.beforeVersion} IS NULL AND ${t.afterVersion} IS NULL)
-          OR (${t.kind} NOT IN ${TELEMETRY_KINDS} AND ${t.beforeVersion} >= 0 AND ${t.afterVersion} > ${t.beforeVersion})`,
+          OR (${t.kind} NOT IN ${TELEMETRY_KINDS} AND ${t.beforeVersion} IS NOT NULL AND ${t.afterVersion} IS NOT NULL AND ${t.beforeVersion} >= 0 AND ${t.afterVersion} > ${t.beforeVersion})`,
     ),
     check(
       'ck_job_queue_actions_idempotency_key_bounded',

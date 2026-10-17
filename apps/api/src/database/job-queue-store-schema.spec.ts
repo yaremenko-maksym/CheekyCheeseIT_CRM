@@ -422,7 +422,7 @@ describe('job_team_triage_subscriptions (AC3)', () => {
       `"reason" ~ '[^[:space:]]' AND length("reason") <= 500`,
     )
     expect(checkSql(t, 'ck_job_team_triage_subscriptions_revoke_triple')).toBe(
-      `("revoked_at" IS NULL AND "revoked_by" IS NULL AND "revoke_reason" IS NULL) OR ("revoked_at" IS NOT NULL AND "revoked_by" IS NOT NULL AND "revoke_reason" ~ '[^[:space:]]' AND length("revoke_reason") <= 500)`,
+      `("revoked_at" IS NULL AND "revoked_by" IS NULL AND "revoke_reason" IS NULL) OR ("revoked_at" IS NOT NULL AND "revoked_by" IS NOT NULL AND "revoke_reason" IS NOT NULL AND "revoke_reason" ~ '[^[:space:]]' AND length("revoke_reason") <= 500)`,
     )
   })
 
@@ -562,7 +562,7 @@ describe('job_queue_actions (AC4)', () => {
 
   it('leaves telemetry unversioned and moves every mutation forward', () => {
     expect(checkSql(t, 'ck_job_queue_actions_versions')).toBe(
-      `("kind" IN ('OPENED', 'DEAD_LINK', 'SPAM') AND "before_version" IS NULL AND "after_version" IS NULL) OR ("kind" NOT IN ('OPENED', 'DEAD_LINK', 'SPAM') AND "before_version" >= 0 AND "after_version" > "before_version")`,
+      `("kind" IN ('OPENED', 'DEAD_LINK', 'SPAM') AND "before_version" IS NULL AND "after_version" IS NULL) OR ("kind" NOT IN ('OPENED', 'DEAD_LINK', 'SPAM') AND "before_version" IS NOT NULL AND "after_version" IS NOT NULL AND "before_version" >= 0 AND "after_version" > "before_version")`,
     )
   })
 
