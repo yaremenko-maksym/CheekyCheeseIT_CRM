@@ -147,10 +147,26 @@ the role that deleted the user, so user, team and project deletion keep working;
 no `UPDATE` / `DELETE` on them except the `document_access_log` cron, which keeps `DELETE` on that
 one table. What this buys: a compromised API can no longer rewrite or delete rows of the
 transaction, user, team, project and meeting-recorder audit logs directly, only add rows. What it
-does **not** buy: an attacker can still erase an audit row's link to a person **indirectly**, by
-deleting the user (or team, or project) — if `crm_app` may delete those — because the referential
-action runs as the owner. And `document_access_log` stays fully deletable by the API. Confidence
-**HIGH** on the privilege behaviour (owner-run referential actions are what makes the interim safe).
+does **not** buy, stated by FK kind, because the referential action runs as the owner and the
+revoke does not see it:
+
+- **`CASCADE` FKs delete audit rows outright.** Deleting a user deletes every `user_audit_log` row
+  whose `target_id` is that user; deleting a team deletes its `team_audit_log` rows; deleting a
+  project deletes its `project_audit_log` rows (reproduced by the security review). So an attacker
+  who may delete the parent through the API — or an ordinary hard delete — erases that subject's
+  whole audit history, not just a link.
+- **`SET NULL` FKs erase the link only.** Deleting a user nulls `actor_id` in every audit table,
+  and the person columns of `meeting_recorder_audit_log`; the rows survive without saying who acted.
+- **`document_access_log`** stays fully deletable by the API (its retention cron).
+
+**Is that acceptable for an audit log?** As an interim, yes: it is today's behaviour, and the
+revoke makes nothing worse while closing the direct rewrite and delete. As a final state, **no**
+for the `CASCADE` tables — an audit log whose rows vanish with their subject cannot show what
+happened to that subject — and the `CASCADE` FKs are the first thing that must change before
+those three tables can leave the interim class (item 1 below). One caution for that task: the
+cascade may currently be the CRM's de facto erasure of a departed person's history, so replacing it
+is tied to the same erasure decision as item 3, not a pure schema fix. Confidence **HIGH** on the
+privilege and referential behaviour (reproduced).
 
 **What must change before any of them can become class B** (each a separate task, outside this
 ADR; `transaction_audit_log` is critical-path and needs a security review):
@@ -185,11 +201,12 @@ A function the API must call is then granted to `crm_app` by name, in the PR tha
 in `pg_catalog` (`gen_random_uuid`, `now`, …) are unaffected. Firing a trigger does not check
 `EXECUTE` on the trigger function, so the §3 triggers keep working.
 
-No `SECURITY DEFINER` function exists today. A definer function runs as its owner (`crm_user`) and
-is a hole through every boundary here, so one may be added only in the narrow form §3 describes
-for the end-of-retention option R-B, if the owner chooses it: a fixed `search_path = pg_catalog,
-public`, `EXECUTE` revoked from `PUBLIC` and granted by name, and arguments validated inside the
-body. Any other definer function needs its own ADR-level justification.
+No `SECURITY DEFINER` function exists today. A definer function runs with its owner's privileges
+and is a hole through every boundary here, so one may be added only in the narrow form §3
+specifies for the end-of-retention option R-B, if the owner chooses it: owned by a dedicated
+non-superuser role (never `crm_user`), `search_path = pg_catalog, public, pg_temp`, static SQL
+only, `EXECUTE` revoked from `PUBLIC` and granted by name, and pinned by the catalog check. Any
+other definer function needs its own ADR-level justification.
 
 **Database and schema.** On `crm_db`: `REVOKE ALL ON DATABASE crm_db FROM PUBLIC` (removes the
 implicit `CONNECT` and `TEMPORARY`), then `GRANT CONNECT` to `crm_app` and `crm_collector`. On the
@@ -256,12 +273,29 @@ INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER` equals what the class pre
 7. **Role attributes and ownership.** For `crm_app` and `crm_collector`: `rolsuper`,
    `rolcreaterole`, `rolcreatedb`, `rolbypassrls`, `rolreplication` are all false; they own no
    object (`pg_class.relowner`, `pg_proc.proowner`, `pg_namespace.nspowner`).
-8. **Role membership — in both directions, pinned (SR-L-3).** `pg_auth_members` has **zero** rows
-   with `member` = `crm_app` or `crm_collector` (they are members of no role — the direction that
-   matters, because membership is what would let them `SET ROLE` to an owner), and zero rows with
-   `roleid` = either of them (nobody is a member of them, so no one inherits their grants by
-   accident). The check names the column it tests; "no membership" without a direction is how a
-   check passes while testing the harmless side.
+8. **Role membership — in both directions, pinned.** `pg_auth_members` has **zero** rows with
+   `member` = `crm_app` or `crm_collector` (they are members of no role — the direction that
+   matters, because membership is what would let them `SET ROLE` to an owner). With `roleid` =
+   either of them (someone is a member **of** them), the allowed set is exact and depends on step
+   0's branch:
+   - **Branch 1 (`crm_user` is a superuser):** zero rows. A superuser that creates a role is not
+     made a member of it.
+   - **Branch 2 (`crm_user` is not a superuser but has `CREATEROLE`):** exactly one row per
+     application role — `member` = `crm_user`, `admin_option` = true, `inherit_option` = false,
+     `set_option` = false. PostgreSQL 16 records this grant automatically whenever a
+     non-superuser with `CREATEROLE` creates a role (reproduced by the security review on 16.15);
+     the `ADMIN` part cannot be avoided, because it is what lets the creator manage the role it
+     created. File 1 pins the other two options by setting `createrole_self_grant = ''` for its
+     session before `CREATE ROLE`, so the creator does not inherit or `SET ROLE` into the
+     application role. The row is harmless for the boundary: it lets the owner administer the
+     application role, and the owner is already more powerful than it.
+   - Any other row — another member, or this row with `inherit_option` or `set_option` true —
+     fails the check.
+
+   The check names the column it tests and the branch it expects; "no membership" without a
+   direction is how a check passes while testing the harmless side, and a blanket "zero rows"
+   would fail every deploy in branch 2.
+
 9. **Triggers.** Every class B table has its §3 triggers, in state `A` (`ENABLE ALWAYS`) in
    `pg_trigger.tgenabled`.
 
@@ -344,46 +378,81 @@ What remains unprotected, stated so that nobody documents more than the schema d
 
 **End of retention — an open owner decision (conflict with the legal memo, PR #1019).** The legal
 memo on erasure in the action log (`docs/legal/2026-10-17-job-queue-actions-erasure.md`, PR #1019)
-requires two things this ADR's first draft did not provide: a **recurring end-of-retention path**
-(delete expired rows, or re-point `actor_id` / `subject_user_id` to a shared "former staff"
-sentinel), run only by the retention job through "a second, narrow, privileged exception" in the
-trigger; and a **redaction path for `reason`** only (replace the text with a fixed token, append a
-`REASON_REDACTED` event, through one privileged function). The memo states the first is required
-whichever erasure option is chosen, because a log that is append-only forever breaches storage
-limitation (GDPR Art. 5(1)(e); UA Law 2297-VI art. 6(8)). The first draft instead had the trigger
-raise unconditionally, with deletion as an occasional migration-role DDL file. The erasure design
-is pending with the owner, so this ADR does **not** pick; it lays out the options in database
-terms.
+requires two things that an unconditional trigger does not provide: a **recurring
+end-of-retention path** (delete expired rows, or re-point `actor_id` / `subject_user_id` to a
+shared "former staff" sentinel), run only by the retention job through "a second, narrow,
+privileged exception" in the trigger; and a **redaction path for `reason`** only (replace the text
+with a fixed token, append a `REASON_REDACTED` event, through one privileged function). The memo
+states that the first is required whichever erasure option is chosen, because a log that is
+append-only forever does not meet storage limitation (GDPR Art. 5(1)(e); UA Law 2297-VI
+art. 6(8)). The erasure design is pending with the owner, so this ADR does **not** pick; it lays
+out the options in database terms.
 
-|                                 | R-A — no exception                                                                                           | R-B — bounded exception through definer functions                                                                                                                                                                                         | R-C — bounded exception for a separate retention role                                      |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| Trigger                         | Raises unconditionally                                                                                       | Admits **only** (1) `DELETE` of rows whose kind's retention has expired, (2) re-pointing the two person columns to the sentinel on expired rows, (3) `UPDATE` of `reason` to the fixed token — and only when `current_user` is `crm_user` | Same three shapes, admitted only when `current_user` is a dedicated `crm_retention` login  |
-| Who runs it                     | A reviewed DDL file per run, applied by the deploy as `crm_user` with the trigger disabled for the statement | Two `SECURITY DEFINER` functions owned by `crm_user` (purge expired; redact one row's reason with a request id, appending `REASON_REDACTED`); `EXECUTE` granted to `crm_app` by name; called by an API cron                               | A separate scheduled process holding the `crm_retention` credential; the API holds nothing |
-| Where "expired" comes from      | The file's own `WHERE`                                                                                       | A retention-policy table (class E: owned by `crm_user`, no grants to the API), read by the trigger                                                                                                                                        | Same                                                                                       |
-| Recurring, as the memo requires | **No** — each run is a PR and a deploy                                                                       | Yes                                                                                                                                                                                                                                       | Yes                                                                                        |
-| What a compromised API can do   | Nothing to the log beyond inserting                                                                          | Purge rows that are already due (no loss); **redact any row's `reason`** — evidence text lost, but each redaction leaves a `REASON_REDACTED` row                                                                                          | Nothing to the log beyond inserting                                                        |
-| Cost                            | Manual, slow; an on-request redaction takes a PR + deploy                                                    | Two definer functions (the only ones allowed, §2 Functions); the trigger must validate the shape of every admitted change                                                                                                                 | One more credential, secret and process; the same trigger validation                       |
-| Fit with the memo               | Fails the "recurring" requirement once any retention period is set                                           | Meets it; "only by the retention job" is procedural (only the cron calls the function)                                                                                                                                                    | Meets it, and "only by the retention job" is enforced by the database                      |
+**R-A is an interim state only, never a final option.** It is what Task 1.3 ships so that the log
+is protected from day one. By the memo's own conclusion, a refusing trigger with no exception does
+not meet storage limitation once retention periods apply, so R-A must be replaced by R-B or R-C;
+it is listed in the table only to show what the interim costs.
+
+|                                 | R-A — no exception (interim only)                                                                            | R-B — bounded exception through definer functions                                                                                                                                                                                                    | R-C — bounded exception for a separate retention role                                         |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Trigger                         | Raises unconditionally                                                                                       | Admits **only** (1) `DELETE` of rows whose kind's retention has expired, (2) re-pointing the two person columns to the sentinel on expired rows, (3) `UPDATE` of `reason` to the fixed token — and only when `current_user` is `crm_retention_owner` | The same three shapes, admitted only when `current_user` is a dedicated `crm_retention` login |
+| Who runs it                     | A reviewed DDL file per run, applied by the deploy as `crm_user` with the trigger disabled for the statement | Two `SECURITY DEFINER` functions (purge expired; redact one row's `reason` with a request id, appending `REASON_REDACTED`), specified below; `EXECUTE` granted to `crm_app` by name; called by an API cron                                           | A separate scheduled process holding the `crm_retention` credential; the API holds nothing    |
+| Where "expired" comes from      | The file's own `WHERE`                                                                                       | A retention-policy table (class E: owned by `crm_user`, no grants to the API), read by the trigger                                                                                                                                                   | Same                                                                                          |
+| Recurring, as the memo requires | **No** — each run is a PR and a deploy                                                                       | Yes                                                                                                                                                                                                                                                  | Yes                                                                                           |
+| What a compromised API can do   | Nothing to the log beyond inserting                                                                          | Purge rows that are already due (no loss); **redact any row's `reason`** — evidence text lost, but each redaction leaves a `REASON_REDACTED` row                                                                                                     | Nothing to the log beyond inserting                                                           |
+| Cost                            | Manual, slow; an on-request redaction takes a PR + deploy                                                    | Two definer functions and one owner role (the only definer functions allowed, §2 Functions); the trigger must validate the shape of every admitted change                                                                                            | One more credential, secret and process; the same trigger validation                          |
+| Fit with the memo               | Does not meet storage limitation once any period applies                                                     | Meets it; "only by the retention job" is procedural (only the cron calls the functions)                                                                                                                                                              | Meets it, and "only by the retention job" is enforced by the database                         |
 
 What holds under every option: the exception is bounded by **data shape** (expired rows; one
 column to one fixed token), not merely by who calls it, so even a misuse of the exception cannot
-delete a row that is not yet due or rewrite any column other than `reason`. The trigger checks
-`current_user` because inside a definer function it is the function's owner; a `crm_user` session
-also passes, which loses nothing, since §3 already states that `crm_user` is not protected.
+delete a row that is not yet due or rewrite any column other than `reason`. A `crm_user` session
+can still do anything (it can disable the trigger), which §3 already states.
 
-**Why shipping R-A now is not a breach.** No row has reached the end of retention: the retention
-periods are themselves pending with the owner, and r5 Task 1.4 keeps new-store cleanup disabled
-until they are frozen. R-A becomes non-compliant on the day a period is set and rows expire under
-it; the owner's decision must land before that day. A redaction request that arrives earlier can be
-served under R-A by a reviewed DDL file — slow, but possible.
+**R-B, fully specified — the conditions under which it is acceptable.** R-B is acceptable as the
+owner's choice only with all six of these; the implementing task treats each as a requirement and
+the catalog check pins them:
 
-**Recommendation (for the owner, A2):** R-B now, moving to R-C once a separately scheduled process
-exists (the r5 collection worker is the natural host); the move changes only who holds `EXECUTE`,
-or swaps the `current_user` check. Reason: R-B meets the memo's recurring requirement without a new
-credential, and its only extra exposure — a compromised API redacting reasons — is self-logging and
-bounded to one column. Confidence **MED**: the database mechanics are standard, but the
-trigger-side shape validation is new code and needs its own tests (one per admitted shape, plus one
-per refused near-miss — a non-expired row, a second column changed, a non-token value).
+1. **A dedicated owner role.** Both functions are owned by `crm_retention_owner`: `NOLOGIN`,
+   `NOSUPERUSER`, `NOCREATEROLE`, `NOCREATEDB`, `NOBYPASSRLS`, member of no role, and holding
+   **only** `SELECT, DELETE` on `job_queue_actions`, column-level `UPDATE (reason, actor_id,
+subject_user_id)` on it, `INSERT` on it (for the `REASON_REDACTED` event), and `SELECT` on the
+   retention-policy table. Not `crm_user`: a definer function owned by `crm_user` would run with
+   every privilege of the owner, and probably as superuser, so one mistake in its body would be a
+   full compromise. The trigger keys its exception on `current_user = 'crm_retention_owner'`, the
+   identity inside the functions.
+2. **A pinned `search_path` ending in `pg_temp`:** `SET search_path = pg_catalog, public, pg_temp`
+   on each function. Without `pg_temp` listed explicitly, PostgreSQL searches the temporary schema
+   **first**, so a caller could shadow a table or operator with a temporary object.
+3. **Static SQL only.** No dynamic `EXECUTE` built from arguments, no `format()` into statements.
+   Arguments are used only as bound values (`WHERE id = p_id`), and validated in the body (the
+   request id is non-empty and bounded).
+4. **`EXECUTE` revoked from `PUBLIC`** and granted to `crm_app` by name only.
+5. **The trigger validates the shape** of every admitted change, independently of the functions,
+   so a bug in a function cannot widen the exception.
+6. **The catalog check pins both functions:** they exist with the expected signatures;
+   `prosecdef` = true; `proowner` = `crm_retention_owner`; `proconfig` is exactly the
+   `search_path` above; `proacl` grants `EXECUTE` to `crm_app` and to no one else (no `PUBLIC`);
+   and the body's checksum (`md5(prosrc)`) equals the manifest's, so a body changed outside a
+   reviewed file is caught. `crm_retention_owner` passes the same attribute, ownership and
+   membership checks as the application roles, except that it owns exactly these two functions.
+
+**Why R-A is acceptable as the interim — pending legal confirmation.** No row has yet reached the
+end of retention: the retention periods are themselves pending with the owner, and r5 Task 1.4
+keeps new-store cleanup disabled until they are frozen. On that basis this ADR **assumes** that
+shipping R-A now does not breach storage limitation, and that it would begin to on the day a period
+is set and rows expire under it. That is a legal conclusion, not an architectural one: it is
+**pending confirmation by the legal memo's author** before Task 1.3 relies on it. A redaction
+request that arrives earlier can be served under R-A by a reviewed DDL file — slow, but possible.
+
+**Recommendation (for the owner, A2):** R-B as specified above, moving to R-C once a separately
+scheduled process exists (the r5 collection worker is the natural host); the move changes only who
+holds `EXECUTE`, or swaps the `current_user` check. Reason: R-B meets the memo's recurring
+requirement without a new login credential, and its only extra exposure — a compromised API
+redacting reasons — is self-logging and bounded to one column. Confidence **MED**: the database
+mechanics are standard, but the trigger-side shape validation is new code and needs its own tests
+(one per admitted shape, plus one per refused near-miss — a non-expired row, a second column
+changed, a non-token value, a call from a session whose `current_user` is not
+`crm_retention_owner`).
 
 **Tests that prove the layers** (AutoTest zone; Task 1.3 replaces the "GAP PIN" test of PR #1017
 with these). Each layer needs its own test, run as the role it is about — a test run as `crm_user`
@@ -488,17 +557,55 @@ treated as disclosed: removing it from the environment (step 5) stops **future**
 invalidates the **past** ones. The Postgres image applies `POSTGRES_PASSWORD` only when it
 initialises an empty data directory; on a running cluster only `ALTER ROLE crm_user PASSWORD …`
 changes it, which is why file 1 re-asserts it from the secret on every deploy. Refusing TCP login
-for `crm_user` is **required**: every legitimate use of `crm_user` — the DDL apply steps, the
-backup, the owner's checks — goes over the trusted local socket inside the container, so the rule
-costs nothing, and it is the only control that still holds if the **new** password leaks too (it
-lives in a CI secret and in the `postgres` service's environment). The rule set, in order:
-`local all all trust` (unchanged — the deploy depends on it); `host crm_db crm_app,crm_collector
-<backend network> scram-sha-256`; `host all all all reject`. That also confines both application
-roles to `crm_db` at the network layer (SR-L-2). It is installed by writing the file in the data
-volume and calling `pg_reload_conf()` — a reload, not a restart, so no downtime; pointing
-`hba_file` at a mounted file would need a server restart. The deploy re-asserts the file and
-reloads on every run. Confidence **HIGH** on the need, **MED** on the install mechanics (DevOps
-chooses).
+for `crm_user` is **required**: every legitimate use of `crm_user` — every `psql` and
+`pg_isready` in `deploy.yml`, the `pg_dump` in `pg-backup.sh`, the owner's checks — goes over the
+trusted local socket inside the container, so the rule costs nothing, and it is the only control
+that still holds if the **new** password leaks too (it lives in a CI secret and in the `postgres`
+service's environment).
+
+The rule set, in order:
+
+```
+local  all     all                    trust
+host   crm_db  crm_app,crm_collector  172.30.0.0/24  scram-sha-256
+host   all     all                    all            reject
+```
+
+`local … trust` is unchanged (the deploy depends on it). `172.30.0.0/24` is the `backend` network,
+pinned by `ipam` in `docker-compose.prod.yml`; the `api` and the future worker reach Postgres only
+from it. The last line also refuses replication connections over TCP and confines both
+application roles to `crm_db` at the network layer. The reject fires **before** authentication,
+so it does not depend on any password being known.
+
+**Installing it safely — a malformed file is silently ignored on reload.** If `pg_hba.conf` has an
+error, `pg_reload_conf()` still returns `true`, the server keeps the **old** rules loaded and logs
+`pg_hba.conf was not reloaded`, and probes that the old rules already satisfy still pass. On the
+next restart the server refuses to start and the container exits. So the step, run on every
+deploy, is:
+
+1. **Write** the candidate file into the data directory under a temporary name, then move it into
+   place.
+2. **Validate before reloading:** `SELECT … FROM pg_hba_file_rules` (which parses the file on disk
+   now) must return **no row with a non-NULL `error`**, and its rows must equal the three expected
+   rules exactly. Failure aborts the deploy **before** the reload; the previous file is restored
+   from the move.
+3. **Reload without a database superuser:** send `SIGHUP` to the postmaster as the container's
+   `postgres` OS user (`docker compose exec -u postgres postgres pg_ctl reload -D "$PGDATA"`).
+   This needs no SQL privilege, so it works in step 0's branch 2 as well, where `pg_reload_conf()`
+   would need an explicit `EXECUTE` grant. In branch 2, `pg_hba_file_rules` is readable only by a
+   superuser unless granted; the cluster's superuser grants `SELECT` on it to `crm_user` once, as
+   part of the A3 resolution of that branch.
+4. **Assert after reloading** that the expected rules are live. No catalog shows the **loaded** rules
+   (`pg_hba_file_rules` shows the file), so this is done by behaviour and by the log: from a
+   throwaway container on the backend network, `crm_user` → refused; `crm_app` → accepted on
+   `crm_db` and refused on `postgres`; and the server log since the reload must not contain
+   `pg_hba.conf was not reloaded`. Any failure fails the deploy.
+
+The file lives in the data volume, so it is **not** in a `pg_dump` and is lost on a restore onto a
+fresh volume; the restore procedure therefore re-runs this step (see "Restore from backup").
+Pointing `hba_file` at a mounted file instead would need a restart and would not remove the need
+to validate. Confidence **HIGH** on the need and on the ignore-on-error behaviour (reproduced by the
+security review on `postgres:16-alpine` 16.15); **MED** on the exact commands (DevOps chooses).
 
 **Step 0 — the owner's read-only check.** The brief's form, plus the attributes this design depends
 on:
