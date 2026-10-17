@@ -12,6 +12,7 @@ import {
   jobCollectionAttemptSchema,
   jobCollectionCycleSchema,
   jobCollectionCycleStatusSchema,
+  jobCollectionReportSchema,
   jobCollectionResultSchema,
   jobCollectionTriggerSchema,
   jobDirtyWorkEntityKindSchema,
@@ -458,6 +459,57 @@ describe('numeric ceilings agree with the columns that store them (CR-M-2)', () 
     expect(jobDirtyWorkItemSchema.parse(item).retryCount).toBe(PG_INT_MAX)
     refusedAt(jobDirtyWorkItemSchema, { ...item, retryCount: PG_INT_MAX + 1 }, ['retryCount'])
   })
+
+  it('caps the meter policy version at the integer column ceiling (CR-M-3)', () => {
+    // CR-M-3: `job_account_meters.policy_version` is `integer` while the three
+    // amount columns beside it are `bigint`, so this one field needs the
+    // ceiling its neighbours do not.
+    const meter = {
+      id: UUID,
+      accountKey: 'jsearch:main',
+      unit: 'REQUEST' as const,
+      window: 'MONTH' as const,
+      limit: null,
+      used: 0,
+      reserved: 0,
+      uncertain: 0,
+      windowStartedAt: NOW,
+      resetsAt: null,
+      policyVersion: PG_INT_MAX,
+    }
+    expect(jobAccountMeterSchema.parse(meter).policyVersion).toBe(PG_INT_MAX)
+    refusedAt(jobAccountMeterSchema, { ...meter, policyVersion: PG_INT_MAX + 1 }, ['policyVersion'])
+  })
+
+  it('caps every collection-report count at the integer column ceiling (CR-M-3)', () => {
+    // CR-M-3: `received` and all six disposition buckets land in `integer`
+    // columns on `job_collection_runs`, so each one needs the ceiling — not
+    // just the two a reviewer happens to read.
+    const atCeiling = {
+      sourceId: UUID,
+      outcome: 'SUCCEEDED' as const,
+      coverage: 'WINDOW' as const,
+      received: PG_INT_MAX,
+      created: PG_INT_MAX,
+      revised: 0,
+      unchanged: 0,
+      duplicates: 0,
+      invalid: 0,
+      persistenceErrors: 0,
+    }
+    expect(jobCollectionReportSchema.parse(atCeiling).created).toBe(PG_INT_MAX)
+    for (const field of [
+      'received',
+      'created',
+      'revised',
+      'unchanged',
+      'duplicates',
+      'invalid',
+      'persistenceErrors',
+    ] as const) {
+      refusedAt(jobCollectionReportSchema, { ...atCeiling, [field]: PG_INT_MAX + 1 }, [field])
+    }
+  })
 })
 
 describe('jobAccountMeterSchema — the spend guard on the wire', () => {
@@ -878,9 +930,28 @@ describe('jobSourceHealthSchema — disabled, paused and readiness-blocked are s
       'remoteok.v1',
     )
     refusedAt(jobSourceHealthSchema, { ...health, manifestId: 'm'.repeat(101) }, ['manifestId'])
+    // At the bound, and SEGMENTED: a 100-character unbroken run is refused by
+    // the identity rule below, not by the length bound.
     expect(
-      jobSourceHealthSchema.safeParse({ ...health, manifestId: 'm'.repeat(100) }).success,
+      jobSourceHealthSchema.safeParse({ ...health, manifestId: `${'m'.repeat(19)}.`.repeat(5) })
+        .success,
     ).toBe(true)
+  })
+
+  it('holds `manifestId` to the identity rule the column enforces (SR-L-2)', () => {
+    // The column carries `ck_job_sources_manifest_id_format` and
+    // `..._segmented`; the wire carried only `.max(100)`, so a value the
+    // database refuses parsed here. Response-only or not, the two now agree.
+    expect(
+      jobSourceHealthSchema.parse({ ...health, manifestId: 'jsearch:rapidapi-main' }).manifestId,
+    ).toBe('jsearch:rapidapi-main')
+    refusedAt(jobSourceHealthSchema, { ...health, manifestId: 'a'.repeat(24) }, ['manifestId'])
+    expect(jobSourceHealthSchema.safeParse({ ...health, manifestId: 'a'.repeat(23) }).success).toBe(
+      true,
+    )
+    refusedAt(jobSourceHealthSchema, { ...health, manifestId: 'JSearch:Main' }, ['manifestId'])
+    refusedAt(jobSourceHealthSchema, { ...health, manifestId: 'https://x/y' }, ['manifestId'])
+    refusedAt(jobSourceHealthSchema, { ...health, manifestId: '.leading-dot' }, ['manifestId'])
   })
 
   it('requires a stated reason before a source may be BLOCKED', () => {

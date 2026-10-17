@@ -527,8 +527,14 @@ const countSchema = z.number().int().nonnegative()
  * `bigint` column holds comfortably — so the meter and reservation counters
  * were widened to `bigint` instead of being narrowed here. The counters that
  * rightly stay `integer` (version numbers, retry and failure counts, the
- * per-cycle HTML call budget) get the column's own ceiling, so the contract
- * never accepts a value the column answers with 22003.
+ * per-cycle HTML call budget, and the collection report's received/disposition
+ * counts) get the column's own ceiling, so the contract never accepts a value
+ * the column answers with 22003.
+ *
+ * CR-M-3: round 1 claimed this held for every integer-backed counter while two
+ * places still lacked it — `jobAccountMeterSchema.policyVersion` and all seven
+ * `jobCollectionReportSchema` counts. Declared below the report schema's own
+ * fields so the next reader can see the rule applied, not asserted.
  */
 const PG_INT_MAX = 2_147_483_647
 const intColumnCountSchema = countSchema.max(PG_INT_MAX)
@@ -544,13 +550,13 @@ export const jobCollectionReportSchema = z
     sourceId: z.string().uuid(),
     outcome: jobCollectionOutcomeSchema,
     coverage: jobCollectionCoverageSchema,
-    received: countSchema,
-    created: countSchema,
-    revised: countSchema,
-    unchanged: countSchema,
-    duplicates: countSchema,
-    invalid: countSchema,
-    persistenceErrors: countSchema,
+    received: intColumnCountSchema,
+    created: intColumnCountSchema,
+    revised: intColumnCountSchema,
+    unchanged: intColumnCountSchema,
+    duplicates: intColumnCountSchema,
+    invalid: intColumnCountSchema,
+    persistenceErrors: intColumnCountSchema,
   })
   .superRefine((r, ctx) => {
     const dispositions =
@@ -772,22 +778,43 @@ const attemptIdSchema = z.string().min(1).max(200)
  * enforces (`ck_job_account_meters_account_key_format`), so an identity that
  * parses here is accepted there.
  */
-export const jobAccountKeySchema = z
-  .string()
-  .regex(/^[a-z0-9][a-z0-9._:-]{0,99}$/, 'must be a short lowercase account id without secrets')
-  /**
-   * SR-M-1. The alphabet above rejects uppercase, base64 (`+ / =`), URLs and
-   * anything over 100 characters — but a pasted raw lowercase hex or
-   * alphanumeric key still reads as a lawful id. A real identity is SEGMENTED
-   * (`jsearch:rapidapi-main`, `dou.rss.jobs`), so a run of 24 or more
-   * characters with no separator is refused and the paste fails loudly. Still
-   * not a secret detector; it is the one structural difference between an
-   * identity and a credential that a pattern CAN see.
-   */
-  .refine(
-    (v) => !/[a-z0-9]{24}/.test(v),
-    'must be segmented: a run of 24 or more characters without a separator is a pasted key',
-  )
+const publicIdSchema = (noun: string) =>
+  z
+    .string()
+    .regex(/^[a-z0-9][a-z0-9._:-]{0,99}$/, `must be a short lowercase ${noun} without secrets`)
+    /**
+     * SR-M-1. The alphabet above rejects uppercase, base64 (`+ / =`), URLs and
+     * anything over 100 characters — but a pasted raw lowercase hex or
+     * alphanumeric key still reads as a lawful id. A real identity is SEGMENTED
+     * (`jsearch:rapidapi-main`, `dou.rss.jobs`), so a run of 24 or more
+     * characters with no separator is refused and the paste fails loudly. Still
+     * not a secret detector; it is the one structural difference between an
+     * identity and a credential that a pattern CAN see.
+     *
+     * SR-L-1 — an obligation for Task 3.7, which backfills `manifest_id`: a
+     * 32-character hex digest or a UUID with its hyphens stripped is ONE
+     * unbroken run and this rule refuses it. The backfill must emit segmented
+     * ids (`jsearch:rapidapi-main`), or a hyphenated UUID, not a digest.
+     */
+    .refine(
+      (v) => !/[a-z0-9]{24}/.test(v),
+      'must be segmented: a run of 24 or more characters without a separator is a pasted key',
+    )
+
+/**
+ * A provider account key. One shape, declared once (see `publicIdSchema`),
+ * because `manifest_id` and `account_key` carry the SAME column constraints —
+ * a second copy is how the two drift apart.
+ */
+export const jobAccountKeySchema = publicIdSchema('account id')
+
+/**
+ * SR-L-2. A manifest id on the wire. The column carries both
+ * `ck_job_sources_manifest_id_format` and `..._segmented`, while the response
+ * field carried only `.max(100)` — so a value the database refuses used to
+ * parse. Response-only is not a reason to disagree with the column.
+ */
+export const jobManifestIdSchema = publicIdSchema('manifest id')
 
 /**
  * A TYPED error code — never free text, never an upstream body. Upper-snake,
@@ -830,7 +857,8 @@ export const jobAccountMeterSchema = z
     windowStartedAt: z.string().datetime().nullable(),
     /** `null` when unlimited OR when the meter is LIFETIME (it never resets). */
     resetsAt: z.string().datetime().nullable(),
-    policyVersion: z.number().int().positive(),
+    /** `integer` column, unlike the three amounts above — hence the ceiling (CR-M-3). */
+    policyVersion: intColumnPositiveSchema,
   })
   .superRefine((m, ctx) => {
     if (m.limit !== null && m.used + m.reserved + m.uncertain > m.limit) {
@@ -1016,7 +1044,7 @@ export const jobSourceHealthSchema = z
   .object({
     sourceId: z.string().uuid(),
     /** `null` until Task 3.7 backfills the stable manifest identity (C-16). */
-    manifestId: z.string().max(100).nullable(),
+    manifestId: jobManifestIdSchema.nullable(),
     namespace: z.string().max(200),
     manifestVersion: intColumnPositiveSchema,
     policyVersion: intColumnPositiveSchema,
