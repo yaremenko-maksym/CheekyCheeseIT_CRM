@@ -322,8 +322,13 @@ What remains unprotected, stated so that nobody documents more than the schema d
 
 1. **Nothing in the database protects the log from `crm_user`.** Ownership alone suffices to
    disable the triggers; demoting `crm_user` from superuser would not change this. The protection
-   against the migration role is **procedural and detective only**: DDL reaches production only as
-   reviewed files applied by `deploy.yml`; the nightly `pg_dump` keeps earlier copies of the log.
+   against the migration role is **procedural**: DDL reaches production only as reviewed files
+   applied by `deploy.yml`. Detection is narrow, and stated exactly: the catalog check (§2, item 9)
+   runs on every deploy and fails if a class B trigger is missing or not `ENABLE ALWAYS`, so a
+   trigger **left** disabled or dropped is caught at the next deploy. Nothing catches a
+   disable–edit–re-enable inside one transaction, and nothing compares the log with the nightly
+   `pg_dump` copies or alerts on trigger changes between deploys; the dumps make a manual comparison
+   possible after the fact, nothing more.
 2. **Append-only is not authenticity.** `crm_app` can insert a row with any actor, kind and reason
    that passes the table's `CHECK` constraints. The log proves "nothing written was later changed
    through the API's credential", not "every row is true". Tamper evidence (hash chaining,
@@ -347,6 +352,9 @@ proves the trigger and **nothing** about privileges:
 | Delete a parent row referenced by a log row                      | `crm_app`                    | FK violation (`23503`), log row intact                             |
 | `ALTER TABLE … DISABLE TRIGGER`                                  | `crm_app`                    | `42501` (must be owner)                                            |
 | `INSERT … ON CONFLICT DO NOTHING` on a duplicate idempotency key | `crm_app`                    | succeeds, no new row                                               |
+| `TRUNCATE`                                                       | `crm_app`                    | `42501` (privilege; the trigger is the second layer)               |
+| `SET session_replication_role = replica`                         | `crm_app`                    | `42501` (superuser-only parameter)                                 |
+| `INSERT … ON CONFLICT (idempotency key) DO UPDATE …`             | `crm_app`                    | `42501` (needs `UPDATE`), log row unchanged                        |
 
 Confidence **HIGH** on every PostgreSQL behaviour above (documented in the PostgreSQL 16 manual:
 `CREATE TRIGGER` — truncate triggers; `ALTER TABLE` — `ENABLE ALWAYS`, ownership for `DISABLE
@@ -550,17 +558,29 @@ experiment):
    tables need file 2 re-applied (the bootstrap command does both). The catalog check (§2) is the
    same script locally and in CI.
 4. **The guards: whichever variable a destructive command uses, its guard reads that same
-   variable.** `seed-db-guard.ts` (`extractDbName`, `assertSeedTargetIsDisposable`,
-   `assertDbPushTargetIsDisposable`), `integration-db-guard.ts` (`setup`), `require-real-db.ts`
-   (`hasDatabaseUrl`) and the hook `pre-bash-live-db-guard.sh` key off the **database name** in the
-   URL path, not the user name, so a user-name change alone breaks none of them. What would break
-   them is moving `db:seed` / `db:push` to `MIGRATION_DATABASE_URL` while the guard keeps reading
-   `DATABASE_URL`: the guard would inspect a harmless URL while the command truncates the live
-   one — the class of the 2026-08-18 incident, where an inherited variable let a seed wipe the live
-   `crm_db`. Hard requirement for the implementing PR: the guard and the command read the same
-   variable, and the guard's tests gain a case with the migration variable pointing at `crm_db`.
-   Because the migration URL is now the more dangerous one, the live-db hook must recognise both
-   variable names.
+   variable.** Three of the guards key off the **database name** in the URL path, not the user
+   name: `seed-db-guard.ts` (`extractDbName`, `assertSeedTargetIsDisposable`,
+   `assertDbPushTargetIsDisposable`), `integration-db-guard.ts` (`setup`, which refuses a URL ending
+   in `/crm_db`) and the hook `pre-bash-live-db-guard.sh`. A user-name change alone breaks none of
+   them. The fourth is different: `require-real-db.ts` `hasDatabaseUrl` is a **presence** test only
+   (`DATABASE_URL` is a non-empty string), and it is the gate the `DATABASE_URL= git push`
+   convention relies on to skip integration specs. What would break them is moving `db:seed` /
+   `db:push` / fixture setup to `MIGRATION_DATABASE_URL` while the guards keep reading
+   `DATABASE_URL`: the guard would inspect a harmless (or empty) URL while the command truncates the
+   live one — the class of the 2026-08-18 incident, where an inherited variable let a seed wipe the
+   live `crm_db`. Concretely, a shell-inherited `MIGRATION_DATABASE_URL` pointing at `crm_db`
+   would survive `DATABASE_URL= git push` untouched, and any setup code reading it would run.
+   Hard requirements for the implementing PR (SPEC-M-4):
+   - every code path that reads `MIGRATION_DATABASE_URL` is gated by the **same** skip predicate as
+     the specs, and the predicate is false unless **both** variables are set;
+   - `integration-db-guard.ts` `setup` and the seed / push guards run their database-name check on
+     **each** variable they find set, and refuse if **either** names `crm_db`, whether or not the
+     other is empty;
+   - the push convention in `git-policy.md` becomes `DATABASE_URL= MIGRATION_DATABASE_URL= git
+push`, and the live-db hook recognises both variable names (the migration URL is now the more
+     dangerous one);
+   - the guards' tests gain cases with the migration variable pointing at `crm_db` while
+     `DATABASE_URL` is empty, and the reverse.
 5. **`live-db-access.md` is unchanged in substance.** Reading the local `crm_db` stays allowed; the
    rule is about read vs write, not about which role reads. The implementing PR updates its wording
    where it names the single variable.
