@@ -423,12 +423,69 @@ r5 Task 1.3 implements on top of both: the collector's concrete table list (clas
 
 ## Consequences
 
-TODO
+**Gains**
+
+- The API, the internet-facing process, can no longer change schema, disable a trigger, truncate a
+  table or reach a superuser — whether or not production `crm_user` is a superuser.
+- The append-only log becomes a guarantee against SQL injection and a compromised API, not only
+  against bugs, within the limits §3 states.
+- The collector gets a boundary that contains its bugs now, and its compromise once it is a
+  separate process.
+- New tables are classified on purpose: the catalog check turns "forgot the grant" and "forgot the
+  revoke" into CI failures.
+
+**Costs and trade-offs**
+
+- Two connection strings in CI and locally; the guards must follow (§5, item 4).
+- A new table costs one more decision (its class) and, for class B, the revoke and triggers in the
+  same transaction as the `CREATE TABLE`.
+- Two more manual DDL files under the wiring contract, each costing the four C-15 edits.
+- The migration role stays all-powerful over the data. This ADR does not claim otherwise (§3).
+- **Backups do not carry grants.** `pg-backup.sh` dumps with `--no-owner --no-acl`. A restore must
+  run as `crm_user` (so it owns the restored objects) and be followed by a deploy, or a manual run
+  of files 1 and 2, before the API can connect. The restore section of the runbook must say so;
+  the implementing PR adds it.
+
+**Assumptions (A1, recorded per `autonomy-levels.md`)**
+
+- Role names `crm_app` / `crm_collector` — reversible by rename before step 5.
+- `crm_user` keeps its name and its role as owner, with no `REASSIGN OWNED` — reversible, and
+  cheaper than a new owner role.
+- Demoting `crm_user` from superuser is deferred — a separate A3 decision for the owner, not part
+  of this rollout.
+- The variable name `MIGRATION_DATABASE_URL` — reversible; the implementing task may rename it.
 
 ## Rollback
 
-TODO
+Per step: §4, "Rollback". Summary:
+
+| What to undo          | How                                                                                                                                                                        | Expected state                            | Verify                                                                           |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------- |
+| This ADR (docs only)  | Revert its merge commit                                                                                                                                                    | The file is gone; nothing else changed    | The revert's file list shows only this ADR                                       |
+| The URL switch (PR B) | Revert PR B's merge commit, let it deploy                                                                                                                                  | The API connects as `crm_user` again      | The `pg_stat_activity` query of §4 step 6 shows `crm_user` sessions from the API |
+| The roles (PR A)      | After PR B is reverted: a forward file that drops `crm_app` / `crm_collector` (they own nothing, so `DROP OWNED` + `DROP ROLE` suffice) and removes the default privileges | No new roles; their grants gone with them | `SELECT rolname FROM pg_roles` lists neither role                                |
 
 ## Sources
 
-TODO
+- Repository, by symbol or config key: `DatabaseService` in `apps/api/src/database/database.service.ts`;
+  `env.ts` key `DATABASE_URL`; `deploy.yml` — the `write-env` job and the DDL apply steps;
+  `docker-compose.prod.yml` — service `api` (`env_file`) and service `postgres` (`POSTGRES_USER`,
+  `POSTGRES_PASSWORD`); `scripts/devops/pg-backup.sh`; `scripts/devops/check-prod-ddl-wiring.py`;
+  `seed-db-guard.ts`, `integration-db-guard.ts`, `require-real-db.ts`;
+  `.claude/hooks/pre-bash-live-db-guard.sh`; `ci.yml` service containers (`POSTGRES_USER: crm_user`,
+  database `crm_ci`).
+- `docs/superpowers/plans/2026-10-10-vacancy-sourcing-plan.r5.md` — Task 1.3 (collector role,
+  ledger ADR), reconciliation row C-15 (wiring contract), the `job_queue_actions` row of the store
+  table.
+- PR #1017 — the security finding, and the "GAP PIN: no trigger exists yet" test.
+- `docs/runbooks/deployment.md` §9 (rollback by `image_tag`); `docs/runbooks/human-only.md`
+  (conversion rule; items 1 and 3).
+- `.claude/rules/common/live-db-access.md`; `.claude/rules/common/autonomy-levels.md`.
+- PostgreSQL 16 documentation: "Privileges" (owner rights; `TRUNCATE`, `REFERENCES`, `TRIGGER` as
+  separate privileges); `ALTER DEFAULT PRIVILEGES` (`FOR ROLE` scope); `CREATE TRIGGER` (truncate
+  triggers are statement-level; row triggers do not fire on `TRUNCATE`); `ALTER TABLE` (`ENABLE
+ALWAYS TRIGGER`; ownership required to disable triggers); `session_replication_role`
+  (superuser-settable; skips triggers not in `ALWAYS` / `REPLICA` state); `INSERT` (privileges for
+  `ON CONFLICT DO NOTHING` vs `DO UPDATE`); `CREATE ROLE`; psql `\getenv`.
+- Official `postgres` Docker image documentation: `POSTGRES_USER` is created as the superuser at
+  `initdb`; the generated `pg_hba.conf` trusts local-socket connections.
