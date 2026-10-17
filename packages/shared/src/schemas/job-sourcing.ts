@@ -773,6 +773,14 @@ export const jobQueueScopeSchema = z.discriminatedUnion('kind', [
 /** A sentence a person typed — the same bound as a triage reason. */
 const queueReasonSchema = triageReasonSchema
 
+/**
+ * Non-blank and bounded — the `~ '[^[:space:]]' AND length(x) <= max` CHECK of
+ * the column it maps to. `.min(1)` alone would accept `'   '`, which that CHECK
+ * refuses: a DTO that parsed would not store. Unlike `.trim()`, it never
+ * rewrites a stored value on the way out.
+ */
+const nonBlankTextSchema = (max: number) => z.string().max(max).regex(/\S/, 'must not be blank')
+
 /** The full range of a PostgreSQL `integer` (a rank score may be negative). */
 const intColumnSchema = z
   .number()
@@ -918,7 +926,7 @@ export const jobQueueActionSchema = z
     beforeVersion: intColumnCountSchema.nullable(),
     afterVersion: intColumnPositiveSchema.nullable(),
     /** UNIQUE per actor in the database. */
-    idempotencyKey: z.string().min(1).max(200),
+    idempotencyKey: nonBlankTextSchema(200),
     reason: queueReasonSchema.nullable(),
     createdAt: z.string().datetime(),
   })
@@ -973,8 +981,8 @@ const jobQueueGenerationFields = z.object({
   id: z.string().uuid(),
   scope: jobQueueScopeSchema,
   /** Opaque digest of the policy inputs (membership / exclusion versions). */
-  policySignature: z.string().min(1).max(200),
-  ruleVersion: z.string().min(1).max(100),
+  policySignature: nonBlankTextSchema(200),
+  ruleVersion: nonBlankTextSchema(100),
   status: jobQueueGenerationStatusSchema,
   evaluatedAt: z.string().datetime(),
   expiresAt: z.string().datetime(),

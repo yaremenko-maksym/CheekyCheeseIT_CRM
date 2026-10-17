@@ -479,6 +479,11 @@ describe('jobQueueActionSchema', () => {
 
   it('bounds the idempotency key, the reason and the version columns', () => {
     refusedAt(jobQueueActionSchema, { ...takeAction, idempotencyKey: '' }, ['idempotencyKey'])
+    // Whitespace-only is blank: the column CHECK (`~ '[^[:space:]]'`) refuses it,
+    // so the contract must too, or a DTO that parsed would not store.
+    expect(
+      issuesOf(jobQueueActionSchema.safeParse({ ...takeAction, idempotencyKey: ' \t ' })),
+    ).toEqual([{ code: 'invalid_format', message: 'must not be blank', path: ['idempotencyKey'] }])
     expect(jobQueueActionSchema.safeParse({ ...takeAction, idempotencyKey: 'k' }).success).toBe(
       true,
     )
@@ -569,6 +574,10 @@ describe('jobQueueGenerationWorkerSchema', () => {
         .success,
     ).toBe(true)
     refusedAt(jobQueueGenerationWorkerSchema, { ...building, ruleVersion: '' }, ['ruleVersion'])
+    for (const field of ['policySignature', 'ruleVersion'])
+      expect(
+        issuesOf(jobQueueGenerationWorkerSchema.safeParse({ ...building, [field]: '   ' })),
+      ).toEqual([{ code: 'invalid_format', message: 'must not be blank', path: [field] }])
     refusedAt(jobQueueGenerationWorkerSchema, { ...building, ruleVersion: 'r'.repeat(101) }, [
       'ruleVersion',
     ])

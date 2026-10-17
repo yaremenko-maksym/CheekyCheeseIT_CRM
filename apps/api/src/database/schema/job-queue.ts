@@ -105,8 +105,10 @@ const TRIAGE_KINDS = sql.raw(
 /**
  * The claim. UNIQUE(opportunity) makes it STUDIO-WIDE (r5 Task 6.3): two
  * concurrent first claims both INSERT and one gets 23505. The row is kept on
- * release, so a later claim is an UPDATE guarded by `version` (the expected
- * version in the WHERE clause), which is what serializes a re-take.
+ * release, so a later claim is an UPDATE. The schema supplies the `version`
+ * column; that a re-take NAMES the expected version in its WHERE clause (the
+ * thing that serializes two re-takes — proven by the integration spec's race)
+ * is a Phase-6 obligation, as is bumping `version` on every mutation.
  *
  * PHASE-6 OBLIGATIONS: a claim in STUDIO scope is an ADMIN's; release and
  * reassign are ADMIN-only; "already taken" is shown without the assignee's
@@ -200,9 +202,10 @@ export const jobQueueAssignments = pgTable(
  * A scoped dismissal. UNIQUE(opportunity, scope kind, scope ID) — the scope ID
  * IS `team_id`, NULL for STUDIO, and the constraint is NULLS NOT DISTINCT
  * (PostgreSQL 15+): without it two STUDIO rows for one opportunity would both
- * pass, because NULLs are distinct in a plain UNIQUE. Undo keeps the row
- * (undo metadata set) and a re-dismiss UPDATEs it under `version`; the history
- * of both lives in `job_queue_actions`.
+ * pass, because NULLs are distinct in a plain UNIQUE. The UNIQUE means an
+ * undo cannot be a second row: undo sets the undo pair on this one, and a
+ * re-dismiss UPDATEs it. Matching the expected `version` in that UPDATE and
+ * writing the history to `job_queue_actions` are Phase-6 obligations.
  *
  * PHASE-6 OBLIGATIONS: a STUDIO dismissal is ADMIN-ONLY (r5) — the schema
  * stores the kind and refuses a STUDIO row that names a team, but cannot see
