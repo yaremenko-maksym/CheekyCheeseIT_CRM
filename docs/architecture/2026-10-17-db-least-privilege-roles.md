@@ -2,33 +2,35 @@
 
 ## Status
 
-Proposed (2026-10-17). Direction approved by the owner on 2026-10-17 ("do it the right way").
-Acceptance of this ADR is the owner's decision and has not been given.
+**Accepted (2026-10-17).** Direction approved by the owner on 2026-10-17 ("do it the right way"),
+and the ADR accepted by him the same day — "yes, I accept, R-B" — which also settles the one
+question it left open: **R-B is the chosen end-of-retention option** (§3).
 
 ## For the owner
 
-**What you are accepting** — the six decisions summarised below: the role model, the privilege
-classes, the append-only guarantees, the nine-step rollout, the effect on local work and CI, and
-the ordering against the migration-ledger ADR. Accepting them authorises the implementing tasks,
-not any production change: every step that touches production is listed separately and the
+**What was accepted (2026-10-17)** — the six decisions summarised below: the role model, the
+privilege classes, the append-only guarantees, the nine-step rollout, the effect on local work and
+CI, and the ordering against the migration-ledger ADR. Acceptance authorises the implementing
+tasks, not any production change: every step that touches production is listed separately and the
 owner-only ones are marked **[OWNER]**.
 
-**What you are choosing** — one question, now: how expired rows leave the action log (§3).
-R-A keeps the trigger absolute and handles deletion by a reviewed file per run (interim only);
-R-B adds a narrow exception reached through two privileged functions the API's cron calls;
-R-C puts the same exception behind a separate retention process. **Recommendation: R-B now, R-C
-once a separate scheduled process exists.** It is tied to the erasure design pending in PR #1019,
-so it can also wait for that.
+**What was chosen (2026-10-17): R-B**, for how expired rows leave the action log (§3) — the narrow
+exception reached through two privileged functions the API's cron calls, under the six conditions
+§3 specifies. R-C, the same exception behind a separate retention process, is the intended
+successor once such a process exists. R-A was not chosen.
+
+**Still open, and not settled by choosing R-B: the erasure decision itself.** R-B is the
+_mechanism_; **what** is deleted or re-pointed, and **when**, is the erasure design still pending
+with the owner (§3, "The dependency R-B does not resolve"). Choosing the mechanism deliberately did
+not pre-empt that.
 
 **What is deferred, needing nothing from you at any point unless you reopen it** — demoting
 `crm_user` from superuser (A3: it is the cluster's only superuser); a separate `NOLOGIN` owner role
 (`crm_owner`); a read-only role (`crm_readonly`). Each has its conditions for revisiting in §1.
 
-**Two things that need somebody, though not necessarily you, and not today** — a legal
-confirmation that shipping R-A as the interim is acceptable, which must land before Task 1.3
-relies on it and is a question for the legal memo's author rather than for you; and changing the
-audit-log foreign keys (§2), which is ours to schedule, is doable now, and needs your decision only
-if you want it prioritised differently. Both appear in "Open owner decisions" near the end, which
+**One thing that needs somebody, though not necessarily you** — changing the audit-log foreign keys
+(§2), which is ours to schedule, is doable now, and needs your decision only if you want it
+prioritised differently. It appears in "Open owner decisions" near the end, which
 is the full list.
 
 ## Summary of decisions
@@ -36,8 +38,8 @@ is the full list.
 1. **Roles (§1).** `crm_user` stays the owner and migration role. Its password is rotated in the
    database and its TCP login refused, so only local-socket use remains. The API connects as
    `crm_app`, which owns nothing, is a member of no role and is not a superuser. The collection
-   worker gets `crm_collector`. Three login roles; option R-B of §3, if chosen, adds a fourth —
-   the `NOLOGIN` function owner `crm_retention_owner`.
+   worker gets `crm_collector`. Three login roles, plus the `NOLOGIN` function owner
+   `crm_retention_owner` that chosen option R-B of §3 requires.
 2. **Privileges (§2).** Every table is in one class: A ordinary, A-log (the six existing audit
    tables: insert-only for the API, no triggers yet), B append-only, C job-sourcing, D collector
    inputs, E migration-internal. Default privileges cover new tables; `EXECUTE` is revoked from
@@ -45,8 +47,9 @@ is the full list.
 3. **Append-only log (§3).** Revoked privileges, `ENABLE ALWAYS` row and `TRUNCATE` triggers, and
    foreign keys that never write the log row (`RESTRICT` / `NO ACTION`, or no FK at all).
    Nothing in the database protects the log from `crm_user`, and
-   that is stated. End of retention is an **open owner decision** (R-A interim; R-B or R-C final),
-   tied to the legal memo of PR #1019.
+   that is stated. End of retention follows **R-B**, chosen by the owner on 2026-10-17: a bounded
+   exception reached through two privileged functions, under six specified conditions. The erasure
+   policy it enforces — what is deleted or re-pointed, and when — is still pending (PR #1019).
 4. **Rollout (§4).** Nine steps, owner-only ones marked. Roles are created first; the API
    switches to `crm_app` with the owner password moved to a postgres-only env file; then the
    `crm_user` password is rotated and `pg_hba.conf` refuses its TCP login, with validation before
@@ -125,9 +128,9 @@ in-application write filters or row-level security as the primary boundary. Prio
 architect hierarchy (hard safety) is what makes the pattern mandatory rather than taste; nothing in
 the project requirements (priority 2) conflicts with it.
 
-Three login roles. Confidence **HIGH** on the model; it is the textbook split. If the owner
-chooses option R-B for end-of-retention (§3), a fourth is added there: `crm_retention_owner`,
-`NOLOGIN`, which exists only to own the two privileged functions and never connects.
+Three login roles. Confidence **HIGH** on the model; it is the textbook split. Chosen option R-B
+for end-of-retention (§3) adds a fourth role there: `crm_retention_owner`, `NOLOGIN`, which exists
+only to own the two privileged functions and never connects.
 
 | Role            | Kind  | Becomes / is                                                                                                                                                     | Attributes                                                                                                                                                                                                                                                                                          |
 | --------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -304,7 +307,7 @@ in `pg_catalog` (`gen_random_uuid`, `now`, …) are unaffected. Firing a trigger
 
 No `SECURITY DEFINER` function exists today. A definer function runs with its owner's privileges
 and is a hole through every boundary here, so one may be added only in the narrow form §3
-specifies for the end-of-retention option R-B, if the owner chooses it: owned by a dedicated
+specifies for the chosen end-of-retention option R-B: owned by a dedicated
 non-superuser role (never `crm_user`), `search_path = pg_catalog, public, pg_temp`, static SQL
 only, `EXECUTE` revoked from `PUBLIC` and granted by name, and pinned by the catalog check. Any
 other definer function needs its own ADR-level justification.
@@ -491,7 +494,7 @@ edited, so a name change records the plain-text name on both sides. That is exac
 becomes append-only — freezing those rows first and discovering the PII afterwards is the
 irreversible version of this mistake.
 
-**What the end-of-retention path must cover** (whichever of R-A / R-B / R-C the owner chooses):
+**What the end-of-retention path must cover** (under R-B, as under any option):
 `job_queue_actions` **and** each of the six existing audit logs — `user_audit_log`,
 `team_audit_log`, `project_audit_log`, `transaction_audit_log`, `document_access_log`,
 `meeting_recorder_audit_log` — **named one by one, not by a pattern and not by assuming a cascade**.
@@ -531,27 +534,34 @@ What remains unprotected, stated so that nobody documents more than the schema d
    external anchoring) is out of scope.
 3. **Insert volume is not bounded** by these layers (a compromised API can flood the log); that is
    a rate-limit concern, not an immutability one.
-4. **End of retention and redaction are not designed here** — see the next subsection. The
-   application never receives a plain `DELETE` or `UPDATE` on the log under any option.
+4. **End of retention and redaction** follow the chosen option below. The application never
+   receives a plain `DELETE` or `UPDATE` on the log under any of them.
 
-**End of retention — an open owner decision (conflict with the legal memo, PR #1019).** The legal
-memo on erasure in the action log (`docs/legal/2026-10-17-job-queue-actions-erasure.md`, PR #1019)
-requires two things that an unconditional trigger does not provide: a **recurring
-end-of-retention path** (delete expired rows, or re-point `actor_id` / `subject_user_id` to a
-shared "former staff" sentinel), run only by the retention job through "a second, narrow,
-privileged exception" in the trigger; and a **redaction path for `reason`** only (replace the text
-with a fixed token, append a `REASON_REDACTED` event, through one privileged function). The memo
-states that the first is required whichever erasure option is chosen, because a log that is
-append-only forever does not meet storage limitation (GDPR Art. 5(1)(e); UA Law 2297-VI
-art. 6(8)). The erasure design is pending with the owner, so this ADR does **not** pick; it lays
-out the options in database terms.
+**End of retention — R-B, chosen by the owner on 2026-10-17.** The legal memo on erasure in the
+action log (`docs/legal/2026-10-17-job-queue-actions-erasure.md`, PR #1019) requires two things
+that an unconditional trigger does not provide: a **recurring end-of-retention path** (delete
+expired rows, or re-point `actor_id` / `subject_user_id` to a shared "former staff" sentinel), run
+only by the retention job through "a second, narrow, privileged exception" in the trigger; and a
+**redaction path for `reason`** only (replace the text with a fixed token, append a
+`REASON_REDACTED` event, through one privileged function). The memo states that the first is
+required whichever erasure option is chosen, because a log that is append-only forever does not
+meet storage limitation (GDPR Art. 5(1)(e); UA Law 2297-VI art. 6(8)).
 
-**R-A is an interim state only, never a final option.** It is what Task 1.3 ships so that the log
-is protected from day one. By the memo's own conclusion, a refusing trigger with no exception does
-not meet storage limitation once retention periods apply, so R-A must be replaced by R-B or R-C;
-it is listed in the table only to show what the interim costs.
+**The decision: R-B** — the bounded exception reached through two `SECURITY DEFINER` functions,
+under the six conditions specified below, all six of which are requirements rather than
+recommendations. Task 1.3 implements the trigger in this form from the start; there is no
+unconditional-trigger stage to replace later.
 
-|                                 | R-A — no exception (interim only)                                                                            | R-B — bounded exception through definer functions                                                                                                                                                                                                    | R-C — bounded exception for a separate retention role                                         |
+**R-A was not chosen; R-C is not yet applicable.** R-A (no exception at all) is kept in the table
+below because it is the baseline the other two are measured against, and because it documents why
+an absolute trigger is not an option: by the memo's conclusion it does not meet storage limitation
+once retention periods apply. **R-C is the intended successor to R-B**, not a rejected
+alternative — it moves the same exception behind a separate scheduled process, and the move is
+cheap by construction (it changes who holds `EXECUTE`, or swaps the `current_user` check). It
+becomes the preferred shape as soon as such a process exists; the r5 collection worker is the
+natural host.
+
+|                                 | R-A — no exception (**not chosen**)                                                                          | R-B — bounded exception through definer functions (**chosen**)                                                                                                                                                                                       | R-C — bounded exception for a separate retention role (**intended successor**)                |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
 | Trigger                         | Raises unconditionally                                                                                       | Admits **only** (1) `DELETE` of rows whose kind's retention has expired, (2) re-pointing the two person columns to the sentinel on expired rows, (3) `UPDATE` of `reason` to the fixed token — and only when `current_user` is `crm_retention_owner` | The same three shapes, admitted only when `current_user` is a dedicated `crm_retention` login |
 | Who runs it                     | A reviewed DDL file per run, applied by the deploy as `crm_user` with the trigger disabled for the statement | Two `SECURITY DEFINER` functions (purge expired; redact one row's `reason` with a request id, appending `REASON_REDACTED`), specified below; `EXECUTE` granted to `crm_app` by name; called by an API cron                                           | A separate scheduled process holding the `crm_retention` credential; the API holds nothing    |
@@ -598,23 +608,34 @@ subject_user_id)` on it, `INSERT` on it (for the `REASON_REDACTED` event), and `
    reviewed file is caught. `crm_retention_owner` passes the same attribute, ownership and
    membership checks as the application roles, except that it owns exactly these two functions.
 
-**Why R-A is acceptable as the interim — pending legal confirmation.** No row has yet reached the
-end of retention: the retention periods are themselves pending with the owner, and r5 Task 1.4
-keeps new-store cleanup disabled until they are frozen. On that basis this ADR **assumes** that
-shipping R-A now does not breach storage limitation, and that it would begin to on the day a period
-is set and rows expire under it. That is a legal conclusion, not an architectural one: it is
-**pending confirmation by the legal memo's author** before Task 1.3 relies on it. A redaction
-request that arrives earlier can be served under R-A by a reviewed DDL file — slow, but possible.
+**Why R-B.** It meets the memo's recurring requirement without a new login credential, and its
+only extra exposure — a compromised API redacting reasons — is self-logging and bounded to one
+column. Confidence **MED**: the database mechanics are standard, but the trigger-side shape
+validation is new code and needs its own tests (one per admitted shape, plus one per refused
+near-miss — a non-expired row, a second column changed, a non-token value, a call from a session
+whose `current_user` is not `crm_retention_owner`).
 
-**Recommendation (for the owner, A2):** R-B as specified above, moving to R-C once a separately
-scheduled process exists (the r5 collection worker is the natural host); the move changes only who
-holds `EXECUTE`, or swaps the `current_user` check. Reason: R-B meets the memo's recurring
-requirement without a new login credential, and its only extra exposure — a compromised API
-redacting reasons — is self-logging and bounded to one column. Confidence **MED**: the database
-mechanics are standard, but the trigger-side shape validation is new code and needs its own tests
-(one per admitted shape, plus one per refused near-miss — a non-expired row, a second column
-changed, a non-token value, a call from a session whose `current_user` is not
-`crm_retention_owner`).
+**The dependency R-B does not resolve — the erasure decision is still open.** R-B is the
+**mechanism**: it defines who may delete or re-point an expired row, and in what shape. It does not
+decide **what** is erased or **when**, and choosing it did not settle that. Three things remain
+genuinely open, and the implementing task must not read past them:
+
+- **Retention periods are not set.** The functions need a retention-policy table to answer "has
+  this row expired", and until the owner freezes periods per event kind that table has no rows —
+  so the purge function has nothing to purge. r5 Task 1.4 keeps new-store cleanup disabled until
+  they are frozen, which is consistent: R-B can ship inert and start working the day the periods
+  land.
+- **Pseudonymisation is minimisation, not erasure.** The memo concludes that re-pointing a
+  `users` row does **not** amount to erasure, and recommends the hybrid whose end-of-retention path
+  R-B implements. Which of the two shapes a given event kind gets at expiry — delete the rows, or
+  re-point the person columns to the sentinel — is part of the erasure decision, not of this ADR.
+  The function supports both; the policy chooses per kind.
+- **The memo's own LOW conclusions ask for a practising privacy lawyer.** This ADR does not stand in
+  for that, and R-B being chosen does not discharge it.
+
+So the correct reading is: the database-side mechanism is decided and implementable now; the policy
+it enforces is pending. Nothing in §2 or §3 assumes otherwise, and the retention-policy table
+starting empty is the designed-for state, not a gap.
 
 **Tests that prove the layers** (AutoTest zone; Task 1.3 replaces the "GAP PIN" test of PR #1017
 with these). Each layer needs its own test, run as the role it is about — a test run as `crm_user`
@@ -1073,8 +1094,9 @@ r5 Task 1.3 implements on top of both: the collector's concrete table list (clas
 - **The existing audit logs get only the privilege layer for now** (class A-log, §2). Making them
   append-only needs their foreign keys dropped (or set to `RESTRICT`) and a deletion policy, both
   outside this ADR; §2 item 1 states which shape and what each costs.
-- **End of retention for the action log is an open owner decision** (§3, R-A / R-B / R-C). R-A
-  ships first and must be replaced before any retention period is set.
+- **End of retention for the action log is R-B** (§3), chosen 2026-10-17: two privileged
+  functions under six specified conditions, with R-C the intended successor. The erasure policy it
+  enforces is still pending.
 
 **Assumptions (A1, recorded per `autonomy-levels.md`)**
 
@@ -1090,12 +1112,10 @@ r5 Task 1.3 implements on top of both: the collector's concrete table list (clas
 
 **Open owner decisions (not taken here)**
 
-- **End of retention / redaction for `job_queue_actions`** (§3): R-A, R-B or R-C; recommendation
-  R-B, moving to R-C. Tied to the erasure design pending from PR #1019.
-- **Legal confirmation that shipping R-A as the interim is acceptable** (§3) — a legal conclusion
-  this ADR assumes and does not make. It is needed before Task 1.3 relies on it, and it is a
-  question for the legal memo's author; the owner is not the one who answers it, which is why the
-  owner block lists it as "needs somebody, not you".
+- **The erasure design itself** (§3, "The dependency R-B does not resolve") — retention periods
+  per event kind, and whether each kind is deleted or re-pointed to the sentinel at expiry. The
+  mechanism is settled (R-B, chosen 2026-10-17); the policy is not. Pending from PR #1019, whose
+  LOW conclusions also ask for a practising privacy lawyer.
 - **Dropping the `CASCADE` and `SET NULL` FKs on the six audit logs, keeping the ids as plain
   data** (§2, item 1) — doable now, breaks no current behaviour, needs no test-suite work in that
   shape, and is the prerequisite for those tables ever becoming append-only. Ours to schedule; the
