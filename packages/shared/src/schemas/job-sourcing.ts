@@ -541,6 +541,17 @@ const intColumnCountSchema = countSchema.max(PG_INT_MAX)
 const intColumnPositiveSchema = z.number().int().positive().max(PG_INT_MAX)
 
 /**
+ * CR-L-5. The text ceilings of the queue columns, each declared ONCE in this
+ * package. They mirror `JOB_HANDLE_MAX` / `JOB_SHORT_TEXT_MAX` /
+ * `JOB_SANITIZED_TEXT_MAX` in the api's `job-patterns.ts`; the package
+ * boundary keeps them two declarations, and the api unit twin pins the column
+ * side of each one by its rendered CHECK.
+ */
+const JOB_HANDLE_MAX_CHARS = 200
+const JOB_SHORT_TEXT_MAX_CHARS = 100
+const JOB_REASON_MAX_CHARS = 500
+
+/**
  * Report of one collection attempt. Exactly one disposition per input item;
  * persistence failures are their own bucket (they are OUR fault, not the
  * provider's) and a SUCCEEDED attempt cannot contain any.
@@ -639,7 +650,32 @@ export const confirmPossibleDuplicateSchema = z
 
 // --- ADMIN team triage -------------------------------------------------------
 
-const triageReasonSchema = z.string().trim().min(1).max(500)
+/**
+ * CR-M-3 (PR #1017 round 2). What Postgres's `[[:space:]]` matches on the
+ * catalog these columns live in, ENUMERATED on PG16 / en_US.utf8 (every BMP
+ * code point tested with `chr(cp) ~ '[[:space:]]'`): the ASCII six, U+0085,
+ * U+2000-2006, U+2008-200A, U+2028, U+2029, U+205F, U+3000. A value with no
+ * character outside this set is what a `~ '[^[:space:]]'` CHECK refuses.
+ *
+ * `.trim()` is NOT enough: JS `trim()` keeps U+0085, so a reason of only
+ * U+0085 parsed here and the column answered with a raw 23514 instead of a
+ * 400. The set is locale-measured: the production catalog's locale must match
+ * (it is the same postgres:16-alpine image); a locale that treated FEWER code
+ * points as space would only make this refusal stricter than the column,
+ * never looser.
+ */
+const PG_NOT_BLANK = /[^\t\n\v\f\r \u0085\u2000-\u2006\u2008-\u200a\u2028\u2029\u205f\u3000]/
+
+/** A REQUEST string bound for a non-blank column: refuses what the column refuses. */
+const requestTextSchema = (max: number) =>
+  z
+    .string()
+    .trim()
+    .min(1)
+    .max(max)
+    .refine((v) => PG_NOT_BLANK.test(v), 'must not be blank')
+
+const triageReasonSchema = requestTextSchema(JOB_REASON_MAX_CHARS)
 
 export const createJobQueueTeamTriageGrantSchema = z
   .object({
@@ -678,10 +714,12 @@ export const jobQueueTeamTriageGrantSchema = z.object({
 export const createJobQueueTeamTriageSubscriptionSchema = z
   .object({
     teamId: z.string().uuid(),
-    roleFamily: z.string().trim().min(1).max(100),
+    roleFamily: requestTextSchema(JOB_SHORT_TEXT_MAX_CHARS),
     /** Empty = every source. Bounded by the number of provider types. */
     sourceTypes: z.array(jobSourceTypeSchema).max(jobSourceTypeSchema.options.length),
-    policyVersion: countSchema,
+    // r5 Task 1.2c: `job_team_triage_subscriptions.policy_version` is an
+    // integer column, so the contract carries its ceiling (lesson CR-M-2).
+    policyVersion: intColumnCountSchema,
     expiresAt: z.string().datetime(),
     reason: triageReasonSchema,
   })
@@ -690,22 +728,405 @@ export const createJobQueueTeamTriageSubscriptionSchema = z
 export const revokeJobQueueTeamTriageSubscriptionSchema = z
   .object({
     subscriptionId: z.string().uuid(),
-    expectedSubscriptionVersion: countSchema,
+    // The column starts at 1 (`ck_job_team_triage_subscriptions_version_positive`),
+    // so 0 can never match a row and is refused here instead of at the UPDATE.
+    expectedSubscriptionVersion: intColumnPositiveSchema,
     reason: triageReasonSchema,
   })
   .strict()
 
-export const jobQueueTeamTriageSubscriptionSchema = z.object({
+/**
+ * SR-M-6 (PR #1017 round 2). The stored subscription row, WORKER-internal: it
+ * carries `actorId`, the ADMIN who created it. Same convention as the queue
+ * shapes below (plain name = what a client may receive).
+ */
+export const jobQueueTeamTriageSubscriptionWorkerSchema = z.object({
   id: z.string().uuid(),
   teamId: z.string().uuid(),
-  roleFamily: z.string().max(100),
+  roleFamily: z.string().max(JOB_SHORT_TEXT_MAX_CHARS),
   sourceTypes: z.array(jobSourceTypeSchema).max(jobSourceTypeSchema.options.length),
-  policyVersion: countSchema,
-  subscriptionVersion: countSchema,
+  policyVersion: intColumnCountSchema,
+  subscriptionVersion: intColumnPositiveSchema,
   actorId: z.string().uuid(),
   expiresAt: z.string().datetime(),
   revokedAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
+})
+
+/**
+ * The public subscription: no actor identity. `teamId` stays — it is the
+ * SUBJECT of the subscription (the team that gains visibility), not an actor,
+ * and every subscription endpoint is ADMIN-only (Phase-6 obligation).
+ */
+export const jobQueueTeamTriageSubscriptionSchema = jobQueueTeamTriageSubscriptionWorkerSchema.omit(
+  {
+    actorId: true,
+  },
+)
+
+// --- Queue workflow store (r5 Task 1.2 part 3) -------------------------------
+//
+// The DTOs of `job_queue_assignments`, `job_queue_dismissals`,
+// `job_queue_actions`, `job_queue_generations` and their entries. Every
+// cross-field rule below is ALSO a database CHECK on the matching table
+// (apps/api/src/database/schema/job-queue.ts). These are STORED-ROW shapes:
+// every row the database accepted parses unchanged. The one place the two
+// sides are not identical is non-blank text — see `storedTextSchema`.
+//
+// Naming follows part 2 (SR-M-5): the plain name is the shape a client may
+// receive; a `...Worker...` shape carries server-internal fields (actor
+// identities, policy signatures, rank) and is never serialized to a client.
+//
+// What NO schema here can carry is the actor's ROLE: "STUDIO scope is
+// ADMIN-only", "release / reassign / suppress are ADMIN-only". Those are
+// Phase-6 service obligations, listed on the tables.
+
+/**
+ * Whose view a queue decision belongs to. TEAM = one team's view; STUDIO = the
+ * studio-wide view, which only an ADMIN may act in (Phase-6 obligation — the
+ * role is not visible to a schema).
+ */
+export const jobQueueScopeKindSchema = z.enum(['TEAM', 'STUDIO'])
+
+/** A claim row is kept after release, so a re-take is a versioned UPDATE. */
+export const jobQueueAssignmentStateSchema = z.enum(['TAKEN', 'RELEASED'])
+
+/**
+ * Kinds of the action log (append-only by intent; NOT yet enforced by the
+ * database — see `schema/job-queue.ts`, Task 1.3 obligation). The first four
+ * keep the legacy signal names (`jobSignalKindSchema`, which stays untouched
+ * with its own table).
+ */
+export const jobQueueActionKindSchema = z.enum([
+  'OPENED',
+  'TAKEN',
+  'DEAD_LINK',
+  'SPAM',
+  'DISMISSED',
+  'UNDONE',
+  'RELEASED',
+  'REASSIGNED',
+  'SUPPRESSED',
+  'TRIAGE_GRANTED',
+  'TRIAGE_REVOKED',
+  'TRIAGE_SUBSCRIBED',
+  'TRIAGE_UNSUBSCRIBED',
+])
+
+/** BUILDING -> PUBLISHED -> INVALIDATED; a BUILDING one may be abandoned straight to INVALIDATED. */
+export const jobQueueGenerationStatusSchema = z.enum(['BUILDING', 'PUBLISHED', 'INVALIDATED'])
+
+/**
+ * The scope's shape per kind — the same rule as the `..._scope_shape` CHECKs:
+ * a TEAM scope names exactly one team, a STUDIO scope names none.
+ */
+export const jobQueueScopeSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('TEAM'), teamId: z.string().uuid() }).strict(),
+  z.object({ kind: z.literal('STUDIO'), teamId: z.null() }).strict(),
+])
+
+/**
+ * CR-L-2. A STORED text column (`~ '[^[:space:]]' AND length(x) <= max`),
+ * described — never normalised. Two rules:
+ *   - no `.trim()`: a row schema that rewrites the value it reads is not
+ *     describing the row;
+ *   - "blank" here means ASCII whitespace only (` \t\n\v\f\r`). Postgres's
+ *     `[[:space:]]` is locale-dependent beyond ASCII — measured on PG16 /
+ *     en_US.utf8 it EXCLUDES U+00A0, U+2007, U+202F, U+FEFF and INCLUDES
+ *     U+0085, i.e. it disagrees with JS `\s` in both directions. The ASCII set
+ *     is a space in every locale, so what this refuses is a subset of what the
+ *     CHECK refuses: every stored row parses. The rest is the CHECK's call.
+ * Request DTOs (the triage create/revoke reason) keep their `.trim()`.
+ */
+const storedTextSchema = (max: number) =>
+  z
+    .string()
+    .max(max)
+    .regex(/[^ \t\n\v\f\r]/, 'must not be blank')
+
+/** A stored sentence a person typed — the column bound of a reason. */
+const queueReasonSchema = storedTextSchema(JOB_REASON_MAX_CHARS)
+
+/** The full range of a PostgreSQL `integer` (a rank score may be negative). */
+const intColumnSchema = z
+  .number()
+  .int()
+  .min(-PG_INT_MAX - 1)
+  .max(PG_INT_MAX)
+
+const jobQueueAssignmentFields = z.object({
+  id: z.string().uuid(),
+  opportunityId: z.string().uuid(),
+  state: jobQueueAssignmentStateSchema,
+  /** The scope the claimer acted in: their team, or STUDIO for an ADMIN. */
+  scope: jobQueueScopeSchema,
+  assigneeId: z.string().uuid(),
+  takenAt: z.string().datetime(),
+  version: intColumnPositiveSchema,
+  releasedAt: z.string().datetime().nullable(),
+  releasedBy: z.string().uuid().nullable(),
+  releaseReason: queueReasonSchema.nullable(),
+  reassignedAt: z.string().datetime().nullable(),
+  reassignedBy: z.string().uuid().nullable(),
+  reassignedFromId: z.string().uuid().nullable(),
+  updatedAt: z.string().datetime(),
+})
+
+/** `ck_job_queue_assignments_release_pair`, the half both shapes carry. */
+const refineAssignmentRelease = (
+  a: { state: string; releasedAt: string | null },
+  ctx: z.RefinementCtx,
+) => {
+  const releasedState = a.state === 'RELEASED'
+  if (releasedState ? a.releasedAt === null : a.releasedAt !== null) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'a RELEASED assignment records when it was released, and only a released one does',
+      path: ['releasedAt'],
+    })
+  }
+}
+
+/**
+ * The server-internal claim row. Two explicit branches per pair (CR-M-1 of
+ * #1015), never an equality of two booleans.
+ */
+export const jobQueueAssignmentWorkerSchema = jobQueueAssignmentFields.superRefine((a, ctx) => {
+  refineAssignmentRelease(a, ctx)
+  const releasedState = a.state === 'RELEASED'
+  if (releasedState ? a.releasedBy === null : a.releasedBy !== null) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'a RELEASED assignment records who released it, and only a released one does',
+      path: ['releasedBy'],
+    })
+  }
+  // One direction only: a release reason is optional, but a TAKEN row (a
+  // re-take included) must not keep the previous holder's reason.
+  if (!releasedState && a.releaseReason !== null) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'only a RELEASED assignment carries a release reason',
+      path: ['releaseReason'],
+    })
+  }
+  const all = a.reassignedAt !== null && a.reassignedBy !== null && a.reassignedFromId !== null
+  const none = a.reassignedAt === null && a.reassignedBy === null && a.reassignedFromId === null
+  if (!all && !none) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'reassignment metadata (when, by whom, from whom) is all present or all absent',
+      path: ['reassignedAt'],
+    })
+  }
+})
+
+/**
+ * The public claim shape: NO actor identity and NO claimer scope. "Already
+ * taken" is shown without a name outside the viewer's scope (r5 Task 6.3), and
+ * the claimer's team id is itself a cross-team disclosure — the name is added
+ * by the Phase-6 projection only after authorization.
+ */
+export const jobQueueAssignmentSchema = jobQueueAssignmentFields
+  .pick({
+    id: true,
+    opportunityId: true,
+    state: true,
+    takenAt: true,
+    releasedAt: true,
+    version: true,
+  })
+  .superRefine(refineAssignmentRelease)
+
+const jobQueueDismissalFields = z.object({
+  id: z.string().uuid(),
+  opportunityId: z.string().uuid(),
+  scope: jobQueueScopeSchema,
+  reason: queueReasonSchema,
+  dismissedBy: z.string().uuid(),
+  dismissedAt: z.string().datetime(),
+  version: intColumnPositiveSchema,
+  undoneAt: z.string().datetime().nullable(),
+  undoneBy: z.string().uuid().nullable(),
+})
+
+/**
+ * One scoped dismissal, as stored — WORKER-internal (CR-M-2 / SR-M-4): it
+ * carries the actor identities `dismissedBy` / `undoneBy`. UNIQUE(opportunity,
+ * scope kind, scope team) in the database: an undo keeps the row and a
+ * re-dismiss UPDATEs it.
+ */
+export const jobQueueDismissalWorkerSchema = jobQueueDismissalFields.superRefine((d, ctx) => {
+  const undone = d.undoneAt !== null && d.undoneBy !== null
+  const live = d.undoneAt === null && d.undoneBy === null
+  if (!undone && !live) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'an undo records who undid it and when — both or neither',
+      path: ['undoneAt'],
+    })
+  }
+})
+
+/** The public dismissal: no actor identity; who dismissed is a Phase-6 authorized projection. */
+export const jobQueueDismissalSchema = jobQueueDismissalFields.omit({
+  dismissedBy: true,
+  undoneBy: true,
+})
+
+const SUBSCRIPTION_ACTIONS: ReadonlySet<string> = new Set([
+  'TRIAGE_SUBSCRIBED',
+  'TRIAGE_UNSUBSCRIBED',
+])
+const TELEMETRY_ACTIONS: ReadonlySet<string> = new Set(['OPENED', 'DEAD_LINK', 'SPAM'])
+
+/**
+ * One row of the action log (the audit trail of every queue mutation and
+ * click; append-only by intent, NOT yet enforced by the database — see
+ * `schema/job-queue.ts`). Each rule mirrors a CHECK on `job_queue_actions`.
+ *
+ * WORKER-internal only (CR-M-2 / SR-M-4): it carries `actorId`,
+ * `idempotencyKey` and `subjectUserId`. There is deliberately no plain-named
+ * action shape yet — no client reads the log, and an ADMIN audit view is a
+ * Phase-6 projection with its own authorization.
+ */
+export const jobQueueActionWorkerSchema = z
+  .object({
+    id: z.string().uuid(),
+    kind: jobQueueActionKindSchema,
+    opportunityId: z.string().uuid().nullable(),
+    sourceRecordId: z.string().uuid().nullable(),
+    subscriptionId: z.string().uuid().nullable(),
+    actorId: z.string().uuid(),
+    scope: jobQueueScopeSchema,
+    /** The team a TRIAGE_* action grants to / subscribes for. */
+    subjectTeamId: z.string().uuid().nullable(),
+    /** The new assignee of a REASSIGNED action. */
+    subjectUserId: z.string().uuid().nullable(),
+    beforeVersion: intColumnCountSchema.nullable(),
+    afterVersion: intColumnPositiveSchema.nullable(),
+    /** UNIQUE per actor in the database. */
+    idempotencyKey: storedTextSchema(JOB_HANDLE_MAX_CHARS),
+    reason: queueReasonSchema.nullable(),
+    createdAt: z.string().datetime(),
+  })
+  .superRefine((a, ctx) => {
+    const onSubscription =
+      a.opportunityId === null && a.subscriptionId !== null && a.sourceRecordId === null
+    const onOpportunity = a.opportunityId !== null && a.subscriptionId === null
+    if (SUBSCRIPTION_ACTIONS.has(a.kind) ? !onSubscription : !onOpportunity) {
+      ctx.addIssue({
+        code: 'custom',
+        message:
+          'a subscription action targets a subscription only; every other action targets an opportunity and no subscription',
+        path: ['opportunityId'],
+      })
+    }
+    const telemetry = TELEMETRY_ACTIONS.has(a.kind)
+    if (telemetry && a.sourceRecordId === null) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'OPENED / DEAD_LINK / SPAM reference the clicked source record',
+        path: ['sourceRecordId'],
+      })
+    }
+    if (a.kind.startsWith('TRIAGE_') ? a.subjectTeamId === null : a.subjectTeamId !== null) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'a TRIAGE_* action names the team it concerns, and only a TRIAGE_* action does',
+        path: ['subjectTeamId'],
+      })
+    }
+    if (a.kind === 'REASSIGNED' ? a.subjectUserId === null : a.subjectUserId !== null) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'a REASSIGNED action names the new assignee, and only a REASSIGNED action does',
+        path: ['subjectUserId'],
+      })
+    }
+    const unversioned = a.beforeVersion === null && a.afterVersion === null
+    // SPEC-M-1: no r5 entity holds suppression state, so SUPPRESSED may carry
+    // none; a triage grant targets `grant_version` and stays versioned.
+    const versionless = a.kind === 'SUPPRESSED' && unversioned
+    // A NULL after-version reads as -1, so it can never move forward from a
+    // before-version >= 0 (a separate `!== null` operand was redundant — the
+    // mutation gate showed it could be replaced by `true` unobserved).
+    const forward = a.beforeVersion !== null && (a.afterVersion ?? -1) > a.beforeVersion
+    if (telemetry ? !unversioned : !forward && !versionless) {
+      ctx.addIssue({
+        code: 'custom',
+        message:
+          'telemetry (OPENED / DEAD_LINK / SPAM) carries no version; SUPPRESSED may carry none; every other action moves the version forward',
+        path: ['afterVersion'],
+      })
+    }
+  })
+
+const jobQueueGenerationFields = z.object({
+  id: z.string().uuid(),
+  scope: jobQueueScopeSchema,
+  /** Opaque digest of the policy inputs (membership / exclusion versions). */
+  policySignature: storedTextSchema(JOB_HANDLE_MAX_CHARS),
+  ruleVersion: storedTextSchema(JOB_SHORT_TEXT_MAX_CHARS),
+  status: jobQueueGenerationStatusSchema,
+  evaluatedAt: z.string().datetime(),
+  expiresAt: z.string().datetime(),
+  publishedAt: z.string().datetime().nullable(),
+  invalidatedAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+})
+
+/** `ck_job_queue_generations_expiry_after_evaluation`. */
+const refineGenerationExpiry = (
+  g: { evaluatedAt: string; expiresAt: string },
+  ctx: z.RefinementCtx,
+) => {
+  if (Date.parse(g.expiresAt) <= Date.parse(g.evaluatedAt)) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'a generation expires after it was evaluated',
+      path: ['expiresAt'],
+    })
+  }
+}
+
+/** The publisher's row. `ck_job_queue_generations_status_instants`, one branch per status. */
+export const jobQueueGenerationWorkerSchema = jobQueueGenerationFields.superRefine((g, ctx) => {
+  const ok =
+    (g.status === 'BUILDING' && g.publishedAt === null && g.invalidatedAt === null) ||
+    (g.status === 'PUBLISHED' && g.publishedAt !== null && g.invalidatedAt === null) ||
+    (g.status === 'INVALIDATED' && g.invalidatedAt !== null)
+  if (!ok) {
+    ctx.addIssue({
+      code: 'custom',
+      message:
+        'BUILDING has no publish or invalidation instant; PUBLISHED has a publish instant only; INVALIDATED has an invalidation instant',
+      path: ['status'],
+    })
+  }
+  refineGenerationExpiry(g, ctx)
+})
+
+/** The public generation: what a cursor is checked against. No policy signature, no lifecycle. */
+export const jobQueueGenerationSchema = jobQueueGenerationFields
+  .pick({ id: true, evaluatedAt: true, expiresAt: true })
+  .superRefine(refineGenerationExpiry)
+
+/**
+ * One entry, keyed (generation, opportunity). WORKER-only: the rank score is
+ * authorized separately from the payload (r5 Task 6.1), so there is no
+ * plain-named entry shape — the public list item is `jobQueueItemSchema`.
+ */
+export const jobQueueGenerationEntryWorkerSchema = z.object({
+  generationId: z.string().uuid(),
+  opportunityId: z.string().uuid(),
+  rankScore: intColumnSchema,
+  /** Position within the generation; UNIQUE(generation, order key) in the database. */
+  orderKey: intColumnCountSchema,
+  /** The tie-breaker of `(rank_score, first_seen_at, opportunity_id)`, snapshotted. */
+  firstSeenAt: z.string().datetime(),
+  /** The input version the entry was evaluated against. */
+  opportunityRevision: intColumnPositiveSchema,
 })
 
 // ---------------------------------------------------------------------------
@@ -1208,6 +1629,22 @@ export type RevokeJobQueueTeamTriageSubscriptionDto = z.infer<
   typeof revokeJobQueueTeamTriageSubscriptionSchema
 >
 export type JobQueueTeamTriageSubscriptionDto = z.infer<typeof jobQueueTeamTriageSubscriptionSchema>
+export type JobQueueTeamTriageSubscriptionWorkerDto = z.infer<
+  typeof jobQueueTeamTriageSubscriptionWorkerSchema
+>
+export type JobQueueScopeKind = z.infer<typeof jobQueueScopeKindSchema>
+export type JobQueueScope = z.infer<typeof jobQueueScopeSchema>
+export type JobQueueAssignmentState = z.infer<typeof jobQueueAssignmentStateSchema>
+export type JobQueueActionKind = z.infer<typeof jobQueueActionKindSchema>
+export type JobQueueGenerationStatus = z.infer<typeof jobQueueGenerationStatusSchema>
+export type JobQueueAssignmentWorkerDto = z.infer<typeof jobQueueAssignmentWorkerSchema>
+export type JobQueueAssignmentDto = z.infer<typeof jobQueueAssignmentSchema>
+export type JobQueueDismissalDto = z.infer<typeof jobQueueDismissalSchema>
+export type JobQueueDismissalWorkerDto = z.infer<typeof jobQueueDismissalWorkerSchema>
+export type JobQueueActionWorkerDto = z.infer<typeof jobQueueActionWorkerSchema>
+export type JobQueueGenerationWorkerDto = z.infer<typeof jobQueueGenerationWorkerSchema>
+export type JobQueueGenerationDto = z.infer<typeof jobQueueGenerationSchema>
+export type JobQueueGenerationEntryWorkerDto = z.infer<typeof jobQueueGenerationEntryWorkerSchema>
 export type JobCollectionTrigger = z.infer<typeof jobCollectionTriggerSchema>
 export type JobCollectionCycleStatus = z.infer<typeof jobCollectionCycleStatusSchema>
 export type JobSourceReadiness = z.infer<typeof jobSourceReadinessSchema>

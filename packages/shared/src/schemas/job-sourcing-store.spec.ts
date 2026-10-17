@@ -13,6 +13,7 @@ import {
   jobQueueSourcePageSchema,
   jobQueueTeamTriageGrantSchema,
   jobQueueTeamTriageSubscriptionSchema,
+  jobQueueTeamTriageSubscriptionWorkerSchema,
   jobSourceIdentitySchema,
   jobSourceRevisionSchema,
   createJobQueueTeamTriageGrantSchema,
@@ -628,12 +629,14 @@ describe('mutation coverage: triage', () => {
       revokedAt: null,
       createdAt: NOW,
     }
-    expect(jobQueueTeamTriageSubscriptionSchema.parse(row)).toEqual(row)
+    // SR-M-6 (PR #1017 fix round 2): the full row, actor included, is the
+    // WORKER shape; the plain name drops `actorId`.
+    expect(jobQueueTeamTriageSubscriptionWorkerSchema.parse(row)).toEqual(row)
     expect(
-      jobQueueTeamTriageSubscriptionSchema.safeParse({ ...row, actorId: undefined }).success,
+      jobQueueTeamTriageSubscriptionWorkerSchema.safeParse({ ...row, actorId: undefined }).success,
     ).toBe(false)
     expect(
-      jobQueueTeamTriageSubscriptionSchema.safeParse({ ...row, roleFamily: 'r'.repeat(101) })
+      jobQueueTeamTriageSubscriptionWorkerSchema.safeParse({ ...row, roleFamily: 'r'.repeat(101) })
         .success,
     ).toBe(false)
   })
