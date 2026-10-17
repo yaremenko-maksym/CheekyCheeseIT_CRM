@@ -20,7 +20,10 @@ import {
   jobQueueScopeKindSchema,
   jobQueueScopeSchema,
   jobQueueTeamTriageSubscriptionSchema,
+  jobQueueTeamTriageSubscriptionWorkerSchema,
   createJobQueueTeamTriageSubscriptionSchema,
+  createJobQueueTeamTriageGrantSchema,
+  revokeJobQueueTeamTriageGrantSchema,
   revokeJobQueueTeamTriageSubscriptionSchema,
   jobSignalKindSchema,
 } from './job-sourcing'
@@ -366,7 +369,8 @@ describe('stored text is described, not normalised (CR-L-2)', () => {
 
   it('accepts a value whose only character is NBSP — Postgres stores it as non-blank', () => {
     // Measured on PG16 (en_US.utf8): U+00A0 is NOT in [[:space:]], so the
-    // column CHECK accepts it; JS `\s` and `.trim()` would have refused it.
+    // column CHECK accepts it. JS `\s` treats it as whitespace, so a `/\S/`
+    // row rule would have refused a row the database stored.
     expect(
       jobQueueDismissalWorkerSchema.safeParse({ ...dismissal, reason: '\u00a0' }).success,
     ).toBe(true)
@@ -579,8 +583,8 @@ describe('jobQueueActionWorkerSchema — server-internal (actor, key, subject us
 
   it('bounds the idempotency key, the reason and the version columns', () => {
     refusedAt(jobQueueActionWorkerSchema, { ...takeAction, idempotencyKey: '' }, ['idempotencyKey'])
-    // Whitespace-only is blank: the column CHECK (`~ '[^[:space:]]'`) refuses it,
-    // so the contract must too, or a DTO that parsed would not store.
+    // ASCII-whitespace-only is blank in every Postgres locale, so a stored row can
+    // never hold it: the row schema refusing it can never reject a stored row.
     expect(
       issuesOf(jobQueueActionWorkerSchema.safeParse({ ...takeAction, idempotencyKey: ' \t ' })),
     ).toEqual([{ code: 'invalid_format', message: 'must not be blank', path: ['idempotencyKey'] }])
@@ -803,5 +807,154 @@ describe('triage subscription contracts agree with the integer columns', () => {
       { ...create, policyVersion: PG_INT_MAX + 1 },
       ['policyVersion'],
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Fix round 2
+// ---------------------------------------------------------------------------
+
+/**
+ * The code points Postgres's `[[:space:]]` matches on the catalog these
+ * columns live in — ENUMERATED on PG16 / en_US.utf8 (every BMP code point
+ * tested with `chr(cp) ~ '[[:space:]]'`), not assumed. The column CHECK
+ * `~ '[^[:space:]]'` refuses a value made only of these.
+ */
+const PG_BLANK = [
+  '\t',
+  '\n',
+  '\v',
+  '\f',
+  '\r',
+  ' ',
+  '\u0085',
+  '\u2000',
+  '\u2001',
+  '\u2002',
+  '\u2003',
+  '\u2004',
+  '\u2005',
+  '\u2006',
+  '\u2008',
+  '\u2009',
+  '\u200a',
+  '\u2028',
+  '\u2029',
+  '\u205f',
+  '\u3000',
+]
+
+describe('request reasons refuse what the column refuses (CR-M-3)', () => {
+  const create = {
+    teamId: U2,
+    roleFamily: 'backend',
+    sourceTypes: [],
+    policyVersion: 1,
+    expiresAt: LATER,
+    reason: 'standing triage',
+  }
+  const grant = {
+    opportunityId: U1,
+    teamId: U2,
+    expectedOpportunityRevision: 1,
+    policyVersion: 1,
+    reason: 'triage',
+    expiresAt: LATER,
+  }
+  const revokeGrant = { opportunityId: U1, teamId: U2, expectedGrantVersion: 1, reason: 'x' }
+  const revokeSub = { subscriptionId: U1, expectedSubscriptionVersion: 1, reason: 'x' }
+  const BLANK = { code: 'custom', message: 'must not be blank', path: ['reason'] }
+
+  it('refuses U+0085 alone — JS trim() keeps it, Postgres treats it as blank', () => {
+    // The reviewer's reproduction: this parsed, then the column answered 23514.
+    for (const [schema, body] of [
+      [createJobQueueTeamTriageSubscriptionSchema, create],
+      [revokeJobQueueTeamTriageSubscriptionSchema, revokeSub],
+      [createJobQueueTeamTriageGrantSchema, grant],
+      [revokeJobQueueTeamTriageGrantSchema, revokeGrant],
+    ] as const)
+      expect(issuesOf(schema.safeParse({ ...body, reason: '\u0085' }))).toEqual([BLANK])
+  })
+
+  it('refuses EVERY code point Postgres treats as blank, alone and mixed', () => {
+    // ASCII whitespace is removed by trim() and refused by min(1) as too_small,
+    // so only the non-ASCII members reach the refine; all must be refused.
+    for (const c of PG_BLANK.filter((c) => c.charCodeAt(0) > 0x7f))
+      expect(
+        createJobQueueTeamTriageSubscriptionSchema.safeParse({ ...create, reason: c }).success,
+        `U+${c.charCodeAt(0).toString(16)}`,
+      ).toBe(false)
+    expect(
+      createJobQueueTeamTriageSubscriptionSchema.safeParse({ ...create, reason: PG_BLANK.join('') })
+        .success,
+    ).toBe(false)
+  })
+
+  it('still accepts a reason with one real character among the blanks', () => {
+    expect(
+      createJobQueueTeamTriageSubscriptionSchema.parse({ ...create, reason: '\u0085x\u3000' })
+        .reason,
+    ).toBe('\u0085x') // trim() strips U+3000 but keeps U+0085
+    // NBSP is NOT blank to Postgres, but JS trim() strips it: a lone NBSP is
+    // refused (too_small) — stricter than the column, which is the safe side.
+    expect(
+      createJobQueueTeamTriageSubscriptionSchema.safeParse({ ...create, reason: '\u00a0' }).success,
+    ).toBe(false)
+  })
+
+  it('applies the same rule to roleFamily, whose column has the same CHECK', () => {
+    expect(
+      issuesOf(
+        createJobQueueTeamTriageSubscriptionSchema.safeParse({ ...create, roleFamily: '\u0085' }),
+      ),
+    ).toEqual([{ code: 'custom', message: 'must not be blank', path: ['roleFamily'] }])
+  })
+})
+
+describe('stored text counts characters, not UTF-16 code units (SR-L-6)', () => {
+  // Zod v4's string `.max()` already counts CODE POINTS (measured: max(2)
+  // accepts two U+1F600, which are four UTF-16 units) — the same unit as the
+  // column's `length()`. No code change; these pin the boundary so a Zod
+  // upgrade that changed the unit would fail here.
+
+  it('accepts 500 astral characters (1000 UTF-16 units) — the column does', () => {
+    const emoji = '\u{1F600}'.repeat(500)
+    expect(emoji.length).toBe(1000)
+    expect(jobQueueDismissalWorkerSchema.safeParse({ ...dismissal, reason: emoji }).success).toBe(
+      true,
+    )
+  })
+
+  it('refuses the 501st character, counted as a code point', () => {
+    for (const reason of ['\u{1F600}'.repeat(501), 'r'.repeat(501)])
+      expect(
+        issuesOf(jobQueueDismissalWorkerSchema.safeParse({ ...dismissal, reason })).map(
+          (i) => `${i.code}:${i.path.join('.')}`,
+        ),
+      ).toEqual(['too_big:reason'])
+  })
+})
+
+describe('triage subscription: worker vs public shape (SR-M-6)', () => {
+  const row = {
+    id: U1,
+    teamId: U2,
+    roleFamily: 'backend',
+    sourceTypes: [],
+    policyVersion: 0,
+    subscriptionVersion: 1,
+    actorId: U3,
+    expiresAt: LATER,
+    revokedAt: null,
+    createdAt: NOW,
+  }
+
+  it('keeps the creating ADMIN on the worker shape only', () => {
+    expect(jobQueueTeamTriageSubscriptionWorkerSchema.parse(row)).toEqual(row)
+    refusedAt(jobQueueTeamTriageSubscriptionWorkerSchema, { ...row, actorId: undefined }, [
+      'actorId',
+    ])
+    const { actorId: _actor, ...publicRow } = row
+    expect(jobQueueTeamTriageSubscriptionSchema.parse(row)).toEqual(publicRow)
   })
 })

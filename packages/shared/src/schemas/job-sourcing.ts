@@ -650,7 +650,32 @@ export const confirmPossibleDuplicateSchema = z
 
 // --- ADMIN team triage -------------------------------------------------------
 
-const triageReasonSchema = z.string().trim().min(1).max(JOB_REASON_MAX_CHARS)
+/**
+ * CR-M-3 (PR #1017 round 2). What Postgres's `[[:space:]]` matches on the
+ * catalog these columns live in, ENUMERATED on PG16 / en_US.utf8 (every BMP
+ * code point tested with `chr(cp) ~ '[[:space:]]'`): the ASCII six, U+0085,
+ * U+2000-2006, U+2008-200A, U+2028, U+2029, U+205F, U+3000. A value with no
+ * character outside this set is what a `~ '[^[:space:]]'` CHECK refuses.
+ *
+ * `.trim()` is NOT enough: JS `trim()` keeps U+0085, so a reason of only
+ * U+0085 parsed here and the column answered with a raw 23514 instead of a
+ * 400. The set is locale-measured: the production catalog's locale must match
+ * (it is the same postgres:16-alpine image); a locale that treated FEWER code
+ * points as space would only make this refusal stricter than the column,
+ * never looser.
+ */
+const PG_NOT_BLANK = /[^\t\n\v\f\r \u0085\u2000-\u2006\u2008-\u200a\u2028\u2029\u205f\u3000]/
+
+/** A REQUEST string bound for a non-blank column: refuses what the column refuses. */
+const requestTextSchema = (max: number) =>
+  z
+    .string()
+    .trim()
+    .min(1)
+    .max(max)
+    .refine((v) => PG_NOT_BLANK.test(v), 'must not be blank')
+
+const triageReasonSchema = requestTextSchema(JOB_REASON_MAX_CHARS)
 
 export const createJobQueueTeamTriageGrantSchema = z
   .object({
@@ -689,7 +714,7 @@ export const jobQueueTeamTriageGrantSchema = z.object({
 export const createJobQueueTeamTriageSubscriptionSchema = z
   .object({
     teamId: z.string().uuid(),
-    roleFamily: z.string().trim().min(1).max(JOB_SHORT_TEXT_MAX_CHARS),
+    roleFamily: requestTextSchema(JOB_SHORT_TEXT_MAX_CHARS),
     /** Empty = every source. Bounded by the number of provider types. */
     sourceTypes: z.array(jobSourceTypeSchema).max(jobSourceTypeSchema.options.length),
     // r5 Task 1.2c: `job_team_triage_subscriptions.policy_version` is an
@@ -710,7 +735,12 @@ export const revokeJobQueueTeamTriageSubscriptionSchema = z
   })
   .strict()
 
-export const jobQueueTeamTriageSubscriptionSchema = z.object({
+/**
+ * SR-M-6 (PR #1017 round 2). The stored subscription row, WORKER-internal: it
+ * carries `actorId`, the ADMIN who created it. Same convention as the queue
+ * shapes below (plain name = what a client may receive).
+ */
+export const jobQueueTeamTriageSubscriptionWorkerSchema = z.object({
   id: z.string().uuid(),
   teamId: z.string().uuid(),
   roleFamily: z.string().max(JOB_SHORT_TEXT_MAX_CHARS),
@@ -722,6 +752,17 @@ export const jobQueueTeamTriageSubscriptionSchema = z.object({
   revokedAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
 })
+
+/**
+ * The public subscription: no actor identity. `teamId` stays — it is the
+ * SUBJECT of the subscription (the team that gains visibility), not an actor,
+ * and every subscription endpoint is ADMIN-only (Phase-6 obligation).
+ */
+export const jobQueueTeamTriageSubscriptionSchema = jobQueueTeamTriageSubscriptionWorkerSchema.omit(
+  {
+    actorId: true,
+  },
+)
 
 // --- Queue workflow store (r5 Task 1.2 part 3) -------------------------------
 //
@@ -1588,6 +1629,9 @@ export type RevokeJobQueueTeamTriageSubscriptionDto = z.infer<
   typeof revokeJobQueueTeamTriageSubscriptionSchema
 >
 export type JobQueueTeamTriageSubscriptionDto = z.infer<typeof jobQueueTeamTriageSubscriptionSchema>
+export type JobQueueTeamTriageSubscriptionWorkerDto = z.infer<
+  typeof jobQueueTeamTriageSubscriptionWorkerSchema
+>
 export type JobQueueScopeKind = z.infer<typeof jobQueueScopeKindSchema>
 export type JobQueueScope = z.infer<typeof jobQueueScopeSchema>
 export type JobQueueAssignmentState = z.infer<typeof jobQueueAssignmentStateSchema>
