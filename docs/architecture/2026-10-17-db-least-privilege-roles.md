@@ -173,18 +173,33 @@ is `setval` — the ability to rewind a sequence and collide ids. `crm_collector
 sequences of its class C tables only. Identity columns need no sequence grant; `uuid`
 `gen_random_uuid()` defaults need none.
 
-**Functions.** No `SECURITY DEFINER` function exists, and none may be added without an explicit
-justification in its own PR: a definer function runs as its owner (`crm_user`) and is a hole
-through every boundary here. If one is ever added, it must `SET search_path = pg_catalog, public`
-and have `EXECUTE` revoked from `PUBLIC` and granted by name. Trigger functions cannot be called
-directly, so the §3 trigger functions need no `EXECUTE` handling.
+**Functions.** By default, PostgreSQL grants `EXECUTE` on every new function to `PUBLIC`. File 1
+revokes that, both for what exists and for what is created later (SR-L-4):
 
-**Database and schema.** `REVOKE ALL ON DATABASE crm_db FROM PUBLIC` (removes the implicit
-`CONNECT` and `TEMPORARY`), then `GRANT CONNECT` to `crm_app` and `crm_collector`. `GRANT USAGE ON
-SCHEMA public` to both. `REVOKE CREATE ON SCHEMA public FROM PUBLIC` — already the default on a
-cluster initialised by PostgreSQL 15+, issued explicitly so the file is correct on any cluster.
-No `TEMPORARY` for either role; if the API ever needs temp tables, the grant is added by a PR and
-the need is stated there.
+```sql
+REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE crm_user REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+```
+
+A function the API must call is then granted to `crm_app` by name, in the PR that adds it. Built-ins
+in `pg_catalog` (`gen_random_uuid`, `now`, …) are unaffected. Firing a trigger does not check
+`EXECUTE` on the trigger function, so the §3 triggers keep working.
+
+No `SECURITY DEFINER` function exists today. A definer function runs as its owner (`crm_user`) and
+is a hole through every boundary here, so one may be added only in the narrow form §3 describes
+for the end-of-retention option R-B, if the owner chooses it: a fixed `search_path = pg_catalog,
+public`, `EXECUTE` revoked from `PUBLIC` and granted by name, and arguments validated inside the
+body. Any other definer function needs its own ADR-level justification.
+
+**Database and schema.** On `crm_db`: `REVOKE ALL ON DATABASE crm_db FROM PUBLIC` (removes the
+implicit `CONNECT` and `TEMPORARY`), then `GRANT CONNECT` to `crm_app` and `crm_collector`. On the
+**other** databases of the cluster — `postgres` (the maintenance database) and `template1` —
+`REVOKE CONNECT, TEMPORARY … FROM PUBLIC` as well; otherwise `crm_app` can still connect to
+`postgres` and create temporary tables there (SR-L-2). `pg_hba.conf` (§4 step 7) confines both
+application roles to `crm_db` at the network layer too. Schema: `GRANT USAGE ON SCHEMA public` to
+both; `REVOKE CREATE ON SCHEMA public FROM PUBLIC` — already the default on a cluster initialised
+by PostgreSQL 15+, issued explicitly so the file is correct on any cluster. No `TEMPORARY` for
+either role; if the API ever needs temp tables, the grant is added by a PR that states why.
 
 **Default privileges — so a new table is neither unreachable nor over-granted.**
 
@@ -193,6 +208,8 @@ ALTER DEFAULT PRIVILEGES FOR ROLE crm_user IN SCHEMA public
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO crm_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE crm_user IN SCHEMA public
   GRANT USAGE, SELECT ON SEQUENCES TO crm_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE crm_user
+  REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 -- crm_collector: deliberately NO default privileges (fail closed).
 ```
 
@@ -201,31 +218,58 @@ What this gives, exactly:
 - A new class A table is reachable by the API the moment it is created. Nothing to remember.
 - A new table the **collector** needs is unreachable until a grant names it. Fail closed is loud: the
   worker gets `permission denied` (SQLSTATE `42501`), not wrong data.
-- A new class B table starts **over-granted** (it inherits `UPDATE, DELETE` for `crm_app`). The DDL
-  file that creates it must revoke them and add the §3 triggers **in the same explicit
-  `BEGIN … COMMIT` block** as the `CREATE TABLE` — the deploy applies files with statement-level
-  autocommit, so without the block there is a window where the new table is mutable.
+- A new class B, A-log or **E** table starts **over-granted** (it inherits `UPDATE, DELETE` for
+  `crm_app`; a new ledger table would be fully writable by the API). The DDL file that creates it
+  must revoke those grants — and for class B add the §3 triggers — **in the same explicit
+  `BEGIN … COMMIT` block** as the `CREATE TABLE`. The deploy applies files with statement-level
+  autocommit, so without the block there is a window where the new table is mutable. File 2
+  re-asserts the revokes on every deploy, inside its own transaction (§4).
 - **The trap:** default privileges apply only to objects created **by `crm_user`** (the `FOR ROLE`).
   A table created by any other role gets no grants at all. Every DDL path in this repository runs as
   `crm_user` today; that must stay true, and the catalog check below catches it if it does not.
 
 **The catalog check — what makes "silently" impossible.** One check, run in CI against a scratch
-database built from the same DDL, and as a deploy step right after the DDL apply steps:
+database built from the same DDL, and as a deploy step right after the DDL apply steps. It reads
+five catalogs, because `has_table_privilege` alone sees neither sequences, nor column grants, nor
+default privileges (SPEC-M-3):
 
-1. Every table in `public` appears in the class manifest exactly once. A table missing from the
-   manifest **fails the check** — the author of a new table must choose its class.
-2. For every table and both roles, `has_table_privilege` for each of `SELECT, INSERT, UPDATE,
-DELETE, TRUNCATE, REFERENCES, TRIGGER` equals what the class prescribes — no more, no less.
-3. `crm_app` and `crm_collector`: `rolsuper`, `rolcreaterole`, `rolcreatedb`, `rolbypassrls`,
-   `rolreplication` are all false; they own no object (`pg_class.relowner`); they have no rows in
-   `pg_auth_members`.
-4. Every class B table has its §3 triggers, in state `A` (`ENABLE ALWAYS`) in `pg_trigger.tgenabled`.
+1. **Manifest coverage.** Every table in `public` appears in the class manifest exactly once. A
+   table missing from the manifest **fails the check** — the author of a new table must choose its
+   class.
+2. **Table privileges.** For every table and both roles, `has_table_privilege` for each of `SELECT,
+INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER` equals what the class prescribes — no
+   more, no less. For class D tables with column-level grants, the table-level `SELECT` for
+   `crm_collector` must be **false** (a table-level grant would silently cover every column).
+3. **Column privileges.** For class D, the set of `(table, column)` pairs with `SELECT` for
+   `crm_collector` (`information_schema.column_privileges`, or `has_column_privilege` per column)
+   equals the manifest's column list exactly. `has_table_privilege` cannot see these.
+4. **Sequence privileges.** For every sequence in `public`, `has_sequence_privilege` gives `crm_app`
+   `USAGE` and `SELECT` and **not** `UPDATE`; `crm_collector` only `USAGE`, and only on sequences of
+   its class C tables.
+5. **Default privileges.** `pg_default_acl` holds exactly the three entries of the block above for
+   `defaclrole = crm_user` — tables (`crm_app=arwd`), sequences (`crm_app=rU`), functions (no
+   `PUBLIC` `EXECUTE`) — and no entry for any other role, so a stray `ALTER DEFAULT PRIVILEGES` is
+   caught.
+6. **Database and function privileges.** `has_database_privilege` — `crm_app` / `crm_collector` have
+   `CONNECT` on `crm_db` only, `TEMPORARY` nowhere, and `CREATE` on schema `public` is false.
+   `has_function_privilege` — `PUBLIC` holds `EXECUTE` on no function in `public`.
+7. **Role attributes and ownership.** For `crm_app` and `crm_collector`: `rolsuper`,
+   `rolcreaterole`, `rolcreatedb`, `rolbypassrls`, `rolreplication` are all false; they own no
+   object (`pg_class.relowner`, `pg_proc.proowner`, `pg_namespace.nspowner`).
+8. **Role membership — in both directions, pinned (SR-L-3).** `pg_auth_members` has **zero** rows
+   with `member` = `crm_app` or `crm_collector` (they are members of no role — the direction that
+   matters, because membership is what would let them `SET ROLE` to an owner), and zero rows with
+   `roleid` = either of them (nobody is a member of them, so no one inherits their grants by
+   accident). The check names the column it tests; "no membership" without a direction is how a
+   check passes while testing the harmless side.
+9. **Triggers.** Every class B table has its §3 triggers, in state `A` (`ENABLE ALWAYS`) in
+   `pg_trigger.tgenabled`.
 
 This is the same philosophy as `check-prod-ddl-wiring.py`: an enumeration in one place, and CI fails
 when reality and the enumeration diverge. Confidence **MED** on where the check lives (a script in
 `scripts/devops/` called from both CI and deploy, or the "catalog validation" step the ledger ADR is
-asked for — see §6); **HIGH** that it must exist, because without it the four failure modes above
-are invisible until production.
+asked for — see §6); **HIGH** that it must exist, because without it every failure mode listed in
+this section is invisible until production.
 
 ### 3. The append-only audit log under the new model
 
