@@ -74,11 +74,11 @@ the project requirements (priority 2) conflicts with it.
 
 Three roles. Confidence **HIGH** on the model; it is the textbook split.
 
-| Role            | Kind  | Becomes / is                                                                                                                                                     | Attributes                                                                                                                                                               |
-| --------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `crm_user`      | LOGIN | **The owner / migration role.** Keeps owning every object; every deploy DDL file, the ledger runner (§6), `db:push`, `db:seed` and the backup keep running as it | Unchanged in this ADR (superuser today, very probably). Its password stays, but is held **only** by the `postgres` service and the deploy, never by the API (§4, step 5) |
-| `crm_app`       | LOGIN | **The API's role.** The only credential the API process holds                                                                                                    | `NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS`, a `CONNECTION LIMIT` sized to the pool plus headroom, member of **no** role, owns **nothing**           |
-| `crm_collector` | LOGIN | **The collection worker's role** that r5 Task 1.3 requires                                                                                                       | Same attributes as `crm_app`; explicit per-table grants only (§2). Created when the worker ships as its own process; its credential goes only to that process            |
+| Role            | Kind  | Becomes / is                                                                                                                                                     | Attributes                                                                                                                                                                                                                                                                                          |
+| --------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `crm_user`      | LOGIN | **The owner / migration role.** Keeps owning every object; every deploy DDL file, the ledger runner (§6), `db:push`, `db:seed` and the backup keep running as it | Unchanged in this ADR (superuser today, very probably). Login attributes unchanged, but its password is **rotated** and TCP login refused (§4, step 7), so only local-socket use remains. The new password is held **only** by the `postgres` service and the deploy, never by the API (§4, step 5) |
+| `crm_app`       | LOGIN | **The API's role.** The only credential the API process holds                                                                                                    | `NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS`, a `CONNECTION LIMIT` sized to the pool plus headroom, member of **no** role, owns **nothing**                                                                                                                                      |
+| `crm_collector` | LOGIN | **The collection worker's role** that r5 Task 1.3 requires                                                                                                       | Same attributes as `crm_app`; explicit per-table grants only (§2). Created when the worker ships as its own process; its credential goes only to that process                                                                                                                                       |
 
 Why each property matters (the attack each one closes):
 
@@ -688,10 +688,14 @@ r5 Task 1.3 implements on top of both: the collector's concrete table list (clas
   same transaction as the `CREATE TABLE`.
 - Two more manual DDL files under the wiring contract, each costing the four C-15 edits.
 - The migration role stays all-powerful over the data. This ADR does not claim otherwise (§3).
-- **Backups do not carry grants.** `pg-backup.sh` dumps with `--no-owner --no-acl`. A restore must
-  run as `crm_user` (so it owns the restored objects) and be followed by a deploy, or a manual run
-  of files 1 and 2, before the API can connect. The restore section of the runbook must say so;
-  the implementing PR adds it.
+- **Backups do not carry grants.** `pg-backup.sh` dumps with `--no-owner --no-acl`, and default
+  privileges are not in the dump. A restore follows the ordered procedure of §4 ("Restore from
+  backup"): stop the API, restore as `crm_user`, apply files 1 and 2, run the catalog check, start
+  the API. The implementing PR rewrites the restore notes in `pg-backup.sh` and the runbook.
+- **The existing audit logs get only the privilege layer for now** (class A-log, §2). Making them
+  append-only needs FK and deletion-policy changes outside this ADR.
+- **End of retention for the action log is an open owner decision** (§3, R-A / R-B / R-C). R-A
+  ships first and must be replaced before any retention period is set.
 
 **Assumptions (A1, recorded per `autonomy-levels.md`)**
 
@@ -701,16 +705,27 @@ r5 Task 1.3 implements on top of both: the collector's concrete table list (clas
 - Demoting `crm_user` from superuser is deferred — a separate A3 decision for the owner, not part
   of this rollout.
 - The variable name `MIGRATION_DATABASE_URL` — reversible; the implementing task may rename it.
+- Refusing TCP login for `crm_user` is classed as **required**, not recommended (§4 step 7) —
+  reversible by one `pg_hba.conf` line, but re-opening it is an owner decision.
+- The six existing audit logs are class A-log, not class A — reversible by a line in file 2.
+
+**Open owner decisions (not taken here)**
+
+- End of retention / redaction for `job_queue_actions` (§3): R-A, R-B or R-C; recommendation R-B,
+  moving to R-C. Tied to the erasure design pending from PR #1019.
 
 ## Rollback
 
-Per step: §4, "Rollback". Summary:
+Per step: §4, "Rollback". The rule there: no rollback puts the `crm_user` credential back into
+the API's environment, and none can leave the API without a working credential. Summary:
 
-| What to undo          | How                                                                                                                                                                        | Expected state                            | Verify                                                                           |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------- |
-| This ADR (docs only)  | Revert its merge commit                                                                                                                                                    | The file is gone; nothing else changed    | The revert's file list shows only this ADR                                       |
-| The URL switch (PR B) | Revert PR B's merge commit, let it deploy                                                                                                                                  | The API connects as `crm_user` again      | The `pg_stat_activity` query of §4 step 6 shows `crm_user` sessions from the API |
-| The roles (PR A)      | After PR B is reverted: a forward file that drops `crm_app` / `crm_collector` (they own nothing, so `DROP OWNED` + `DROP ROLE` suffice) and removes the default privileges | No new roles; their grants gone with them | `SELECT rolname FROM pg_roles` lists neither role                                |
+| What to undo                                   | How                                                                                                                                                               | Expected state                                                              | Verify                                                                           |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| This ADR (docs only)                           | Revert its merge commit                                                                                                                                           | The file is gone; nothing else changed                                      | The revert's file list shows only this ADR                                       |
+| A missing or wrong grant after step 5          | A forward line in file 2, deployed; in an emergency, the file that widens `crm_app` to class A on every table                                                     | The API works as `crm_app`; still no DDL, no `TRUNCATE`, no trigger control | The catalog check passes for the new manifest; no `42501` in API logs            |
+| `crm_app` cannot log in                        | **[OWNER]** re-enters `CRM_APP_DB_PASSWORD`, deploy; file 1 re-asserts the password; the probe-before-recreate ordering keeps the old container serving meanwhile | The API connects as `crm_app`                                               | The step 3 probes pass                                                           |
+| The URL switch (PR B), **before** step 7 only  | Not a rollback path — it restores the owner credential to the API. If the owner nevertheless decides it (A3), revert PR B and deploy                              | The API connects as `crm_user` again, and the boundary is gone              | The `pg_stat_activity` query of §4 step 6 shows `crm_user` sessions from the API |
+| The roles (PR A), only while nothing uses them | A forward file that drops `crm_app` / `crm_collector` (they own nothing, so `DROP OWNED` + `DROP ROLE` suffice) and removes the default privileges                | No new roles; their grants gone with them                                   | `SELECT rolname FROM pg_roles` lists neither role                                |
 
 ## Sources
 
@@ -725,6 +740,15 @@ Per step: §4, "Rollback". Summary:
   ledger ADR), reconciliation row C-15 (wiring contract), the `job_queue_actions` row of the store
   table.
 - PR #1017 — the security finding, and the "GAP PIN: no trigger exists yet" test.
+- PR #1018 review round 1 — the security review verified on a throwaway `postgres:16-alpine` 16.15
+  container: in-container `127.0.0.1` / `::1` are `trust`; a failing `ALTER ROLE … PASSWORD` is
+  logged in clear text with `log_statement = none`; owner-run referential actions; the image
+  applying `POSTGRES_PASSWORD` only at first initialisation.
+- `docs/legal/2026-10-17-job-queue-actions-erasure.md` (PR #1019) — the end-of-retention and
+  redaction requirements of §3.
+- Audit tables by symbol: `userAuditLog`, `teamAuditLog`, `projectAuditLog`,
+  `transactionAuditLog`, `documentAccessLog` (schema module `audit.ts`), `meetingRecorderAuditLog`
+  (schema module `interviews.ts`); pruning by `DocumentAccessLogRetentionCronService`.
 - `docs/runbooks/deployment.md` §9 (rollback by `image_tag`); `docs/runbooks/human-only.md`
   (conversion rule; items 1 and 3).
 - `.claude/rules/common/live-db-access.md`; `.claude/rules/common/autonomy-levels.md`.
