@@ -209,7 +209,8 @@ run_gate() {
     envs+=("$1")
     shift
   done
-  env -i PATH="$dir:/usr/bin:/bin" HOME="$HOME" NVM_DIR="$nvm" ${envs[@]+"${envs[@]}"} \
+  ${GATE_PREFIX[@]+"${GATE_PREFIX[@]}"} \
+    env -i PATH="$dir:/usr/bin:/bin" HOME="$HOME" NVM_DIR="$nvm" ${envs[@]+"${envs[@]}"} \
     "$dir/node" ${flags[@]+"${flags[@]}"} "$GATE" --changed
 }
 
@@ -266,5 +267,32 @@ assert_red "[script] MUTATION_GATE_NODE_PINNED=1 preset on a v20 running node ->
   --contains "MUTATION_GATE_NODE_PINNED=1 is set" \
   --not-contains "CHILD-RAN" \
   -- run_gate "$S20" "$NVM_EXIT7" MUTATION_GATE_NODE_PINNED=1
+
+# 13 -- a child that DIES BY SIGNAL (CR-M-4): the parent must exit 2 and name the signal,
+# not exit 0 or a bare non-zero. Case 11's child traps TERM and exits 9, so it never
+# exercised this branch; this child kills itself outright.
+NVM_KILLED="$WS/nvm-killed"
+make_child_nvm "$NVM_KILLED" 'kill -KILL $$'
+assert_red "[script] a child killed by SIGKILL -> the parent reports 'terminated by SIGKILL'" \
+  --contains "::error::mutation-gate:" \
+  --contains "terminated by SIGKILL" \
+  -- run_gate "$S20" "$NVM_KILLED"
+assert_green "[script] ...and exits with exactly 2 (the gate's could-not-run code), not 0 or the child's status" \
+  --contains "EXIT=2" \
+  -- code_is 2 run_gate "$S20" "$NVM_KILLED"
+
+# 14 -- a group-wide interrupt reaches the child EXACTLY ONCE (CR-M-3). Parent and child
+# share a process group, so a terminal Ctrl-C already delivers SIGINT to both; forwarding
+# it too would deliver it twice. The gate runs in its own fresh process group (python3
+# setpgrp + exec) so the child's `kill -INT 0` hits only this group, never the test runner.
+# The child counts its INT traps over ~1.2s, long enough for a forwarded second one to land.
+NVM_INT="$WS/nvm-int"
+make_child_nvm "$NVM_INT" 'n=0; trap "n=\$((n+1))" INT; kill -INT 0; for i in 1 2 3 4; do sleep 0.3 & wait $!; done; echo "CHILD-INT-COUNT=$n"; exit 0'
+GATE_PREFIX=(python3 -c 'import os, sys; os.setpgrp(); os.execvp(sys.argv[1], sys.argv[1:])')
+assert_green "[script] a group-wide SIGINT reaches the child exactly once (not forwarded a second time)" \
+  --contains "CHILD-INT-COUNT=1" \
+  --not-contains "CHILD-INT-COUNT=2" \
+  -- run_gate "$S20" "$NVM_INT"
+GATE_PREFIX=()
 
 guard_test_summary "test-mutation-gate-node-pin.sh"

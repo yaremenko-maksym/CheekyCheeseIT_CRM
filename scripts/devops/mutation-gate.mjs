@@ -523,9 +523,16 @@ function resolveNodePin({ execPath = process.execPath, env = process.env, cwd = 
  * running unpinned or re-executing forever.
  *
  * Re-exec details, each deliberate:
- *   - async spawn (not spawnSync) so SIGINT / SIGTERM / SIGHUP reach the child. A parent
- *     killed with a catchable signal no longer orphans a Node 22 Stryker run. SIGKILL
- *     cannot be intercepted by any process; that residual case is the harness's
+ *   - async spawn (not spawnSync) so SIGTERM and SIGHUP reach the child. A parent killed
+ *     with one of those no longer orphans a Node 22 Stryker run. SIGINT is deliberately
+ *     NOT forwarded: parent and child share a process group, so a terminal Ctrl-C already
+ *     reaches the child, and forwarding it as well delivers it TWICE (a second SIGINT is
+ *     a force-quit to many tools). The parent keeps a no-op SIGINT handler so it stays
+ *     alive to relay the child's exit code. Residual: a SIGINT sent to the parent's pid
+ *     ALONE (`kill -INT <pid>`, no group) does not reach the child; detaching the child
+ *     into its own group would fix that but costs it its controlling terminal (POSIX
+ *     detached == setsid), a larger behaviour change than this gate should make.
+ *     SIGKILL cannot be intercepted by any process; that residual case is the harness's
  *     process-group cleanup, not something this file can close.
  *   - process.execArgv is forwarded, so `node --max-old-space-size=... mutation-gate.mjs`
  *     keeps its flags under the pinned node.
@@ -554,7 +561,11 @@ function pinNodeOrExit(opts = {}) {
     stdio: 'inherit',
     env: { ...env, PATH: pin.path, MUTATION_GATE_NODE_PINNED: '1' },
   })
-  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => child.kill(sig))
+  // SIGINT: see the docblock -- the shared process group already delivers a terminal
+  // Ctrl-C to the child, so only stay alive here (default action would kill the parent
+  // and lose the child's exit code).
+  process.on('SIGINT', () => {})
+  for (const sig of ['SIGTERM', 'SIGHUP']) process.on(sig, () => child.kill(sig))
   child.on('error', (err) => fail(`could not start ${pin.node}: ${err.message}`))
   child.on('exit', (code, signal) => {
     if (signal) fail(`${pin.node} was terminated by ${signal}`)
