@@ -243,10 +243,14 @@ describe('privilege SQL for classes with no members yet', () => {
         )
         // And the check must expect exactly those pairs — a grant the check does not
         // assert is a grant that can vanish unnoticed.
-        const check = buildCheckSql()
-        expect(check).toContain("SELECT 'users', 'id'")
-        expect(check).toContain("SELECT 'users', 'role'")
-        expect(check).toContain("SELECT 'team_members', 'team_id'")
+        // The whole row set, in order: sorted by table, columns in declared order, joined
+        // with UNION ALL. Asserting the pairs alone would accept them in any order and
+        // would accept a missing separator, which is not a row set at all.
+        expect(buildCheckSql()).toContain(
+          "declared(relation, column_name) AS (    SELECT 'team_members', 'team_id'\n" +
+            "    UNION ALL\n        SELECT 'users', 'id'\n" +
+            "    UNION ALL\n        SELECT 'users', 'role'),",
+        )
       },
     )
   })

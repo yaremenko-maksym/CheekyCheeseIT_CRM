@@ -293,7 +293,11 @@ $seqs$;
   // `ON TABLE` specifically, not any GRANT: the sequence grant is emitted unconditionally,
   // so a manifest that classified nothing would still produce a file with a GRANT in it —
   // and an API with access to every sequence and not one table.
-  if (!out.some((chunk) => chunk.startsWith('GRANT ') && chunk.includes(' ON TABLE'))) {
+  // Only a TABLE grant starts a chunk with `GRANT `: the sequence grant is emitted
+  // unconditionally but its chunk opens with the `-- 4. Sequences.` comment, so a manifest
+  // that classified nothing would otherwise produce a file granting every sequence and not
+  // one table.
+  if (!out.some((chunk) => chunk.startsWith('GRANT '))) {
     throw new Error('privilege manifest: no grants emitted — the manifest is empty')
   }
   return `${out.join('\n').trimEnd()}\n`
@@ -334,6 +338,21 @@ export function buildCheckSql(): string {
   parts.push(`--
 -- Read-only: it asserts, it never repairs. A failure means the database and the reviewed
 -- declaration disagree, and the fix is a PR, not a hand-made GRANT (ADR §4, "Rollback").
+--
+-- WHICH ROLE THIS IS DESIGNED FOR, AND WHY IT IS NOT A CHOICE MADE HERE
+-- The deploy applies every DDL file as the migration role, and on production that role is
+-- \`crm_user\`, a SUPERUSER and the only non-system role in the cluster (read from production
+-- 2026-10-18). That matters for part 8, because PostgreSQL 16's automatic creator-membership
+-- applies ONLY to a non-superuser with CREATEROLE. Measured both ways on 16.15, same cluster,
+-- same statements:
+--   creator is a superuser (production)        -> 0 membership rows for the created role
+--   creator is non-superuser with CREATEROLE   -> 1 row, admin=t inherit=f set=f
+-- So a check that hard-coded the row the ADR describes would pass in a non-superuser scratch
+-- database and FAIL on the first production deploy; one that hard-coded "zero rows" would
+-- fail any branch-2 deploy. Part 8 therefore DERIVES the branch from the migration role's own
+-- \`rolsuper\` and asserts the state that role actually produces — it cannot be wrong in either
+-- direction, and it needs no edit if production's answer ever changes. Production runs
+-- PostgreSQL 16.14; nothing used in this file is newer than 16.0.
 --
 -- "The migration role" below is DERIVED, never named: it is the owner of the relations in
 -- \`public\`. That is what makes the ADR's default-privilege trap observable — default
