@@ -46,7 +46,12 @@ import { Pool, type PoolClient } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { splitSqlStatements } from '../manual-sql-statements'
 import { assertRealDbSchema, hasDatabaseUrl } from '../../test/require-real-db'
-import { CHECK_FILE, GRANTS_FILE, ROLES_FILE } from './generate-privilege-sql'
+import {
+  CHECK_FILE,
+  GRANTS_FILE,
+  ROLES_FILE,
+  collectorSequenceGrantSql,
+} from './generate-privilege-sql'
 import { ROLES } from './privilege-classes'
 import { scramSha256Verifier } from './scram'
 
@@ -150,6 +155,38 @@ async function runCheck(pool: Pool): Promise<string | null> {
       }
     }
     return null
+  } finally {
+    client.release()
+  }
+}
+
+/**
+ * The ONE statement of the committed check file that is the named part.
+ *
+ * It throws unless exactly one statement matches, because the failure mode of an
+ * extraction like this is selecting nothing and making every test using it pass on an
+ * empty string — the same class of defect these tests exist to close.
+ *
+ * At file scope because two describes need it: part 8's operand tests, which need a part
+ * run on a database the whole check could not pass on, and part 1's absent-relation test,
+ * which needs the part's own text to mutate.
+ */
+function partStatement(label: string): string {
+  const matches = splitSqlStatements(readSql(CHECK_FILE)).filter((st) => st.includes(label))
+  if (matches.length !== 1) {
+    throw new Error(`expected exactly one statement for ${label}, found ${matches.length}`)
+  }
+  return matches[0] as string
+}
+
+/** Runs ONE statement (a single part of the check) and returns its failure message, or null. */
+async function runPart(pool: Pool, statement: string): Promise<string | null> {
+  const client: PoolClient = await pool.connect()
+  try {
+    await client.query(statement)
+    return null
+  } catch (error) {
+    return (error as Error).message
   } finally {
     client.release()
   }
@@ -479,6 +516,42 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
       ).toBeNull()
     })
 
+    it('CR-M-8: the generated class C sequence grant reaches that table’s sequence and no other', async () => {
+      // The one piece of the grants file that is CODE rather than a flat statement list —
+      // a `DO` block whose `pg_depend` join decides which sequences the collector reaches.
+      // No class C table is assigned yet, so `buildGrantsSql()` does not emit it and the
+      // unit spec can only match its text; the join itself (deptype 'a'/'i', the
+      // owning-table filter) was proved by nothing. This runs the generator's own output
+      // and asserts the outcome.
+      //
+      // The hand-written `GRANT USAGE ON SEQUENCE … TO crm_collector` in this describe's
+      // `beforeAll` is what stands in for it elsewhere; here the generator writes the
+      // statement, which is the difference between testing the model and testing the test.
+      await migration.query(`REVOKE USAGE ON SEQUENCE ${PROBE.C}_id_seq FROM ${ROLES.collector}`)
+      expect(
+        await migration.query<{ has: boolean }>(
+          `SELECT has_sequence_privilege($1, $2, 'USAGE') AS has`,
+          [ROLES.collector, `public.${PROBE.C}_id_seq`],
+        ),
+      ).toMatchObject({ rows: [{ has: false }] })
+
+      await migration.query(collectorSequenceGrantSql([PROBE.C]))
+
+      const { rows } = await migration.query<{ seq: string; has: boolean }>(
+        `SELECT c.relname AS seq, has_sequence_privilege($1, c.oid, 'USAGE') AS has
+           FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE n.nspname = 'public' AND c.relkind = 'S' AND c.relname LIKE 'privprobe_%'
+          ORDER BY c.relname`,
+        [ROLES.collector],
+      )
+      const granted = rows.filter((r) => r.has).map((r) => r.seq)
+      // Exactly one: the class C table's own sequence. The probe tables all have a serial
+      // id, so every one of them has a sequence the block could have reached — which is
+      // what makes "only this one" an assertion rather than a coincidence.
+      expect(granted).toEqual([`${PROBE.C}_id_seq`])
+      expect(rows.length).toBeGreaterThan(1)
+    })
+
     it('class D gives the collector the named column and nothing else', async () => {
       expect(await sqlstateOf(collector, `SELECT id FROM ${PROBE.D}`)).toBeNull()
       // The reason class D is column-level at all: a table-level SELECT would silently
@@ -704,32 +777,9 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
     const allowed = 'WITH ADMIN TRUE, INHERIT FALSE, SET FALSE'
     let branch: Pool
 
-    /**
-     * The ONE statement of the committed check file that is the named part.
-     *
-     * It throws unless exactly one statement matches, because the failure mode of an
-     * extraction like this is selecting nothing and making every test below pass on an
-     * empty string — the same class of defect these tests exist to close.
-     */
-    function partStatement(label: string): string {
-      const matches = splitSqlStatements(readSql(CHECK_FILE)).filter((st) => st.includes(label))
-      if (matches.length !== 1) {
-        throw new Error(`expected exactly one statement for ${label}, found ${matches.length}`)
-      }
-      return matches[0] as string
-    }
-
     /** Runs part 8 against one connection and returns the failure message, or null. */
     async function runPart8(pool: Pool): Promise<string | null> {
-      const client: PoolClient = await pool.connect()
-      try {
-        await client.query(partStatement('part 8 (role membership)'))
-        return null
-      } catch (error) {
-        return (error as Error).message
-      } finally {
-        client.release()
-      }
+      return runPart(pool, partStatement('part 8 (role membership)'))
     }
 
     /** Puts the cluster's membership row for `crm_app` into exactly one state. */
@@ -918,17 +968,55 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
       }
     }, 60_000)
 
-    // NOT TESTED HERE: part 1's other direction — the manifest naming a relation that does
-    // not exist. Reaching it needs a CLASSIFIED table to be absent, and every classified
-    // table is a real one that the rest of the integration suite is using concurrently. The
-    // first version of this spec renamed `tos_versions` to produce that state and broke
-    // eight other spec files in the same run (measured: onboarding, contracts, pending and
-    // five more). A test that only passes when it runs alone is worse than no test.
-    //
-    // The same mistake is caught earlier and without a database by
-    // `privilege-classes.spec.ts` ("names no relation the Drizzle schema does not declare"),
-    // which fails on a manifest entry for a table that no longer exists — the case this
-    // branch would have covered.
+    it('CR-M-7: part 1 fails when a non-optional classified relation is absent', async () => {
+      // Part 1's OTHER direction, and the one the round-1 substitute never exercised: the
+      // substitute asserted the manifest's own consistency in TypeScript, so neutering
+      // this SQL branch left the spec green.
+      //
+      // Dropping a classified table to produce the state is what the first version of this
+      // spec did (it renamed `tos_versions`) and it broke eight other spec files in the
+      // same run — every classified table is a real one the rest of the suite is using
+      // concurrently. So the DATABASE is left alone and the CHECK TEXT is mutated instead:
+      // one declared relation renamed to a name nothing has. That exercises the real
+      // committed SQL, on the real catalog, with no shared state touched.
+      const part1 = partStatement('part 1 (manifest coverage)')
+      const absent = `${'tos_versions'}_absent_by_test`
+      const mutated = part1.replace("('tos_versions', 'A', false)", `('${absent}', 'A', false)`)
+      // Without this the test would pass on an unmutated statement the day the row's text
+      // changes — a green run proving nothing, which is the defect class in question.
+      expect(mutated).not.toBe(part1)
+
+      const failure = await runPart(migration, mutated)
+      expect(failure).toContain('part 1 (manifest coverage)')
+      expect(failure).toContain(`${absent} is classified A but does not exist in public`)
+      // The unmutated part passes on the same database in the same run, so the failure
+      // above is the mutation and not the state.
+      expect(await runPart(migration, part1)).toBeNull()
+    }, 60_000)
+
+    it('CR-M-7: the optional flag is what exempts a manual-DDL relation from that branch', async () => {
+      // `_drop_share_pending_parity_backup_20260727` is classified E and really is absent
+      // here (and on production, measured 2026-10-18) — the natural instance of the state
+      // above. It stays quiet only because its declaration carries `optional = true`, and
+      // nothing asserted that the flag is what does it: with `WHERE NOT d.optional`
+      // deleted, every database that never ran that data-fix file would fail part 1.
+      const part1 = partStatement('part 1 (manifest coverage)')
+      const optional = '_drop_share_pending_parity_backup_20260727'
+      const { rows } = await migration.query<{ exists: boolean }>(
+        `SELECT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                         WHERE n.nspname = 'public' AND c.relname = $1) AS exists`,
+        [optional],
+      )
+      // If a concurrent spec created it, the premise of this test is gone — say so rather
+      // than asserting something else.
+      expect(rows[0]?.exists).toBe(false)
+
+      expect(await runPart(migration, part1)).toBeNull()
+      const mutated = part1.replace(`('${optional}', 'E', true)`, `('${optional}', 'E', false)`)
+      expect(mutated).not.toBe(part1)
+      const failure = await runPart(migration, mutated)
+      expect(failure).toContain(`${optional} is classified E but does not exist in public`)
+    }, 60_000)
 
     it('fails when a privilege is added by hand, and the grants file repairs it', async () => {
       // The forward-fix path of ADR §4 "Rollback", proved rather than asserted: drift is
@@ -942,6 +1030,64 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
       expect(failure).toContain('UPDATE')
 
       await applyFile(GRANTS_FILE)
+      expect(await runCheck(migration)).toBeNull()
+    }, 60_000)
+
+    // CR-M-4 — WHICH CHECK BRANCHES ARE PINNED, AND WHICH ARE DELIBERATELY NOT
+    // Round 1 pinned parts 3, 4 and 8 branch by branch. The tests from here to the end of
+    // this describe do the same for the branches of parts 2, 5, 6 and 7 that DECIDE A
+    // PRIVILEGE. What is left unpinned, each with the reason rather than an omission:
+    //
+    //   part 7, "role %s does not exist" — reaching it means dropping one of the three
+    //     roles, and two of this file's three pools are connected AS those roles. The
+    //     grants file's own `DO $guard$` raises on a missing role before the check runs
+    //     (pinned without a database in `generate-privilege-sql.spec.ts`), and part 1
+    //     exercises the identical `NOT EXISTS` shape against pg_class.
+    //   part 7, "owns schema" — making an application role own schema `public` changes
+    //     the schema every other spec in the run depends on, and the branch is one
+    //     `nspowner` comparison in the same UNION as the relation-ownership branch below,
+    //     which IS pinned.
+    //   part 7, "declared function … is not owned by" and part 9's enabled-state and
+    //     missing-trigger branches — unreachable while `retentionOwnerFunctions` and
+    //     `appendOnlyTriggers` are empty. They are pinned against the GENERATOR in
+    //     `generate-privilege-sql.spec.ts` (the declared row set is emitted verbatim),
+    //     and Task 1.3b, which fills both, is what makes them reachable against a
+    //     database. Pinning them now would require this file to carry a fake declaration,
+    //     i.e. to test a manifest nobody ships.
+    //   part 3's "lacks the declared column SELECT" — same reason: `collectorColumns` is
+    //     empty, so the declared half of the expected set is empty. The other half of
+    //     that branch (a role's table-level expansion going missing) IS reachable and is
+    //     what part 2's "lacks" test below drives through the same predicate.
+
+    it('part 2 fails in the lacks direction, not only when a privilege is added', async () => {
+      // The direction that is an outage rather than a hole: a privilege the model requires
+      // going missing. A check that only caught the widening direction would look exactly
+      // the same in a green run, and the grants file's reset-then-grant shape means a
+      // half-applied file is precisely how this state arises.
+      await migration.query(`REVOKE SELECT ON TABLE users FROM ${ROLES.app}`)
+      try {
+        const failure = await runCheck(migration)
+        expect(failure).toMatch(/part 2 \(table privileges\)/)
+        expect(failure).toContain('users (class A)')
+        expect(failure).toContain('lacks SELECT')
+      } finally {
+        await applyFile(GRANTS_FILE)
+      }
+      expect(await runCheck(migration)).toBeNull()
+    }, 60_000)
+
+    it('part 2 fails on WITH GRANT OPTION, which no class ever grants', async () => {
+      // ADR §2: a role that may re-grant its own privileges can widen the boundary with no
+      // DDL at all — and `has_table_privilege(…, 'SELECT')` is TRUE either way, so this is
+      // invisible to every other branch of part 2.
+      await migration.query(`GRANT SELECT ON TABLE users TO ${ROLES.app} WITH GRANT OPTION`)
+      try {
+        const failure = await runCheck(migration)
+        expect(failure).toMatch(/part 2 \(table privileges\)/)
+        expect(failure).toContain('holds SELECT WITH GRANT OPTION')
+      } finally {
+        await applyFile(GRANTS_FILE)
+      }
       expect(await runCheck(migration)).toBeNull()
     }, 60_000)
 
@@ -973,6 +1119,131 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
       expect(failure).toContain('on new r objects')
 
       await applyFile(ROLES_FILE)
+      expect(await runCheck(migration)).toBeNull()
+    }, 60_000)
+
+    it('part 5 fails in the missing direction, when the sequence default privilege is revoked', async () => {
+      // The entry that keeps a sequence created by a LATER migration usable by the API at
+      // all. Its absence is an outage on the next `CREATE TABLE … serial`, and nothing but
+      // this branch of part 5 would report it: no existing object changes.
+      await migration.query(
+        `ALTER DEFAULT PRIVILEGES FOR ROLE CURRENT_USER IN SCHEMA public REVOKE USAGE, SELECT ON SEQUENCES FROM ${ROLES.app}`,
+      )
+      try {
+        const failure = await runCheck(migration)
+        expect(failure).toMatch(/part 5 \(default privileges\)/)
+        expect(failure).toContain('missing default privilege')
+        expect(failure).toContain('on new S objects')
+      } finally {
+        await applyFile(ROLES_FILE)
+      }
+      expect(await runCheck(migration)).toBeNull()
+    }, 60_000)
+
+    it('part 5 fails when a default privilege carries GRANT OPTION', async () => {
+      // The grantable flag is its own branch (`OR a.grantable`) because the entry is
+      // otherwise EXPECTED: grantee, privilege and object type all match the manifest, so
+      // the set comparison is satisfied and only the flag is wrong. A sequence default
+      // privilege with GRANT OPTION lets crm_app re-grant every future sequence.
+      await migration.query(
+        `ALTER DEFAULT PRIVILEGES FOR ROLE CURRENT_USER IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO ${ROLES.app} WITH GRANT OPTION`,
+      )
+      try {
+        const failure = await runCheck(migration)
+        expect(failure).toMatch(/part 5 \(default privileges\)/)
+        expect(failure).toContain('WITH GRANT OPTION')
+      } finally {
+        await applyFile(ROLES_FILE)
+      }
+      expect(await runCheck(migration)).toBeNull()
+    }, 60_000)
+
+    it('part 6 fails when PUBLIC is given CONNECT on the database back', async () => {
+      // `REVOKE ALL ON DATABASE … FROM PUBLIC` in the roles file is what makes a role the
+      // API does not hold unable to connect at all. Re-granting it to PUBLIC undoes the
+      // outer boundary while leaving every table grant intact, so no other part moves.
+      const database = new URL(process.env['DATABASE_URL'] as string).pathname.replace(/^\//, '')
+      await migration.query(`GRANT CONNECT ON DATABASE ${database} TO PUBLIC`)
+      try {
+        const failure = await runCheck(migration)
+        expect(failure).toMatch(/part 6 \(database, schema and function privileges\)/)
+        expect(failure).toContain('PUBLIC holds CONNECT')
+      } finally {
+        await applyFile(ROLES_FILE)
+      }
+      expect(await runCheck(migration)).toBeNull()
+    }, 60_000)
+
+    it('part 6 fails when PUBLIC is given CREATE on schema public', async () => {
+      // CREATE on `public` lets any role that can connect add a relation — and a relation
+      // it owns, i.e. one outside the class model entirely, with triggers it may disable.
+      // Part 1 would catch the relation at the NEXT deploy; this catches the ability.
+      await migration.query(`GRANT CREATE ON SCHEMA public TO PUBLIC`)
+      try {
+        const failure = await runCheck(migration)
+        expect(failure).toMatch(/part 6 \(database, schema and function privileges\)/)
+        expect(failure).toContain('PUBLIC holds CREATE on schema public')
+      } finally {
+        await applyFile(ROLES_FILE)
+      }
+      expect(await runCheck(migration)).toBeNull()
+    }, 60_000)
+
+    it('part 7 fails on a wrong CONNECTION LIMIT, and the roles file repairs it', async () => {
+      // CONNECTION_LIMITS in the manifest and the roles file's repair clause have to agree,
+      // and this is the only thing that would notice if they stopped agreeing. A limit
+      // SMALLER than the pool is an outage under load, which is why it is asserted exactly
+      // rather than as a ceiling.
+      await migration.query(`ALTER ROLE ${ROLES.app} CONNECTION LIMIT 5`)
+      try {
+        const failure = await runCheck(migration)
+        expect(failure).toMatch(/part 7 \(role attributes and ownership\)/)
+        expect(failure).toContain('CONNECTION LIMIT is 5, expected 30')
+      } finally {
+        await applyFile(ROLES_FILE)
+      }
+      expect(await runCheck(migration)).toBeNull()
+    }, 60_000)
+
+    it('part 7 fails when the retention owner is given LOGIN, and the roles file repairs it', async () => {
+      // NOLOGIN is what keeps `crm_retention_owner` off the network: it exists only to own
+      // SECURITY DEFINER functions, and a function running as its owner does not need to
+      // log in. LOGIN on it is a credential-shaped hole that no table privilege reveals.
+      await migration.query(`ALTER ROLE ${ROLES.retentionOwner} LOGIN`)
+      try {
+        const failure = await runCheck(migration)
+        expect(failure).toMatch(/part 7 \(role attributes and ownership\)/)
+        expect(failure).toContain('rolcanlogin is t, expected f')
+      } finally {
+        await applyFile(ROLES_FILE)
+      }
+      expect(await runCheck(migration)).toBeNull()
+    }, 60_000)
+
+    it('part 7 fails when an application role owns a relation', async () => {
+      // Ownership, not SUPERUSER, is what allows DISABLE TRIGGER, DROP TRIGGER and
+      // re-granting — ADR §1's first sentence. So "owns nothing" is the load-bearing
+      // assertion of part 7, and until now nothing could turn it red.
+      //
+      // Part 7 is run ALONE here, and that is the point rather than a convenience: an
+      // owner passes every `has_table_privilege` test, so part 2 fires first on this same
+      // state and would have let part 7 rot behind it — the same masking that
+      // `pg_read_all_data` produced for part 8 in round 1.
+      const table = '_settle_phantom_backup_20260715'
+      const part7 = partStatement('part 7 (role attributes and ownership)')
+      await migration.query(`DROP TABLE IF EXISTS ${table} CASCADE`)
+      // Classified (class E) and optional, so creating it keeps part 1 quiet and dropping
+      // it afterwards is the state every other database is in.
+      await migration.query(`CREATE TABLE ${table} (id integer)`)
+      try {
+        expect(await runPart(migration, part7)).toBeNull()
+        await migration.query(`ALTER TABLE ${table} OWNER TO ${ROLES.app}`)
+        const failure = await runPart(migration, part7)
+        expect(failure).toContain('part 7 (role attributes and ownership)')
+        expect(failure).toContain(`${ROLES.app} owns relation ${table}`)
+      } finally {
+        await migration.query(`DROP TABLE IF EXISTS ${table} CASCADE`)
+      }
       expect(await runCheck(migration)).toBeNull()
     }, 60_000)
 

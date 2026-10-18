@@ -460,6 +460,15 @@ ALTER DEFAULT PRIVILEGES FOR ROLE CURRENT_USER IN SCHEMA public
 ALTER DEFAULT PRIVILEGES FOR ROLE CURRENT_USER IN SCHEMA public
   GRANT USAGE, SELECT ON SEQUENCES TO crm_app;
 
+-- And the same forward-repair argument one step further, for the one drift the GRANT above
+-- does NOT undo: a `pg_default_acl` row carrying GRANT OPTION. Re-granting a privilege the
+-- role already holds grantably leaves the flag standing (measured on 16.15, 2026-10-18),
+-- so part 5's `OR a.grantable` branch would fail every deploy of such a database with no
+-- fix a PR could ship. `REVOKE GRANT OPTION FOR` takes the flag and leaves the privilege,
+-- and is a no-op where the flag was never set — which is the case on production.
+ALTER DEFAULT PRIVILEGES FOR ROLE CURRENT_USER IN SCHEMA public
+  REVOKE GRANT OPTION FOR USAGE, SELECT ON SEQUENCES FROM crm_app;
+
 -- Not scoped to a schema on purpose: a function created anywhere must not be
 -- PUBLIC-executable by default.
 ALTER DEFAULT PRIVILEGES FOR ROLE CURRENT_USER

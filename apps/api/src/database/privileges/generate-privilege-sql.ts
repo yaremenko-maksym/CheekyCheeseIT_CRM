@@ -168,6 +168,44 @@ function header(file: string, title: string): string {
 }
 
 /**
+ * The collector's sequence grant: `USAGE` on the sequences OF the given tables, found
+ * through `pg_depend` rather than by name.
+ *
+ * Exported and parameterised for one reason — so it can be RUN. No class C table is
+ * assigned yet (ADR §4 step 8), so `buildGrantsSql` does not emit this block at all today,
+ * which left its body — the `pg_depend` join that decides which sequences the collector
+ * reaches — provable only by matching its text. `db-privileges.integration.spec.ts`
+ * executes it against a probe table and asserts the OUTCOME: the class C table's sequence
+ * granted, every other sequence in `public` untouched.
+ *
+ * `deptype IN ('a', 'i')`: 'a' is a `serial` column's owned sequence, 'i' an `IDENTITY`
+ * one. A sequence created by hand and used by a DEFAULT has neither and is deliberately
+ * not reached — the collector gets the sequences its own tables own, nothing else.
+ */
+export function collectorSequenceGrantSql(tables: readonly string[]): string {
+  const names = tables.map((t) => literal(ident(t))).join(', ')
+  return `DO $seqs$
+DECLARE
+  s text;
+BEGIN
+  FOR s IN
+    SELECT seq.relname
+      FROM pg_class seq
+      JOIN pg_namespace n ON n.oid = seq.relnamespace AND n.nspname = 'public'
+      JOIN pg_depend d ON d.objid = seq.oid AND d.classid = 'pg_class'::regclass
+                      AND d.deptype IN ('a', 'i')
+      JOIN pg_class t ON t.oid = d.refobjid
+     WHERE seq.relkind = 'S'
+       AND t.relname IN (${names})
+  LOOP
+    EXECUTE format('GRANT USAGE ON SEQUENCE public.%I TO %I', s, ${literal(ROLES.collector)});
+  END LOOP;
+END
+$seqs$;
+`
+}
+
+/**
  * File 2 of ADR §4 — the grants, applied LAST on every deploy, as ONE transaction.
  *
  * Shape: revoke everything from the three roles, then grant back exactly what each class
@@ -293,25 +331,7 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${ident(ROLES.app)};
 --    table is assigned yet, so no sequence grant is issued — fail closed.
 `)
   } else {
-    out.push(`DO $seqs$
-DECLARE
-  s text;
-BEGIN
-  FOR s IN
-    SELECT seq.relname
-      FROM pg_class seq
-      JOIN pg_namespace n ON n.oid = seq.relnamespace AND n.nspname = 'public'
-      JOIN pg_depend d ON d.objid = seq.oid AND d.classid = 'pg_class'::regclass
-                      AND d.deptype IN ('a', 'i')
-      JOIN pg_class t ON t.oid = d.refobjid
-     WHERE seq.relkind = 'S'
-       AND t.relname IN (${classCTables.map((t) => literal(t)).join(', ')})
-  LOOP
-    EXECUTE format('GRANT USAGE ON SEQUENCE public.%I TO %I', s, ${literal(ROLES.collector)});
-  END LOOP;
-END
-$seqs$;
-`)
+    out.push(collectorSequenceGrantSql(classCTables))
   }
 
   out.push(`COMMIT;
