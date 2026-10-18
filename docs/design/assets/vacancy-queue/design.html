@@ -39,7 +39,7 @@ svg{flex:none;display:block}
 .row-of{display:flex;gap:24px;align-items:flex-start;overflow-x:auto;padding-bottom:12px}
 
 /* ===== frame = viewport ===== */
-.frame{width:var(--w);container:vp/inline-size;background:var(--background);border:1px solid var(--border);flex:none;position:relative}
+.frame{width:var(--w);container:vp/inline-size;background:var(--background);box-shadow:0 0 0 1px var(--border);flex:none;position:relative}
 .shell{display:flex;min-height:100%}
 .side{display:none;width:208px;flex:none;border-right:1px solid color-mix(in oklch,var(--border) 60%,transparent);padding:16px 12px;flex-direction:column;gap:6px}
 .side .brand{font-weight:700;margin-bottom:10px;color:var(--primary);font-size:13px}
@@ -100,7 +100,8 @@ h1{font-size:18px;font-weight:600;letter-spacing:-.01em}
 .co{color:var(--muted-foreground);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .meta{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;font-size:12px;color:var(--muted-foreground)}
 .meta .sep{opacity:.5}
-.meta .i{display:inline-flex;align-items:center;gap:5px;flex-wrap:wrap}
+.meta .i{display:inline-flex;align-items:flex-start;gap:5px}
+.meta .i svg{margin-top:2px}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
 .chip{display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:var(--radius-md);background:var(--secondary);font-size:12px;font-weight:500;white-space:nowrap}
 .chip.hit{background:var(--yellow-subtle);color:var(--primary);box-shadow:inset 0 0 0 1px color-mix(in oklch,var(--primary) 35%,transparent)}
@@ -115,6 +116,11 @@ h1{font-size:18px;font-weight:600;letter-spacing:-.01em}
 .who .btn{min-height:44px;padding:0 10px;margin-left:auto}
 .item .l,.item .r{display:flex;flex-direction:column;gap:6px;min-width:0}
 .line1{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.line1 .co{flex:1 1 0}
+.btn .lbl{display:none}
+.btn.tool{width:44px;padding:0;position:relative;flex:none}
+.fbadge{position:absolute;top:-6px;right:-6px}
+@container main (min-width:560px){.btn .lbl{display:inline}.btn.tool{padding:0 16px;width:auto}.fbadge{position:static}}
 .src{width:20px;height:20px;border-radius:var(--radius-sm);background:var(--secondary);display:grid;place-items:center;color:var(--muted-foreground)}
 @container main (min-width:560px){
   .list{gap:0;border:1px solid var(--border);border-radius:var(--radius-xl);background:var(--card);overflow:hidden}
@@ -144,13 +150,14 @@ h1{font-size:18px;font-weight:600;letter-spacing:-.01em}
 .db{padding:16px;display:flex;flex-direction:column;gap:18px}
 .df{border-top:1px solid var(--border);padding:12px 16px;display:flex;flex-direction:column;gap:8px;background:var(--card)}
 .df .btn.pri{order:-1}
+.pair{display:flex;gap:8px}.pair .btn:first-child{flex:1}
 @container vp (min-width:640px){.df{flex-direction:row;justify-content:flex-end;align-items:center}.df .grow{margin-right:auto}.df .btn.pri{order:3}.df .btn{min-height:40px}}
 .sec h3{font-size:12px;font-weight:600;color:var(--muted-foreground);margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:8px}
 .md p{margin-bottom:8px;opacity:.92}.md ul{padding-left:18px;margin-bottom:8px}.md li{margin-bottom:2px}.md strong{font-weight:600}
 .md .u{color:var(--primary);text-decoration:underline;text-underline-offset:3px;overflow-wrap:anywhere}
 .srcrow{display:flex;align-items:center;gap:10px;min-height:44px;border-bottom:1px solid var(--border)}
 .srcrow .nm{flex:1;min-width:0}.srcrow .nm div:first-child{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.srcrow .btn{min-height:44px;padding:0 12px}
+.srcrow .btn{min-height:44px;width:44px;padding:0}
 .sn{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);align-items:flex-start}
 .av{width:32px;height:32px;border-radius:999px;background:var(--yellow-subtle);color:var(--avatar-text);display:grid;place-items:center;font-size:12px;font-weight:600;flex:none}
 .sn .bd{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
@@ -168,7 +175,7 @@ h1{font-size:18px;font-weight:600;letter-spacing:-.01em}
 
 /* ===== sources (ADMIN) ===== */
 .srcs{border:1px solid var(--border);border-radius:var(--radius-xl);background:var(--card)}
-.sumrow{display:flex;align-items:center;gap:10px;min-height:48px;padding:0 14px;list-style:none;cursor:pointer}
+.sumrow{display:flex;flex-wrap:wrap;align-items:center;column-gap:10px;min-height:48px;padding:4px 14px 0;list-style:none;cursor:pointer}
 .srcs[open]>.sumrow{border-bottom:1px solid var(--border)}
 .s1{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:10px}
 .s1:last-child{border-bottom:0}
@@ -222,7 +229,7 @@ uk:{title:'Черга вакансій',tNew:'Нові',tWip:'У роботі',t
  dupT:'Схожа вакансія вже є в черзі',dupP:'Можливий дублікат. Перевірте, чи це не та сама вакансія.',dupTaken:'У роботі: {who}',
  dupAsk:'Схожу вакансію вже взято',dupAskP:'Ви впевнені, що це інша вакансія?',dupYes:'Так, взяти все одно',cancel:'Скасувати',
  taken:'Вже взято',takenBy:'У роботі: {who} · {when}',takenOnly:'Вже взято',
- closedClaimed:'Закриту вакансію вже взято в роботу',closedClaimedP:'Взяв {who}. Звільніть її, щоб не втрачати час.',closed:'Закрита',
+ closedClaimed:'Закриту вакансію вже взято в роботу',closedClaimedP:'У роботі: {who}. Звільніть її, щоб не втрачати час.',closed:'Закрита',
  release:'Звільнити',reassign:'Перепризначити…',suppress:'Приховати для всіх…',adminMenu:'Дії адміністратора',
  r1:'Не релевантна',r2:'Спам',r3:'Мертве посилання',hidden:'Приховано',undo:'Скасувати',restore:'Повернути',hiddenBy:'Приховано: {r}',
  close:'Закрити',desc:'Опис',about:'Про роль',
@@ -254,7 +261,7 @@ en:{title:'Vacancy queue',tNew:'New',tWip:'In progress',tHid:'Hidden',search:'Ti
  dupT:'A similar vacancy is already in the queue',dupP:'Possible duplicate. Check that it is not the same vacancy.',dupTaken:'In progress: {who}',
  dupAsk:'A similar vacancy is already taken',dupAskP:'Are you sure this is a different vacancy?',dupYes:'Yes, take it anyway',cancel:'Cancel',
  taken:'Already taken',takenBy:'In progress: {who} · {when}',takenOnly:'Already taken',
- closedClaimed:'A closed vacancy is already in progress',closedClaimedP:'Taken by {who}. Release it to avoid wasted effort.',closed:'Closed',
+ closedClaimed:'A closed vacancy is already in progress',closedClaimedP:'In progress: {who}. Release it to avoid wasted effort.',closed:'Closed',
  release:'Release',reassign:'Reassign…',suppress:'Hide for everyone…',adminMenu:'Administrator actions',
  r1:'Not relevant',r2:'Spam',r3:'Dead link',hidden:'Hidden',undo:'Undo',restore:'Restore',hiddenBy:'Hidden: {r}',
  close:'Close',desc:'Description',about:'About the role',
@@ -313,7 +320,7 @@ const senStr=r=>r.sen?`<span class="bdg">${r.sen}</span>`:'';
 function ageHtml(r){
   const [k,u,n]=r.age;
   let s=k==='posted'?`<span class="i">${tr('posted',{ago:ago(u,n)})}</span>`
-   :`<span class="i">${ic('caloff',13)}${tr('unknownDate')}<span class="sep">·</span>${tr('firstSeen',{ago:ago(u,n)})}</span>`;
+   :`<span class="i">${ic('caloff',13)}<span>${tr('unknownDate')} · ${tr('firstSeen',{ago:ago(u,n)})}</span></span>`;
   if(r.lastSeen)s+=`<span class="i">${tr('lastSeen',{ago:ago(r.lastSeen[0],r.lastSeen[1])})}</span>`;
   return s;
 }
@@ -329,7 +336,7 @@ function row(r,o={}){
     <div class="ttl">${r.t}</div>
     <div class="line1"><span class="src" aria-hidden="true">${ic('globe',12)}</span><span class="co">${co(r)}</span></div>
     ${ch?`<div class="chips">${ch}</div>`:''}
-    ${r.triage?`<div class="meta"><span class="i fg">${ic('help',13)}${tr('triageWhy')}</span></div>`:''}`;
+    ${r.triage?`<div class="meta"><span class="i fg">${ic('help',13)}<span>${tr('triageWhy')}</span></span></div>`:''}`;
   const right=`
     <div class="meta">${ageHtml(r)}</div>
     ${r.n>0?`<div class="meta"><span class="i fg">${ic('users',13)}${plural('seniors',r.n)}</span></div>`:''}
@@ -352,13 +359,13 @@ function header(o={}){
   const tb=labels.map((l,i)=>`<button class="tab ${(o.tab||0)===i?'on':''}" role="tab" aria-selected="${(o.tab||0)===i}"><span>${l}</span><span class="n tnum">${o.noCounts?'':counts[i]}</span></button>`).join('');
   const team=o.admin?`<button class="sel"><span>${tr('studio')}</span>${ic('chevd',16)}</button>`:(o.multi?`<button class="sel" aria-label="${tr('team')}"><span>${LANG==='uk'?'Команда «Альфа»':'Team “Alpha”'}</span>${ic('chevd',16)}</button>`:'');
   return `<div class="h1row"><h1>${tr('title')}</h1></div>
-  <div class="tools">${team}<div class="field">${ic('search',16)}<span>${tr('search')}</span></div><button class="btn out" aria-label="${tr('filters')}">${ic('sliders',16)}<span>${tr('filters')}</span>${o.fcount?`<span class="fbadge">${o.fcount}</span>`:''}</button></div>
+  <div class="tools">${team}<div class="field">${ic('search',16)}<span>${tr('search')}</span></div><button class="btn out tool" aria-label="${tr('filters')}">${ic('sliders',16)}<span class="lbl">${tr('filters')}</span>${o.fcount?`<span class="fbadge">${o.fcount}</span>`:''}</button></div>
   <div class="tabs" role="tablist">${tb}</div>`;
 }
 function sourcesBlock(open){
   const stt=(c,i,l)=>`<span class="st ${c}">${ic(i,12)}${l}</span>`;
   const sw=(on,nm)=>`<button class="sw ${on?'on':''}" role="switch" aria-checked="${on}" aria-label="${nm}"><i></i></button>`;
-  const s=(nm,state,on,why,tail)=>`<div class="s1"><div class="top"><span class="src">${ic('globe',12)}</span><span class="nm">${nm}</span>${state}${sw(on,nm)}</div>${why}${tail}</div>`;
+  const s=(nm,state,on,why,tail)=>`<div class="s1"><div class="top"><span class="src">${ic('globe',12)}</span><span class="nm">${nm}</span>${sw(on,nm)}</div><div>${state}</div>${why}${tail}</div>`;
   const quota=(u,r,q,total)=>`<div><div class="muted" style="font-size:12px;margin-bottom:4px">${tr('quota')}: <span class="tnum fg">${u+r+q}</span> / <span class="tnum">${total}</span> ${tr('unit')}</div><div class="quota" role="img" aria-label="${tr('used')} ${u}, ${tr('reserved')} ${r}, ${tr('uncertain')} ${q} / ${total}"><span class="u" style="flex:${u}"></span><span class="r" style="flex:${r}"></span><span class="q" style="flex:${Math.max(q,0.001)}"></span><span style="flex:${total-u-r-q}"></span></div><div class="qkey" style="margin-top:6px"><span class="k"><i style="background:var(--primary)"></i>${tr('used')} <b class="tnum fg">${u}</b></span><span class="k"><i style="background:var(--yellow-muted);opacity:.6"></i>${tr('reserved')} <b class="tnum fg">${r}</b></span><span class="k"><i style="background:repeating-linear-gradient(45deg,var(--muted-foreground) 0 2px,transparent 2px 5px)"></i>${tr('uncertain')} <b class="tnum fg">${q}</b></span></div></div>`;
   const dl=(a,b,c,d)=>`<dl class="dl"><div><dt>${tr('lastTry')}</dt><dd class="tnum">${a}</dd></div><div><dt>${tr('lastOk')}</dt><dd class="tnum">${b}</dd></div><div><dt>${tr('lastData')}</dt><dd class="tnum">${c}</dd></div>${d?`<div><dt>${d[0]}</dt><dd class="tnum">${d[1]}</dd></div>`:''}</dl>`;
   const body=
@@ -366,7 +373,7 @@ function sourcesBlock(open){
    s('Djinni',stt('pause','pause',tr('paused')),true,`<div class="note info">${ic('pause',16)}<div class="tx">${tr('pausedWhy',{t:'14:30'})}</div></div>`,quota(310,60,0,400)+dl(ago('h',1),ago('h',4),ago('h',4),null))+
    s('Work.ua',stt('off','power',tr('off')),false,`<div class="note soft">${ic('power',16)}<div class="tx">${tr('offWhy')}</div></div>`,dl(ago('d',6),ago('d',6),ago('d',9),null))+
    s('LinkedIn',stt('block','lock',tr('blocked')),false,`<div class="note bad">${ic('lock',16)}<div class="tx"><b>${tr('blockedWhy2')}</b></div></div>`,dl(tr('never'),tr('never'),tr('never'),[tr('authDl'),'03.10.2026'])+`<div class="note bad" role="alert">${ic('warn',16)}<div class="tx"><b>${tr('enableFail')}</b><span class="sub">${tr('enableFailP')}</span></div></div>`);
-  return `<details class="srcs" ${open?'open':''}><summary class="sumrow"><span style="font-weight:600">${tr('s_title')}</span><span class="muted" style="font-size:12px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${tr('s_sum',{n:4,a:1,b:1})}</span>${ic('chevd',18)}</summary>${body}</details>`;
+  return `<details class="srcs" ${open?'open':''}><summary class="sumrow"><span style="font-weight:600;flex:1">${tr('s_title')}</span>${ic('chevd',18)}<span class="muted" style="font-size:12px;flex-basis:100%;order:3;padding-bottom:8px">${tr('s_sum',{n:4,a:1,b:1})}</span></summary>${body}</details>`;
 }
 function listScreen(st,admin){
   const o={admin:admin==='1',multi:st==='multi',fcount:st==='filtered'?2:0,noCounts:st==='loading'};
@@ -401,8 +408,8 @@ function cardScreen(st){
   if(st==='dup'||st==='dupconfirm')warn.push(`<div class="note"><span class="fg">${ic('copy',18)}</span><div class="tx"><b>${tr('dupT')}</b><span class="sub">${tr('dupP')}</span><div class="meta" style="margin-top:6px"><span class="fg">Senior Python Engineer — Acme Labs</span><span class="sep">·</span><span>DOU</span><span class="sep">·</span><span>${tr('dupTaken',{who:LANG==='uk'?'Олена К.':'Olena K.'})}</span></div></div></div>`);
   if(st==='closed')warn.push(`<div class="note bad" role="alert">${ic('warn',18)}<div class="tx"><b>${tr('closedClaimed')}</b><span class="sub">${tr('closedClaimedP',{who:LANG==='uk'?'Олена К.':'Olena K.'})}</span><div class="act"><button class="btn out">${tr('release')}</button><button class="btn out">${tr('reassign')}</button></div></div></div>`);
   const meta=r.age[0]==='unknown'
-   ?`<span class="i">${ic('caloff',13)}${tr('unknownDate')}<span class="sep">·</span>${tr('firstSeen',{ago:ago('d',3)})}<span class="sep">·</span>${tr('lastSeen',{ago:ago('h',6)})}</span>`
-   :`<span class="i">${tr('posted',{ago:ago(r.age[1],r.age[2])})}</span><span class="sep">·</span><span class="i">${tr('lastSeen',{ago:ago('h',6)})}</span>`;
+   ?`<span class="i">${ic('caloff',13)}<span>${tr('unknownDate')} · ${tr('firstSeen',{ago:ago('d',3)})} · ${tr('lastSeen',{ago:ago('h',6)})}</span></span>`
+   :`<span class="i">${tr('posted',{ago:ago(r.age[1],r.age[2])})}</span><span class="i">${tr('lastSeen',{ago:ago('h',6)})}</span>`;
   const sources=`<div class="sec"><h3>${tr('alsoOn')}</h3>
     ${[['DOU','dou.ua',ago('h',6)],['Djinni','djinni.co',ago('d',1)],['LinkedIn','linkedin.com',ago('d',2)]].map(([n,h,w])=>`<div class="srcrow"><span class="src">${ic('globe',12)}</span><div class="nm"><div>${n}</div><div class="muted" style="font-size:12px">${h} · ${w}</div></div><button class="btn out" aria-label="${tr('open')}: ${n}">${ic('ext',14)}</button></div>`).join('')}
     <div class="muted tnum" style="font-size:12px;display:flex;justify-content:space-between;align-items:center"><span>${tr('shown',{a:3,b:34})}</span><button class="disc">${tr('showMore',{n:20})}</button></div></div>`;
@@ -420,10 +427,10 @@ function cardScreen(st){
   const adm=`<button class="btn out ic" aria-label="${tr('adminMenu')}">${ic('more',18)}</button>`;
   let foot;
   if(st==='taken'||st==='masked')foot=`<div class="grow" style="display:flex;align-items:center;gap:8px;color:var(--muted-foreground)">${ic('lock',16)}<span>${st==='taken'?tr('takenBy',{who:LANG==='uk'?'Олена К.':'Olena K.',when:ago('h',2)}):tr('takenOnly')}</span></div><button class="btn pri dis" aria-disabled="true">${tr('taken')}</button>${open}${hideBtn}`;
-  else if(st==='dupconfirm')foot=`<div class="grow"><b>${tr('dupAsk')}</b><div class="muted" style="font-size:12px">${tr('dupAskP')}</div></div><button class="btn pri">${tr('dupYes')}</button><button class="btn out">${tr('cancel')}</button>`;
-  else if(st==='closed')foot=`<button class="btn pri dis" aria-disabled="true">${tr('take')}</button>${open}${hideBtn}${adm}`;
+  else if(st==='dupconfirm')foot=`<div class="grow" style="order:-2"><b>${tr('dupAsk')}</b><div class="muted" style="font-size:12px">${tr('dupAskP')}</div></div><button class="btn pri" data-initial-focus>${tr('cancel')}</button><button class="btn out" style="order:4">${tr('dupYes')}</button>`;
+  else if(st==='closed')foot=`<button class="btn pri dis" aria-disabled="true">${tr('take')}</button>${open}<div class="pair">${hideBtn}${adm}</div>`;
   else if(st==='stale')foot=`<button class="btn pri dis" aria-disabled="true">${tr('take')}</button>${open}${hideBtn}`;
-  else if(st==='adminmenu')foot=`${takeBtn}${open}${hideBtn}${adm}`;
+  else if(st==='adminmenu')foot=`${takeBtn}${open}<div class="pair">${hideBtn}${adm}</div>`;
   else foot=`${takeBtn}${open}${hideBtn}`;
   const menu=st==='hidemenu'?`<div class="menu" role="menu"><div class="f" role="menuitem">${tr('r1')}</div><div role="menuitem">${tr('r2')}</div><div role="menuitem">${tr('r3')}</div></div>`:
     st==='adminmenu'?`<div class="menu" role="menu" style="margin-left:auto;width:min(260px,100%)"><div class="f" role="menuitem">${tr('release')}</div><div role="menuitem">${tr('reassign')}</div><div role="menuitem">${tr('suppress')}</div>${r.triage?`<div role="menuitem">${tr('triageAdmin')}</div>`:''}</div>`:'';
