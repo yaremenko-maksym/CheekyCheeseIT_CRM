@@ -293,7 +293,7 @@ $seqs$;
   // `ON TABLE` specifically, not any GRANT: the sequence grant is emitted unconditionally,
   // so a manifest that classified nothing would still produce a file with a GRANT in it —
   // and an API with access to every sequence and not one table.
-  if (!out.some((chunk) => /^GRANT .*\bON TABLE\b/m.test(chunk))) {
+  if (!out.some((chunk) => chunk.startsWith('GRANT ') && chunk.includes(' ON TABLE'))) {
     throw new Error('privilege manifest: no grants emitted — the manifest is empty')
   }
   return `${out.join('\n').trimEnd()}\n`

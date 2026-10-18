@@ -7,6 +7,24 @@
 --   3. 2026-10-18_db_grants.sql           — the per-class grants (generated)
 --   4. 2026-10-18_db_privileges_check.sql — the catalog check (generated); fails the deploy on drift
 --
+-- WHICH BRANCH OF ADR §4 STEP 0 PRODUCTION IS IN, AND ON WHICH VERSION
+-- Measured on production by the orchestrator, 2026-10-18: `crm_user` has `rolsuper = t`
+-- and is the ONLY role in the cluster, so production is step 0's **branch 1** — the simple
+-- one. Every statement below is therefore applied by a superuser that also owns `crm_db`:
+-- `log_min_error_statement` is settable, the `postgres` / `template1` revocations succeed,
+-- the attribute-repair block can repair anything, and part 8 of the catalog check expects
+-- ZERO membership rows (a superuser creating a role is not made a member of it). Being the
+-- only role also means the three created here cannot collide with anything.
+--
+-- Production runs PostgreSQL **16.14**; the behaviours this file relies on were reproduced
+-- on 16.15. Nothing used here is newer than 16.0 — `pg_auth_members.inherit_option` /
+-- `set_option` and `createrole_self_grant` arrived in 16.0, and the rest
+-- (`aclexplode`, `acldefault`, the `has_*_privilege` family, `ALTER DEFAULT PRIVILEGES FOR
+-- ROLE CURRENT_USER`, `array_append`) predates 15. The one PostgreSQL 16 behaviour change
+-- this file works around — that changing SUPERUSER / CREATEDB / REPLICATION / BYPASSRLS
+-- requires holding the attribute — also landed in 16.0 and only affects branch 2, which
+-- production is not in. So the 16.15-vs-16.14 gap carries no version risk here.
+--
 -- THIS FILE MUST BE APPLIED FIRST. Roles must exist before any file mentions them; the
 -- grants file raises a named exception if it runs before this one.
 --

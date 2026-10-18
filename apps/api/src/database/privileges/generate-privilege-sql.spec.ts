@@ -191,41 +191,82 @@ describe('privilege SQL for classes with no members yet', () => {
     }
   }
 
-  it('grants the collector full DML and its sequence on a class C table', () => {
+  it('grants the collector full DML and its sequences on class C tables', () => {
     withManifest(
       () => {
-        classes.C = ['job_postings']
-        classes.A = classes.A.filter((r) => r !== 'job_postings')
+        // TWO tables, listed in the wrong order: with one, neither the separator between
+        // them nor the sort that keeps the committed file stable is observable.
+        classes.C = ['job_postings', 'job_collection_runs']
+        classes.A = classes.A.filter((r) => r !== 'job_postings' && r !== 'job_collection_runs')
       },
       () => {
         const sql = buildGrantsSql()
         expect(sql).toContain(
-          'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE\n  public.job_postings\n  TO crm_collector;',
+          'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE\n  public.job_collection_runs,\n  public.job_postings\n  TO crm_collector;',
         )
         // The collector gets USAGE on the sequences OF ITS CLASS C TABLES only, which is a
-        // lookup through pg_depend rather than a name — so the emitted block must name the
-        // table, not a sequence.
-        expect(sql).toContain("t.relname IN ('job_postings')")
+        // lookup through pg_depend rather than a name — so the emitted block names the
+        // tables, not sequences, and the list separator has to be there.
+        expect(sql).toContain("t.relname IN ('job_collection_runs', 'job_postings')")
         expect(sql).toContain('GRANT USAGE ON SEQUENCE public.%I')
       },
     )
   })
 
-  it('grants a class D table its named columns and no table-level SELECT', () => {
+  it('grants class D tables their named columns and no table-level SELECT', () => {
     withManifest(
       () => {
-        classes.D = ['users']
-        classes.A = classes.A.filter((r) => r !== 'users')
+        classes.D = ['users', 'team_members']
+        classes.A = classes.A.filter((r) => r !== 'users' && r !== 'team_members')
         columns['users'] = ['id', 'role']
+        columns['team_members'] = ['team_id']
       },
       () => {
         const sql = buildGrantsSql()
-        expect(sql).toContain('GRANT SELECT (id, role) ON TABLE public.users TO crm_collector;')
+        // Sorted and one statement each, so the committed file does not churn.
+        expect(sql).toContain(
+          'GRANT SELECT (team_id) ON TABLE public.team_members TO crm_collector;\n' +
+            'GRANT SELECT (id, role) ON TABLE public.users TO crm_collector;\n',
+        )
         const toCollector = splitSqlStatements(sql).filter((s) => s.includes('TO crm_collector'))
-        // Exactly one statement, and it is the column-level one: a table-level SELECT
-        // anywhere here would defeat the class.
-        expect(toCollector).toHaveLength(1)
-        expect(toCollector[0]).toMatch(/^GRANT SELECT \(id, role\)/)
+        // Exactly two statements, both column-level: a table-level SELECT anywhere here
+        // would silently cover every column, which is what class D exists to prevent.
+        expect(toCollector).toHaveLength(2)
+        for (const statement of toCollector) {
+          expect(statement).toMatch(/^GRANT SELECT \([a-z_, ]+\) ON TABLE/)
+        }
+        // The column block ends with a blank line before the sequences section: the file is
+        // read by people during a deploy, and a section running into the next one is how a
+        // statement gets attributed to the wrong block.
+        expect(sql).toContain(
+          'GRANT SELECT (id, role) ON TABLE public.users TO crm_collector;\n\n-- 4. Sequences.',
+        )
+        // And the check must expect exactly those pairs — a grant the check does not
+        // assert is a grant that can vanish unnoticed.
+        const check = buildCheckSql()
+        expect(check).toContain("SELECT 'users', 'id'")
+        expect(check).toContain("SELECT 'users', 'role'")
+        expect(check).toContain("SELECT 'team_members', 'team_id'")
+      },
+    )
+  })
+
+  it('spells out an empty class B and an empty trigger set as explicit empty row sets', () => {
+    // These are the branches the real manifest takes today, and "no rows" has to be written
+    // out: an empty VALUES list is a syntax error, and a dropped CTE would make the part
+    // compare nothing while still reporting success.
+    withManifest(
+      () => {
+        classes.B = []
+        classes['A-log'] = [...classes['A-log'], 'job_queue_actions']
+        for (const key of Object.keys(triggers)) delete triggers[key]
+      },
+      () => {
+        const check = buildCheckSql()
+        expect(check).toContain('class_b(table_name) AS (SELECT NULL::text WHERE false)')
+        expect(check).toContain(
+          'WITH declared(table_name, trigger_name, enabled) AS (SELECT NULL::text, NULL::text, NULL::"char" WHERE false)',
+        )
       },
     )
   })
@@ -258,8 +299,13 @@ describe('privilege SQL for classes with no members yet', () => {
       },
       () => {
         const sql = buildCheckSql()
-        expect(sql).toContain("('job_queue_actions', 'job_queue_actions_no_update', 'A')")
-        expect(sql).toContain("('job_queue_actions', 'job_queue_actions_no_truncate', 'A')")
+        // The whole VALUES block, prefix included: without `VALUES` the CTE is not a row
+        // set at all, and asserting only the tuples would not notice.
+        expect(sql).toContain(
+          'WITH declared(table_name, trigger_name, enabled) AS (VALUES\n' +
+            "    ('job_queue_actions', 'job_queue_actions_no_update', 'A'),\n" +
+            "    ('job_queue_actions', 'job_queue_actions_no_truncate', 'A')),",
+        )
         // Two class B tables, so the separator between them is observable — with one table
         // a broken join looks identical.
         const classB = /class_b\(table_name\) AS \(([\s\S]*?)\),\n/.exec(sql)?.[1]
@@ -284,16 +330,29 @@ describe('privilege SQL for classes with no members yet', () => {
     )
   })
 
-  it('pins a declared retention-owner function by name', () => {
+  it('pins the declared retention-owner functions by name', () => {
     withManifest(
       () => {
-        functions.push('job_queue_actions_purge_expired')
+        // Both of R-B's functions (ADR §3), so the separator between them is observable.
+        functions.push('job_queue_actions_purge_expired', 'job_queue_actions_redact_reason')
       },
       () => {
         const sql = buildCheckSql()
-        expect(sql).toContain("SELECT 'job_queue_actions_purge_expired'")
+        expect(sql).toContain(
+          "declared_functions(proname) AS (SELECT 'job_queue_actions_purge_expired'\n" +
+            "    UNION ALL\n    SELECT 'job_queue_actions_redact_reason')",
+        )
         expect(sql).toContain('declared function %s is not owned by')
       },
+    )
+  })
+
+  it('spells out an empty retention-function set as an explicit empty row set', () => {
+    // Today's state, and the one the GAP PIN depends on: with no declared function, part 7
+    // requires the role to own NOTHING, so a definer function appearing without review
+    // fails the deploy.
+    expect(buildCheckSql()).toContain(
+      'declared_functions(proname) AS (SELECT NULL::text WHERE false)',
     )
   })
 

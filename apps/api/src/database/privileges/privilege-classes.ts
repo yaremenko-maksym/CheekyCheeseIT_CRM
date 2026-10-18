@@ -15,6 +15,19 @@
  * drift apart — only the database can drift from both, which is exactly what the check
  * is for.
  *
+ * THE CONTRACT WITH TASK 1.3b (the append-only triggers and the R-B functions)
+ * ---------------------------------------------------------------------------
+ * 1.3b ships on its own branch and depends on THIS task by name: its two `SECURITY
+ * DEFINER` functions are owned by `crm_retention_owner`, which `2026-10-18_db_roles.sql`
+ * creates. Three declarations here are the seam between the two tasks, and the catalog
+ * check FAILS THE DEPLOY if 1.3b changes the database without changing them — deliberately,
+ * because an undeclared trigger or definer function is the one thing nothing else would
+ * notice:
+ *   - `appendOnlyTriggers` — the trigger names and their `ENABLE ALWAYS` state;
+ *   - `retentionOwnerFunctions` — the function names that role may own;
+ *   - `RETENTION_OWNER_TABLE_PRIVILEGES` — the privileges those functions need.
+ * All three are empty today, which pins the current state rather than asserting nothing.
+ *
  * ADDING A TABLE
  * --------------
  * Put it in a class here. `privilege-classes.spec.ts` fails on an unclassified table
