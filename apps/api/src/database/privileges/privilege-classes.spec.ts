@@ -6,9 +6,8 @@
  * `docs/architecture/2026-10-17-db-least-privilege-roles.md` §2 puts every table in
  * `public` into exactly ONE privilege class, and the class decides what `crm_app` and
  * `crm_collector` may do to it. The failure mode the whole design exists to prevent is a
- * table nobody classified: it inherits `SELECT, INSERT, UPDATE, DELETE` from the default
- * privileges, so an audit log or a migration-internal table added later is silently
- * writable by the API — the shape of the finding on PR #1017.
+ * table nobody classified — the shape of the finding on PR #1017, where an audit log or a
+ * migration-internal table added later would be silently writable by the API.
  *
  * The ADR's catalog check (§2 item 1) catches that against a real database, in CI and on
  * every deploy. This spec catches it EARLIER and WITHOUT a database, which matters
@@ -16,6 +15,18 @@
  * such edit. The relation list is derived from the Drizzle schema at runtime — never
  * hand-maintained — so a `pgTable(…)` added anywhere under `schema/` fails here until its
  * class is chosen.
+ *
+ * THIS SPEC IS NOW LOAD-BEARING FOR THE PRIVILEGE MODEL, NOT MERELY EARLIER
+ * ------------------------------------------------------------------------
+ * An unclassified table used to inherit `SELECT, INSERT, UPDATE, DELETE` from a default
+ * privilege on TABLES. That default privilege is gone (fix round 1, SR-H-1: it covered
+ * VIEWS too, and an auto-updatable view writes its base tables as the view owner, which
+ * reopened every class whose point is a revoke). So an unclassified table is now
+ * UNREACHABLE rather than over-granted — and the only reason removing the default
+ * privilege cost nothing is the assertion below: a `pgTable` with no manifest entry fails
+ * the unit suite, so a new table cannot reach a deploy without a class and a regenerated
+ * grant. Weakening the derivation here would quietly restore the window that default
+ * privilege existed to cover.
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
