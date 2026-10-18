@@ -158,7 +158,22 @@ h1{font-size:18px;font-weight:600;letter-spacing:-.01em}
 .srcrow{display:flex;align-items:center;gap:10px;min-height:44px;border-bottom:1px solid var(--border)}
 .srcrow .nm{flex:1;min-width:0}.srcrow .nm div:first-child{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .srcrow .btn{min-height:44px;width:44px;padding:0}
-.sn{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);align-items:flex-start}
+.sn{display:grid;grid-template-columns:32px minmax(0,1fr);column-gap:10px;row-gap:6px;padding:12px 0;border-bottom:1px solid var(--border);align-items:start}
+.sn .sact{grid-column:2;display:flex;flex-direction:column;gap:4px;align-items:stretch}
+.sn .sact .btn.ic{align-self:flex-end}
+.sn .done{display:flex;align-items:center;gap:6px;min-height:44px;font-weight:600}
+.sn .done svg{color:var(--primary)}
+@container vp (min-width:640px){.sn{grid-template-columns:32px minmax(0,1fr) auto}.sn .sact{grid-column:3;grid-row:1;align-items:flex-end;min-width:150px}}
+.grp{font-size:12px;font-weight:600;color:var(--muted-foreground);padding:10px 0 2px;border-bottom:1px solid var(--border)}
+.dupask{background:var(--accent)}
+.foot-status,.foot-end{display:flex;align-items:center;justify-content:center;gap:8px;min-height:44px;color:var(--muted-foreground);font-size:13px}
+.foot-status svg{animation:spin 1s linear infinite}
+.foot-end{border-top:1px dashed var(--border);margin-top:4px}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.foot-status svg{animation:none}}
+.btn.more{color:var(--muted-foreground)}
+.cnt{text-align:center;font-size:12px}
+.ghostlist{margin-top:12px;opacity:.7}
 .av{width:32px;height:32px;border-radius:999px;background:var(--yellow-subtle);color:var(--avatar-text);display:grid;place-items:center;font-size:12px;font-weight:600;flex:none}
 .sn .bd{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
 .sn .nm{font-weight:500}
@@ -209,7 +224,8 @@ const LANG=Q.get('lang')||'uk';
 /* ---------- strings: uk is the source locale, en second. Plurals: uk one/few/many, en one/other ---------- */
 const D={
 uk:{title:'Черга вакансій',tNew:'Нові',tWip:'У роботі',tHid:'Приховані',search:'Назва або компанія',filters:'Фільтри',team:'Команда',studio:'Уся студія',
- take:'Взяти в роботу',open:'Відкрити оригінал',hide:'Приховати',loadMore:'Завантажити ще',
+ submit:'Подати',submitting:'Подаємо…',submitted:'Подано · {when}',submittedBy:'Подано: {who} · {when}',subCount:'{n} подано',
+ open:'Відкрити оригінал',hide:'Приховати',loadMore:'Показати ще',appending:'Завантажуємо ще…',endAll:'Усі вакансії показано: {n}',appErr:'Не вдалося завантажити ще',appErrP:'Уже завантажені вакансії збережено.',
  emptyNewT:'У черзі немає нових вакансій',emptyNewP:'Нові з’являться після наступного збору. Якщо ви очікували їх зараз — перевірте фільтри.',
  emptyNoTeamT:'Вам не призначено жодної команди',emptyNoTeamP:'Без команди черга порожня. Зверніться до адміністратора.',
  errT:'Не вдалося завантажити чергу',errP:'Це не вплинуло на ваші дані. Спробуйте ще раз.',retry:'Спробувати ще',
@@ -227,10 +243,11 @@ uk:{title:'Черга вакансій',tNew:'Нові',tWip:'У роботі',t
  updI:'Вакансію оновлено після побудови списку',updIP:'Нижче — актуальні дані.',
  stale:'З’явилася новіша версія вакансії',staleP:'Ця картка застаріла, тому взяти в роботу з неї не можна.',staleBtn:'Оновити картку',
  dupT:'Схожа вакансія вже є в черзі',dupP:'Можливий дублікат. Перевірте, чи це не та сама вакансія.',dupTaken:'У роботі: {who}',
- dupAsk:'Схожу вакансію вже взято',dupAskP:'Ви впевнені, що це інша вакансія?',dupYes:'Так, взяти все одно',cancel:'Скасувати',
- taken:'Вже взято',takenBy:'У роботі: {who} · {when}',takenOnly:'Вже взято',
- closedClaimed:'Закриту вакансію вже взято в роботу',closedClaimedP:'У роботі: {who}. Звільніть її, щоб не втрачати час.',closed:'Закрита',
- release:'Звільнити',reassign:'Перепризначити…',suppress:'Приховати для всіх…',adminMenu:'Дії адміністратора',
+ dupAsk:'Цього сеньйора вже подано на схожу вакансію',dupAskP:'Ви впевнені, що це інша вакансія?',dupYes:'Так, подати все одно',cancel:'Скасувати',
+ stopSome:'Виключено за стоп-листом: {n}',stopSomeP:'Ці сеньйори внесли компанію до власного стоп-листа, тому вакансія їм не пропонується.',stopAllT:'Усіх збіжних сеньйорів виключено стоп-листом',stopAllP:'Стек збігається, але кожен із них вніс цю компанію до стоп-листа. Це не те саме, що відсутність збігів.',stopRow:'Усі збіги — за стоп-листом',
+ dupSub:'Ваша команда вже подавала на схожу: {t}',
+ closedClaimed:'Вакансію закрито на джерелі',closedClaimedP:'Нові подачі неможливі. Раніше подано вашою командою: {n}.',closed:'Закрита',
+ release:'Скасувати подачу…',hideScopeT:'Буде приховано для вашої команди',hideScopeA:'Буде приховано для всієї студії',teamHdr:'Команда',submitFor:'Подати: {who}',suppress:'Приховати для всіх…',adminMenu:'Дії адміністратора',
  r1:'Не релевантна',r2:'Спам',r3:'Мертве посилання',hidden:'Приховано',undo:'Скасувати',restore:'Повернути',hiddenBy:'Приховано: {r}',
  close:'Закрити',desc:'Опис',about:'Про роль',
  s_title:'Джерела вакансій',s_sum:'{n} джерела · {a} призупинено · {b} заблоковано',
@@ -241,7 +258,8 @@ uk:{title:'Черга вакансій',tNew:'Нові',tWip:'У роботі',t
  enableFail:'Не вдалося увімкнути',enableFailP:'Причина: сплив термін авторизації. Стан не змінено.',never:'ніколи',
  ago:{m:'{n} хв тому',h:'{n} год тому',d1:'вчора',d:'{n} дн. тому',d2:'{n} дні тому'}},
 en:{title:'Vacancy queue',tNew:'New',tWip:'In progress',tHid:'Hidden',search:'Title or company',filters:'Filters',team:'Team',studio:'Whole studio',
- take:'Take it on',open:'Open original',hide:'Hide',loadMore:'Load more',
+ submit:'Submit',submitting:'Submitting…',submitted:'Submitted · {when}',submittedBy:'Submitted by {who} · {when}',subCount:'{n} submitted',
+ open:'Open original',hide:'Hide',loadMore:'Show more',appending:'Loading more…',endAll:'All vacancies shown: {n}',appErr:'Could not load more',appErrP:'The vacancies already loaded are kept.',
  emptyNewT:'No new vacancies in the queue',emptyNewP:'New ones appear after the next collection. If you expected some now, check your filters.',
  emptyNoTeamT:'You are not assigned to any team',emptyNoTeamP:'Without a team the queue is empty. Contact an administrator.',
  errT:'Could not load the queue',errP:'Your data is unaffected. Please try again.',retry:'Try again',
@@ -259,10 +277,11 @@ en:{title:'Vacancy queue',tNew:'New',tWip:'In progress',tHid:'Hidden',search:'Ti
  updI:'The vacancy was updated after the list was built',updIP:'Current data is shown below.',
  stale:'A newer version of the vacancy is available',staleP:'This card is out of date, so it cannot be taken from here.',staleBtn:'Refresh card',
  dupT:'A similar vacancy is already in the queue',dupP:'Possible duplicate. Check that it is not the same vacancy.',dupTaken:'In progress: {who}',
- dupAsk:'A similar vacancy is already taken',dupAskP:'Are you sure this is a different vacancy?',dupYes:'Yes, take it anyway',cancel:'Cancel',
- taken:'Already taken',takenBy:'In progress: {who} · {when}',takenOnly:'Already taken',
- closedClaimed:'A closed vacancy is already in progress',closedClaimedP:'In progress: {who}. Release it to avoid wasted effort.',closed:'Closed',
- release:'Release',reassign:'Reassign…',suppress:'Hide for everyone…',adminMenu:'Administrator actions',
+ dupAsk:'This senior is already submitted to a similar vacancy',dupAskP:'Are you sure this is a different vacancy?',dupYes:'Yes, submit anyway',cancel:'Cancel',
+ stopSome:'Excluded by stop-list: {n}',stopSomeP:'These seniors put the company on their own stop-list, so the vacancy is not offered to them.',stopAllT:'All matching seniors are excluded by stop-lists',stopAllP:'The stack matches, but each of them has put this company on their stop-list. This is not the same as having no matches.',stopRow:'All matches are on stop-lists',
+ dupSub:'Your team has already submitted to a similar one: {t}',
+ closedClaimed:'The vacancy is closed at the source',closedClaimedP:'New submissions are not possible. Previously submitted by your team: {n}.',closed:'Closed',
+ release:'Cancel submission…',hideScopeT:'Will be hidden for your team',hideScopeA:'Will be hidden for the whole studio',teamHdr:'Team',submitFor:'Submit: {who}',suppress:'Hide for everyone…',adminMenu:'Administrator actions',
  r1:'Not relevant',r2:'Spam',r3:'Dead link',hidden:'Hidden',undo:'Undo',restore:'Restore',hiddenBy:'Hidden: {r}',
  close:'Close',desc:'Description',about:'About the role',
  s_title:'Vacancy sources',s_sum:'{n} sources · {a} paused · {b} blocked',
@@ -301,7 +320,9 @@ const P={
  info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
  menu:'<path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/>',
  pause:'<rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/>',
- power:'<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/>'
+ power:'<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/>',
+ ban:'<circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>',
+ loader:'<path d="M21 12a9 9 0 1 1-6.2-8.6"/>'
 };
 const ic=(n,s=16)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
 
@@ -309,11 +330,12 @@ const ic=(n,s=16)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="no
 const LONG='Senior/Lead Full-Stack Software Engineer (Python, Django, React, TypeScript, AWS, Kubernetes) for a Series B Fintech Platform — Hybrid or Remote within EU Time Zones — Immediate Start, Long-Term Contract with Option to Convert to Full-Time Employment';
 const LONGCO='Northwind International Payment Processing Solutions Holding GmbH';
 const ROWS={
- a:{t:'Senior Python Engineer (FinTech)',co:'Acme Labs',sen:'Senior',chips:['Python','Django','AWS','PostgreSQL','Docker'],hit:3,age:['posted','d',2],n:3,also:[2,'DOU, Djinni']},
- b:{t:'Middle React Developer',co:'Northwind',sen:'Middle',chips:['React','TypeScript','Next.js'],hit:2,age:['posted','h',5],n:1,also:null,flags:['upd']},
+ a:{t:'Senior Python Engineer (FinTech)',co:'Acme Labs',sen:'Senior',chips:['Python','Django','AWS','PostgreSQL','Docker'],hit:3,age:['posted','d',2],n:3,sub:1,also:[2,'DOU, Djinni']},
+ b:{t:'Middle React Developer',co:'Northwind',sen:'Middle',chips:['React','TypeScript','Next.js'],hit:2,age:['posted','h',5],n:1,sub:0,also:null,flags:['upd']},
  c:{t:'Backend developer',co:'Невідомий роботодавець',coEn:'Unknown employer',sen:null,chips:[],hit:0,age:['unknown','d',3],n:0,also:null,triage:1},
- d:{t:LONG,co:LONGCO,sen:'Lead',chips:['Python','Django','React','TypeScript','AWS','Kubernetes','Terraform'],hit:4,age:['posted','d',9],lastSeen:['d',1],n:2,also:[1,'LinkedIn'],flags:['dup']},
- e:{t:'Java Developer',co:'Contoso',sen:'Middle',chips:['Java','Spring','Kafka'],hit:0,age:['posted','d',1],n:0,also:null}
+ d:{t:LONG,co:LONGCO,sen:'Lead',chips:['Python','Django','React','TypeScript','AWS','Kubernetes','Terraform'],hit:4,age:['posted','d',9],lastSeen:['d',1],n:2,sub:2,also:[1,'LinkedIn'],flags:['dup']},
+ e:{t:'Java Developer',co:'Contoso',sen:'Middle',chips:['Java','Spring','Kafka'],hit:0,age:['posted','d',1],n:0,also:null},
+ f:{t:'DevOps Engineer',co:'Fabrikam',sen:'Senior',chips:['Kubernetes','Terraform','AWS'],hit:0,age:['posted','d',4],n:0,also:null,stopAll:1}
 };
 const co=r=>(LANG==='en'&&r.coEn)||r.co;
 const senStr=r=>r.sen?`<span class="bdg">${r.sen}</span>`:'';
@@ -337,16 +359,19 @@ function row(r,o={}){
     <div class="line1"><span class="src" aria-hidden="true">${ic('globe',12)}</span><span class="co">${co(r)}</span></div>
     ${ch?`<div class="chips">${ch}</div>`:''}
     ${r.triage?`<div class="meta"><span class="i fg">${ic('help',13)}<span>${tr('triageWhy')}</span></span></div>`:''}`;
+  /* data-slot="matched-count": ONE number in ONE place — scoped or studio-wide (owner decision pending) without a layout change.
+     The companion «N подано» is ALWAYS the actor's own team and is a separate clause, never "x of y". */
   const right=`
     <div class="meta">${ageHtml(r)}</div>
-    ${r.n>0?`<div class="meta"><span class="i fg">${ic('users',13)}${plural('seniors',r.n)}</span></div>`:''}
+    ${r.n>0?`<div class="meta" data-slot="matched-count"><span class="i fg">${ic('users',13)}<span>${plural('seniors',r.n)}</span></span>${r.sub?`<span class="i fg">${ic('check',13)}<span>${tr('subCount',{n:r.sub})}</span></span>`:''}</div>`:''}
+    ${r.stopAll?`<div class="meta"><span class="i fg">${ic('ban',13)}<span>${tr('stopRow')}</span></span></div>`:''}
     ${r.also?`<div class="meta"><span class="i">${tr('also',{n:r.also[0],list:r.also[1]})}</span></div>`:''}`;
   let who='';
-  if(o.who==='in')who=`<div class="who">${ic('check',14)}<span>${tr('takenBy',{who:LANG==='uk'?'Олена К.':'Olena K.',when:ago('h',2)})}</span></div>`;
-  if(o.who==='mask')who=`<div class="who">${ic('lock',14)}<span>${tr('takenOnly')}</span></div>`;
+  if(o.who==='in')who=`<div class="who">${ic('check',14)}<span>${tr('submittedBy',{who:LANG==='uk'?'Іван Петренко':'Ivan Petrenko',when:ago('h',2)})}</span></div>`;
   if(o.who==='hid')who=`<div class="who">${ic('eyeoff',14)}<span>${tr('hiddenBy',{r:tr('r1')})}</span><span class="btn out">${ic('undo',14)}${tr('restore')}</span></div>`;
   return `<button class="item" data-testid="job-queue-row"><div class="l">${left}</div><div class="r">${right}</div>${who}<span class="chev">${ic('chev',18)}</span></button>`;
 }
+
 
 /* ---------- screens ---------- */
 function shell(inner){
@@ -378,35 +403,48 @@ function sourcesBlock(open){
 function listScreen(st,admin){
   const o={admin:admin==='1',multi:st==='multi',fcount:st==='filtered'?2:0,noCounts:st==='loading'};
   const sk=`<div class="item"><div class="sk" style="height:12px;width:40%"></div><div class="sk" style="height:16px;width:85%"></div><div class="sk" style="height:12px;width:55%"></div><div class="chips"><div class="sk" style="height:22px;width:60px"></div><div class="sk" style="height:22px;width:70px"></div></div></div>`;
-  const rows=[ROWS.a,ROWS.b,ROWS.c,ROWS.d,ROWS.e];
+  const rows=[ROWS.a,ROWS.b,ROWS.c,ROWS.d,ROWS.e,ROWS.f];
   let body='';const notes=[];
+  const listOf=(rs,extra='')=>`<div class="list" data-testid="job-queue-list" ${extra}>${rs.map(r=>row(r)).join('')}</div>`;
+  /* infinite scroll foot: ONE slot, ≥44px, same position in every state (no layout shift). */
+  const foot={
+    idle:`<button class="btn ghost full more" data-testid="job-queue-load-more">${tr('loadMore')}</button><div class="muted tnum cnt">${tr('shown',{a:6,b:12})}</div>`,
+    busy:`<div class="foot-status" role="status" data-testid="job-queue-appending">${ic('loader',16)}<span>${tr('appending')}</span></div><div class="muted tnum cnt">${tr('shown',{a:6,b:12})}</div>`,
+    end:`<div class="foot-end" data-testid="job-queue-end">${tr('endAll',{n:6})}</div>`,
+    err:`<div class="note bad" role="alert" data-testid="job-queue-append-error">${ic('warn',18)}<div class="tx"><b>${tr('appErr')}</b><span class="sub">${tr('appErrP')}</span><div class="act"><button class="btn out">${ic('refresh',16)}${tr('retry')}</button></div></div></div>`
+  };
   if(st==='loading')body=`<div class="list" aria-busy="true"><span class="sr">…</span>${sk}${sk}${sk}</div>`;
   else if(st==='empty')body=`<div class="empty"><div class="ico">${ic('search',20)}</div><b>${tr('emptyNewT')}</b><p>${tr('emptyNewP')}</p></div>`;
   else if(st==='noteam')body=`<div class="empty"><div class="ico">${ic('users',20)}</div><b>${tr('emptyNoTeamT')}</b><p>${tr('emptyNoTeamP')}</p></div>`;
   else if(st==='error')body=`<div class="note bad" role="alert">${ic('warn',18)}<div class="tx"><b>${tr('errT')}</b><span class="sub">${tr('errP')}</span><div class="act"><button class="btn out">${ic('refresh',16)}${tr('retry')}</button></div></div></div>`;
-  else if(st==='wip')body=`<div class="list">${row(ROWS.a,{who:'in'})}${row(ROWS.b,{who:'mask'})}</div>`;
+  else if(st==='wip')body=`<div class="list">${row(ROWS.a,{who:'in'})}${row(ROWS.d)}</div><div class="foot-end">${tr('endAll',{n:4})}</div>`;
   else if(st==='hidden')body=`<div class="list">${row(ROWS.e,{who:'hid'})}</div>`;
   else if(st==='refresh'||st==='partial'){
     if(st==='refresh')notes.push(`<div class="note info" role="status">${ic('refresh',18)}<div class="tx"><b>${tr('refresh')}</b><span class="sub">${tr('refreshP')}</span><div class="act"><button class="btn out">${tr('refreshBtn')}</button></div></div></div>`);
     else notes.push(`<div class="note dash" role="status">${ic('warn',18)}<div class="tx"><b>${tr('partial')}</b><span class="sub">${tr('partialP')}</span></div></div>`);
     body=`<div class="list">${rows.slice(0,3).map(r=>row(r)).join('')}</div>`;
   }
-  else body=`<div class="list" data-testid="job-queue-list">${rows.map(r=>row(r)).join('')}</div><button class="btn out full">${tr('loadMore')}</button><div class="muted tnum" style="text-align:center;font-size:12px">${tr('shown',{a:5,b:12})}</div>`;
+  else if(st==='appending')body=listOf(rows,'aria-busy="true"')+`<div class="list ghostlist">${sk}${sk}</div>`+foot.busy;
+  else if(st==='end')body=listOf(rows)+foot.end;
+  else if(st==='appenderr')body=listOf(rows)+foot.err;
+  else body=listOf(rows)+foot.idle;
   const tab=st==='wip'?1:st==='hidden'?2:0;
-  const h=header({...o,tab,counts:st==='empty'?[0,4,31]:[12,4,31]});
-  return `<div class="main"><div class="page" data-testid="job-queue-page">${h}${notes.join('')}${admin==='1'?sourcesBlock(false):''}${body}</div></div>`;
+  const h=header({...o,tab,counts:st==='empty'?[0,4,31]:st==='end'?[6,4,31]:[12,4,31]});
+  return `<div class="main"><div class="page" data-testid="job-queue-page">${h}${notes.join('')}${admin==='1'?sourcesBlock(false):''}${body}<div class="sr" aria-live="polite" data-testid="job-queue-live">${st==='end'?tr('endAll',{n:6}):''}</div></div></div>`;
 }
 
 function cardScreen(st){
   let r=ROWS.a;
-  if(st==='triage')r=ROWS.c;if(st==='long')r=ROWS.d;if(st==='zero')r=ROWS.e;if(st==='unknown')r={...ROWS.a,age:['unknown','d',3]};
+  if(st==='triage')r=ROWS.c;if(st==='long')r=ROWS.d;if(st==='zero')r=ROWS.e;if(st==='stopall')r=ROWS.f;if(st==='unknown')r={...ROWS.a,age:['unknown','d',3]};
+  const isAdmin=st==='admin';
+  const nm=(uk,en)=>LANG==='uk'?uk:en;
   const warn=[];
   if(st==='updated')warn.push(`<div class="note info" role="status">${ic('refresh',18)}<div class="tx"><b>${tr('updI')}</b><span class="sub">${tr('updIP')}</span></div></div>`);
   if(st==='stale')warn.push(`<div class="note bad" role="alert">${ic('refresh',18)}<div class="tx"><b>${tr('stale')}</b><span class="sub">${tr('staleP')}</span><div class="act"><button class="btn out">${ic('refresh',16)}${tr('staleBtn')}</button></div></div></div>`);
   if(st==='triage')warn.push(`<div class="note dash">${ic('help',18)}<div class="tx"><b>${tr('triageCardT')}</b><span class="sub">${tr('triageCardP')}</span></div></div>`);
   if(st==='long')warn.push(`<div class="note"><span class="fg">${ic('copy',18)}</span><div class="tx"><b>${tr('dupT')}</b><span class="sub">${tr('dupP')}</span></div></div>`);
-  if(st==='dup'||st==='dupconfirm')warn.push(`<div class="note"><span class="fg">${ic('copy',18)}</span><div class="tx"><b>${tr('dupT')}</b><span class="sub">${tr('dupP')}</span><div class="meta" style="margin-top:6px"><span class="fg">Senior Python Engineer — Acme Labs</span><span class="sep">·</span><span>DOU</span><span class="sep">·</span><span>${tr('dupTaken',{who:LANG==='uk'?'Олена К.':'Olena K.'})}</span></div></div></div>`);
-  if(st==='closed')warn.push(`<div class="note bad" role="alert">${ic('warn',18)}<div class="tx"><b>${tr('closedClaimed')}</b><span class="sub">${tr('closedClaimedP',{who:LANG==='uk'?'Олена К.':'Olena K.'})}</span><div class="act"><button class="btn out">${tr('release')}</button><button class="btn out">${tr('reassign')}</button></div></div></div>`);
+  if(st==='dup'||st==='dupconfirm')warn.push(`<div class="note"><span class="fg">${ic('copy',18)}</span><div class="tx"><b>${tr('dupT')}</b><span class="sub">${tr('dupP')}</span><div class="meta" style="margin-top:6px"><span class="fg">${tr('dupSub',{t:'Senior Python Engineer — Acme Labs · '+nm('Іван П.','Ivan P.')})}</span></div></div></div>`);
+  if(st==='closed')warn.push(`<div class="note bad" role="alert">${ic('warn',18)}<div class="tx"><b>${tr('closedClaimed')}</b><span class="sub">${tr('closedClaimedP',{n:1})}</span></div></div>`);
   const meta=r.age[0]==='unknown'
    ?`<span class="i">${ic('caloff',13)}<span>${tr('unknownDate')} · ${tr('firstSeen',{ago:ago('d',3)})} · ${tr('lastSeen',{ago:ago('h',6)})}</span></span>`
    :`<span class="i">${tr('posted',{ago:ago(r.age[1],r.age[2])})}</span><span class="i">${tr('lastSeen',{ago:ago('h',6)})}</span>`;
@@ -414,31 +452,40 @@ function cardScreen(st){
     ${[['DOU','dou.ua',ago('h',6)],['Djinni','djinni.co',ago('d',1)],['LinkedIn','linkedin.com',ago('d',2)]].map(([n,h,w])=>`<div class="srcrow"><span class="src">${ic('globe',12)}</span><div class="nm"><div>${n}</div><div class="muted" style="font-size:12px">${h} · ${w}</div></div><button class="btn out" aria-label="${tr('open')}: ${n}">${ic('ext',14)}</button></div>`).join('')}
     <div class="muted tnum" style="font-size:12px;display:flex;justify-content:space-between;align-items:center"><span>${tr('shown',{a:3,b:34})}</span><button class="disc">${tr('showMore',{n:20})}</button></div></div>`;
   const stack=`<div class="sec"><h3>${tr('matchT')}</h3><div class="chips">${r.chips.map((c,i)=>`<span class="chip ${i<r.hit?'hit':''}">${i<r.hit?ic('check',12)+'&nbsp;':''}${c}</span>`).join('')||'<span class="muted">—</span>'}</div></div>`;
-  const sn=(ini,nm,av,unsure,via,ev)=>`<div class="sn"><span class="av" aria-hidden="true">${ini}</span><div class="bd"><div class="nm">${nm}</div><div class="meta">${av}${unsure?`<span class="sep">·</span><span class="i fg">${ic('info',13)}${tr('unsure')}</span>`:''}</div><div class="meta"><span>${tr('viaT')}</span>${via.map(v=>`<span class="chip hit">${v}</span>`).join('')}</div>${ev?`<div class="ev">${tr('whyP')}</div>`:''}<button class="disc" aria-expanded="${ev?'true':'false'}">${tr('why')} ${ic(ev?'chevd':'chev',14)}</button></div></div>`;
-  const dotF=`<span class="pill"><span class="dot"></span>${tr('free',{d:LANG==='uk'?'1 лис.':'Nov 1'})}</span>`;
+  /* ----- the working surface: one block per OWN senior, each with its own state ----- */
+  const blocked=(st==='stale'||st==='closed');
+  const sn=(ini,name,av,unsure,via,ev,state,extra='')=>{
+    let act='';
+    if(state==='todo')act=`<button class="btn pri${blocked?' dis':''}" ${blocked?'aria-disabled="true"':''} aria-label="${tr('submitFor',{who:name})}">${tr('submit')}</button>`;
+    if(state==='busy')act=`<button class="btn pri dis" aria-disabled="true" aria-busy="true">${ic('loader',16)}${tr('submitting')}</button>`;
+    if(state==='done')act=`<div class="done">${ic('check',16)}<span>${tr('submitted',{when:ago('h',2)})}</span></div><div class="muted" style="font-size:12px">${nm('Андрій Л.','Andrii L.')}</div>${isAdmin?`<button class="btn out ic" aria-label="${tr('release')}: ${name}">${ic('more',18)}</button>`:''}`;
+    return `<div class="sn" data-state="${state}"><span class="av" aria-hidden="true">${ini}</span><div class="bd"><div class="nm">${name}</div><div class="meta">${av}${unsure?`<span class="sep">·</span><span class="i fg">${ic('info',13)}${tr('unsure')}</span>`:''}</div><div class="meta"><span>${tr('viaT')}</span>${via.map(v=>`<span class="chip hit">${v}</span>`).join('')}</div>${ev?`<div class="ev">${tr('whyP')}</div>`:''}<button class="disc" aria-expanded="${ev?'true':'false'}">${tr('why')} ${ic(ev?'chevd':'chev',14)}</button></div><div class="sact">${act}</div>${extra}</div>`;
+  };
+  const dotF=`<span class="pill"><span class="dot"></span>${tr('free',{d:nm('1 лис.','Nov 1')})}</span>`;
   const dotB=`<span class="pill"><span class="dot hollow"></span>${tr('busy')}</span>`;
-  const seniors=(st==='zero'||st==='triage')
-   ?`<div class="sec"><h3>${tr('seniorsT')}</h3><div class="empty" style="padding:20px 12px"><b>${tr('noMatch')}</b><p>${st==='zero'?tr('noMatchP'):tr('triageWhy')}</p></div></div>`
-   :`<div class="sec"><h3>${tr('seniorsT')}<span class="tnum">3</span></h3>${sn('ОК',LANG==='uk'?'Олена Ковальчук':'Olena Kovalchuk',dotF,false,['Python','AWS'],st==='default')}${sn('ІП',LANG==='uk'?'Іван Петренко':'Ivan Petrenko',dotB,true,['Python','Django'],false)}${sn('МС',LANG==='uk'?'Марія Савченко':'Maria Savchenko',dotF,false,['Django'],false)}</div>`;
+  const dupAsk=`<div class="note dupask" style="grid-column:1/-1" role="alert">${ic('copy',18)}<div class="tx"><b>${tr('dupAsk')}</b><span class="sub">${tr('dupAskP')}</span><div class="act"><button class="btn pri" data-initial-focus>${tr('cancel')}</button><button class="btn out">${tr('dupYes')}</button></div></div></div>`;
+  const stopSome=`<div class="note soft" style="margin-top:8px">${ic('ban',16)}<div class="tx"><b class="fg">${tr('stopSome',{n:1})}</b><span class="sub">${tr('stopSomeP')}</span></div></div>`;
+  let seniors;
+  if(st==='zero'||st==='triage')seniors=`<div class="sec"><h3>${tr('seniorsT')}</h3><div class="empty" style="padding:20px 12px"><div class="ico">${ic('users',20)}</div><b>${tr('noMatch')}</b><p>${st==='zero'?tr('noMatchP'):tr('triageWhy')}</p></div></div>`;
+  else if(st==='stopall')seniors=`<div class="sec"><h3>${tr('seniorsT')}</h3><div class="empty" style="padding:20px 12px"><div class="ico">${ic('ban',20)}</div><b>${tr('stopAllT')}</b><p>${tr('stopAllP')}</p></div></div>`;
+  else if(isAdmin)seniors=`<div class="sec"><h3>${tr('seniorsT')}<span class="tnum">3</span></h3>
+    <div class="grp">${tr('teamHdr')} «${nm('Альфа','Alpha')}»</div>${sn('ОК',nm('Олена Ковальчук','Olena Kovalchuk'),dotF,false,['Python','AWS'],false,'todo')}${sn('ІП',nm('Іван Петренко','Ivan Petrenko'),dotB,true,['Python','Django'],false,'done')}
+    <div class="grp">${tr('teamHdr')} «${nm('Бета','Beta')}»</div>${sn('ПМ',nm('Петро Мельник','Petro Melnyk'),dotF,false,['Django'],false,'todo')}${stopSome}</div>`;
+  else seniors=`<div class="sec"><h3>${tr('seniorsT')}<span class="tnum">${st==='dupconfirm'||st==='submitting'?3:3}</span></h3>${sn('ОК',nm('Олена Ковальчук','Olena Kovalchuk'),dotF,false,['Python','AWS'],st==='default',st==='submitting'?'busy':'todo',st==='dupconfirm'?dupAsk:'')}${sn('ІП',nm('Іван Петренко','Ivan Petrenko'),dotB,true,['Python','Django'],false,'done')}${sn('МС',nm('Марія Савченко','Maria Savchenko'),dotF,false,['Django'],false,'todo')}${stopSome}</div>`;
   const desc=`<div class="sec"><h3>${tr('desc')}</h3><div class="md"><p><strong>${tr('about')}</strong></p><p>${LANG==='uk'?'Шукаємо інженера для розробки платіжного ядра. Робота з Python/Django, AWS та PostgreSQL.':'We are looking for an engineer to build the payment core. Work with Python/Django, AWS and PostgreSQL.'}</p><ul><li>${LANG==='uk'?'5+ років досвіду':'5+ years of experience'}</li><li>${LANG==='uk'?'Досвід з високонавантаженими системами':'Experience with high-load systems'}</li></ul><p><span class="u">https://acme.example/careers/senior-python</span></p></div></div>`;
   const hideBtn=`<button class="btn out" aria-haspopup="menu">${ic('eyeoff',16)}${tr('hide')}</button>`;
   const open=`<button class="btn out">${ic('ext',16)}${tr('open')}</button>`;
-  const takeBtn=`<button class="btn pri">${tr('take')}</button>`;
   const adm=`<button class="btn out ic" aria-label="${tr('adminMenu')}">${ic('more',18)}</button>`;
-  let foot;
-  if(st==='taken'||st==='masked')foot=`<div class="grow" style="display:flex;align-items:center;gap:8px;color:var(--muted-foreground)">${ic('lock',16)}<span>${st==='taken'?tr('takenBy',{who:LANG==='uk'?'Олена К.':'Olena K.',when:ago('h',2)}):tr('takenOnly')}</span></div><button class="btn pri dis" aria-disabled="true">${tr('taken')}</button>${open}${hideBtn}`;
-  else if(st==='dupconfirm')foot=`<div class="grow" style="order:-2"><b>${tr('dupAsk')}</b><div class="muted" style="font-size:12px">${tr('dupAskP')}</div></div><button class="btn pri" data-initial-focus>${tr('cancel')}</button><button class="btn out" style="order:4">${tr('dupYes')}</button>`;
-  else if(st==='closed')foot=`<button class="btn pri dis" aria-disabled="true">${tr('take')}</button>${open}<div class="pair">${hideBtn}${adm}</div>`;
-  else if(st==='stale')foot=`<button class="btn pri dis" aria-disabled="true">${tr('take')}</button>${open}${hideBtn}`;
-  else if(st==='adminmenu')foot=`${takeBtn}${open}<div class="pair">${hideBtn}${adm}</div>`;
-  else foot=`${takeBtn}${open}${hideBtn}`;
-  const menu=st==='hidemenu'?`<div class="menu" role="menu"><div class="f" role="menuitem">${tr('r1')}</div><div role="menuitem">${tr('r2')}</div><div role="menuitem">${tr('r3')}</div></div>`:
-    st==='adminmenu'?`<div class="menu" role="menu" style="margin-left:auto;width:min(260px,100%)"><div class="f" role="menuitem">${tr('release')}</div><div role="menuitem">${tr('reassign')}</div><div role="menuitem">${tr('suppress')}</div>${r.triage?`<div role="menuitem">${tr('triageAdmin')}</div>`:''}</div>`:'';
+  /* footer = vacancy-level actions only. NO primary here: the primary action is «Подати» on each senior. */
+  const foot=(st==='closed'||isAdmin||st==='adminmenu')?`${open}<div class="pair">${hideBtn}${adm}</div>`:`${open}${hideBtn}`;
+  const scope=isAdmin||st==='adminmenu'?tr('hideScopeA'):tr('hideScopeT');
+  const menu=st==='hidemenu'?`<div class="menu" role="menu"><div class="muted" style="padding:8px 10px 4px;font-size:12px">${tr('hideScopeT')}</div><div class="f" role="menuitem">${tr('r1')}</div><div role="menuitem">${tr('r2')}</div><div role="menuitem">${tr('r3')}</div></div>`:
+    st==='adminmenu'?`<div class="menu" role="menu" style="margin-left:auto;width:min(280px,100%)"><div class="muted" style="padding:8px 10px 4px;font-size:12px">${scope}</div><div class="f" role="menuitem">${tr('suppress')}</div>${r.triage?`<div role="menuitem">${tr('triageAdmin')}</div>`:''}</div>`:'';
   const toast=st==='toast'?`<div class="toast" role="status"><span>${tr('hidden')}</span><button class="btn ghost fg">${ic('undo',16)}${tr('undo')}</button></div>`:'';
   const avail=st==='closed'?`<span class="st block">${ic('warn',12)}${tr('closed')}</span>`:'';
   return `<div class="scrim"><div class="dlg" role="dialog" aria-modal="true" aria-labelledby="t">
    <div class="dh"><div class="t"><div class="line1">${r.triage?`<span class="bdg tri">${ic('help',13)}${tr('triage')}</span>`:''}${senStr(r)}${avail}</div><h2 id="t">${r.t}</h2><div class="co" style="white-space:normal;overflow-wrap:anywhere">${co(r)}</div><div class="meta">${meta}</div></div><button class="btn ghost ic" aria-label="${tr('close')}">${ic('x',20)}</button></div>
-   <div class="db">${warn.join('')}${desc}${sources}${stack}${seniors}</div>
+   <div class="db">${warn.join('')}${seniors}${desc}${sources}${stack}</div>
    <div class="anno">sticky footer in product · rendered unrolled here</div>
    <div class="df">${foot}</div>${menu?`<div style="padding:0 16px 12px">${menu}</div>`:''}${toast?`<div style="padding:0 16px 12px">${toast}</div>`:''}
   </div></div>`;
@@ -460,11 +507,13 @@ function render(){
   const W=[320,768,1024,1440];
   app.innerHTML=`<div class="board">
    <section><h2>Черга вакансій / Vacancy queue — design reference</h2><div class="cap">Hand-authored (design-gate: degraded). Dark theme only. Language: <a href="?lang=${LANG==='uk'?'en':'uk'}" style="color:var(--primary)">${LANG==='uk'?'switch to English':'перемкнути на українську'}</a>. Isolated frames: ?s=list|card|sources &amp; w= &amp; st= &amp; lang=</div></section>
-   ${sec('List — default × 4 classes','HR, one team',W.map(w=>fr(w,listScreen('default','0'),'default')).join(''))}
-   ${sec('List — states at 320','empty · loading · error · refresh prompt · partial sources · no team',['empty','loading','error','refresh','partial','noteam'].map(x=>fr(320,listScreen(x,'0'),x)).join(''))}
+   ${sec('List — default × 4 classes','HR, one team. Infinite scroll: quiet «Показати ще» button is the keyboard/AT path; the scroll sentinel auto-triggers the same action',W.map(w=>fr(w,listScreen('default','0'),'default')).join(''))}
+   ${sec('List — infinite-scroll states','appending · end of list · error while appending (rows kept) · first load',['appending','end','appenderr','loading'].map(x=>fr(320,listScreen(x,'0'),x)).join(''))}
+   ${sec('List — states at 320','empty · error · refresh prompt · partial sources · no team',['empty','error','refresh','partial','noteam'].map(x=>fr(320,listScreen(x,'0'),x)).join(''))}
    ${sec('List — states at 768 / 1024 / 1440','',['empty','loading','error'].map((x,i)=>fr([768,1024,1440][i],listScreen(x,'0'),x)).join(''))}
-   ${sec('List — in progress / hidden / multi-team / ADMIN','',[fr(320,listScreen('wip','0'),'in progress'),fr(320,listScreen('hidden','0'),'hidden'),fr(320,listScreen('multi','0'),'multi-team'),fr(768,listScreen('default','1'),'ADMIN (sources collapsed)')].join(''))}
-   ${sec('Card — 320 full-screen','',['default','taken','masked','dup','dupconfirm','triage','zero','unknown','updated','stale','closed','long','hidemenu','adminmenu','toast'].map(x=>fr(320,cardScreen(x),x,true)).join(''))}
+   ${sec('List — appending / end / error at 1440','',['appending','end','appenderr'].map(x=>fr(1440,listScreen(x,'0'),x)).join(''))}
+   ${sec('List — in progress / hidden / multi-team / ADMIN','',[fr(320,listScreen('wip','0'),'in progress (own team only)'),fr(320,listScreen('hidden','0'),'hidden'),fr(320,listScreen('multi','0'),'multi-team'),fr(768,listScreen('default','1'),'ADMIN (sources collapsed)')].join(''))}
+   ${sec('Card — 320 full-screen','per-senior working surface; there is NO global «taken» state',['default','submitting','dup','dupconfirm','stopall','triage','zero','unknown','updated','stale','closed','long','hidemenu','adminmenu','toast','admin'].map(x=>fr(320,cardScreen(x),x,true)).join(''))}
    ${sec('Card — 768 / 1440 dialog','',[fr(768,cardScreen('default'),'default',true),fr(1440,cardScreen('default'),'default',true)].join(''))}
    ${sec('ADMIN sources block','',[320,768,1440].map(w=>fr(w,sourcesScreen(),'sources')).join(''))}
   </div>`;
