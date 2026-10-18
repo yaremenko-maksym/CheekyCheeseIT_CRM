@@ -50,8 +50,8 @@ and the rule points at the skill rather than restating it.
 
 ## Why this does not restate the `wip:` cadence
 
-The "every ~2 files or ~5 minutes" number lives in `git-policy.md` and in the skill, and had already
-been tightened once from 3/30 because agents were cut _before_ the first milestone. One meaning, one
+The number lives in `git-policy.md` and in the skill, which also records that it had already been
+tightened once because agents were cut _before_ the first milestone. One meaning, one
 place: the rule names the cadence as load-bearing for a different reason (it is what distinguishes a
 cut agent from a silent finished one) and links for the number.
 
