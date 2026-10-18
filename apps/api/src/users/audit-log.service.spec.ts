@@ -1,4 +1,6 @@
+import { getTableColumns } from 'drizzle-orm'
 import { describe, expect, it, vi } from 'vitest'
+import { users } from '../database/schema'
 import { AuditLogService, REDACTED_TOKEN, SENSITIVE_FIELDS } from './audit-log.service'
 
 describe('AuditLogService.diff', () => {
@@ -256,5 +258,46 @@ describe('AuditLogService.record', () => {
     const { svc, values } = makeSvc()
     await svc.record({ actorId: 'a', targetId: 'u1', action: 'profile_edit', changes: {} })
     expect(values).not.toHaveBeenCalled()
+  })
+})
+
+// SR-M-4 (security review PR #1024): redaction is by key name, which is
+// fail-open for the next column added to `users`. The column list comes from
+// the Drizzle schema, never from a hand-kept list, so a new column turns this
+// test red until someone classifies it.
+describe('users columns are all classified for audit redaction', () => {
+  // Columns reviewed and judged NOT to identify a person or carry a secret.
+  // Adding a column here is a deliberate, reviewable decision.
+  const NON_SENSITIVE_COLUMNS = new Set([
+    'id',
+    'role',
+    'locale',
+    'paymentMethod',
+    'salaryCurrency',
+    'avatarUrl',
+    'avatarDocumentId',
+    'techStack',
+    'seniorSharePercent',
+    'pendingSeniorSharePercent',
+    'dropSharePercent',
+    'archivedAt',
+    'createdAt',
+    'updatedAt',
+  ])
+  const columns = Object.keys(getTableColumns(users))
+
+  it('every users column is in SENSITIVE_FIELDS or the named non-sensitive set', () => {
+    const unclassified = columns.filter(
+      (c) => !SENSITIVE_FIELDS.has(c) && !NON_SENSITIVE_COLUMNS.has(c),
+    )
+    expect(unclassified, 'classify these users columns for audit redaction').toEqual([])
+  })
+
+  it('the two sets do not overlap', () => {
+    expect([...NON_SENSITIVE_COLUMNS].filter((c) => SENSITIVE_FIELDS.has(c))).toEqual([])
+  })
+
+  it('every name in the non-sensitive set is a real column (no stale entries)', () => {
+    expect([...NON_SENSITIVE_COLUMNS].filter((c) => !columns.includes(c))).toEqual([])
   })
 })

@@ -57,7 +57,10 @@ export const SENSITIVE_FIELDS = new Set([
 export const REDACTED_TOKEN = '[redacted]' as const
 
 // Record that the field changed but never what it changed from/to, so no PII
-// is persisted at-rest in user_audit_log.changes (JSON column).
+// is persisted at-rest in user_audit_log.changes (JSON column). `before` is
+// redacted even on creation (was `null`): created vs changed is carried by the
+// row's `action` (profile_created vs profile_edit), and keeping null would leak
+// whether a sensitive field was previously unset (SR-L-1).
 const REDACTED_CHANGE: AuditChange = { before: REDACTED_TOKEN, after: REDACTED_TOKEN }
 
 /**
