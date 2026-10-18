@@ -154,6 +154,28 @@ assert_green "creating MY OWN checkout by variable stays silent" \
   --not-contains '"decision": "block"' \
   -- run_hook "$MINE" 'git worktree add --detach "$SCRATCH/checkout" abc123'
 
+# ── a reviewer removing its OWN scratchpad checkout (2026-10-17) ─────────────
+# A read-only agent gets no worktree, so own_wt is empty for every reviewer and
+# the checkout it made under its own session scratchpad came out "not your
+# worktree". Six reviewers in one session could not clean up after themselves,
+# and the checkouts piled up. The session id in the path is what makes the claim
+# "mine" checkable, so the widening is keyed on it — the two refusals below pin
+# that it does not leak any further.
+MY_SESSION="/tmp/claude-999/-fake-repo-CheekyCheeseIT-CRM/11111111-1111-1111-1111-111111111111"
+OTHER_SESSION="/tmp/claude-999/-fake-repo-CheekyCheeseIT-CRM/22222222-2222-2222-2222-222222222222"
+
+assert_green "removing the checkout in MY OWN session scratchpad passes" \
+  --not-contains '"decision": "block"' \
+  -- run_hook "$MY_SESSION/scratchpad" "git worktree remove --force $MY_SESSION/scratchpad/checkout"
+
+assert_red "another session's scratchpad is as foreign as another agent's worktree -> BLOCK" \
+  --contains 'WORKTREE-REMOVE' \
+  -- run_hook "$MY_SESSION/scratchpad" "git worktree remove --force $OTHER_SESSION/scratchpad/checkout"
+
+assert_red "an opaque target is still unattributable from a scratchpad cwd -> BLOCK" \
+  --contains 'WORKTREE-OPAQUE' \
+  -- run_hook "$MY_SESSION/scratchpad" 'git worktree remove --force "$W"'
+
 # ── and the 42-case smoke, so CI finally runs it ──────────────────────────────
 # Covers this hook AND pre-agent-dispatch-isolation.sh; it is invoked from here
 # rather than from both files so it runs once per suite.

@@ -81,7 +81,9 @@
 #                    was: `"$w"` looks relative, got joined onto cwd, landed
 #                    inside my own worktree, and was recorded as MINE. "Could
 #                    not check" became "checked, clean". A third outcome now
-#                    exists (WORKTREE-OPAQUE) and it refuses.
+#                    exists (WORKTREE-OPAQUE) and it refuses. "Own" means my
+#                    worktree OR my own session scratchpad, both derived from my
+#                    cwd — never from what the command claims.
 #   FOREIGN-WORKTREE searches the raw text for a `.claude/worktrees/<seg>`
 #   SHARED-CHECKOUT  marker. Not finding one is not a safety claim — it is the
 #                    same silence as for `ls`. Deliberately NOT extended to
@@ -150,9 +152,12 @@
 #   - `pgrep -f '<pattern>' | xargs kill -9` — the owner's documented sweep
 #     (light-track.md "Zombie-профилактика"). It is deliberate and targeted by
 #     the human, not a blind broadcast from inside a task.
-#   - Removing YOUR OWN worktree — by an EXPLICIT path. A path the hook cannot
-#     expand is a path it cannot attribute, so "it was mine" has to be shown,
-#     not asserted. Cost: one `echo` before the command.
+#   - Removing YOUR OWN worktree, or a checkout inside YOUR OWN session
+#     scratchpad — by an EXPLICIT path. A path the hook cannot expand is a path
+#     it cannot attribute, so "it was mine" has to be shown, not asserted.
+#     Cost: one `echo` before the command. The scratchpad half was missing until
+#     2026-10-17, which left every reviewer unable to clean up its own checkout
+#     (see the own_scratch comment in the python block).
 #   - READING another worktree (cat/grep/ls/git log). Only mutation is gated;
 #     see the rule file for why reading a live tree is still a bad idea.
 
@@ -215,6 +220,39 @@ if m:
     repo_root = m.group("root")
     own_seg = m.group("seg")
     own_wt = f"{repo_root}/.claude/worktrees/{own_seg}"
+
+
+def tmp_norm(p):
+    """/tmp is a symlink to /private/tmp on macOS, so the harness reports a cwd
+    under one spelling while an agent types the other. Normalised textually, not
+    by realpath: the target of a `git worktree remove` may already be gone, and a
+    filesystem lookup would then answer a different question than the one asked."""
+    return re.sub(r"^/private(/tmp/)", r"\1", p)
+
+
+# ---- identity: my own session scratchpad ------------------------------------
+# A read-only agent gets no worktree (agent-isolation.md rule 2), so own_wt above
+# is empty for every reviewer — and a reviewer that needs to RUN something makes
+# its own checkout under the scratchpad the harness issues it personally
+# (`git worktree add --detach "$SCRATCH/checkout" <sha>`, rule 4). Until
+# 2026-10-17 removing that checkout was reported as WORKTREE-REMOVE "not your
+# worktree": correct by the letter of the predicate, wrong in substance, six times in
+# one session, and the stale checkouts accumulated.
+#
+# What makes the claim "mine" checkable rather than asserted is the SESSION ID in
+# the path: /tmp/claude-<uid>/<project-slug>/<session>/..., issued per agent. So
+# own_scratch is derived from the cwd of the caller exactly the way own_wt is, and
+# the scratchpad of another session stays as foreign as the worktree of another agent.
+#
+# Deliberately NOT widened further: when the cwd is a worktree, the scratchpad of
+# that agent is not derivable from it, so a scratch path named from a worktree cwd
+# remains unattributable and is still refused. That is the same "could not check
+# is not checked, clean" discipline as WORKTREE-OPAQUE, and the remedy is the same
+# one command (`cd` to the scratchpad, or name the path from there).
+own_scratch = ""
+m2 = re.match(r"^(?P<sess>(?:/private)?/tmp/claude-[^/]+/[^/]+/[^/]+)(?:/|$)", cwd)
+if m2:
+    own_scratch = tmp_norm(m2.group("sess"))
 
 reasons = []
 
@@ -350,11 +388,16 @@ for name, args in toks:
             t_abs = resolve(t)
             if own_wt and (t_abs == own_wt or t_abs.startswith(own_wt + "/")):
                 continue  # removing my own worktree is fine
+            t_tmp = tmp_norm(t_abs)
+            if own_scratch and (
+                t_tmp == own_scratch or t_tmp.startswith(own_scratch + "/")
+            ):
+                continue  # ...and so is a checkout inside my own session scratchpad
             reasons.append(
                 "WORKTREE-REMOVE|`git worktree remove %s` — это НЕ твой worktree "
                 "(твой: %s). На PR #544 ровно эта команда снесла worktree "
                 "ревьюера, ждавшего следующего раунда, и выбросила его в общий "
-                "чекаут." % (t, own_wt or "<не в worktree>")
+                "чекаут." % (t, own_wt or own_scratch or "<не в worktree>")
             )
         break
 

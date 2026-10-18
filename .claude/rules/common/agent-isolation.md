@@ -86,6 +86,11 @@ prerogative, not the task's.
 An agent does not see other agents and **cannot reasonably judge** whether a foreign worktree is
 abandoned. Your own — remove it, a foreign one — report to the orchestrator.
 
+**"Your own" is your worktree or your own session scratchpad** — the hook derives both from your cwd,
+so a reviewer removes the checkout it made under `$SCRATCH` and nothing else. Naming a scratch path
+from a worktree cwd is unattributable and still refused: `cd` to the scratchpad and name it from
+there.
+
 **Your own — remove it by an explicit path, not a variable.** The hook cannot expand `"$w"` and so
 cannot say whose directory it is; an opaque path gets the refusal `WORKTREE-OPAQUE`. Cleanup in a
 batch — expand (`echo "$w"`) and remove one by one: then the foreign directory will be named by name,

@@ -93,6 +93,35 @@ are false: the majority is harmless, and no one will unroll a loop over two hund
 they will learn to bypass the gate instead. The scope is fixed by "silent" cases in the smoke test, so
 that extending the rule must be a deliberate act rather than drift.
 
+### The reviewers who could not clean up after themselves (2026-10-17)
+
+The same false-positive budget cut the other way, and it took a session to notice. `WORKTREE-REMOVE`
+recognised only the caller's primary worktree as "own" — but a read-only agent is deliberately given
+no worktree (rule 2), so `own_wt` is empty for **every** reviewer. The checkout a reviewer makes for a
+redness check lives under the session scratchpad the harness issues it personally, and removing it
+came out as "this is NOT your worktree". Six reviewers in one session hit it; the stale checkouts
+accumulated under the scratchpad, which is the opposite of what the rule wants.
+
+Every one of those refusals was correct by the letter of the predicate. That is the diagnostic: a
+guard that is right by its letter and wrong in substance is a guard whose **definition of "own" is
+incomplete**, not one that needs a looser threshold. So the fix added the second half of the
+definition rather than relaxing anything — "own" is my worktree **or** my own session scratchpad, and
+both are derived from my own cwd.
+
+What keeps the widening narrow is the **session id**: `/tmp/claude-<uid>/<slug>/<session>/...` is
+issued per agent, so another session's scratchpad is as foreign as another agent's worktree, and the
+claim "this is mine" stays checkable rather than asserted. Three things the predicate already
+protected are pinned by refusal cases from a scratchpad cwd: another session's scratchpad, another
+agent's worktree, and an opaque target. A scratch path named from a **worktree** cwd is still refused
+— the scratchpad is not derivable from a worktree path, so ownership is unverifiable, and the remedy
+is the same single command that `WORKTREE-OPAQUE` asks for.
+
+One incidental trap, recorded because it cost a cycle: `/tmp` is a symlink to `/private/tmp` on macOS,
+so the harness reports a cwd under one spelling while an agent types the other. The comparison
+normalises the prefix textually rather than through `realpath`, because the target of a `git worktree
+remove` may already be gone and a filesystem lookup would answer a different question than the one
+asked.
+
 ## The smoke test was dead for a month
 
 Until 2026-09-01 nobody ran `.claude/hooks/tests/cross-agent-hooks-smoke.sh` except a human by hand.

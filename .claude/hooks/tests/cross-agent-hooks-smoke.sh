@@ -21,6 +21,13 @@ REPO="/Users/maksym/Desktop/programming/CheekyCheeseIT_CRM"
 MINE="$REPO/.claude/worktrees/agent-MINE"
 OTHER="$REPO/.claude/worktrees/agent-OTHER"
 
+# A reviewer is not given a worktree (agent-isolation.md rule 2); its own
+# territory is the session scratchpad the harness issues it personally, and the
+# session id in the path is what makes it personal. Two sessions, same shape.
+SESS="/private/tmp/claude-501/-Users-maksym-Desktop-programming-CheekyCheeseIT-CRM"
+MY_SCRATCH="$SESS/11111111-1111-1111-1111-111111111111/scratchpad"
+OTHER_SCRATCH="$SESS/22222222-2222-2222-2222-222222222222/scratchpad"
+
 PASS=0
 FAIL=0
 
@@ -129,6 +136,17 @@ bash_case block "$MINE" 'while read p; do pkill -f "$p"; done < /tmp/list'  'pki
 bash_case block "$MINE" 'if [ -f /tmp/x ]; then pkill -f node; fi'         'pkill hidden behind `then`'
 bash_case block "$MINE" 'for x in 1; do sudo killall node; done'           'killall behind `do` AND a wrapper'
 
+# ── the scratchpad widening must not leak (2026-10-17) ───────────────────────
+# Recognising the caller's OWN session scratchpad as removable is a widening, so
+# each neighbour of it is pinned here: another session's scratchpad is as foreign
+# as another agent's worktree, and the three things the predicate already
+# protected are protected from a scratchpad cwd too.
+bash_case block "$MY_SCRATCH" "git worktree remove --force $OTHER_SCRATCH/checkout" 'another SESSION scratchpad is foreign (different session id)'
+bash_case block "$MY_SCRATCH" "git worktree remove --force $OTHER"                  "another agent's worktree, judged from a scratchpad cwd"
+bash_case block "$MY_SCRATCH" 'git worktree remove --force "$W"'                    'opaque target from a scratchpad cwd is still WORKTREE-OPAQUE'
+bash_case block "$MY_SCRATCH" "git worktree remove --force $REPO"                   'the primary checkout is nobody-removes-it'
+bash_case block "$MINE" "git worktree remove --force $OTHER_SCRATCH/checkout"        'a scratch path I cannot attribute to myself stays foreign'
+
 echo "== pre:bash:cross-agent-blast — MUST STAY SILENT =="
 bash_case allow "$MINE" 'kill 12345'                                        'kill <PID> — the prescribed replacement (AC11)'
 bash_case allow "$MINE" 'kill -TERM 12345'                                  'kill -TERM <PID> (AC11)'
@@ -137,6 +155,18 @@ bash_case allow "$MINE" "pgrep -f 'worktrees[/]agent-' | xargs kill -9"     "own
 bash_case allow "$MINE" 'grep -rn "pkill" .claude/hooks/'                   'grep for the word pkill — argument, not command'
 bash_case allow "$MINE" 'echo "не запускай pkill -f node"'                  'echo mentioning pkill'
 bash_case allow "$MINE" "git worktree remove $MINE"                         'removing MY OWN worktree is allowed'
+
+# ── a reviewer cleaning up after itself (2026-10-17) ─────────────────────────
+# Six reviewers in one session could not: own_wt is empty when the cwd is a
+# scratchpad, so their OWN checkout — created by the command two lines down in
+# the allow-list below — came out "not your worktree". Every refusal was correct
+# by the predicate's letter and wrong in substance, and the checkouts piled up.
+bash_case allow "$MY_SCRATCH" "git worktree remove --force $MY_SCRATCH/checkout" 'removing the checkout I made in MY OWN session scratchpad'
+bash_case allow "$MY_SCRATCH/checkout" "git worktree remove --force $MY_SCRATCH/checkout" 'the same, run from inside that checkout'
+# /tmp is a symlink to /private/tmp on macOS, so the harness reports the cwd
+# under one and an agent types the other. Same directory, and the hook must not
+# call it foreign over a prefix.
+bash_case allow "$MY_SCRATCH" "git worktree remove --force /tmp/claude-501/-Users-maksym-Desktop-programming-CheekyCheeseIT-CRM/11111111-1111-1111-1111-111111111111/scratchpad/checkout" '/tmp vs /private/tmp spelling of my own scratchpad'
 bash_case allow "$MINE" 'git worktree list'                                 'git worktree list (read-only)'
 bash_case allow "$MINE" "cat $OTHER/README.md"                              'READING another worktree is not gated'
 bash_case allow "$MINE" "rm -rf $MINE/tmp/scratch"                          'rm inside my own worktree, absolute path'
