@@ -400,7 +400,7 @@ $funcs$;
 REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC;
 
 -- ----------------------------------------------------------------------------
--- 5. Default privileges — so a new table is neither unreachable nor over-granted
+-- 5. Default privileges — sequences and the function revoke, and nothing on tables
 -- ----------------------------------------------------------------------------
 -- THE TRAP (ADR §2, and the reason `CURRENT_USER` appears here rather than a literal):
 -- `ALTER DEFAULT PRIVILEGES` applies only to objects created BY THE ROLE NAMED. A table
@@ -415,18 +415,47 @@ REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC;
 -- ever starts running as a second role, the deploy fails instead of new tables quietly
 -- losing their grants.
 --
--- What this gives, exactly:
---   * a new class A table is reachable by the API the moment it is created — nothing to
---     remember;
---   * a new table the COLLECTOR needs is unreachable until a grant names it. Fail closed
---     is loud: `permission denied`, SQLSTATE 42501, not wrong data. Hence no default
---     privileges for `crm_collector`, deliberately;
---   * a new class B, A-log, E or view starts OVER-granted (it inherits UPDATE, DELETE).
---     The DDL file that creates it must revoke those in the same explicit BEGIN…COMMIT
---     block as the CREATE TABLE, and 2026-10-18_db_grants.sql — which runs LAST on every
---     deploy, inside its own transaction — re-asserts the revoke regardless.
+-- WHAT IS DELIBERATELY *NOT* HERE: A DEFAULT PRIVILEGE ON TABLES
+-- An earlier revision of this file carried
+--
+--   ALTER DEFAULT PRIVILEGES … GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO crm_app;
+--
+-- so that "a new class A table is reachable the moment it is created" would be true. It is
+-- removed, for two reasons, and the second is why this counted as a hole rather than a
+-- rough edge:
+--
+--   1. It bought nothing. A new table cannot ship without a manifest entry anyway:
+--      `privilege-classes.spec.ts` derives its relation list from the Drizzle schema and
+--      fails the unit suite on any unclassified `pgTable`, so the grants file names every
+--      new table by the time it reaches a deploy. The default privilege bought only the
+--      WINDOW between a CREATE TABLE and the grants file in the same deploy.
+--   2. `ON TABLES` includes VIEWS — PostgreSQL uses "table" loosely there — and the
+--      privileges on the base tables of an auto-updatable view are checked against the
+--      VIEW OWNER, which is the migration role. So any view created over a class B, A-log,
+--      E or V relation was WRITABLE by `crm_app`, which is a path straight around the
+--      revoke those classes exist to make. Measured as `crm_app`: a direct
+--      `UPDATE public.job_queue_actions` was refused while an `UPDATE` through a view over
+--      it changed a row.
+--
+-- The window it closed is a real one — a table created mid-deploy is unreachable until the
+-- grants file runs — and the answer to it is ORDERING, not a blanket privilege: `deploy.yml`
+-- applies the grants file after every relation-creating file. Fail closed is also loud:
+-- `permission denied`, SQLSTATE 42501, is visible in a log, whereas a silently over-granted
+-- new table is not.
+--
+-- What remains below is what has no such blast radius:
+--   * SEQUENCES, so a table whose grants do arrive does not then fail on its own identity
+--     column. A sequence is not a view and has no owner-checked write path;
+--   * the FUNCTIONS revoke, which only ever takes privileges away.
+-- There is nothing for `crm_collector` here, deliberately: it reaches a new table only
+-- when a grant names it.
+-- And one statement that exists only because REMOVING a statement does not undo it. A
+-- database where the earlier revision of this file ran still carries that `pg_default_acl`
+-- row, and part 5 of the catalog check would then fail on every deploy with no forward fix
+-- — the ADR's "the fix is a PR, not a hand-made GRANT" has to be true of this too. The
+-- revoke is a no-op where the grant never existed, which is the case on production.
 ALTER DEFAULT PRIVILEGES FOR ROLE CURRENT_USER IN SCHEMA public
-  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO crm_app;
+  REVOKE ALL ON TABLES FROM crm_app, crm_collector, crm_retention_owner;
 
 ALTER DEFAULT PRIVILEGES FOR ROLE CURRENT_USER IN SCHEMA public
   GRANT USAGE, SELECT ON SEQUENCES TO crm_app;

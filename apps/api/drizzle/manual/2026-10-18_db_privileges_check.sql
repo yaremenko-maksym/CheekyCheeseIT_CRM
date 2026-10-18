@@ -700,7 +700,7 @@ BEGIN
 END
 $check$;
 
--- part 5 (default privileges): pg_default_acl holds exactly the three entries of ADR §2, attached to the migration role, and nothing else
+-- part 5 (default privileges): pg_default_acl holds exactly the two entries the roles file sets — sequences and the function revoke, nothing on TABLES — attached to the migration role
 DO $check$
 DECLARE
   offenders text;
@@ -716,10 +716,10 @@ BEGIN
       FROM pg_default_acl d, aclexplode(d.defaclacl) a
   ),
   expected(objtype, in_public, grantee, privilege_type) AS (VALUES
-    ('r', true, 'crm_app', 'SELECT'),
-    ('r', true, 'crm_app', 'INSERT'),
-    ('r', true, 'crm_app', 'UPDATE'),
-    ('r', true, 'crm_app', 'DELETE'),
+    -- NO 'r' (tables and views) ROW, and the absence is the assertion: a default privilege
+    -- on TABLES also applies to VIEWS, and an auto-updatable view writes its base tables
+    -- as the VIEW OWNER — so one would reopen every class whose point is a revoke. If one
+    -- is ever added back by hand, the first branch below names it and fails the deploy.
     ('S', true, 'crm_app', 'USAGE'),
     ('S', true, 'crm_app', 'SELECT'),
     -- The functions entry carries no PUBLIC row: that absence IS the revoke, and the

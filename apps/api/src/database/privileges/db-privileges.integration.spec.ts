@@ -142,14 +142,21 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
     app = new Pool({ connectionString: urlFor(ROLES.app, APP_PASSWORD), max: 2 })
     collector = new Pool({ connectionString: urlFor(ROLES.collector, COLLECTOR_PASSWORD), max: 2 })
 
-    // The probe tables. Created by the MIGRATION role, which is what gives them the
-    // default privileges of class A — the state every new table starts in.
+    // The probe tables. A relation created after the grants file inherits NOTHING now
+    // that no default privilege covers TABLES (SR-H-1), so each probe is granted exactly
+    // the class it stands for — explicitly, which is also how a real new table gets its
+    // privileges: the grants file names it. `privprobe_a` is granted class A here; the
+    // other classes are applied in their own describe below.
     for (const table of Object.values(PROBE)) {
       if (table === PROBE.V) continue
       await migration.query(`DROP TABLE IF EXISTS ${table} CASCADE`)
       await migration.query(`CREATE TABLE ${table} (id serial PRIMARY KEY, payload text)`)
       await migration.query(`INSERT INTO ${table} (payload) VALUES ('seed')`)
     }
+    await migration.query(
+      `GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE ${PROBE.A} TO ${ROLES.app}`,
+    )
+    await migration.query(`GRANT USAGE, SELECT ON SEQUENCE ${PROBE.A}_id_seq TO ${ROLES.app}`)
     await migration.query(`DROP VIEW IF EXISTS ${PROBE.V}`)
     await migration.query(`CREATE VIEW ${PROBE.V} AS SELECT id, payload FROM ${PROBE.A}`)
   }, 120_000)
@@ -242,20 +249,6 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
       const { rows } = await app.query(`SELECT payload FROM ${PROBE.A} WHERE payload = 'updated'`)
       expect(rows).toHaveLength(1)
       await app.query(`DELETE FROM ${PROBE.A} WHERE payload = 'updated'`)
-    })
-
-    it('is reachable the moment the migration role creates it — the default privileges', async () => {
-      // `privprobe_a` was created AFTER the grants file ran and no grant names it, so this
-      // passing is the proof that ALTER DEFAULT PRIVILEGES is attached to the role that
-      // actually creates tables (ADR §2, "the trap").
-      const fresh = `privprobe_default_${Date.now().toString(36)}`
-      await migration.query(`CREATE TABLE ${fresh} (id serial PRIMARY KEY)`)
-      try {
-        await app.query(`INSERT INTO ${fresh} DEFAULT VALUES`)
-        expect(await sqlstateOf(app, `SELECT 1 FROM ${fresh}`)).toBeNull()
-      } finally {
-        await migration.query(`DROP TABLE IF EXISTS ${fresh}`)
-      }
     })
 
     it('never gets TRUNCATE, even on a class A table', async () => {
@@ -371,9 +364,9 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
       // describes run. They are unclassified by construction, so leaving them would make
       // part 1 fail for a reason that has nothing to do with the thing under test — and,
       // less obviously, would break the idempotence comparison: the grants file's reset
-      // strips the default-privilege grants an unclassified table starts with, so the
-      // first snapshot and the second would differ by exactly that, and a REAL loss of
-      // idempotence would be invisible in the noise.
+      // strips the grants this describe makes by hand, so the first snapshot and the
+      // second would differ by exactly that, and a REAL loss of idempotence would be
+      // invisible in the noise.
       await migration.query(`DROP VIEW IF EXISTS ${PROBE.V}`)
       for (const table of Object.values(PROBE)) {
         if (table === PROBE.V) continue
@@ -567,6 +560,83 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
     })
   })
 
+  describe('a relation created after the grants file — no default privilege opens it', () => {
+    // SR-H-1. An earlier revision attached `ALTER DEFAULT PRIVILEGES … GRANT SELECT,
+    // INSERT, UPDATE, DELETE ON TABLES TO crm_app` to the migration role, to make "a new
+    // class A table is reachable the moment it is created" true. Two things were wrong
+    // with it, and the second is the serious one:
+    //
+    //   1. It bought nothing. `privilege-classes.spec.ts` derives its relation list from
+    //      the Drizzle schema and fails on any unclassified `pgTable`, so a new table
+    //      cannot ship without a manifest entry and regenerated grants anyway.
+    //   2. `ON TABLES` includes VIEWS, and privileges on the base tables of an
+    //      auto-updatable view are checked against the VIEW OWNER — the migration role.
+    //      So a view created over a class B, A-log, E or V relation was WRITABLE by
+    //      crm_app: a path straight around the revoke those classes exist to make.
+    //
+    // These four statements are the measurement, in the order it was taken. The first
+    // held before the fix; the other three did not.
+    it('cannot be written through a view over an append-only or unreachable table', async () => {
+      const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+      const overB = `privprobe_v_over_class_b_${suffix}`
+      const classE = `privprobe_class_e_backup_${suffix}`
+      const overE = `privprobe_v_over_class_e_${suffix}`
+      // A stand-in for class E built the way class E is defined — the API gets nothing —
+      // rather than relying on one of the manual-DDL backups being present here.
+      await migration.query(`CREATE TABLE ${classE} (id serial PRIMARY KEY, amount integer)`)
+      await migration.query(`REVOKE ALL ON TABLE ${classE} FROM ${ROLES.app}, ${ROLES.collector}`)
+      await migration.query(`CREATE VIEW ${overB} AS SELECT * FROM job_queue_actions`)
+      await migration.query(`CREATE VIEW ${overE} AS SELECT * FROM ${classE}`)
+      try {
+        // 1. The revoke itself, on the real class B table. This always held.
+        expect(await sqlstateOf(app, `UPDATE job_queue_actions SET kind = kind WHERE false`)).toBe(
+          INSUFFICIENT_PRIVILEGE,
+        )
+        // 2-4. The same relation, and an unreachable one, through a view created after the
+        // grants file ran. `WHERE false` so that a regression is a privilege result and
+        // never a changed row.
+        expect(await sqlstateOf(app, `UPDATE ${overB} SET kind = kind WHERE false`)).toBe(
+          INSUFFICIENT_PRIVILEGE,
+        )
+        expect(await sqlstateOf(app, `DELETE FROM ${overB} WHERE false`)).toBe(
+          INSUFFICIENT_PRIVILEGE,
+        )
+        expect(await sqlstateOf(app, `INSERT INTO ${overE} (amount) VALUES (999)`)).toBe(
+          INSUFFICIENT_PRIVILEGE,
+        )
+        // Not even readable: a view, like a table, is reachable only once a grant names it.
+        expect(await sqlstateOf(app, `SELECT 1 FROM ${overB}`)).toBe(INSUFFICIENT_PRIVILEGE)
+      } finally {
+        await migration.query(`DROP VIEW IF EXISTS ${overB}`)
+        await migration.query(`DROP VIEW IF EXISTS ${overE}`)
+        await migration.query(`DROP TABLE IF EXISTS ${classE} CASCADE`)
+      }
+    })
+
+    it('is unreachable until a grant names it — fail closed, loudly', async () => {
+      // The inverse of the test this replaces, which asserted a fresh table was usable
+      // immediately. It is now unreachable, and that is the point: `permission denied`,
+      // SQLSTATE 42501, is a loud failure in the deploy or in a log, whereas an
+      // over-granted new table is silent. What makes this safe to rely on is upstream of
+      // the database: a `pgTable` with no manifest entry fails the unit suite.
+      const fresh = `privprobe_fresh_${Date.now().toString(36)}`
+      await migration.query(`CREATE TABLE ${fresh} (id serial PRIMARY KEY)`)
+      try {
+        expect(await sqlstateOf(app, `SELECT 1 FROM ${fresh}`)).toBe(INSUFFICIENT_PRIVILEGE)
+        expect(await sqlstateOf(app, `INSERT INTO ${fresh} DEFAULT VALUES`)).toBe(
+          INSUFFICIENT_PRIVILEGE,
+        )
+        // And the sequence default privilege is KEPT, so a table whose grants do arrive
+        // does not then fail on its own identity column — the one thing the table-level
+        // default privilege was load-bearing for.
+        await migration.query(`GRANT INSERT ON TABLE ${fresh} TO ${ROLES.app}`)
+        expect(await sqlstateOf(app, `INSERT INTO ${fresh} DEFAULT VALUES`)).toBeNull()
+      } finally {
+        await migration.query(`DROP TABLE IF EXISTS ${fresh} CASCADE`)
+      }
+    })
+  })
+
   describe('the catalog check (ADR §2) — and that it actually fails on drift', () => {
     /**
      * The check file is one transaction, so it must run on ONE connection: `Pool#query`
@@ -595,9 +665,11 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
     }, 60_000)
 
     it('fails, naming the relation, when a table in public is unclassified (AC3)', async () => {
-      // The failure mode the whole design exists to prevent: a table nobody classified
-      // inherits SELECT, INSERT, UPDATE, DELETE from the default privileges, so an audit
-      // log or a ledger table added later is silently writable by the API.
+      // The failure mode the whole design exists to prevent: a table nobody classified.
+      // It is now unreachable rather than silently writable (SR-H-1 removed the default
+      // privilege that used to open it), but unreachable is not the same as reviewed — an
+      // audit log or a ledger table added later must get a CLASS, and this is what refuses
+      // the deploy until it has one.
       const stray = 'privprobe_unclassified'
       await migration.query(`CREATE TABLE ${stray} (id serial PRIMARY KEY)`)
       try {
@@ -650,6 +722,22 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
           `ALTER DEFAULT PRIVILEGES FOR ROLE CURRENT_USER IN SCHEMA public REVOKE UPDATE ON TABLES FROM ${ROLES.collector}`,
         )
       }
+    }, 60_000)
+
+    it('repairs a table default privilege the earlier revision of the roles file left', async () => {
+      // The one drift this suite must also prove is REPAIRED rather than merely detected.
+      // A database where the earlier revision ran carries a `pg_default_acl` row that no
+      // deleted statement can remove, so the roles file revokes it explicitly; without
+      // that, part 5 would fail on every deploy of such a database forever.
+      await migration.query(
+        `ALTER DEFAULT PRIVILEGES FOR ROLE CURRENT_USER IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${ROLES.app}`,
+      )
+      const failure = await runCheck(migration)
+      expect(failure).toMatch(/part 5 \(default privileges\)/)
+      expect(failure).toContain('on new r objects')
+
+      await applyFile(ROLES_FILE)
+      expect(await runCheck(migration)).toBeNull()
     }, 60_000)
 
     it('fails when a role is given an attribute the model forbids', async () => {
