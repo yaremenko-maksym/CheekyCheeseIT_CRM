@@ -169,6 +169,20 @@ provide_node_pin_lib() {
 
 RUNNING_MAJOR="$(node -v | sed 's/^v\([0-9]*\).*/\1/')"
 
+# The caller's own NVM_DIR is restored after the cases that need to control it;
+# clobbering the environment of the suite that invoked us is not this test's
+# business (review CR-L-5).
+NVM_DIR_SAVED="${NVM_DIR-}"
+NVM_DIR_WAS_SET=0
+[ -n "${NVM_DIR+x}" ] && NVM_DIR_WAS_SET=1
+restore_nvm_dir() {
+  if [ "$NVM_DIR_WAS_SET" -eq 1 ]; then
+    export NVM_DIR="$NVM_DIR_SAVED"
+  else
+    unset NVM_DIR
+  fi
+}
+
 ROOT_WRONG_NODE="$(make_repo wrong-node)"
 provide_infra "$ROOT_WRONG_NODE"
 write_stub_gate "$ROOT_WRONG_NODE"
@@ -190,7 +204,7 @@ assert_red "the gate would run on the WRONG Node -> BLOCK naming both versions, 
   --not-contains "PASS branch=" \
   -- run_hook "$ROOT_WRONG_NODE" "git push"
 unset STUB_EXIT STUB_OUTPUT
-unset NVM_DIR
+restore_nvm_dir
 
 # The acceptable-runtime side of the same probe: every other outcome is decided
 # by the gate exactly as before. Without this pair the case above is also
@@ -219,6 +233,128 @@ assert_green "an acceptable runtime + exit 2 for ANY OTHER reason -> still a SKI
   --not-contains "BLOCK" \
   -- run_hook "$ROOT_RIGHT_NODE" "git push"
 unset STUB_EXIT STUB_OUTPUT
+
+# ── "the lib says no" vs "the lib could not be consulted" (CR-M-2) ──────────
+#
+# Only exit 1 WITH output is a verdict — `die` and the final refusal are the only
+# paths in ensure-node.sh that exit 1, and both print first. A broken library
+# (unreadable, not sourceable, no ensure_node, no `sh`) must NOT block the push
+# while advising `nvm use 22`: that is wrong advice for a broken file and a way to
+# wedge every push on an environment defect. It also must not pass silently.
+ROOT_BROKEN_LIB="$(make_repo broken-lib)"
+provide_infra "$ROOT_BROKEN_LIB"
+write_stub_gate "$ROOT_BROKEN_LIB"
+mkdir -p "$ROOT_BROKEN_LIB/scripts/devops/lib"
+# Sourceable, but defines no ensure_node -> the probe exits 127.
+: >"$ROOT_BROKEN_LIB/scripts/devops/lib/ensure-node.sh"
+
+STUB_EXIT=0
+STUB_OUTPUT="mutation-gate: PASS"
+export STUB_EXIT STUB_OUTPUT
+assert_green "a lib with no ensure_node (exit 127) is NOT a verdict -> no block, loud notice, gate decides" \
+  --contains "runtime NOT verified" \
+  --contains "could not be consulted" \
+  --contains "exited 127" \
+  --contains "Fix the library, not your Node" \
+  --contains "[pre:bash:mutation-gate] PASS" \
+  --not-contains '"decision": "block"' \
+  --not-contains "nvm install" \
+  -- run_hook "$ROOT_BROKEN_LIB" "git push"
+unset STUB_EXIT STUB_OUTPUT
+
+ROOT_UNREADABLE_LIB="$(make_repo unreadable-lib)"
+provide_infra "$ROOT_UNREADABLE_LIB"
+write_stub_gate "$ROOT_UNREADABLE_LIB"
+provide_node_pin_lib "$ROOT_UNREADABLE_LIB" 99 0
+chmod 000 "$ROOT_UNREADABLE_LIB/scripts/devops/lib/ensure-node.sh"
+
+STUB_EXIT=0
+STUB_OUTPUT="mutation-gate: PASS"
+export STUB_EXIT STUB_OUTPUT
+assert_green "a lib that cannot be READ is not a verdict either (it demands Node 99 but nobody can see that)" \
+  --contains "runtime NOT verified" \
+  --contains "missing or unreadable" \
+  --not-contains '"decision": "block"' \
+  -- run_hook "$ROOT_UNREADABLE_LIB" "git push"
+unset STUB_EXIT STUB_OUTPUT
+chmod 644 "$ROOT_UNREADABLE_LIB/scripts/devops/lib/ensure-node.sh"
+
+ROOT_SYNTAX_LIB="$(make_repo syntax-lib)"
+provide_infra "$ROOT_SYNTAX_LIB"
+write_stub_gate "$ROOT_SYNTAX_LIB"
+mkdir -p "$ROOT_SYNTAX_LIB/scripts/devops/lib"
+printf 'ensure_node() {\n  if [ \n}\n' >"$ROOT_SYNTAX_LIB/scripts/devops/lib/ensure-node.sh"
+
+STUB_EXIT=0
+STUB_OUTPUT="mutation-gate: PASS"
+export STUB_EXIT STUB_OUTPUT
+assert_green "a lib with a syntax error is NOT a verdict either -> no block, loud notice" \
+  --contains "runtime NOT verified" \
+  --contains "could not be consulted" \
+  --not-contains '"decision": "block"' \
+  -- run_hook "$ROOT_SYNTAX_LIB" "git push"
+unset STUB_EXIT STUB_OUTPUT
+
+# ── the caveat must survive to the FINAL banner (CR-M-3) ────────────────────
+#
+# A notice printed only before a 25-53s gate run has scrolled past by the time
+# the verdict appears. An unverified runtime ending in a bare PASS is the same
+# "not checked reads as fine" collapse, one line later.
+STUB_EXIT=0
+STUB_OUTPUT="mutation-gate: PASS"
+export STUB_EXIT STUB_OUTPUT
+assert_green "PASS after an unverified runtime carries the caveat on the verdict line, not only before it" \
+  --contains "this verdict was produced on a Node nobody checked" \
+  -- run_hook "$ROOT_BROKEN_LIB" "git push"
+unset STUB_EXIT STUB_OUTPUT
+
+STUB_EXIT=2
+STUB_OUTPUT="::error::mutation-gate: time budget of 120s exhausted after 121.3s."
+export STUB_EXIT STUB_OUTPUT
+assert_green "a SKIP after an unverified runtime carries it too" \
+  --contains "[pre:bash:mutation-gate] SKIP" \
+  --contains "this verdict was produced on a Node nobody checked" \
+  -- run_hook "$ROOT_BROKEN_LIB" "git push"
+unset STUB_EXIT STUB_OUTPUT
+
+# And the normal case stays clean: no caveat when the runtime WAS judged.
+STUB_EXIT=0
+STUB_OUTPUT="mutation-gate: PASS"
+export STUB_EXIT STUB_OUTPUT
+assert_green "a verified runtime leaves the banner unchanged (no caveat noise)" \
+  --contains "[pre:bash:mutation-gate] PASS" \
+  --not-contains "nobody checked" \
+  -- run_hook "$ROOT_RIGHT_NODE" "git push"
+unset STUB_EXIT STUB_OUTPUT
+
+# ── the probe's third outcome: the lib SWITCHES (CR-L-4) ────────────────────
+#
+# A satisfying nvm install exists but is not the running node: ensure_node
+# prepends it and returns 0. mutation-gate.mjs re-executes itself under it, so
+# the hook must stay out of the way — no block, and no doubling of the notice the
+# gate prints for itself.
+ROOT_SWITCH="$(make_repo switch-node)"
+provide_infra "$ROOT_SWITCH"
+write_stub_gate "$ROOT_SWITCH"
+# Demand a minor the running node cannot satisfy, and plant an nvm install that can.
+provide_node_pin_lib "$ROOT_SWITCH" "$RUNNING_MAJOR" 9999
+FAKE_NVM="$WS/fake-nvm/versions/node/v$RUNNING_MAJOR.9999.0/bin"
+mkdir -p "$FAKE_NVM"
+printf '#!/bin/sh\necho "v%s.9999.0"\n' "$RUNNING_MAJOR" >"$FAKE_NVM/node"
+chmod +x "$FAKE_NVM/node"
+export NVM_DIR="$WS/fake-nvm"
+
+STUB_EXIT=0
+STUB_OUTPUT="mutation-gate: PASS"
+export STUB_EXIT STUB_OUTPUT
+assert_green "a switchable runtime is neither blocked nor flagged — the gate re-executes itself" \
+  --contains "[pre:bash:mutation-gate] PASS" \
+  --not-contains '"decision": "block"' \
+  --not-contains "runtime NOT verified" \
+  --not-contains "nobody checked" \
+  -- run_hook "$ROOT_SWITCH" "git push"
+unset STUB_EXIT STUB_OUTPUT
+restore_nvm_dir
 
 # The lib itself absent (a checkout older than PR #1021): the runtime cannot be
 # judged, so the hook says so OUT LOUD and still runs the gate. Silence here

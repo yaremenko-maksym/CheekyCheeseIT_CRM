@@ -183,11 +183,23 @@ elapsed_s() {
   python3 -c "import time,sys; print(f'{time.time()-float(sys.argv[1]):.1f}')" "$HOOK_STARTED_AT" 2>/dev/null || echo "?"
 }
 
+# Appended to the PASS and SKIP banners when the runtime could not be judged
+# (CR-M-3). A notice printed only before the gate ran is a notice the final line
+# contradicts: the verdict an agent acts on is the last one it sees, and a plain
+# PASS after an unverified runtime is the same "not checked reads as fine"
+# collapse this section exists to prevent. Empty in the normal case, so the
+# ordinary banner is unchanged.
+runtime_caveat() {
+  [ -z "${RUNTIME_UNVERIFIED:-}" ] && return
+  echo "    runtime NOT verified (see above) — this verdict was produced on a Node nobody checked." >&2
+}
+
 skip() {
   # $1 = reason, $2 = optional fix instruction
   echo "[pre:bash:mutation-gate] SKIP branch=$BRANCH ($(elapsed_s)s) — $1" >&2
   echo "    NOT verified locally. CI's mutation gate (ci.yml, job quality) still runs the real check on the PR." >&2
   [ -n "${2:-}" ] && echo "    $2" >&2
+  runtime_caveat
   exit 0
 }
 
@@ -230,29 +242,63 @@ fi
 # PATH, which is the node the `node "$GATE"` below would use, so the hook judges
 # the runtime the gate would actually get.
 #
-# Three outcomes of ensure_node, and what each means here:
+# "THE LIB SAYS NO" AND "THE LIB COULD NOT BE CONSULTED" ARE DIFFERENT ANSWERS
+# (review CR-M-2). The first draft here treated every non-zero probe exit as a
+# verdict, so an unreadable lib, a lib without ensure_node (127), a syntax error
+# in it (2) or a missing `sh` all blocked the push while advising `nvm use 22` —
+# wrong advice for a broken file, and a new way to wedge every push on an
+# environment defect. The two are told apart by the lib's OWN contract:
+#
 #   exit 0, nothing on stderr  — the running node already satisfies .nvmrc +
 #                                engines.node. Proceed.
 #   exit 0, a switch notice    — a satisfying nvm install exists; mutation-
 #                                gate.mjs re-executes itself under it (PR #1021),
 #                                so this hook stays out of the way and lets the
 #                                gate print its own notice rather than doubling it.
-#   exit 1                     — no acceptable node exists, or the minimum is
-#                                undeterminable. BLOCK, relaying the lib's own
-#                                message (it names the version found and the
-#                                version required).
+#   exit 1 AND the output
+#   carries OUR OWN tag        — a verdict. `die` and the final refusal are the
+#                                only paths in ensure-node.sh that exit 1, and
+#                                both print through its documented
+#                                "$ENSURE_NODE_TAG: " prefix, which THIS hook
+#                                supplies. BLOCK, relaying its message.
+#   anything else              — the lib could not be consulted (not readable,
+#                                not sourceable, no ensure_node, no `sh`). NOT a
+#                                verdict, so not a block: say so loudly and let
+#                                the gate decide, exactly as when the file is
+#                                absent.
+#
+# The tag is the discriminator rather than the exit code alone, and that is not
+# belt-and-braces: a SYNTAX ERROR in the lib also exits 1 and also prints (the
+# shell's own parse error), which the first draft of this check classified as a
+# verdict and blocked with "nvm use 22" — wrong advice for a broken file. Found
+# by the syntax-error case in the test, not by reading. Matching on a tag we set
+# ourselves is a positive identification of "the lib spoke", not a guess at its
+# wording.
 NODE_PIN_LIB="$WT_TOP/scripts/devops/lib/ensure-node.sh"
-if [ -f "$NODE_PIN_LIB" ]; then
-  if ! PIN_OUT=$(cd "$WT_TOP" && ENSURE_NODE_TAG="pre:bash:mutation-gate" sh -c '. "$1" && ensure_node' sh "$NODE_PIN_LIB" 2>&1); then
+PIN_TAG="pre:bash:mutation-gate"
+RUNTIME_UNVERIFIED=""
+if [ -r "$NODE_PIN_LIB" ]; then
+  PIN_OUT=$(cd "$WT_TOP" && ENSURE_NODE_TAG="$PIN_TAG" sh -c '. "$1" && ensure_node' sh "$NODE_PIN_LIB" 2>&1)
+  PIN_RC=$?
+  if [ "$PIN_RC" -eq 1 ] && echo "$PIN_OUT" | grep -q "^$PIN_TAG: "; then
     echo "$PIN_OUT" >&2
     block "🚫 PRE-PUSH BLOCK: the mutation gate cannot run on this runtime — the message above is ensure-node.sh's own and names what was found and what is required (.nvmrc + package.json engines.node; it also refuses when the switched-to install shadows the pinned pnpm). This is deliberately a BLOCK and not a SKIP: on the wrong Node the shared i18n specs fail in Stryker's unmutated dry run, the gate reports 'the suite itself is already red', and a skip there reads exactly like an ordinary flake — that is how it hid a real defect for days on 2026-10-17. Fix what the message asks (usually: nvm install 22 && nvm use 22, or a Node 22 bin dir first on PATH), then push again."
+  elif [ "$PIN_RC" -ne 0 ]; then
+    [ -n "$PIN_OUT" ] && echo "$PIN_OUT" >&2
+    RUNTIME_UNVERIFIED="the Node pin could not be consulted: $NODE_PIN_LIB exited $PIN_RC without saying anything as $PIN_TAG (not sourceable, a syntax error, no ensure_node function, or no \`sh\`). Fix the library, not your Node."
   fi
 else
-  # Not a skip: the gate can still find survivors, and refusing a push over a
-  # missing library would be the hard block the header rules out. But it is said
-  # OUT LOUD, because "the runtime was not checked" must not read like "the
-  # runtime is fine" — that collapse is the whole defect this section fixes.
-  echo "[pre:bash:mutation-gate] runtime NOT verified — $NODE_PIN_LIB is missing (a checkout older than PR #1021?). Running the gate anyway; a failure that names 'Cannot use import statement outside a module' is a wrong-Node symptom, not a flake." >&2
+  RUNTIME_UNVERIFIED="$NODE_PIN_LIB is missing or unreadable (a checkout older than PR #1021?)."
+fi
+
+# Not a skip: the gate can still find survivors, and refusing a push over a
+# broken library would be the hard block the header rules out. But it is said OUT
+# LOUD, here AND again in the final banner (CR-M-3), because "the runtime was not
+# checked" must not read like "the runtime is fine" — that collapse is the whole
+# defect this section fixes, and a notice that scrolls past before a 50-second
+# gate run has already lost the argument.
+if [ -n "$RUNTIME_UNVERIFIED" ]; then
+  echo "[pre:bash:mutation-gate] runtime NOT verified — $RUNTIME_UNVERIFIED Running the gate anyway; a failure naming 'Cannot use import statement outside a module' is a wrong-Node symptom, not a flake." >&2
 fi
 
 # ── run it ────────────────────────────────────────────────────────────────
@@ -273,6 +319,7 @@ echo "$OUT" >&2
 case "$RC" in
   0)
     echo "[pre:bash:mutation-gate] PASS branch=$BRANCH ($(elapsed_s)s)" >&2
+    runtime_caveat
     exit 0
     ;;
   1)
