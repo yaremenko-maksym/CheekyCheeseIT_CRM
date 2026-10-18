@@ -81,7 +81,16 @@
 #                    was: `"$w"` looks relative, got joined onto cwd, landed
 #                    inside my own worktree, and was recorded as MINE. "Could
 #                    not check" became "checked, clean". A third outcome now
-#                    exists (WORKTREE-OPAQUE) and it refuses.
+#                    exists (WORKTREE-OPAQUE) and it refuses. "Own" means my
+#                    worktree (from my cwd) or a scratch path RECORDED against my
+#                    agent_id when this hook watched me create it. The session
+#                    scratchpad is shared between siblings, so a scratch path by
+#                    itself proves nothing — see WORKTREE-UNRECORDED.
+#   WORKTREE-UNRECORDED
+#                    the target is in the shared session scratchpad and no
+#                    ledger line ties it to THIS agent_id. Same silence rule as
+#                    OPAQUE: not a claim that it is foreign, a statement that
+#                    ownership was never recorded.
 #   FOREIGN-WORKTREE searches the raw text for a `.claude/worktrees/<seg>`
 #   SHARED-CHECKOUT  marker. Not finding one is not a safety claim — it is the
 #                    same silence as for `ls`. Deliberately NOT extended to
@@ -143,6 +152,14 @@
 #
 # IF YOU ADD A PREDICATE: add BOTH a blocking case and at least one legitimate
 # command that must stay silent to tests/cross-agent-hooks-smoke.sh, and run it.
+#
+# LANGUAGE: the refusal strings here are Russian, which predates the 2026-10-05
+# flip to English for all of .claude/** (rules/common/russian-language.md). New
+# predicates are written in Russian too, deliberately: the strings are assembled
+# into ONE message body with the shared epilogue below, and a single English line
+# inside it reads as an oversight rather than as policy. Converting the file is a
+# follow-up of its own — the wording is quoted by tests, so it needs a review pass
+# rather than a sweep inside an unrelated PR.
 # ---------------------------------------------------------------------------
 #
 # What stays possible on purpose:
@@ -150,9 +167,13 @@
 #   - `pgrep -f '<pattern>' | xargs kill -9` — the owner's documented sweep
 #     (light-track.md "Zombie-профилактика"). It is deliberate and targeted by
 #     the human, not a blind broadcast from inside a task.
-#   - Removing YOUR OWN worktree — by an EXPLICIT path. A path the hook cannot
-#     expand is a path it cannot attribute, so "it was mine" has to be shown,
-#     not asserted. Cost: one `echo` before the command.
+#   - Removing YOUR OWN worktree, or a scratch checkout you CREATED AT A LITERAL
+#     PATH (which is what records it as yours) — by an EXPLICIT path. A path the
+#     hook cannot expand is a path it cannot attribute, so "it was mine" has to
+#     be shown, not asserted. Cost: one `echo` before the command, for the add as
+#     well as the remove. Before 2026-10-17 no scratch checkout could be removed
+#     at all; the first fix for that permitted ANY path in the scratchpad, which
+#     is shared between siblings — see the ownership comment in the python block.
 #   - READING another worktree (cat/grep/ls/git log). Only mutation is gated;
 #     see the rule file for why reading a live tree is still a bad idea.
 
@@ -199,11 +220,19 @@ fi
 # Cheap pre-filter: if none of the three trigger words appear anywhere, leave.
 echo "$CMD" | grep -qE 'pkill|killall|worktree|\.claude/worktrees/|CheekyCheeseIT_CRM' || exit 0
 
-REASONS=$(CWD="$CWD" printf '%s' "$CMD" | CWD="$CWD" python3 -c '
+# NOTE: this `python3 -c '...'` is SINGLE-quoted, so an apostrophe anywhere
+# inside it — including in a comment — closes the string and the hook dies at
+# parse time. A parse death exits 2 and is indistinguishable from an honest block
+# by exit code alone, which is why the smoke test runs `bash -n` first and
+# asserts the {"decision":"block"} body. Write "the cwd of the caller", not
+# "the caller's cwd". (The message block further down has the opposite hazard:
+# it is DOUBLE-quoted, so backticks there are command substitution.)
+REASONS=$(printf '%s' "$CMD" | CWD="$CWD" AGENT_ID="$AGENT_ID" python3 -c '
 import os, re, shlex, sys
 
 cmd = sys.stdin.read()
 cwd = os.environ.get("CWD", "")
+agent_id = os.environ.get("AGENT_ID", "").strip()
 
 # ---- identity: which worktree am I? -----------------------------------------
 # own_wt  — absolute path of my own worktree (or "" if I am not in one)
@@ -215,6 +244,107 @@ if m:
     repo_root = m.group("root")
     own_seg = m.group("seg")
     own_wt = f"{repo_root}/.claude/worktrees/{own_seg}"
+
+
+def tmp_norm(p):
+    """/tmp is a symlink to /private/tmp on macOS, so the harness reports a cwd
+    under one spelling while an agent types the other. Normalised textually, not
+    by realpath: the target of a `git worktree remove` may already be gone, and a
+    filesystem lookup would then answer a different question than the one asked."""
+    return re.sub(r"^/private(/tmp/)", r"\1", p)
+
+
+# ---- identity: the scratchpad is SHARED, so the path cannot say whose it is --
+# A read-only agent gets no worktree (agent-isolation.md rule 2), so own_wt above
+# is empty for every reviewer — and a reviewer that needs to RUN something makes
+# its own checkout under the session scratchpad (rule 4). Until 2026-10-17
+# removing that checkout was reported as WORKTREE-REMOVE "not your worktree":
+# correct by the letter of the predicate, wrong in substance, six times in one
+# session, and the stale checkouts accumulated.
+#
+# THE FIRST FIX FOR THAT WAS WRONG, AND HOW IT WAS WRONG IS THE USEFUL PART. It
+# treated "under my session scratchpad" as "mine", on the premise that the
+# harness issues a scratchpad per agent. It does not. Measured 2026-10-18 under
+# one session id: ONE flat directory, 190 entries, with the checkouts of about
+# ten different agents side by side (checkout, co2, co3, cr-1017,
+# cr-pr1021-checkout, cr1016-own ...). So that widening let any agent of the
+# session remove any sibling checkout — the PR #544 incident reintroduced
+# between siblings, demonstrated by a reviewer with rc 0 on a security
+# reviewer checkout.
+#
+# Note also that the canonical name from the rule, "$SCRATCH/checkout", is a
+# SHARED name in a shared directory: two agents of one session that both follow
+# the example literally collide (the PR #493 class).
+#
+# own_scratch therefore means only "inside the shared scratchpad", never "mine".
+# It bounds where a record can be honoured; it never grants anything by itself.
+own_scratch = ""
+m2 = re.match(r"^(?P<sess>(?:/private)?/tmp/claude-[^/]+/[^/]+/[^/]+)(?:/|$)", cwd)
+if m2:
+    own_scratch = tmp_norm(m2.group("sess"))
+
+# ---- ownership: the only per-agent token the payload carries -----------------
+# cwd is shared between siblings (above) and so is session_id. The one field that
+# differs per agent is agent_id, which the harness fills from the subagent tool
+# context and leaves empty on the main thread (utils/hooks.ts createBaseHookInput
+# in the Claude Code source: "Hooks use agent_id presence to distinguish subagent
+# calls from main-thread calls").
+#
+# So ownership of a scratch path is not read off the path at all. It is RECORDED,
+# by this hook, at the moment it watches an agent create the worktree: one line
+# "<agent_id>\t<literal path>" appended to a ledger in the shared scratchpad. At
+# remove time the only scratch paths permitted are the ones recorded against THIS
+# agent_id. A sibling checkout has a different agent_id on its line, so it is
+# refused exactly like a foreign worktree.
+#
+# Why that is a check and not a claim: the key is supplied by the harness, not by
+# the command, and the line is written by the hook, not by the caller. Two limits,
+# both deliberate:
+#   - a NON-LITERAL add target (`git worktree add "$SCRATCH/checkout"`) cannot be
+#     resolved, so nothing is recorded and the later removal is refused. The
+#     remedy is the one WORKTREE-OPAQUE already asks for: expand the path once
+#     (`echo "$SCRATCH"`) and use the literal for both add and remove.
+#   - a re-dispatched agent is a new agent_id and so cannot remove the checkout of
+#     its own previous instance. That is rule 6 working as intended: it cannot
+#     know whether that tree is abandoned.
+# Without an agent_id (main thread, or a runtime that omits the field) nothing is
+# recorded and nothing is permitted — i.e. the behaviour before this widening.
+OWNERS = os.environ.get("CROSS_AGENT_WORKTREE_OWNERS", "")
+if not OWNERS and own_scratch:
+    OWNERS = os.path.join(own_scratch, ".cross-agent-worktree-owners")
+
+
+def record_owned(path):
+    """Append one ledger line. Failure is ignored on purpose: a hook that dies
+    over a bookkeeping write would refuse the command it was only observing."""
+    if not (OWNERS and agent_id):
+        return
+    try:
+        with open(OWNERS, "a") as fh:
+            fh.write("%s\t%s\n" % (agent_id, path))
+    except OSError:
+        pass
+
+
+def is_owned(path):
+    """True when THIS agent_id has a recorded line for this path (or for a
+    directory containing it). The trailing slash is load-bearing: a record of
+    .../checkout must not cover .../checkout-sibling."""
+    if not (OWNERS and agent_id):
+        return False
+    try:
+        with open(OWNERS) as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        return False
+    for line in lines:
+        who, _, owned = line.partition("\t")
+        if who != agent_id or not owned:
+            continue
+        owned = tmp_norm(owned)
+        if path == owned or path.startswith(owned + "/"):
+            return True
+    return False
 
 reasons = []
 
@@ -326,6 +456,57 @@ for name, args in toks:
             "их worktree (PR #544)."
         )
         break
+    if sub == "add":
+        # Observation only — `add` creates a tree, it destroys nothing, so no
+        # predicate fires here. This is where ownership of a scratch checkout is
+        # recorded, while the agent that made it is known.
+        #
+        # THREE CONDITIONS, AND NONE OF THEM IS DECORATION (review round 2):
+        #
+        #   absolute          — a target worth recording is an absolute path. This
+        #                       is a TRAIT, not a list of options that take a
+        #                       value: `git worktree add -b mybranch /p/co` offers
+        #                       `mybranch` in argument position, and the earlier
+        #                       draft resolved it against cwd and recorded
+        #                       <cwd>/mybranch — a path git never creates, named by
+        #                       whoever wrote the branch name. Enumerating -b/-B/
+        #                       --reason instead would break the quiet way this
+        #                       repo was bitten by twice this month (the pre-push
+        #                       prefix list, the commit-type list).
+        #   below own_scratch — strictly below, by at least one component. The
+        #                       scratch ROOT must never be recorded: is_owned
+        #                       matches prefixes, so one root line would make
+        #                       every sibling checkout "mine" and re-open the very
+        #                       defect this ledger was written to close.
+        #   does not exist    — THE LOAD-BEARING HALF. A PreToolUse hook records
+        #                       BEFORE git runs, so without this test
+        #                       `git worktree add <a live sibling checkout>` fails
+        #                       in git and still leaves a line claiming it, and the
+        #                       next `remove` is permitted: PR #544 between
+        #                       siblings in two commands. A tree that already
+        #                       exists is not a tree this command is about to
+        #                       create. Do not simplify this away.
+        #
+        # Residual, stated because it cannot be closed from PreToolUse: if the add
+        # fails for an unrelated reason (bad sha) the line survives for a path that
+        # was never created, so a sibling that later picks the SAME literal path
+        # could have it removed by this agent. It needs both agents to choose one
+        # name, which is why rule 4 now asks for a name of your own rather than
+        # `checkout`. Closing it properly needs a PostToolUse companion that
+        # records only after git reports success.
+        for a in args[args.index("worktree") + 1:]:
+            if a == "add" or NONLITERAL.search(a):
+                continue
+            t = os.path.expanduser(a)
+            if not t.startswith("/"):
+                continue
+            cand = tmp_norm(os.path.normpath(t).rstrip("/"))
+            if not own_scratch or not cand.startswith(own_scratch + "/"):
+                continue
+            if os.path.exists(cand):
+                continue
+            record_owned(cand)
+        break
     if sub == "remove":
         targets = [a for a in args[args.index("worktree") + 1:]
                    if not a.startswith("-") and a != "remove"]
@@ -350,11 +531,29 @@ for name, args in toks:
             t_abs = resolve(t)
             if own_wt and (t_abs == own_wt or t_abs.startswith(own_wt + "/")):
                 continue  # removing my own worktree is fine
+            t_tmp = tmp_norm(t_abs)
+            in_scratch = own_scratch and (
+                t_tmp == own_scratch or t_tmp.startswith(own_scratch + "/")
+            )
+            if in_scratch and is_owned(t_tmp):
+                continue  # recorded against THIS agent_id when it made the tree
+            if in_scratch:
+                reasons.append(
+                    "WORKTREE-UNRECORDED|`git worktree remove %s` — этот путь в "
+                    "ОБЩЕМ scratchpad сессии (там лежат чекауты всех агентов "
+                    "сессии, а не только твои), и записи о том, что его создал "
+                    "ТЫ, у меня нет. Поэтому я не знаю, чей он. Запись делается "
+                    "при создании, если путь задан литералом: разверни "
+                    "переменную один раз (echo), и дальше используй литерал и в "
+                    "`add`, и в `remove`. Чужой стух — сообщи оркестратору, он "
+                    "видит всех агентов, а ты нет." % t
+                )
+                continue
             reasons.append(
                 "WORKTREE-REMOVE|`git worktree remove %s` — это НЕ твой worktree "
                 "(твой: %s). На PR #544 ровно эта команда снесла worktree "
                 "ревьюера, ждавшего следующего раунда, и выбросила его в общий "
-                "чекаут." % (t, own_wt or "<не в worktree>")
+                "чекаут." % (t, own_wt or own_scratch or "<не в worktree>")
             )
         break
 
