@@ -265,14 +265,51 @@ describe('privilege-class manifest', () => {
     }
   })
 
+  /**
+   * The rule "a collector column list belongs to a class D table and names real columns",
+   * as a function over an arbitrary declaration rather than a loop over the real one.
+   *
+   * CR-M-9: as a loop over `collectorColumns` this was a test that COULD NOT FAIL —
+   * `collectorColumns` is empty until ADR §4 step 8, so the loop body never ran and the
+   * rule inside it was never evaluated. A test that cannot fail is not a test; worse, this
+   * one would have gone on passing when step 8 adds the first real entry and gets it
+   * wrong. Extracted here so it can be fed a declaration that violates it.
+   */
+  function columnDeclarationViolations(declaration: Record<string, readonly string[]>): string[] {
+    return Object.entries(declaration).flatMap(([table, columns]) => {
+      const cls = relationClass(table)
+      const unknown = columns.filter((c) => !columnsOf(table).includes(c))
+      return [
+        ...(cls === 'D' ? [] : [`${table}: class ${cls ?? 'none'}, expected D`]),
+        ...unknown.map((c) => `${table}.${c}: not a column of that relation`),
+      ]
+    })
+  }
+
   it('declares collector column lists only for class D tables, naming real columns', () => {
-    for (const [table, columns] of Object.entries(collectorColumns)) {
-      expect({ table, cls: relationClass(table) }).toEqual({ table, cls: 'D' })
-      expect({ table, unknown: columns.filter((c) => !columnsOf(table).includes(c)) }).toEqual({
-        table,
-        unknown: [],
-      })
-    }
+    expect(columnDeclarationViolations(collectorColumns)).toEqual([])
+    // Empty today (ADR §4 step 8), so this assertion pins the manifest's current state and
+    // the test below pins the RULE. Stated rather than left implicit, because "zero
+    // violations of a rule nothing evaluated" is what CR-M-9 was.
+    expect(Object.keys(collectorColumns)).toEqual([])
+  })
+
+  it('and the rule bites: a non-class-D table or an unknown column is a violation', () => {
+    // `users` is class A, so a collector column list on it is the mistake class D exists
+    // to prevent — a table-level read of a table holding credentials, dressed as a column
+    // grant. `job_queue_actions` is class B, and `nonesuch` is no column of it.
+    expect(columnDeclarationViolations({ users: ['id'], job_queue_actions: ['nonesuch'] })).toEqual(
+      [
+        'users: class A, expected D',
+        'job_queue_actions: class B, expected D',
+        'job_queue_actions.nonesuch: not a column of that relation',
+      ],
+    )
+    // And an unclassified relation is named as such rather than crashing the rule.
+    expect(columnDeclarationViolations({ no_such_table: ['id'] })).toEqual([
+      'no_such_table: class none, expected D',
+      'no_such_table.id: not a column of that relation',
+    ])
   })
 
   it('declares append-only triggers only for class B tables', () => {

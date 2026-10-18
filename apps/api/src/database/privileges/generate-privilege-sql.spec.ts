@@ -38,6 +38,22 @@ import {
 const MANUAL_DIR = join(__dirname, '..', '..', '..', 'drizzle', 'manual')
 const read = (file: string): string => readFileSync(join(MANUAL_DIR, file), 'utf8')
 
+/**
+ * The manifest's relation list for one class, or a loud failure.
+ *
+ * These tests mutate the manifest through an index signature, and under
+ * `noUncheckedIndexedAccess` every read of it is `string[] | undefined` — which the
+ * `typecheck:specs` project reported and the gating `typecheck` does not (CR-M-10). A
+ * non-null assertion would silence it; this answers it instead, because a class missing
+ * from the manifest really is a defect and "cannot read properties of undefined" three
+ * lines later is a worse way to learn it.
+ */
+function classList(classes: Record<string, string[]>, cls: string): string[] {
+  const list = classes[cls]
+  if (!list) throw new Error(`manifest has no class ${cls} — this spec is out of date`)
+  return list
+}
+
 describe('generated privilege SQL', () => {
   it('matches the committed grants file', () => {
     expect(read(GRANTS_FILE)).toBe(buildGrantsSql())
@@ -136,7 +152,7 @@ describe('generated privilege SQL', () => {
     // The file is regenerated on every manifest change and committed, so a non-deterministic
     // order would churn the diff and hide the real change inside it.
     const classes = PRIVILEGE_CLASSES as unknown as Record<string, string[]>
-    const original = classes['A-log']
+    const original = classList(classes, 'A-log')
     try {
       classes['A-log'] = [...original].reverse()
       const grants = splitSqlStatements(buildGrantsSql()).find(
@@ -154,7 +170,7 @@ describe('generated privilege SQL', () => {
     // The generator validates rather than escapes: a name needing quotes is a manifest
     // bug, and rendering it safely would hide it.
     const classes = PRIVILEGE_CLASSES as unknown as Record<string, string[]>
-    const original = classes.A
+    const original = classList(classes, 'A')
     try {
       classes.A = [...original, 'users; DROP TABLE users']
       expect(() => buildGrantsSql()).toThrow(/not a plain lower-case identifier/)
@@ -220,7 +236,9 @@ describe('privilege SQL for classes with no members yet', () => {
         // TWO tables, listed in the wrong order: with one, neither the separator between
         // them nor the sort that keeps the committed file stable is observable.
         classes.C = ['job_postings', 'job_collection_runs']
-        classes.A = classes.A.filter((r) => r !== 'job_postings' && r !== 'job_collection_runs')
+        classes.A = classList(classes, 'A').filter(
+          (r) => r !== 'job_postings' && r !== 'job_collection_runs',
+        )
       },
       () => {
         const sql = buildGrantsSql()
@@ -240,7 +258,7 @@ describe('privilege SQL for classes with no members yet', () => {
     withManifest(
       () => {
         classes.D = ['users', 'team_members']
-        classes.A = classes.A.filter((r) => r !== 'users' && r !== 'team_members')
+        classes.A = classList(classes, 'A').filter((r) => r !== 'users' && r !== 'team_members')
         columns['users'] = ['id', 'role']
         columns['team_members'] = ['team_id']
       },
@@ -332,7 +350,7 @@ describe('privilege SQL for classes with no members yet', () => {
     withManifest(
       () => {
         classes.B = []
-        classes['A-log'] = [...classes['A-log'], 'job_queue_actions']
+        classes['A-log'] = [...classList(classes, 'A-log'), 'job_queue_actions']
         for (const key of Object.keys(triggers)) delete triggers[key]
       },
       () => {
@@ -349,7 +367,7 @@ describe('privilege SQL for classes with no members yet', () => {
     withManifest(
       () => {
         classes.E = ['transactions']
-        classes.A = classes.A.filter((r) => r !== 'transactions')
+        classes.A = classList(classes, 'A').filter((r) => r !== 'transactions')
       },
       () => {
         const grants = splitSqlStatements(buildGrantsSql()).filter(
@@ -364,7 +382,7 @@ describe('privilege SQL for classes with no members yet', () => {
     withManifest(
       () => {
         classes.B = ['job_queue_actions', 'user_audit_log']
-        classes['A-log'] = classes['A-log'].filter((r) => r !== 'user_audit_log')
+        classes['A-log'] = classList(classes, 'A-log').filter((r) => r !== 'user_audit_log')
         triggers['job_queue_actions'] = [
           { name: 'job_queue_actions_no_update', enabled: 'A' },
           { name: 'job_queue_actions_no_truncate', enabled: 'A' },

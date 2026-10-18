@@ -1023,13 +1023,24 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
       // detected, and re-applying the reviewed file is what removes it. This is also the
       // one guarantee the check alone gives against the migration role — a privilege
       // widened outside a reviewed file is caught at the next deploy.
+      //
+      // The repair runs in a `finally` (ORCH-L-3): with it inline, ANY failing assertion
+      // above left the hand-made GRANT on the database, and the next test to call
+      // `runCheck` — and the idempotence snapshot after it — failed for that reason
+      // instead of its own. One red test became three, and the first one named the only
+      // real cause. Every drift test in this file now restores in a `finally` for the
+      // same reason.
       await migration.query(`GRANT UPDATE ON TABLE job_queue_actions TO ${ROLES.app}`)
-      const failure = await runCheck(migration)
-      expect(failure).toMatch(/part 2 \(table privileges\)/)
-      expect(failure).toContain('job_queue_actions')
-      expect(failure).toContain('UPDATE')
-
-      await applyFile(GRANTS_FILE)
+      try {
+        const failure = await runCheck(migration)
+        expect(failure).toMatch(/part 2 \(table privileges\)/)
+        expect(failure).toContain('job_queue_actions')
+        expect(failure).toContain('UPDATE')
+      } finally {
+        await applyFile(GRANTS_FILE)
+      }
+      // The repair is an assertion of its own, not merely cleanup: re-applying the
+      // reviewed file is the forward fix ADR §4 "Rollback" promises.
       expect(await runCheck(migration)).toBeNull()
     }, 60_000)
 
@@ -1114,11 +1125,15 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
       await migration.query(
         `ALTER DEFAULT PRIVILEGES FOR ROLE CURRENT_USER IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${ROLES.app}`,
       )
-      const failure = await runCheck(migration)
-      expect(failure).toMatch(/part 5 \(default privileges\)/)
-      expect(failure).toContain('on new r objects')
-
-      await applyFile(ROLES_FILE)
+      try {
+        const failure = await runCheck(migration)
+        expect(failure).toMatch(/part 5 \(default privileges\)/)
+        expect(failure).toContain('on new r objects')
+      } finally {
+        // In a `finally` for the ORCH-L-3 reason: a `pg_default_acl` row left behind by a
+        // red assertion is cluster state, and it would fail every later test in the file.
+        await applyFile(ROLES_FILE)
+      }
       expect(await runCheck(migration)).toBeNull()
     }, 60_000)
 
