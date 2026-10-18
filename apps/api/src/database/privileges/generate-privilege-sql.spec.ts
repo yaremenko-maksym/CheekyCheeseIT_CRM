@@ -53,6 +53,28 @@ describe('generated privilege SQL', () => {
     }
   })
 
+  it('sets no password but the two application roles’ — never the migration role’s own', () => {
+    // The owner's decision, 2026-10-18, against ADR §4 step 7: rotating `crm_user` stays
+    // an explicit, deliberate owner step and is NOT in this file. The reason is concrete
+    // and not a preference — the deploy connects to the database AS `crm_user`, so a
+    // rotation triggered by "a CI secret appears" means any divergence between the secret
+    // and the stored password breaks EVERY subsequent deploy, recoverable only with
+    // machine access to the host. A dormant mechanism that fails that way is worse than no
+    // mechanism, because nothing exercises it until the day it locks the deploy out.
+    const body = read(ROLES_FILE)
+    const passwords = body.slice(body.indexOf('DO $passwords$'), body.indexOf('$passwords$;'))
+    expect(passwords.length).toBeGreaterThan(200)
+    // The loop's row set names the two application roles and nothing else: no
+    // `current_user` row, and no GUC whose name is not one of the two.
+    expect(passwords).not.toMatch(/current_user/i)
+    expect([...passwords.matchAll(/crm_roles\.(\w+)/g)].map((m) => m[1]).sort()).toEqual([
+      'app_verifier',
+      'collector_verifier',
+    ])
+    // And nothing anywhere else in the file rotates it either.
+    expect(body).not.toMatch(/owner_verifier/)
+  })
+
   it('wraps the grants in one explicit transaction', () => {
     // ADR §4: without the transaction every deploy re-grants UPDATE, DELETE on the
     // append-only log for the length of a few statements.

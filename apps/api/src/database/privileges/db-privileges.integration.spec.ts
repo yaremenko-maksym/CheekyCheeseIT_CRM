@@ -206,8 +206,13 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
     })
 
     it('leaves a password unchanged when its parameter is not set', async () => {
-      // This is what lets one file serve every rollout step, and what keeps the owner's
-      // own credential untouched until step 7 sets `crm_roles.owner_verifier`.
+      // This is what lets one file serve every rollout step. It also covers the migration
+      // role specifically — whose password this file now has NO path to touch at all, by
+      // the owner's decision of 2026-10-18 (see the file's header): the deploy connects as
+      // that role, so a rotation firing on "a secret appeared" breaks every subsequent
+      // deploy if the secret and the stored password ever diverge. Here the role is
+      // `current_user`, i.e. the migration role, and re-applying the whole file leaves its
+      // stored verifier byte-identical.
       const before = await migration.query<{ stored: string }>(
         `SELECT rolpassword AS stored FROM pg_authid WHERE rolname = current_user`,
       )

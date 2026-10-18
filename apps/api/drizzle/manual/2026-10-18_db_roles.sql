@@ -86,12 +86,25 @@
 --
 -- A verifier whose GUC is unset leaves that role's password UNTOUCHED. That is what lets
 -- one file serve every rollout step: step 2 sets none, step 5 sets the app verifier,
--- step 7 adds the owner verifier (rotating `crm_user`), step 8 adds the collector's.
--- Rotation of any of the three then becomes "change the secret, deploy".
+-- step 8 adds the collector's. Rotation of either then becomes "change the secret, deploy".
 --
--- `crm_user`'s own rotation (ADR §4 step 7) is OWNER-GATED, not ours: it happens the first
--- time `crm_roles.owner_verifier` is set, which requires the [OWNER] to add the CI secret.
--- Until then the block below is inert.
+-- WHY `crm_user`'s OWN PASSWORD IS NOT SET HERE (owner's decision, 2026-10-18, overriding
+-- ADR §4 step 7)
+-- -------------------------------------------------------------------------------------
+-- An earlier revision of this file carried a third row rotating the migration role's own
+-- password, inert until a CI secret existed. It is removed, and the removal is the safer
+-- direction rather than the lazier one: THE DEPLOY CONNECTS TO THE DATABASE AS `crm_user`.
+-- A rotation that fires the moment a secret appears therefore turns any divergence between
+-- that secret and the stored password into a broken deploy — every subsequent one — and the
+-- recovery needs machine access to the host, not another deploy. Worse, nothing exercises
+-- the path until the day it locks the deploy out: the two application roles are proved by
+-- logging in with them (`db-privileges.integration.spec.ts`), while the migration role's
+-- rotation could only be proved by rotating the credential the test harness is using.
+--
+-- Rotating `crm_user` stays an explicit, deliberate owner step, done by hand with the
+-- machine in reach. `generate-privilege-sql.spec.ts` asserts this file sets no password
+-- but the two application roles', so the path cannot come back without that decision being
+-- revisited.
 
 -- ----------------------------------------------------------------------------
 -- 0. Session settings
@@ -255,10 +268,9 @@ BEGIN
     SELECT *
       FROM (VALUES
         ('crm_app', 'crm_roles.app_verifier'),
-        ('crm_collector', 'crm_roles.collector_verifier'),
-        -- ADR §4 step 7: rotating the owner credential. Inert until the [OWNER] adds the
-        -- secret, because an unset parameter leaves the password untouched.
-        (current_user, 'crm_roles.owner_verifier')
+        ('crm_collector', 'crm_roles.collector_verifier')
+        -- The two application roles, and deliberately NOT the migration role: see the
+        -- header, "WHY crm_user's OWN PASSWORD IS NOT SET HERE".
       ) AS v(rolname, parameter)
   LOOP
     verifier := NULLIF(current_setting(r.parameter, true), '');
@@ -281,8 +293,7 @@ $passwords$;
 
 -- Drop the verifiers from the session, so nothing later in the deploy can read them back.
 SELECT set_config('crm_roles.app_verifier', '', false) IS NOT NULL AS app_verifier_cleared,
-       set_config('crm_roles.collector_verifier', '', false) IS NOT NULL AS collector_verifier_cleared,
-       set_config('crm_roles.owner_verifier', '', false) IS NOT NULL AS owner_verifier_cleared;
+       set_config('crm_roles.collector_verifier', '', false) IS NOT NULL AS collector_verifier_cleared;
 
 DO $loud$
 BEGIN
