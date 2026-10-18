@@ -1,0 +1,604 @@
+<!doctype html>
+<html lang="uk" class="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vacancy queue — design reference (Tier 1, hand-authored)</title>
+<!--
+  VISUAL REFERENCE ONLY — NOT CODE TO PASTE. Built by hand (design-gate: degraded, no Claude Design session).
+  Colours are the .dark custom properties of apps/web/app/styles/globals.css copied verbatim; no other colour exists
+  in this file. Layout uses container queries so a fixed-width frame behaves exactly like a viewport of that width.
+  Usage:  design.html                                         -> board with every frame
+          design.html?s=list&w=320&st=default&lang=uk         -> one isolated frame (screenshot source)
+          s = list | card | sources ; st = state ; w = viewport width ; lang = uk | en ; admin=1 adds the sources block
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,100..900&display=swap">
+<style>
+:root{
+  /* === globals.css .dark, verbatim === */
+  --background:oklch(0.08 0 0);--card:oklch(0.12 0 0);--surface:oklch(0.16 0.006 85);--foreground:oklch(0.97 0 0);
+  --card-foreground:oklch(0.97 0 0);--popover:oklch(0.13 0 0);--muted-foreground:oklch(0.58 0 0);
+  --primary:oklch(0.84 0.183 85.3);--primary-foreground:oklch(0.08 0 0);--yellow-muted:oklch(0.72 0.13 85.3);
+  --yellow-subtle:oklch(0.22 0.04 85.3);--avatar-text:oklch(0.84 0.183 85.3);--secondary:oklch(0.2 0 0);
+  --muted:oklch(0.16 0 0);--accent:oklch(0.19 0.012 85);--destructive:oklch(0.65 0.21 22.2);
+  --border:oklch(0.22 0.004 85);--input:oklch(0.16 0 0);--ring:oklch(0.84 0.183 85.3);--radius:0.625rem;
+  --radius-sm:calc(var(--radius) - 4px);--radius-md:calc(var(--radius) - 2px);--radius-lg:var(--radius);--radius-xl:calc(var(--radius) + 4px);
+  --font-sans:'Inter',system-ui,sans-serif;
+}
+*{box-sizing:border-box;border-color:var(--border);margin:0}
+body{background:var(--background);color:var(--foreground);font-family:var(--font-sans);font-size:14px;line-height:1.4;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;text-align:inherit}
+svg{flex:none;display:block}
+.tnum{font-variant-numeric:tabular-nums}
+.muted{color:var(--muted-foreground)}
+.fg{color:var(--foreground)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.board{padding:24px;display:flex;flex-direction:column;gap:40px}
+.board h2{font-size:15px;font-weight:600}.cap{font-size:12px;color:var(--muted-foreground);margin:2px 0 10px}
+.row-of{display:flex;gap:24px;align-items:flex-start;overflow-x:auto;padding-bottom:12px}
+
+/* ===== frame = viewport ===== */
+.frame{width:var(--w);container:vp/inline-size;background:var(--background);box-shadow:0 0 0 1px var(--border);flex:none;position:relative}
+.shell{display:flex;min-height:100%}
+.side{display:none;width:208px;flex:none;border-right:1px solid color-mix(in oklch,var(--border) 60%,transparent);padding:16px 12px;flex-direction:column;gap:6px}
+.side .brand{font-weight:700;margin-bottom:10px;color:var(--primary);font-size:13px}
+.side .nav{height:36px;border-radius:var(--radius-md);display:flex;align-items:center;padding:0 10px;color:var(--muted-foreground);font-size:13px}
+.side .nav.on{background:var(--accent);color:var(--foreground);border-left:2px solid var(--primary)}
+.topbar{height:48px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;padding:0 4px 0 6px}
+.topbar .ib{width:44px;height:44px;display:grid;place-items:center;color:var(--foreground)}
+.topbar b{font-size:14px}
+@container vp (min-width:768px){.side{display:flex}.topbar{display:none}}
+.col{flex:1;min-width:0;display:flex;flex-direction:column}
+.main{container:main/inline-size;padding:16px 16px 24px}
+@container vp (min-width:768px){.main{padding:24px}}
+.page{display:flex;flex-direction:column;gap:12px}
+@container vp (min-width:1440px){.page{max-width:64rem}} /* max-w-5xl: the list never stretches */
+
+/* ===== header / tabs / toolbar ===== */
+.h1row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+h1{font-size:18px;font-weight:600;letter-spacing:-.01em}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap;min-height:44px;padding:0 16px;border-radius:var(--radius-md);font-size:14px;font-weight:500;border:1px solid transparent}
+.btn.pri{background:var(--primary);color:var(--primary-foreground);box-shadow:0 1px 2px rgb(0 0 0/.3)}
+.btn.out{border-color:var(--border);box-shadow:0 1px 2px rgb(0 0 0/.3)}
+.btn.ghost{color:var(--foreground)}
+.btn.dis{opacity:.5;pointer-events:none}
+.btn.full{width:100%}
+.btn.ic{padding:0;width:44px}
+.tabs{display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid var(--border)}
+.tab{min-height:48px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:var(--muted-foreground);font-weight:500;position:relative;padding:4px 2px;text-align:center}
+.tab .n{font-size:12px;font-weight:600;min-height:16px}
+.tab.on{color:var(--foreground)}
+.tab.on::after{content:"";position:absolute;left:8px;right:8px;bottom:-1px;height:2px;background:var(--primary);border-radius:2px}
+@container main (min-width:560px){.tabs{display:flex}.tab{flex-direction:row;gap:8px;padding:0 16px;min-height:44px}.tab .n{background:var(--secondary);color:var(--foreground);border-radius:999px;padding:1px 8px;min-height:0}.tab.on::after{left:0;right:0}}
+.tools{display:flex;gap:8px;flex-wrap:wrap}
+.field{flex:1 1 180px;min-width:0;min-height:44px;display:flex;align-items:center;gap:8px;padding:0 12px;border:1px solid var(--border);background:var(--input);border-radius:var(--radius-md);color:var(--muted-foreground)}
+.sel{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:44px;padding:0 12px;border:1px solid var(--border);background:var(--input);border-radius:var(--radius-md);flex:1 1 100%;min-width:0}
+.sel span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@container main (min-width:560px){.field,.sel,.btn{min-height:40px}.sel{flex:0 0 220px}}
+.fbadge{background:var(--primary);color:var(--primary-foreground);border-radius:999px;font-size:11px;font-weight:700;min-width:18px;height:18px;display:grid;place-items:center;padding:0 5px}
+
+/* ===== notices (Alert-like) ===== */
+.note{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-lg);font-size:13px;background:var(--card)}
+.note .tx{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.note b{font-weight:600}
+.note .sub{color:var(--muted-foreground);font-size:12px}
+.note.info{border-color:color-mix(in oklch,var(--primary) 40%,transparent);background:var(--yellow-subtle)}
+.note.info>svg:first-child{color:var(--primary)}
+.note.info .sub{color:var(--foreground);opacity:.8}
+.note.dash{border-style:dashed}
+.note.bad{border-color:color-mix(in oklch,var(--destructive) 55%,transparent)}
+.note.bad>svg:first-child{color:var(--destructive)}
+.note.bad b{color:var(--destructive)}
+.note.soft{background:transparent;color:var(--muted-foreground)}
+.note .act{margin-top:8px;display:flex;gap:8px;flex-wrap:wrap}
+
+/* ===== queue list ===== */
+.list{display:flex;flex-direction:column;gap:12px}
+.item{display:flex;flex-direction:column;gap:8px;padding:14px;border:1px solid var(--border);background:var(--card);border-radius:var(--radius-xl);min-height:44px;width:100%;position:relative}
+.item .ttl{font-weight:600;font-size:15px;line-height:1.3;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.co{color:var(--muted-foreground);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.meta{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;font-size:12px;color:var(--muted-foreground)}
+.meta .sep{opacity:.5}
+.meta .i{display:inline-flex;align-items:flex-start;gap:5px}
+.meta .i svg{margin-top:2px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:var(--radius-md);background:var(--secondary);font-size:12px;font-weight:500;white-space:nowrap}
+.chip.hit{background:var(--yellow-subtle);color:var(--primary);box-shadow:inset 0 0 0 1px color-mix(in oklch,var(--primary) 35%,transparent)}
+.chip.more{background:transparent;color:var(--muted-foreground);box-shadow:inset 0 0 0 1px var(--border)}
+.bdg{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 8px;border-radius:var(--radius-md);border:1px solid var(--border);font-size:12px;font-weight:600;white-space:nowrap}
+.bdg.tri{border-style:dashed;border-color:var(--yellow-muted)}
+.bdg.tri svg{color:var(--primary)}
+.flag{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500;white-space:nowrap}
+.flag.upd{color:var(--primary)}
+.chev{position:absolute;right:12px;top:50%;transform:translateY(-50%);color:var(--muted-foreground);display:none}
+.who{display:flex;align-items:center;gap:8px;font-size:12px;border-top:1px solid var(--border);padding-top:8px;color:var(--muted-foreground);flex-wrap:wrap}
+.who .btn{min-height:44px;padding:0 10px;margin-left:auto}
+.item .l,.item .r{display:flex;flex-direction:column;gap:6px;min-width:0}
+.line1{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.line1 .co{flex:1 1 0}
+.btn .lbl{display:none}
+.btn.tool{width:44px;padding:0;position:relative;flex:none}
+.fbadge{position:absolute;top:-6px;right:-6px}
+@container main (min-width:560px){.btn .lbl{display:inline}.btn.tool{padding:0 16px;width:auto}.fbadge{position:static}}
+.src{width:20px;height:20px;border-radius:var(--radius-sm);background:var(--secondary);display:grid;place-items:center;color:var(--muted-foreground)}
+@container main (min-width:560px){
+  .list{gap:0;border:1px solid var(--border);border-radius:var(--radius-xl);background:var(--card);overflow:hidden}
+  .item{border:0;border-radius:0;border-bottom:1px solid var(--border);background:transparent;padding:12px 40px 12px 16px}
+  .item:last-child{border-bottom:0}
+  .chev{display:block}
+}
+@container main (min-width:720px){
+  .item{display:grid;grid-template-columns:minmax(0,1fr) 230px;column-gap:24px;row-gap:6px;align-items:start}
+  .item .who{grid-column:1/-1}
+}
+.sk{background:var(--muted);border-radius:var(--radius-md);animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.5}}
+@media (prefers-reduced-motion:reduce){.sk{animation:none}}
+.empty{display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;padding:40px 16px;border:1px dashed var(--border);border-radius:var(--radius-xl)}
+.empty .ico{width:40px;height:40px;border-radius:999px;background:var(--secondary);display:grid;place-items:center;color:var(--muted-foreground);margin-bottom:4px}
+.empty p{max-width:36ch;color:var(--muted-foreground);font-size:13px}
+
+/* ===== card dialog ===== */
+.scrim{background:color-mix(in oklch,var(--background) 80%,transparent)}
+@container vp (min-width:640px){.scrim{padding:24px 0;display:flex;justify-content:center}}
+.dlg{background:var(--card);width:100%;display:flex;flex-direction:column}
+@container vp (min-width:640px){.dlg{max-width:672px;border:1px solid var(--border);border-radius:var(--radius-xl);box-shadow:0 10px 30px rgb(0 0 0/.5);align-self:flex-start}}
+.dh{display:flex;gap:8px;padding:12px 8px 12px 16px;border-bottom:1px solid var(--border);align-items:flex-start}
+.dh .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;padding-top:4px}
+.dh h2{font-size:17px;font-weight:600;line-height:1.3;overflow-wrap:anywhere}
+.db{padding:16px;display:flex;flex-direction:column;gap:18px}
+.df{border-top:1px solid var(--border);padding:12px 16px;display:flex;flex-direction:column;gap:8px;background:var(--card)}
+.df .btn.pri{order:-1}
+.pair{display:flex;gap:8px}.pair .btn:first-child{flex:1}
+@container vp (min-width:640px){.df{flex-direction:row;justify-content:flex-end;align-items:center}.df .grow{margin-right:auto}.df .btn.pri{order:3}.df .btn{min-height:40px}}
+.sec h3{font-size:12px;font-weight:600;color:var(--muted-foreground);margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.md p{margin-bottom:8px;opacity:.92}.md ul{padding-left:18px;margin-bottom:8px}.md li{margin-bottom:2px}.md strong{font-weight:600}
+.md .u{color:var(--primary);text-decoration:underline;text-underline-offset:3px;overflow-wrap:anywhere}
+.srcrow{display:flex;align-items:center;gap:10px;min-height:44px;border-bottom:1px solid var(--border)}
+.srcrow .nm{flex:1;min-width:0}.srcrow .nm div:first-child{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.srcrow .btn{min-height:44px;width:44px;padding:0}
+.sn{display:grid;grid-template-columns:32px minmax(0,1fr);column-gap:10px;row-gap:6px;padding:12px 0;border-bottom:1px solid var(--border);align-items:start}
+.sn .sact{grid-column:2;display:flex;flex-direction:column;gap:4px;align-items:stretch}
+.sn .sact .btn.ic{align-self:flex-end}
+.sn .done{display:flex;align-items:center;gap:6px;min-height:44px;font-weight:600}
+.sn .done svg{color:var(--primary)}
+@container vp (min-width:640px){.sn{grid-template-columns:32px minmax(0,1fr) auto}.sn .sact{grid-column:3;grid-row:1;align-items:flex-end;min-width:150px}}
+.grp{font-size:12px;font-weight:600;color:var(--muted-foreground);padding:10px 0 2px;border-bottom:1px solid var(--border)}
+.dupask{background:var(--accent)}
+.applyfirst{margin-bottom:6px}
+.foot-status,.foot-end{display:flex;align-items:center;justify-content:center;gap:8px;min-height:44px;color:var(--muted-foreground);font-size:13px}
+.foot-status svg{animation:spin 1s linear infinite}
+.foot-end{border-top:1px dashed var(--border);margin-top:4px}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.foot-status svg{animation:none}}
+.btn.more{color:var(--muted-foreground)}
+.tools{position:relative}
+.fsum{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;font-size:12px;color:var(--muted-foreground)}
+.fsum .t{flex:1 1 0;min-width:0}.fsum .btn{min-height:44px;padding:0 6px;color:var(--primary)}
+.fp-pop,.fp-sheet,.fp-scrim{display:none}
+.fp{background:var(--popover);color:var(--foreground)}
+.fp-pop{position:absolute;top:46px;right:0;width:min(400px,100%);z-index:5;border:1px solid var(--border);border-radius:var(--radius-xl);box-shadow:0 10px 30px rgb(0 0 0/.5);overflow:hidden}
+.fp-sheet{position:absolute;left:0;right:0;bottom:0;z-index:7;max-height:88%;flex-direction:column;border-top:1px solid var(--border);border-radius:var(--radius-xl) var(--radius-xl) 0 0;box-shadow:0 -10px 30px rgb(0 0 0/.5)}
+.fp-scrim{position:absolute;inset:0;z-index:6;background:color-mix(in oklch,var(--background) 70%,transparent)}
+.fp-sheet{display:flex}.fp-scrim{display:block}
+@container main (min-width:560px){.fp-pop{display:block}.fp-sheet,.fp-scrim{display:none}}
+.fp .hd{display:flex;align-items:center;justify-content:space-between;padding:4px 4px 4px 16px;border-bottom:1px solid var(--border);font-weight:600}
+.fp .grip{width:36px;height:4px;border-radius:999px;background:var(--border);margin:8px auto 0}
+.fp .bd{overflow:hidden;padding:4px 16px}
+.fp .ft{display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--border);justify-content:space-between}
+.fp .ft .btn{flex:1}
+.fg1{padding:8px 0;border-bottom:1px solid var(--border)}.fg1:last-child{border-bottom:0}
+.fg1 h4{font-size:12px;font-weight:600;color:var(--muted-foreground);margin:2px 0}
+.fo{display:flex;align-items:center;gap:10px;min-height:44px}
+.fb{width:18px;height:18px;border-radius:5px;box-shadow:inset 0 0 0 1.5px var(--muted-foreground);display:grid;place-items:center;flex:none;color:var(--primary-foreground)}
+.fb.r{border-radius:999px}
+.fb.on{background:var(--primary);box-shadow:none}
+.fb.r.on{background:transparent;box-shadow:inset 0 0 0 5px var(--primary)}
+.fsel+.menu{margin:2px 0 6px}
+.fsel{display:flex;align-items:center;justify-content:space-between;min-height:44px;padding:0 12px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--input);margin:4px 0}
+.cnt{text-align:center;font-size:12px}
+.ghostlist{margin-top:12px;opacity:.7}
+.av{width:32px;height:32px;border-radius:999px;background:var(--yellow-subtle);color:var(--avatar-text);display:grid;place-items:center;font-size:12px;font-weight:600;flex:none}
+.sn .bd{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.sn .nm{font-weight:500}
+.disc{display:inline-flex;align-items:center;gap:4px;color:var(--primary);min-height:44px;font-size:12px;font-weight:500}
+.ev{padding:8px 10px;border-left:2px solid var(--border);color:var(--muted-foreground);font-size:12px}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:12px}
+.dot{width:8px;height:8px;border-radius:999px;background:var(--foreground)}
+.dot.hollow{background:transparent;box-shadow:inset 0 0 0 2px var(--muted-foreground)}
+.menu{border:1px solid var(--border);background:var(--popover);border-radius:var(--radius-lg);padding:4px;box-shadow:0 10px 30px rgb(0 0 0/.5)}
+.menu div{min-height:44px;display:flex;align-items:center;gap:8px;padding:0 10px;border-radius:var(--radius-md)}
+.menu div.f{background:var(--accent)}
+.toast{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:2px 4px 2px 14px;border:1px solid var(--border);background:var(--popover);border-radius:var(--radius-lg);box-shadow:0 10px 30px rgb(0 0 0/.5)}
+.anno{font-size:11px;color:var(--muted-foreground);border:1px dashed var(--border);border-radius:var(--radius-md);padding:4px 8px;margin:0 16px 8px}
+
+/* ===== sources (ADMIN) ===== */
+.srcs{border:1px solid var(--border);border-radius:var(--radius-xl);background:var(--card)}
+.sumrow{display:flex;flex-wrap:wrap;align-items:center;column-gap:10px;min-height:48px;padding:4px 14px 0;list-style:none;cursor:pointer}
+.srcs[open]>.sumrow{border-bottom:1px solid var(--border)}
+.s1{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:10px}
+.s1:last-child{border-bottom:0}
+.s1 .top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.s1 .top .nm{font-weight:600;flex:1;min-width:80px}
+.st{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:var(--radius-md);font-size:12px;font-weight:600;white-space:nowrap}
+.st.ok{box-shadow:inset 0 0 0 1px var(--border)}
+.st.off{background:var(--secondary);color:var(--foreground)} /* muted-foreground on secondary = 4.23:1, below AA — so foreground */
+.st.pause{background:var(--yellow-subtle);color:var(--primary);box-shadow:inset 0 0 0 1px color-mix(in oklch,var(--primary) 35%,transparent)}
+.st.block{box-shadow:inset 0 0 0 1px color-mix(in oklch,var(--destructive) 60%,transparent);color:var(--destructive)}
+.sw{width:44px;height:44px;display:grid;place-items:center;flex:none}
+.sw i{width:36px;height:20px;border-radius:999px;background:var(--secondary);position:relative;box-shadow:inset 0 0 0 1px var(--border)}
+.sw i::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:999px;background:var(--muted-foreground)}
+.sw.on i{background:var(--primary)}.sw.on i::after{left:18px;background:var(--primary-foreground)}
+.quota{display:flex;height:8px;border-radius:999px;overflow:hidden;background:var(--secondary);gap:1px}
+.quota .u{background:var(--primary)}
+.quota .r{background:var(--yellow-muted);opacity:.6}
+.quota .q{background:repeating-linear-gradient(45deg,var(--muted-foreground) 0 2px,transparent 2px 5px)}
+.qkey{display:flex;gap:4px 14px;flex-wrap:wrap;font-size:12px;color:var(--muted-foreground)}
+.qkey .k{display:inline-flex;align-items:center;gap:5px}.qkey i{width:10px;height:10px;border-radius:3px;display:inline-block}
+.dl{display:grid;grid-template-columns:1fr;gap:6px 24px;font-size:12px}
+@container main (min-width:560px){.dl{grid-template-columns:repeat(3,1fr)}}
+.dl dt{color:var(--muted-foreground)}.dl dd{margin:0 0 2px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const Q=new URLSearchParams(location.search);
+const LANG=Q.get('lang')||'uk';
+/* ---------- strings: uk is the source locale, en second. Plurals: uk one/few/many, en one/other ---------- */
+const D={
+uk:{title:'Черга зовнішніх вакансій',tNew:'Нові',tSub:'Подані',tHid:'Приховані',search:'Назва або компанія',filters:'Фільтри',f_clear:'Скинути вибір',f_clearSearch:'Очистити пошук',f_apply:'Застосувати',f_applied:'Застосовано:',f_noneT:'Нічого не знайдено',f_noneP:'Змініть пошук або фільтри.',f_clearAll:'Скинути фільтри',
+ f_source:'Джерело',f_match:'Тип збігу',f_matchLead:'Збіг за стеком',f_matchTriage:'Потребує розгляду',f_status:'Статус на джерелі',f_open:'Відкрита',f_unknown:'Невідомо',f_closed:'Закрита',f_expired:'Прострочена',
+ formLbl:'Форма співпраці',formEmp:'Трудовий договір',formB2B:'B2B',formNone:'Не вказано',f_senior:'Підходить сеньйору',f_seniorAny:'Усі сеньйори вашої команди',f_seniorAnyA:'Усі сеньйори',salaryNotStated:'Зарплату не вказано',sum_senior:'Сеньйор: {who}',applyFirst:'Спершу подайте на сайті джерела («Відкрити оригінал»), потім запишіть подачу тут.',team:'Команда',studio:'Уся студія',
+ submit:'Записати подачу',submitting:'Записуємо…',submitted:'Подано · {when}',submittedBy:'Подано: {who} · {when}',subCount:'{n} подано',
+ open:'Відкрити оригінал',hide:'Приховати',loadMore:'Показати ще',appending:'Завантажуємо ще…',endAll:'Усі вакансії показано: {n}',appErr:'Не вдалося завантажити ще',appErrP:'Уже завантажені вакансії залишаються на екрані.',
+ emptyNewT:'У черзі немає нових вакансій',emptyNewP:'Нові з’являться після наступного оновлення джерел.',
+ emptySubT:'Ваша команда ще нікого не подала',emptySubP:'Тут з’являться вакансії, на які подано сеньйорів вашої команди.',emptyHidT:'Немає прихованих вакансій',emptyHidP:'Приховані вакансії можна повернути звідси.',emptyNoTeamT:'Вам не призначено жодної команди',emptyNoTeamP:'Без команди черга порожня. Зверніться до адміністратора.',
+ errT:'Не вдалося завантажити чергу',errP:'Спробуйте ще раз.',retry:'Спробувати ще',
+ refresh:'Список змінився',refreshP:'З’явилися оновлення.',refreshBtn:'Показати оновлений список',
+ partial:'Деякі джерела тимчасово недоступні',partialP:'Список може бути неповним.',
+ posted:'Опубліковано {ago}',unknownDate:'Дата публікації невідома',firstSeen:'вперше\u00A0побачено {ago}',lastSeen:'востаннє\u00A0бачили {ago}',
+ triage:'Потребує розгляду',triageWhy:'Роботодавця не вдалося підтвердити',
+ triageCardT:'Сеньйорів не підібрано автоматично',triageCardP:'Роботодавця не вдалося підтвердити, тому система не пропонує цю вакансію конкретним сеньйорам. Оцініть її вручну за описом.',
+ triageAdmin:'Призначити команді…',
+ upd:'Оновлено',dupFlag:'Можливий дублікат',
+ seniors:{one:'{n} сеньйор вашої команди має збіг стеку',few:'{n} сеньйори вашої команди мають збіг стеку',many:'{n} сеньйорів вашої команди мають збіг стеку',other:'{n} сеньйора вашої команди мають збіг стеку'},
+ seniorsA:{one:'{n} сеньйор має збіг стеку',few:'{n} сеньйори мають збіг стеку',many:'{n} сеньйорів мають збіг стеку',other:'{n} сеньйора мають збіг стеку'},
+ also:'+{n} також на {list}',alsoOn:'Також опубліковано на:',showMore:'Показати ще ({n})',shown:'Показано {a} із {b}',
+ matchT:'Збіг стеку',seniorsT:'Сеньйори зі збігом',noMatch:'Немає сеньйорів зі збігом стеку',noMatchP:'Вакансія лишається в черзі, але жоден сеньйор із вашої команди не збігається за стеком.',noMatchPA:'Вакансія лишається в черзі, але жоден сеньйор не збігається за стеком.',
+ free:'Вільно з {d}',busy:'Зайнято',unsure:'Збіг неточний',viaT:'Збіг за:',why:'Чому збіг',whyP:'Python — із резюме; AWS — з двох останніх проєктів',
+ updI:'Вакансію оновлено після побудови списку',updIP:'Нижче — актуальні дані.',
+ stale:'З’явилася новіша версія вакансії',staleP:'Ця картка застаріла, тому записати подачу з неї не можна.',staleBtn:'Оновити картку',
+ dupT:'У черзі є схожа вакансія',dupP:'Можливий дублікат. Перевірте, чи це не та сама вакансія.',
+ dupAsk:'Цього сеньйора вже подано на схожу вакансію',dupAskP:'Ви впевнені, що це інша вакансія?',dupYes:'Так, записати все одно',dontSubmit:'Не записувати',
+ stopSome:'Виключено за стоп-листом: {n}',stopSomeP:'Ці сеньйори внесли компанію до власного стоп-листа, тому вакансія їм не пропонується.',stopAllT:'Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листа',stopAllTA:'Усі сеньйори зі збігом внесли компанію до стоп-листа',stopAllP:'Стек збігається, проте вакансію їм не пропонують.',stopRow:'Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листа',stopRowA:'Усі сеньйори зі збігом внесли компанію до стоп-листа',
+ dupSub:'На схожу вакансію вже подано: {t}',
+ closedBlocked:'Вакансію закрито на джерелі',closedBlockedP:'Нові подачі неможливі. Раніше подано: {n}.',closed:'Закрита',
+ cancelSubmission:'Скасувати подачу…',hideScopeT:'Буде приховано для вашої команди',hideScopeA:'Буде приховано для всієї студії',teamHdr:'Команда',submitFor:'Записати подачу: {who}',suppress:'Приховати для всіх…',adminMenu:'Дії адміністратора',
+ r1:'Нерелевантна',r2:'Спам',r3:'Мертве посилання',hidden:'Приховано',undo:'Скасувати',restore:'Повернути',hiddenBy:'Приховано: {r}',
+ close:'Закрити',subOk:'Подачу записано: {who}',subFail:'Не вдалося записати подачу. Спробуйте ще раз.',conflict:'Дані змінилися. Оновіть картку й повторіть.',noAccess:'Цю вакансію не знайдено',suppT:'Приховати для всієї студії?',suppP:'Вакансія зникне з черги для всіх команд.',suppYes:'Приховати для всіх',keep:'Не приховувати',cancSubT:'Скасувати подачу?',cancSubP:'Подачу «{who}» буде скасовано. Записати її можна буде знову.',cancSubYes:'Скасувати подачу',cancSubNo:'Залишити',loadedMore:'Завантажено ще {n}. Показано {a} із {b}',desc:'Опис',about:'Про роль',
+ s_title:'Джерела вакансій',s_sum:'{src} · {a} призупинено · {b} заблоковано',s_n:{one:'{n} джерело',few:'{n} джерела',many:'{n} джерел',other:'{n} джерела'},
+ off:'Вимкнено',paused:'Призупинено',blocked:'Заблоковано',active:'Працює',
+ offWhy:'Вимкнено адміністратором',pausedWhy:'Пауза до {t}: джерело просило зачекати (429)',blockedWhy2:'Не готове: сплив термін авторизації',
+ quota:'Ліміт',used:'Використано',reserved:'Зарезервовано',uncertain:'Невизначено',unit:'запитів',
+ lastTry:'Остання спроба',lastOk:'Остання вдала',lastData:'Остання з даними',deadline:'Політика діє до',authDl:'Авторизація до',
+ enableFail:'Не вдалося увімкнути',enableFailP:'Причина: сплив термін авторизації. Стан не змінено.',never:'ніколи',
+ ago:{m:'{n}\u00A0хв тому',h:'{n}\u00A0год тому',d1:'вчора',d:'{n}\u00A0дн. тому',d2:'{n}\u00A0дні тому'}},
+en:{title:'External vacancy queue',tNew:'New',tSub:'Submitted',tHid:'Hidden',search:'Title or company',filters:'Filters',f_clear:'Clear selection',f_clearSearch:'Clear search',f_apply:'Apply',f_applied:'Applied:',f_noneT:'Nothing found',f_noneP:'Change the search or filters.',f_clearAll:'Clear filters',
+ f_source:'Source',f_match:'Match type',f_matchLead:'Stack match',f_matchTriage:'Needs review',f_status:'Status at source',f_open:'Open',f_unknown:'Unknown',f_closed:'Closed',f_expired:'Expired',
+ formLbl:'Contract type',formEmp:'Employment contract',formB2B:'B2B',formNone:'Not stated',f_senior:'Matches senior',f_seniorAny:'All seniors on your team',f_seniorAnyA:'All seniors',salaryNotStated:'Salary not listed',sum_senior:'Senior: {who}',applyFirst:'Apply at the source first (Open original), then log the submission here.',team:'Team',studio:'Whole studio',
+ submit:'Log submission',submitting:'Saving…',submitted:'Submitted · {when}',submittedBy:'Submitted by {who} · {when}',subCount:'{n} submitted',
+ open:'Open original',hide:'Hide',loadMore:'Show more',appending:'Loading more…',endAll:'All vacancies shown: {n}',appErr:'Could not load more',appErrP:'Vacancies already loaded are still shown.',
+ emptyNewT:'No new vacancies in the queue',emptyNewP:'New ones appear after the next source refresh.',
+ emptySubT:'Your team has not submitted anyone yet',emptySubP:'Vacancies with submitted seniors from your team will appear here.',emptyHidT:'No hidden vacancies',emptyHidP:'Hidden vacancies can be restored from here.',emptyNoTeamT:'You are not assigned to any team',emptyNoTeamP:'Without a team the queue is empty. Contact an administrator.',
+ errT:'Could not load the queue',errP:'Please try again.',retry:'Try again',
+ refresh:'The list has changed',refreshP:'Updates are available.',refreshBtn:'Show updated list',
+ partial:'Some sources are temporarily unavailable',partialP:'The list may be incomplete.',
+ posted:'Posted {ago}',unknownDate:'Publication date unknown',firstSeen:'first\u00A0seen {ago}',lastSeen:'last\u00A0seen {ago}',
+ triage:'Needs review',triageWhy:'Employer could not be verified',
+ triageCardT:'No seniors matched automatically',triageCardP:'The employer could not be verified, so the system does not suggest this vacancy to specific seniors. Judge it manually from the description.',
+ triageAdmin:'Assign to a team…',
+ upd:'Updated',dupFlag:'Possible duplicate',
+ seniors:{one:'{n} senior on your team matches the stack',other:'{n} seniors on your team match the stack'},
+ seniorsA:{one:'{n} senior matches the stack',other:'{n} seniors match the stack'},
+ also:'+{n} also on {list}',alsoOn:'Also listed on:',showMore:'Show {n} more',shown:'Showing {a} of {b}',
+ matchT:'Stack match',seniorsT:'Matching seniors',noMatch:'No seniors match the stack',noMatchP:'The vacancy stays in the queue, but no senior in your team matches its stack.',noMatchPA:'The vacancy stays in the queue, but no senior matches its stack.',
+ free:'Free from {d}',busy:'Busy',unsure:'Match is approximate',viaT:'Matched on:',why:'Why it matches',whyP:'Python — from the résumé; AWS — from the last two projects',
+ updI:'The vacancy was updated after the list was built',updIP:'Current data is shown below.',
+ stale:'A newer version of the vacancy is available',staleP:'This card is out of date, so you cannot log a submission from it.',staleBtn:'Refresh card',
+ dupT:'There is a similar vacancy in the queue',dupP:'Possible duplicate. Check that it is not the same vacancy.',
+ dupAsk:'This senior is already submitted to a similar vacancy',dupAskP:'Are you sure this is a different vacancy?',dupYes:'Yes, log it anyway',dontSubmit:"Don't log it",
+ stopSome:'Excluded by stop-list: {n}',stopSomeP:'These seniors put the company on their own stop-list, so the vacancy is not offered to them.',stopAllT:'Every matching senior on your team has stop-listed this company',stopAllTA:'Every matching senior has stop-listed this company',stopAllP:'The stack matches, but the vacancy is not offered to them.',stopRow:'Every matching senior on your team has stop-listed this company',stopRowA:'Every matching senior has stop-listed this company',
+ dupSub:'Already submitted to a similar vacancy: {t}',
+ closedBlocked:'The vacancy is closed at the source',closedBlockedP:'New submissions are not possible. Previously submitted: {n}.',closed:'Closed',
+ cancelSubmission:'Cancel submission…',hideScopeT:'Will be hidden for your team',hideScopeA:'Will be hidden for the whole studio',teamHdr:'Team',submitFor:'Log submission: {who}',suppress:'Hide for everyone…',adminMenu:'Administrator actions',
+ r1:'Not relevant',r2:'Spam',r3:'Dead link',hidden:'Hidden',undo:'Undo',restore:'Restore',hiddenBy:'Hidden: {r}',
+ close:'Close',subOk:'Submission logged: {who}',subFail:'Could not log the submission. Please try again.',conflict:'The data has changed. Refresh the card and try again.',noAccess:'This vacancy was not found',suppT:'Hide for the whole studio?',suppP:'The vacancy will disappear from every team’s queue.',suppYes:'Hide for everyone',keep:'Keep',cancSubT:'Cancel this submission?',cancSubP:'The submission for “{who}” will be cancelled. You can log it again later.',cancSubYes:'Cancel submission',cancSubNo:'Keep',loadedMore:'{n} more loaded. Showing {a} of {b}',desc:'Description',about:'About the role',
+ s_title:'Vacancy sources',s_sum:'{src} · {a} paused · {b} blocked',s_n:{one:'{n} source',other:'{n} sources'},
+ off:'Disabled',paused:'Paused',blocked:'Blocked',active:'Running',
+ offWhy:'Disabled by an administrator',pausedWhy:'Paused until {t}: the source asked us to wait (429)',blockedWhy2:'Not ready: authorization expired',
+ quota:'Quota',used:'Used',reserved:'Reserved',uncertain:'Uncertain',unit:'requests',
+ lastTry:'Last attempt',lastOk:'Last success',lastData:'Last with data',deadline:'Policy valid until',authDl:'Authorization until',
+ enableFail:'Could not enable',enableFailP:'Reason: authorization expired. Nothing was changed.',never:'never',
+ ago:{m:'{n}\u00A0min ago',h:'{n}\u00A0h ago',d1:'yesterday',d:'{n}\u00A0days ago',d2:'{n}\u00A0days ago'}}
+};
+const f=(s,o={})=>s.replace(/\{(\w+)\}/g,(_,k)=>o[k]);
+const tr=(k,o)=>f(D[LANG][k],o);
+const plural=(k,n)=>{const p=D[LANG][k];let c;if(LANG==='uk'){const a=n%10,b=n%100;c=(a===1&&b!==11)?'one':(a>=2&&a<=4&&(b<10||b>=20))?'few':'many'}else c=n===1?'one':'other';return f(p[c]||p.other||p.many,{n})};
+const ago=(u,n)=>{const a=D[LANG].ago;if(u==='d'&&n===1)return a.d1;if(u==='d'&&LANG==='uk'&&n>=2&&n<=4)return f(a.d2,{n});return f(a[u],{n})};
+
+/* ---------- icons (lucide names; stroke 2, 24 box) ---------- */
+const P={
+ ext:'<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+ eyeoff:'<path d="M10.7 5.1A10 10 0 0 1 12 5c7 0 10 7 10 7a13 13 0 0 1-1.7 2.7"/><path d="M6.6 6.6A13 13 0 0 0 2 12s3 7 10 7a10 10 0 0 0 5.4-1.6"/><path d="m2 2 20 20"/>',
+ users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9"/><path d="M16 3.1a4 4 0 0 1 0 7.8"/>',
+ refresh:'<path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M8 16H3v5"/>',
+ copy:'<rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
+ caloff:'<path d="M8 2v4"/><path d="M16 2v4"/><path d="M21 17V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9"/><path d="M3 10h18"/><path d="m17 17 5 5"/><path d="m22 17-5 5"/>',
+ help:'<circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>',
+ x:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+ chev:'<path d="m9 18 6-6-6-6"/>',
+ chevd:'<path d="m6 9 6 6 6-6"/>',
+ search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+ sliders:'<path d="M21 4h-7"/><path d="M10 4H3"/><path d="M21 12h-9"/><path d="M8 12H3"/><path d="M21 20h-5"/><path d="M12 20H3"/><path d="M14 2v4"/><path d="M8 10v4"/><path d="M16 18v4"/>',
+ more:'<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+ check:'<path d="M20 6 9 17l-5-5"/>',
+ globe:'<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>',
+ warn:'<path d="m21.7 18-8-14a2 2 0 0 0-3.5 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+ lock:'<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+ undo:'<path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/>',
+ info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+ menu:'<path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/>',
+ pause:'<rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/>',
+ power:'<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/>',
+ ban:'<circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>',
+ loader:'<path d="M21 12a9 9 0 1 1-6.2-8.6"/>'
+};
+const ic=(n,s=16)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+
+/* ---------- sample data (fictional) ---------- */
+const LONG='Senior/Lead Full-Stack Software Engineer (Python, Django, React, TypeScript, AWS, Kubernetes) for a Series B Fintech Platform — Hybrid or Remote within EU Time Zones — Immediate Start, Long-Term Contract with Option to Convert to Full-Time Employment';
+const LONGCO='Northwind International Payment Processing Solutions Holding GmbH';
+const ROWS={
+ a:{t:'Senior Python Engineer (FinTech)',co:'Acme Labs',sen:'Senior',chips:['Python','Django','AWS','PostgreSQL','Docker'],hit:3,age:['posted','d',2],n:3,sub:0,also:[2,'DOU, Djinni']},
+ b:{t:'Middle React Developer',co:'Northwind',sen:'Middle',chips:['React','TypeScript','Next.js'],hit:2,age:['posted','h',5],n:1,sub:0,also:null,flags:['upd']},
+ c:{t:'Backend developer',co:'Невідомий роботодавець',coEn:'Unknown employer',sen:null,chips:[],hit:0,age:['unknown','d',3],n:0,also:null,triage:1},
+ d:{t:LONG,co:LONGCO,sen:'Lead',chips:['Python','Django','React','TypeScript','AWS','Kubernetes','Terraform'],hit:4,age:['posted','d',9],lastSeen:['d',1],n:2,sub:0,also:[1,'LinkedIn'],flags:['dup']},
+ e:{t:'Java Developer',co:'Contoso',sen:'Middle',chips:['Java','Spring','Kafka'],hit:0,age:['posted','d',1],n:0,also:null},
+ f:{t:'DevOps Engineer',co:'Fabrikam',sen:'Senior',chips:['Kubernetes','Terraform','AWS'],hit:0,age:['posted','d',4],n:0,also:null,stopAll:1}
+};
+let SCOPE_ADMIN=false;
+const co=r=>(LANG==='en'&&r.coEn)||r.co;
+const senStr=r=>r.sen?`<span class="bdg">${r.sen}</span>`:'';
+function ageHtml(r){
+  const [k,u,n]=r.age;
+  let s=k==='posted'?`<span class="i">${tr('posted',{ago:ago(u,n)})}</span>`
+   :`<span class="i">${ic('caloff',13)}<span>${tr('unknownDate')} · ${tr('firstSeen',{ago:ago(u,n)})}</span></span>`;
+  if(r.lastSeen)s+=`<span class="i">${tr('lastSeen',{ago:ago(r.lastSeen[0],r.lastSeen[1])})}</span>`;
+  return s;
+}
+function flagsHtml(r){
+  const m={upd:`<span class="flag upd">${ic('refresh',13)}${tr('upd')}</span>`,dup:`<span class="flag">${ic('copy',13)}${tr('dupFlag')}</span>`};
+  return (r.flags||[]).map(k=>m[k]).join('');
+}
+function row(r,o={}){
+  const chips=r.chips.slice(0,4);const more=r.chips.length-chips.length;
+  const ch=chips.map((c,i)=>`<span class="chip ${i<r.hit?'hit':''}">${c}</span>`).join('')+(more>0?`<span class="chip more">+${more}</span>`:'');
+  const left=`
+    <div class="line1">${r.triage?`<span class="bdg tri">${ic('help',13)}${tr('triage')}</span>`:''}${senStr(r)}${flagsHtml(r)}</div>
+    <div class="ttl">${r.t}</div>
+    <div class="line1"><span class="src" aria-hidden="true">${ic('globe',12)}</span><span class="co">${co(r)}</span></div>
+    ${ch?`<div class="chips">${ch}</div>`:''}
+    ${r.triage?`<div class="meta"><span class="i fg">${ic('help',13)}<span>${tr('triageWhy')}</span></span></div>`:''}`;
+  /* data-slot="matched-count": ONE number in ONE place — scoped or studio-wide (owner decision pending) without a layout change.
+     The companion «N подано» is ALWAYS the actor's own team and is a separate clause, never "x of y". */
+  const right=`
+    <div class="meta">${ageHtml(r)}</div>
+    ${r.n>0?`<div class="meta" data-slot="matched-count"><span class="i fg">${ic('users',13)}<span>${plural(SCOPE_ADMIN?'seniorsA':'seniors',r.n)}</span></span>${(o.sub??r.sub)?`<span class="i fg">${ic('check',13)}<span>${tr('subCount',{n:(o.sub??r.sub)})}</span></span>`:''}</div>`:''}
+    ${r.stopAll?`<div class="meta"><span class="i fg">${ic('ban',13)}<span>${tr(SCOPE_ADMIN?'stopRowA':'stopRow')}</span></span></div>`:''}
+    ${r.also?`<div class="meta"><span class="i">${tr('also',{n:r.also[0],list:r.also[1]})}</span></div>`:''}`;
+  let who='';
+  if(o.who==='in')who=`<div class="who">${ic('check',14)}<span>${tr('submittedBy',{who:LANG==='uk'?'Іван Петренко':'Ivan Petrenko',when:ago('h',2)})}</span></div>`;
+  if(o.who==='hid')who=`<div class="who">${ic('eyeoff',14)}<span>${tr('hiddenBy',{r:tr('r1')})}</span><span class="btn out">${ic('undo',14)}${tr('restore')}</span></div>`;
+  return `<button class="item" data-testid="job-queue-row"><div class="l">${left}</div><div class="r">${right}</div>${who}<span class="chev">${ic('chev',18)}</span></button>`;
+}
+
+
+/* ---------- screens ---------- */
+function shell(inner){
+  return `<div class="shell"><aside class="side"><div class="brand">CheekyCheese</div><div class="nav">…</div><div class="nav on">${tr('title')}</div><div class="nav">…</div></aside>
+  <div class="col"><div class="topbar"><span class="ib">${ic('menu',20)}</span><b>${tr('title')}</b></div>${inner}</div></div>`;
+}
+function header(o={}){
+  const counts=o.counts||[12,4,31];
+  const labels=[tr('tNew'),tr('tSub'),tr('tHid')];
+  const tb=labels.map((l,i)=>`<button class="tab ${(o.tab||0)===i?'on':''}" role="tab" aria-selected="${(o.tab||0)===i}"><span>${l}</span><span class="n tnum">${o.noCounts?'':counts[i]}</span></button>`).join('');
+  const team=o.admin?`<button class="sel"><span>${tr('studio')}</span>${ic('chevd',16)}</button>`:(o.multi?`<button class="sel" aria-label="${tr('team')}"><span>${LANG==='uk'?'Команда «Альфа»':'Team “Alpha”'}</span>${ic('chevd',16)}</button>`:'');
+  return `<div class="h1row"><h1>${tr('title')}</h1></div>
+  <div class="tools">${team}<div class="field">${ic('search',16)}<span class="${o.q?'fg':''}">${o.q||tr('search')}</span></div><button class="btn out tool" aria-label="${tr('filters')}" aria-expanded="${o.popOpen?'true':'false'}">${ic('sliders',16)}<span class="lbl">${tr('filters')}</span>${o.fcount?`<span class="fbadge">${o.fcount}</span>`:''}</button>${o.popOpen?fpPop():''}</div>${o.fcount?fsum(o.long):''}
+  <div class="tabs" role="tablist">${tb}</div>`;
+}
+function sourcesBlock(open){
+  const stt=(c,i,l)=>`<span class="st ${c}">${ic(i,12)}${l}</span>`;
+  const sw=(on,nm)=>`<button class="sw ${on?'on':''}" role="switch" aria-checked="${on}" aria-label="${nm}"><i></i></button>`;
+  const s=(nm,state,on,why,tail)=>`<div class="s1"><div class="top"><span class="src">${ic('globe',12)}</span><span class="nm">${nm}</span>${sw(on,nm)}</div><div>${state}</div>${why}${tail}</div>`;
+  const quota=(u,r,q,total)=>`<div><div class="muted" style="font-size:12px;margin-bottom:4px">${tr('quota')}: <span class="tnum fg">${u+r+q}</span> / <span class="tnum">${total}</span> ${tr('unit')}</div><div class="quota" role="img" aria-label="${tr('used')} ${u}, ${tr('reserved')} ${r}, ${tr('uncertain')} ${q} / ${total}"><span class="u" style="flex:${u}"></span><span class="r" style="flex:${r}"></span><span class="q" style="flex:${Math.max(q,0.001)}"></span><span style="flex:${total-u-r-q}"></span></div><div class="qkey" style="margin-top:6px"><span class="k"><i style="background:var(--primary)"></i>${tr('used')} <b class="tnum fg">${u}</b></span><span class="k"><i style="background:var(--yellow-muted);opacity:.6"></i>${tr('reserved')} <b class="tnum fg">${r}</b></span><span class="k"><i style="background:repeating-linear-gradient(45deg,var(--muted-foreground) 0 2px,transparent 2px 5px)"></i>${tr('uncertain')} <b class="tnum fg">${q}</b></span></div></div>`;
+  const dl=(a,b,c,d)=>`<dl class="dl"><div><dt>${tr('lastTry')}</dt><dd class="tnum">${a}</dd></div><div><dt>${tr('lastOk')}</dt><dd class="tnum">${b}</dd></div><div><dt>${tr('lastData')}</dt><dd class="tnum">${c}</dd></div>${d?`<div><dt>${d[0]}</dt><dd class="tnum">${d[1]}</dd></div>`:''}</dl>`;
+  const body=
+   s('DOU',stt('ok','check',tr('active')),true,'',quota(180,40,12,500)+dl(ago('m',12),ago('m',12),ago('h',3),[tr('deadline'),'12.12.2026']))+
+   s('Djinni',stt('pause','pause',tr('paused')),true,`<div class="note info">${ic('pause',16)}<div class="tx">${tr('pausedWhy',{t:'14:30'})}</div></div>`,quota(310,60,0,400)+dl(ago('h',1),ago('h',4),ago('h',4),null))+
+   s('Work.ua',stt('off','power',tr('off')),false,`<div class="note soft">${ic('power',16)}<div class="tx">${tr('offWhy')}</div></div>`,dl(ago('d',6),ago('d',6),ago('d',9),null))+
+   s('LinkedIn',stt('block','lock',tr('blocked')),false,`<div class="note bad">${ic('lock',16)}<div class="tx"><b>${tr('blockedWhy2')}</b></div></div>`,dl(tr('never'),tr('never'),tr('never'),[tr('authDl'),'03.10.2026'])+`<div class="note bad" role="alert">${ic('warn',16)}<div class="tx"><b>${tr('enableFail')}</b><span class="sub">${tr('enableFailP')}</span></div></div>`);
+  return `<details class="srcs" ${open?'open':''}><summary class="sumrow"><span style="font-weight:600;flex:1">${tr('s_title')}</span>${ic('chevd',18)}<span class="muted" style="font-size:12px;flex-basis:100%;order:3;padding-bottom:8px">${tr('s_sum',{src:plural('s_n',4),a:1,b:1})}</span></summary>${body}</details>`;
+}
+const FS=st=>st==='filtered'||st==='filtered2'||st==='filterednone'||String(st).startsWith('fopen');
+const fbox=(on,r)=>`<span class="fb${r?' r':''}${on?' on':''}" aria-hidden="true">${on&&!r?ic('check',12):''}</span>`;
+const fo=(lbl,on,r)=>`<div class="fo" role="${r?'radio':'checkbox'}" aria-checked="${!!on}">${fbox(on,r)}<span>${lbl}</span></div>`;
+const fgrp=(t,inner)=>`<div class="fg1" role="group"><h4>${t}</h4>${inner}</div>`;
+function fpBody(part){
+  const nm=(u,e)=>LANG==='uk'?u:e;
+  const spec=`${fgrp(tr('f_source'),fo('DOU',1)+fo('Djinni',1)+fo('Work.ua',0)+fo('LinkedIn',0))}${fgrp(tr('f_match'),fo(tr('f_matchLead'),0)+fo(tr('f_matchTriage'),0))}${fgrp(tr('f_status'),fo(tr('f_open'),1)+fo(tr('f_unknown'),0)+fo(tr('f_closed'),0)+fo(tr('f_expired'),0))}`;
+  const statusG=fgrp(tr('f_status'),fo(tr('f_open'),1)+fo(tr('f_unknown'),0)+fo(tr('f_closed'),0)+fo(tr('f_expired'),0));
+  const pick=open=>`<div class="fg1" role="group"><h4>${tr('f_senior')}</h4><div class="fsel" role="combobox" aria-expanded="${!!open}"><span>${tr(SCOPE_ADMIN?'f_seniorAnyA':'f_seniorAny')}</span>${ic('chevd',16)}</div>${open?`<div class="menu" role="listbox">${[[tr(SCOPE_ADMIN?'f_seniorAnyA':'f_seniorAny'),1],[nm('Олена Ковальчук','Olena Kovalchuk'),0],[nm('Іван Петренко','Ivan Petrenko'),0],[nm('Марія Савченко','Maria Savchenko'),0]].map(([l,on])=>`<div role="option" aria-selected="${!!on}" class="${on?'f':''}">${l}</div>`).join('')}</div>`:''}</div>`;
+  const senior=pick(false);
+  return part==='props'?statusG+senior:part==='open'?statusG+pick(true):part==='spec'?spec:spec+senior;
+}
+const fpFoot=()=>`<div class="ft"><button class="btn out">${tr('f_clear')}</button><button class="btn pri">${tr('f_apply')}</button></div>`;
+const fpPop=()=>`<div class="fp fp-pop" role="dialog" aria-label="${tr('filters')}"><div class="hd"><span>${tr('filters')}</span><button class="btn ghost ic" aria-label="${tr('close')}">${ic('x',20)}</button></div><div class="bd">${fpBody()}</div>${fpFoot()}</div>`;
+const fpSheet=part=>`<div class="fp-scrim"></div><div class="fp fp-sheet" role="dialog" aria-modal="true" aria-label="${tr('filters')}"><div class="grip"></div><div class="hd"><span>${tr('filters')}</span><button class="btn ghost ic" aria-label="${tr('close')}">${ic('x',20)}</button></div><div class="bd">${fpBody(part)}</div>${fpFoot()}</div>`;
+const fsum=long=>`<div class="fsum"><span class="t">${tr('f_applied')} <span class="fg">DOU, Djinni · ${tr('f_open')}${long?' · '+tr('sum_senior',{who:LANG==='uk'?'Олена Ковальчук':'Olena Kovalchuk'}):''}</span></span><button class="btn ghost" style="white-space:nowrap">${tr('f_clearAll')}</button></div>`;
+function listScreen(st,admin){
+  const h=listScreenBase(st,admin);
+  return String(st).startsWith('fopen')?h.replace(/<\/div>$/,fpSheet(st==='fopen2'?'props':st==='fopen3'?'open':'spec')+'</div>'):h;
+}
+function listScreenBase(st,admin){
+  SCOPE_ADMIN=admin==='1';
+  const o={admin:admin==='1',multi:st==='multi',fcount:FS(st)?(st==='filtered2'?3:2):0,long:st==='filtered2',q:st==='searchnone'?'Rust':'',open:st==='fopen'&&false,popOpen:String(st).startsWith('fopen'),noCounts:st==='loading'};
+  const sk=`<div class="item"><div class="sk" style="height:12px;width:40%"></div><div class="sk" style="height:16px;width:85%"></div><div class="sk" style="height:12px;width:55%"></div><div class="chips"><div class="sk" style="height:22px;width:60px"></div><div class="sk" style="height:22px;width:70px"></div></div></div>`;
+  const rows=[ROWS.a,ROWS.b,ROWS.c,ROWS.d,ROWS.e,ROWS.f];
+  let body='';const notes=[];
+  const listOf=(rs,extra='')=>`<div class="list" data-testid="job-queue-list" ${extra}>${rs.map(r=>row(r)).join('')}</div>`;
+  /* infinite scroll foot: ONE slot, ≥44px, same position in every state (no layout shift). */
+  const foot={
+    idle:`<button class="btn ghost full more" data-testid="job-queue-load-more">${tr('loadMore')}</button><div class="muted tnum cnt">${tr('shown',{a:6,b:12})}</div>`,
+    busy:`<div class="foot-status" role="status" data-testid="job-queue-appending">${ic('loader',16)}<span>${tr('appending')}</span></div><div class="muted tnum cnt">${tr('shown',{a:6,b:12})}</div>`,
+    end:`<div class="foot-end" data-testid="job-queue-end">${tr('endAll',{n:6})}</div>`,
+    err:`<div class="note bad" role="alert" data-testid="job-queue-append-error">${ic('warn',18)}<div class="tx"><b>${tr('appErr')}</b><span class="sub">${tr('appErrP')}</span><div class="act"><button class="btn out">${ic('refresh',16)}${tr('retry')}</button></div></div></div>`
+  };
+  if(st==='loading')body=`<div class="list" aria-busy="true"><span class="sr">…</span>${sk}${sk}${sk}</div>`;
+  else if(st==='empty')body=`<div class="empty"><div class="ico">${ic('search',20)}</div><b>${tr('emptyNewT')}</b><p>${tr('emptyNewP')}</p></div>`;
+  else if(st==='noteam')body=`<div class="empty"><div class="ico">${ic('users',20)}</div><b>${tr('emptyNoTeamT')}</b><p>${tr('emptyNoTeamP')}</p></div>`;
+  else if(st==='error')body=`<div class="note bad" role="alert">${ic('warn',18)}<div class="tx"><b>${tr('errT')}</b><span class="sub">${tr('errP')}</span><div class="act"><button class="btn out">${ic('refresh',16)}${tr('retry')}</button></div></div></div>`;
+  else if(st==='wip')body=`<div class="list">${row(ROWS.a,{who:'in',sub:1})}${row(ROWS.d,{sub:2})}</div><div class="foot-end">${tr('endAll',{n:4})}</div>`;
+  else if(st==='hidden')body=`<div class="list">${row(ROWS.e,{who:'hid'})}</div>`;
+  else if(st==='refresh'||st==='partial'){
+    if(st==='refresh')notes.push(`<div class="note info" role="status">${ic('refresh',18)}<div class="tx"><b>${tr('refresh')}</b><span class="sub">${tr('refreshP')}</span><div class="act"><button class="btn out">${tr('refreshBtn')}</button></div></div></div>`);
+    else notes.push(`<div class="note dash" role="status">${ic('warn',18)}<div class="tx"><b>${tr('partial')}</b><span class="sub">${tr('partialP')}</span></div></div>`);
+    body=`<div class="list">${rows.slice(0,3).map(r=>row(r)).join('')}</div>`;
+  }
+  else if(st==='filtered'||st==='filtered2'||String(st).startsWith('fopen'))body=listOf([ROWS.a,ROWS.d]);
+  else if(st==='emptysub')body=`<div class="empty"><div class="ico">${ic('check',20)}</div><b>${tr('emptySubT')}</b><p>${tr('emptySubP')}</p></div>`;
+  else if(st==='emptyhid')body=`<div class="empty"><div class="ico">${ic('eyeoff',20)}</div><b>${tr('emptyHidT')}</b><p>${tr('emptyHidP')}</p></div>`;
+  else if(st==='searchnone')body=`<div class="empty" data-testid="job-queue-filtered-empty"><div class="ico">${ic('search',20)}</div><b>${tr('f_noneT')}</b><p>${tr('f_noneP')}</p><button class="btn out" style="margin-top:8px">${tr('f_clearSearch')}</button></div>`;
+  else if(st==='filterednone')body=`<div class="empty" data-testid="job-queue-filtered-empty"><div class="ico">${ic('sliders',20)}</div><b>${tr('f_noneT')}</b><p>${tr('f_noneP')}</p><button class="btn out" style="margin-top:8px">${tr('f_clearAll')}</button></div>`;
+  else if(st==='appending')body=listOf(rows,'aria-busy="true"')+`<div class="list ghostlist">${sk}${sk}</div>`+foot.busy;
+  else if(st==='end')body=listOf(rows)+foot.end;
+  else if(st==='appenderr')body=listOf(rows)+foot.err;
+  else body=listOf(rows)+foot.idle;
+  const tab=(st==='wip'||st==='emptysub')?1:(st==='hidden'||st==='emptyhid')?2:0;
+  const h=header({...o,tab,counts:st==='empty'?[0,4,31]:st==='emptysub'?[12,0,31]:st==='emptyhid'?[12,4,0]:st==='end'?[6,4,31]:[12,4,31]});
+  return `<div class="main"><div class="page" data-testid="job-queue-page">${h}${notes.join('')}${admin==='1'?sourcesBlock(false):''}${body}<div class="sr" aria-live="polite" data-testid="job-queue-live">${st==='end'?tr('endAll',{n:6}):''}</div></div></div>`;
+}
+
+function cardScreen(st){
+  let r=ROWS.a;
+  if(st==='triage')r=ROWS.c;if(st==='long')r=ROWS.d;if(st==='zero')r=ROWS.e;if(st==='stopall')r=ROWS.f;if(st==='unknown')r={...ROWS.a,age:['unknown','d',3]};
+  const isAdmin=st==='admin';
+  const formKey=(st==='triage'||st==='unknown')?'formNone':st==='zero'?'formEmp':'formB2B';
+  const salUnk=st==='unknown'||st==='triage'||st==='long';
+  const terms=`<div class="meta" data-testid="job-queue-terms"><span class="i">${tr('formLbl')}: <span class="fg">${tr(formKey)}</span></span>${salUnk?`<span class="i">${tr('salaryNotStated')}</span>`:''}</div>`;
+  const nm=(uk,en)=>LANG==='uk'?uk:en;
+  const warn=[];
+  if(st==='updated')warn.push(`<div class="note info" role="status">${ic('refresh',18)}<div class="tx"><b>${tr('updI')}</b><span class="sub">${tr('updIP')}</span></div></div>`);
+  if(st==='stale')warn.push(`<div class="note bad" role="alert">${ic('refresh',18)}<div class="tx"><b>${tr('stale')}</b><span class="sub">${tr('staleP')}</span><div class="act"><button class="btn out">${ic('refresh',16)}${tr('staleBtn')}</button></div></div></div>`);
+  if(st==='triage')warn.push(`<div class="note dash">${ic('help',18)}<div class="tx"><b>${tr('triageCardT')}</b><span class="sub">${tr('triageCardP')}</span></div></div>`);
+  if(st==='long')warn.push(`<div class="note"><span class="fg">${ic('copy',18)}</span><div class="tx"><b>${tr('dupT')}</b><span class="sub">${tr('dupP')}</span></div></div>`);
+  if(st==='dup'||st==='dupconfirm')warn.push(`<div class="note"><span class="fg">${ic('copy',18)}</span><div class="tx"><b>${tr('dupT')}</b><span class="sub">${tr('dupP')}</span><div class="meta" style="margin-top:6px"><span class="fg">${tr('dupSub',{t:'Senior Python Engineer — Acme Labs · '+nm('Олена К.','Olena K.')})}</span></div></div></div>`);
+  if(st==='closed')warn.push(`<div class="note bad" role="alert">${ic('warn',18)}<div class="tx"><b>${tr('closedBlocked')}</b><span class="sub">${tr('closedBlockedP',{n:1})}</span></div></div>`);
+  const meta=r.age[0]==='unknown'
+   ?`<span class="i">${ic('caloff',13)}<span>${tr('unknownDate')} · ${tr('firstSeen',{ago:ago('d',3)})} · ${tr('lastSeen',{ago:ago('h',6)})}</span></span>`
+   :`<span class="i">${tr('posted',{ago:ago(r.age[1],r.age[2])})}</span><span class="i">${tr('lastSeen',{ago:ago('h',6)})}</span>`;
+  const sources=`<div class="sec"><h3>${tr('alsoOn')}</h3>
+    ${[['DOU','dou.ua',ago('h',6)],['Djinni','djinni.co',ago('d',1)],['LinkedIn','linkedin.com',ago('d',2)]].map(([n,h,w])=>`<div class="srcrow"><span class="src">${ic('globe',12)}</span><div class="nm"><div>${n}</div><div class="muted" style="font-size:12px">${h} · ${w}</div></div><button class="btn out" aria-label="${tr('open')}: ${n}">${ic('ext',14)}</button></div>`).join('')}
+    <div class="muted tnum" style="font-size:12px;display:flex;justify-content:space-between;align-items:center"><span>${tr('shown',{a:3,b:34})}</span><button class="disc">${tr('showMore',{n:20})}</button></div></div>`;
+  const stack=`<div class="sec"><h3>${tr('matchT')}</h3><div class="chips">${r.chips.map((c,i)=>`<span class="chip ${i<r.hit?'hit':''}">${i<r.hit?ic('check',12)+'&nbsp;':''}${c}</span>`).join('')||'<span class="muted">—</span>'}</div></div>`;
+  /* ----- the working surface: one block per OWN senior, each with its own state ----- */
+  const blocked=(st==='stale'||st==='closed');
+  const remind=blocked?'':`<div class="note soft applyfirst" data-testid="job-queue-apply-first">${ic('info',16)}<div class="tx"><span class="fg">${tr('applyFirst')}</span></div></div>`;
+  const sn=(ini,name,av,unsure,via,ev,state,extra='')=>{
+    let act='';
+    if(state==='todo')act=`<button class="btn pri${blocked?' dis':''}" ${blocked?'aria-disabled="true"':''} aria-label="${tr('submitFor',{who:name})}">${tr('submit')}</button>`;
+    if(state==='busy')act=`<button class="btn pri dis" aria-disabled="true" aria-busy="true">${ic('loader',16)}${tr('submitting')}</button>`;
+    if(state==='done')act=`<div class="done">${ic('check',16)}<span>${tr('submitted',{when:ago('h',2)})}</span></div><div class="muted" style="font-size:12px">${nm('Андрій Л.','Andrii L.')}</div>${isAdmin?`<button class="btn out ic" aria-label="${tr('cancelSubmission')}: ${name}">${ic('more',18)}</button>`:''}`;
+    return `<div class="sn" data-state="${state}"><span class="av" aria-hidden="true">${ini}</span><div class="bd"><div class="nm">${name}</div><div class="meta">${av}${unsure?`<span class="sep">·</span><span class="i fg">${ic('info',13)}${tr('unsure')}</span>`:''}</div><div class="meta"><span>${tr('viaT')}</span>${via.map(v=>`<span class="chip hit">${v}</span>`).join('')}</div>${ev?`<div class="ev">${tr('whyP')}</div>`:''}<button class="disc" aria-expanded="${ev?'true':'false'}">${tr('why')} ${ic(ev?'chevd':'chev',14)}</button></div><div class="sact">${act}</div>${extra}</div>`;
+  };
+  const dotF=`<span class="pill"><span class="dot"></span>${tr('free',{d:nm('1 лис.','Nov 1')})}</span>`;
+  const dotB=`<span class="pill"><span class="dot hollow"></span>${tr('busy')}</span>`;
+  const dupAsk=`<div class="note dupask" style="grid-column:1/-1" role="alert">${ic('copy',18)}<div class="tx"><b>${tr('dupAsk')}</b><span class="sub">${tr('dupAskP')}</span><div class="act"><button class="btn pri" data-initial-focus>${tr('dontSubmit')}</button><button class="btn out">${tr('dupYes')}</button></div></div></div>`;
+  const stopSome=`<div class="note soft" style="margin-top:8px">${ic('ban',16)}<div class="tx"><b class="fg">${tr('stopSome',{n:1})}</b><span class="sub">${tr('stopSomeP')}</span></div></div>`;
+  let seniors;
+  if(st==='zero'||st==='triage')seniors=`<div class="sec"><h3>${tr('seniorsT')}</h3><div class="empty" style="padding:20px 12px"><div class="ico">${ic('users',20)}</div><b>${tr('noMatch')}</b><p>${st==='zero'?tr(isAdmin?'noMatchPA':'noMatchP'):tr('triageWhy')}</p></div></div>`;
+  else if(st==='stopall')seniors=`<div class="sec"><h3>${tr('seniorsT')}</h3><div class="empty" style="padding:20px 12px"><div class="ico">${ic('ban',20)}</div><b>${tr(isAdmin?'stopAllTA':'stopAllT')}</b><p>${tr('stopAllP')}</p></div></div>`;
+  else if(isAdmin)seniors=`<div class="sec"><h3>${tr('seniorsT')}<span class="tnum">3</span></h3>${remind}
+    <div class="grp">${tr('teamHdr')} «${nm('Альфа','Alpha')}»</div>${sn('ОК',nm('Олена Ковальчук','Olena Kovalchuk'),dotF,false,['Python','AWS'],false,'todo')}${sn('ІП',nm('Іван Петренко','Ivan Petrenko'),dotB,true,['Python','Django'],false,'done')}
+    <div class="grp">${tr('teamHdr')} «${nm('Бета','Beta')}»</div>${sn('ПМ',nm('Петро Мельник','Petro Melnyk'),dotF,false,['Django'],false,'todo')}${stopSome}</div>`;
+  else seniors=`<div class="sec"><h3>${tr('seniorsT')}<span class="tnum">3</span></h3>${remind}${sn('ОК',nm('Олена Ковальчук','Olena Kovalchuk'),dotF,false,['Python','AWS'],st==='default',st==='submitting'?'busy':st==='dupconfirm'?'confirm':'todo',st==='dupconfirm'?dupAsk:'')}${sn('ІП',nm('Іван Петренко','Ivan Petrenko'),dotB,true,['Python','Django'],false,'done')}${sn('МС',nm('Марія Савченко','Maria Savchenko'),dotF,false,['Django'],false,'todo')}${stopSome}</div>`;
+  const desc=`<div class="sec"><h3>${tr('desc')}</h3><div class="md"><p><strong>${tr('about')}</strong></p><p>${LANG==='uk'?'Шукаємо інженера для розробки платіжного ядра. Робота з Python/Django, AWS та PostgreSQL.':'We are looking for an engineer to build the payment core. Work with Python/Django, AWS and PostgreSQL.'}</p><ul><li>${LANG==='uk'?'5+ років досвіду':'5+ years of experience'}</li><li>${LANG==='uk'?'Досвід з високонавантаженими системами':'Experience with high-load systems'}</li></ul><p><span class="u">https://acme.example/careers/senior-python</span></p></div></div>`;
+  const hideBtn=`<button class="btn out" aria-haspopup="menu">${ic('eyeoff',16)}${tr('hide')}</button>`;
+  const open=`<button class="btn out">${ic('ext',16)}${tr('open')}</button>`;
+  const adm=`<button class="btn out ic" aria-label="${tr('adminMenu')}">${ic('more',18)}</button>`;
+  /* footer = vacancy-level actions only. NO primary here: the primary action is «Подати» on each senior. */
+  const foot=(st==='closed'||isAdmin||st==='adminmenu')?`${open}<div class="pair">${hideBtn}${adm}</div>`:`${open}${hideBtn}`;
+  const scope=isAdmin||st==='adminmenu'?tr('hideScopeA'):tr('hideScopeT');
+  const menu=st==='hidemenu'?`<div class="menu" role="menu"><div class="muted" style="padding:8px 10px 4px;font-size:12px">${tr('hideScopeT')}</div><div class="f" role="menuitem">${tr('r1')}</div><div role="menuitem">${tr('r2')}</div><div role="menuitem">${tr('r3')}</div></div>`:
+    st==='adminmenu'?`<div class="menu" role="menu" style="margin-left:auto;width:min(280px,100%)"><div class="muted" style="padding:8px 10px 4px;font-size:12px">${scope}</div><div class="f" role="menuitem">${tr('suppress')}</div>${r.triage?`<div role="menuitem">${tr('triageAdmin')}</div>`:''}</div>`:'';
+  const toast=st==='toast'?`<div class="toast" role="status"><span>${tr('hidden')}</span><button class="btn ghost fg">${ic('undo',16)}${tr('undo')}</button></div>`:'';
+  const avail=st==='closed'?`<span class="st block">${ic('warn',12)}${tr('closed')}</span>`:'';
+  return `<div class="scrim"><div class="dlg" role="dialog" aria-modal="true" aria-labelledby="t">
+   <div class="dh"><div class="t"><div class="line1">${r.triage?`<span class="bdg tri">${ic('help',13)}${tr('triage')}</span>`:''}${senStr(r)}${avail}</div><h2 id="t">${r.t}</h2><div class="co" style="white-space:normal;overflow-wrap:anywhere">${co(r)}</div><div class="meta">${meta}</div>${terms}</div><button class="btn ghost ic" aria-label="${tr('close')}">${ic('x',20)}</button></div>
+   <div class="db">${warn.join('')}${seniors}${desc}${sources}${stack}</div>
+   <div class="anno">sticky footer in product · rendered unrolled here</div>
+   <div class="df">${foot}</div>${menu?`<div style="padding:0 16px 12px">${menu}</div>`:''}${toast?`<div style="padding:0 16px 12px">${toast}</div>`:''}
+  </div></div>`;
+}
+function dialogsScreen(){
+  const nm=(uk,en)=>LANG==='uk'?uk:en;
+  const dlg=(t,p,yes,no,dest)=>`<div class="dlg" style="max-width:420px;border:1px solid var(--border);border-radius:var(--radius-xl);padding:16px;gap:8px;margin:12px auto" role="alertdialog"><b style="font-size:16px">${t}</b><div class="muted">${p}</div><div class="muted" style="font-size:12px">${tr('r1')} · ${tr('r2')} · ${tr('r3')}</div><div style="display:flex;gap:8px;flex-direction:column;margin-top:8px"><button class="btn ${dest?'dest':'out'}" style="${dest?'background:var(--destructive);color:var(--foreground)':''}">${yes}</button><button class="btn pri" data-initial-focus>${no}</button></div></div>`;
+  return `<div class="scrim" style="padding:12px 0">${dlg(tr('suppT'),tr('suppP'),tr('suppYes'),tr('keep'),true)}${dlg(tr('cancSubT'),tr('cancSubP',{who:nm('Іван Петренко','Ivan Petrenko')}),tr('cancSubYes'),tr('cancSubNo'),true)}
+   <div style="padding:0 16px 12px;display:flex;flex-direction:column;gap:8px">
+    <div class="toast" role="status"><span>${tr('subOk',{who:nm('Олена Ковальчук','Olena Kovalchuk')})}</span></div>
+    <div class="note bad" role="alert">${ic('warn',18)}<div class="tx"><b>${tr('subFail')}</b></div></div>
+    <div class="note bad" role="alert">${ic('refresh',18)}<div class="tx"><b>${tr('conflict')}</b></div></div>
+    <div class="note bad" role="alert">${ic('lock',18)}<div class="tx"><b>${tr('noAccess')}</b></div></div>
+    <div class="muted" style="font-size:12px" aria-live="polite">${tr('loadedMore',{n:20,a:40,b:87})}</div></div></div>`;
+}
+function sourcesScreen(){return `<div class="main"><div class="page"><div class="h1row"><h1>${tr('s_title')}</h1></div>${sourcesBlock(true)}</div></div>`}
+
+/* ---------- mount ---------- */
+const frame=(w,html,raw,h)=>`<div class="frame" id="frame" style="--w:${w}px${h?';height:'+h+'px;overflow:hidden':''}">${raw?html:shell(html)}</div>`;
+function render(){
+  const s=Q.get('s'),w=+Q.get('w')||1440,st=Q.get('st')||'default',admin=Q.get('admin')||'0';
+  document.documentElement.lang=LANG;
+  const app=document.getElementById('app');
+  if(s){
+    const fh=String(st).startsWith('fopen')?(w<560?720:1000):0;
+    app.innerHTML=fh&&s==='list'?frame(w,listScreen(st,admin),false,fh):s==='dialogs'?frame(w,dialogsScreen(),true):s==='card'?frame(w,cardScreen(st),true):frame(w,s==='list'?listScreen(st,admin):sourcesScreen());
+    return;
+  }
+  const sec=(t,c,items)=>`<section><h2>${t}</h2><div class="cap">${c}</div><div class="row-of">${items}</div></section>`;
+  const fr=(w,html,label,raw,h)=>`<div><div class="cap">${label} · ${w}</div>${frame(w,html,raw,h)}</div>`;
+  const W=[320,768,1024,1440];
+  app.innerHTML=`<div class="board">
+   <section><h2>Черга вакансій / Vacancy queue — design reference</h2><div class="cap">Hand-authored (design-gate: degraded). Dark theme only. Language: <a href="?lang=${LANG==='uk'?'en':'uk'}" style="color:var(--primary)">${LANG==='uk'?'switch to English':'перемкнути на українську'}</a>. Isolated frames: ?s=list|card|sources &amp; w= &amp; st= &amp; lang=</div></section>
+   ${sec('List — default × 4 classes','HR, one team. Infinite scroll: quiet «Показати ще» button is the keyboard/AT path; the scroll sentinel auto-triggers the same action',W.map(w=>fr(w,listScreen('default','0'),'default')).join(''))}
+   ${sec('List — infinite-scroll states','appending · end of list · error while appending (rows kept) · first load',['appending','end','appenderr','loading'].map(x=>fr(320,listScreen(x,'0'),x)).join(''))}
+   ${sec('List — states at 320','empty · error · refresh prompt · partial sources · no team',['empty','error','refresh','partial','noteam'].map(x=>fr(320,listScreen(x,'0'),x)).join(''))}
+   ${sec('List — states at 768 / 1024 / 1440','',['empty','loading','error'].map((x,i)=>fr([768,1024,1440][i],listScreen(x,'0'),x)).join(''))}
+   ${sec('Filters — toolbar without / with filters applied','badge = number of applied filter groups; summary line + «Скинути»',[fr(320,listScreen('default','0'),'no filters'),fr(320,listScreen('filtered','0'),'applied'),fr(1440,listScreen('filtered','0'),'applied')].join(''))}
+   ${sec('Filters — open panel (Sheet <560, Popover ≥560)','all groups, including the per-senior picker (own team only)',[fr(320,listScreen('fopen','0'),'sheet · specified',false,720),fr(320,listScreen('fopen2','0'),'sheet · scrolled to the senior picker',false,720),fr(320,listScreen('fopen3','0'),'sheet · senior picker open',false,720),fr(1440,listScreen('fopen','0'),'popover',false,1000)].join(''))}
+   ${sec('Filters — applied summary with the senior picker applied (wraps, reset stays inline)','',[fr(320,listScreen('filtered2','0'),'applied (long)')].join(''))}
+   ${sec('Search with no hits / empty tabs','',[fr(320,listScreen('searchnone','0'),'search only'),fr(320,listScreen('emptysub','0'),'empty Подані'),fr(320,listScreen('emptyhid','0'),'empty Приховані')].join(''))}
+   ${sec('Filters — filtered to nothing','reads differently from an empty queue',[fr(320,listScreen('filterednone','0'),'filtered-none'),fr(1440,listScreen('filterednone','0'),'filtered-none')].join(''))}
+   ${sec('List — appending / end / error at 1440','',['appending','end','appenderr'].map(x=>fr(1440,listScreen(x,'0'),x)).join(''))}
+   ${sec('List — in progress / hidden / multi-team / ADMIN','',[fr(320,listScreen('wip','0'),'Подані tab (own team only)'),fr(320,listScreen('hidden','0'),'hidden'),fr(320,listScreen('multi','0'),'multi-team'),fr(768,listScreen('default','1'),'ADMIN (sources collapsed)')].join(''))}
+   ${sec('Card — 320 full-screen','per-senior working surface; no vacancy-level state exists',['default','submitting','dup','dupconfirm','stopall','triage','zero','unknown','updated','stale','closed','long','hidemenu','adminmenu','toast','admin'].map(x=>fr(320,cardScreen(x),x,true)).join(''))}
+   ${sec('Card — 768 / 1440 dialog','',[fr(768,cardScreen('default'),'default',true),fr(1440,cardScreen('default'),'default',true)].join(''))}
+   ${sec('Dialogs, toasts and error texts','AlertDialogs (suppress, cancel submission), submit toast, submit failure, 409 conflict, no access, live-region sentence',[320,768].map(w=>fr(w,dialogsScreen(),'dialogs',true)).join(''))}
+   ${sec('ADMIN sources block','',[320,768,1440].map(w=>fr(w,sourcesScreen(),'sources')).join(''))}
+  </div>`;
+}
+render();
+</script>
+</body>
+</html>
