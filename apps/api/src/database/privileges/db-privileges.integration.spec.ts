@@ -637,6 +637,195 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
     })
   })
 
+  describe('part 8 (role membership) — one test per operand of its branch predicate', () => {
+    // CR-H-1. Every one of the five operands of part 8's `OR` chain, and its row-count
+    // `HAVING` branch, could be DELETED by hand and this spec stayed green. The reason is
+    // structural rather than careless, and it recurs: Stryker mutates the logical
+    // OPERATOR, never a single operand, so "zero surviving mutants" and "an unpinned
+    // conjunct" are both true at once. Only a hand deletion finds it, and only a test per
+    // operand keeps it found.
+    //
+    // The chain has two branches and production takes the superuser one — production's
+    // `crm_user` is `rolsuper = t`. Operand 1 (`owner_is_superuser`) decides that branch
+    // alone, which also makes operands 2-5 UNREACHABLE while it is true: pinning them
+    // needs a database whose `public` tables are owned by a NON-superuser, so that is what
+    // this describe builds. One throwaway database, one non-superuser owner, and part 8
+    // extracted from the committed check file and run on its own.
+    const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+    const owner = `privprobe_owner_${suffix}`
+    const other = `privprobe_other_${suffix}`
+    const branchDb = `privprobe_branch_${suffix}`
+    const allowed = 'WITH ADMIN TRUE, INHERIT FALSE, SET FALSE'
+    let branch: Pool
+
+    /**
+     * The ONE statement of the committed check file that is the named part.
+     *
+     * It throws unless exactly one statement matches, because the failure mode of an
+     * extraction like this is selecting nothing and making every test below pass on an
+     * empty string — the same class of defect these tests exist to close.
+     */
+    function partStatement(label: string): string {
+      const matches = splitSqlStatements(readSql(CHECK_FILE)).filter((st) => st.includes(label))
+      if (matches.length !== 1) {
+        throw new Error(`expected exactly one statement for ${label}, found ${matches.length}`)
+      }
+      return matches[0] as string
+    }
+
+    /** Runs part 8 against one connection and returns the failure message, or null. */
+    async function runPart8(pool: Pool): Promise<string | null> {
+      const client: PoolClient = await pool.connect()
+      try {
+        await client.query(partStatement('part 8 (role membership)'))
+        return null
+      } catch (error) {
+        return (error as Error).message
+      } finally {
+        client.release()
+      }
+    }
+
+    /** Puts the cluster's membership row for `crm_app` into exactly one state. */
+    async function grantAppTo(member: string, options: string): Promise<void> {
+      await migration.query(`REVOKE ${ROLES.app} FROM ${owner}, ${other}`)
+      await migration.query(`GRANT ${ROLES.app} TO ${member} ${options}`)
+    }
+
+    beforeAll(async () => {
+      await migration.query(`CREATE ROLE ${owner} NOSUPERUSER NOCREATEROLE NOCREATEDB NOLOGIN`)
+      await migration.query(`CREATE ROLE ${other} NOSUPERUSER NOCREATEROLE NOCREATEDB NOLOGIN`)
+      // `CREATE DATABASE` cannot run inside a transaction, so it goes through the pool
+      // directly. It uses template1, which nothing connects to — unlike the integration
+      // database itself, which is why this file does not template THAT (see the header).
+      await migration.query(`CREATE DATABASE ${branchDb}`)
+      const url = new URL(process.env['DATABASE_URL'] as string)
+      url.pathname = `/${branchDb}`
+      branch = new Pool({ connectionString: url.toString(), max: 1 })
+      // What flips the branch: the owner of the relations in `public` here is a
+      // non-superuser, and part 8 derives the migration role from exactly that.
+      await branch.query(`CREATE TABLE owned_by_a_non_superuser (id integer)`)
+      await branch.query(`ALTER TABLE owned_by_a_non_superuser OWNER TO ${owner}`)
+      // The state PostgreSQL 16 itself produces in this branch, for all three roles.
+      for (const role of [ROLES.app, ROLES.collector, ROLES.retentionOwner]) {
+        await migration.query(`GRANT ${role} TO ${owner} ${allowed}`)
+      }
+    }, 60_000)
+
+    afterAll(async () => {
+      // The membership rows are CLUSTER-wide, so leaving one behind would fail part 8 for
+      // every later test in this file and for anything else sharing the cluster.
+      for (const role of [ROLES.app, ROLES.collector, ROLES.retentionOwner]) {
+        await migration?.query(`REVOKE ${role} FROM ${owner}, ${other}`).catch(() => undefined)
+      }
+      await branch?.end()
+      await migration?.query(`DROP DATABASE IF EXISTS ${branchDb}`).catch(() => undefined)
+      await migration?.query(`DROP ROLE IF EXISTS ${owner}`).catch(() => undefined)
+      await migration?.query(`DROP ROLE IF EXISTS ${other}`).catch(() => undefined)
+    })
+
+    it('passes in the non-superuser branch on the state PostgreSQL 16 itself produces', async () => {
+      // Without this the tests below would be unfalsifiable in the other direction: a part
+      // 8 that failed on everything would "pin" every operand just as well.
+      expect(await runPart8(branch)).toBeNull()
+    })
+
+    it('operand 1 (owner_is_superuser): rejects any membership row in the superuser branch', async () => {
+      // The branch production takes. The row is of exactly the shape the OTHER branch
+      // ALLOWS — member is the migration role, admin true, inherit and set false — so
+      // operands 2-5 are all false and operand 1 is the only thing that can catch it.
+      // Deleting `b.owner_is_superuser` leaves the row-count branch still complaining,
+      // which is why this asserts the predicate's own message and not mere failure.
+      //
+      // It also owns the whole cluster's membership state for its duration: the grants
+      // `beforeAll` made become DEPENDENT privileges the moment the migration role is
+      // itself a member (it is their grantor), and PostgreSQL then refuses to revoke that
+      // membership without CASCADE — which would silently take the other grants with it.
+      for (const role of [ROLES.app, ROLES.collector, ROLES.retentionOwner]) {
+        await migration.query(`REVOKE ${role} FROM ${owner}`)
+      }
+      try {
+        // Zero membership rows: what this branch wants, and what it must not complain about.
+        expect(await runPart8(migration)).toBeNull()
+
+        await migration.query(`GRANT ${ROLES.app} TO CURRENT_USER ${allowed}`)
+        const failure = await runPart8(migration)
+        expect(failure).toContain('which this branch does not allow')
+        expect(failure).toContain('admin=t inherit=f set=f')
+        expect(failure).toContain(ROLES.app)
+
+        await migration.query(`REVOKE ${ROLES.app} FROM CURRENT_USER`)
+        expect(await runPart8(migration)).toBeNull()
+      } finally {
+        await migration.query(`REVOKE ${ROLES.app} FROM CURRENT_USER`).catch(() => undefined)
+        for (const role of [ROLES.app, ROLES.collector, ROLES.retentionOwner]) {
+          await migration.query(`GRANT ${role} TO ${owner} ${allowed}`)
+        }
+      }
+    })
+
+    it('operand 2 (member <> migration role): rejects a grant to anyone else', async () => {
+      // One row, so the row-count branch is satisfied; the member is not the migration
+      // role, which is the whole of what makes it wrong — another role that can SET ROLE
+      // to crm_app is another route into it.
+      await grantAppTo(other, allowed)
+      const failure = await runPart8(branch)
+      expect(failure).toContain('which this branch does not allow')
+      expect(failure).toContain(other)
+      await grantAppTo(owner, allowed)
+      expect(await runPart8(branch)).toBeNull()
+    })
+
+    it('operand 3 (NOT admin_option): rejects a grant made without ADMIN', async () => {
+      // PostgreSQL 16's automatic creator-membership always carries ADMIN. A row without
+      // it was made by something else, and what made it is the question the deploy must
+      // stop for.
+      await grantAppTo(owner, 'WITH ADMIN FALSE, INHERIT FALSE, SET FALSE')
+      const failure = await runPart8(branch)
+      expect(failure).toContain('admin=f')
+      await grantAppTo(owner, allowed)
+      expect(await runPart8(branch)).toBeNull()
+    })
+
+    it('operand 4 (inherit_option): rejects INHERIT, which hands the privileges over', async () => {
+      // With INHERIT the migration role holds crm_app's privileges without SET ROLE. It is
+      // a superuser on production and gains nothing by it — but the day it is not, that is
+      // the boundary gone, and `createrole_self_grant` in the roles file constrains only
+      // the moment the grant is made.
+      await grantAppTo(owner, 'WITH ADMIN TRUE, INHERIT TRUE, SET FALSE')
+      const failure = await runPart8(branch)
+      expect(failure).toContain('inherit=t')
+      await grantAppTo(owner, allowed)
+      expect(await runPart8(branch)).toBeNull()
+    })
+
+    it('operand 5 (set_option): rejects SET, which is the SET ROLE path itself', async () => {
+      await grantAppTo(owner, 'WITH ADMIN TRUE, INHERIT FALSE, SET TRUE')
+      const failure = await runPart8(branch)
+      expect(failure).toContain('set=t')
+      await grantAppTo(owner, allowed)
+      expect(await runPart8(branch)).toBeNull()
+    })
+
+    it('the row-count branch: rejects a second grant of the allowed shape, and a missing one', async () => {
+      // Two grants of the same legal shape from different grantors are both invisible to
+      // the predicate above, which never looks at the grantor. Only the count sees them.
+      await migration.query(`GRANT ${ROLES.app} TO ${other} ${allowed}`)
+      try {
+        const failure = await runPart8(branch)
+        expect(failure).toContain('membership rows, expected 1')
+      } finally {
+        await migration.query(`REVOKE ${ROLES.app} FROM ${other}`)
+      }
+      // And the other direction of the same count: none at all, where this branch wants one.
+      await migration.query(`REVOKE ${ROLES.app} FROM ${owner}`)
+      const missing = await runPart8(branch)
+      expect(missing).toContain('has 0 membership rows, expected 1')
+      await migration.query(`GRANT ${ROLES.app} TO ${owner} ${allowed}`)
+      expect(await runPart8(branch)).toBeNull()
+    })
+  })
+
   describe('the catalog check (ADR §2) — and that it actually fails on drift', () => {
     /**
      * The check file is one transaction, so it must run on ONE connection: `Pool#query`
