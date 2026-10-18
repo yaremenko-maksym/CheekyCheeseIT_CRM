@@ -13,6 +13,9 @@
  * byte. Writing the recorded `aclitem[]` back (or NULL) does both. It needs a superuser,
  * which the migration role of every environment this spec runs in already is — it
  * creates roles.
+ *
+ * A TEST HELPER, kept out of the production build (SR-L-2): `tsconfig.build.json` excludes
+ * this file, so it never reaches `dist` or the image. Nothing at runtime may import it.
  */
 import { Pool } from 'pg'
 
@@ -26,13 +29,21 @@ export interface ClusterAclSnapshot {
   restore(): Promise<void>
 }
 
-/** Reads the current ACLs. Opens and closes its own pool, so it works before any other. */
-export async function snapshotClusterAcls(connectionString: string): Promise<ClusterAclSnapshot> {
+/**
+ * Reads the current ACLs. Opens and closes its own pool, so it works before any other.
+ *
+ * `databases` exists for this helper's own spec, which must not alter the real cluster
+ * databases while another spec file holds a snapshot of them.
+ */
+export async function snapshotClusterAcls(
+  connectionString: string,
+  databases: readonly string[] = CLUSTER_DATABASES,
+): Promise<ClusterAclSnapshot> {
   const pool = new Pool({ connectionString, max: 1 })
   try {
     const { rows } = await pool.query<{ datname: string; datacl: string | null }>(
       `SELECT datname, datacl::text AS datacl FROM pg_database WHERE datname = ANY($1::text[])`,
-      [CLUSTER_DATABASES],
+      [databases],
     )
     const recorded = new Map(rows.map((row) => [row.datname, row.datacl]))
     return {
@@ -53,5 +64,22 @@ export async function snapshotClusterAcls(connectionString: string): Promise<Clu
     }
   } finally {
     await pool.end()
+  }
+}
+
+/**
+ * Runs a spec's teardown, then restores the ACLs — whether or not the teardown threw
+ * (CR-M-11). An error from `cleanup` still propagates once the restore has run, so a
+ * failing cleanup statement is reported rather than swallowed. `snapshot` is `undefined`
+ * when the `beforeAll` that takes it failed first; the cleanup still runs.
+ */
+export async function cleanupThenRestore(
+  cleanup: () => Promise<void>,
+  snapshot: ClusterAclSnapshot | undefined,
+): Promise<void> {
+  try {
+    await cleanup()
+  } finally {
+    await snapshot?.restore()
   }
 }

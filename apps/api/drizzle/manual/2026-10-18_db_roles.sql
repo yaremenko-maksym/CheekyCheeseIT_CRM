@@ -198,6 +198,21 @@ $roles$;
 -- code did not do. The cost is up to eight statements instead of one, and only on a role
 -- that has actually drifted.
 --
+-- WHY REDUCING CLAUSES FIRST, AND ENABLING ONES ONLY IF NONE WAS REFUSED (SR-M-2)
+-- One clause at a time has a side effect in branch 2 that one statement did not: LOGIN is
+-- accepted from a non-superuser CREATEROLE role while a superuser-only clause is refused,
+-- so a role drifted to `NOLOGIN REPLICATION` ended as `LOGIN REPLICATION` — more
+-- privileged than both its drifted state and its intended one (measured on 16.15,
+-- 2026-10-18; the same with BYPASSRLS and CREATEDB). The catalog check then failed the
+-- deploy, but the role change was already committed. So the clauses are split by
+-- direction:
+--   REDUCING — NOLOGIN, NOSUPERUSER, NOCREATEDB, NOCREATEROLE, NOREPLICATION, NOBYPASSRLS,
+--              and a CONNECTION LIMIT lower than the current one (-1 means no limit);
+--   ENABLING — LOGIN, INHERIT, and a CONNECTION LIMIT higher than the current one.
+-- The reducing clauses are applied first. If any of them is refused, the enabling ones are
+-- WITHHELD and named in the warning: a role that cannot be fully repaired is left no more
+-- able to act than it was. Branch 1 never refuses, so there it changes nothing.
+--
 -- CONNECTION LIMIT, with the arithmetic rather than a round number: `DatabaseService` opens
 -- one `pg` Pool with no `max`, i.e. pg's default of 10. A deploy recreates the API container
 -- and the recreate can briefly overlap, so 10 x 2 = 20, plus 10 of headroom for an operator
@@ -213,9 +228,12 @@ $roles$;
 DO $attributes$
 DECLARE
   r record;
+  reducing text[];
+  enabling text[];
   clauses text[];
-  clause text;
+  i integer;
   unrepaired text[];
+  withheld text[];
 BEGIN
   FOR r IN
     SELECT w.rolname, w.can_login, w.conn_limit, a.rolsuper, a.rolcreatedb, a.rolcreaterole,
@@ -232,40 +250,52 @@ BEGIN
     -- while `text[] || format(…)` resolves to array-with-element because format() returns a
     -- typed text. So the `||` form works for some of these lines and not others — measured
     -- on 16.15 when the repair path first ran for real.
-    clauses := ARRAY[]::text[];
-    IF r.rolcanlogin <> r.can_login THEN
-      clauses := array_append(clauses, CASE WHEN r.can_login THEN 'LOGIN' ELSE 'NOLOGIN' END);
-    END IF;
-    IF r.rolsuper THEN clauses := array_append(clauses, 'NOSUPERUSER'); END IF;
-    IF r.rolcreatedb THEN clauses := array_append(clauses, 'NOCREATEDB'); END IF;
-    IF r.rolcreaterole THEN clauses := array_append(clauses, 'NOCREATEROLE'); END IF;
-    IF r.rolreplication THEN clauses := array_append(clauses, 'NOREPLICATION'); END IF;
-    IF r.rolbypassrls THEN clauses := array_append(clauses, 'NOBYPASSRLS'); END IF;
-    IF NOT r.rolinherit THEN clauses := array_append(clauses, 'INHERIT'); END IF;
+    reducing := ARRAY[]::text[];
+    enabling := ARRAY[]::text[];
+    IF r.rolcanlogin AND NOT r.can_login THEN reducing := array_append(reducing, 'NOLOGIN'); END IF;
+    IF r.rolsuper THEN reducing := array_append(reducing, 'NOSUPERUSER'); END IF;
+    IF r.rolcreatedb THEN reducing := array_append(reducing, 'NOCREATEDB'); END IF;
+    IF r.rolcreaterole THEN reducing := array_append(reducing, 'NOCREATEROLE'); END IF;
+    IF r.rolreplication THEN reducing := array_append(reducing, 'NOREPLICATION'); END IF;
+    IF r.rolbypassrls THEN reducing := array_append(reducing, 'NOBYPASSRLS'); END IF;
     IF r.rolconnlimit <> r.conn_limit THEN
-      clauses := array_append(clauses, format('CONNECTION LIMIT %s', r.conn_limit));
+      IF r.rolconnlimit = -1 OR r.rolconnlimit > r.conn_limit THEN
+        reducing := array_append(reducing, format('CONNECTION LIMIT %s', r.conn_limit));
+      ELSE
+        enabling := array_append(enabling, format('CONNECTION LIMIT %s', r.conn_limit));
+      END IF;
     END IF;
+    IF r.can_login AND NOT r.rolcanlogin THEN enabling := array_append(enabling, 'LOGIN'); END IF;
+    IF NOT r.rolinherit THEN enabling := array_append(enabling, 'INHERIT'); END IF;
 
+    clauses := reducing || enabling;
     IF cardinality(clauses) = 0 THEN
       CONTINUE;
     END IF;
 
     unrepaired := ARRAY[]::text[];
-    FOREACH clause IN ARRAY clauses LOOP
+    withheld := ARRAY[]::text[];
+    FOR i IN 1 .. cardinality(clauses) LOOP
+      -- The first enabling clause, after a refused reducing one: withhold it and the rest.
+      IF i > cardinality(reducing) AND cardinality(unrepaired) > 0 THEN
+        withheld := clauses[i:];
+        EXIT;
+      END IF;
       BEGIN
-        EXECUTE format('ALTER ROLE %I WITH %s', r.rolname, clause);
-        RAISE NOTICE 'repaired attribute of %: %', r.rolname, clause;
+        EXECUTE format('ALTER ROLE %I WITH %s', r.rolname, clauses[i]);
+        RAISE NOTICE 'repaired attribute of %: %', r.rolname, clauses[i];
       EXCEPTION
         WHEN insufficient_privilege THEN
           -- Collected rather than raised here, so one unrepairable clause produces one
           -- warning naming all of them instead of a warning per clause.
-          unrepaired := array_append(unrepaired, clause);
+          unrepaired := array_append(unrepaired, clauses[i]);
       END;
     END LOOP;
 
     IF cardinality(unrepaired) > 0 THEN
-      RAISE WARNING 'cannot repair attributes of % (%) as % — a superuser must do it; the catalog check will fail the deploy until then',
-        r.rolname, array_to_string(unrepaired, ' '), current_user;
+      RAISE WARNING 'cannot repair attributes of % (%) as % — a superuser must do it; the catalog check will fail the deploy until then; withheld: %',
+        r.rolname, array_to_string(unrepaired, ' '), current_user,
+        COALESCE(NULLIF(array_to_string(withheld, ' '), ''), 'nothing');
     END IF;
   END LOOP;
 END

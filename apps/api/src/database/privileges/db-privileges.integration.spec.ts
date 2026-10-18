@@ -53,7 +53,11 @@ import {
 } from './generate-privilege-sql'
 import { ROLES } from './privilege-classes'
 import { scramSha256Verifier } from './scram'
-import { snapshotClusterAcls, type ClusterAclSnapshot } from './cluster-acl-snapshot'
+import {
+  cleanupThenRestore,
+  snapshotClusterAcls,
+  type ClusterAclSnapshot,
+} from './cluster-acl-snapshot'
 
 const MANUAL_DIR = join(__dirname, '..', '..', '..', 'drizzle', 'manual')
 const readSql = (file: string): string => readFileSync(join(MANUAL_DIR, file), 'utf8')
@@ -248,18 +252,23 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
   }, 120_000)
 
   afterAll(async () => {
-    for (const table of Object.values(PROBE)) {
-      if (table === PROBE.V) continue
-      await migration?.query(`DROP TABLE IF EXISTS ${table} CASCADE`)
-    }
-    await migration?.query(`DROP VIEW IF EXISTS ${PROBE.V}`)
-    // The probe tables are gone, so the catalog check's part 1 (every relation in public
-    // is classified) is satisfied again for the next run.
-    await Promise.all([app?.end(), collector?.end()])
-    await migration?.end()
-    // Last, once the pools are closed: puts back what the roles file revoked on the
-    // cluster-wide databases, whether or not anything above passed.
-    await clusterAcls?.restore()
+    // The restore runs LAST and in a `finally` (CR-M-11): before, it sat after these
+    // unprotected awaits, so a failing cleanup STATEMENT — not only a failing test — left
+    // PUBLIC's CONNECT revoked on the shared cluster. The pools close in their own
+    // `finally` for the same reason. Pinned in `cluster-acl-snapshot.integration.spec.ts`.
+    await cleanupThenRestore(async () => {
+      try {
+        for (const table of Object.values(PROBE)) {
+          if (table === PROBE.V) continue
+          await migration?.query(`DROP TABLE IF EXISTS ${table} CASCADE`)
+        }
+        await migration?.query(`DROP VIEW IF EXISTS ${PROBE.V}`)
+        // The probe tables are gone, so the catalog check's part 1 (every relation in
+        // public is classified) is satisfied again for the next run.
+      } finally {
+        await Promise.allSettled([app?.end(), collector?.end(), migration?.end()])
+      }
+    }, clusterAcls)
   })
 
   describe('the password path (ADR §4, trap 1 — no plain password reaches the server)', () => {
@@ -949,6 +958,38 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
       }
       expect(await runPart8(branch)).toBeNull()
     })
+
+    // CR-M-12. Every test above drives `crm_app`, so narrowing both of part 8's role joins
+    // (and its count) to `crm_app` alone left this spec green. The other two roles, in both
+    // directions, each asserted by its own message.
+    it.each([ROLES.collector, ROLES.retentionOwner])(
+      'CR-M-12: rejects %s being a member of any role',
+      async (role) => {
+        await migration.query(`GRANT ${other} TO ${role}`)
+        try {
+          expect(await runPart8(branch)).toContain(`${role} is a member of ${other}`)
+        } finally {
+          await migration.query(`REVOKE ${other} FROM ${role}`)
+        }
+        expect(await runPart8(branch)).toBeNull()
+      },
+    )
+
+    it.each([ROLES.collector, ROLES.retentionOwner])(
+      'CR-M-12: rejects a second member of %s, by shape and by count',
+      async (role) => {
+        // Same shape as the creator row, so only the member name and the count are wrong.
+        await migration.query(`GRANT ${role} TO ${other} ${allowed}`)
+        try {
+          const failure = await runPart8(branch)
+          expect(failure).toContain(`${role} has member ${other}`)
+          expect(failure).toContain(`${role} has 2 membership rows, expected at most 1`)
+        } finally {
+          await migration.query(`REVOKE ${role} FROM ${other}`)
+        }
+        expect(await runPart8(branch)).toBeNull()
+      },
+    )
   })
 
   describe('the catalog check (ADR §2) — and that it actually fails on drift', () => {
@@ -1071,10 +1112,11 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
     //     and Task 1.3b, which fills both, is what makes them reachable against a
     //     database. Pinning them now would require this file to carry a fake declaration,
     //     i.e. to test a manifest nobody ships.
-    //   part 3's "lacks the declared column SELECT" — same reason: `collectorColumns` is
-    //     empty, so the declared half of the expected set is empty. The other half of
-    //     that branch (a role's table-level expansion going missing) IS reachable and is
-    //     what part 2's "lacks" test below drives through the same predicate.
+    //   part 3's "lacks the declared column SELECT", the DECLARED half — `collectorColumns`
+    //     is empty, so that half of the expected set is empty. The other half (a role's
+    //     table-level expansion going missing) IS reachable and is pinned in the
+    //     parts-3-and-4 describe (CR-M-12) by running part 3 on its own: through
+    //     `runCheck` it never is, because losing a table SELECT fails part 2 first.
 
     it('part 2 fails in the lacks direction, not only when a privilege is added', async () => {
       // The direction that is an outage rather than a hole: a privilege the model requires
@@ -1559,6 +1601,89 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
       }
       expect(await runCheck(migration)).toBeNull()
     }, 60_000)
+
+    // CR-M-12 — what the tests above still left deletable by hand. These run ONE part on its
+    // own (`runPart`), for two reasons: the part-3 branch below is unreachable through
+    // `runCheck`, and a single part is the narrowest statement that can turn red.
+
+    it('CR-M-12: part 3 fails in the lacks direction when a table-level SELECT goes missing', async () => {
+      // `runCheck` stops at the first failing part, and losing a table SELECT fails part 2
+      // first — so through `runCheck` this branch is never reached, whatever the comment in
+      // the drift describe used to say. Part 3 on its own reaches it: `crm_app`'s expected
+      // column rows on `users` are the expansion of a table SELECT it no longer has.
+      const part3 = partStatement('part 3 (column privileges)')
+      await migration.query(`REVOKE SELECT ON TABLE users FROM ${ROLES.app}`)
+      try {
+        expect(await runPart(migration, part3)).toContain(
+          `${ROLES.app} lacks the declared column SELECT on users.id`,
+        )
+      } finally {
+        await applyFile(GRANTS_FILE)
+      }
+      expect(await runPart(migration, part3)).toBeNull()
+    }, 60_000)
+
+    // Five of part 4's nine `wanted` rows could each be deleted with this spec green. One
+    // case per row, each asserting the row's own message.
+    it.each([
+      [ROLES.app, 'SELECT', 'lacks'],
+      [ROLES.collector, 'SELECT', 'holds'],
+      [ROLES.collector, 'UPDATE', 'holds'],
+      [ROLES.retentionOwner, 'USAGE', 'holds'],
+      [ROLES.retentionOwner, 'SELECT', 'holds'],
+      [ROLES.retentionOwner, 'UPDATE', 'holds'],
+    ] as const)(
+      'CR-M-12: part 4 pins the wanted row (%s, %s) — reports that it %s it',
+      async (role, privilege, direction) => {
+        const sequence = await sequenceInPublic()
+        const part4 = partStatement('part 4 (sequence privileges)')
+        await migration.query(
+          direction === 'lacks'
+            ? `REVOKE ${privilege} ON SEQUENCE ${sequence} FROM ${role}`
+            : `GRANT ${privilege} ON SEQUENCE ${sequence} TO ${role}`,
+        )
+        try {
+          expect(await runPart(migration, part4)).toContain(
+            `sequence ${sequence}: ${role} ${direction} ${privilege}`,
+          )
+        } finally {
+          if (direction === 'holds') {
+            await migration.query(`REVOKE ${privilege} ON SEQUENCE ${sequence} FROM ${role}`)
+          }
+          await applyFile(GRANTS_FILE)
+        }
+        expect(await runPart(migration, part4)).toBeNull()
+      },
+      60_000,
+    )
+
+    it('CR-M-12: part 4’s class C branch expects the collector’s USAGE on that table’s sequence', async () => {
+      // No real class C table exists, so with the branch forced to `false` every database
+      // still passed. The table here is a probe and the CHECK TEXT is mutated to declare it
+      // class C — the technique of part 1's absent-relation test: the real committed SQL,
+      // on the real catalog, with no shared state changed.
+      const table = 'privprobe_part4_c'
+      const part4 = partStatement('part 4 (sequence privileges)')
+      const declared = "('tos_versions', 'A', false)"
+      const mutated = part4.replace(declared, `${declared},\n    ('${table}', 'C', false)`)
+      expect(mutated).not.toBe(part4)
+      await migration.query(`DROP TABLE IF EXISTS ${table} CASCADE`)
+      await migration.query(`CREATE TABLE ${table} (id serial PRIMARY KEY)`)
+      try {
+        expect(await runPart(migration, mutated)).toContain(
+          `sequence ${table}_id_seq: ${ROLES.collector} lacks USAGE`,
+        )
+        await migration.query(`GRANT USAGE ON SEQUENCE ${table}_id_seq TO ${ROLES.collector}`)
+        expect(await runPart(migration, mutated)).toBeNull()
+        // The same grant, with the table in no class, is drift — so the branch, not the
+        // grant, is what made the line above pass.
+        expect(await runPart(migration, part4)).toContain(
+          `sequence ${table}_id_seq: ${ROLES.collector} holds USAGE`,
+        )
+      } finally {
+        await migration.query(`DROP TABLE IF EXISTS ${table} CASCADE`)
+      }
+    }, 60_000)
   })
 
   describe('the roles file’s attribute-repair path (CR-M-5, CR-M-6)', () => {
@@ -1634,17 +1759,17 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
       expect(await runCheck(migration)).toBeNull()
     }, 120_000)
 
-    it('CR-M-6: as a non-superuser CREATEROLE owner, repairs what it can and warns about the rest', async () => {
-      // The file's own comment claims "repair of whatever the role is allowed to change
-      // plus a loud WARNING for the rest" of step 0's branch 2. With one `ALTER ROLE`
-      // carrying every differing clause, that was FALSE: PostgreSQL 16 refuses the whole
-      // statement if any clause needs an attribute the altering role lacks, so with
-      // CREATEDB and CREATEROLE both drifted NOTHING was repaired and CREATEROLE — the
-      // clause that lets a role mint a more privileged one — stayed on crm_app.
-      //
-      // Production is branch 1, so this was never a production defect. It was a comment
-      // claiming something the code did not do, which is the defect class this feature has
-      // produced four times, so the code is what changed.
+    /**
+     * Drifts `crm_collector` by `drift` (as the superuser), then runs the attribute-repair
+     * block as step 0's branch 2: a non-superuser CREATEROLE role holding ADMIN on it.
+     * Returns the collector's attributes right after the block and every notice and
+     * warning the block raised. `inspect` runs while the drift-after-repair state still
+     * stands; the superuser re-applies the roles file afterwards, whatever happened.
+     */
+    async function repairAsBranch2(
+      drift: string,
+      inspect?: () => Promise<void>,
+    ): Promise<{ after: Record<string, unknown>; notices: string }> {
       const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
       const fixer = `privprobe_fixer_${suffix}`
       const fixerPassword = `probe${Math.random().toString(36).slice(2)}`
@@ -1661,9 +1786,7 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
         await migration.query(
           `GRANT ${ROLES.collector} TO ${fixer} WITH ADMIN TRUE, INHERIT FALSE, SET FALSE`,
         )
-        await migration.query(
-          `ALTER ROLE ${ROLES.collector} CREATEDB CREATEROLE NOINHERIT CONNECTION LIMIT 7`,
-        )
+        await migration.query(`ALTER ROLE ${ROLES.collector} ${drift}`)
         fixerPool = new Pool({ connectionString: urlFor(fixer, fixerPassword), max: 1 })
 
         const notices: string[] = []
@@ -1674,24 +1797,9 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
         } finally {
           client.release()
         }
-
         const after = await attributesOf(ROLES.collector)
-        // Repaired: the three clauses a CREATEROLE role holding ADMIN may set.
-        expect(after).toMatchObject({
-          rolcreaterole: false,
-          rolinherit: true,
-          rolconnlimit: 10,
-        })
-        // Not repaired, and that is the honest half: CREATEDB may only be changed by a
-        // role that holds it. The catalog check (part 7) fails the deploy on this state —
-        // it is reported, not silently accepted.
-        expect(after).toMatchObject({ rolcreatedb: true })
-        expect(notices.join(' | ')).toContain('cannot repair')
-        expect(notices.join(' | ')).toContain('NOCREATEDB')
-
-        const failure = await runCheck(migration)
-        expect(failure).toMatch(/part 7 \(role attributes and ownership\)/)
-        expect(failure).toContain('CREATEDB')
+        await inspect?.()
+        return { after, notices: notices.join(' | ') }
       } finally {
         await fixerPool?.end()
         await migration
@@ -1706,7 +1814,75 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
         await migration.query(`DROP ROLE IF EXISTS ${fixer}`).catch(() => undefined)
         await applyFile(ROLES_FILE)
       }
+    }
+
+    it('CR-M-6: as a non-superuser CREATEROLE owner, repairs what it can and warns about the rest', async () => {
+      // The file's own comment claims "repair of whatever the role is allowed to change
+      // plus a loud WARNING for the rest" of step 0's branch 2. With one `ALTER ROLE`
+      // carrying every differing clause, that was FALSE: PostgreSQL 16 refuses the whole
+      // statement if any clause needs an attribute the altering role lacks, so with
+      // CREATEDB and CREATEROLE both drifted NOTHING was repaired and CREATEROLE — the
+      // clause that lets a role mint a more privileged one — stayed on the role.
+      //
+      // Since SR-M-2, "what it can" means the REDUCING clauses: NOCREATEROLE lands, while
+      // INHERIT and the higher connection limit (7 -> 10) are ENABLING and are withheld,
+      // because a reducing clause (NOCREATEDB) was refused.
+      let failure: string | null = null
+      const { after, notices } = await repairAsBranch2(
+        'CREATEDB CREATEROLE NOINHERIT CONNECTION LIMIT 7',
+        async () => {
+          failure = await runCheck(migration)
+        },
+      )
+      expect(after).toMatchObject({
+        rolcreaterole: false,
+        rolcreatedb: true,
+        rolinherit: false,
+        rolconnlimit: 7,
+      })
+      expect(notices).toContain(`cannot repair attributes of ${ROLES.collector} (NOCREATEDB)`)
+      expect(notices).toContain('withheld: CONNECTION LIMIT 10 INHERIT')
+      // Not repaired, and that is the honest half: CREATEDB may only be changed by a role
+      // that holds it. Part 7 fails the deploy on this state — reported, not accepted.
+      expect(failure).toMatch(/part 7 \(role attributes and ownership\)/)
+      expect(failure).toContain('CREATEDB')
       expect(await runCheck(migration)).toBeNull()
+    }, 120_000)
+
+    // SR-M-2. One clause at a time made "repair what you can" true — and, in branch 2, let
+    // the block RAISE privileges: LOGIN is accepted from a non-superuser CREATEROLE role
+    // while a superuser-only clause is refused, so a role drifted to `NOLOGIN REPLICATION`
+    // ended as `LOGIN REPLICATION`, more privileged than both where it was and where it
+    // should be. The reviewer's three drifted states, each written out.
+    it.each([
+      ['NOLOGIN REPLICATION', { rolreplication: true }, 'NOREPLICATION'],
+      ['NOLOGIN BYPASSRLS', { rolbypassrls: true }, 'NOBYPASSRLS'],
+      ['NOLOGIN CREATEDB', { rolcreatedb: true }, 'NOCREATEDB'],
+    ] as const)(
+      'SR-M-2: drifted to %s in branch 2, the role is not given LOGIN back',
+      async (drift, held, refused) => {
+        const { after, notices } = await repairAsBranch2(drift)
+        expect(after).toMatchObject({ ...held, rolcanlogin: false })
+        expect(notices).toContain(`cannot repair attributes of ${ROLES.collector} (${refused})`)
+        expect(notices).toContain('withheld: LOGIN')
+      },
+      120_000,
+    )
+
+    it('SR-M-2: a LOWER connection limit is a reducing clause and lands even then', async () => {
+      // -1 is "no limit", so 10 is a reduction from it. The limit is the one clause that
+      // can go either way, so it is classified by direction, not by name.
+      const { after, notices } = await repairAsBranch2('CREATEDB NOINHERIT CONNECTION LIMIT -1')
+      expect(after).toMatchObject({ rolconnlimit: 10, rolcreatedb: true, rolinherit: false })
+      expect(notices).toContain('withheld: INHERIT')
+    }, 120_000)
+
+    it('SR-M-2: with no reducing clause refused, branch 2 still applies the enabling ones', async () => {
+      // Withholding is conditional on a refusal, not a blanket "never enable in branch 2" —
+      // which would leave a merely NOLOGIN application role unable to log in for good.
+      const { after, notices } = await repairAsBranch2('NOLOGIN NOINHERIT CONNECTION LIMIT 7')
+      expect(after).toMatchObject({ rolcanlogin: true, rolinherit: true, rolconnlimit: 10 })
+      expect(notices).not.toContain('cannot repair')
     }, 120_000)
   })
 
