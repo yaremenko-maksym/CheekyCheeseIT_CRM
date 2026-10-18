@@ -1869,6 +1869,17 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
       120_000,
     )
 
+    it('SR-M-2: a refusal with nothing enabling to withhold says so, rather than nothing', async () => {
+      // The warning's `COALESCE(NULLIF(…), 'nothing')`: with CREATEDB the only drift, the
+      // one clause is reducing and refused, so `withheld` is empty. Without the COALESCE
+      // the message would trail off after "withheld: " — and an operator reading it could
+      // not tell "nothing was withheld" from a truncated line.
+      const { after, notices } = await repairAsBranch2('CREATEDB')
+      expect(after).toMatchObject({ rolcreatedb: true, rolcanlogin: true, rolinherit: true })
+      expect(notices).toContain(`cannot repair attributes of ${ROLES.collector} (NOCREATEDB)`)
+      expect(notices).toContain('withheld: nothing')
+    }, 120_000)
+
     it('SR-M-2: a LOWER connection limit is a reducing clause and lands even then', async () => {
       // -1 is "no limit", so 10 is a reduction from it. The limit is the one clause that
       // can go either way, so it is classified by direction, not by name.
