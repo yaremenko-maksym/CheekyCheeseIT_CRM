@@ -166,6 +166,7 @@ h1{font-size:18px;font-weight:600;letter-spacing:-.01em}
 @container vp (min-width:640px){.sn{grid-template-columns:32px minmax(0,1fr) auto}.sn .sact{grid-column:3;grid-row:1;align-items:flex-end;min-width:150px}}
 .grp{font-size:12px;font-weight:600;color:var(--muted-foreground);padding:10px 0 2px;border-bottom:1px solid var(--border)}
 .dupask{background:var(--accent)}
+.applyfirst{margin-bottom:6px}
 .foot-status,.foot-end{display:flex;align-items:center;justify-content:center;gap:8px;min-height:44px;color:var(--muted-foreground);font-size:13px}
 .foot-status svg{animation:spin 1s linear infinite}
 .foot-end{border-top:1px dashed var(--border);margin-top:4px}
@@ -173,8 +174,8 @@ h1{font-size:18px;font-weight:600;letter-spacing:-.01em}
 @media (prefers-reduced-motion:reduce){.foot-status svg{animation:none}}
 .btn.more{color:var(--muted-foreground)}
 .tools{position:relative}
-.fsum{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--muted-foreground)}
-.fsum .t{flex:1 1 200px;min-width:0}.fsum .btn{min-height:44px;padding:0 10px;color:var(--primary)}
+.fsum{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;font-size:12px;color:var(--muted-foreground)}
+.fsum .t{flex:1 1 0;min-width:0}.fsum .btn{min-height:44px;padding:0 6px;color:var(--primary)}
 .fp-pop,.fp-sheet,.fp-scrim{display:none}
 .fp{background:var(--popover);color:var(--foreground)}
 .fp-pop{position:absolute;top:46px;right:0;width:min(400px,100%);z-index:5;border:1px solid var(--border);border-radius:var(--radius-xl);box-shadow:0 10px 30px rgb(0 0 0/.5);overflow:hidden}
@@ -194,8 +195,7 @@ h1{font-size:18px;font-weight:600;letter-spacing:-.01em}
 .fb.r{border-radius:999px}
 .fb.on{background:var(--primary);box-shadow:none}
 .fb.r.on{background:transparent;box-shadow:inset 0 0 0 5px var(--primary)}
-.prop{border:1px dashed var(--yellow-muted);border-radius:var(--radius-lg);padding:4px 10px 6px;margin:10px 0}
-.prop .tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;color:var(--primary);background:var(--yellow-subtle);border-radius:var(--radius-sm);padding:1px 6px;margin:6px 0 0}
+.fsel+.menu{margin:2px 0 6px}
 .fsel{display:flex;align-items:center;justify-content:space-between;min-height:44px;padding:0 12px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--input);margin:4px 0}
 .cnt{text-align:center;font-size:12px}
 .ghostlist{margin-top:12px;opacity:.7}
@@ -248,73 +248,73 @@ const Q=new URLSearchParams(location.search);
 const LANG=Q.get('lang')||'uk';
 /* ---------- strings: uk is the source locale, en second. Plurals: uk one/few/many, en one/other ---------- */
 const D={
-uk:{title:'Черга зовнішніх вакансій',tNew:'Нові',tSub:'Подані',tHid:'Приховані',search:'Назва або компанія',filters:'Фільтри',f_clear:'Скинути',f_apply:'Застосувати',f_applied:'Застосовано:',f_noneT:'За цими фільтрами нічого не знайдено',f_noneP:'У черзі є вакансії, але жодна не відповідає вибраним фільтрам.',f_clearAll:'Скинути фільтри',
- f_source:'Джерело',f_match:'Підбір',f_matchLead:'Збіг за стеком',f_matchTriage:'Потребує розгляду',f_status:'Статус на джерелі',f_open:'Відкрита',f_unknown:'Невідомо',f_closed:'Закрита',f_expired:'Прострочена',f_subs:'Подачі',f_subAny:'Усі',f_subYes:'Подано нашою командою',f_subNo:'Ще не подано',
- p_form:'Форма співпраці',p_emp:'Трудовий договір',p_b2b:'B2B',p_nostated:'Не вказано',p_salary:'Зарплата',p_salAny:'Будь-яка',p_salStated:'Вказана',p_salNot:'Не вказана',p_senior:'Для сеньйора',p_seniorAny:'Усі сеньйори',p_seniorHint:'Лише сеньйори вашої команди',p_salFlag:'Прапорець у рядку: «Зарплату не вказано»',team:'Команда',studio:'Уся студія',
- submit:'Подати',submitting:'Подаємо…',submitted:'Подано · {when}',submittedBy:'Подано: {who} · {when}',subCount:'{n} подано',
+uk:{title:'Черга зовнішніх вакансій',tNew:'Нові',tSub:'Подані',tHid:'Приховані',search:'Назва або компанія',filters:'Фільтри',f_clear:'Скинути вибір',f_clearSearch:'Очистити пошук',f_apply:'Застосувати',f_applied:'Застосовано:',f_noneT:'Нічого не знайдено',f_noneP:'Змініть пошук або фільтри.',f_clearAll:'Скинути фільтри',
+ f_source:'Джерело',f_match:'Тип збігу',f_matchLead:'Збіг за стеком',f_matchTriage:'Потребує розгляду',f_status:'Статус на джерелі',f_open:'Відкрита',f_unknown:'Невідомо',f_closed:'Закрита',f_expired:'Прострочена',
+ formLbl:'Форма співпраці',formEmp:'Трудовий договір',formB2B:'B2B',formNone:'Не вказано',f_senior:'Підходить сеньйору',f_seniorAny:'Усі сеньйори вашої команди',f_seniorAnyA:'Усі сеньйори',salaryNotStated:'Зарплату не вказано',sum_senior:'Сеньйор: {who}',applyFirst:'Спершу подайте на сайті джерела («Відкрити оригінал»), потім запишіть подачу тут.',team:'Команда',studio:'Уся студія',
+ submit:'Записати подачу',submitting:'Записуємо…',submitted:'Подано · {when}',submittedBy:'Подано: {who} · {when}',subCount:'{n} подано',
  open:'Відкрити оригінал',hide:'Приховати',loadMore:'Показати ще',appending:'Завантажуємо ще…',endAll:'Усі вакансії показано: {n}',appErr:'Не вдалося завантажити ще',appErrP:'Уже завантажені вакансії залишаються на екрані.',
- emptyNewT:'У черзі немає нових вакансій',emptyNewP:'Нові з’являться після наступного оновлення джерел. Якщо ви очікували їх зараз — перевірте фільтри.',
- emptyNoTeamT:'Вам не призначено жодної команди',emptyNoTeamP:'Без команди черга порожня. Зверніться до адміністратора.',
+ emptyNewT:'У черзі немає нових вакансій',emptyNewP:'Нові з’являться після наступного оновлення джерел.',
+ emptySubT:'Ваша команда ще нікого не подала',emptySubP:'Тут з’являться вакансії, на які подано сеньйорів вашої команди.',emptyHidT:'Немає прихованих вакансій',emptyHidP:'Приховані вакансії можна повернути звідси.',emptyNoTeamT:'Вам не призначено жодної команди',emptyNoTeamP:'Без команди черга порожня. Зверніться до адміністратора.',
  errT:'Не вдалося завантажити чергу',errP:'Спробуйте ще раз.',retry:'Спробувати ще',
  refresh:'Список змінився',refreshP:'З’явилися оновлення.',refreshBtn:'Показати оновлений список',
  partial:'Деякі джерела тимчасово недоступні',partialP:'Список може бути неповним.',
  posted:'Опубліковано {ago}',unknownDate:'Дата публікації невідома',firstSeen:'вперше\u00A0побачено {ago}',lastSeen:'востаннє\u00A0бачили {ago}',
  triage:'Потребує розгляду',triageWhy:'Роботодавця не вдалося підтвердити',
- triageCardT:'Не призначено команді автоматично',triageCardP:'Роботодавця не вдалося підтвердити, тому система не пропонує цю вакансію конкретним сеньйорам. Оцініть її вручну за описом.',
+ triageCardT:'Сеньйорів не підібрано автоматично',triageCardP:'Роботодавця не вдалося підтвердити, тому система не пропонує цю вакансію конкретним сеньйорам. Оцініть її вручну за описом.',
  triageAdmin:'Призначити команді…',
  upd:'Оновлено',dupFlag:'Можливий дублікат',
- seniors:{one:'{n} сеньйор вашої команди має збіг стеку',few:'{n} сеньйори вашої команди мають збіг стеку',many:'{n} сеньйорів вашої команди мають збіг стеку'},
- seniorsA:{one:'{n} сеньйор має збіг стеку',few:'{n} сеньйори мають збіг стеку',many:'{n} сеньйорів мають збіг стеку'},
+ seniors:{one:'{n} сеньйор вашої команди має збіг стеку',few:'{n} сеньйори вашої команди мають збіг стеку',many:'{n} сеньйорів вашої команди мають збіг стеку',other:'{n} сеньйора вашої команди мають збіг стеку'},
+ seniorsA:{one:'{n} сеньйор має збіг стеку',few:'{n} сеньйори мають збіг стеку',many:'{n} сеньйорів мають збіг стеку',other:'{n} сеньйора мають збіг стеку'},
  also:'+{n} також на {list}',alsoOn:'Також опубліковано на:',showMore:'Показати ще ({n})',shown:'Показано {a} із {b}',
- matchT:'Збіг стеку',seniorsT:'Сеньйори зі збігом',noMatch:'Немає сеньйорів зі збігом стеку',noMatchP:'Вакансія лишається в черзі, але жоден сеньйор із вашої команди не збігається за стеком.',
+ matchT:'Збіг стеку',seniorsT:'Сеньйори зі збігом',noMatch:'Немає сеньйорів зі збігом стеку',noMatchP:'Вакансія лишається в черзі, але жоден сеньйор із вашої команди не збігається за стеком.',noMatchPA:'Вакансія лишається в черзі, але жоден сеньйор не збігається за стеком.',
  free:'Вільно з {d}',busy:'Зайнято',unsure:'Збіг неточний',viaT:'Збіг за:',why:'Чому збіг',whyP:'Python — із резюме; AWS — з двох останніх проєктів',
  updI:'Вакансію оновлено після побудови списку',updIP:'Нижче — актуальні дані.',
- stale:'З’явилася новіша версія вакансії',staleP:'Ця картка застаріла, тому подати з неї не можна.',staleBtn:'Оновити картку',
+ stale:'З’явилася новіша версія вакансії',staleP:'Ця картка застаріла, тому записати подачу з неї не можна.',staleBtn:'Оновити картку',
  dupT:'У черзі є схожа вакансія',dupP:'Можливий дублікат. Перевірте, чи це не та сама вакансія.',
- dupAsk:'Цього сеньйора вже подано на схожу вакансію',dupAskP:'Ви впевнені, що це інша вакансія?',dupYes:'Так, подати все одно',dontSubmit:'Не подавати',
- stopSome:'Виключено за стоп-листом: {n}',stopSomeP:'Ці сеньйори внесли компанію до власного стоп-листа, тому вакансія їм не пропонується.',stopAllT:'Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листа',stopAllP:'Стек збігається, проте вакансію їм не пропонують.',stopRow:'Усі сеньйори зі збігом внесли компанію до стоп-листа',
- dupSub:'Ваша команда вже подавала на схожу: {t}',
- closedBlocked:'Вакансію закрито на джерелі',closedBlockedP:'Нові подачі неможливі. Раніше подано вашою командою: {n}.',closed:'Закрита',
- cancelSubmission:'Скасувати подачу…',hideScopeT:'Буде приховано для вашої команди',hideScopeA:'Буде приховано для всієї студії',teamHdr:'Команда',submitFor:'Подати на вакансію: {who}',suppress:'Приховати для всіх…',adminMenu:'Дії адміністратора',
+ dupAsk:'Цього сеньйора вже подано на схожу вакансію',dupAskP:'Ви впевнені, що це інша вакансія?',dupYes:'Так, записати все одно',dontSubmit:'Не записувати',
+ stopSome:'Виключено за стоп-листом: {n}',stopSomeP:'Ці сеньйори внесли компанію до власного стоп-листа, тому вакансія їм не пропонується.',stopAllT:'Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листа',stopAllTA:'Усі сеньйори зі збігом внесли компанію до стоп-листа',stopAllP:'Стек збігається, проте вакансію їм не пропонують.',stopRow:'Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листа',stopRowA:'Усі сеньйори зі збігом внесли компанію до стоп-листа',
+ dupSub:'На схожу вакансію вже подано: {t}',
+ closedBlocked:'Вакансію закрито на джерелі',closedBlockedP:'Нові подачі неможливі. Раніше подано: {n}.',closed:'Закрита',
+ cancelSubmission:'Скасувати подачу…',hideScopeT:'Буде приховано для вашої команди',hideScopeA:'Буде приховано для всієї студії',teamHdr:'Команда',submitFor:'Записати подачу: {who}',suppress:'Приховати для всіх…',adminMenu:'Дії адміністратора',
  r1:'Нерелевантна',r2:'Спам',r3:'Мертве посилання',hidden:'Приховано',undo:'Скасувати',restore:'Повернути',hiddenBy:'Приховано: {r}',
- close:'Закрити',subOk:'Подано: {who}',subFail:'Не вдалося подати. Спробуйте ще раз.',conflict:'Дані змінилися. Оновіть картку й повторіть.',noAccess:'Немає доступу до цієї вакансії',suppT:'Приховати для всієї студії?',suppP:'Вакансія зникне з черги для всіх команд.',suppYes:'Приховати для всіх',keep:'Не приховувати',cancSubT:'Скасувати подачу?',cancSubP:'Подачу «{who}» буде скасовано. Подати можна буде знову.',cancSubYes:'Скасувати подачу',cancSubNo:'Залишити',loadedMore:'Завантажено ще {n}. Показано {a} із {b}',desc:'Опис',about:'Про роль',
- s_title:'Джерела вакансій',s_sum:'{src} · {a} призупинено · {b} заблоковано',s_n:{one:'{n} джерело',few:'{n} джерела',many:'{n} джерел'},
+ close:'Закрити',subOk:'Подачу записано: {who}',subFail:'Не вдалося записати подачу. Спробуйте ще раз.',conflict:'Дані змінилися. Оновіть картку й повторіть.',noAccess:'Цю вакансію не знайдено',suppT:'Приховати для всієї студії?',suppP:'Вакансія зникне з черги для всіх команд.',suppYes:'Приховати для всіх',keep:'Не приховувати',cancSubT:'Скасувати подачу?',cancSubP:'Подачу «{who}» буде скасовано. Записати її можна буде знову.',cancSubYes:'Скасувати подачу',cancSubNo:'Залишити',loadedMore:'Завантажено ще {n}. Показано {a} із {b}',desc:'Опис',about:'Про роль',
+ s_title:'Джерела вакансій',s_sum:'{src} · {a} призупинено · {b} заблоковано',s_n:{one:'{n} джерело',few:'{n} джерела',many:'{n} джерел',other:'{n} джерела'},
  off:'Вимкнено',paused:'Призупинено',blocked:'Заблоковано',active:'Працює',
  offWhy:'Вимкнено адміністратором',pausedWhy:'Пауза до {t}: джерело просило зачекати (429)',blockedWhy2:'Не готове: сплив термін авторизації',
  quota:'Ліміт',used:'Використано',reserved:'Зарезервовано',uncertain:'Невизначено',unit:'запитів',
  lastTry:'Остання спроба',lastOk:'Остання вдала',lastData:'Остання з даними',deadline:'Політика діє до',authDl:'Авторизація до',
  enableFail:'Не вдалося увімкнути',enableFailP:'Причина: сплив термін авторизації. Стан не змінено.',never:'ніколи',
  ago:{m:'{n}\u00A0хв тому',h:'{n}\u00A0год тому',d1:'вчора',d:'{n}\u00A0дн. тому',d2:'{n}\u00A0дні тому'}},
-en:{title:'External vacancy queue',tNew:'New',tSub:'Submitted',tHid:'Hidden',search:'Title or company',filters:'Filters',f_clear:'Clear',f_apply:'Apply',f_applied:'Applied:',f_noneT:'Nothing matches these filters',f_noneP:'There are vacancies in the queue, but none match the selected filters.',f_clearAll:'Clear filters',
- f_source:'Source',f_match:'Match type',f_matchLead:'Stack match',f_matchTriage:'Needs review',f_status:'Status at source',f_open:'Open',f_unknown:'Unknown',f_closed:'Closed',f_expired:'Expired',f_subs:'Submissions',f_subAny:'All',f_subYes:'Submitted by our team',f_subNo:'Not submitted yet',
- p_form:'Engagement form',p_emp:'Employment',p_b2b:'B2B',p_nostated:'Not stated',p_salary:'Salary',p_salAny:'Any',p_salStated:'Stated',p_salNot:'Not stated',p_senior:'For a senior',p_seniorAny:'All seniors',p_seniorHint:'Only seniors on your team',p_salFlag:'Row flag: “Salary not stated”',team:'Team',studio:'Whole studio',
- submit:'Submit to vacancy',submitting:'Submitting…',submitted:'Submitted · {when}',submittedBy:'Submitted by {who} · {when}',subCount:'{n} submitted',
+en:{title:'External vacancy queue',tNew:'New',tSub:'Submitted',tHid:'Hidden',search:'Title or company',filters:'Filters',f_clear:'Clear selection',f_clearSearch:'Clear search',f_apply:'Apply',f_applied:'Applied:',f_noneT:'Nothing found',f_noneP:'Change the search or filters.',f_clearAll:'Clear filters',
+ f_source:'Source',f_match:'Match type',f_matchLead:'Stack match',f_matchTriage:'Needs review',f_status:'Status at source',f_open:'Open',f_unknown:'Unknown',f_closed:'Closed',f_expired:'Expired',
+ formLbl:'Contract type',formEmp:'Employment contract',formB2B:'B2B',formNone:'Not stated',f_senior:'Matches senior',f_seniorAny:'All seniors on your team',f_seniorAnyA:'All seniors',salaryNotStated:'Salary not listed',sum_senior:'Senior: {who}',applyFirst:'Apply at the source first (Open original), then log the submission here.',team:'Team',studio:'Whole studio',
+ submit:'Log submission',submitting:'Saving…',submitted:'Submitted · {when}',submittedBy:'Submitted by {who} · {when}',subCount:'{n} submitted',
  open:'Open original',hide:'Hide',loadMore:'Show more',appending:'Loading more…',endAll:'All vacancies shown: {n}',appErr:'Could not load more',appErrP:'Vacancies already loaded are still shown.',
- emptyNewT:'No new vacancies in the queue',emptyNewP:'New ones appear after the next source refresh. If you expected some now, check your filters.',
- emptyNoTeamT:'You are not assigned to any team',emptyNoTeamP:'Without a team the queue is empty. Contact an administrator.',
+ emptyNewT:'No new vacancies in the queue',emptyNewP:'New ones appear after the next source refresh.',
+ emptySubT:'Your team has not submitted anyone yet',emptySubP:'Vacancies with submitted seniors from your team will appear here.',emptyHidT:'No hidden vacancies',emptyHidP:'Hidden vacancies can be restored from here.',emptyNoTeamT:'You are not assigned to any team',emptyNoTeamP:'Without a team the queue is empty. Contact an administrator.',
  errT:'Could not load the queue',errP:'Please try again.',retry:'Try again',
  refresh:'The list has changed',refreshP:'Updates are available.',refreshBtn:'Show updated list',
  partial:'Some sources are temporarily unavailable',partialP:'The list may be incomplete.',
  posted:'Posted {ago}',unknownDate:'Publication date unknown',firstSeen:'first\u00A0seen {ago}',lastSeen:'last\u00A0seen {ago}',
  triage:'Needs review',triageWhy:'Employer could not be verified',
- triageCardT:'Not assigned to a team automatically',triageCardP:'The employer could not be verified, so the system does not suggest this vacancy to specific seniors. Judge it manually from the description.',
+ triageCardT:'No seniors matched automatically',triageCardP:'The employer could not be verified, so the system does not suggest this vacancy to specific seniors. Judge it manually from the description.',
  triageAdmin:'Assign to a team…',
  upd:'Updated',dupFlag:'Possible duplicate',
  seniors:{one:'{n} senior on your team matches the stack',other:'{n} seniors on your team match the stack'},
  seniorsA:{one:'{n} senior matches the stack',other:'{n} seniors match the stack'},
  also:'+{n} also on {list}',alsoOn:'Also listed on:',showMore:'Show {n} more',shown:'Showing {a} of {b}',
- matchT:'Stack match',seniorsT:'Matching seniors',noMatch:'No seniors match the stack',noMatchP:'The vacancy stays in the queue, but no senior in your team matches its stack.',
+ matchT:'Stack match',seniorsT:'Matching seniors',noMatch:'No seniors match the stack',noMatchP:'The vacancy stays in the queue, but no senior in your team matches its stack.',noMatchPA:'The vacancy stays in the queue, but no senior matches its stack.',
  free:'Free from {d}',busy:'Busy',unsure:'Match is approximate',viaT:'Matched on:',why:'Why it matches',whyP:'Python — from the résumé; AWS — from the last two projects',
  updI:'The vacancy was updated after the list was built',updIP:'Current data is shown below.',
- stale:'A newer version of the vacancy is available',staleP:'This card is out of date, so you cannot submit from it.',staleBtn:'Refresh card',
+ stale:'A newer version of the vacancy is available',staleP:'This card is out of date, so you cannot log a submission from it.',staleBtn:'Refresh card',
  dupT:'There is a similar vacancy in the queue',dupP:'Possible duplicate. Check that it is not the same vacancy.',
- dupAsk:'This senior is already submitted to a similar vacancy',dupAskP:'Are you sure this is a different vacancy?',dupYes:'Yes, submit anyway',dontSubmit:"Don't submit",
- stopSome:'Excluded by stop-list: {n}',stopSomeP:'These seniors put the company on their own stop-list, so the vacancy is not offered to them.',stopAllT:'Every matching senior on your team has stop-listed this company',stopAllP:'The stack matches, but the vacancy is not offered to them.',stopRow:'Every matching senior has stop-listed this company',
- dupSub:'Your team has already submitted to a similar one: {t}',
- closedBlocked:'The vacancy is closed at the source',closedBlockedP:'New submissions are not possible. Previously submitted by your team: {n}.',closed:'Closed',
- cancelSubmission:'Cancel submission…',hideScopeT:'Will be hidden for your team',hideScopeA:'Will be hidden for the whole studio',teamHdr:'Team',submitFor:'Submit to vacancy: {who}',suppress:'Hide for everyone…',adminMenu:'Administrator actions',
+ dupAsk:'This senior is already submitted to a similar vacancy',dupAskP:'Are you sure this is a different vacancy?',dupYes:'Yes, log it anyway',dontSubmit:"Don't log it",
+ stopSome:'Excluded by stop-list: {n}',stopSomeP:'These seniors put the company on their own stop-list, so the vacancy is not offered to them.',stopAllT:'Every matching senior on your team has stop-listed this company',stopAllTA:'Every matching senior has stop-listed this company',stopAllP:'The stack matches, but the vacancy is not offered to them.',stopRow:'Every matching senior on your team has stop-listed this company',stopRowA:'Every matching senior has stop-listed this company',
+ dupSub:'Already submitted to a similar vacancy: {t}',
+ closedBlocked:'The vacancy is closed at the source',closedBlockedP:'New submissions are not possible. Previously submitted: {n}.',closed:'Closed',
+ cancelSubmission:'Cancel submission…',hideScopeT:'Will be hidden for your team',hideScopeA:'Will be hidden for the whole studio',teamHdr:'Team',submitFor:'Log submission: {who}',suppress:'Hide for everyone…',adminMenu:'Administrator actions',
  r1:'Not relevant',r2:'Spam',r3:'Dead link',hidden:'Hidden',undo:'Undo',restore:'Restore',hiddenBy:'Hidden: {r}',
- close:'Close',subOk:'Submitted: {who}',subFail:'Could not submit. Please try again.',conflict:'The data has changed. Refresh the card and try again.',noAccess:'You no longer have access to this vacancy',suppT:'Hide for the whole studio?',suppP:'The vacancy will disappear from every team’s queue.',suppYes:'Hide for everyone',keep:'Keep',cancSubT:'Cancel this submission?',cancSubP:'The submission for “{who}” will be cancelled. You can submit again later.',cancSubYes:'Cancel submission',cancSubNo:'Keep',loadedMore:'{n} more loaded. Showing {a} of {b}',desc:'Description',about:'About the role',
+ close:'Close',subOk:'Submission logged: {who}',subFail:'Could not log the submission. Please try again.',conflict:'The data has changed. Refresh the card and try again.',noAccess:'This vacancy was not found',suppT:'Hide for the whole studio?',suppP:'The vacancy will disappear from every team’s queue.',suppYes:'Hide for everyone',keep:'Keep',cancSubT:'Cancel this submission?',cancSubP:'The submission for “{who}” will be cancelled. You can log it again later.',cancSubYes:'Cancel submission',cancSubNo:'Keep',loadedMore:'{n} more loaded. Showing {a} of {b}',desc:'Description',about:'About the role',
  s_title:'Vacancy sources',s_sum:'{src} · {a} paused · {b} blocked',s_n:{one:'{n} source',other:'{n} sources'},
  off:'Disabled',paused:'Paused',blocked:'Blocked',active:'Running',
  offWhy:'Disabled by an administrator',pausedWhy:'Paused until {t}: the source asked us to wait (429)',blockedWhy2:'Not ready: authorization expired',
@@ -361,10 +361,10 @@ const ic=(n,s=16)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="no
 const LONG='Senior/Lead Full-Stack Software Engineer (Python, Django, React, TypeScript, AWS, Kubernetes) for a Series B Fintech Platform — Hybrid or Remote within EU Time Zones — Immediate Start, Long-Term Contract with Option to Convert to Full-Time Employment';
 const LONGCO='Northwind International Payment Processing Solutions Holding GmbH';
 const ROWS={
- a:{t:'Senior Python Engineer (FinTech)',co:'Acme Labs',sen:'Senior',chips:['Python','Django','AWS','PostgreSQL','Docker'],hit:3,age:['posted','d',2],n:3,sub:1,also:[2,'DOU, Djinni']},
+ a:{t:'Senior Python Engineer (FinTech)',co:'Acme Labs',sen:'Senior',chips:['Python','Django','AWS','PostgreSQL','Docker'],hit:3,age:['posted','d',2],n:3,sub:0,also:[2,'DOU, Djinni']},
  b:{t:'Middle React Developer',co:'Northwind',sen:'Middle',chips:['React','TypeScript','Next.js'],hit:2,age:['posted','h',5],n:1,sub:0,also:null,flags:['upd']},
  c:{t:'Backend developer',co:'Невідомий роботодавець',coEn:'Unknown employer',sen:null,chips:[],hit:0,age:['unknown','d',3],n:0,also:null,triage:1},
- d:{t:LONG,co:LONGCO,sen:'Lead',chips:['Python','Django','React','TypeScript','AWS','Kubernetes','Terraform'],hit:4,age:['posted','d',9],lastSeen:['d',1],n:2,sub:2,also:[1,'LinkedIn'],flags:['dup']},
+ d:{t:LONG,co:LONGCO,sen:'Lead',chips:['Python','Django','React','TypeScript','AWS','Kubernetes','Terraform'],hit:4,age:['posted','d',9],lastSeen:['d',1],n:2,sub:0,also:[1,'LinkedIn'],flags:['dup']},
  e:{t:'Java Developer',co:'Contoso',sen:'Middle',chips:['Java','Spring','Kafka'],hit:0,age:['posted','d',1],n:0,also:null},
  f:{t:'DevOps Engineer',co:'Fabrikam',sen:'Senior',chips:['Kubernetes','Terraform','AWS'],hit:0,age:['posted','d',4],n:0,also:null,stopAll:1}
 };
@@ -395,8 +395,8 @@ function row(r,o={}){
      The companion «N подано» is ALWAYS the actor's own team and is a separate clause, never "x of y". */
   const right=`
     <div class="meta">${ageHtml(r)}</div>
-    ${r.n>0?`<div class="meta" data-slot="matched-count"><span class="i fg">${ic('users',13)}<span>${plural(SCOPE_ADMIN?'seniorsA':'seniors',r.n)}</span></span>${r.sub?`<span class="i fg">${ic('check',13)}<span>${tr('subCount',{n:r.sub})}</span></span>`:''}</div>`:''}
-    ${r.stopAll?`<div class="meta"><span class="i fg">${ic('ban',13)}<span>${tr('stopRow')}</span></span></div>`:''}
+    ${r.n>0?`<div class="meta" data-slot="matched-count"><span class="i fg">${ic('users',13)}<span>${plural(SCOPE_ADMIN?'seniorsA':'seniors',r.n)}</span></span>${(o.sub??r.sub)?`<span class="i fg">${ic('check',13)}<span>${tr('subCount',{n:(o.sub??r.sub)})}</span></span>`:''}</div>`:''}
+    ${r.stopAll?`<div class="meta"><span class="i fg">${ic('ban',13)}<span>${tr(SCOPE_ADMIN?'stopRowA':'stopRow')}</span></span></div>`:''}
     ${r.also?`<div class="meta"><span class="i">${tr('also',{n:r.also[0],list:r.also[1]})}</span></div>`:''}`;
   let who='';
   if(o.who==='in')who=`<div class="who">${ic('check',14)}<span>${tr('submittedBy',{who:LANG==='uk'?'Іван Петренко':'Ivan Petrenko',when:ago('h',2)})}</span></div>`;
@@ -416,7 +416,7 @@ function header(o={}){
   const tb=labels.map((l,i)=>`<button class="tab ${(o.tab||0)===i?'on':''}" role="tab" aria-selected="${(o.tab||0)===i}"><span>${l}</span><span class="n tnum">${o.noCounts?'':counts[i]}</span></button>`).join('');
   const team=o.admin?`<button class="sel"><span>${tr('studio')}</span>${ic('chevd',16)}</button>`:(o.multi?`<button class="sel" aria-label="${tr('team')}"><span>${LANG==='uk'?'Команда «Альфа»':'Team “Alpha”'}</span>${ic('chevd',16)}</button>`:'');
   return `<div class="h1row"><h1>${tr('title')}</h1></div>
-  <div class="tools">${team}<div class="field">${ic('search',16)}<span>${tr('search')}</span></div><button class="btn out tool" aria-label="${tr('filters')}" aria-expanded="${o.popOpen?'true':'false'}">${ic('sliders',16)}<span class="lbl">${tr('filters')}</span>${o.fcount?`<span class="fbadge">${o.fcount}</span>`:''}</button>${o.popOpen?fpPop():''}</div>${o.fcount?fsum():''}
+  <div class="tools">${team}<div class="field">${ic('search',16)}<span class="${o.q?'fg':''}">${o.q||tr('search')}</span></div><button class="btn out tool" aria-label="${tr('filters')}" aria-expanded="${o.popOpen?'true':'false'}">${ic('sliders',16)}<span class="lbl">${tr('filters')}</span>${o.fcount?`<span class="fbadge">${o.fcount}</span>`:''}</button>${o.popOpen?fpPop():''}</div>${o.fcount?fsum(o.long):''}
   <div class="tabs" role="tablist">${tb}</div>`;
 }
 function sourcesBlock(open){
@@ -432,28 +432,29 @@ function sourcesBlock(open){
    s('LinkedIn',stt('block','lock',tr('blocked')),false,`<div class="note bad">${ic('lock',16)}<div class="tx"><b>${tr('blockedWhy2')}</b></div></div>`,dl(tr('never'),tr('never'),tr('never'),[tr('authDl'),'03.10.2026'])+`<div class="note bad" role="alert">${ic('warn',16)}<div class="tx"><b>${tr('enableFail')}</b><span class="sub">${tr('enableFailP')}</span></div></div>`);
   return `<details class="srcs" ${open?'open':''}><summary class="sumrow"><span style="font-weight:600;flex:1">${tr('s_title')}</span>${ic('chevd',18)}<span class="muted" style="font-size:12px;flex-basis:100%;order:3;padding-bottom:8px">${tr('s_sum',{src:plural('s_n',4),a:1,b:1})}</span></summary>${body}</details>`;
 }
-const FS=st=>st==='filtered'||st==='filterednone'||String(st).startsWith('fopen');
+const FS=st=>st==='filtered'||st==='filtered2'||st==='filterednone'||String(st).startsWith('fopen');
 const fbox=(on,r)=>`<span class="fb${r?' r':''}${on?' on':''}" aria-hidden="true">${on&&!r?ic('check',12):''}</span>`;
 const fo=(lbl,on,r)=>`<div class="fo" role="${r?'radio':'checkbox'}" aria-checked="${!!on}">${fbox(on,r)}<span>${lbl}</span></div>`;
 const fgrp=(t,inner)=>`<div class="fg1" role="group"><h4>${t}</h4>${inner}</div>`;
-const PROP=(id,inner)=>`<div class="prop" data-proposal="${id}"><span class="tag">PROPOSAL · owner to decide</span>${inner}</div>`;
 function fpBody(part){
   const nm=(u,e)=>LANG==='uk'?u:e;
-  const spec=`${fgrp(tr('f_source'),fo('DOU',1)+fo('Djinni',1)+fo('Work.ua',0)+fo('LinkedIn',0))}${fgrp(tr('f_match'),fo(tr('f_matchLead'),0)+fo(tr('f_matchTriage'),0))}${fgrp(tr('f_status'),fo(tr('f_open'),1)+fo(tr('f_unknown'),0)+fo(tr('f_closed'),0)+fo(tr('f_expired'),0))}${fgrp(tr('f_subs'),fo(tr('f_subAny'),0,1)+fo(tr('f_subYes'),1,1)+fo(tr('f_subNo'),0,1))}`;
-  const props=`${PROP('engagement-form',fgrp(tr('p_form'),fo(tr('p_emp'),1)+fo(tr('p_b2b'),1)+fo(tr('p_nostated'),0)))}${PROP('salary',fgrp(tr('p_salary'),fo(tr('p_salAny'),1,1)+fo(tr('p_salStated'),0,1)+fo(tr('p_salNot'),0,1)+`<div class="muted" style="font-size:12px;padding:0 0 4px">${tr('p_salFlag')}</div>`))}${PROP('for-senior',fgrp(tr('p_senior'),`<div class="fsel" role="combobox" aria-expanded="false"><span>${nm('Олена Ковальчук','Olena Kovalchuk')}</span>${ic('chevd',16)}</div><div class="muted" style="font-size:12px;padding-bottom:6px">${tr('p_seniorHint')}</div>`))}`;
-  return part==='props'?props:part==='spec'?spec:spec+props;
+  const spec=`${fgrp(tr('f_source'),fo('DOU',1)+fo('Djinni',1)+fo('Work.ua',0)+fo('LinkedIn',0))}${fgrp(tr('f_match'),fo(tr('f_matchLead'),0)+fo(tr('f_matchTriage'),0))}${fgrp(tr('f_status'),fo(tr('f_open'),1)+fo(tr('f_unknown'),0)+fo(tr('f_closed'),0)+fo(tr('f_expired'),0))}`;
+  const statusG=fgrp(tr('f_status'),fo(tr('f_open'),1)+fo(tr('f_unknown'),0)+fo(tr('f_closed'),0)+fo(tr('f_expired'),0));
+  const pick=open=>`<div class="fg1" role="group"><h4>${tr('f_senior')}</h4><div class="fsel" role="combobox" aria-expanded="${!!open}"><span>${tr(SCOPE_ADMIN?'f_seniorAnyA':'f_seniorAny')}</span>${ic('chevd',16)}</div>${open?`<div class="menu" role="listbox">${[[tr(SCOPE_ADMIN?'f_seniorAnyA':'f_seniorAny'),1],[nm('Олена Ковальчук','Olena Kovalchuk'),0],[nm('Іван Петренко','Ivan Petrenko'),0],[nm('Марія Савченко','Maria Savchenko'),0]].map(([l,on])=>`<div role="option" aria-selected="${!!on}" class="${on?'f':''}">${l}</div>`).join('')}</div>`:''}</div>`;
+  const senior=pick(false);
+  return part==='props'?statusG+senior:part==='open'?statusG+pick(true):part==='spec'?spec:spec+senior;
 }
 const fpFoot=()=>`<div class="ft"><button class="btn out">${tr('f_clear')}</button><button class="btn pri">${tr('f_apply')}</button></div>`;
 const fpPop=()=>`<div class="fp fp-pop" role="dialog" aria-label="${tr('filters')}"><div class="hd"><span>${tr('filters')}</span><button class="btn ghost ic" aria-label="${tr('close')}">${ic('x',20)}</button></div><div class="bd">${fpBody()}</div>${fpFoot()}</div>`;
 const fpSheet=part=>`<div class="fp-scrim"></div><div class="fp fp-sheet" role="dialog" aria-modal="true" aria-label="${tr('filters')}"><div class="grip"></div><div class="hd"><span>${tr('filters')}</span><button class="btn ghost ic" aria-label="${tr('close')}">${ic('x',20)}</button></div><div class="bd">${fpBody(part)}</div>${fpFoot()}</div>`;
-const fsum=()=>`<div class="fsum"><span class="t">${tr('f_applied')} <span class="fg">DOU, Djinni · ${tr('f_subYes')}</span></span><button class="btn ghost">${tr('f_clear')}</button></div>`;
+const fsum=long=>`<div class="fsum"><span class="t">${tr('f_applied')} <span class="fg">DOU, Djinni · ${tr('f_open')}${long?' · '+tr('sum_senior',{who:LANG==='uk'?'Олена Ковальчук':'Olena Kovalchuk'}):''}</span></span><button class="btn ghost" style="white-space:nowrap">${tr('f_clearAll')}</button></div>`;
 function listScreen(st,admin){
   const h=listScreenBase(st,admin);
-  return String(st).startsWith('fopen')?h.replace(/<\/div>$/,fpSheet(st==='fopen2'?'props':'spec')+'</div>'):h;
+  return String(st).startsWith('fopen')?h.replace(/<\/div>$/,fpSheet(st==='fopen2'?'props':st==='fopen3'?'open':'spec')+'</div>'):h;
 }
 function listScreenBase(st,admin){
   SCOPE_ADMIN=admin==='1';
-  const o={admin:admin==='1',multi:st==='multi',fcount:FS(st)?3:0,open:st==='fopen'&&false,popOpen:String(st).startsWith('fopen'),noCounts:st==='loading'};
+  const o={admin:admin==='1',multi:st==='multi',fcount:FS(st)?(st==='filtered2'?3:2):0,long:st==='filtered2',q:st==='searchnone'?'Rust':'',open:st==='fopen'&&false,popOpen:String(st).startsWith('fopen'),noCounts:st==='loading'};
   const sk=`<div class="item"><div class="sk" style="height:12px;width:40%"></div><div class="sk" style="height:16px;width:85%"></div><div class="sk" style="height:12px;width:55%"></div><div class="chips"><div class="sk" style="height:22px;width:60px"></div><div class="sk" style="height:22px;width:70px"></div></div></div>`;
   const rows=[ROWS.a,ROWS.b,ROWS.c,ROWS.d,ROWS.e,ROWS.f];
   let body='';const notes=[];
@@ -469,21 +470,24 @@ function listScreenBase(st,admin){
   else if(st==='empty')body=`<div class="empty"><div class="ico">${ic('search',20)}</div><b>${tr('emptyNewT')}</b><p>${tr('emptyNewP')}</p></div>`;
   else if(st==='noteam')body=`<div class="empty"><div class="ico">${ic('users',20)}</div><b>${tr('emptyNoTeamT')}</b><p>${tr('emptyNoTeamP')}</p></div>`;
   else if(st==='error')body=`<div class="note bad" role="alert">${ic('warn',18)}<div class="tx"><b>${tr('errT')}</b><span class="sub">${tr('errP')}</span><div class="act"><button class="btn out">${ic('refresh',16)}${tr('retry')}</button></div></div></div>`;
-  else if(st==='wip')body=`<div class="list">${row(ROWS.a,{who:'in'})}${row(ROWS.d)}</div><div class="foot-end">${tr('endAll',{n:4})}</div>`;
+  else if(st==='wip')body=`<div class="list">${row(ROWS.a,{who:'in',sub:1})}${row(ROWS.d,{sub:2})}</div><div class="foot-end">${tr('endAll',{n:4})}</div>`;
   else if(st==='hidden')body=`<div class="list">${row(ROWS.e,{who:'hid'})}</div>`;
   else if(st==='refresh'||st==='partial'){
     if(st==='refresh')notes.push(`<div class="note info" role="status">${ic('refresh',18)}<div class="tx"><b>${tr('refresh')}</b><span class="sub">${tr('refreshP')}</span><div class="act"><button class="btn out">${tr('refreshBtn')}</button></div></div></div>`);
     else notes.push(`<div class="note dash" role="status">${ic('warn',18)}<div class="tx"><b>${tr('partial')}</b><span class="sub">${tr('partialP')}</span></div></div>`);
     body=`<div class="list">${rows.slice(0,3).map(r=>row(r)).join('')}</div>`;
   }
-  else if(st==='filtered'||String(st).startsWith('fopen'))body=listOf([ROWS.a,ROWS.d]);
+  else if(st==='filtered'||st==='filtered2'||String(st).startsWith('fopen'))body=listOf([ROWS.a,ROWS.d]);
+  else if(st==='emptysub')body=`<div class="empty"><div class="ico">${ic('check',20)}</div><b>${tr('emptySubT')}</b><p>${tr('emptySubP')}</p></div>`;
+  else if(st==='emptyhid')body=`<div class="empty"><div class="ico">${ic('eyeoff',20)}</div><b>${tr('emptyHidT')}</b><p>${tr('emptyHidP')}</p></div>`;
+  else if(st==='searchnone')body=`<div class="empty" data-testid="job-queue-filtered-empty"><div class="ico">${ic('search',20)}</div><b>${tr('f_noneT')}</b><p>${tr('f_noneP')}</p><button class="btn out" style="margin-top:8px">${tr('f_clearSearch')}</button></div>`;
   else if(st==='filterednone')body=`<div class="empty" data-testid="job-queue-filtered-empty"><div class="ico">${ic('sliders',20)}</div><b>${tr('f_noneT')}</b><p>${tr('f_noneP')}</p><button class="btn out" style="margin-top:8px">${tr('f_clearAll')}</button></div>`;
   else if(st==='appending')body=listOf(rows,'aria-busy="true"')+`<div class="list ghostlist">${sk}${sk}</div>`+foot.busy;
   else if(st==='end')body=listOf(rows)+foot.end;
   else if(st==='appenderr')body=listOf(rows)+foot.err;
   else body=listOf(rows)+foot.idle;
-  const tab=st==='wip'?1:st==='hidden'?2:0;
-  const h=header({...o,tab,counts:st==='empty'?[0,4,31]:st==='end'?[6,4,31]:[12,4,31]});
+  const tab=(st==='wip'||st==='emptysub')?1:(st==='hidden'||st==='emptyhid')?2:0;
+  const h=header({...o,tab,counts:st==='empty'?[0,4,31]:st==='emptysub'?[12,0,31]:st==='emptyhid'?[12,4,0]:st==='end'?[6,4,31]:[12,4,31]});
   return `<div class="main"><div class="page" data-testid="job-queue-page">${h}${notes.join('')}${admin==='1'?sourcesBlock(false):''}${body}<div class="sr" aria-live="polite" data-testid="job-queue-live">${st==='end'?tr('endAll',{n:6}):''}</div></div></div>`;
 }
 
@@ -491,6 +495,9 @@ function cardScreen(st){
   let r=ROWS.a;
   if(st==='triage')r=ROWS.c;if(st==='long')r=ROWS.d;if(st==='zero')r=ROWS.e;if(st==='stopall')r=ROWS.f;if(st==='unknown')r={...ROWS.a,age:['unknown','d',3]};
   const isAdmin=st==='admin';
+  const formKey=(st==='triage'||st==='unknown')?'formNone':st==='zero'?'formEmp':'formB2B';
+  const salUnk=st==='unknown'||st==='triage'||st==='long';
+  const terms=`<div class="meta" data-testid="job-queue-terms"><span class="i">${tr('formLbl')}: <span class="fg">${tr(formKey)}</span></span>${salUnk?`<span class="i">${tr('salaryNotStated')}</span>`:''}</div>`;
   const nm=(uk,en)=>LANG==='uk'?uk:en;
   const warn=[];
   if(st==='updated')warn.push(`<div class="note info" role="status">${ic('refresh',18)}<div class="tx"><b>${tr('updI')}</b><span class="sub">${tr('updIP')}</span></div></div>`);
@@ -508,6 +515,7 @@ function cardScreen(st){
   const stack=`<div class="sec"><h3>${tr('matchT')}</h3><div class="chips">${r.chips.map((c,i)=>`<span class="chip ${i<r.hit?'hit':''}">${i<r.hit?ic('check',12)+'&nbsp;':''}${c}</span>`).join('')||'<span class="muted">—</span>'}</div></div>`;
   /* ----- the working surface: one block per OWN senior, each with its own state ----- */
   const blocked=(st==='stale'||st==='closed');
+  const remind=blocked?'':`<div class="note soft applyfirst" data-testid="job-queue-apply-first">${ic('info',16)}<div class="tx"><span class="fg">${tr('applyFirst')}</span></div></div>`;
   const sn=(ini,name,av,unsure,via,ev,state,extra='')=>{
     let act='';
     if(state==='todo')act=`<button class="btn pri${blocked?' dis':''}" ${blocked?'aria-disabled="true"':''} aria-label="${tr('submitFor',{who:name})}">${tr('submit')}</button>`;
@@ -520,12 +528,12 @@ function cardScreen(st){
   const dupAsk=`<div class="note dupask" style="grid-column:1/-1" role="alert">${ic('copy',18)}<div class="tx"><b>${tr('dupAsk')}</b><span class="sub">${tr('dupAskP')}</span><div class="act"><button class="btn pri" data-initial-focus>${tr('dontSubmit')}</button><button class="btn out">${tr('dupYes')}</button></div></div></div>`;
   const stopSome=`<div class="note soft" style="margin-top:8px">${ic('ban',16)}<div class="tx"><b class="fg">${tr('stopSome',{n:1})}</b><span class="sub">${tr('stopSomeP')}</span></div></div>`;
   let seniors;
-  if(st==='zero'||st==='triage')seniors=`<div class="sec"><h3>${tr('seniorsT')}</h3><div class="empty" style="padding:20px 12px"><div class="ico">${ic('users',20)}</div><b>${tr('noMatch')}</b><p>${st==='zero'?tr('noMatchP'):tr('triageWhy')}</p></div></div>`;
-  else if(st==='stopall')seniors=`<div class="sec"><h3>${tr('seniorsT')}</h3><div class="empty" style="padding:20px 12px"><div class="ico">${ic('ban',20)}</div><b>${tr('stopAllT')}</b><p>${tr('stopAllP')}</p></div></div>`;
-  else if(isAdmin)seniors=`<div class="sec"><h3>${tr('seniorsT')}<span class="tnum">3</span></h3>
+  if(st==='zero'||st==='triage')seniors=`<div class="sec"><h3>${tr('seniorsT')}</h3><div class="empty" style="padding:20px 12px"><div class="ico">${ic('users',20)}</div><b>${tr('noMatch')}</b><p>${st==='zero'?tr(isAdmin?'noMatchPA':'noMatchP'):tr('triageWhy')}</p></div></div>`;
+  else if(st==='stopall')seniors=`<div class="sec"><h3>${tr('seniorsT')}</h3><div class="empty" style="padding:20px 12px"><div class="ico">${ic('ban',20)}</div><b>${tr(isAdmin?'stopAllTA':'stopAllT')}</b><p>${tr('stopAllP')}</p></div></div>`;
+  else if(isAdmin)seniors=`<div class="sec"><h3>${tr('seniorsT')}<span class="tnum">3</span></h3>${remind}
     <div class="grp">${tr('teamHdr')} «${nm('Альфа','Alpha')}»</div>${sn('ОК',nm('Олена Ковальчук','Olena Kovalchuk'),dotF,false,['Python','AWS'],false,'todo')}${sn('ІП',nm('Іван Петренко','Ivan Petrenko'),dotB,true,['Python','Django'],false,'done')}
     <div class="grp">${tr('teamHdr')} «${nm('Бета','Beta')}»</div>${sn('ПМ',nm('Петро Мельник','Petro Melnyk'),dotF,false,['Django'],false,'todo')}${stopSome}</div>`;
-  else seniors=`<div class="sec"><h3>${tr('seniorsT')}<span class="tnum">${st==='dupconfirm'||st==='submitting'?3:3}</span></h3>${sn('ОК',nm('Олена Ковальчук','Olena Kovalchuk'),dotF,false,['Python','AWS'],st==='default',st==='submitting'?'busy':st==='dupconfirm'?'confirm':'todo',st==='dupconfirm'?dupAsk:'')}${sn('ІП',nm('Іван Петренко','Ivan Petrenko'),dotB,true,['Python','Django'],false,'done')}${sn('МС',nm('Марія Савченко','Maria Savchenko'),dotF,false,['Django'],false,'todo')}${stopSome}</div>`;
+  else seniors=`<div class="sec"><h3>${tr('seniorsT')}<span class="tnum">3</span></h3>${remind}${sn('ОК',nm('Олена Ковальчук','Olena Kovalchuk'),dotF,false,['Python','AWS'],st==='default',st==='submitting'?'busy':st==='dupconfirm'?'confirm':'todo',st==='dupconfirm'?dupAsk:'')}${sn('ІП',nm('Іван Петренко','Ivan Petrenko'),dotB,true,['Python','Django'],false,'done')}${sn('МС',nm('Марія Савченко','Maria Savchenko'),dotF,false,['Django'],false,'todo')}${stopSome}</div>`;
   const desc=`<div class="sec"><h3>${tr('desc')}</h3><div class="md"><p><strong>${tr('about')}</strong></p><p>${LANG==='uk'?'Шукаємо інженера для розробки платіжного ядра. Робота з Python/Django, AWS та PostgreSQL.':'We are looking for an engineer to build the payment core. Work with Python/Django, AWS and PostgreSQL.'}</p><ul><li>${LANG==='uk'?'5+ років досвіду':'5+ years of experience'}</li><li>${LANG==='uk'?'Досвід з високонавантаженими системами':'Experience with high-load systems'}</li></ul><p><span class="u">https://acme.example/careers/senior-python</span></p></div></div>`;
   const hideBtn=`<button class="btn out" aria-haspopup="menu">${ic('eyeoff',16)}${tr('hide')}</button>`;
   const open=`<button class="btn out">${ic('ext',16)}${tr('open')}</button>`;
@@ -538,7 +546,7 @@ function cardScreen(st){
   const toast=st==='toast'?`<div class="toast" role="status"><span>${tr('hidden')}</span><button class="btn ghost fg">${ic('undo',16)}${tr('undo')}</button></div>`:'';
   const avail=st==='closed'?`<span class="st block">${ic('warn',12)}${tr('closed')}</span>`:'';
   return `<div class="scrim"><div class="dlg" role="dialog" aria-modal="true" aria-labelledby="t">
-   <div class="dh"><div class="t"><div class="line1">${r.triage?`<span class="bdg tri">${ic('help',13)}${tr('triage')}</span>`:''}${senStr(r)}${avail}</div><h2 id="t">${r.t}</h2><div class="co" style="white-space:normal;overflow-wrap:anywhere">${co(r)}</div><div class="meta">${meta}</div></div><button class="btn ghost ic" aria-label="${tr('close')}">${ic('x',20)}</button></div>
+   <div class="dh"><div class="t"><div class="line1">${r.triage?`<span class="bdg tri">${ic('help',13)}${tr('triage')}</span>`:''}${senStr(r)}${avail}</div><h2 id="t">${r.t}</h2><div class="co" style="white-space:normal;overflow-wrap:anywhere">${co(r)}</div><div class="meta">${meta}</div>${terms}</div><button class="btn ghost ic" aria-label="${tr('close')}">${ic('x',20)}</button></div>
    <div class="db">${warn.join('')}${seniors}${desc}${sources}${stack}</div>
    <div class="anno">sticky footer in product · rendered unrolled here</div>
    <div class="df">${foot}</div>${menu?`<div style="padding:0 16px 12px">${menu}</div>`:''}${toast?`<div style="padding:0 16px 12px">${toast}</div>`:''}
@@ -564,7 +572,7 @@ function render(){
   document.documentElement.lang=LANG;
   const app=document.getElementById('app');
   if(s){
-    const fh=String(st).startsWith('fopen')?(w<560?(st==='fopen2'?980:720):1620):0;
+    const fh=String(st).startsWith('fopen')?(w<560?720:1000):0;
     app.innerHTML=fh&&s==='list'?frame(w,listScreen(st,admin),false,fh):s==='dialogs'?frame(w,dialogsScreen(),true):s==='card'?frame(w,cardScreen(st),true):frame(w,s==='list'?listScreen(st,admin):sourcesScreen());
     return;
   }
@@ -578,7 +586,9 @@ function render(){
    ${sec('List — states at 320','empty · error · refresh prompt · partial sources · no team',['empty','error','refresh','partial','noteam'].map(x=>fr(320,listScreen(x,'0'),x)).join(''))}
    ${sec('List — states at 768 / 1024 / 1440','',['empty','loading','error'].map((x,i)=>fr([768,1024,1440][i],listScreen(x,'0'),x)).join(''))}
    ${sec('Filters — toolbar without / with filters applied','badge = number of applied filter groups; summary line + «Скинути»',[fr(320,listScreen('default','0'),'no filters'),fr(320,listScreen('filtered','0'),'applied'),fr(1440,listScreen('filtered','0'),'applied')].join(''))}
-   ${sec('Filters — open panel (Sheet <560, Popover ≥560)','specified filters; the dashed blocks marked PROPOSAL are NOT specified yet',[fr(320,listScreen('fopen','0'),'sheet · specified',false,720),fr(320,listScreen('fopen2','0'),'sheet · scrolled to proposals',false,980),fr(1440,listScreen('fopen','0'),'popover',false,1620)].join(''))}
+   ${sec('Filters — open panel (Sheet <560, Popover ≥560)','all groups, including the per-senior picker (own team only)',[fr(320,listScreen('fopen','0'),'sheet · specified',false,720),fr(320,listScreen('fopen2','0'),'sheet · scrolled to the senior picker',false,720),fr(320,listScreen('fopen3','0'),'sheet · senior picker open',false,720),fr(1440,listScreen('fopen','0'),'popover',false,1000)].join(''))}
+   ${sec('Filters — applied summary with the senior picker applied (wraps, reset stays inline)','',[fr(320,listScreen('filtered2','0'),'applied (long)')].join(''))}
+   ${sec('Search with no hits / empty tabs','',[fr(320,listScreen('searchnone','0'),'search only'),fr(320,listScreen('emptysub','0'),'empty Подані'),fr(320,listScreen('emptyhid','0'),'empty Приховані')].join(''))}
    ${sec('Filters — filtered to nothing','reads differently from an empty queue',[fr(320,listScreen('filterednone','0'),'filtered-none'),fr(1440,listScreen('filterednone','0'),'filtered-none')].join(''))}
    ${sec('List — appending / end / error at 1440','',['appending','end','appenderr'].map(x=>fr(1440,listScreen(x,'0'),x)).join(''))}
    ${sec('List — in progress / hidden / multi-team / ADMIN','',[fr(320,listScreen('wip','0'),'Подані tab (own team only)'),fr(320,listScreen('hidden','0'),'hidden'),fr(320,listScreen('multi','0'),'multi-team'),fr(768,listScreen('default','1'),'ADMIN (sources collapsed)')].join(''))}
