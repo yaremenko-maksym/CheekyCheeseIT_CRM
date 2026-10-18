@@ -267,6 +267,18 @@ export const appendOnlyTriggers: Record<string, readonly { name: string; enabled
   job_queue_actions: [],
 }
 
+/**
+ * The functions `crm_retention_owner` is allowed to own — the two `SECURITY DEFINER`
+ * functions of ADR §3 option R-B, added by Task 1.3b together with the trigger that keys
+ * its exception on them.
+ *
+ * Empty today, and the catalog check asserts the role owns NOTHING beyond this list. So a
+ * definer function appearing in the database without a reviewed declaration fails the
+ * deploy — which is the only mechanical protection there is against the one object class
+ * the ADR calls "a hole through every boundary here".
+ */
+export const retentionOwnerFunctions: readonly string[] = []
+
 /** The class of a relation, or `undefined` if nobody classified it. */
 export function relationClass(relation: string): PrivilegeClass | undefined {
   for (const [cls, relations] of Object.entries(PRIVILEGE_CLASSES)) {
