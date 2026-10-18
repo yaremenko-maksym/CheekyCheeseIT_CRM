@@ -245,7 +245,7 @@ NODE_PIN_LIB="$WT_TOP/scripts/devops/lib/ensure-node.sh"
 if [ -f "$NODE_PIN_LIB" ]; then
   if ! PIN_OUT=$(cd "$WT_TOP" && ENSURE_NODE_TAG="pre:bash:mutation-gate" sh -c '. "$1" && ensure_node' sh "$NODE_PIN_LIB" 2>&1); then
     echo "$PIN_OUT" >&2
-    block "🚫 PRE-PUSH BLOCK: the mutation gate would run on the wrong Node — the message above names the version found and the version required (.nvmrc + package.json engines.node). This is deliberately a BLOCK and not a SKIP: on the wrong Node the shared i18n specs fail in Stryker's unmutated dry run, the gate reports 'the suite itself is already red', and a skip there reads exactly like an ordinary flake (it hid a real defect for days on 2026-10-17). Fix: nvm install 22 && nvm use 22, or put a Node 22 bin dir first on PATH, then push again."
+    block "🚫 PRE-PUSH BLOCK: the mutation gate cannot run on this runtime — the message above is ensure-node.sh's own and names what was found and what is required (.nvmrc + package.json engines.node; it also refuses when the switched-to install shadows the pinned pnpm). This is deliberately a BLOCK and not a SKIP: on the wrong Node the shared i18n specs fail in Stryker's unmutated dry run, the gate reports 'the suite itself is already red', and a skip there reads exactly like an ordinary flake — that is how it hid a real defect for days on 2026-10-17. Fix what the message asks (usually: nvm install 22 && nvm use 22, or a Node 22 bin dir first on PATH), then push again."
   fi
 else
   # Not a skip: the gate can still find survivors, and refusing a push over a

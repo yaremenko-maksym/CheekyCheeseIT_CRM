@@ -185,7 +185,7 @@ assert_red "the gate would run on the WRONG Node -> BLOCK naming both versions, 
   --contains '"decision": "block"' \
   --contains "[pre:bash:mutation-gate] BLOCK" \
   --contains "does not satisfy Node 99.0+" \
-  --contains "wrong Node" \
+  --contains "cannot run on this runtime" \
   --not-contains "mutation-gate] SKIP" \
   --not-contains "PASS branch=" \
   -- run_hook "$ROOT_WRONG_NODE" "git push"
