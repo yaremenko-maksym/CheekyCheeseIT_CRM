@@ -68,10 +68,13 @@ The path is derived from the **agent's own** identifier: its worktree (`git rev-
 A redness check requires mutation — so it is done in **your own** checkout:
 
 ```bash
-git worktree add --detach "$SCRATCH/checkout" <sha of the real PR commit>
+echo "$SCRATCH"                                                  # expand it once
+git worktree add --detach /abs/scratch/co-pr<N> <sha of the real PR commit>
 ```
 
-and not in another agent's working directory and not in a shared checkout. The hook does not block
+A **literal** path, and a name of your own (`co-pr1024`, not `checkout`): the scratchpad is shared,
+so `checkout` is a name your siblings use too, and only a literal path can be recorded as yours
+(rule 6). Not in another agent's working directory and not in a shared checkout. The hook does not block
 reading a foreign tree, but it is still a bad idea: the tree of a live agent changes under you, and
 you will not see it.
 
@@ -86,10 +89,21 @@ prerogative, not the task's.
 An agent does not see other agents and **cannot reasonably judge** whether a foreign worktree is
 abandoned. Your own — remove it, a foreign one — report to the orchestrator.
 
-**"Your own" is your worktree or your own session scratchpad** — the hook derives both from your cwd,
-so a reviewer removes the checkout it made under `$SCRATCH` and nothing else. Naming a scratch path
-from a worktree cwd is unattributable and still refused: `cd` to the scratchpad and name it from
-there.
+**The session scratchpad is SHARED with the other agents of your session** — one flat directory
+holding every sibling's checkout. So a scratch path proves nothing about whose it is, and the hook
+answers "mine" from a record instead: it writes `<agent_id> <path>` when it sees you create a
+worktree **at a literal path**, and permits removing only what is recorded against you
+(`WORKTREE-UNRECORDED` otherwise). Practical consequence — expand the variable once and use the
+literal for both steps:
+
+```bash
+echo "$SCRATCH"                                          # once, to get the literal
+git worktree add --detach /abs/scratch/co-pr1024 <sha>   # recorded as yours
+git worktree remove --force /abs/scratch/co-pr1024       # permitted
+```
+
+A sibling's checkout, a path created through an unexpanded variable, and a re-dispatched instance of
+yourself all stay refused — none of them is a tree you can know is free.
 
 **Your own — remove it by an explicit path, not a variable.** The hook cannot expand `"$w"` and so
 cannot say whose directory it is; an opaque path gets the refusal `WORKTREE-OPAQUE`. Cleanup in a
@@ -121,7 +135,7 @@ A rule without observability is not a rule. For each one above:
 - 3 — The same hook: an absolute path of the form `/tmp/rev<PR>` in the prompt → refusal — A refusal on dispatch + a `Checkout:` line in the reviewer's report (two identical paths from two reviewers = a collision, visible in the aggregate)
 - 4 — Hook `pre:bash:cross-agent-blast` predicate `FOREIGN-WORKTREE` — A refusal at the moment of the command
 - 5 — The same hook, predicate `BROADCAST-KILL` — A refusal at the moment of the command
-- 6 — The same hook, predicates `WORKTREE-REMOVE` / `WORKTREE-PRUNE` / `WORKTREE-OPAQUE` — A refusal at the moment of the command. `OPAQUE` — "the path is not a literal, ownership is not verifiable": it distinguishes "could not verify" from "verified"
+- 6 — The same hook, predicates `WORKTREE-REMOVE` / `WORKTREE-PRUNE` / `WORKTREE-OPAQUE` / `WORKTREE-UNRECORDED` — A refusal at the moment of the command. `OPAQUE` — "the path is not a literal, ownership is not verifiable"; `UNRECORDED` — "the path is in the shared scratchpad and no record ties it to you": both distinguish "could not verify" from "verified"
 - 7 — There is no mechanic (the agent may not notice the loss) → **a mandatory line in the report** — An agent's report without a `Worktree: <path> (verified)` line = the reconciliation was not done. The absence is visible to Master at acceptance
 - 8 — The same report line — Same
 

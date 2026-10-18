@@ -14,19 +14,27 @@
 set -u
 
 HOOK_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-BLAST="$HOOK_DIR/pre-bash-cross-agent-blast.sh"
+# Overridable so a claim about these cases can be re-demonstrated instead of
+# trusted: point it at a previous revision, or at a deliberately mutated copy,
+# and the cases that cover the difference must go red.
+#   CROSS_AGENT_BLAST_HOOK=/tmp/blast-mutated.sh bash "$0"
+BLAST="${CROSS_AGENT_BLAST_HOOK:-$HOOK_DIR/pre-bash-cross-agent-blast.sh}"
 DISPATCH="$HOOK_DIR/pre-agent-dispatch-isolation.sh"
 
 REPO="/Users/maksym/Desktop/programming/CheekyCheeseIT_CRM"
 MINE="$REPO/.claude/worktrees/agent-MINE"
 OTHER="$REPO/.claude/worktrees/agent-OTHER"
 
-# A reviewer is not given a worktree (agent-isolation.md rule 2); its own
-# territory is the session scratchpad the harness issues it personally, and the
-# session id in the path is what makes it personal. Two sessions, same shape.
+# A reviewer is not given a worktree (agent-isolation.md rule 2), so its checkout
+# lives in the session scratchpad — which is SHARED with every sibling agent of
+# that session (measured: one flat directory, 190 entries, ~10 agents). The path
+# therefore says nothing about whose it is; ownership comes from the ledger this
+# hook writes against agent_id, exercised by scratch_case below.
 SESS="/private/tmp/claude-501/-Users-maksym-Desktop-programming-CheekyCheeseIT-CRM"
 MY_SCRATCH="$SESS/11111111-1111-1111-1111-111111111111/scratchpad"
 OTHER_SCRATCH="$SESS/22222222-2222-2222-2222-222222222222/scratchpad"
+LEDGER="$(mktemp -t cross-agent-owners)"
+trap 'rm -f "$LEDGER"' EXIT
 
 PASS=0
 FAIL=0
@@ -57,6 +65,26 @@ print(json.dumps({
     "tool_input": {"command": os.environ["CMD"]},
 }))')
   OUT=$(printf '%s' "$payload" | bash "$BLAST" 2>/dev/null)
+  rc=$?
+  assert "$expect" "$rc" "$label"
+}
+
+# scratch_case <expect:block|allow> <agent_id> <cwd> <command> <label>
+# Same as bash_case but carries an agent_id and points the ownership ledger at a
+# temp file, which is what makes "mine" answerable for a scratchpad path.
+scratch_case() {
+  local expect="$1" agent="$2" cwd="$3" cmd="$4" label="$5"
+  local payload rc
+  payload=$(CWD="$cwd" CMD="$cmd" AID="$agent" python3 -c '
+import json, os
+print(json.dumps({
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "cwd": os.environ["CWD"],
+    "agent_id": os.environ["AID"],
+    "tool_input": {"command": os.environ["CMD"]},
+}))')
+  OUT=$(printf '%s' "$payload" | CROSS_AGENT_WORKTREE_OWNERS="$LEDGER" bash "$BLAST" 2>/dev/null)
   rc=$?
   assert "$expect" "$rc" "$label"
 }
@@ -136,16 +164,28 @@ bash_case block "$MINE" 'while read p; do pkill -f "$p"; done < /tmp/list'  'pki
 bash_case block "$MINE" 'if [ -f /tmp/x ]; then pkill -f node; fi'         'pkill hidden behind `then`'
 bash_case block "$MINE" 'for x in 1; do sudo killall node; done'           'killall behind `do` AND a wrapper'
 
-# ── the scratchpad widening must not leak (2026-10-17) ───────────────────────
-# Recognising the caller's OWN session scratchpad as removable is a widening, so
-# each neighbour of it is pinned here: another session's scratchpad is as foreign
-# as another agent's worktree, and the three things the predicate already
-# protected are protected from a scratchpad cwd too.
+# ── the scratchpad widening must not leak (2026-10-17/18) ────────────────────
+# Permitting a recorded scratch checkout is a widening, so each neighbour of it
+# is pinned here. The first four are the reviewer-confirmed protections; the
+# sibling cases below are the defect the first version of this widening had.
 bash_case block "$MY_SCRATCH" "git worktree remove --force $OTHER_SCRATCH/checkout" 'another SESSION scratchpad is foreign (different session id)'
 bash_case block "$MY_SCRATCH" "git worktree remove --force $OTHER"                  "another agent's worktree, judged from a scratchpad cwd"
 bash_case block "$MY_SCRATCH" 'git worktree remove --force "$W"'                    'opaque target from a scratchpad cwd is still WORKTREE-OPAQUE'
 bash_case block "$MY_SCRATCH" "git worktree remove --force $REPO"                   'the primary checkout is nobody-removes-it'
 bash_case block "$MINE" "git worktree remove --force $OTHER_SCRATCH/checkout"        'a scratch path I cannot attribute to myself stays foreign'
+
+# THE DEFECT THE PATH-BASED WIDENING HAD (CR-M-1, demonstrated with rc 0 on a
+# security reviewer checkout). The sibling runs in the SAME session and the SAME
+# scratchpad; only its agent_id differs, and that is now what decides.
+scratch_case allow agent-A "$MY_SCRATCH" "git worktree add --detach $MY_SCRATCH/sr-pr1024 deadbeef" 'agent A records its own checkout (fixture for the two cases below)'
+scratch_case block agent-B "$MY_SCRATCH" "git worktree remove --force $MY_SCRATCH/sr-pr1024" "a SIBLING agent of the same session cannot remove it"
+scratch_case block agent-A "$MY_SCRATCH" "git worktree remove --force $MY_SCRATCH/sr-pr1024-notes" 'a record of X does not cover X-notes (prefix boundary)'
+scratch_case block ""        "$MY_SCRATCH" "git worktree remove --force $MY_SCRATCH/sr-pr1024" 'without an agent_id nothing is attributable, so nothing is permitted'
+# A non-literal `add` cannot be resolved, so it records nothing — and the later
+# removal of that same tree by its real owner is refused. That is the cost of the
+# canonical "$SCRATCH/checkout" form, and the remedy is one `echo`.
+scratch_case allow agent-C "$MY_SCRATCH" 'git worktree add --detach "$SCRATCH/co-C" deadbeef' 'a non-literal add stays silent (and records nothing)'
+scratch_case block agent-C "$MY_SCRATCH" "git worktree remove --force $MY_SCRATCH/co-C" 'what was never recorded cannot be removed, even by its maker'
 
 echo "== pre:bash:cross-agent-blast — MUST STAY SILENT =="
 bash_case allow "$MINE" 'kill 12345'                                        'kill <PID> — the prescribed replacement (AC11)'
@@ -156,17 +196,22 @@ bash_case allow "$MINE" 'grep -rn "pkill" .claude/hooks/'                   'gre
 bash_case allow "$MINE" 'echo "не запускай pkill -f node"'                  'echo mentioning pkill'
 bash_case allow "$MINE" "git worktree remove $MINE"                         'removing MY OWN worktree is allowed'
 
-# ── a reviewer cleaning up after itself (2026-10-17) ─────────────────────────
+# ── a reviewer cleaning up after itself (2026-10-17/18) ──────────────────────
 # Six reviewers in one session could not: own_wt is empty when the cwd is a
-# scratchpad, so their OWN checkout — created by the command two lines down in
-# the allow-list below — came out "not your worktree". Every refusal was correct
-# by the predicate's letter and wrong in substance, and the checkouts piled up.
-bash_case allow "$MY_SCRATCH" "git worktree remove --force $MY_SCRATCH/checkout" 'removing the checkout I made in MY OWN session scratchpad'
-bash_case allow "$MY_SCRATCH/checkout" "git worktree remove --force $MY_SCRATCH/checkout" 'the same, run from inside that checkout'
+# scratchpad, so their OWN checkout came out "not your worktree". Every refusal
+# was correct by the predicate's letter and wrong in substance.
+#
+# The first fix keyed "mine" on the scratchpad path, which was wrong: that
+# directory is SHARED by all sibling agents of the session, so it also permitted
+# removing a sibling checkout. Ownership is now recorded against agent_id when
+# this hook watches the agent create the tree, and the pair below is the whole
+# mechanism — the `add` writes the record, the `remove` reads it.
+scratch_case allow agent-A "$MY_SCRATCH" "git worktree add --detach $MY_SCRATCH/co-A deadbeef" 'creating my checkout at a literal path is recorded, not blocked'
+scratch_case allow agent-A "$MY_SCRATCH" "git worktree remove --force $MY_SCRATCH/co-A" 'removing the checkout recorded against MY agent_id'
 # /tmp is a symlink to /private/tmp on macOS, so the harness reports the cwd
-# under one and an agent types the other. Same directory, and the hook must not
-# call it foreign over a prefix.
-bash_case allow "$MY_SCRATCH" "git worktree remove --force /tmp/claude-501/-Users-maksym-Desktop-programming-CheekyCheeseIT-CRM/11111111-1111-1111-1111-111111111111/scratchpad/checkout" '/tmp vs /private/tmp spelling of my own scratchpad'
+# under one spelling and an agent types the other. Same directory, and the record
+# must match across the two spellings.
+scratch_case allow agent-A "$MY_SCRATCH" "git worktree remove --force /tmp/claude-501/-Users-maksym-Desktop-programming-CheekyCheeseIT-CRM/11111111-1111-1111-1111-111111111111/scratchpad/co-A" '/tmp vs /private/tmp spelling of my own recorded checkout'
 bash_case allow "$MINE" 'git worktree list'                                 'git worktree list (read-only)'
 bash_case allow "$MINE" "cat $OTHER/README.md"                              'READING another worktree is not gated'
 bash_case allow "$MINE" "rm -rf $MINE/tmp/scratch"                          'rm inside my own worktree, absolute path'

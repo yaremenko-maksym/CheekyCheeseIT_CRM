@@ -82,8 +82,15 @@
 #                    inside my own worktree, and was recorded as MINE. "Could
 #                    not check" became "checked, clean". A third outcome now
 #                    exists (WORKTREE-OPAQUE) and it refuses. "Own" means my
-#                    worktree OR my own session scratchpad, both derived from my
-#                    cwd — never from what the command claims.
+#                    worktree (from my cwd) or a scratch path RECORDED against my
+#                    agent_id when this hook watched me create it. The session
+#                    scratchpad is shared between siblings, so a scratch path by
+#                    itself proves nothing — see WORKTREE-UNRECORDED.
+#   WORKTREE-UNRECORDED
+#                    the target is in the shared session scratchpad and no
+#                    ledger line ties it to THIS agent_id. Same silence rule as
+#                    OPAQUE: not a claim that it is foreign, a statement that
+#                    ownership was never recorded.
 #   FOREIGN-WORKTREE searches the raw text for a `.claude/worktrees/<seg>`
 #   SHARED-CHECKOUT  marker. Not finding one is not a safety claim — it is the
 #                    same silence as for `ls`. Deliberately NOT extended to
@@ -152,12 +159,13 @@
 #   - `pgrep -f '<pattern>' | xargs kill -9` — the owner's documented sweep
 #     (light-track.md "Zombie-профилактика"). It is deliberate and targeted by
 #     the human, not a blind broadcast from inside a task.
-#   - Removing YOUR OWN worktree, or a checkout inside YOUR OWN session
-#     scratchpad — by an EXPLICIT path. A path the hook cannot expand is a path
-#     it cannot attribute, so "it was mine" has to be shown, not asserted.
-#     Cost: one `echo` before the command. The scratchpad half was missing until
-#     2026-10-17, which left every reviewer unable to clean up its own checkout
-#     (see the own_scratch comment in the python block).
+#   - Removing YOUR OWN worktree, or a scratch checkout you CREATED AT A LITERAL
+#     PATH (which is what records it as yours) — by an EXPLICIT path. A path the
+#     hook cannot expand is a path it cannot attribute, so "it was mine" has to
+#     be shown, not asserted. Cost: one `echo` before the command, for the add as
+#     well as the remove. Before 2026-10-17 no scratch checkout could be removed
+#     at all; the first fix for that permitted ANY path in the scratchpad, which
+#     is shared between siblings — see the ownership comment in the python block.
 #   - READING another worktree (cat/grep/ls/git log). Only mutation is gated;
 #     see the rule file for why reading a live tree is still a bad idea.
 
@@ -211,11 +219,12 @@ echo "$CMD" | grep -qE 'pkill|killall|worktree|\.claude/worktrees/|CheekyCheeseI
 # asserts the {"decision":"block"} body. Write "the cwd of the caller", not
 # "the caller's cwd". (The message block further down has the opposite hazard:
 # it is DOUBLE-quoted, so backticks there are command substitution.)
-REASONS=$(CWD="$CWD" printf '%s' "$CMD" | CWD="$CWD" python3 -c '
+REASONS=$(printf '%s' "$CMD" | CWD="$CWD" AGENT_ID="$AGENT_ID" python3 -c '
 import os, re, shlex, sys
 
 cmd = sys.stdin.read()
 cwd = os.environ.get("CWD", "")
+agent_id = os.environ.get("AGENT_ID", "").strip()
 
 # ---- identity: which worktree am I? -----------------------------------------
 # own_wt  — absolute path of my own worktree (or "" if I am not in one)
@@ -237,29 +246,97 @@ def tmp_norm(p):
     return re.sub(r"^/private(/tmp/)", r"\1", p)
 
 
-# ---- identity: my own session scratchpad ------------------------------------
+# ---- identity: the scratchpad is SHARED, so the path cannot say whose it is --
 # A read-only agent gets no worktree (agent-isolation.md rule 2), so own_wt above
 # is empty for every reviewer — and a reviewer that needs to RUN something makes
-# its own checkout under the scratchpad the harness issues it personally
-# (`git worktree add --detach "$SCRATCH/checkout" <sha>`, rule 4). Until
-# 2026-10-17 removing that checkout was reported as WORKTREE-REMOVE "not your
-# worktree": correct by the letter of the predicate, wrong in substance, six times in
-# one session, and the stale checkouts accumulated.
+# its own checkout under the session scratchpad (rule 4). Until 2026-10-17
+# removing that checkout was reported as WORKTREE-REMOVE "not your worktree":
+# correct by the letter of the predicate, wrong in substance, six times in one
+# session, and the stale checkouts accumulated.
 #
-# What makes the claim "mine" checkable rather than asserted is the SESSION ID in
-# the path: /tmp/claude-<uid>/<project-slug>/<session>/..., issued per agent. So
-# own_scratch is derived from the cwd of the caller exactly the way own_wt is, and
-# the scratchpad of another session stays as foreign as the worktree of another agent.
+# THE FIRST FIX FOR THAT WAS WRONG, AND HOW IT WAS WRONG IS THE USEFUL PART. It
+# treated "under my session scratchpad" as "mine", on the premise that the
+# harness issues a scratchpad per agent. It does not. Measured 2026-10-18 under
+# one session id: ONE flat directory, 190 entries, with the checkouts of about
+# ten different agents side by side (checkout, co2, co3, cr-1017,
+# cr-pr1021-checkout, cr1016-own ...). So that widening let any agent of the
+# session remove any sibling checkout — the PR #544 incident reintroduced
+# between siblings, demonstrated by a reviewer with rc 0 on a security
+# reviewer checkout.
 #
-# Deliberately NOT widened further: when the cwd is a worktree, the scratchpad of
-# that agent is not derivable from it, so a scratch path named from a worktree cwd
-# remains unattributable and is still refused. That is the same "could not check
-# is not checked, clean" discipline as WORKTREE-OPAQUE, and the remedy is the same
-# one command (`cd` to the scratchpad, or name the path from there).
+# Note also that the canonical name from the rule, "$SCRATCH/checkout", is a
+# SHARED name in a shared directory: two agents of one session that both follow
+# the example literally collide (the PR #493 class).
+#
+# own_scratch therefore means only "inside the shared scratchpad", never "mine".
+# It bounds where a record can be honoured; it never grants anything by itself.
 own_scratch = ""
 m2 = re.match(r"^(?P<sess>(?:/private)?/tmp/claude-[^/]+/[^/]+/[^/]+)(?:/|$)", cwd)
 if m2:
     own_scratch = tmp_norm(m2.group("sess"))
+
+# ---- ownership: the only per-agent token the payload carries -----------------
+# cwd is shared between siblings (above) and so is session_id. The one field that
+# differs per agent is agent_id, which the harness fills from the subagent tool
+# context and leaves empty on the main thread (utils/hooks.ts createBaseHookInput
+# in the Claude Code source: "Hooks use agent_id presence to distinguish subagent
+# calls from main-thread calls").
+#
+# So ownership of a scratch path is not read off the path at all. It is RECORDED,
+# by this hook, at the moment it watches an agent create the worktree: one line
+# "<agent_id>\t<literal path>" appended to a ledger in the shared scratchpad. At
+# remove time the only scratch paths permitted are the ones recorded against THIS
+# agent_id. A sibling checkout has a different agent_id on its line, so it is
+# refused exactly like a foreign worktree.
+#
+# Why that is a check and not a claim: the key is supplied by the harness, not by
+# the command, and the line is written by the hook, not by the caller. Two limits,
+# both deliberate:
+#   - a NON-LITERAL add target (`git worktree add "$SCRATCH/checkout"`) cannot be
+#     resolved, so nothing is recorded and the later removal is refused. The
+#     remedy is the one WORKTREE-OPAQUE already asks for: expand the path once
+#     (`echo "$SCRATCH"`) and use the literal for both add and remove.
+#   - a re-dispatched agent is a new agent_id and so cannot remove the checkout of
+#     its own previous instance. That is rule 6 working as intended: it cannot
+#     know whether that tree is abandoned.
+# Without an agent_id (main thread, or a runtime that omits the field) nothing is
+# recorded and nothing is permitted — i.e. the behaviour before this widening.
+OWNERS = os.environ.get("CROSS_AGENT_WORKTREE_OWNERS", "")
+if not OWNERS and own_scratch:
+    OWNERS = os.path.join(own_scratch, ".cross-agent-worktree-owners")
+
+
+def record_owned(path):
+    """Append one ledger line. Failure is ignored on purpose: a hook that dies
+    over a bookkeeping write would refuse the command it was only observing."""
+    if not (OWNERS and agent_id):
+        return
+    try:
+        with open(OWNERS, "a") as fh:
+            fh.write("%s\t%s\n" % (agent_id, path))
+    except OSError:
+        pass
+
+
+def is_owned(path):
+    """True when THIS agent_id has a recorded line for this path (or for a
+    directory containing it). The trailing slash is load-bearing: a record of
+    .../checkout must not cover .../checkout-sibling."""
+    if not (OWNERS and agent_id):
+        return False
+    try:
+        with open(OWNERS) as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        return False
+    for line in lines:
+        who, _, owned = line.partition("\t")
+        if who != agent_id or not owned:
+            continue
+        owned = tmp_norm(owned)
+        if path == owned or path.startswith(owned + "/"):
+            return True
+    return False
 
 reasons = []
 
@@ -371,6 +448,23 @@ for name, args in toks:
             "их worktree (PR #544)."
         )
         break
+    if sub == "add":
+        # Observation only — `add` creates a tree, it destroys nothing, so no
+        # predicate fires here. This is where ownership of a scratch checkout is
+        # recorded, while the agent that made it is known. A non-literal target
+        # is left unrecorded rather than guessed.
+        for a in args[args.index("worktree") + 1:]:
+            if a.startswith("-") or a == "add":
+                continue
+            if NONLITERAL.search(a):
+                break
+            cand = tmp_norm(resolve(a))
+            if own_scratch and (
+                cand == own_scratch or cand.startswith(own_scratch + "/")
+            ):
+                record_owned(cand)
+            break
+        break
     if sub == "remove":
         targets = [a for a in args[args.index("worktree") + 1:]
                    if not a.startswith("-") and a != "remove"]
@@ -396,10 +490,23 @@ for name, args in toks:
             if own_wt and (t_abs == own_wt or t_abs.startswith(own_wt + "/")):
                 continue  # removing my own worktree is fine
             t_tmp = tmp_norm(t_abs)
-            if own_scratch and (
+            in_scratch = own_scratch and (
                 t_tmp == own_scratch or t_tmp.startswith(own_scratch + "/")
-            ):
-                continue  # ...and so is a checkout inside my own session scratchpad
+            )
+            if in_scratch and is_owned(t_tmp):
+                continue  # recorded against THIS agent_id when it made the tree
+            if in_scratch:
+                reasons.append(
+                    "WORKTREE-UNRECORDED|`git worktree remove %s` — этот путь в "
+                    "ОБЩЕМ scratchpad сессии (там лежат чекауты всех агентов "
+                    "сессии, а не только твои), и записи о том, что его создал "
+                    "ТЫ, у меня нет. Поэтому я не знаю, чей он. Запись делается "
+                    "при создании, если путь задан литералом: разверни "
+                    "переменную один раз (echo), и дальше используй литерал и в "
+                    "`add`, и в `remove`. Чужой стух — сообщи оркестратору, он "
+                    "видит всех агентов, а ты нет." % t
+                )
+                continue
             reasons.append(
                 "WORKTREE-REMOVE|`git worktree remove %s` — это НЕ твой worktree "
                 "(твой: %s). На PR #544 ровно эта команда снесла worktree "

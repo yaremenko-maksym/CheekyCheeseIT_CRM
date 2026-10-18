@@ -154,27 +154,53 @@ assert_green "creating MY OWN checkout by variable stays silent" \
   --not-contains '"decision": "block"' \
   -- run_hook "$MINE" 'git worktree add --detach "$SCRATCH/checkout" abc123'
 
-# ── a reviewer removing its OWN scratchpad checkout (2026-10-17) ─────────────
+# ── a reviewer removing its OWN scratchpad checkout (2026-10-17/18) ──────────
 # A read-only agent gets no worktree, so own_wt is empty for every reviewer and
-# the checkout it made under its own session scratchpad came out "not your
-# worktree". Six reviewers in one session could not clean up after themselves,
-# and the checkouts piled up. The session id in the path is what makes the claim
-# "mine" checkable, so the widening is keyed on it — the two refusals below pin
-# that it does not leak any further.
+# the checkout it made under the session scratchpad came out "not your worktree".
+# Six reviewers in one session could not clean up after themselves.
+#
+# The scratchpad is SHARED between sibling agents of a session (measured: one
+# flat directory, 190 entries, ~10 agents), so the path cannot say whose a
+# checkout is and the first version of this widening — keyed on the path — let a
+# reviewer remove a security reviewer's checkout. Ownership is recorded instead,
+# against the one per-agent field the payload carries (agent_id), at the moment
+# this hook watches the agent create the tree.
 MY_SESSION="/tmp/claude-999/-fake-repo-CheekyCheeseIT-CRM/11111111-1111-1111-1111-111111111111"
 OTHER_SESSION="/tmp/claude-999/-fake-repo-CheekyCheeseIT-CRM/22222222-2222-2222-2222-222222222222"
+OWNERS_LEDGER="$(mktemp -t guard-owners)"
+trap 'rm -f "$OWNERS_LEDGER"' EXIT
 
-assert_green "removing the checkout in MY OWN session scratchpad passes" \
+# $1 = agent_id, $2 = cwd, $3 = command
+run_hook_as() {
+  local agent="$1" cwd="$2" cmd="$3"
+  local json
+  json=$(python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":sys.argv[1],"agent_id":sys.argv[2],"tool_input":{"command":sys.argv[3]}}))' "$cwd" "$agent" "$cmd")
+  printf '%s' "$json" | CROSS_AGENT_WORKTREE_OWNERS="$OWNERS_LEDGER" bash "$HOOK"
+}
+
+assert_green "creating my checkout at a literal path is recorded, not blocked" \
   --not-contains '"decision": "block"' \
-  -- run_hook "$MY_SESSION/scratchpad" "git worktree remove --force $MY_SESSION/scratchpad/checkout"
+  -- run_hook_as agent-A "$MY_SESSION/scratchpad" "git worktree add --detach $MY_SESSION/scratchpad/co-A deadbeef"
+
+assert_green "removing the checkout recorded against MY agent_id passes" \
+  --not-contains '"decision": "block"' \
+  -- run_hook_as agent-A "$MY_SESSION/scratchpad" "git worktree remove --force $MY_SESSION/scratchpad/co-A"
+
+assert_red "a SIBLING of the same session cannot remove it -> BLOCK (CR-M-1)" \
+  --contains 'WORKTREE-UNRECORDED' \
+  -- run_hook_as agent-B "$MY_SESSION/scratchpad" "git worktree remove --force $MY_SESSION/scratchpad/co-A"
+
+assert_red "a record of X does not cover X-notes -> BLOCK (prefix boundary)" \
+  --contains 'WORKTREE-UNRECORDED' \
+  -- run_hook_as agent-A "$MY_SESSION/scratchpad" "git worktree remove --force $MY_SESSION/scratchpad/co-A-notes"
 
 assert_red "another session's scratchpad is as foreign as another agent's worktree -> BLOCK" \
   --contains 'WORKTREE-REMOVE' \
-  -- run_hook "$MY_SESSION/scratchpad" "git worktree remove --force $OTHER_SESSION/scratchpad/checkout"
+  -- run_hook_as agent-A "$MY_SESSION/scratchpad" "git worktree remove --force $OTHER_SESSION/scratchpad/checkout"
 
 assert_red "an opaque target is still unattributable from a scratchpad cwd -> BLOCK" \
   --contains 'WORKTREE-OPAQUE' \
-  -- run_hook "$MY_SESSION/scratchpad" 'git worktree remove --force "$W"'
+  -- run_hook_as agent-A "$MY_SESSION/scratchpad" 'git worktree remove --force "$W"'
 
 # ── and the 42-case smoke, so CI finally runs it ──────────────────────────────
 # Covers this hook AND pre-agent-dispatch-isolation.sh; it is invoked from here

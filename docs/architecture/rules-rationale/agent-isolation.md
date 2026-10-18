@@ -98,29 +98,70 @@ that extending the rule must be a deliberate act rather than drift.
 The same false-positive budget cut the other way, and it took a session to notice. `WORKTREE-REMOVE`
 recognised only the caller's primary worktree as "own" — but a read-only agent is deliberately given
 no worktree (rule 2), so `own_wt` is empty for **every** reviewer. The checkout a reviewer makes for a
-redness check lives under the session scratchpad the harness issues it personally, and removing it
-came out as "this is NOT your worktree". Six reviewers in one session hit it; the stale checkouts
-accumulated under the scratchpad, which is the opposite of what the rule wants.
+redness check lives under the session scratchpad, and removing it came out as "this is NOT your
+worktree". Six reviewers in one session hit it; the stale checkouts accumulated there, which is the
+opposite of what the rule wants.
 
 Every one of those refusals was correct by the letter of the predicate. That is the diagnostic: a
 guard that is right by its letter and wrong in substance is a guard whose **definition of "own" is
-incomplete**, not one that needs a looser threshold. So the fix added the second half of the
-definition rather than relaxing anything — "own" is my worktree **or** my own session scratchpad, and
-both are derived from my own cwd.
+incomplete**, not one that needs a looser threshold. So the fix had to add the missing half of the
+definition rather than relax anything — and the first attempt at that half got it wrong.
 
-What keeps the widening narrow is the **session id**: `/tmp/claude-<uid>/<slug>/<session>/...` is
-issued per agent, so another session's scratchpad is as foreign as another agent's worktree, and the
-claim "this is mine" stays checkable rather than asserted. Three things the predicate already
-protected are pinned by refusal cases from a scratchpad cwd: another session's scratchpad, another
-agent's worktree, and an opaque target. A scratch path named from a **worktree** cwd is still refused
-— the scratchpad is not derivable from a worktree path, so ownership is unverifiable, and the remedy
-is the same single command that `WORKTREE-OPAQUE` asks for.
+#### The first fix was wrong, and how it was wrong is the lesson
+
+That fix keyed "own" on the **path**: anything under the caller's session scratchpad was treated as
+its own, on the stated premise that the harness issues a scratchpad per agent. **It does not.**
+Measured under one session id on 2026-10-18: a single flat directory, 190 entries, holding the
+checkouts of about ten different agents side by side — `checkout`, `co2`, `co3`, `cr-1017`,
+`cr-pr1021-checkout`, `cr1016-own`. A reviewer demonstrated the consequence: the widened hook
+returned rc 0 for removing a **security reviewer's** checkout. That is PR #544 reintroduced between
+siblings — by the guard written to prevent it.
+
+Two things are worth carrying forward from that mistake:
+
+1. **The premise came from a dispatch brief and was repeated in three places** (hook comment, core
+   rule, this file) without being measured once. `ls` of the directory was the whole verification and
+   it cost one command. A guard whose justification is inherited rather than observed is a guard
+   nobody has checked.
+2. **The canonical example in the rule was itself a collision.** `"$SCRATCH/checkout"` is a *shared*
+   name in a *shared* directory: two agents of one session that both follow the example literally
+   land on the same path. The rule now asks for a name of the agent's own.
+
+#### What the guard actually checks now
+
+`cwd` is shared between siblings and so is `session_id`. The one field in the hook payload that
+differs per agent is **`agent_id`**, which the harness fills from the subagent tool context and
+leaves empty on the main thread (`createBaseHookInput` in `utils/hooks.ts` of the Claude Code
+source: "Hooks use agent_id presence to distinguish subagent calls from main-thread calls").
+
+So ownership is not read off the path at all — it is **recorded**: when this hook watches an agent run
+`git worktree add` with a **literal** target inside the scratchpad, it appends one
+`<agent_id>\t<path>` line to a ledger there. At remove time only paths recorded against the calling
+`agent_id` are permitted; everything else in the scratchpad gets `WORKTREE-UNRECORDED`. The key comes
+from the harness, not from the command, and the line is written by the hook, not by the caller —
+which is what makes this a check rather than a claim.
+
+Four limits, each deliberate and each pinned by a case:
+
+- a **non-literal** add (`"$SCRATCH/co"`) records nothing, so its own maker cannot remove it later.
+  The remedy is the one `WORKTREE-OPAQUE` already asks for, applied one step earlier: expand once,
+  then use the literal for both the add and the remove;
+- a **re-dispatched** agent is a new `agent_id` and cannot remove its previous instance's checkout —
+  rule 6 working as intended, since it cannot know that tree is abandoned;
+- **no `agent_id`** (main thread, or a runtime that omits the field) records nothing and permits
+  nothing, i.e. the behaviour from before the widening;
+- the ledger write is wrapped and its failure ignored: a hook that died over bookkeeping would refuse
+  the command it was only observing.
+
+The prefix comparison keeps its trailing slash, so a record of `…/co-A` does not cover
+`…/co-A-notes`; dropping the slash turns that case red (demonstrated with a mutated copy of the hook
+via `CROSS_AGENT_BLAST_HOOK`).
 
 One incidental trap, recorded because it cost a cycle: `/tmp` is a symlink to `/private/tmp` on macOS,
-so the harness reports a cwd under one spelling while an agent types the other. The comparison
-normalises the prefix textually rather than through `realpath`, because the target of a `git worktree
-remove` may already be gone and a filesystem lookup would answer a different question than the one
-asked.
+so the harness reports a cwd under one spelling while an agent types the other. Both the ledger lines
+and the comparison normalise the prefix textually rather than through `realpath`, because the target
+of a `git worktree remove` may already be gone and a filesystem lookup would answer a different
+question than the one asked.
 
 ## The smoke test was dead for a month
 
