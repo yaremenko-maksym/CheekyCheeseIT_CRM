@@ -168,7 +168,12 @@ assert_green "creating MY OWN checkout by variable stays silent" \
 MY_SESSION="/tmp/claude-999/-fake-repo-CheekyCheeseIT-CRM/11111111-1111-1111-1111-111111111111"
 OTHER_SESSION="/tmp/claude-999/-fake-repo-CheekyCheeseIT-CRM/22222222-2222-2222-2222-222222222222"
 OWNERS_LEDGER="$(mktemp -t guard-owners)"
-trap 'rm -f "$OWNERS_LEDGER"' EXIT
+# A scratch-shaped root this test owns, for the one case that depends on what is
+# actually on disk. The /tmp/claude-<something>/<a>/<b> shape is what the hook
+# recognises as a scratchpad; the pid keeps concurrent runs apart.
+LIVE_SESS="/private/tmp/claude-guard-$$/proj/sess"
+mkdir -p "$LIVE_SESS/scratchpad/sibling-live"
+trap 'rm -f "$OWNERS_LEDGER"; rm -rf "/private/tmp/claude-guard-$$"' EXIT
 
 # $1 = agent_id, $2 = cwd, $3 = command
 run_hook_as() {
@@ -193,6 +198,18 @@ assert_red "a SIBLING of the same session cannot remove it -> BLOCK (CR-M-1)" \
 assert_red "a record of X does not cover X-notes -> BLOCK (prefix boundary)" \
   --contains 'WORKTREE-UNRECORDED' \
   -- run_hook_as agent-A "$MY_SESSION/scratchpad" "git worktree remove --force $MY_SESSION/scratchpad/co-A-notes"
+
+# A PreToolUse hook records BEFORE git runs, so the recording rule must refuse to
+# record what git is about to refuse to create. Without the existence test, an
+# `add` aimed at a live sibling checkout wrote a line claiming it and the next
+# `remove` was permitted — PR #544 between siblings, in two commands (L-1).
+assert_green "an add aimed at an EXISTING tree stays silent (git refuses it, not this hook)" \
+  --not-contains '"decision": "block"' \
+  -- run_hook_as agent-A "$LIVE_SESS/scratchpad" "git worktree add --detach $LIVE_SESS/scratchpad/sibling-live deadbeef"
+
+assert_red "...and records nothing, so removing that live tree is still refused -> BLOCK (L-1)" \
+  --contains 'WORKTREE-UNRECORDED' \
+  -- run_hook_as agent-A "$LIVE_SESS/scratchpad" "git worktree remove --force $LIVE_SESS/scratchpad/sibling-live"
 
 assert_red "another session's scratchpad is as foreign as another agent's worktree -> BLOCK" \
   --contains 'WORKTREE-REMOVE' \

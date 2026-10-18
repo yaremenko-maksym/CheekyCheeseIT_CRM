@@ -152,6 +152,14 @@
 #
 # IF YOU ADD A PREDICATE: add BOTH a blocking case and at least one legitimate
 # command that must stay silent to tests/cross-agent-hooks-smoke.sh, and run it.
+#
+# LANGUAGE: the refusal strings here are Russian, which predates the 2026-10-05
+# flip to English for all of .claude/** (rules/common/russian-language.md). New
+# predicates are written in Russian too, deliberately: the strings are assembled
+# into ONE message body with the shared epilogue below, and a single English line
+# inside it reads as an oversight rather than as policy. Converting the file is a
+# follow-up of its own — the wording is quoted by tests, so it needs a review pass
+# rather than a sweep inside an unrelated PR.
 # ---------------------------------------------------------------------------
 #
 # What stays possible on purpose:
@@ -451,19 +459,53 @@ for name, args in toks:
     if sub == "add":
         # Observation only — `add` creates a tree, it destroys nothing, so no
         # predicate fires here. This is where ownership of a scratch checkout is
-        # recorded, while the agent that made it is known. A non-literal target
-        # is left unrecorded rather than guessed.
+        # recorded, while the agent that made it is known.
+        #
+        # THREE CONDITIONS, AND NONE OF THEM IS DECORATION (review round 2):
+        #
+        #   absolute          — a target worth recording is an absolute path. This
+        #                       is a TRAIT, not a list of options that take a
+        #                       value: `git worktree add -b mybranch /p/co` offers
+        #                       `mybranch` in argument position, and the earlier
+        #                       draft resolved it against cwd and recorded
+        #                       <cwd>/mybranch — a path git never creates, named by
+        #                       whoever wrote the branch name. Enumerating -b/-B/
+        #                       --reason instead would break the quiet way this
+        #                       repo was bitten by twice this month (the pre-push
+        #                       prefix list, the commit-type list).
+        #   below own_scratch — strictly below, by at least one component. The
+        #                       scratch ROOT must never be recorded: is_owned
+        #                       matches prefixes, so one root line would make
+        #                       every sibling checkout "mine" and re-open the very
+        #                       defect this ledger was written to close.
+        #   does not exist    — THE LOAD-BEARING HALF. A PreToolUse hook records
+        #                       BEFORE git runs, so without this test
+        #                       `git worktree add <a live sibling checkout>` fails
+        #                       in git and still leaves a line claiming it, and the
+        #                       next `remove` is permitted: PR #544 between
+        #                       siblings in two commands. A tree that already
+        #                       exists is not a tree this command is about to
+        #                       create. Do not simplify this away.
+        #
+        # Residual, stated because it cannot be closed from PreToolUse: if the add
+        # fails for an unrelated reason (bad sha) the line survives for a path that
+        # was never created, so a sibling that later picks the SAME literal path
+        # could have it removed by this agent. It needs both agents to choose one
+        # name, which is why rule 4 now asks for a name of your own rather than
+        # `checkout`. Closing it properly needs a PostToolUse companion that
+        # records only after git reports success.
         for a in args[args.index("worktree") + 1:]:
-            if a.startswith("-") or a == "add":
+            if a == "add" or NONLITERAL.search(a):
                 continue
-            if NONLITERAL.search(a):
-                break
-            cand = tmp_norm(resolve(a))
-            if own_scratch and (
-                cand == own_scratch or cand.startswith(own_scratch + "/")
-            ):
-                record_owned(cand)
-            break
+            t = os.path.expanduser(a)
+            if not t.startswith("/"):
+                continue
+            cand = tmp_norm(os.path.normpath(t).rstrip("/"))
+            if not own_scratch or not cand.startswith(own_scratch + "/"):
+                continue
+            if os.path.exists(cand):
+                continue
+            record_owned(cand)
         break
     if sub == "remove":
         targets = [a for a in args[args.index("worktree") + 1:]

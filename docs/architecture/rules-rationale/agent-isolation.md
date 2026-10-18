@@ -123,8 +123,8 @@ Two things are worth carrying forward from that mistake:
    rule, this file) without being measured once. `ls` of the directory was the whole verification and
    it cost one command. A guard whose justification is inherited rather than observed is a guard
    nobody has checked.
-2. **The canonical example in the rule was itself a collision.** `"$SCRATCH/checkout"` is a *shared*
-   name in a *shared* directory: two agents of one session that both follow the example literally
+2. **The canonical example in the rule was itself a collision.** `"$SCRATCH/checkout"` is a _shared_
+   name in a _shared_ directory: two agents of one session that both follow the example literally
    land on the same path. The rule now asks for a name of the agent's own.
 
 #### What the guard actually checks now
@@ -141,7 +141,26 @@ So ownership is not read off the path at all — it is **recorded**: when this h
 from the harness, not from the command, and the line is written by the hook, not by the caller —
 which is what makes this a check rather than a claim.
 
-Four limits, each deliberate and each pinned by a case:
+#### What may be recorded, and why each condition is load-bearing
+
+The `add` branch decides ownership, so it is the part worth being strict in. A target is recorded only
+when it is **literal**, **absolute**, strictly **below** the scratchpad root by at least one
+component, and **does not already exist**. The first draft required only "literal, somewhere under
+the scratchpad", and each of the other three conditions comes from a defect found in review:
+
+| Condition      | What it stops                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| absolute       | `git worktree add -b mybranch /p/co` puts a **branch name** in argument position. The draft resolved it against cwd and recorded `<cwd>/mybranch` — a path git never creates, named by whoever wrote the branch name. Absoluteness is a **trait**; enumerating `-b`/`-B`/`--reason` is the kind of list this repo has twice watched break quietly (the pre-push prefix list, the commit-type list). It also fixed the legitimate half: the draft recorded the branch name and stopped, so the real target was never recorded at all. |
+| below the root | `is_owned` matches prefixes, so a single line for the scratch **root** makes every sibling checkout "mine" — CR-M-1 re-opened by the fix for CR-M-1.                                                                                                                                                                                                                                                                                                                                                                                 |
+| does not exist | **The load-bearing one.** A PreToolUse hook records before git runs, so `git worktree add <a live sibling checkout>` fails in git and still left a line claiming it, and the next `remove` was permitted: PR #544 between siblings in two commands. A tree that already exists is not a tree this command creates.                                                                                                                                                                                                                   |
+
+The residual, stated because it cannot be closed from PreToolUse: if the add fails for an unrelated
+reason (a bad sha), the line survives for a path that was never created, so a sibling that later picks
+the **same literal path** could have it removed by this agent. It needs both agents to choose one
+name, which is why rule 4 now asks for a name of your own instead of `checkout`. Closing it properly
+needs a PostToolUse companion that records only after git reports success.
+
+Four further limits, each deliberate and each pinned by a case:
 
 - a **non-literal** add (`"$SCRATCH/co"`) records nothing, so its own maker cannot remove it later.
   The remedy is the one `WORKTREE-OPAQUE` already asks for, applied one step earlier: expand once,

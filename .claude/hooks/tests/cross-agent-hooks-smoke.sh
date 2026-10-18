@@ -34,7 +34,18 @@ SESS="/private/tmp/claude-501/-Users-maksym-Desktop-programming-CheekyCheeseIT-C
 MY_SCRATCH="$SESS/11111111-1111-1111-1111-111111111111/scratchpad"
 OTHER_SCRATCH="$SESS/22222222-2222-2222-2222-222222222222/scratchpad"
 LEDGER="$(mktemp -t cross-agent-owners)"
-trap 'rm -f "$LEDGER"' EXIT
+
+# A scratch-shaped root this test OWNS, so the cases about what is on disk can
+# create directories without touching the real session scratchpad. The name has
+# to match the hook's /tmp/claude-<something>/<a>/<b> shape to be recognised as a
+# scratchpad at all, and the pid keeps concurrent runs apart.
+SMOKE_SESS="/private/tmp/claude-smoke-$$/proj/sess"
+SMOKE_SCRATCH="$SMOKE_SESS/scratchpad"
+# A second root where NOTHING is created, so the "scratch root itself" case is
+# decided by the one-component rule and not by the existence test.
+EMPTY_SESS="/private/tmp/claude-smokeb-$$/proj/sess"
+mkdir -p "$SMOKE_SCRATCH/sibling-live"
+trap 'rm -f "$LEDGER"; rm -rf "/private/tmp/claude-smoke-$$" "/private/tmp/claude-smokeb-$$"' EXIT
 
 PASS=0
 FAIL=0
@@ -186,6 +197,29 @@ scratch_case block ""        "$MY_SCRATCH" "git worktree remove --force $MY_SCRA
 # canonical "$SCRATCH/checkout" form, and the remedy is one `echo`.
 scratch_case allow agent-C "$MY_SCRATCH" 'git worktree add --detach "$SCRATCH/co-C" deadbeef' 'a non-literal add stays silent (and records nothing)'
 scratch_case block agent-C "$MY_SCRATCH" "git worktree remove --force $MY_SCRATCH/co-C" 'what was never recorded cannot be removed, even by its maker'
+
+# ── what may be RECORDED: the add branch decides ownership, so it is pinned ──
+# A PreToolUse hook records BEFORE git runs, and the first draft recorded any
+# literal-looking argument anywhere under the scratchpad. Each case below went
+# red against that draft; together they are the recording rule.
+#
+# L-1: the path of a live sibling checkout. `add` fails in git, but the line was
+# written anyway, and the next `remove` was permitted — PR #544 between siblings
+# in two commands. A tree that already exists is not one this command creates.
+scratch_case allow agent-A "$SMOKE_SCRATCH" "git worktree add --detach $SMOKE_SCRATCH/sibling-live deadbeef" 'adding onto an EXISTING path stays silent (git will refuse it, not this hook)'
+scratch_case block agent-A "$SMOKE_SCRATCH" "git worktree remove --force $SMOKE_SCRATCH/sibling-live" 'L-1: an add onto an existing tree records nothing, so removing it is still refused'
+
+# L-2: `-b mybranch` puts a BRANCH NAME in argument position. It was resolved
+# against cwd and recorded as a path. The trait that rejects it is absoluteness,
+# not a list of options that take a value.
+scratch_case allow agent-A "$SMOKE_SCRATCH" "git worktree add -b mybranch $SMOKE_SCRATCH/co-B deadbeef" 'an add with -b records the PATH argument (and stays silent)'
+scratch_case block agent-A "$SMOKE_SCRATCH" "git worktree remove --force $SMOKE_SCRATCH/mybranch" 'L-2: a branch name is not a path, so nothing was recorded for it'
+scratch_case allow agent-A "$SMOKE_SCRATCH" "git worktree remove --force $SMOKE_SCRATCH/co-B" 'the real target of that same add IS recorded (the trait keeps the legitimate half)'
+
+# L-3: the scratch ROOT. is_owned matches prefixes, so one root line makes every
+# sibling checkout "mine" — CR-M-1 re-opened by the fix for CR-M-1.
+scratch_case allow agent-A "$EMPTY_SESS/scratchpad" "git worktree add --detach $EMPTY_SESS deadbeef" 'adding the scratch root itself stays silent'
+scratch_case block agent-A "$EMPTY_SESS/scratchpad" "git worktree remove --force $EMPTY_SESS/scratchpad/anyones-co" 'L-3: the root is never recorded, so it grants nothing below it'
 
 echo "== pre:bash:cross-agent-blast — MUST STAY SILENT =="
 bash_case allow "$MINE" 'kill 12345'                                        'kill <PID> — the prescribed replacement (AC11)'

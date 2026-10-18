@@ -92,9 +92,11 @@ abandoned. Your own — remove it, a foreign one — report to the orchestrator.
 **The session scratchpad is SHARED with the other agents of your session** — one flat directory
 holding every sibling's checkout. So a scratch path proves nothing about whose it is, and the hook
 answers "mine" from a record instead: it writes `<agent_id> <path>` when it sees you create a
-worktree **at a literal path**, and permits removing only what is recorded against you
-(`WORKTREE-UNRECORDED` otherwise). Practical consequence — expand the variable once and use the
-literal for both steps:
+worktree at a path that is **literal, absolute, below the scratchpad root, and not already there**,
+and permits removing only what is recorded against you (`WORKTREE-UNRECORDED` otherwise). The last
+condition is why an `add` aimed at a tree that already exists records nothing: a hook runs before
+git, so a path git is about to refuse is not a path you created. Practical consequence — expand the
+variable once and use the literal for both steps:
 
 ```bash
 echo "$SCRATCH"                                          # once, to get the literal
