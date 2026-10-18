@@ -22,7 +22,13 @@ set -u
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SELF_DIR/lib/harness.sh"
 
-HOOK="$REPO_ROOT/.claude/hooks/pre-bash-mutation-gate.sh"
+# The hook under test. The override exists so the red-first demonstration is
+# repeatable by anyone instead of being a claim in a PR body: point it at the
+# previous revision of the hook and the runtime cases below must go red.
+#
+#   git show <sha>:.claude/hooks/pre-bash-mutation-gate.sh >/tmp/hook-before.sh
+#   MUTATION_GATE_HOOK_UNDER_TEST=/tmp/hook-before.sh bash "$0"
+HOOK="${MUTATION_GATE_HOOK_UNDER_TEST:-$REPO_ROOT/.claude/hooks/pre-bash-mutation-gate.sh}"
 
 WS="$(guard_test_workspace)"
 trap 'rm -rf "$WS"' EXIT
@@ -138,6 +144,92 @@ assert_green "the gate itself could not finish (exit 2, e.g. budget exceeded) ->
   --contains "could not complete locally" \
   --contains "budget of 120s exhausted" \
   --not-contains "BLOCK" \
+  -- run_hook "$ROOT_BUDGET" "git push"
+unset STUB_EXIT STUB_OUTPUT
+
+# ── the runtime: the one environmental case that BLOCKS (2026-10-17) ─────────
+#
+# These cases use the REAL scripts/devops/lib/ensure-node.sh, not a stub: the
+# whole point of the change is that the hook's runtime verdict is the shared
+# lib's verdict (the one .husky/pre-push sources and mutation-gate.mjs probes),
+# so a stub would prove the fixture and not the coupling. What the fixture
+# controls is only the lib's INPUT — .nvmrc, package.json engines.node, and
+# NVM_DIR — exactly the three things that decide its answer.
+#
+# Red-first: against the previous revision of the hook (see
+# MUTATION_GATE_HOOK_UNDER_TEST at the top) the first case below reports PASS,
+# which is the defect — the gate had not run on a usable runtime at all.
+provide_node_pin_lib() {
+  local root="$1" major="$2" minor="$3"
+  mkdir -p "$root/scripts/devops/lib"
+  cp "$REPO_ROOT/scripts/devops/lib/ensure-node.sh" "$root/scripts/devops/lib/ensure-node.sh"
+  printf '%s\n' "$major" >"$root/.nvmrc"
+  printf '{\n  "name": "fixture",\n  "engines": { "node": ">=%s.%s" }\n}\n' "$major" "$minor" >"$root/package.json"
+}
+
+RUNNING_MAJOR="$(node -v | sed 's/^v\([0-9]*\).*/\1/')"
+
+ROOT_WRONG_NODE="$(make_repo wrong-node)"
+provide_infra "$ROOT_WRONG_NODE"
+write_stub_gate "$ROOT_WRONG_NODE"
+# A Node major nothing can satisfy, and an NVM_DIR with no installs in it, so
+# the lib has nowhere to switch to and reaches its refusal.
+provide_node_pin_lib "$ROOT_WRONG_NODE" 99 0
+mkdir -p "$WS/empty-nvm"
+export NVM_DIR="$WS/empty-nvm"
+
+STUB_EXIT=0
+STUB_OUTPUT="mutation-gate: PASS"
+export STUB_EXIT STUB_OUTPUT
+assert_red "the gate would run on the WRONG Node -> BLOCK naming both versions, never a SKIP" \
+  --contains '"decision": "block"' \
+  --contains "[pre:bash:mutation-gate] BLOCK" \
+  --contains "does not satisfy Node 99.0+" \
+  --contains "wrong Node" \
+  --not-contains "mutation-gate] SKIP" \
+  --not-contains "PASS branch=" \
+  -- run_hook "$ROOT_WRONG_NODE" "git push"
+unset STUB_EXIT STUB_OUTPUT
+unset NVM_DIR
+
+# The acceptable-runtime side of the same probe: every other outcome is decided
+# by the gate exactly as before. Without this pair the case above is also
+# satisfied by a hook that blocks every push.
+ROOT_RIGHT_NODE="$(make_repo right-node)"
+provide_infra "$ROOT_RIGHT_NODE"
+write_stub_gate "$ROOT_RIGHT_NODE"
+provide_node_pin_lib "$ROOT_RIGHT_NODE" "$RUNNING_MAJOR" 0
+
+STUB_EXIT=0
+STUB_OUTPUT="mutation-gate: PASS"
+export STUB_EXIT STUB_OUTPUT
+assert_green "the running Node satisfies .nvmrc + engines -> the gate's own PASS stands" \
+  --contains "[pre:bash:mutation-gate] PASS" \
+  --not-contains "BLOCK" \
+  --not-contains "runtime NOT verified" \
+  -- run_hook "$ROOT_RIGHT_NODE" "git push"
+unset STUB_EXIT STUB_OUTPUT
+
+STUB_EXIT=2
+STUB_OUTPUT="::error::mutation-gate: time budget of 120s exhausted after 121.3s while mutating @crm/api."
+export STUB_EXIT STUB_OUTPUT
+assert_green "an acceptable runtime + exit 2 for ANY OTHER reason -> still a SKIP (the other skip paths are untouched)" \
+  --contains "[pre:bash:mutation-gate] SKIP" \
+  --contains "could not complete locally" \
+  --not-contains "BLOCK" \
+  -- run_hook "$ROOT_RIGHT_NODE" "git push"
+unset STUB_EXIT STUB_OUTPUT
+
+# The lib itself absent (a checkout older than PR #1021): the runtime cannot be
+# judged, so the hook says so OUT LOUD and still runs the gate. Silence here
+# would re-create the exact collapse of "not checked" into "fine".
+STUB_EXIT=1
+STUB_OUTPUT='::error::mutant SURVIVED (ConditionalExpression)'
+export STUB_EXIT STUB_OUTPUT
+assert_red "no ensure-node.sh in this checkout -> 'runtime NOT verified' said out loud, the gate still decides" \
+  --contains "runtime NOT verified" \
+  --contains "[pre:bash:mutation-gate] BLOCK" \
+  --contains "mutant SURVIVED" \
   -- run_hook "$ROOT_BUDGET" "git push"
 unset STUB_EXIT STUB_OUTPUT
 

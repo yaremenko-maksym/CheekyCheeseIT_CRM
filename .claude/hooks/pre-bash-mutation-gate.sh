@@ -95,11 +95,39 @@
 # the only source of truth — the actual figure on YOUR push is always visible,
 # not promised.
 #
+# WHY A WRONG RUNTIME IS THE ONE ENVIRONMENTAL CASE THAT BLOCKS (2026-10-17).
+# Every "could not run" outcome used to be a SKIP, including the one where the
+# gate CAN run and simply ran on the wrong Node. On Node 20 the shared i18n
+# specs fail in Stryker's unmutated dry run ("Cannot use import statement
+# outside a module", see scripts/devops/lib/ensure-node.sh), the gate reports
+# "the suite itself is already red" and exits 2 — and the SKIP made that
+# indistinguishable from an ordinary flake for days. A skip on a wrong runtime
+# is exactly the silent fallback PR #1016 ruled out for the pre-push gate.
+#
+# The distinction this hook now draws, and where each side of it comes from:
+#   - the gate is genuinely UNAVAILABLE here (no Stryker, shared not built, the
+#     gate script absent, no node at all) -> SKIP, unchanged. CI is the real
+#     gate; blocking every push from a fresh worktree would train agents to
+#     reach for --no-verify, which is the one lever this rule set forbids.
+#   - the gate is available but the RUNTIME is wrong -> BLOCK, naming the
+#     version found and the version required. Not an absence to tolerate but a
+#     one-command fix (`nvm use 22`), and tolerating it buys a gate whose green
+#     and red both mean nothing.
+#   - the gate RAN and found a survivor -> BLOCK, unchanged.
+#   - the gate ran and could not finish for any OTHER reason (budget exceeded,
+#     bad base ref, crash) -> SKIP, unchanged.
+# The runtime verdict is NOT this hook's own opinion: it probes
+# scripts/devops/lib/ensure-node.sh, the single implementation that .husky/
+# pre-push sources and mutation-gate.mjs probes at its entry point (PR #1021).
+# So the hook cannot drift from the gate it is protecting, and the refusal
+# message an agent reads is the lib's own.
+#
 # Contract:
 #   - Reads tool-call JSON from stdin.
 #   - Fast-exit (0) on every non-`git push` command.
-#   - exit 2 + JSON {decision:block, reason} ONLY when the gate ACTUALLY RAN and
-#     found a real problem (survivor / reasonless suppression).
+#   - exit 2 + JSON {decision:block, reason} in exactly two cases: the gate RAN
+#     and found a real problem (survivor / reasonless suppression), or the
+#     runtime it would run on is not the project's Node.
 #   - exit 0 with a visible "[pre:bash:mutation-gate] SKIP" banner on stderr for
 #     every case the gate could not check (nothing changed, Stryker not
 #     installed here, packages/shared not built, budget exceeded, or any other
@@ -193,6 +221,38 @@ fi
 
 if ! command -v node >/dev/null 2>&1; then
   skip "node is not on PATH — cannot run the gate at all."
+fi
+
+# ── the runtime: the one environmental case that BLOCKS (see the header) ────
+#
+# Probed BEFORE the gate runs, so a wrong Node costs ~50ms instead of the 25-53s
+# the gate would spend reaching the same conclusion. Probed with THIS shell's
+# PATH, which is the node the `node "$GATE"` below would use, so the hook judges
+# the runtime the gate would actually get.
+#
+# Three outcomes of ensure_node, and what each means here:
+#   exit 0, nothing on stderr  — the running node already satisfies .nvmrc +
+#                                engines.node. Proceed.
+#   exit 0, a switch notice    — a satisfying nvm install exists; mutation-
+#                                gate.mjs re-executes itself under it (PR #1021),
+#                                so this hook stays out of the way and lets the
+#                                gate print its own notice rather than doubling it.
+#   exit 1                     — no acceptable node exists, or the minimum is
+#                                undeterminable. BLOCK, relaying the lib's own
+#                                message (it names the version found and the
+#                                version required).
+NODE_PIN_LIB="$WT_TOP/scripts/devops/lib/ensure-node.sh"
+if [ -f "$NODE_PIN_LIB" ]; then
+  if ! PIN_OUT=$(cd "$WT_TOP" && ENSURE_NODE_TAG="pre:bash:mutation-gate" sh -c '. "$1" && ensure_node' sh "$NODE_PIN_LIB" 2>&1); then
+    echo "$PIN_OUT" >&2
+    block "🚫 PRE-PUSH BLOCK: the mutation gate would run on the wrong Node — the message above names the version found and the version required (.nvmrc + package.json engines.node). This is deliberately a BLOCK and not a SKIP: on the wrong Node the shared i18n specs fail in Stryker's unmutated dry run, the gate reports 'the suite itself is already red', and a skip there reads exactly like an ordinary flake (it hid a real defect for days on 2026-10-17). Fix: nvm install 22 && nvm use 22, or put a Node 22 bin dir first on PATH, then push again."
+  fi
+else
+  # Not a skip: the gate can still find survivors, and refusing a push over a
+  # missing library would be the hard block the header rules out. But it is said
+  # OUT LOUD, because "the runtime was not checked" must not read like "the
+  # runtime is fine" — that collapse is the whole defect this section fixes.
+  echo "[pre:bash:mutation-gate] runtime NOT verified — $NODE_PIN_LIB is missing (a checkout older than PR #1021?). Running the gate anyway; a failure that names 'Cannot use import statement outside a module' is a wrong-Node symptom, not a flake." >&2
 fi
 
 # ── run it ────────────────────────────────────────────────────────────────
