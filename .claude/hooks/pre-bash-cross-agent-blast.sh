@@ -204,6 +204,13 @@ fi
 # Cheap pre-filter: if none of the three trigger words appear anywhere, leave.
 echo "$CMD" | grep -qE 'pkill|killall|worktree|\.claude/worktrees/|CheekyCheeseIT_CRM' || exit 0
 
+# NOTE: this `python3 -c '...'` is SINGLE-quoted, so an apostrophe anywhere
+# inside it — including in a comment — closes the string and the hook dies at
+# parse time. A parse death exits 2 and is indistinguishable from an honest block
+# by exit code alone, which is why the smoke test runs `bash -n` first and
+# asserts the {"decision":"block"} body. Write "the cwd of the caller", not
+# "the caller's cwd". (The message block further down has the opposite hazard:
+# it is DOUBLE-quoted, so backticks there are command substitution.)
 REASONS=$(CWD="$CWD" printf '%s' "$CMD" | CWD="$CWD" python3 -c '
 import os, re, shlex, sys
 
