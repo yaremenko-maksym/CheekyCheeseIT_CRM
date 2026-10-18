@@ -128,29 +128,89 @@ END
 $roles$;
 
 -- Re-assert the attributes on every deploy: this is the drift-repair path. A role granted
--- SUPERUSER or CREATEROLE by hand loses it here, before the catalog check would have
--- failed the deploy over it.
+-- SUPERUSER or CREATEROLE by hand loses it here, before the catalog check fails the deploy
+-- over it.
 --
--- CONNECTION LIMIT, with the arithmetic rather than a round number: `DatabaseService`
--- opens one `pg` Pool with no `max`, i.e. pg's default of 10. A deploy recreates the API
--- container and the recreate can briefly overlap, so 10 x 2 = 20, plus 10 of headroom for
--- an operator session and a pool that has not finished draining. A limit that is too low
--- is an outage, so the headroom is deliberate. Keep in step with CONNECTION_LIMITS in
--- src/database/privileges/privilege-classes.ts — the catalog check compares them.
-ALTER ROLE crm_app
-  WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS INHERIT
-  CONNECTION LIMIT 30;
+-- WHY THIS IS A DIFF AND NOT A FLAT `ALTER ROLE … WITH <every attribute>`
+-- Measured on 16.15 (2026-10-18) by applying this file as a non-superuser CREATEROLE role,
+-- i.e. step 0's branch 2, which the ADR calls "the plan as written": a flat re-assert FAILS
+-- with `permission denied to alter role`, and the DETAIL names the rule —
+--   "Only roles with the SUPERUSER attribute may change the SUPERUSER attribute"
+-- and the same for CREATEDB, REPLICATION and BYPASSRLS. PostgreSQL 16 requires the altering
+-- role to HOLD an attribute even to set it to NO. (LOGIN, INHERIT, NOCREATEROLE and
+-- CONNECTION LIMIT were accepted.) So naming all six unconditionally would stop a branch-2
+-- deploy at this statement — before anything was checked, and for a state that is already
+-- correct, since `CREATE ROLE` above set it.
+--
+-- Issuing only the clauses that actually DIFFER from the catalog means: no statement at all
+-- in the normal case, repair in branch 1 (the owner is a superuser and may change
+-- anything), and in branch 2 repair of whatever the role is allowed to change plus a loud
+-- WARNING for the rest. What the WARNING does not do, stated plainly: in branch 2 this file
+-- CANNOT take SUPERUSER, CREATEDB, REPLICATION or BYPASSRLS away from an application role —
+-- only the cluster's superuser can. The catalog check (part 7) fails the deploy on exactly
+-- that state, so the condition is detected and reported; it is not silently repaired.
+--
+-- CONNECTION LIMIT, with the arithmetic rather than a round number: `DatabaseService` opens
+-- one `pg` Pool with no `max`, i.e. pg's default of 10. A deploy recreates the API container
+-- and the recreate can briefly overlap, so 10 x 2 = 20, plus 10 of headroom for an operator
+-- session and a pool that has not finished draining. A limit that is too low is an outage,
+-- so the headroom is deliberate.
+--
+-- NOLOGIN is what keeps `crm_retention_owner` off the network; CONNECTION LIMIT 0 is a
+-- second layer that costs nothing and is assertable. Neither affects a SECURITY DEFINER
+-- function running as its owner, which is the only way that role is ever used.
+--
+-- Keep in step with ROLES and CONNECTION_LIMITS in
+-- src/database/privileges/privilege-classes.ts — the catalog check compares against them.
+DO $attributes$
+DECLARE
+  r record;
+  clauses text[];
+BEGIN
+  FOR r IN
+    SELECT w.rolname, w.can_login, w.conn_limit, a.rolsuper, a.rolcreatedb, a.rolcreaterole,
+           a.rolreplication, a.rolbypassrls, a.rolinherit, a.rolcanlogin, a.rolconnlimit
+      FROM (VALUES
+        ('crm_app', true, 30),
+        ('crm_collector', true, 10),
+        ('crm_retention_owner', false, 0)
+      ) AS w(rolname, can_login, conn_limit)
+      JOIN pg_roles a ON a.rolname = w.rolname
+  LOOP
+    -- `array_append` and not `||`: with an UNTYPED literal on the right, `text[] || 'x'`
+    -- resolves to the array-with-array operator and fails with `malformed array literal`,
+    -- while `text[] || format(…)` resolves to array-with-element because format() returns a
+    -- typed text. So the `||` form works for some of these lines and not others — measured
+    -- on 16.15 when the repair path first ran for real.
+    clauses := ARRAY[]::text[];
+    IF r.rolcanlogin <> r.can_login THEN
+      clauses := array_append(clauses, CASE WHEN r.can_login THEN 'LOGIN' ELSE 'NOLOGIN' END);
+    END IF;
+    IF r.rolsuper THEN clauses := array_append(clauses, 'NOSUPERUSER'); END IF;
+    IF r.rolcreatedb THEN clauses := array_append(clauses, 'NOCREATEDB'); END IF;
+    IF r.rolcreaterole THEN clauses := array_append(clauses, 'NOCREATEROLE'); END IF;
+    IF r.rolreplication THEN clauses := array_append(clauses, 'NOREPLICATION'); END IF;
+    IF r.rolbypassrls THEN clauses := array_append(clauses, 'NOBYPASSRLS'); END IF;
+    IF NOT r.rolinherit THEN clauses := array_append(clauses, 'INHERIT'); END IF;
+    IF r.rolconnlimit <> r.conn_limit THEN
+      clauses := array_append(clauses, format('CONNECTION LIMIT %s', r.conn_limit));
+    END IF;
 
-ALTER ROLE crm_collector
-  WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS INHERIT
-  CONNECTION LIMIT 10;
+    IF cardinality(clauses) = 0 THEN
+      CONTINUE;
+    END IF;
 
--- NOLOGIN is what keeps this one off the network; CONNECTION LIMIT 0 is a second layer
--- that costs nothing and is assertable. Neither affects a SECURITY DEFINER function
--- running as its owner, which is the only way this role is ever used.
-ALTER ROLE crm_retention_owner
-  WITH NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS INHERIT
-  CONNECTION LIMIT 0;
+    BEGIN
+      EXECUTE format('ALTER ROLE %I WITH %s', r.rolname, array_to_string(clauses, ' '));
+      RAISE NOTICE 'repaired attributes of %: %', r.rolname, array_to_string(clauses, ' ');
+    EXCEPTION
+      WHEN insufficient_privilege THEN
+        RAISE WARNING 'cannot repair attributes of % (% ) as % — a superuser must do it; the catalog check will fail the deploy until then',
+          r.rolname, array_to_string(clauses, ' '), current_user;
+    END;
+  END LOOP;
+END
+$attributes$;
 
 -- ----------------------------------------------------------------------------
 -- 2. Passwords — see the header for the mechanism and the three traps
@@ -239,11 +299,25 @@ $database$;
 -- Non-fatal on a permission error: in branch 2 `crm_user` may not own `template1`, and the
 -- catalog check then fails loudly with the exact database and privilege. Failing HERE would
 -- stop a branch-2 deploy at file 1, before anything is checked.
+--
+-- Attempted only where PUBLIC still HOLDS one of the two privileges. Without that
+-- condition the statement is a no-op that is nevertheless refused for lack of privilege,
+-- so branch 2 would warn on every deploy about a state a superuser had already fixed —
+-- and a warning that fires when nothing is wrong is a warning nobody reads.
 DO $others$
 DECLARE
   d text;
 BEGIN
-  FOR d IN SELECT datname FROM pg_database WHERE datname IN ('postgres', 'template1') AND datallowconn
+  FOR d IN
+    SELECT db.datname
+      FROM pg_database db
+     WHERE db.datname IN ('postgres', 'template1')
+       AND db.datallowconn
+       AND EXISTS (
+         SELECT 1
+           FROM aclexplode(COALESCE(db.datacl, acldefault('d', db.datdba))) a
+          WHERE a.grantee = 0 AND a.privilege_type IN ('CONNECT', 'TEMPORARY')
+       )
   LOOP
     BEGIN
       EXECUTE format('REVOKE CONNECT, TEMPORARY ON DATABASE %I FROM PUBLIC', d);

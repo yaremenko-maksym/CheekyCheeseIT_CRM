@@ -875,6 +875,19 @@ BEGIN
         OR NOT m.admin_option
         OR m.inherit_option
         OR m.set_option
+    UNION ALL
+    -- And exactly ONE such row, not merely one of the right shape. Two grants of the same
+    -- shape from different grantors are both legal and both invisible to the predicate
+    -- above, since it never looks at the grantor; a second membership grant is still a
+    -- second route to this role.
+    SELECT format('%s has %s membership rows, expected %s in this branch',
+                  w.role_name, count(m.member),
+                  CASE WHEN b.owner_is_superuser THEN 0 ELSE 1 END)
+      FROM wanted w
+      CROSS JOIN branch b
+      LEFT JOIN pg_auth_members m ON m.roleid::regrole::text = w.role_name
+     GROUP BY w.role_name, b.owner_is_superuser
+    HAVING count(m.member) <> CASE WHEN b.owner_is_superuser THEN 0 ELSE 1 END
   ) q;
   IF offenders IS NOT NULL THEN
     RAISE EXCEPTION 'db-privileges check FAILED — part 8 (role membership): %', offenders
