@@ -569,6 +569,53 @@ kill %1  # stop the tunnel
 **Long-term solution (Coder task):** add `drizzle-kit` as a runtime dep in
 the prod image of the API or create a separate migrate container in `docker-compose.prod.yml`.
 
+### 5.1 Database roles in the deploy: apply order and how the `crm_app` credential reaches the VPS
+
+**Apply order inside the "Pull, up, migrate, health-check via SSH" step** (positions count distinct
+manual files in textual order, which is execution order; all 52 run in that one step):
+
+| Position | File                                                   | Why it sits there                                                               |
+| -------- | ------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| 1        | `2026-10-18_db_roles.sql`                              | Roles first: the grants file and the append-only triggers file need them        |
+| 47       | `2026-10-04_multiple_salary_transactions_prepare.sql`  | Creates `salary_month_initializations`; must precede the grants. Back-compat    |
+| 48       | `2026-10-17_job_opportunities_store.sql`               | Creates the job-store tables                                                    |
+| 49       | `2026-10-18_db_grants.sql`                             | After EVERY file that creates a table, view or sequence                         |
+| 50       | `2026-10-17_job_opportunities_store_indexes.sql`       | Indexes only, creates no relation                                               |
+| 51       | `2026-10-18_db_privileges_check.sql`                   | First run: before the container swap, so a drift fails while the old API serves |
+| 52       | `2026-10-04_multiple_salary_transactions_activate.sql` | Breaking half, must follow the swap and the health gate; creates no relation    |
+| (end)    | `2026-10-18_db_privileges_check.sql` (second run)      | The last database step, so the END state is what is validated                   |
+
+Two invariants, both true by construction: no relation-creating file is applied after position 49,
+and the privileges check is the last database step. Moving the `prepare` file ahead of the grants
+means a fresh database ends the deploy with every relation granted, instead of relying on production
+already having the table. What was traded: `prepare` now runs a few steps earlier (it is
+backward-compatible, so this is safe), and the check runs twice (the extra run costs one read-only
+query; it keeps the fail-before-swap property that a single end-of-script check would lose).
+
+**Rollout step 5 handoff for the app credential** (not wired yet; the secret does not exist yet):
+
+1. The owner adds the repository secret `CRM_APP_DB_PASSWORD` (`openssl rand -hex 32`). Later steps add
+   `CRM_OWNER_DB_PASSWORD` (GUC `crm_roles.owner_verifier`) and `CRM_COLLECTOR_DB_PASSWORD`
+   (`crm_roles.collector_verifier`) the same way.
+2. On the runner, in the deploy job: a sparse `actions/checkout@v4` of
+   `apps/api/src/database/privileges/scram-verifier.cli.mjs` (`persist-credentials: false`), then one
+   step with the password in its own `env:` runs `printf %s "$CRM_APP_DB_PASSWORD" | node <cli>.mjs`
+   (stdin, so no argv), masks the result with `::add-mask::`, and writes `CRM_APP_DB_VERIFIER` to
+   `$GITHUB_ENV`.
+3. The runner reaches the VPS through the existing `envs:` passthrough of the ssh step (add the name
+   `CRM_APP_DB_VERIFIER`, as `GHCR_TOKEN` already does). Only the verifier travels; the password never
+   reaches the VPS.
+4. On the VPS the roles file is applied as
+   `PGOPTIONS="-c crm_roles.app_verifier=${CRM_APP_DB_VERIFIER}" docker compose ... exec -T -e PGOPTIONS postgres psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 < "$DB_ROLES_FILE"`.
+   The variable names are the script's own, `PGUSER` and `PGDB` (not `PGDATABASE`). `-e PGOPTIONS` is the
+   name only; `-e NAME=value` and `psql -v name=value` would put the value in argv.
+5. Nothing reaches a command line, a process list or the server log: the verifier is stdin on the
+   runner, an environment value afterwards, and a startup `options` parameter at the server (not a
+   statement, so not in `log_statement` output or a failing statement's logged text).
+
+To confirm at rollout rather than assume: `docker compose exec -e NAME` pass-through on the VPS's
+compose version, and `ps -ef` during the apply showing no `SCRAM-SHA-256`.
+
 ---
 
 ## 6. Bootstrap — the first two ADMIN users
