@@ -160,6 +160,25 @@ provider type + namespace + native key, each with immutable revisions) and is ev
 It also replaces the legacy `jobPostings` concept in the new store.
 _Avoid_: `job_vacancies*` / «vacancy» in code (reserved for the studio's own landing postings), «пост», «объявление»
 
+**Submission** (product term: «Подача»; the record a recruiter makes with «Записати подачу»):
+The recorded fact that **one senior** was submitted to **one job opportunity**. It is per senior, not per vacancy:
+several of a team's seniors may each be submitted to the same opportunity, independently and in any order. The CRM
+**records** a submission; it does **not** send anything — the recruiter applies on the source site and then logs it.
+A submission is visible only inside the submitting team; no team can learn where another team submits. A recruiter
+cancels their own team's submission, an ADMIN any; the action log is append-only, so a cancellation is a recorded
+fact, not an erasure.
+_Avoid_: «взяти в роботу» / «вже взято» (they imply the vacancy becomes occupied, which a submission never does),
+«відправити» / «send» (nothing is sent), «заявка» (that is a `vacancyApplications` row — a candidate applying to one of
+the studio's own landing vacancies)
+
+**Stop-list** (product term: «Стоп-лист»; `job_exclusion_filters` with kind `COMPANY` and a non-null `senior_id`):
+A senior's own list of companies they should not be submitted to. It is **per senior, never global**. A stop-listed
+company removes that senior from the opportunity's matches — the opportunity stays for the team's other seniors, and
+leaves the queue only when no matching senior remains. Recruiters see **how many** of their team's seniors excluded an
+opportunity, not who; filtering the queue by one senior hides that senior's stop-listed opportunities, which is
+intended rather than a leak.
+_Avoid_: «чорний список» / «blacklist», «бан компанії» (both suggest a studio-wide rule, which this is not)
+
 ## Documents
 
 **Invoice** (product term: «Счёт»; `invoices`, `invoiceSignatures`):

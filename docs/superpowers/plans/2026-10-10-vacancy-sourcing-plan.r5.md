@@ -164,6 +164,47 @@ sends the next reader to ask it again.
 | Exposure on production           | **Hidden until the feature is fully ready** (owner, 2026-10-18). Two independent gates, both needed: the `/job-queue` route **and** its navigation entry are gated from the **first** UI commit rather than retrofitted, and the sources stay **disabled by default** per A1i so the collector touches no live third party until someone enables a wave. When the gate does open it follows §8.2's order — ADMIN-only review first, then limited HR — so the gate is role-aware, not a single boolean for everyone                                                                             |
 | External requests to job sources | **Authorised.** Requests to public, free, terms-permitting sources may be made. The protected giants in §5 stay out                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
+### Queue model — owner decisions, 2026-10-18 (later the same day)
+
+**Submissions are per senior and teams are invisible to each other.** Owner: «каждый из синьоров подается независимо
+от другого и команды не знают куда подаются другие команды». So:
+
+- **No global "taken" state.** An opportunity another team worked on must look, to this actor, exactly like one
+  nobody touched — not greyed, badged or labelled. The only activity ever shown is the actor's own team's.
+- **A submission is a per-senior fact** on one opportunity; several of a team's seniors may be submitted to it
+  independently. It hangs off the existing per-senior match row (`job_opportunity_matches`, already keyed on
+  opportunity × senior and versioned).
+- **Schema consequence — one forward migration.** `job_queue_assignments` already carries `scope_kind` and `team_id`,
+  as do `job_queue_generations`; the single obstacle is the shipped `UNIQUE("opportunity_id")`, which makes a claim
+  global regardless of those columns. All six queue tables were **empty on production** when measured, so widening it
+  moves no data. Task 6.3 is marked superseded in part until rewritten against this.
+- **ADMIN reassign is dropped** — it has no meaning when submissions are per senior.
+- **The button records, it does not send:** «Записати подачу» / "Log submission", with a persistent reminder to apply on
+  the source site first. A button labelled «Подати» that sends nothing could be clicked _instead of_ applying, leaving a
+  senior recorded as submitted who never was.
+- **Cancelling a submission:** a recruiter cancels their own team's; an ADMIN cancels any. A recorded fact, not an
+  erasure — the action log is append-only.
+- **Tabs:** «Нові» · «Подані» · «Приховані». «У роботі» implied the opportunity was occupied.
+- **Counts for HR are team-scoped** («вашої команди»); only ADMIN sees a studio-wide figure.
+- **Stop-lists:** HR sees how many of their seniors excluded an opportunity, not who. Filtering by one senior hides
+  that senior's stop-listed opportunities — **intended**, decided by the owner, and not a leak.
+- **Submitting to a triage item is allowed** — triage marks the system's uncertainty and is not a lock.
+- **Filters:** search, source, eligibility, availability, activity, and **for a specific senior** (the actor's own
+  team's seniors only). Filters on engagement form and on salary were considered and **dropped**: the funnel already
+  enforces remote and the $3500 floor. The engagement form and the "salary unknown" flag **stay visible on the card**.
+- **List paging:** infinite scroll, keeping a focusable load-more path for keyboard and screen-reader users. The
+  keyset pagination underneath is unchanged.
+- **Design (Task 0.1): approved** by the owner.
+
+### Model split — owner decision, 2026-10-18
+
+**Vacancy extraction** runs on Gemini, Groq, OpenRouter and the local model. **Generation** (résumés now, tailoring
+later) runs on Cloudflare Workers AI first, falling back to the other free providers if every Cloudflare model falls
+away, with **the local model as the floor** beneath both — slow, never a silent failure. Every optimisation adopted for
+the extraction chain applies to Cloudflare as well. Generation is **not** part of r5 and is not started now; it is
+recorded here so Task 5.2 is built with it in view. This also resolves the shared-quota concern: the two workloads no
+longer draw on one provider.
+
 **Still open, and each blocks only its own branch:**
 
 - **Decided 2026-10-18: the legacy per-senior `JobSuggestionDialog` is deleted.** It is already unreachable in
@@ -263,7 +304,7 @@ extraction. A missing measurement blocks only the decision it feeds.
 orchestrator → spec). Reference for tone and the existing degraded spec: `docs/design/job-sourcing-suggestion.md`.
 
 - [ ] **Brief (mandatory content):** HR + ADMIN screen, dark theme only; frames 320/768/1024/1440 × default/empty/
-      loading/error; status tabs `Нові`/`У роботі`/`Приховані` with authorized counts; rank-ordered list (title,
+      loading/error; status tabs `Нові`/`Подані`/`Приховані` (renamed from «У роботі» 2026-10-18, see §4 «Queue model») with authorized counts; rank-ordered list (title,
       company, seniority badge, stack-signal chips, «N сеньйорів мають збіг стеку» from `totalMatchedSeniorCount`,
       publication age vs first-seen/last-observed, source icon, `+N також на …` from `totalAlsoSeenOnCount`;
       mobile = card stack); card (markdown description via the extracted `PostingMarkdown`, «Також відкрито на:»
@@ -326,7 +367,7 @@ use the `job_opportunity*` family pending the A2 naming decision (C-14).
 | `job_opportunities`               | canonical UUID, employer identity nullable/verified, selected fields + field→revision provenance, availability, revision number, first-seen. No unique company/title constraint; candidate keys indexed non-uniquely.                                                                                                                                                                                                                       |
 | `job_opportunity_sources`         | record FK, opportunity FK, decision/evidence/rule version, linked/unlinked time+reason; partial UNIQUE(record) WHERE active. History preserved.                                                                                                                                                                                                                                                                                             |
 | `job_opportunity_matches`         | UNIQUE(opportunity, senior); input versions (opportunity revision, senior profile version, exclusion/rule versions), outcome LEAD/TRIAGE/EXCLUDED only (plain mismatch recomputed on demand), evidence, evaluated-at; stale versions never served; per-senior invalidation (keyword→opportunity index); invalidate on archive/team change.                                                                                                  |
-| `job_queue_assignments`           | UNIQUE(opportunity), claim state, actor/team, taken-at, version, release/reassign metadata.                                                                                                                                                                                                                                                                                                                                                 |
+| `job_queue_assignments`           | UNIQUE(opportunity) **— must widen, see §4 «Queue model»; the shipped constraint makes a claim global and forbids per-senior submission**, claim state, actor/team, taken-at, version, release/reassign metadata.                                                                                                                                                                                                                           |
 | `job_queue_dismissals`            | UNIQUE(opportunity, scope kind, scope ID); scope TEAM or STUDIO (ADMIN-only); reason/actor/version/time, undo metadata.                                                                                                                                                                                                                                                                                                                     |
 | `job_opportunity_team_triage`     | UNIQUE(opportunity, team); ADMIN-assigned after restriction checks; evidence/policy/revision/expiry; revalidated on policy/source change.                                                                                                                                                                                                                                                                                                   |
 | `job_team_triage_subscriptions`   | standing ADMIN triage per team: role-family/source filter, policy version, expiry, actor, audit; never covers unverifiable-employer items.                                                                                                                                                                                                                                                                                                  |
@@ -968,6 +1009,13 @@ preview ≤ 200 with independent continuation/totals; bounded indexed filters (M
       latest card update; query-plan benchmark.
 
 ### Task 6.3: Actions — take, dismiss, undo, opened, release/reassign/suppress
+
+> **⚠ Superseded in part by the owner's queue-model decision of 2026-10-18 — read §4 «Queue model» first.** The
+> "studio-wide claim" below, the «вже взято» state, the single take per opportunity, and ADMIN **reassign** no longer
+> hold. A submission is per senior, several seniors may be submitted to one opportunity independently, and no team may
+> learn anything about another team's activity. The idempotency, version, lock-ordering, audit-in-the-same-transaction
+> and possible-duplicate rules below **still apply**, re-keyed to the per-senior submission. Rewrite this task against
+> §4 before implementing it; do not build the text below as written.
 
 Studio-wide claim; UI `queueStatus` = IN_PROGRESS if assigned, else DISMISSED in the actor's team/STUDIO scope, else
 NEW. HR dismisses own team view; suppression/release/reassign ADMIN-only; spam/dead-link reports reference the clicked
