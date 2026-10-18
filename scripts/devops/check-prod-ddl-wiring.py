@@ -954,6 +954,151 @@ def check_preflight_covers_unconditional_scp(preflight_result, steps):
     return sorted(unconditional_scp_source_files(steps) - set(preflight_files))
 
 
+# ---------------------------------------------------------------------------
+# APPLY-ORDER INVARIANTS (task-infra db-least-privilege-roles, PR #1027 fix
+# round, 2026-10-18)
+# ---------------------------------------------------------------------------
+# The privilege grants file names every relation explicitly, so it only covers
+# what already exists when it runs; the privileges check validates the state it
+# runs in. Two consequences, each of which once held only by position:
+#
+#   1. GRANTS-AFTER-CREATORS: no file applied AFTER the grants may create a
+#      table, view, materialized view or sequence. A relation created later
+#      ends the deploy ungranted. This was broken in the first wiring (the
+#      multipart-salary `prepare` file creates `salary_month_initializations`
+#      and sat after the grants); it was invisible on production because the
+#      table already existed there, and only a FRESH database would have shown
+#      it. The justification written next to the grants asserted the opposite
+#      and nothing checked it.
+#   2. CHECK-LAST: the privileges check must be the final file psql applies, so
+#      the state it validates is the end state of the deploy. A first run
+#      before the container swap is fine (it fails the deploy while the old API
+#      is still serving) as long as a run ALSO closes the sequence.
+#
+# BOTH are derived from deploy.yml itself, the way a human derives them: walk
+# the apply step in text order (execution order inside one script), resolving
+# `psql ... < "$VAR"` the same way the wiring check does, then read each file
+# applied after the grants and look for a relation-creating statement. There is
+# deliberately no hand-maintained list of creator files — that would be the
+# same fragility one level up. The only literals are the two ANCHOR files the
+# invariants are about.
+#
+# Gated on presence: with no grants file in the apply sequence (fixtures, or a
+# repo that has not adopted the roles work) invariant 1 is skipped; likewise
+# invariant 2 without the check file.
+#
+# KNOWN LIMITS, stated: text order is execution order only inside the single
+# job that applies the grants (steps of one job run sequentially; across jobs it
+# need not), so the sequence is taken from that job alone. Only files applied
+# through psql are seen; DDL issued any other way (an inline `psql -c`) is not.
+GRANTS_FILE = "2026-10-18_db_grants.sql"
+PRIVILEGES_CHECK_FILE = "2026-10-18_db_privileges_check.sql"
+
+RELATION_CREATING_RE = re.compile(
+    r"\bCREATE\s+(?:OR\s+REPLACE\s+)?"
+    r"(?:(?:GLOBAL\s+|LOCAL\s+)?(?:TEMP(?:ORARY)?|UNLOGGED|RECURSIVE|FOREIGN)\s+)*"
+    r"(?:TABLE|VIEW|MATERIALIZED\s+VIEW|SEQUENCE)\b"
+    # A serial / identity column creates an owned sequence, which the check's
+    # relkind 'S' pass covers as well.
+    r"|\b(?:BIG|SMALL)?SERIAL\b|\bAS\s+IDENTITY\b",
+    re.IGNORECASE,
+)
+SQL_BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
+SQL_LINE_COMMENT_RE = re.compile(r"--[^\n]*")
+
+
+def ordered_applied_files(steps, job_id):
+    """File names psql applies in the given job, in execution (text) order.
+
+    A file applied several times appears several times. Assignments are
+    resolved in sequence (not collected up front), so a re-used variable name
+    resolves to the file it held at that point.
+    """
+    var_files = {}
+    sequence = []
+    for step in steps:
+        if step.job_id != job_id:
+            continue
+        for cmd in join_logical_commands(step.lines):
+            cmd_lines = cmd.split("\n")
+            if len(cmd_lines) == 1:
+                m = VAR_ASSIGN_RE.match(cmd_lines[0])
+                if m:
+                    var_files[m.group(1)] = m.group(2) if m.group(2) is not None else m.group(3)
+                    continue
+            if not any(
+                PSQL_INVOCATION_RE.search(ln) and not ECHO_LINE_RE.match(ln) for ln in cmd_lines
+            ):
+                continue
+            found = []
+            for varname, path in var_files.items():
+                ref = re.search(r"\$\{?" + re.escape(varname) + r"\}?(?![A-Za-z0-9_])", cmd)
+                if ref:
+                    found.append((ref.start(), path))
+            for m in re.finditer(r"/opt/crm/\S+\.sql", cmd):
+                found.append((m.start(), m.group(0).rstrip("\"'),;")))
+            for _pos, path in sorted(found):
+                sequence.append(os.path.basename(path))
+    return sequence
+
+
+def creates_relation(ddl_dir, filename):
+    """True when the file, comments removed, contains a relation-creating statement."""
+    path = os.path.join(ddl_dir, filename)
+    if not os.path.isfile(path):
+        return False
+    with open(path, "r") as f:
+        sql = f.read()
+    sql = SQL_LINE_COMMENT_RE.sub("", SQL_BLOCK_COMMENT_RE.sub("", sql))
+    return RELATION_CREATING_RE.search(sql) is not None
+
+
+def check_apply_order(steps, ddl_dir):
+    """Return a list of (invariant, filename, message) violations."""
+    violations = []
+    for job_id in sorted({s.job_id for s in steps}):
+        sequence = ordered_applied_files(steps, job_id)
+        if GRANTS_FILE in sequence:
+            last_grants = len(sequence) - 1 - sequence[::-1].index(GRANTS_FILE)
+            seen = set()
+            for position, name in enumerate(sequence[last_grants + 1 :], start=last_grants + 2):
+                if name in seen or name == GRANTS_FILE:
+                    continue
+                # A file whose FIRST application is above the grants has already
+                # created its relations by then; a later re-run (deploy.yml
+                # re-applies the drop_cascade_origin marker as a post-cutover
+                # second pass) cannot create a new one. Judge by first application.
+                if sequence.index(name) <= last_grants:
+                    continue
+                seen.add(name)
+                if creates_relation(ddl_dir, name):
+                    violations.append(
+                        (
+                            "GRANTS-AFTER-CREATORS",
+                            name,
+                            "creates a table, view, materialized view or sequence but is applied "
+                            "AFTER {} (apply #{} of {} in its job, grants at #{}), so on a fresh "
+                            "database that relation ends the deploy ungranted".format(
+                                GRANTS_FILE, position, len(sequence), last_grants + 1
+                            ),
+                        )
+                    )
+        if PRIVILEGES_CHECK_FILE in sequence and sequence[-1] != PRIVILEGES_CHECK_FILE:
+            violations.append(
+                (
+                    "CHECK-LAST",
+                    sequence[-1],
+                    "is applied AFTER the last run of {} (the check is at #{} of {}), so the "
+                    "check validates a state that is not the end state of the deploy".format(
+                        PRIVILEGES_CHECK_FILE,
+                        len(sequence) - sequence[::-1].index(PRIVILEGES_CHECK_FILE),
+                        len(sequence),
+                    ),
+                )
+            )
+    return violations
+
+
 def main():
     if not os.path.isfile(DEPLOY_YML):
         print("ERROR: deploy.yml not found: {}".format(DEPLOY_YML))
@@ -1011,6 +1156,8 @@ def main():
 
     missing_from_preflight = check_preflight_covers_unconditional_scp(preflight_result, steps)
 
+    order_violations = check_apply_order(steps, DDL_MANUAL_DIR)
+
     print("Prod DDL Wiring Guard")
     print("  Total manual DDL files:  {}".format(len(all_files)))
     print("  Copied AND applied:      {}".format(len(fully_wired)))
@@ -1022,6 +1169,7 @@ def main():
     print("  psql missing ON_ERROR_STOP: {}".format(len(flag_gaps)))
     print("  Hard-required list drift (preflight vs runbook): {}".format(mirror_drift))
     print("  Preflight missing unconditional scp files: {}".format(len(missing_from_preflight)))
+    print("  Apply-order violations (grants / privileges check): {}".format(len(order_violations)))
 
     if ghost_allowlist:
         print()
@@ -1165,8 +1313,25 @@ def main():
         print("reached the VPS. That is the SR-H-3 failure mode this preflight step exists")
         print("to prevent, reopened through the one file class the mirror check cannot see.")
 
+    if order_violations:
+        print()
+        print("FAIL: deploy.yml's DDL apply order breaks an invariant of the database")
+        print("privilege work. Order is taken from the apply step itself (text order inside")
+        print("one job script), not from a list.")
+        for invariant, filename, message in order_violations:
+            print()
+            print("  [{}] {}".format(invariant, filename))
+            print("    {}".format(message))
+        print()
+        print("Fix: GRANTS-AFTER-CREATORS - move the offending file's apply block ABOVE the")
+        print("`{}` block (or split the relation-creating part out of it).".format(GRANTS_FILE))
+        print("CHECK-LAST - make the final database step the `{}` run;".format(PRIVILEGES_CHECK_FILE))
+        print("an earlier run before the container swap may stay (it fails the deploy while")
+        print("the old API is still serving), but a run must also close the sequence.")
+
     if (
         broken
+        or order_violations
         or private_leaks
         or flag_gaps
         or mirror_error

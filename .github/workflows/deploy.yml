@@ -4382,8 +4382,10 @@ jobs:
             # BEFORE this one. The multipart-salary PREPARE file (the last relation-creating file
             # that used to sit after this point: it creates salary_month_initializations) was moved
             # up in front of the job opportunities store block for exactly that reason; the store
-            # DDL and its indexes file precede this block. Only the activate file is applied later
-            # (it runs after the container swap by design) and it creates no relations. The grants
+            # DDL and its indexes file precede this block. Files applied later are the activate file (it
+            # runs after the container swap by design; creates no relations) and the drop_cascade_origin
+            # marker SECOND PASS, a re-run of a file whose first application, and so its
+            # CREATE TABLE IF NOT EXISTS, is far above this block. The grants
             # file names tables explicitly and fails on a missing one, so a fresh database ends the
             # deploy with every relation granted by construction, not because production already
             # has the tables. It is also BEFORE the append-only triggers file (r5 Task 1.3b,
@@ -4392,7 +4394,7 @@ jobs:
             #
             # The privileges check (r5 Task 1.3c) runs twice: once just before the container swap
             # (fail-fast, old API still serving) and again as the LAST database step, after the
-            # activate file, so that the end state is what gets validated.
+            # marker second pass, so that the end state is what gets validated.
             # Source: apps/api/drizzle/manual/2026-10-18_db_grants.sql
             DB_GRANTS_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-18_db_grants.sql"
 
@@ -4441,8 +4443,8 @@ jobs:
             # ONLY under ON_ERROR_STOP=1 (without it the deploy would pass on a failed check).
             # FIRST RUN: after every DDL that precedes the container swap (including the append-only
             # triggers and their catalog check, PR #1026) and before `up -d` swaps the API, so a
-            # drift fails the deploy while the old API is still serving. A second, final run follows
-            # the activate file below.
+            # drift fails the deploy while the old API is still serving. A second, final run closes the
+            # script, after the post-cutover marker second pass.
 
             # Source: apps/api/drizzle/manual/2026-10-18_db_privileges_check.sql
             DB_PRIVILEGES_CHECK_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-18_db_privileges_check.sql"
@@ -4602,22 +4604,6 @@ jobs:
               psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
               < "$MULTIPART_SALARY_ACTIVATE_FILE"
             echo "==> multipart salary activation applied successfully"
-
-            # ── database privileges catalog check, FINAL RUN (r5 Task 1.3c) — LAST database step ──
-            # The activate file above is the only DDL applied after the first run; this run validates
-            # the actual end state of the deploy, so nothing is applied after the gate. It is placed
-            # before the health loop below because that loop is not a database step.
-            DB_PRIVILEGES_CHECK_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-18_db_privileges_check.sql"
-
-            echo "==> Running database privileges catalog check, final run (read-only) — user=${PGUSER} db=${PGDB}"
-            docker compose \
-              -f docker-compose.prod.yml \
-              -f docker-compose.ghcr.yml \
-              --env-file .env.production \
-              exec -T postgres \
-              psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
-              < "$DB_PRIVILEGES_CHECK_FILE"
-            echo "==> database privileges catalog check (final) passed"
 
             # Verify the API remains healthy after the schema contract changes.
             echo "==> Post-activation health check — verifying API container"
@@ -4854,6 +4840,25 @@ jobs:
               } | tee -a /opt/crm/.last-ddl-summary.txt
               echo "==> drop_cascade_origin marker SECOND PASS applied successfully"
             fi
+
+            # ── database privileges catalog check, FINAL RUN (r5 Task 1.3c) — LAST database step ──
+            # Two files are applied after the first run: the multipart-salary activate file (it must
+            # follow the container swap) and the drop_cascade_origin marker SECOND PASS (a
+            # post-cutover sweep) just above. This run is placed after the second pass, so nothing is
+            # applied after the gate and the end state of the deploy is what gets validated.
+            # check-prod-ddl-wiring.py enforces this (CHECK-LAST): it fails if any file psql applies
+            # comes after the last run of the check.
+            DB_PRIVILEGES_CHECK_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-18_db_privileges_check.sql"
+
+            echo "==> Running database privileges catalog check, final run (read-only) — user=${PGUSER} db=${PGDB}"
+            docker compose \
+              -f docker-compose.prod.yml \
+              -f docker-compose.ghcr.yml \
+              --env-file .env.production \
+              exec -T postgres \
+              psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+              < "$DB_PRIVILEGES_CHECK_FILE"
+            echo "==> database privileges catalog check (final) passed"
 
             # Step 4 (drop-share pending-parity BACKFILL, one-time historical-data mutation,
             # gated behind APPLY_DROP_SHARE_PENDING_PARITY_BACKFILL) used to run here, after

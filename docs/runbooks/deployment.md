@@ -574,19 +574,24 @@ the prod image of the API or create a separate migrate container in `docker-comp
 **Apply order inside the "Pull, up, migrate, health-check via SSH" step** (positions count distinct
 manual files in textual order, which is execution order; all 52 run in that one step):
 
-| Position | File                                                   | Why it sits there                                                               |
-| -------- | ------------------------------------------------------ | ------------------------------------------------------------------------------- |
-| 1        | `2026-10-18_db_roles.sql`                              | Roles first: the grants file and the append-only triggers file need them        |
-| 47       | `2026-10-04_multiple_salary_transactions_prepare.sql`  | Creates `salary_month_initializations`; must precede the grants. Back-compat    |
-| 48       | `2026-10-17_job_opportunities_store.sql`               | Creates the job-store tables                                                    |
-| 49       | `2026-10-18_db_grants.sql`                             | After EVERY file that creates a table, view or sequence                         |
-| 50       | `2026-10-17_job_opportunities_store_indexes.sql`       | Indexes only, creates no relation                                               |
-| 51       | `2026-10-18_db_privileges_check.sql`                   | First run: before the container swap, so a drift fails while the old API serves |
-| 52       | `2026-10-04_multiple_salary_transactions_activate.sql` | Breaking half, must follow the swap and the health gate; creates no relation    |
-| (end)    | `2026-10-18_db_privileges_check.sql` (second run)      | The last database step, so the END state is what is validated                   |
+| Position | File                                                   | Why it sits there                                                                                                         |
+| -------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| 1        | `2026-10-18_db_roles.sql`                              | Roles first: the grants file and the append-only triggers file need them                                                  |
+| 47       | `2026-10-04_multiple_salary_transactions_prepare.sql`  | Creates `salary_month_initializations`; must precede the grants. Back-compat                                              |
+| 48       | `2026-10-17_job_opportunities_store.sql`               | Creates the job-store tables                                                                                              |
+| 49       | `2026-10-18_db_grants.sql`                             | After EVERY file that creates a table, view or sequence                                                                   |
+| 50       | `2026-10-17_job_opportunities_store_indexes.sql`       | Indexes only, creates no relation                                                                                         |
+| 51       | `2026-10-18_db_privileges_check.sql`                   | First run: before the container swap, so a drift fails while the old API serves                                           |
+| 52       | `2026-10-04_multiple_salary_transactions_activate.sql` | Breaking half, must follow the swap and the health gate; creates no relation                                              |
+| (end)    | `2026-10-18_db_privileges_check.sql` (second run)      | The last database step, after the post-cutover `drop_cascade_origin` marker re-run, so the END state is what is validated |
 
-Two invariants, both true by construction: no relation-creating file is applied after position 49,
-and the privileges check is the last database step. Moving the `prepare` file ahead of the grants
+Two invariants, both enforced by `scripts/devops/check-prod-ddl-wiring.py` (it derives the apply order
+from `deploy.yml` and reads each file's SQL, with no list of file names): a file whose first
+application comes after position 49 may not create a table, view, materialized view or sequence
+(`GRANTS-AFTER-CREATORS`), and the privileges check must be the last file psql applies
+(`CHECK-LAST`). The `drop_cascade_origin` marker is re-applied at the very end as a post-cutover
+sweep; its `CREATE TABLE IF NOT EXISTS` already ran at its first application far above the grants, so
+that re-run is allowed, but it is exactly why the final check sits after it. Moving the `prepare` file ahead of the grants
 means a fresh database ends the deploy with every relation granted, instead of relying on production
 already having the table. What was traded: `prepare` now runs a few steps earlier (it is
 backward-compatible, so this is safe), and the check runs twice (the extra run costs one read-only
