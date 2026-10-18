@@ -262,27 +262,43 @@ export const PRIVILEGE_CLASSES: Record<PrivilegeClass, readonly string[]> = {
     '_drop_share_pending_parity_backup_20260727',
     '_settle_phantom_backup_20260715',
     'drop_cascade_origin_marker_state',
+    'salary_month_shift_backup',
   ],
   V: ['confirmed_projects', 'non_deleted_transactions', 'visible_projects'],
 }
 
 /**
  * Relations that live in `public` WITHOUT being declared by the Drizzle schema, because a
- * manual DDL file created them. Each is OPTIONAL: it exists only in a database where that
- * file ran, so the catalog check requires it to be classified when present and does not
- * require it to be present.
+ * manual DDL file created them — or, in one case, because an operator created it by hand
+ * and no file here creates it at all (`file: null`). Each is OPTIONAL: it exists only in a
+ * database where that file ran, or only on the machine where the hand was laid, so the
+ * catalog check requires it to be classified when present and does not require it to be
+ * present.
+ *
+ * NO ENTRY HERE CLAIMS ANYTHING ABOUT PRODUCTION, and the spec forbids it. One did — it
+ * said "Confirmed present in production" of the one relation production turned out NOT to
+ * have — and the claim was not merely wrong: it was unverifiable from here, and unused,
+ * since every entry is OPTIONAL and presence changes nothing the check does. A measurement
+ * against production belongs in a spec comment next to the date it was taken.
  *
  * HOW THESE WERE FOUND, WHICH IS THE POINT OF THE DESIGN
  * -----------------------------------------------------
  * Not by reading the DDL files. The catalog check failed on
  * `_drop_share_pending_parity_backup_20260727` during the first full integration run on
  * 2026-10-18, because another spec applies that data-fix file and the table appeared in
- * `public` mid-run. A spec comment beside it calls it "a real prod table", so PRODUCTION
- * carries it — and the check would have failed on the first production deploy, naming a
- * table nobody had thought about. That is AC3 working: the list is derived from the
+ * `public` mid-run. A spec comment beside it calls it "a real prod table" — an inference
+ * since measured and found WRONG: production does not carry that table (read-only
+ * comparison, 2026-10-18). The mechanism was right anyway and for the stated reason: the
+ * list is derived from the
  * catalog, so a table no schema file declares cannot hide. The other two came from reading
  * every `CREATE TABLE` in `drizzle/manual/*.sql` afterwards and diffing against the Drizzle
  * schema.
+ *
+ * The fourth came from neither route, and that is the point: `salary_month_shift_backup`
+ * was found by comparing production's real relation list against this manifest (read-only,
+ * 2026-10-18). No file creates it, so reading the repository could not find it; no scratch
+ * database has it, so no test run could either. Part 1 would have found it on the first
+ * production deploy — by failing that deploy.
  *
  * WHY CLASS E
  * -----------
@@ -292,11 +308,13 @@ export const PRIVILEGE_CLASSES: Record<PrivilegeClass, readonly string[]> = {
  * `drop-share-pending-parity-backfill.integration.spec.ts`, which runs as the migration
  * role). The API must not reach them, and class E is exactly "the API gets nothing" — so a
  * backup of the transactions table stops being writable by the internet-facing process.
+ * `salary_month_shift_backup` is judged on that same basis and nothing else: a row backup
+ * of salary data is the same hazard class as a row backup of `transactions`.
  */
-export const MANUAL_DDL_RELATIONS: Record<string, { file: string; why: string }> = {
+export const MANUAL_DDL_RELATIONS: Record<string, { file: string | null; why: string }> = {
   _drop_share_pending_parity_backup_20260727: {
     file: 'drizzle/manual/2026-07-27_drop_share_pending_parity_backfill.sql',
-    why: 'Row backup taken before the drop-share parity backfill. Confirmed present in production.',
+    why: 'Row backup taken before the drop-share parity backfill.',
   },
   _settle_phantom_backup_20260715: {
     file: 'drizzle/manual/2026-07-15_settle_phantom_cleanup.sql (and …_auto.sql)',
@@ -305,6 +323,12 @@ export const MANUAL_DDL_RELATIONS: Record<string, { file: string; why: string }>
   drop_cascade_origin_marker_state: {
     file: 'drizzle/manual/2026-07-27_drop_cascade_origin_marker.sql',
     why: 'Bookkeeping for the drop-cascade origin marker backfill.',
+  },
+  salary_month_shift_backup: {
+    // The only entry with no file: nothing in this repository creates this relation, and
+    // the spec checks that rather than taking the word for it.
+    file: null,
+    why: 'Row backup of salary data, taken by hand (4 columns, owner crm_user); no file here creates it.',
   },
 }
 

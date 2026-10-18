@@ -17,6 +17,8 @@
  * hand-maintained — so a `pgTable(…)` added anywhere under `schema/` fails here until its
  * class is chosen.
  */
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { getTableColumns, getTableName, getViewName, isTable, isView } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import * as schema from '../schema'
@@ -32,6 +34,15 @@ import {
   relationClass,
   type PrivilegeClass,
 } from './privilege-classes'
+
+const MANUAL_DIR = join(__dirname, '..', '..', '..', 'drizzle', 'manual')
+
+/** Every manual DDL file in the repository, as `[name, body]`. */
+function manualSqlFiles(): [string, string][] {
+  return readdirSync(MANUAL_DIR)
+    .filter((f) => f.endsWith('.sql'))
+    .map((f) => [f, readFileSync(join(MANUAL_DIR, f), 'utf8')])
+}
 
 /** Every table name the Drizzle schema declares, derived — not listed. */
 function schemaTableNames(): string[] {
@@ -112,13 +123,68 @@ describe('privilege-class manifest', () => {
     }
   })
 
-  it('documents, for each manual-DDL relation, which file creates it', () => {
+  it('classifies salary_month_shift_backup — the backup production carries and no file creates', () => {
+    // Measured against live production, read-only, 2026-10-18: `public` there holds 70
+    // tables + 3 views, and this relation is one of them. It appears in no `CREATE TABLE`
+    // anywhere in this repository — an operator took the backup by hand — so no scratch
+    // database would ever have shown it and part 1 of the catalog check would have failed
+    // on the FIRST production deploy, naming a table nobody had classified.
+    //
+    // Class E for the same reason as the `transactions` row backup beside it: a backup of
+    // salary data is exactly the object the internet-facing role must not reach, and class
+    // E is "the API gets nothing".
+    expect(relationClass('salary_month_shift_backup')).toBe('E')
+    // And OPTIONAL, through MANUAL_DDL_RELATIONS: it exists only on production, so
+    // requiring it to be present would fail the check on every other database.
+    expect(Object.keys(MANUAL_DDL_RELATIONS)).toContain('salary_month_shift_backup')
+  })
+
+  it('documents, for each manual-DDL relation, the file that creates it — or that none does', () => {
+    const entries = Object.entries(MANUAL_DDL_RELATIONS)
+    const handMade = entries.filter(([, e]) => e.file === null)
+    const fromFile = entries.filter(([, e]) => e.file !== null) as [
+      string,
+      { file: string; why: string },
+    ][]
+
+    // `file: null` is a claim too, and a checkable one: nothing in the repository may
+    // create a relation declared as made by hand.
+    expect(
+      handMade
+        .filter(([relation]) =>
+          manualSqlFiles().some(([, body]) =>
+            new RegExp(`CREATE TABLE[^;]*\\b${relation}\\b`, 'i').test(body),
+          ),
+        )
+        .map(([relation]) => relation),
+    ).toEqual([])
+
+    // And the other claim, equally checkable: a named file must EXIST and must actually
+    // create the relation. A path written in a field is a claim nothing checked; this is
+    // the same claim, checked.
+    expect(fromFile.filter(([, e]) => !e.file.startsWith('drizzle/manual/'))).toEqual([])
+    const pathOf = (file: string): string =>
+      join(MANUAL_DIR, file.replace(/^drizzle\/manual\//, '').split(' ')[0] as string)
+    expect(fromFile.filter(([, e]) => !existsSync(pathOf(e.file))).map(([r]) => r)).toEqual([])
+    expect(
+      fromFile
+        .filter(([relation, e]) => !readFileSync(pathOf(e.file), 'utf8').includes(relation))
+        .map(([r]) => r),
+    ).toEqual([])
+    expect(entries.filter(([, e]) => e.why.length <= 20).map(([r]) => r)).toEqual([])
+  })
+
+  it('makes no claim about production presence, which nothing here can verify', () => {
+    // The fourth recurrence on this feature of a comment asserting a guarantee the system
+    // does not deliver: one entry said "Confirmed present in production" of a relation
+    // production does not have (measured 2026-10-18). The mechanism never needed the
+    // claim — every entry here is OPTIONAL, so presence is irrelevant to it — and no test
+    // in this repository can check one. So the claim is not allowed to be made.
     for (const [relation, entry] of Object.entries(MANUAL_DDL_RELATIONS)) {
-      expect({ relation, file: entry.file.startsWith('drizzle/manual/') }).toEqual({
+      expect({ relation, claimsProduction: /in production/i.test(entry.why) }).toEqual({
         relation,
-        file: true,
+        claimsProduction: false,
       })
-      expect(entry.why.length).toBeGreaterThan(20)
     }
   })
 

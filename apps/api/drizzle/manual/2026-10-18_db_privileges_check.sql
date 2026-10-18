@@ -111,6 +111,7 @@ BEGIN
     ('_drop_share_pending_parity_backup_20260727', 'E', true),
     ('_settle_phantom_backup_20260715', 'E', true),
     ('drop_cascade_origin_marker_state', 'E', true),
+    ('salary_month_shift_backup', 'E', true),
     ('confirmed_projects', 'V', false),
     ('non_deleted_transactions', 'V', false),
     ('visible_projects', 'V', false)
@@ -224,6 +225,7 @@ BEGIN
     ('_drop_share_pending_parity_backup_20260727', 'E', true),
     ('_settle_phantom_backup_20260715', 'E', true),
     ('drop_cascade_origin_marker_state', 'E', true),
+    ('salary_month_shift_backup', 'E', true),
     ('confirmed_projects', 'V', false),
     ('non_deleted_transactions', 'V', false),
     ('visible_projects', 'V', false)
@@ -506,6 +508,7 @@ BEGIN
     ('_drop_share_pending_parity_backup_20260727', 'E', true),
     ('_settle_phantom_backup_20260715', 'E', true),
     ('drop_cascade_origin_marker_state', 'E', true),
+    ('salary_month_shift_backup', 'E', true),
     ('confirmed_projects', 'V', false),
     ('non_deleted_transactions', 'V', false),
     ('visible_projects', 'V', false)
@@ -643,6 +646,7 @@ BEGIN
     ('_drop_share_pending_parity_backup_20260727', 'E', true),
     ('_settle_phantom_backup_20260715', 'E', true),
     ('drop_cascade_origin_marker_state', 'E', true),
+    ('salary_month_shift_backup', 'E', true),
     ('confirmed_projects', 'V', false),
     ('non_deleted_transactions', 'V', false),
     ('visible_projects', 'V', false)
@@ -998,7 +1002,7 @@ $check$;
 DO $ok$
 BEGIN
   RAISE NOTICE 'db-privileges check passed: % relations classified, roles %, %, %',
-    73, 'crm_app', 'crm_collector', 'crm_retention_owner';
+    74, 'crm_app', 'crm_collector', 'crm_retention_owner';
 END
 $ok$;
 
