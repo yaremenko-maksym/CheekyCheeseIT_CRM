@@ -943,6 +943,9 @@ CORRESPONDS to the requested image tag. The practical consequence:
     apps/api/drizzle/manual/2026-10-07_meeting_recorder_integration.sql \
     apps/api/drizzle/manual/2026-10-17_job_opportunities_store.sql \
     apps/api/drizzle/manual/2026-10-17_job_opportunities_store_indexes.sql \
+    apps/api/drizzle/manual/2026-10-18_db_roles.sql \
+    apps/api/drizzle/manual/2026-10-18_db_grants.sql \
+    apps/api/drizzle/manual/2026-10-18_db_privileges_check.sql \
     scripts/devops/check-security-headers.sh \
     scripts/devops/check-nginx-perimeter.sh \
     scripts/devops/pg-backup.sh \
