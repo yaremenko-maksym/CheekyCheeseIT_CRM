@@ -65,12 +65,19 @@ const UNIQUE_VIOLATION = '23505'
 const FK_VIOLATION = '23503'
 const INVALID_TEXT = '22P02'
 const OUT_OF_RANGE = '22003'
+const RESTRICT_VIOLATION = '23001'
 
 let seq = 0
 const nextTag = () => {
   seq += 1
   return `${TAG}-${seq}`
 }
+
+/** The append-only guards a teardown must lift on the action log, then restore. */
+const GUARD_TRIGGERS = [
+  { table: 'job_queue_actions', trigger: 'trg_job_queue_actions_append_only' },
+  { table: 'job_queue_actions', trigger: 'trg_job_queue_actions_no_truncate' },
+] as const
 
 const NEW_TABLES = [
   'job_queue_actions',
@@ -177,9 +184,25 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
   /** Children first: the action log is RESTRICT towards every parent. Idempotent. */
   async function cleanup() {
     const users = `SELECT id FROM users WHERE email LIKE $1`
-    await q(`DELETE FROM job_queue_actions WHERE actor_id IN (${users})`, [`${TAG}%`])
-    // Entries cascade from their generation.
-    await q(`DELETE FROM job_queue_generations WHERE policy_signature LIKE $1`, [`${TAG}%`])
+    // The log is append-only: the table owner disables its triggers for the length of
+    // the cleanup (as job-queue-append-only.integration.spec.ts does) and re-enables
+    // them in a `finally`, so a failed delete cannot leave the table unguarded.
+    try {
+      for (const name of GUARD_TRIGGERS)
+        await q(`ALTER TABLE ${name.table} DISABLE TRIGGER ${name.trigger}`)
+      await q(`DELETE FROM job_queue_actions WHERE actor_id IN (${users})`, [`${TAG}%`])
+      // Entries cascade from their generation; a generation may only be purged once
+      // INVALIDATED.
+      await q(
+        `UPDATE job_queue_generations SET status='INVALIDATED', invalidated_at=now()
+          WHERE policy_signature LIKE $1 AND status <> 'INVALIDATED'`,
+        [`${TAG}%`],
+      )
+      await q(`DELETE FROM job_queue_generations WHERE policy_signature LIKE $1`, [`${TAG}%`])
+    } finally {
+      for (const name of GUARD_TRIGGERS)
+        await q(`ALTER TABLE ${name.table} ENABLE ALWAYS TRIGGER ${name.trigger}`)
+    }
     await q(`DELETE FROM job_queue_assignments WHERE assignee_id IN (${users})`, [`${TAG}%`])
     await q(`DELETE FROM job_queue_dismissals WHERE dismissed_by IN (${users})`, [`${TAG}%`])
     await q(`DELETE FROM job_team_triage_subscriptions WHERE actor_id IN (${users})`, [`${TAG}%`])
@@ -192,8 +215,25 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
   // A safety net when a test failed before the final cleanup test ran.
   afterAll(async () => {
     if (!pool) return
-    await cleanup()
-    await pool.end()
+    try {
+      await cleanup()
+    } finally {
+      // The suite's last act: a teardown that leaked a disabled guard must fail
+      // here rather than leave the table silently unprotected for whoever runs next.
+      const { rows } = await q(
+        `SELECT tgname, tgenabled FROM pg_trigger
+          WHERE tgrelid = 'job_queue_actions'::regclass AND NOT tgisinternal
+          ORDER BY tgname`,
+      )
+      await pool.end()
+      const names = rows.map((r) => r.tgname).join(',')
+      const wanted = GUARD_TRIGGERS.map((g) => g.trigger).join(',')
+      if (names !== wanted || !rows.every((r) => r.tgenabled === 'A')) {
+        throw new Error(
+          `teardown left the action-log guards in a bad state: ${JSON.stringify(rows)}`,
+        )
+      }
+    }
   })
 
   // -------------------------------------------------------------------------
@@ -923,20 +963,19 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
       ).toEqual({ code: FK_VIOLATION, constraint: 'fk_job_queue_actions_subscription' })
     })
 
-    it('GAP PIN: no trigger exists yet, so UPDATE and DELETE are still accepted (Task 1.3)', async () => {
-      // If this ever fails because the database REFUSED, the Task 1.3 trigger
-      // has reached the schema this suite runs on: replace the pin with the
-      // refusal test and update the comment in schema/job-queue.ts.
-      const { rows: triggers } = await q(
-        `SELECT count(*)::int AS n FROM pg_trigger
-         WHERE tgrelid = 'job_queue_actions'::regclass AND NOT tgisinternal`,
-      )
-      expect(triggers[0].n).toBe(0)
+    it('refuses UPDATE and DELETE on the action log (append-only trigger, Task 1.3)', async () => {
       const row = (await insertAction({ kind: 'TAKEN' })).rows[0] as { id: string }
-      const upd = await q(`UPDATE job_queue_actions SET reason = 'edited' WHERE id = $1`, [row.id])
-      expect(upd.rowCount).toBe(1)
-      const del = await q(`DELETE FROM job_queue_actions WHERE id = $1`, [row.id])
-      expect(del.rowCount).toBe(1)
+      expect(
+        (await rejected(`UPDATE job_queue_actions SET reason = 'edited' WHERE id = $1`, [row.id]))
+          .code,
+      ).toBe(RESTRICT_VIOLATION)
+      expect((await rejected(`DELETE FROM job_queue_actions WHERE id = $1`, [row.id])).code).toBe(
+        RESTRICT_VIOLATION,
+      )
+      // The row survived both attempts untouched.
+      const { rows } = await q(`SELECT reason FROM job_queue_actions WHERE id = $1`, [row.id])
+      expect(rows).toHaveLength(1)
+      expect(rows[0].reason).not.toBe('edited')
     })
   })
 
@@ -1154,21 +1193,21 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
       expect(rows[0].n).toBe(0)
     })
 
-    it('GAP PIN: no trigger exists yet, so an entry can still be edited (Task 1.3)', async () => {
-      const { rows: triggers } = await q(
-        `SELECT count(*)::int AS n FROM pg_trigger
-         WHERE tgrelid IN ('job_queue_generation_entries'::regclass, 'job_queue_generations'::regclass)
-           AND NOT tgisinternal`,
-      )
-      expect(triggers[0].n).toBe(0)
+    it('refuses editing an entry once written (immutable-entries trigger, Task 1.3)', async () => {
       const o = await newOpportunity()
       await entry(o, 1, 30)
-      const upd = await q(
+      const err = await rejected(
         `UPDATE job_queue_generation_entries SET rank_score = 99
          WHERE generation_id = $1 AND opportunity_id = $2`,
         [gen, o],
       )
-      expect(upd.rowCount).toBe(1)
+      expect(err.code).toBe(RESTRICT_VIOLATION)
+      const { rows } = await q(
+        `SELECT rank_score FROM job_queue_generation_entries
+         WHERE generation_id = $1 AND opportunity_id = $2`,
+        [gen, o],
+      )
+      expect(Number(rows[0].rank_score)).toBe(1)
     })
   })
 
