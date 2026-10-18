@@ -22,9 +22,19 @@
 --   creator is non-superuser with CREATEROLE   -> 1 row, admin=t inherit=f set=f
 -- So a check that hard-coded the row the ADR describes would pass in a non-superuser scratch
 -- database and FAIL on the first production deploy; one that hard-coded "zero rows" would
--- fail any branch-2 deploy. Part 8 therefore DERIVES the branch from the migration role's own
--- `rolsuper` and asserts the state that role actually produces — it cannot be wrong in either
--- direction, and it needs no edit if production's answer ever changes. Production runs
+-- fail any branch-2 deploy.
+--
+-- Part 8 therefore asserts neither count. It asserts the SHAPE of whatever rows exist,
+-- unconditionally, plus "at most one of them" — which is satisfied by both measurements
+-- above and by nothing else. An earlier revision derived the expected COUNT from the
+-- migration role's current `rolsuper`, and that was wrong for a reason worth stating,
+-- because it would have fired on a step the ADR itself prescribes: creator-membership is a
+-- fact about WHO CREATED the role, while `rolsuper` is a fact about who the role is NOW,
+-- and ADR §4's hardening step `ALTER ROLE crm_user NOSUPERUSER CREATEROLE` changes the
+-- second without touching the first. On production — roles created by a superuser, so zero
+-- membership rows — that step would have moved the check into the "expect exactly 1" branch
+-- and failed every deploy after it, with a message whose only remedy reads
+-- `GRANT crm_app TO crm_user`: the exact opposite of hardening. Production runs
 -- PostgreSQL 16.14; nothing used in this file is newer than 16.0.
 --
 -- "The migration role" below is DERIVED, never named: it is the owner of the relations in
@@ -432,7 +442,7 @@ BEGIN
 END
 $check$;
 
--- part 3 (column privileges): the collector’s column-level SELECT set equals the manifest exactly
+-- part 3 (column privileges): the column-level SELECT set of EVERY one of the three roles equals the manifest exactly
 DO $check$
 DECLARE
   offenders text;
@@ -520,36 +530,53 @@ BEGIN
       JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = 'public'
      WHERE c.relkind IN ('r', 'p', 'v', 'm')
   ),
-  declared(relation, column_name) AS (SELECT NULL::text, NULL::text WHERE false),
-  -- information_schema.column_privileges expands a TABLE-level grant into one row per
-  -- column, so the expected set is "every column of a relation whose class grants
-  -- table-level SELECT to the collector" plus the declared column-level grants. Comparing
-  -- against the declared list alone would read a table-level grant as drift on every
-  -- class C table, and comparing only the other way would miss a stray column grant.
-  expected_pairs(relation, column_name) AS (
-    SELECT c.table_name, c.column_name
+  -- Declared column-level grants. Only the collector has any (class D is its mechanism),
+  -- but the set is keyed BY ROLE, because the role is what the comparison below joins on
+  -- and a one-role set is what let a column grant to either other role pass unseen: a
+  -- `GRANT SELECT (id, email) ON users TO crm_retention_owner` was invisible to this
+  -- part, and the next deploy's reset (its column sweep covers all three roles) then
+  -- removed it with nothing reported anywhere.
+  declared(role_name, relation, column_name) AS (SELECT NULL::text, NULL::text, NULL::text WHERE false),
+  -- Which (role, class) pairs carry a table-level SELECT. information_schema.column_privileges
+  -- expands a TABLE-level grant into one row per column, so the expected set is "every
+  -- column of a relation whose class grants table-level SELECT to THAT role" plus the
+  -- declared column-level grants. Comparing against the declared list alone would read a
+  -- table-level grant as drift on every class A table; comparing only the other way would
+  -- miss a stray column grant.
+  role_table_select(role_name, cls) AS (VALUES
+    ('crm_app', 'A'),
+    ('crm_app', 'A-log'),
+    ('crm_app', 'A-log-prunable'),
+    ('crm_app', 'B'),
+    ('crm_app', 'C'),
+    ('crm_collector', 'C'),
+    ('crm_app', 'D'),
+    ('crm_app', 'V')),
+  expected_pairs(role_name, relation, column_name) AS (
+    SELECT rts.role_name, c.table_name, c.column_name
       FROM information_schema.columns c
       JOIN expected e ON e.relation = c.table_name
-      JOIN (VALUES ('A', false), ('A-log', false), ('A-log-prunable', false), ('B', false), ('C', true), ('D', false), ('E', false), ('V', false)) AS cp(cls, table_select) ON cp.cls = e.cls
-     WHERE c.table_schema = 'public' AND cp.table_select
+      JOIN role_table_select rts ON rts.cls = e.cls
+     WHERE c.table_schema = 'public'
     UNION
-    SELECT relation, column_name FROM declared
+    SELECT role_name, relation, column_name FROM declared
   )
   SELECT string_agg(detail, '; ' ORDER BY detail) INTO offenders FROM (
     SELECT format('%s has column SELECT on %s.%s, which the manifest does not declare',
-                  'crm_collector', cp.table_name, cp.column_name) AS detail
+                  cp.grantee, cp.table_name, cp.column_name) AS detail
       FROM information_schema.column_privileges cp
      WHERE cp.table_schema = 'public'
-       AND cp.grantee = 'crm_collector'
+       AND cp.grantee IN ('crm_app', 'crm_collector', 'crm_retention_owner')
        AND cp.privilege_type = 'SELECT'
        AND NOT EXISTS (SELECT 1 FROM expected_pairs e
-                        WHERE e.relation = cp.table_name AND e.column_name = cp.column_name)
+                        WHERE e.role_name = cp.grantee
+                          AND e.relation = cp.table_name AND e.column_name = cp.column_name)
     UNION ALL
     SELECT format('%s lacks the declared column SELECT on %s.%s',
-                  'crm_collector', e.relation, e.column_name)
+                  e.role_name, e.relation, e.column_name)
       FROM expected_pairs e
      WHERE NOT EXISTS (SELECT 1 FROM information_schema.column_privileges cp
-                        WHERE cp.table_schema = 'public' AND cp.grantee = 'crm_collector'
+                        WHERE cp.table_schema = 'public' AND cp.grantee = e.role_name
                           AND cp.privilege_type = 'SELECT'
                           AND cp.table_name = e.relation AND cp.column_name = e.column_name)
     UNION ALL
@@ -896,7 +923,7 @@ BEGIN
 END
 $check$;
 
--- part 8 (role membership): the three roles are members of no role; membership OF them matches the branch the migration role is in
+-- part 8 (role membership): the three roles are members of no role; the only membership OF them is one creator-membership row of the exact shape PostgreSQL 16 produces
 DO $check$
 DECLARE
   offenders text;
@@ -905,11 +932,7 @@ BEGIN
   migration_role AS (SELECT (SELECT c.relowner::regrole::text
        FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
       WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
-      GROUP BY 1 ORDER BY count(*) DESC LIMIT 1) AS role_name),
-  branch AS (
-    SELECT COALESCE((SELECT rolsuper FROM pg_roles r, migration_role m
-                      WHERE r.rolname = m.role_name), false) AS owner_is_superuser
-  )
+      GROUP BY 1 ORDER BY count(*) DESC LIMIT 1) AS role_name)
   SELECT string_agg(detail, '; ' ORDER BY detail) INTO offenders FROM (
     -- The direction that matters: membership is what would let these roles SET ROLE to an
     -- owner and get ownership back.
@@ -918,39 +941,44 @@ BEGIN
       FROM pg_auth_members m
       JOIN wanted w ON w.role_name = m.member::regrole::text
     UNION ALL
-    -- The other direction. On PostgreSQL 16 a non-superuser with CREATEROLE is
-    -- automatically made a member of every role it creates, with ADMIN and without
-    -- INHERIT or SET (reproduced on 16.15, 2026-10-18) — so "zero rows" is right only
-    -- when the migration role is a superuser, and demanding it in the other branch would
-    -- fail every deploy. The row is harmless; what is not harmless is INHERIT or SET,
-    -- and that is what this asserts on every deploy, because createrole_self_grant in
-    -- the roles file constrains only the moment the grant is made: holding ADMIN, the
-    -- migration role can re-grant itself WITH SET at any time.
-    SELECT format('%s has member %s (admin=%s inherit=%s set=%s), which this branch does not allow',
+    -- The other direction, asserted by SHAPE and never by count. On PostgreSQL 16 a
+    -- non-superuser with CREATEROLE is automatically made a member of every role it
+    -- creates, with ADMIN and without INHERIT or SET (reproduced on 16.15, 2026-10-18),
+    -- while a superuser creator produces no row at all. Both are legitimate, both are
+    -- allowed here, and ZERO rows is therefore not an error — which is what keeps this
+    -- part quiet through ADR §4's `ALTER ROLE crm_user NOSUPERUSER CREATEROLE` on a
+    -- cluster whose roles a superuser created (see the header).
+    --
+    -- The row is harmless; what is not harmless is INHERIT or SET, or a member that is
+    -- not the migration role. That is what this asserts on every deploy, because
+    -- createrole_self_grant in the roles file constrains only the moment the grant is
+    -- made: holding ADMIN, the migration role can re-grant itself WITH SET at any time.
+    SELECT format('%s has member %s (admin=%s inherit=%s set=%s), which is not the creator-membership shape',
                   m.roleid::regrole::text, m.member::regrole::text,
                   m.admin_option, m.inherit_option, m.set_option)
       FROM pg_auth_members m
       JOIN wanted w ON w.role_name = m.roleid::regrole::text
-      CROSS JOIN branch b
       CROSS JOIN migration_role mr
-     WHERE b.owner_is_superuser
-        OR m.member::regrole::text <> mr.role_name
+     WHERE m.member::regrole::text <> mr.role_name
         OR NOT m.admin_option
         OR m.inherit_option
         OR m.set_option
     UNION ALL
-    -- And exactly ONE such row, not merely one of the right shape. Two grants of the same
-    -- shape from different grantors are both legal and both invisible to the predicate
-    -- above, since it never looks at the grantor; a second membership grant is still a
-    -- second route to this role.
-    SELECT format('%s has %s membership rows, expected %s in this branch',
-                  w.role_name, count(m.member),
-                  CASE WHEN b.owner_is_superuser THEN 0 ELSE 1 END)
+    -- At most ONE such row, by arithmetic rather than by shape. What that catches is a
+    -- SECOND MEMBER: measured on 16.15 (2026-10-18), a second grant of the same role to
+    -- the SAME member from a different grantor is MERGED into the existing row rather
+    -- than added, so "two rows" always means two members, and the row the predicate above
+    -- would name is not necessarily the one that is extra. Kept for two reasons that do
+    -- not depend on that measurement holding: it is arithmetic over the whole set, so it
+    -- survives any narrowing of the predicate above, and it is what would catch a future
+    -- PostgreSQL that records per-grantor rows for one member. Zero rows is NOT an error
+    -- here — the superuser branch produces none (see the header).
+    SELECT format('%s has %s membership rows, expected at most 1 (the creator-membership row)',
+                  w.role_name, count(m.member))
       FROM wanted w
-      CROSS JOIN branch b
       LEFT JOIN pg_auth_members m ON m.roleid::regrole::text = w.role_name
-     GROUP BY w.role_name, b.owner_is_superuser
-    HAVING count(m.member) <> CASE WHEN b.owner_is_superuser THEN 0 ELSE 1 END
+     GROUP BY w.role_name
+    HAVING count(m.member) > 1
   ) q;
   IF offenders IS NOT NULL THEN
     RAISE EXCEPTION 'db-privileges check FAILED — part 8 (role membership): %', offenders

@@ -776,14 +776,39 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
       expect(await runPart8(branch)).toBeNull()
     })
 
-    it('operand 1 (owner_is_superuser): rejects any membership row in the superuser branch', async () => {
-      // The branch production takes. The row is of exactly the shape the OTHER branch
-      // ALLOWS — member is the migration role, admin true, inherit and set false — so
-      // operands 2-5 are all false and operand 1 is the only thing that can catch it.
-      // Deleting `b.owner_is_superuser` leaves the row-count branch still complaining,
-      // which is why this asserts the predicate's own message and not mere failure.
+    it('SR-M-1: no membership row at all passes, whatever rolsuper says', async () => {
+      // The state production is in — roles created by a superuser, so PostgreSQL made no
+      // membership row — and the state it STAYS in after ADR §4's own hardening step
+      // `ALTER ROLE crm_user NOSUPERUSER CREATEROLE`. Creator-membership is a fact about
+      // who CREATED the role; `rolsuper` is a fact about who the role is NOW. An earlier
+      // revision derived the expected row COUNT from the second, so that step would have
+      // failed every deploy after it, and the only remedy its message read as was
+      // `GRANT crm_app TO crm_user` — the opposite of hardening.
       //
-      // It also owns the whole cluster's membership state for its duration: the grants
+      // Both branches are asserted in one test deliberately: the defect was the asymmetry
+      // between them, and a test that visited only one would not have seen it. `branch` is
+      // the non-superuser-owner database, `migration` the superuser one.
+      for (const role of [ROLES.app, ROLES.collector, ROLES.retentionOwner]) {
+        await migration.query(`REVOKE ${role} FROM ${owner}`)
+      }
+      try {
+        expect(await runPart8(branch)).toBeNull()
+        expect(await runPart8(migration)).toBeNull()
+      } finally {
+        for (const role of [ROLES.app, ROLES.collector, ROLES.retentionOwner]) {
+          await migration.query(`GRANT ${role} TO ${owner} ${allowed}`)
+        }
+      }
+    })
+
+    it('SR-M-1: one creator-membership row passes in the superuser branch too', async () => {
+      // The other half of the asymmetry, from the other side: a row of exactly the shape
+      // PostgreSQL 16 produces for a non-superuser creator is ALLOWED even where the
+      // migration role is currently a superuser. Nothing about the row says which branch
+      // made it, so a check that reads the branch off `rolsuper` necessarily gets one of
+      // the two wrong — this is the half that fired on the ADR's hardening step.
+      //
+      // It owns the whole cluster's membership state for its duration: the grants
       // `beforeAll` made become DEPENDENT privileges the moment the migration role is
       // itself a member (it is their grantor), and PostgreSQL then refuses to revoke that
       // membership without CASCADE — which would silently take the other grants with it.
@@ -791,16 +816,7 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
         await migration.query(`REVOKE ${role} FROM ${owner}`)
       }
       try {
-        // Zero membership rows: what this branch wants, and what it must not complain about.
-        expect(await runPart8(migration)).toBeNull()
-
         await migration.query(`GRANT ${ROLES.app} TO CURRENT_USER ${allowed}`)
-        const failure = await runPart8(migration)
-        expect(failure).toContain('which this branch does not allow')
-        expect(failure).toContain('admin=t inherit=f set=f')
-        expect(failure).toContain(ROLES.app)
-
-        await migration.query(`REVOKE ${ROLES.app} FROM CURRENT_USER`)
         expect(await runPart8(migration)).toBeNull()
       } finally {
         await migration.query(`REVOKE ${ROLES.app} FROM CURRENT_USER`).catch(() => undefined)
@@ -816,7 +832,7 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
       // to crm_app is another route into it.
       await grantAppTo(other, allowed)
       const failure = await runPart8(branch)
-      expect(failure).toContain('which this branch does not allow')
+      expect(failure).toContain('which is not the creator-membership shape')
       expect(failure).toContain(other)
       await grantAppTo(owner, allowed)
       expect(await runPart8(branch)).toBeNull()
@@ -853,21 +869,28 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
       expect(await runPart8(branch)).toBeNull()
     })
 
-    it('the row-count branch: rejects a second grant of the allowed shape, and a missing one', async () => {
-      // Two grants of the same legal shape from different grantors are both invisible to
-      // the predicate above, which never looks at the grantor. Only the count sees them.
+    it('the row-count branch: rejects a SECOND member, by arithmetic', async () => {
+      // What the count catches, stated as measured rather than as assumed. The reviewer's
+      // case for it was "two grants of the same shape to the same member from different
+      // grantors, which the predicate cannot see because it never reads the grantor" —
+      // and on 16.15 that state is NOT PRODUCIBLE: a superuser's second grant is merged
+      // into the existing row (grantor stays the first one), a non-superuser grantor must
+      // itself hold ADMIN and so is itself a membership row the shape predicate names,
+      // and the migration role cannot be its own second grantor ("ADMIN option cannot be
+      // granted back to your own grantor"). All three measured on this container,
+      // 2026-10-18.
+      //
+      // So the reachable state is two MEMBERS, and the count is what names the set rather
+      // than one row of it. This asserts the count's own message specifically: the shape
+      // predicate fires on the same state for the extra member, so a test that accepted
+      // mere failure would stay green with the count branch deleted.
       await migration.query(`GRANT ${ROLES.app} TO ${other} ${allowed}`)
       try {
         const failure = await runPart8(branch)
-        expect(failure).toContain('membership rows, expected 1')
+        expect(failure).toContain('has 2 membership rows, expected at most 1')
       } finally {
         await migration.query(`REVOKE ${ROLES.app} FROM ${other}`)
       }
-      // And the other direction of the same count: none at all, where this branch wants one.
-      await migration.query(`REVOKE ${ROLES.app} FROM ${owner}`)
-      const missing = await runPart8(branch)
-      expect(missing).toContain('has 0 membership rows, expected 1')
-      await migration.query(`GRANT ${ROLES.app} TO ${owner} ${allowed}`)
       expect(await runPart8(branch)).toBeNull()
     })
   })
@@ -1113,6 +1136,68 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
         expect(failure).toContain('which the manifest does not declare')
       } finally {
         await migration.query(`REVOKE SELECT (id) ON TABLE users FROM ${ROLES.collector}`)
+      }
+      expect(await runCheck(migration)).toBeNull()
+    }, 60_000)
+
+    it('CR-M-3: part 3 fails on a column SELECT granted to the retention owner', async () => {
+      // The hole CR-M-3 names: part 3 read `grantee = crm_collector` in the direction that
+      // finds a stray grant, so `GRANT SELECT (id, email) ON users TO crm_retention_owner`
+      // passed the check — and the next deploy's grants reset (its column-level sweep
+      // covers all three roles) removed it SILENTLY, with nothing in the deploy log and
+      // nothing in the check output. A privilege that is reverted without being reported
+      // is the same defect as one that is never noticed: the state that produced it is
+      // still there.
+      //
+      // `crm_retention_owner` is the sharper case of the two, because it holds no
+      // table-level privilege on any class, so every column grant to it is undeclared by
+      // construction — and it is the role that will own the SECURITY DEFINER retention
+      // functions in Task 1.3b.
+      await migration.query(`GRANT SELECT (id, email) ON TABLE users TO ${ROLES.retentionOwner}`)
+      try {
+        const failure = await runCheck(migration)
+        expect(failure).toMatch(/part 3 \(column privileges\)/)
+        expect(failure).toContain(ROLES.retentionOwner)
+        expect(failure).toContain('users.email')
+        expect(failure).toContain('which the manifest does not declare')
+      } finally {
+        await migration.query(
+          `REVOKE SELECT (id, email) ON TABLE users FROM ${ROLES.retentionOwner}`,
+        )
+      }
+      expect(await runCheck(migration)).toBeNull()
+    }, 60_000)
+
+    it('CR-M-3: part 3 fails on a column SELECT granted to crm_app on a class E table', async () => {
+      // The same hole for the role that DOES hold table-level SELECT on most classes, so
+      // the expected set cannot simply be "no column rows at all": `crm_app`'s column rows
+      // on a class A table are the legitimate expansion of its table grant. A class E
+      // relation grants it nothing, so a column SELECT there is drift — and class E is
+      // where the row backups of `transactions` and of salary data live.
+      const table = '_settle_phantom_backup_20260715'
+      const { rows } = await migration.query<{ exists: boolean }>(
+        `SELECT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                         WHERE n.nspname = 'public' AND c.relname = $1) AS exists`,
+        [table],
+      )
+      // Class E's relations are all OPTIONAL (manual-DDL artefacts), so this creates the
+      // one it needs rather than depending on which data-fix files ran here. It is
+      // classified, so part 1 stays quiet about it.
+      if (!rows[0]?.exists) {
+        await migration.query(`CREATE TABLE ${table} (id integer, note text)`)
+      }
+      try {
+        await migration.query(`GRANT SELECT (note) ON TABLE ${table} TO ${ROLES.app}`)
+        const failure = await runCheck(migration)
+        expect(failure).toMatch(/part 3 \(column privileges\)/)
+        expect(failure).toContain(`${table}.note`)
+      } finally {
+        await migration
+          .query(`REVOKE SELECT (note) ON TABLE ${table} FROM ${ROLES.app}`)
+          .catch(() => undefined)
+        if (!rows[0]?.exists) {
+          await migration.query(`DROP TABLE IF EXISTS ${table} CASCADE`)
+        }
       }
       expect(await runCheck(migration)).toBeNull()
     }, 60_000)

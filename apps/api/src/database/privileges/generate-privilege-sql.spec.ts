@@ -268,11 +268,21 @@ describe('privilege SQL for classes with no members yet', () => {
         // The whole row set, in order: sorted by table, columns in declared order, joined
         // with UNION ALL. Asserting the pairs alone would accept them in any order and
         // would accept a missing separator, which is not a row set at all.
+        // Keyed by ROLE as well as by relation and column (CR-M-3): the comparison joins
+        // on the grantee, and a set that named only the columns is what let a column grant
+        // to either of the other two roles pass part 3 unseen.
         expect(buildCheckSql()).toContain(
-          "declared(relation, column_name) AS (    SELECT 'team_members', 'team_id'\n" +
-            "    UNION ALL\n        SELECT 'users', 'id'\n" +
-            "    UNION ALL\n        SELECT 'users', 'role'),",
+          "declared(role_name, relation, column_name) AS (    SELECT 'crm_collector', 'team_members', 'team_id'\n" +
+            "    UNION ALL\n        SELECT 'crm_collector', 'users', 'id'\n" +
+            "    UNION ALL\n        SELECT 'crm_collector', 'users', 'role'),",
         )
+        // And the (role, class) pairs that carry a table-level SELECT, which is the other
+        // half of the expected set: class D must NOT appear for the collector, or the
+        // table-level expansion would make every column of a class D table "expected".
+        expect(buildCheckSql()).toContain(
+          "role_table_select(role_name, cls) AS (VALUES\n    ('crm_app', 'A'),",
+        )
+        expect(buildCheckSql()).not.toContain("('crm_collector', 'D')")
       },
     )
   })
