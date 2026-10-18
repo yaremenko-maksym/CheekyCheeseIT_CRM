@@ -2646,7 +2646,7 @@ jobs:
             # trigger file (r5 Task 1.3b) needs crm_retention_owner.
             #
             # NO PASSWORD IS PASSED HERE, deliberately. The file takes SCRAM verifiers from the
-            # GUCs crm_roles.{app,owner,collector}_verifier and treats an unset one as a no-op, so
+            # GUCs crm_roles.{app,collector}_verifier and treats an unset one as a no-op, so
             # with none set the roles are created without any credential (crm_app cannot log in)
             # and nothing in this deploy uses them. Neither secret nor transport exists yet; do
             # not invent one in this step.

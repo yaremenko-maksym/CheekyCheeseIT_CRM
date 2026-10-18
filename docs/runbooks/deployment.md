@@ -599,9 +599,10 @@ query; it keeps the fail-before-swap property that a single end-of-script check 
 
 **Rollout step 5 handoff for the app credential** (not wired yet; the secret does not exist yet):
 
-1. The owner adds the repository secret `CRM_APP_DB_PASSWORD` (`openssl rand -hex 32`). Later steps add
-   `CRM_OWNER_DB_PASSWORD` (GUC `crm_roles.owner_verifier`) and `CRM_COLLECTOR_DB_PASSWORD`
-   (`crm_roles.collector_verifier`) the same way.
+1. The owner adds the repository secret `CRM_APP_DB_PASSWORD` (`openssl rand -hex 32`). The collector's
+   `CRM_COLLECTOR_DB_PASSWORD` (GUC `crm_roles.collector_verifier`) follows the same way later.
+   There is no owner secret: rotating `crm_user` is a deliberate manual owner step, not part of the
+   deploy (roles file header, "WHY `crm_user`'s OWN PASSWORD IS NOT SET HERE").
 2. On the runner, in the deploy job: a sparse `actions/checkout@v4` of
    `apps/api/src/database/privileges/scram-verifier.cli.mjs` (`persist-credentials: false`), then one
    step with the password in its own `env:` runs `printf %s "$CRM_APP_DB_PASSWORD" | node <cli>.mjs`
