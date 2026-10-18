@@ -176,6 +176,36 @@ The prefix comparison keeps its trailing slash, so a record of `…/co-A` does n
 `…/co-A-notes`; dropping the slash turns that case red (demonstrated with a mutated copy of the hook
 via `CROSS_AGENT_BLAST_HOOK`).
 
+#### A ledger-backed guard fails in the direction no assertion was watching
+
+The first version of these tests was green on macOS and red in CI, and the way it was red is the part
+worth keeping. Two fixtures were written with macOS-only assumptions — `mktemp -t <prefix>` (a BSD
+shorthand; GNU coreutils exits 1 with "too few X's in template") and a path under `/private/tmp`
+(which does not exist on Linux and which a non-root user cannot create). Both failures were silent, so
+in CI **no ledger line was ever written**.
+
+The consequence is the lesson: a dead ledger does not make this guard permissive, it makes it
+**maximally refusing**. So the suite did not fail — it **inverted**. Every "expect allow" case went
+red, and every "expect block" case still passed, _including_ the three cases whose entire purpose is
+to prove the recording rule discriminates. They were passing because nothing recorded, not because the
+rule held.
+
+That is a general property of any guard whose permission comes from state it maintains itself:
+**breaking the state looks exactly like being strict.** A refusal case can therefore never be the only
+evidence that such a rule works. The fix was accordingly in two parts, not one:
+
+1. the fixtures use the portable idiom `lib/harness.sh` already used (`mktemp "${TMPDIR:-/tmp}/…-XXXXXX"`),
+   and the disk-backed roots are spelled `/tmp` — the hook accepts either spelling, so the `/private`
+   case that remains is on a path needing no disk;
+2. the fixture is **asserted, not assumed** (an unwritable ledger or a missing fixture directory is a
+   loud `FATAL`, not an inversion), and every recording rule now has a **positive assertion on the
+   ledger** beside its refusal case — `expected recorded, got absent` names the cause where
+   `expected allow, got block` only shows a symptom.
+
+Verified both ways: with recording deliberately disabled in a copy of the hook, five cases go red
+including two ledger assertions; with the previous `add` branch restored, eight go red instead of the
+four the refusal-only suite could see.
+
 One incidental trap, recorded because it cost a cycle: `/tmp` is a symlink to `/private/tmp` on macOS,
 so the harness reports a cwd under one spelling while an agent types the other. Both the ledger lines
 and the comparison normalise the prefix textually rather than through `realpath`, because the target

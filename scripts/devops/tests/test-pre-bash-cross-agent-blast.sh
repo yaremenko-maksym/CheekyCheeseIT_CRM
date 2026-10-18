@@ -167,13 +167,29 @@ assert_green "creating MY OWN checkout by variable stays silent" \
 # this hook watches the agent create the tree.
 MY_SESSION="/tmp/claude-999/-fake-repo-CheekyCheeseIT-CRM/11111111-1111-1111-1111-111111111111"
 OTHER_SESSION="/tmp/claude-999/-fake-repo-CheekyCheeseIT-CRM/22222222-2222-2222-2222-222222222222"
-OWNERS_LEDGER="$(mktemp -t guard-owners)"
+# Portable mktemp, as guard_test_workspace() in lib/harness.sh already does it:
+# `mktemp -t <prefix>` is a BSD shorthand and GNU coreutils exits 1 on it ("too
+# few X's in template"), which is what made this file pass locally and fail in CI.
+OWNERS_LEDGER="$(mktemp "${TMPDIR:-/tmp}/guard-owners.XXXXXX")"
 # A scratch-shaped root this test owns, for the one case that depends on what is
 # actually on disk. The /tmp/claude-<something>/<a>/<b> shape is what the hook
-# recognises as a scratchpad; the pid keeps concurrent runs apart.
-LIVE_SESS="/private/tmp/claude-guard-$$/proj/sess"
+# recognises as a scratchpad; the pid keeps concurrent runs apart. Spelled /tmp,
+# not /private/tmp: Linux has no /private and a non-root user cannot create it.
+LIVE_SESS="/tmp/claude-guard-$$/proj/sess"
 mkdir -p "$LIVE_SESS/scratchpad/sibling-live"
-trap 'rm -f "$OWNERS_LEDGER"; rm -rf "/private/tmp/claude-guard-$$"' EXIT
+trap 'rm -f "$OWNERS_LEDGER"; rm -rf "/tmp/claude-guard-$$"' EXIT
+
+# The fixture is asserted, not assumed: when the ledger is unwritable or the live
+# directory is missing, recording dies and this suite does not go red — it
+# INVERTS (allow-cases red, block-cases green for the wrong reason).
+if [ -z "$OWNERS_LEDGER" ] || ! : >>"$OWNERS_LEDGER" 2>/dev/null; then
+  echo "FATAL: ownership ledger fixture is not writable (OWNERS_LEDGER='$OWNERS_LEDGER')"
+  exit 1
+fi
+if [ ! -d "$LIVE_SESS/scratchpad/sibling-live" ]; then
+  echo "FATAL: fixture directory $LIVE_SESS/scratchpad/sibling-live was not created"
+  exit 1
+fi
 
 # $1 = agent_id, $2 = cwd, $3 = command
 run_hook_as() {
@@ -186,6 +202,15 @@ run_hook_as() {
 assert_green "creating my checkout at a literal path is recorded, not blocked" \
   --not-contains '"decision": "block"' \
   -- run_hook_as agent-A "$MY_SESSION/scratchpad" "git worktree add --detach $MY_SESSION/scratchpad/co-A deadbeef"
+
+# Asserted on the LEDGER, not on the absence of a refusal: a break in recording
+# must turn a case red on its own, instead of silently making the guard more
+# refusing (which every block-case below would still call a pass).
+ledger_lines() { cat "$OWNERS_LEDGER" 2>/dev/null; }
+
+assert_contract "the add actually WROTE a ledger line for that path" \
+  --contains "agent-A	$MY_SESSION/scratchpad/co-A" \
+  -- ledger_lines
 
 assert_green "removing the checkout recorded against MY agent_id passes" \
   --not-contains '"decision": "block"' \

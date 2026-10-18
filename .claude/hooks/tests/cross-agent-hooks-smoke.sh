@@ -33,19 +33,29 @@ OTHER="$REPO/.claude/worktrees/agent-OTHER"
 SESS="/private/tmp/claude-501/-Users-maksym-Desktop-programming-CheekyCheeseIT-CRM"
 MY_SCRATCH="$SESS/11111111-1111-1111-1111-111111111111/scratchpad"
 OTHER_SCRATCH="$SESS/22222222-2222-2222-2222-222222222222/scratchpad"
-LEDGER="$(mktemp -t cross-agent-owners)"
+# PORTABLE mktemp, as `lib/harness.sh` already does it. `mktemp -t <prefix>` is a
+# BSD shorthand: GNU coreutils reads the argument as a TEMPLATE and exits 1 with
+# "too few X's in template". That is not a style point — it is the defect that
+# made this suite green on macOS and red in CI (see "fidelity" below).
+LEDGER="$(mktemp "${TMPDIR:-/tmp}/cross-agent-owners.XXXXXX")"
 
-# A scratch-shaped root this test OWNS, so the cases about what is on disk can
+# Scratch-shaped roots this test OWNS, so the cases about what is on disk can
 # create directories without touching the real session scratchpad. The name has
 # to match the hook's /tmp/claude-<something>/<a>/<b> shape to be recognised as a
 # scratchpad at all, and the pid keeps concurrent runs apart.
-SMOKE_SESS="/private/tmp/claude-smoke-$$/proj/sess"
+#
+# Spelled /tmp, never /private/tmp: on Linux `/private` does not exist and a
+# non-root user cannot create it (`mkdir: cannot create directory '/private':
+# Permission denied`), so a /private-rooted fixture is silently never created in
+# CI. The hook accepts either spelling, so one /private case is kept deliberately
+# further down — on a path that needs no disk.
+SMOKE_SESS="/tmp/claude-smoke-$$/proj/sess"
 SMOKE_SCRATCH="$SMOKE_SESS/scratchpad"
 # A second root where NOTHING is created, so the "scratch root itself" case is
 # decided by the one-component rule and not by the existence test.
-EMPTY_SESS="/private/tmp/claude-smokeb-$$/proj/sess"
+EMPTY_SESS="/tmp/claude-smokeb-$$/proj/sess"
 mkdir -p "$SMOKE_SCRATCH/sibling-live"
-trap 'rm -f "$LEDGER"; rm -rf "/private/tmp/claude-smoke-$$" "/private/tmp/claude-smokeb-$$"' EXIT
+trap 'rm -f "$LEDGER"; rm -rf "/tmp/claude-smoke-$$" "/tmp/claude-smokeb-$$"' EXIT
 
 PASS=0
 FAIL=0
@@ -62,6 +72,52 @@ for h in "$BLAST" "$DISPATCH"; do
     exit 1
   fi
 done
+
+# Gate 0b. FIXTURE FIDELITY — the same class of problem as gate 0, learned the
+# hard way (PR #1025: green here, red in CI).
+#
+# The ownership cases need two things to exist before they mean anything: a
+# writable ledger, and a directory on disk for the "add onto an existing tree"
+# case. When either is silently absent, the suite does not go red — it INVERTS:
+# recording dies, so every "expect allow" case fails while every "expect block"
+# case still passes, including the three that are supposed to prove the recording
+# rule discriminates. A broken fixture made the guard look MORE refusing, which
+# is the direction no assertion was watching.
+#
+# So the fixture is asserted, not assumed, and it fails LOUDLY rather than
+# inverting. The ledger assertions further down are the other half: they fail on
+# the "allow" side too, so recording cannot die quietly either.
+if [ -z "$LEDGER" ] || ! : >>"$LEDGER" 2>/dev/null; then
+  echo "FATAL: ledger fixture is not writable (LEDGER='$LEDGER')."
+  echo "       Without it nothing is ever recorded, and the suite would INVERT rather than fail:"
+  echo "       every allow-case red, every block-case green for the wrong reason."
+  exit 1
+fi
+if [ ! -d "$SMOKE_SCRATCH/sibling-live" ]; then
+  echo "FATAL: fixture directory $SMOKE_SCRATCH/sibling-live was not created."
+  echo "       The L-1 case (an add onto an EXISTING tree records nothing) would then"
+  echo "       pass because the path does not exist, not because the rule held."
+  exit 1
+fi
+
+# ledger_case <expect:recorded|absent> <agent_id> <path> <label>
+# Asserts on the LEDGER rather than on a refusal, so a break in recording turns a
+# case red by itself instead of only inverting the allow-cases. Matches a whole
+# line, so a record of a parent cannot be mistaken for a record of a child.
+# Paths are tmp-normalised the way the hook stores them.
+ledger_case() {
+  local expect="$1" agent="$2" path="$3" label="$4" got line
+  path="${path#/private}"
+  line="$(printf '%s\t%s' "$agent" "$path")"
+  if grep -qxF "$line" "$LEDGER" 2>/dev/null; then got="recorded"; else got="absent"; fi
+  if [ "$got" = "$expect" ]; then
+    printf '  ok    %-8s %s\n' "$got" "$label"
+    PASS=$((PASS + 1))
+  else
+    printf '  FAIL  expected %s, got %s — %s\n' "$expect" "$got" "$label"
+    FAIL=$((FAIL + 1))
+  fi
+}
 
 # bash_case <expect:block|allow> <cwd> <command> <label>
 bash_case() {
@@ -207,18 +263,22 @@ scratch_case block agent-C "$MY_SCRATCH" "git worktree remove --force $MY_SCRATC
 # written anyway, and the next `remove` was permitted — PR #544 between siblings
 # in two commands. A tree that already exists is not one this command creates.
 scratch_case allow agent-A "$SMOKE_SCRATCH" "git worktree add --detach $SMOKE_SCRATCH/sibling-live deadbeef" 'adding onto an EXISTING path stays silent (git will refuse it, not this hook)'
+ledger_case absent agent-A "$SMOKE_SCRATCH/sibling-live" 'L-1: and it wrote NO line — asserted on the ledger, not inferred from the refusal'
 scratch_case block agent-A "$SMOKE_SCRATCH" "git worktree remove --force $SMOKE_SCRATCH/sibling-live" 'L-1: an add onto an existing tree records nothing, so removing it is still refused'
 
 # L-2: `-b mybranch` puts a BRANCH NAME in argument position. It was resolved
 # against cwd and recorded as a path. The trait that rejects it is absoluteness,
 # not a list of options that take a value.
 scratch_case allow agent-A "$SMOKE_SCRATCH" "git worktree add -b mybranch $SMOKE_SCRATCH/co-B deadbeef" 'an add with -b records the PATH argument (and stays silent)'
+ledger_case recorded agent-A "$SMOKE_SCRATCH/co-B" 'L-2: the PATH argument is what got recorded'
+ledger_case absent agent-A "$SMOKE_SCRATCH/mybranch" 'L-2: the BRANCH NAME did not — the two halves asserted separately'
 scratch_case block agent-A "$SMOKE_SCRATCH" "git worktree remove --force $SMOKE_SCRATCH/mybranch" 'L-2: a branch name is not a path, so nothing was recorded for it'
 scratch_case allow agent-A "$SMOKE_SCRATCH" "git worktree remove --force $SMOKE_SCRATCH/co-B" 'the real target of that same add IS recorded (the trait keeps the legitimate half)'
 
 # L-3: the scratch ROOT. is_owned matches prefixes, so one root line makes every
 # sibling checkout "mine" — CR-M-1 re-opened by the fix for CR-M-1.
 scratch_case allow agent-A "$EMPTY_SESS/scratchpad" "git worktree add --detach $EMPTY_SESS deadbeef" 'adding the scratch root itself stays silent'
+ledger_case absent agent-A "$EMPTY_SESS" 'L-3: and the ROOT itself was not recorded'
 scratch_case block agent-A "$EMPTY_SESS/scratchpad" "git worktree remove --force $EMPTY_SESS/scratchpad/anyones-co" 'L-3: the root is never recorded, so it grants nothing below it'
 
 echo "== pre:bash:cross-agent-blast — MUST STAY SILENT =="
@@ -241,6 +301,7 @@ bash_case allow "$MINE" "git worktree remove $MINE"                         'rem
 # this hook watches the agent create the tree, and the pair below is the whole
 # mechanism — the `add` writes the record, the `remove` reads it.
 scratch_case allow agent-A "$MY_SCRATCH" "git worktree add --detach $MY_SCRATCH/co-A deadbeef" 'creating my checkout at a literal path is recorded, not blocked'
+ledger_case recorded agent-A "$MY_SCRATCH/co-A" 'the add WROTE a ledger line (not merely "was not blocked")'
 scratch_case allow agent-A "$MY_SCRATCH" "git worktree remove --force $MY_SCRATCH/co-A" 'removing the checkout recorded against MY agent_id'
 # /tmp is a symlink to /private/tmp on macOS, so the harness reports the cwd
 # under one spelling and an agent types the other. Same directory, and the record
