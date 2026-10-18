@@ -317,6 +317,21 @@ export const appendOnlyTriggers: Record<string, readonly { name: string; enabled
 }
 
 /**
+ * Table privileges `crm_retention_owner` holds, on every relation, in every class.
+ *
+ * EMPTY, and that is the whole of its current policy: the role exists so the R-B functions
+ * of ADR §3 have an owner, and the grants those functions need arrive WITH them in Task
+ * 1.3b — `SELECT, DELETE` and column-level `UPDATE (reason, actor_id, subject_user_id)` on
+ * `job_queue_actions`, plus `SELECT` on the retention-policy table. Granting them now would
+ * put `DELETE` on an append-only log against a role nothing uses yet.
+ *
+ * It is a declared constant rather than an inline `[]` in the generator so that the value
+ * is a reviewable policy decision and the emission path for a non-empty retention owner is
+ * testable before 1.3b needs it.
+ */
+export const RETENTION_OWNER_TABLE_PRIVILEGES: readonly TablePrivilege[] = []
+
+/**
  * The functions `crm_retention_owner` is allowed to own — the two `SECURITY DEFINER`
  * functions of ADR §3 option R-B, added by Task 1.3b together with the trigger that keys
  * its exception on them.

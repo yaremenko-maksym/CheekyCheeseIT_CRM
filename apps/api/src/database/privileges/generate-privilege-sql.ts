@@ -31,6 +31,7 @@ import {
   PRIVILEGE_CLASSES,
   ROLES,
   MANUAL_DDL_RELATIONS,
+  RETENTION_OWNER_TABLE_PRIVILEGES,
   appendOnlyTriggers,
   collectorColumns,
   retentionOwnerFunctions,
@@ -102,11 +103,15 @@ function classPrivilegeValues(): string {
     for (const [roleKey, roleName] of [
       ['app', ROLES.app],
       ['collector', ROLES.collector],
-      // The retention owner holds nothing on any relation yet: its grants arrive with the
-      // R-B functions that need them (Task 1.3b), not before.
-      ['none', ROLES.retentionOwner],
+      // The retention owner's table privileges are the same on every class, so they come
+      // from one declared constant rather than the class map — see
+      // RETENTION_OWNER_TABLE_PRIVILEGES, empty until Task 1.3b.
+      ['retentionOwner', ROLES.retentionOwner],
     ] as const) {
-      const granted = roleKey === 'none' ? [] : privilegesFor(cls, roleKey as 'app' | 'collector')
+      const granted =
+        roleKey === 'retentionOwner'
+          ? RETENTION_OWNER_TABLE_PRIVILEGES
+          : privilegesFor(cls, roleKey)
       for (const privilege of ALL_TABLE_PRIVILEGES) {
         rows.push(
           `    (${literal(cls)}, ${literal(roleName)}, ${literal(privilege)}, ${
@@ -209,7 +214,6 @@ $columns$;
 `)
 
   out.push('-- 2. Grant back, one statement per class and role.')
-  let statements = 0
   for (const cls of CLASSES) {
     const relations = relationsOf(cls)
     const why = CLASS_PRIVILEGES[cls].why
@@ -229,7 +233,6 @@ $columns$;
       }
       const list = relations.map((r) => `  public.${r}`).join(',\n')
       out.push(`GRANT ${privileges.join(', ')} ON TABLE\n${list}\n  TO ${ident(roleName)};`)
-      statements += 1
     }
     out.push('')
   }
@@ -283,12 +286,17 @@ $seqs$;
 
   out.push(`COMMIT;
 `)
-  if (statements === 0)
+  // Read off the OUTPUT, not off a counter kept alongside it: a counter can disagree with
+  // what was emitted (and its arithmetic is unobservable in the generated file, so nothing
+  // would notice). A grants file with no GRANT in it would silently leave the API with
+  // nothing but the default privileges.
+  // `ON TABLE` specifically, not any GRANT: the sequence grant is emitted unconditionally,
+  // so a manifest that classified nothing would still produce a file with a GRANT in it —
+  // and an API with access to every sequence and not one table.
+  if (!out.some((chunk) => /^GRANT .*\bON TABLE\b/m.test(chunk))) {
     throw new Error('privilege manifest: no grants emitted — the manifest is empty')
-  return `${out
-    .join('\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trimEnd()}\n`
+  }
+  return `${out.join('\n').trimEnd()}\n`
 }
 
 /**
@@ -426,7 +434,7 @@ ${classPrivileges}
           .flatMap(([table, columns]) =>
             columns.map((c) => `    SELECT ${literal(table)}, ${literal(c)}`),
           )
-          .join('\n    UNION ALL\n')
+          .join('\n    UNION ALL\n    ')
   }),
   -- information_schema.column_privileges expands a TABLE-level grant into one row per
   -- column, so the expected set is "every column of a relation whose class grants
@@ -659,7 +667,7 @@ ${classPrivileges}
   declared_functions(proname) AS (${
     retentionOwnerFunctions.length === 0
       ? 'SELECT NULL::text WHERE false'
-      : retentionOwnerFunctions.map((f) => `SELECT ${literal(f)}`).join('\n    UNION ALL\n')
+      : retentionOwnerFunctions.map((f) => `SELECT ${literal(f)}`).join('\n    UNION ALL\n    ')
   })
   SELECT string_agg(detail, '; ' ORDER BY detail) INTO offenders FROM (
     SELECT format('role %s does not exist', w.role_name) AS detail
@@ -785,7 +793,7 @@ ${classPrivileges}
       ? 'SELECT NULL::text WHERE false'
       : relationsOf('B')
           .map((t) => `SELECT ${literal(t)}`)
-          .join('\n    UNION ALL\n')
+          .join('\n    UNION ALL\n    ')
   }),
   actual(table_name, trigger_name, enabled) AS (
     SELECT c.relname, t.tgname, t.tgenabled
@@ -829,8 +837,5 @@ $ok$;
 COMMIT;
 `)
 
-  return `${parts
-    .join('\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trimEnd()}\n`
+  return `${parts.join('\n').trimEnd()}\n`
 }

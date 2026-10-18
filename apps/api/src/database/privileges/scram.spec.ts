@@ -15,7 +15,15 @@
  * a verifier no server accepts.
  */
 import { describe, expect, it } from 'vitest'
-import { SCRAM_VERIFIER_PATTERN, scramSha256Verifier } from './scram'
+import { scramSha256Verifier } from './scram'
+
+/**
+ * Written out here, in the test, rather than imported from the module: the shape is what
+ * this spec asserts, and a regex exported from production code for its own test to compare
+ * against is a tautology — it agrees with itself by construction.
+ */
+const SCRAM_VERIFIER_PATTERN =
+  /^SCRAM-SHA-256\$[0-9]+:[A-Za-z0-9+/]+=*\$[A-Za-z0-9+/]+=*:[A-Za-z0-9+/]+=*$/
 
 const SALT = Buffer.from('0123456789abcdef', 'utf8')
 
@@ -60,12 +68,26 @@ describe('scramSha256Verifier', () => {
     expect(() => scramSha256Verifier('')).toThrow(/empty/i)
   })
 
+  it('refuses a non-ASCII character anywhere in the password, not only throughout', () => {
+    // Anchors matter: a check without `^` accepts a password whose TAIL is ASCII, and one
+    // without `$` accepts a password whose HEAD is. Either would hash a string PostgreSQL
+    // normalises differently, and the deploy would fail at login with "wrong password".
+    expect(() => scramSha256Verifier('пароль-abc')).toThrow(/ASCII/)
+    expect(() => scramSha256Verifier('abc-пароль')).toThrow(/ASCII/)
+    expect(() => scramSha256Verifier('abcÿdef')).toThrow(/ASCII/)
+  })
+
   it('refuses a non-ASCII password instead of guessing at SASLprep', () => {
     // PostgreSQL applies SASLprep (RFC 4013) to non-ASCII passwords before hashing. This
     // does not implement it, so a non-ASCII secret would silently produce a verifier the
     // server rejects at login — the failure would surface as "wrong password" on a deploy.
     // Refusing names the cause instead.
+    // Both halves of the message are asserted: the first names the rule, the second says
+    // what goes wrong if it is ignored, and that second half is the part someone debugging
+    // a failed deploy actually needs.
     expect(() => scramSha256Verifier('пароль')).toThrow(/ASCII/)
+    expect(() => scramSha256Verifier('пароль')).toThrow(/SASLprep/)
+    expect(() => scramSha256Verifier('пароль')).toThrow(/rejected at login/)
   })
 
   it('refuses an iteration count below the PostgreSQL default', () => {

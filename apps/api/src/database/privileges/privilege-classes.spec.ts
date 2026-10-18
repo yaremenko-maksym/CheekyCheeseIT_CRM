@@ -21,9 +21,11 @@ import { getTableColumns, getTableName, getViewName, isTable, isView } from 'dri
 import { describe, expect, it } from 'vitest'
 import * as schema from '../schema'
 import {
+  ALL_TABLE_PRIVILEGES,
   CLASS_PRIVILEGES,
   PRIVILEGE_CLASSES,
   MANUAL_DDL_RELATIONS,
+  RETENTION_OWNER_TABLE_PRIVILEGES,
   VIEW_CLASS,
   appendOnlyTriggers,
   collectorColumns,
@@ -134,6 +136,34 @@ describe('privilege-class manifest', () => {
 
   it('defines the privileges of every class it assigns relations to', () => {
     expect(Object.keys(CLASS_PRIVILEGES).sort()).toEqual(Object.keys(PRIVILEGE_CLASSES).sort())
+  })
+
+  it('enumerates exactly PostgreSQL 16’s seven table privileges', () => {
+    // The catalog check asserts each of these present-or-absent for every relation and
+    // role, so a privilege missing from this list is a privilege nothing ever checks —
+    // `TRUNCATE` dropping out would stop anyone noticing it had been granted.
+    expect([...ALL_TABLE_PRIVILEGES].sort()).toEqual([
+      'DELETE',
+      'INSERT',
+      'REFERENCES',
+      'SELECT',
+      'TRIGGER',
+      'TRUNCATE',
+      'UPDATE',
+    ])
+  })
+
+  it('gives class D no table-level privilege for the collector at all', () => {
+    // This is class D's entire reason to exist: a table-level SELECT would silently cover
+    // every column, including the credential and finance columns the collector must not
+    // read. The columns are granted one by one through `collectorColumns`.
+    expect(CLASS_PRIVILEGES.D.collector).toEqual([])
+  })
+
+  it('gives the retention owner no table privileges before Task 1.3b grants them', () => {
+    // Empty by policy, not by accident: DELETE on an append-only log belongs to the R-B
+    // functions, and arrives with them.
+    expect(RETENTION_OWNER_TABLE_PRIVILEGES).toEqual([])
   })
 
   it('never grants TRUNCATE, REFERENCES or TRIGGER to either application role', () => {

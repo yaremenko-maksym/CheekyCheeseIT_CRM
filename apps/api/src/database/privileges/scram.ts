@@ -27,9 +27,12 @@
  */
 import { createHash, createHmac, pbkdf2Sync, randomBytes } from 'node:crypto'
 
-/** The shape of a stored verifier — shared with the SQL guard in the roles file. */
-export const SCRAM_VERIFIER_PATTERN =
-  /^SCRAM-SHA-256\$[0-9]+:[A-Za-z0-9+/]+=*\$[A-Za-z0-9+/]+=*:[A-Za-z0-9+/]+=*$/
+// The shape of a stored verifier is asserted in `scram.spec.ts` and enforced, where it
+// matters, by the SQL guard in `2026-10-18_db_roles.sql` — which is the only consumer that
+// can act on it, because that is where a malformed value would be stored as a password. It
+// deliberately does NOT live here as an exported constant: nothing in production read it,
+// and an exported regex that only its own test looks at is a constant no mutation can
+// disprove.
 
 /** PostgreSQL's own default (`scram_sha_256_iterations`); never go below it. */
 export const DEFAULT_ITERATIONS = 4096
