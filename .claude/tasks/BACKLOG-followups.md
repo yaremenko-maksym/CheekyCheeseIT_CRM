@@ -2835,3 +2835,17 @@ screen, the action row fully in frame.
 ## 229. The "Label PR on CI failure" step fails on PRs that touch `.github/workflows/**` (2026-10-18)
 
 (orchestrator, observed by fact; severity LOW). On a PR whose diff includes workflow files, the aggregating `Typecheck · Lint · Unit Tests` job showed two failed steps: `Aggregate leg results`, which is the honest reflection of another red leg, and `Label PR on CI failure`, which is the labelling step itself erroring. On a sibling PR with no workflow files in the diff the `ci-failed` label was applied normally. The likely cause is the same `GITHUB_TOKEN` restriction that already prevents auto-merge on workflow-touching PRs, surfacing here as a failed label write rather than as a skipped one. **Why it matters beyond noise:** a failing labelling step adds a second red entry that does not correspond to a defect, which trains readers to discount red checks — and the `ci-failed` label is what the orchestrator uses to tell a real failure from a stale one. **The closing shape:** let the step fail soft, or skip it when the token cannot label, so the only red is the leg that actually failed. **Check on closing:** a PR touching a workflow file reaches exactly one red check for one real failure, and the aggregator reports no step error of its own.
+
+## 230. Input and button outlines fail the non-text contrast criterion across the CRM (from the Task 0.1 design, 2026-10-18)
+
+(ui-ux-designer, found while specifying the vacancy-queue screen; severity MED — accessibility, CRM-wide, inherited).
+The outline of form inputs and outlined buttons measures **1.17:1** against the card background in the dark theme.
+WCAG 2.2 success criterion 1.4.11 (non-text contrast) asks for **3:1** for the boundary of a component a user must
+identify in order to operate it — an input whose edge cannot be seen is an input a low-vision user cannot find.
+**Why it is a backlog item and not a fix inside that PR:** it is not introduced by the queue screen; it comes from the
+shared shadcn/ui components and the border token in `globals.css`, so a local override on one screen would make the
+CRM inconsistent rather than accessible. The fix belongs at the token level, where it reaches every form at once.
+A related pairing the same design forbade locally: `muted-foreground` text on a `secondary` surface measures
+**4.23:1**, below the 4.5:1 for body text. **Check on closing:** the border token used by inputs and outlined buttons
+reaches 3:1 against every surface it sits on, measured from the token values, and `muted-foreground` on `secondary`
+either reaches 4.5:1 or the pairing is banned in the design-system notes.
