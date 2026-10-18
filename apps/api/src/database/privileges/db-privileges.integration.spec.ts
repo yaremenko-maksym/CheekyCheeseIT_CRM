@@ -109,6 +109,52 @@ function urlFor(role: string, password: string, database?: string): string {
   return url.toString()
 }
 
+/**
+ * One sequence that really exists in `public`, read from the catalog.
+ *
+ * Hardcoding a name would make the parts-3-and-4 tests below pass vacuously the day the
+ * column behind it stops being a serial — `GRANT … ON SEQUENCE` on a missing sequence
+ * raises, which reads as a broken test rather than as drift.
+ */
+async function sequenceInPublic(): Promise<string> {
+  const { rows } = await migration.query<{ name: string }>(
+    `SELECT c.relname AS name
+       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public' AND c.relkind = 'S'
+      ORDER BY c.relname
+      LIMIT 1`,
+  )
+  const name = rows[0]?.name
+  if (!name) throw new Error('[db-privileges] no sequence in public to exercise part 4 with')
+  return name
+}
+
+/**
+ * Runs the whole committed catalog check and returns its failure message, or `null`.
+ *
+ * The check file is one transaction, so it must run on ONE connection: `Pool#query` may
+ * hand each statement a different client, which would turn `BEGIN` and the assertions into
+ * separate sessions and quietly make every drift test pass.
+ *
+ * At file scope because two describes use it — the drift tests and the parts-3-and-4 tests.
+ */
+async function runCheck(pool: Pool): Promise<string | null> {
+  const client: PoolClient = await pool.connect()
+  try {
+    for (const statement of splitSqlStatements(readSql(CHECK_FILE))) {
+      try {
+        await client.query(statement)
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => undefined)
+        return (error as Error).message
+      }
+    }
+    return null
+  } finally {
+    client.release()
+  }
+}
+
 function assertDisposableTarget(): void {
   const database = new URL(process.env['DATABASE_URL'] as string).pathname.replace(/^\//, '')
   if (database === 'crm_db') {
@@ -827,28 +873,6 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
   })
 
   describe('the catalog check (ADR §2) — and that it actually fails on drift', () => {
-    /**
-     * The check file is one transaction, so it must run on ONE connection: `Pool#query`
-     * may hand each statement a different client, which would turn `BEGIN` and the
-     * assertions into separate sessions and quietly make every drift test pass.
-     */
-    async function runCheck(pool: Pool): Promise<string | null> {
-      const client: PoolClient = await pool.connect()
-      try {
-        for (const statement of splitSqlStatements(readSql(CHECK_FILE))) {
-          try {
-            await client.query(statement)
-          } catch (error) {
-            await client.query('ROLLBACK').catch(() => undefined)
-            return (error as Error).message
-          }
-        }
-        return null
-      } finally {
-        client.release()
-      }
-    }
-
     it('passes against the database the files just built', async () => {
       expect(await runCheck(migration)).toBeNull()
     }, 60_000)
@@ -1057,6 +1081,104 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
         await migration.query(`DROP FUNCTION IF EXISTS privprobe_other_fn()`)
         await migration.query(`REVOKE CREATE ON SCHEMA public FROM ${other}`)
         await migration.query(`DROP ROLE IF EXISTS ${other}`)
+      }
+      expect(await runCheck(migration)).toBeNull()
+    }, 60_000)
+  })
+
+  describe('parts 3 and 4, which nothing could turn red (CR-H-2)', () => {
+    // Every other part of the check had a drift test; these two had none, so "all nine
+    // parts are proven" was an unproven claim about two of them. The SQL was never the
+    // defect — it works, as these tests show — but a part no test can turn red is a part
+    // that could be deleted, or quietly neutered by a manifest change, with nothing
+    // noticing. One test per branch that can actually fire today.
+    //
+    // `runCheck` comes from the enclosing describe: the whole committed file on one
+    // connection, which is how the deploy runs it.
+
+    it('part 3 fails on a column SELECT the manifest does not declare', async () => {
+      // The trap this part exists for: `information_schema.column_privileges` expands a
+      // TABLE grant into one row per column, so a column-level grant hides inside a view
+      // that otherwise looks like the table-level one. `collectorColumns` is empty today,
+      // so ANY column SELECT for the collector is undeclared.
+      //
+      // Part 2 stays silent on this, which is why the failure can only be part 3's:
+      // measured on 16.15, `has_table_privilege('crm_app','job_queue_actions','UPDATE')`
+      // is false while a column-level UPDATE on it is held.
+      await migration.query(`GRANT SELECT (id) ON TABLE users TO ${ROLES.collector}`)
+      try {
+        const failure = await runCheck(migration)
+        expect(failure).toMatch(/part 3 \(column privileges\)/)
+        expect(failure).toContain('users.id')
+        expect(failure).toContain('which the manifest does not declare')
+      } finally {
+        await migration.query(`REVOKE SELECT (id) ON TABLE users FROM ${ROLES.collector}`)
+      }
+      expect(await runCheck(migration)).toBeNull()
+    }, 60_000)
+
+    it('part 3 fails on a column privilege that is not SELECT', async () => {
+      // SELECT is the only privilege ever granted at column level (class D's whole
+      // mechanism). A column-level UPDATE on the append-only log is exactly the write the
+      // class revokes, re-granted one column at a time.
+      await migration.query(`GRANT UPDATE (kind) ON TABLE job_queue_actions TO ${ROLES.app}`)
+      try {
+        const failure = await runCheck(migration)
+        expect(failure).toMatch(/part 3 \(column privileges\)/)
+        expect(failure).toContain('holds column UPDATE on job_queue_actions.kind')
+      } finally {
+        await migration.query(`REVOKE UPDATE (kind) ON TABLE job_queue_actions FROM ${ROLES.app}`)
+      }
+      expect(await runCheck(migration)).toBeNull()
+    }, 60_000)
+
+    it('part 4 fails when crm_app is given UPDATE on a sequence — setval, the id-collision path', async () => {
+      // ADR §2, "Sequences": UPDATE on a sequence is `setval`, i.e. the ability to rewind
+      // it and collide primary keys. It is the one sequence privilege the model forbids,
+      // and until now nothing checked that the check checks it.
+      const sequence = await sequenceInPublic()
+      await migration.query(`GRANT UPDATE ON SEQUENCE ${sequence} TO ${ROLES.app}`)
+      try {
+        const failure = await runCheck(migration)
+        expect(failure).toMatch(/part 4 \(sequence privileges\)/)
+        expect(failure).toContain(`sequence ${sequence}`)
+        expect(failure).toContain('holds UPDATE')
+      } finally {
+        await migration.query(`REVOKE UPDATE ON SEQUENCE ${sequence} FROM ${ROLES.app}`)
+      }
+      expect(await runCheck(migration)).toBeNull()
+    }, 60_000)
+
+    it('part 4 fails in the other direction too, when crm_app loses USAGE on a sequence', async () => {
+      // The direction that is an outage rather than a hole: without USAGE every INSERT
+      // into a table with an identity column fails. Both directions matter, and a part
+      // that only caught one would look the same in a green run.
+      const sequence = await sequenceInPublic()
+      await migration.query(`REVOKE USAGE ON SEQUENCE ${sequence} FROM ${ROLES.app}`)
+      try {
+        const failure = await runCheck(migration)
+        expect(failure).toMatch(/part 4 \(sequence privileges\)/)
+        expect(failure).toContain(`sequence ${sequence}`)
+        expect(failure).toContain('lacks USAGE')
+      } finally {
+        await applyFile(GRANTS_FILE)
+      }
+      expect(await runCheck(migration)).toBeNull()
+    }, 60_000)
+
+    it('part 4 fails when the collector is given a sequence outside its class C tables', async () => {
+      // No class C table is assigned yet, so the collector's expected sequence set is
+      // EMPTY — and an empty expectation is the easiest kind to satisfy by accident. This
+      // is what makes "fail closed" an assertion rather than a hope.
+      const sequence = await sequenceInPublic()
+      await migration.query(`GRANT USAGE ON SEQUENCE ${sequence} TO ${ROLES.collector}`)
+      try {
+        const failure = await runCheck(migration)
+        expect(failure).toMatch(/part 4 \(sequence privileges\)/)
+        expect(failure).toContain(ROLES.collector)
+        expect(failure).toContain('holds USAGE')
+      } finally {
+        await migration.query(`REVOKE USAGE ON SEQUENCE ${sequence} FROM ${ROLES.collector}`)
       }
       expect(await runCheck(migration)).toBeNull()
     }, 60_000)
