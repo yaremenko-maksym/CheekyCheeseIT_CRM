@@ -6,6 +6,33 @@
 and the ADR accepted by him the same day — "yes, I accept, R-B" — which also settles the one
 question it left open: **R-B is the chosen end-of-retention option** (§3).
 
+**Amended 2026-10-18** to match the implementation (PR #1027) — see "Amendment 2026-10-18" below.
+The status is unchanged: the amendment records one owner decision and several measurements; it
+reverses no decision the owner accepted.
+
+## Amendment 2026-10-18 — reconciled with the implementation
+
+The implementation of this ADR (PR #1027, branch `feat/db-least-privilege-roles`, r5 Task 1.3c)
+departs from the text as first accepted. Each departure was either **decided by the owner** or
+**forced by a measurement**, and each is argued in that PR's body and in its code, security and
+spec reviews. The PR is the measured truth; this ADR now follows it. The body below has been
+edited to agree with this list, so a reader who starts at §1 is not misled; this section is the
+index of what changed and why.
+
+| #   | What changed                                                                                                                                                                                                                                                                                                                                                                                                       | Cause                                                                                                                                                                                                                                                                                                                                                          | Where in the body                                                                                                                            |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **No deploy rotates the `crm_user` password.** File 1 sets the passwords of `crm_app` and `crm_collector` only. Rotating `crm_user` is a deliberate owner step, done by hand with the machine in reach (§4 step 7 (a))                                                                                                                                                                                             | **Owner decision, 2026-10-18.** The deploy connects to the database as `crm_user`, so "a CI secret appears, the next deploy rotates the password" turns one divergence between the secret and the stored password into a broken deploy — every later one — recoverable only with machine access. Full reasoning: §4, "Step 7 — why rotation"                   | Summary 1 and 4; Context, consequence 3; §1 role table; §4 file 1, password handling, steps 7 and 8, "Step 7 — why"; §6 item 3; Consequences |
+| 2   | **Class V for views, `SELECT` only**, and **no default privilege on `TABLES`** (with a forward `REVOKE` repairing a database where one was applied)                                                                                                                                                                                                                                                                | **Measured** by the security review: as `crm_app`, a direct `UPDATE` on an append-only table was refused while the same `UPDATE` through a view over it succeeded, and an `INSERT` through a view over the `transactions` row backup succeeded too. The `TABLES` default privilege's benefit was already delivered by the generator; it bought only the window | §2 class table, "Class V", "Default privileges"; §3 layer 1; §5 item 3                                                                       |
+| 3   | **Default privileges are issued `FOR ROLE CURRENT_USER`**, not `FOR ROLE crm_user`; **`crm_retention_owner` gets `USAGE` on schema `public`**                                                                                                                                                                                                                                                                      | `CURRENT_USER` ties the defaults to whoever applies the DDL, and part 5 pins it. A definer function's privilege checks run as its owner, which must resolve names in `public`                                                                                                                                                                                  | §2 "Functions", "Database and schema", "Default privileges"; §3 R-B condition 1; §6 item 5                                                   |
+| 4   | **The membership assertion checks the shape of any membership row unconditionally, plus "at most one"**, instead of an expected count — and never derives a count from `rolsuper`                                                                                                                                                                                                                                  | **Measured.** Production's creating role is a superuser, which gets **no** automatic membership row; the original prose stressed the one-row (non-superuser) case. Deriving the count from the current `rolsuper` would break on the ADR's own hardening step `ALTER ROLE crm_user NOSUPERUSER CREATEROLE`                                                     | §2 catalog check item 8; §4 step 0                                                                                                           |
+| 5   | **The manifest is reconciled against production's real relation list**, not only against the Drizzle schema; relations no schema file declares go to class E, marked optional                                                                                                                                                                                                                                      | **Measured.** The coverage check found relations in production that no schema file declares, including row backups of `transactions` and of salary data — one of them created by no file in this repository                                                                                                                                                    | §2 "Relations no schema file declares"; catalog check item 1; Consequences                                                                   |
+| 6   | **Smaller reconciliations:** the password verifier arrives as a connection parameter (a custom setting) instead of psql `\getenv`; the DDL is **three** files — roles, grants, catalog check — and the last two are generated from one manifest; `crm_collector` is created from the first deploy, with no password; classes C and D ship empty; `document_access_log` has its own manifest class `A-log-prunable` | Testability (the GUC path), measurement (the log exposure), and A1 assumptions recorded in PR #1027                                                                                                                                                                                                                                                            | §1 role table; §2 class table; §4 "Shape of the DDL", password trap 3, step 8; "Not verified by running"                                     |
+
+**Production facts this amendment rests on**, measured 2026-10-18 by read-only queries: `crm_user`
+is `super=true login=true createrole=true`, the only non-system role in the cluster, on PostgreSQL
+16.14 — so §4 step 0 is answered, **branch 1**. The implementation's own measurements ran on 16.15;
+nothing it relies on is newer than 16.0, so the patch-level gap carries no risk.
+
 ## For the owner
 
 **What was accepted (2026-10-17)** — the six decisions summarised below: the role model, the
@@ -28,6 +55,10 @@ not pre-empt that.
 `crm_user` from superuser (A3: it is the cluster's only superuser); a separate `NOLOGIN` owner role
 (`crm_owner`); a read-only role (`crm_readonly`). Each has its conditions for revisiting in §1.
 
+**What the 2026-10-18 amendment asks of you** — nothing new to decide. It records your decision that
+rotating `crm_user`'s password stays your own manual step (§4 step 7), and otherwise catches the
+text up with what the implementation measured.
+
 **One thing that needs somebody, though not necessarily you** — changing the audit-log foreign keys
 (§2), which is ours to schedule, is doable now, and needs your decision only if you want it
 prioritised differently. It appears in "Open owner decisions" near the end, which
@@ -35,15 +66,18 @@ is the full list.
 
 ## Summary of decisions
 
-1. **Roles (§1).** `crm_user` stays the owner and migration role. Its password is rotated in the
-   database and its TCP login refused, so only local-socket use remains. The API connects as
+1. **Roles (§1).** `crm_user` stays the owner and migration role. Its TCP login is refused, so only
+   local-socket use remains, and its password is rotated in the database **by the owner, by hand** —
+   no deploy rotates it (amended 2026-10-18). The API connects as
    `crm_app`, which owns nothing, is a member of no role and is not a superuser. The collection
    worker gets `crm_collector`. Three login roles, plus the `NOLOGIN` function owner
    `crm_retention_owner` that chosen option R-B of §3 requires.
-2. **Privileges (§2).** Every table is in one class: A ordinary, A-log (the six existing audit
-   tables: insert-only for the API, no triggers yet), B append-only, C job-sourcing, D collector
-   inputs, E migration-internal. Default privileges cover new tables; `EXECUTE` is revoked from
-   `PUBLIC`. A nine-part catalog check fails CI and the deploy on any drift.
+2. **Privileges (§2).** Every relation in `public` — table or view — is in one class: A ordinary,
+   A-log (the six existing audit tables: insert-only for the API, no triggers yet), B append-only,
+   C job-sourcing, D collector inputs, E migration-internal (including relations no schema file
+   declares), V views (`SELECT` only). No default privilege grants tables: a new relation is
+   unreachable until the grants file, generated from the class manifest, names it. `EXECUTE` is
+   revoked from `PUBLIC`. A nine-part catalog check fails CI and the deploy on any drift.
 3. **Append-only log (§3).** Revoked privileges, `ENABLE ALWAYS` row and `TRUNCATE` triggers, and
    foreign keys that never write the log row (`RESTRICT` / `NO ACTION`, or no FK at all).
    Nothing in the database protects the log from `crm_user`, and
@@ -52,7 +86,7 @@ is the full list.
    policy it enforces — what is deleted or re-pointed, and when — is still pending (PR #1019).
 4. **Rollout (§4).** Nine steps, owner-only ones marked. Roles are created first; the API
    switches to `crm_app` with the owner password moved to a postgres-only env file; then the
-   `crm_user` password is rotated and `pg_hba.conf` refuses its TCP login, with validation before
+   owner rotates the `crm_user` password by hand and `pg_hba.conf` refuses its TCP login, with validation before
    and after the reload. Rollback is forward-only and never restores the owner credential to the
    API. Restores follow an ordered procedure.
 5. **Local development, CI and guards (§5).** Two connection strings. CI runs the API as `crm_app`.
@@ -65,13 +99,13 @@ is the full list.
 **Trigger.** The security review of PR #1017 (vacancy-sourcing queue tables: assignments,
 dismissals, triage subscriptions, the `job_queue_actions` action log, generations) found that the
 API connects as `crm_user` — the same role that applies every DDL file on deploy. On the scratch
-catalog `crm_user` has `rolsuper = t`. Production has not been checked; only the owner can run
-production commands (`ssh crm-vps`).
+catalog `crm_user` has `rolsuper = t`. Production was checked on 2026-10-18 (see the Amendment): `crm_user` is a superuser
+there too.
 
 **Why production is very probably a superuser too.** Production Postgres is the official
 `postgres:16-alpine` image, and `docker-compose.prod.yml` sets `POSTGRES_USER` to `crm_user`. The
 image entrypoint creates `POSTGRES_USER` as the cluster's bootstrap superuser at `initdb`. So the
-prior is "superuser", and the owner's check (§4, step 0) confirms or refutes it. This ADR does **not**
+prior is "superuser", and the owner's check (§4, step 0) confirmed it on 2026-10-18. This ADR does **not**
 depend on the answer: the attacks it closes need only table **ownership**, which `crm_user` has
 either way.
 
@@ -101,8 +135,8 @@ Three consequences, stated exactly:
    inside `DATABASE_URL` — and the `api` service has loaded that file **since the first deploy**.
    Taking the password out of the API's environment does not revoke it: anyone who ever read the
    API's environment, and any container on the backend network, can still log in as `crm_user`
-   over TCP. The password must be **rotated in the database** and TCP login for `crm_user` refused
-   (§4, step 7). The image reads `POSTGRES_PASSWORD` **only at first initialisation** of an empty
+   over TCP. The password must be **rotated in the database** — by the owner, by hand — and TCP login
+   for `crm_user` refused (§4, step 7). The image reads `POSTGRES_PASSWORD` **only at first initialisation** of an empty
    data directory, so changing the CI secret alone changes nothing in a running cluster.
 
 **What already constrains this ADR.** The vacancy-sourcing plan r5
@@ -132,11 +166,12 @@ Three login roles. Confidence **HIGH** on the model; it is the textbook split. C
 for end-of-retention (§3) adds a fourth role there: `crm_retention_owner`, `NOLOGIN`, which exists
 only to own the two privileged functions and never connects.
 
-| Role            | Kind  | Becomes / is                                                                                                                                                     | Attributes                                                                                                                                                                                                                                                                                          |
-| --------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `crm_user`      | LOGIN | **The owner / migration role.** Keeps owning every object; every deploy DDL file, the ledger runner (§6), `db:push`, `db:seed` and the backup keep running as it | Unchanged in this ADR (superuser today, very probably). Login attributes unchanged, but its password is **rotated** and TCP login refused (§4, step 7), so only local-socket use remains. The new password is held **only** by the `postgres` service and the deploy, never by the API (§4, step 5) |
-| `crm_app`       | LOGIN | **The API's role.** The only credential the API process holds                                                                                                    | `NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS`, a `CONNECTION LIMIT` sized to the pool plus headroom, member of **no** role, owns **nothing**                                                                                                                                      |
-| `crm_collector` | LOGIN | **The collection worker's role** that r5 Task 1.3 requires                                                                                                       | Same attributes as `crm_app`; explicit per-table grants only (§2). Created when the worker ships as its own process; its credential goes only to that process                                                                                                                                       |
+| Role                  | Kind    | Becomes / is                                                                                                                                                     | Attributes                                                                                                                                                                                                                                                                                                                                                               |
+| --------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `crm_user`            | LOGIN   | **The owner / migration role.** Keeps owning every object; every deploy DDL file, the ledger runner (§6), `db:push`, `db:seed` and the backup keep running as it | Unchanged in this ADR (a superuser, measured 2026-10-18). Login attributes unchanged, but its password is **rotated by the owner, by hand** — never by a deploy (§4, step 7) — and TCP login refused, so only local-socket use remains. The new password is held **only** by the `postgres` service and the deploy, never by the API (§4, step 5)                        |
+| `crm_app`             | LOGIN   | **The API's role.** The only credential the API process holds                                                                                                    | `NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS`, a `CONNECTION LIMIT` sized to the pool plus headroom, member of **no** role, owns **nothing**                                                                                                                                                                                                           |
+| `crm_collector`       | LOGIN   | **The collection worker's role** that r5 Task 1.3 requires                                                                                                       | Same attributes as `crm_app`; explicit per-table grants only (§2). **Created by file 1 from the first deploy, with no password** — a role without one cannot authenticate — so the catalog check covers it from the start. It gets a password and its class C / D grants when the worker ships as its own process (§4 step 8); that credential goes only to that process |
+| `crm_retention_owner` | NOLOGIN | **The owner of the two R-B functions** (§3); never connects                                                                                                      | Same attributes as `crm_app` but `NOLOGIN`; `USAGE` on schema `public` and no `CONNECT` (§2, "Database and schema"); owns exactly the R-B functions and nothing else                                                                                                                                                                                                     |
 
 Why each property matters (the attack each one closes):
 
@@ -166,18 +201,66 @@ already says extractor secrets are "read only by the worker process"; the collec
 
 ### 2. Privileges per role, per table class
 
-Every table in `public` belongs to **exactly one class**. The class decides the grants; the class
-list lives in one manifest that a catalog check reads (below). Confidence **HIGH** on the grants,
-**MED** on the manifest format (to be settled by the implementing task).
+Every relation in `public` — table, partitioned table, view or materialised view — belongs to
+**exactly one class**. The class decides the grants; the class list lives in one manifest,
+`privilege-classes.ts` (`PRIVILEGE_CLASSES` assigns, `CLASS_PRIVILEGES` states each class's
+policy), from which the grants file and the catalog check are both generated (§4). Confidence
+**HIGH** on the grants; the manifest format, open when this ADR was accepted, is settled by the
+implementation.
 
-| Class                                                | Members (examples, by table)                                                                 | `crm_app`                                                                                                     | `crm_collector`                                                                                   |
-| ---------------------------------------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| **A — ordinary**                                     | Default for every product table: users, projects, transactions, contracts, …                 | `SELECT, INSERT, UPDATE, DELETE`                                                                              | nothing                                                                                           |
-| **B — append-only**                                  | `job_queue_actions`; any future audit / action log                                           | `SELECT, INSERT` only — `UPDATE, DELETE, TRUNCATE` explicitly revoked, plus the triggers in §3                | nothing, unless r5 names it                                                                       |
-| **C — job-sourcing**                                 | The job-sourcing tables r5 Task 1.3 lists for the collector                                  | as class A                                                                                                    | `SELECT, INSERT, UPDATE, DELETE` on exactly the listed tables                                     |
-| **D — collector evaluation inputs**                  | users / team memberships, project-derived exclusion inputs, legacy résumé inputs (r5's list) | as class A                                                                                                    | `SELECT` — **column-level** on any table that also carries credentials, tokens or finance columns |
-| **A-log — existing audit logs, not yet append-only** | The six existing audit tables, listed below                                                  | `SELECT, INSERT`; `DELETE` **only** on `document_access_log` (its retention cron); no `UPDATE`, no `TRUNCATE` | nothing                                                                                           |
-| **E — migration-internal**                           | The migration ledger (§6), any deploy bookkeeping                                            | nothing                                                                                                       | nothing                                                                                           |
+| Class                                                | Members (examples, by table)                                                                                                                                                                               | `crm_app`                                                                                                     | `crm_collector`                                                                                   |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| **A — ordinary**                                     | Default for every product table: users, projects, transactions, contracts, …                                                                                                                               | `SELECT, INSERT, UPDATE, DELETE`                                                                              | nothing                                                                                           |
+| **B — append-only**                                  | `job_queue_actions`; any future audit / action log                                                                                                                                                         | `SELECT, INSERT` only — `UPDATE, DELETE, TRUNCATE` explicitly revoked, plus the triggers in §3                | nothing, unless r5 names it                                                                       |
+| **C — job-sourcing**                                 | The job-sourcing tables r5 Task 1.3 lists for the collector                                                                                                                                                | as class A                                                                                                    | `SELECT, INSERT, UPDATE, DELETE` on exactly the listed tables                                     |
+| **D — collector evaluation inputs**                  | users / team memberships, project-derived exclusion inputs, legacy résumé inputs (r5's list)                                                                                                               | as class A                                                                                                    | `SELECT` — **column-level** on any table that also carries credentials, tokens or finance columns |
+| **A-log — existing audit logs, not yet append-only** | The six existing audit tables, listed below. The manifest splits them: `A-log` for five, `A-log-prunable` for `document_access_log` — the same privileges, one fewer exception for the check to understand | `SELECT, INSERT`; `DELETE` **only** on `document_access_log` (its retention cron); no `UPDATE`, no `TRUNCATE` | nothing                                                                                           |
+| **E — migration-internal**                           | The migration ledger (§6), any deploy bookkeeping, and every relation in `public` that no schema file declares — row backups and data-fix bookkeeping (below)                                              | nothing                                                                                                       | nothing                                                                                           |
+| **V — views**                                        | Every view in `public`; the manifest names each one                                                                                                                                                        | `SELECT` only                                                                                                 | nothing                                                                                           |
+
+**Class V — why views need their own class (amended 2026-10-18).** `GRANT … ON ALL TABLES` and
+`ALTER DEFAULT PRIVILEGES … ON TABLES` both cover views — PostgreSQL uses "table" loosely there —
+and the privileges on the base tables of an auto-updatable view are checked against the **view
+owner**, which is the migration role. So a write through a view is a path around a revoke on the
+table under it. The security review of PR #1027 proved it by running, as `crm_app`: a direct
+`UPDATE` on the append-only class B table was refused with `permission denied`, while the same
+`UPDATE` through a plain `SELECT *` view over it changed a row, a `DELETE` through that view
+succeeded, and an `INSERT` through a view over the `transactions` row backup (class E) succeeded
+too. Hence class V: `SELECT` for `crm_app`, nothing for the collector. The implementation verified
+that none of today's views reads an audit log and that no production code writes through a view;
+a view the API must write through is outside this ADR and needs its own justification.
+
+**The class is necessary but not sufficient.** The default privilege on `TABLES` that this ADR first
+specified also reached views, so a view created after the grants file ran was writable whatever its
+class. Removing that default privilege is what closes the path ("Default privileges", below).
+
+**Relations no schema file declares — reconcile against production, not only against the schema
+(amended 2026-10-18).** The manifest must cover production's **real** relation list. The Drizzle
+schema is not that list: data-fix files and hand operations leave relations in `public` that no
+schema module declares, and a unit check derived from the schema (`privilege-classes.spec.ts`)
+cannot see them. The implementation's coverage check, which reads `pg_class`, found them. A
+read-only comparison of production's relation list with the manifest on 2026-10-18 found three in
+production:
+
+- `_settle_phantom_backup_20260715` — a row backup of `transactions`, left by a 2026-07-15 data-fix
+  file;
+- `drop_cascade_origin_marker_state` — bookkeeping of a 2026-07-27 backfill file;
+- `salary_month_shift_backup` — a hand-taken row backup of salary data that **no file in this
+  repository creates**, so neither reading the repository nor running a test could have found it;
+  the first production deploy would have failed on it.
+
+A fourth, `_drop_share_pending_parity_backup_20260727`, is created by a data-fix file that
+integration specs apply; production does not carry it.
+
+The rule: such a relation lands in **class E** — the API gets nothing — and is listed in
+`MANUAL_DDL_RELATIONS` as **optional**, so it must be classified where present and is not required
+to exist. It never defaults to writable: the grants file revokes everything on every relation
+before granting by class, so an unclassified relation is stripped, and catalog check part 1 fails
+the deploy naming it. A row backup of `transactions` or of salary data carries the same data as the
+table it copies; class A would hand that copy to the API. The comparison with production's
+relation list is a read-only `SELECT`, repeated before any deploy that may meet a relation the
+repository does not know about. The manifest makes no claim about production's contents; a
+measurement belongs next to the date it was taken.
 
 **The existing audit logs — this reaches beyond the vacancy feature.** The CRM already
 has six audit tables. Under a blanket class A they would give `crm_app` `UPDATE` and `DELETE` on
@@ -259,7 +342,6 @@ ADR; `transaction_audit_log` is critical-path and needs a security review):
    decision**, with the rationale in a comment beside them ("an audit trail must OUTLIVE the row it
    describes"). The six tables simply extend it from the target to every column pointing at a
    deletable row.
-
    - **Preferred: drop the FK on each such column, keeping the `uuid` as plain data.** Deleting a
      parent touches no log row, so the trigger is not involved, and **no test-suite work is
      needed**: the roughly 110 spec teardowns that delete users, teams and projects keep passing.
@@ -298,7 +380,7 @@ revokes that, both for what exists and for what is created later:
 
 ```sql
 REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC;
-ALTER DEFAULT PRIVILEGES FOR ROLE crm_user REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE CURRENT_USER REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 ```
 
 A function the API must call is then granted to `crm_app` by name, in the PR that adds it. Built-ins
@@ -318,102 +400,161 @@ implicit `CONNECT` and `TEMPORARY`), then `GRANT CONNECT` to `crm_app` and `crm_
 `REVOKE CONNECT, TEMPORARY … FROM PUBLIC` as well; otherwise `crm_app` can still connect to
 `postgres` and create temporary tables there. `pg_hba.conf` (§4 step 7) confines both
 application roles to `crm_db` at the network layer too. Schema: `GRANT USAGE ON SCHEMA public` to
-both; `REVOKE CREATE ON SCHEMA public FROM PUBLIC` — already the default on a cluster initialised
+both application roles **and to `crm_retention_owner`** — privilege checks inside a `SECURITY
+DEFINER` function run as the function's owner, so the owner of the R-B functions must resolve
+names in `public` even though it never connects (it gets no `CONNECT`); `REVOKE CREATE ON SCHEMA public FROM PUBLIC` — already the default on a cluster initialised
 by PostgreSQL 15+, issued explicitly so the file is correct on any cluster. No `TEMPORARY` for
 either role; if the API ever needs temp tables, the grant is added by a PR that states why.
 
-**Default privileges — so a new table is neither unreachable nor over-granted.**
+**Default privileges — sequences and the function revoke, and nothing on tables (amended
+2026-10-18).**
 
 ```sql
-ALTER DEFAULT PRIVILEGES FOR ROLE crm_user IN SCHEMA public
-  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO crm_app;
-ALTER DEFAULT PRIVILEGES FOR ROLE crm_user IN SCHEMA public
+-- Forward repair only: removes a TABLES default privilege a database may carry from an
+-- earlier revision. A no-op where none was ever applied, which is production.
+ALTER DEFAULT PRIVILEGES FOR ROLE CURRENT_USER IN SCHEMA public
+  REVOKE ALL ON TABLES FROM crm_app, crm_collector, crm_retention_owner;
+ALTER DEFAULT PRIVILEGES FOR ROLE CURRENT_USER IN SCHEMA public
   GRANT USAGE, SELECT ON SEQUENCES TO crm_app;
-ALTER DEFAULT PRIVILEGES FOR ROLE crm_user
+ALTER DEFAULT PRIVILEGES FOR ROLE CURRENT_USER IN SCHEMA public
+  REVOKE GRANT OPTION FOR USAGE, SELECT ON SEQUENCES FROM crm_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE CURRENT_USER
   REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 -- crm_collector: deliberately NO default privileges (fail closed).
 ```
 
 What this gives, exactly:
 
-- A new class A table is reachable by the API the moment it is created. Nothing to remember.
+- **A new relation of any class is unreachable by the API until the grants file names it.** That is
+  fail closed, and loud: `permission denied`, SQLSTATE `42501`, not wrong data. It costs nothing in
+  reachability: a new table cannot ship without a manifest entry, because `privilege-classes.spec.ts`
+  derives its list from the Drizzle schema and fails the unit suite on any unclassified table, and
+  the grants file is generated from the manifest. The deploy applies the grants file after every
+  file that creates a relation, so by the end of the deploy the new table holds its class's grants.
+- **Why the `ON TABLES` grant this ADR first specified was removed** (security review of PR #1027).
+  Its stated benefit — "a new class A table is reachable the moment it is created" — was already
+  delivered by the generator, so it bought only the **window** between a `CREATE TABLE` and the
+  grants file. In that window it failed **open**: `ON TABLES` covers views, so a new view over a
+  class B, A-log or E relation was writable by `crm_app` (class V, above); and a new class B, A-log
+  or E table started with `UPDATE, DELETE` for the API. The window is never zero inside a deploy,
+  and unbounded if a deploy dies between the DDL and the grants file or if DDL is applied outside a
+  deploy. The mitigation first written here — revoke in the same `BEGIN … COMMIT` as the
+  `CREATE TABLE` — was discipline that no gate enforced.
+- **Why the file carries a `REVOKE` and not merely the absence of the `GRANT`.** Deleting a
+  statement does not undo its effect on a database that already ran it, and catalog check part 5
+  would then fail every deploy with no forward fix. "The fix is a PR, not a hand-made `GRANT`" has to
+  hold for this too. The same argument gives `REVOKE GRANT OPTION FOR` on sequences: re-granting a
+  privilege already held grantably leaves the grant option standing (measured on 16.15).
+- **Sequences keep a default privilege**, so a table whose grants do arrive does not then fail on
+  its own identity column. A sequence is not a view and has no owner-checked write path.
+
 - A new table the **collector** needs is unreachable until a grant names it. Fail closed is loud: the
   worker gets `permission denied` (SQLSTATE `42501`), not wrong data.
-- A new class B, A-log or **E** table starts **over-granted** (it inherits `UPDATE, DELETE` for
-  `crm_app`; a new ledger table would be fully writable by the API). The DDL file that creates it
-  must revoke those grants — and for class B add the §3 triggers — **in the same explicit
-  `BEGIN … COMMIT` block** as the `CREATE TABLE`. The deploy applies files with statement-level
-  autocommit, so without the block there is a window where the new table is mutable. File 2
-  re-asserts the revokes on every deploy, inside its own transaction (§4).
-- **The trap:** default privileges apply only to objects created **by `crm_user`** (the `FOR ROLE`).
-  A table created by any other role gets no grants at all. Every DDL path in this repository runs as
-  `crm_user` today; that must stay true, and the catalog check below catches it if it does not.
+- **`FOR ROLE CURRENT_USER`, not `FOR ROLE crm_user`.** The trap: default privileges apply only to
+  objects created **by the role named**; an object created by any other role gets none, silently.
+  `CURRENT_USER` ties them to whichever role applies file 1, which by construction is the role that
+  applies every other DDL file in the same deploy — and on a developer machine the role behind
+  `db:push`. On production that records `defaclrole = crm_user`, the same row the literal would
+  give (verified on 16.15). Catalog check part 5 closes the loop: it **derives** the migration role
+  from who owns the tables and fails if the default privileges are attached to anyone else, so if
+  DDL ever starts running as a second role the deploy fails instead of new objects quietly losing
+  their defaults.
 
 **The catalog check — what makes "silently" impossible.** One check, run in CI against a scratch
-database built from the same DDL, and as a deploy step right after the DDL apply steps. It has nine
+database built from the same DDL, and as a deploy step right after the DDL apply steps. It ships
+as a generated SQL file applied immediately after the grants file (file 3, §4), and the integration
+spec `db-privileges.integration.spec.ts` turns each deciding branch red by its own test. It has nine
 parts and reads `pg_class`, `pg_roles`, `pg_auth_members`, `pg_default_acl`, `pg_proc`,
 `pg_namespace`, `pg_trigger` and `information_schema.column_privileges`, plus the
 `has_*_privilege` functions — because `has_table_privilege` alone sees neither sequences, nor
 column grants, nor default privileges:
 
-1. **Manifest coverage.** Every table in `public` appears in the class manifest exactly once. A
-   table missing from the manifest **fails the check** — the author of a new table must choose its
-   class.
-2. **Table privileges.** For every table and both roles, `has_table_privilege` for each of `SELECT,
+1. **Manifest coverage, both directions.** Every relation in `public` (table, partitioned table,
+   view, materialised view) appears in the class manifest exactly once, and every non-optional
+   manifest entry exists. A relation missing from the manifest **fails the check** — the author of
+   a new table must choose its class. Optional entries — relations no schema file declares (above)
+   — must be classified where present and need not exist.
+2. **Table privileges.** For every relation and each of the three roles, `has_table_privilege` for each of `SELECT,
 INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER` equals what the class prescribes — no
    more, no less. For class D tables with column-level grants, the table-level `SELECT` for
    `crm_collector` must be **false** (a table-level grant would silently cover every column).
-3. **Column privileges.** For class D, the set of `(table, column)` pairs with `SELECT` for
-   `crm_collector` (`information_schema.column_privileges`, or `has_column_privilege` per column)
-   equals the manifest's column list exactly. `has_table_privilege` cannot see these.
+3. **Column privileges.** For each role, the set of `(table, column)` pairs carrying a
+   column-level privilege (`information_schema.column_privileges`) equals the manifest's list
+   exactly — the class D columns for `crm_collector`, and the empty set for the other two. `has_table_privilege` cannot see these.
 4. **Sequence privileges.** For every sequence in `public`, `has_sequence_privilege` gives `crm_app`
    `USAGE` and `SELECT` and **not** `UPDATE`; `crm_collector` only `USAGE`, and only on sequences of
    its class C tables.
-5. **Default privileges.** `pg_default_acl` holds exactly the three entries of the block above for
-   `defaclrole = crm_user` — tables (`crm_app=arwd`), sequences (`crm_app=rU`), functions (no
-   `PUBLIC` `EXECUTE`) — and no entry for any other role, so a stray `ALTER DEFAULT PRIVILEGES` is
-   caught.
+5. **Default privileges.** `pg_default_acl` holds exactly the entries of the block above, for
+   `defaclrole` = the migration role derived from table ownership — sequences (`crm_app=rU`, not
+   grantable) and functions (no `PUBLIC` `EXECUTE`) — **no** entry granting anything on tables, and
+   no entry for any other role, so a stray `ALTER DEFAULT PRIVILEGES` is caught.
 6. **Database and function privileges.** `has_database_privilege` — `crm_app` / `crm_collector` have
    `CONNECT` on `crm_db` only, `TEMPORARY` nowhere, and `CREATE` on schema `public` is false.
    `has_function_privilege` — `PUBLIC` holds `EXECUTE` on no function in `public`.
-7. **Role attributes and ownership.** For `crm_app` and `crm_collector`: `rolsuper`,
-   `rolcreaterole`, `rolcreatedb`, `rolbypassrls`, `rolreplication` are all false; they own no
-   object (`pg_class.relowner`, `pg_proc.proowner`, `pg_namespace.nspowner`).
-8. **Role membership — in both directions, pinned.** `pg_auth_members` has **zero** rows with
-   `member` = `crm_app` or `crm_collector` (they are members of no role — the direction that
-   matters, because membership is what would let them `SET ROLE` to an owner). With `roleid` =
-   either of them (someone is a member **of** them), the allowed set is exact and depends on step
-   0's branch:
-   - **Branch 1 (`crm_user` is a superuser):** zero rows. A superuser that creates a role is not
-     made a member of it.
-   - **Branch 2 (`crm_user` is not a superuser but has `CREATEROLE`):** exactly one row per
-     application role — `member` = `crm_user`, `admin_option` = true, `inherit_option` = false,
-     `set_option` = false. PostgreSQL 16 records this grant automatically whenever a
-     non-superuser with `CREATEROLE` creates a role (reproduced on 16.15 during review); the
-     `ADMIN` part cannot be avoided, because it is what lets the creator manage the role it
-     created. File 1 sets `createrole_self_grant = ''` for its session before `CREATE ROLE` so the
-     grant is **made** without `INHERIT` or `SET`. The row is harmless for the boundary: it lets
-     the owner administer the application role, and the owner is already more powerful than it.
-   - Any other row — another member, or this row with `inherit_option` or `set_option` true —
-     fails the check.
+7. **Role attributes and ownership.** For `crm_app`, `crm_collector` and `crm_retention_owner`:
+   `rolsuper`, `rolcreaterole`, `rolcreatedb`, `rolbypassrls`, `rolreplication` are all false, and
+   login and connection limit are as file 1 sets them; they own no object (`pg_class.relowner`,
+   `pg_proc.proowner`, `pg_namespace.nspowner`), except that `crm_retention_owner` owns exactly the
+   R-B functions.
+8. **Role membership — in both directions, pinned (amended 2026-10-18).** `pg_auth_members` has
+   **zero** rows with `member` = any of the three roles (they are members of no role — the
+   direction that matters, because membership is what would let them `SET ROLE` to an owner). With
+   `roleid` = one of them (someone is a member **of** it), the check asserts two things,
+   **unconditionally** — in every branch, with no expected count derived from anything:
+   - **The shape of every such row** is the creator shape: `member` = the migration role,
+     `admin_option` = true, `inherit_option` = false, `set_option` = false. Any other member, or
+     this row with `inherit_option` or `set_option` true, fails the check.
+   - **At most one such row** per role.
+
+   **Why no count is asserted.** Whether the creator-membership row exists depends on who
+   **created** the role, and production's creating role is a **superuser** — measured 2026-10-18:
+   `crm_user super=true login=true createrole=true`, the only non-system role, PostgreSQL 16.14.
+   Measured on 16.15 with the same statements and only the creator differing: a superuser creator
+   gets **zero** rows; a non-superuser creator with `CREATEROLE` gets **one** row of exactly the
+   creator shape, which PostgreSQL 16 records automatically. So:
+   - a check expecting one row would pass in a non-superuser scratch database and **fail the first
+     production deploy**;
+   - a check expecting zero rows would fail every deploy in branch 2;
+   - a check deriving the count from the migration role's **current** `rolsuper` is wrong as well
+     (security review of PR #1027, reproduced). Creator-membership is a fact about who created the
+     role; `rolsuper` is a fact about who the creator is **now**. This ADR's own hardening step,
+     `ALTER ROLE crm_user NOSUPERUSER CREATEROLE` (the deferred demotion of §1), changes the second
+     without touching the first, and such a check would then fail every deploy with a message whose
+     only remedy reads `GRANT crm_app TO crm_user` — directing the operator to add the very route
+     this item exists to constrain.
+
+   "Creator shape, at most one" holds in both branches, under demotion and under promotion, and
+   still catches every case the count caught: an injected membership row, and the creator row
+   re-granted `WITH SET TRUE`. A second grant to the **same** member is merged by PostgreSQL
+   (measured on 16.15), so the count's remaining job is to catch a second member.
+
+   **The earlier emphasis of this item was the risk.** As first accepted, the text enumerated both
+   branches correctly, but its prose dwelt on the one-row case — the **non-superuser** branch — and
+   the implementing task compressed it to "exactly one row". An implementation that followed the
+   prose would have failed the first production deploy. Zero rows is the expected production state.
+
+   File 1 still sets `createrole_self_grant = ''` for its session before `CREATE ROLE`, so that in
+   branch 2 the automatic row is **made** without `INHERIT` or `SET`; the `ADMIN` part cannot be
+   avoided, because it is what lets the creator manage the role it created. That row is harmless
+   for the boundary: it lets the owner administer the role, and the owner is already more powerful.
 
    **The assertion is the guarantee; the setting is not.** `createrole_self_grant` constrains the
    grant at the moment it is made, not the creator's reach afterwards: holding `admin_option`,
    `crm_user` can re-grant the role to itself `WITH SET TRUE` at any time (done during review). So
    the protection is this check running on **every** deploy and failing on exactly that row — not
    the setting in file 1, which only keeps the initial state clean. The same reasoning is why the
-   check names the column and the branch it expects: "no membership" without a direction is how a
-   check passes while testing the harmless side, and a blanket "zero rows" would fail every deploy
-   in branch 2.
+   check names the column and the shape it expects: "no membership" without a direction is how a
+   check passes while testing the harmless side.
 
 9. **Triggers.** Every class B table has its §3 triggers, in state `A` (`ENABLE ALWAYS`) in
    `pg_trigger.tgenabled`.
 
 This is the same philosophy as `check-prod-ddl-wiring.py`: an enumeration in one place, and CI fails
-when reality and the enumeration diverge. Confidence **MED** on where the check lives (a script in
-`scripts/devops/` called from both CI and deploy, or the "catalog validation" step the ledger ADR is
-asked for — see §6); **HIGH** that it must exist, because without it every failure mode listed in
-this section is invisible until production.
+when reality and the enumeration diverge. Where the check lives, open when this ADR was accepted, is
+settled: a generated SQL file in the deploy's manual-DDL sequence, applied after the grants file (§4);
+it remains a candidate for the ledger ADR's "catalog validation" step (§6). Confidence **HIGH** that
+it must exist, because without it every failure mode listed in this section is invisible until
+production.
 
 ### 3. The append-only audit log under the new model
 
@@ -422,9 +563,10 @@ text; everything below is stated as a property the schema **delivers** and a tes
 because a guarantee without its test is the failure mode of the previous PR on this feature.
 
 **Layer 1 — privileges (binds `crm_app`, `crm_collector`; does not bind `crm_user`).**
-`crm_app` holds `SELECT, INSERT` only. `UPDATE`, `DELETE` and `TRUNCATE` are revoked explicitly
-(`REVOKE UPDATE, DELETE, TRUNCATE ON job_queue_actions FROM crm_app`) — explicit because the
-default privileges of §2 grant `UPDATE, DELETE` to every new table. `crm_collector` holds nothing
+`crm_app` holds `SELECT, INSERT` only. `UPDATE`, `DELETE` and `TRUNCATE` are never granted, and
+that is re-asserted on every deploy: the grants file revokes everything on every relation and then
+grants each class its set, in one transaction, so a hand-made grant does not survive the next deploy
+(no default privilege grants tables, §2). `crm_collector` holds nothing
 on the log unless r5 names a reason. Consequences for application code: idempotent writes use
 `INSERT … ON CONFLICT DO NOTHING` (needs `INSERT` only); `ON CONFLICT DO UPDATE` needs `UPDATE`
 and is therefore refused — by design.
@@ -582,7 +724,7 @@ the catalog check pins them:
 
 1. **A dedicated owner role.** Both functions are owned by `crm_retention_owner`: `NOLOGIN`,
    `NOSUPERUSER`, `NOCREATEROLE`, `NOCREATEDB`, `NOBYPASSRLS`, member of no role, and holding
-   **only** `SELECT, DELETE` on `job_queue_actions`, column-level `UPDATE (reason, actor_id,
+   (besides `USAGE` on schema `public`, §2) **only** `SELECT, DELETE` on `job_queue_actions`, column-level `UPDATE (reason, actor_id,
 subject_user_id)` on it, `INSERT` on it (for the `REASON_REDACTED` event), and `SELECT` on the
    retention-policy table. Not `crm_user`: a definer function owned by `crm_user` would run with
    every privilege of the owner, and probably as superuser, so one mistake in its body would be a
@@ -666,23 +808,38 @@ container swap every deploy already does. Steps marked **[OWNER]** can be perfor
 owner (production shell, CI secrets, merge); per `docs/runbooks/human-only.md` each is reduced to
 one line, everything else is automated. Each step leaves a working production.
 
-**Shape of the DDL (two files, for ordering).** The deploy re-applies every manual file on every
-deploy, in a fixed order. Roles must exist before any file mentions them, and table-wide grants
-must run after every table exists. So:
+**Shape of the DDL (three files, for ordering — amended 2026-10-18).** The deploy re-applies every
+manual file on every deploy, in a fixed order. Roles must exist before any file mentions them, and
+grants must run after every relation exists. So:
 
-- **File 1 — roles** (applied **first**): creates `crm_app` (and later `crm_collector`) if missing
-  (a `DO` block — `CREATE ROLE` has no `IF NOT EXISTS`), sets their attributes, sets the passwords
-  of `crm_app`, `crm_collector` **and `crm_user`** (step 7), the database and schema rules, and the
-  default privileges of §2.
-- **File 2 — grants** (applied **last**), as **one explicit transaction** (`BEGIN … COMMIT`):
-  `GRANT … ON ALL TABLES / ALL SEQUENCES IN SCHEMA public` to `crm_app`, then, inside the same
-  transaction, the revokes for every class B, class A-log and class E table, then the collector's
-  class C / D grants. Privileges are catalog rows under MVCC, so no other session ever sees the
-  intermediate state in which the log or the ledger is briefly granted; without the transaction,
-  every deploy would re-grant `UPDATE, DELETE` on the log and grant the ledger to `crm_app` for the
-  length of a few statements. Idempotent; re-applying it every deploy also repairs drift.
+- **File 1 — roles** (`2026-10-18_db_roles.sql`, applied **first**): creates `crm_app`,
+  `crm_collector` and `crm_retention_owner` if missing (a `DO` block — `CREATE ROLE` has no
+  `IF NOT EXISTS`), re-asserts their attributes, sets the passwords of **`crm_app` and
+  `crm_collector` only** — each only when its verifier parameter is set — the database and schema
+  rules, and the default privileges of §2. It sets **no password for `crm_user`**: that rotation is
+  the owner's manual step (step 7). Attributes are repaired by issuing only the clauses that differ
+  from the catalog, one `ALTER ROLE` at a time, because PostgreSQL 16 lets a non-superuser change an
+  attribute only if it holds that attribute: in branch 2 the file repairs what it may and warns
+  about the rest, and the catalog check fails the deploy until a superuser finishes it.
+- **File 2 — grants** (`2026-10-18_db_grants.sql`, applied **last**), as **one explicit transaction**
+  (`BEGIN … COMMIT`, with a `lock_timeout`): revoke everything on every relation in `public` from
+  the three roles, then grant each class its set **by relation name**, then the sequences, then the
+  collector's class C / D grants. It raises a named exception if the roles do not exist, and fails on
+  a missing non-optional relation. Privileges are catalog rows under MVCC, so no other session ever
+  sees the intermediate, fully revoked state (verified during the security review: a concurrent
+  `crm_app` session kept reading mid-transaction). Idempotent; re-applying it every deploy also
+  repairs drift.
+- **File 3 — the catalog check** (`2026-10-18_db_privileges_check.sql`), immediately after file 2:
+  asserts what file 2 applied (§2), signalling drift with `RAISE EXCEPTION`, so it must run under
+  `-v ON_ERROR_STOP=1`.
 
-Both follow the existing wiring contract (r5 C-15: scp `source:` entry, an apply step, the
+Files 2 and 3 are **generated** from the one manifest, `privilege-classes.ts`, by
+`pnpm --filter @crm/api db:privileges:generate`, and a spec fails if the committed files differ from
+the generator's output. A grant and the assertion that the grant is in place are the same fact
+written twice; written by hand they drift silently, and the check would then assert the stale
+expectation and pass.
+
+All three follow the existing wiring contract (r5 C-15: scp `source:` entry, an apply step, the
 hard-required file list, runbook §9 mirror; `check-prod-ddl-wiring.py` stays green).
 
 **Password handling in file 1 — three traps, each closed.** Confidence **HIGH** on the traps,
@@ -706,13 +863,25 @@ log_min_error_statement = panic` (settable because it runs as `crm_user`, a supe
      command line;
    - computing the SCRAM verifier on the runner: the tool reads the password from its environment
      or stdin, never from an argument.
-3. **`DO` blocks.** psql substitutes `:'var'` in ordinary statements, **not** inside a `DO $$ … $$`
-   body. So the `DO` block only creates missing roles, without a password; the passwords are set
-   by plain `ALTER ROLE … PASSWORD :'app_verifier'` statements after it, reading the variable via
-   psql `\getenv` (psql 15+).
+3. **`DO` blocks — and why the verifier arrives as a connection parameter (amended 2026-10-18).**
+   psql substitutes `:'var'` in ordinary statements, **not** inside a `DO $$ … $$` body, so this
+   ADR first had the passwords set by plain `ALTER ROLE … PASSWORD :'app_verifier'` statements
+   reading psql `\getenv`. The implementation reads the verifier instead from a custom setting —
+   `crm_roles.app_verifier`, `crm_roles.collector_verifier` — passed as a connection parameter
+   (`PGOPTIONS="-c crm_roles.app_verifier=…"`, forwarded by name with `docker compose exec -e
+PGOPTIONS`), uses it inside a `DO` block, and clears it with `set_config` afterwards. The reason
+   is testability: `manual-sql-statements.ts`, the splitter every forward-DDL spec uses to apply a
+   manual file the way psql does, refuses a file containing a psql meta-command, so with `\getenv`
+   file 1 would be the one manual file no spec can apply and the password path would stay unproved.
+   All three traps stay closed — a connection parameter never reaches argv and is readable only by
+   the session that set it — and the security review measured the difference on trap 1: with
+   `log_statement = all`, the parameter path put the verifier in the server log **zero** times,
+   while the `\getenv`-shaped plain `ALTER ROLE` was logged in full as statement text. A value that
+   is not a well-formed SCRAM verifier is refused rather than stored; an unset parameter leaves that
+   role's password untouched, which is what lets one file serve every step.
 
-Re-applying file 1 every deploy makes rotation of any of the three passwords "change the secret,
-deploy".
+Re-applying file 1 every deploy makes rotation of the **two application roles'** passwords "change
+the secret, deploy". It deliberately does not do this for `crm_user` — see "Step 7 — why rotation".
 
 **The environment split.** Compose interpolates `${POSTGRES_PASSWORD:?…}` in
 `docker-compose.prod.yml` from the file given to `--env-file` — today the same `.env.production`
@@ -733,13 +902,13 @@ production has no use for it, because every production DDL path goes over the lo
 | --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 0   | Read-only check of the current role (commands below)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | **[OWNER]**                                                                             | none                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | The answer is recorded in the implementing PR                                                                                                                                                                                                                                                             |
 | 1   | Add the CI secret `CRM_APP_DB_PASSWORD` (value: `openssl rand -hex 32` — hex, so it is URL-safe in `DATABASE_URL`). One line: "Settings → Secrets → New: `CRM_APP_DB_PASSWORD`, value from `openssl rand -hex 32`"                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | **[OWNER]**                                                                             | none                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | The deploy fails loudly if the secret is absent                                                                                                                                                                                                                                                           |
-| 2   | PR A (DevOps): files 1 and 2, their wiring, the catalog check (§2) as a deploy step after the DDL steps and as a CI job. The API still connects as `crm_user`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | DevOps; merge **[OWNER]**                                                               | Roles and grants exist; behaviour unchanged                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Deploy green, catalog check green                                                                                                                                                                                                                                                                         |
+| 2   | PR A: files 1, 2 and 3 (file 3 is the catalog check of §2, a deploy step right after file 2) and their wiring; in CI the integration spec applies them to the integration database. The API still connects as `crm_user`                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Coder (files) and DevOps (wiring); merge **[OWNER]**                                    | Roles and grants exist; behaviour unchanged                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Deploy green, catalog check green                                                                                                                                                                                                                                                                         |
 | 3   | Automated probes, in the same deploy, **from a throwaway client container on the backend network** (e.g. a one-off `postgres:16-alpine` run with `--no-deps`), connecting to host `postgres` — never from inside the postgres container, where `127.0.0.1` and `::1` are `trust` and a wrong password also succeeds. Probes: `crm_app` with the right password → accepted; `crm_app` with a deliberately wrong password → **refused** (proves the probe is not hitting a trust rule); inside a rolled-back transaction, `UPDATE job_queue_actions` as `crm_app` → `42501`                                                                                                          | DevOps (in PR A)                                                                        | none                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | All probes as expected                                                                                                                                                                                                                                                                                    |
 | 4   | CI runs the API **as `crm_app`** (§5) on `main` — the strongest proof that the grants are sufficient for every query the code makes; **plus** one real-database spec per cron service whose job issues `DELETE` or `UPDATE` (see "What step 4 does not reach"), each asserting the statement succeeds as `crm_app`                                                                                                                                                                                                                                                                                                                                                                 | DevOps + AutoTest                                                                       | none                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | CI green on `main` with the new connection                                                                                                                                                                                                                                                                |
 | 5   | PR B (DevOps): the deploy writes `DATABASE_URL` with `crm_app` and `CRM_APP_DB_PASSWORD`, and splits the environment as in the table above. **Prerequisites:** the `42501` alert of measure 2 ("What step 4 does not reach") is live, and the API registers a pool `error` listener ("What a database restart does to the API today"). **Order inside the deploy:** apply file 1 → run the step 3 `crm_app` login probe → only then recreate the `api` container. If `crm_app` cannot log in, the deploy stops while the old container is still serving; recreation is a plain `docker compose up -d`, not a health-gated swap, so this order is the only thing that guarantees it | DevOps; merge **[OWNER]**                                                               | The API restarts as `crm_app`, as on any deploy                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Deploy green and step 6 checks green                                                                                                                                                                                                                                                                      |
 | 6   | Verify (commands below): API sessions are `crm_app` only; the API container's environment contains neither the `crm_user` password **value**, nor any `crm_user@` URL, nor `MIGRATION_DATABASE_URL`; a sign-in, a finance page read and one write work; no `permission denied` in API logs for 48 h                                                                                                                                                                                                                                                                                                                                                                                | DevOps automates the first two as deploy steps; the smoke and the log watch **[OWNER]** | none                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | All four hold                                                                                                                                                                                                                                                                                             |
-| 7   | **Revoke the old owner credential (PR C, DevOps).** (a) **[OWNER]** sets the CI secret `POSTGRES_PASSWORD` to a new `openssl rand -hex 32`; (b) the deploy rotates `crm_user`'s password **in the database** to that value (file 1 does it on every deploy over the local socket, so the database and the secret cannot drift); (c) `pg_hba.conf` refuses TCP login for `crm_user` (below); (d) the deploy refuses to write any `DATABASE_URL` whose user is `crm_user`                                                                                                                                                                                                            | DevOps; secret and merge **[OWNER]**                                                    | A few seconds of database unavailability: the postgres-only env file changes, so `docker compose up -d` recreates the `postgres` container. **Expect the API process to restart too, and to be unavailable for longer than the database** — it crash-loops through Docker's backoff while Postgres initialises (see below), so plan for seconds to tens of seconds of failed requests, not a transparent reconnect. Adding the pool `error` listener removes the loop. Nothing legitimate logs in as `crm_user` over TCP after step 5. Schedule it like any deploy that restarts the database | The step 3 probes, extended with **one** probe: `crm_user` over TCP → refused. One probe suffices because the `reject` rule fires before authentication, so the result does not depend on which password is tried (the old one is no longer available once the secret is overwritten); `crm_app` accepted |
-| 8   | Collector, when the worker ships as its own process: `CRM_COLLECTOR_DB_PASSWORD` **[OWNER]**, the role in file 1, class C / D grants in file 2, the URL only in the worker's environment                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | r5 Task 1.3 / DevOps                                                                    | Worker runs as `crm_collector`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Catalog check covers `crm_collector`                                                                                                                                                                                                                                                                      |
+| 7   | **Revoke the old owner credential (PR C, DevOps, plus one owner step).** (a) **[OWNER]**, by hand and with the machine in reach: rotate `crm_user`'s password **in the database** over the local socket (`ALTER ROLE crm_user PASSWORD` with a SCRAM verifier, never a plain password — trap 1), and set the CI secret `POSTGRES_PASSWORD` to the same new value in the same sitting. **No deploy rotates it** (owner decision 2026-10-18, see "Step 7 — why rotation"); (b) `pg_hba.conf` refuses TCP login for `crm_user` (below); (c) the deploy refuses to write any `DATABASE_URL` whose user is `crm_user`                                                                   | DevOps (b, c); rotation, secret and merge **[OWNER]**                                   | A few seconds of database unavailability: the postgres-only env file changes, so `docker compose up -d` recreates the `postgres` container. **Expect the API process to restart too, and to be unavailable for longer than the database** — it crash-loops through Docker's backoff while Postgres initialises (see below), so plan for seconds to tens of seconds of failed requests, not a transparent reconnect. Adding the pool `error` listener removes the loop. Nothing legitimate logs in as `crm_user` over TCP after step 5. Schedule it like any deploy that restarts the database | The step 3 probes, extended with **one** probe: `crm_user` over TCP → refused. One probe suffices because the `reject` rule fires before authentication, so the result does not depend on which password is tried (the old one is no longer available once the secret is overwritten); `crm_app` accepted |
+| 8   | Collector, when the worker ships as its own process: `CRM_COLLECTOR_DB_PASSWORD` **[OWNER]**, its verifier passed to file 1 as `crm_roles.collector_verifier` (the role itself exists from step 2, with no password), class C / D entries in the manifest and so in file 2, the URL only in the worker's environment                                                                                                                                                                                                                                                                                                                                                               | r5 Task 1.3 / DevOps                                                                    | Worker runs as `crm_collector`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Catalog check covers `crm_collector`                                                                                                                                                                                                                                                                      |
 
 **What step 4 does not reach — the scheduled jobs, and what it costs.** Step 4's proof is only as
 wide as the code CI actually executes against a real database, and the gap is exactly where the
@@ -817,7 +986,26 @@ password has been readable from the API's environment since the first deploy, so
 treated as disclosed: removing it from the environment (step 5) stops **future** reads, rotation
 invalidates the **past** ones. The Postgres image applies `POSTGRES_PASSWORD` only when it
 initialises an empty data directory; on a running cluster only `ALTER ROLE crm_user PASSWORD …`
-changes it, which is why file 1 re-asserts it from the secret on every deploy. Refusing TCP login
+changes it.
+
+**Who runs that statement is the owner, by hand — never the deploy (owner decision, 2026-10-18).**
+As first accepted, this ADR had file 1 re-assert `crm_user`'s password from the CI secret on every
+deploy, so that the database and the secret could not drift. The owner removed that, and the
+removal is the safer direction rather than the lazier one. The deploy itself connects to the
+database **as `crm_user`**, so a mechanism of the shape "a CI secret appears, the next deploy
+rotates the password" turns one divergence between the secret and the stored password into a
+broken deploy — every later one — recoverable only with access to the machine, not by another
+deploy. Nothing would exercise that path before the day it locked the deploy out: the application
+roles' passwords are proved by logging in with them, while the migration role's rotation could be
+proved only by rotating the credential the test harness itself uses. So rotation is a deliberate
+owner step, done with the machine in reach (step 7 (a)). `generate-privilege-sql.spec.ts` asserts
+that file 1 sets no password but the two application roles', so the path cannot return without
+this decision being revisited. The secret follows the database **by hand**, in the same sitting:
+the image applies `POSTGRES_PASSWORD` when it initialises an empty data directory, so a secret left
+at the old value would re-create `crm_user` with the disclosed password on a restore onto a fresh
+volume.
+
+Refusing TCP login
 for `crm_user` is **required**: every legitimate use of `crm_user` — every `psql` and
 `pg_isready` in `deploy.yml`, the `pg_dump` in `pg-backup.sh`, the owner's checks — goes over the
 trusted local socket inside the container, so the rule costs nothing, and it is the only control
@@ -896,6 +1084,9 @@ ssh crm-vps "docker exec crm-postgres-1 psql -U crm_user -d crm_db -tAc \"SELECT
 ssh crm-vps "docker exec crm-postgres-1 psql -U crm_user -d crm_db -tAc \"SELECT rolname, rolsuper, rolcreaterole, rolcanlogin FROM pg_roles WHERE rolname = current_user; SHOW log_statement; SHOW log_min_error_statement;\""
 ```
 
+**Answered 2026-10-18:** `crm_user` is `super=true login=true createrole=true`, the only
+non-system role, on PostgreSQL 16.14 — the first case below, the plan as written.
+
 How each answer changes the plan:
 
 - `rolsuper = t` (expected): the plan as written.
@@ -905,7 +1096,8 @@ How each answer changes the plan:
   superuser runs both grants that let `crm_user` read `pg_hba_file_rules` — `GRANT SELECT ON
 pg_hba_file_rules TO crm_user;` **and** `GRANT EXECUTE ON FUNCTION pg_hba_file_rules() TO
 crm_user;`. One without the other fails. (c) `crm_user` is automatically made a member of each
-  role it creates, which the catalog check expects in this branch and only this one (§2, item 8).
+  role it creates; the catalog check accepts that row by its shape, in either branch, and expects
+  no particular count (§2, item 8).
 - `rolsuper = f, rolcreaterole = f`: file 1 cannot run as `crm_user`. **Stop (A3)** — the owner must
   find who holds superuser in that cluster; nothing is changed until then.
 
@@ -945,8 +1137,8 @@ API's environment, and none can leave the API without a working credential.**
   health-gated swap, so this ordering is the only thing that guarantees it.
 - **Reverting PR B is not a rollback path.** It would silently restore the `crm_user` credential to
   the API. Before step 7 it would work, which is exactly the problem; after step 7 it fails closed —
-  check (d) of step 7 refuses the deploy, and even without (d) the `crm_user` TCP login is refused,
-  so the API would start with no working credential. Hence check (d), and hence the forward fixes
+  check (c) of step 7 refuses the deploy, and even without (c) the `crm_user` TCP login is refused,
+  so the API would start with no working credential. Hence check (c), and hence the forward fixes
   above.
 - **After step 7.** Forward only, as above. Undoing step 7 itself means re-opening TCP for
   `crm_user`; that is an **[OWNER]** A3 decision, not a rollback.
@@ -997,10 +1189,13 @@ experiment):
    variables, and `DATABASE_URL` may still point at `crm_user` locally — nothing breaks. Second
    release, once CI has been green as `crm_app`: `.env.example` points `DATABASE_URL` at
    `crm_app`, and one bootstrap command applies files 1 and 2 to the local database.
-   `docker-compose.yml` keeps `POSTGRES_USER: crm_user`.
-3. **`db:push` ordering locally.** Default privileges are attached to `crm_user`, so tables that
-   `db:push` creates as `crm_user` after the bootstrap get class A grants automatically; class B
-   tables need file 2 re-applied (the bootstrap command does both). The catalog check (§2) is the
+   `docker-compose.yml` keeps `POSTGRES_USER: crm_user`. Applying file 1 to a local cluster revokes
+   `PUBLIC`'s `CONNECT` and `TEMPORARY` on `postgres` and `template1`, which are cluster-wide, and
+   nothing undoes it (the check asserts it); reverse with
+   `GRANT CONNECT, TEMPORARY ON DATABASE postgres, template1 TO PUBLIC` where that matters.
+3. **`db:push` ordering locally.** No default privilege grants tables (§2), so a table `db:push`
+   creates after the bootstrap is unreachable by `crm_app` until file 2 is re-applied — the
+   bootstrap command re-applies it, and a forgotten re-apply fails loudly with `42501`. The catalog check (§2) is the
    same script locally and in CI.
 4. **The guards: whichever variable a destructive command uses, its guard reads that same
    variable.** Three of the guards key off the **database name** in the URL path, not the user
@@ -1052,15 +1247,16 @@ The interface the ledger ADR must respect:
 2. **The ledger table is class E:** owned by `crm_user`, no grants to `crm_app` or `crm_collector`;
    the class manifest lists it, so the catalog check passes.
 3. **Files 1 and 2 keep re-apply semantics** under the ledger: they are the drift-repair mechanism
-   and the password-rotation path. The ledger marks them "re-apply always" or exempts them by name;
+   and the rotation path for the two application roles' passwords (not `crm_user`'s, §4 step 7). The ledger marks them "re-apply always" or exempts them by name;
    it must not run them once and skip them thereafter. Their checksum stays stable because the
    password comes from the environment, not from the file.
 4. **The catalog check of §2 is a candidate for the ledger's "catalog validation" step.** If the
    ledger builds a validation stage, the privilege check runs there; until then it is a standalone
    deploy step. Either way it runs after every apply.
-5. **Default privileges depend on DDL running as `crm_user`.** If the ledger ever introduces a
-   separate DDL role, it inherits §2's trap: `ALTER DEFAULT PRIVILEGES FOR ROLE` that role, or
-   `SET ROLE crm_user` before DDL.
+5. **Default privileges are attached to the role that applies file 1** (`FOR ROLE CURRENT_USER`,
+   §2), and catalog check part 5 fails if they are attached to a role other than the one that owns
+   the tables. If the ledger ever introduces a separate DDL role, it inherits §2's trap: that role
+   applies file 1 too, or DDL runs after `SET ROLE` to the role that did.
 
 r5 Task 1.3 implements on top of both: the collector's concrete table list (classes C and D), the
 `job_queue_actions` revokes and triggers of §3, and the tests of §3.
@@ -1069,8 +1265,8 @@ r5 Task 1.3 implements on top of both: the collector's concrete table list (clas
 
 **Gains**
 
-- **Once §4 step 7 has rotated the `crm_user` password in the database and refused its TCP
-  login,** the API, the internet-facing process, can no longer change schema, disable a trigger,
+- **Once the `crm_user` password has been rotated in the database — by the owner, by hand (§4
+  step 7) — and its TCP login refused,** the API, the internet-facing process, can no longer change schema, disable a trigger,
   truncate a table or reach a superuser — whether or not production `crm_user` is a superuser.
   Between steps 5 and 7 it still can, with the password it has held since the first deploy.
 - The append-only log becomes a guarantee against SQL injection and a compromised API, not only
@@ -1083,9 +1279,14 @@ r5 Task 1.3 implements on top of both: the collector's concrete table list (clas
 **Costs and trade-offs**
 
 - Two connection strings in CI and locally; the guards must follow (§5, item 4).
-- A new table costs one more decision (its class) and, for class B, the revoke and triggers in the
-  same transaction as the `CREATE TABLE`.
-- Two more manual DDL files under the wiring contract, each costing the four C-15 edits.
+- A new table costs one more decision (its class) and, for class B, its §3 triggers. No revoke is
+  needed: no default privilege grants tables (§2).
+- The manifest must cover production's real relation list, not only the Drizzle schema (§2,
+  "Relations no schema file declares"): a relation left by a data-fix file or by hand otherwise
+  fails the next deploy.
+- Rotating `crm_user`'s password is a manual owner step with the machine in reach, not "change the
+  secret, deploy" (§4 step 7).
+- Three more manual DDL files under the wiring contract, each costing the four C-15 edits.
 - The migration role stays all-powerful over the data. This ADR does not claim otherwise (§3).
 - **Backups do not carry grants.** `pg-backup.sh` dumps with `--no-owner --no-acl`, and default
   privileges are not in the dump. A restore follows the ordered procedure of §4 ("Restore from
@@ -1134,27 +1335,27 @@ and the one-off `pg_hba_file_rules` grant, which is needed and takes **two** sta
 branch 2). What remains unproved is plumbing — all of it inside our own deploy, none of it a claim
 about the database:
 
-| Unproved                                                                                                   | Where                            | How the implementing task proves it                                                                                                                            |
-| ---------------------------------------------------------------------------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Writing and moving `pg_hba.conf` inside the data volume, and the `trap` that restores it                   | §4, install sequence             | A deliberately malformed candidate file on a scratch container: the deploy must fail at validation and leave the previous file live and the server restartable |
-| Computing the SCRAM verifier on the CI runner, and `\getenv` reaching psql without the value touching argv | §4, password handling            | Apply file 1 to a scratch database, then log in with the secret; `ps` output captured during the run contains no secret                                        |
-| The env-file split and `0600`, with Compose no longer interpolating the owner password from the API's file | §4, environment split            | The step 6 environment check, run against a scratch stack                                                                                                      |
-| Alerting on `42501` reaching a person                                                                      | §4, "What step 4 does not reach" | A forced `42501` in staging must page, not merely log                                                                                                          |
-| The class manifest's format, and where the catalog check runs from                                         | §2, §6                           | The check runs in CI and in the deploy against a scratch database built from the same DDL                                                                      |
-| Two connection strings in CI and locally, and the guard changes                                            | §5                               | The guards' own tests, including the new both-directions cases                                                                                                 |
+| Unproved                                                                                                                                           | Where                            | How the implementing task proves it                                                                                                                                                                                                                                                                                                                                |
+| -------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Writing and moving `pg_hba.conf` inside the data volume, and the `trap` that restores it                                                           | §4, install sequence             | A deliberately malformed candidate file on a scratch container: the deploy must fail at validation and leave the previous file live and the server restartable                                                                                                                                                                                                     |
+| Computing the SCRAM verifier on the CI runner, and the verifier reaching psql as a connection parameter without touching argv (amended 2026-10-18) | §4, password handling            | **Partly proved by PR #1027:** the verifier tool reads the password on stdin and matches the test oracle byte for byte; file 1 applied with the verifier as a connection parameter, then a login with the password. **Left to DevOps:** the `docker compose exec -e PGOPTIONS` hop, the runner-to-VPS hop, and a `ps` capture during the run                       |
+| The env-file split and `0600`, with Compose no longer interpolating the owner password from the API's file                                         | §4, environment split            | The step 6 environment check, run against a scratch stack                                                                                                                                                                                                                                                                                                          |
+| Alerting on `42501` reaching a person                                                                                                              | §4, "What step 4 does not reach" | A forced `42501` in staging must page, not merely log                                                                                                                                                                                                                                                                                                              |
+| The class manifest's format, and where the catalog check runs from                                                                                 | §2, §6                           | **Proved by PR #1027:** `privilege-classes.spec.ts` checks the manifest against the Drizzle schema; the integration spec runs the committed check against a scratch database built from the same DDL, with each deciding branch turned red by its own test. Production's relation list was reconciled against the manifest by a read-only comparison on 2026-10-18 |
+| Two connection strings in CI and locally, and the guard changes                                                                                    | §5                               | The guards' own tests, including the new both-directions cases                                                                                                                                                                                                                                                                                                     |
 
 ## Rollback
 
 Per step: §4, "Rollback". The rule there: no rollback puts the `crm_user` credential back into
 the API's environment, and none can leave the API without a working credential. Summary:
 
-| What to undo                                   | How                                                                                                                                                               | Expected state                                                 | Verify                                                                           |
-| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| This ADR (docs only)                           | Revert its merge commit                                                                                                                                           | The file is gone; nothing else changed                         | The revert's file list shows only this ADR                                       |
-| A missing or wrong grant after step 5          | A forward fix: the table's class in the manifest and the one missing grant in file 2, deployed; no blanket widen-grants file exists                               | The API works as `crm_app`; every other table keeps its class  | The catalog check passes for the new manifest; no `42501` in API logs            |
-| `crm_app` cannot log in                        | **[OWNER]** re-enters `CRM_APP_DB_PASSWORD`, deploy; file 1 re-asserts the password; the probe-before-recreate ordering keeps the old container serving meanwhile | The API connects as `crm_app`                                  | The step 3 probes pass                                                           |
-| The URL switch (PR B), **before** step 7 only  | Not a rollback path — it restores the owner credential to the API. If the owner nevertheless decides it (A3), revert PR B and deploy                              | The API connects as `crm_user` again, and the boundary is gone | The `pg_stat_activity` query of §4 step 6 shows `crm_user` sessions from the API |
-| The roles (PR A), only while nothing uses them | A forward file that drops `crm_app` / `crm_collector` (they own nothing, so `DROP OWNED` + `DROP ROLE` suffice) and removes the default privileges                | No new roles; their grants gone with them                      | `SELECT rolname FROM pg_roles` lists neither role                                |
+| What to undo                                   | How                                                                                                                                                                                                      | Expected state                                                 | Verify                                                                           |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| This ADR (docs only)                           | Revert its merge commit                                                                                                                                                                                  | The file is gone; nothing else changed                         | The revert's file list shows only this ADR                                       |
+| A missing or wrong grant after step 5          | A forward fix: the table's class in the manifest and the one missing grant in file 2, deployed; no blanket widen-grants file exists                                                                      | The API works as `crm_app`; every other table keeps its class  | The catalog check passes for the new manifest; no `42501` in API logs            |
+| `crm_app` cannot log in                        | **[OWNER]** re-enters `CRM_APP_DB_PASSWORD`, deploy; file 1 re-asserts the password; the probe-before-recreate ordering keeps the old container serving meanwhile                                        | The API connects as `crm_app`                                  | The step 3 probes pass                                                           |
+| The URL switch (PR B), **before** step 7 only  | Not a rollback path — it restores the owner credential to the API. If the owner nevertheless decides it (A3), revert PR B and deploy                                                                     | The API connects as `crm_user` again, and the boundary is gone | The `pg_stat_activity` query of §4 step 6 shows `crm_user` sessions from the API |
+| The roles (PR A), only while nothing uses them | A forward file that drops `crm_app`, `crm_collector` and `crm_retention_owner` (they own nothing until the R-B functions land, so `DROP OWNED` + `DROP ROLE` suffice) and removes the default privileges | No new roles; their grants gone with them                      | `SELECT rolname FROM pg_roles` lists none of the three                           |
 
 ## Sources
 
@@ -1169,6 +1370,16 @@ the API's environment, and none can leave the API without a working credential. 
   ledger ADR), reconciliation row C-15 (wiring contract), the `job_queue_actions` row of the store
   table.
 - PR #1017 — the security finding, and the "GAP PIN: no trigger exists yet" test.
+- PR #1027 (`feat/db-least-privilege-roles`) — the implementation this ADR was amended to on
+  2026-10-18: its body ("The membership assertion, measured both ways", the undeclared-relations
+  finding, the owner's rotation decision) and its three reviews — the security review (the view
+  write-through and the `TABLES` default privilege; the `rolsuper`-derived count), the spec review
+  (the `crm_user` rotation; the deviations living only in code comments), the code review (the
+  attribute-repair and catalog-check branches). In code, by symbol: `PRIVILEGE_CLASSES`,
+  `CLASS_PRIVILEGES`, `MANUAL_DDL_RELATIONS` in `privilege-classes.ts`; the files
+  `2026-10-18_db_roles.sql`, `2026-10-18_db_grants.sql`, `2026-10-18_db_privileges_check.sql`.
+- Production, read-only, 2026-10-18: role attributes and server version; the relation list in
+  `public` compared with the manifest.
 - Behaviours reproduced on a throwaway `postgres:16-alpine` 16.15 container while this ADR was
   being written and reviewed (each is re-proved by the implementing task's tests, not cited from
   here): in-container `127.0.0.1` / `::1` are `trust`; a failing `ALTER ROLE … PASSWORD` is logged
