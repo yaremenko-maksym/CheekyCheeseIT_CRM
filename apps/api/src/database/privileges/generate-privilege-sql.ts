@@ -30,6 +30,7 @@ import {
   CONNECTION_LIMITS,
   PRIVILEGE_CLASSES,
   ROLES,
+  MANUAL_DDL_RELATIONS,
   appendOnlyTriggers,
   collectorColumns,
   retentionOwnerFunctions,
@@ -74,10 +75,22 @@ function privilegesFor(cls: PrivilegeClass, role: 'app' | 'collector'): readonly
   return CLASS_PRIVILEGES[cls][role]
 }
 
-/** `(relation, class)` expectation rows, shared by several parts of the check. */
+/**
+ * `(relation, class, optional)` declaration rows, shared by several parts of the check.
+ *
+ * `optional` marks a relation that a manual DDL file created rather than the Drizzle
+ * schema (see MANUAL_DDL_RELATIONS): it must be classified where it exists and must not be
+ * required to exist, because whether it does depends on which data-fix files have run
+ * against that database.
+ */
 function relationClassValues(): string {
   const rows = CLASSES.flatMap((cls) =>
-    relationsOf(cls).map((relation) => `    (${literal(relation)}, ${literal(cls)})`),
+    relationsOf(cls).map(
+      (relation) =>
+        `    (${literal(relation)}, ${literal(cls)}, ${
+          relation in MANUAL_DDL_RELATIONS ? 'true' : 'false'
+        })`,
+    ),
   )
   return rows.join(',\n')
 }
@@ -323,7 +336,18 @@ export function buildCheckSql(): string {
 BEGIN;
 `)
 
-  const relationClasses = `  WITH expected(relation, cls) AS (VALUES\n${relationClassValues()}\n  )`
+  // `declared` is the manifest; `expected` is the manifest INTERSECTED with what exists.
+  // Parts 2-4 use `expected`, because `has_table_privilege` on a missing relation raises
+  // "relation does not exist" instead of returning false — which would turn an absent
+  // optional table into an unreadable error rather than part 1's precise complaint.
+  const relationClasses = `  WITH declared_relations(relation, cls, optional) AS (VALUES\n${relationClassValues()}\n  ),
+  expected(relation, cls) AS (
+    SELECT d.relation, d.cls
+      FROM declared_relations d
+      JOIN pg_class c ON c.relname = d.relation
+      JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = 'public'
+     WHERE c.relkind IN ('r', 'p', 'v', 'm')
+  )`
   const classPrivileges = `  class_privileges(cls, role_name, privilege, expected) AS (VALUES\n${classPrivilegeValues()}\n  )`
   const appRoles = [ROLES.app, ROLES.collector, ROLES.retentionOwner]
   const appRolesList = appRoles.map((r) => literal(r)).join(', ')
@@ -344,14 +368,18 @@ BEGIN;
       JOIN pg_namespace n ON n.oid = c.relnamespace
      WHERE n.nspname = 'public'
        AND c.relkind IN ('r', 'p', 'v', 'm')
-       AND c.relname NOT IN (SELECT relation FROM expected)
+       AND c.relname NOT IN (SELECT relation FROM declared_relations)
     UNION ALL
-    SELECT format('%s is classified %s but does not exist in public', e.relation, e.cls)
-      FROM expected e
-     WHERE NOT EXISTS (
-       SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE n.nspname = 'public' AND c.relname = e.relation AND c.relkind IN ('r', 'p', 'v', 'm')
-     )
+    -- The other direction, minus the optional ones: a manual-DDL artefact (see
+    -- MANUAL_DDL_RELATIONS) exists only where its data-fix file ran, so requiring it to be
+    -- present would fail the check on every database that never needed the fix.
+    SELECT format('%s is classified %s but does not exist in public', d.relation, d.cls)
+      FROM declared_relations d
+     WHERE NOT d.optional
+       AND NOT EXISTS (
+         SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE n.nspname = 'public' AND c.relname = d.relation AND c.relkind IN ('r', 'p', 'v', 'm')
+       )
   ) q;`,
     ),
   )

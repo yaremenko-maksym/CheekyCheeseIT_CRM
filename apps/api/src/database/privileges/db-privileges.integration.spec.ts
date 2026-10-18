@@ -605,19 +605,17 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
       }
     }, 60_000)
 
-    it('fails when the manifest names a relation that does not exist', async () => {
-      // The other direction of part 1: a table renamed or dropped without updating the
-      // manifest would otherwise leave an expectation nothing asserts.
-      await migration.query(`ALTER TABLE tos_versions RENAME TO tos_versions_renamed`)
-      try {
-        const failure = await runCheck(migration)
-        expect(failure).toMatch(/part 1 \(manifest coverage\)/)
-        expect(failure).toContain('tos_versions')
-        expect(failure).toContain('does not exist in public')
-      } finally {
-        await migration.query(`ALTER TABLE tos_versions_renamed RENAME TO tos_versions`)
-      }
-    }, 60_000)
+    // NOT TESTED HERE: part 1's other direction — the manifest naming a relation that does
+    // not exist. Reaching it needs a CLASSIFIED table to be absent, and every classified
+    // table is a real one that the rest of the integration suite is using concurrently. The
+    // first version of this spec renamed `tos_versions` to produce that state and broke
+    // eight other spec files in the same run (measured: onboarding, contracts, pending and
+    // five more). A test that only passes when it runs alone is worse than no test.
+    //
+    // The same mistake is caught earlier and without a database by
+    // `privilege-classes.spec.ts` ("names no relation the Drizzle schema does not declare"),
+    // which fails on a manifest entry for a table that no longer exists — the case this
+    // branch would have covered.
 
     it('fails when a privilege is added by hand, and the grants file repairs it', async () => {
       // The forward-fix path of ADR §4 "Rollback", proved rather than asserted: drift is
@@ -665,13 +663,22 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
     it('fails when the application role is made a member of another role', async () => {
       // The direction that matters: membership is what would let `crm_app` SET ROLE to the
       // owner and get ownership — and with it DISABLE TRIGGER — back.
-      await migration.query(`GRANT pg_read_all_data TO ${ROLES.app}`)
+      //
+      // The group granted here holds NO privileges, on purpose. The first version used
+      // `pg_read_all_data`, and part 2 fired first because that role really does hand
+      // `crm_app` SELECT on every table — a true finding, but it would have let part 8 rot
+      // undetected behind part 2. An empty group isolates membership as the only difference.
+      const group = 'privprobe_empty_group'
+      await migration.query(`DROP ROLE IF EXISTS ${group}`)
+      await migration.query(`CREATE ROLE ${group} NOLOGIN`)
+      await migration.query(`GRANT ${group} TO ${ROLES.app}`)
       try {
         const failure = await runCheck(migration)
         expect(failure).toMatch(/part 8 \(role membership\)/)
         expect(failure).toContain('must be a member of no role')
       } finally {
-        await migration.query(`REVOKE pg_read_all_data FROM ${ROLES.app}`)
+        await migration.query(`REVOKE ${group} FROM ${ROLES.app}`)
+        await migration.query(`DROP ROLE IF EXISTS ${group}`)
       }
       expect(await runCheck(migration)).toBeNull()
     }, 60_000)

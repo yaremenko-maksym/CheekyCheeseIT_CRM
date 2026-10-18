@@ -242,8 +242,57 @@ export const PRIVILEGE_CLASSES: Record<PrivilegeClass, readonly string[]> = {
   B: ['job_queue_actions'],
   C: [],
   D: [],
-  E: [],
+  // Not the migration ledger (that does not exist yet) but the three tables historical
+  // manual DDL files left in `public` — see MANUAL_DDL_RELATIONS below for why they are
+  // here, why they are class E, and why they are OPTIONAL.
+  E: [
+    '_drop_share_pending_parity_backup_20260727',
+    '_settle_phantom_backup_20260715',
+    'drop_cascade_origin_marker_state',
+  ],
   V: ['confirmed_projects', 'non_deleted_transactions', 'visible_projects'],
+}
+
+/**
+ * Relations that live in `public` WITHOUT being declared by the Drizzle schema, because a
+ * manual DDL file created them. Each is OPTIONAL: it exists only in a database where that
+ * file ran, so the catalog check requires it to be classified when present and does not
+ * require it to be present.
+ *
+ * HOW THESE WERE FOUND, WHICH IS THE POINT OF THE DESIGN
+ * -----------------------------------------------------
+ * Not by reading the DDL files. The catalog check failed on
+ * `_drop_share_pending_parity_backup_20260727` during the first full integration run on
+ * 2026-10-18, because another spec applies that data-fix file and the table appeared in
+ * `public` mid-run. A spec comment beside it calls it "a real prod table", so PRODUCTION
+ * carries it — and the check would have failed on the first production deploy, naming a
+ * table nobody had thought about. That is AC3 working: the list is derived from the
+ * catalog, so a table no schema file declares cannot hide. The other two came from reading
+ * every `CREATE TABLE` in `drizzle/manual/*.sql` afterwards and diffing against the Drizzle
+ * schema.
+ *
+ * WHY CLASS E
+ * -----------
+ * Each is a DDL-time artefact — a row-level backup taken before a finance data-fix, or
+ * state for one. Checked 2026-10-18: no production code path reads or writes any of them
+ * (the only references in `apps/api/src` are inside
+ * `drop-share-pending-parity-backfill.integration.spec.ts`, which runs as the migration
+ * role). The API must not reach them, and class E is exactly "the API gets nothing" — so a
+ * backup of the transactions table stops being writable by the internet-facing process.
+ */
+export const MANUAL_DDL_RELATIONS: Record<string, { file: string; why: string }> = {
+  _drop_share_pending_parity_backup_20260727: {
+    file: 'drizzle/manual/2026-07-27_drop_share_pending_parity_backfill.sql',
+    why: 'Row backup taken before the drop-share parity backfill. Confirmed present in production.',
+  },
+  _settle_phantom_backup_20260715: {
+    file: 'drizzle/manual/2026-07-15_settle_phantom_cleanup.sql (and …_auto.sql)',
+    why: 'Row backup (LIKE transactions INCLUDING ALL) taken before the phantom-settle cleanup.',
+  },
+  drop_cascade_origin_marker_state: {
+    file: 'drizzle/manual/2026-07-27_drop_cascade_origin_marker.sql',
+    why: 'Bookkeeping for the drop-cascade origin marker backfill.',
+  },
 }
 
 /**

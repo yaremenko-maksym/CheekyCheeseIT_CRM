@@ -156,7 +156,9 @@ GRANT SELECT, INSERT ON TABLE
 
 -- class D: no relations assigned. Collector evaluation input: column-level SELECT only, via collectorColumns. Empty until step 8.
 
--- class E: no relations assigned. Migration-internal (the ledger of ADR §6, deploy bookkeeping). The API gets nothing.
+-- class E — Migration-internal (the ledger of ADR §6, deploy bookkeeping). The API gets nothing.
+--   crm_app: nothing.
+--   crm_collector: nothing.
 
 -- class V — View. SELECT only — an auto-updatable view writes its base tables as the view owner.
 GRANT SELECT ON TABLE

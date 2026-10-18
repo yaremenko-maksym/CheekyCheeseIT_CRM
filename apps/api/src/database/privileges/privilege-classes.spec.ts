@@ -23,6 +23,7 @@ import * as schema from '../schema'
 import {
   CLASS_PRIVILEGES,
   PRIVILEGE_CLASSES,
+  MANUAL_DDL_RELATIONS,
   VIEW_CLASS,
   appendOnlyTriggers,
   collectorColumns,
@@ -84,13 +85,46 @@ describe('privilege-class manifest', () => {
     expect([...seen].filter(([, classes]) => classes.length > 1)).toEqual([])
   })
 
-  it('names no relation the Drizzle schema does not declare', () => {
-    const known = new Set([...schemaTableNames(), ...schemaViewNames()])
+  it('names no relation that neither the Drizzle schema nor a manual DDL file creates', () => {
+    // This is the assertion that catches a table renamed or dropped without updating the
+    // manifest — the symmetric case the catalog check deliberately does not test against a
+    // shared database (see the note in db-privileges.integration.spec.ts).
+    const known = new Set([
+      ...schemaTableNames(),
+      ...schemaViewNames(),
+      ...Object.keys(MANUAL_DDL_RELATIONS),
+    ])
     const stale = Object.values(PRIVILEGE_CLASSES)
       .flat()
       .filter((r) => !known.has(r))
       .sort()
     expect(stale).toEqual([])
+  })
+
+  it('classifies every relation a manual DDL file leaves in public', () => {
+    // These exist without being declared anywhere in `schema/`, so the derivation above
+    // cannot see them; the catalog check found the first one and the rest came from reading
+    // every CREATE TABLE in drizzle/manual. Each must still have a class.
+    for (const relation of Object.keys(MANUAL_DDL_RELATIONS)) {
+      expect({ relation, cls: relationClass(relation) }).toEqual({ relation, cls: 'E' })
+    }
+  })
+
+  it('documents, for each manual-DDL relation, which file creates it', () => {
+    for (const [relation, entry] of Object.entries(MANUAL_DDL_RELATIONS)) {
+      expect({ relation, file: entry.file.startsWith('drizzle/manual/') }).toEqual({
+        relation,
+        file: true,
+      })
+      expect(entry.why.length).toBeGreaterThan(20)
+    }
+  })
+
+  it('declares no manual-DDL relation that the Drizzle schema also declares', () => {
+    // If one ever becomes a real schema table, it stops being optional and the entry must
+    // go — otherwise the check would stop requiring it to exist.
+    const declared = new Set([...schemaTableNames(), ...schemaViewNames()])
+    expect(Object.keys(MANUAL_DDL_RELATIONS).filter((r) => declared.has(r))).toEqual([])
   })
 
   it('assigns no table to the view class', () => {
