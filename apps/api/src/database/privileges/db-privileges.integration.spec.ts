@@ -31,11 +31,10 @@
  *   1. The roles and grants REMAIN in the integration database afterwards. That is
  *      deliberate — re-applying is idempotent, and the end state is the one CI wants.
  *   2. The roles file revokes PUBLIC's CONNECT and TEMPORARY on `postgres` and
- *      `template1`, which are CLUSTER-wide, not database-scoped. On a throwaway CI
- *      container that is nothing; on a developer machine it changes the local cluster, and
- *      it is not undone here, because part 6 of the catalog check asserts exactly that
- *      revocation. Reverse it with
- *      `GRANT CONNECT, TEMPORARY ON DATABASE postgres, template1 TO PUBLIC`.
+ *      `template1`, which are CLUSTER-wide, not database-scoped, and part 6 of the catalog
+ *      check asserts exactly that revocation. So the spec RECORDS both ACLs before it
+ *      touches anything and, in an `afterAll` that also runs when a test (or `beforeAll`)
+ *      fails, writes them back exactly — NULL included (`cluster-acl-snapshot.ts`).
  *
  * `crm_db` is never touched: `integration-db-guard.ts` refuses a URL ending in `/crm_db`
  * before any of this runs, and `assertDisposableTarget` below refuses it again here.
@@ -54,6 +53,7 @@ import {
 } from './generate-privilege-sql'
 import { ROLES } from './privilege-classes'
 import { scramSha256Verifier } from './scram'
+import { snapshotClusterAcls, type ClusterAclSnapshot } from './cluster-acl-snapshot'
 
 const MANUAL_DIR = join(__dirname, '..', '..', '..', 'drizzle', 'manual')
 const readSql = (file: string): string => readFileSync(join(MANUAL_DIR, file), 'utf8')
@@ -79,6 +79,7 @@ const PROBE = {
 let migration: Pool
 let app: Pool
 let collector: Pool
+let clusterAcls: ClusterAclSnapshot | undefined
 
 /** The SQLSTATE of a failed statement, or `null` if it unexpectedly succeeded. */
 async function sqlstateOf(pool: Pool, sql: string, params: unknown[] = []): Promise<string | null> {
@@ -202,6 +203,8 @@ function assertDisposableTarget(): void {
 describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', () => {
   beforeAll(async () => {
     assertDisposableTarget()
+    // Before anything below can rewrite them — see the header, consequence 2.
+    clusterAcls = await snapshotClusterAcls(process.env['DATABASE_URL'] as string)
     // Without the real schema the grants file would fail on a missing table — which is
     // correct behaviour, but it would look like a bug in this spec.
     await assertRealDbSchema([
@@ -254,6 +257,9 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
     // is classified) is satisfied again for the next run.
     await Promise.all([app?.end(), collector?.end()])
     await migration?.end()
+    // Last, once the pools are closed: puts back what the roles file revoked on the
+    // cluster-wide databases, whether or not anything above passed.
+    await clusterAcls?.restore()
   })
 
   describe('the password path (ADR §4, trap 1 — no plain password reaches the server)', () => {
