@@ -59,6 +59,23 @@ DECLARE
     ['crm_retention_redact_action_reason',    'p_action_id uuid, p_request_id text',
      '8fcec30143ba762bc613728a0d088d79']
   ];
+  -- The TRIGGER functions, pinned the same way. ADR §3 condition 6 asks only for the
+  -- two R-B functions, and that is not enough on its own: condition 5 puts the shape
+  -- validation of every admitted change INSIDE THE TRIGGER, so the trigger body is
+  -- the independent half of the guarantee. Without these rows, an edit to a guard
+  -- body passes this check as long as the trigger still exists and is enabled —
+  -- i.e. the check would pin the enforcement's wiring and not its content. Owner is
+  -- deliberately NOT asserted for these: they belong to whoever applied the DDL,
+  -- which is the migration role and differs between environments.
+  expected_trigger_functions CONSTANT text[][] := ARRAY[
+    ['job_queue_actions_append_only',                  '6102403f82916ef46cbaae8d9709d9ab'],
+    ['job_queue_actions_no_truncate',                  '632615a6d6f46aa229582f5de8a95099'],
+    ['job_queue_generation_entries_immutable',         '0df34c2b4af8d3628fe3b77885d5e3f0'],
+    ['job_queue_generation_entries_no_truncate',       '0f2845e1a6add373ea5756a9f538baf6'],
+    ['job_queue_generation_entries_building_only',     '9239f498636cd5f779dd27c7baa85276'],
+    ['job_queue_generations_frozen',                   'ddcc16735e528255415b78dc58688278'],
+    ['job_queue_generations_purge_invalidated_only',   '33ba42122c38b8c0baece4ead04e9d35']
+  ];
   expected_search_path CONSTANT text := 'search_path=pg_catalog, public, pg_temp';
 
   problems text[] := ARRAY[]::text[];
@@ -189,6 +206,39 @@ BEGIN
   END LOOP;
 
   -- -------------------------------------------------------------------------
+  -- 2b. The trigger function bodies — the independent half of the guarantee.
+  -- -------------------------------------------------------------------------
+  FOR i IN 1 .. array_length(expected_trigger_functions, 1) LOOP
+    fn_name := expected_trigger_functions[i][1];
+    fn_md5  := expected_trigger_functions[i][2];
+
+    SELECT p.proconfig,
+           md5(pg_catalog.pg_get_functiondef(p.oid)) AS body_md5
+      INTO rec
+      FROM pg_catalog.pg_proc p
+      JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public' AND p.proname = fn_name;
+
+    IF NOT FOUND THEN
+      problems := problems || format('trigger function public.%s() is MISSING', fn_name);
+      CONTINUE;
+    END IF;
+
+    IF rec.proconfig IS DISTINCT FROM ARRAY[expected_search_path] THEN
+      problems := problems || format(
+        'trigger function public.%s has proconfig %L, expected exactly {%s}',
+        fn_name, rec.proconfig, expected_search_path);
+    END IF;
+
+    IF rec.body_md5 <> fn_md5 THEN
+      problems := problems || format(
+        'trigger function public.%s body checksum is %s, manifest says %s — a guard body '
+        'was changed outside a reviewed file (or the manifest was not refreshed)',
+        fn_name, rec.body_md5, fn_md5);
+    END IF;
+  END LOOP;
+
+  -- -------------------------------------------------------------------------
   -- 3. ARITHMETIC, not attentiveness: `crm_retention_owner` owns EXACTLY these two
   --    functions and nothing else. ADR §2 "Functions" allows these two definer
   --    functions and no others, and a third one owned by this role would run with
@@ -215,7 +265,10 @@ BEGIN
                'same PR (the query is in this file''s header).';
   END IF;
 
-  RAISE NOTICE 'r5 Task 1.3b catalog check OK: % triggers ENABLE ALWAYS, % R-B functions pinned',
-    array_length(expected_triggers, 1), array_length(expected_functions, 1);
+  RAISE NOTICE
+    'r5 Task 1.3b catalog check OK: % triggers ENABLE ALWAYS, % guard bodies pinned, % R-B functions pinned',
+    array_length(expected_triggers, 1),
+    array_length(expected_trigger_functions, 1),
+    array_length(expected_functions, 1);
 END
 $check$;

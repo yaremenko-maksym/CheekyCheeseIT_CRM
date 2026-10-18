@@ -932,6 +932,20 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       expect(err.code).toBe(RESTRICT_VIOLATION)
     })
 
+    it('refuses a second redaction of an already-redacted row', async () => {
+      // The trigger's job, not the function's: a re-redaction changes nothing and
+      // would still write a new row version into an append-only table. Driven
+      // DIRECTLY (ADR §3 condition 5) because the function's own WHERE clause filters
+      // this case out, so going through the function proves nothing about the trigger
+      // — which is exactly what the operand-deletion pass showed.
+      const id = await newAction({ actorId: actor, opportunityId: opportunity })
+      await q(`SELECT crm_retention_redact_action_reason($1, $2)`, [id, 'dsr-2026-003'])
+      const err = await asRetentionOwner((c) =>
+        rejectedOn(c, `UPDATE job_queue_actions SET reason=$1 WHERE id=$2`, [REDACTION_TOKEN, id]),
+      )
+      expect(err.code).toBe(RESTRICT_VIOLATION)
+    })
+
     it('refuses a redaction of a row whose reason is already NULL', async () => {
       const id = await newAction({ actorId: actor, opportunityId: opportunity, reason: null })
       const err = await asRetentionOwner((c) =>
@@ -1018,6 +1032,30 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       `)
       try {
         const err = await rejected(readFileSync(CHECK_SQL, 'utf8'))
+        expect(err.message).toContain('body checksum')
+      } finally {
+        await applyFile(TRIGGERS_SQL)
+      }
+      await applyFile(CHECK_SQL)
+    })
+
+    it('fails when a TRIGGER guard body changes (condition 5 is pinned too)', async () => {
+      // The trigger holds the shape validation, so pinning only the two R-B function
+      // bodies would pin the wiring and not the content: this body change keeps every
+      // trigger in place and ENABLE ALWAYS while gutting the guard.
+      await q(`
+        CREATE OR REPLACE FUNCTION public.job_queue_generations_purge_invalidated_only()
+        RETURNS trigger LANGUAGE plpgsql
+        SET search_path = pg_catalog, public, pg_temp
+        AS $drift$
+        BEGIN
+          RETURN OLD; -- every generation becomes deletable
+        END
+        $drift$;
+      `)
+      try {
+        const err = await rejected(readFileSync(CHECK_SQL, 'utf8'))
+        expect(err.message).toContain('trigger function')
         expect(err.message).toContain('body checksum')
       } finally {
         await applyFile(TRIGGERS_SQL)

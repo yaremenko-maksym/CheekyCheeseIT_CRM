@@ -189,8 +189,19 @@ BEGIN
 
   IF TG_OP = 'UPDATE' THEN
     -- R-B shape 2: redaction of `reason` to the fixed token, nothing else moved.
+    --
+    -- `OLD.reason <> token` carries TWO jobs, and the second is easy to break by
+    -- "tidying" it. It refuses a second redaction of an already-redacted row (an
+    -- UPDATE that writes a new row version while changing nothing), AND it refuses a
+    -- row whose reason is NULL — because `NULL <> token` is UNKNOWN, and a
+    -- conjunction containing UNKNOWN is not TRUE, so the exception is not admitted.
+    -- An earlier draft carried an explicit `OLD.reason IS NOT NULL` conjunct beside
+    -- it; deleting that conjunct by hand changed NO test, which is the definition of
+    -- an operand this suite cannot pin, so it was removed rather than kept as
+    -- unverifiable defence. Rewriting `<>` into `IS DISTINCT FROM` would silently
+    -- admit NULL-reason rows; the test "refuses a redaction of a row whose reason is
+    -- already NULL" is what makes that edit fail loudly (verified by deleting it).
     IF current_user = 'crm_retention_owner'
-       AND OLD.reason IS NOT NULL
        AND NEW.reason = '[REASON REDACTED]'
        AND OLD.reason <> '[REASON REDACTED]'
        AND to_jsonb(NEW) - 'reason' = to_jsonb(OLD) - 'reason'
