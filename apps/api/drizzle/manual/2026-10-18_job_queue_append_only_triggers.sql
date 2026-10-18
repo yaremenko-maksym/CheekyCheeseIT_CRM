@@ -294,6 +294,23 @@ $fn$;
 
 -- SR-M-3 — a LATE insert is a cross-team disclosure path: an entry added to an
 -- already PUBLISHED generation appears in a list a team is being served right now.
+--
+-- `FOR SHARE` IS THE GUARD, NOT DECORATION (TOCTOU, found in review 2026-10-18 and
+-- MEASURED on the scratch catalog before the fix). A plain unlocked read of the
+-- parent status is defeated by concurrency rather than by a missing check:
+--   1. T1 inserts an entry; the trigger reads BUILDING.
+--   2. T2 publishes the generation and commits.
+--   3. T1 commits — and the entry is now inside a PUBLISHED generation.
+-- Both interleavings were reproduced (the insert did not even wait: the FK's own
+-- `FOR KEY SHARE` lock does NOT conflict with the `FOR NO KEY UPDATE` that a plain
+-- UPDATE of a non-key column takes, so the publish sailed past). `FOR SHARE` DOES
+-- conflict with `FOR NO KEY UPDATE`, so one of the two waits: either the publish
+-- waits for this insert and the entry lands legitimately, or this insert waits for
+-- the publish and then — under READ COMMITTED, which re-evaluates a locked row after
+-- the blocker commits — re-reads PUBLISHED and raises. Proven both ways by
+-- `job-queue-append-only.integration.spec.ts` ("two-connection race").
+-- `FOR SHARE` rather than `FOR UPDATE`: two builders filling the SAME generation
+-- concurrently must not serialise against each other, and share locks do not.
 CREATE OR REPLACE FUNCTION public.job_queue_generation_entries_building_only()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -304,7 +321,8 @@ DECLARE
 BEGIN
   SELECT g.status::text INTO parent_status
   FROM job_queue_generations g
-  WHERE g.id = NEW.generation_id;
+  WHERE g.id = NEW.generation_id
+  FOR SHARE;
 
   -- No parent row: leave it to the FK, which reports 23503 for exactly this.
   IF parent_status IS NULL THEN
