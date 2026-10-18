@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { getTableColumns } from 'drizzle-orm'
+import { describe, expect, it, vi } from 'vitest'
+import { users } from '../database/schema'
 import { AuditLogService, REDACTED_TOKEN, SENSITIVE_FIELDS } from './audit-log.service'
 
 describe('AuditLogService.diff', () => {
@@ -132,6 +134,13 @@ describe('AuditLogService.diff', () => {
       expect(d['monthlySalary']!.after).toBe(REDACTED_TOKEN)
     })
 
+    it('redacts displayName (legal memo R3) — a rename never writes either name', () => {
+      const d = svc.diff({ displayName: 'Ivan Petrenko' }, { displayName: 'Ivan Shevchenko' })
+      expect(d).toEqual({ displayName: { before: REDACTED_TOKEN, after: REDACTED_TOKEN } })
+      expect(JSON.stringify(d)).not.toContain('Petrenko')
+      expect(JSON.stringify(d)).not.toContain('Shevchenko')
+    })
+
     it('mixed diff — sensitive fields redacted, non-sensitive pass through', () => {
       const d = svc.diff(
         {
@@ -148,9 +157,9 @@ describe('AuditLogService.diff', () => {
         },
       )
       // Non-sensitive: real values
-      expect(d['displayName']).toEqual({ before: 'Old Name', after: 'New Name' })
       expect(d['role']).toEqual({ before: 'JUNIOR', after: 'SENIOR' })
       // Sensitive: redacted
+      expect(d['displayName']).toEqual({ before: REDACTED_TOKEN, after: REDACTED_TOKEN })
       expect(d['legalFullName']!.before).toBe(REDACTED_TOKEN)
       expect(d['legalFullName']!.after).toBe(REDACTED_TOKEN)
       expect(d['phone']!.before).toBe(REDACTED_TOKEN)
@@ -183,11 +192,112 @@ describe('AuditLogService.diff', () => {
         'monthlySalary',
         // SEC-08: FOP PII fields
         'registrationAddress',
+        // legal memo R3: a name history is an identity trail
+        'displayName',
       ]
       for (const field of expected) {
         expect(SENSITIVE_FIELDS.has(field), `Expected "${field}" in SENSITIVE_FIELDS`).toBe(true)
       }
-      expect(SENSITIVE_FIELDS.size).toBe(14)
+      expect(SENSITIVE_FIELDS.size).toBe(15)
     })
+  })
+})
+
+describe('AuditLogService.record', () => {
+  function makeSvc() {
+    const values = vi.fn().mockResolvedValue(undefined)
+    const insert = vi.fn().mockReturnValue({ values })
+    const svc = new AuditLogService({ db: { insert } } as never)
+    return { svc, values }
+  }
+
+  it('redacts displayName in hand-written changes (profile_created bypasses diff())', async () => {
+    const { svc, values } = makeSvc()
+    await svc.record({
+      actorId: null,
+      targetId: 'u1',
+      action: 'profile_created',
+      changes: {
+        displayName: { before: null, after: 'Ivan Petrenko' },
+        role: { before: null, after: 'JUNIOR' },
+      },
+    })
+    const row = values.mock.calls[0]![0] as { changes: Record<string, unknown> }
+    expect(row.changes).toEqual({
+      displayName: { before: REDACTED_TOKEN, after: REDACTED_TOKEN },
+      role: { before: null, after: 'JUNIOR' },
+    })
+    expect(JSON.stringify(row.changes)).not.toContain('Petrenko')
+  })
+
+  it('leaves already-redacted and non-sensitive entries unchanged', async () => {
+    const { svc, values } = makeSvc()
+    const changes = {
+      personalEmail: { before: REDACTED_TOKEN, after: REDACTED_TOKEN },
+      archivedAt: { before: null, after: '2026-10-18T00:00:00.000Z' },
+      __impersonation: { before: null, after: true },
+    }
+    await svc.record({ actorId: 'a', targetId: 'u1', action: 'user_archived', changes })
+    expect((values.mock.calls[0]![0] as { changes: unknown }).changes).toEqual(changes)
+  })
+
+  it('redacts the fields diff() already redacts when passed to record() directly', async () => {
+    const { svc, values } = makeSvc()
+    await svc.record({
+      actorId: 'a',
+      targetId: 'u1',
+      action: 'profile_edit',
+      changes: { phone: { before: '+380501111111', after: '+380672222222' } },
+    })
+    expect((values.mock.calls[0]![0] as { changes: unknown }).changes).toEqual({
+      phone: { before: REDACTED_TOKEN, after: REDACTED_TOKEN },
+    })
+  })
+
+  it('writes nothing for an empty change set', async () => {
+    const { svc, values } = makeSvc()
+    await svc.record({ actorId: 'a', targetId: 'u1', action: 'profile_edit', changes: {} })
+    expect(values).not.toHaveBeenCalled()
+  })
+})
+
+// SR-M-4 (security review PR #1024): redaction is by key name, which is
+// fail-open for the next column added to `users`. The column list comes from
+// the Drizzle schema, never from a hand-kept list, so a new column turns this
+// test red until someone classifies it.
+describe('users columns are all classified for audit redaction', () => {
+  // Columns reviewed and judged NOT to identify a person or carry a secret.
+  // Adding a column here is a deliberate, reviewable decision.
+  const NON_SENSITIVE_COLUMNS = new Set([
+    'id',
+    'role',
+    'locale',
+    'paymentMethod',
+    'salaryCurrency',
+    'avatarUrl',
+    'avatarDocumentId',
+    'techStack',
+    'seniorSharePercent',
+    'pendingSeniorSharePercent',
+    'dropSharePercent',
+    'archivedAt',
+    'createdAt',
+    'updatedAt',
+  ])
+  const columns = Object.keys(getTableColumns(users))
+
+  it('every users column is in SENSITIVE_FIELDS or the named non-sensitive set', () => {
+    const unclassified = columns.filter(
+      (c) => !SENSITIVE_FIELDS.has(c) && !NON_SENSITIVE_COLUMNS.has(c),
+    )
+    expect(unclassified, 'classify these users columns for audit redaction').toEqual([])
+  })
+
+  it('the two sets do not overlap', () => {
+    expect([...NON_SENSITIVE_COLUMNS].filter((c) => SENSITIVE_FIELDS.has(c))).toEqual([])
+  })
+
+  it('every name in the non-sensitive set is a real column (no stale entries)', () => {
+    expect([...NON_SENSITIVE_COLUMNS].filter((c) => !columns.includes(c))).toEqual([])
   })
 })

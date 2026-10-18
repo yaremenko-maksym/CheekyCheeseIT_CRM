@@ -48,9 +48,36 @@ export const SENSITIVE_FIELDS = new Set([
   'monthlySalary',
   // SEC-08: FOP PII fields — legal business address
   'registrationAddress',
+  // R3 (legal memo 2026-10-17): name history. A rename would otherwise persist
+  // the old and new name in plain text, so pseudonymising the `users` row
+  // would leave the person's identity readable here.
+  'displayName',
 ])
 
 export const REDACTED_TOKEN = '[redacted]' as const
+
+// Record that the field changed but never what it changed from/to, so no PII
+// is persisted at-rest in user_audit_log.changes (JSON column). `before` is
+// redacted even on creation (was `null`): created vs changed is carried by the
+// row's `action` (profile_created vs profile_edit), and keeping null would leak
+// whether a sensitive field was previously unset (SR-L-1).
+const REDACTED_CHANGE: AuditChange = { before: REDACTED_TOKEN, after: REDACTED_TOKEN }
+
+/**
+ * Last line of defence at the write chokepoint: `diff()` redacts the
+ * auto-diffed path, but several callers hand-build `changes` (e.g.
+ * `profile_created` writes `displayName` directly) and never pass through
+ * `diff()`. Redacting here covers both; it is idempotent on already-redacted
+ * entries.
+ */
+function redactSensitive(changes: Record<string, AuditChange>): Record<string, AuditChange> {
+  return Object.fromEntries(
+    Object.entries(changes).map(([key, change]) => [
+      key,
+      SENSITIVE_FIELDS.has(key) ? REDACTED_CHANGE : change,
+    ]),
+  )
+}
 
 /**
  * Drizzle transaction handle passed by `db.transaction(async (tx) => …)`.
@@ -74,13 +101,9 @@ export class AuditLogService {
       const b = before[key]
       const a = after[key]
       if (!this.deepEqual(b, a)) {
-        if (SENSITIVE_FIELDS.has(key)) {
-          // Record that the field changed but redact the actual values so no
-          // PII is persisted at-rest in user_audit_log.changes (JSON column).
-          result[key] = { before: REDACTED_TOKEN, after: REDACTED_TOKEN }
-        } else {
-          result[key] = { before: b ?? null, after: a ?? null }
-        }
+        result[key] = SENSITIVE_FIELDS.has(key)
+          ? REDACTED_CHANGE
+          : { before: b ?? null, after: a ?? null }
       }
     }
     return result
@@ -121,7 +144,7 @@ export class AuditLogService {
       actorId: params.actorId,
       targetId: params.targetId,
       action: params.action,
-      changes: params.changes,
+      changes: redactSensitive(params.changes),
     })
   }
 

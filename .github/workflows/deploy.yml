@@ -657,6 +657,9 @@ jobs:
             apps/api/drizzle/manual/2026-10-17_job_opportunities_store_indexes.sql \
             apps/api/drizzle/manual/2026-10-18_job_queue_append_only_triggers.sql \
             apps/api/drizzle/manual/2026-10-18_job_queue_append_only_check.sql \
+            apps/api/drizzle/manual/2026-10-18_db_roles.sql \
+            apps/api/drizzle/manual/2026-10-18_db_grants.sql \
+            apps/api/drizzle/manual/2026-10-18_db_privileges_check.sql \
             scripts/devops/check-security-headers.sh \
             scripts/devops/check-nginx-perimeter.sh \
             scripts/devops/pg-backup.sh \
@@ -2320,6 +2323,43 @@ jobs:
           # apps/api/drizzle/manual/2026-10-07_meeting_recorder_integration.sql
           #   → /opt/crm/apps/api/drizzle/manual/2026-10-07_meeting_recorder_integration.sql
 
+      # ── least-privileged database roles (r5 Task 1.3c, ADR 2026-10-17-db-least-privilege-roles) ──
+      # Three files, three apply positions in the deploy job (roles FIRST, grants after the store
+      # DDL, privileges check after the multipart-salary prepare). Copy order is irrelevant.
+
+      - name: Copy db roles DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-10-18_db_roles.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-10-18_db_roles.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-10-18_db_roles.sql
+
+      - name: Copy db grants DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-10-18_db_grants.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-10-18_db_grants.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-10-18_db_grants.sql
+
+      - name: Copy db privileges catalog check via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-10-18_db_privileges_check.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-10-18_db_privileges_check.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-10-18_db_privileges_check.sql
+
       # ── job opportunities store: part 1 (types/tables/FKs) THEN part 2 (indexes) ──
 
       - name: Copy job opportunities store DDL via SCP
@@ -2625,6 +2665,68 @@ jobs:
               fi
               sleep 2
             done
+
+            # ── database roles (r5 Task 1.3c, ADR 2026-10-17-db-least-privilege-roles §4) ──
+            # MUST be the FIRST manual DDL applied: the grants file (applied after the schema
+            # DDL below) raises a named exception when these roles do not exist, and the append-only
+            # trigger file (r5 Task 1.3b) needs crm_retention_owner.
+            #
+            # NO PASSWORD IS PASSED HERE, deliberately. The file takes SCRAM verifiers from the
+            # GUCs crm_roles.{app,collector}_verifier and treats an unset one as a no-op, so
+            # with none set the roles are created without any credential (crm_app cannot log in)
+            # and nothing in this deploy uses them. Neither secret nor transport exists yet; do
+            # not invent one in this step.
+            #
+            # THE HANDOFF rollout step 5 (PR B) adds, end to end (runbook §5.1 is the long form):
+            #   1. RUNNER, in this job, before this ssh step: `actions/checkout@v4` with
+            #      `sparse-checkout: apps/api/src/database/privileges/scram-verifier.cli.mjs` and
+            #      `persist-credentials: false`; the secret CRM_APP_DB_PASSWORD (owner adds it,
+            #      ADR §4 step 1) enters ONLY that one step's `env:`; the step runs
+            #        V="$(printf %s "$CRM_APP_DB_PASSWORD" | node <cli>.mjs)"
+            #        echo "::add-mask::$V"; echo "CRM_APP_DB_VERIFIER=$V" >> "$GITHUB_ENV"
+            #      (stdin, never argv; the .mjs needs only node:crypto, and the runner's preinstalled
+            #      node suffices). Mask BEFORE writing to GITHUB_ENV.
+            #   2. RUNNER -> VPS: this step's `envs:` list gains the NAME CRM_APP_DB_VERIFIER, the
+            #      same passthrough GHCR_TOKEN uses. Only the verifier crosses; the password never
+            #      reaches the VPS and is never written to .env.production by this path.
+            #   3. VPS, here, replacing the bare apply below (fail loud if the variable is empty
+            #      once the rollout makes it mandatory):
+            #        PGOPTIONS="-c crm_roles.app_verifier=${CRM_APP_DB_VERIFIER}" \
+            #          docker compose -f docker-compose.prod.yml -f docker-compose.ghcr.yml \
+            #            --env-file .env.production exec -T -e PGOPTIONS postgres \
+            #            psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 < "$DB_ROLES_FILE"
+            #      `-e PGOPTIONS` is the NAME only (compose copies the value from this shell's
+            #      environment); `-e NAME=value` and `psql -v name=value` both put the value in
+            #      argv. The variables are the ones this script defines: PGUSER and PGDB (NOT
+            #      PGDATABASE). A prefix assignment scopes PGOPTIONS to that one command.
+            #   4. Server: PGOPTIONS reaches the backend as a startup `options` parameter, not as a
+            #      statement, so it is not in log_statement output nor in a failing statement's
+            #      logged text; the roles file also raises log_min_error_statement around the
+            #      ALTER ROLE.
+            # To verify at rollout, not assume: compose `exec -e NAME` pass-through on the VPS's
+            # compose version, and that `ps -ef` during the apply shows no `SCRAM-SHA-256`
+            # (ADR verification row for the SCRAM / \getenv path).
+            PGUSER=$(grep '^POSTGRES_USER=' /opt/crm/.env.production | cut -d= -f2)
+            PGDB=$(grep '^POSTGRES_DB='   /opt/crm/.env.production | cut -d= -f2)
+
+            # Source: apps/api/drizzle/manual/2026-10-18_db_roles.sql
+            DB_ROLES_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-18_db_roles.sql"
+
+            if [ ! -f "$DB_ROLES_FILE" ]; then
+              echo "ERROR: DDL file not found at $DB_ROLES_FILE — scp-action may have flattened the tree."
+              ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+              exit 1
+            fi
+
+            echo "==> Applying database roles (idempotent, no passwords) — user=${PGUSER} db=${PGDB}"
+            docker compose \
+              -f docker-compose.prod.yml \
+              -f docker-compose.ghcr.yml \
+              --env-file .env.production \
+              exec -T postgres \
+              psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+              < "$DB_ROLES_FILE"
+            echo "==> database roles applied successfully"
 
             # ── Step 2: apply audit-hardening DDL (idempotent) ───────────────────────────────
             # The SQL file was copied by the copy-compose job to:
@@ -4252,6 +4354,32 @@ jobs:
               < "$MEETING_RECORDER_INTEGRATION_FILE"
             echo "==> meeting recorder integration DDL applied successfully"
 
+            # ── multipart salary: PREPARE while the previous API may still serve ──
+            # Applied here, BEFORE the privilege grants below, so the relation it creates
+            # (salary_month_initializations) is covered by them on a fresh database.
+            # Adds salary_origin + the durable cron marker and backfills existing
+            # salary months, but DELIBERATELY keeps uq_transactions_salary_receiver_month.
+            # The previous API still uses that unique index as its ON CONFLICT
+            # arbiter. The breaking index replacement happens only after Step 3
+            # has swapped in the new API image.
+            MULTIPART_SALARY_PREPARE_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-04_multiple_salary_transactions_prepare.sql"
+
+            if [ ! -f "$MULTIPART_SALARY_PREPARE_FILE" ]; then
+              echo "ERROR: migration file not found at $MULTIPART_SALARY_PREPARE_FILE — scp-action may have flattened the tree."
+              ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+              exit 1
+            fi
+
+            echo "==> Preparing multipart salary schema (backward-compatible) — user=${PGUSER} db=${PGDB}"
+            docker compose \
+              -f docker-compose.prod.yml \
+              -f docker-compose.ghcr.yml \
+              --env-file .env.production \
+              exec -T postgres \
+              psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+              < "$MULTIPART_SALARY_PREPARE_FILE"
+            echo "==> multipart salary prepare migration applied successfully"
+
             # ── job opportunities store: part 1 (enum types, tables, job_sources extension, FKs) ──
             # MUST run strictly before part 2 (the indexes reference these tables).
             # Bare `psql -v ON_ERROR_STOP=1 < file` (no `-1`): statement-level autocommit.
@@ -4274,6 +4402,43 @@ jobs:
               psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
               < "$JOB_OPPORTUNITIES_STORE_FILE"
             echo "==> job opportunities store DDL applied successfully"
+
+            # ── database privilege grants (r5 Task 1.3c) ──
+            # INVARIANT: every file in this script that creates a table, view or sequence is applied
+            # BEFORE this one. The multipart-salary PREPARE file (the last relation-creating file
+            # that used to sit after this point: it creates salary_month_initializations) was moved
+            # up in front of the job opportunities store block for exactly that reason; the store
+            # DDL and its indexes file precede this block. Files applied later are the activate file (it
+            # runs after the container swap by design; creates no relations) and the drop_cascade_origin
+            # marker SECOND PASS, a re-run of a file whose first application, and so its
+            # CREATE TABLE IF NOT EXISTS, is far above this block. The grants
+            # file names tables explicitly and fails on a missing one, so a fresh database ends the
+            # deploy with every relation granted by construction, not because production already
+            # has the tables. It is also BEFORE the append-only triggers file (r5 Task 1.3b,
+            # PR #1026), which attaches after the indexes below. One transaction, idempotent,
+            # re-applied on every deploy.
+            #
+            # The privileges check (r5 Task 1.3c) runs twice: once just before the container swap
+            # (fail-fast, old API still serving) and again as the LAST database step, after the
+            # marker second pass, so that the end state is what gets validated.
+            # Source: apps/api/drizzle/manual/2026-10-18_db_grants.sql
+            DB_GRANTS_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-18_db_grants.sql"
+
+            if [ ! -f "$DB_GRANTS_FILE" ]; then
+              echo "ERROR: DDL file not found at $DB_GRANTS_FILE — scp-action may have flattened the tree."
+              ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+              exit 1
+            fi
+
+            echo "==> Applying database privilege grants (idempotent) — user=${PGUSER} db=${PGDB}"
+            docker compose \
+              -f docker-compose.prod.yml \
+              -f docker-compose.ghcr.yml \
+              --env-file .env.production \
+              exec -T postgres \
+              psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+              < "$DB_GRANTS_FILE"
+            echo "==> database privilege grants applied successfully"
 
             # ── job opportunities store: part 2 (indexes, CREATE INDEX CONCURRENTLY) ──
             # CONCURRENTLY cannot run inside a transaction block; this invocation has no
@@ -4301,12 +4466,13 @@ jobs:
 
             # ── job queue append-only triggers (r5 Task 1.3b, PR #1026) ──
             # Attach to the job_queue_* tables created by the store DDL above, so they MUST
-            # run after it. The triggers file's first statement raises undefined_object if
-            # crm_retention_owner / crm_app (created by r5 Task 1.3c's db_roles file) are
-            # absent, before creating anything: until 1.3c merges and its roles/grants files
-            # are wired IMMEDIATELY BEFORE this block, the deploy fails LOUDLY here by
-            # design. The catalog check follows the triggers; 1.3c's privileges check
-            # follows the catalog check.
+            # run after it. They also MUST run after the roles file (db_roles, applied earlier
+            # in this script): the triggers file's first statement raises undefined_object if
+            # crm_retention_owner / crm_app are absent, and crm_retention_owner OWNS the two
+            # retention functions it installs. The triggers file creates no relations, so it
+            # is allowed after the grants (check-prod-ddl-wiring.py GRANTS-AFTER-CREATORS).
+            # The catalog check follows the triggers; the privileges check (db_privileges_check)
+            # follows the catalog check and stays the last database step.
 
             # Source: apps/api/drizzle/manual/2026-10-18_job_queue_append_only_triggers.sql
             JOB_QUEUE_TRIGGERS_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-18_job_queue_append_only_triggers.sql"
@@ -4346,29 +4512,32 @@ jobs:
               < "$JOB_QUEUE_CHECK_FILE"
             echo "==> job queue append-only catalog check passed"
 
-            # ── multipart salary: PREPARE while the previous API may still serve ──
-            # Adds salary_origin + the durable cron marker and backfills existing
-            # salary months, but DELIBERATELY keeps uq_transactions_salary_receiver_month.
-            # The previous API still uses that unique index as its ON CONFLICT
-            # arbiter. The breaking index replacement happens only after Step 3
-            # has swapped in the new API image.
-            MULTIPART_SALARY_PREPARE_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-04_multiple_salary_transactions_prepare.sql"
+            # ── database privileges catalog check (r5 Task 1.3c) — read-only, FAILS THE DEPLOY ON DRIFT ──
+            # Not DDL: it signals drift with RAISE EXCEPTION, which psql turns into a non-zero exit
+            # ONLY under ON_ERROR_STOP=1 (without it the deploy would pass on a failed check).
+            # FIRST RUN: after every DDL that precedes the container swap (including the append-only
+            # triggers and their catalog check, PR #1026) and before `up -d` swaps the API, so a
+            # drift fails the deploy while the old API is still serving. A second, final run closes the
+            # script, after the post-cutover marker second pass.
 
-            if [ ! -f "$MULTIPART_SALARY_PREPARE_FILE" ]; then
-              echo "ERROR: migration file not found at $MULTIPART_SALARY_PREPARE_FILE — scp-action may have flattened the tree."
+            # Source: apps/api/drizzle/manual/2026-10-18_db_privileges_check.sql
+            DB_PRIVILEGES_CHECK_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-18_db_privileges_check.sql"
+
+            if [ ! -f "$DB_PRIVILEGES_CHECK_FILE" ]; then
+              echo "ERROR: DDL file not found at $DB_PRIVILEGES_CHECK_FILE — scp-action may have flattened the tree."
               ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
               exit 1
             fi
 
-            echo "==> Preparing multipart salary schema (backward-compatible) — user=${PGUSER} db=${PGDB}"
+            echo "==> Running database privileges catalog check (read-only) — user=${PGUSER} db=${PGDB}"
             docker compose \
               -f docker-compose.prod.yml \
               -f docker-compose.ghcr.yml \
               --env-file .env.production \
               exec -T postgres \
               psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
-              < "$MULTIPART_SALARY_PREPARE_FILE"
-            echo "==> multipart salary prepare migration applied successfully"
+              < "$DB_PRIVILEGES_CHECK_FILE"
+            echo "==> database privileges catalog check passed"
 
             # ── Step 2zz (preflight, task-infra-aop-observation, security review
             # PR #555 AOP-3): cloudflare-origin-pull-ca.pem must exist on THIS
@@ -4745,6 +4914,25 @@ jobs:
               } | tee -a /opt/crm/.last-ddl-summary.txt
               echo "==> drop_cascade_origin marker SECOND PASS applied successfully"
             fi
+
+            # ── database privileges catalog check, FINAL RUN (r5 Task 1.3c) — LAST database step ──
+            # Two files are applied after the first run: the multipart-salary activate file (it must
+            # follow the container swap) and the drop_cascade_origin marker SECOND PASS (a
+            # post-cutover sweep) just above. This run is placed after the second pass, so nothing is
+            # applied after the gate and the end state of the deploy is what gets validated.
+            # check-prod-ddl-wiring.py enforces this (CHECK-LAST): it fails if any file psql applies
+            # comes after the last run of the check.
+            DB_PRIVILEGES_CHECK_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-18_db_privileges_check.sql"
+
+            echo "==> Running database privileges catalog check, final run (read-only) — user=${PGUSER} db=${PGDB}"
+            docker compose \
+              -f docker-compose.prod.yml \
+              -f docker-compose.ghcr.yml \
+              --env-file .env.production \
+              exec -T postgres \
+              psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+              < "$DB_PRIVILEGES_CHECK_FILE"
+            echo "==> database privileges catalog check (final) passed"
 
             # Step 4 (drop-share pending-parity BACKFILL, one-time historical-data mutation,
             # gated behind APPLY_DROP_SHARE_PENDING_PARITY_BACKFILL) used to run here, after
