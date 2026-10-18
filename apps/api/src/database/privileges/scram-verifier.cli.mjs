@@ -57,6 +57,31 @@ if (!/^[\x20-\x7e]+$/.test(password)) {
 // A fixed salt may be supplied ONLY so the spec can compare this file's output with
 // `scram.ts` byte for byte; the deploy never sets it. By environment variable rather than
 // an argument, for the same reason the password comes in on stdin.
+//
+// Validated rather than trusted, because the failure mode is silent and the result still
+// WORKS: `Buffer.from(hex, 'hex')` stops at the first invalid pair and returns the prefix
+// it managed to decode, so `SCRAM_SALT_HEX=oops` produced a zero-byte salt and a verifier
+// PostgreSQL happily accepts — a live credential with less entropy than anyone would
+// believe from reading the deploy. A set-but-empty value is refused too: the deploy never
+// sets this variable at all, so an empty one is a broken substitution, not an intent.
+const SALT_BYTES = 16
 const saltHex = process.env.SCRAM_SALT_HEX
-const salt = saltHex ? Buffer.from(saltHex, 'hex') : randomBytes(16)
+let salt
+if (saltHex === undefined) {
+  salt = randomBytes(SALT_BYTES)
+} else {
+  if (!/^[0-9a-fA-F]+$/.test(saltHex) || saltHex.length % 2 !== 0) {
+    process.stderr.write(
+      'scram-verifier: SCRAM_SALT_HEX is not an even-length hexadecimal string — refusing\n',
+    )
+    process.exit(2)
+  }
+  salt = Buffer.from(saltHex, 'hex')
+  if (salt.length < SALT_BYTES) {
+    process.stderr.write(
+      `scram-verifier: SCRAM_SALT_HEX decodes to ${salt.length} bytes, need at least ${SALT_BYTES} — refusing\n`,
+    )
+    process.exit(2)
+  }
+}
 process.stdout.write(`${verifier(password, salt)}\n`)

@@ -1540,6 +1540,155 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
     }, 60_000)
   })
 
+  describe('the roles file’s attribute-repair path (CR-M-5, CR-M-6)', () => {
+    /**
+     * The ONE statement of the roles file that is the attribute-repair block.
+     *
+     * Same shape and same reason as `partStatement`: an extraction that silently selects
+     * nothing would make every test below pass on an empty string.
+     */
+    function attributeRepairBlock(): string {
+      const matches = splitSqlStatements(readSql(ROLES_FILE)).filter((st) =>
+        st.includes('$attributes$'),
+      )
+      if (matches.length !== 1) {
+        throw new Error(`expected exactly one $attributes$ block, found ${matches.length}`)
+      }
+      return matches[0] as string
+    }
+
+    /** Every attribute of a role the repair block is responsible for. */
+    async function attributesOf(role: string): Promise<Record<string, unknown>> {
+      const { rows } = await migration.query(
+        `SELECT rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls,
+                rolinherit, rolcanlogin, rolconnlimit
+           FROM pg_roles WHERE rolname = $1`,
+        [role],
+      )
+      return rows[0] as Record<string, unknown>
+    }
+
+    it('CR-M-5: repairs every clause it is responsible for, in one application', async () => {
+      // Round 1 pinned two of the eight clauses (NOCREATEROLE and CONNECTION LIMIT). The
+      // other six were unpinned, which for a drift-REPAIR path means: delete the line and
+      // the role keeps the attribute, with the catalog check failing the deploy instead of
+      // the file fixing it. One state with ALL EIGHT drifted, so deleting any single
+      // clause leaves this test red on exactly that attribute.
+      //
+      // `crm_collector` and not `crm_app`: the app pool in this file is connected as
+      // crm_app, and NOLOGIN plus CONNECTION LIMIT 0 on a role with live sessions is a
+      // fight with the rest of the suite rather than a test.
+      await migration.query(
+        `ALTER ROLE ${ROLES.collector} SUPERUSER CREATEDB CREATEROLE REPLICATION BYPASSRLS NOINHERIT NOLOGIN CONNECTION LIMIT 7`,
+      )
+      try {
+        expect(await attributesOf(ROLES.collector)).toMatchObject({
+          rolsuper: true,
+          rolcreatedb: true,
+          rolcreaterole: true,
+          rolreplication: true,
+          rolbypassrls: true,
+          rolinherit: false,
+          rolcanlogin: false,
+          rolconnlimit: 7,
+        })
+
+        await applyFile(ROLES_FILE)
+
+        // Every one of the eight, written out: the declared state of the collector per
+        // ROLES / CONNECTION_LIMITS in privilege-classes.ts.
+        expect(await attributesOf(ROLES.collector)).toEqual({
+          rolsuper: false,
+          rolcreatedb: false,
+          rolcreaterole: false,
+          rolreplication: false,
+          rolbypassrls: false,
+          rolinherit: true,
+          rolcanlogin: true,
+          rolconnlimit: 10,
+        })
+      } finally {
+        await applyFile(ROLES_FILE)
+      }
+      expect(await runCheck(migration)).toBeNull()
+    }, 120_000)
+
+    it('CR-M-6: as a non-superuser CREATEROLE owner, repairs what it can and warns about the rest', async () => {
+      // The file's own comment claims "repair of whatever the role is allowed to change
+      // plus a loud WARNING for the rest" of step 0's branch 2. With one `ALTER ROLE`
+      // carrying every differing clause, that was FALSE: PostgreSQL 16 refuses the whole
+      // statement if any clause needs an attribute the altering role lacks, so with
+      // CREATEDB and CREATEROLE both drifted NOTHING was repaired and CREATEROLE — the
+      // clause that lets a role mint a more privileged one — stayed on crm_app.
+      //
+      // Production is branch 1, so this was never a production defect. It was a comment
+      // claiming something the code did not do, which is the defect class this feature has
+      // produced four times, so the code is what changed.
+      const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+      const fixer = `privprobe_fixer_${suffix}`
+      const fixerPassword = `probe${Math.random().toString(36).slice(2)}`
+      let fixerPool: Pool | undefined
+      // The roles file revoked PUBLIC's CONNECT on this database, so a new login role has
+      // to be granted it by name — which is itself the boundary working as designed.
+      const database = new URL(process.env['DATABASE_URL'] as string).pathname.replace(/^\//, '')
+      await migration.query(
+        `CREATE ROLE ${fixer} LOGIN NOSUPERUSER CREATEROLE NOCREATEDB PASSWORD '${fixerPassword}'`,
+      )
+      try {
+        await migration.query(`GRANT CONNECT ON DATABASE ${database} TO ${fixer}`)
+        // In PostgreSQL 16 a CREATEROLE role may only alter roles it holds ADMIN on.
+        await migration.query(
+          `GRANT ${ROLES.collector} TO ${fixer} WITH ADMIN TRUE, INHERIT FALSE, SET FALSE`,
+        )
+        await migration.query(
+          `ALTER ROLE ${ROLES.collector} CREATEDB CREATEROLE NOINHERIT CONNECTION LIMIT 7`,
+        )
+        fixerPool = new Pool({ connectionString: urlFor(fixer, fixerPassword), max: 1 })
+
+        const notices: string[] = []
+        const client = await fixerPool.connect()
+        try {
+          client.on('notice', (n) => notices.push(String(n.message)))
+          await client.query(attributeRepairBlock())
+        } finally {
+          client.release()
+        }
+
+        const after = await attributesOf(ROLES.collector)
+        // Repaired: the three clauses a CREATEROLE role holding ADMIN may set.
+        expect(after).toMatchObject({
+          rolcreaterole: false,
+          rolinherit: true,
+          rolconnlimit: 10,
+        })
+        // Not repaired, and that is the honest half: CREATEDB may only be changed by a
+        // role that holds it. The catalog check (part 7) fails the deploy on this state —
+        // it is reported, not silently accepted.
+        expect(after).toMatchObject({ rolcreatedb: true })
+        expect(notices.join(' | ')).toContain('cannot repair')
+        expect(notices.join(' | ')).toContain('NOCREATEDB')
+
+        const failure = await runCheck(migration)
+        expect(failure).toMatch(/part 7 \(role attributes and ownership\)/)
+        expect(failure).toContain('CREATEDB')
+      } finally {
+        await fixerPool?.end()
+        await migration
+          .query(`REVOKE ${ROLES.collector} FROM ${fixer} CASCADE`)
+          .catch(() => undefined)
+        // Before DROP ROLE: PostgreSQL refuses to drop a role that still holds a database
+        // privilege, and an orphaned datacl entry would also change the idempotence
+        // snapshot the next describe compares.
+        await migration
+          .query(`REVOKE ALL ON DATABASE ${database} FROM ${fixer}`)
+          .catch(() => undefined)
+        await migration.query(`DROP ROLE IF EXISTS ${fixer}`).catch(() => undefined)
+        await applyFile(ROLES_FILE)
+      }
+      expect(await runCheck(migration)).toBeNull()
+    }, 120_000)
+  })
+
   describe('idempotence — the files re-run on every deploy', () => {
     it('changes no catalog row on a second and third application', async () => {
       const snapshot = async (): Promise<string> => {

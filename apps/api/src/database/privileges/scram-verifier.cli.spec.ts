@@ -62,4 +62,39 @@ describe('scram-verifier.cli.mjs', () => {
   it('uses a fresh random salt when none is supplied', () => {
     expect(run('hunter2')).not.toBe(run('hunter2'))
   })
+
+  it('ORCH-L-2: refuses an invalid SCRAM_SALT_HEX instead of silently shortening the salt', () => {
+    // `Buffer.from(hex, 'hex')` stops at the first invalid pair and returns what it got —
+    // so `SCRAM_SALT_HEX=oops` yielded a ZERO-BYTE salt and a verifier the server accepts.
+    // A silently weakened salt is worse than a refusal: it is a working credential with
+    // less entropy than anyone reading the deploy log would believe.
+    for (const bad of ['oops', 'abc', '00112233445566778899aabbccddeefg', '']) {
+      expect(() => run('hunter2', { SCRAM_SALT_HEX: bad })).toThrow()
+    }
+  })
+
+  it('ORCH-L-2: refuses a salt that is valid hex but too short to be a salt', () => {
+    // 15 bytes of perfectly good hex. PostgreSQL's own default is 16, and the whole point
+    // of a salt is its length, so "parses" is not the bar.
+    expect(() => run('hunter2', { SCRAM_SALT_HEX: '00112233445566778899aabbccddee' })).toThrow()
+    expect(() =>
+      run('hunter2', { SCRAM_SALT_HEX: '00112233445566778899aabbccddeeff' }),
+    ).not.toThrow()
+  })
+
+  it('ORCH-L-3: writes exactly one trailing newline and nothing else', () => {
+    // Every other test here compares `.trim()`ed output, so the framing was unasserted. It
+    // is load-bearing twice: the value is interpolated into a `-c crm_roles.app_verifier=`
+    // connection option, where an embedded newline is a malformed option rather than a bad
+    // password, and `$(…)` strips ALL trailing newlines, so a drift from one to two would
+    // be invisible in the deploy and visible only here.
+    const raw = execFileSync(process.execPath, [CLI], {
+      input: 'hunter2',
+      encoding: 'utf8',
+      env: { ...process.env, SCRAM_SALT_HEX: SALT_HEX },
+    })
+    expect(raw.endsWith('\n')).toBe(true)
+    expect(raw.endsWith('\n\n')).toBe(false)
+    expect(raw.slice(0, -1)).not.toContain('\n')
+  })
 })

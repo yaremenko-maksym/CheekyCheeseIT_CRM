@@ -26,6 +26,7 @@ import {
   buildGrantsSql,
 } from './generate-privilege-sql'
 import {
+  CLASS_PRIVILEGES,
   PRIVILEGE_CLASSES,
   RETENTION_OWNER_TABLE_PRIVILEGES,
   ROLES,
@@ -284,6 +285,43 @@ describe('privilege SQL for classes with no members yet', () => {
         )
         expect(buildCheckSql()).not.toContain("('crm_collector', 'D')")
       },
+    )
+  })
+
+  it('spells out an empty table-level SELECT set as an explicit empty row set', () => {
+    // The CR-M-3 branch the mutation gate found unpinned: with no (role, class) pair
+    // granting a table-level SELECT, part 3's `role_table_select` CTE has no rows, and
+    // `VALUES` with nothing after it is not an empty row set but a SYNTAX ERROR — the
+    // whole check file would fail to parse, on every deploy, for a manifest change that
+    // looks harmless. The real manifest never takes this path (class A grants SELECT), so
+    // only an injected manifest reaches it.
+    const privileges = CLASS_PRIVILEGES as unknown as Record<
+      string,
+      { app: readonly string[]; collector: readonly string[]; why: string }
+    >
+    const original = Object.fromEntries(
+      Object.entries(privileges).map(([cls, p]) => [cls, { ...p }]),
+    )
+    try {
+      for (const [cls, p] of Object.entries(privileges)) {
+        privileges[cls] = {
+          ...p,
+          app: p.app.filter((x) => x !== 'SELECT'),
+          collector: p.collector.filter((x) => x !== 'SELECT'),
+        }
+      }
+      const check = buildCheckSql()
+      expect(check).toContain(
+        'role_table_select(role_name, cls) AS (SELECT NULL::text, NULL::text WHERE false)',
+      )
+      // The consequence, stated as its own assertion: never a VALUES with no rows.
+      expect(check).not.toContain('role_table_select(role_name, cls) AS (VALUES\n)')
+    } finally {
+      for (const key of Object.keys(privileges)) delete privileges[key]
+      Object.assign(privileges, original)
+    }
+    expect(buildCheckSql()).toContain(
+      "role_table_select(role_name, cls) AS (VALUES\n    ('crm_app'",
     )
   })
 

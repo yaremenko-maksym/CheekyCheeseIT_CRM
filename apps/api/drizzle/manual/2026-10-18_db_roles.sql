@@ -12,9 +12,13 @@
 -- and is the ONLY role in the cluster, so production is step 0's **branch 1** — the simple
 -- one. Every statement below is therefore applied by a superuser that also owns `crm_db`:
 -- `log_min_error_statement` is settable, the `postgres` / `template1` revocations succeed,
--- the attribute-repair block can repair anything, and part 8 of the catalog check expects
--- ZERO membership rows (a superuser creating a role is not made a member of it). Being the
--- only role also means the three created here cannot collide with anything.
+-- the attribute-repair block can repair anything, and PostgreSQL makes no membership row
+-- for the roles it creates (a superuser creating a role is not made a member of it). Part 8
+-- of the catalog check accepts that state and the non-superuser one alike — it asserts the
+-- SHAPE of any membership row plus "at most one", never a count derived from `rolsuper`,
+-- precisely so that ADR §4's `ALTER ROLE crm_user NOSUPERUSER CREATEROLE` cannot turn a
+-- correct database into a failing deploy. Being the only role also means the three created
+-- here cannot collide with anything.
 --
 -- Production runs PostgreSQL **16.14**; the behaviours this file relies on were reproduced
 -- on 16.15. Nothing used here is newer than 16.0 — `pg_auth_members.inherit_option` /
@@ -74,7 +78,7 @@
 --
 --   PGOPTIONS="-c crm_roles.app_verifier=$APP_VERIFIER" \
 --     docker compose exec -T -e PGOPTIONS postgres \
---       psql -U "$PGUSER" -d "$PGDATABASE" -v ON_ERROR_STOP=1 \
+--       psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
 --       < /opt/crm/apps/api/drizzle/manual/2026-10-18_db_roles.sql
 --
 -- `docker compose exec -e PGOPTIONS` (name only) takes the value from the calling
@@ -181,6 +185,19 @@ $roles$;
 -- only the cluster's superuser can. The catalog check (part 7) fails the deploy on exactly
 -- that state, so the condition is detected and reported; it is not silently repaired.
 --
+-- WHY ONE STATEMENT PER CLAUSE AND NOT ONE STATEMENT PER ROLE (CR-M-6)
+-- Because "repair of whatever the role is allowed to change" is only true that way. An
+-- `ALTER ROLE` fails AS A WHOLE if any one of its clauses needs an attribute the altering
+-- role does not hold, so a single statement carrying every differing clause repaired
+-- NOTHING in branch 2 whenever one of the four superuser-only attributes had drifted:
+-- measured on 16.15 (2026-10-18) as a non-superuser CREATEROLE role holding ADMIN, with
+-- CREATEDB, CREATEROLE, NOINHERIT and a wrong connection limit all drifted, the role kept
+-- CREATEROLE — the one clause that lets it mint a more privileged role. Issued one at a
+-- time, the three repairable clauses land and only CREATEDB is reported. Production is
+-- branch 1, so this was never a production defect; it was a comment claiming something the
+-- code did not do. The cost is up to eight statements instead of one, and only on a role
+-- that has actually drifted.
+--
 -- CONNECTION LIMIT, with the arithmetic rather than a round number: `DatabaseService` opens
 -- one `pg` Pool with no `max`, i.e. pg's default of 10. A deploy recreates the API container
 -- and the recreate can briefly overlap, so 10 x 2 = 20, plus 10 of headroom for an operator
@@ -197,6 +214,8 @@ DO $attributes$
 DECLARE
   r record;
   clauses text[];
+  clause text;
+  unrepaired text[];
 BEGIN
   FOR r IN
     SELECT w.rolname, w.can_login, w.conn_limit, a.rolsuper, a.rolcreatedb, a.rolcreaterole,
@@ -231,14 +250,23 @@ BEGIN
       CONTINUE;
     END IF;
 
-    BEGIN
-      EXECUTE format('ALTER ROLE %I WITH %s', r.rolname, array_to_string(clauses, ' '));
-      RAISE NOTICE 'repaired attributes of %: %', r.rolname, array_to_string(clauses, ' ');
-    EXCEPTION
-      WHEN insufficient_privilege THEN
-        RAISE WARNING 'cannot repair attributes of % (% ) as % — a superuser must do it; the catalog check will fail the deploy until then',
-          r.rolname, array_to_string(clauses, ' '), current_user;
-    END;
+    unrepaired := ARRAY[]::text[];
+    FOREACH clause IN ARRAY clauses LOOP
+      BEGIN
+        EXECUTE format('ALTER ROLE %I WITH %s', r.rolname, clause);
+        RAISE NOTICE 'repaired attribute of %: %', r.rolname, clause;
+      EXCEPTION
+        WHEN insufficient_privilege THEN
+          -- Collected rather than raised here, so one unrepairable clause produces one
+          -- warning naming all of them instead of a warning per clause.
+          unrepaired := array_append(unrepaired, clause);
+      END;
+    END LOOP;
+
+    IF cardinality(unrepaired) > 0 THEN
+      RAISE WARNING 'cannot repair attributes of % (%) as % — a superuser must do it; the catalog check will fail the deploy until then',
+        r.rolname, array_to_string(unrepaired, ' '), current_user;
+    END IF;
   END LOOP;
 END
 $attributes$;
