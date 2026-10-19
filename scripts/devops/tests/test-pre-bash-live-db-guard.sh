@@ -138,9 +138,20 @@ for q in 'dbname=crm_db' 'dbname=crm%5Fdb' 'DBNAME=crm_db' 'dbn%61me=crm_db' 'db
     --contains '"decision": "block"' \
     -- h "DATABASE_URL='$LIVE_BASE/crm_qa?$q' API_PORT=3011 pnpm --filter @crm/api dev"
 done
-assert_red "options упоминает crm_db" \
-  --contains "?options mentions crm_db" \
-  -- h "DATABASE_URL='$LIVE_BASE/crm_qa?options=-c%20search_path%3Dcrm_db' API_PORT=3011 pnpm --filter @crm/api dev"
+# FRAGMENT (SR-H-1). urlsplit cuts at "#" and sees an empty query; libpq ends the
+# path only at "?" and still applies a "?dbname=" after the fragment, so
+# `postgres://h/scratch#?dbname=crm_db` is crm_db there (measured: PQconnectStart +
+# PQdb, libpq 15). Any "#" is refused. The first three are the named regression
+# cases; the rest pin that the refusal does not depend on what follows it.
+for frag in '#?dbname=crm_db' '#?dbname=crm%5Fdb' '#?DBNAME=crm_db' '#' '#frag' '#frag?sslmode=disable'; do
+  assert_red "# в URL → отказ (libpq читает дальше фрагмента): crm_qa$frag" \
+    --contains '"decision": "block"' \
+    --contains "contains a # fragment" \
+    -- h "DATABASE_URL='$LIVE_BASE/crm_qa$frag' API_PORT=3011 pnpm --filter @crm/api dev"
+done
+assert_red "# перед путём, после хоста" \
+  --contains "contains a # fragment" \
+  -- h "DATABASE_URL='postgres://crm_user@localhost:5432#/crm_db' API_PORT=3011 pnpm --filter @crm/api dev"
 assert_red "query dbname без имени" \
   --contains "cannot determine the database name" \
   -- h "DATABASE_URL='$LIVE_BASE/crm_qa?dbname=' API_PORT=3011 pnpm --filter @crm/api dev"
@@ -159,9 +170,40 @@ assert_red "PGDATABASE с пробелами вокруг crm_db" \
 assert_red "PGDATABASE=crm%5Fdb (не простое имя)" \
   --contains "is not a plain" \
   -- h "DATABASE_URL= PGDATABASE=crm%5Fdb vite --port 3010"
-assert_red "PGDATABASE пустой" \
+assert_red "PGDATABASE из пробелов" \
   --contains "cannot determine the database name from PGDATABASE" \
-  -- h "DATABASE_URL= PGDATABASE= vite --port 3010"
+  -- h "DATABASE_URL= PGDATABASE=' ' vite --port 3010"
+
+# SR-M-1: the export-then-bare-assignment shapes. cmdscan reads the exported
+# value; the later bare assignment is what the process gets.
+for pre in 'export PGDATABASE=qa; PGDATABASE=crm_db;' 'declare -x PGDATABASE=qa; PGDATABASE=crm_db;' \
+           'typeset -x PGDATABASE=qa; PGDATABASE=crm_db;' 'set -a; PGDATABASE=crm_db;' 'PGDATABASE=crm_db;'; do
+  assert_red "PGDATABASE назначен вне запуска: $pre" \
+    --contains "PGDATABASE is assigned somewhere else" \
+    -- h "$pre DATABASE_URL= vite --port 3010"
+done
+for pre in 'export DATABASE_URL=postgresql://u@h/crm_qa; DATABASE_URL=postgresql://u@h/crm_db; API_PORT=3011' \
+           'export DATABASE_URL=postgresql://u@h/crm_qa; DATABASE_URL=postgresql://u@h/crm_db; export API_PORT=3011;'; do
+  assert_red "DATABASE_URL: bare-присвоение после export: $pre" \
+    --contains "DATABASE_URL is assigned somewhere else" \
+    -- h "$pre pnpm --filter @crm/api dev"
+done
+# cmdscan does not record `declare -x`, so this one is already refused by the older
+# "not set inline" reason; pinned as a block, not by which reason fires.
+assert_red "DATABASE_URL: declare -x + bare-присвоение" \
+  --contains '"decision": "block"' \
+  -- h "declare -x DATABASE_URL=postgresql://u@h/crm_qa; DATABASE_URL=postgresql://u@h/crm_db; API_PORT=3011 pnpm --filter @crm/api dev"
+
+# A command that loads an environment the hook cannot read, with DATABASE_URL
+# empty and PGDATABASE not pinned: PGDATABASE may choose the database.
+for load in 'set -a; source .env.local;' 'source .env;' '. ./env.sh;' 'eval "$(cat .env)";' 'set -o allexport;'; do
+  assert_red "env-файл + пустой DATABASE_URL без PGDATABASE: $load" \
+    --contains "loads an environment the hook cannot read" \
+    -- h "$load DATABASE_URL= vite --port 3010"
+done
+assert_red "--env-file + пустой DATABASE_URL без PGDATABASE" \
+  --contains "loads an environment the hook cannot read" \
+  -- h "DATABASE_URL= node --env-file=.env apps/api/dist/main.js"
 
 # PINNED GREENS: a guard that refuses legitimate scratch URLs gets switched off,
 # which is as bad as one that admits the live database.
@@ -183,6 +225,20 @@ assert_green "options без crm_db" \
   -- h "DATABASE_URL='$LIVE_BASE/crm_qa?options=-c%20statement_timeout%3D5000' API_PORT=3011 pnpm --filter @crm/api dev"
 assert_green "PGDATABASE безопасный + пустой DATABASE_URL" \
   -- h "DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
+# Bare `PGDATABASE=` is the natural way to scrub an inherited value: libpq and
+# node-pg both fall back to the user name, exactly as when it is unset (measured).
+assert_green "PGDATABASE= (пустой) — сброс унаследованного значения" \
+  -- h "DATABASE_URL= PGDATABASE= vite --port 3010"
+assert_green "env-файл, но PGDATABASE закреплён инлайн" \
+  -- h "set -a; source .env.local; DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
+assert_green "env-файл, но DATABASE_URL непустой и безопасный (URL с путём главнее PGDATABASE)" \
+  -- h "set -a; source .env.local; DATABASE_URL=$SAFE_DB API_PORT=3011 pnpm --filter @crm/api dev"
+assert_green "export безопасного DATABASE_URL БЕЗ повторного присвоения" \
+  -- h "export DATABASE_URL=$SAFE_DB; export API_PORT=3011; pnpm --filter @crm/api dev"
+assert_green "точка как аргумент (cd .) — не source" \
+  -- h "cd . && DATABASE_URL= vite --port 3010"
+assert_green "имя с crm_db внутри чужого слова в options: crm_db_x" \
+  -- h "DATABASE_URL='$LIVE_BASE/crm_qa?options=-c%20app.crm_db_x%3D1' API_PORT=3011 pnpm --filter @crm/api dev"
 
 # The decoding must not turn into a blanket refusal of other databases.
 assert_green "закодированное, но НЕ живое имя: crm%5Fqa" \

@@ -206,6 +206,17 @@ def name_problems(name, where):
 
 def url_problems(url):
     where = "DATABASE_URL"
+    # A "#" is refused outright. urlsplit cuts the string at "#" and so sees an
+    # EMPTY query, while libpq ends the path only at "?" and still applies a
+    # "?dbname=" that follows the fragment: `postgres://h/scratch#?dbname=crm_db`
+    # is crm_db in libpq (measured with PQconnectStart + PQdb on libpq 15, and in
+    # a fuzz of 142,272 URLs: all 360 that this hook allowed and libpq resolved
+    # to crm_db contained "#"). node-pg, which the API uses, does not do this,
+    # so today no launch path is exposed - but this hook claims libpq parity, and
+    # a guard that claims parity with a consumer and lacks it is worse than one
+    # that states its limits. A real scratch URL has no use for a fragment.
+    if "#" in url:
+        return ["%s contains a # fragment - libpq reads past it, this hook does not, so the database it reaches cannot be determined" % where]
     try:
         sp = urllib.parse.urlsplit(url.strip())
         params = urllib.parse.parse_qsl(sp.query, keep_blank_values=True)
@@ -223,8 +234,10 @@ def url_problems(url):
         k = key.strip().lower()
         if k in DB_PARAMS:
             problems += name_problems(value.strip(), where + " ?" + k)
-        elif k == "options" and LIVE in value.lower():
-            problems.append("%s ?options mentions crm_db (%s)" % (where, value))
+    # `options` is deliberately NOT inspected: it carries server settings (-c
+    # name=value) and cannot select a database, so a check there does no work
+    # and would trip on an unrelated setting that merely contains the text
+    # crm_db_x. Do not add it back without a measurement showing it selects one.
     return problems
 
 db = env.get("DATABASE_URL")
@@ -240,17 +253,62 @@ elif db != "":
 
 # Door 3 of 3 (path, query string, environment): libpq/pg take the database from
 # PGDATABASE when the URL does not name one - and `DATABASE_URL= PGDATABASE=crm_db
-# vite` is exactly the explicit-empty idiom this hook otherwise allows. Judged IN
-# scope for the inline case, where the launching segment states the value. NOT
-# observable: a PGDATABASE inherited from the session (the hook sees the command
-# line, not the environment) - the same blind spot as an inherited DATABASE_URL,
-# which is why an absent DATABASE_URL is refused rather than assumed safe.
-# PGDATABASE is passed to libpq verbatim (no percent-decoding), so the raw value
-# is checked through the same shape allowlist as any other name.
+# vite` is exactly the explicit-empty idiom this hook otherwise allows. A URL
+# that names a database wins over PGDATABASE (measured), so the environment only
+# matters when DATABASE_URL is the explicit empty string.
+#
+# WHAT THIS DOOR SEES, and what it does not. The hook reads the COMMAND LINE,
+# never the environment. Seen: an inline PGDATABASE on the launching segment
+# (checked through the same shape allowlist; PGDATABASE is passed to libpq
+# verbatim, no percent-decoding); the same variable assigned anywhere else in the
+# command (`export PGDATABASE=qa; PGDATABASE=crm_db; ...`, `declare -x`,
+# `typeset -x`) - refused, because cmdscan reads the exported value while the
+# later bare assignment is what the process gets; and a command that loads an
+# environment from somewhere the hook cannot read (`set -a`, `source`, `. file`,
+# `eval`, `--env-file`) - refused unless PGDATABASE is pinned inline. NOT seen:
+# a PGDATABASE exported by the session before this command, or by a file that
+# the launched program itself loads. Those stay a blind spot, as an inherited
+# DATABASE_URL would be - which is why an absent DATABASE_URL is refused rather
+# than assumed safe. The honest remedy is the one the refusal prints: pin
+# PGDATABASE inline (an empty `PGDATABASE=` scrubs an inherited value; libpq then
+# falls back to the user name, measured on libpq 15, exactly as when unset).
+def assignments(name):
+    return len(re.findall(r"(?<![A-Za-z0-9_])" + name + r"\+?=", cmd))
+
+# The same bare-assignment-after-export gap exists for DATABASE_URL itself:
+# `export DATABASE_URL=<qa>; DATABASE_URL=<live>; pnpm dev` gives the launch the
+# exported (safe-looking) value while the process runs against the live one. More
+# assignments of a name than launching segments that carry it = ambiguous.
+for name in ("DATABASE_URL", "PGDATABASE"):
+    if name == "PGDATABASE" and db != "":
+        continue
+    if name == "DATABASE_URL" and db is None:
+        continue
+    carried = sum(1 for s in segs if name in s.env)
+    if assignments(name) > carried:
+        reasons.append(
+            "%s is assigned somewhere else in this command as well - a bare "
+            "assignment after an export changes what the process gets while the "
+            "hook reads the exported value, so the effective value cannot be "
+            "determined. Set it once, inline on the launch" % name
+        )
+
 pgdb = env.get("PGDATABASE")
-if pgdb is not None:
+if pgdb is not None and pgdb != "":
     for problem in name_problems(pgdb.strip(), "PGDATABASE"):
         reasons.append(problem)
+
+ENV_LOAD = re.compile(
+    r"(?:^|[;&|(\n]\s*)(?:source|\.)\s+[^\s;&|]"
+    r"|\bset\s+(?:-[A-Za-z]*a[A-Za-z]*|-o\s+allexport)\b"
+    r"|--env-file|\beval\b|\bexport\s+\$"
+)
+if db == "" and pgdb is None and ENV_LOAD.search(cmd):
+    reasons.append(
+        "this command loads an environment the hook cannot read (set -a / source / "
+        "eval / --env-file) and DATABASE_URL is empty, so PGDATABASE may choose the "
+        "database. Pin it inline: PGDATABASE=crm_qa (or PGDATABASE= to scrub it)"
+    )
 
 port_values = []
 for var in ("API_PORT", "PORT", "WEB_PORT"):
