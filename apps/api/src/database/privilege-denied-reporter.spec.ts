@@ -1,4 +1,5 @@
 import 'reflect-metadata'
+import { Logger } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import { DatabaseModule } from './database.module'
 import {
@@ -25,6 +26,34 @@ describe('PrivilegeDeniedReporter lifecycle', () => {
     reporter.onApplicationBootstrap()
 
     expect(pool.query).not.toBe(original) // wrapped
+  })
+
+  it('logs the canonical line at ERROR through a Logger whose context is DatabasePrivilege', async () => {
+    const seen: { message: unknown; context: unknown }[] = []
+    const errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(function (
+      this: Logger,
+      message: unknown,
+    ) {
+      seen.push({ message, context: (this as unknown as { context?: unknown }).context })
+    })
+    try {
+      const pool = {
+        query: vi.fn(() => Promise.reject(denied())),
+        connect: vi.fn(),
+      }
+      new PrivilegeDeniedReporter({ db: { $client: pool } } as never).onApplicationBootstrap()
+
+      await (pool.query as () => Promise<unknown>)().catch(() => undefined)
+
+      expect(seen).toEqual([
+        {
+          message: 'db_privilege_denied sqlstate=42501 table=document_access_log ctx=pool',
+          context: 'DatabasePrivilege',
+        },
+      ])
+    } finally {
+      errorSpy.mockRestore()
+    }
   })
 })
 
@@ -184,6 +213,18 @@ describe('installPrivilegeDeniedReporter — wraps the pool without changing wha
     )
     expect(sink).not.toHaveBeenCalled()
   })
+
+  it.each([[undefined], [null], ['text'], [42]])(
+    'returns a %s result untouched, without reading .then off it',
+    (value) => {
+      const sink: Sink = vi.fn()
+      const pool = fakePool(() => value)
+      installPrivilegeDeniedReporter(pool as never, sink)
+
+      expect((pool.query as (...a: unknown[]) => unknown)('select 1')).toBe(value)
+      expect(sink).not.toHaveBeenCalled()
+    },
+  )
 
   it('a throwing sink cannot change the caller’s rejection or leak an unhandled one', async () => {
     const err = denied()

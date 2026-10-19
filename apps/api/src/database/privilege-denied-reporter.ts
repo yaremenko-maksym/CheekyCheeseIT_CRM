@@ -39,7 +39,7 @@ import { dbIdentifier, findPgError } from './pg-errors'
 type Fn = (...args: unknown[]) => unknown
 type Context = 'pool' | 'client'
 
-const DENIED_ON_TABLE = /^permission denied for (?:table|view) (.+)$/
+const DENIED_ON_TABLE = /^permission denied for (?:table|view) (.+)/
 const PRIVILEGE_DENIED = '42501'
 
 /** The canonical line for `err`, or null when `err` is not a privilege error. */
@@ -54,11 +54,7 @@ export function privilegeDeniedLine(err: unknown, ctx: Context): string | null {
 }
 
 function isThenable(value: unknown): value is PromiseLike<unknown> {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    typeof (value as { then?: unknown }).then === 'function'
-  )
+  return typeof (value as { then?: unknown } | null | undefined)?.then === 'function'
 }
 
 /** Wraps `original` so a rejection is reported, and the caller still gets the ORIGINAL promise. */
@@ -96,7 +92,8 @@ export function installPrivilegeDeniedReporter(pool: Pool, sink: (line: string) 
   const originalConnect = target.connect
   target.connect = function (this: unknown, ...args: unknown[]): unknown {
     const result = originalConnect.apply(this, args)
-    if (typeof args[0] === 'function' || !isThenable(result)) return result
+    // A callback-style `connect(cb)` returns undefined, so it takes this branch too.
+    if (!isThenable(result)) return result
     return result.then((client) => {
       patchClient(client as { query: Fn }, sink)
       return client
