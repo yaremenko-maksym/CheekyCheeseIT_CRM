@@ -10,10 +10,20 @@
 --   Nothing in the database protects the log from the role that owns it: ownership
 --   alone suffices to `DISABLE TRIGGER` or `DROP TRIGGER`. The protection against the
 --   migration role is procedural, and the DETECTION is exactly this file: it runs on
---   every deploy and fails if a guard is missing or not `ENABLE ALWAYS`, so a trigger
---   LEFT disabled or dropped is caught at the next deploy. Stated so nobody reads
---   more into it: it does NOT catch a disable-edit-re-enable inside one transaction,
---   and it does not compare the log against the nightly dumps.
+--   every deploy and fails if a guard is missing, disabled, REWRITTEN or JOINED BY AN
+--   UNDECLARED TRIGGER, so a guard dropped, left disabled or quietly changed is caught
+--   at the next deploy.
+--
+--   WHAT "REWRITTEN" COVERS, because name + `tgenabled` alone did not cover it. Each
+--   declared trigger is pinned by its timing/event bitmask, the function it executes,
+--   the absence of a `WHEN` clause, its argument count, and the md5 of its whole
+--   `pg_get_triggerdef`; and no trigger beyond the seven declared may exist on the
+--   three guarded tables. Every one of those assertions earns its place by a tampering
+--   that passed the earlier version of this file green — see the manifest's own comment.
+--
+--   Stated so nobody reads more into it: it does NOT catch a disable-edit-re-enable
+--   inside one transaction, it does not compare the log against the nightly dumps, and
+--   it says nothing about triggers on tables other than the three it names.
 --
 -- WHY `md5(pg_get_functiondef(oid))` AND NOT `md5(prosrc)`
 --   `prosrc` is the EMPTY STRING for a `BEGIN ATOMIC` body, so a manifest built on it
@@ -22,18 +32,34 @@
 --   DEFINER`, the `SET search_path`, and the body — so the checksum moves if any of
 --   them moves. ADR §3 condition 6 names this explicitly.
 --
--- REFRESHING THE MANIFEST — the one maintenance task this file has
---   `pg_get_functiondef` output is a product of the server's deparser, so a MAJOR
---   PostgreSQL upgrade can change the text without anybody changing the function.
---   Both this cluster and production run PostgreSQL 16. When a function body changes
---   in a reviewed file (or on a major upgrade), recompute and paste:
+-- REFRESHING THE MANIFESTS — the one maintenance task this file has
+--   `pg_get_functiondef` and `pg_get_triggerdef` are both deparser output, so a MAJOR
+--   PostgreSQL upgrade can change the text without anybody changing the object. Both
+--   this cluster and production run PostgreSQL 16; across the 16.14 production server
+--   and the 16.15 one these values were taken on, all sixteen checksums below are
+--   byte-identical (measured on two containers, 2026-10-19).
+--
+--   When a body or a trigger changes in a reviewed file (or on a major upgrade),
+--   recompute and paste. Functions (both manifests):
 --     SELECT p.proname, md5(pg_get_functiondef(p.oid))
 --       FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
 --      WHERE n.nspname = 'public'
---        AND p.proname IN ('crm_retention_purge_job_queue_actions',
---                          'crm_retention_redact_action_reason');
---   A mismatch is the check doing its job: it means the deployed body is not the
---   reviewed one. Refresh the manifest in the SAME PR that changes the body.
+--        AND (p.proname LIKE 'job_queue%' OR p.proname LIKE 'crm_retention%')
+--      ORDER BY 1;
+--   Triggers (column 6 of `expected_triggers`):
+--     SELECT c.relname, t.tgname, t.tgenabled, t.tgtype, p.proname,
+--            md5(pg_get_triggerdef(t.oid))
+--       FROM pg_trigger t
+--       JOIN pg_class c ON c.oid = t.tgrelid
+--       JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = 'public'
+--       JOIN pg_proc p ON p.oid = t.tgfoid
+--      WHERE NOT t.tgisinternal
+--        AND c.relname IN ('job_queue_actions', 'job_queue_generation_entries',
+--                          'job_queue_generations')
+--      ORDER BY 1, 2;
+--   A mismatch is the check doing its job: it means the deployed object is not the
+--   reviewed one. Refresh the manifest in the SAME PR that changes the object — and
+--   never to make a red deploy go green.
 -- =============================================================================
 
 DO $check$
@@ -392,7 +418,9 @@ BEGIN
   END IF;
 
   RAISE NOTICE
-    'r5 Task 1.3b catalog check OK: % triggers ENABLE ALWAYS, % guard bodies pinned, % R-B functions pinned',
+    'r5 Task 1.3b catalog check OK: % triggers pinned by definition (timing/events, function, '
+    'no WHEN, full triggerdef md5) with no undeclared trigger on the guarded tables, '
+    '% guard bodies pinned, % R-B functions pinned',
     array_length(expected_triggers, 1),
     array_length(expected_trigger_functions, 1),
     array_length(expected_functions, 1);

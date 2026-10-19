@@ -360,11 +360,25 @@ export const collectorColumns: Record<string, readonly string[]> = {}
  *   - the catalog check's part 9 scopes what it reads to class B tables, so a declaration
  *     for a class A table would read as "declared trigger is missing" and fail the deploy
  *     while the database was in fact correct (measured on PostgreSQL 16.15, 2026-10-19).
- * Those five are pinned instead by `2026-10-18_job_queue_append_only_check.sql`, which
- * runs on every deploy beside this check and asserts all seven triggers by name, table and
- * `tgenabled`, plus the md5 of every trigger function's definition. So the guarantee is
- * not weaker there — it is stronger — but it lives in 1.3b's own check, and this map
- * covers exactly what part 9 is about: the class B log whose UPDATE/DELETE is revoked.
+ * Those five are pinned instead by `2026-10-18_job_queue_append_only_check.sql`, which runs
+ * on every deploy beside this check. What that file asserts, per trigger, is: name, table,
+ * `tgenabled`, the `tgtype` timing/event/row-vs-statement bitmask, the function the trigger
+ * actually executes (`tgfoid`), the absence of a `WHEN` clause, the argument count, and the
+ * md5 of the whole `pg_get_triggerdef` — plus that NO undeclared trigger exists on any of
+ * the three tables, and the md5 of every trigger function's definition. Part 9 here asserts
+ * name, `tgenabled` and the absence of undeclared triggers, on `job_queue_actions` only. So
+ * 1.3b's check is a strict superset of part 9 on the table they share, and the guarantee on
+ * the other two tables is stronger there than part 9 could give.
+ *
+ * THAT COMPARISON WAS FALSE WHEN FIRST WRITTEN, AND IS WHY THE LIST ABOVE IS SPELT OUT.
+ * Until fix round 1 of PR #1026, 1.3b's check read only name and `tgenabled` — exactly what
+ * part 9 reads — so "stronger" was wrong, and the sentence was load-bearing for accepting
+ * this map's two-of-seven coverage. Five rewrites that keep a trigger's name and its
+ * `ENABLE ALWAYS` state passed that check green (narrowed events, BEFORE flipped to AFTER,
+ * row turned into statement, `WHEN (false)`, the function repointed at a no-op), and two of
+ * them let `crm_retention_owner` delete a `job_queue_actions` row seconds old. The columns
+ * named above are what closed that, each one replayed against the tampering it catches.
+ * If this comparison is edited again, re-read both files rather than either comment.
  */
 export const appendOnlyTriggers: Record<string, readonly { name: string; enabled: 'A' }[]> = {
   job_queue_actions: [
