@@ -38,11 +38,13 @@ import {
   CLASS_PRIVILEGES,
   PRIVILEGE_CLASSES,
   MANUAL_DDL_RELATIONS,
+  RETENTION_OWNER_CLASSES,
   RETENTION_OWNER_TABLE_PRIVILEGES,
   VIEW_CLASS,
   appendOnlyTriggers,
   collectorColumns,
   relationClass,
+  retentionOwnerPrivilegesFor,
   type PrivilegeClass,
 } from './privilege-classes'
 
@@ -237,10 +239,27 @@ describe('privilege-class manifest', () => {
     expect(CLASS_PRIVILEGES.D.collector).toEqual([])
   })
 
-  it('gives the retention owner no table privileges before Task 1.3b grants them', () => {
-    // Empty by policy, not by accident: DELETE on an append-only log belongs to the R-B
-    // functions, and arrives with them.
-    expect(RETENTION_OWNER_TABLE_PRIVILEGES).toEqual([])
+  it('gives the retention owner exactly the two privileges its purge measurably needs', () => {
+    // The inverted GAP PIN: this asserted `[]` until Task 1.3b, whose purge function was
+    // then measured to need both of these and nothing else (the manifest comment records
+    // the four runs). INSERT and UPDATE are the two that must stay OUT — INSERT because
+    // the function never inserts, UPDATE because the redaction function needs it only at
+    // COLUMN level, which part 3 of the check forbids outright.
+    expect(RETENTION_OWNER_TABLE_PRIVILEGES).toEqual(['SELECT', 'DELETE'])
+  })
+
+  it('confines the retention owner to class B, never to a class holding ordinary tables', () => {
+    // The scoping is what keeps `SELECT, DELETE` off `users`, `transactions` and the six
+    // audit logs. Asserted as a property rather than as the literal ['B'], so that adding
+    // a class here is only possible if every relation in it is an append-only log.
+    for (const cls of RETENTION_OWNER_CLASSES) {
+      expect({ cls, app: CLASS_PRIVILEGES[cls].app }).toEqual({ cls, app: ['SELECT', 'INSERT'] })
+    }
+    // And off every other class entirely.
+    for (const cls of Object.keys(CLASS_PRIVILEGES) as PrivilegeClass[]) {
+      if (RETENTION_OWNER_CLASSES.includes(cls)) continue
+      expect({ cls, granted: retentionOwnerPrivilegesFor(cls) }).toEqual({ cls, granted: [] })
+    }
   })
 
   it('never grants TRUNCATE, REFERENCES or TRIGGER to either application role', () => {

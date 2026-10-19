@@ -343,42 +343,121 @@ export const collectorColumns: Record<string, readonly string[]> = {}
  * The append-only triggers each class B table must carry, with the `pg_trigger.tgenabled`
  * state the catalog check requires (`A` = `ENABLE ALWAYS`).
  *
- * `job_queue_actions` declares an EMPTY set on purpose: the triggers are Task 1.3b, and
- * the check asserts the database matches this declaration EXACTLY. So today it pins the
- * gap — a trigger appearing without a reviewed declaration fails the check — and 1.3b
- * flips it by adding the two trigger names here in the same PR as the DDL. This is the
- * "GAP PIN" device of PR #1017, moved into the mechanism that will carry the guarantee.
+ * Filled by Task 1.3b, which is where the gap this used to pin was closed: the two names
+ * below are the triggers `drizzle/manual/2026-10-18_job_queue_append_only_triggers.sql`
+ * installs on `job_queue_actions`, read off that DDL rather than from memory —
+ * `BEFORE UPDATE OR DELETE ... FOR EACH ROW` and `BEFORE TRUNCATE ... FOR EACH STATEMENT`,
+ * both followed by `ALTER TABLE ... ENABLE ALWAYS TRIGGER`, hence `enabled: 'A'`.
+ *
+ * WHY ONLY `job_queue_actions`, WHEN 1.3b CREATES SEVEN TRIGGERS ON THREE TABLES
+ * -----------------------------------------------------------------------------
+ * The same DDL also guards `job_queue_generation_entries` (3 triggers) and
+ * `job_queue_generations` (2), and neither table is class B — the API legitimately updates
+ * and deletes both, so their triggers are shape guards rather than the second lock on a
+ * revoked privilege. They are deliberately NOT declared here, for two reasons that agree:
+ *   - `privilege-classes.spec.ts` asserts every key of this map is a class B relation, so
+ *     a key for a class A table is a unit-test failure, not an option; and
+ *   - the catalog check's part 9 scopes what it reads to class B tables, so a declaration
+ *     for a class A table would read as "declared trigger is missing" and fail the deploy
+ *     while the database was in fact correct (measured on PostgreSQL 16.15, 2026-10-19).
+ * Those five are pinned instead by `2026-10-18_job_queue_append_only_check.sql`, which
+ * runs on every deploy beside this check and asserts all seven triggers by name, table and
+ * `tgenabled`, plus the md5 of every trigger function's definition. So the guarantee is
+ * not weaker there — it is stronger — but it lives in 1.3b's own check, and this map
+ * covers exactly what part 9 is about: the class B log whose UPDATE/DELETE is revoked.
  */
 export const appendOnlyTriggers: Record<string, readonly { name: string; enabled: 'A' }[]> = {
-  job_queue_actions: [],
+  job_queue_actions: [
+    { name: 'trg_job_queue_actions_append_only', enabled: 'A' },
+    { name: 'trg_job_queue_actions_no_truncate', enabled: 'A' },
+  ],
 }
 
 /**
- * Table privileges `crm_retention_owner` holds, on every relation, in every class.
+ * Table privileges `crm_retention_owner` holds — on the classes named by
+ * `RETENTION_OWNER_CLASSES` below, and on no other relation.
  *
- * EMPTY, and that is the whole of its current policy: the role exists so the R-B functions
- * of ADR §3 have an owner, and the grants those functions need arrive WITH them in Task
- * 1.3b — `SELECT, DELETE` and column-level `UPDATE (reason, actor_id, subject_user_id)` on
- * `job_queue_actions`, plus `SELECT` on the retention-policy table. Granting them now would
- * put `DELETE` on an append-only log against a role nothing uses yet.
+ * `SELECT, DELETE`, and both are LOAD-BEARING FOR THE PURGE, measured rather than reasoned
+ * (PostgreSQL 16.15, scratch database, 2026-10-19). The function is `SECURITY DEFINER`, so
+ * the privileges checked inside it are this role's:
+ *   - granted neither          -> `42501 permission denied for table job_queue_actions`
+ *   - `DELETE` alone           -> `42501` — the `WHERE created_at <= …` reads a column
+ *   - `SELECT` alone           -> `42501`
+ *   - `SELECT, DELETE`         -> returns the purged count
+ * `INSERT` is NOT here: the function never inserts. The integration suite of 1.3b grants
+ * itself `INSERT` as well, because it drives the trigger's admitted shapes directly with
+ * `SET ROLE` — a test's need, not the purge path's, and it stays in the test.
  *
- * It is a declared constant rather than an inline `[]` in the generator so that the value
- * is a reviewable policy decision and the emission path for a non-empty retention owner is
- * testable before 1.3b needs it.
+ * WHY `crm_retention_redact_action_reason` GETS NOTHING, THOUGH IT IS THE OTHER R-B FUNCTION
+ * ------------------------------------------------------------------------------------------
+ * It needs `SELECT` plus `UPDATE (reason)` — column-level — and this model forbids exactly
+ * that: the check's part 3 reports ANY column privilege other than `SELECT`, for any of the
+ * three roles, as "only SELECT is ever granted at column level". The two ways out are both
+ * worse than waiting:
+ *   - table-level `UPDATE` on an append-only audit log is strictly more than the function
+ *     needs — it would let the role rewrite any column, and while the trigger constrains
+ *     the SHAPE of an admitted update, the grant would not; a privilege nothing can justify
+ *     by a failing run does not belong in a least-privilege manifest;
+ *   - relaxing part 3's column policy is a change to a stated security invariant, and it
+ *     cannot be justified by a function that nothing calls.
+ * Nothing calls either function today (checked 2026-10-19: the only references in
+ * `apps/api` are the two DDL files and 1.3b's integration spec), so the redaction grant
+ * arrives with the caller that needs it — the same way classes C and D wait for the
+ * collector. Until then the function exists, is owned, and is pinned by both checks; its
+ * first real invocation fails closed with `42501` rather than silently redacting.
  */
-export const RETENTION_OWNER_TABLE_PRIVILEGES: readonly TablePrivilege[] = []
+export const RETENTION_OWNER_TABLE_PRIVILEGES: readonly TablePrivilege[] = ['SELECT', 'DELETE']
+
+/**
+ * The classes on which `crm_retention_owner` holds `RETENTION_OWNER_TABLE_PRIVILEGES`.
+ *
+ * This scoping is the one shape change Task 1.3b had to make, and it is not cosmetic. The
+ * constant above used to be read by the generator for EVERY class, which is harmless while
+ * it is empty and wrong the moment it is not: `SELECT, DELETE` "on every relation in every
+ * class" is `DELETE` on `users`, on `transactions` and on all six audit logs, granted to a
+ * role whose two functions touch exactly one table. The privileges are a property of the
+ * relations the R-B path reaches, so they are declared against a class — which is how the
+ * other two roles have always been declared (`CLASS_PRIVILEGES`).
+ *
+ * Class B is `job_queue_actions`, the append-only log the purge prunes. A table added to
+ * class B later would inherit this grant, which is correct in intent (class B means "an
+ * append-only log under the R-B retention path") but is a real consequence: adding to
+ * class B means deciding that the retention owner may prune it too.
+ */
+export const RETENTION_OWNER_CLASSES: readonly PrivilegeClass[] = ['B']
+
+/**
+ * The retention owner's table privileges on one class — `[]` off its classes.
+ *
+ * The generator asks per `(role, class)`, so this is the retention owner's answer to the
+ * same question `privilegesFor(cls, role)` answers for the app and the collector.
+ */
+export function retentionOwnerPrivilegesFor(cls: PrivilegeClass): readonly TablePrivilege[] {
+  return RETENTION_OWNER_CLASSES.includes(cls) ? RETENTION_OWNER_TABLE_PRIVILEGES : []
+}
 
 /**
  * The functions `crm_retention_owner` is allowed to own — the two `SECURITY DEFINER`
  * functions of ADR §3 option R-B, added by Task 1.3b together with the trigger that keys
  * its exception on them.
  *
- * Empty today, and the catalog check asserts the role owns NOTHING beyond this list. So a
- * definer function appearing in the database without a reviewed declaration fails the
- * deploy — which is the only mechanical protection there is against the one object class
- * the ADR calls "a hole through every boundary here".
+ * The catalog check asserts the role owns NOTHING beyond this list, and that each name
+ * here IS owned by it. So a definer function appearing in the database without a reviewed
+ * declaration fails the deploy — which is the only mechanical protection there is against
+ * the one object class the ADR calls "a hole through every boundary here".
+ *
+ * These two names are the `ALTER FUNCTION ... OWNER TO crm_retention_owner` targets of
+ * `drizzle/manual/2026-10-18_job_queue_append_only_triggers.sql`, and nothing else in that
+ * file changes a function's owner (the seven trigger functions stay with whoever applied
+ * the DDL — the migration role — which is why they are absent here). Names only, without
+ * arguments, because part 7 joins on `pg_proc.proname`: an overload added under either
+ * name would therefore pass part 7 and be caught instead by 1.3b's own check, which pins
+ * `pg_get_function_identity_arguments` alongside the body's md5.
  */
-export const retentionOwnerFunctions: readonly string[] = []
+export const retentionOwnerFunctions: readonly string[] = [
+  'crm_retention_purge_job_queue_actions',
+  'crm_retention_redact_action_reason',
+]
 
 /** The class of a relation, or `undefined` if nobody classified it. */
 export function relationClass(relation: string): PrivilegeClass | undefined {

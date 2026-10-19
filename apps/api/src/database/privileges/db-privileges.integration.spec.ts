@@ -51,7 +51,7 @@ import {
   ROLES_FILE,
   collectorSequenceGrantSql,
 } from './generate-privilege-sql'
-import { ROLES } from './privilege-classes'
+import { ROLES, retentionOwnerFunctions } from './privilege-classes'
 import { scramSha256Verifier } from './scram'
 import {
   cleanupThenRestore,
@@ -61,6 +61,12 @@ import {
 
 const MANUAL_DIR = join(__dirname, '..', '..', '..', 'drizzle', 'manual')
 const readSql = (file: string): string => readFileSync(join(MANUAL_DIR, file), 'utf8')
+
+/**
+ * Task 1.3b's triggers and R-B functions. Not a generated file and so not a constant of
+ * `generate-privilege-sql.ts`, but a precondition of the generated CHECK — see `beforeAll`.
+ */
+const TRIGGERS_FILE = '2026-10-18_job_queue_append_only_triggers.sql'
 
 /** Generated per run: the password only ever exists inside this process. */
 const APP_PASSWORD = `probe${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`
@@ -227,6 +233,15 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
       ROLES_FILE,
       `-c crm_roles.app_verifier=${appVerifier} -c crm_roles.collector_verifier=${collectorVerifier}`,
     )
+    // Task 1.3b's DDL, applied here for the same reason the roles and grants files are:
+    // the committed check this suite runs now ASSERTS 1.3b's objects — the two triggers of
+    // `appendOnlyTriggers` (part 9) and the two definer functions of
+    // `retentionOwnerFunctions`, which part 7 requires `crm_retention_owner` to own. On a
+    // database where this file never ran, the check fails with "declared function … is not
+    // owned by crm_retention_owner" and the failure is the suite's own missing
+    // precondition, not drift. The deploy applies it between the roles and the grants, and
+    // so does this; it is idempotent, so a sibling spec applying it too is harmless.
+    await applyFile(TRIGGERS_FILE)
     await applyFile(GRANTS_FILE)
 
     app = new Pool({ connectionString: urlFor(ROLES.app, APP_PASSWORD), max: 2 })
@@ -683,14 +698,31 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
       expect(rows).toHaveLength(3)
     })
 
-    it('owns nothing', async () => {
+    it('owns no relation and no schema', async () => {
+      // Ownership is the privilege that undoes every revoke: an owner can re-grant, ALTER
+      // and DISABLE TRIGGER. None of the three may own a relation or a schema — not even
+      // the retention owner, whose two functions are the single, declared exception below.
       const { rows } = await migration.query(
-        `SELECT relname FROM pg_class WHERE relowner::regrole::text = ANY($1)
-         UNION ALL SELECT proname FROM pg_proc WHERE proowner::regrole::text = ANY($1)
+        `SELECT relname AS name FROM pg_class WHERE relowner::regrole::text = ANY($1)
          UNION ALL SELECT nspname FROM pg_namespace WHERE nspowner::regrole::text = ANY($1)`,
         [[ROLES.app, ROLES.collector, ROLES.retentionOwner]],
       )
       expect(rows).toEqual([])
+    })
+
+    it('owns exactly the functions the manifest declares, and only the retention owner owns any', async () => {
+      // The inverted GAP PIN: this asserted "owns nothing" until Task 1.3b gave
+      // `crm_retention_owner` the two R-B definer functions of ADR §3. The assertion is
+      // now the manifest's own list, so a definer function appearing under either
+      // application role — or under this one without being declared — fails here as well
+      // as in part 7 of the committed check.
+      const { rows } = await migration.query(
+        `SELECT proname, proowner::regrole::text AS owner FROM pg_proc
+          WHERE proowner::regrole::text = ANY($1) ORDER BY proname`,
+        [[ROLES.app, ROLES.collector, ROLES.retentionOwner]],
+      )
+      expect(rows.map((r) => r['proname'])).toEqual([...retentionOwnerFunctions].sort())
+      expect([...new Set(rows.map((r) => r['owner']))]).toEqual([ROLES.retentionOwner])
     })
   })
 
