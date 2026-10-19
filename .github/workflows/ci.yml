@@ -362,6 +362,20 @@ jobs:
         if: steps.scope.outputs.code == 'true'
         run: python3 scripts/devops/check-ssh-action-capture-stdout-version.py
 
+      # Incident guard (task-infra-deploy-arglist-too-long, 2026-10-19): deploy.yml's
+      # main SSH step grew, one honest DDL apply block at a time, past Linux
+      # MAX_ARG_STRLEN (131072 bytes) — appleboy/ssh-action passes `script:` as the
+      # single env string INPUT_SCRIPT, so execve stopped being able to spawn bash at
+      # all and the deploy of b2054f8a1 died with "Argument list too long" before the
+      # step started. Nothing had warned: every guard green, prettier clean, YAML
+      # valid, and `main` undeployable for every commit until the step was moved to
+      # `script_path:` + scripts/devops/deploy-stack-on-vps.sh. This check is the
+      # warning that did not exist — it refuses well below the OS limit so the next
+      # few hundred bytes are caught here instead of by a dead deploy pipeline.
+      - name: ssh-action inline script size guard
+        if: steps.scope.outputs.code == 'true'
+        run: python3 scripts/devops/check-ssh-action-script-size.py
+
       # Guard tests (run-guard-tests.sh) moved to the parallel `guard_tests` job
       # and the ci-failed labelling moved to the `quality` aggregator below
       # (audit #5/#6, 2026-10): this job is now only the "core" leg.
