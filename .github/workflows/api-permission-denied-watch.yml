@@ -31,6 +31,12 @@ name: API Permission Denied Watch
 # the deploy's existing VPS_* secrets, its stdout piped straight into the checker
 # (scripts/devops/scan-api-permission-denied.sh). Nothing on the VPS is changed and no
 # credential is created. Why not appleboy/ssh-action: see that script's header.
+# Client-written log lines (Fastify logs the request URL and Host) are removed on the VPS
+# before matching, and that filter FAILS CLOSED: the level is read from the text, a record
+# split by Docker's 16 KB chunking is re-parsed after stripping the inline stamps, one that
+# still cannot be read is dropped and counted (LOGSCAN_UNPARSED, shown in the summary), and a
+# canary proves the filter really ran. The pattern is a published interface read by the API
+# side: see the comment above --print-pattern in check-api-permission-denied.sh.
 # Logic, exit codes and the output hygiene (this repo and its Actions logs are PUBLIC,
 # so no raw log line is ever printed): scripts/devops/check-api-permission-denied.sh
 # (tested: scripts/devops/tests/test-check-api-permission-denied.sh).
