@@ -271,6 +271,22 @@ elif db != "":
 # that question first, and measures the answer (PQconnectStart + PQdb against an
 # unreachable port - no server, no credential) rather than reading documentation.
 #
+# THAT AXIS IS NOW CLOSED, MEASURED: a differential fuzz of about 1.86M URLs (security
+# review of this PR) found zero URLs this hook allows that libpq resolves to the live
+# database. THE OPEN AXIS IS THE OTHER ONE, and it needs its own question every time:
+# "what can change the value between the text this hook reads and the process that
+# parses it?" Two answers so far, both refused rather than modelled:
+#   * the SHELL - a "$" or a backtick in DATABASE_URL (`export U="h/crm_db?"` then
+#     `DATABASE_URL=postgres://$U/qa` is `postgres://h/crm_db?/qa`, which the API
+#     Pool resolves to crm_db), and any assignment of the pinned names that is not a
+#     LEADING word of the launch (a look-alike argument after the launcher pins
+#     nothing - that decoy switched the whole rule off once);
+#   * `env` - `env -i`, `-u`, `--unset`, `-S` rewrite the environment after the pin
+#     was read (`env -u PGDATABASE` undoes it, and PGUSER=crm_db then wins).
+# A check added to this hook needs a decoy case in its test group (an argument that
+# merely looks like the thing being checked): without one, reverting the check turns
+# nothing red and the revert count measures the tests, not the rule.
+#
 # Door 3 of 3 (path, query string, environment). A URL that names a database wins
 # over PGDATABASE (measured, libpq and node-pg), so the environment decides only
 # when DATABASE_URL is the explicit empty string. THEN the rule is strict:
