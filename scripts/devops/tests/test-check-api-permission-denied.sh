@@ -521,8 +521,8 @@ assert_red "CONTRACT: the diagnostic fragment (db_sqlstate=42501, no message tex
   --contains "1 contract line(s) and 0 other" -- pipeline contract_diag_quiet
 assert_green "CONTRACT: the diagnostic fragment ALONE is not matched (the contract is the chokepoint line; decided with #1042's author)" \
   --contains "OK: read" --not-contains "HIT" -- pipeline diag_alone
-assert_red "CONTRACT: the deploy gate fails on the contract line too" \
-  --contains "appeared 1 time(s)" --not-contains "DEPLOY-CONTINUED" -- deploy_step contract
+assert_green "CONTRACT: in the deploy the contract line is REPORTED (warning, counted once) and NOT gating: the deploy continues" \
+  --contains "::warning::[DatabasePrivilege] db_privilege_denied" --contains "appeared 1 time(s)" --contains "NOT gating" --contains "DEPLOY-CONTINUED" -- deploy_step contract
 assert_red "PIPELINE: upper-case message is matched and its object extracted" \
   --contains "object=table:vacancy_applications" -- pipeline upper
 assert_red "PIPELINE: must-be-owner (42501 without the phrase) fires" \
@@ -601,8 +601,8 @@ assert_green "SR-H-5/SR-H-10 DEPLOY: a genuine error in a real level-50 record i
   --contains "1 other api log line(s)" --contains "NOT gating" --contains "DEPLOY-CONTINUED" -- deploy_step realfastify_boom
 assert_green "SR-H-5/SR-H-10 DEPLOY: forgeries plus one text hit are reported with a count of exactly 1 and do not gate" \
   --contains "1 other api log line(s)" --contains "DEPLOY-CONTINUED" -- deploy_step realfastify_flood
-assert_red "SR-H-5 DEPLOY: forgeries plus one CONTRACT line fail it with a count of exactly 1" \
-  --contains "appeared 1 time(s)" --not-contains "DEPLOY-CONTINUED" -- deploy_step realfastify_flood_contract
+assert_green "SR-H-5 DEPLOY: forgeries plus one CONTRACT line are reported with a count of exactly 1 and do not gate" \
+  --contains "appeared 1 time(s)" --contains "NOT gating" --contains "DEPLOY-CONTINUED" -- deploy_step realfastify_flood_contract
 
 # The filter fails CLOSED: no python means "could not look", never "found nothing".
 assert_red "SR-H-5 WATCH: a failing python filter is BLIND, not clean" --contains "req_filter" -- \
@@ -779,8 +779,8 @@ assert_green "SR-M-11 DEPLOY (bigdigits-closed): ...nor the deploy block" --cont
 assert_red "SR-M-11 WATCH: a genuine contract hit next to both hostile lines is still FOUND (a stranger cannot blind the scan)" \
   --contains "1 contract line(s) and 0 other" --contains "src=contract" -- with_file "$WS/hostile-plus-hit.log" pipeline file
 assert_exit_code "SR-M-11 WATCH: ...exit 1, not 2" 1 with_file "$WS/hostile-plus-hit.log" pipeline file
-assert_red "SR-M-11 DEPLOY: ...and the deploy gate still fails on it" \
-  --contains "appeared 1 time(s)" -- with_file "$WS/hostile-plus-hit.log" deploy_step file
+assert_green "SR-M-11 DEPLOY: ...and the genuine contract line next to the hostile lines is still REPORTED (count 1), not gating" \
+  --contains "appeared 1 time(s)" --contains "NOT gating" --contains "DEPLOY-CONTINUED" -- with_file "$WS/hostile-plus-hit.log" deploy_step file
 
 # ═══ SR-M-9: the contract token under another logger context is not the contract ═════════
 assert_green "SR-M-9 WATCH: db_privilege_denied under a handler context is NOT a hit" \
@@ -809,8 +809,12 @@ assert_green "SR-H-5 no drift: the request-log filter in the remote script == th
 
 assert_green "DEPLOY: a text-only 42501 (permission denied) is REPORTED but cannot stop the release" \
   --contains "1 other api log line(s)" --contains "NOT gating" --contains "DEPLOY-CONTINUED" --not-contains "VacanciesRetentionCronService" -- deploy_step hit
-assert_red "DEPLOY: the contract line DOES fail the deploy and never reaches the next step" \
-  --contains "appeared 1 time(s)" --not-contains "DEPLOY-CONTINUED" -- deploy_step contract
+assert_green "DEPLOY: report-only means report-only: the contract line is reported and the deploy reaches the next step" \
+  --contains "appeared 1 time(s)" --contains "report-only and never fails the deploy" --contains "DEPLOY-CONTINUED" -- deploy_step contract
+# What STAYS fatal in the deploy is our own tooling failing to LOOK (nothing a request can cause).
+assert_red "DEPLOY: ...but an unreadable log still fails it (could not look is not nothing there)" \
+  --contains "could not read" --not-contains "DEPLOY-CONTINUED" -- deploy_step fail
+assert_exit_code "DEPLOY: ...and a deploy block that scans a contract hit exits 0 (a forged contract cannot stop a release)" 0 deploy_step contract
 assert_green "DEPLOY: a hostile text line (PII, SQL, injection) is reported by count only: no raw text reaches the log, and it cannot gate" \
   --contains "1 other api log line(s)" --not-contains "jane.doe" --not-contains "INJECTED" --not-contains "DELETE FROM" --contains "DEPLOY-CONTINUED" -- deploy_step hostile
 assert_green "DEPLOY: clean logs let the deploy continue" \

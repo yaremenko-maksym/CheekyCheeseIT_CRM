@@ -41,8 +41,8 @@ Measure 2 of the least-privilege ADR (`docs/architecture/2026-10-17-db-least-pri
 - **Client-influenced logs:** Fastify's request logger writes `req.url` (query string included),
   `hostname` (from the Host header) and the requested path of a 404 into pino JSON records. Those
   records are dropped (below level 50) or stripped of `req`/`res`/`reqId` (level 50 and above)
-  before matching, on the VPS and in the deploy scan, so an anonymous request cannot forge a hit or
-  fail the deploy gate. How the filter fails matters more than how it works:
+  before matching, on the VPS and in the deploy scan, so an anonymous request cannot forge a hit
+  through a pino record. How the filter fails matters more than how it works:
   - The level is read **from the text** (`{"level":NN`), never from a successful parse. Docker's
     json-file driver splits any line over 16384 bytes and `--timestamps` stamps **each chunk inline**,
     so a long record arrives with a second timestamp inside it; where the stamp lands decides whether
@@ -76,9 +76,14 @@ Measure 2 of the least-privilege ADR (`docs/architecture/2026-10-17-db-least-pri
 
 ## What the gate can and cannot trust
 
-- **Only the contract line can fail a deploy.** The unanchored text patterns (`permission denied`,
-  `must be owner|superuser`) are reported as a warning ("N other lines ... NOT gating") and can
-  never stop a release. They are forgeable by an anonymous request.
+- **Nothing in the deploy scan can fail a deploy any more: it is report-only.** Both the contract
+  line and the unanchored text patterns (`permission denied`, `must be owner|superuser`) are
+  counted and printed as warnings ("... NOT gating"). A gate a stranger can trip is worse than no
+  gate: it blocks releases on demand and teaches people to disable it. The owner is still reached
+  by the standing watch. What stays fatal is our own tooling failing to **look** (an unreadable
+  log, no `python3`, a filter that fails its canary): no request can cause those, and "could not
+  look" must not read as "nothing there". **Gating returns when the signal moves to a channel a
+  request cannot write** (the journal, below).
 - **Why:** Nest's text log lines are not filtered, and they carry decoded request data. Measured on
   a real stack (Nest 11, Fastify 5, drizzle-orm 0.45.2, node-postgres, Postgres 16): a public route
   whose slug reaches a query makes Drizzle put `params:` into its error message, Nest logs that
@@ -87,13 +92,38 @@ Measure 2 of the least-privilege ADR (`docs/architecture/2026-10-17-db-least-pri
 - **The contract is NOT forgery-proof either.** Anchoring it on `[DatabasePrivilege]` was meant to
   need a newline plus a bracketed context, but the anchor needs only a space and a bracket, and
   `%20` and `%5B` supply both once decoded into a message. A stranger can also choose the table
-  name from the public list, so the forged row looks genuine. Until the trusted part of that line is
-  unforgeable by construction, the deploy gate can still be failed by a stranger through the
-  contract, and the standing watch can be turned red by one. This is a known, open gap, not a
-  closed one; the decision on how to close it (a secret in the line, scrubbing request data out of
-  the API's text logs, or taking the signal out of the log stream) is recorded in the PR.
-- **Defence in depth that does not depend on that decision:** keeping request data out of Nest text
-  lines (Drizzle's `params:`) is data minimisation we owe anyway.
+  name from the public list, so the forged row looks genuine. So the standing watch can still be
+  turned red by a stranger (a false alarm, not a suppression), which is why the deploy scan no
+  longer gates on it. This is a known, open gap until the journal below exists.
+- **The decision (PR #1041 review): the journal is the channel; a secret in the log line is not.**
+  A nonce in the line would be a bearer secret in the one stream this repository publishes: the
+  deploy prints `docker compose logs --tail=50 api` into a **public** Actions log on a health-check
+  failure, GitHub masks only registered secrets, and one published line makes the scheme forgeable
+  by replay. A MAC bound to the emission time would survive that, but "unforgeable by
+  construction" beats "unforgeable by secret": a request cannot write files, there is nothing to
+  leak, rotate or mask, and the signal stops depending on log formatting (which cost four review
+  rounds and three HIGH findings). It also survives log rotation, which a grep never did.
+- **The journal, in one paragraph:** the API's privilege chokepoint (PR #1042), in addition to its
+  log line, appends one validated JSON record (`ts`, `table` restricted to `[A-Za-z0-9_$.]`, `ctx`
+  from a fixed set) to a size-capped file inside the container; a write failure never affects the
+  request. The scanner reads it with a fixed `docker compose exec -T api cat <journal path>`. Write
+  side and read side are designed **together**, in one task across #1042's chokepoint and these
+  scripts, not negotiated between two PRs. The deploy gate fails on the journal only once it exists.
+- **Two costs accepted with eyes open:**
+  1. **The journal is lost when the container is recreated** (a deploy). The deploy's own scan
+     reads the new container's journal after boot, so that window is covered; what happened in the
+     old container before a recreate is gone, exactly as its logs are today.
+  2. **The scanner key gains `exec` where it had only `logs`.** That is a real widening: `exec`
+     runs arbitrary commands in the production container.
+- **PRECONDITION of the journal, not a nice-to-have:** the dedicated scanner key (see "What remains
+  for the owner") must be installed with `restrict,command="..."` that **pins the exact `cat`
+  invocation** (one fixed `docker compose ... exec -T api cat <journal path>`, no arguments taken
+  from the client), and must **not** grant `exec` generally. The journal reader must not ship on
+  the shared deploy key. Until that key exists, the journal read-side stays unmerged.
+- **Not in this PR, and tracked separately:** scrubbing the query `params:` out of Nest's text log
+  lines. It closes the measured route, not the family (any path that interpolates request data into
+  a text line re-opens it), but it fixes a data-minimisation item already in the backlog, so it is
+  its own task.
 
 ## Honest state
 
@@ -101,7 +131,7 @@ Measure 2 of the least-privilege ADR (`docs/architecture/2026-10-17-db-least-pri
   A Drizzle error's message is `Failed query: ...`; `permission denied` and `42501` live on `.cause`.
   Until the chokepoint is deployed, a swallowed privilege error in a cron handler does not reach the
   log this watch reads, and the contract has no production line to match: **detection in place and
-  verified, coverage and paging pending**.
+  verified, coverage, paging and deploy gating pending**.
 - **Paging is a failed-run notification**, which goes to whoever last edited the cron line and is not
   verified to reach a phone. A real channel (an `ntfy.sh` topic secret) is approved and is a
   separate follow-up.
@@ -130,7 +160,9 @@ are production credentials or settings and therefore yours:
    so `api-permission-denied-remote.sh` would have to live on the VPS (installed by you) and the
    driver would stop piping it. The `docker` group is root-equivalent on that host, which is why the
    restriction must be on the key and not left to the script. Then replace the `VPS_SSH_KEY` the
-   workflow reads.
+   workflow reads. **This key is also the precondition for the journal** (see "What the gate can
+   and cannot trust"): reading the journal needs `exec`, so the forced command must pin the exact
+   `cat` invocation and the key must not be allowed `exec` in general.
 2. **A GitHub Environment** (for example `monitoring`) holding that key, with a deployment branch
    policy limited to `main`. Today the `production` environment has no secrets, reviewers or branch
    policy, and anyone with write access can run a branch version of a workflow with the repo
