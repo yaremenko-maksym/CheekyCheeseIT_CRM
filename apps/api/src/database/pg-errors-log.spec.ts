@@ -388,8 +388,9 @@ describe('safeErrorStack', () => {
 
   it('fails closed: a stack that does not start with its own `name: message` header yields just the name', () => {
     const err = drizzleError(DENIED, 'select 1 where a = $1', ['x\n    at LEAK (f:1:1)'])
-    err.stack =
-      'something else entirely\n    at LEAK (f:1:1)\n    at Handler.run (/x/handler.ts:1:1)'
+    // Longer than the header it should have had, so that code which fell through and sliced
+    // anyway would still find the frame lines below and keep them.
+    err.stack = `${'rewritten by something else '.repeat(8)}\n    at LEAK (f:1:1)\n    at Handler.run (/x/handler.ts:1:1)`
 
     expect(safeErrorStack(err)).toBe('DrizzleQueryError')
   })
