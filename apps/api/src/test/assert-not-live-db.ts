@@ -59,7 +59,10 @@ export function assertNotLiveDb(databaseUrl: string, label: string): void {
         `scratch database, e.g. ${ACCEPTED_SHAPE}`,
     )
   }
-  if (extractDbName(databaseUrl) === '') {
+  // Unknown, and refused: no name in the path, or a URL `pg` itself cannot parse (it throws a
+  // URIError / TypeError on e.g. a dangling `%` or an unclosed IPv6 bracket) — one that cannot
+  // connect either, but also one this guard could not have checked.
+  if (extractDbName(databaseUrl) === '' || !databaseNodePgResolves(databaseUrl)) {
     throw new Error(
       `[${label}] cannot determine the database name from DATABASE_URL — refusing to run. Put the ` +
         `database in the path of a URL with a host, e.g. ${ACCEPTED_SHAPE}`,

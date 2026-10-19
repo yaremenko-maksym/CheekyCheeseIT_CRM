@@ -61,6 +61,34 @@ describe('assertNotLiveDb', () => {
     expect(messageOf(url)).toBe(LIVE)
   })
 
+  it.each([
+    ['a socket URL with the live name in the path and no ?db=', 'socket:///crm_db'],
+    ['the same, encoded, with ?db= naming a scratch database', 'socket:///crm%5Fdb?db=crm_qa'],
+  ])('refuses %s — the path says live even where pg resolves something else', (_label, url) => {
+    // `pg` resolves the OS user for the first (it ignores the path of a socket URL) and `crm_qa` for
+    // the second. A person who put the live name in a URL's path meant it; the path signal is not
+    // redundant with `pg`'s (1,414 of 71,400 fuzzed shapes disagree this way), so it stays.
+    expect(messageOf(url)).toBe(LIVE)
+  })
+
+  it.each([
+    ['trailing space, encoded', 'socket:/var/run/postgresql?db=crm_db%20'],
+    ['leading space, encoded', 'socket:/var/run/postgresql?db=%20crm_db'],
+  ])('refuses ?db= with %s — the same trimming as the path check', (_label, url) => {
+    expect(messageOf(url)).toBe(LIVE)
+  })
+
+  it.each([
+    ['a dangling percent in the path', 'postgresql://u:p@localhost:5432/crm_db%'],
+    ['malformed percent-encoding', 'postgresql://u:p@localhost:5432/%E0%A4%A'],
+    ['an unclosed IPv6 bracket', 'postgresql://u:p@[::1/crm_qa'],
+    ['empty host and port', 'postgres://:@:/'],
+  ])('fails CLOSED when pg itself cannot parse the URL: %s', (_label, url) => {
+    // `new Client({ connectionString })` throws on each of these; a URL the consumer cannot read is
+    // one this guard cannot vouch for, so it is refused as unknown, not allowed by default.
+    expect(messageOf(url)).toBe(UNKNOWN)
+  })
+
   it('allows a socket URL whose ?db= is a scratch database', () => {
     expect(messageOf('socket:/var/run/postgresql?db=crm_qa')).toBeNull()
   })
