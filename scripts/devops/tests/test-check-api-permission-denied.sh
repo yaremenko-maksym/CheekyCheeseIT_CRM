@@ -410,6 +410,10 @@ case " $* " in
       hit)   printf "%s\n" \
                "2026-10-19T03:00:01.000000001Z [Nest] 18  - 10/19/2026, 3:00:01 AM     LOG [HealthController] ok" \
                "2026-10-19T03:00:02.123456789Z [Nest] 18  - 10/19/2026, 3:00:02 AM   ERROR [VacanciesRetentionCronService] retention failed error: permission denied for table vacancy_applications" ;;
+      # A log taken verbatim from a file (SR-H-7: records chunked by the Docker json-file driver).
+      file)    cat "$FAKE_LOG_FILE" ;;
+      # The contract TOKEN under a handler own context is not the contract (SR-M-9).
+      ctx_other) printf "%s\n" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [VacanciesRetentionCronService] db_privilege_denied sqlstate=42501 table=users ctx=pool" ;;
       # PR #1042: the contract line (one chokepoint) and the handler diagnostic fragment.
       contract)       printf "%s\n" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [DatabasePrivilege] db_privilege_denied sqlstate=42501 table=document_access_log ctx=pool" ;;
       contract_dash)  printf "%s\n" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [DatabasePrivilege] db_privilege_denied sqlstate=42501 table=- ctx=client" ;;
@@ -539,6 +543,10 @@ assert_exit_code "AC7: the hostile line exits 1 (a page), not 0" 1 pipeline evil
 # python3 stand-in: runs the real one, or fails on demand (the filter must fail CLOSED).
 guard_test_shim "$WS" python3 '#!/usr/bin/env bash
 [ "${FAKE_PYTHON_FAIL:-}" = 1 ] && exit 1
+# A broken shim or version-manager wrapper that reads stdin and exits 0 with NO output, or
+# one that just copies its input: neither is the filter, and neither may read as "clean".
+[ "${FAKE_PYTHON_EMPTY:-}" = 1 ] && { cat >/dev/null; exit 0; }
+[ "${FAKE_PYTHON_CAT:-}" = 1 ] && { cat; exit 0; }
 real="$(PATH=/usr/bin:/usr/local/bin:/opt/homebrew/bin:/bin command -v python3)"
 exec "$real" "$@"'
 

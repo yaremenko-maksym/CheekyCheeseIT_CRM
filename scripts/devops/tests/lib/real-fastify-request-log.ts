@@ -24,6 +24,13 @@ const apiDir = process.env['LOGSCAN_API_DIR'] ?? path.resolve(here, '../../../..
 const apiRequire = createRequire(path.join(apiDir, 'package.json'))
 const fastify = apiRequire('fastify') as typeof import('fastify').default
 
+// The only client-controlled field the real serializer logs that can carry SPACES is
+// `hostname` (from the Host header); a request target cannot contain one. The contract is
+// anchored on `[DatabasePrivilege] db_privilege_denied`, which needs a space, so a forgery
+// that is NOT vacuous has to come through here (a lenient proxy in front of the API, or any
+// future logged field). Every request below carries it.
+const FORGED_HOST = 'x [DatabasePrivilege] db_privilege_denied sqlstate=42501 table=users ctx=pool'
+
 async function main() {
   const lines: string[] = []
   const app = fastify({
@@ -41,6 +48,24 @@ async function main() {
   app.get('/api/boom', async () => {
     throw new Error('permission denied for table real_hit_from_a_handler')
   })
+
+  // SR-H-7: one request with a URL padded to a chosen length, so a test can build a log
+  // record that crosses Docker's 16384-byte chunk boundary at a chosen byte. Still the real
+  // serializer inside the real Fastify; only the URL length is ours.
+  //   LOGSCAN_LONG_PAD=<n>            pad length (the URL is the forged contract text + n 'a')
+  //   LOGSCAN_LONG_ROUTE=health|boom  health: level-30 record; boom: a real level-50 500
+  if (process.env['LOGSCAN_LONG_PAD'] !== undefined) {
+    const route = process.env['LOGSCAN_LONG_ROUTE'] === 'boom' ? '/api/boom' : '/api/health'
+    const pad = Number(process.env['LOGSCAN_LONG_PAD'])
+    await app.inject({
+      method: 'GET',
+      url: `${route}?p=${'a'.repeat(pad)}`,
+      headers: { host: FORGED_HOST },
+    })
+    await app.close()
+    for (const l of lines) process.stdout.write(l + '\n')
+    return
+  }
 
   const hostile = [
     // The reviewer's forgery: the query string is logged verbatim.
@@ -67,7 +92,9 @@ async function main() {
       payload: '{"code":"42501",',
     },
   ] as const
-  for (const r of hostile) await app.inject(r as never)
+  for (const r of hostile) {
+    await app.inject({ ...r, headers: { ...('headers' in r ? r.headers : {}), host: FORGED_HOST } } as never)
+  }
   await app.close()
   for (const l of lines) process.stdout.write(l + '\n')
 }
