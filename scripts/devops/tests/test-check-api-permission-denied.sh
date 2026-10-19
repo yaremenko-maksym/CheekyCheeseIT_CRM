@@ -760,7 +760,11 @@ assert_green "SR-M-12 control: the real filter passes all four canary checks, an
 # 5000 digits after "level": made int() raise OUTSIDE the try, and a 200000-deep array raised
 # RecursionError, which `except ValueError` did not catch. Both gave BLIND, and a stranger can
 # put either in a log line (SR-H-10), so a stranger could switch the watch off.
-printf '2026-10-19T03:00:01.000000001Z {"level":%s}\n' "$(head -c 5000 /dev/zero | tr '\0' 7)" >"$WS/bigdigits.log"
+# Truncated (no closing brace), so it can never parse: deterministic across Python versions.
+printf '2026-10-19T03:00:01.000000001Z {"level":%s\n' "$(head -c 5000 /dev/zero | tr '\0' 7)" >"$WS/bigdigits.log"
+# Closed, so it is valid JSON with a huge integer: whether it parses depends on the Python
+# version (3.11+ refuses more than 4300 digits). Either way it must not blind the scan.
+printf '2026-10-19T03:00:01.000000001Z {"level":%s}\n' "$(head -c 5000 /dev/zero | tr '\0' 7)" >"$WS/bigdigits-closed.log"
 { printf '2026-10-19T03:00:01.000000001Z {"level":50,"x":'; head -c 200000 /dev/zero | tr '\0' '['; head -c 200000 /dev/zero | tr '\0' ']'; printf '}\n'; } >"$WS/deep.log"
 { cat "$WS/bigdigits.log" "$WS/deep.log"; printf '2026-10-19T03:00:09.000000001Z [Nest] 18  - x   ERROR [DatabasePrivilege] db_privilege_denied sqlstate=42501 table=document_access_log ctx=pool\n'; } >"$WS/hostile-plus-hit.log"
 for hostile_case in bigdigits deep; do
@@ -770,6 +774,8 @@ for hostile_case in bigdigits deep; do
   assert_green "SR-M-11 DEPLOY ($hostile_case): ...and the deploy block survives it too" \
     --contains "DEPLOY-CONTINUED" --contains "1 pino-looking" -- with_file "$WS/$hostile_case.log" deploy_step file
 done
+assert_exit_code "SR-M-11 WATCH (bigdigits-closed): valid JSON with a 5000-digit level does not blind the scan (it parses or is counted, depending on the Python version)" 0 with_file "$WS/bigdigits-closed.log" pipeline file
+assert_green "SR-M-11 DEPLOY (bigdigits-closed): ...nor the deploy block" --contains "DEPLOY-CONTINUED" -- with_file "$WS/bigdigits-closed.log" deploy_step file
 assert_red "SR-M-11 WATCH: a genuine contract hit next to both hostile lines is still FOUND (a stranger cannot blind the scan)" \
   --contains "1 contract line(s) and 0 other" --contains "src=contract" -- with_file "$WS/hostile-plus-hit.log" pipeline file
 assert_exit_code "SR-M-11 WATCH: ...exit 1, not 2" 1 with_file "$WS/hostile-plus-hit.log" pipeline file
