@@ -94,14 +94,14 @@ export interface CrmAppSession {
   close(): Promise<void>
 }
 
-function assertDisposableTarget(): void {
+export function assertDisposableTarget(): void {
   const database = new URL(process.env['DATABASE_URL'] as string).pathname.replace(/^\//, '')
   if (database === 'crm_db') {
     throw new Error('[crm-app-session] refusing to run against the live crm_db')
   }
 }
 
-function assertIdentifier(name: string): void {
+export function assertIdentifier(name: string): void {
   if (!/^[a-z_][a-z0-9_]*$/.test(name)) {
     throw new Error(`[crm-app-session] refusing to splice a non-identifier into SQL: ${name}`)
   }
@@ -137,7 +137,7 @@ async function readIdentity(pool: Pool): Promise<CrmAppIdentity> {
 }
 
 /** Refuses a pool that is not unambiguously the unprivileged API role. */
-function assertIsCrmApp(identity: CrmAppIdentity): void {
+export function assertIsCrmApp(identity: CrmAppIdentity): void {
   const problems: string[] = []
   if (identity.currentUser !== ROLES.app) problems.push(`current_user is ${identity.currentUser}`)
   if (identity.sessionUser !== ROLES.app) problems.push(`session_user is ${identity.sessionUser}`)
