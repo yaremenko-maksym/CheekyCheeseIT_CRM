@@ -546,7 +546,8 @@ BEGIN
     -- way; this loop was not.)
     --
     -- WHY IT CANNOT BE PINNED BY A TEST, recorded so nobody spends the afternoon trying.
-    -- Deleting this filter leaves the whole suite GREEN (measured: 68/68 still pass). That
+    -- Deleting this filter leaves the whole suite GREEN (re-measured in round 3: 74/74
+    -- still pass, as 68/68 did in round 2 before five tests and the inventory were added). That
     -- is not a gap in the tests — it is because deleting it CANNOT CHANGE THIS CHECK'S
     -- VERDICT, which was measured across the whole state space that matters rather than
     -- argued (2026-10-19, PG 16.15, this check with and without the filter):
