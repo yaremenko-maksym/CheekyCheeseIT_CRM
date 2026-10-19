@@ -267,7 +267,7 @@ echo "::error title=API hit permission denied (42501)::${contract_hits} contract
   echo "Postgres refused a statement from the API (42501). A scheduled job that swallows its errors is the usual way this stays unseen."
   echo ""
   echo "- **contract** (\`db_privilege_denied\`): the API's one chokepoint reported it. The table comes from its \`table=\` field."
-  echo "- **text** (\`permission denied\` / \`must be owner\`): belt and braces. It can be the SAME failure seen again by a handler's own diagnostic line, or a privilege error the chokepoint cannot see. Two lines for one failure is expected, not a second incident."
+  echo "- **text** (\`permission denied\` / \`must be owner\`): belt and braces. It can be the SAME failure seen again by a handler's own diagnostic line, or a privilege error the chokepoint cannot see. Two lines for one failure is expected, not a second incident. **Text hits are forgeable by an anonymous request** (a Nest text log line carries decoded request data, for example a Drizzle error quoting the query \`params:\`), so they are reported here and **never fail a deploy**."
   echo ""
   echo "| time (UTC) | logger | object | sqlstate | source |"
   echo "| --- | --- | --- | --- | --- |"

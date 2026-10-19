@@ -85,50 +85,65 @@ fi
 read -r -d '' LOGSCAN_REQ_FILTER <<'PYEOF' || true
 import json, re, sys
 pre = re.compile(r"^((?:[^|{]{0,60}\| )?(?:\d{4}-\d\d-\d\dT[0-9:.]{8,20}Z )?)(\{.*)$")
-lvl = re.compile(r'^\{"level":(\d+)')
+lvl = re.compile(r'^\{"level":(\d{1,3})(?![0-9])')
 stamp = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?Z ")
 unparsed = 0
 for raw in sys.stdin.buffer:
     line = raw.decode("utf-8", "replace").rstrip("\r\n")
-    m = pre.match(line)
-    if not m:
-        print(line)
-        continue
-    head, rest = m.group(1), m.group(2)
-    lm = lvl.match(rest)
-    if lm and int(lm.group(1)) < 50:
-        continue
-    rec = None
-    for cand in (rest, stamp.sub("", rest)):
-        try:
-            rec = json.loads(cand)
-            break
-        except ValueError:
-            pass
-    if not isinstance(rec, dict):
-        if lm:
+    looks = False
+    out = line
+    try:
+        m = pre.match(line)
+        if m:
+            head, rest = m.group(1), m.group(2)
+            looks = rest.startswith('{"level":')
+            lm = lvl.match(rest)
+            if lm and int(lm.group(1)) < 50:
+                out = None
+            else:
+                rec = None
+                for cand in (rest, stamp.sub("", rest)):
+                    try:
+                        rec = json.loads(cand)
+                        break
+                    except Exception:
+                        pass
+                if isinstance(rec, dict):
+                    for k in ("req", "res", "reqId"):
+                        rec.pop(k, None)
+                    out = head + json.dumps(rec, separators=(",", ":"))
+                elif looks:
+                    out = None
+                    unparsed += 1
+    except Exception:
+        if looks:
+            out = None
             unparsed += 1
-            continue
-        print(line)
-        continue
-    for k in ("req", "res", "reqId"):
-        rec.pop(k, None)
-    print(head + json.dumps(rec, separators=(",", ":")))
+    if out is not None:
+        print(out)
 if len(sys.argv) > 1:
     with open(sys.argv[1], "w") as f:
         f.write(str(unparsed))
 PYEOF
 # --- END LOGSCAN_REQ_FILTER
 command -v python3 >/dev/null 2>&1 || { echo "LOGSCAN_FAILED=no_python3"; exit 0; }
-# The canary (SR-M-8): two synthetic records go through the SAME invocation as the logs.
-# The level-50 one must come back (kept), the level-30 one must NOT (dropped). A python3
-# that exits 0 with empty output returns neither; one that copies its input returns both.
-# Either way the filter did not run, and "found nothing" would be a lie. Matched as whole
-# lines: the canary is injected un-prefixed, which no real log line can equal.
+# The canary (SR-M-8, SR-M-12): four synthetic records go through the SAME invocation as
+# the logs, and the filter must do EVERY job it exists for, not just some:
+#   keep   a level-50 record WITH a req and a reqId. It must come back EXACTLY, with both
+#          removed. A python3 that only drops level 30 passes records through unchanged,
+#          so the req survives and the exact-line check fails (SR-M-12);
+#   drop   a level-30 record. It must NOT come back;
+#   cut    a truncated level-50 pino record. It must NOT come back AND must be counted as
+#          unparsed, which proves the drop-and-count path runs;
+# plus an empty-output or copy-input python3, which returns the wrong set altogether.
+# Matched as whole lines: the canaries are injected un-prefixed, which no real log line
+# (always prefixed by compose) can equal.
+canary_keep_in='{"level":50,"reqId":"req-canary","req":{"method":"GET","url":"/canary?LOGSCAN_CANARY_REQ"},"msg":"LOGSCAN_CANARY"}'
 canary_keep='{"level":50,"msg":"LOGSCAN_CANARY"}'
 canary_drop='{"level":30,"msg":"LOGSCAN_CANARY_DROP"}'
+canary_cut='{"level":50,"reqId":"req-canary","req":{"method":"GET","url":"/canary?LOGSCAN_CANARY_CUT"'
 countfile=$(mktemp 2>/dev/null) || { echo "LOGSCAN_FAILED=req_filter"; exit 0; }
-if ! filtered_all=$( { printf '%s\n%s\n' "$canary_keep" "$canary_drop"; printf '%s\n' "$logs"; } | python3 -c "$LOGSCAN_REQ_FILTER" "$countfile" 2>/dev/null); then
+if ! filtered_all=$( { printf '%s\n%s\n%s\n' "$canary_keep_in" "$canary_drop" "$canary_cut"; printf '%s\n' "$logs"; } | python3 -c "$LOGSCAN_REQ_FILTER" "$countfile" 2>/dev/null); then
   rm -f "$countfile"
   echo "LOGSCAN_FAILED=req_filter"
   exit 0
@@ -136,11 +151,16 @@ fi
 unparsed=$(cat "$countfile" 2>/dev/null)
 rm -f "$countfile"
 if ! printf '%s\n' "$filtered_all" | grep -qxF "$canary_keep" \
-  || printf '%s\n' "$filtered_all" | grep -qxF "$canary_drop"; then
+  || printf '%s\n' "$filtered_all" | grep -qxF "$canary_keep_in" \
+  || printf '%s\n' "$filtered_all" | grep -qxF "$canary_drop" \
+  || printf '%s\n' "$filtered_all" | grep -qxF "$canary_cut"; then
   echo "LOGSCAN_FAILED=req_filter_canary"
   exit 0
 fi
 case "$unparsed" in '' | *[!0-9]*) echo "LOGSCAN_FAILED=req_filter"; exit 0 ;; esac
+# The cut canary MUST have been counted: zero means the drop-and-count path did not run.
+[ "$unparsed" -ge 1 ] || { echo "LOGSCAN_FAILED=req_filter_canary"; exit 0; }
+unparsed=$((unparsed - 1))
 filtered=$(printf '%s\n' "$filtered_all" | grep -vxF "$canary_keep")
 
 echo "LOGSCAN_API_CONTAINERS=$n"
