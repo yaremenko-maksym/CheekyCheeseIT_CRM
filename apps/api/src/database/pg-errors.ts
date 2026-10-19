@@ -281,10 +281,14 @@ export function dbErrorLogSuffix(err: unknown): string {
  * something rewrote it — or what follows it is not empty / a frame, nothing after the name
  * is trusted: fail closed.
  *
- * Residual, accepted: code that read `.stack`, then assigned a `.message` cut EXACTLY at a
- * newline inside a bound value, leaves a remainder that starts like a frame. Only an
- * assignment to `.message` after the stack is read can do that, and there is none in
- * apps/api/src. Returning only the name would close it at the price of every frame.
+ * RESIDUAL — A DECISION, NOT AN OVERSIGHT (PR #1042, decided by the orchestrator): code that
+ * read `.stack`, then assigned a `.message` cut EXACTLY at a newline inside a bound value,
+ * leaves a remainder that starts like a frame, and that value would be logged. It is known
+ * and it is ACCEPTED. Only an assignment to `.message` after the stack is read can produce
+ * it, and there is none anywhere in apps/api/src; the frames, by contrast, are what make a
+ * database error diagnosable at all. Returning only the name would close the hypothetical
+ * at the price of that real capability, and was rejected. If you ever add such an
+ * assignment, revisit this — that is the moment the trade changes.
  */
 export function safeErrorStack(err: unknown): string | undefined {
   if (!(err instanceof Error)) return String(err)
