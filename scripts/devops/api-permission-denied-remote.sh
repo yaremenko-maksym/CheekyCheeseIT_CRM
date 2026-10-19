@@ -60,47 +60,95 @@ fi
 #   - anything that is not a whole-line pino record (Nest's text Logger) is kept as is.
 # Only a line that STARTS as a JSON object (after docker's `service | timestamp ` prefix)
 # is touched, so an attacker cannot get a genuine text line dropped by echoing `{...}`.
-# Fail closed: no python3 (a documented VPS dependency already, see
-# check-backup-freshness.sh) or a crash is LOGSCAN_FAILED, never "nothing found".
+#
+# FAIL-OPEN IS THE WRONG DIRECTION FOR A FILTER THAT REMOVES ATTACKER TEXT (SR-H-7).
+# Docker's json-file driver splits a log line over 16384 bytes and `--timestamps` stamps
+# EACH chunk, inline: a 16.5 KB pino record arrives with a second timestamp inside it. A
+# stamp that lands between JSON tokens made `json.loads` raise, and the old code kept the
+# line verbatim, `req.url` included; the client chooses where it lands (pino doubles each
+# `"` it escapes, so the byte count is theirs to tune). So:
+#   1. the level is read from the TEXT (`{"level":NN`), never from a parse: below 50 the
+#      record is dropped before json.loads is even tried;
+#   2. a record that will not parse has its embedded stamps stripped and is parsed again
+#      (a split record then parses);
+#   3. one that still will not, but LOOKS like pino (`{"level":`), is DROPPED, never kept,
+#      and counted: the count is written to the file named in argv[1] and surfaces as
+#      LOGSCAN_UNPARSED so the discard is visible rather than silent.
+#
+# Fail closed: no python3 (a documented VPS dependency already, see check-backup-freshness.sh),
+# a crash, a python3 that exits 0 and prints nothing, or one that just copies its input
+# (a broken shim or version-manager wrapper) is LOGSCAN_FAILED, never "nothing found".
+# The last two are caught by a CANARY pushed through the same invocation (below).
 # KEEP THE PYTHON IDENTICAL IN deploy-stack-on-vps.sh (tests/test-check-api-permission-denied.sh
 # fails on drift).
 # --- BEGIN LOGSCAN_REQ_FILTER
 read -r -d '' LOGSCAN_REQ_FILTER <<'PYEOF' || true
 import json, re, sys
-rx = re.compile(r"^((?:[^|{]{0,60}\| )?(?:\d{4}-\d\d-\d\dT[0-9:.]{8,20}Z )?)(\{.*\})$")
+pre = re.compile(r"^((?:[^|{]{0,60}\| )?(?:\d{4}-\d\d-\d\dT[0-9:.]{8,20}Z )?)(\{.*)$")
+lvl = re.compile(r'^\{"level":(\d+)')
+stamp = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?Z ")
+unparsed = 0
 for raw in sys.stdin.buffer:
     line = raw.decode("utf-8", "replace").rstrip("\r\n")
-    m = rx.match(line)
+    m = pre.match(line)
     if not m:
         print(line)
         continue
-    try:
-        rec = json.loads(m.group(2))
-    except ValueError:
-        print(line)
+    head, rest = m.group(1), m.group(2)
+    lm = lvl.match(rest)
+    if lm and int(lm.group(1)) < 50:
         continue
+    rec = None
+    for cand in (rest, stamp.sub("", rest)):
+        try:
+            rec = json.loads(cand)
+            break
+        except ValueError:
+            pass
     if not isinstance(rec, dict):
+        if lm:
+            unparsed += 1
+            continue
         print(line)
-        continue
-    lvl = rec.get("level")
-    if isinstance(lvl, int) and lvl < 50:
         continue
     for k in ("req", "res", "reqId"):
         rec.pop(k, None)
-    print(m.group(1) + json.dumps(rec, separators=(",", ":")))
+    print(head + json.dumps(rec, separators=(",", ":")))
+if len(sys.argv) > 1:
+    with open(sys.argv[1], "w") as f:
+        f.write(str(unparsed))
 PYEOF
 # --- END LOGSCAN_REQ_FILTER
 command -v python3 >/dev/null 2>&1 || { echo "LOGSCAN_FAILED=no_python3"; exit 0; }
-if ! filtered=$(printf '%s\n' "$logs" | python3 -c "$LOGSCAN_REQ_FILTER" 2>/dev/null); then
+# The canary (SR-M-8): two synthetic records go through the SAME invocation as the logs.
+# The level-50 one must come back (kept), the level-30 one must NOT (dropped). A python3
+# that exits 0 with empty output returns neither; one that copies its input returns both.
+# Either way the filter did not run, and "found nothing" would be a lie. Matched as whole
+# lines: the canary is injected un-prefixed, which no real log line can equal.
+canary_keep='{"level":50,"msg":"LOGSCAN_CANARY"}'
+canary_drop='{"level":30,"msg":"LOGSCAN_CANARY_DROP"}'
+countfile=$(mktemp 2>/dev/null) || { echo "LOGSCAN_FAILED=req_filter"; exit 0; }
+if ! filtered_all=$( { printf '%s\n%s\n' "$canary_keep" "$canary_drop"; printf '%s\n' "$logs"; } | python3 -c "$LOGSCAN_REQ_FILTER" "$countfile" 2>/dev/null); then
+  rm -f "$countfile"
   echo "LOGSCAN_FAILED=req_filter"
   exit 0
 fi
+unparsed=$(cat "$countfile" 2>/dev/null)
+rm -f "$countfile"
+if ! printf '%s\n' "$filtered_all" | grep -qxF '{"msg":"LOGSCAN_CANARY"}' \
+  || printf '%s\n' "$filtered_all" | grep -qxF "$canary_drop"; then
+  echo "LOGSCAN_FAILED=req_filter_canary"
+  exit 0
+fi
+case "$unparsed" in '' | *[!0-9]*) echo "LOGSCAN_FAILED=req_filter"; exit 0 ;; esac
+filtered=$(printf '%s\n' "$filtered_all" | grep -vxF '{"msg":"LOGSCAN_CANARY"}')
 
 echo "LOGSCAN_API_CONTAINERS=$n"
 echo "LOGSCAN_CONTAINER=${cname:-unknown}"
 echo "LOGSCAN_LINES=$(printf '%s\n' "$logs" | grep -c . || true)"
 echo "LOGSCAN_HITS=$(printf '%s\n' "$filtered" | grep -aEic -e "$LOGSCAN_RE" || true)"
 echo "LOGSCAN_CONTRACT_HITS=$(printf '%s\n' "$filtered" | grep -aEic -e "$LOGSCAN_CONTRACT_RE" || true)"
+echo "LOGSCAN_UNPARSED=$unparsed"
 printf '%s\n' "$filtered" | grep -aEi -e "$LOGSCAN_RE" | tail -n 20 | while IFS= read -r l; do
   # `docker compose logs` prefixes every line with `<service>-<n>  | ` and, with
   # --timestamps, the RFC3339 time follows the pipe. Accept both that and the bare

@@ -31,6 +31,7 @@
 #   LOGSCAN_LINES=<n>                   log lines in the window
 #   LOGSCAN_HITS=<n>                    lines in the window matching ANY pattern (contract + text)
 #   LOGSCAN_CONTRACT_HITS=<n>           of those, the lines matching the contract (<= HITS)
+#   LOGSCAN_UNPARSED=<n>                pino-looking records the VPS filter could not parse and DROPPED
 #   LOGSCAN_HIT ts=<utc> logger=<allowlisted|unknown> object=<kind:allowlisted|kind:unknown|unknown> sqlstate=<42501|42501-by-message|unclassified> src=<contract|text>   (<=20)
 #   LOGSCAN_END
 #   (or)  LOGSCAN_FAILED=<reason>
@@ -57,8 +58,9 @@
 #   THE CONTRACT (primary) — the line the API's one chokepoint emits, PR #1042,
 #   apps/api/src/database/privilege-denied-reporter.ts:
 #       db_privilege_denied sqlstate=42501 table=<T> ctx=<C>
-#   matched as `db_privilege_denied` ... `sqlstate=42501` (the token first, the rest in any
-#   order: the API's own comment says the alert may rely on those two and on nothing else).
+#   matched as `[DatabasePrivilege] db_privilege_denied` ... `sqlstate=42501`: the logger
+#   context it is emitted under (part of the contract, SR-M-9), the token, then the code in
+#   any order (the API's own comment says the alert may rely on those and nothing else).
 #   `table=<T>` is read from that field, never parsed out of Postgres text; `table=-`
 #   means the 42501 named no table. This is the line to trust: one tested place emits it,
 #   instead of eight handlers' formatting.
@@ -80,7 +82,14 @@
 # the cheaper error.
 set -uo pipefail
 
-PERMISSION_DENIED_CONTRACT_RE='db_privilege_denied.*sqlstate=42501'
+# ANCHORED ON THE LOGGER CONTEXT (SR-M-9). The contract is emitted under the Nest logger
+# context `DatabasePrivilege` (PR #1042 asserts it in its own test and treats it as part of
+# the contract). Anchoring on `[DatabasePrivilege]` means request data echoed into some
+# other handler's error message or log line cannot forge the primary pattern: it would
+# also have to inject that bracketed context. The contract stays on Nest's TEXT
+# `Logger.error`: a pino record at warn level carrying a genuine 42501 would be dropped by
+# the level rule in the filter, so it must never move there.
+PERMISSION_DENIED_CONTRACT_RE='\[DatabasePrivilege\] db_privilege_denied.*sqlstate=42501'
 PERMISSION_DENIED_RE="${PERMISSION_DENIED_CONTRACT_RE}"'|permission denied|must be (owner|superuser)'
 
 if [ "${1:-}" = "--print-pattern" ]; then
@@ -122,7 +131,9 @@ ENVELOPE="$(cat)"
 total_nonempty="$(printf '%s\n' "$ENVELOPE" | grep -c . || true)"
 printf '%s\n' "$ENVELOPE" | grep -qx 'LOGSCAN_BEGIN' \
   || blind "no LOGSCAN_BEGIN frame in ${total_nonempty} line(s) of output: the remote script did not run, or the session wrote something else (an ssh failure, a shell rc file)"
-FRAME="$(printf '%s\n' "$ENVELOPE" | awk '/^LOGSCAN_BEGIN$/ && !s {s=1} s {print} /^LOGSCAN_END$/ && s {exit}')"
+# From the LAST LOGSCAN_BEGIN to the first END after it: a decoy BEGIN printed earlier by
+# something with write access to the VPS session cannot win over the real frame.
+FRAME="$(printf '%s\n' "$ENVELOPE" | awk '{ l[NR]=$0 } /^LOGSCAN_BEGIN$/ { b=NR } END { if (b) for (i=b; i<=NR; i++) { print l[i]; if (l[i]=="LOGSCAN_END") break } }')"
 frame_nonempty="$(printf '%s\n' "$FRAME" | grep -c . || true)"
 discarded=$((total_nonempty - frame_nonempty))
 if [ "$discarded" -gt 0 ]; then
@@ -132,7 +143,7 @@ fi
 ENVELOPE="$FRAME"
 
 RE_HIT='^LOGSCAN_HIT ts=([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]{8,20}Z|unknown) logger=[A-Za-z0-9_.-]{1,60} object=[a-z0-9_.:-]{1,100} sqlstate=(42501|42501-by-message|unclassified) src=(contract|text)$'
-RE_KNOWN='^(LOGSCAN_BEGIN|LOGSCAN_API_CONTAINERS=[0-9]{1,4}|LOGSCAN_CONTAINER=(unknown|[A-Za-z0-9][A-Za-z0-9.-]{0,40}[-_]api[-_][0-9]{1,3})|LOGSCAN_LINES=[0-9]{1,9}|LOGSCAN_HITS=[0-9]{1,9}|LOGSCAN_CONTRACT_HITS=[0-9]{1,9}|LOGSCAN_END|LOGSCAN_FAILED=[A-Za-z0-9_.-]{1,40})$'
+RE_KNOWN='^(LOGSCAN_BEGIN|LOGSCAN_API_CONTAINERS=[0-9]{1,4}|LOGSCAN_CONTAINER=(unknown|[A-Za-z0-9][A-Za-z0-9.-]{0,40}[-_]api[-_][0-9]{1,3})|LOGSCAN_LINES=[0-9]{1,9}|LOGSCAN_HITS=[0-9]{1,9}|LOGSCAN_CONTRACT_HITS=[0-9]{1,9}|LOGSCAN_UNPARSED=[0-9]{1,9}|LOGSCAN_END|LOGSCAN_FAILED=[A-Za-z0-9_.-]{1,40})$'
 
 # Second lock: any line that is neither a known field line nor a valid HIT line
 # is refused WITHOUT being printed.
@@ -190,6 +201,14 @@ container="$(field LOGSCAN_CONTAINER)"
 lines="$(field LOGSCAN_LINES)"
 hits="$(field LOGSCAN_HITS)"
 contract_hits="$(field LOGSCAN_CONTRACT_HITS)"
+unparsed="$(field LOGSCAN_UNPARSED)"
+[ -n "$unparsed" ] || blind "envelope has no LOGSCAN_UNPARSED (truncated, or a remote script older than this checker)"
+# A record the VPS filter could not read is DROPPED, never kept (keeping it was the fail-open
+# direction, SR-H-7), and the drop is made visible here instead of being silent.
+if [ "$unparsed" -gt 0 ]; then
+  echo "::warning::${unparsed} pino-looking api log record(s) could not be parsed and were dropped from the scan (not shown); a genuine error inside one would be missed"
+  echo "- ${unparsed} pino-looking record(s) could not be parsed and were dropped (not shown)." >>"$SUMMARY"
+fi
 [ -n "$containers" ] || blind "envelope has no LOGSCAN_API_CONTAINERS (truncated or wrong format)"
 [ -n "$lines" ] || blind "envelope has no LOGSCAN_LINES (truncated or wrong format)"
 [ -n "$hits" ] || blind "envelope has no LOGSCAN_HITS (truncated or wrong format)"

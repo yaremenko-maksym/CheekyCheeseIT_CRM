@@ -2252,7 +2252,7 @@ fi
 # pattern; `permission denied` / `must be owner` are belt and braces (see the checker).
 # PATTERN: keep identical to scripts/devops/check-api-permission-denied.sh
 # (--print-pattern); tests/test-check-api-permission-denied.sh fails on drift.
-PERMISSION_DENIED_RE='db_privilege_denied.*sqlstate=42501|permission denied|must be (owner|superuser)'
+PERMISSION_DENIED_RE='\[DatabasePrivilege\] db_privilege_denied.*sqlstate=42501|permission denied|must be (owner|superuser)'
 # SR-H-5: the API's Fastify request logger writes `req.url` (query string included) and,
 # for a 404, the requested path into pino JSON records, so an ANONYMOUS request such as
 # `GET /api/health?code=42501` would otherwise fail this deploy. These records are dropped
@@ -2261,27 +2261,39 @@ PERMISSION_DENIED_RE='db_privilege_denied.*sqlstate=42501|permission denied|must
 # --- BEGIN LOGSCAN_REQ_FILTER
 read -r -d '' LOGSCAN_REQ_FILTER <<'PYEOF' || true
 import json, re, sys
-rx = re.compile(r"^((?:[^|{]{0,60}\| )?(?:\d{4}-\d\d-\d\dT[0-9:.]{8,20}Z )?)(\{.*\})$")
+pre = re.compile(r"^((?:[^|{]{0,60}\| )?(?:\d{4}-\d\d-\d\dT[0-9:.]{8,20}Z )?)(\{.*)$")
+lvl = re.compile(r'^\{"level":(\d+)')
+stamp = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?Z ")
+unparsed = 0
 for raw in sys.stdin.buffer:
     line = raw.decode("utf-8", "replace").rstrip("\r\n")
-    m = rx.match(line)
+    m = pre.match(line)
     if not m:
         print(line)
         continue
-    try:
-        rec = json.loads(m.group(2))
-    except ValueError:
-        print(line)
+    head, rest = m.group(1), m.group(2)
+    lm = lvl.match(rest)
+    if lm and int(lm.group(1)) < 50:
         continue
+    rec = None
+    for cand in (rest, stamp.sub("", rest)):
+        try:
+            rec = json.loads(cand)
+            break
+        except ValueError:
+            pass
     if not isinstance(rec, dict):
+        if lm:
+            unparsed += 1
+            continue
         print(line)
-        continue
-    lvl = rec.get("level")
-    if isinstance(lvl, int) and lvl < 50:
         continue
     for k in ("req", "res", "reqId"):
         rec.pop(k, None)
-    print(m.group(1) + json.dumps(rec, separators=(",", ":")))
+    print(head + json.dumps(rec, separators=(",", ":")))
+if len(sys.argv) > 1:
+    with open(sys.argv[1], "w") as f:
+        f.write(str(unparsed))
 PYEOF
 # --- END LOGSCAN_REQ_FILTER
 echo "==> Scanning the new api container's logs for permission denied / 42501 (since ${DEPLOY_STARTED_AT})"
@@ -2293,9 +2305,32 @@ if ! API_LOGS_SINCE_DEPLOY="$(docker compose \
   echo "ERROR: could not read the api container's logs; refusing to pass the 42501 check unread"
   exit 1
 fi
-if ! command -v python3 >/dev/null 2>&1 || ! API_LOGS_FILTERED="$(printf '%s\n' "$API_LOGS_SINCE_DEPLOY" | python3 -c "$LOGSCAN_REQ_FILTER")"; then
+# SR-M-8: a canary goes through the SAME invocation. The level-50 record must come back
+# and the level-30 one must not, otherwise the filter did not run (a python3 that exits 0
+# with empty output, or one that copies its input) and "no hits" would be a lie.
+LOGSCAN_CANARY_KEEP='{"level":50,"msg":"LOGSCAN_CANARY"}'
+LOGSCAN_CANARY_DROP='{"level":30,"msg":"LOGSCAN_CANARY_DROP"}'
+LOGSCAN_COUNTFILE="$(mktemp)"
+if ! command -v python3 >/dev/null 2>&1 \
+  || ! API_LOGS_FILTERED_ALL="$( { printf '%s\n%s\n' "$LOGSCAN_CANARY_KEEP" "$LOGSCAN_CANARY_DROP"; printf '%s\n' "$API_LOGS_SINCE_DEPLOY"; } | python3 -c "$LOGSCAN_REQ_FILTER" "$LOGSCAN_COUNTFILE")"; then
+  rm -f "$LOGSCAN_COUNTFILE"
   echo "ERROR: could not filter the api logs (python3 missing or failed); refusing to pass the 42501 check unread"
   exit 1
+fi
+LOGSCAN_UNPARSED="$(cat "$LOGSCAN_COUNTFILE" 2>/dev/null || true)"
+rm -f "$LOGSCAN_COUNTFILE"
+if ! printf '%s\n' "$API_LOGS_FILTERED_ALL" | grep -qxF '{"msg":"LOGSCAN_CANARY"}' \
+  || printf '%s\n' "$API_LOGS_FILTERED_ALL" | grep -qxF "$LOGSCAN_CANARY_DROP"; then
+  echo "ERROR: the log filter did not behave (canary check failed); refusing to pass the 42501 check unread"
+  exit 1
+fi
+case "$LOGSCAN_UNPARSED" in '' | *[!0-9]*)
+  echo "ERROR: the log filter reported no usable unparsed count; refusing to pass the 42501 check unread"
+  exit 1 ;;
+esac
+API_LOGS_FILTERED="$(printf '%s\n' "$API_LOGS_FILTERED_ALL" | grep -vxF '{"msg":"LOGSCAN_CANARY"}' || true)"
+if [ "$LOGSCAN_UNPARSED" -gt 0 ]; then
+  echo "::warning::${LOGSCAN_UNPARSED} pino-looking api log record(s) could not be parsed and were dropped from the 42501 scan (not shown)"
 fi
 PERMISSION_DENIED_HITS="$(printf '%s\n' "$API_LOGS_FILTERED" | grep -aEi -e "$PERMISSION_DENIED_RE" | grep -c . || true)"
 if [ "${PERMISSION_DENIED_HITS:-0}" -gt 0 ]; then
