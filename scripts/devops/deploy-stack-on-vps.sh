@@ -2245,9 +2245,11 @@ fi
 # owns that). Only metadata is printed, never the matching lines: this log is
 # public. Scope: only what the API did while booting and during the health checks.
 # A cron that fires hours later is the standing watch's job, not this scan's.
-# COVERAGE DEPENDS ON THE API LOGGING THE SQLSTATE: a Drizzle error's message is
-# `Failed query: ...` and the 42501 lives on `.cause`, so until the API logs it a
-# swallowed privilege error will not match here either.
+# COVERAGE DEPENDS ON THE API LOGGING THE CONTRACT LINE (PR #1042):
+# `db_privilege_denied sqlstate=42501 table=<T> ctx=<C>`. A Drizzle error's message is
+# `Failed query: ...` and the 42501 lives on `.cause`, so until the chokepoint is deployed
+# a swallowed privilege error will not match here either. The contract is the primary
+# pattern; `permission denied` / `must be owner` are belt and braces (see the checker).
 # PATTERN: keep identical to scripts/devops/check-api-permission-denied.sh
 # (--print-pattern); tests/test-check-api-permission-denied.sh fails on drift.
 PERMISSION_DENIED_RE='db_privilege_denied.*sqlstate=42501|permission denied|must be (owner|superuser)'
