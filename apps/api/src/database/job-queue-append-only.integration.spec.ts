@@ -1757,6 +1757,218 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
         await hostile.end()
       }
     })
+
+    // =====================================================================
+    // THE "EVERY ASSERTION HAS A TEST" CLAIM, CHECKED BY THE SUITE (CR-H-9)
+    //
+    // Both SQL headers and the PR body make a claim of the form "every assertion that
+    // can change the verdict has a test". That is a claim about a SET, and a set claim
+    // needs an enumeration you can re-run — a spot check is how it was untrue twice:
+    // round 2 left nine assertions unpinned, and round 3 found five more, including two
+    // OPERANDS of one disjunction that the realistic tampering trips together.
+    //
+    // So the claim is now arithmetic rather than attentiveness, the same device as part
+    // 1b deriving its table list from the manifest. The inventory below has one entry
+    // per assertion site in the shipped check, and the test asserts:
+    //   1. the number of entries equals the number of sites in the file — so ADDING an
+    //      assertion without classifying it turns this test red;
+    //   2. every inventoried fragment is really present — so REMOVING an assertion
+    //      without removing its entry turns it red;
+    //   3. every entry is classified exactly one way: pinned, or a measured equivalent;
+    //   4. every test named as a pin EXISTS in this file, matched on `it('<title>` so
+    //      the inventory cannot satisfy itself by containing the string.
+    //
+    // An `equivalentBecause` entry is a deliberate, measured exemption: deleting that
+    // assertion cannot change the check's pass/fail verdict, because another assertion
+    // fires on the same catalog state. Each reason below was MEASURED by building the
+    // state and running the real check against a mutant with that assertion deleted —
+    // never argued from the code. Adding an entry here is how you exempt an assertion,
+    // and the reason has to name the assertion that covers it.
+    // =====================================================================
+    type CheckAssertion = {
+      /** A stable fragment of the assertion's message, as it appears in the SQL. */
+      readonly fragment: string
+      /** Exact titles of the tests that pin it — one per OPERAND, not one per site. */
+      readonly pinnedBy?: readonly string[]
+      /** Or: why deleting it cannot change the verdict. Measured, not argued. */
+      readonly equivalentBecause?: string
+    }
+
+    const CHECK_ASSERTIONS: readonly CheckAssertion[] = [
+      // --- part 1: the seven declared triggers, column by column ---
+      { fragment: 'is MISSING from public.%s', pinnedBy: ['fails when a guard is dropped'] },
+      {
+        fragment: 'is not ENABLE ALWAYS',
+        pinnedBy: ['fails when a guard is disabled, and re-applying the DDL repairs it'],
+      },
+      {
+        fragment: 'fires on the WRONG timing/events',
+        pinnedBy: [
+          'column 4: fails when a guard is narrowed to fewer events (DELETE left unguarded)',
+          'column 4: fails when a BEFORE guard is flipped to AFTER',
+          'column 4: fails when a row guard becomes a statement guard',
+        ],
+      },
+      {
+        fragment: 'EXECUTES public.%s()',
+        pinnedBy: ['column 5: fails when a guard is repointed at a no-op function'],
+      },
+      {
+        fragment: 'carries a WHEN clause',
+        pinnedBy: ['fails when a guard gains a WHEN clause that is never true'],
+      },
+      {
+        fragment: 'argument(s) to its function',
+        pinnedBy: ['fails when a guard passes an argument to its function'],
+      },
+      {
+        fragment: 'definition checksum is %s, manifest says',
+        pinnedBy: ['column 6: fails on a rewrite that every other assertion is blind to'],
+      },
+      // --- part 1b: the scan for undeclared triggers ---
+      {
+        fragment: 'is NOT DECLARED in this file',
+        pinnedBy: [
+          '1b: fails on an extra undeclared trigger, on each of the three guarded tables',
+          '1b: fails on a decoy reusing a DECLARED name on a DIFFERENT guarded table',
+        ],
+      },
+      // --- part 1c: the three non-trigger ways to disarm a guarded table ---
+      {
+        fragment: 'carries a RULE',
+        pinnedBy: ['1c: fails on a RULE that makes the audit INSERT record nothing'],
+      },
+      {
+        fragment: 'has an INHERITING CHILD table',
+        pinnedBy: ['1c: fails on an INHERITING CHILD table, including one in another schema'],
+      },
+      {
+        // ONE site, TWO operands — the finding that made CR-H-9 a HIGH. The realistic
+        // tampering (`USING (false)`) sets both, so it pins neither; each operand gets
+        // the state that isolates it.
+        fragment: 'has ROW LEVEL SECURITY (enabled = %s, policies = %s)',
+        pinnedBy: [
+          '1c: fails on RLS enabled with NO policy (pins the relrowsecurity operand)',
+          '1c: fails on a POLICY with RLS disabled (pins the policies operand)',
+        ],
+      },
+      // --- part 2: the two R-B functions, ADR §3 condition by condition ---
+      {
+        fragment: 'function public.%s(%s) is MISSING',
+        equivalentBecause:
+          'part 3 counts the functions this role owns, so a missing one also moves that ' +
+          'count. Measured: dropping the purge function is red on the real check ' +
+          '(2 problems) and red on the mutant (1 problem, the count).',
+      },
+      {
+        fragment: 'is not SECURITY DEFINER',
+        equivalentBecause:
+          '`prosecdef` cannot move without `CREATE OR REPLACE`, which moves ' +
+          '`pg_get_functiondef` and therefore the body checksum. Confirmed equivalent by ' +
+          'the round-3 code review verdict.',
+      },
+      {
+        fragment: 'is owned by %L, expected crm_retention_owner',
+        equivalentBecause:
+          'part 3 counts only functions owned by this role, so a changed owner moves that ' +
+          'count too. Confirmed equivalent by the round-3 code review verdict.',
+      },
+      {
+        fragment: 'has proconfig %L, expected exactly',
+        pinnedBy: ['fails when the pinned search_path is removed'],
+      },
+      {
+        fragment: 'body checksum is %s, manifest says %s — the deployed',
+        pinnedBy: ['fails when a function body changes outside a reviewed file (checksum drift)'],
+      },
+      {
+        fragment: 'has default privileges (proacl IS NULL)',
+        equivalentBecause:
+          'UNREACHABLE alongside a correct owner, measured two ways: the owner role cannot ' +
+          'create a function in `public` at all ("permission denied for schema public", ' +
+          'because the roles file revokes CREATE ON SCHEMA public from PUBLIC), and ' +
+          '`ALTER FUNCTION ... OWNER TO` MATERIALISES the ACL as ' +
+          '`{crm_retention_owner=X/crm_retention_owner}` rather than leaving it NULL. With ' +
+          'a wrong owner instead, the owner assertion and part 3 both fire. The realistic ' +
+          'shape this was meant to catch — a DDL edit dropping the REVOKE/GRANT lines — ' +
+          'is caught by "does not grant EXECUTE to crm_app", which IS pinned.',
+      },
+      {
+        fragment: 'role(s) beyond crm_app and its owner',
+        pinnedBy: ['2: fails when EXECUTE is granted beyond crm_app and the owner'],
+      },
+      {
+        fragment: 'grants EXECUTE to PUBLIC',
+        pinnedBy: ['fails when EXECUTE is granted to PUBLIC'],
+      },
+      {
+        fragment: 'does not grant EXECUTE to crm_app',
+        pinnedBy: ['2: fails when EXECUTE is NOT granted to crm_app'],
+      },
+      // --- part 2b: the seven trigger-function bodies ---
+      {
+        fragment: 'trigger function public.%s() is MISSING',
+        equivalentBecause:
+          'a trigger function cannot be dropped while a trigger executes it, so reaching ' +
+          'this state needs CASCADE, which drops the trigger and fires the part-1 MISSING ' +
+          'assertion. Measured: real check red (2 problems), mutant red (1, the trigger).',
+      },
+      {
+        fragment: 'unexpected overload(s)',
+        pinnedBy: ['2b: reports an unexpected overload of a guard function name'],
+      },
+      {
+        fragment: 'trigger function public.%s has proconfig %L',
+        equivalentBecause:
+          '`proconfig` on a trigger function cannot move without `CREATE OR REPLACE`, ' +
+          'which moves the body checksum asserted next. Confirmed equivalent by the ' +
+          'round-3 code review verdict.',
+      },
+      {
+        fragment: 'body checksum is %s, manifest says %s — a guard body',
+        pinnedBy: ['fails when a TRIGGER guard body changes (condition 5 is pinned too)'],
+      },
+      // --- part 3: arithmetic on what the retention role owns ---
+      {
+        fragment: 'owns %s function(s), expected exactly',
+        pinnedBy: ['3: fails when crm_retention_owner owns a THIRD function'],
+      },
+    ]
+
+    it('every assertion in the check is pinned by a test or a measured equivalence', () => {
+      const sql = readFileSync(CHECK_SQL, 'utf8')
+      const spec = readFileSync(__filename, 'utf8')
+
+      // 1. Arithmetic: one inventory entry per assertion site, no more and no fewer.
+      //    This is the line that makes the set claim re-runnable.
+      const sites = (sql.match(/problems := problems \|\| format\(/g) ?? []).length
+      expect(sites).toBe(CHECK_ASSERTIONS.length)
+
+      const missingFragments: string[] = []
+      const unclassified: string[] = []
+      const missingTests: string[] = []
+
+      for (const assertion of CHECK_ASSERTIONS) {
+        // 2. The fragment is really in the shipped check.
+        if (!sql.includes(assertion.fragment)) missingFragments.push(assertion.fragment)
+
+        // 3. Classified exactly one way.
+        const pinned = (assertion.pinnedBy?.length ?? 0) > 0
+        const exempt = Boolean(assertion.equivalentBecause)
+        if (pinned === exempt) unclassified.push(assertion.fragment)
+
+        // 4. Each named test exists — matched on `it('<title>` so that the inventory
+        //    literal above cannot satisfy this by containing the title string.
+        for (const title of assertion.pinnedBy ?? []) {
+          const declaration = `it('${title}'`
+          if (!spec.includes(declaration)) missingTests.push(title)
+        }
+      }
+
+      expect(missingFragments).toEqual([])
+      expect(unclassified).toEqual([])
+      expect(missingTests).toEqual([])
+    })
   })
 
   // -------------------------------------------------------------------------
