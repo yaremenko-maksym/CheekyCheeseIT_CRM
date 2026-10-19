@@ -97,13 +97,92 @@ assert_red "пробелы вокруг имени живой базы (лите
 
 # FAIL CLOSED: a name the hook cannot determine is not a safe one. The old code
 # had no such branch — an unparseable value simply failed to equal crm_db.
-for bad in 'not-a-url' 'localhost:5432' 'postgresql://crm_user@localhost:5432' \
-           'postgresql://crm_user@localhost:5432/' 'postgresql://crm_user@localhost:5432/%20'; do
+for bad in "$LIVE_BASE" "$LIVE_BASE/" "$LIVE_BASE/%20" "postgresql://crm_user@localhost:5432?sslmode=disable"; do
   assert_red "имя базы не определить → отказ, не пропуск: $bad" \
     --contains '"decision": "block"' \
     --contains "cannot determine the database name" \
-    -- h "DATABASE_URL=$bad API_PORT=3011 pnpm --filter @crm/api dev"
+    -- h "DATABASE_URL='$bad' API_PORT=3011 pnpm --filter @crm/api dev"
 done
+
+# SCHEME: only postgres/postgresql. Anything else cannot be shown to reach a
+# database the hook can name (and `not-a-url` / `host:port` have no scheme at all).
+for bad in 'not-a-url' 'localhost:5432' "mysql://crm_user@localhost/crm_qa" "http://localhost/crm_qa" \
+           "file:///crm_qa"; do
+  assert_red "схема не postgres/postgresql → отказ: $bad" \
+    --contains '"decision": "block"' \
+    --contains "is not postgres/postgresql" \
+    -- h "DATABASE_URL='$bad' API_PORT=3011 pnpm --filter @crm/api dev"
+done
+
+# DOT SEGMENTS and every path that is not a plain name: allowlist of shape, so
+# the attacker's encodings do not have to be enumerated. `/./crm_db` etc. decode
+# to something with "." or "/" in it.
+for enc in './crm_db' '%2e/crm_db' '%2E%2E/crm_db' '../crm_db' 'scratch/../crm_db' 'x/crm_db' \
+           'crm_db/' 'crm_db/.' 'crm%2Fdb' 'crm_db%00' 'crm_db;' 'crm-qa'; do
+  assert_red "путь — не простое имя → отказ: $enc" \
+    --contains '"decision": "block"' \
+    --contains "is not a plain" \
+    -- h "DATABASE_URL='$LIVE_BASE/$enc' API_PORT=3011 pnpm --filter @crm/api dev"
+done
+
+# An unescaped "/" in the password moves the URL parser's idea of the path.
+assert_red "незакодированный / в пароле: имя сдвигается, всё равно отказ" \
+  --contains '"decision": "block"' \
+  -- h "DATABASE_URL='postgresql://u:p/ss@localhost:5432/crm_db' API_PORT=3011 pnpm --filter @crm/api dev"
+
+# QUERY STRING: libpq honours dbname=, so the path says scratch while the
+# connection lands in crm_db. Keys are decoded and case-folded.
+for q in 'dbname=crm_db' 'dbname=crm%5Fdb' 'DBNAME=crm_db' 'dbn%61me=crm_db' 'db=crm_db' 'database=crm_db' \
+         'sslmode=disable&dbname=crm_db' 'dbname=%20crm_db%20' 'dbname=a/../crm_db'; do
+  assert_red "query выбирает живую базу при безобидном пути: $q" \
+    --contains '"decision": "block"' \
+    -- h "DATABASE_URL='$LIVE_BASE/crm_qa?$q' API_PORT=3011 pnpm --filter @crm/api dev"
+done
+assert_red "options упоминает crm_db" \
+  --contains "?options mentions crm_db" \
+  -- h "DATABASE_URL='$LIVE_BASE/crm_qa?options=-c%20search_path%3Dcrm_db' API_PORT=3011 pnpm --filter @crm/api dev"
+assert_red "query dbname без имени" \
+  --contains "cannot determine the database name" \
+  -- h "DATABASE_URL='$LIVE_BASE/crm_qa?dbname=' API_PORT=3011 pnpm --filter @crm/api dev"
+
+# ENVIRONMENT door: PGDATABASE is what libpq/pg use when the URL names none, and
+# `DATABASE_URL=` (explicit empty) is an idiom this hook allows.
+assert_red "DATABASE_URL= + PGDATABASE=crm_db" \
+  --contains "PGDATABASE names the live database" \
+  -- h "DATABASE_URL= PGDATABASE=crm_db API_PORT=3011 vite --port 3010"
+assert_red "безопасный URL + PGDATABASE=crm_db" \
+  --contains "PGDATABASE names the live database" \
+  -- h "DATABASE_URL=$SAFE_DB PGDATABASE=crm_db API_PORT=3011 pnpm --filter @crm/api dev"
+assert_red "PGDATABASE с пробелами вокруг crm_db" \
+  --contains "PGDATABASE names the live database" \
+  -- h "DATABASE_URL= PGDATABASE=' crm_db ' vite --port 3010"
+assert_red "PGDATABASE=crm%5Fdb (не простое имя)" \
+  --contains "is not a plain" \
+  -- h "DATABASE_URL= PGDATABASE=crm%5Fdb vite --port 3010"
+assert_red "PGDATABASE пустой" \
+  --contains "cannot determine the database name from PGDATABASE" \
+  -- h "DATABASE_URL= PGDATABASE= vite --port 3010"
+
+# PINNED GREENS: a guard that refuses legitimate scratch URLs gets switched off,
+# which is as bad as one that admits the live database.
+for ok in crm_qa crm_db_scratch crm_dbx xcrm_db CRM_DB Crm_Db crm_db1 crm qa1 'crm%5Fqa' '%63rm_qa'; do
+  assert_green "разрешённое имя: $ok" \
+    -- h "DATABASE_URL='$LIVE_BASE/$ok' API_PORT=3011 pnpm --filter @crm/api dev"
+done
+assert_green "scheme postgres:// (короткая форма)" \
+  -- h "DATABASE_URL='postgres://crm_user:password@localhost:5432/crm_qa' API_PORT=3011 pnpm --filter @crm/api dev"
+assert_green "uppercase scheme: urlsplit lowercases it, the name checks still run" \
+  -- h "DATABASE_URL='POSTGRESQL://crm_user@localhost:5432/crm_qa' API_PORT=3011 pnpm --filter @crm/api dev"
+assert_green "URL без порта и без пароля" \
+  -- h "DATABASE_URL='postgresql://crm_user@localhost/crm_qa' API_PORT=3011 pnpm --filter @crm/api dev"
+assert_green "посторонние query-параметры" \
+  -- h "DATABASE_URL='$LIVE_BASE/crm_qa?sslmode=require&application_name=x&connect_timeout=5' API_PORT=3011 pnpm --filter @crm/api dev"
+assert_green "query dbname = безопасное имя" \
+  -- h "DATABASE_URL='$LIVE_BASE/crm_qa?dbname=crm_qa' API_PORT=3011 pnpm --filter @crm/api dev"
+assert_green "options без crm_db" \
+  -- h "DATABASE_URL='$LIVE_BASE/crm_qa?options=-c%20statement_timeout%3D5000' API_PORT=3011 pnpm --filter @crm/api dev"
+assert_green "PGDATABASE безопасный + пустой DATABASE_URL" \
+  -- h "DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
 
 # The decoding must not turn into a blanket refusal of other databases.
 assert_green "закодированное, но НЕ живое имя: crm%5Fqa" \

@@ -173,6 +173,60 @@ segs = [s for s, _ in hits]
 env = seg.env
 reasons = []
 
+# ── which database does this launch reach? ───────────────────────────────────
+# History: this used to be `db.rsplit("/")[-1].split("?")[0] == "crm_db"`. pg
+# percent-DECODES the name before connecting, so `crm%5Fdb` IS the live
+# database while the comparison saw the encoded text (PR #579 closed the same
+# hole in seed-db-guard.ts / integration-db-guard.ts; the TS helper
+# assert-not-live-db.ts is the shape this follows).
+#
+# It then took two security-review rounds to see that "decode, then compare"
+# is still a parser differential: dot segments, a query-string `dbname`, a
+# non-postgres scheme and an unescaped "/" in the password each make this
+# hook read a different name than libpq resolves. So the rule is not "spot
+# the live name in every spelling" (an enumeration of attacker encodings
+# that cannot be finished) but an ALLOWLIST OF SHAPE: after one decode and a
+# trim the name must be `[A-Za-z0-9_]+` and must not be exactly `crm_db`;
+# anything else - including a name that cannot be determined at all - is
+# refused. Case-sensitive on purpose, as Postgres identifiers are: `CRM_DB`
+# is another database. A name with a hyphen is refused too; scratch names here
+# are `crm_qa`-style, and the refusal message says why.
+LIVE = "crm_db"
+NAME_SHAPE = re.compile(r"^[A-Za-z0-9_]+$")
+DB_PARAMS = ("dbname", "db", "database")
+
+def name_problems(name, where):
+    if name == "":
+        return ["cannot determine the database name from %s - an unknown target is not a safe one" % where]
+    if name == LIVE:
+        return ["%s names the live database crm_db (%s)" % (where, name)]
+    if not NAME_SHAPE.match(name):
+        return ["%s database name %r is not a plain [A-Za-z0-9_]+ name - a path that is not a plain name may resolve differently in libpq than here, so it is refused" % (where, name)]
+    return []
+
+def url_problems(url):
+    where = "DATABASE_URL"
+    try:
+        sp = urllib.parse.urlsplit(url.strip())
+        params = urllib.parse.parse_qsl(sp.query, keep_blank_values=True)
+    except ValueError:
+        return ["cannot determine the database name from %s (unparseable) - an unknown target is not a safe one" % where]
+    if sp.scheme not in ("postgres", "postgresql"):
+        return ["%s scheme %r is not postgres/postgresql - cannot tell which database it reaches" % (where, sp.scheme)]
+    if not sp.path.startswith("/"):
+        return ["cannot determine the database name from %s (no path) - an unknown target is not a safe one" % where]
+    problems = name_problems(urllib.parse.unquote(sp.path[1:]).strip(), where + " path")
+    # libpq honours `dbname` in the query string over the path, so
+    # `.../scratch?dbname=crm_db` reaches the live database while the path says
+    # `scratch`. Keys are decoded and case-folded (`dbn%61me`, `DBNAME`).
+    for key, value in params:
+        k = key.strip().lower()
+        if k in DB_PARAMS:
+            problems += name_problems(value.strip(), where + " ?" + k)
+        elif k == "options" and LIVE in value.lower():
+            problems.append("%s ?options mentions crm_db (%s)" % (where, value))
+    return problems
+
 db = env.get("DATABASE_URL")
 if db is None:
     reasons.append(
@@ -181,36 +235,22 @@ if db is None:
         "уже установленную process.env переменную). Именно так утекло PR #485."
     )
 elif db != "":
-    # pg percent-DECODES the database name before it connects, so `crm%5Fdb`
-    # IS the live crm_db. The old `rsplit("/")[-1].split("?")[0]` compared the
-    # still-encoded text and let `%5F` / `%5f` / `%62` / `%63rm_db` through
-    # (PR #579 closed the same hole in seed-db-guard.ts / integration-db-guard.ts).
-    # Mirror extractDbName: parse, take the path, decode once, trim.
-    # FAIL CLOSED: a name that cannot be determined is not a safe one.
-    def _db_name(url):
-        try:
-            sp = urllib.parse.urlsplit(url.strip())
-        except ValueError:
-            return ""
-        if not sp.scheme or not sp.path.startswith("/"):
-            return ""
-        return urllib.parse.unquote(sp.path[1:]).strip()
-    # The previous reading (last "/" segment, query stripped), now decoded and
-    # trimmed. A second candidate, never the only one: it still sees the live
-    # name when the URL parser splits the string elsewhere (an unescaped "/"
-    # in the password).
-    db_tail = urllib.parse.unquote(
-        db.rsplit("/", 1)[-1].split("?", 1)[0]).strip()
-    db_name = _db_name(db)
-    if "crm_db" in (db_name, db_tail):
-        reasons.append(
-            "DATABASE_URL указывает на живую базу владельца crm_db (%s)" % db
-        )
-    elif db_name == "":
-        reasons.append(
-            "cannot determine the database name from DATABASE_URL (%s) - "
-            "an unknown target is not a safe one" % db
-        )
+    for problem in url_problems(db):
+        reasons.append(problem)
+
+# Door 3 of 3 (path, query string, environment): libpq/pg take the database from
+# PGDATABASE when the URL does not name one - and `DATABASE_URL= PGDATABASE=crm_db
+# vite` is exactly the explicit-empty idiom this hook otherwise allows. Judged IN
+# scope for the inline case, where the launching segment states the value. NOT
+# observable: a PGDATABASE inherited from the session (the hook sees the command
+# line, not the environment) - the same blind spot as an inherited DATABASE_URL,
+# which is why an absent DATABASE_URL is refused rather than assumed safe.
+# PGDATABASE is passed to libpq verbatim (no percent-decoding), so the raw value
+# is checked through the same shape allowlist as any other name.
+pgdb = env.get("PGDATABASE")
+if pgdb is not None:
+    for problem in name_problems(pgdb.strip(), "PGDATABASE"):
+        reasons.append(problem)
 
 port_values = []
 for var in ("API_PORT", "PORT", "WEB_PORT"):
