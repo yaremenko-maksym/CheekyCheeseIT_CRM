@@ -1327,7 +1327,19 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
         await client.query(`DROP ROLE crm_retention_owner`)
 
         try {
-          for (const statement of splitSqlStatements(readFileSync(TRIGGERS_SQL, 'utf8'))) {
+          // The file's OWN `BEGIN;` / `COMMIT;` are skipped here, and that is load-bearing
+          // rather than tidy: this test has already dropped the role inside ITS transaction,
+          // so letting the file's `COMMIT` run would commit that drop and remove
+          // `crm_retention_owner` from the cluster for good. The precondition raises before
+          // the `COMMIT` is reached today, so nothing commits either way — but that is a
+          // property of the file's current statement ORDER, and a test whose safety rests on
+          // it is one edit away from wiping a role. What this test exercises is the
+          // precondition, not the wrap; the wrap is exercised by `OWNER-M-1 — the file is one
+          // transaction` below.
+          const statements = splitSqlStatements(readFileSync(TRIGGERS_SQL, 'utf8')).filter(
+            (st) => !/^\s*(BEGIN|COMMIT)\s*;?\s*$/i.test(st),
+          )
+          for (const statement of statements) {
             await client.query(statement)
           }
         } catch (error) {

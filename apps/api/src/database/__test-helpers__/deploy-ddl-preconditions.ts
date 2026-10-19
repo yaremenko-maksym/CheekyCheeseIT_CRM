@@ -25,7 +25,8 @@ import { splitSqlStatements } from '../manual-sql-statements'
  *      list — a copy is a second source of truth that drifts silently;
  *   2. a suite drops exactly the roles IT created and no others, so running it in a cluster
  *      that already had them (CI) is a no-op and running it alone leaves no residue;
- *   3. files are applied statement by statement, which is what the deploy does.
+ *   3. files are applied statement by statement over ONE connection, which is what the
+ *      deploy does — see `applyDeployDdlFile`.
  */
 
 const MANUAL_DIR = join(__dirname, '..', '..', '..', 'drizzle', 'manual')
@@ -42,18 +43,43 @@ export const DEPLOY_ROLES = ['crm_app', 'crm_collector', 'crm_retention_owner'] 
 
 /**
  * Apply a manual DDL file the way the deploy does: `psql -v ON_ERROR_STOP=1 < file`, i.e.
- * one statement at a time with statement-level AUTOCOMMIT.
+ * statement by statement, over ONE CONNECTION, with statement-level autocommit unless the
+ * file itself opens a transaction.
  *
  * NOT `pool.query(wholeFile)`. A multi-statement simple query runs as ONE IMPLICIT
  * TRANSACTION, so idempotence proven that way is idempotence under a transaction — a
- * property the deploy never has. Where a file converges only because an earlier statement
- * already committed, the two differ, and the transactional version is the more forgiving of
- * the two. `db-privileges.integration.spec.ts` and the forward-DDL spec already do it this
- * way; this is the same mechanism, shared rather than copied a third time.
+ * property the deploy does not give a file that did not ask for it. Where a file converges
+ * only because an earlier statement already committed, the two differ, and the
+ * transactional version is the more forgiving of the two.
+ *
+ * WHY ONE DEDICATED CLIENT AND NOT `pool.query` PER STATEMENT (fix round 2, OWNER-M-1)
+ * -----------------------------------------------------------------------------------
+ * `Pool#query` may hand each statement a DIFFERENT pooled client. For a file carrying its
+ * own `BEGIN;` / `COMMIT;` — which `2026-10-18_db_grants.sql` has shipped from the start,
+ * and the 1.3b triggers file now has too — that is not a faithful model of the deploy but a
+ * broken one: `BEGIN` would open a transaction on one connection and be abandoned there,
+ * the DDL would autocommit on others, and `COMMIT` would land on a connection with no
+ * transaction. The transaction those files rely on would be silently untested, and a
+ * connection would be returned to the pool with an open transaction on it.
+ * `deploy-stack-on-vps.sh` pipes each file whole into one `psql` session, so one client for
+ * the whole file IS what production does. `db-privileges.integration.spec.ts` already
+ * reached this conclusion for the check file (see its `runCheck`); this is the same
+ * mechanism, in the shared helper.
+ *
+ * On error the client is rolled back before release, so a file that fails mid-transaction
+ * cannot hand a poisoned connection back to the pool.
  */
 export async function applyDeployDdlFile(pool: Pool, file: string): Promise<void> {
-  for (const statement of splitSqlStatements(readFileSync(file, 'utf8'))) {
-    await pool.query(statement)
+  const client = await pool.connect()
+  try {
+    for (const statement of splitSqlStatements(readFileSync(file, 'utf8'))) {
+      await client.query(statement)
+    }
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => undefined)
+    throw error
+  } finally {
+    client.release()
   }
 }
 
