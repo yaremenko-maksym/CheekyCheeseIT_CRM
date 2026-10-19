@@ -1621,7 +1621,10 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
 
     it('1c: fails on ROW LEVEL SECURITY hiding the audit log', async () => {
       // `USING (false)` makes the whole log invisible to every role the policy
-      // applies to, with every guard still in place and still ENABLE ALWAYS.
+      // applies to, with every guard still in place and still ENABLE ALWAYS. This is
+      // the REALISTIC variant — the one an attacker installs — and it trips BOTH
+      // operands of the RLS assertion at once, which is exactly why it is not enough
+      // on its own: see the two tests below, one per operand (fix round 3, CR-H-9).
       await q(`ALTER TABLE public.job_queue_actions ENABLE ROW LEVEL SECURITY`)
       await q(`CREATE POLICY ac5_hide_everything ON public.job_queue_actions USING (false)`)
       const message = await tamperedCheckMessage(async () => {
@@ -1629,7 +1632,95 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
         await q(`ALTER TABLE public.job_queue_actions DISABLE ROW LEVEL SECURITY`)
       })
       expect(message).toContain('has ROW LEVEL SECURITY')
+      expect(message).toContain('enabled = t')
       expect(message).toContain('ac5_hide_everything')
+    })
+
+    // ONE TEST PER OPERAND, because the assertion above is a DISJUNCTION
+    // (`relrowsecurity OR policies IS NOT NULL`) and the realistic tampering sets both.
+    // Each of the two operands survived deletion with the suite green until these
+    // landed: the states that separate them are "RLS on with no policy" and "a policy
+    // with RLS off", and each is reachable in one statement.
+
+    it('1c: fails on RLS enabled with NO policy (pins the relrowsecurity operand)', async () => {
+      // RLS enabled and no policy is the STRICTEST possible state, not a lax one:
+      // with no permissive policy, a non-owner sees zero rows. It is also invisible to
+      // the `policies` operand, so only `relrowsecurity` can catch it.
+      await q(`ALTER TABLE public.job_queue_actions ENABLE ROW LEVEL SECURITY`)
+      const message = await tamperedCheckMessage(async () => {
+        await q(`ALTER TABLE public.job_queue_actions DISABLE ROW LEVEL SECURITY`)
+      })
+      expect(message).toContain('has ROW LEVEL SECURITY')
+      expect(message).toContain('enabled = t')
+      expect(message).toContain('policies = none')
+    })
+
+    it('1c: fails on a POLICY with RLS disabled (pins the policies operand)', async () => {
+      // `CREATE POLICY` does NOT enable row-level security, so this state is inert
+      // today — and it is one `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` away from
+      // hiding the whole audit log, with no new object needed. An unreviewed policy
+      // sitting on an audit table is worth a finding on its own, which is why the
+      // assertion tests the policy list and not only the flag.
+      await q(`CREATE POLICY ac5_policy_only ON public.job_queue_actions USING (false)`)
+      const message = await tamperedCheckMessage(async () => {
+        await q(`DROP POLICY IF EXISTS ac5_policy_only ON public.job_queue_actions`)
+      })
+      expect(message).toContain('has ROW LEVEL SECURITY')
+      expect(message).toContain('enabled = f')
+      expect(message).toContain('ac5_policy_only')
+    })
+
+    // =====================================================================
+    // PART 2's GRANT OPERANDS AND PART 3's ARITHMETIC (fix round 3, CR-H-9)
+    //
+    // Three more assertions that deleted with the suite green. The existing
+    // `GRANT EXECUTE ... TO PUBLIC` test pins the PUBLIC operand; these pin the other
+    // two directions of the same `proacl` reading, plus part 3's count.
+    // =====================================================================
+
+    it('2: fails when EXECUTE is granted beyond crm_app and the owner', async () => {
+      // `crm_collector` is a real deploy role, so this is the shape a careless
+      // least-privilege edit would actually produce — not PUBLIC, just one role too
+      // many. The PUBLIC operand cannot see it.
+      await q(
+        `GRANT EXECUTE ON FUNCTION public.crm_retention_purge_job_queue_actions() TO crm_collector`,
+      )
+      const message = await tamperedCheckMessage(async () => {
+        await q(
+          `REVOKE EXECUTE ON FUNCTION public.crm_retention_purge_job_queue_actions()
+             FROM crm_collector`,
+        )
+      })
+      expect(message).toContain('grants EXECUTE to 1 role(s) beyond crm_app and its owner')
+    })
+
+    it('2: fails when EXECUTE is NOT granted to crm_app', async () => {
+      // The opposite failure from every other privilege assertion here: not "too
+      // wide" but "too narrow". ADR condition 4 requires the grant to exist by name,
+      // and a deploy that revoked it would leave the retention path uncallable while
+      // every other privilege assertion stayed quiet.
+      await q(
+        `REVOKE EXECUTE ON FUNCTION public.crm_retention_purge_job_queue_actions() FROM crm_app`,
+      )
+      const message = await tamperedCheckMessage()
+      expect(message).toContain('does not grant EXECUTE to crm_app')
+    })
+
+    it('3: fails when crm_retention_owner owns a THIRD function', async () => {
+      // Part 3 is arithmetic rather than attentiveness: ADR §2 allows exactly these
+      // two definer functions, and a third owned by this role would run with its
+      // privileges having never been reviewed as part of R-B. Nothing else in the
+      // check looks at functions it does not already name, so this count is the only
+      // assertion that can see an EXTRA one.
+      await q(`CREATE OR REPLACE FUNCTION public.ac5_third_owned() RETURNS int
+                 LANGUAGE sql AS $third$ SELECT 1 $third$`)
+      await q(`ALTER FUNCTION public.ac5_third_owned() OWNER TO crm_retention_owner`)
+      const message = await tamperedCheckMessage(async () => {
+        // Dropped here rather than in `afterAll`: while this role owns it,
+        // `DROP ROLE` would refuse and the whole teardown would fail.
+        await q(`DROP FUNCTION IF EXISTS public.ac5_third_owned()`)
+      })
+      expect(message).toContain('crm_retention_owner owns 3 function(s), expected exactly 2')
     })
 
     // =====================================================================
