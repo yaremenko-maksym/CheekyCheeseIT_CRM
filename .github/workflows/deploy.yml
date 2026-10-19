@@ -2513,17 +2513,38 @@ jobs:
           echo "::warning::Cloudflare Workers AI token check got an unexpected result (curl exit ${CURL_EXIT}, HTTP ${HTTP_CODE:-none}; expected 200) — not one of the two known auth-failure codes (401/403), most likely a transient network issue or a Cloudflare-side outage, not our configuration. See docs/runbooks/deployment.md 'Cloudflare Workers AI'."
           exit 1
 
-      # Needed ONLY because the step below passes `script_path:` instead of an
-      # inline `script:` (see that step's comment): the path is read from the
-      # runner's workspace, so the file has to be on disk first. Default ref on
-      # purpose — that resolves to the very commit this workflow file came from,
-      # which is exactly the deploy.yml-and-its-script-move-together coupling the
-      # inline block used to get for free. No `if:` and no `fetch-depth:`: this is
-      # a hard prerequisite of the deploy itself, unlike the two deliberately
-      # `if: always()` checkouts later in this job that exist so their
-      # post-mortem steps survive a failed deploy.
-      - name: Checkout (for the deploy script passed via script_path)
+      # Needed because the deploy script is a FILE now, scp'd to the VPS by the
+      # step below and then run there (see that step's comment for the two
+      # argument-limit incidents that led here). Default ref on purpose — that
+      # resolves to the very commit this workflow file came from, which is
+      # exactly the deploy.yml-and-its-script-move-together coupling the inline
+      # block used to get for free, and the reason this scp lives HERE rather
+      # than in the copy-compose job: that job deliberately pins its checkout to
+      # the ROLLBACK TARGET (see its SR-H-2 comment), so copying the script
+      # there would silently take it from the rolled-back-to commit. The script
+      # must track deploy.yml, which is this job's unpinned checkout. No `if:`
+      # and no `fetch-depth:`: this is a hard prerequisite of the deploy itself,
+      # unlike the two deliberately `if: always()` checkouts later in this job
+      # that exist so their post-mortem steps survive a failed deploy.
+      - name: Checkout (for the deploy script)
         uses: actions/checkout@v4
+
+      # Same scp-action pattern as scripts/devops/check-backup-freshness.sh and
+      # check-security-headers.sh in the copy-compose job: the file lands under
+      # /opt/crm preserving its source tree, so
+      # scripts/devops/deploy-stack-on-vps.sh →
+      # /opt/crm/scripts/devops/deploy-stack-on-vps.sh, which is what the SSH
+      # step below executes. Copying it is the whole fix — as a FILE it is not
+      # subject to any argument limit, whereas every route that ships the body
+      # as a command string is (twice proven, see below).
+      - name: Copy the deploy script to the VPS via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'scripts/devops/deploy-stack-on-vps.sh'
+          target: '/opt/crm'
 
       - name: Pull, up, migrate, health-check via SSH
         uses: appleboy/ssh-action@v1.2.0
@@ -2545,28 +2566,43 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           envs: IMAGE_TAG,GH_ACTOR,GHCR_TOKEN,CRM_CSP_MODE
-          # NOT an inline `script:` block any more — see the header comment of
-          # scripts/devops/deploy-stack-on-vps.sh for the full incident. Short
-          # version: appleboy/ssh-action forwards `script:` to its own composite
-          # `entrypoint.sh` step as the single environment string
-          # `INPUT_SCRIPT=<whole script>`, and Linux execve refuses with E2BIG
-          # when any single argv/envp string exceeds MAX_ARG_STRLEN (32 * 4096 =
-          # 131072 bytes). This script had reached 133905 bytes, so on
-          # 2026-10-19 the runner could not spawn bash at all and the deploy of
-          # b2054f8a1 died with "Argument list too long" before the step started
-          # — nothing had been applied and no future merge could have deployed
-          # either. `script_path:` exists on this pinned v1.2.0 (verified against
-          # its own action.yml, not the current docs) and is forwarded as
-          # `INPUT_SCRIPT_FILE` → drone-ssh v1.8.0's `script.file` → os.ReadFile,
-          # appended to the same `scripts` slice `INPUT_SCRIPT` feeds, so the
-          # remote execution is unchanged. The byte ceiling is gone, and
-          # scripts/devops/check-ssh-action-script-size.py now fails CI long
-          # before any REMAINING inline script can repeat this.
+          # A DISPATCH, deliberately tens of bytes long. The 137 KB it runs
+          # travelled as a file via the scp step above. Full story in the header
+          # of scripts/devops/deploy-stack-on-vps.sh; the part that matters here
+          # is that this file hit the SAME limit TWICE, in two different places,
+          # and only the second fix was real:
           #
-          # Absolute path, not repo-relative: composite-action `run:` steps
-          # default to `github.workspace`, and depending on that default is the
-          # kind of implicit coupling this file keeps paying for.
-          script_path: ${{ github.workspace }}/scripts/devops/deploy-stack-on-vps.sh
+          #   1. Inline `script:` (until 2026-10-19). ssh-action hands `script:`
+          #      to its own composite entrypoint step as the single env string
+          #      `INPUT_SCRIPT=<whole script>`, and Linux execve refuses with
+          #      E2BIG when any single argv/envp string exceeds MAX_ARG_STRLEN
+          #      (32 * 4096 = 131072). At 133905 bytes the RUNNER could not spawn
+          #      bash: "Argument list too long" before the step started.
+          #   2. `script_path:` (PR #1035, lasted one deploy). It is wired fine —
+          #      the run log shows `INPUT_SCRIPT:` empty and `INPUT_SCRIPT_FILE:`
+          #      set. But drone-ssh `os.ReadFile`s that file into the SAME
+          #      `scripts` slice `INPUT_SCRIPT` feeds and then sends
+          #      `strings.Join(script, "\n")` as ONE command string to
+          #      `ssh.Stream` (plugin.go). So the body still arrived as a single
+          #      argument and `/bin/bash` ON THE VPS refused it instead:
+          #      "/bin/bash: Argument list too long". The research was right that
+          #      execution was "unchanged" — being unchanged is precisely why it
+          #      still failed. Reading the mechanism is not the same as testing
+          #      the outcome, and nothing in CI exercises a real deploy.
+          #
+          # Hence the only shape that actually removes the ceiling: the content
+          # moves as a FILE (scp), and what crosses as a command is a path. Same
+          # pattern the backup-freshness step at the end of this job already
+          # used. `bash <file>` and not `./<file>`: no dependence on scp-action
+          # preserving the execute bit.
+          #
+          # The four `envs:` above still reach the script: drone-ssh prepends
+          # real `export NAME=value` lines (its default envs_format), and an
+          # exported variable is inherited by this `bash` child. Verified in
+          # drone-ssh v1.8.0's plugin.go, not assumed — a plain assignment
+          # instead of `export` would have broken every variable here the moment
+          # the body stopped running in the login shell itself.
+          script: bash /opt/crm/scripts/devops/deploy-stack-on-vps.sh
 
       # ── Rollback reminder → job summary (this state is TEMPORARY) ───────
       # security review (PR #615 round 2, SR-H-1): a rollback dispatch does

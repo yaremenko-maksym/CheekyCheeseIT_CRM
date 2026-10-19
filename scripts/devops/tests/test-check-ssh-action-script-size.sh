@@ -30,6 +30,21 @@ GUARD="check-ssh-action-script-size.py"
 WS="$(guard_test_workspace)"
 trap 'rm -rf "$WS"' EXIT
 
+# $1 = case name, $2 = workflow content, $3 = bytes of script file to generate
+#      ("absent" to omit the file entirely)
+make_path_case() {
+  local name="$1" workflow="$2" bytes="$3"
+  local root="$WS/$name"
+  guard_test_fake_repo "$root" "$GUARD"
+  mkdir -p "$root/scripts/devops"
+  printf '%s' "$workflow" >"$root/.github/workflows/deploy.yml"
+  if [ "$bytes" != "absent" ]; then
+    awk -v n="$bytes" 'BEGIN { for (i = 0; i < n; i++) printf "x" }' \
+      >"$root/scripts/devops/deploy-stack-on-vps.sh"
+  fi
+  printf '%s' "$root"
+}
+
 # $1 = case name, $2 = workflow content
 make_case() {
   local name="$1" workflow="$2"
@@ -104,6 +119,27 @@ jobs:
           script_path: ${{ github.workspace }}/scripts/devops/deploy-stack-on-vps.sh
 YML
 
+# The post-both-incidents real shape: body delivered by scp, command is a path.
+read -r -d '' DISPATCH_YML <<'YML' || true
+name: Deploy
+on: [push]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Copy the deploy script to the VPS via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          source: 'scripts/devops/deploy-stack-on-vps.sh'
+          target: '/opt/crm'
+      - name: Pull, up, migrate, health-check via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          envs: IMAGE_TAG,GH_ACTOR,GHCR_TOKEN,CRM_CSP_MODE
+          script: bash /opt/crm/scripts/devops/deploy-stack-on-vps.sh
+YML
+
 # Precision: a small ssh-action step FOLLOWED by a different action carrying a big
 # `script:`. The second step's payload must not be attributed to the first.
 read -r -d '' NEIGHBOUR_YML <<'YML' || true
@@ -157,10 +193,31 @@ assert_green "the reported byte count is exact (3 x \"echo aaa\\n\" = 27 bytes)"
   --contains "27B /     3 lines" \
   -- run_guard "$(make_case exact-bytes "$SMALL_YML")"
 
-assert_green "script_path: instead of script: — no inline payload, stays green" \
-  --contains "Inline ssh-action scripts:     0" \
-  --not-contains "FAIL" \
-  -- run_guard "$(make_case script-path "$SCRIPT_PATH_YML")"
+# ── script_path is MEASURED, not exempt ────────────────────────────────────────
+# The first version of this guard treated script_path: as out of scope, because
+# it looked like an escape from INPUT_SCRIPT. It is not: drone-ssh os.ReadFiles
+# the file into the same command string it sends to ssh.Stream, so the body still
+# crosses as one SSH exec argument and the REMOTE /bin/bash refuses it. The deploy
+# of 3928ba00e failed that way while this guard printed "Violations found: 0".
+# These two cases are the ones that would have caught it.
+assert_red "a big file behind script_path: -> red (it still ships as a command string)" \
+  --contains "via script_path:" \
+  --contains "over budget by" \
+  -- run_guard "$(make_path_case sp-big "$SCRIPT_PATH_YML" 120000)"
+
+assert_green "a small file behind script_path: -> green, and measured (not skipped)" \
+  --contains "ssh-action command payloads:   1" \
+  --contains "(script_path:)" \
+  -- run_guard "$(make_path_case sp-small "$SCRIPT_PATH_YML" 500)"
+
+assert_red "script_path: pointing at a missing file -> red, not silently unmeasured" \
+  --contains "does not exist" \
+  -- run_guard "$(make_path_case sp-missing "$SCRIPT_PATH_YML" absent)"
+
+# The shape that actually works: the body travels by scp, the command is a path.
+assert_green "a short dispatch to a file already on the VPS is the escape hatch -> green" \
+  --contains "Violations found:              0" \
+  -- run_guard "$(make_case dispatch "$DISPATCH_YML")"
 
 assert_green "a big script: on a NON-ssh-action step is out of scope" \
   --contains "Violations found:              0" \

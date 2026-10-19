@@ -1394,6 +1394,80 @@ set -euo pipefail
 docker compose up -d
 SH
 
+# The shape after `script_path:` also turned out to ship the body as a command
+# string (deploy of 3928ba00e, "/bin/bash: Argument list too long" on the VPS):
+# the file is scp'd and the step's whole script is a dispatch to the VPS path.
+# The guard must translate /opt/crm/<rel> back to the REPOSITORY file — the VPS
+# copy comes from the repo — or it goes blind on every apply again.
+read -r -d '' DISPATCH_YML <<YML || true
+name: Deploy
+on:
+  push:
+    branches: [main]
+jobs:
+  copy-compose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Copy DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: \${{ secrets.VPS_HOST }}
+          source: 'docker-compose.prod.yml,apps/api/drizzle/manual/$DDL'
+          target: '/opt/crm'
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Copy the deploy script to the VPS via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: \${{ secrets.VPS_HOST }}
+          source: 'scripts/devops/deploy-stack-on-vps.sh'
+          target: '/opt/crm'
+      - name: Pull, up, migrate, health-check via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          script: bash /opt/crm/scripts/devops/deploy-stack-on-vps.sh
+YML
+
+# Same dispatch, but to a path with no repository file behind it: unauditable, so
+# it must refuse rather than quietly contribute nothing.
+read -r -d '' DISPATCH_UNKNOWN_YML <<YML || true
+name: Deploy
+on:
+  push:
+    branches: [main]
+jobs:
+  copy-compose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Copy DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: \${{ secrets.VPS_HOST }}
+          source: 'docker-compose.prod.yml,apps/api/drizzle/manual/$DDL'
+          target: '/opt/crm'
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pull, up, migrate, health-check via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          script: bash /opt/crm/scripts/devops/not-in-this-repo.sh
+YML
+
+assert_green "dispatch via 'bash /opt/crm/<path>' is followed to the repo file -> counted as applied" \
+  --contains "Copied AND applied:      1" \
+  --contains "BROKEN WIRING:           0" \
+  -- run_guard "$(make_script_path_case disp-wired "$DISPATCH_YML" "$APPLY_SCRIPT")"
+
+assert_red "dispatch whose script never applies the DDL -> still red (no false green)" \
+  --contains "COPIED BUT NEVER APPLIED" \
+  -- run_guard "$(make_script_path_case disp-copy-only "$DISPATCH_YML" "$NO_APPLY_SCRIPT")"
+
+assert_red "dispatch to a /opt/crm path with no repository file -> red, not silently unaudited" \
+  --contains "no " \
+  -- run_guard "$(make_script_path_case disp-unknown "$DISPATCH_UNKNOWN_YML" "$APPLY_SCRIPT")"
+
 assert_green "the apply lives in the script_path: file (post-split real shape) -> counted as applied" \
   --contains "Copied AND applied:      1" \
   --contains "BROKEN WIRING:           0" \
