@@ -80,9 +80,15 @@ jobs:
       # scripts/devops/check-ssh-action-capture-stdout-version.py), same pin as the
       # backup-freshness step in deploy.yml.
       # No `continue-on-error`: if SSH fails the run goes red, which is the point.
-      # LOG HYGIENE: stdout is captured (not streamed); matching lines never reach the
-      # log. Both streams of `docker compose logs` are folded into a variable, so
-      # nothing from the container reaches stderr either.
+      # LOG HYGIENE (this repo and its Actions logs are PUBLIC): the matching AND the
+      # sanitising happen HERE, on the VPS. Only validated fields leave production
+      # (timestamp, logger, object, sqlstate, counters); no raw log text, not even
+      # truncated. Both streams of `docker compose logs` are folded into a variable,
+      # so nothing from the container reaches stderr either. Measured by reading
+      # appleboy/ssh-action v1.2.3 entrypoint.sh: with capture_stdout the output goes
+      # to GITHUB_OUTPUT (tee -a) and is not echoed to the job log; stderr is still
+      # streamed. The env: block of the next step IS rendered in the log, which is why
+      # the envelope must be fields-only no matter what the action does.
       - name: Read the API logs over SSH (read-only)
         id: logscan
         uses: appleboy/ssh-action@v1.2.3
@@ -99,16 +105,35 @@ jobs:
             set -u
             cd /opt/crm
             dc="docker compose -f docker-compose.prod.yml -f docker-compose.ghcr.yml --env-file .env.production"
-            n=$($dc ps -q api 2>/dev/null | grep -c . || true)
+            names=$($dc ps --format '{{.Name}}' api 2>/dev/null)
+            n=$(printf '%s\n' "$names" | grep -c . || true)
+            cname=$(printf '%s\n' "$names" | head -n 1 | tr -dc 'A-Za-z0-9_./-' | cut -c1-60)
             if ! logs=$($dc logs --no-color --timestamps --since "$LOGSCAN_SINCE" api 2>&1); then
               echo "LOGSCAN_FAILED=compose_logs"
               exit 0
             fi
             echo "LOGSCAN_API_CONTAINERS=$n"
+            echo "LOGSCAN_CONTAINER=${cname:-unknown}"
             echo "LOGSCAN_LINES=$(printf '%s\n' "$logs" | grep -c . || true)"
-            echo "LOGSCAN_MATCHES_BEGIN"
-            printf '%s\n' "$logs" | grep -aEi -e "$LOGSCAN_RE" | tail -n 40 | cut -c1-600 || true
-            echo "LOGSCAN_MATCHES_END"
+            echo "LOGSCAN_HITS=$(printf '%s\n' "$logs" | grep -aEic -e "$LOGSCAN_RE" || true)"
+            printf '%s\n' "$logs" | grep -aEi -e "$LOGSCAN_RE" | tail -n 20 | while IFS= read -r l; do
+              ts=$(printf '%s' "$l" | sed -nE 's/^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]{8,20}Z) .*/\1/p')
+              lg=$(printf '%s' "$l" | sed -nE 's/.*(ERROR|WARN|FATAL) *\[([A-Za-z0-9_.-]{1,60})\].*/\2/p' | head -n 1)
+              lo=$(printf '%s' "$l" | tr 'A-Z' 'a-z')
+              ob=$(printf '%s' "$lo" | sed -nE 's/.*permission denied for (table|sequence|schema|function|relation|view|type|database) "?([a-z_][a-z0-9_.]{0,62}).*/\1:\2/p' | head -n 1)
+              if [ -z "$ob" ]; then
+                ob=$(printf '%s' "$lo" | sed -nE 's/.*must be owner of (table|sequence|schema|function|relation|view|type|database) "?([a-z_][a-z0-9_.]{0,62}).*/owner-only:\1:\2/p' | head -n 1)
+              fi
+              if printf '%s' "$lo" | grep -Eq '(sqlstate|code)[^0-9a-z]{0,6}42501'; then
+                st=42501
+              elif [ -n "$ob" ]; then
+                st=42501-by-message
+              else
+                st=unclassified
+              fi
+              echo "LOGSCAN_HIT ts=${ts:-unknown} logger=${lg:-unknown} object=${ob:-unknown} sqlstate=$st"
+            done
+            echo "LOGSCAN_END"
 
       # exit 1 = a hit, exit 2 = the scan could not see: both red, on purpose.
       - name: Scan the envelope (fails on a hit or when blind)
