@@ -10,6 +10,14 @@ name: API Permission Denied Watch
 # after the 48-hour deploy log watch) as a 42501 inside a handler that swallows its
 # errors. Nothing else would ever say so.
 #
+# COVERAGE DEPENDS ON A LOGGING CHANGE IN THE API (fix/api-log-db-sqlstate). A Drizzle
+# query error's message is `Failed query: ...`; "permission denied" and 42501 are only
+# on `.cause`, so today a swallowed privilege error in a cron handler does NOT reach the
+# log text this watch reads. Until the API logs the SQLSTATE from `.cause` on those
+# paths the honest state is "detection in place, coverage pending", not "measure 2
+# satisfied". The pattern targets the labelled form that change should produce
+# (`sqlstate=42501`) plus Postgres' own message text.
+#
 # HOW IT PAGES. A hit (or a blind scan) FAILS this run, and GitHub's failed-run
 # notification is the page: the same mechanism deploy-freshness.yml already relies
 # on, no new dependency. It is the only owner-reaching channel this repository has;
