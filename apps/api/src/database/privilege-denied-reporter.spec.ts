@@ -1,6 +1,7 @@
 import 'reflect-metadata'
 import { Logger } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
+import { ALERT_CONTRACT_PATTERN, ALERT_PATTERN } from './__test-helpers__/alert-patterns'
 import { DatabaseModule } from './database.module'
 import {
   PrivilegeDeniedReporter,
@@ -126,16 +127,30 @@ describe('privilegeDeniedLine — the alert contract', () => {
     expect(privilegeDeniedLine(null, 'pool')).toBeNull()
   })
 
-  // The alert (#1041, check-api-permission-denied.sh, PERMISSION_DENIED_RE) — copied verbatim,
-  // so renaming a token here or there fails a test instead of silently un-wiring the alert.
-  // The canonical line is what it must match, on the exact logger output shape too.
-  it('is matched by the alert’s pattern, as logged by Nest', () => {
-    const alert = /permission denied|must be (owner|superuser)|(sqlstate|code)[^0-9a-z]{0,6}42501/
+  // The alert's patterns come from ONE shared test constant (`alert-patterns.ts`, which names
+  // the script that owns them), so renaming a token here or there fails a test instead of
+  // silently un-wiring the alert. The canonical line must match the CONTRACT pattern, on the
+  // exact logger output shape too.
+  it('is matched by the alert’s contract pattern, as logged by Nest', () => {
     const logged = `ERROR [DatabasePrivilege] ${privilegeDeniedLine(denied(), 'pool')}`
     expect(logged).toBe(
       'ERROR [DatabasePrivilege] db_privilege_denied sqlstate=42501 table=document_access_log ctx=pool',
     )
-    expect(alert.test(logged)).toBe(true)
+    expect(ALERT_CONTRACT_PATTERN.test(logged)).toBe(true)
+    expect(ALERT_PATTERN.test(logged)).toBe(true)
+  })
+
+  it('the shared alert constants are what the alert is: case-insensitive, contract needs the token', () => {
+    expect(ALERT_PATTERN.test('Permission Denied for table x')).toBe(true)
+    expect(ALERT_PATTERN.test('MUST BE OWNER of table x')).toBe(true)
+    // A bare SQLSTATE is not a hit (the alert dropped that branch), nor is the old fragment field.
+    expect(ALERT_PATTERN.test('sqlstate=42501')).toBe(false)
+    expect(ALERT_PATTERN.test('code: 42501')).toBe(false)
+    expect(ALERT_CONTRACT_PATTERN.test('db_sqlstate=42501')).toBe(false)
+    expect(ALERT_CONTRACT_PATTERN.test('db_privilege_denied sqlstate=42501 table=x ctx=pool')).toBe(
+      true,
+    )
+    expect(ALERT_CONTRACT_PATTERN.test('db_privilege_denied table=x ctx=pool')).toBe(false)
   })
 
   it('never carries a statement, a parameter value, detail or where', () => {

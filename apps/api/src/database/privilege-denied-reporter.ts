@@ -28,8 +28,9 @@ import { PG_INSUFFICIENT_PRIVILEGE, dbIdentifier, findPgError } from './pg-error
  *
  * THIS LINE IS THE ALERT'S CONTRACT AND THE ONLY ONE. The handlers' `db_error …` fragment
  * (`pg-errors.ts`) is diagnostic and deliberately outside the alert's pattern, so one failure
- * is one hit. A test here pins the line against a verbatim copy of the alert's pattern
- * (scripts/devops/check-api-permission-denied.sh, PERMISSION_DENIED_RE).
+ * is one hit. Tests pin the line against ONE shared copy of the alert's patterns
+ * (`__test-helpers__/alert-patterns.ts`), which names the script that owns them
+ * (scripts/devops/check-api-permission-denied.sh) and is a copy until that is on main.
  *
  * Emitted at ERROR level, logger context `DatabasePrivilege`, once per failing statement. The
  * alert may rely on the bare token `db_privilege_denied`, on `sqlstate=42501` and on `table=`;

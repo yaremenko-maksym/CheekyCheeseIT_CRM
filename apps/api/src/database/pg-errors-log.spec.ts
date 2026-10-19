@@ -9,6 +9,7 @@
  * test.
  */
 import { describe, expect, it } from 'vitest'
+import { ALERT_PATTERN } from './__test-helpers__/alert-patterns'
 import { dbErrorLogSuffix, describeDbError, safeErrorStack } from './pg-errors'
 
 /** What `pg` throws: a DatabaseError — `code`, `severity`, and the identifier fields. */
@@ -137,13 +138,10 @@ describe('describeDbError — the alert contract', () => {
     )
   })
 
-  // The alert (#1041, scripts/devops/check-api-permission-denied.sh, PERMISSION_DENIED_RE)
-  // matches this pattern. It is copied here VERBATIM so a change to either side fails a test
-  // instead of silently producing two hits for one failure. The contract is the canonical
-  // `db_privilege_denied` line; this fragment is diagnostic and deliberately OUTSIDE it.
-  const ALERT_PATTERN =
-    /permission denied|must be (owner|superuser)|(sqlstate|code)[^0-9a-z]{0,6}42501/
-
+  // The alert's patterns live in ONE shared test constant (`alert-patterns.ts`, which names the
+  // script that owns them). The contract is the canonical `db_privilege_denied` line; this
+  // fragment is diagnostic and deliberately OUTSIDE everything that pages, so one failure is
+  // one hit and not two.
   it.each([
     'permission denied for table document_access_log',
     'permission denied for schema public',
@@ -384,6 +382,37 @@ describe('safeErrorStack', () => {
     err.stack = `${err.name}: ${err.message}\n    at Handler.run (/x/handler.ts:1:1)\nnote: meet me at noon`
 
     expect(safeErrorStack(err)).toBe('DrizzleQueryError\n    at Handler.run (/x/handler.ts:1:1)')
+  })
+
+  // SR-M-1: V8 builds the header lazily. If `.stack` was read and `.message` is shortened
+  // afterwards, the shortened header is a PREFIX of the frozen stack, so a bare startsWith
+  // passes — and the remainder still holds the parameters. The remainder must therefore be
+  // empty or begin with a frame.
+  it.each([
+    ['at the params line', 'Failed query: select 1 where a = $1'],
+    ['before the query', 'Failed query: select'],
+    ['to nothing', ''],
+  ])('fails closed when .message is shortened after .stack was read (%s)', (_name, shortened) => {
+    const err = drizzleError(DENIED, 'select 1 where a = $1', ['x\n    at LEAK (f:1:1)'])
+    err.stack = `${err.name}: ${err.message}\n    at Handler.run (/x/handler.ts:1:1)`
+    err.message = shortened
+
+    const stack = safeErrorStack(err) ?? ''
+
+    expect(stack).toBe('DrizzleQueryError')
+    expect(stack).not.toContain('LEAK')
+  })
+
+  it('accepts a stack whose remainder after the header is empty, or starts with a frame', () => {
+    const noFrames = drizzleError(DENIED, 'select 1', [])
+    noFrames.stack = `${noFrames.name}: ${noFrames.message}`
+    expect(safeErrorStack(noFrames)).toBe('DrizzleQueryError')
+
+    const withFrame = drizzleError(DENIED, 'select 1', [])
+    withFrame.stack = `${withFrame.name}: ${withFrame.message}\n    at Handler.run (/x/handler.ts:1:1)`
+    expect(safeErrorStack(withFrame)).toBe(
+      'DrizzleQueryError\n    at Handler.run (/x/handler.ts:1:1)',
+    )
   })
 
   it('fails closed: a stack that does not start with its own `name: message` header yields just the name', () => {

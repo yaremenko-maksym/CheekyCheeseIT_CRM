@@ -103,22 +103,28 @@ export function isDeadlock(err: unknown): boolean {
  * `message: 'permission denied for table …'`. A handler that logs `err.message` or
  * `err.stack` therefore (1) never writes the SQLSTATE, so an alert on `42501` is
  * silent exactly where it is needed, and (2) writes the parameter values, which can
- * be personal data. This module is the one place that reads the chain and decides
- * what may be written down.
+ * be personal data. This is where the swallowing handlers' logging reads the chain and
+ * decides what may be written down. It is NOT the only place a drizzle error's message and
+ * stack are persisted: `TelemetryExceptionFilter` stores `exception.message` and
+ * `exception.stack` of any 5xx, and for a drizzle error both carry the bound parameters.
+ * That path does not use this module yet (tracked separately).
  *
  * THE ALERT'S CONTRACT IS NOT THIS FRAGMENT. For a privilege error (42501) the contract is
  * the canonical `db_privilege_denied …` line emitted once at the pool by
  * `privilege-denied-reporter.ts`; the alert matches that and only that. This fragment is
  * DIAGNOSTIC detail the swallowing handlers append to their own message (every SQLSTATE,
  * with table/constraint/column and the statement shape) so a human reading one failed run
- * sees what failed. It is DELIBERATELY OUTSIDE the alert's pattern, so that one swallowed
+ * sees what failed. It is DELIBERATELY OUTSIDE everything that pages, so that one swallowed
  * failure is one hit and not two:
- *   - its state field is `db_state`, not `sqlstate` / `code` (the alert's words), and
  *   - for 42501 it drops the driver's message — "permission denied for table x" and
- *     "must be owner of table x" are matched by the alert as text. The table is on the
- *     canonical line.
- * Both are pinned by `pg-errors-log.spec.ts`, against a verbatim copy of the alert's
- * pattern. Do not rename the field back, and do not start logging that message.
+ *     "must be owner of table x" are matched by the alert as text (case-insensitively).
+ *     The table is on the canonical line; and
+ *   - its state field is `db_state`, not `sqlstate` / `code`. The alert's current pattern
+ *     no longer has a branch for those words, but an earlier one did and matched the old
+ *     `db_sqlstate=42501`, so the name stays away from them.
+ * Both are pinned by `pg-errors-log.spec.ts` against the shared copy of the alert's patterns
+ * in `__test-helpers__/alert-patterns.ts`, which names the script that owns them. Do not
+ * start logging that message.
  *
  * ===========================  THE HANDLER-FRAGMENT FORMAT  =========================
  * An error that has a database error in its `.cause` chain adds ONE fragment to the
@@ -272,17 +278,27 @@ export function dbErrorLogSuffix(err: unknown): string {
  * is examined. Filtering lines for `^\s+at ` alone is not safe: a bound value that itself
  * contains a newline and an indented `at …` sits inside the message and passes that filter
  * (CR-H-1, reproduced on a real driver). If the stack does not begin with that header —
- * something rewrote it — nothing after the name is trusted: fail closed.
+ * something rewrote it — or what follows it is not empty / a frame, nothing after the name
+ * is trusted: fail closed.
+ *
+ * Residual, accepted: code that read `.stack`, then assigned a `.message` cut EXACTLY at a
+ * newline inside a bound value, leaves a remainder that starts like a frame. Only an
+ * assignment to `.message` after the stack is read can do that, and there is none in
+ * apps/api/src. Returning only the name would close it at the price of every frame.
  */
 export function safeErrorStack(err: unknown): string | undefined {
   if (!(err instanceof Error)) return String(err)
   if (!isPgNode(err as unknown as Dict) && !isDrizzleNode(err as unknown as Dict)) return err.stack
   if (err.stack === undefined) return undefined
   const header = `${err.name}: ${err.message}`
-  if (!err.stack.startsWith(header)) return err.name
-  const frames = err.stack
-    .slice(header.length)
-    .split('\n')
-    .filter((line) => /^\s+at /.test(line))
+  const rest = err.stack.slice(header.length)
+  // V8 builds the header lazily: if `.stack` was read and `.message` shortened afterwards,
+  // the shortened header is a PREFIX of the frozen stack and `startsWith` alone passes while
+  // the parameters sit in the remainder (SR-M-1). So the remainder must be empty or begin
+  // with a frame. Nothing in apps/api assigns `.message`, so this is unreachable today.
+  if (!err.stack.startsWith(header) || (rest !== '' && !rest.startsWith('\n    at '))) {
+    return err.name
+  }
+  const frames = rest.split('\n').filter((line) => /^\s+at /.test(line))
   return [err.name, ...frames].join('\n')
 }
