@@ -1,9 +1,16 @@
+import { statSync } from 'node:fs'
+import { join } from 'node:path'
+
 import { afterEach, describe, expect, it } from 'vitest'
+
+import { GRANTS_FILE, ROLES_FILE } from '../privileges/generate-privilege-sql'
 
 import {
   assertDisposableTarget,
   assertIdentifier,
   assertIsCrmApp,
+  MANUAL_DIR,
+  TRIGGERS_FILE,
   sqlstateOfRejection,
   type CrmAppIdentity,
 } from './crm-app-session'
@@ -122,6 +129,25 @@ describe('assertDisposableTarget', () => {
     )
   })
 
+  it.each(['crm%5Fdb', 'crm%5fdb', 'crm_d%62', '%63rm_db'])(
+    'refuses %s — pg decodes the pathname, so it IS the live database',
+    (encoded) => {
+      process.env['DATABASE_URL'] = `postgresql://crm_user:x@localhost:5432/${encoded}`
+      expect(() => assertDisposableTarget()).toThrow(
+        '[crm-app-session] refusing to run against the live crm_db',
+      )
+    },
+  )
+
+  it('strips only a LEADING slash: a slash-less opaque pathname keeps its trailing one', () => {
+    // `postgresql:crm_db/` is the one input that tells /^\//  from  /\//: anchored it stays
+    // `crm_db/` (not the live name), unanchored it would become `crm_db` and refuse. pg reads this
+    // URL as the database `rm_db/`, so nothing is lost by allowing it — the point is that the
+    // pattern's anchor is pinned rather than left to a mutant.
+    process.env['DATABASE_URL'] = 'postgresql:crm_db/'
+    expect(() => assertDisposableTarget()).not.toThrow()
+  })
+
   it.each(['crm_qa', 'crm_ci', 'crm_db_scratch', 'crm_scratch_x', 'crm_dbx'])(
     'allows %s — only the exact name is the live database',
     (database) => {
@@ -161,5 +187,23 @@ describe('sqlstateOfRejection', () => {
     await expect(
       sqlstateOfRejection(() => Promise.reject(Object.assign(new Error('x'), { cause: {} }))),
     ).resolves.toBe('no-code')
+  })
+})
+
+describe('the shipped DDL files the helper applies', () => {
+  // The helper only reads these inside `openCrmAppSession`, which needs a database. A wrong
+  // segment would therefore surface as ENOENT in an integration run only; pinning the paths here
+  // makes the rot visible without one. `isFile`, not `exists`: an emptied file name resolves to
+  // the directory itself, which exists.
+  it.each([
+    ['roles', ROLES_FILE],
+    ['triggers', TRIGGERS_FILE],
+    ['grants', GRANTS_FILE],
+  ])('finds the %s file under MANUAL_DIR', (_label, file) => {
+    expect(statSync(join(MANUAL_DIR, file)).isFile()).toBe(true)
+  })
+
+  it('points MANUAL_DIR at apps/api/drizzle/manual', () => {
+    expect(MANUAL_DIR.split(/[\\/]/).slice(-3)).toEqual(['api', 'drizzle', 'manual'])
   })
 })

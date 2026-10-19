@@ -54,8 +54,8 @@ import { applyDeployDdlFile } from './deploy-ddl-preconditions'
  * A TEST HELPER: nothing at runtime may import it.
  */
 
-const MANUAL_DIR = join(__dirname, '..', '..', '..', 'drizzle', 'manual')
-const TRIGGERS_FILE = '2026-10-18_job_queue_append_only_triggers.sql'
+export const MANUAL_DIR = join(__dirname, '..', '..', '..', 'drizzle', 'manual')
+export const TRIGGERS_FILE = '2026-10-18_job_queue_append_only_triggers.sql'
 
 /** Privileges a spec may withdraw — the ones the cron paths use. */
 export type WithdrawablePrivilege = 'SELECT' | 'INSERT' | 'UPDATE' | 'DELETE'
@@ -95,7 +95,10 @@ export interface CrmAppSession {
 }
 
 export function assertDisposableTarget(): void {
-  const database = new URL(process.env['DATABASE_URL'] as string).pathname.replace(/^\//, '')
+  // Decoded first: `pg` decodes the pathname before it connects, so `/crm%5Fdb` IS `crm_db` to the
+  // server while the raw string compares unequal to it (measured against pg's own parser).
+  const pathname = decodeURIComponent(new URL(process.env['DATABASE_URL'] as string).pathname)
+  const database = pathname.replace(/^\//, '')
   if (database === 'crm_db') {
     throw new Error('[crm-app-session] refusing to run against the live crm_db')
   }
