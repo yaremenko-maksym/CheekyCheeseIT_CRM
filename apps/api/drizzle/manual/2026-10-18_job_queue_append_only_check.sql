@@ -136,7 +136,7 @@ DECLARE
   -- deliberately NOT asserted for these: they belong to whoever applied the DDL,
   -- which is the migration role and differs between environments.
   expected_trigger_functions CONSTANT text[][] := ARRAY[
-    ['job_queue_actions_append_only',                  '6102403f82916ef46cbaae8d9709d9ab'],
+    ['job_queue_actions_append_only',                  '5b559777a63649c3c3d0e4d63456be87'],
     ['job_queue_actions_no_truncate',                  '632615a6d6f46aa229582f5de8a95099'],
     ['job_queue_generation_entries_immutable',         '0df34c2b4af8d3628fe3b77885d5e3f0'],
     ['job_queue_generation_entries_no_truncate',       '0f2845e1a6add373ea5756a9f538baf6'],
@@ -364,16 +364,41 @@ BEGIN
     fn_name := expected_trigger_functions[i][1];
     fn_md5  := expected_trigger_functions[i][2];
 
+    -- The identity-arguments filter is LOAD-BEARING, not decoration. Selected by
+    -- `proname` alone, an overload of a guard's name — `job_queue_actions_append_only(int)`,
+    -- say — makes this `SELECT … INTO` take an ARBITRARY one of the matching rows, so the
+    -- checksum assertion below can end up reading a function that is not the one the
+    -- triggers execute. A trigger function takes no declared arguments, so its identity
+    -- arguments are the empty string, and that is the only row this may read. (The two R-B
+    -- functions in part 2 above were already filtered this way; this loop was not.)
     SELECT p.proconfig,
            md5(pg_catalog.pg_get_functiondef(p.oid)) AS body_md5
       INTO rec
       FROM pg_catalog.pg_proc p
       JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
-     WHERE n.nspname = 'public' AND p.proname = fn_name;
+     WHERE n.nspname = 'public'
+       AND p.proname = fn_name
+       AND pg_catalog.pg_get_function_identity_arguments(p.oid) = '';
 
     IF NOT FOUND THEN
       problems := problems || format('trigger function public.%s() is MISSING', fn_name);
       CONTINUE;
+    END IF;
+
+    -- An overload of a guard's name is not itself an attack, but nothing in the reviewed
+    -- DDL creates one, so it is an unreviewed object sitting next to a security guard
+    -- under a confusable name. Reported rather than ignored.
+    SELECT count(*)::int INTO found_count
+      FROM pg_catalog.pg_proc p
+      JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public'
+       AND p.proname = fn_name
+       AND pg_catalog.pg_get_function_identity_arguments(p.oid) <> '';
+    IF found_count > 0 THEN
+      problems := problems || format(
+        'trigger function public.%s has %s unexpected overload(s) — no reviewed file '
+        'creates one, and an overload of a guard''s name is an unreviewed object',
+        fn_name, found_count);
     END IF;
 
     IF rec.proconfig IS DISTINCT FROM ARRAY[expected_search_path] THEN

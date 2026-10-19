@@ -43,12 +43,45 @@
 --   - every trigger is dropped and recreated (`DROP TRIGGER IF EXISTS` then
 --     `CREATE TRIGGER`), because PostgreSQL 16 has no
 --     `CREATE OR REPLACE TRIGGER ... IF NOT EXISTS` and a recreate is the only way
---     to converge a trigger whose definition changed. The window in which the
---     trigger does not exist is one statement long, inside the deploy's own
---     maintenance step;
+--     to converge a trigger whose definition changed. See THE RECREATE WINDOW below:
+--     it is real, and this is where its cost is written down rather than waved at;
 --   - `ALTER TABLE ... ENABLE ALWAYS TRIGGER` is idempotent by nature;
 --   - the grants are `REVOKE ALL ... FROM PUBLIC` + `GRANT EXECUTE ... TO crm_app`,
 --     both convergent.
+--
+-- THE RECREATE WINDOW — real, bounded, and NOT closed by this file
+--   This file has no `BEGIN`/`COMMIT`. Under `psql -v ON_ERROR_STOP=1` every statement
+--   therefore autocommits, so between the `DROP TRIGGER` and the `CREATE TRIGGER` of
+--   the same guard there is a committed instant in which the guard DOES NOT EXIST and
+--   no lock is held either — `DROP TRIGGER` takes ACCESS EXCLUSIVE on the table, but
+--   releases it when that statement commits. The window is real. It recurs on EVERY
+--   deploy, because the deploy re-applies every manual file.
+--
+--   WHAT IT EXPOSES, precisely. During the window the table is protected only by its
+--   GRANTS, which is the layer that was always the primary one here:
+--     - `crm_app` — nothing. `job_queue_actions` is class B: its UPDATE/DELETE/TRUNCATE
+--       are REVOKED, so the API cannot exploit the window even with no trigger present.
+--       The trigger is the SECOND lock on an already-revoked privilege (ADR §3).
+--     - `crm_retention_owner` — the shape guard, and only it. The role holds SELECT and
+--       DELETE, so inside the window it could delete a row that is NOT yet two years
+--       old, which outside the window the trigger refuses. It is NOLOGIN with
+--       CONNECTION LIMIT 0, so this requires an already-compromised superuser session.
+--     - the migration role running the deploy — nothing new: ownership alone lets it
+--       `DISABLE TRIGGER`, with or without this window. ADR §3 states that this file's
+--       protection against the migration role is procedural, and the DETECTION is the
+--       companion catalog check on the next deploy.
+--   So the window widens no privilege that the grants do not already withhold; what it
+--   removes is the defence-in-depth second lock, for the roles that have the first one.
+--
+--   WHY IT IS STILL OPEN. Wrapping the file in one transaction would close it — DDL is
+--   transactional in PostgreSQL, and `2026-10-18_db_grants.sql` and the privileges check
+--   are both wrapped this way, so it would also match the sibling convention. It is not
+--   done here unilaterally because it trades the window for its mirror image: one
+--   transaction holds ACCESS EXCLUSIVE on all three tables for the whole file, which
+--   blocks every reader and writer of the job queue for that duration instead of
+--   leaving one guard briefly absent. Which of those two costs is the right one to pay
+--   is a judgement about the deploy, not about this DDL, and it is recorded here for
+--   the owner rather than settled by whoever edited the file last.
 --
 -- WHY `ENABLE ALWAYS` ON EVERY TRIGGER HERE
 --   A trigger in the default state is SKIPPED when `session_replication_role =
@@ -215,7 +248,13 @@ BEGIN
         ERRCODE = 'restrict_violation',
         DETAIL  = 'The only sanctioned update is the redaction of `reason` to the fixed '
                   'token, by crm_retention_owner, with every other column unchanged.',
-        HINT    = 'Call crm_retention_redact_action_reason(action_id, request_id) instead.';
+        HINT    = 'The redaction path is NOT YET CALLABLE: '
+                  'crm_retention_redact_action_reason(action_id, request_id) exists but '
+                  'raises 42501, because crm_retention_owner is granted SELECT and DELETE '
+                  'and the function also needs UPDATE (reason) — a column-level privilege '
+                  'the least-privilege model forbids (db-privileges check, part 3). Until '
+                  'that is decided, a reason cannot be redacted by any route. Do not add '
+                  'the grant to make this message go away.';
   END IF;
 
   -- Unreachable: the trigger is created for UPDATE OR DELETE only. Raising rather
@@ -516,6 +555,25 @@ $fn$;
 -- non-blank CHECK and the row's meaning both survive. See the header's divergence
 -- note 2 for why the evidence goes to the server log today instead of into a
 -- `REASON_REDACTED` row.
+--
+-- THIS FUNCTION IS INERT IN PRODUCTION AS DEPLOYED. It is created, owned, pinned and
+-- granted — and it CANNOT RUN: measured `42501`. It needs `SELECT` plus `UPDATE (reason)`
+-- on `job_queue_actions`, and `crm_retention_owner` is granted `SELECT, DELETE`. The
+-- missing privilege cannot simply be added, which is why this is written down instead of
+-- fixed: its true minimum is the column-level `UPDATE (reason)`, and part 3 of the
+-- db-privileges check rejects ANY column-level privilege other than `SELECT` for these
+-- roles, outright; while a table-level `UPDATE` is wider than the function needs — it
+-- would let the role rewrite any column of the audit log, and although the trigger above
+-- constrains the SHAPE of an admitted update, a grant in a least-privilege manifest is
+-- supposed to be justified by a failing run, not by a trigger covering for it.
+--
+-- So the redaction path is DECLARED but NOT YET CALLABLE, deliberately, pending an owner
+-- decision on which of those two the model should accept. Consequences, stated plainly:
+-- a `reason` cannot be redacted by any route today, and the legal memo §8 item 3
+-- obligation is therefore NOT discharged by this deploy. The integration suite pins the
+-- inert state ("is INERT under the PRODUCTION grant set"), and its three behavioural
+-- redaction tests run with a grant the suite adds and revokes itself — they establish
+-- this body's logic, never that production can call it.
 CREATE OR REPLACE FUNCTION public.crm_retention_redact_action_reason(
   p_action_id uuid,
   p_request_id text

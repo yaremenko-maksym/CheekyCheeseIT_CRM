@@ -1356,6 +1356,39 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
   // -------------------------------------------------------------------------
   // The honest gap this task could not close (DDL header, divergence 2)
   // -------------------------------------------------------------------------
+  describe('GAP PIN — job_queue_generations has no INSERT guard', () => {
+    it('accepts a generation created already PUBLISHED with expires_at in the past', async () => {
+      // MEASURED, and deliberately left open in this PR. The three guards on this table
+      // and its entries all constrain what happens AFTER a generation exists:
+      // `_frozen` freezes scope_kind / team_id / expires_at on UPDATE and makes status
+      // one-way, `_purge_invalidated_only` bounds DELETE, and `_building_only` refuses an
+      // entry once the generation leaves BUILDING. Nothing constrains the INSERT, so a
+      // role with INSERT can create a generation that is PUBLISHED and already expired —
+      // a state the state machine would never reach by moving through it.
+      //
+      // WHY IT IS A FOLLOW-UP AND NOT THIS PR: there is no cross-team disclosure in it,
+      // because an entry can only be added while the generation is BUILDING, so a
+      // generation born PUBLISHED is permanently empty — the exposure is an integrity
+      // nuance (a nonsense row), not a read of another team's queue. Closing it means an
+      // eighth trigger with its own admitted-shape semantics, its own manifest entry and
+      // its own tests, decided on its own merits rather than appended to a PR already in
+      // a fix round. This test records the gap so that it is a known state rather than a
+      // discovery, and GOES RED the day the guard lands — which is the signal to delete it.
+      const team = await newTeam()
+      const { rows } = await q(
+        `INSERT INTO job_queue_generations
+           (scope_kind, team_id, policy_signature, rule_version, evaluated_at,
+            expires_at, status, published_at)
+         VALUES ('TEAM', $2, $1, 'rank-v1', now(),
+                 now() - interval '1 year', 'PUBLISHED', now() - interval '1 year')
+         RETURNING id, status, expires_at`,
+        [`${TAG}:${nextTag()}`, team],
+      )
+      expect(rows[0].status).toBe('PUBLISHED')
+      expect(new Date(rows[0].expires_at as string).getTime()).toBeLessThan(Date.now())
+    })
+  })
+
   describe('GAP PIN — the REASON_REDACTED evidence row', () => {
     it('has no enum value to write, so the redaction logs to the server log instead', async () => {
       const { rows } = await q(
