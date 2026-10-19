@@ -23,6 +23,7 @@
  */
 import { Injectable, Logger } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
+import { dbErrorLogSuffix, safeErrorStack } from '../database/pg-errors'
 import { lt } from 'drizzle-orm'
 import { DatabaseService } from '../database/database.service'
 import { documentAccessLog } from '../database/schema'
@@ -45,8 +46,8 @@ export class DocumentAccessLogRetentionCronService {
       this.logger.log(`Document access log retention: deleted ${deleted} row(s)`)
     } catch (err: unknown) {
       this.logger.error(
-        'Document access log retention cron failed — will retry next cycle',
-        err instanceof Error ? err.stack : String(err),
+        `Document access log retention cron failed — will retry next cycle${dbErrorLogSuffix(err)}`,
+        safeErrorStack(err),
       )
       // Do NOT rethrow — an unhandled rejection in a @Cron handler silently
       // terminates the job scheduler.
