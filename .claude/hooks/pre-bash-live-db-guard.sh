@@ -23,6 +23,18 @@
 # exactly the opposite (see class 3 below).
 #
 # ---------------------------------------------------------------------------
+# WARNING - READ BEFORE EDITING THE PYTHON BELOW. It sits inside a bash
+# single-quoted string (python3 -c '...'), so ONE apostrophe anywhere in it - in a
+# comment, a docstring, a message ("someone else's", "libpq's") - ends the string
+# early, and bash dies at PARSE time with a syntax error. A hook that dies on a
+# syntax error exits 2, which is indistinguishable from an honest block. It has
+# happened twice in this repository. Write "the libpq user-name fallback", never
+# the possessive; use \x27 inside a regex. Before every commit:
+#     bash -n .claude/hooks/pre-bash-live-db-guard.sh && <run the suite>
+# chained with &&, not ;. The suite shows it loudly (nearly every case fails with
+# "syntax error near unexpected token"), but only if it is run.
+#
+# ---------------------------------------------------------------------------
 # HOW IT DECIDES WHAT IS BEING LAUNCHED (rewritten 2026-08-18, backlog 63)
 #
 # It used to grep the raw command line for `vite`, `nest start`, `pnpm dev`,
