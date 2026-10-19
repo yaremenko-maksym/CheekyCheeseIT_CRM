@@ -12,6 +12,7 @@
  */
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { assertNotLiveDb } from '../../test/assert-not-live-db'
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import { CLUSTER_DATABASES, cleanupThenRestore, snapshotClusterAcls } from './cluster-acl-snapshot'
 
@@ -35,9 +36,7 @@ describe.skipIf(!hasDatabaseUrl())('cluster-acl-snapshot', () => {
   }
 
   beforeAll(async () => {
-    if (new URL(url).pathname === '/crm_db') {
-      throw new Error('[cluster-acl-snapshot] refusing to run against the live crm_db')
-    }
+    assertNotLiveDb(url, 'cluster-acl-snapshot')
     admin = new Pool({ connectionString: url, max: 1 })
     await admin.query(`CREATE DATABASE ${nullDb}`)
     await admin.query(`CREATE DATABASE ${setDb}`)

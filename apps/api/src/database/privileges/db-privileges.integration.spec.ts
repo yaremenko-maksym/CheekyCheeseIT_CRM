@@ -44,7 +44,9 @@ import { join } from 'node:path'
 import { Pool, type PoolClient } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { splitSqlStatements } from '../manual-sql-statements'
+import { assertNotLiveDb } from '../../test/assert-not-live-db'
 import { assertRealDbSchema, hasDatabaseUrl } from '../../test/require-real-db'
+import { extractDbName } from '../seed-db-guard'
 import {
   CHECK_FILE,
   GRANTS_FILE,
@@ -204,10 +206,9 @@ async function runPart(pool: Pool, statement: string): Promise<string | null> {
 }
 
 function assertDisposableTarget(): void {
-  const database = new URL(process.env['DATABASE_URL'] as string).pathname.replace(/^\//, '')
-  if (database === 'crm_db') {
-    throw new Error('[db-privileges] refusing to run against the live crm_db')
-  }
+  // `assertNotLiveDb` and not a parse of our own: `pg` decodes the database name, so
+  // `…/crm%5Fdb` is the live database while the raw pathname compared unequal to it.
+  assertNotLiveDb(process.env['DATABASE_URL'] as string, 'db-privileges')
 }
 
 describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', () => {
@@ -1257,7 +1258,7 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
       // `REVOKE ALL ON DATABASE … FROM PUBLIC` in the roles file is what makes a role the
       // API does not hold unable to connect at all. Re-granting it to PUBLIC undoes the
       // outer boundary while leaving every table grant intact, so no other part moves.
-      const database = new URL(process.env['DATABASE_URL'] as string).pathname.replace(/^\//, '')
+      const database = extractDbName(process.env['DATABASE_URL'] as string)
       await migration.query(`GRANT CONNECT ON DATABASE ${database} TO PUBLIC`)
       try {
         const failure = await runCheck(migration)
@@ -1808,7 +1809,7 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
       let fixerPool: Pool | undefined
       // The roles file revoked PUBLIC's CONNECT on this database, so a new login role has
       // to be granted it by name — which is itself the boundary working as designed.
-      const database = new URL(process.env['DATABASE_URL'] as string).pathname.replace(/^\//, '')
+      const database = extractDbName(process.env['DATABASE_URL'] as string)
       await migration.query(
         `CREATE ROLE ${fixer} LOGIN NOSUPERUSER CREATEROLE NOCREATEDB PASSWORD '${fixerPassword}'`,
       )
