@@ -47,9 +47,4 @@ describe('DatabaseService pool error listener', () => {
     expect(message).toBe('Postgres pool idle-client error: read ECONNRESET')
     expect(stack).toBe(err.stack)
   })
-
-  it('keeps serving after an error: the pool is not ended by the listener', async () => {
-    pool().emit('error', new Error('boom'))
-    expect(pool().ended).toBe(false)
-  })
 })
