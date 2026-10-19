@@ -110,9 +110,22 @@ while IFS= read -r line; do
   if printf '%s' "$line" | grep -Eq "$RE_HIT"; then
     h_lg="$(printf '%s' "$line" | sed -E 's/.* logger=([^ ]+) .*/\1/')"
     h_ob="$(printf '%s' "$line" | sed -E 's/.* object=([^ ]+) .*/\1/')"
-    h_nm="${h_ob##*:}"
     if [ "$h_lg" != "unknown" ] && ! on_list "$h_lg" "$LOGSCAN_LOGGERS"; then unexpected=$((unexpected + 1)); continue; fi
-    if [ "$h_ob" != "unknown" ] && [ "$h_nm" != "unknown" ] && ! on_list "$h_nm" "$LOGSCAN_TABLES"; then unexpected=$((unexpected + 1)); continue; fi
+    # The WHOLE object field is validated, not its last segment (SR-M-2): a value like
+    # `jane.doe.example.com-380501234567:unknown` ends in a legal word and used to pass.
+    # Accepted: `unknown`, or [owner-only:]<kind>:<name> with <kind> from the fixed set
+    # and <name> either `unknown` or ON the table list.
+    if [ "$h_ob" != "unknown" ]; then
+      h_rest="${h_ob#owner-only:}"
+      h_kind="${h_rest%%:*}"
+      h_nm="${h_rest#*:}"
+      case "$h_kind" in
+        table | sequence | schema | function | relation | view | type | database) ;;
+        *) unexpected=$((unexpected + 1)); continue ;;
+      esac
+      [ "$h_rest" != "$h_kind" ] || { unexpected=$((unexpected + 1)); continue; }
+      if [ "$h_nm" != "unknown" ] && ! on_list "$h_nm" "$LOGSCAN_TABLES"; then unexpected=$((unexpected + 1)); continue; fi
+    fi
     continue
   fi
   unexpected=$((unexpected + 1))
@@ -143,12 +156,23 @@ if [ "$hits" -eq 0 ] && [ "$detail_n" -gt 0 ]; then
   blind "envelope reports 0 hits but lists ${detail_n} hit line(s): inconsistent"
 fi
 
+# The public log shows a COARSE volume, not the exact line count: the exact number is a
+# traffic-volume reading nobody needs. It still proves the logs were read.
+volume() {
+  if [ "$1" -eq 0 ]; then echo "0"
+  elif [ "$1" -lt 100 ]; then echo "under 100"
+  elif [ "$1" -lt 1000 ]; then echo "under 1,000"
+  elif [ "$1" -lt 10000 ]; then echo "under 10,000"
+  else echo "10,000 or more"; fi
+}
+
 if [ "$hits" -eq 0 ]; then
-  echo "OK: read ${lines} API log line(s) from ${containers} container(s) (${container:-unknown}); no permission-denied / 42501."
+  vol="$(volume "$lines")"
+  echo "OK: read ${vol} API log line(s) from ${containers} container(s) (${container:-unknown}); no permission-denied / 42501."
   {
     echo "## API permission-denied watch: clean"
     echo ""
-    echo "Read ${lines} log line(s) from ${containers} api container(s); no match."
+    echo "Read ${vol} log line(s) from ${containers} api container(s); no match."
   } >>"$SUMMARY"
   [ "$lines" -gt 0 ] || echo "::warning::the window held 0 log lines: clean, but a silent API is worth a look"
   exit 0
@@ -184,7 +208,11 @@ fi
   echo ""
   echo "**Role:** not in the API log. It is the user in the API's \`DATABASE_URL\` (\`crm_user\` before ADR step 5, \`crm_app\` after). This watch does not read that variable."
   echo "**sqlstate:** \`42501\` = the code was logged; \`42501-by-message\` = inferred from Postgres' message text; \`unclassified\` = matched the words but is not a recognisable database error (a file or ssh permission, perhaps)."
-  echo "**Statement:** deliberately not carried (public log). Postgres' own server log has the ERROR/STATEMENT pair for these timestamps."
+  if printf '%s\n' "$hit_lines" | grep -Eq '^LOGSCAN_HIT ts=[0-9]'; then
+    echo "**Statement:** deliberately not carried (public log). Postgres' own server log has the ERROR/STATEMENT pair near the timestamps above."
+  else
+    echo "**Statement:** deliberately not carried (public log). No timestamp could be read from the matching line(s) (\`unknown\`), so search Postgres' server log and the api container log (\`docker compose logs --since <window> api\`) for the window of this run."
+  fi
   echo "**Fix:** the table's class in the privilege manifest plus the one missing grant (ADR, Rollback: a forward fix, no widen-grants file)."
 } >>"$SUMMARY"
 exit 1

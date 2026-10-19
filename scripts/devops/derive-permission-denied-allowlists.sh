@@ -53,8 +53,12 @@ FRAMEWORK_LOGGERS="ExceptionsHandler NestApplication NestFactory InstanceLoader 
 tables="$(awk '/^export const PRIVILEGE_CLASSES/{f=1;next} f&&/^}/{exit} f' "$MANIFEST" \
   | grep -vE '^[[:space:]]*(//|/\*|\*)' | grep -oE "'[a-z_][a-z0-9_]*'" | tr -d "'" | sort -u | tr '\n' ' ' | sed 's/ $//')" || tables=""
 
-loggers="$( { grep -rhoE "new Logger\(([A-Za-z0-9_]+\.name|'[A-Za-z0-9_.-]+')\)" \
+# Comment lines are dropped first: a docstring that MENTIONS `new Logger(Class.name)` is
+# not a logger (that put the meaningless context `Class` on the list).
+loggers="$( { grep -rhE "new Logger\(" \
     --include='*.ts' --exclude='*.spec.ts' --exclude='*.test.ts' "$SRC" || true; } \
+  | { grep -vE '^[[:space:]]*(//|/\*|\*)' || true; } \
+  | { grep -oE "new Logger\(([A-Za-z0-9_]+\.name|'[A-Za-z0-9_.-]+')\)" || true; } \
   | sed -E "s/^new Logger\(//; s/\)$//; s/\.name$//; s/^'//; s/'$//" \
   | grep -vx 'test' | { cat; for f in $FRAMEWORK_LOGGERS; do echo "$f"; done; } \
   | sort -u | tr '\n' ' ' | sed 's/ $//')" || loggers=""  # not 'exit': under pipefail an empty grep must reach the floor check below, which says WHY

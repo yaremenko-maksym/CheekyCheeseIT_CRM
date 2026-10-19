@@ -162,7 +162,7 @@ assert_exit_code "a hit exits 1 (act on it)" 1 run_guard "$WS/hit.env"
 
 # ── quiet ────────────────────────────────────────────────────────────────────
 assert_green "clean log stays quiet: exit 0, says what it read, no HIT, no error" \
-  --contains "OK: read 412 API log line(s) from 1 container(s) (crm-api-1)" \
+  --contains "OK: read under 1,000 API log line(s) from 1 container(s) (crm-api-1)" \
   --not-contains "HIT" --not-contains "::error" -- \
   run_guard "$WS/clean.env"
 assert_green "clean but zero lines in the window is clean with a warning, not red" \
@@ -222,6 +222,56 @@ assert_red "an off-list logger in the envelope is refused (BLIND), not shown" \
   --contains "BLIND" --not-contains "AttackerChosenToken" -- run_guard "$WS/offlist-logger.env"
 assert_red "an off-list object name in the envelope is refused (BLIND), not shown" \
   --contains "BLIND" --not-contains "jane_doe" -- run_guard "$WS/offlist-object.env"
+# SR-M-2: the WHOLE object field is validated, not the segment after the last colon.
+mk_obj_env() { # <object-field> -> $WS/obj.env
+  cat >"$WS/obj.env" <<EOF
+LOGSCAN_API_CONTAINERS=1
+LOGSCAN_CONTAINER=crm-api-1
+LOGSCAN_LINES=9
+LOGSCAN_HITS=1
+LOGSCAN_HIT ts=2026-10-19T03:00:02.123456789Z logger=unknown object=$1 sqlstate=42501
+LOGSCAN_END
+EOF
+}
+run_obj() { mk_obj_env "$1"; run_guard "$WS/obj.env"; }
+assert_red "SR-M-2: 'jane.doe.example.com-380501234567:unknown' (legal last segment, hostile prefix) is refused and NOT echoed" \
+  --contains "BLIND" --not-contains "jane.doe" --not-contains "380501234567" -- run_obj "jane.doe.example.com-380501234567:unknown"
+assert_red "SR-M-2: a hostile prefix before a LISTED table is refused too" \
+  --contains "BLIND" --not-contains "jane.doe" -- run_obj "jane.doe:table:telemetry_events"
+assert_red "SR-M-2: an unknown kind is refused" --contains "BLIND" -- run_obj "widget:telemetry_events"
+assert_red "SR-M-2: a bare word with no kind:name shape is refused" --contains "BLIND" -- run_obj "telemetry_events"
+assert_red "SR-M-2: kind:name with an off-list name is refused" --contains "BLIND" -- run_obj "table:jane_doe_example_com"
+assert_red "SR-M-2: the legal shapes still fire (owner-only:table:<listed>)" --contains "object=owner-only:table:document_access_log" -- run_obj "owner-only:table:document_access_log"
+assert_red "SR-M-2: ...and kind:unknown still pages" --contains "object=sequence:unknown" -- run_obj "sequence:unknown"
+
+# SR-M-4: the summary's advice must be true of what it emits.
+SUMF="$WS/summary.md"
+run_with_summary() { : >"$SUMF"; GITHUB_STEP_SUMMARY="$SUMF" bash "$GUARD" <"$1" >/dev/null 2>&1; }
+run_with_summary "$WS/hit.env"
+assert_green "SR-M-4: a hit WITH a timestamp points at the timestamps above" -- grep -q 'near the timestamps above' "$SUMF"
+cat >"$WS/hit-nots.env" <<'EOF'
+LOGSCAN_API_CONTAINERS=1
+LOGSCAN_CONTAINER=crm-api-1
+LOGSCAN_LINES=9
+LOGSCAN_HITS=1
+LOGSCAN_HIT ts=unknown logger=unknown object=table:unknown sqlstate=42501
+LOGSCAN_END
+EOF
+run_with_summary "$WS/hit-nots.env"
+assert_green "SR-M-4: a hit with ts=unknown does NOT claim timestamps exist, and says where to look instead" -- \
+  bash -c "! grep -q 'near the timestamps above' '$SUMF' && grep -q 'No timestamp could be read' '$SUMF'"
+
+# LOW: the public log carries a coarse volume, never the exact line count.
+cat >"$WS/clean-413.env" <<'EOF'
+LOGSCAN_API_CONTAINERS=1
+LOGSCAN_CONTAINER=crm-api-1
+LOGSCAN_LINES=40321
+LOGSCAN_HITS=0
+LOGSCAN_END
+EOF
+assert_green "the public log never shows an exact traffic count (40321 lines -> a bucket)" \
+  --contains "10,000 or more" --not-contains "40321" -- run_guard "$WS/clean-413.env"
+
 assert_red "no allowlists supplied: BLIND (fails closed), even for a clean-looking hit" \
   --contains "allowlists not provided" -- env -u LOGSCAN_TABLES -u LOGSCAN_LOGGERS bash "$GUARD" <"$WS/hit.env"
 
@@ -293,7 +343,7 @@ assert_red "PIPELINE: upper-case message is matched and its object extracted" \
   --contains "object=table:vacancy_applications" -- pipeline upper
 assert_red "PIPELINE: must-be-owner (42501 without the phrase) fires" \
   --contains "object=owner-only:table:document_access_log" -- pipeline owner
-assert_green "PIPELINE: clean log stays quiet" --contains "OK: read 2 API log line(s)" --not-contains "HIT" -- pipeline clean
+assert_green "PIPELINE: clean log stays quiet" --contains "OK: read under 100 API log line(s)" --not-contains "HIT" -- pipeline clean
 assert_red "PIPELINE: docker logs failing is BLIND, not clean" --contains "compose_logs" -- pipeline fail
 assert_red "PIPELINE: no api container is BLIND, not clean" --contains "no running api container" -- pipeline nocontainer
 
@@ -378,6 +428,12 @@ assert_green "NO DRIFT: a table added to the manifest is on the list at the next
 assert_green "loggers: a literal context and .name contexts are listed, framework contexts included" \
   --contains "LiteralNamed" --contains "Fake7Service" --contains "ExceptionsHandler" -- derive_fake
 assert_green "loggers: a spec-only logger is NOT listed" --not-contains "OnlyInASpecService" -- derive_fake
+echo " * docs mention new Logger(Class.name) and // new Logger(CommentedOutService.name)" >"$FR/apps/api/src/svc/docs.ts"
+echo "// const l = new Logger(CommentedOutService.name)" >>"$FR/apps/api/src/svc/docs.ts"
+assert_green "loggers: a name that only appears in a comment or docstring is NOT listed (the old 'Class')" \
+  --not-contains "Class" --not-contains "CommentedOutService" -- derive_fake
+assert_green "loggers: the real tree no longer lists 'Class'" -- \
+  bash -c "! printf '%s\n' '$LOGSCAN_LOGGERS' | tr ' ' '\n' | grep -qx Class"
 
 # Floors: a changed manifest shape must go RED, not silently make everything unknown.
 mkdir -p "$WS/emptyroot/apps/api/src/database/privileges"
@@ -431,7 +487,7 @@ scan() { # <docker-mode> [env args...]
 }
 
 assert_green "SEAM 5a: clean scan through the real driver exits 0 and says what it read" \
-  --contains "OK: read 2 API log line(s)" -- scan clean
+  --contains "OK: read under 100 API log line(s)" -- scan clean
 assert_exit_code "SEAM 5a: clean exits 0" 0 scan clean
 assert_red "SEAM 5a: a 42501 through the real driver FIRES, with the real timestamp from the compose-prefixed line" \
   --contains "HIT time=2026-10-19T03:00:02.123456789Z logger=VacanciesRetentionCronService object=table:vacancy_applications" \
@@ -536,7 +592,7 @@ CONF
       env -u GITHUB_STEP_SUMMARY VPS_HOST=127.0.0.1 SSH_PORT="$SSHD_PORT" VPS_USER="$(id -un)" VPS_SSH_KEY="$(cat "$SD/clientkey")" \
         VPS_KNOWN_HOSTS="$KH" LOGSCAN_RE="$RE" LOGSCAN_SINCE=40m "$@" bash "$SCAN_SH"
     }
-    assert_green "SEAM 5b REAL ssh: clean scan exits 0" --contains "OK: read 2 API log line(s)" -- real clean
+    assert_green "SEAM 5b REAL ssh: clean scan exits 0" --contains "OK: read under 100 API log line(s)" -- real clean
     assert_red "SEAM 5b REAL ssh: a 42501 FIRES with its real timestamp" \
       --contains "HIT time=2026-10-19T03:00:02.123456789Z logger=VacanciesRetentionCronService object=table:vacancy_applications" -- real hit
     assert_exit_code "SEAM 5b REAL ssh: a hit exits 1" 1 real hit
