@@ -72,7 +72,7 @@ describe.skipIf(!hasDatabaseUrl())(
       }
     })
 
-    it('a real cron handler swallows a real 42501 and logs db_sqlstate=42501', async () => {
+    it('a real cron handler swallows a real 42501 and logs db_state=42501', async () => {
       const svc = new DocumentAccessLogRetentionCronService({ db: drizzle(restricted) } as never)
       const errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
       try {
@@ -84,8 +84,8 @@ describe.skipIf(!hasDatabaseUrl())(
         expect(message).toContain(
           'Document access log retention cron failed — will retry next cycle',
         )
-        expect(message).toContain('db_error db_sqlstate=42501')
-        expect(message).toContain('permission denied for table document_access_log')
+        expect(message).toContain('db_error db_state=42501')
+        expect(message).not.toContain('permission denied')
         expect(message).toContain("db_statement=\"delete from 'document_access_log' where")
         // The stack argument is frames only (the real error's `name` is plain "Error"): it
         // still names the failing call site, and carries no query text.
@@ -136,7 +136,7 @@ describe.skipIf(!hasDatabaseUrl())(
         )
 
       const fragment = describeDbError(err) ?? ''
-      expect(fragment).toContain('db_sqlstate=42501')
+      expect(fragment).toContain('db_state=42501')
       expect(fragment).toContain('db_statement="select')
       // The placeholder, never the value. Drizzle emits "document_access_log"."action"; the
       // contract turns the double quotes into single ones.
@@ -144,6 +144,38 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(fragment).not.toContain(SECRET)
       expect(safeErrorStack(err) ?? '').not.toContain(SECRET)
     })
+
+    // CR-H-1: a bound value that contains a newline and an indented "at …" sits inside the
+    // error's message and used to pass the per-line frame filter. Real driver, both shapes.
+    it.each([
+      ['four-space frame look-alike', 'x\n    at LEAK-ZQ82 (f:1:1)'],
+      ['two-space frame look-alike', 'x\n  at LEAK-ZQ82'],
+    ])(
+      'a multi-line bound value (%s) never reaches the stack or the fragment',
+      async (_name, value) => {
+        const wrapped = await drizzle(restricted)
+          .select()
+          .from(documentAccessLog)
+          .where(eq(documentAccessLog.action, value))
+          .then(
+            () => undefined,
+            (e: unknown) => e as Error,
+          )
+        const bare = await admin.query('SELECT $1::int', [value]).then(
+          () => undefined,
+          (e: unknown) => e as Error,
+        )
+
+        for (const err of [wrapped, bare]) {
+          // Premise on the real driver: the value really is inside the error's own text.
+          expect(`${err?.message}\n${err?.stack}`).toContain('LEAK-ZQ82')
+          const stack = safeErrorStack(err) ?? ''
+          expect(stack).not.toContain('LEAK-ZQ82')
+          expect(stack).toMatch(/\n\s+at /) // real frames survive
+          expect(describeDbError(err) ?? '').not.toContain('LEAK-ZQ82')
+        }
+      },
+    )
 
     it('a class-22 error puts the value in the DRIVER’s message; the fragment drops that message', async () => {
       const err = await drizzle(admin)
@@ -156,7 +188,7 @@ describe.skipIf(!hasDatabaseUrl())(
       // Premise, real driver: the value is in the cause's own message.
       expect(err?.cause?.message).toContain(SECRET)
       const fragment = describeDbError(err) ?? ''
-      expect(fragment).toContain('db_sqlstate=22P02')
+      expect(fragment).toContain('db_state=22P02')
       expect(fragment).toContain('db_message=-')
       expect(fragment).not.toContain(SECRET)
       expect(safeErrorStack(err) ?? '').not.toContain(SECRET)
@@ -169,7 +201,7 @@ describe.skipIf(!hasDatabaseUrl())(
       )
 
       const fragment = describeDbError(err) ?? ''
-      expect(fragment).toContain('db_sqlstate=22P02')
+      expect(fragment).toContain('db_state=22P02')
       expect(fragment).toContain('db_statement=-')
       expect(fragment).not.toContain(SECRET)
       expect(safeErrorStack(err) ?? '').not.toContain(SECRET)
@@ -184,7 +216,7 @@ describe.skipIf(!hasDatabaseUrl())(
         )
 
       const fragment = describeDbError(err) ?? ''
-      expect(fragment).toContain('db_sqlstate=42P01')
+      expect(fragment).toContain('db_state=42P01')
       expect(fragment).toMatch(
         /db_message="relation 'table_that_does_not_exist_\w+' does not exist"/,
       )

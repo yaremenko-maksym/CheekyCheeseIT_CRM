@@ -106,29 +106,37 @@ export function isDeadlock(err: unknown): boolean {
  * be personal data. This module is the one place that reads the chain and decides
  * what may be written down.
  *
- * WHICH LINE IS THE ALERT'S CONTRACT: for a privilege error (42501) it is the canonical
- * `db_privilege_denied …` line emitted once at the pool by `privilege-denied-reporter.ts` —
- * an alert on 42501 should match THAT, not this fragment. The fragment below is the
- * DIAGNOSTIC detail the swallowing handlers add to their own message (every SQLSTATE, with
- * table/constraint/column and the statement shape) so a human reading one failed run sees
- * what failed. It is stable and greppable too, but nothing should depend on it for 42501.
+ * THE ALERT'S CONTRACT IS NOT THIS FRAGMENT. For a privilege error (42501) the contract is
+ * the canonical `db_privilege_denied …` line emitted once at the pool by
+ * `privilege-denied-reporter.ts`; the alert matches that and only that. This fragment is
+ * DIAGNOSTIC detail the swallowing handlers append to their own message (every SQLSTATE,
+ * with table/constraint/column and the statement shape) so a human reading one failed run
+ * sees what failed. It is DELIBERATELY OUTSIDE the alert's pattern, so that one swallowed
+ * failure is one hit and not two:
+ *   - its state field is `db_state`, not `sqlstate` / `code` (the alert's words), and
+ *   - for 42501 it drops the driver's message — "permission denied for table x" and
+ *     "must be owner of table x" are matched by the alert as text. The table is on the
+ *     canonical line.
+ * Both are pinned by `pg-errors-log.spec.ts`, against a verbatim copy of the alert's
+ * pattern. Do not rename the field back, and do not start logging that message.
  *
  * ===========================  THE HANDLER-FRAGMENT FORMAT  =========================
  * An error that has a database error in its `.cause` chain adds ONE fragment to the
  * log message (callers append it after their own static text, preceded by a space):
  *
- *   db_error db_sqlstate=<S> db_table=<T> db_constraint=<C> db_column=<K> db_message="<M>" db_statement="<Q>"
+ *   db_error db_state=<S> db_table=<T> db_constraint=<C> db_column=<K> db_message="<M>" db_statement="<Q>"
  *
  * - The fragment always starts with the bare word `db_error`, and every field is
  *   always present, in this order. An absent value is the single character `-`.
- * - `db_sqlstate=<S>` — the five-character SQLSTATE (`42501`, `28P01`, `23505`…), or
+ * - `db_state=<S>` — the five-character SQLSTATE (`42501`, `28P01`, `23505`…), or
  *   `none` for a database-call failure that has no SQLSTATE (connection refused…).
  * - `db_table` / `db_constraint` / `db_column` — identifiers the driver reported,
  *   restricted to `[A-Za-z0-9_$.]` (anything else becomes `?`). No whitespace.
  * - `db_message="<M>"` — the DRIVER's message, only for SQLSTATE classes whose text
- *   never embeds a value (08 23 28 40 42 53 54 55 57 58). `-` for the rest: class 22
- *   messages are `invalid input syntax for type integer: "<the value>"`. For a
- *   no-SQLSTATE failure it is the cause's code (`ECONNREFUSED`) or `-`.
+ *   never embeds a value (08 23 28 40 42 53 54 55 57 58), and never for 42501 (see
+ *   above). `-` for the rest: class 22 messages are
+ *   `invalid input syntax for type integer: "<the value>"`. For a no-SQLSTATE failure
+ *   it is the cause's code (`ECONNREFUSED`) or `-`.
  * - `db_statement="<Q>"` — drizzle's SQL text with `$1…` placeholders, whitespace
  *   collapsed, at most 200 characters. `-` when the error did not come through drizzle.
  * - Inside the two quoted fields `"` is replaced by `'` and control characters by a
@@ -136,17 +144,17 @@ export function isDeadlock(err: unknown): boolean {
  *
  * NEVER in the fragment, by construction: query PARAMETER VALUES, the driver's
  * `detail` (`Key (email)=(a@b.c) already exists`), `where`, `hint`, or drizzle's own
- * message. This repository is public; its logs end up in issues.
+ * message. Why: parameter values can be personal data, and a log line is routinely
+ * pasted into issues of this PUBLIC repository, where it is world-readable.
  *
- * HOW TO MATCH (what an alert may rely on, and what it must not):
- *   RELY ON  the tokens `db_sqlstate=42501` and `db_error`, or the substring
- *            `permission denied`. These are plain `[a-z0-9_=]` and survive any
- *            logger that quotes or JSON-escapes the line.
- *   DO NOT   anchor on the quote characters, on field order beyond `db_error`
- *            coming first, or on the text of `db_statement`.
- * Changing a token name or the allow-list below is a change to this contract: tell
- * whoever owns the alert.
+ * NOT A MATCH TARGET: nothing should alert on this fragment. If you need a stable token
+ * for an alert, it belongs on the pool-level line, which has an owner and a test.
+ * Changing a field name or the allow-list below changes what people reading logs see;
+ * the alert is unaffected, but keep the two pinned tests green.
  */
+
+/** Postgres SQLSTATE for insufficient_privilege ("permission denied …", "must be owner of …"). */
+export const PG_INSUFFICIENT_PRIVILEGE = '42501'
 
 const SQLSTATE_PATTERN = /^[0-9A-Z]{5}$/
 /** SQLSTATE classes whose driver message never embeds a data value (see contract). */
@@ -219,15 +227,15 @@ function fragment(
   statement: string | null,
 ): string {
   return (
-    `db_error db_sqlstate=${sqlstate} db_table=${dbIdentifier(fields['table'])} ` +
+    `db_error db_state=${sqlstate} db_table=${dbIdentifier(fields['table'])} ` +
     `db_constraint=${dbIdentifier(fields['constraint'])} db_column=${dbIdentifier(fields['column'])} ` +
     `db_message=${quoted(message)} db_statement=${quoted(statement)}`
   )
 }
 
 /**
- * The contract fragment for `err`, or `null` when no database error is in its
- * `.cause` chain. See "THE LOG-LINE CONTRACT" above.
+ * The diagnostic fragment for `err`, or `null` when no database error is in its
+ * `.cause` chain. See "THE HANDLER-FRAGMENT FORMAT" above — it is NOT the alert's contract.
  */
 export function describeDbError(err: unknown): string | null {
   const pg = findInChain(err, isPgNode)
@@ -241,9 +249,10 @@ export function describeDbError(err: unknown): string | null {
     return fragment('none', {}, typeof code === 'string' ? code : null, statement)
   }
   const sqlstate = pg['code'] as string
-  const message = VALUE_FREE_CLASSES.has(sqlstate.slice(0, 2))
-    ? ((pg['message'] as string | undefined) ?? null)
-    : null
+  // 42501's message is what the alert matches as text; the canonical line carries the table.
+  const messageIsLoggable =
+    sqlstate !== PG_INSUFFICIENT_PRIVILEGE && VALUE_FREE_CLASSES.has(sqlstate.slice(0, 2))
+  const message = messageIsLoggable ? ((pg['message'] as string | undefined) ?? null) : null
   return fragment(sqlstate, pg, message, statement)
 }
 
@@ -258,11 +267,19 @@ export function dbErrorLogSuffix(err: unknown): string {
  * message is dropped — drizzle's embeds the parameter values, and a bare pg message
  * can too — and the frames are kept. Every other error returns exactly what the
  * handlers always logged: `err.stack`, or `String(err)` for a non-Error.
+ *
+ * The message is removed as a WHOLE, by its exact `name: message` header, before any line
+ * is examined. Filtering lines for `^\s+at ` alone is not safe: a bound value that itself
+ * contains a newline and an indented `at …` sits inside the message and passes that filter
+ * (CR-H-1, reproduced on a real driver). If the stack does not begin with that header —
+ * something rewrote it — nothing after the name is trusted: fail closed.
  */
 export function safeErrorStack(err: unknown): string | undefined {
   if (!(err instanceof Error)) return String(err)
   if (!isPgNode(err as unknown as Dict) && !isDrizzleNode(err as unknown as Dict)) return err.stack
   if (err.stack === undefined) return undefined
-  const frames = err.stack.split('\n').filter((line) => /^\s+at /.test(line))
+  const header = `${err.name}: ${err.message}`
+  const body = err.stack.startsWith(header) ? err.stack.slice(header.length) : ''
+  const frames = body.split('\n').filter((line) => /^\s+at /.test(line))
   return [err.name, ...frames].join('\n')
 }

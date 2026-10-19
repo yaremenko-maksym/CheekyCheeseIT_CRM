@@ -103,13 +103,13 @@ describe('privilegeDeniedLine — the alert contract', () => {
     'permission denied to create role',
   ])('still reports a 42501 that names no table (%s), with table=-', (message) => {
     expect(privilegeDeniedLine(denied(message), 'pool')).toBe(
-      'db_privilege_denied sqlstate=42501 table=- ctx=pool',
+      'db_privilege_denied sqlstate=42501 table=unknown ctx=pool',
     )
   })
 
   it('does not take a table out of the middle of a message', () => {
     expect(privilegeDeniedLine(denied('xx permission denied for table users'), 'pool')).toBe(
-      'db_privilege_denied sqlstate=42501 table=- ctx=pool',
+      'db_privilege_denied sqlstate=42501 table=unknown ctx=pool',
     )
   })
 
@@ -124,6 +124,18 @@ describe('privilegeDeniedLine — the alert contract', () => {
     expect(privilegeDeniedLine(other, 'pool')).toBeNull()
     expect(privilegeDeniedLine(new Error('permission denied for table users'), 'pool')).toBeNull()
     expect(privilegeDeniedLine(null, 'pool')).toBeNull()
+  })
+
+  // The alert (#1041, check-api-permission-denied.sh, PERMISSION_DENIED_RE) — copied verbatim,
+  // so renaming a token here or there fails a test instead of silently un-wiring the alert.
+  // The canonical line is what it must match, on the exact logger output shape too.
+  it('is matched by the alert’s pattern, as logged by Nest', () => {
+    const alert = /permission denied|must be (owner|superuser)|(sqlstate|code)[^0-9a-z]{0,6}42501/
+    const logged = `ERROR [DatabasePrivilege] ${privilegeDeniedLine(denied(), 'pool')}`
+    expect(logged).toBe(
+      'ERROR [DatabasePrivilege] db_privilege_denied sqlstate=42501 table=document_access_log ctx=pool',
+    )
+    expect(alert.test(logged)).toBe(true)
   })
 
   it('never carries a statement, a parameter value, detail or where', () => {
@@ -273,6 +285,46 @@ describe('installPrivilegeDeniedReporter — wraps the pool without changing wha
     )
 
     expect(sink).toHaveBeenCalledTimes(1) // not once per wrapping layer
+  })
+
+  // CR-M-2: a role without CONNECT is refused by pool.connect() itself — which is where ALL of
+  // drizzle's transaction() starts — and that rejection never reaches a patched client.
+  it('reports a 42501 raised by connect() itself, ctx=client, and the caller sees the SAME rejection', async () => {
+    const err = denied('permission denied for database crm_db')
+    const sink: Sink = vi.fn()
+    const pool = { query: vi.fn(), connect: vi.fn(() => Promise.reject(err)) }
+    installPrivilegeDeniedReporter(pool as never, sink)
+
+    await expect((pool.connect as () => Promise<unknown>)()).rejects.toBe(err)
+
+    expect(sink).toHaveBeenCalledTimes(1)
+    expect(sink).toHaveBeenCalledWith('db_privilege_denied sqlstate=42501 table=unknown ctx=client')
+  })
+
+  it('says nothing for a connect() that fails for another reason', async () => {
+    const other = Object.assign(new Error('password authentication failed'), {
+      severity: 'FATAL',
+      code: '28P01',
+    })
+    const sink: Sink = vi.fn()
+    const pool = { query: vi.fn(), connect: vi.fn(() => Promise.reject(other)) }
+    installPrivilegeDeniedReporter(pool as never, sink)
+
+    await expect((pool.connect as () => Promise<unknown>)()).rejects.toBe(other)
+
+    expect(sink).not.toHaveBeenCalled()
+  })
+
+  it('a throwing sink cannot change a connect() rejection either', async () => {
+    const err = denied()
+    const sink: Sink = vi.fn(() => {
+      throw new Error('logger is broken')
+    })
+    const pool = { query: vi.fn(), connect: vi.fn(() => Promise.reject(err)) }
+    installPrivilegeDeniedReporter(pool as never, sink)
+
+    await expect((pool.connect as () => Promise<unknown>)()).rejects.toBe(err)
+    await new Promise((resolve) => setImmediate(resolve))
   })
 
   it('leaves connect(callback) alone', () => {

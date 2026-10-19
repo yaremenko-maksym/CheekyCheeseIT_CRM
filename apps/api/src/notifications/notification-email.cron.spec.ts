@@ -1266,7 +1266,7 @@ describe('a database error inside the send path reaches the log with its SQLSTAT
     )
   }
 
-  it('a retry warning carries db_sqlstate=42501 and no parameter value', async () => {
+  it('a retry warning carries db_state=42501 and no parameter value', async () => {
     const gw = makeGateway([claimed({ attempts: 2 })])
     gw.markSent = async () => {
       throw deniedMarkSent()
@@ -1280,13 +1280,13 @@ describe('a database error inside the send path reaches the log with its SQLSTAT
     const said = warn.mock.calls
       .map((c) => String(c[0] ?? ''))
       .find((m) => m.startsWith('Email not sent'))
-    expect(said).toContain('db_error db_sqlstate=42501')
-    expect(said).toContain('permission denied for table notification_emails')
+    expect(said).toContain('db_error db_state=42501')
+    expect(said).not.toContain('permission denied')
     expect(said).not.toContain('SECRET-VALUE-123')
     warn.mockRestore()
   })
 
-  it('the give-up error carries db_sqlstate=42501 and no parameter value', async () => {
+  it('the give-up error carries db_state=42501 and no parameter value', async () => {
     const gw = makeGateway([claimed({ attempts: MAX_EMAIL_ATTEMPTS })])
     gw.markSent = async () => {
       throw deniedMarkSent()
@@ -1297,7 +1297,7 @@ describe('a database error inside the send path reaches the log with its SQLSTAT
     await service.drainOnce()
 
     const said = String(error.mock.calls[0]?.[0] ?? '')
-    expect(said).toContain('db_error db_sqlstate=42501')
+    expect(said).toContain('db_error db_state=42501')
     expect(said).not.toContain('SECRET-VALUE-123')
     error.mockRestore()
   })

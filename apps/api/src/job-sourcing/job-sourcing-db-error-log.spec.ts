@@ -49,7 +49,7 @@ describe('JobSourcingService swallow-and-log paths record a database error’s S
     vi.restoreAllMocks()
   })
 
-  it('persistPostings: the unstorable-row warning carries db_sqlstate and no value, and the row is still skipped', async () => {
+  it('persistPostings: the unstorable-row warning carries db_state and no value, and the row is still skipped', async () => {
     const insertChain = {
       values: () => ({
         onConflictDoNothing: () => ({
@@ -72,8 +72,8 @@ describe('JobSourcingService swallow-and-log paths record a database error’s S
     expect(said.startsWith('Skipping unstorable posting https://jobs.example/1: db_error ')).toBe(
       true,
     )
-    expect(said).toContain('db_sqlstate=42501')
-    expect(said).toContain('permission denied for table job_postings')
+    expect(said).toContain('db_state=42501')
+    expect(said).not.toContain('permission denied')
     expect(said).not.toContain(SECRET)
   })
 
@@ -100,7 +100,7 @@ describe('JobSourcingService swallow-and-log paths record a database error’s S
     )
   })
 
-  it('collectAll: a failing source is logged with db_sqlstate and a value-free stack, and recorded as a failure', async () => {
+  it('collectAll: a failing source is logged with db_state and a value-free stack, and recorded as a failure', async () => {
     const source = { id: 'src-1', type: 'DOU', enabled: true, triggerMode: 'BOTH' }
     const svc = new JobSourcingService(
       {
@@ -116,7 +116,7 @@ describe('JobSourcingService swallow-and-log paths record a database error’s S
     expect(run.failures).toHaveLength(1) // still swallowed and reported
     const args = errorSpy.mock.calls[0] as unknown[]
     expect(String(args[0])).toContain('Job collection failed for source DOU (src-1) db_error ')
-    expect(String(args[0])).toContain('db_sqlstate=42501')
+    expect(String(args[0])).toContain('db_state=42501')
     expect(JSON.stringify(args)).not.toContain(SECRET)
     expect(String(args[1])).toContain('at Svc.run (/x/svc.ts:1:1)')
   })

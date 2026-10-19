@@ -149,8 +149,8 @@ describe('swallow-and-log cron handlers record a database error’s SQLSTATE and
     expect(errorSpy).toHaveBeenCalledTimes(1)
     const args = errorSpy.mock.calls[0] as unknown[]
     const message = String(args[0])
-    expect(message).toContain('db_error db_sqlstate=42501')
-    expect(message).toContain('permission denied for table some_table')
+    expect(message).toContain('db_error db_state=42501')
+    expect(message).not.toContain('permission denied')
     // No value anywhere in what was handed to the logger — message OR stack argument.
     expect(JSON.stringify(args)).not.toContain(SECRET)
   })

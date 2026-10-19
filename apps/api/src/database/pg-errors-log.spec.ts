@@ -41,16 +41,16 @@ describe('describeDbError — the alert contract', () => {
   it('reads SQLSTATE and message through drizzle’s .cause wrapper', () => {
     const err = drizzleError(DENIED, 'select "id" from "job_queue_actions" where "x" = $1', ['v'])
     expect(describeDbError(err)).toBe(
-      'db_error db_sqlstate=42501 db_table=- db_constraint=- db_column=- ' +
-        'db_message="permission denied for table job_queue_actions" ' +
+      'db_error db_state=42501 db_table=- db_constraint=- db_column=- ' +
+        'db_message=- ' +
         "db_statement=\"select 'id' from 'job_queue_actions' where 'x' = $1\"",
     )
   })
 
   it('works on a bare pg error with no drizzle wrapper (statement is "-")', () => {
     expect(describeDbError(DENIED)).toBe(
-      'db_error db_sqlstate=42501 db_table=- db_constraint=- db_column=- ' +
-        'db_message="permission denied for table job_queue_actions" db_statement=-',
+      'db_error db_state=42501 db_table=- db_constraint=- db_column=- ' +
+        'db_message=- db_statement=-',
     )
   })
 
@@ -61,7 +61,7 @@ describe('describeDbError — the alert contract', () => {
       column: 'email',
     })
     expect(describeDbError(err)).toBe(
-      'db_error db_sqlstate=23505 db_table=users db_constraint=u_email db_column=email ' +
+      'db_error db_state=23505 db_table=users db_constraint=u_email db_column=email ' +
         'db_message="duplicate key value violates unique constraint \'u_email\'" db_statement=-',
     )
   })
@@ -83,7 +83,7 @@ describe('describeDbError — the alert contract', () => {
   it('omits the driver message for classes whose message embeds the value (22xxx)', () => {
     const err = pgError('22P02', 'invalid input syntax for type integer: "SECRET-VALUE-123"')
     const line = describeDbError(err) ?? ''
-    expect(line).toContain('db_sqlstate=22P02')
+    expect(line).toContain('db_state=22P02')
     expect(line).toContain('db_message=-')
     expect(line).not.toContain('SECRET-VALUE-123')
   })
@@ -119,13 +119,13 @@ describe('describeDbError — the alert contract', () => {
     )
   })
 
-  it('reports a drizzle failure with no SQLSTATE (connection refused) as db_sqlstate=none', () => {
+  it('reports a drizzle failure with no SQLSTATE (connection refused) as db_state=none', () => {
     const refused = Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:5432'), {
       code: 'ECONNREFUSED',
     })
     const err = drizzleError(refused, 'select 1 from "t" where "a" = $1', ['SECRET-VALUE-123'])
     expect(describeDbError(err)).toBe(
-      'db_error db_sqlstate=none db_table=- db_constraint=- db_column=- ' +
+      'db_error db_state=none db_table=- db_constraint=- db_column=- ' +
         'db_message="ECONNREFUSED" db_statement="select 1 from \'t\' where \'a\' = $1"',
     )
   })
@@ -133,8 +133,45 @@ describe('describeDbError — the alert contract', () => {
   it('reports db_message=- when a SQLSTATE-less cause has no code either', () => {
     const err = drizzleError(new Error('boom SECRET-VALUE-123'), 'select 1', [])
     expect(describeDbError(err)).toBe(
-      'db_error db_sqlstate=none db_table=- db_constraint=- db_column=- db_message=- db_statement="select 1"',
+      'db_error db_state=none db_table=- db_constraint=- db_column=- db_message=- db_statement="select 1"',
     )
+  })
+
+  // The alert (#1041, scripts/devops/check-api-permission-denied.sh, PERMISSION_DENIED_RE)
+  // matches this pattern. It is copied here VERBATIM so a change to either side fails a test
+  // instead of silently producing two hits for one failure. The contract is the canonical
+  // `db_privilege_denied` line; this fragment is diagnostic and deliberately OUTSIDE it.
+  const ALERT_PATTERN =
+    /permission denied|must be (owner|superuser)|(sqlstate|code)[^0-9a-z]{0,6}42501/
+
+  it.each([
+    'permission denied for table document_access_log',
+    'permission denied for schema public',
+    'permission denied for sequence users_id_seq',
+    'must be owner of table users',
+    'must be superuser to alter replication users',
+  ])(
+    'a 42501 fragment (%s) is outside the alert pattern: state field renamed, message dropped',
+    (message) => {
+      const fragment = describeDbError(pgError('42501', message)) ?? ''
+
+      expect(fragment).toBe(
+        'db_error db_state=42501 db_table=- db_constraint=- db_column=- db_message=- db_statement=-',
+      )
+      expect(ALERT_PATTERN.test(fragment)).toBe(false)
+    },
+  )
+
+  it('a drizzle-wrapped 42501 fragment is outside the alert pattern, statement included', () => {
+    const err = drizzleError(DENIED, 'delete from "document_access_log" where "created_at" < $1', [
+      'x',
+    ])
+    expect(ALERT_PATTERN.test(describeDbError(err) ?? '')).toBe(false)
+  })
+
+  it('names the SQLSTATE field db_state — `code` and `sqlstate` are the alert’s words', () => {
+    expect(describeDbError(pgError('23505', 'dup'))).toContain(' db_state=23505 ')
+    expect(describeDbError(pgError('23505', 'dup'))).not.toMatch(/sqlstate|code/)
   })
 
   it('is null for anything that is not a database error', () => {
@@ -175,7 +212,7 @@ describe('describeDbError — the alert contract', () => {
     const bare = (cause: unknown): Error =>
       Object.assign(new Error('x'), { query: 'select 1', params: [], cause })
     const expected =
-      'db_error db_sqlstate=none db_table=- db_constraint=- db_column=- ' +
+      'db_error db_state=none db_table=- db_constraint=- db_column=- ' +
       'db_message=- db_statement="select 1"'
     expect(describeDbError(bare(undefined))).toBe(expected)
     expect(describeDbError(bare(null))).toBe(expected)
@@ -198,7 +235,7 @@ describe('describeDbError — the alert contract', () => {
     const wrapped = new Error('purge failed', {
       cause: drizzleError(DENIED, 'delete from "t"', []),
     })
-    expect(describeDbError(wrapped)).toContain('db_sqlstate=42501')
+    expect(describeDbError(wrapped)).toContain('db_state=42501')
   })
 
   it('bounds the walk — a self-referential cause chain terminates', () => {
@@ -213,7 +250,7 @@ describe('describeDbError — the alert contract', () => {
       for (let i = 1; i < depthOfPg; i += 1) node = new Error('wrap', { cause: node })
       return node
     }
-    expect(describeDbError(chain(8))).toContain('db_sqlstate=42501')
+    expect(describeDbError(chain(8))).toContain('db_state=42501')
     expect(describeDbError(chain(9))).toBeNull()
   })
 
@@ -234,8 +271,8 @@ describe('describeDbError — the alert contract', () => {
 
   it('does not truncate a driver message of exactly 200 characters, and truncates 201 to 200', () => {
     const exact = `r${'m'.repeat(199)}`
-    expect(describeDbError(pgError('42501', exact))).toContain(`db_message="${exact}"`)
-    const long = describeDbError(pgError('42501', `${exact}Z`)) ?? ''
+    expect(describeDbError(pgError('42P01', exact))).toContain(`db_message="${exact}"`)
+    const long = describeDbError(pgError('42P01', `${exact}Z`)) ?? ''
     const message = /db_message="([^"]*)"/.exec(long)?.[1] ?? ''
     expect(message).toHaveLength(200)
     expect(message.endsWith('...')).toBe(true)
@@ -270,7 +307,7 @@ describe('describeDbError — the alert contract', () => {
 describe('dbErrorLogSuffix', () => {
   it('is a leading space plus the fragment for a database error', () => {
     expect(dbErrorLogSuffix(DENIED)).toBe(` ${describeDbError(DENIED)}`)
-    expect(dbErrorLogSuffix(DENIED).startsWith(' db_error db_sqlstate=42501')).toBe(true)
+    expect(dbErrorLogSuffix(DENIED).startsWith(' db_error db_state=42501')).toBe(true)
   })
 
   it('is the empty string otherwise', () => {
@@ -299,7 +336,7 @@ describe('safeErrorStack', () => {
 
   it('also drops a bare pg error’s message, which can carry a value', () => {
     const err = pgError('22P02', 'invalid input syntax for type integer: "SECRET-VALUE-123"')
-    err.stack = `error: invalid input syntax for type integer: "SECRET-VALUE-123"\n    at Parser.parse (/x/pg.js:1:1)`
+    err.stack = `Error: invalid input syntax for type integer: "SECRET-VALUE-123"\n    at Parser.parse (/x/pg.js:1:1)`
     const stack = safeErrorStack(err) ?? ''
     expect(stack).toBe('Error\n    at Parser.parse (/x/pg.js:1:1)')
     expect(stack).not.toContain('SECRET-VALUE-123')
@@ -315,6 +352,39 @@ describe('safeErrorStack', () => {
       '    at Handler.run (/x/handler.ts:1:1)',
     ].join('\n')
     expect(safeErrorStack(err)).toBe('DrizzleQueryError\n    at Handler.run (/x/handler.ts:1:1)')
+  })
+
+  // CR-H-1: a bound value that itself contains a newline followed by an indented "at " sits
+  // INSIDE drizzle's message, and a per-line frame filter mistakes it for a frame. The header
+  // (`name: message`) is therefore removed as a whole before any line is looked at.
+  it.each([
+    ['four spaces', 'x\n    at LEAK (f:1:1)'],
+    ['two spaces', 'x\n  at LEAK'],
+    ['a tab', 'x\n\tat LEAK'],
+    ['several injected lines', 'x\n    at LEAK1 (f:1:1)\n    at LEAK2 (g:2:2)\nparams: LEAK3'],
+  ])('keeps no part of a multi-line bound value that looks like a frame (%s)', (_name, value) => {
+    const err = drizzleError(DENIED, 'select 1 where a = $1', [value])
+    err.stack = `${err.name}: ${err.message}\n    at Handler.run (/x/handler.ts:1:1)`
+
+    const stack = safeErrorStack(err) ?? ''
+
+    expect(stack).toBe('DrizzleQueryError\n    at Handler.run (/x/handler.ts:1:1)')
+    expect(stack).not.toContain('LEAK')
+  })
+
+  it('applies the same header removal to a bare driver error whose message carries the value', () => {
+    const err = pgError('22P02', 'invalid input syntax for type integer: "x\n    at LEAK (f:1:1)"')
+    err.stack = `${err.name}: ${err.message}\n    at Parser.parse (/x/pg.js:1:1)`
+
+    expect(safeErrorStack(err)).toBe('Error\n    at Parser.parse (/x/pg.js:1:1)')
+  })
+
+  it('fails closed: a stack that does not start with its own `name: message` header yields just the name', () => {
+    const err = drizzleError(DENIED, 'select 1 where a = $1', ['x\n    at LEAK (f:1:1)'])
+    err.stack =
+      'something else entirely\n    at LEAK (f:1:1)\n    at Handler.run (/x/handler.ts:1:1)'
+
+    expect(safeErrorStack(err)).toBe('DrizzleQueryError')
   })
 
   it('returns the original stack for an error that is not itself a database error', () => {

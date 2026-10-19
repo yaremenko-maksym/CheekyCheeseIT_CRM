@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common'
 import type { Pool } from 'pg'
 import { DatabaseService } from './database.service'
-import { dbIdentifier, findPgError } from './pg-errors'
+import { PG_INSUFFICIENT_PRIVILEGE, dbIdentifier, findPgError } from './pg-errors'
 
 /*
  * THE ALERT'S CONTRACT — one chokepoint, one line.
@@ -16,23 +16,34 @@ import { dbIdentifier, findPgError } from './pg-errors'
  *
  *   db_privilege_denied sqlstate=42501 table=<T> ctx=<C>
  *
- *   table=<T>  the relation named by the driver (`permission denied for table X` / `view X`,
- *              or the error's own `table` field), restricted to [A-Za-z0-9_$.]; `-` when
- *              the 42501 names no table (a schema, a sequence, `must be owner of…`).
+ *   table=<T>  ALWAYS present. The relation named by the driver (`permission denied for
+ *              table X` / `view X`, or the error's own `table` field), restricted to
+ *              [A-Za-z0-9_$.]; the literal `unknown` when the 42501 names no table (a
+ *              schema, a sequence, a database, `must be owner of…`). An unknown table is a
+ *              value, not an omission: a parser can tell "not determinable" from "missing".
  *   ctx=<C>    `pool`   a statement run directly on the pool (raw, or drizzle outside a
  *                       transaction);
- *              `client` a statement run on a checked-out client (drizzle `transaction()`).
+ *              `client` a statement run on a checked-out client (drizzle `transaction()`), or
+ *                       `pool.connect()` itself being refused (e.g. a role without CONNECT).
  *
- * Emitted at ERROR level, once per failing statement. The alert may rely on the bare token
- * `db_privilege_denied` and on `sqlstate=42501`; it must not rely on field order past the
- * first token or on the logger's prefix and quoting.
+ * THIS LINE IS THE ALERT'S CONTRACT AND THE ONLY ONE. The handlers' `db_error …` fragment
+ * (`pg-errors.ts`) is diagnostic and deliberately outside the alert's pattern, so one failure
+ * is one hit. A test here pins the line against a verbatim copy of the alert's pattern
+ * (scripts/devops/check-api-permission-denied.sh, PERMISSION_DENIED_RE).
+ *
+ * Emitted at ERROR level, logger context `DatabasePrivilege`, once per failing statement. The
+ * alert may rely on the bare token `db_privilege_denied`, on `sqlstate=42501` and on `table=`;
+ * it must not rely on field order past the first token or on the logger's prefix and quoting.
  *
  * NEVER in the line, by construction: the statement, any parameter value, the driver's
- * `detail` / `where` / `hint`. This repository is public; its logs end up in issues.
+ * `detail` / `where` / `hint`. Why: values can be personal data, and a log line is routinely
+ * pasted into issues of this PUBLIC repository, where it is world-readable.
  *
  * What it does NOT see: a callback-style `pool.query(text, cb)` / `pool.connect(cb)` (the
- * app does not use them; drizzle does not either), and a connection-level failure such as a
- * wrong password (28P01) — that is not a privilege error and is a different alert.
+ * app does not use them; drizzle does not either); a connection-level failure such as a
+ * wrong password (28P01) — not a privilege error, a different alert; and any statement
+ * issued before `OnApplicationBootstrap` installs the wrapper (an empty window today: the
+ * only other `onModuleInit` makes an HTTP fetch, no query).
  * Changing a token here is a change to the alert: tell whoever owns it.
  */
 
@@ -40,37 +51,39 @@ type Fn = (...args: unknown[]) => unknown
 type Context = 'pool' | 'client'
 
 const DENIED_ON_TABLE = /^permission denied for (?:table|view) (.+)/
-const PRIVILEGE_DENIED = '42501'
+const UNKNOWN_TABLE = 'unknown'
 
 /** The canonical line for `err`, or null when `err` is not a privilege error. */
 export function privilegeDeniedLine(err: unknown, ctx: Context): string | null {
   const pg = findPgError(err)
-  if (pg === null || pg['code'] !== PRIVILEGE_DENIED) return null
+  if (pg === null || pg['code'] !== PG_INSUFFICIENT_PRIVILEGE) return null
 
   const fromField = dbIdentifier(pg['table'])
   const fromMessage = DENIED_ON_TABLE.exec(String(pg['message']))?.[1]
-  const table = fromField !== '-' ? fromField : dbIdentifier(fromMessage)
-  return `db_privilege_denied sqlstate=${PRIVILEGE_DENIED} table=${table} ctx=${ctx}`
+  const named = fromField !== '-' ? fromField : dbIdentifier(fromMessage)
+  const table = named !== '-' ? named : UNKNOWN_TABLE
+  return `db_privilege_denied sqlstate=${PG_INSUFFICIENT_PRIVILEGE} table=${table} ctx=${ctx}`
 }
 
 function isThenable(value: unknown): value is PromiseLike<unknown> {
   return typeof (value as { then?: unknown } | null | undefined)?.then === 'function'
 }
 
+/** Report `err` if it is a privilege error. Never throws: reporting must not change the caller's outcome. */
+function report(err: unknown, ctx: Context, sink: (line: string) => void): void {
+  try {
+    const line = privilegeDeniedLine(err, ctx)
+    if (line !== null) sink(line)
+  } catch {
+    // Nor may it leave an unhandled rejection behind.
+  }
+}
+
 /** Wraps `original` so a rejection is reported, and the caller still gets the ORIGINAL promise. */
 function observing(original: Fn, ctx: Context, sink: (line: string) => void): Fn {
   return function (this: unknown, ...args: unknown[]): unknown {
     const result = original.apply(this, args)
-    if (isThenable(result)) {
-      result.then(undefined, (err: unknown) => {
-        try {
-          const line = privilegeDeniedLine(err, ctx)
-          if (line !== null) sink(line)
-        } catch {
-          // Reporting must never change what the caller sees, nor leave an unhandled rejection.
-        }
-      })
-    }
+    if (isThenable(result)) result.then(undefined, (err: unknown) => report(err, ctx, sink))
     return result
   }
 }
@@ -94,6 +107,9 @@ export function installPrivilegeDeniedReporter(pool: Pool, sink: (line: string) 
     const result = originalConnect.apply(this, args)
     // A callback-style `connect(cb)` returns undefined, so it takes this branch too.
     if (!isThenable(result)) return result
+    // Drizzle's transaction() starts here, so a refusal of connect() itself (a role without
+    // CONNECT) must be reported too — CR-M-2. The caller still gets the original rejection.
+    result.then(undefined, (err: unknown) => report(err, 'client', sink))
     return result.then((client) => {
       patchClient(client as { query: Fn }, sink)
       return client

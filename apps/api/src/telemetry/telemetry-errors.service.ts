@@ -127,7 +127,7 @@ export class TelemetryErrorsService {
     // sec HIGH (review round 1): a client-submitted `route` (or the
     // server-side `request.url`, via TelemetryExceptionFilter) can carry a
     // query string (`?code=...&state=...`) — the digest hands this value to
-    // a PUBLIC GitHub issue. Pathname-only, always, at this single write path.
+    // an issue in a PRIVATE repository. Pathname-only, always, at this single write path.
     const route = input.route ? toPathname(input.route) : null
     const userId = input.userId ?? null
     const userRole = input.userRole ?? null

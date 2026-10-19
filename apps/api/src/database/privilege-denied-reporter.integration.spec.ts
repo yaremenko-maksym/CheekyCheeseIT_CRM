@@ -3,17 +3,26 @@ import { Logger } from '@nestjs/common'
 import type { ConfigService } from '@nestjs/config'
 import { Test, type TestingModule } from '@nestjs/testing'
 import { eq } from 'drizzle-orm'
+import { drizzle } from 'drizzle-orm/node-postgres'
 import type { Pool } from 'pg'
 import { Pool as PgPool } from 'pg'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DocumentAccessLogRetentionCronService } from '../documents/document-access-log-retention.cron'
 import { assertRealDbSchema, hasDatabaseUrl } from '../test/require-real-db'
 import { DatabaseService } from './database.service'
-import { PrivilegeDeniedReporter } from './privilege-denied-reporter'
+import {
+  PrivilegeDeniedReporter,
+  installPrivilegeDeniedReporter,
+} from './privilege-denied-reporter'
 import { documentAccessLog } from './schema'
 
 /**
- * The alert's chokepoint, against a REAL PostgreSQL and the REAL `DatabaseModule`.
+ * The alert's chokepoint, against a REAL PostgreSQL, with the REAL `DatabaseService` and
+ * `PrivilegeDeniedReporter` run through Nest's own lifecycle. `DatabaseModule` itself is NOT
+ * imported: vitest (esbuild) emits no decorator metadata, so Nest cannot resolve constructor
+ * parameters by type here and the two providers are built by hand (see the comment in
+ * `beforeAll`). That the module lists the reporter is pinned in the unit spec, and
+ * `app.module.container.spec.ts` resolves the compiled graph.
  *
  * What a mock cannot show, and this does: that wrapping the pool at startup, through
  * Nest's own lifecycle, sees a 42501 on every route a statement can take — a raw
@@ -28,6 +37,7 @@ import { documentAccessLog } from './schema'
 
 const SECRET = 'SECRET-VALUE-123'
 const ROLE = `crm_privrep_probe_${randomUUID().slice(0, 8).replaceAll('-', '')}`
+const NO_CONNECT_ROLE = `${ROLE}_nc`
 const CANONICAL = 'db_privilege_denied sqlstate=42501 table=document_access_log'
 
 /** The one `ConfigService` call `DatabaseService` makes. */
@@ -36,6 +46,7 @@ const config = (databaseUrl: string): ConfigService<never> =>
 
 describe.skipIf(!hasDatabaseUrl())('the privilege-denied chokepoint (real PostgreSQL)', () => {
   let admin: Pool
+  let scratchDatabase = ''
   let moduleRef: TestingModule
   let database: DatabaseService
   let errorSpy: ReturnType<typeof vi.spyOn>
@@ -58,6 +69,11 @@ describe.skipIf(!hasDatabaseUrl())('the privilege-denied chokepoint (real Postgr
     await admin.query(`CREATE ROLE ${ROLE}`)
     await admin.query(`GRANT USAGE ON SCHEMA public TO ${ROLE}`)
     await admin.query(`GRANT ${ROLE} TO CURRENT_USER`)
+    // A login role that is refused at connect time: PUBLIC's default CONNECT is revoked on
+    // THIS scratch database (restored in afterAll) and the role is never granted it.
+    await admin.query(`CREATE ROLE ${NO_CONNECT_ROLE} LOGIN PASSWORD 'pw'`)
+    await admin.query(`REVOKE CONNECT ON DATABASE "${String(rows[0].db)}" FROM PUBLIC`)
+    scratchDatabase = String(rows[0].db)
 
     // The real DatabaseService, connecting as the ungranted role (`options=-c role=…`).
     const url = new URL(process.env['DATABASE_URL'] as string)
@@ -90,8 +106,10 @@ describe.skipIf(!hasDatabaseUrl())('the privilege-denied chokepoint (real Postgr
   afterAll(async () => {
     await moduleRef?.close()
     if (admin) {
+      await admin.query(`GRANT CONNECT ON DATABASE "${scratchDatabase}" TO PUBLIC`) // the default, restored
       await admin.query(`DROP OWNED BY ${ROLE}`)
       await admin.query(`DROP ROLE ${ROLE}`)
+      await admin.query(`DROP ROLE ${NO_CONNECT_ROLE}`)
       await admin.end()
     }
   })
@@ -144,6 +162,47 @@ describe.skipIf(!hasDatabaseUrl())('the privilege-denied chokepoint (real Postgr
     const everything = JSON.stringify(errorSpy.mock.calls)
     expect(everything).not.toContain(SECRET)
     expect(canonicalLines()[0]).not.toMatch(/select|from|where/i)
+  })
+
+  // CR-M-2: a role refused at connect time. drizzle's transaction() starts at pool.connect(),
+  // so this is the one route a patched CLIENT can never see.
+  describe('a role without CONNECT', () => {
+    let refused: Pool
+    const lines: string[] = []
+
+    beforeAll(() => {
+      const url = new URL(process.env['DATABASE_URL'] as string)
+      url.username = NO_CONNECT_ROLE
+      url.password = 'pw'
+      refused = new PgPool({ connectionString: url.toString() })
+      installPrivilegeDeniedReporter(refused, (line) => lines.push(line))
+    })
+
+    afterAll(async () => {
+      await refused.end()
+    })
+
+    beforeEach(() => {
+      lines.length = 0
+    })
+
+    it('pool.connect() itself is refused: one line, ctx=client, table=unknown', async () => {
+      await expect(refused.connect()).rejects.toMatchObject({ code: '42501' })
+
+      expect(lines).toEqual(['db_privilege_denied sqlstate=42501 table=unknown ctx=client'])
+    })
+
+    it('a drizzle transaction() on that role: one line, ctx=client', async () => {
+      await expect(drizzle(refused).transaction(async () => undefined)).rejects.toThrow()
+
+      expect(lines).toEqual(['db_privilege_denied sqlstate=42501 table=unknown ctx=client'])
+    })
+
+    it('pool.query on that role: one line, ctx=pool (the internal connect is not double-counted)', async () => {
+      await expect(refused.query('SELECT 1')).rejects.toMatchObject({ code: '42501' })
+
+      expect(lines).toEqual(['db_privilege_denied sqlstate=42501 table=unknown ctx=pool'])
+    })
   })
 
   it('says nothing for a different database error', async () => {
