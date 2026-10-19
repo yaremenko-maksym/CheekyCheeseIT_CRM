@@ -76,6 +76,42 @@ assert_red "префикс переменных окружения указыв�
   --contains "crm_db" \
   -- h "DATABASE_URL=$LIVE_DB API_PORT=3011 pnpm --filter @crm/api dev"
 
+# pg percent-decodes the database name before connecting, so each of these IS
+# crm_db. The hook used to compare the still-encoded text (PR #579 closed the
+# same hole in seed-db-guard.ts / integration-db-guard.ts). The base is the
+# SAFE_DB prefix so only the name differs; the safe port keeps the port reason
+# out of the way, which makes --contains "crm_db" prove the NAME reason fired.
+LIVE_BASE="postgresql://crm_user:password@localhost:5432"
+for enc in 'crm%5Fdb' 'crm%5fdb' '%63rm_db' 'cr%6d_db' 'crm_%64b' '%63%72%6d%5f%64%62' \
+           'crm%5Fdb?sslmode=disable' '%20crm_db' 'crm_db%20' '%20crm%5Fdb%20'; do
+  assert_red "закодированное имя живой базы: $enc" \
+    --contains '"decision": "block"' \
+    --contains "crm_db (" \
+    -- h "DATABASE_URL=$LIVE_BASE/$enc API_PORT=3011 pnpm --filter @crm/api dev"
+done
+
+# Literal (not %20) leading and trailing whitespace inside the quoted value.
+assert_red "пробелы вокруг имени живой базы (литеральные, в кавычках)" \
+  --contains "crm_db (" \
+  -- h "DATABASE_URL=\"$LIVE_BASE/  crm_db  \" API_PORT=3011 pnpm --filter @crm/api dev"
+
+# FAIL CLOSED: a name the hook cannot determine is not a safe one. The old code
+# had no such branch — an unparseable value simply failed to equal crm_db.
+for bad in 'not-a-url' 'localhost:5432' 'postgresql://crm_user@localhost:5432' \
+           'postgresql://crm_user@localhost:5432/' 'postgresql://crm_user@localhost:5432/%20'; do
+  assert_red "имя базы не определить → отказ, не пропуск: $bad" \
+    --contains '"decision": "block"' \
+    --contains "cannot determine the database name" \
+    -- h "DATABASE_URL=$bad API_PORT=3011 pnpm --filter @crm/api dev"
+done
+
+# The decoding must not turn into a blanket refusal of other databases.
+assert_green "закодированное, но НЕ живое имя: crm%5Fqa" \
+  -- h "DATABASE_URL=$LIVE_BASE/crm%5Fqa API_PORT=3011 pnpm --filter @crm/api dev"
+
+assert_green "безопасное имя с query: crm_qa?sslmode=disable" \
+  -- h "DATABASE_URL=$LIVE_BASE/crm_qa?sslmode=disable API_PORT=3011 pnpm --filter @crm/api dev"
+
 assert_red "safe DB, но живой порт владельца 3001" \
   --contains "3001" \
   -- h "DATABASE_URL=$SAFE_DB API_PORT=3001 pnpm --filter @crm/api dev"

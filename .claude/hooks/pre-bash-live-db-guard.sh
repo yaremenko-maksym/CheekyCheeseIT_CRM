@@ -123,7 +123,7 @@ INPUT=$(cat)
 echo "$INPUT" | grep -qE 'vite|nest|dev|dist/main' || exit 0
 
 printf '%s' "$INPUT" | PYTHONDONTWRITEBYTECODE=1 CMDSCAN_LIB="$SELF_DIR/lib" python3 -c '
-import importlib.util, json, os, re, sys
+import importlib.util, json, os, re, sys, urllib.parse
 
 # By absolute path, not via sys.path — see the note in pre-bash-safety.sh.
 _spec = importlib.util.spec_from_file_location(
@@ -181,10 +181,35 @@ if db is None:
         "уже установленную process.env переменную). Именно так утекло PR #485."
     )
 elif db != "":
-    db_name = db.rsplit("/", 1)[-1].split("?", 1)[0]
-    if db_name == "crm_db":
+    # pg percent-DECODES the database name before it connects, so `crm%5Fdb`
+    # IS the live crm_db. The old `rsplit("/")[-1].split("?")[0]` compared the
+    # still-encoded text and let `%5F` / `%5f` / `%62` / `%63rm_db` through
+    # (PR #579 closed the same hole in seed-db-guard.ts / integration-db-guard.ts).
+    # Mirror extractDbName: parse, take the path, decode once, trim.
+    # FAIL CLOSED: a name that cannot be determined is not a safe one.
+    def _db_name(url):
+        try:
+            sp = urllib.parse.urlsplit(url.strip())
+        except ValueError:
+            return ""
+        if not sp.scheme or not sp.path.startswith("/"):
+            return ""
+        return urllib.parse.unquote(sp.path[1:]).strip()
+    # The previous reading (last "/" segment, query stripped), now decoded and
+    # trimmed. A second candidate, never the only one: it still sees the live
+    # name when the URL parser splits the string elsewhere (an unescaped "/"
+    # in the password).
+    db_tail = urllib.parse.unquote(
+        db.rsplit("/", 1)[-1].split("?", 1)[0]).strip()
+    db_name = _db_name(db)
+    if "crm_db" in (db_name, db_tail):
         reasons.append(
             "DATABASE_URL указывает на живую базу владельца crm_db (%s)" % db
+        )
+    elif db_name == "":
+        reasons.append(
+            "cannot determine the database name from DATABASE_URL (%s) - "
+            "an unknown target is not a safe one" % db
         )
 
 port_values = []
