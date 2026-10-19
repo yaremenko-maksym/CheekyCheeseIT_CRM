@@ -17,14 +17,45 @@ Measure 2 of the least-privilege ADR (`docs/architecture/2026-10-17-db-least-pri
 - Exit codes: `0` clean, `1` a hit, `2` blind (could not read the logs). Both `1` and `2` turn the
   run red. A blind scan is never a clean one.
 
+## Which pattern is the contract
+
+- **The contract (primary):** the line the API's one chokepoint emits (PR #1042,
+  `privilege-denied-reporter`): `db_privilege_denied sqlstate=42501 table=<T> ctx=<C>`, with
+  `table=-` meaning the 42501 named no table. The watch matches `db_privilege_denied` ... `sqlstate=42501`
+  and reads the table from the `table=` field, never from Postgres text. Reported as `src=contract`.
+- **Belt and braces (secondary):** the text `permission denied` and `must be owner|superuser`, for a
+  privilege error that did not pass the chokepoint (a callback-style pool call) or while the
+  chokepoint is not deployed. Reported as `src=text`.
+- Both page. They can fire for the same failure (a handler's diagnostic line quotes the Postgres
+  message), so the summary says "N contract, M other" instead of pretending to dedupe.
+- **Not matched on purpose:** a bare `sqlstate=42501` or `code: 42501`. It matched #1042's diagnostic
+  fragment `db_sqlstate=42501` (one failure, two pages), and a client can put it in a query string.
+- **Changing a token in that line is changing the alert.** Tell whoever owns this watch; nothing
+  in the repository ties the two together except this contract and the test fixtures.
+- **Client-influenced logs:** Fastify's request logger writes `req.url` (query string included) and
+  the requested path of a 404 into pino JSON records. Those records are dropped (below level 50) or
+  stripped of `req`/`res` (level 50 and above) before matching, on the VPS and in the deploy scan,
+  so an anonymous request cannot forge a hit or fail the deploy gate. A text log line that echoes
+  user input could still be forged; the way to close that is a structured field, not a better regex.
+
 ## Honest state
 
-- **Coverage depends on the API logging the SQLSTATE** (`fix/api-log-db-sqlstate`). A Drizzle error's
-  message is `Failed query: ...`; `permission denied` and `42501` live on `.cause`. Until the API
-  writes them, a swallowed privilege error in a cron handler does not reach the log this watch reads.
+- **Coverage depends on the API logging the contract line** (PR #1042, `fix/api-log-db-sqlstate`).
+  A Drizzle error's message is `Failed query: ...`; `permission denied` and `42501` live on `.cause`.
+  Until the chokepoint is deployed, a swallowed privilege error in a cron handler does not reach the
+  log this watch reads, and the contract has no production line to match: **detection in place and
+  verified, coverage and paging pending**.
 - **Paging is a failed-run notification**, which goes to whoever last edited the cron line and is not
   verified to reach a phone. A real channel (an `ntfy.sh` topic secret) is approved and is a
   separate follow-up.
+- **A scan that lands while a deploy is recreating the api container goes BLIND (red).** There is
+  no running api container for a few minutes, the watch cannot read anything, and it says so
+  (`no running api container ... expected for a few minutes while a deploy recreates it`). It is
+  not handled automatically on purpose: any "skip while a deploy is running" rule is a path that
+  can silence the watch for good if the deploy run hangs. The deploy's own scan covers that
+  window. Expect an occasional red run that clears on the next scan; a red run that does not
+  clear is a real problem. A bounded, positively-verified deferral (read the Deploy run's status,
+  excuse only a run younger than ~45 minutes) is a possible follow-up if the noise matters.
 - Known gaps: a deploy recreates the container and its older logs go with it; the log driver
   rotates (10 MB x 5), so a flood inside one window could push a hit out; GitHub disables scheduled
   workflows after 60 days without repository activity and nothing alerts on the watch itself going
@@ -47,8 +78,15 @@ are production credentials or settings and therefore yours:
    policy limited to `main`. Today the `production` environment has no secrets, reviewers or branch
    policy, and anyone with write access can run a branch version of a workflow with the repo
    secrets. That is inherent to repo-level secrets and no change in this workflow can close it.
-3. **`VPS_KNOWN_HOSTS`** as a repository **variable** (public host-key lines, not a secret). Without
-   it the driver trusts the host key on first use and prints a warning on every run.
+3. **`VPS_KNOWN_HOSTS`** as a repository **variable** (public host-key lines, not a secret; get
+   them with `ssh-keyscan -t ed25519 <host>` from a network you trust). Set it **before the schedule
+   goes live**. Without it the driver fetches the host key with `ssh-keyscan` seconds before the
+   strict check, so the check is against its own fetch and verifies nothing. The runner is
+   ephemeral, so that is trust on **every** use, not on a first one. What this exposes is **not**
+   key theft: public-key authentication signs over a session id bound to the attacker's own key
+   exchange, so an impostor cannot replay it. It exposes an **on-path attacker answering as the
+   VPS and forging a clean envelope**, which silences the watch. Low likelihood, bounded impact,
+   and no worse than the deploy today; the driver warns on every run until it is set.
 4. **Role in the alert.** The log does not name the role. Reading it means reading the
    credential-bearing `DATABASE_URL` inside the api container (printing only the validated user
    name); it was not done because it touches production configuration. Say if you want it.

@@ -16,8 +16,10 @@ name: API Permission Denied Watch
 # query error's message is `Failed query: ...`; "permission denied" and 42501 are only
 # on `.cause`, so today a swallowed privilege error in a cron handler does NOT reach the
 # log text this watch reads. Until the API logs the SQLSTATE from `.cause` on those
-# paths, this is not "measure 2 satisfied". The pattern targets the labelled form that
-# change should produce (`sqlstate=42501`) plus Postgres' own message text.
+# paths, this is not "measure 2 satisfied". THE CONTRACT is the one line that change
+# produces (PR #1042): `db_privilege_denied sqlstate=42501 table=<T> ctx=<C>`. The text
+# `permission denied` / `must be owner` is belt and braces. Until #1042 merges there is no
+# production line for the contract to match: "detection in place, coverage pending".
 #
 # PAGING IS A SEPARATE FOLLOW-UP. Today a hit (or a blind scan) FAILS this run, and
 # GitHub's failed-run notification is the only owner-reaching channel the repository
@@ -113,7 +115,8 @@ jobs:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
-          # Optional repo VARIABLE (public host-key lines). Unset = trust on first use.
+          # Optional repo VARIABLE (public host-key lines). Unset = the key is fetched with
+          # ssh-keyscan on every run, i.e. not verified (see the driver's header).
           VPS_KNOWN_HOSTS: ${{ vars.VPS_KNOWN_HOSTS }}
           LOGSCAN_RE: ${{ steps.cfg.outputs.re }}
           LOGSCAN_CONTRACT_RE: ${{ steps.cfg.outputs.contract }}

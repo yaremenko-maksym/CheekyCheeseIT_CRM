@@ -24,9 +24,18 @@
 # Env (the workflow supplies them; secrets arrive via env: and are never interpolated):
 #   VPS_HOST VPS_USER VPS_SSH_KEY          required
 #   VPS_KNOWN_HOSTS                         optional repo VARIABLE (public host-key lines);
-#                                           unset = trust-on-first-use via ssh-keyscan, with
-#                                           a warning. Same trust level as the deploy today
+#                                           unset = the host key is fetched with ssh-keyscan
+#                                           seconds before the strict check, so the check is
+#                                           against its own fetch (vacuous). The runner is
+#                                           ephemeral, so this is trust on EVERY use, not on
+#                                           a first one. Same level as the deploy today
 #                                           (ssh-action with no fingerprint), made visible.
+#                                           The exposure is NOT key theft (public-key auth signs
+#                                           over a session id bound to the attacker's own key
+#                                           exchange); it is an on-path attacker answering as
+#                                           the VPS and forging a clean envelope, silencing the
+#                                           watch. Low likelihood, bounded impact. Set the
+#                                           variable before the schedule goes live.
 #   LOGSCAN_RE LOGSCAN_CONTRACT_RE LOGSCAN_SINCE LOGSCAN_TABLES LOGSCAN_LOGGERS   required (the cfg step)
 #   SSH_PORT                                optional, default 22 (tests)
 #   SSH_EXTRA_OPTS                          optional, word-split, tests only
@@ -58,7 +67,7 @@ PORT="${SSH_PORT:-22}"
 if [ -n "${VPS_KNOWN_HOSTS:-}" ]; then
   printf '%s\n' "$VPS_KNOWN_HOSTS" >"$WORK/known_hosts"
 else
-  echo "::warning::VPS_KNOWN_HOSTS is not set: trusting the host key on first use (ssh-keyscan). Pin it with a repo variable to remove the window."
+  echo "::warning::VPS_KNOWN_HOSTS is not set: the host key is fetched with ssh-keyscan on every run (the runner is ephemeral), so it is not verified against anything. An on-path attacker could forge a clean result. Pin the key with a repo variable."
   ssh-keyscan -T 10 -p "$PORT" "$VPS_HOST" >"$WORK/known_hosts" 2>/dev/null
   [ -s "$WORK/known_hosts" ] || die "could not obtain the VPS host key"
 fi

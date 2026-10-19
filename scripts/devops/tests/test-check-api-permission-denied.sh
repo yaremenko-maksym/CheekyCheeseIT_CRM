@@ -705,7 +705,7 @@ assert_green "SEAM 5a: ...and the key file is gone after the driver exits" -- \
   bash -c "p=\$(sed -n 's/^KEY_PATH=//p' '$WS/ssh-args.txt'); [ -n \"\$p\" ] && [ ! -e \"\$p\" ]"
 assert_green "SEAM 5a: host key is verified (StrictHostKeyChecking=yes), no agent or password fallback" -- \
   bash -c "grep -qx 'StrictHostKeyChecking=yes' '$WS/ssh-args.txt' && grep -qx 'BatchMode=yes' '$WS/ssh-args.txt'"
-assert_green "SEAM 5a: without VPS_KNOWN_HOSTS the trust-on-first-use window is announced, not silent" \
+assert_green "SEAM 5a: without VPS_KNOWN_HOSTS the unverified-host-key exposure is announced, not silent" \
   --contains "::warning::VPS_KNOWN_HOSTS is not set" -- scan clean
 assert_green "SEAM 5a: with VPS_KNOWN_HOSTS pinned there is no such warning" \
   --not-contains "VPS_KNOWN_HOSTS is not set" -- scan clean "VPS_KNOWN_HOSTS=vps.example.test ssh-ed25519 AAAAFAKEHOSTKEY"
