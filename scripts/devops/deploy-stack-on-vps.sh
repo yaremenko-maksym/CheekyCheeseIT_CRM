@@ -122,6 +122,9 @@ else
   echo "::warning::pg-backup.sh not found at /opt/crm/scripts/devops/pg-backup.sh — copy-compose job's scp step should have placed it there."
 fi
 
+# Start of the deploy window for the 42501 log scan at the end of Step 3 (below).
+DEPLOY_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
 # ── Step 1: ensure postgres + redis are up (persistent — usually already running) ──
 # api and nginx are started AFTER DDL is applied (see Step 3).
 #
@@ -2231,6 +2234,149 @@ else
   echo "WARNING: external check failed (Cloudflare/TLS may not be configured yet)"
   echo "Internal API is healthy — stack is running correctly"
 fi
+
+# ADR 2026-10-17-db-least-privilege-roles, measure 2: a `permission denied` /
+# SQLSTATE 42501 in the NEW api container's logs is REPORTED here, loudly, and does NOT
+# fail the deploy (REPORT-ONLY, decided in the PR #1041 review): a log line is not a
+# channel a stranger cannot write to, and a gate a stranger can trip blocks releases on
+# demand and teaches people to disable it. The owner is reached by the standing watch
+# (api-permission-denied-watch.yml). Gating comes back when the signal moves to a
+# channel a request cannot write (the planned journal, see the runbook).
+# What STAYS fatal is our own tooling failing to LOOK: an unreadable log, no python3, a
+# filter that fails its canary. "Could not look" must not read as "nothing there", and
+# no request can cause any of them.
+# The window opens at DEPLOY_STARTED_AT, so the old container's history is not
+# this deploy's business (the standing watch, api-permission-denied-watch.yml,
+# owns that). Only metadata is printed, never the matching lines: this log is
+# public. Scope: only what the API did while booting and during the health checks.
+# A cron that fires hours later is the standing watch's job, not this scan's.
+# COVERAGE DEPENDS ON THE API LOGGING THE CONTRACT LINE (PR #1042):
+# `db_privilege_denied sqlstate=42501 table=<T> ctx=<C>`. A Drizzle error's message is
+# `Failed query: ...` and the 42501 lives on `.cause`, so until the chokepoint is deployed
+# a swallowed privilege error will not match here either. The contract is the primary
+# pattern; `permission denied` / `must be owner` are belt and braces (see the checker).
+# PATTERN: keep identical to scripts/devops/check-api-permission-denied.sh
+# (--print-pattern); tests/test-check-api-permission-denied.sh fails on drift.
+PERMISSION_DENIED_RE='\[DatabasePrivilege\] db_privilege_denied.*sqlstate=42501|permission denied|must be (owner|superuser)'
+# The contract alone (--print-contract-pattern): the ONLY pattern allowed to fail this deploy.
+PERMISSION_DENIED_CONTRACT_RE='\[DatabasePrivilege\] db_privilege_denied.*sqlstate=42501'
+# SR-H-5: the API's Fastify request logger writes `req.url` (query string included) and,
+# for a 404, the requested path into pino JSON records, so an ANONYMOUS request such as
+# `GET /api/health?code=42501` would otherwise fail this deploy. These records are dropped
+# or stripped before matching; see api-permission-denied-remote.sh for the measured
+# reasoning. KEEP THE PYTHON IDENTICAL to that file (the test fails on drift).
+# --- BEGIN LOGSCAN_REQ_FILTER
+read -r -d '' LOGSCAN_REQ_FILTER <<'PYEOF' || true
+import json, re, sys
+pre = re.compile(r"^((?:[^|{]{0,60}\| )?(?:\d{4}-\d\d-\d\dT[0-9:.]{8,20}Z )?)(\{.*)$")
+lvl = re.compile(r'^\{"level":(\d{1,3})(?![0-9])')
+stamp = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?Z ")
+unparsed = 0
+for raw in sys.stdin.buffer:
+    line = raw.decode("utf-8", "replace").rstrip("\r\n")
+    looks = False
+    out = line
+    try:
+        m = pre.match(line)
+        if m:
+            head, rest = m.group(1), m.group(2)
+            looks = rest.startswith('{"level":')
+            lm = lvl.match(rest)
+            if lm and int(lm.group(1)) < 50:
+                out = None
+            else:
+                rec = None
+                for cand in (rest, stamp.sub("", rest)):
+                    try:
+                        rec = json.loads(cand)
+                        break
+                    except Exception:
+                        pass
+                if isinstance(rec, dict):
+                    for k in ("req", "res", "reqId"):
+                        rec.pop(k, None)
+                    out = head + json.dumps(rec, separators=(",", ":"))
+                elif looks:
+                    out = None
+                    unparsed += 1
+    except Exception:
+        if looks:
+            out = None
+            unparsed += 1
+    if out is not None:
+        print(out)
+if len(sys.argv) > 1:
+    with open(sys.argv[1], "w") as f:
+        f.write(str(unparsed))
+PYEOF
+# --- END LOGSCAN_REQ_FILTER
+echo "==> Scanning the new api container's logs for permission denied / 42501 (since ${DEPLOY_STARTED_AT})"
+if ! API_LOGS_SINCE_DEPLOY="$(docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  logs --no-color --since "${DEPLOY_STARTED_AT}" api 2>&1)"; then
+  echo "ERROR: could not read the api container's logs; refusing to pass the 42501 check unread"
+  exit 1
+fi
+# SR-M-8 / SR-M-12: a canary goes through the SAME invocation, and the filter must do every
+# job it exists for. keep = a level-50 record WITH a req and a reqId, which must come back
+# EXACTLY with both removed (a python3 that only drops level 30 leaves the req in); drop = a
+# level-30 record, which must not come back; cut = a truncated level-50 record, which must not
+# come back AND must be counted as unparsed. An empty-output or copy-input python3 returns
+# the wrong set altogether. Whole-line matches: the canaries are un-prefixed, which no real
+# compose-prefixed log line can equal.
+LOGSCAN_CANARY_KEEP_IN='{"level":50,"reqId":"req-canary","req":{"method":"GET","url":"/canary?LOGSCAN_CANARY_REQ"},"msg":"LOGSCAN_CANARY"}'
+LOGSCAN_CANARY_KEEP='{"level":50,"msg":"LOGSCAN_CANARY"}'
+LOGSCAN_CANARY_DROP='{"level":30,"msg":"LOGSCAN_CANARY_DROP"}'
+LOGSCAN_CANARY_CUT='{"level":50,"reqId":"req-canary","req":{"method":"GET","url":"/canary?LOGSCAN_CANARY_CUT"'
+LOGSCAN_COUNTFILE="$(mktemp)"
+if ! command -v python3 >/dev/null 2>&1 \
+  || ! API_LOGS_FILTERED_ALL="$( { printf '%s\n%s\n%s\n' "$LOGSCAN_CANARY_KEEP_IN" "$LOGSCAN_CANARY_DROP" "$LOGSCAN_CANARY_CUT"; printf '%s\n' "$API_LOGS_SINCE_DEPLOY"; } | python3 -c "$LOGSCAN_REQ_FILTER" "$LOGSCAN_COUNTFILE")"; then
+  rm -f "$LOGSCAN_COUNTFILE"
+  echo "ERROR: could not filter the api logs (python3 missing or failed); refusing to pass the 42501 check unread"
+  exit 1
+fi
+LOGSCAN_UNPARSED="$(cat "$LOGSCAN_COUNTFILE" 2>/dev/null || true)"
+rm -f "$LOGSCAN_COUNTFILE"
+if ! printf '%s\n' "$API_LOGS_FILTERED_ALL" | grep -qxF "$LOGSCAN_CANARY_KEEP" \
+  || printf '%s\n' "$API_LOGS_FILTERED_ALL" | grep -qxF "$LOGSCAN_CANARY_KEEP_IN" \
+  || printf '%s\n' "$API_LOGS_FILTERED_ALL" | grep -qxF "$LOGSCAN_CANARY_DROP" \
+  || printf '%s\n' "$API_LOGS_FILTERED_ALL" | grep -qxF "$LOGSCAN_CANARY_CUT"; then
+  echo "ERROR: the log filter did not behave (canary check failed); refusing to pass the 42501 check unread"
+  exit 1
+fi
+case "$LOGSCAN_UNPARSED" in '' | *[!0-9]*)
+  echo "ERROR: the log filter reported no usable unparsed count; refusing to pass the 42501 check unread"
+  exit 1 ;;
+esac
+if [ "$LOGSCAN_UNPARSED" -lt 1 ]; then
+  echo "ERROR: the log filter did not count the truncated canary (canary check failed); refusing to pass the 42501 check unread"
+  exit 1
+fi
+LOGSCAN_UNPARSED=$((LOGSCAN_UNPARSED - 1))
+API_LOGS_FILTERED="$(printf '%s\n' "$API_LOGS_FILTERED_ALL" | grep -vxF "$LOGSCAN_CANARY_KEEP" || true)"
+if [ "$LOGSCAN_UNPARSED" -gt 0 ]; then
+  echo "::warning::${LOGSCAN_UNPARSED} pino-looking api log record(s) could not be parsed and were dropped from the 42501 scan (not shown)"
+fi
+# NOTHING BELOW FAILS THE DEPLOY (SR-H-10). Both the unanchored text patterns and the
+# contract line are forgeable by an anonymous request: a Nest text log line is NOT filtered
+# and carries decoded request data (Drizzle puts the query `params:` into its error message,
+# and Nest logs that message as a text line). The contract's `[DatabasePrivilege]` anchor
+# needs only a space and a bracket, which `%20` and `%5B` supply, and the attacker can pick
+# the table name from the public list. So both are counted and REPORTED, as warnings, and a
+# stranger cannot stop a release with either. The contract is still reported separately and
+# first, because it is the stronger signal. See the runbook, "what the gate can and cannot
+# trust".
+PERMISSION_DENIED_HITS="$(printf '%s\n' "$API_LOGS_FILTERED" | grep -aEi -e "$PERMISSION_DENIED_CONTRACT_RE" | grep -c . || true)"
+PERMISSION_DENIED_OTHER="$(printf '%s\n' "$API_LOGS_FILTERED" | grep -aEi -e "$PERMISSION_DENIED_RE" | grep -aEiv -e "$PERMISSION_DENIED_CONTRACT_RE" | grep -c . || true)"
+if [ "${PERMISSION_DENIED_OTHER:-0}" -gt 0 ]; then
+  echo "::warning::${PERMISSION_DENIED_OTHER} other api log line(s) match 'permission denied' / 'must be owner' during this deploy: reported, NOT gating (an anonymous request can forge these). Read the container logs on the VPS if this is unexpected; this log deliberately does not repeat them."
+fi
+if [ "${PERMISSION_DENIED_HITS:-0}" -gt 0 ]; then
+  echo "::warning::[DatabasePrivilege] db_privilege_denied sqlstate=42501 appeared ${PERMISSION_DENIED_HITS} time(s) in the api logs during this deploy: reported, NOT gating (a log line can be forged by a request; the standing watch reports it to the owner). If it is real, a grant is missing or a table is misclassified: read the container logs on the VPS (docker compose logs api); this log deliberately does not repeat them."
+fi
+echo "No permission denied / 42501 gate: this scan is report-only and never fails the deploy; scanned $(printf '%s\n' "$API_LOGS_SINCE_DEPLOY" | grep -c .) api log line(s) since ${DEPLOY_STARTED_AT}"
 
 # task-infra-locale-edge (security-review round 1, HIGH-2 follow-up;
 # hardened in round 2, LOW-3): unlike the CRM API check above (kept
