@@ -10,22 +10,25 @@ name: API Permission Denied Watch
 # after the 48-hour deploy log watch) as a 42501 inside a handler that swallows its
 # errors. Nothing else would ever say so.
 #
+# HONEST STATE ON MERGE: "detection in place and verified, coverage and paging pending".
+#
 # COVERAGE DEPENDS ON A LOGGING CHANGE IN THE API (fix/api-log-db-sqlstate). A Drizzle
 # query error's message is `Failed query: ...`; "permission denied" and 42501 are only
 # on `.cause`, so today a swallowed privilege error in a cron handler does NOT reach the
 # log text this watch reads. Until the API logs the SQLSTATE from `.cause` on those
-# paths the honest state is "detection in place, coverage pending", not "measure 2
-# satisfied". The pattern targets the labelled form that change should produce
-# (`sqlstate=42501`) plus Postgres' own message text.
+# paths, this is not "measure 2 satisfied". The pattern targets the labelled form that
+# change should produce (`sqlstate=42501`) plus Postgres' own message text.
 #
-# HOW IT PAGES. A hit (or a blind scan) FAILS this run, and GitHub's failed-run
-# notification is the page: the same mechanism deploy-freshness.yml already relies
-# on, no new dependency. It is the only owner-reaching channel this repository has;
-# the "alert issue" channel (post-merge-alert.sh) is read by an assistant, which is a
-# record, not a page. Limits are in the PR body.
+# PAGING IS A SEPARATE FOLLOW-UP. Today a hit (or a blind scan) FAILS this run, and
+# GitHub's failed-run notification is the only owner-reaching channel the repository
+# has (deploy-freshness.yml relies on the same one). It goes to whoever last edited the
+# cron line and nothing verifies it reaches a phone. The owner has approved a real
+# channel (an ntfy.sh topic secret); that is a follow-up to this file.
 #
-# HOW IT READS. One read-only SSH command (`docker compose logs`, filtered), using the
-# deploy's existing VPS_* secrets. Nothing on the VPS is changed.
+# HOW IT READS. One plain `ssh` session, read-only (`docker compose ps` / `logs`), using
+# the deploy's existing VPS_* secrets, its stdout piped straight into the checker
+# (scripts/devops/scan-api-permission-denied.sh). Nothing on the VPS is changed and no
+# credential is created. Why not appleboy/ssh-action: see that script's header.
 # Logic, exit codes and the output hygiene (this repo and its Actions logs are PUBLIC,
 # so no raw log line is ever printed): scripts/devops/check-api-permission-denied.sh
 # (tested: scripts/devops/tests/test-check-api-permission-denied.sh).
@@ -34,9 +37,15 @@ name: API Permission Denied Watch
 # Window: 40 min against a 30 min period, so a scan skipped or delayed by the shared
 # runner pool does not open a gap. The overlap means a hit can be reported by two
 # consecutive runs; that is intended (the second is the reminder).
-# Known gap: a deploy recreates the api container and its logs go with it. The deploy
-# scans its own window (deploy-stack-on-vps.sh); the minutes between the last scan and
-# the recreate are not covered.
+# Known gaps, stated rather than hidden:
+#  - a deploy recreates the api container and its logs go with it. The deploy scans its
+#    own window (deploy-stack-on-vps.sh); the minutes between the last scan and the
+#    recreate are not covered;
+#  - the API container's log driver rotates (10 MB x 5): a flood larger than that inside
+#    one window could push a hit out before the scan reads it;
+#  - GitHub auto-disables scheduled workflows after 60 days without repository activity.
+#    This repository commits daily, and deploy-freshness.yml shares the exposure; nothing
+#    here alerts on the watch itself going missing.
 on:
   schedule:
     # Off the hour and off deploy-freshness (:23), every 30 minutes.
@@ -90,89 +99,24 @@ jobs:
             cat "$RUNNER_TEMP/allowlists.txt"
           } >> "$GITHUB_OUTPUT"
 
-      # READ-ONLY. VERSION PIN: capture_stdout needs >= v1.2.1 (see
-      # scripts/devops/check-ssh-action-capture-stdout-version.py), same pin as the
-      # backup-freshness step in deploy.yml.
-      # No `continue-on-error`: if SSH fails the run goes red, which is the point.
-      # LOG HYGIENE (this repo and its Actions logs are PUBLIC): the matching AND the
-      # sanitising happen HERE, on the VPS. Only validated fields leave production
-      # (timestamp, logger, object, sqlstate, counters); no raw log text, not even
-      # truncated. Both streams of `docker compose logs` are folded into a variable,
-      # so nothing from the container reaches stderr either. Measured by reading
-      # appleboy/ssh-action v1.2.3 entrypoint.sh: with capture_stdout the output goes
-      # to GITHUB_OUTPUT (tee -a) and is not echoed to the job log; stderr is still
-      # streamed. The env: block of the next step IS rendered in the log, which is why
-      # the envelope must be fields-only no matter what the action does.
-      - name: Read the API logs over SSH (read-only)
-        id: logscan
-        uses: appleboy/ssh-action@v1.2.3
+      # ONE step: plain `ssh` piped straight into the checker. Deliberately NOT
+      # appleboy/ssh-action (fix round 1, SR-H-1/SR-M-1): its banner and its doubled
+      # GITHUB_OUTPUT write made every run exit 2, its captured output (remote stderr
+      # included, in drone-ssh 1.8.1) reached the log through the next step's env: before
+      # any checker ran, and it is a third-party binary downloaded at runtime without a
+      # checksum on a path that carries the deploy key. Here nothing is captured,
+      # rendered or round-tripped. Exit 0 clean, 1 a hit, 2 blind; the run goes red on 1
+      # and 2, which is the page. Secrets arrive via env: only, never interpolated.
+      - name: Read the API logs over SSH (read-only) and scan them
         env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          # Optional repo VARIABLE (public host-key lines). Unset = trust on first use.
+          VPS_KNOWN_HOSTS: ${{ vars.VPS_KNOWN_HOSTS }}
           LOGSCAN_RE: ${{ steps.cfg.outputs.re }}
           LOGSCAN_SINCE: ${{ steps.cfg.outputs.window }}
-          LOGSCAN_TABLES: ${{ steps.cfg.outputs.tables }}
-          LOGSCAN_LOGGERS: ${{ steps.cfg.outputs.loggers }}
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          envs: LOGSCAN_RE,LOGSCAN_SINCE,LOGSCAN_TABLES,LOGSCAN_LOGGERS
-          capture_stdout: true
-          script: |
-            set -u
-            cd /opt/crm
-            dc="docker compose -f docker-compose.prod.yml -f docker-compose.ghcr.yml --env-file .env.production"
-            names=$($dc ps --format '{{.Name}}' api 2>/dev/null)
-            n=$(printf '%s\n' "$names" | grep -c . || true)
-            cname=$(printf '%s\n' "$names" | head -n 1 | tr -dc 'A-Za-z0-9_./-' | cut -c1-60)
-            if ! logs=$($dc logs --no-color --timestamps --since "$LOGSCAN_SINCE" api 2>&1); then
-              echo "LOGSCAN_FAILED=compose_logs"
-              exit 0
-            fi
-            echo "LOGSCAN_API_CONTAINERS=$n"
-            echo "LOGSCAN_CONTAINER=${cname:-unknown}"
-            echo "LOGSCAN_LINES=$(printf '%s\n' "$logs" | grep -c . || true)"
-            echo "LOGSCAN_HITS=$(printf '%s\n' "$logs" | grep -aEic -e "$LOGSCAN_RE" || true)"
-            printf '%s\n' "$logs" | grep -aEi -e "$LOGSCAN_RE" | tail -n 20 | while IFS= read -r l; do
-              ts=$(printf '%s' "$l" | sed -nE 's/^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]{8,20}Z) .*/\1/p')
-              # ALLOWLIST, not a pattern: a log line is partly attacker-influenced, so a
-              # name is shown only if it is ON a list derived from the repository
-              # (LOGSCAN_LOGGERS / LOGSCAN_TABLES, see derive-permission-denied-
-              # allowlists.sh). Anything else becomes `unknown`.
-              # `unknown` REDUCES PRECISION, IT NEVER SUPPRESSES THE HIT: the line was
-              # already counted and is still emitted, so it still pages. An
-              # unrecognised object is the case most likely to be interesting.
-              lg=$(printf '%s' "$l" | sed -nE 's/.*(ERROR|WARN|FATAL) *\[([A-Za-z0-9_.-]{1,60})\].*/\2/p' | head -n 1)
-              case " $LOGSCAN_LOGGERS " in *" $lg "*) [ -n "$lg" ] || lg=unknown ;; *) lg=unknown ;; esac
-              lo=$(printf '%s' "$l" | tr 'A-Z' 'a-z')
-              pre=""
-              kn=$(printf '%s' "$lo" | sed -nE 's/.*permission denied for (table|sequence|schema|function|relation|view|type|database) "?([a-z_][a-z0-9_.]{0,62}).*/\1 \2/p' | head -n 1)
-              if [ -z "$kn" ]; then
-                pre="owner-only:"
-                kn=$(printf '%s' "$lo" | sed -nE 's/.*must be owner of (table|sequence|schema|function|relation|view|type|database) "?([a-z_][a-z0-9_.]{0,62}).*/\1 \2/p' | head -n 1)
-              fi
-              ob=""
-              if [ -n "$kn" ]; then
-                kind=${kn%% *}
-                nm=${kn#* }
-                nm=${nm#public.}
-                case " $LOGSCAN_TABLES " in *" $nm "*) ob="$pre$kind:$nm" ;; *) ob="$pre$kind:unknown" ;; esac
-              fi
-              if printf '%s' "$lo" | grep -Eq '(sqlstate|code)[^0-9a-z]{0,6}42501'; then
-                st=42501
-              elif [ -n "$ob" ]; then
-                st=42501-by-message
-              else
-                st=unclassified
-              fi
-              echo "LOGSCAN_HIT ts=${ts:-unknown} logger=${lg:-unknown} object=${ob:-unknown} sqlstate=$st"
-            done
-            echo "LOGSCAN_END"
-
-      # exit 1 = a hit, exit 2 = the scan could not see: both red, on purpose.
-      - name: Scan the envelope (fails on a hit or when blind)
-        env:
-          LOGSCAN_STDOUT: ${{ steps.logscan.outputs.stdout }}
           # The checker re-verifies every logger and object against the SAME lists.
           LOGSCAN_TABLES: ${{ steps.cfg.outputs.tables }}
           LOGSCAN_LOGGERS: ${{ steps.cfg.outputs.loggers }}
-        run: printf '%s\n' "$LOGSCAN_STDOUT" | scripts/devops/check-api-permission-denied.sh
+        run: scripts/devops/scan-api-permission-denied.sh

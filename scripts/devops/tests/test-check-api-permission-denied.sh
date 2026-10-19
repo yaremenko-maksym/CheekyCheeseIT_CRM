@@ -242,7 +242,12 @@ case " $* " in
     [ "${FAKE_DOCKER_MODE:-}" = "nocontainer" ] || echo "crm-api-1"
     exit 0 ;;
   *" logs "*)
-    case "${FAKE_DOCKER_MODE:-}" in
+    [ "${FAKE_DOCKER_MODE:-}" = "fail" ] && { echo "Error response from daemon: no such service" >&2; exit 1; }
+    # The REAL `docker compose logs` shape: every line is prefixed `<service>-<n>  | `
+    # and, with --timestamps, the RFC3339 time follows. (A first version of this shim
+    # emitted bare lines, which is how a timestamp regex that never matched went
+    # unnoticed: a test that builds its own input cannot discover what the producer emits.)
+    { case "${FAKE_DOCKER_MODE:-}" in
       hit)   printf "%s\n" \
                "2026-10-19T03:00:01.000000001Z [Nest] 18  - 10/19/2026, 3:00:01 AM     LOG [HealthController] ok" \
                "2026-10-19T03:00:02.123456789Z [Nest] 18  - 10/19/2026, 3:00:02 AM   ERROR [VacanciesRetentionCronService] retention failed error: permission denied for table vacancy_applications" ;;
@@ -253,22 +258,14 @@ case " $* " in
                "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [VacanciesRetentionCronService] DELETE FROM vacancy_applications WHERE email = \$1 params: jane.doe@example.com,+380501234567 ::error::INJECTED permission denied for table vacancy_applications" \
                "GET /x?q=permission%20denied token=SECRETVALUE123" ;;
       evil)  printf "%s\n" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [VacanciesRetentionCronService] lookup for user input ERROR [EVIL-TOKEN-xyz-attacker-chosen-text] failed: permission denied for table \"jane_doe_example_com\"" ;;
-      fail)  echo "Error response from daemon: no such service" >&2; exit 1 ;;
       *)     printf "%s\n" "2026-10-19T03:00:01.000000001Z [Nest] 18  - 10/19/2026, 3:00:01 AM     LOG [HealthController] ok" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x     LOG [Cron] retention pruned 0 rows" ;;
-    esac
+    esac; } | sed "s/^/api-1  | /"
     exit 0 ;;
 esac
 exit 0'
 
-python3 -I - "$WORKFLOW" "$WS/remote.sh" <<'PYEOF'
-import re, sys, textwrap
-src = open(sys.argv[1]).read()
-m = re.search(r"^ {10}script: \|\n((?: {12}.*\n|\n)+)", src, re.M)
-if not m:
-    sys.exit("could not find the remote script in the workflow")
-body = textwrap.dedent(m.group(1)).replace("cd /opt/crm", "cd .")
-open(sys.argv[2], "w").write(body)
-PYEOF
+REMOTE_SH="$GUARD_DIR/api-permission-denied-remote.sh"
+SCAN_SH="$GUARD_DIR/scan-api-permission-denied.sh"
 
 DEPLOY_BLOCK_OK=1
 sed -n "/^PERMISSION_DENIED_RE='/,/^echo \"No permission denied/p" "$DEPLOY_SCRIPT" >"$WS/deploy-block.body"
@@ -280,12 +277,12 @@ sed -n "/^PERMISSION_DENIED_RE='/,/^echo \"No permission denied/p" "$DEPLOY_SCRI
   echo 'echo DEPLOY-CONTINUED'
 } >"$WS/deploy-block.sh"
 
-remote() { ( cd "$WS" && PATH="$WS/bin:$PATH" FAKE_DOCKER_MODE="$1" LOGSCAN_RE="$RE" LOGSCAN_SINCE=40m bash "$WS/remote.sh" ); }
+remote() { ( PATH="$WS/bin:$PATH" FAKE_DOCKER_MODE="$1" LOGSCAN_CRM_DIR="$WS" LOGSCAN_RE="$RE" LOGSCAN_SINCE=40m bash "$REMOTE_SH" ); }
 pipeline() { remote "$1" | env -u GITHUB_STEP_SUMMARY bash "$GUARD"; }
 deploy_step() { ( cd "$WS" && PATH="$WS/bin:$PATH" FAKE_DOCKER_MODE="$1" bash "$WS/deploy-block.sh" ); }
 
-assert_green "extraction: the workflow's remote script and the deploy block were both found" -- \
-  bash -c "[ -s '$WS/remote.sh' ] && [ '$DEPLOY_BLOCK_OK' = 1 ]"
+assert_green "extraction: the remote script exists and the deploy block was found" -- \
+  bash -c "[ -s '$REMOTE_SH' ] && [ '$DEPLOY_BLOCK_OK' = 1 ]"
 
 assert_red "PIPELINE: log with a 42501 -> remote fields -> checker FIRES" \
   --contains "HIT time=2026-10-19T03:00:02.123456789Z logger=VacanciesRetentionCronService object=table:vacancy_applications sqlstate=42501-by-message" \
