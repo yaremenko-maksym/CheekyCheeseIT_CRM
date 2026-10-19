@@ -29,6 +29,31 @@ describe('PrivilegeDeniedReporter lifecycle', () => {
     expect(pool.query).not.toBe(original) // wrapped
   })
 
+  // The alert anchors on `[DatabasePrivilege] db_privilege_denied sqlstate=42501` and drops
+  // records below its level threshold — so the REAL text Nest writes is what is pinned here,
+  // not a spy on Logger.prototype: level ERROR, bracketed context directly before the token.
+  it('writes `ERROR [DatabasePrivilege] db_privilege_denied sqlstate=42501 …` in Nest’s real text output', async () => {
+    const written: string[] = []
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => {
+      written.push(String(chunk))
+      return true
+    })
+    try {
+      const pool = { query: vi.fn(() => Promise.reject(denied())), connect: vi.fn() }
+      new PrivilegeDeniedReporter({ db: { $client: pool } } as never).onApplicationBootstrap()
+
+      await (pool.query as () => Promise<unknown>)().catch(() => undefined)
+    } finally {
+      stderr.mockRestore()
+    }
+
+    const text = written.join('').replace(/\u001b\[[0-9;]*m/g, '')
+    expect(text).toMatch(
+      /ERROR \[DatabasePrivilege\] db_privilege_denied sqlstate=42501 table=document_access_log ctx=pool/,
+    )
+    expect(text).toMatch(/\[DatabasePrivilege\] db_privilege_denied sqlstate=42501/)
+  })
+
   it('logs the canonical line at ERROR through a Logger whose context is DatabasePrivilege', async () => {
     const seen: { message: unknown; context: unknown }[] = []
     const errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(function (
@@ -151,6 +176,10 @@ describe('privilegeDeniedLine — the alert contract', () => {
       true,
     )
     expect(ALERT_CONTRACT_PATTERN.test('db_privilege_denied table=x ctx=pool')).toBe(false)
+    // "The token first, the rest in any order": sqlstate may come last, many characters later.
+    const reordered = 'db_privilege_denied table=document_access_log ctx=pool sqlstate=42501'
+    expect(ALERT_CONTRACT_PATTERN.test(reordered)).toBe(true)
+    expect(ALERT_PATTERN.test(reordered)).toBe(true)
   })
 
   it('never carries a statement, a parameter value, detail or where', () => {

@@ -296,9 +296,8 @@ export function safeErrorStack(err: unknown): string | undefined {
   // the shortened header is a PREFIX of the frozen stack and `startsWith` alone passes while
   // the parameters sit in the remainder (SR-M-1). So the remainder must be empty or begin
   // with a frame. Nothing in apps/api assigns `.message`, so this is unreachable today.
-  if (!err.stack.startsWith(header) || (rest !== '' && !rest.startsWith('\n    at '))) {
-    return err.name
-  }
+  // (An empty remainder fails this test too and yields the same bare name: no frames.)
+  if (!err.stack.startsWith(header) || !rest.startsWith('\n    at ')) return err.name
   const frames = rest.split('\n').filter((line) => /^\s+at /.test(line))
   return [err.name, ...frames].join('\n')
 }

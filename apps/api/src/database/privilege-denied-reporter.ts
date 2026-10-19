@@ -32,9 +32,16 @@ import { PG_INSUFFICIENT_PRIVILEGE, dbIdentifier, findPgError } from './pg-error
  * (`__test-helpers__/alert-patterns.ts`), which names the script that owns them
  * (scripts/devops/check-api-permission-denied.sh) and is a copy until that is on main.
  *
- * Emitted at ERROR level, logger context `DatabasePrivilege`, once per failing statement. The
- * alert may rely on the bare token `db_privilege_denied`, on `sqlstate=42501` and on `table=`;
- * it must not rely on field order past the first token or on the logger's prefix and quoting.
+ * Emitted at ERROR level through Nest's TEXT `Logger.error`, logger context `DatabasePrivilege`,
+ * once per failing statement. THE BRACKETED CONTEXT IS PART OF WHAT THE ALERT MATCHES:
+ * `[DatabasePrivilege] db_privilege_denied sqlstate=42501`. The bare tokens are plain text, so
+ * any path that interpolates request data into an error message or a Nest text log line could
+ * forge them; anchoring on the context an attacker's text cannot supply is what makes a forgery
+ * need more than attacker-controlled text. So do not rename the context, and do not move this
+ * line to a pino record: the alert drops pino records below level 50, and a record carrying a
+ * genuine 42501 at a lower level would be filtered out. A test pins both, on Nest's real output.
+ * The alert may rely on that context, on `db_privilege_denied`, on `sqlstate=42501` and on
+ * `table=`; it must not rely on field order past the first token or on ANSI colouring.
  *
  * NEVER in the line, by construction: the statement, any parameter value, the driver's
  * `detail` / `where` / `hint`. Why: values can be personal data, and a log line is routinely
