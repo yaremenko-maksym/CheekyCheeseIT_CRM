@@ -655,6 +655,8 @@ jobs:
             apps/api/drizzle/manual/2026-10-07_meeting_recorder_integration.sql \
             apps/api/drizzle/manual/2026-10-17_job_opportunities_store.sql \
             apps/api/drizzle/manual/2026-10-17_job_opportunities_store_indexes.sql \
+            apps/api/drizzle/manual/2026-10-18_job_queue_append_only_triggers.sql \
+            apps/api/drizzle/manual/2026-10-18_job_queue_append_only_check.sql \
             apps/api/drizzle/manual/2026-10-18_db_roles.sql \
             apps/api/drizzle/manual/2026-10-18_db_grants.sql \
             apps/api/drizzle/manual/2026-10-18_db_privileges_check.sql \
@@ -2381,6 +2383,30 @@ jobs:
           target: '/opt/crm'
           # apps/api/drizzle/manual/2026-10-17_job_opportunities_store_indexes.sql
           #   → /opt/crm/apps/api/drizzle/manual/2026-10-17_job_opportunities_store_indexes.sql
+
+      # ── job queue append-only triggers THEN the read-only catalog check (r5 Task 1.3b) ──
+
+      - name: Copy job queue append-only triggers DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-10-18_job_queue_append_only_triggers.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-10-18_job_queue_append_only_triggers.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-10-18_job_queue_append_only_triggers.sql
+
+      - name: Copy job queue append-only catalog check via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-10-18_job_queue_append_only_check.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-10-18_job_queue_append_only_check.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-10-18_job_queue_append_only_check.sql
 
       # Multipart salary changes one invariant in two deploy phases. The prepare
       # migration is backward-compatible with the currently-running API; the

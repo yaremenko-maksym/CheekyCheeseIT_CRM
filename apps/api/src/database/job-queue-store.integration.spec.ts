@@ -2,6 +2,13 @@ import { randomUUID } from 'node:crypto'
 import { Pool, type PoolClient } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { assertRealDbSchema, hasDatabaseUrl } from '../test/require-real-db'
+import {
+  APPEND_ONLY_TRIGGERS_DDL,
+  applyDeployDdlFile,
+  dropRolesCreated,
+  existingDeployRoles,
+  installDeployRoles,
+} from './__test-helpers__/deploy-ddl-preconditions'
 
 /**
  * r5 Task 1.2 (part 3) — the QUEUE workflow store against the REAL Postgres
@@ -13,13 +20,46 @@ import { assertRealDbSchema, hasDatabaseUrl } from '../test/require-real-db'
  * Two blocks need two connections: the studio-wide claim and the atomic
  * publish are claims about what happens when two writers race.
  *
- * Two blocks pin a GAP on purpose: the schema `db:push` produces has NO
- * trigger, so the append-only action log and the immutable entries still
- * accept UPDATE / DELETE. That is the honest state of this PR (Task 1.3 adds
- * the triggers; a grant boundary waits on the API getting a non-superuser
- * role — `crm_user` is a superuser on the scratch catalog, production to be
- * re-checked by the owner; an owner decision); the pin keeps the comment in
- * `schema/job-queue.ts` from drifting into a claim the database does not keep.
+ * Two blocks that once pinned a GAP now assert the guarantee: Task 1.3b's
+ * triggers make the action log append-only and the generation entries
+ * immutable, and `beforeAll` APPLIES THAT DDL ITSELF — see
+ * "PRECONDITIONS" below for why it has to.
+ *
+ * PRECONDITIONS, AND WHY THIS SUITE ESTABLISHES THEM RATHER THAN INHERITING
+ * ------------------------------------------------------------------------
+ * `db:push` produces the tables WITHOUT the triggers; only
+ * `drizzle/manual/2026-10-18_job_queue_append_only_triggers.sql` creates them.
+ * When the two GAP PIN tests below were inverted, this suite's precondition
+ * silently changed from "whatever db:push makes" to "db:push plus that file",
+ * and nothing here applied it — so the suite passed only when some OTHER spec
+ * had already applied it to the shared database.
+ *
+ * It did not. Measured (PostgreSQL 16.15, 2026-10-19): an integration run sets
+ * `fileParallelism: false`, so files run serially in vitest's default order —
+ * by descending file SIZE. This file (~55 KB) is larger than
+ * `job-queue-append-only.integration.spec.ts` (~48 KB), the spec that applies
+ * the DDL, so it runs FIRST and no trigger exists yet. `pg_trigger` returned no
+ * rows, the teardown's `ALTER TABLE … DISABLE TRIGGER` failed with `42704`, and
+ * the two inverted tests saw an UPDATE go through. A suite whose result depends
+ * on which sibling ran before it is not a gate, so this one now applies the DDL
+ * in `beforeAll`. The file is idempotent by design (`CREATE OR REPLACE` plus
+ * `DROP TRIGGER IF EXISTS` then `CREATE TRIGGER`), which is what makes applying
+ * it here safe next to the sibling that also applies it.
+ *
+ * THE FIRST ATTEMPT AT THAT WAS STILL INHERITING, and the correction is worth
+ * recording because the first version LOOKED self-sufficient. Applying the 1.3b
+ * DDL needs TWO roles — `crm_retention_owner` owns the R-B functions, `crm_app`
+ * is the only grantee of EXECUTE on them — and the first version created only
+ * the first, by hand. Run alone on a fresh cluster this suite therefore still
+ * failed in `beforeAll`, with `required role(s) absent: crm_app`; it passed in
+ * CI only because `db-privileges.integration.spec.ts` is larger still, runs
+ * before it, and applies the real roles file. It also left the one role it did
+ * create behind in the cluster. Both roles now come from the shipped roles file
+ * via `__test-helpers__/deploy-ddl-preconditions.ts`, and `afterAll` drops
+ * exactly the ones this run created — so the suite is a no-op on a cluster that
+ * already has them and leaves no residue on one that does not. The measurement
+ * that matters here is not "CI is green" but "`vitest run <this file>` is green
+ * on a cluster with no `crm_*` role at all".
  *
  * CLEANUP: every row is reachable from this suite's TAG (users by email, teams
  * by name, opportunities by title, records by namespace, keys / reasons /
@@ -65,11 +105,39 @@ const UNIQUE_VIOLATION = '23505'
 const FK_VIOLATION = '23503'
 const INVALID_TEXT = '22P02'
 const OUT_OF_RANGE = '22003'
+const RESTRICT_VIOLATION = '23001'
 
 let seq = 0
 const nextTag = () => {
   seq += 1
   return `${TAG}-${seq}`
+}
+
+/** The append-only guards a teardown must lift on the action log, then restore. */
+const GUARD_TRIGGERS = [
+  { table: 'job_queue_actions', trigger: 'trg_job_queue_actions_append_only' },
+  { table: 'job_queue_actions', trigger: 'trg_job_queue_actions_no_truncate' },
+] as const
+
+/** Deploy roles this suite created and must therefore drop again. See `afterAll`. */
+let rolesCreatedHere: readonly string[] = []
+
+/**
+ * Establish this suite's preconditions: the deploy roles exist, and the Task 1.3b guard
+ * triggers exist and are `ENABLE ALWAYS`. See the header for why the suite establishes them
+ * instead of hoping a sibling did.
+ *
+ * The 1.3b DDL refuses to apply unless BOTH `crm_retention_owner` (it owns the two R-B
+ * functions) and `crm_app` (the only grantee of EXECUTE on them) exist. An earlier version
+ * of this function created only the first, by hand — so run alone on a fresh cluster the
+ * suite still died in `beforeAll` with `required role(s) absent: crm_app`, and it left the
+ * role it had created behind in the cluster. Both roles now come from the SHIPPED roles
+ * file, so their attributes have one source of truth and cannot drift from it, and
+ * `afterAll` drops exactly the ones this run created.
+ */
+async function installAppendOnlyGuards(): Promise<void> {
+  rolesCreatedHere = await installDeployRoles(pool)
+  await applyDeployDdlFile(pool, APPEND_ONLY_TRIGGERS_DDL)
 }
 
 const NEW_TABLES = [
@@ -167,6 +235,7 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
     const { rows } = await q('SELECT current_database() AS db')
     // Writing spec: refuse the live database outright (the vitest guard does too).
     if (rows[0].db === 'crm_db') throw new Error('refusing to run against the live crm_db')
+    await installAppendOnlyGuards()
     admin = await newUser('ADMIN')
     hr = await newUser('HR')
     hrOther = await newUser('HR')
@@ -177,9 +246,25 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
   /** Children first: the action log is RESTRICT towards every parent. Idempotent. */
   async function cleanup() {
     const users = `SELECT id FROM users WHERE email LIKE $1`
-    await q(`DELETE FROM job_queue_actions WHERE actor_id IN (${users})`, [`${TAG}%`])
-    // Entries cascade from their generation.
-    await q(`DELETE FROM job_queue_generations WHERE policy_signature LIKE $1`, [`${TAG}%`])
+    // The log is append-only: the table owner disables its triggers for the length of
+    // the cleanup (as job-queue-append-only.integration.spec.ts does) and re-enables
+    // them in a `finally`, so a failed delete cannot leave the table unguarded.
+    try {
+      for (const name of GUARD_TRIGGERS)
+        await q(`ALTER TABLE ${name.table} DISABLE TRIGGER ${name.trigger}`)
+      await q(`DELETE FROM job_queue_actions WHERE actor_id IN (${users})`, [`${TAG}%`])
+      // Entries cascade from their generation; a generation may only be purged once
+      // INVALIDATED.
+      await q(
+        `UPDATE job_queue_generations SET status='INVALIDATED', invalidated_at=now()
+          WHERE policy_signature LIKE $1 AND status <> 'INVALIDATED'`,
+        [`${TAG}%`],
+      )
+      await q(`DELETE FROM job_queue_generations WHERE policy_signature LIKE $1`, [`${TAG}%`])
+    } finally {
+      for (const name of GUARD_TRIGGERS)
+        await q(`ALTER TABLE ${name.table} ENABLE ALWAYS TRIGGER ${name.trigger}`)
+    }
     await q(`DELETE FROM job_queue_assignments WHERE assignee_id IN (${users})`, [`${TAG}%`])
     await q(`DELETE FROM job_queue_dismissals WHERE dismissed_by IN (${users})`, [`${TAG}%`])
     await q(`DELETE FROM job_team_triage_subscriptions WHERE actor_id IN (${users})`, [`${TAG}%`])
@@ -192,8 +277,38 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
   // A safety net when a test failed before the final cleanup test ran.
   afterAll(async () => {
     if (!pool) return
-    await cleanup()
-    await pool.end()
+    try {
+      await cleanup()
+    } finally {
+      // The suite's last act: a teardown that leaked a disabled guard must fail
+      // here rather than leave the table silently unprotected for whoever runs next.
+      const { rows } = await q(
+        `SELECT tgname, tgenabled FROM pg_trigger
+          WHERE tgrelid = 'job_queue_actions'::regclass AND NOT tgisinternal
+          ORDER BY tgname`,
+      )
+      // Leave the cluster as this suite found it: drop exactly the roles IT created.
+      // On CI a sibling creates them first, so this is a no-op there; run alone on a
+      // fresh cluster it is what keeps the suite from leaking `crm_retention_owner`
+      // (and, with it, the two R-B functions the role owns) into the cluster.
+      let leaked: string[] = []
+      try {
+        await dropRolesCreated(pool, rolesCreatedHere)
+        if (rolesCreatedHere.length > 0) leaked = await existingDeployRoles(pool)
+      } finally {
+        await pool.end()
+      }
+      const names = rows.map((r) => r.tgname).join(',')
+      const wanted = GUARD_TRIGGERS.map((g) => g.trigger).join(',')
+      if (names !== wanted || !rows.every((r) => r.tgenabled === 'A')) {
+        throw new Error(
+          `teardown left the action-log guards in a bad state: ${JSON.stringify(rows)}`,
+        )
+      }
+      if (leaked.length > 0) {
+        throw new Error(`teardown left role(s) behind in the cluster: ${leaked.join(', ')}`)
+      }
+    }
   })
 
   // -------------------------------------------------------------------------
@@ -923,20 +1038,19 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
       ).toEqual({ code: FK_VIOLATION, constraint: 'fk_job_queue_actions_subscription' })
     })
 
-    it('GAP PIN: no trigger exists yet, so UPDATE and DELETE are still accepted (Task 1.3)', async () => {
-      // If this ever fails because the database REFUSED, the Task 1.3 trigger
-      // has reached the schema this suite runs on: replace the pin with the
-      // refusal test and update the comment in schema/job-queue.ts.
-      const { rows: triggers } = await q(
-        `SELECT count(*)::int AS n FROM pg_trigger
-         WHERE tgrelid = 'job_queue_actions'::regclass AND NOT tgisinternal`,
-      )
-      expect(triggers[0].n).toBe(0)
+    it('refuses UPDATE and DELETE on the action log (append-only trigger, Task 1.3)', async () => {
       const row = (await insertAction({ kind: 'TAKEN' })).rows[0] as { id: string }
-      const upd = await q(`UPDATE job_queue_actions SET reason = 'edited' WHERE id = $1`, [row.id])
-      expect(upd.rowCount).toBe(1)
-      const del = await q(`DELETE FROM job_queue_actions WHERE id = $1`, [row.id])
-      expect(del.rowCount).toBe(1)
+      expect(
+        (await rejected(`UPDATE job_queue_actions SET reason = 'edited' WHERE id = $1`, [row.id]))
+          .code,
+      ).toBe(RESTRICT_VIOLATION)
+      expect((await rejected(`DELETE FROM job_queue_actions WHERE id = $1`, [row.id])).code).toBe(
+        RESTRICT_VIOLATION,
+      )
+      // The row survived both attempts untouched.
+      const { rows } = await q(`SELECT reason FROM job_queue_actions WHERE id = $1`, [row.id])
+      expect(rows).toHaveLength(1)
+      expect(rows[0].reason).not.toBe('edited')
     })
   })
 
@@ -1154,21 +1268,21 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
       expect(rows[0].n).toBe(0)
     })
 
-    it('GAP PIN: no trigger exists yet, so an entry can still be edited (Task 1.3)', async () => {
-      const { rows: triggers } = await q(
-        `SELECT count(*)::int AS n FROM pg_trigger
-         WHERE tgrelid IN ('job_queue_generation_entries'::regclass, 'job_queue_generations'::regclass)
-           AND NOT tgisinternal`,
-      )
-      expect(triggers[0].n).toBe(0)
+    it('refuses editing an entry once written (immutable-entries trigger, Task 1.3)', async () => {
       const o = await newOpportunity()
       await entry(o, 1, 30)
-      const upd = await q(
+      const err = await rejected(
         `UPDATE job_queue_generation_entries SET rank_score = 99
          WHERE generation_id = $1 AND opportunity_id = $2`,
         [gen, o],
       )
-      expect(upd.rowCount).toBe(1)
+      expect(err.code).toBe(RESTRICT_VIOLATION)
+      const { rows } = await q(
+        `SELECT rank_score FROM job_queue_generation_entries
+         WHERE generation_id = $1 AND opportunity_id = $2`,
+        [gen, o],
+      )
+      expect(Number(rows[0].rank_score)).toBe(1)
     })
   })
 

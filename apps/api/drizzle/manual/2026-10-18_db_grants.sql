@@ -129,6 +129,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   public.vacancy_applications
   TO crm_app;
 --   crm_collector: nothing.
+--   crm_retention_owner: nothing.
 
 -- class A-log — Existing audit log, not yet append-only (ADR §2). Add rows, never rewrite them.
 GRANT SELECT, INSERT ON TABLE
@@ -139,18 +140,23 @@ GRANT SELECT, INSERT ON TABLE
   public.user_audit_log
   TO crm_app;
 --   crm_collector: nothing.
+--   crm_retention_owner: nothing.
 
 -- class A-log-prunable — Audit log the API itself prunes — DocumentAccessLogRetentionCronService.
 GRANT SELECT, INSERT, DELETE ON TABLE
   public.document_access_log
   TO crm_app;
 --   crm_collector: nothing.
+--   crm_retention_owner: nothing.
 
 -- class B — Append-only. UPDATE/DELETE/TRUNCATE revoked; Task 1.3b adds the ENABLE ALWAYS triggers.
 GRANT SELECT, INSERT ON TABLE
   public.job_queue_actions
   TO crm_app;
 --   crm_collector: nothing.
+GRANT SELECT, DELETE ON TABLE
+  public.job_queue_actions
+  TO crm_retention_owner;
 
 -- class C: no relations assigned. Job-sourcing table the collection worker writes. Empty until ADR §4 step 8.
 
@@ -159,6 +165,7 @@ GRANT SELECT, INSERT ON TABLE
 -- class E — Migration-internal (the ledger of ADR §6, deploy bookkeeping). The API gets nothing.
 --   crm_app: nothing.
 --   crm_collector: nothing.
+--   crm_retention_owner: nothing.
 
 -- class V — View. SELECT only — an auto-updatable view writes its base tables as the view owner.
 GRANT SELECT ON TABLE
@@ -167,6 +174,7 @@ GRANT SELECT ON TABLE
   public.visible_projects
   TO crm_app;
 --   crm_collector: nothing.
+--   crm_retention_owner: nothing.
 
 -- 3. Class D column-level SELECT for crm_collector. A table-level grant would
 --    silently cover every column, including credentials and finance columns, so class D

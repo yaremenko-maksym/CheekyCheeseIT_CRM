@@ -1984,6 +1984,54 @@ docker compose \
   < "$JOB_OPPORTUNITIES_STORE_INDEXES_FILE"
 echo "==> job opportunities store indexes applied successfully"
 
+# ── job queue append-only triggers (r5 Task 1.3b, PR #1026) ──
+# Attach to the job_queue_* tables created by the store DDL above, so they MUST
+# run after it. They also MUST run after the roles file (db_roles, applied earlier
+# in this script): the triggers file's first statement raises undefined_object if
+# crm_retention_owner / crm_app are absent, and crm_retention_owner OWNS the two
+# retention functions it installs. The triggers file creates no relations, so it
+# is allowed after the grants (check-prod-ddl-wiring.py GRANTS-AFTER-CREATORS).
+# The catalog check follows the triggers; the privileges check (db_privileges_check)
+# follows the catalog check and stays the last database step.
+
+# Source: apps/api/drizzle/manual/2026-10-18_job_queue_append_only_triggers.sql
+JOB_QUEUE_TRIGGERS_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-18_job_queue_append_only_triggers.sql"
+
+if [ ! -f "$JOB_QUEUE_TRIGGERS_FILE" ]; then
+  echo "ERROR: DDL file not found at $JOB_QUEUE_TRIGGERS_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying job queue append-only triggers (idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+  < "$JOB_QUEUE_TRIGGERS_FILE"
+echo "==> job queue append-only triggers applied successfully"
+
+# Source: apps/api/drizzle/manual/2026-10-18_job_queue_append_only_check.sql
+JOB_QUEUE_CHECK_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-18_job_queue_append_only_check.sql"
+
+if [ ! -f "$JOB_QUEUE_CHECK_FILE" ]; then
+  echo "ERROR: DDL file not found at $JOB_QUEUE_CHECK_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Running job queue append-only catalog check (read-only) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+  < "$JOB_QUEUE_CHECK_FILE"
+echo "==> job queue append-only catalog check passed"
+
 # ── database privileges catalog check (r5 Task 1.3c) — read-only, FAILS THE DEPLOY ON DRIFT ──
 # Not DDL: it signals drift with RAISE EXCEPTION, which psql turns into a non-zero exit
 # ONLY under ON_ERROR_STOP=1 (without it the deploy would pass on a failed check).

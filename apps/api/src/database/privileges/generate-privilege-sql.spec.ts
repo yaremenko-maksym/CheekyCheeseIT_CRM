@@ -123,15 +123,20 @@ describe('generated privilege SQL', () => {
     }
   })
 
-  it('grants the append-only table SELECT and INSERT only', () => {
+  it('grants the append-only table SELECT and INSERT to the API, and the purge pair to the retention owner', () => {
     const [appendOnly] = PRIVILEGE_CLASSES.B
     expect(appendOnly).toBeDefined()
     const grants = splitSqlStatements(read(GRANTS_FILE)).filter(
       (s) => /^\s*GRANT /.test(s) && s.includes(`public.${appendOnly}`),
     )
-    expect(grants).toHaveLength(1)
+    // Two statements now, and the pair is the whole point of class B: the API may add
+    // rows and never rewrite them, and the one role that may remove a row is the owner of
+    // the R-B purge — which holds no INSERT, so it cannot forge the history it prunes.
+    expect(grants).toHaveLength(2)
     expect(grants[0]).toMatch(/^GRANT SELECT, INSERT ON TABLE/)
     expect(grants[0]).toMatch(new RegExp(`TO ${ROLES.app}$`))
+    expect(grants[1]).toMatch(/^GRANT SELECT, DELETE ON TABLE/)
+    expect(grants[1]).toMatch(new RegExp(`TO ${ROLES.retentionOwner}$`))
   })
 
   it('grants a class E or collector-less class nothing at all', () => {
@@ -142,10 +147,16 @@ describe('generated privilege SQL', () => {
       (s) => /^\s*GRANT /.test(s) && s.includes(`TO ${ROLES.collector}`),
     )
     expect(grantsToCollector).toEqual([])
-    const grantsToRetentionOwner = splitSqlStatements(sql).filter(
+    // The retention owner is granted on class B and NOWHERE else — asserted as "every
+    // statement naming it names only class B relations", so a scoping regression that
+    // handed it `users` or `transactions` fails here and not only in the catalog check.
+    const retentionOwnerGrants = splitSqlStatements(sql).filter(
       (s) => /^\s*GRANT /.test(s) && s.includes(`TO ${ROLES.retentionOwner}`),
     )
-    expect(grantsToRetentionOwner).toEqual([])
+    const relationsGranted = retentionOwnerGrants.flatMap((s) =>
+      [...s.matchAll(/public\.(\w+)/g)].map((m) => m[1]),
+    )
+    expect(relationsGranted.sort()).toEqual([...PRIVILEGE_CLASSES.B].sort())
   })
 
   it('emits relations in sorted order whatever order the manifest lists them in', () => {
@@ -320,7 +331,12 @@ describe('privilege SQL for classes with no members yet', () => {
     const original = Object.fromEntries(
       Object.entries(privileges).map(([cls, p]) => [cls, { ...p }]),
     )
+    // The retention owner's table-level SELECT does not come from CLASS_PRIVILEGES, so it
+    // has to be emptied through its own declaration or this branch stays unreachable.
+    const retentionPrivileges = RETENTION_OWNER_TABLE_PRIVILEGES as unknown as string[]
+    const originalRetention = [...retentionPrivileges]
     try {
+      retentionPrivileges.length = 0
       for (const [cls, p] of Object.entries(privileges)) {
         privileges[cls] = {
           ...p,
@@ -337,6 +353,8 @@ describe('privilege SQL for classes with no members yet', () => {
     } finally {
       for (const key of Object.keys(privileges)) delete privileges[key]
       Object.assign(privileges, original)
+      retentionPrivileges.length = 0
+      retentionPrivileges.push(...originalRetention)
     }
     expect(buildCheckSql()).toContain(
       "role_table_select(role_name, cls) AS (VALUES\n    ('crm_app'",
@@ -426,6 +444,9 @@ describe('privilege SQL for classes with no members yet', () => {
     withManifest(
       () => {
         // Both of R-B's functions (ADR §3), so the separator between them is observable.
+        // Replaces the real pair rather than appending to it, so the expected text below
+        // stays a literal and does not drift with the manifest.
+        functions.length = 0
         functions.push('job_queue_actions_purge_expired', 'job_queue_actions_redact_reason')
       },
       () => {
@@ -440,11 +461,20 @@ describe('privilege SQL for classes with no members yet', () => {
   })
 
   it('spells out an empty retention-function set as an explicit empty row set', () => {
-    // Today's state, and the one the GAP PIN depends on: with no declared function, part 7
-    // requires the role to own NOTHING, so a definer function appearing without review
-    // fails the deploy.
-    expect(buildCheckSql()).toContain(
-      'declared_functions(proname) AS (SELECT NULL::text WHERE false)',
+    // No longer the real manifest's state — Task 1.3b declared both R-B functions — but
+    // the branch still has to be written out correctly, because it is what a database
+    // with NO definer function is checked against: part 7 then requires the role to own
+    // nothing, so a definer function appearing without review fails the deploy. An empty
+    // `VALUES` would be a syntax error, which is why the empty row set is spelled out.
+    withManifest(
+      () => {
+        functions.length = 0
+      },
+      () => {
+        expect(buildCheckSql()).toContain(
+          'declared_functions(proname) AS (SELECT NULL::text WHERE false)',
+        )
+      },
     )
   })
 
