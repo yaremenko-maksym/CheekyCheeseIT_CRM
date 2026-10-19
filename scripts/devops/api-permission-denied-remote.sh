@@ -150,10 +150,19 @@ if ! filtered_all=$( { printf '%s\n%s\n%s\n' "$canary_keep_in" "$canary_drop" "$
 fi
 unparsed=$(cat "$countfile" 2>/dev/null)
 rm -f "$countfile"
-if ! printf '%s\n' "$filtered_all" | grep -qxF "$canary_keep" \
-  || printf '%s\n' "$filtered_all" | grep -qxF "$canary_keep_in" \
-  || printf '%s\n' "$filtered_all" | grep -qxF "$canary_drop" \
-  || printf '%s\n' "$filtered_all" | grep -qxF "$canary_cut"; then
+# Count, never `grep -q` in a pipe: `grep -q` quits at the first match, and a writer still
+# writing a large string dies of SIGPIPE, which under `pipefail` reads as failure (this is the
+# bug that failed the first real deploy; see deploy-stack-on-vps.sh). This script does not set
+# pipefail, but the habit must not be copied from here into one that does.
+has_line() { # <text> <whole line to look for>
+  local n
+  n=$(printf '%s\n' "$1" | grep -cxF -- "$2" || true)
+  [ "${n:-0}" -ge 1 ]
+}
+if ! has_line "$filtered_all" "$canary_keep" \
+  || has_line "$filtered_all" "$canary_keep_in" \
+  || has_line "$filtered_all" "$canary_drop" \
+  || has_line "$filtered_all" "$canary_cut"; then
   echo "LOGSCAN_FAILED=req_filter_canary"
   exit 0
 fi

@@ -135,7 +135,10 @@ ENVELOPE="$(cat)"
 # LOGSCAN_BEGIN at all is still BLIND: the remote script did not run, or its output is not
 # ours, and "could not see" must stay red.
 total_nonempty="$(printf '%s\n' "$ENVELOPE" | grep -c . || true)"
-printf '%s\n' "$ENVELOPE" | grep -qx 'LOGSCAN_BEGIN' \
+# COUNT lines, never `grep -q` in a pipe: this script runs under `pipefail`, `grep -q` quits at
+# the first match, and a writer still writing a large envelope (login-shell noise is
+# unbounded) dies of SIGPIPE, which reads as "not found". See deploy-stack-on-vps.sh.
+[ "$(printf '%s\n' "$ENVELOPE" | grep -cx 'LOGSCAN_BEGIN' || true)" -ge 1 ] \
   || blind "no LOGSCAN_BEGIN frame in ${total_nonempty} line(s) of output: the remote script did not run, or the session wrote something else (an ssh failure, a shell rc file)"
 # EXACTLY ONE frame. A genuine run prints one BEGIN and one END. Two of either means
 # something else wrote frame markers into the stream (a decoy before ours, a forged frame
@@ -227,7 +230,7 @@ fi
 [ -n "$contract_hits" ] || blind "envelope has no LOGSCAN_CONTRACT_HITS (truncated, or a remote script older than this checker)"
 [ "$contract_hits" -le "$hits" ] || blind "envelope reports ${contract_hits} contract hits out of ${hits} hits: inconsistent"
 [ "$containers" -ge 1 ] || blind "no running api container on the VPS: nothing to watch. Expected for a few minutes while a deploy recreates it (the deploy's own scan covers that window); anything longer is a real problem"
-printf '%s\n' "$ENVELOPE" | grep -qx 'LOGSCAN_END' || blind "envelope has no LOGSCAN_END (output truncated)"
+[ "$(printf '%s\n' "$ENVELOPE" | grep -cx 'LOGSCAN_END' || true)" -ge 1 ] || blind "envelope has no LOGSCAN_END (output truncated)"
 
 hit_lines="$(printf '%s\n' "$ENVELOPE" | grep -E "$RE_HIT" || true)"
 detail_n=0

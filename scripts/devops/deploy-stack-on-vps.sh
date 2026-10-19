@@ -2339,10 +2339,20 @@ if ! command -v python3 >/dev/null 2>&1 \
 fi
 LOGSCAN_UNPARSED="$(cat "$LOGSCAN_COUNTFILE" 2>/dev/null || true)"
 rm -f "$LOGSCAN_COUNTFILE"
-if ! printf '%s\n' "$API_LOGS_FILTERED_ALL" | grep -qxF "$LOGSCAN_CANARY_KEEP" \
-  || printf '%s\n' "$API_LOGS_FILTERED_ALL" | grep -qxF "$LOGSCAN_CANARY_KEEP_IN" \
-  || printf '%s\n' "$API_LOGS_FILTERED_ALL" | grep -qxF "$LOGSCAN_CANARY_DROP" \
-  || printf '%s\n' "$API_LOGS_FILTERED_ALL" | grep -qxF "$LOGSCAN_CANARY_CUT"; then
+# NEVER `printf "$BIG" | grep -q ...` in this script: it runs under `set -o pipefail`, and
+# `grep -q` exits at the first match while printf is still writing. With enough input printf
+# dies of SIGPIPE (141), the pipeline reports failure, and a canary that IS present reads as
+# missing. That is exactly what failed the first real deploy: the unit tests used a few KB of
+# log, production has hundreds. `grep -c` always reads to the end, so nothing is cut short.
+logscan_has_line() { # <text> <whole line to look for>
+  local n
+  n="$(printf '%s\n' "$1" | grep -cxF -- "$2" || true)"
+  [ "${n:-0}" -ge 1 ]
+}
+if ! logscan_has_line "$API_LOGS_FILTERED_ALL" "$LOGSCAN_CANARY_KEEP" \
+  || logscan_has_line "$API_LOGS_FILTERED_ALL" "$LOGSCAN_CANARY_KEEP_IN" \
+  || logscan_has_line "$API_LOGS_FILTERED_ALL" "$LOGSCAN_CANARY_DROP" \
+  || logscan_has_line "$API_LOGS_FILTERED_ALL" "$LOGSCAN_CANARY_CUT"; then
   echo "ERROR: the log filter did not behave (canary check failed); refusing to pass the 42501 check unread"
   exit 1
 fi

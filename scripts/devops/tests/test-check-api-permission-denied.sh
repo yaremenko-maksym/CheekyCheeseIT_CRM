@@ -782,6 +782,34 @@ assert_exit_code "SR-M-11 WATCH: ...exit 1, not 2" 1 with_file "$WS/hostile-plus
 assert_green "SR-M-11 DEPLOY: ...and the genuine contract line next to the hostile lines is still REPORTED (count 1), not gating" \
   --contains "appeared 1 time(s)" --contains "NOT gating" --contains "DEPLOY-CONTINUED" -- with_file "$WS/hostile-plus-hit.log" deploy_step file
 
+# ═══ PRODUCTION-SIZE INPUT: `grep -q` in a pipe under `pipefail` (the first real deploy failed) ═══
+# The first deploy on main went red with "canary check failed" while the app was healthy: the
+# deploy script runs under `set -o pipefail`, `printf "$BIG" | grep -qxF "$KEEP"` makes grep exit
+# at the first match (the keep canary is the FIRST line), printf is still writing, dies of
+# SIGPIPE (141), and the pipeline reads as failure although the canary was present. Every test
+# before this one used a few KB of log, where printf always finishes before grep exits. These
+# use production-sized input: a real api container's startup output is hundreds of KB.
+{ i=0; while [ "$i" -lt 3000 ]; do
+    printf '%s\n' "2026-10-19T23:19:14.000000001Z [Nest] 18  - 10/19/2026, 11:19:14 PM     LOG [RouterExplorer] Mapped {/api/health, GET} route"
+    i=$((i + 1))
+  done; } >"$WS/big.log"
+{ cat "$WS/big.log"; printf '2026-10-19T23:19:20.000000001Z [Nest] 18  - x   ERROR [DatabasePrivilege] db_privilege_denied sqlstate=42501 table=document_access_log ctx=pool\n'; cat "$WS/big.log"; } >"$WS/big-plus-hit.log"
+assert_green "PRODUCTION SIZE: the log is really big (over the 64 KB pipe buffer, so the writer can hit SIGPIPE)" -- \
+  bash -c "[ \"\$(wc -c <'$WS/big.log' | tr -d ' ')\" -gt 200000 ]"
+assert_green "PRODUCTION SIZE DEPLOY: a 400 KB log passes the canary under the deploy script's pipefail and the deploy continues" \
+  --contains "DEPLOY-CONTINUED" --not-contains "canary check failed" -- with_file "$WS/big.log" deploy_step file
+assert_green "PRODUCTION SIZE DEPLOY: ...and a genuine contract line inside 800 KB is still REPORTED (count 1)" \
+  --contains "appeared 1 time(s)" --contains "DEPLOY-CONTINUED" --not-contains "canary check failed" -- with_file "$WS/big-plus-hit.log" deploy_step file
+assert_green "PRODUCTION SIZE WATCH: a 400 KB log is read as clean, not BLIND" \
+  --contains "OK: read" --not-contains "BLIND" -- with_file "$WS/big.log" pipeline file
+assert_red "PRODUCTION SIZE WATCH: a genuine hit inside 800 KB is still FOUND" \
+  --contains "1 contract line(s) and 0 other" -- with_file "$WS/big-plus-hit.log" pipeline file
+# The checker: login-shell noise before the frame is unbounded, and the checker runs pipefail too.
+{ i=0; while [ "$i" -lt 4000 ]; do printf 'Welcome to the VPS: a very chatty rc file prints line number %s of many\n' "$i"; i=$((i + 1)); done; cat "$WS/hit.env"; } >"$WS/noisy-big-hit.env"
+assert_red "PRODUCTION SIZE CHECKER: 4000 lines of rc noise before the frame still give a HIT (exit 1), not BLIND" \
+  --contains "HIT time=" --contains "discarded 4000 line(s)" -- run_guard "$WS/noisy-big-hit.env"
+assert_exit_code "PRODUCTION SIZE CHECKER: ...exit 1, not 2" 1 run_guard "$WS/noisy-big-hit.env"
+
 # ═══ SR-M-9: the contract token under another logger context is not the contract ═════════
 assert_green "SR-M-9 WATCH: db_privilege_denied under a handler context is NOT a hit" \
   --contains "OK: read" --not-contains "HIT" -- pipeline ctx_other
