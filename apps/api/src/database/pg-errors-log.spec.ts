@@ -379,6 +379,13 @@ describe('safeErrorStack', () => {
     expect(safeErrorStack(err)).toBe('Error\n    at Parser.parse (/x/pg.js:1:1)')
   })
 
+  it('keeps only lines that are frames: a non-frame line after the header that contains " at " is dropped', () => {
+    const err = drizzleError(DENIED, 'select 1', [])
+    err.stack = `${err.name}: ${err.message}\n    at Handler.run (/x/handler.ts:1:1)\nnote: meet me at noon`
+
+    expect(safeErrorStack(err)).toBe('DrizzleQueryError\n    at Handler.run (/x/handler.ts:1:1)')
+  })
+
   it('fails closed: a stack that does not start with its own `name: message` header yields just the name', () => {
     const err = drizzleError(DENIED, 'select 1 where a = $1', ['x\n    at LEAK (f:1:1)'])
     err.stack =

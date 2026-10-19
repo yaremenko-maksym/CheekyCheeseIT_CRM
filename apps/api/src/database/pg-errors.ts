@@ -279,7 +279,10 @@ export function safeErrorStack(err: unknown): string | undefined {
   if (!isPgNode(err as unknown as Dict) && !isDrizzleNode(err as unknown as Dict)) return err.stack
   if (err.stack === undefined) return undefined
   const header = `${err.name}: ${err.message}`
-  const body = err.stack.startsWith(header) ? err.stack.slice(header.length) : ''
-  const frames = body.split('\n').filter((line) => /^\s+at /.test(line))
+  if (!err.stack.startsWith(header)) return err.name
+  const frames = err.stack
+    .slice(header.length)
+    .split('\n')
+    .filter((line) => /^\s+at /.test(line))
   return [err.name, ...frames].join('\n')
 }
