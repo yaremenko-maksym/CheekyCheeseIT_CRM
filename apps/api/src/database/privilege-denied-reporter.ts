@@ -123,8 +123,9 @@ export class PrivilegeDeniedReporter implements OnApplicationBootstrap {
   constructor(private readonly database: DatabaseService) {}
 
   onApplicationBootstrap(): void {
-    installPrivilegeDeniedReporter(this.database.db.$client as Pool, (line) =>
-      this.logger.error(line),
-    )
+    // `DatabaseService.db` is declared as a plain `NodePgDatabase`, whose type omits the
+    // `$client` that `drizzle(pool)` really returns (measured: `db.$client === pool`).
+    const { $client } = this.database.db as unknown as { $client: Pool }
+    installPrivilegeDeniedReporter($client, (line) => this.logger.error(line))
   }
 }
