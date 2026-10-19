@@ -61,6 +61,7 @@ LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=412
 LOGSCAN_HITS=1
 LOGSCAN_CONTRACT_HITS=0
+LOGSCAN_UNPARSED=0
 LOGSCAN_HIT ts=2026-10-19T03:00:02.123456789Z logger=TelemetryRetentionCronService object=table:telemetry_events sqlstate=42501-by-message src=text
 LOGSCAN_END
 EOF
@@ -72,6 +73,7 @@ LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=900
 LOGSCAN_HITS=3
 LOGSCAN_CONTRACT_HITS=0
+LOGSCAN_UNPARSED=0
 LOGSCAN_HIT ts=2026-10-19T04:00:00.000000001Z logger=unknown object=unknown sqlstate=42501 src=text
 LOGSCAN_HIT ts=2026-10-19T04:00:01.000000001Z logger=DocumentAccessLogRetentionCronService object=owner-only:table:document_access_log sqlstate=42501-by-message src=text
 LOGSCAN_HIT ts=unknown logger=unknown object=unknown sqlstate=unclassified src=text
@@ -86,6 +88,7 @@ LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=10
 LOGSCAN_HITS=4
 LOGSCAN_CONTRACT_HITS=0
+LOGSCAN_UNPARSED=0
 LOGSCAN_END
 EOF
 
@@ -96,6 +99,7 @@ LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=412
 LOGSCAN_HITS=0
 LOGSCAN_CONTRACT_HITS=0
+LOGSCAN_UNPARSED=0
 LOGSCAN_END
 EOF
 
@@ -106,6 +110,7 @@ LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=0
 LOGSCAN_HITS=0
 LOGSCAN_CONTRACT_HITS=0
+LOGSCAN_UNPARSED=0
 LOGSCAN_END
 EOF
 
@@ -118,6 +123,7 @@ LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=5
 LOGSCAN_HITS=1
 LOGSCAN_CONTRACT_HITS=0
+LOGSCAN_UNPARSED=0
 2026-10-19T05:00:00.000000001Z ERROR [X] permission denied for table t; email=jane.doe@example.com ::error::INJECTED
 LOGSCAN_END
 EOF
@@ -128,6 +134,7 @@ LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=5
 LOGSCAN_HITS=1
 LOGSCAN_CONTRACT_HITS=0
+LOGSCAN_UNPARSED=0
 LOGSCAN_HIT ts=2026-10-19T05:00:00.000000001Z logger=X object=table:t;jane.doe@example.com sqlstate=42501 src=text
 LOGSCAN_END
 EOF
@@ -141,6 +148,7 @@ LOGSCAN_CONTAINER=unknown
 LOGSCAN_LINES=0
 LOGSCAN_HITS=0
 LOGSCAN_CONTRACT_HITS=0
+LOGSCAN_UNPARSED=0
 LOGSCAN_END
 EOF
 # Cut off before END: the hit could be in the part that was lost.
@@ -151,6 +159,7 @@ LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=412
 LOGSCAN_HITS=0
 LOGSCAN_CONTRACT_HITS=0
+LOGSCAN_UNPARSED=0
 EOF
 printf '%s\n' '<html>ssh banner garbage</html>' >"$WS/garbage.env"
 cat >"$WS/inconsistent.env" <<'EOF'
@@ -160,6 +169,7 @@ LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=3
 LOGSCAN_HITS=0
 LOGSCAN_CONTRACT_HITS=0
+LOGSCAN_UNPARSED=0
 LOGSCAN_HIT ts=2026-10-19T03:00:02.123456789Z logger=unknown object=table:unknown sqlstate=42501 src=text
 LOGSCAN_END
 EOF
@@ -218,6 +228,7 @@ LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=9
 LOGSCAN_HITS=1
 LOGSCAN_CONTRACT_HITS=0
+LOGSCAN_UNPARSED=0
 LOGSCAN_HIT ts=2026-10-19T03:00:02.123456789Z logger=unknown object=table:unknown sqlstate=42501 src=text
 LOGSCAN_END
 EOF
@@ -228,6 +239,7 @@ LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=9
 LOGSCAN_HITS=1
 LOGSCAN_CONTRACT_HITS=0
+LOGSCAN_UNPARSED=0
 LOGSCAN_HIT ts=2026-10-19T03:00:02.123456789Z logger=AttackerChosenTokenHere object=table:unknown sqlstate=42501 src=text
 LOGSCAN_END
 EOF
@@ -238,6 +250,7 @@ LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=9
 LOGSCAN_HITS=1
 LOGSCAN_CONTRACT_HITS=0
+LOGSCAN_UNPARSED=0
 LOGSCAN_HIT ts=2026-10-19T03:00:02.123456789Z logger=unknown object=table:jane_doe_example_com sqlstate=42501 src=text
 LOGSCAN_END
 EOF
@@ -258,6 +271,7 @@ LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=9
 LOGSCAN_HITS=1
 LOGSCAN_CONTRACT_HITS=0
+LOGSCAN_UNPARSED=0
 LOGSCAN_HIT ts=2026-10-19T03:00:02.123456789Z logger=unknown object=$1 sqlstate=42501 src=text
 LOGSCAN_END
 EOF
@@ -285,6 +299,7 @@ LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=9
 LOGSCAN_HITS=1
 LOGSCAN_CONTRACT_HITS=0
+LOGSCAN_UNPARSED=0
 LOGSCAN_HIT ts=unknown logger=unknown object=table:unknown sqlstate=42501 src=text
 LOGSCAN_END
 EOF
@@ -300,6 +315,7 @@ LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=40321
 LOGSCAN_HITS=0
 LOGSCAN_CONTRACT_HITS=0
+LOGSCAN_UNPARSED=0
 LOGSCAN_END
 EOF
 assert_green "the public log never shows an exact traffic count (40321 lines -> a bucket)" \
@@ -333,6 +349,7 @@ LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=9
 LOGSCAN_HITS=2
 LOGSCAN_CONTRACT_HITS=1
+LOGSCAN_UNPARSED=0
 LOGSCAN_HIT ts=2026-10-19T03:00:02.123456789Z logger=unknown object=table:document_access_log sqlstate=42501 src=contract
 LOGSCAN_HIT ts=2026-10-19T03:00:02.223456789Z logger=unknown object=table:document_access_log sqlstate=42501-by-message src=text
 LOGSCAN_END
@@ -355,14 +372,20 @@ assert_red "container name: a charset-clean but non-compose name is refused (BLI
 # ── the pattern itself ───────────────────────────────────────────────────────
 pat_hits() { printf '%s\n' "$1" | grep -aEi -e "$RE" >/dev/null; }
 assert_green "pattern: 'permission denied for table x'" -- bash -c "$(declare -f pat_hits); RE='$RE'; pat_hits 'ERROR permission denied for table x'"
-assert_green "pattern: THE CONTRACT line the API's chokepoint emits (PR #1042)" -- bash -c "$(declare -f pat_hits); RE='$RE'; pat_hits 'ERROR [DatabaseService] db_privilege_denied sqlstate=42501 table=document_access_log ctx=pool'"
-assert_green "pattern: ...whatever the field order after the first token" -- bash -c "$(declare -f pat_hits); RE='$RE'; pat_hits 'db_privilege_denied ctx=pool table=users sqlstate=42501'"
+assert_green "pattern: THE CONTRACT line the API's chokepoint emits (PR #1042)" -- bash -c "$(declare -f pat_hits); RE='$RE'; pat_hits 'ERROR [DatabasePrivilege] db_privilege_denied sqlstate=42501 table=document_access_log ctx=pool'"
+assert_green "pattern: ...whatever the field order after the first token" -- bash -c "$(declare -f pat_hits); RE='$RE'; pat_hits '[DatabasePrivilege] db_privilege_denied ctx=pool table=users sqlstate=42501'"
 assert_red "pattern: a bare 'sqlstate=42501' is NOT the contract (too generic: a client can put it in a URL)" -- bash -c "$(declare -f pat_hits); RE='$RE'; pat_hits 'cron failed sqlstate=42501'"
 assert_red "pattern: a JSON \"code\":\"42501\" alone is NOT matched either (narrowed on purpose)" -- bash -c "$(declare -f pat_hits); RE='$RE'; pat_hits '{\"code\":\"42501\"}'"
 assert_red "pattern: #1042's diagnostic fragment db_sqlstate=42501 must NOT match (one failure, one contract line)" -- bash -c "$(declare -f pat_hits); RE='$RE'; pat_hits 'db_error db_sqlstate=42501 db_table=- db_constraint=- db_column=- db_message=- db_statement=\"select 1\"'"
 assert_red "pattern: 'db_privilege_denied' with a DIFFERENT sqlstate (28P01) is not a 42501 contract line" -- bash -c "$(declare -f pat_hits); RE='$RE'; pat_hits 'db_privilege_denied sqlstate=28P01 table=-'"
+# SR-M-9: the contract is anchored on the logger context, so user data echoed into another
+# handler's message or log line cannot forge the primary pattern.
+assert_red "SR-M-9: the contract token under ANOTHER logger context is not the contract (nor any hit)" -- \
+  bash -c "$(declare -f pat_hits); RE='$RE'; pat_hits 'ERROR [VacanciesRetentionCronService] db_privilege_denied sqlstate=42501 table=users ctx=pool'"
+assert_red "SR-M-9: request data echoed into an unhandled-error message does not forge it" -- \
+  bash -c "$(declare -f pat_hits); RE='$RE'; pat_hits 'ERROR [ExceptionsHandler] Cannot parse GET /x?db_privilege_denied&sqlstate=42501'"
 assert_green "contract regex is a subset of the full regex (everything contract is also a hit)" -- \
-  bash -c "printf '%s\n' 'db_privilege_denied sqlstate=42501 table=x ctx=pool' | grep -aEi -e '$CONTRACT_RE' >/dev/null && printf '%s\n' 'db_privilege_denied sqlstate=42501 table=x ctx=pool' | grep -aEi -e '$RE' >/dev/null"
+  bash -c "printf '%s\n' '[DatabasePrivilege] db_privilege_denied sqlstate=42501 table=x ctx=pool' | grep -aEi -e '$CONTRACT_RE' >/dev/null && printf '%s\n' '[DatabasePrivilege] db_privilege_denied sqlstate=42501 table=x ctx=pool' | grep -aEi -e '$RE' >/dev/null"
 assert_red "contract regex does NOT match the belt-and-braces text (the two are distinguishable)" -- \
   bash -c "printf '%s\n' 'permission denied for table x' | grep -aEi -e '$CONTRACT_RE'"
 assert_red "pattern: a bare number 42501 elsewhere (an id, a port) does NOT fire" -- bash -c "$(declare -f pat_hits); RE='$RE'; pat_hits 'processed 42501 rows'"
@@ -388,14 +411,14 @@ case " $* " in
                "2026-10-19T03:00:01.000000001Z [Nest] 18  - 10/19/2026, 3:00:01 AM     LOG [HealthController] ok" \
                "2026-10-19T03:00:02.123456789Z [Nest] 18  - 10/19/2026, 3:00:02 AM   ERROR [VacanciesRetentionCronService] retention failed error: permission denied for table vacancy_applications" ;;
       # PR #1042: the contract line (one chokepoint) and the handler diagnostic fragment.
-      contract)       printf "%s\n" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [DatabaseService] db_privilege_denied sqlstate=42501 table=document_access_log ctx=pool" ;;
-      contract_dash)  printf "%s\n" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [DatabaseService] db_privilege_denied sqlstate=42501 table=- ctx=client" ;;
-      contract_off)   printf "%s\n" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [DatabaseService] db_privilege_denied sqlstate=42501 table=we?ird?t ctx=pool" ;;
+      contract)       printf "%s\n" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [DatabasePrivilege] db_privilege_denied sqlstate=42501 table=document_access_log ctx=pool" ;;
+      contract_dash)  printf "%s\n" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [DatabasePrivilege] db_privilege_denied sqlstate=42501 table=- ctx=client" ;;
+      contract_off)   printf "%s\n" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [DatabasePrivilege] db_privilege_denied sqlstate=42501 table=we?ird?t ctx=pool" ;;
       contract_diag)  printf "%s\n" \
-                        "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [DatabaseService] db_privilege_denied sqlstate=42501 table=document_access_log ctx=pool" \
+                        "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [DatabasePrivilege] db_privilege_denied sqlstate=42501 table=document_access_log ctx=pool" \
                         "2026-10-19T03:00:02.100000001Z [Nest] 18  - x   ERROR [DocumentAccessLogRetentionCronService] retention failed db_error db_sqlstate=42501 db_table=document_access_log db_constraint=- db_column=- db_message=\"permission denied for table document_access_log\" db_statement=\"delete from document_access_log\"" ;;
       contract_diag_quiet) printf "%s\n" \
-                        "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [DatabaseService] db_privilege_denied sqlstate=42501 table=document_access_log ctx=pool" \
+                        "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [DatabasePrivilege] db_privilege_denied sqlstate=42501 table=document_access_log ctx=pool" \
                         "2026-10-19T03:00:02.100000001Z [Nest] 18  - x   ERROR [DocumentAccessLogRetentionCronService] retention failed db_error db_sqlstate=42501 db_table=- db_constraint=- db_column=- db_message=- db_statement=\"select 1\"" ;;
       diag_alone)     printf "%s\n" "2026-10-19T03:00:02.100000001Z [Nest] 18  - x   ERROR [DocumentAccessLogRetentionCronService] retention failed db_error db_sqlstate=42501 db_table=- db_constraint=- db_column=- db_message=- db_statement=\"select 1\"" ;;
       upper) printf "%s\n" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [VacanciesRetentionCronService] error: PERMISSION DENIED for table public.vacancy_applications" ;;
