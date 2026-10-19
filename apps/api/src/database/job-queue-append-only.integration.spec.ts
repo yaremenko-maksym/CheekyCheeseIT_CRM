@@ -1724,6 +1724,177 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
   })
 
   // -------------------------------------------------------------------------
+  // OWNER-M-1 — the file is ONE TRANSACTION, proven from a second session
+  //
+  // The owner decided to wrap the DDL. The header now claims that the intermediate
+  // states inside the file are never visible to another session, and that is the
+  // kind of claim this feature has been burned by seven times: a comment advertising
+  // a guarantee the artifact does not deliver. So it is proven, from a SECOND
+  // CONNECTION, rather than asserted.
+  //
+  // Two windows existed before the wrap and both are closed by it:
+  //   1. the RECREATE window — `DROP TRIGGER` then `CREATE TRIGGER` under statement
+  //      autocommit left a committed instant with the guard absent;
+  //   2. the ENABLE ORIGIN window — `CREATE [OR REPLACE] TRIGGER` leaves the trigger
+  //      `ENABLE ORIGIN` until the separate `ENABLE ALWAYS` commits, so a session
+  //      with `session_replication_role = replica` could skip the guard in between.
+  // The first test below observes BOTH: mid-apply, a second session sees neither a
+  // missing trigger nor an `ENABLE ORIGIN` one — it sees the previous state.
+  // -------------------------------------------------------------------------
+  describe('OWNER-M-1 — the file is one transaction', () => {
+    /** The file's statements, and the index of its trailing `COMMIT`. */
+    const wrappedStatements = () => {
+      const statements = splitSqlStatements(readFileSync(TRIGGERS_SQL, 'utf8'))
+      const commitAt = statements.findIndex((st) => /^\s*COMMIT\s*;?\s*$/i.test(st))
+      const beginAt = statements.findIndex((st) => /^\s*BEGIN\s*;?\s*$/i.test(st))
+      return { statements, commitAt, beginAt }
+    }
+
+    it('opens with BEGIN and ends with COMMIT, with every object between them', () => {
+      // The structural half, so that if someone later unwraps the file the test that
+      // matters below cannot pass vacuously by having nothing to straddle.
+      const { statements, commitAt, beginAt } = wrappedStatements()
+      expect(beginAt).toBe(0)
+      expect(commitAt).toBe(statements.length - 1)
+      // Everything that creates an object is inside.
+      const firstCreate = statements.findIndex((st) => /^\s*CREATE /i.test(st))
+      expect(firstCreate).toBeGreaterThan(beginAt)
+      expect(firstCreate).toBeLessThan(commitAt)
+    })
+
+    it('shows a second session NO intermediate state mid-apply, and the new state after COMMIT', async () => {
+      const trigger = 'trg_job_queue_generations_frozen'
+      const table = 'job_queue_generations'
+      const { statements, commitAt } = wrappedStatements()
+
+      // A committed "previous state" that is visibly different from the end state, so
+      // that "the second session sees the previous state" is an observation and not a
+      // tautology: the trigger is really gone before the apply starts.
+      await q(`DROP TRIGGER ${trigger} ON ${table}`)
+      expect(await triggerState(trigger, table)).toBeUndefined()
+
+      const applying = await pool.connect()
+      try {
+        for (const statement of statements.slice(0, commitAt)) {
+          await applying.query(statement)
+        }
+
+        // MID-APPLY, from another connection. Inside `applying`'s transaction the
+        // trigger now exists and is ENABLE ALWAYS; from here it must still be absent.
+        // This is simultaneously the proof for window 1 (never missing-then-present as
+        // two committed states) and window 2 (never visible as 'O').
+        expect(await triggerState(trigger, table)).toBeUndefined()
+
+        await applying.query(statements[commitAt] as string)
+      } finally {
+        // If the loop threw, the transaction is still open on this client.
+        await applying.query('ROLLBACK').catch(() => undefined)
+        applying.release()
+      }
+
+      // After COMMIT the second session sees the finished state directly: present AND
+      // 'A'. It never saw 'O'.
+      expect(await triggerState(trigger, table)).toBe('A')
+      await applyFile(TRIGGERS_SQL)
+      await applyFile(CHECK_SQL)
+    })
+
+    it('aborts on a conflicting lock instead of queueing behind it (SET LOCAL lock_timeout)', async () => {
+      // The other direction of the wrap's cost: one transaction holds ACCESS EXCLUSIVE
+      // on the guarded tables until COMMIT, so a contended deploy must FAIL rather than
+      // stall while the old API is still serving. `lock_timeout` is what makes that the
+      // behaviour, and this test is the only thing that proves the value in the file is
+      // doing something.
+      //
+      // It really waits out the file's own five seconds — the file's `SET LOCAL` wins
+      // over anything this test could set first, which is the point of putting it in
+      // the file. One slow test, deliberately.
+      const blocker = await pool.connect()
+      let code: string | undefined
+      let elapsedMs = 0
+      try {
+        await blocker.query('BEGIN')
+        // A WRITER, not a reader, and that distinction is measured rather than
+        // assumed: the file's statements take ShareRowExclusiveLock (see the test
+        // below), which does NOT conflict with the ACCESS SHARE of a plain SELECT.
+        // An earlier version of this test held a SELECT open and the file applied
+        // straight through it in 0 ms, proving nothing. ROW EXCLUSIVE — what any
+        // INSERT takes — is what conflicts, and it is also the realistic case: an
+        // API session writing an audit row while the deploy lands.
+        await blocker.query(
+          `INSERT INTO job_queue_actions
+             (kind, opportunity_id, actor_id, scope_kind, before_version, after_version,
+              idempotency_key, reason)
+           VALUES ('DISMISSED', $1, $2, 'STUDIO', 0, 1, $3, $4)`,
+          [opportunity, actor, nextTag(), `${TAG} lock-probe`],
+        )
+
+        const startedAt = Date.now()
+        try {
+          await applyFile(TRIGGERS_SQL)
+        } catch (error) {
+          code = (error as { code?: string }).code
+        }
+        elapsedMs = Date.now() - startedAt
+      } finally {
+        await blocker.query('ROLLBACK').catch(() => undefined)
+        blocker.release()
+      }
+
+      expect(code).toBe('55P03') // lock_not_available
+      // Aborted on the timeout rather than hung: comfortably past 5s, nowhere near a
+      // test timeout. The upper bound is what distinguishes "aborted" from "waited".
+      expect(elapsedMs).toBeGreaterThanOrEqual(4_500)
+      expect(elapsedMs).toBeLessThan(20_000)
+
+      // And the file still applies cleanly once the lock is gone — a failed attempt
+      // left nothing behind, which is the other half of what the transaction buys.
+      await applyFile(TRIGGERS_SQL)
+      await applyFile(CHECK_SQL)
+    }, 60_000)
+
+    it('takes ShareRowExclusive, not ACCESS EXCLUSIVE — so readers are never blocked', async () => {
+      // The header makes a claim about the lock MODE, and that claim is the whole
+      // basis for saying the wrap is cheap. It was also the claim both review axes
+      // got wrong (both described ACCESS EXCLUSIVE, blocking every reader), so it is
+      // worth a test rather than a measurement in a report.
+      const applying = await pool.connect()
+      try {
+        await applying.query('BEGIN')
+        await applying.query(
+          `CREATE OR REPLACE TRIGGER trg_job_queue_actions_append_only
+             BEFORE UPDATE OR DELETE ON public.job_queue_actions
+             FOR EACH ROW EXECUTE FUNCTION public.job_queue_actions_append_only()`,
+        )
+        await applying.query(
+          `ALTER TABLE public.job_queue_actions
+             ENABLE ALWAYS TRIGGER trg_job_queue_actions_append_only`,
+        )
+
+        const { rows } = await applying.query<{ mode: string }>(
+          `SELECT DISTINCT l.mode
+             FROM pg_locks l JOIN pg_class c ON c.oid = l.relation
+            WHERE l.pid = pg_backend_pid() AND c.relname = 'job_queue_actions'
+            ORDER BY 1`,
+        )
+        expect(rows.map((r) => r.mode)).toEqual(['ShareRowExclusiveLock'])
+
+        // The consequence that makes it cheap: a SECOND session reads the table
+        // while this transaction holds that lock, without waiting.
+        const { rows: readable } = await pool.query<{ n: number }>(
+          `SELECT count(*)::int AS n FROM job_queue_actions`,
+        )
+        expect(readable[0]?.n).toBeGreaterThanOrEqual(0)
+      } finally {
+        await applying.query('ROLLBACK').catch(() => undefined)
+        applying.release()
+      }
+      await applyFile(TRIGGERS_SQL)
+      await applyFile(CHECK_SQL)
+    })
+  })
+
+  // -------------------------------------------------------------------------
   // The honest gap this task could not close (DDL header, divergence 2)
   // -------------------------------------------------------------------------
   describe('GAP PIN — job_queue_generations has no INSERT guard', () => {

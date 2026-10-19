@@ -74,13 +74,25 @@
 --   deploy. It is defence in depth, not the thing that closes the window; the transaction
 --   is. Do not read the `OR REPLACE` as the guarantee.
 --
---   WHAT THE WRAP COSTS, so it is not a free lunch on paper. One transaction holds
---   ACCESS EXCLUSIVE on the three guarded tables from the first `CREATE OR REPLACE
---   TRIGGER` to `COMMIT`, which blocks every reader and writer of the job queue for that
---   duration. Acceptable here, concretely: the six queue tables are EMPTY on production
---   (r5 is not yet live), the file runs in milliseconds, and it runs before the container
---   swap — so the API serving traffic at that moment is the old one, which does not touch
---   these tables at all. `SET LOCAL lock_timeout` below bounds the other direction.
+--   WHAT THE WRAP COSTS — AND THE LOCK MODE IS NOT THE ONE EVERYONE ASSUMED.
+--   Both review axes (and an earlier version of this comment) described the wrap as
+--   holding ACCESS EXCLUSIVE on the three tables, i.e. blocking every reader and writer.
+--   MEASURED on 16.15, that is wrong: `CREATE OR REPLACE TRIGGER` and
+--   `ALTER TABLE ... ENABLE ALWAYS TRIGGER` both take **ShareRowExclusiveLock**, and
+--   nothing in this file takes anything stronger. `pg_locks` was read inside the
+--   transaction after each statement to confirm it.
+--     What ShareRowExclusive actually does: it does NOT conflict with ACCESS SHARE, so
+--   plain SELECTs against the queue tables run throughout, unblocked. It DOES conflict
+--   with ROW EXCLUSIVE, so INSERT / UPDATE / DELETE on those three tables wait until
+--   `COMMIT` — and with other DDL on them. So the cost is paid by WRITERS, not readers,
+--   and it is paid for the few milliseconds this file takes.
+--     Why that is acceptable here, concretely: the six queue tables are EMPTY on
+--   production (r5 is not yet live) and no shipped code path writes them, and the file
+--   runs before the container swap, so the API serving traffic at that moment is the old
+--   one, which does not touch these tables at all. `SET LOCAL lock_timeout` below bounds
+--   the other direction — if some writer unexpectedly does hold ROW EXCLUSIVE, the deploy
+--   aborts rather than queueing. Both halves are pinned by tests (`OWNER-M-1` in the
+--   integration suite), including the lock mode claim above.
 --
 -- WHY `ENABLE ALWAYS` ON EVERY TRIGGER HERE
 --   A trigger in the default state is SKIPPED when `session_replication_role =
