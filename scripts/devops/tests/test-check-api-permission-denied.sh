@@ -54,6 +54,7 @@ assert_exit_code() {
 # ═══ 1. the checker, on hand-written (already sanitised) envelopes ═════════════
 
 cat >"$WS/hit.env" <<'EOF'
+LOGSCAN_BEGIN
 LOGSCAN_API_CONTAINERS=1
 LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=412
@@ -63,6 +64,7 @@ LOGSCAN_END
 EOF
 
 cat >"$WS/hit-variants.env" <<'EOF'
+LOGSCAN_BEGIN
 LOGSCAN_API_CONTAINERS=1
 LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=900
@@ -75,6 +77,7 @@ EOF
 
 # The count alone is the alert, even if no detail line survived.
 cat >"$WS/hit-count-only.env" <<'EOF'
+LOGSCAN_BEGIN
 LOGSCAN_API_CONTAINERS=1
 LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=10
@@ -83,6 +86,7 @@ LOGSCAN_END
 EOF
 
 cat >"$WS/clean.env" <<'EOF'
+LOGSCAN_BEGIN
 LOGSCAN_API_CONTAINERS=1
 LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=412
@@ -91,6 +95,7 @@ LOGSCAN_END
 EOF
 
 cat >"$WS/clean-silent.env" <<'EOF'
+LOGSCAN_BEGIN
 LOGSCAN_API_CONTAINERS=1
 LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=0
@@ -101,6 +106,7 @@ EOF
 # SECOND LOCK: a remote that starts emitting raw text must turn the run red, and the
 # text must not be echoed by the checker.
 cat >"$WS/leak-raw-line.env" <<'EOF'
+LOGSCAN_BEGIN
 LOGSCAN_API_CONTAINERS=1
 LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=5
@@ -109,6 +115,7 @@ LOGSCAN_HITS=1
 LOGSCAN_END
 EOF
 cat >"$WS/leak-in-field.env" <<'EOF'
+LOGSCAN_BEGIN
 LOGSCAN_API_CONTAINERS=1
 LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=5
@@ -118,8 +125,9 @@ LOGSCAN_END
 EOF
 
 : >"$WS/empty.env"
-printf 'LOGSCAN_FAILED=compose_logs\n' >"$WS/remote-failed.env"
+printf 'LOGSCAN_BEGIN\nLOGSCAN_FAILED=compose_logs\n' >"$WS/remote-failed.env"
 cat >"$WS/no-container.env" <<'EOF'
+LOGSCAN_BEGIN
 LOGSCAN_API_CONTAINERS=0
 LOGSCAN_CONTAINER=unknown
 LOGSCAN_LINES=0
@@ -128,6 +136,7 @@ LOGSCAN_END
 EOF
 # Cut off before END: the hit could be in the part that was lost.
 cat >"$WS/truncated.env" <<'EOF'
+LOGSCAN_BEGIN
 LOGSCAN_API_CONTAINERS=1
 LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=412
@@ -135,6 +144,7 @@ LOGSCAN_HITS=0
 EOF
 printf '%s\n' '<html>ssh banner garbage</html>' >"$WS/garbage.env"
 cat >"$WS/inconsistent.env" <<'EOF'
+LOGSCAN_BEGIN
 LOGSCAN_API_CONTAINERS=1
 LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=3
@@ -191,6 +201,7 @@ assert_exit_code "blind (2) is distinguishable from a hit (1)" 2 run_guard "$WS/
 
 # ── AC7: allowlist lock in the checker. `unknown` is accepted AND pages ─────────
 cat >"$WS/unknown-hit.env" <<'EOF'
+LOGSCAN_BEGIN
 LOGSCAN_API_CONTAINERS=1
 LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=9
@@ -199,6 +210,7 @@ LOGSCAN_HIT ts=2026-10-19T03:00:02.123456789Z logger=unknown object=table:unknow
 LOGSCAN_END
 EOF
 cat >"$WS/offlist-logger.env" <<'EOF'
+LOGSCAN_BEGIN
 LOGSCAN_API_CONTAINERS=1
 LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=9
@@ -207,6 +219,7 @@ LOGSCAN_HIT ts=2026-10-19T03:00:02.123456789Z logger=AttackerChosenTokenHere obj
 LOGSCAN_END
 EOF
 cat >"$WS/offlist-object.env" <<'EOF'
+LOGSCAN_BEGIN
 LOGSCAN_API_CONTAINERS=1
 LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=9
@@ -225,6 +238,7 @@ assert_red "an off-list object name in the envelope is refused (BLIND), not show
 # SR-M-2: the WHOLE object field is validated, not the segment after the last colon.
 mk_obj_env() { # <object-field> -> $WS/obj.env
   cat >"$WS/obj.env" <<EOF
+LOGSCAN_BEGIN
 LOGSCAN_API_CONTAINERS=1
 LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=9
@@ -250,6 +264,7 @@ run_with_summary() { : >"$SUMF"; GITHUB_STEP_SUMMARY="$SUMF" bash "$GUARD" <"$1"
 run_with_summary "$WS/hit.env"
 assert_green "SR-M-4: a hit WITH a timestamp points at the timestamps above" -- grep -q 'near the timestamps above' "$SUMF"
 cat >"$WS/hit-nots.env" <<'EOF'
+LOGSCAN_BEGIN
 LOGSCAN_API_CONTAINERS=1
 LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=9
@@ -263,6 +278,7 @@ assert_green "SR-M-4: a hit with ts=unknown does NOT claim timestamps exist, and
 
 # LOW: the public log carries a coarse volume, never the exact line count.
 cat >"$WS/clean-413.env" <<'EOF'
+LOGSCAN_BEGIN
 LOGSCAN_API_CONTAINERS=1
 LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=40321
@@ -274,6 +290,23 @@ assert_green "the public log never shows an exact traffic count (40321 lines -> 
 
 assert_red "no allowlists supplied: BLIND (fails closed), even for a clean-looking hit" \
   --contains "allowlists not provided" -- env -u LOGSCAN_TABLES -u LOGSCAN_LOGGERS bash "$GUARD" <"$WS/hit.env"
+
+# ── SR-M-6: the frame. Text a login shell writes around our output is discarded and
+# COUNTED, never shown, and never turns a genuine hit into BLIND ─────────────────
+{ printf 'Welcome to the VPS\nLast login: Mon Oct 19 from 203.0.113.9\n'; cat "$WS/hit.env"; printf 'bye from the rc file\n'; } >"$WS/noisy-hit.env"
+{ printf 'Welcome to the VPS\n'; cat "$WS/clean.env"; } >"$WS/noisy-clean.env"
+printf 'Welcome to the VPS\nconnection banner\n' >"$WS/noise-only.env"
+{ cat "$WS/hit.env"; cat "$WS/clean.env"; } >"$WS/two-frames.env"
+assert_red "SR-M-6: a hit with login-shell text before AND after the frame still FIRES (exit 1, not BLIND)" \
+  --contains "HIT time=2026-10-19T03:00:02.123456789Z" --contains "discarded 3 line(s)" \
+  --not-contains "Welcome" --not-contains "203.0.113.9" --not-contains "bye from" -- run_guard "$WS/noisy-hit.env"
+assert_exit_code "SR-M-6: ...exit code 1" 1 run_guard "$WS/noisy-hit.env"
+assert_green "SR-M-6: a clean scan with leading rc text stays clean (exit 0) and reports the count" \
+  --contains "OK: read" --contains "discarded 1 line(s)" --not-contains "Welcome" -- run_guard "$WS/noisy-clean.env"
+assert_red "SR-M-6: output with NO frame at all is still BLIND (the script did not run), not clean, nothing echoed" \
+  --contains "no LOGSCAN_BEGIN frame in 2 line(s)" --not-contains "Welcome" -- run_guard "$WS/noise-only.env"
+assert_exit_code "SR-M-6: ...exit 2" 2 run_guard "$WS/noise-only.env"
+assert_exit_code "SR-M-6: a second frame after the first END cannot turn a hit into a clean scan" 1 run_guard "$WS/two-frames.env"
 
 # ── the pattern itself ───────────────────────────────────────────────────────
 pat_hits() { printf '%s\n' "$1" | grep -aEi -e "$RE" >/dev/null; }
@@ -632,8 +665,14 @@ if [ -n "$SSHD_BIN" ] && command -v ssh-keygen >/dev/null 2>&1; then
   cat >"$SD/wrap.sh" <<WRAP
 #!/usr/bin/env bash
 export PATH="$WS/bin:\$PATH" FAKE_DOCKER_MODE="\$(cat "$SD/mode")" LOGSCAN_CRM_DIR="$WS"
+[ -f "$SD/noise" ] && export BASH_ENV="$SD/benv"
 exec bash -c "\$SSH_ORIGINAL_COMMAND"
 WRAP
+  # A REAL shell startup file: bash reads \$BASH_ENV for every non-interactive shell, which
+  # is how a login shell's rc output reaches the session's stdout BEFORE our script runs
+  # (SR-M-6). ForceCommand bypasses the user's login shell, so this is how the test gets
+  # the same effect through a mechanism the shell itself provides.
+  printf '%s\n' 'echo "Welcome to the VPS (rc file output)"' 'echo "second rc line"' >"$SD/benv"
   chmod +x "$SD/wrap.sh"
   cat >"$SD/sshd_config" <<CONF
 Port $SSHD_PORT
@@ -680,8 +719,21 @@ CONF
     { printf 'export LOGSCAN_RE=%q\nexport LOGSCAN_SINCE=40m\nexport LOGSCAN_TABLES=%q\nexport LOGSCAN_LOGGERS=%q\n' "$RE" "$LOGSCAN_TABLES" "$LOGSCAN_LOGGERS"; cat "$REMOTE_SH"; } >"$SD/payload.sh"
     ssh -i "$SD/clientkey" -p "$SSHD_PORT" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=no \
       -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "$(id -un)@127.0.0.1" 'bash -s' <"$SD/payload.sh" >"$SD/raw.out" 2>"$SD/raw.err"
+    # SR-M-6 over a real ssh: shell rc output precedes our frame. First prove the noise is
+    # REALLY on the wire, then that the verdict survives it.
+    touch "$SD/noise"
+    echo hit >"$SD/mode"
+    ssh -i "$SD/clientkey" -p "$SSHD_PORT" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=no \
+      -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "$(id -un)@127.0.0.1" 'bash -s' <"$SD/payload.sh" >"$SD/noisy.out" 2>/dev/null
+    assert_green "SEAM 5b REAL ssh: with a shell rc file the first bytes on the wire are NOT our frame (the repro is real)" -- \
+      bash -c "head -n1 '$SD/noisy.out' | grep -q 'Welcome to the VPS'"
+    assert_red "SEAM 5b REAL ssh: ...yet a hit still FIRES (exit 1, not BLIND), noise counted and not shown" \
+      --contains "HIT time=2026-10-19T03:00:02.123456789Z" --contains "discarded" --not-contains "Welcome" -- real hit
+    assert_exit_code "SEAM 5b REAL ssh: ...exit 1" 1 real hit
+    assert_green "SEAM 5b REAL ssh: ...and a clean scan with the same rc noise exits 0" --contains "OK: read" -- real clean
+    rm -f "$SD/noise"
     assert_green "SEAM 5b REAL ssh: raw stdout is exactly the envelope (starts/ends right, nothing else)" -- \
-      bash -c "[ \"\$(head -n1 '$SD/raw.out')\" = LOGSCAN_API_CONTAINERS=1 ] && [ \"\$(tail -n1 '$SD/raw.out')\" = LOGSCAN_END ] && ! grep -qv '^LOGSCAN_' '$SD/raw.out'"
+      bash -c "[ \"\$(head -n1 '$SD/raw.out')\" = LOGSCAN_BEGIN ] && [ \"\$(tail -n1 '$SD/raw.out')\" = LOGSCAN_END ] && ! grep -qv '^LOGSCAN_' '$SD/raw.out'"
     assert_green "SEAM 5b REAL ssh: ...with no line written twice (the ssh-action doubling cannot recur)" -- \
       bash -c "[ -z \"\$(sort '$SD/raw.out' | uniq -d)\" ]"
     assert_green "SEAM 5b REAL ssh: ...and the remote wrote nothing to stderr" -- bash -c "[ ! -s '$SD/raw.err' ]"

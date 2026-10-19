@@ -25,6 +25,7 @@
 # treats any other line as BLIND without echoing it, so a remote that started
 # leaking text would turn the run red instead of publishing it.
 #
+#   LOGSCAN_BEGIN                       first line; anything before it is discarded and counted
 #   LOGSCAN_API_CONTAINERS=<n>
 #   LOGSCAN_CONTAINER=<name>            first api container, charset-validated
 #   LOGSCAN_LINES=<n>                   log lines in the window
@@ -85,8 +86,27 @@ fi
 ENVELOPE="$(cat)"
 [ -n "$ENVELOPE" ] || blind "empty envelope: the remote step produced no output"
 
+# THE FRAME (SR-M-6). Everything before the first LOGSCAN_BEGIN and everything after the
+# first LOGSCAN_END is not ours: a login shell's rc file, a motd line or BASH_ENV can write
+# to the same stream before the remote script runs. Those lines are DISCARDED and only
+# COUNTED (never shown: they are unvalidated text and this log is public), instead of
+# turning a genuine hit into BLIND, which is also what an ssh failure looks like. No
+# LOGSCAN_BEGIN at all is still BLIND: the remote script did not run, or its output is not
+# ours, and "could not see" must stay red.
+total_nonempty="$(printf '%s\n' "$ENVELOPE" | grep -c . || true)"
+printf '%s\n' "$ENVELOPE" | grep -qx 'LOGSCAN_BEGIN' \
+  || blind "no LOGSCAN_BEGIN frame in ${total_nonempty} line(s) of output: the remote script did not run, or the session wrote something else (an ssh failure, a shell rc file)"
+FRAME="$(printf '%s\n' "$ENVELOPE" | awk '/^LOGSCAN_BEGIN$/ && !s {s=1} s {print} /^LOGSCAN_END$/ && s {exit}')"
+frame_nonempty="$(printf '%s\n' "$FRAME" | grep -c . || true)"
+discarded=$((total_nonempty - frame_nonempty))
+if [ "$discarded" -gt 0 ]; then
+  echo "::warning::discarded ${discarded} line(s) outside the LOGSCAN_BEGIN..LOGSCAN_END frame (not shown): the VPS session prints text of its own, for example from a shell rc file"
+  echo "- Discarded ${discarded} line(s) outside the frame (not shown)." >>"$SUMMARY"
+fi
+ENVELOPE="$FRAME"
+
 RE_HIT='^LOGSCAN_HIT ts=([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]{8,20}Z|unknown) logger=[A-Za-z0-9_.-]{1,60} object=[a-z0-9_.:-]{1,100} sqlstate=(42501|42501-by-message|unclassified)$'
-RE_KNOWN='^(LOGSCAN_API_CONTAINERS=[0-9]{1,4}|LOGSCAN_CONTAINER=[A-Za-z0-9_./-]{1,60}|LOGSCAN_LINES=[0-9]{1,9}|LOGSCAN_HITS=[0-9]{1,9}|LOGSCAN_END|LOGSCAN_FAILED=[A-Za-z0-9_.-]{1,40})$'
+RE_KNOWN='^(LOGSCAN_BEGIN|LOGSCAN_API_CONTAINERS=[0-9]{1,4}|LOGSCAN_CONTAINER=[A-Za-z0-9_./-]{1,60}|LOGSCAN_LINES=[0-9]{1,9}|LOGSCAN_HITS=[0-9]{1,9}|LOGSCAN_END|LOGSCAN_FAILED=[A-Za-z0-9_.-]{1,40})$'
 
 # Second lock: any line that is neither a known field line nor a valid HIT line
 # is refused WITHOUT being printed.
@@ -146,7 +166,7 @@ hits="$(field LOGSCAN_HITS)"
 [ -n "$containers" ] || blind "envelope has no LOGSCAN_API_CONTAINERS (truncated or wrong format)"
 [ -n "$lines" ] || blind "envelope has no LOGSCAN_LINES (truncated or wrong format)"
 [ -n "$hits" ] || blind "envelope has no LOGSCAN_HITS (truncated or wrong format)"
-[ "$containers" -ge 1 ] || blind "no running api container on the VPS: nothing to watch"
+[ "$containers" -ge 1 ] || blind "no running api container on the VPS: nothing to watch. Expected for a few minutes while a deploy recreates it (the deploy's own scan covers that window); anything longer is a real problem"
 printf '%s\n' "$ENVELOPE" | grep -qx 'LOGSCAN_END' || blind "envelope has no LOGSCAN_END (output truncated)"
 
 hit_lines="$(printf '%s\n' "$ENVELOPE" | grep -E "$RE_HIT" || true)"

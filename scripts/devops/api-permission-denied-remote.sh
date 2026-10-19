@@ -18,6 +18,12 @@
 # and a command that read stdin would swallow the rest of it.
 set -u
 
+# The frame (SR-M-6). A login shell can write to stdout before this script ever runs (an
+# rc file that echoes, a motd-style line, BASH_ENV), and that text arrives in the same
+# stream. This line is the FIRST thing the script prints; the checker discards whatever
+# precedes it (and whatever follows LOGSCAN_END), reporting only a count.
+echo "LOGSCAN_BEGIN"
+
 # Fail closed on missing allowlists. Under `set -u` an unset list would kill the loop
 # below mid-way while LOGSCAN_END is still printed, leaving a count with no detail.
 if [ -z "${LOGSCAN_TABLES:-}" ] || [ -z "${LOGSCAN_LOGGERS:-}" ] || [ -z "${LOGSCAN_RE:-}" ] || [ -z "${LOGSCAN_SINCE:-}" ]; then
