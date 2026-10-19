@@ -60,8 +60,21 @@ describe.skipIf(!hasDatabaseUrl())(
     const sourceIds: string[] = []
     const userIds: string[] = []
 
+    /** Row counts before the first test, so `afterAll` can prove the run left nothing behind. */
+    let baseline: { postings: number; suggestions: number }
+
+    async function counts(): Promise<{ postings: number; suggestions: number }> {
+      const { rows } = await session.admin.query<{ postings: string; suggestions: string }>(
+        `SELECT (SELECT count(*) FROM job_postings)::text AS postings,
+                (SELECT count(*) FROM job_suggestions)::text AS suggestions`,
+      )
+      const row = rows[0] as { postings: string; suggestions: string }
+      return { postings: Number(row.postings), suggestions: Number(row.suggestions) }
+    }
+
     beforeAll(async () => {
       session = await openCrmAppSession()
+      baseline = await counts()
       provider = new StubDouProvider()
       service = new JobSourcingService(
         session.databaseService,
@@ -71,8 +84,14 @@ describe.skipIf(!hasDatabaseUrl())(
     }, 120_000)
 
     afterEach(async () => {
-      // Postings (and through them suggestions) first, then their sources and users.
-      await session?.admin.query(`DELETE FROM job_postings WHERE title LIKE $1`, [`%${TAG}%`])
+      // Postings (and through them suggestions) first, then their sources and users. Matched on
+      // the company as well as the title: the DOU provider splits «… в <company>» out of the title,
+      // so a collected posting carries the tag in `company_name` and NOT in `title` — matching the
+      // title alone left 2 postings and 8 suggestions behind on every run (CR-M-3 of #1040).
+      await session?.admin.query(
+        `DELETE FROM job_postings WHERE title LIKE $1 OR company_name = $2`,
+        [`%${TAG}%`, TAG],
+      )
       for (const id of sourceIds.splice(0)) {
         await session?.admin.query(`DELETE FROM job_sources WHERE id = $1`, [id])
       }
@@ -82,7 +101,12 @@ describe.skipIf(!hasDatabaseUrl())(
     })
 
     afterAll(async () => {
-      await session?.close()
+      try {
+        // A leak is a failure of THIS suite, not something a reviewer finds by counting rows.
+        expect(await counts()).toEqual(baseline)
+      } finally {
+        await session?.close()
+      }
     })
 
     /** A DOU source row; `budgeted` makes `chargeBudget` issue its UPDATE. */

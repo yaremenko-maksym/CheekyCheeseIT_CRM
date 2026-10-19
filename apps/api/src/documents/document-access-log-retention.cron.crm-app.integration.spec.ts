@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { Logger } from '@nestjs/common'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import {
   openCrmAppSession,
@@ -104,12 +105,43 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(await exists(expired)).toBe(false)
     })
 
-    it('the cron handler swallows the refusal — which is why only a real database can see it', async () => {
-      await insertEntry(ACCESS_LOG_RETENTION_DAYS + 5)
-
-      await session.withPrivilegeWithdrawn('DELETE', 'document_access_log', async () => {
+    it('the cron handler itself purges when the grant is there', async () => {
+      const expired = await insertEntry(ACCESS_LOG_RETENTION_DAYS + 5)
+      const logged = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined)
+      try {
         await expect(cron.handleRetention()).resolves.toBeUndefined()
-      })
+
+        // The handler, not only the method it wraps, reached the database.
+        expect(await exists(expired)).toBe(false)
+        expect(logged).toHaveBeenCalledWith(
+          expect.stringMatching(/^Document access log retention: deleted [1-9]\d* row\(s\)$/),
+        )
+      } finally {
+        logged.mockRestore()
+      }
+    })
+
+    it('the cron handler swallows the refusal — which is why only a real database can see it', async () => {
+      const expired = await insertEntry(ACCESS_LOG_RETENTION_DAYS + 5)
+      const logged = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+      try {
+        await session.withPrivilegeWithdrawn('DELETE', 'document_access_log', async () => {
+          await expect(cron.handleRetention()).resolves.toBeUndefined()
+        })
+
+        // Resolving proves nothing by itself: a handler that did nothing resolves too. What
+        // distinguishes "swallowed a refusal" from "never ran" is the row it could not delete and
+        // the failure it logged instead of throwing.
+        expect(await exists(expired)).toBe(true)
+        expect(logged).toHaveBeenCalledTimes(1)
+        // Only the static message: how the error behind it is formatted is the handler's to
+        // change, and is being changed elsewhere; that it logged and did not throw is the claim.
+        expect(logged.mock.calls[0]?.[0]).toBe(
+          'Document access log retention cron failed — will retry next cycle',
+        )
+      } finally {
+        logged.mockRestore()
+      }
     })
   },
 )
