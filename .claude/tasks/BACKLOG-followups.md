@@ -2849,3 +2849,26 @@ A related pairing the same design forbade locally: `muted-foreground` text on a 
 **4.23:1**, below the 4.5:1 for body text. **Check on closing:** the border token used by inputs and outlined buttons
 reaches 3:1 against every surface it sits on, measured from the token values, and `muted-foreground` on `secondary`
 either reaches 4.5:1 or the pairing is banned in the design-system notes.
+
+## 231. The deploy-freshness guard has never fired in the wild, and the one outage that should have tested it closed first (2026-10-19)
+
+(orchestrator, observed by fact; severity MED — an alerting guard whose working state is unverified). The guard exists
+because a deploy was once red for sixteen consecutive runs and nobody noticed. It is scheduled `23 */3 * * *` and
+fails when the newest deploy run is a failure streak older than two hours. On the night of 2026-10-18/19 the deploy
+failed twice in a row and `main` was undeployable for **three hours and sixteen minutes** — exactly the condition it
+is built for. **It never fired.** Its 23:23Z run saw a failure only 1h08m old and correctly passed; the next
+scheduled run was 02:23Z, and the fix merged at 01:30Z, so the streak was green again before the guard looked. The
+guard is therefore still **unproven against a real outage**, and a three-hour production-blocking window produced no
+alert — it was noticed only because the orchestrator was reading deploy runs by hand.
+
+**The closing shape.** Two parts, the second mattering more:
+
+1. **Prove it deliberately** instead of waiting for the next outage: drive it by `workflow_dispatch` against a history
+   whose newest deploy run is an old failure, and confirm it reports. A guard whose alerting path has never executed
+   is a guard in name only — the standard this repo already applies to hooks, each of which must have a negative case.
+2. **Reconsider the two-hour threshold against the three-hour window it just missed.** Either shorten it, or treat
+   "the newest run is a failure" as reportable immediately at a lower severity and keep two hours for escalation. As
+   set, it cannot see an outage repaired inside its own sampling gap, which is most of them.
+
+**Check on closing:** a deliberately synthesised old-failure history makes the guard report, demonstrated by a run;
+and a failure repaired within three hours still produces one notification.
