@@ -71,9 +71,15 @@ jobs:
             echo "::error::window '$window' is not <number>m or <number>h"
             exit 2
           fi
+          # The allowlists are READ from the checked-out source on every scan (no baked
+          # copy to drift). The script exits 2 below a plausibility floor, so a manifest
+          # whose shape changed turns this run red instead of quietly making every
+          # object `unknown`.
+          scripts/devops/derive-permission-denied-allowlists.sh > "$RUNNER_TEMP/allowlists.txt"
           {
             echo "window=$window"
             echo "re=$(scripts/devops/check-api-permission-denied.sh --print-pattern)"
+            cat "$RUNNER_TEMP/allowlists.txt"
           } >> "$GITHUB_OUTPUT"
 
       # READ-ONLY. VERSION PIN: capture_stdout needs >= v1.2.1 (see
@@ -95,11 +101,13 @@ jobs:
         env:
           LOGSCAN_RE: ${{ steps.cfg.outputs.re }}
           LOGSCAN_SINCE: ${{ steps.cfg.outputs.window }}
+          LOGSCAN_TABLES: ${{ steps.cfg.outputs.tables }}
+          LOGSCAN_LOGGERS: ${{ steps.cfg.outputs.loggers }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          envs: LOGSCAN_RE,LOGSCAN_SINCE
+          envs: LOGSCAN_RE,LOGSCAN_SINCE,LOGSCAN_TABLES,LOGSCAN_LOGGERS
           capture_stdout: true
           script: |
             set -u
@@ -118,11 +126,28 @@ jobs:
             echo "LOGSCAN_HITS=$(printf '%s\n' "$logs" | grep -aEic -e "$LOGSCAN_RE" || true)"
             printf '%s\n' "$logs" | grep -aEi -e "$LOGSCAN_RE" | tail -n 20 | while IFS= read -r l; do
               ts=$(printf '%s' "$l" | sed -nE 's/^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]{8,20}Z) .*/\1/p')
+              # ALLOWLIST, not a pattern: a log line is partly attacker-influenced, so a
+              # name is shown only if it is ON a list derived from the repository
+              # (LOGSCAN_LOGGERS / LOGSCAN_TABLES, see derive-permission-denied-
+              # allowlists.sh). Anything else becomes `unknown`.
+              # `unknown` REDUCES PRECISION, IT NEVER SUPPRESSES THE HIT: the line was
+              # already counted and is still emitted, so it still pages. An
+              # unrecognised object is the case most likely to be interesting.
               lg=$(printf '%s' "$l" | sed -nE 's/.*(ERROR|WARN|FATAL) *\[([A-Za-z0-9_.-]{1,60})\].*/\2/p' | head -n 1)
+              case " $LOGSCAN_LOGGERS " in *" $lg "*) [ -n "$lg" ] || lg=unknown ;; *) lg=unknown ;; esac
               lo=$(printf '%s' "$l" | tr 'A-Z' 'a-z')
-              ob=$(printf '%s' "$lo" | sed -nE 's/.*permission denied for (table|sequence|schema|function|relation|view|type|database) "?([a-z_][a-z0-9_.]{0,62}).*/\1:\2/p' | head -n 1)
-              if [ -z "$ob" ]; then
-                ob=$(printf '%s' "$lo" | sed -nE 's/.*must be owner of (table|sequence|schema|function|relation|view|type|database) "?([a-z_][a-z0-9_.]{0,62}).*/owner-only:\1:\2/p' | head -n 1)
+              pre=""
+              kn=$(printf '%s' "$lo" | sed -nE 's/.*permission denied for (table|sequence|schema|function|relation|view|type|database) "?([a-z_][a-z0-9_.]{0,62}).*/\1 \2/p' | head -n 1)
+              if [ -z "$kn" ]; then
+                pre="owner-only:"
+                kn=$(printf '%s' "$lo" | sed -nE 's/.*must be owner of (table|sequence|schema|function|relation|view|type|database) "?([a-z_][a-z0-9_.]{0,62}).*/\1 \2/p' | head -n 1)
+              fi
+              ob=""
+              if [ -n "$kn" ]; then
+                kind=${kn%% *}
+                nm=${kn#* }
+                nm=${nm#public.}
+                case " $LOGSCAN_TABLES " in *" $nm "*) ob="$pre$kind:$nm" ;; *) ob="$pre$kind:unknown" ;; esac
               fi
               if printf '%s' "$lo" | grep -Eq '(sqlstate|code)[^0-9a-z]{0,6}42501'; then
                 st=42501
@@ -139,4 +164,7 @@ jobs:
       - name: Scan the envelope (fails on a hit or when blind)
         env:
           LOGSCAN_STDOUT: ${{ steps.logscan.outputs.stdout }}
+          # The checker re-verifies every logger and object against the SAME lists.
+          LOGSCAN_TABLES: ${{ steps.cfg.outputs.tables }}
+          LOGSCAN_LOGGERS: ${{ steps.cfg.outputs.loggers }}
         run: printf '%s\n' "$LOGSCAN_STDOUT" | scripts/devops/check-api-permission-denied.sh

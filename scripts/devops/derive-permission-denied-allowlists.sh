@@ -51,13 +51,13 @@ FRAMEWORK_LOGGERS="ExceptionsHandler NestApplication NestFactory InstanceLoader 
 [ -d "$SRC" ] || { echo "::error::apps/api/src not found" >&2; exit 2; }
 
 tables="$(awk '/^export const PRIVILEGE_CLASSES/{f=1;next} f&&/^}/{exit} f' "$MANIFEST" \
-  | grep -vE '^[[:space:]]*(//|/\*|\*)' | grep -oE "'[a-z_][a-z0-9_]*'" | tr -d "'" | sort -u | tr '\n' ' ' | sed 's/ $//')"
+  | grep -vE '^[[:space:]]*(//|/\*|\*)' | grep -oE "'[a-z_][a-z0-9_]*'" | tr -d "'" | sort -u | tr '\n' ' ' | sed 's/ $//')" || tables=""
 
 loggers="$( { grep -rhoE "new Logger\(([A-Za-z0-9_]+\.name|'[A-Za-z0-9_.-]+')\)" \
     --include='*.ts' --exclude='*.spec.ts' --exclude='*.test.ts' "$SRC" || true; } \
   | sed -E "s/^new Logger\(//; s/\)$//; s/\.name$//; s/^'//; s/'$//" \
   | grep -vx 'test' | { cat; for f in $FRAMEWORK_LOGGERS; do echo "$f"; done; } \
-  | sort -u | tr '\n' ' ' | sed 's/ $//')"
+  | sort -u | tr '\n' ' ' | sed 's/ $//')" || loggers=""  # not 'exit': under pipefail an empty grep must reach the floor check below, which says WHY
 
 n_tables="$(printf '%s\n' "$tables" | wc -w | tr -d ' ')"
 n_loggers="$(printf '%s\n' "$loggers" | wc -w | tr -d ' ')"

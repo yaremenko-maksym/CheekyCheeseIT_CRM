@@ -29,7 +29,7 @@
 #   LOGSCAN_CONTAINER=<name>            first api container, charset-validated
 #   LOGSCAN_LINES=<n>                   log lines in the window
 #   LOGSCAN_HITS=<n>                    matching lines in the window
-#   LOGSCAN_HIT ts=<utc> logger=<name> object=<kind:name> sqlstate=<42501|42501-by-message|unclassified>   (<=20)
+#   LOGSCAN_HIT ts=<utc> logger=<allowlisted|unknown> object=<kind:allowlisted|kind:unknown|unknown> sqlstate=<42501|42501-by-message|unclassified>   (<=20)
 #   LOGSCAN_END
 #   (or)  LOGSCAN_FAILED=<reason>
 #
@@ -90,11 +90,31 @@ RE_KNOWN='^(LOGSCAN_API_CONTAINERS=[0-9]{1,4}|LOGSCAN_CONTAINER=[A-Za-z0-9_./-]{
 
 # Second lock: any line that is neither a known field line nor a valid HIT line
 # is refused WITHOUT being printed.
+#
+# ALLOWLIST (AC7). A shape check bounds what a field LOOKS like, not where it CAME
+# FROM, and a log line is partly attacker-influenced. So `logger` and the name part of
+# `object` must be ON the lists derive-permission-denied-allowlists.sh builds from the
+# repository (LOGSCAN_LOGGERS / LOGSCAN_TABLES), or be `unknown`. The remote already
+# does this; this is the lock for the day it stops.
+# `unknown` REDUCES PRECISION, IT NEVER SUPPRESSES THE ALERT: an `unknown` HIT is
+# counted and pages exactly like a known one. A hit that fails the allowlist check is
+# BLIND (red), not dropped. The natural reading of "not on the list" is "ignore it";
+# that would be a filter hiding the novel case, which is the most interesting one.
+[ -n "${LOGSCAN_TABLES:-}" ] && [ -n "${LOGSCAN_LOGGERS:-}" ] \
+  || blind "allowlists not provided (LOGSCAN_TABLES / LOGSCAN_LOGGERS): cannot verify which names may be shown"
+on_list() { case " $2 " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 unexpected=0
 while IFS= read -r line; do
   [ -n "$line" ] || continue
   if printf '%s' "$line" | grep -Eq "$RE_KNOWN"; then continue; fi
-  if printf '%s' "$line" | grep -Eq "$RE_HIT"; then continue; fi
+  if printf '%s' "$line" | grep -Eq "$RE_HIT"; then
+    h_lg="$(printf '%s' "$line" | sed -E 's/.* logger=([^ ]+) .*/\1/')"
+    h_ob="$(printf '%s' "$line" | sed -E 's/.* object=([^ ]+) .*/\1/')"
+    h_nm="${h_ob##*:}"
+    if [ "$h_lg" != "unknown" ] && ! on_list "$h_lg" "$LOGSCAN_LOGGERS"; then unexpected=$((unexpected + 1)); continue; fi
+    if [ "$h_ob" != "unknown" ] && [ "$h_nm" != "unknown" ] && ! on_list "$h_nm" "$LOGSCAN_TABLES"; then unexpected=$((unexpected + 1)); continue; fi
+    continue
+  fi
   unexpected=$((unexpected + 1))
 done <<EOF
 $ENVELOPE

@@ -27,6 +27,14 @@ trap 'rm -rf "$WS"' EXIT
 
 RE="$(bash "$GUARD" --print-pattern)"
 
+# The allowlists come from the SHIPPED derivation, run against the real tree, exactly
+# as the workflow does. (Their independent cross-check is section 4.)
+DERIVE="$GUARD_DIR/derive-permission-denied-allowlists.sh"
+DERIVED="$(bash "$DERIVE")"
+LOGSCAN_TABLES="$(printf '%s\n' "$DERIVED" | sed -n 's/^tables=//p')"
+LOGSCAN_LOGGERS="$(printf '%s\n' "$DERIVED" | sed -n 's/^loggers=//p')"
+export LOGSCAN_TABLES LOGSCAN_LOGGERS
+
 run_guard() { env -u GITHUB_STEP_SUMMARY bash "$GUARD" <"$1"; }
 
 assert_exit_code() {
@@ -50,7 +58,7 @@ LOGSCAN_API_CONTAINERS=1
 LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=412
 LOGSCAN_HITS=1
-LOGSCAN_HIT ts=2026-10-19T03:00:02.123456789Z logger=TelemetryRetentionService object=table:telemetry_events sqlstate=42501-by-message
+LOGSCAN_HIT ts=2026-10-19T03:00:02.123456789Z logger=TelemetryRetentionCronService object=table:telemetry_events sqlstate=42501-by-message
 LOGSCAN_END
 EOF
 
@@ -59,8 +67,8 @@ LOGSCAN_API_CONTAINERS=1
 LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=900
 LOGSCAN_HITS=3
-LOGSCAN_HIT ts=2026-10-19T04:00:00.000000001Z logger=DatabaseService object=unknown sqlstate=42501
-LOGSCAN_HIT ts=2026-10-19T04:00:01.000000001Z logger=AuditService object=owner-only:table:document_access_log sqlstate=42501-by-message
+LOGSCAN_HIT ts=2026-10-19T04:00:00.000000001Z logger=unknown object=unknown sqlstate=42501
+LOGSCAN_HIT ts=2026-10-19T04:00:01.000000001Z logger=DocumentAccessLogRetentionCronService object=owner-only:table:document_access_log sqlstate=42501-by-message
 LOGSCAN_HIT ts=unknown logger=unknown object=unknown sqlstate=unclassified
 LOGSCAN_END
 EOF
@@ -131,18 +139,18 @@ LOGSCAN_API_CONTAINERS=1
 LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=3
 LOGSCAN_HITS=0
-LOGSCAN_HIT ts=2026-10-19T03:00:02.123456789Z logger=X object=table:t sqlstate=42501
+LOGSCAN_HIT ts=2026-10-19T03:00:02.123456789Z logger=unknown object=table:unknown sqlstate=42501
 LOGSCAN_END
 EOF
 
 # ── fires ────────────────────────────────────────────────────────────────────
 assert_red "synthetic 42501 FIRES with time, logger, object, sqlstate and container" \
-  --contains "HIT time=2026-10-19T03:00:02.123456789Z logger=TelemetryRetentionService object=table:telemetry_events sqlstate=42501-by-message" \
+  --contains "HIT time=2026-10-19T03:00:02.123456789Z logger=TelemetryRetentionCronService object=table:telemetry_events sqlstate=42501-by-message" \
   --contains "API hit permission denied (42501)" --contains "container crm-api-1" -- \
   run_guard "$WS/hit.env"
 
 assert_red "code-only, owner-only and unclassified variants all fire" \
-  --contains "logger=DatabaseService object=unknown sqlstate=42501" \
+  --contains "logger=unknown object=unknown sqlstate=42501" \
   --contains "object=owner-only:table:document_access_log" --contains "sqlstate=unclassified" \
   --contains "3 matching" -- \
   run_guard "$WS/hit-variants.env"
@@ -181,6 +189,42 @@ assert_exit_code "truncated envelope exits 2, not 0" 2 run_guard "$WS/truncated.
 assert_exit_code "no container exits 2, not 0" 2 run_guard "$WS/no-container.env"
 assert_exit_code "blind (2) is distinguishable from a hit (1)" 2 run_guard "$WS/remote-failed.env"
 
+# ── AC7: allowlist lock in the checker. `unknown` is accepted AND pages ─────────
+cat >"$WS/unknown-hit.env" <<'EOF'
+LOGSCAN_API_CONTAINERS=1
+LOGSCAN_CONTAINER=crm-api-1
+LOGSCAN_LINES=9
+LOGSCAN_HITS=1
+LOGSCAN_HIT ts=2026-10-19T03:00:02.123456789Z logger=unknown object=table:unknown sqlstate=42501
+LOGSCAN_END
+EOF
+cat >"$WS/offlist-logger.env" <<'EOF'
+LOGSCAN_API_CONTAINERS=1
+LOGSCAN_CONTAINER=crm-api-1
+LOGSCAN_LINES=9
+LOGSCAN_HITS=1
+LOGSCAN_HIT ts=2026-10-19T03:00:02.123456789Z logger=AttackerChosenTokenHere object=table:unknown sqlstate=42501
+LOGSCAN_END
+EOF
+cat >"$WS/offlist-object.env" <<'EOF'
+LOGSCAN_API_CONTAINERS=1
+LOGSCAN_CONTAINER=crm-api-1
+LOGSCAN_LINES=9
+LOGSCAN_HITS=1
+LOGSCAN_HIT ts=2026-10-19T03:00:02.123456789Z logger=unknown object=table:jane_doe_example_com sqlstate=42501
+LOGSCAN_END
+EOF
+assert_red "UNKNOWN STILL PAGES: an unrecognised logger and object fire exactly like known ones" \
+  --contains "HIT time=2026-10-19T03:00:02.123456789Z logger=unknown object=table:unknown sqlstate=42501" \
+  --contains "API hit permission denied (42501)" -- run_guard "$WS/unknown-hit.env"
+assert_exit_code "an unknown hit exits 1 (a page), not 0" 1 run_guard "$WS/unknown-hit.env"
+assert_red "an off-list logger in the envelope is refused (BLIND), not shown" \
+  --contains "BLIND" --not-contains "AttackerChosenToken" -- run_guard "$WS/offlist-logger.env"
+assert_red "an off-list object name in the envelope is refused (BLIND), not shown" \
+  --contains "BLIND" --not-contains "jane_doe" -- run_guard "$WS/offlist-object.env"
+assert_red "no allowlists supplied: BLIND (fails closed), even for a clean-looking hit" \
+  --contains "allowlists not provided" -- env -u LOGSCAN_TABLES -u LOGSCAN_LOGGERS bash "$GUARD" <"$WS/hit.env"
+
 # ── the pattern itself ───────────────────────────────────────────────────────
 pat_hits() { printf '%s\n' "$1" | grep -aEi -e "$RE" >/dev/null; }
 assert_green "pattern: 'permission denied for table x'" -- bash -c "$(declare -f pat_hits); RE='$RE'; pat_hits 'ERROR permission denied for table x'"
@@ -201,13 +245,14 @@ case " $* " in
     case "${FAKE_DOCKER_MODE:-}" in
       hit)   printf "%s\n" \
                "2026-10-19T03:00:01.000000001Z [Nest] 18  - 10/19/2026, 3:00:01 AM     LOG [HealthController] ok" \
-               "2026-10-19T03:00:02.123456789Z [Nest] 18  - 10/19/2026, 3:00:02 AM   ERROR [VacancyRetentionService] retention failed error: permission denied for table vacancy_applications" ;;
-      code)  printf "%s\n" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [TelemetryRetentionService] retention failed sqlstate=42501: Failed query: delete from telemetry_events" ;;
-      upper) printf "%s\n" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [VacancyRetentionService] error: PERMISSION DENIED for table public.vacancy_applications" ;;
-      owner) printf "%s\n" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [AuditService] error: must be owner of table document_access_log" ;;
+               "2026-10-19T03:00:02.123456789Z [Nest] 18  - 10/19/2026, 3:00:02 AM   ERROR [VacanciesRetentionCronService] retention failed error: permission denied for table vacancy_applications" ;;
+      code)  printf "%s\n" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [TelemetryRetentionCronService] retention failed sqlstate=42501: Failed query: delete from telemetry_events" ;;
+      upper) printf "%s\n" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [VacanciesRetentionCronService] error: PERMISSION DENIED for table public.vacancy_applications" ;;
+      owner) printf "%s\n" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [DocumentAccessLogRetentionCronService] error: must be owner of table document_access_log" ;;
       hostile) printf "%s\n" \
-               "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [VacancyRetentionService] DELETE FROM vacancy_applications WHERE email = \$1 params: jane.doe@example.com,+380501234567 ::error::INJECTED permission denied for table vacancy_applications" \
+               "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [VacanciesRetentionCronService] DELETE FROM vacancy_applications WHERE email = \$1 params: jane.doe@example.com,+380501234567 ::error::INJECTED permission denied for table vacancy_applications" \
                "GET /x?q=permission%20denied token=SECRETVALUE123" ;;
+      evil)  printf "%s\n" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [VacanciesRetentionCronService] lookup for user input ERROR [EVIL-TOKEN-xyz-attacker-chosen-text] failed: permission denied for table \"jane_doe_example_com\"" ;;
       fail)  echo "Error response from daemon: no such service" >&2; exit 1 ;;
       *)     printf "%s\n" "2026-10-19T03:00:01.000000001Z [Nest] 18  - 10/19/2026, 3:00:01 AM     LOG [HealthController] ok" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x     LOG [Cron] retention pruned 0 rows" ;;
     esac
@@ -243,12 +288,12 @@ assert_green "extraction: the workflow's remote script and the deploy block were
   bash -c "[ -s '$WS/remote.sh' ] && [ '$DEPLOY_BLOCK_OK' = 1 ]"
 
 assert_red "PIPELINE: log with a 42501 -> remote fields -> checker FIRES" \
-  --contains "HIT time=2026-10-19T03:00:02.123456789Z logger=VacancyRetentionService object=table:vacancy_applications sqlstate=42501-by-message" \
+  --contains "HIT time=2026-10-19T03:00:02.123456789Z logger=VacanciesRetentionCronService object=table:vacancy_applications sqlstate=42501-by-message" \
   --contains "container crm-api-1" -- pipeline hit
 assert_red "PIPELINE: a labelled sqlstate=42501 with the wrapper message fires as sqlstate=42501" \
-  --contains "logger=TelemetryRetentionService object=unknown sqlstate=42501" -- pipeline code
+  --contains "logger=TelemetryRetentionCronService object=unknown sqlstate=42501" -- pipeline code
 assert_red "PIPELINE: upper-case message is matched and its object extracted" \
-  --contains "object=table:public.vacancy_applications" -- pipeline upper
+  --contains "object=table:vacancy_applications" -- pipeline upper
 assert_red "PIPELINE: must-be-owner (42501 without the phrase) fires" \
   --contains "object=owner-only:table:document_access_log" -- pipeline owner
 assert_green "PIPELINE: clean log stays quiet" --contains "OK: read 2 API log line(s)" --not-contains "HIT" -- pipeline clean
@@ -258,7 +303,7 @@ assert_red "PIPELINE: no api container is BLIND, not clean" --contains "no runni
 # AC6: no raw production text at either lock, on a line that carries PII and a
 # workflow-command injection next to a real permission-denied.
 assert_green "AC6 lock 1: the REMOTE script's own output carries no raw log text" \
-  --contains "LOGSCAN_HIT ts=2026-10-19T03:00:02.000000001Z logger=VacancyRetentionService object=table:vacancy_applications sqlstate=42501-by-message" \
+  --contains "LOGSCAN_HIT ts=2026-10-19T03:00:02.000000001Z logger=VacanciesRetentionCronService object=table:vacancy_applications sqlstate=42501-by-message" \
   --not-contains "jane.doe" --not-contains "380501234567" --not-contains "INJECTED" \
   --not-contains "SECRETVALUE" --not-contains "DELETE FROM" --not-contains "params" -- remote hostile
 assert_red "AC6 lock 2: after the checker, still nothing raw, and it still fires" \
@@ -266,8 +311,17 @@ assert_red "AC6 lock 2: after the checker, still nothing raw, and it still fires
   --not-contains "jane.doe" --not-contains "380501234567" --not-contains "INJECTED" \
   --not-contains "SECRETVALUE" --not-contains "DELETE FROM" -- pipeline hostile
 
+# AC7: a bracketed token and a table slot filled by attacker-influenced text. Both
+# are reported as `unknown`, the hit STILL pages, and neither string is published.
+assert_red "AC7: hostile bracketed token + off-list table -> unknown/unknown, STILL FIRES, nothing published" \
+  --contains "logger=unknown object=table:unknown sqlstate=42501-by-message" \
+  --not-contains "EVIL-TOKEN" --not-contains "jane_doe" -- pipeline evil
+assert_green "AC7: the REMOTE script's own output already shows unknown (lock 1, before the checker)" \
+  --contains "object=table:unknown" --not-contains "EVIL-TOKEN" --not-contains "jane_doe" -- remote evil
+assert_exit_code "AC7: the hostile line exits 1 (a page), not 0" 1 pipeline evil
+
 assert_red "DEPLOY: a 42501 in the new container fails the deploy and never reaches the next step" \
-  --contains "appeared 1 time(s)" --not-contains "DEPLOY-CONTINUED" --not-contains "VacancyRetentionService" -- deploy_step hit
+  --contains "appeared 1 time(s)" --not-contains "DEPLOY-CONTINUED" --not-contains "VacanciesRetentionCronService" -- deploy_step hit
 assert_red "DEPLOY: the failure message carries no raw text from a hostile line" \
   --not-contains "jane.doe" --not-contains "INJECTED" --not-contains "DELETE FROM" -- deploy_step hostile
 assert_green "DEPLOY: clean logs let the deploy continue" \
@@ -284,5 +338,61 @@ else
   GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
   printf 'FAIL  pattern drift: deploy script has [%s], checker has [%s]\n' "$deploy_re" "$RE"
 fi
+
+# ═══ 4. the allowlists: derivation, independence, drift ════════════════════════
+# The SHIPPED path is derive-permission-denied-allowlists.sh (awk + grep over the
+# manifest, run at scan time). The comparison below is against a GENUINELY DIFFERENT
+# parser, run on every test run, not once: Node slices the PRIVILEGE_CLASSES literal
+# out of the same file, strips comments and EVALUATES it as JavaScript (the input is our
+# own committed manifest, read in a test, never external data). Two parsers
+# with different failure modes agreeing is evidence; the derived list compared with
+# itself would not be. (A first version of the shipped parser silently dropped the
+# inline arrays `'A-log-prunable': ['document_access_log']` and `B: [...]`; this
+# comparison is what catches that class.)
+MANIFEST="$GUARD_DIR/../../apps/api/src/database/privileges/privilege-classes.ts"
+node -e '
+const s=require("fs").readFileSync(process.argv[1],"utf8");
+const i=s.indexOf("export const PRIVILEGE_CLASSES");const j=s.indexOf("= {",i)+2;const k=s.indexOf("\n}\n",j)+2;
+const body=s.slice(j,k).replace(/\/\*[\s\S]*?\*\//g,"").replace(/\/\/.*$/gm,"");
+console.log(Object.values(eval("("+body+")")).flat().sort().join("\n"))' "$MANIFEST" >"$WS/js-tables.txt" 2>/dev/null
+printf '%s\n' "$LOGSCAN_TABLES" | tr ' ' '\n' | sort >"$WS/derived-tables.txt"
+
+assert_green "derived table list is non-trivial (the independent evaluator produced one too)" -- \
+  bash -c "[ \"\$(wc -l <'$WS/js-tables.txt')\" -ge 20 ]"
+assert_green "derived table list == the manifest evaluated as JavaScript (two independent parsers)" -- \
+  diff "$WS/derived-tables.txt" "$WS/js-tables.txt"
+assert_green "the tables the ADR names are on the list, including inline-array classes" -- \
+  bash -c "for t in document_access_log job_queue_actions telemetry_events vacancy_applications transactions; do grep -qx \$t '$WS/derived-tables.txt' || { echo missing \$t; exit 1; }; done"
+
+# A fake repo: the real manifest plus a synthetic NEW table in a NEW inline class, and
+# a source tree with enough loggers to clear the floor.
+FR="$WS/fakeroot"
+mkdir -p "$FR/apps/api/src/database/privileges" "$FR/apps/api/src/svc"
+sed "s/^  B: \['job_queue_actions'\],/  B: ['job_queue_actions', 'brand_new_table_1_3e'],/" "$MANIFEST" >"$FR/apps/api/src/database/privileges/privilege-classes.ts"
+for n in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22; do
+  echo "const l = new Logger(Fake${n}Service.name)" >"$FR/apps/api/src/svc/f${n}.ts"
+done
+echo "const l = new Logger(OnlyInASpecService.name)" >"$FR/apps/api/src/svc/only.spec.ts"
+echo "const l = new Logger('LiteralNamed')" >"$FR/apps/api/src/svc/lit.ts"
+derive_fake() { REPO_ROOT="$FR" bash "$DERIVE"; }
+
+assert_green "NO DRIFT: a table added to the manifest is on the list at the next scan (read at scan time)" \
+  --contains "brand_new_table_1_3e" -- derive_fake
+assert_green "loggers: a literal context and .name contexts are listed, framework contexts included" \
+  --contains "LiteralNamed" --contains "Fake7Service" --contains "ExceptionsHandler" -- derive_fake
+assert_green "loggers: a spec-only logger is NOT listed" --not-contains "OnlyInASpecService" -- derive_fake
+
+# Floors: a changed manifest shape must go RED, not silently make everything unknown.
+mkdir -p "$WS/emptyroot/apps/api/src/database/privileges"
+printf 'export const SOMETHING_ELSE = { A: [] }\n' >"$WS/emptyroot/apps/api/src/database/privileges/privilege-classes.ts"
+cp -R "$FR/apps/api/src/svc" "$WS/emptyroot/apps/api/src/svc"
+assert_red "manifest shape changed (no PRIVILEGE_CLASSES) -> the derivation FAILS LOUDLY, not an empty list" \
+  --contains "derived only 0 table" -- env REPO_ROOT="$WS/emptyroot" bash "$DERIVE"
+mkdir -p "$WS/nologgers/apps/api/src/database/privileges"
+cp "$MANIFEST" "$WS/nologgers/apps/api/src/database/privileges/privilege-classes.ts"
+assert_red "logger convention changed (none found beyond the framework list) -> FAILS LOUDLY" \
+  --contains "logger name(s)" -- env REPO_ROOT="$WS/nologgers" bash "$DERIVE"
+assert_red "missing manifest file -> FAILS LOUDLY" --contains "manifest not found" -- \
+  env REPO_ROOT="$WS/does-not-exist" bash "$DERIVE"
 
 guard_test_summary "test-check-api-permission-denied.sh"
