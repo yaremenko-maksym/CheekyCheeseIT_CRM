@@ -37,51 +37,50 @@
 --   triggers in place and the retention path absent.
 --
 -- IDEMPOTENCY (the deploy re-applies every manual file on EVERY deploy, under
--- `psql -v ON_ERROR_STOP=1` with statement-level autocommit — so each statement
--- must be independently re-runnable, and a failure must not leave a half state)
+-- `psql -v ON_ERROR_STOP=1`, each file piped whole into ONE psql session — so every
+-- statement must be independently re-runnable, and a failure must not leave a half state)
 --   - every function is `CREATE OR REPLACE`;
---   - every trigger is dropped and recreated (`DROP TRIGGER IF EXISTS` then
---     `CREATE TRIGGER`), because PostgreSQL 16 has no
---     `CREATE OR REPLACE TRIGGER ... IF NOT EXISTS` and a recreate is the only way
---     to converge a trigger whose definition changed. See THE RECREATE WINDOW below:
---     it is real, and this is where its cost is written down rather than waved at;
---   - `ALTER TABLE ... ENABLE ALWAYS TRIGGER` is idempotent by nature;
+--   - every trigger is `CREATE OR REPLACE TRIGGER`, which converges a changed definition
+--     IN PLACE with no `DROP` (PostgreSQL 14+; measured on 16.15, `tgtype` 27 -> 19 -> 27
+--     with the trigger never absent). It needs no `IF NOT EXISTS` — `OR REPLACE` handles
+--     both the create and the converge case;
+--   - `ALTER TABLE ... ENABLE ALWAYS TRIGGER` is idempotent by nature, and is REQUIRED
+--     after every `CREATE OR REPLACE TRIGGER`: measured, `OR REPLACE` resets `tgenabled`
+--     from 'A' to 'O'. The companion catalog check asserts 'A', so a deploy that died
+--     between the two is caught rather than assumed away;
 --   - the grants are `REVOKE ALL ... FROM PUBLIC` + `GRANT EXECUTE ... TO crm_app`,
 --     both convergent.
 --
--- THE RECREATE WINDOW — real, bounded, and NOT closed by this file
---   This file has no `BEGIN`/`COMMIT`. Under `psql -v ON_ERROR_STOP=1` every statement
---   therefore autocommits, so between the `DROP TRIGGER` and the `CREATE TRIGGER` of
---   the same guard there is a committed instant in which the guard DOES NOT EXIST and
---   no lock is held either — `DROP TRIGGER` takes ACCESS EXCLUSIVE on the table, but
---   releases it when that statement commits. The window is real. It recurs on EVERY
---   deploy, because the deploy re-applies every manual file.
+-- THIS FILE IS ONE TRANSACTION — WHICH IS WHAT CLOSES BOTH WINDOWS
+--   `BEGIN;` / `COMMIT;` wrap everything below, matching `2026-10-18_db_grants.sql` and
+--   the privileges check. DDL is transactional in PostgreSQL, so the intermediate states
+--   inside this file are NEVER VISIBLE TO ANOTHER SESSION: a concurrent session sees the
+--   previous state until `COMMIT`, then the new one, and nothing in between. That is the
+--   precise claim, and the integration suite proves it from a second session rather than
+--   asserting it here.
 --
---   WHAT IT EXPOSES, precisely. During the window the table is protected only by its
---   GRANTS, which is the layer that was always the primary one here:
---     - `crm_app` — nothing. `job_queue_actions` is class B: its UPDATE/DELETE/TRUNCATE
---       are REVOKED, so the API cannot exploit the window even with no trigger present.
---       The trigger is the SECOND lock on an already-revoked privilege (ADR §3).
---     - `crm_retention_owner` — the shape guard, and only it. The role holds SELECT and
---       DELETE, so inside the window it could delete a row that is NOT yet two years
---       old, which outside the window the trigger refuses. It is NOLOGIN with
---       CONNECTION LIMIT 0, so this requires an already-compromised superuser session.
---     - the migration role running the deploy — nothing new: ownership alone lets it
---       `DISABLE TRIGGER`, with or without this window. ADR §3 states that this file's
---       protection against the migration role is procedural, and the DETECTION is the
---       companion catalog check on the next deploy.
---   So the window widens no privilege that the grants do not already withhold; what it
---   removes is the defence-in-depth second lock, for the roles that have the first one.
+--   TWO WINDOWS EXISTED BEFORE THE WRAP, both now closed by it:
+--     1. the RECREATE window — with statement-level autocommit, `DROP TRIGGER` then
+--        `CREATE TRIGGER` left a committed instant with the guard absent and no lock
+--        held (`DROP TRIGGER` releases its ACCESS EXCLUSIVE when that statement commits).
+--        It recurred on every deploy.
+--     2. the ENABLE ORIGIN window — `CREATE TRIGGER` (and `CREATE OR REPLACE TRIGGER`)
+--        leaves the trigger `ENABLE ORIGIN` until the separate `ENABLE ALWAYS` commits,
+--        so for that instant a session with `session_replication_role = replica` skipped
+--        the guard entirely. Narrower than window 1 and strictly harder to reach, but
+--        real, and NOT closed by `CREATE OR REPLACE TRIGGER` alone.
+--   `CREATE OR REPLACE TRIGGER` is kept even so, because it makes window 1 narrow rather
+--   than absent IF this file is ever applied statementwise by something that is not the
+--   deploy. It is defence in depth, not the thing that closes the window; the transaction
+--   is. Do not read the `OR REPLACE` as the guarantee.
 --
---   WHY IT IS STILL OPEN. Wrapping the file in one transaction would close it — DDL is
---   transactional in PostgreSQL, and `2026-10-18_db_grants.sql` and the privileges check
---   are both wrapped this way, so it would also match the sibling convention. It is not
---   done here unilaterally because it trades the window for its mirror image: one
---   transaction holds ACCESS EXCLUSIVE on all three tables for the whole file, which
---   blocks every reader and writer of the job queue for that duration instead of
---   leaving one guard briefly absent. Which of those two costs is the right one to pay
---   is a judgement about the deploy, not about this DDL, and it is recorded here for
---   the owner rather than settled by whoever edited the file last.
+--   WHAT THE WRAP COSTS, so it is not a free lunch on paper. One transaction holds
+--   ACCESS EXCLUSIVE on the three guarded tables from the first `CREATE OR REPLACE
+--   TRIGGER` to `COMMIT`, which blocks every reader and writer of the job queue for that
+--   duration. Acceptable here, concretely: the six queue tables are EMPTY on production
+--   (r5 is not yet live), the file runs in milliseconds, and it runs before the container
+--   swap — so the API serving traffic at that moment is the old one, which does not touch
+--   these tables at all. `SET LOCAL lock_timeout` below bounds the other direction.
 --
 -- WHY `ENABLE ALWAYS` ON EVERY TRIGGER HERE
 --   A trigger in the default state is SKIPPED when `session_replication_role =
@@ -154,9 +153,23 @@
 -- =============================================================================
 
 
+BEGIN;
+
+-- `lock_timeout`, not `statement_timeout`: the failure this bounds is WAITING FOR A LOCK,
+-- and the right outcome is to abort the deploy while the OLD API is still serving, not to
+-- queue behind a long reader and hold ACCESS EXCLUSIVE on the queue tables meanwhile.
+-- Five seconds, chosen against the facts rather than by habit: the six queue tables are
+-- EMPTY on production and no shipped code path reads them yet, so the expected wait is
+-- zero and any wait at all means something unexpected holds a conflicting lock — which is
+-- exactly when a deploy should stop and be looked at. Long enough to ride out a momentary
+-- autovacuum or a catalog read; far too short to stall a deploy. `SET LOCAL`, so it dies
+-- with this transaction and leaks into nothing the deploy runs next.
+SET LOCAL lock_timeout = '5s';
+
 -- -----------------------------------------------------------------------------
--- 0. PRECONDITION — the roles this file depends on, by name. FIRST statement, so
---    a wrong apply order costs nothing.
+-- 0. PRECONDITION — the roles this file depends on, by name. FIRST statement after
+--    `BEGIN`, so a wrong apply order costs nothing: it raises, the transaction
+--    aborts, and not one object in this file is created.
 -- -----------------------------------------------------------------------------
 DO $precondition$
 DECLARE
@@ -278,15 +291,13 @@ BEGIN
 END
 $fn$;
 
-DROP TRIGGER IF EXISTS trg_job_queue_actions_append_only ON public.job_queue_actions;
-CREATE TRIGGER trg_job_queue_actions_append_only
+CREATE OR REPLACE TRIGGER trg_job_queue_actions_append_only
   BEFORE UPDATE OR DELETE ON public.job_queue_actions
   FOR EACH ROW EXECUTE FUNCTION public.job_queue_actions_append_only();
 ALTER TABLE public.job_queue_actions
   ENABLE ALWAYS TRIGGER trg_job_queue_actions_append_only;
 
-DROP TRIGGER IF EXISTS trg_job_queue_actions_no_truncate ON public.job_queue_actions;
-CREATE TRIGGER trg_job_queue_actions_no_truncate
+CREATE OR REPLACE TRIGGER trg_job_queue_actions_no_truncate
   BEFORE TRUNCATE ON public.job_queue_actions
   FOR EACH STATEMENT EXECUTE FUNCTION public.job_queue_actions_no_truncate();
 ALTER TABLE public.job_queue_actions
@@ -393,22 +404,19 @@ BEGIN
 END
 $fn$;
 
-DROP TRIGGER IF EXISTS trg_job_queue_generation_entries_immutable ON public.job_queue_generation_entries;
-CREATE TRIGGER trg_job_queue_generation_entries_immutable
+CREATE OR REPLACE TRIGGER trg_job_queue_generation_entries_immutable
   BEFORE UPDATE OR DELETE ON public.job_queue_generation_entries
   FOR EACH ROW EXECUTE FUNCTION public.job_queue_generation_entries_immutable();
 ALTER TABLE public.job_queue_generation_entries
   ENABLE ALWAYS TRIGGER trg_job_queue_generation_entries_immutable;
 
-DROP TRIGGER IF EXISTS trg_job_queue_generation_entries_no_truncate ON public.job_queue_generation_entries;
-CREATE TRIGGER trg_job_queue_generation_entries_no_truncate
+CREATE OR REPLACE TRIGGER trg_job_queue_generation_entries_no_truncate
   BEFORE TRUNCATE ON public.job_queue_generation_entries
   FOR EACH STATEMENT EXECUTE FUNCTION public.job_queue_generation_entries_no_truncate();
 ALTER TABLE public.job_queue_generation_entries
   ENABLE ALWAYS TRIGGER trg_job_queue_generation_entries_no_truncate;
 
-DROP TRIGGER IF EXISTS trg_job_queue_generation_entries_building_only ON public.job_queue_generation_entries;
-CREATE TRIGGER trg_job_queue_generation_entries_building_only
+CREATE OR REPLACE TRIGGER trg_job_queue_generation_entries_building_only
   BEFORE INSERT ON public.job_queue_generation_entries
   FOR EACH ROW EXECUTE FUNCTION public.job_queue_generation_entries_building_only();
 ALTER TABLE public.job_queue_generation_entries
@@ -487,15 +495,13 @@ BEGIN
 END
 $fn$;
 
-DROP TRIGGER IF EXISTS trg_job_queue_generations_frozen ON public.job_queue_generations;
-CREATE TRIGGER trg_job_queue_generations_frozen
+CREATE OR REPLACE TRIGGER trg_job_queue_generations_frozen
   BEFORE UPDATE ON public.job_queue_generations
   FOR EACH ROW EXECUTE FUNCTION public.job_queue_generations_frozen();
 ALTER TABLE public.job_queue_generations
   ENABLE ALWAYS TRIGGER trg_job_queue_generations_frozen;
 
-DROP TRIGGER IF EXISTS trg_job_queue_generations_purge_invalidated_only ON public.job_queue_generations;
-CREATE TRIGGER trg_job_queue_generations_purge_invalidated_only
+CREATE OR REPLACE TRIGGER trg_job_queue_generations_purge_invalidated_only
   BEFORE DELETE ON public.job_queue_generations
   FOR EACH ROW EXECUTE FUNCTION public.job_queue_generations_purge_invalidated_only();
 ALTER TABLE public.job_queue_generations
@@ -627,3 +633,5 @@ REVOKE ALL ON FUNCTION public.crm_retention_redact_action_reason(uuid, text) FRO
 
 GRANT EXECUTE ON FUNCTION public.crm_retention_purge_job_queue_actions() TO crm_app;
 GRANT EXECUTE ON FUNCTION public.crm_retention_redact_action_reason(uuid, text) TO crm_app;
+
+COMMIT;
