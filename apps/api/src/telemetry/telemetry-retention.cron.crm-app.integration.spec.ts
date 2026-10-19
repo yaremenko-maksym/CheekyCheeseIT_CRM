@@ -96,10 +96,9 @@ describe.skipIf(!hasDatabaseUrl())(
     })
 
     async function exists(table: Case['table'], id: string): Promise<boolean> {
-      const { rowCount } = await session.admin.query(
-        `SELECT 1 FROM ${table} WHERE id::text = $1`,
-        [id],
-      )
+      const { rowCount } = await session.admin.query(`SELECT 1 FROM ${table} WHERE id::text = $1`, [
+        id,
+      ])
       return rowCount === 1
     }
 

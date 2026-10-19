@@ -92,7 +92,12 @@ describe.skipIf(!hasDatabaseUrl())(
       await session.admin.query(
         `INSERT INTO job_sources (id, type, config, enabled, budget_limit, budget_window)
          VALUES ($1, 'DOU_RSS', $2::jsonb, true, $3, $4)`,
-        [id, JSON.stringify({ category: 'JavaScript' }), budgeted ? 100 : null, budgeted ? 'DAY' : null],
+        [
+          id,
+          JSON.stringify({ category: 'JavaScript' }),
+          budgeted ? 100 : null,
+          budgeted ? 'DAY' : null,
+        ],
       )
       return { id }
     }
