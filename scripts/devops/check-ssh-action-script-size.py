@@ -39,11 +39,26 @@ scripts/devops/check-prod-ddl-wiring.py, check-e2e-shard-coverage.py and
 check-ssh-action-capture-stdout-version.py — and, like the last of those, it is
 repo-wide rather than scoped to the one step that broke.
 
-WHAT IS IN SCOPE: the `script:` input of every `appleboy/ssh-action@*` step in
-.github/workflows/*.yml — that and only that becomes INPUT_SCRIPT. A step using
-`script_path:` is out of scope BY CONSTRUCTION (the payload is a path, the body is
-a file read on the far side), which is exactly the escape hatch this guard means to
-push people toward; it is not a loophole.
+WHAT IS IN SCOPE: whatever the step ships to the remote AS A COMMAND STRING. That
+is `script:` — and ALSO the FILE behind `script_path:`.
+
+That second half is not symmetry for its own sake; it is the bug this guard shipped
+with. The first version scoped itself to the inline `script:` only, on the belief
+that `script_path:` escaped the limit. It does not. drone-ssh `os.ReadFile`s the
+referenced file into the SAME `scripts` slice `INPUT_SCRIPT` feeds, then sends
+`strings.Join(p.Config.Script, "\n")` to `ssh.Stream` as one command string
+(plugin.go) — so the body still crosses as a single SSH exec argument and the
+REMOTE `/bin/bash` refuses it. The deploy of 3928ba00e failed exactly that way
+while this guard reported `Violations found: 0`, because the step's inline script
+was 0 bytes. A guard that is green through the failure it was written for is worse
+than no guard: it is a green light.
+
+So: `script_path:` is measured by the size of the file it names. What is genuinely
+out of scope is a step whose script is a short DISPATCH to a file already on the
+far side (`script: bash /opt/crm/.../x.sh`), because then the only thing crossing
+as a command is a path of tens of bytes and the content travelled by scp, where no
+argument limit applies. That is the escape hatch this guard pushes people toward,
+and it is the ONLY one.
 
 Deliberately NOT a full YAML parse (no PyYAML dependency — same pragmatic,
 indentation-tracking approach as the sibling guards, see check-prod-ddl-wiring.py's
@@ -86,6 +101,10 @@ ENV_NAME_OVERHEAD = len("INPUT_SCRIPT=")
 MAX_INLINE_BYTES = 100000
 
 USES_RE = re.compile(r"^([ \t]*)uses:\s*appleboy/ssh-action@v?([0-9][0-9.]*)\s*(?:#.*)?$")
+# `script_path:` — the value is NOT `\S+`: `${{ github.workspace }}` has spaces
+# inside the expression.
+SCRIPT_PATH_RE = re.compile(r"^(\s*)script_path:\s*(.+?)\s*$")
+WORKSPACE_PREFIX = "${{ github.workspace }}/"
 # `script:` with a block scalar (`|`, `|-`, `>+`, …) or a plain inline value.
 SCRIPT_BLOCK_RE = re.compile(r"^(\s*)script:\s*([|>])([+-]?)\s*(?:#.*)?$")
 SCRIPT_INLINE_RE = re.compile(r"^(\s*)script:[ \t]+(\S.*)$")
@@ -145,9 +164,36 @@ def measure_block(lines, first_body_idx, key_indent):
     return len(value.encode("utf-8")), len(dedented)
 
 
-def find_inline_scripts(path):
-    """[(line_no, step_line_no, bytes, lines)] — one per ssh-action step that
-    passes an INLINE `script:`. Steps using `script_path:` yield nothing."""
+def measure_script_path(path, line_no, ref):
+    """Bytes of the FILE a `script_path:` names — that file is read and shipped
+    as the command string, so its size is the thing under the limit."""
+    if not ref.startswith(WORKSPACE_PREFIX):
+        raise SystemExit(
+            "ERROR: {}:{} has `script_path: {}`, which this guard cannot resolve.\n"
+            "Only `{}<repo-relative path>` is understood. An unmeasured script_path is\n"
+            "how this guard went green through the very failure it exists to catch, so\n"
+            "this is a hard failure rather than a skip.".format(
+                os.path.relpath(path, REPO_ROOT), line_no, ref, WORKSPACE_PREFIX
+            )
+        )
+    rel = ref[len(WORKSPACE_PREFIX) :]
+    target = os.path.join(REPO_ROOT, rel)
+    if not os.path.isfile(target):
+        raise SystemExit(
+            "ERROR: {}:{} points `script_path:` at {}, which does not exist.\n"
+            "That is a broken deploy, not a guard problem.".format(
+                os.path.relpath(path, REPO_ROOT), line_no, rel
+            )
+        )
+    with open(target, "rb") as f:
+        data = f.read()
+    return len(data), data.count(b"\n")
+
+
+def find_command_payloads(path):
+    """[(line_no, step_line_no, bytes, lines, kind)] — one per ssh-action step,
+    measuring what that step ships to the remote as a command string: an inline
+    `script:`, or the FILE named by `script_path:`."""
     with open(path, "r") as f:
         lines = f.read().split("\n")
 
@@ -180,15 +226,21 @@ def find_inline_scripts(path):
                     )
                 )
 
+            mp = SCRIPT_PATH_RE.match(nxt)
+            if mp:
+                n_bytes, n_lines = measure_script_path(path, j + 1, mp.group(2))
+                found.append((j + 1, i + 1, n_bytes, n_lines, "script_path"))
+                break
+
             mb = SCRIPT_BLOCK_RE.match(nxt)
             if mb:
                 n_bytes, n_lines = measure_block(lines, j + 1, indent_of(nxt))
-                found.append((j + 1, i + 1, n_bytes, n_lines))
+                found.append((j + 1, i + 1, n_bytes, n_lines, "script"))
                 break
 
             mi = SCRIPT_INLINE_RE.match(nxt)
             if mi:
-                found.append((j + 1, i + 1, len(mi.group(2).encode("utf-8")), 1))
+                found.append((j + 1, i + 1, len(mi.group(2).encode("utf-8")), 1, "script"))
                 break
 
     return found
@@ -203,57 +255,64 @@ def main():
     measured = []
     for path in workflow_files:
         rel = os.path.relpath(path, REPO_ROOT)
-        for line_no, step_line, n_bytes, n_lines in find_inline_scripts(path):
-            measured.append((rel, line_no, step_line, n_bytes, n_lines))
+        for line_no, step_line, n_bytes, n_lines, kind in find_command_payloads(path):
+            measured.append((rel, line_no, step_line, n_bytes, n_lines, kind))
 
     violations = [m for m in measured if m[3] + ENV_NAME_OVERHEAD > MAX_INLINE_BYTES]
     largest = max((m[3] for m in measured), default=0)
 
-    print("ssh-action Inline Script Size Guard")
+    print("ssh-action Remote Command Size Guard")
     print("  Workflow files scanned:        {}".format(len(workflow_files)))
-    print("  Inline ssh-action scripts:     {}".format(len(measured)))
-    print("  Budget per inline script:      {} bytes (OS limit MAX_ARG_STRLEN = {})".format(MAX_INLINE_BYTES, MAX_ARG_STRLEN))
-    print("  Largest inline script:         {} bytes".format(largest))
+    print("  ssh-action command payloads:   {}".format(len(measured)))
+    print("  Budget per payload:            {} bytes (OS limit MAX_ARG_STRLEN = {})".format(MAX_INLINE_BYTES, MAX_ARG_STRLEN))
+    print("  Largest payload:               {} bytes".format(largest))
     print("  Violations found:              {}".format(len(violations)))
 
     if measured:
         print()
-        print("  Inventory (bytes passed as INPUT_SCRIPT, largest first):")
-        for rel, line_no, _step, n_bytes, n_lines in sorted(measured, key=lambda m: -m[3]):
-            print("    {:7d}B / {:5d} lines  {}:{}".format(n_bytes, n_lines, rel, line_no))
+        print("  Inventory (bytes shipped as the remote command string, largest first):")
+        for rel, line_no, _step, n_bytes, n_lines, kind in sorted(measured, key=lambda m: -m[3]):
+            print("    {:7d}B / {:5d} lines  {}:{} ({}:)".format(n_bytes, n_lines, rel, line_no, kind))
 
     if violations:
         print()
-        print("FAIL: the following appleboy/ssh-action steps pass an inline `script:` that is")
-        print("at or near MAX_ARG_STRLEN ({} bytes). The action forwards `script:` to its own".format(MAX_ARG_STRLEN))
-        print("composite step as the single environment string `INPUT_SCRIPT=<script>`, and")
-        print("Linux execve fails with E2BIG when any single argv/envp string exceeds that")
-        print("limit — the step does not run slowly or partially, it cannot start at all:")
+        print("FAIL: the following appleboy/ssh-action steps ship a command string at or near")
+        print("MAX_ARG_STRLEN ({} bytes). Both `script:` and `script_path:` end up in the".format(MAX_ARG_STRLEN))
+        print("same place: drone-ssh joins them into ONE string and hands it to ssh.Stream, and")
+        print("the runner passes `script:` through the env var INPUT_SCRIPT on the way. Linux")
+        print("execve fails with E2BIG when any single argv/envp string exceeds that limit, so")
+        print("the script does not run slowly or partially — it cannot start at all, on the")
+        print("runner or on the VPS:")
         print("  \"An error occurred trying to start process '/usr/bin/bash' ...")
-        print("   Argument list too long\"")
-        for rel, line_no, step_line, n_bytes, n_lines in violations:
+        print("   Argument list too long\"           (runner, inline script:)")
+        print("  \"/bin/bash: Argument list too long\"  (VPS, script_path: — PR #1035)")
+        for rel, line_no, step_line, n_bytes, n_lines, kind in violations:
             print(
-                "  {}:{} — {} bytes / {} lines (step at line {}), over budget by {} bytes".format(
-                    rel, line_no, n_bytes, n_lines, step_line,
+                "  {}:{} — {} bytes / {} lines via {}: (step at line {}), over budget by {} bytes".format(
+                    rel, line_no, n_bytes, n_lines, kind, step_line,
                     n_bytes + ENV_NAME_OVERHEAD - MAX_INLINE_BYTES,
                 )
             )
         print()
-        print("Fix: move the script body into a file under scripts/devops/ and pass it with")
-        print("`script_path: ${{ github.workspace }}/scripts/devops/<name>.sh` — the action")
-        print("forwards that as INPUT_SCRIPT_FILE and drone-ssh reads it with os.ReadFile, so")
-        print("it is never an environment string and has no size ceiling. Remember to add a")
-        print("checkout step before it (the path is read from the runner's workspace), and")
-        print("that any variable the script uses must be in BOTH the step's `env:` block and")
-        print("its `envs:` list. Worked example: deploy.yml's 'Pull, up, migrate,")
-        print("health-check via SSH' step + scripts/devops/deploy-stack-on-vps.sh.")
+        print("Fix: `script_path:` is NOT the fix — it is measured here for exactly that")
+        print("reason. Ship the body as a FILE and keep the command short:")
+        print("  1. put it in scripts/devops/<name>.sh;")
+        print("  2. scp it to the VPS (appleboy/scp-action, target '/opt/crm' — the source")
+        print("     tree is preserved under the target);")
+        print("  3. make the ssh step's whole script `bash /opt/crm/scripts/devops/<name>.sh`.")
+        print("Then the command is a path of tens of bytes and the content never crosses as an")
+        print("argument. Remember the script needs a checkout before the scp, and that any")
+        print("variable it uses must be in BOTH the step's `env:` block and its `envs:` list.")
+        print("Worked example: deploy.yml's 'Pull, up, migrate, health-check via SSH' step +")
+        print("scripts/devops/deploy-stack-on-vps.sh.")
         print()
         print("Do NOT fix this by deleting comments to get under the limit. That buys one")
         print("merge, and the reasoning in a deploy script is worth more than the bytes.")
         return 1
 
     print()
-    print("OK: every inline ssh-action script is within budget — none can hit MAX_ARG_STRLEN.")
+    print("OK: every ssh-action command payload is within budget — none can hit MAX_ARG_STRLEN")
+    print("on the runner or on the remote.")
     return 0
 
 

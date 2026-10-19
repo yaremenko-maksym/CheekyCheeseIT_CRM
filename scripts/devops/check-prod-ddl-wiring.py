@@ -255,6 +255,17 @@ KNOWN_NOT_WIRED = {
 SCRIPT_PATH_RE = re.compile(r"^(\s*)script_path:\s*(.+?)\s*$")
 WORKSPACE_PREFIX = "${{ github.workspace }}/"
 
+# A step whose ENTIRE script is a dispatch to a file already on the VPS:
+#   script: bash /opt/crm/scripts/devops/deploy-stack-on-vps.sh
+# This is the shape the deploy step took after `script_path:` turned out to ship
+# the body as a command string too (see expand_script_paths). The path is a VPS
+# path; what must be opened is the REPOSITORY file that gets scp'd there, so the
+# `/opt/crm/` prefix is translated to REPO_ROOT. Deliberately anchored to a
+# whole-line match: a `bash /opt/crm/...` buried inside a larger script body is
+# NOT followed, because then the body itself is still in view and recursing adds
+# surface without adding visibility.
+VPS_DISPATCH_RE = re.compile(r"^(\s*)script:\s*bash\s+/opt/crm/(\S+)\s*$")
+
 
 def expand_script_paths(content):
     """Inline every `script_path:` file back into the YAML text.
@@ -264,8 +275,14 @@ def expand_script_paths(content):
     inline `script:` block. That block hit Linux MAX_ARG_STRLEN — appleboy/
     ssh-action passes `script:` as the single env string INPUT_SCRIPT, so
     execve could no longer spawn bash and `main` stopped being deployable at
-    all. The body moved to scripts/devops/deploy-stack-on-vps.sh, passed with
-    `script_path:`.
+    all. The body moved to scripts/devops/deploy-stack-on-vps.sh.
+
+    TWO delivery shapes are therefore followed, because the first attempt at
+    that move did not work: `script_path:` (PR #1035) is still read into the
+    same command string drone-ssh sends to ssh.Stream, so the remote /bin/bash
+    refused it in turn, and the step became `script: bash /opt/crm/<path>` with
+    the file delivered by scp. Both forms are expanded here — the one that
+    failed included, since nothing stops a future step from using it.
 
     Had this function not been written in the same change, THIS GUARD WOULD
     HAVE GONE GREEN WITH ZERO APPLY STEPS IN ITS FIELD OF VIEW — the precise
@@ -284,6 +301,27 @@ def expand_script_paths(content):
     """
     out = []
     for raw in content.splitlines():
+        md = VPS_DISPATCH_RE.match(raw)
+        if md:
+            indent, rel = md.group(1), md.group(2)
+            path = os.path.join(REPO_ROOT, rel)
+            if not os.path.isfile(path):
+                raise SystemExit(
+                    "ERROR: {} dispatches the whole step to `bash /opt/crm/{}`, but this\n"
+                    "repository has no {}. The VPS copy comes from the repository via scp, so a\n"
+                    "path with no repository file behind it is a step whose contents this guard\n"
+                    "cannot audit — and an unauditable step is how prod DDL stops being\n"
+                    "watched. Fail loud rather than skip.".format(
+                        os.path.relpath(DEPLOY_YML, REPO_ROOT), rel, rel
+                    )
+                )
+            with open(path, "r") as f:
+                body = f.read().splitlines()
+            body_indent = indent + "  "
+            out.append("{}script: |".format(indent))
+            out.extend((body_indent + line) if line.strip() else "" for line in body)
+            continue
+
         m = SCRIPT_PATH_RE.match(raw)
         if not m:
             out.append(raw)
@@ -975,6 +1013,21 @@ IF_KEY_RE = re.compile(r"^\s*if:\s*\S")
 SCP_ACTION_USES_RE = re.compile(r"^\s*uses:\s*appleboy/scp-action@")
 
 
+# The step that pins a rollback run's checkout to the commit being redeployed.
+# Matched by what it DOES (`git checkout "$TARGET"`), not by its name, so a
+# renamed step does not silently widen the scope below.
+ROLLBACK_PIN_RE = re.compile(r"^\s*git checkout \"\$TARGET\"\s*$")
+
+
+def rollback_pinned_job_ids(steps):
+    """Job ids containing a step that pins the checkout to the rollback target."""
+    return {
+        step.job_id
+        for step in steps
+        if any(ROLLBACK_PIN_RE.match(line) for line in step.lines)
+    }
+
+
 def unconditional_scp_source_files(steps):
     """Every path named in the `source:` of an scp-action step that has NO
     `if:` key anywhere in its own body — i.e. a step this pipeline always
@@ -988,11 +1041,25 @@ def unconditional_scp_source_files(steps):
     copy-wiring check above would add real complexity for a case that does
     not occur.
     """
+    pinned_jobs = rollback_pinned_job_ids(steps)
     files = set()
     for step in steps:
         if not any(SCP_ACTION_USES_RE.match(line) for line in step.lines):
             continue
         if any(IF_KEY_RE.match(line) for line in step.lines):
+            continue
+        # SCOPE: only scp steps in a job whose checkout is PINNED to the rollback
+        # target. The whole hazard is "the rollback target predates this file, so
+        # the scp finds nothing" — which can only happen where the checkout is
+        # the rollback commit. A job that checks out the workflow's own ref
+        # (the `deploy` job, which scp's scripts/devops/deploy-stack-on-vps.sh)
+        # always has its files by construction, so requiring them in the
+        # rollback preflight would be false: it would make every rollback to a
+        # commit older than that file fail the preflight for no reason, which is
+        # a worse outcome than the one this check exists to prevent. If no pinned
+        # job can be identified the scope stays ALL jobs — over-reporting fails
+        # loud, under-reporting goes blind.
+        if pinned_jobs and step.job_id not in pinned_jobs:
             continue
         for value in source_values(step):
             for token in value.split(","):
