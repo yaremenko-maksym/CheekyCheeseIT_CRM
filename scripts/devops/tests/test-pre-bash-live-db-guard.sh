@@ -215,6 +215,25 @@ assert_red "export PGSERVICE=... ранее в команде" \
   --contains "PGSERVICE / PGSERVICEFILE is set" \
   -- h "export PGSERVICE=live; DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
 
+# SRP-M-4: detection comes from the helper the file already has (assignments(): NAME=,
+# printf -v, read, ${NAME:=}) and the cmdscan env, not from a pattern of its own. An
+# earlier anchored regex had gaps for exactly these forms; each is a case now. A
+# command that merely MENTIONS the assignment is refused too - fail closed, on purpose.
+for pre in 'declare -x PGSERVICE=live;' 'declare PGSERVICE=live;' 'typeset -x PGSERVICE=live;' \
+           'local PGSERVICE=live;' 'readonly PGSERVICE=live;' 'export -- PGSERVICE=live;' \
+           'export PGSERVICEFILE=/tmp/x;' 'printf -v PGSERVICE %s live;' 'read -r PGSERVICE;' \
+           ': ${PGSERVICE:=live};' 'A="x y" PGSERVICE=live' 'env PGSERVICE=live'; do
+  assert_red "PGSERVICE: $pre" \
+    --contains "PGSERVICE / PGSERVICEFILE is set" \
+    -- h "$pre DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
+done
+assert_red "PGSERVICE=... как аргумент запуска: fail closed (упоминание тоже отказ)" \
+  --contains "PGSERVICE / PGSERVICEFILE is set" \
+  -- h "DATABASE_URL= PGDATABASE=crm_qa vite --port 3010 --note PGSERVICE=live"
+assert_red "echo с PGSERVICE=... перед запуском: fail closed" \
+  --contains "PGSERVICE / PGSERVICEFILE is set" \
+  -- h "echo PGSERVICE=live; DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
+
 # SR-M-1: everything that sets PGDATABASE somewhere other than the launch prefix.
 # cmdscan reads an exported value; a later bare assignment, a sourced file or
 # printf -v / read / ${V:=} is what the process actually gets. The strict rule
@@ -301,7 +320,11 @@ assert_red "SR-H-5 буквальный сценарий из ревью" \
 # `DATABASE_URL= PGDATABASE=crm_qa PGUSER=crm_db env -u PGDATABASE vite` reaches crm_db
 # through the user-name fallback. Refused for every launch, with or without a pin.
 for envform in 'env -u PGDATABASE' 'env -i' 'env --unset=PGDATABASE' 'env --unset PGDATABASE' \
-               'env --ignore-environment' 'env -iu PGDATABASE' 'env -S "vite --port 3010"'; do
+               'env --ignore-environment' 'env -iu PGDATABASE' 'env -S "vite --port 3010"' \
+               'env -C /tmp' 'env -v -u PGDATABASE' 'env -0u PGDATABASE' 'env -vi' 'env -' \
+               '/usr/bin/env -u PGDATABASE' 'command env -u PGDATABASE' '"env" -u PGDATABASE' \
+               "'env' -u PGDATABASE" 'env --unse=PGDATABASE' 'env --ignore-env' 'env --chdir=/tmp' \
+               'env --split-string=x' 'env -u PGDATABASE -u PGUSER'; do
   assert_red "env стирает закреплённое значение: $envform" \
     --contains "env -i / -u / --unset" \
     -- h "DATABASE_URL= PGDATABASE=crm_qa PGUSER=crm_db $envform vite --port 3010"
@@ -342,13 +365,14 @@ assert_green "options без crm_db" \
 # The wrapper itself is fine; only the forms that CLEAR or SPLIT the environment are not.
 assert_green "обычный env-враппер с закреплёнными значениями" \
   -- h "env DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
+assert_green "env -v (подробный вывод) не стирает окружение" \
+  -- h "env -v DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
+assert_green "env -- ограничивает опции, дальше только присваивания" \
+  -- h "env -- DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
+assert_green "env --null не стирает окружение" \
+  -- h "env --null DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
 assert_green "env с присваиванием, значение которого похоже на флаг: FOO=-i" \
   -- h "env FOO=-i DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
-# A name merely MENTIONED in an argument or in text is not a PGSERVICE assignment.
-assert_green "PGSERVICE=... как аргумент запуска (не присваивание)" \
-  -- h "DATABASE_URL= PGDATABASE=crm_qa vite --port 3010 --note PGSERVICE=live"
-assert_green "echo с упоминанием PGSERVICE=... перед запуском" \
-  -- h "echo PGSERVICE=live is refused; DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
 assert_green "dev-ttl.sh-обёртка: закрепление остаётся в ведущих словах" \
   -- h "scripts/devops/dev-ttl.sh --ttl 7200 -- DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
 assert_green "PGDATABASE безопасный + пустой DATABASE_URL" \

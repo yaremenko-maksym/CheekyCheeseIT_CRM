@@ -312,54 +312,83 @@ def assignments(name):
             + len(re.findall(r"\bread\b[^;&|\n]*" + n + r"\b", cmd))
             + len(re.findall(r"\$\{" + name + r":?=", cmd)))
 
+# ── one tokenizer walk for the launching segment (SR-H-6, SR-M-7, SRP-M-3) ─────
+# shlex reads the segment; the two questions asked of it - "which names are pinned
+# among the leading words?" and "does an env word in it clear the environment?" -
+# share ONE definition of the env word (is_env, by basename) and one parse, so they
+# cannot diverge. They used to be a regex here and a different test there; two
+# places deciding the same thing differently is how the SR-H-6 decoy worked.
 ASSIGN_WORD = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\+?=")
 
-def leading_assigned(raw):
-    # The names assigned among the LEADING words of the launching segment, and
-    # nowhere else. Matching the whole segment text (SR-H-6) let a decoy argument
-    # switch the rule off: `... vite --port 3010 --x PGDATABASE=crm_qa` contains
-    # "PGDATABASE=" but pins nothing. Wrappers that sit before the assignments
-    # (env, dev-ttl.sh [--ttl N] --) are stepped over; the first word that is
-    # neither one nor an assignment ends the scan, so the launcher and everything
-    # after it count for nothing. A segment shlex cannot read pins nothing.
+def is_env(tok):
+    return tok.rsplit("/", 1)[-1] == "env"
+
+# Long options of env(1) that rewrite the environment or the process. GNU accepts
+# any unambiguous prefix (--unse, --ignore, --split), so a prefix counts too.
+ENV_LONG_CLEARING = ("unset", "ignore-environment", "split-string", "chdir")
+
+def env_option_clears(opt):
+    if opt == "-":
+        return True  # a lone "-" is -i
+    if opt.startswith("--"):
+        name = opt[2:].split("=", 1)[0]
+        return name != "" and any(l.startswith(name) for l in ENV_LONG_CLEARING)
+    return any(c in "iuSC" for c in opt[1:])
+
+def env_clears_after(toks, i):
+    # The options of the env word at toks[i], up to the first assignment or command
+    # word. `env FOO=-i cmd` starts with an assignment, so FOO=-i is never an option.
+    for t in toks[i + 1:]:
+        if t == "--" or ASSIGN_WORD.match(t) or (t != "-" and not t.startswith("-")):
+            return False
+        if env_option_clears(t):
+            return True
+    return False
+
+def leading_words(raw):
+    # Returns (names assigned among the LEADING words, whether any env word clears
+    # the environment). The leading words are the only place a pin counts: matching
+    # the whole segment text let `... vite --port 3010 --x PGDATABASE=crm_qa` switch
+    # the rule off. Wrappers before the assignments (env, dev-ttl.sh [--ttl N] --)
+    # are stepped over; the first other word ends the scan. env is checked at EVERY
+    # word, not only the leading ones: a false refusal on an odd argument is cheaper
+    # than a miss. A segment shlex cannot read pins nothing and is treated as
+    # clearing if it mentions env at all.
     try:
         toks = shlex.split(raw)
     except ValueError:
-        return set()
+        return set(), bool(re.search(r"\benv\b", raw))
     names = set()
     prev = ""
     for t in toks:
         m = ASSIGN_WORD.match(t)
         if m:
             names.add(m.group(1))
-        elif not (t.rsplit("/", 1)[-1] in ("env", "dev-ttl.sh") or t == "--"
+        elif not (is_env(t) or t.rsplit("/", 1)[-1] == "dev-ttl.sh" or t == "--"
                   or t.startswith("-") or (t.isdigit() and prev == "--ttl")):
             break
         prev = t
-    return names
+    clears = any(is_env(t) and env_clears_after(toks, i) for i, t in enumerate(toks))
+    return names, clears
 
 def literal_inline(name):
     # On the launching segment itself, as a LEADING prefix - not satisfied by an
     # export in an earlier segment (cmdscan folds those into seg.env, but a later
     # bare assignment or a sourced file can still change them), and not by a
     # look-alike argument after the launcher.
-    return bool(segs) and all(name in leading_assigned(s.raw) for s in segs)
+    return bool(segs) and all(name in leading_words(s.raw)[0] for s in segs)
 
-# SR-M-7: `env -i`, `env -u`, `env --unset`, `env -S` rewrite the environment of
-# the process AFTER this hook read the pin: `DATABASE_URL= PGDATABASE=crm_qa
-# PGUSER=crm_db env -u PGDATABASE vite` reaches the live database through the
-# user-name fallback, and the DATABASE_URL variants have always been open. The hook
-# reads text, the process gets the env-edited environment - so these forms are
-# refused for every launch rather than modelled. A plain `env NAME=value cmd` is fine.
-ENV_CLEAR = re.compile(
-    r"(?<![\w./-])env\s+[^;&|\n]*?(?:(?<=\s)-[A-Za-z]*[iuS]\b|--unset\b"
-    r"|--ignore-environment\b|--split-string\b)"
-)
-if ENV_CLEAR.search(cmd):
+# `env -i`, `-u`, `--unset`, `-S`, `-C`, a lone `-` rewrite the environment of the
+# process AFTER this hook read the pin: `DATABASE_URL= PGDATABASE=crm_qa PGUSER=crm_db
+# env -u PGDATABASE vite` reaches the live database through the user-name fallback,
+# and the DATABASE_URL variants have always been open. The hook reads text, the
+# process gets the env-edited environment - so these are refused rather than
+# modelled. A plain `env NAME=value cmd` is fine.
+if any(leading_words(s.raw)[1] for s in segs):
     reasons.append(
-        "env -i / -u / --unset / -S rewrites the environment after this hook read "
-        "it (env -u PGDATABASE undoes the pin and PGUSER=crm_db then reaches the "
-        "live database), so the effective values cannot be determined. Drop the "
+        "env -i / -u / --unset / -S / -C rewrites the environment after this hook "
+        "read it (env -u PGDATABASE undoes the pin and PGUSER=crm_db then reaches "
+        "the live database), so the effective values cannot be determined. Drop the "
         "env option; plain `env NAME=value command` is fine"
     )
 
@@ -404,15 +433,15 @@ if pgdb is not None and (db == "" or pgdb != ""):
     for problem in name_problems(pgdb.strip(), "PGDATABASE"):
         reasons.append(problem)
 
-# Anchored to the start of a command segment (after optional export/declare/env and
-# other leading assignments): a name that is merely MENTIONED in an argument or in
-# an echo is not an assignment and must not refuse the launch.
-PGSERVICE_SET = re.compile(
-    r"(?:^|[;&|(\n])\s*(?:(?:export|declare\s+-x|typeset\s+-x|env)\s+)?"
-    r"(?:[A-Za-z_][A-Za-z0-9_]*\+?=(?:\x27[^\x27]*\x27|\"[^\"]*\"|\S)*\s+)*"
-    r"PGSERVICE(?:FILE)?\+?="
-)
-if "PGSERVICE" in env or "PGSERVICEFILE" in env or PGSERVICE_SET.search(cmd):
+# Detected with the helper this file already has (assignments(): NAME=, printf -v,
+# read, ${NAME:=}) and with the cmdscan env, not with a pattern of its own. That
+# fails closed on a command that merely MENTIONS PGSERVICE=... in an argument or an
+# echo; an odd false refusal is the price of not re-implementing the shell grammar
+# here (an earlier anchored regex was exactly that, and had gaps for declare/local/
+# readonly/export --/quoted prefix values). Nobody launches with a service file set
+# on purpose from a worktree.
+if ("PGSERVICE" in env or "PGSERVICEFILE" in env
+        or assignments("PGSERVICE") or assignments("PGSERVICEFILE")):
     reasons.append(
         "PGSERVICE / PGSERVICEFILE is set - a libpq service file overrides "
         "PGDATABASE (measured), so the database it reaches cannot be determined"
