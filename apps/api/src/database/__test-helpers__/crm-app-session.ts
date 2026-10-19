@@ -146,8 +146,9 @@ export function loginRoleOf(
   env: Readonly<Record<string, string | undefined>> = {},
 ): string | undefined {
   try {
-    // `?? ''`: an absent or empty URL is unparsable too, and falls through the same way.
-    const url = new URL(databaseUrl ?? '')
+    // An absent or empty URL is unparsable too — `new URL(undefined)` and `new URL('')` both throw
+    // a TypeError — and falls through to PGUSER the same way; no branch of its own is needed.
+    const url = new URL(databaseUrl as string)
     const user = url.searchParams.get('user') || decodeURIComponent(url.username)
     if (user) return user
   } catch {
