@@ -8,6 +8,8 @@ import {
   assertDisposableTarget,
   assertIdentifier,
   assertIsCrmApp,
+  isDeployRoleLogin,
+  loginRoleOf,
   MANUAL_DIR,
   resolveConnectionPlan,
   sqlstateOfRejection,
@@ -250,6 +252,82 @@ describe('resolveConnectionPlan (the step-4 seam, CR-M-4)', () => {
       )
     },
   )
+})
+
+describe('loginRoleOf / isDeployRoleLogin (the step-4 shape, CR-M-9)', () => {
+  const url = (user: string, query = '') => `postgresql://${user}:pw@127.0.0.1:5432/crm_ci${query}`
+
+  it.each([
+    ['the URL’s own user', url('crm_user'), {}, 'crm_user'],
+    ['a percent-encoded user, decoded as pg decodes it', url('crm%5Fapp'), {}, 'crm_app'],
+    [
+      '?user= over the URL’s user, as pg resolves it',
+      url('crm_user', '?user=crm_app'),
+      {},
+      'crm_app',
+    ],
+    [
+      'PGUSER when the URL names nobody',
+      'postgresql://127.0.0.1:5432/crm_ci',
+      { PGUSER: 'crm_app' },
+      'crm_app',
+    ],
+    [
+      'PGUSER when the URL cannot be parsed',
+      'not a url',
+      { PGUSER: 'crm_collector' },
+      'crm_collector',
+    ],
+    [
+      'PGUSER when the user is malformed percent-encoding',
+      url('%E0%A4%A'),
+      { PGUSER: 'crm_app' },
+      'crm_app',
+    ],
+  ])('reads %s', (_label, databaseUrl, env, expected) => {
+    expect(loginRoleOf(databaseUrl, env)).toBe(expected)
+  })
+
+  it('prefers the URL over PGUSER', () => {
+    expect(loginRoleOf(url('crm_user'), { PGUSER: 'crm_app' })).toBe('crm_user')
+  })
+
+  it.each([
+    ['no URL and no PGUSER', undefined, {}],
+    ['an empty URL', '', {}],
+    ['an unparsable URL and no PGUSER', 'not a url', {}],
+    ['an empty PGUSER', undefined, { PGUSER: '' }],
+  ])('names nobody for %s', (_label, databaseUrl, env) => {
+    expect(loginRoleOf(databaseUrl, env)).toBeUndefined()
+  })
+
+  it.each(['crm_app', 'crm_collector', 'crm_retention_owner'])(
+    '%s is a deploy-role login',
+    (role) => {
+      expect(isDeployRoleLogin(url(role))).toBe(true)
+    },
+  )
+
+  it.each([
+    ['the migration role', url('crm_user')],
+    ['a look-alike', url('crm_app2')],
+    ['a prefix', url('crm_ap')],
+    ['upper case', url('CRM_APP')],
+    ['no login at all', undefined],
+  ])('%s is not', (_label, databaseUrl) => {
+    expect(isDeployRoleLogin(databaseUrl)).toBe(false)
+  })
+
+  it('sees a deploy-role login that arrives through ?user= or PGUSER', () => {
+    expect(isDeployRoleLogin(url('crm_user', '?user=crm_app'))).toBe(true)
+    expect(isDeployRoleLogin('postgresql://127.0.0.1:5432/crm_ci', { PGUSER: 'crm_app' })).toBe(
+      true,
+    )
+  })
+
+  it('does not take the migration role for a deploy role just because ?user= is empty', () => {
+    expect(isDeployRoleLogin(url('crm_user', '?user='))).toBe(false)
+  })
 })
 
 describe('sqlstateOfRejection', () => {

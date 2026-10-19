@@ -3,7 +3,6 @@ import { join } from 'node:path'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 
-import { assertRealDbSchema } from '../../test/require-real-db'
 import { DatabaseService } from '../database.service'
 import { GRANTS_FILE, ROLES_FILE } from '../privileges/generate-privilege-sql'
 import {
@@ -47,6 +46,10 @@ import { applyDeployDdlFile, DEPLOY_ROLES, dropRolesCreated } from './deploy-ddl
  *     actually held, so a control can never hand back what the shipped grants file never
  *     gave (CR-M-2).
  *
+ * THE IDENTITY CHECK IS A PRE-FLIGHT ASSERTION, NOT A CONTINUOUS ONE: a membership added after
+ * the session opened, or a grant to PUBLIC, is invisible to it, and the in-spec controls are what
+ * catch those.
+ *
  * The files are idempotent, so applying them again in a database that already has them (CI
  * after step 4, a developer's scratch database) is a no-op. Nothing depends on the database
  * having been prepared in any particular way beyond the schema `db:push` builds.
@@ -73,7 +76,13 @@ import { applyDeployDdlFile, DEPLOY_ROLES, dropRolesCreated } from './deploy-ddl
  * is derived from THAT, never from a `DATABASE_URL` that might already be `crm_app`'s. The
  * ADR's name for the migration variable is "to be confirmed": when step 4 settles it, change
  * the one constant below. `CRM_APP_DB_PASSWORD` (the ADR's name) is reused when set, so the
- * credential the rest of the job holds is not invalidated by a fresh random one.
+ * credential the rest of the job holds is not invalidated by a fresh random one. The schema
+ * probe runs on the OWNER connection too: `DATABASE_URL` may by then be `crm_app`'s own login.
+ * The one spec that must not run in that shape is `crm-app-session.cleanup.integration.spec.ts`,
+ * which drops the deploy roles to prove the helper cleans up after itself — dropping the role the
+ * job is logged in as would fail every other file. It checks `isDeployRoleLogin` and skips with
+ * an explicit reason; that behaviour is therefore covered only while `DATABASE_URL` is still the
+ * migration role (CR-M-9 of #1040).
  *
  * A TEST HELPER: nothing at runtime may import it.
  */
@@ -125,6 +134,40 @@ export interface CrmAppSession {
     run: () => Promise<T>,
   ): Promise<T>
   close(): Promise<void>
+}
+
+/**
+ * The role a connection string logs in as, the way `pg` resolves it: a `?user=` query parameter wins
+ * over the URL's own user, and with neither it is `PGUSER`. Decoded, because `pg` decodes it.
+ * `undefined` when nothing names one.
+ */
+export function loginRoleOf(
+  databaseUrl: string | undefined,
+  env: Readonly<Record<string, string | undefined>> = {},
+): string | undefined {
+  if (databaseUrl) {
+    try {
+      const url = new URL(databaseUrl)
+      const user = url.searchParams.get('user') || decodeURIComponent(url.username)
+      if (user) return user
+    } catch {
+      // Unparsable: nothing in the URL names a role. Fall through to PGUSER, as `pg` would.
+    }
+  }
+  return env['PGUSER'] || undefined
+}
+
+/**
+ * True when the job itself is logged in as one of the deploy roles — the ADR step-4 shape, where
+ * `DATABASE_URL` is `crm_app`'s own URL. A spec that drops or re-passwords those roles must not
+ * run then: it would take the login out from under every other file in the job.
+ */
+export function isDeployRoleLogin(
+  databaseUrl: string | undefined,
+  env: Readonly<Record<string, string | undefined>> = {},
+): boolean {
+  const role = loginRoleOf(databaseUrl, env)
+  return role !== undefined && (DEPLOY_ROLES as readonly string[]).includes(role)
 }
 
 /** Where the owner work goes, and which password `crm_app` will have. Pure, so it is unit-tested. */
@@ -239,6 +282,33 @@ function urlFor(ownerUrl: string, role: string, password: string): string {
   return url.toString()
 }
 
+/**
+ * The two tables the roles/grants files name, found through the OWNER connection. Not
+ * `assertRealDbSchema`: that reads `DATABASE_URL`, which at ADR step 4 is `crm_app`'s own login.
+ */
+async function assertSchemaPresent(owner: Pool): Promise<void> {
+  for (const [table, column] of [
+    ['users', 'id'],
+    ['document_access_log', 'id'],
+  ] as const) {
+    const { rowCount } = await owner.query(
+      `SELECT 1
+         FROM pg_attribute a
+         JOIN pg_class c ON c.oid = a.attrelid
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public' AND c.relname = $1 AND a.attname = $2
+          AND a.attnum > 0 AND NOT a.attisdropped`,
+      [table, column],
+    )
+    if (rowCount === 0) {
+      throw new Error(
+        `[crm-app-session] ${table}.${column} not found in public through the owner URL — the schema ` +
+          'is unmigrated (run `pnpm --filter @crm/api db:push`) or the owner URL points at an unrelated database',
+      )
+    }
+  }
+}
+
 export async function openCrmAppSession(): Promise<CrmAppSession> {
   const { ownerUrl, appPassword } = resolveConnectionPlan(process.env)
   assertDisposableTarget(ownerUrl)
@@ -272,11 +342,6 @@ export async function openCrmAppSession(): Promise<CrmAppSession> {
   }
 
   try {
-    await assertRealDbSchema([
-      { table: 'users', column: 'id' },
-      { table: 'document_access_log', column: 'id' },
-    ])
-
     // The deploy's mechanism: the verifier arrives as a connection option (what PGOPTIONS
     // becomes on the wire), never in argv and never in the file.
     const rolesPool = new Pool({
@@ -285,6 +350,7 @@ export async function openCrmAppSession(): Promise<CrmAppSession> {
       options: `-c crm_roles.app_verifier=${scramSha256Verifier(appPassword)}`,
     })
     pools.push(rolesPool)
+    await assertSchemaPresent(rolesPool)
     const { rows: present } = await rolesPool.query<{ rolname: string }>(
       `SELECT rolname FROM pg_catalog.pg_roles WHERE rolname = ANY($1::text[])`,
       [[...DEPLOY_ROLES]],
