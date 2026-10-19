@@ -361,15 +361,20 @@ BEGIN
   --
   --     NOT `pg_class.relhasrules` / `relhassubclass`, WHICH IS WHERE THIS NEARLY WENT
   --     WRONG. Those two columns are PLANNER HINTS, not facts: PostgreSQL sets them when
-  --     a rule or a child appears and does NOT clear them when it goes away. Measured on
-  --     16.15 — create a rule and an inheriting child, drop both, and `relhasrules` and
-  --     `relhassubclass` are still `t` while `pg_rewrite` and `pg_inherits` hold nothing.
-  --     An assertion on the hints would therefore go PERMANENTLY RED on any database
-  --     where a rule or a child ever existed and was removed, which is the same defect as
-  --     a checksum that depends on the session `search_path`: a check that fails on a
-  --     healthy database teaches the next reader to ignore it. So the assertions below
-  --     read the AUTHORITATIVE catalogs — `pg_rewrite`, `pg_inherits`, `pg_policy` — and
-  --     name the offending object, which the hints cannot do either.
+  --     a rule or a child appears and clears them ONLY ON A LATER VACUUM, not when the
+  --     object goes away. Measured on 16.15 — create a rule and an inheriting child, drop
+  --     both, and `relhasrules` and `relhassubclass` are still `t` while `pg_rewrite` and
+  --     `pg_inherits` hold nothing.
+  --       An assertion on the hints would therefore go red on any database where a rule or
+  --     a child ever existed and was removed, and STAY red until some vacuum happened to
+  --     run — which is worse than a permanent red, because a check that is red for a while
+  --     and then green with nothing changed teaches the next reader that its failures mean
+  --     nothing. (That sharper reading is the security reviewer's, who proposed these
+  --     booleans and then withdrew them; the original wording here said "never cleared".)
+  --     Same defect family as a checksum that depends on the session `search_path`: a
+  --     check that fails on a healthy database is a check people learn to ignore. So the
+  --     assertions below read the AUTHORITATIVE catalogs — `pg_rewrite`, `pg_inherits`,
+  --     `pg_policy` — and name the offending object, which the hints cannot do either.
   --       `relrowsecurity` IS authoritative (`ALTER TABLE ... DISABLE ROW LEVEL SECURITY`
   --     really clears it), so it is read directly — together with `pg_policy`, because
   --     RLS-disabled-but-policies-present is still an unreviewed object on an audit table.
@@ -553,10 +558,12 @@ BEGIN
     -- The reason it is invariant: the overload REPORT below fires on exactly the
     -- precondition that makes this lookup ambiguous, so whenever the filter could matter
     -- the check is ALREADY red; and removing a conjunct from a WHERE clause can only widen
-    -- the candidate rows, while this block only ever APPENDS problems. The worst case is
-    -- therefore a less precise failure MESSAGE (a real body-checksum complaint omitted
-    -- because the wrong row was read), never a red turned green, and never a masked
-    -- finding — an overload's own `pg_get_functiondef` differs from the manifest too.
+    -- the candidate rows, while this block only ever APPENDS problems. So the exact cost
+    -- of deleting it, stated without rounding in its own favour: NO RED BECOMES GREEN, and
+    -- the failure MESSAGE can be less precise — a real body-checksum complaint can be
+    -- omitted because the wrong row was read. The earlier wording here said "never a
+    -- masked finding", which overstated it: that omitted complaint IS a finding the
+    -- message no longer carries. What survives is the verdict, not every detail of it.
     --   So: the filter buys diagnostic precision and robustness if the report is ever
     -- removed; the REPORT carries the detection, and that one IS pinned (`2b: reports an
     -- unexpected overload …`). Deleting this line is an EQUIVALENT MUTANT with respect to

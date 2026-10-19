@@ -49,7 +49,8 @@
 --   - every trigger is `CREATE OR REPLACE TRIGGER`, which converges a changed definition
 --     IN PLACE with no `DROP` (PostgreSQL 14+; measured on 16.15, `tgtype` 27 -> 19 -> 27
 --     with the trigger never absent). It needs no `IF NOT EXISTS` — `OR REPLACE` handles
---     both the create and the converge case;
+--     both the create and the converge case. This is also what closes the RECREATE
+--     window; see the two-windows section below for which change closes which;
 --   - `ALTER TABLE ... ENABLE ALWAYS TRIGGER` is idempotent by nature, and is REQUIRED
 --     after every `CREATE OR REPLACE TRIGGER`: measured, `OR REPLACE` resets `tgenabled`
 --     from 'A' to 'O'. The companion catalog check asserts 'A', so a deploy that died
@@ -57,28 +58,37 @@
 --   - the grants are `REVOKE ALL ... FROM PUBLIC` + `GRANT EXECUTE ... TO crm_app`,
 --     both convergent.
 --
--- THIS FILE IS ONE TRANSACTION — WHICH IS WHAT CLOSES BOTH WINDOWS
---   `BEGIN;` / `COMMIT;` wrap everything below, matching `2026-10-18_db_grants.sql` and
---   the privileges check. DDL is transactional in PostgreSQL, so the intermediate states
---   inside this file are NEVER VISIBLE TO ANOTHER SESSION: a concurrent session sees the
---   previous state until `COMMIT`, then the new one, and nothing in between. That is the
---   precise claim, and the integration suite proves it from a second session rather than
---   asserting it here.
+-- TWO WINDOWS, TWO DIFFERENT FIXES — AND EACH GETS THE CREDIT IT EARNED
+--   Both windows are closed. An earlier version of this comment credited the transaction
+--   with closing both, and that is wrong: the two changes in this file close one each,
+--   and both reviewers measured which (fix round 3, CR-M-10).
 --
---   TWO WINDOWS EXISTED BEFORE THE WRAP, both now closed by it:
---     1. the RECREATE window — with statement-level autocommit, `DROP TRIGGER` then
---        `CREATE TRIGGER` left a committed instant with the guard absent and no lock
---        held (`DROP TRIGGER` releases its ACCESS EXCLUSIVE when that statement commits).
---        It recurred on every deploy.
---     2. the ENABLE ORIGIN window — `CREATE TRIGGER` (and `CREATE OR REPLACE TRIGGER`)
---        leaves the trigger `ENABLE ORIGIN` until the separate `ENABLE ALWAYS` commits,
---        so for that instant a session with `session_replication_role = replica` skipped
---        the guard entirely. Narrower than window 1 and strictly harder to reach, but
---        real, and NOT closed by `CREATE OR REPLACE TRIGGER` alone.
---   `CREATE OR REPLACE TRIGGER` is kept even so, because it makes window 1 narrow rather
---   than absent IF this file is ever applied statementwise by something that is not the
---   deploy. It is defence in depth, not the thing that closes the window; the transaction
---   is. Do not read the `OR REPLACE` as the guarantee.
+--     1. the RECREATE window — CLOSED BY `CREATE OR REPLACE TRIGGER`, not by the wrap.
+--        Under statement-level autocommit, `DROP TRIGGER` then `CREATE TRIGGER` left a
+--        committed instant with the guard ABSENT and no lock held (`DROP TRIGGER` releases
+--        its lock when that statement commits), and it recurred on every deploy.
+--        `CREATE OR REPLACE TRIGGER` converges a changed definition IN PLACE with no
+--        `DROP` at all, so the trigger is never absent — measured in an UNWRAPPED control
+--        run, where the trigger count on the guarded tables stayed at 7 throughout.
+--        That is why the `OR REPLACE` is load-bearing and not decoration, and it keeps
+--        this window closed even if the file is ever applied statementwise by something
+--        that is not the deploy.
+--
+--     2. the ENABLE ORIGIN window — CLOSED BY THE TRANSACTION, and only by it.
+--        `CREATE TRIGGER` *and* `CREATE OR REPLACE TRIGGER` both leave the trigger
+--        `ENABLE ORIGIN` until the separate `ENABLE ALWAYS` commits (measured: `OR
+--        REPLACE` resets `tgenabled` 'A' -> 'O'), so for that instant a session with
+--        `session_replication_role = replica` skipped the guard entirely. No form of
+--        `CREATE ... TRIGGER` can close this one; only not committing in between does.
+--
+--   WHAT THE WRAP ITSELF GUARANTEES, stated precisely because it is the claim the suite
+--   proves: `BEGIN;` / `COMMIT;` wrap everything below, matching
+--   `2026-10-18_db_grants.sql` and the privileges check. DDL is transactional in
+--   PostgreSQL, so NO intermediate state inside this file is ever visible to another
+--   session — a concurrent session sees the previous state until `COMMIT`, then the new
+--   one, and nothing in between. The integration suite observes exactly that from a
+--   second connection (`OWNER-M-1 — the file is one transaction`), and security's
+--   unwrapped control showed seven intermediate states where the wrapped run shows none.
 --
 --   WHAT THE WRAP COSTS — AND THE LOCK MODE IS NOT THE ONE EVERYONE ASSUMED.
 --   Both review axes (and an earlier version of this comment) described the wrap as

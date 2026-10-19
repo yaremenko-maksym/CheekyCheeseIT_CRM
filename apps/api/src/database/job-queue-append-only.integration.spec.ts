@@ -1603,8 +1603,13 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       // of the privileges check ("every relation in public is classified exactly
       // once") would have caught a child in `public`, but it is scoped
       // `nspname = 'public'` — so a child next door is invisible to it. This
-      // assertion reads the PARENT's `relhassubclass`, which is true regardless of
-      // where the child lives, and that is the whole reason it is phrased that way.
+      // assertion reads `pg_inherits` FOR THE PARENT, which finds the child regardless
+      // of the schema it lives in, and that is the whole reason it is phrased that way.
+      // (Deliberately NOT the parent's `pg_class.relhassubclass`: that is a planner hint
+      // PostgreSQL only clears on a later vacuum, so an assertion on it would stay red
+      // after the child was removed — non-deterministically, until some vacuum ran.
+      // Naming the hint here would be the most misleading possible wording, given that
+      // the staleness is exactly why the hint was rejected.)
       await q(`CREATE SCHEMA IF NOT EXISTS ac5_shadow`)
       await q(
         `CREATE TABLE ac5_shadow.job_queue_actions_child ()
@@ -2058,14 +2063,19 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
   // a guarantee the artifact does not deliver. So it is proven, from a SECOND
   // CONNECTION, rather than asserted.
   //
-  // Two windows existed before the wrap and both are closed by it:
+  // Two windows existed, both are closed, and ONE CHANGE EACH CLOSES THEM — an earlier
+  // version of this comment credited the wrap with both (fix round 3, CR-M-10):
   //   1. the RECREATE window — `DROP TRIGGER` then `CREATE TRIGGER` under statement
-  //      autocommit left a committed instant with the guard absent;
+  //      autocommit left a committed instant with the guard absent. Closed by
+  //      `CREATE OR REPLACE TRIGGER`, which converges in place with no `DROP`; measured
+  //      in an unwrapped control, where the trigger count stayed at 7 throughout.
   //   2. the ENABLE ORIGIN window — `CREATE [OR REPLACE] TRIGGER` leaves the trigger
-  //      `ENABLE ORIGIN` until the separate `ENABLE ALWAYS` commits, so a session
-  //      with `session_replication_role = replica` could skip the guard in between.
-  // The first test below observes BOTH: mid-apply, a second session sees neither a
-  // missing trigger nor an `ENABLE ORIGIN` one — it sees the previous state.
+  //      `ENABLE ORIGIN` until the separate `ENABLE ALWAYS` commits, so a session with
+  //      `session_replication_role = replica` could skip the guard in between. Closed by
+  //      the TRANSACTION and only by it: no form of `CREATE ... TRIGGER` avoids it.
+  // The first test below observes the transaction's guarantee, which covers both as a
+  // consequence: mid-apply, a second session sees neither a missing trigger nor an
+  // `ENABLE ORIGIN` one — it sees the previous state, whole.
   // -------------------------------------------------------------------------
   describe('OWNER-M-1 — the file is one transaction', () => {
     /** The file's statements, and the index of its trailing `COMMIT`. */
