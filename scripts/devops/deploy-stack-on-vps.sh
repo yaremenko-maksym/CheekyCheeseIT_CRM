@@ -2236,10 +2236,15 @@ else
 fi
 
 # ADR 2026-10-17-db-least-privilege-roles, measure 2: a `permission denied` /
-# SQLSTATE 42501 in the NEW api container's logs fails the deploy, loudly. It
-# must not pass unread: a missing grant looks exactly like a healthy API here
-# (/api/health does not touch the database). FATAL on purpose, and so is a log
-# read that fails: "could not look" must not read as "nothing there".
+# SQLSTATE 42501 in the NEW api container's logs is REPORTED here, loudly, and does NOT
+# fail the deploy (REPORT-ONLY, decided in the PR #1041 review): a log line is not a
+# channel a stranger cannot write to, and a gate a stranger can trip blocks releases on
+# demand and teaches people to disable it. The owner is reached by the standing watch
+# (api-permission-denied-watch.yml). Gating comes back when the signal moves to a
+# channel a request cannot write (the planned journal, see the runbook).
+# What STAYS fatal is our own tooling failing to LOOK: an unreadable log, no python3, a
+# filter that fails its canary. "Could not look" must not read as "nothing there", and
+# no request can cause any of them.
 # The window opens at DEPLOY_STARTED_AT, so the old container's history is not
 # this deploy's business (the standing watch, api-permission-denied-watch.yml,
 # owns that). Only metadata is printed, never the matching lines: this log is
@@ -2354,25 +2359,24 @@ API_LOGS_FILTERED="$(printf '%s\n' "$API_LOGS_FILTERED_ALL" | grep -vxF "$LOGSCA
 if [ "$LOGSCAN_UNPARSED" -gt 0 ]; then
   echo "::warning::${LOGSCAN_UNPARSED} pino-looking api log record(s) could not be parsed and were dropped from the 42501 scan (not shown)"
 fi
-# THE GATE FAILS ONLY ON THE CONTRACT LINE (SR-H-10). The unanchored text patterns
-# (`permission denied`, `must be owner|superuser`) are forgeable by an anonymous request:
-# a Nest text log line is NOT filtered and carries decoded request data (Drizzle puts the
-# query `params:` into its error message, and Nest logs that message as a text line), so
-# letting them fail a deploy would let a stranger stop a release. They are still counted and
-# REPORTED below, as a warning. (The contract line itself is anchored, and that anchor needs
-# only a space and a bracket, which `%20` and `%5B` supply; it is the strongest signal the
-# gate has and is not forgery-proof either. See the runbook, "what the gate can and cannot
-# trust".)
+# NOTHING BELOW FAILS THE DEPLOY (SR-H-10). Both the unanchored text patterns and the
+# contract line are forgeable by an anonymous request: a Nest text log line is NOT filtered
+# and carries decoded request data (Drizzle puts the query `params:` into its error message,
+# and Nest logs that message as a text line). The contract's `[DatabasePrivilege]` anchor
+# needs only a space and a bracket, which `%20` and `%5B` supply, and the attacker can pick
+# the table name from the public list. So both are counted and REPORTED, as warnings, and a
+# stranger cannot stop a release with either. The contract is still reported separately and
+# first, because it is the stronger signal. See the runbook, "what the gate can and cannot
+# trust".
 PERMISSION_DENIED_HITS="$(printf '%s\n' "$API_LOGS_FILTERED" | grep -aEi -e "$PERMISSION_DENIED_CONTRACT_RE" | grep -c . || true)"
 PERMISSION_DENIED_OTHER="$(printf '%s\n' "$API_LOGS_FILTERED" | grep -aEi -e "$PERMISSION_DENIED_RE" | grep -aEiv -e "$PERMISSION_DENIED_CONTRACT_RE" | grep -c . || true)"
 if [ "${PERMISSION_DENIED_OTHER:-0}" -gt 0 ]; then
   echo "::warning::${PERMISSION_DENIED_OTHER} other api log line(s) match 'permission denied' / 'must be owner' during this deploy: reported, NOT gating (an anonymous request can forge these). Read the container logs on the VPS if this is unexpected; this log deliberately does not repeat them."
 fi
 if [ "${PERMISSION_DENIED_HITS:-0}" -gt 0 ]; then
-  echo "::error::[DatabasePrivilege] db_privilege_denied sqlstate=42501 appeared ${PERMISSION_DENIED_HITS} time(s) in the api logs during this deploy. The new image is already live; a grant is missing or a table is misclassified. Read the container logs on the VPS (docker compose logs api); this log deliberately does not repeat them."
-  exit 1
+  echo "::warning::[DatabasePrivilege] db_privilege_denied sqlstate=42501 appeared ${PERMISSION_DENIED_HITS} time(s) in the api logs during this deploy: reported, NOT gating (a log line can be forged by a request; the standing watch reports it to the owner). If it is real, a grant is missing or a table is misclassified: read the container logs on the VPS (docker compose logs api); this log deliberately does not repeat them."
 fi
-echo "No permission denied / 42501 contract line in $(printf '%s\n' "$API_LOGS_SINCE_DEPLOY" | grep -c .) api log line(s) since ${DEPLOY_STARTED_AT}"
+echo "No permission denied / 42501 gate: this scan is report-only and never fails the deploy; scanned $(printf '%s\n' "$API_LOGS_SINCE_DEPLOY" | grep -c .) api log line(s) since ${DEPLOY_STARTED_AT}"
 
 # task-infra-locale-edge (security-review round 1, HIGH-2 follow-up;
 # hardened in round 2, LOW-3): unlike the CRM API check above (kept
