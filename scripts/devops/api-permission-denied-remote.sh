@@ -34,9 +34,13 @@ fi
 cd "${LOGSCAN_CRM_DIR:-/opt/crm}" 2>/dev/null || { echo "LOGSCAN_FAILED=no_crm_dir"; exit 0; }
 dc="docker compose -f docker-compose.prod.yml -f docker-compose.ghcr.yml --env-file .env.production"
 
-names=$($dc ps --format '{{.Name}}' api 2>/dev/null </dev/null)
+# Only a line that LOOKS LIKE a compose api container name counts (`crm-api-1`, or the v1
+# `crm_api_1`): any other stdout from the command (a warning, a stray line from a shell
+# startup file) is not a container and is never published as one. A shape check on
+# unvalidated text is not provenance; matching the naming scheme is.
+names=$($dc ps --format '{{.Name}}' api 2>/dev/null </dev/null | grep -E '^[A-Za-z0-9][A-Za-z0-9.-]{0,40}[-_]api[-_][0-9]{1,3}$' || true)
 n=$(printf '%s\n' "$names" | grep -c . || true)
-cname=$(printf '%s\n' "$names" | head -n 1 | tr -dc 'A-Za-z0-9_./-' | cut -c1-60)
+cname=$(printf '%s\n' "$names" | head -n 1)
 if ! logs=$($dc logs --no-color --timestamps --since "$LOGSCAN_SINCE" api 2>&1 </dev/null); then
   echo "LOGSCAN_FAILED=compose_logs"
   exit 0

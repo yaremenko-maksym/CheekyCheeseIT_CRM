@@ -308,6 +308,12 @@ assert_red "SR-M-6: output with NO frame at all is still BLIND (the script did n
 assert_exit_code "SR-M-6: ...exit 2" 2 run_guard "$WS/noise-only.env"
 assert_exit_code "SR-M-6: a second frame after the first END cannot turn a hit into a clean scan" 1 run_guard "$WS/two-frames.env"
 
+# The container name is validated against the compose naming scheme, not just a charset:
+# stray stdout is never published as a "container".
+sed 's/^LOGSCAN_CONTAINER=.*/LOGSCAN_CONTAINER=WelcometotheVPSrcfileoutput/' "$WS/hit.env" >"$WS/bad-container.env"
+assert_red "container name: a charset-clean but non-compose name is refused (BLIND) and not echoed" \
+  --contains "BLIND" --not-contains "Welcometothe" -- run_guard "$WS/bad-container.env"
+
 # ── the pattern itself ───────────────────────────────────────────────────────
 pat_hits() { printf '%s\n' "$1" | grep -aEi -e "$RE" >/dev/null; }
 assert_green "pattern: 'permission denied for table x'" -- bash -c "$(declare -f pat_hits); RE='$RE'; pat_hits 'ERROR permission denied for table x'"
@@ -322,6 +328,7 @@ assert_red "pattern: the Drizzle wrapper message alone does NOT fire (why the AP
 guard_test_shim "$WS" docker '#!/usr/bin/env bash
 case " $* " in
   *" ps "*)
+    [ "${FAKE_DOCKER_MODE:-}" = "psnoise" ] && echo "Welcome to the VPS stray line on docker stdout"
     [ "${FAKE_DOCKER_MODE:-}" = "nocontainer" ] || echo "crm-api-1"
     exit 0 ;;
   *" logs "*)
@@ -420,6 +427,9 @@ assert_red "AC6 lock 2: after the checker, still nothing raw, and it still fires
   --contains "object=table:vacancy_applications" \
   --not-contains "jane.doe" --not-contains "380501234567" --not-contains "INJECTED" \
   --not-contains "SECRETVALUE" --not-contains "DELETE FROM" -- pipeline hostile
+
+assert_green "container name: stray stdout from 'docker compose ps' is never published as the container" \
+  --contains "LOGSCAN_CONTAINER=crm-api-1" --contains "LOGSCAN_API_CONTAINERS=1" --not-contains "Welcome" -- remote psnoise
 
 # AC7: a bracketed token and a table slot filled by attacker-influenced text. Both
 # are reported as `unknown`, the hit STILL pages, and neither string is published.
@@ -672,7 +682,7 @@ WRAP
   # is how a login shell's rc output reaches the session's stdout BEFORE our script runs
   # (SR-M-6). ForceCommand bypasses the user's login shell, so this is how the test gets
   # the same effect through a mechanism the shell itself provides.
-  printf '%s\n' 'echo "Welcome to the VPS (rc file output)"' 'echo "second rc line"' >"$SD/benv"
+  printf '%s\n' 'if [ -z "${BENV_DONE:-}" ]; then export BENV_DONE=1; echo "Welcome to the VPS (rc file output)"; echo "second rc line"; fi' >"$SD/benv"
   chmod +x "$SD/wrap.sh"
   cat >"$SD/sshd_config" <<CONF
 Port $SSHD_PORT

@@ -106,7 +106,7 @@ fi
 ENVELOPE="$FRAME"
 
 RE_HIT='^LOGSCAN_HIT ts=([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]{8,20}Z|unknown) logger=[A-Za-z0-9_.-]{1,60} object=[a-z0-9_.:-]{1,100} sqlstate=(42501|42501-by-message|unclassified)$'
-RE_KNOWN='^(LOGSCAN_BEGIN|LOGSCAN_API_CONTAINERS=[0-9]{1,4}|LOGSCAN_CONTAINER=[A-Za-z0-9_./-]{1,60}|LOGSCAN_LINES=[0-9]{1,9}|LOGSCAN_HITS=[0-9]{1,9}|LOGSCAN_END|LOGSCAN_FAILED=[A-Za-z0-9_.-]{1,40})$'
+RE_KNOWN='^(LOGSCAN_BEGIN|LOGSCAN_API_CONTAINERS=[0-9]{1,4}|LOGSCAN_CONTAINER=(unknown|[A-Za-z0-9][A-Za-z0-9.-]{0,40}[-_]api[-_][0-9]{1,3})|LOGSCAN_LINES=[0-9]{1,9}|LOGSCAN_HITS=[0-9]{1,9}|LOGSCAN_END|LOGSCAN_FAILED=[A-Za-z0-9_.-]{1,40})$'
 
 # Second lock: any line that is neither a known field line nor a valid HIT line
 # is refused WITHOUT being printed.
