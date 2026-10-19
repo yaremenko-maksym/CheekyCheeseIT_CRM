@@ -88,3 +88,163 @@ export function isDeadlock(err: unknown): boolean {
   }
   return false
 }
+
+/* -------------------------------------------------------------------------- */
+/*  Logging a database error — the alert contract                              */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * WHY THIS EXISTS (measured on a real PostgreSQL 16, drizzle-orm 0.45):
+ * a failed query rejects with a `DrizzleQueryError` whose
+ *   - `message` is `Failed query: <sql>\nparams: <the VALUES>`,
+ *   - `stack` begins with that same message,
+ *   - `code` is `undefined`,
+ * and ONLY `.cause` — the driver's `DatabaseError` — carries `code: '42501'` and
+ * `message: 'permission denied for table …'`. A handler that logs `err.message` or
+ * `err.stack` therefore (1) never writes the SQLSTATE, so an alert on `42501` is
+ * silent exactly where it is needed, and (2) writes the parameter values, which can
+ * be personal data. This module is the one place that reads the chain and decides
+ * what may be written down.
+ *
+ * ===========================  THE LOG-LINE CONTRACT  ===========================
+ * An error that has a database error in its `.cause` chain adds ONE fragment to the
+ * log message (callers append it after their own static text, preceded by a space):
+ *
+ *   db_error db_sqlstate=<S> db_table=<T> db_constraint=<C> db_column=<K> db_message="<M>" db_statement="<Q>"
+ *
+ * - The fragment always starts with the bare word `db_error`, and every field is
+ *   always present, in this order. An absent value is the single character `-`.
+ * - `db_sqlstate=<S>` — the five-character SQLSTATE (`42501`, `28P01`, `23505`…), or
+ *   `none` for a database-call failure that has no SQLSTATE (connection refused…).
+ * - `db_table` / `db_constraint` / `db_column` — identifiers the driver reported,
+ *   restricted to `[A-Za-z0-9_$.]` (anything else becomes `?`). No whitespace.
+ * - `db_message="<M>"` — the DRIVER's message, only for SQLSTATE classes whose text
+ *   never embeds a value (08 23 28 40 42 53 54 55 57 58). `-` for the rest: class 22
+ *   messages are `invalid input syntax for type integer: "<the value>"`. For a
+ *   no-SQLSTATE failure it is the cause's code (`ECONNREFUSED`) or `-`.
+ * - `db_statement="<Q>"` — drizzle's SQL text with `$1…` placeholders, whitespace
+ *   collapsed, at most 200 characters. `-` when the error did not come through drizzle.
+ * - Inside the two quoted fields `"` is replaced by `'` and control characters by a
+ *   space, so a quote never needs escaping and the fragment is one line.
+ *
+ * NEVER in the fragment, by construction: query PARAMETER VALUES, the driver's
+ * `detail` (`Key (email)=(a@b.c) already exists`), `where`, `hint`, or drizzle's own
+ * message. This repository is public; its logs end up in issues.
+ *
+ * HOW TO MATCH (what an alert may rely on, and what it must not):
+ *   RELY ON  the tokens `db_sqlstate=42501` and `db_error`, or the substring
+ *            `permission denied`. These are plain `[a-z0-9_=]` and survive any
+ *            logger that quotes or JSON-escapes the line.
+ *   DO NOT   anchor on the quote characters, on field order beyond `db_error`
+ *            coming first, or on the text of `db_statement`.
+ * Changing a token name or the allow-list below is a change to this contract: tell
+ * whoever owns the alert.
+ */
+
+const SQLSTATE_PATTERN = /^[0-9A-Z]{5}$/
+/** SQLSTATE classes whose driver message never embeds a data value (see contract). */
+const VALUE_FREE_CLASSES = new Set(['08', '23', '28', '40', '42', '53', '54', '55', '57', '58'])
+const FIELD_MAX_LENGTH = 200
+const ELLIPSIS = '...'
+
+type Dict = Record<string, unknown>
+
+/** First error in the `.cause` chain (bounded) satisfying `match`, or null. */
+function findInChain(err: unknown, match: (node: Dict) => boolean): Dict | null {
+  let cur: unknown = err
+  for (let depth = 0; cur != null && typeof cur === 'object' && depth < 8; depth += 1) {
+    if (match(cur as Dict)) return cur as Dict
+    cur = (cur as Dict)['cause']
+  }
+  return null
+}
+
+/** pg's `DatabaseError`: a five-character SQLSTATE `code` AND a string `severity`.
+ * `severity` is what tells it apart from Node's `EPERM`-style codes. */
+function isPgNode(node: Dict): boolean {
+  return (
+    typeof node['code'] === 'string' &&
+    SQLSTATE_PATTERN.test(node['code']) &&
+    typeof node['severity'] === 'string'
+  )
+}
+
+/** drizzle's `DrizzleQueryError`: the SQL text and the params array. */
+function isDrizzleNode(node: Dict): boolean {
+  return typeof node['query'] === 'string' && node['query'] !== '' && Array.isArray(node['params'])
+}
+
+/** One line, no quotes, no control characters, at most `FIELD_MAX_LENGTH` characters. */
+function oneLine(text: string): string {
+  const flat = text
+    .replace(/[\x00-\x1F\x7F-\x9F]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replaceAll('"', "'")
+  return flat.length > FIELD_MAX_LENGTH
+    ? `${flat.slice(0, FIELD_MAX_LENGTH - ELLIPSIS.length)}${ELLIPSIS}`
+    : flat
+}
+
+function identifier(value: unknown): string {
+  return typeof value === 'string' && value !== '' ? value.replace(/[^A-Za-z0-9_$.]/g, '?') : '-'
+}
+
+function quoted(text: string | null): string {
+  return text === null ? '-' : `"${oneLine(text)}"`
+}
+
+function fragment(
+  sqlstate: string,
+  fields: Dict,
+  message: string | null,
+  statement: string | null,
+): string {
+  return (
+    `db_error db_sqlstate=${sqlstate} db_table=${identifier(fields['table'])} ` +
+    `db_constraint=${identifier(fields['constraint'])} db_column=${identifier(fields['column'])} ` +
+    `db_message=${quoted(message)} db_statement=${quoted(statement)}`
+  )
+}
+
+/**
+ * The contract fragment for `err`, or `null` when no database error is in its
+ * `.cause` chain. See "THE LOG-LINE CONTRACT" above.
+ */
+export function describeDbError(err: unknown): string | null {
+  const pg = findInChain(err, isPgNode)
+  const drizzle = findInChain(err, isDrizzleNode)
+  if (pg === null && drizzle === null) return null
+
+  const statement = drizzle === null ? null : (drizzle['query'] as string)
+  if (pg === null) {
+    const cause = (drizzle as Dict)['cause']
+    const code = cause != null && typeof cause === 'object' ? (cause as Dict)['code'] : undefined
+    return fragment('none', {}, typeof code === 'string' ? code : null, statement)
+  }
+  const sqlstate = pg['code'] as string
+  const message = VALUE_FREE_CLASSES.has(sqlstate.slice(0, 2))
+    ? ((pg['message'] as string | undefined) ?? null)
+    : null
+  return fragment(sqlstate, pg, message, statement)
+}
+
+/** `describeDbError` as a suffix ready to append to a static log message ('' if none). */
+export function dbErrorLogSuffix(err: unknown): string {
+  const described = describeDbError(err)
+  return described === null ? '' : ` ${described}`
+}
+
+/**
+ * What to hand a logger as the stack. For an error that IS a pg or drizzle error the
+ * message is dropped — drizzle's embeds the parameter values, and a bare pg message
+ * can too — and the frames are kept. Every other error returns exactly what the
+ * handlers always logged: `err.stack`, or `String(err)` for a non-Error.
+ */
+export function safeErrorStack(err: unknown): string | undefined {
+  if (!(err instanceof Error)) return String(err)
+  if (!isPgNode(err as unknown as Dict) && !isDrizzleNode(err as unknown as Dict)) return err.stack
+  if (err.stack === undefined) return undefined
+  const frames = err.stack.split('\n').filter((line) => /^\s+at /.test(line))
+  return [err.name, ...frames].join('\n')
+}

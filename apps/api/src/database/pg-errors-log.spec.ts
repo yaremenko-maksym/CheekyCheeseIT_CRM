@@ -1,0 +1,308 @@
+/**
+ * Unit coverage for the LOG-LINE half of `pg-errors.ts` — `describeDbError`,
+ * `dbErrorLogSuffix`, `safeErrorStack`.
+ *
+ * The real-driver half (does a REAL Postgres 42501 come out of a REAL handler as a
+ * log line containing `42501`?) is `pg-errors-log.integration.spec.ts`. This file
+ * pins the pure formatting rules with hand-built error shapes, and every expected
+ * string below is a literal written out by hand, not computed with the code under
+ * test.
+ */
+import { describe, expect, it } from 'vitest'
+import { dbErrorLogSuffix, describeDbError, safeErrorStack } from './pg-errors'
+
+/** What `pg` throws: a DatabaseError — `code`, `severity`, and the identifier fields. */
+function pgError(
+  code: string,
+  message: string,
+  extra: Record<string, unknown> = {},
+): Error & Record<string, unknown> {
+  return Object.assign(new Error(message), { severity: 'ERROR', code, ...extra })
+}
+
+/** What drizzle-orm throws: message embeds the VALUES, `.cause` is the pg error. */
+function drizzleError(
+  cause: unknown,
+  query: string,
+  params: unknown[],
+): Error & Record<string, unknown> {
+  const err = Object.assign(new Error(`Failed query: ${query}\nparams: ${params.join(',')}`), {
+    query,
+    params,
+    cause,
+  })
+  err.name = 'DrizzleQueryError'
+  return err
+}
+
+const DENIED = pgError('42501', 'permission denied for table job_queue_actions')
+
+describe('describeDbError — the alert contract', () => {
+  it('reads SQLSTATE and message through drizzle’s .cause wrapper', () => {
+    const err = drizzleError(DENIED, 'select "id" from "job_queue_actions" where "x" = $1', ['v'])
+    expect(describeDbError(err)).toBe(
+      'db_error db_sqlstate=42501 db_table=- db_constraint=- db_column=- ' +
+        'db_message="permission denied for table job_queue_actions" ' +
+        "db_statement=\"select 'id' from 'job_queue_actions' where 'x' = $1\"",
+    )
+  })
+
+  it('works on a bare pg error with no drizzle wrapper (statement is "-")', () => {
+    expect(describeDbError(DENIED)).toBe(
+      'db_error db_sqlstate=42501 db_table=- db_constraint=- db_column=- ' +
+        'db_message="permission denied for table job_queue_actions" db_statement=-',
+    )
+  })
+
+  it('reports table / constraint / column when the driver supplies them', () => {
+    const err = pgError('23505', 'duplicate key value violates unique constraint "u_email"', {
+      table: 'users',
+      constraint: 'u_email',
+      column: 'email',
+    })
+    expect(describeDbError(err)).toBe(
+      'db_error db_sqlstate=23505 db_table=users db_constraint=u_email db_column=email ' +
+        'db_message="duplicate key value violates unique constraint \'u_email\'" db_statement=-',
+    )
+  })
+
+  it('never emits parameter values — not via message, params, or detail', () => {
+    const leaky = pgError('23505', 'duplicate key value violates unique constraint "u_email"', {
+      detail: 'Key (email)=(SECRET-VALUE-123) already exists.',
+      where: 'SECRET-VALUE-123',
+      table: 'users',
+    })
+    const err = drizzleError(leaky, 'insert into "users" ("email") values ($1)', [
+      'SECRET-VALUE-123',
+    ])
+    // The premise of the test: the drizzle message DOES carry the value.
+    expect(err.message).toContain('SECRET-VALUE-123')
+    expect(describeDbError(err)).not.toContain('SECRET-VALUE-123')
+  })
+
+  it('omits the driver message for classes whose message embeds the value (22xxx)', () => {
+    const err = pgError('22P02', 'invalid input syntax for type integer: "SECRET-VALUE-123"')
+    const line = describeDbError(err) ?? ''
+    expect(line).toContain('db_sqlstate=22P02')
+    expect(line).toContain('db_message=-')
+    expect(line).not.toContain('SECRET-VALUE-123')
+  })
+
+  it.each([
+    ['08006', 'connection failure'],
+    ['23502', 'null value in column "a" violates not-null constraint'],
+    ['28P01', 'password authentication failed for user "crm_app"'],
+    ['40P01', 'deadlock detected'],
+    ['42P01', 'relation "t" does not exist'],
+    ['53300', 'too many connections'],
+    ['57P01', 'terminating connection due to administrator command'],
+    ['58030', 'could not write'],
+  ])('keeps the message for value-free class %s', (code, message) => {
+    expect(describeDbError(pgError(code, message))).toContain(
+      `db_message="${message.replaceAll('"', "'")}"`,
+    )
+  })
+
+  it.each([['P0001'], ['XX000'], ['22003'], ['25P02'], ['0A000']])(
+    'omits the message for unlisted class of %s',
+    (code) => {
+      expect(describeDbError(pgError(code, 'something with a value 42'))).toContain('db_message=-')
+    },
+  )
+
+  it('keeps 54xxx and 55xxx messages (the two ends of the allow-list)', () => {
+    expect(describeDbError(pgError('54001', 'statement too complex'))).toContain(
+      'db_message="statement too complex"',
+    )
+    expect(describeDbError(pgError('55P03', 'could not obtain lock'))).toContain(
+      'db_message="could not obtain lock"',
+    )
+  })
+
+  it('reports a drizzle failure with no SQLSTATE (connection refused) as db_sqlstate=none', () => {
+    const refused = Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:5432'), {
+      code: 'ECONNREFUSED',
+    })
+    const err = drizzleError(refused, 'select 1 from "t" where "a" = $1', ['SECRET-VALUE-123'])
+    expect(describeDbError(err)).toBe(
+      'db_error db_sqlstate=none db_table=- db_constraint=- db_column=- ' +
+        'db_message="ECONNREFUSED" db_statement="select 1 from \'t\' where \'a\' = $1"',
+    )
+  })
+
+  it('reports db_message=- when a SQLSTATE-less cause has no code either', () => {
+    const err = drizzleError(new Error('boom SECRET-VALUE-123'), 'select 1', [])
+    expect(describeDbError(err)).toBe(
+      'db_error db_sqlstate=none db_table=- db_constraint=- db_column=- db_message=- db_statement="select 1"',
+    )
+  })
+
+  it('is null for anything that is not a database error', () => {
+    expect(describeDbError(new Error('boom'))).toBeNull()
+    expect(describeDbError('a string')).toBeNull()
+    expect(describeDbError(null)).toBeNull()
+    expect(describeDbError(undefined)).toBeNull()
+    expect(describeDbError({ code: '42501' })).toBeNull() // no severity: not a pg DatabaseError
+  })
+
+  it('does not mistake a Node system error for a SQLSTATE (EPERM is five uppercase chars)', () => {
+    expect(
+      describeDbError(Object.assign(new Error('operation not permitted'), { code: 'EPERM' })),
+    ).toBeNull()
+  })
+
+  it('requires the code to be exactly five of [0-9A-Z]', () => {
+    expect(describeDbError(pgError('4250', 'x'))).toBeNull()
+    expect(describeDbError(pgError('425012', 'x'))).toBeNull()
+    expect(describeDbError(pgError('4250a', 'x'))).toBeNull()
+    expect(describeDbError(pgError('4250-', 'x'))).toBeNull()
+    expect(describeDbError(pgError('a4250', 'x'))).toBeNull()
+  })
+
+  it('requires severity to be a string', () => {
+    expect(
+      describeDbError(Object.assign(new Error('x'), { code: '42501', severity: 3 })),
+    ).toBeNull()
+  })
+
+  it('finds the database error under an application wrapper', () => {
+    const wrapped = new Error('purge failed', {
+      cause: drizzleError(DENIED, 'delete from "t"', []),
+    })
+    expect(describeDbError(wrapped)).toContain('db_sqlstate=42501')
+  })
+
+  it('bounds the walk — a self-referential cause chain terminates', () => {
+    const loop: { cause?: unknown } = new Error('loop')
+    loop.cause = loop
+    expect(describeDbError(loop)).toBeNull()
+  })
+
+  it('walks exactly 8 levels deep: the 8th node is read, the 9th is not', () => {
+    const chain = (depthOfPg: number): unknown => {
+      let node: unknown = pgError('42501', 'permission denied for table t')
+      for (let i = 1; i < depthOfPg; i += 1) node = new Error('wrap', { cause: node })
+      return node
+    }
+    expect(describeDbError(chain(8))).toContain('db_sqlstate=42501')
+    expect(describeDbError(chain(9))).toBeNull()
+  })
+
+  it('collapses whitespace, strips control characters and truncates the statement to 200', () => {
+    const query = `select\n  "a",\t"b"\u0000 from "t" where ${'x'.repeat(300)} = $1`
+    const line = describeDbError(drizzleError(DENIED, query, [])) ?? ''
+    const statement = /db_statement="([^"]*)"/.exec(line)?.[1] ?? ''
+    expect(statement.startsWith("select 'a', 'b' from 't' where xxx")).toBe(true)
+    expect(statement).toHaveLength(200)
+    expect(statement.endsWith('...')).toBe(true)
+    expect(line).not.toMatch(/[\n\t\u0000]/)
+  })
+
+  it('does not truncate a statement of exactly 200 characters', () => {
+    const query = 'q'.repeat(200)
+    expect(describeDbError(drizzleError(DENIED, query, []))).toContain(`db_statement="${query}"`)
+  })
+
+  it('does not truncate a driver message of exactly 200 characters, and truncates 201 to 200', () => {
+    const exact = `r${'m'.repeat(199)}`
+    expect(describeDbError(pgError('42501', exact))).toContain(`db_message="${exact}"`)
+    const long = describeDbError(pgError('42501', `${exact}Z`)) ?? ''
+    const message = /db_message="([^"]*)"/.exec(long)?.[1] ?? ''
+    expect(message).toHaveLength(200)
+    expect(message.endsWith('...')).toBe(true)
+  })
+
+  it('replaces characters outside [A-Za-z0-9_$.] in identifiers with "?"', () => {
+    const err = pgError('23505', 'dup', { table: 'we ird"t', constraint: 'c\nx', column: 'ok_1.$' })
+    const line = describeDbError(err) ?? ''
+    expect(line).toContain('db_table=we?ird?t')
+    expect(line).toContain('db_constraint=c?x')
+    expect(line).toContain('db_column=ok_1.$')
+  })
+
+  it('treats an empty or non-string identifier as absent', () => {
+    const line = describeDbError(pgError('23505', 'dup', { table: '', constraint: 7 })) ?? ''
+    expect(line).toContain('db_table=- db_constraint=- db_column=-')
+  })
+
+  it('ignores a non-string or empty query on a would-be drizzle wrapper', () => {
+    const notDrizzle = Object.assign(new Error('x'), { query: 5, params: [], cause: DENIED })
+    expect(describeDbError(notDrizzle)).toContain('db_statement=-')
+    const emptyQuery = Object.assign(new Error('x'), { query: '', params: [], cause: DENIED })
+    expect(describeDbError(emptyQuery)).toContain('db_statement=-')
+  })
+
+  it('requires `params` to be an array for the drizzle shape', () => {
+    const noParams = Object.assign(new Error('x'), { query: 'select 1' })
+    expect(describeDbError(noParams)).toBeNull()
+  })
+})
+
+describe('dbErrorLogSuffix', () => {
+  it('is a leading space plus the fragment for a database error', () => {
+    expect(dbErrorLogSuffix(DENIED)).toBe(` ${describeDbError(DENIED)}`)
+    expect(dbErrorLogSuffix(DENIED).startsWith(' db_error db_sqlstate=42501')).toBe(true)
+  })
+
+  it('is the empty string otherwise', () => {
+    expect(dbErrorLogSuffix(new Error('boom'))).toBe('')
+    expect(dbErrorLogSuffix('x')).toBe('')
+  })
+})
+
+describe('safeErrorStack', () => {
+  it('drops a drizzle error’s message (which embeds the values) and keeps the frames', () => {
+    const err = drizzleError(DENIED, 'select 1 where a = $1', ['SECRET-VALUE-123'])
+    err.stack = [
+      'DrizzleQueryError: Failed query: select 1 where a = $1',
+      'params: SECRET-VALUE-123',
+      '    at PgPreparedQuery.queryWithCache (/x/pg-core/session.js:1:1)',
+      '    at async Cron.handle (/x/cron.ts:2:2)',
+    ].join('\n')
+    expect(safeErrorStack(err)).toBe(
+      [
+        'DrizzleQueryError',
+        '    at PgPreparedQuery.queryWithCache (/x/pg-core/session.js:1:1)',
+        '    at async Cron.handle (/x/cron.ts:2:2)',
+      ].join('\n'),
+    )
+  })
+
+  it('also drops a bare pg error’s message, which can carry a value', () => {
+    const err = pgError('22P02', 'invalid input syntax for type integer: "SECRET-VALUE-123"')
+    err.stack = `error: invalid input syntax for type integer: "SECRET-VALUE-123"\n    at Parser.parse (/x/pg.js:1:1)`
+    const stack = safeErrorStack(err) ?? ''
+    expect(stack).toBe('Error\n    at Parser.parse (/x/pg.js:1:1)')
+    expect(stack).not.toContain('SECRET-VALUE-123')
+  })
+
+  it('returns the original stack for an error that is not itself a database error', () => {
+    const err = new Error('boom', { cause: DENIED })
+    err.stack = 'Error: boom\n    at x (/x.ts:1:1)'
+    expect(safeErrorStack(err)).toBe('Error: boom\n    at x (/x.ts:1:1)')
+  })
+
+  it('returns String(value) for a non-Error, as the handlers always did', () => {
+    expect(safeErrorStack('plain')).toBe('plain')
+    expect(safeErrorStack(42)).toBe('42')
+    expect(safeErrorStack(null)).toBe('null')
+  })
+
+  it('returns undefined for an Error with no stack, as err.stack always did', () => {
+    const err = new Error('x')
+    err.stack = undefined
+    expect(safeErrorStack(err)).toBeUndefined()
+  })
+
+  it('returns just the name when a database error has no frames', () => {
+    const err = drizzleError(DENIED, 'select 1', [])
+    err.stack = 'DrizzleQueryError: Failed query: select 1\nparams: '
+    expect(safeErrorStack(err)).toBe('DrizzleQueryError')
+  })
+
+  it('returns undefined for a database error with no stack at all', () => {
+    const err = drizzleError(DENIED, 'select 1', [])
+    err.stack = undefined
+    expect(safeErrorStack(err)).toBeUndefined()
+  })
+})
