@@ -1,17 +1,17 @@
 import { statSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import { GRANTS_FILE, ROLES_FILE } from '../privileges/generate-privilege-sql'
-
 import {
   assertDisposableTarget,
   assertIdentifier,
   assertIsCrmApp,
   MANUAL_DIR,
-  TRIGGERS_FILE,
+  resolveConnectionPlan,
   sqlstateOfRejection,
+  TRIGGERS_FILE,
   type CrmAppIdentity,
 } from './crm-app-session'
 
@@ -31,6 +31,7 @@ const CRM_APP: CrmAppIdentity = {
   isSuperuser: false,
   bypassesRls: false,
   ownedRelations: 0,
+  roleMemberships: 0,
 }
 
 const PREFIX = '[crm-app-session] the pool is not crm_app, so a passing spec would prove nothing: '
@@ -54,19 +55,41 @@ describe('assertIsCrmApp', () => {
     ['session_user is another role', { sessionUser: 'crm_user' }, 'session_user is crm_user'],
     ['the role is a superuser', { isSuperuser: true }, 'the role is a superuser'],
     ['the role bypasses RLS', { bypassesRls: true }, 'the role bypasses row-level security'],
-    ['the role owns one relation', { ownedRelations: 1 }, 'the role owns 1 relation(s) in public'],
+    [
+      'the role owns, or inherits ownership of, one relation',
+      { ownedRelations: 1 },
+      'the role owns, or inherits ownership of, 1 relation(s) in public',
+    ],
     [
       'the role owns many relations',
       { ownedRelations: 69 },
-      'the role owns 69 relation(s) in public',
+      'the role owns, or inherits ownership of, 69 relation(s) in public',
+    ],
+    [
+      'the role is a member of one other role',
+      { roleMemberships: 1 },
+      'the role is a member of 1 other role(s)',
+    ],
+    [
+      'the role is a member of several roles',
+      { roleMemberships: 3 },
+      'the role is a member of 3 other role(s)',
     ],
   ] as const)('refuses when %s — and names only that problem', (_label, patch, expected) => {
     expect(refusal({ ...CRM_APP, ...patch })).toBe(`${PREFIX}${expected}`)
   })
 
+  it('refuses a crm_app that is a member of the owner role — the case that looks like crm_app (CR-M-1)', () => {
+    // GRANT crm_user TO crm_app: current_user, session_user, superuser and RLS all still answer
+    // "crm_app, no, no"; only membership and inherited ownership give it away. Exactly this
+    // identity is what the server reports for such a session (see the integration spec).
+    expect(refusal({ ...CRM_APP, ownedRelations: 301, roleMemberships: 1 })).toBe(
+      `${PREFIX}the role owns, or inherits ownership of, 301 relation(s) in public; ` +
+        'the role is a member of 1 other role(s)',
+    )
+  })
+
   it('distinguishes current_user from session_user (SET ROLE from a superuser session is not a login)', () => {
-    // current_user is crm_app but the session was opened by someone else: the connection is not
-    // the API's, so it must be refused, and only on session_user.
     expect(refusal({ ...CRM_APP, sessionUser: 'postgres' })).toBe(
       `${PREFIX}session_user is postgres`,
     )
@@ -83,10 +106,13 @@ describe('assertIsCrmApp', () => {
         isSuperuser: true,
         bypassesRls: true,
         ownedRelations: 69,
+        roleMemberships: 2,
       }),
     ).toBe(
       `${PREFIX}current_user is crm_user; session_user is crm_user; the role is a superuser; ` +
-        'the role bypasses row-level security; the role owns 69 relation(s) in public',
+        'the role bypasses row-level security; ' +
+        'the role owns, or inherits ownership of, 69 relation(s) in public; ' +
+        'the role is a member of 2 other role(s)',
     )
   })
 })
@@ -115,44 +141,113 @@ describe('assertIdentifier', () => {
 })
 
 describe('assertDisposableTarget', () => {
-  const original = process.env['DATABASE_URL']
+  const LIVE = '[crm-app-session] refusing to run against the live crm_db'
+  const UNKNOWN =
+    '[crm-app-session] cannot determine the database name from the owner URL — refusing to run'
 
-  afterEach(() => {
-    if (original === undefined) delete process.env['DATABASE_URL']
-    else process.env['DATABASE_URL'] = original
-  })
+  function messageOf(url: string): string | null {
+    try {
+      assertDisposableTarget(url)
+      return null
+    } catch (error) {
+      return (error as Error).message
+    }
+  }
 
   it('refuses the live crm_db', () => {
-    process.env['DATABASE_URL'] = 'postgresql://crm_user:x@localhost:5432/crm_db'
-    expect(() => assertDisposableTarget()).toThrow(
-      '[crm-app-session] refusing to run against the live crm_db',
-    )
+    expect(messageOf('postgresql://crm_user:x@localhost:5432/crm_db')).toBe(LIVE)
   })
 
-  it.each(['crm%5Fdb', 'crm%5fdb', 'crm_d%62', '%63rm_db'])(
-    'refuses %s — pg decodes the pathname, so it IS the live database',
-    (encoded) => {
-      process.env['DATABASE_URL'] = `postgresql://crm_user:x@localhost:5432/${encoded}`
-      expect(() => assertDisposableTarget()).toThrow(
-        '[crm-app-session] refusing to run against the live crm_db',
-      )
+  it.each(['crm%5Fdb', 'crm%5fdb', 'crm_d%62', '%63rm_db', 'crm_db%20', 'crm_db '])(
+    'refuses %s — pg decodes the name, so it IS the live database',
+    (spelled) => {
+      expect(messageOf(`postgresql://crm_user:x@localhost:5432/${spelled}`)).toBe(LIVE)
     },
   )
-
-  it('strips only a LEADING slash: a slash-less opaque pathname keeps its trailing one', () => {
-    // `postgresql:crm_db/` is the one input that tells /^\//  from  /\//: anchored it stays
-    // `crm_db/` (not the live name), unanchored it would become `crm_db` and refuse. pg reads this
-    // URL as the database `rm_db/`, so nothing is lost by allowing it — the point is that the
-    // pattern's anchor is pinned rather than left to a mutant.
-    process.env['DATABASE_URL'] = 'postgresql:crm_db/'
-    expect(() => assertDisposableTarget()).not.toThrow()
-  })
 
   it.each(['crm_qa', 'crm_ci', 'crm_db_scratch', 'crm_scratch_x', 'crm_dbx'])(
     'allows %s — only the exact name is the live database',
     (database) => {
-      process.env['DATABASE_URL'] = `postgresql://crm_user:x@localhost:5432/${database}`
-      expect(() => assertDisposableTarget()).not.toThrow()
+      expect(messageOf(`postgresql://crm_user:x@localhost:5432/${database}`)).toBeNull()
+    },
+  )
+
+  it.each([
+    ['a path-less URL (lands wherever PGDATABASE says)', 'postgresql://crm_user:x@localhost:5432'],
+    ['a bare slash', 'postgresql://crm_user:x@localhost:5432/'],
+    ['an unparsable URL', 'not a url'],
+    ['an empty string', ''],
+  ])('fails CLOSED on %s', (_label, url) => {
+    expect(messageOf(url)).toBe(UNKNOWN)
+  })
+})
+
+describe('resolveConnectionPlan (the step-4 seam, CR-M-4)', () => {
+  const GENERATED = 'generated-pw'
+  const generate = () => GENERATED
+
+  it('uses DATABASE_URL as the owner URL today, with a generated crm_app password', () => {
+    expect(
+      resolveConnectionPlan({ DATABASE_URL: 'postgresql://crm_user:x@h/crm_ci' }, generate),
+    ).toEqual({
+      ownerUrl: 'postgresql://crm_user:x@h/crm_ci',
+      appPassword: GENERATED,
+    })
+  })
+
+  it('prefers MIGRATION_DATABASE_URL — at step 4 DATABASE_URL is crm_app’s own', () => {
+    expect(
+      resolveConnectionPlan(
+        {
+          DATABASE_URL: 'postgresql://crm_app:y@h/crm_ci',
+          MIGRATION_DATABASE_URL: 'postgresql://crm_user:x@h/crm_ci',
+        },
+        generate,
+      ).ownerUrl,
+    ).toBe('postgresql://crm_user:x@h/crm_ci')
+  })
+
+  it('treats an empty MIGRATION_DATABASE_URL as unset', () => {
+    expect(
+      resolveConnectionPlan(
+        { DATABASE_URL: 'postgresql://crm_user:x@h/crm_ci', MIGRATION_DATABASE_URL: '' },
+        generate,
+      ).ownerUrl,
+    ).toBe('postgresql://crm_user:x@h/crm_ci')
+  })
+
+  it('reuses CRM_APP_DB_PASSWORD so the credential the rest of the job holds survives', () => {
+    expect(
+      resolveConnectionPlan(
+        { DATABASE_URL: 'postgresql://crm_user:x@h/crm_ci', CRM_APP_DB_PASSWORD: 'job-wide' },
+        generate,
+      ).appPassword,
+    ).toBe('job-wide')
+  })
+
+  it('treats an empty CRM_APP_DB_PASSWORD as unset', () => {
+    expect(
+      resolveConnectionPlan(
+        { DATABASE_URL: 'postgresql://crm_user:x@h/crm_ci', CRM_APP_DB_PASSWORD: '' },
+        generate,
+      ).appPassword,
+    ).toBe(GENERATED)
+  })
+
+  it('generates a different random password each time by default', () => {
+    const env = { DATABASE_URL: 'postgresql://crm_user:x@h/crm_ci' }
+    const a = resolveConnectionPlan(env).appPassword
+    const b = resolveConnectionPlan(env).appPassword
+    expect(a).toMatch(/^cron[a-z0-9]+$/)
+    expect(a).not.toBe(b)
+  })
+
+  it.each([[{}], [{ DATABASE_URL: '' }], [{ MIGRATION_DATABASE_URL: '' }]])(
+    'refuses when there is no owner URL at all (%j)',
+    (env) => {
+      expect(() => resolveConnectionPlan(env, generate)).toThrow(
+        '[crm-app-session] neither MIGRATION_DATABASE_URL nor DATABASE_URL is set — nowhere to apply the roles',
+      )
     },
   )
 })

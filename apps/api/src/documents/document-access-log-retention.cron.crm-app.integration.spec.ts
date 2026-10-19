@@ -74,6 +74,7 @@ describe.skipIf(!hasDatabaseUrl())(
         isSuperuser: false,
         bypassesRls: false,
         ownedRelations: 0,
+        roleMemberships: 0,
       })
     })
 
