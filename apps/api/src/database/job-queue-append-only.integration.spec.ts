@@ -1374,18 +1374,35 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       // its own tests, decided on its own merits rather than appended to a PR already in
       // a fix round. This test records the gap so that it is a known state rather than a
       // discovery, and GOES RED the day the guard lands — which is the signal to delete it.
+      // `evaluated_at` is backdated further than `expires_at` only because
+      // `ck_job_queue_generations_expiry_after_evaluation` requires
+      // `expires_at > evaluated_at` — a CHECK that constrains the two columns against
+      // EACH OTHER and says nothing about either against `now()`. So the row is
+      // internally consistent and still born expired, which is the point.
       const team = await newTeam()
       const { rows } = await q(
         `INSERT INTO job_queue_generations
            (scope_kind, team_id, policy_signature, rule_version, evaluated_at,
             expires_at, status, published_at)
-         VALUES ('TEAM', $2, $1, 'rank-v1', now(),
+         VALUES ('TEAM', $2, $1, 'rank-v1', now() - interval '2 years',
                  now() - interval '1 year', 'PUBLISHED', now() - interval '1 year')
          RETURNING id, status, expires_at`,
         [`${TAG}:${nextTag()}`, team],
       )
       expect(rows[0].status).toBe('PUBLISHED')
       expect(new Date(rows[0].expires_at as string).getTime()).toBeLessThan(Date.now())
+
+      // And the consequence that makes this an integrity nuance rather than a
+      // disclosure: the generation is permanently EMPTY, because an entry may only be
+      // added while the generation is BUILDING and this one never will be.
+      const entryError = await rejected(
+        `INSERT INTO job_queue_generation_entries
+           (generation_id, opportunity_id, rank_score, order_key, first_seen_at,
+            opportunity_revision)
+         VALUES ($1, $2, 10, 999001, now(), 1)`,
+        [rows[0].id, opportunity],
+      )
+      expect(entryError.code).toBe(RESTRICT_VIOLATION)
     })
   })
 
