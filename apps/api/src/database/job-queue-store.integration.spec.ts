@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { Pool, type PoolClient } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { assertRealDbSchema, hasDatabaseUrl } from '../test/require-real-db'
@@ -13,13 +15,31 @@ import { assertRealDbSchema, hasDatabaseUrl } from '../test/require-real-db'
  * Two blocks need two connections: the studio-wide claim and the atomic
  * publish are claims about what happens when two writers race.
  *
- * Two blocks pin a GAP on purpose: the schema `db:push` produces has NO
- * trigger, so the append-only action log and the immutable entries still
- * accept UPDATE / DELETE. That is the honest state of this PR (Task 1.3 adds
- * the triggers; a grant boundary waits on the API getting a non-superuser
- * role — `crm_user` is a superuser on the scratch catalog, production to be
- * re-checked by the owner; an owner decision); the pin keeps the comment in
- * `schema/job-queue.ts` from drifting into a claim the database does not keep.
+ * Two blocks that once pinned a GAP now assert the guarantee: Task 1.3b's
+ * triggers make the action log append-only and the generation entries
+ * immutable, and `beforeAll` APPLIES THAT DDL ITSELF — see
+ * "PRECONDITIONS" below for why it has to.
+ *
+ * PRECONDITIONS, AND WHY THIS SUITE ESTABLISHES THEM RATHER THAN INHERITING
+ * ------------------------------------------------------------------------
+ * `db:push` produces the tables WITHOUT the triggers; only
+ * `drizzle/manual/2026-10-18_job_queue_append_only_triggers.sql` creates them.
+ * When the two GAP PIN tests below were inverted, this suite's precondition
+ * silently changed from "whatever db:push makes" to "db:push plus that file",
+ * and nothing here applied it — so the suite passed only when some OTHER spec
+ * had already applied it to the shared database.
+ *
+ * It did not. Measured (PostgreSQL 16.15, 2026-10-19): an integration run sets
+ * `fileParallelism: false`, so files run serially in vitest's default order —
+ * by descending file SIZE. This file (~55 KB) is larger than
+ * `job-queue-append-only.integration.spec.ts` (~48 KB), the spec that applies
+ * the DDL, so it runs FIRST and no trigger exists yet. `pg_trigger` returned no
+ * rows, the teardown's `ALTER TABLE … DISABLE TRIGGER` failed with `42704`, and
+ * the two inverted tests saw an UPDATE go through. A suite whose result depends
+ * on which sibling ran before it is not a gate, so this one now applies the DDL
+ * in `beforeAll`. The file is idempotent by design (`CREATE OR REPLACE` plus
+ * `DROP TRIGGER IF EXISTS` then `CREATE TRIGGER`), which is what makes applying
+ * it here safe next to the sibling that also applies it.
  *
  * CLEANUP: every row is reachable from this suite's TAG (users by email, teams
  * by name, opportunities by title, records by namespace, keys / reasons /
@@ -78,6 +98,43 @@ const GUARD_TRIGGERS = [
   { table: 'job_queue_actions', trigger: 'trg_job_queue_actions_append_only' },
   { table: 'job_queue_actions', trigger: 'trg_job_queue_actions_no_truncate' },
 ] as const
+
+const TRIGGERS_DDL = join(
+  __dirname,
+  '..',
+  '..',
+  'drizzle',
+  'manual',
+  '2026-10-18_job_queue_append_only_triggers.sql',
+)
+
+/**
+ * Establish this suite's preconditions: the Task 1.3b guard triggers exist and are
+ * `ENABLE ALWAYS`. See the header for why the suite applies the DDL instead of hoping a
+ * sibling did.
+ *
+ * The DDL refuses to apply unless `crm_retention_owner` exists, because it hands that role
+ * the two R-B functions. In production `2026-10-18_db_roles.sql` creates it, as the FIRST
+ * manual file of the deploy; on a scratch database the only other thing that creates it is
+ * another spec, which is exactly the inheritance this function exists to end. So it is
+ * created here when absent, with the two attributes that make the role safe and that the
+ * roles file is the source of truth for: NOLOGIN (off the network) and CONNECTION LIMIT 0.
+ * Nothing else about the role is asserted here — `db-privileges.integration.spec.ts` owns
+ * that, against the manifest.
+ */
+async function installAppendOnlyGuards(): Promise<void> {
+  await q(`DO $ensure$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'crm_retention_owner') THEN
+        CREATE ROLE crm_retention_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
+          NOREPLICATION NOBYPASSRLS INHERIT CONNECTION LIMIT 0;
+      END IF;
+    END
+    $ensure$;`)
+  // One multi-statement query: the same statement-level autocommit `psql < file` gives it,
+  // which is how the deploy applies this file.
+  await q(readFileSync(TRIGGERS_DDL, 'utf8'))
+}
 
 const NEW_TABLES = [
   'job_queue_actions',
@@ -174,6 +231,7 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
     const { rows } = await q('SELECT current_database() AS db')
     // Writing spec: refuse the live database outright (the vitest guard does too).
     if (rows[0].db === 'crm_db') throw new Error('refusing to run against the live crm_db')
+    await installAppendOnlyGuards()
     admin = await newUser('ADMIN')
     hr = await newUser('HR')
     hrOther = await newUser('HR')

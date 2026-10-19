@@ -31,10 +31,10 @@ import {
   PRIVILEGE_CLASSES,
   ROLES,
   MANUAL_DDL_RELATIONS,
-  RETENTION_OWNER_TABLE_PRIVILEGES,
   appendOnlyTriggers,
   collectorColumns,
   retentionOwnerFunctions,
+  retentionOwnerPrivilegesFor,
   type PrivilegeClass,
   type TablePrivilege,
 } from './privilege-classes'
@@ -114,7 +114,7 @@ function tableSelectPairs(): string {
     ] as const) {
       const granted =
         roleKey === 'retentionOwner'
-          ? RETENTION_OWNER_TABLE_PRIVILEGES
+          ? retentionOwnerPrivilegesFor(cls)
           : privilegesFor(cls, roleKey)
       if (granted.includes('SELECT')) rows.push(`    (${literal(roleName)}, ${literal(cls)})`)
     }
@@ -133,14 +133,14 @@ function classPrivilegeValues(): string {
     for (const [roleKey, roleName] of [
       ['app', ROLES.app],
       ['collector', ROLES.collector],
-      // The retention owner's table privileges are the same on every class, so they come
-      // from one declared constant rather than the class map — see
-      // RETENTION_OWNER_TABLE_PRIVILEGES, empty until Task 1.3b.
+      // The retention owner's table privileges are declared against a CLASS, like the
+      // other two roles' — see RETENTION_OWNER_CLASSES for why that scoping is the shape
+      // this needs and what reading it for every class would have granted.
       ['retentionOwner', ROLES.retentionOwner],
     ] as const) {
       const granted =
         roleKey === 'retentionOwner'
-          ? RETENTION_OWNER_TABLE_PRIVILEGES
+          ? retentionOwnerPrivilegesFor(cls)
           : privilegesFor(cls, roleKey)
       for (const privilege of ALL_TABLE_PRIVILEGES) {
         rows.push(
@@ -293,8 +293,17 @@ $columns$;
     for (const [roleKey, roleName] of [
       ['app', ROLES.app],
       ['collector', ROLES.collector],
+      // The retention owner is granted here too, and must be: step 1 above revokes ALL
+      // privileges from all three roles on every deploy, so a grant made anywhere else —
+      // by the 1.3b DDL file, or by hand on production — survives exactly until the next
+      // deploy and then disappears with nothing reported. The manifest is the only place
+      // a privilege of this role can live and still be there tomorrow.
+      ['retentionOwner', ROLES.retentionOwner],
     ] as const) {
-      const privileges = privilegesFor(cls, roleKey)
+      const privileges =
+        roleKey === 'retentionOwner'
+          ? retentionOwnerPrivilegesFor(cls)
+          : privilegesFor(cls, roleKey)
       if (privileges.length === 0) {
         out.push(`--   ${roleName}: nothing.`)
         continue

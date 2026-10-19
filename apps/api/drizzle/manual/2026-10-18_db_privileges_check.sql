@@ -325,10 +325,10 @@ BEGIN
     ('B', 'crm_collector', 'TRUNCATE', false),
     ('B', 'crm_collector', 'REFERENCES', false),
     ('B', 'crm_collector', 'TRIGGER', false),
-    ('B', 'crm_retention_owner', 'SELECT', false),
+    ('B', 'crm_retention_owner', 'SELECT', true),
     ('B', 'crm_retention_owner', 'INSERT', false),
     ('B', 'crm_retention_owner', 'UPDATE', false),
-    ('B', 'crm_retention_owner', 'DELETE', false),
+    ('B', 'crm_retention_owner', 'DELETE', true),
     ('B', 'crm_retention_owner', 'TRUNCATE', false),
     ('B', 'crm_retention_owner', 'REFERENCES', false),
     ('B', 'crm_retention_owner', 'TRIGGER', false),
@@ -548,6 +548,7 @@ BEGIN
     ('crm_app', 'A-log'),
     ('crm_app', 'A-log-prunable'),
     ('crm_app', 'B'),
+    ('crm_retention_owner', 'B'),
     ('crm_app', 'C'),
     ('crm_collector', 'C'),
     ('crm_app', 'D'),
@@ -872,7 +873,9 @@ BEGIN
     ('crm_collector', true, 10),
     ('crm_retention_owner', false, 0)
   ),
-  declared_functions(proname) AS (SELECT NULL::text WHERE false)
+  declared_functions(proname) AS (SELECT 'crm_retention_purge_job_queue_actions'
+    UNION ALL
+    SELECT 'crm_retention_redact_action_reason')
   SELECT string_agg(detail, '; ' ORDER BY detail) INTO offenders FROM (
     SELECT format('role %s does not exist', w.role_name) AS detail
       FROM wanted w
@@ -992,7 +995,9 @@ DO $check$
 DECLARE
   offenders text;
 BEGIN
-  WITH declared(table_name, trigger_name, enabled) AS (SELECT NULL::text, NULL::text, NULL::"char" WHERE false),
+  WITH declared(table_name, trigger_name, enabled) AS (VALUES
+    ('job_queue_actions', 'trg_job_queue_actions_append_only', 'A'),
+    ('job_queue_actions', 'trg_job_queue_actions_no_truncate', 'A')),
   class_b(table_name) AS (SELECT 'job_queue_actions'),
   actual(table_name, trigger_name, enabled) AS (
     SELECT c.relname, t.tgname, t.tgenabled
