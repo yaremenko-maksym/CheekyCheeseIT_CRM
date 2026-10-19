@@ -60,13 +60,31 @@ describe.skipIf(!hasDatabaseUrl())(
     const sourceIds: string[] = []
     const userIds: string[] = []
 
-    /** Row counts before the first test, so `afterAll` can prove the run left nothing behind. */
-    let baseline: { postings: number; suggestions: number }
+    /**
+     * The ids present before the first test. The leak guard asks which rows exist now that did NOT
+     * then — not how many there are. An absolute count cries wolf in a reused database: the purge
+     * cron legitimately deletes an unrelated stale posting (`job_postings 1 -> 0`), which is not a
+     * leak (CR-M-8 of #1040). Anything new that survives the cleanup IS one, tagged or not.
+     */
+    let baselineIds: { postings: string[]; suggestions: string[] }
 
-    async function counts(): Promise<{ postings: number; suggestions: number }> {
+    async function currentIds(): Promise<{ postings: string[]; suggestions: string[] }> {
+      const postings = await session.admin.query<{ id: string }>(`SELECT id FROM job_postings`)
+      const suggestions = await session.admin.query<{ id: string }>(
+        `SELECT id FROM job_suggestions`,
+      )
+      return {
+        postings: postings.rows.map((r) => r.id),
+        suggestions: suggestions.rows.map((r) => r.id),
+      }
+    }
+
+    /** Rows that exist now and did not before the first test. */
+    async function newRowCounts(): Promise<{ postings: number; suggestions: number }> {
       const { rows } = await session.admin.query<{ postings: string; suggestions: string }>(
-        `SELECT (SELECT count(*) FROM job_postings)::text AS postings,
-                (SELECT count(*) FROM job_suggestions)::text AS suggestions`,
+        `SELECT (SELECT count(*) FROM job_postings WHERE NOT (id = ANY($1::uuid[])))::text AS postings,
+                (SELECT count(*) FROM job_suggestions WHERE NOT (id = ANY($2::uuid[])))::text AS suggestions`,
+        [baselineIds.postings, baselineIds.suggestions],
       )
       const row = rows[0] as { postings: string; suggestions: string }
       return { postings: Number(row.postings), suggestions: Number(row.suggestions) }
@@ -74,7 +92,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
     beforeAll(async () => {
       session = await openCrmAppSession()
-      baseline = await counts()
+      baselineIds = await currentIds()
       provider = new StubDouProvider()
       service = new JobSourcingService(
         session.databaseService,
@@ -104,11 +122,11 @@ describe.skipIf(!hasDatabaseUrl())(
       try {
         // A leak is a failure of THIS suite, not something a reviewer finds by counting rows. A
         // throw and not `expect`: this is a hook, and it must cover the last test whatever the order.
-        const after = await counts()
-        if (after.postings !== baseline.postings || after.suggestions !== baseline.suggestions) {
+        const leaked = await newRowCounts()
+        if (leaked.postings !== 0 || leaked.suggestions !== 0) {
           throw new Error(
-            `job-sourcing crm_app spec leaked rows: job_postings ${baseline.postings} -> ${after.postings}, ` +
-              `job_suggestions ${baseline.suggestions} -> ${after.suggestions}`,
+            `job-sourcing crm_app spec leaked rows: ${leaked.postings} new job_postings and ` +
+              `${leaked.suggestions} new job_suggestions survived the cleanup`,
           )
         }
       } finally {
