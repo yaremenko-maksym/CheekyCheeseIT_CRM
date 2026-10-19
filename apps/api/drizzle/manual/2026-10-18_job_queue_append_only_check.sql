@@ -21,9 +21,21 @@
 --   three guarded tables. Every one of those assertions earns its place by a tampering
 --   that passed the earlier version of this file green — see the manifest's own comment.
 --
+--   WHAT "DISARMED" COVERS BEYOND TRIGGERS, because a trigger is not the only way. Three
+--   objects disarm a guarded table while leaving all seven triggers byte-identical, and
+--   each was measured doing it: a RULE (`DO INSTEAD NOTHING` makes the audit INSERT record
+--   nothing and report success), an INHERITING CHILD (rows written into it are visible
+--   through the parent and the parent's triggers never fire for them — `crm_app` rewrote
+--   and deleted such a row), and ROW LEVEL SECURITY (`USING (false)` hides the log). Part
+--   1c asserts the three `pg_class` booleans that reveal them. All three need ownership of
+--   the table, so none is reachable by `crm_app`; they are reachable by exactly the actor
+--   this file exists to detect.
+--
 --   Stated so nobody reads more into it: it does NOT catch a disable-edit-re-enable
---   inside one transaction, it does not compare the log against the nightly dumps, and
---   it says nothing about triggers on tables other than the three it names.
+--   inside one transaction, it does not compare the log against the nightly dumps, it says
+--   nothing about triggers on tables other than the three it names, and it does not see a
+--   FOREIGN TABLE, a VIEW shadowing a guarded name in another schema, or an object class
+--   not named above — this list is what was measured, not a proof of exhaustiveness.
 --
 -- WHY `md5(pg_get_functiondef(oid))` AND NOT `md5(prosrc)`
 --   `prosrc` is the EMPTY STRING for a `BEGIN ATOMIC` body, so a manifest built on it
@@ -88,18 +100,35 @@ DECLARE
   -- tgtype is 7 (BEFORE INSERT ... FOR EACH ROW); the two `no_truncate` rows are 34
   -- (BEFORE TRUNCATE ... FOR EACH STATEMENT, hence no ROW bit).
   --
-  -- ON COLUMN 6 AND THE SERVER VERSION. `pg_get_triggerdef` is deparser output, so in
-  -- principle a server upgrade can move the text without anybody moving the trigger. For
-  -- THIS manifest that was measured rather than assumed: all seven checksums below are
-  -- byte-identical on PostgreSQL 16.14 and 16.15 (two containers, same DDL, 2026-10-19),
-  -- and 16.14 is what production runs while these values were taken on 16.15. The nine
-  -- `pg_get_functiondef` checksums in the two manifests further down were measured the
-  -- same way and are likewise identical across the two minors. Had they differed, the
-  -- failure mode is a LOUD one — the deploy stops with "definition checksum is X,
-  -- manifest says Y" and nothing is applied — never a silent hole; and columns 3-5, which
-  -- carry the guarantee in catalog integers rather than in deparsed text, are immune to
-  -- the deparser entirely. Refresh column 6 only together with a reviewed DDL change
-  -- (query in this file's header), never to make a red deploy go green.
+  -- ON COLUMN 6, THE SESSION AND THE SERVER VERSION. Column 6 is deparser output, and it
+  -- is a function of TWO things outside the trigger: the server version and the SESSION
+  -- `search_path`. The second is not a theoretical concern — it moves every one of the
+  -- seven checksums (measured: 193803… with `public` visible, 0c86cd… under `search_path =
+  -- pg_catalog`, because the deparser qualifies the function name only when it must). That
+  -- is why the `BEGIN` below pins the path before reading anything; the manifest values
+  -- here are the values under that pinned path. Without the pin this column would be the
+  -- one assertion in the file that can fail on a correct database. Columns 3-5 carry their
+  -- part of the guarantee in catalog integers and names, so they are immune to both.
+  --   On the version half: in principle a server upgrade can move the text without anybody
+  -- moving the trigger. For THIS manifest that was measured rather than assumed: all seven
+  -- checksums below are byte-identical on PostgreSQL 16.14 and 16.15 (two containers, same
+  -- DDL, 2026-10-19), and 16.14 is what production runs while these values were taken on
+  -- 16.15. The nine `pg_get_functiondef` checksums in the two manifests further down were
+  -- measured the same way and are likewise identical across the two minors. Had they
+  -- differed, the failure mode is a LOUD one — the deploy stops with "definition checksum
+  -- is X, manifest says Y" and nothing is applied — never a silent hole. Refresh column 6
+  -- only together with a reviewed DDL change (query in this file's header), never to make a
+  -- red deploy go green.
+  --
+  -- WHAT COLUMN 6 CATCHES THAT COLUMNS 3-5 DO NOT, measured rather than argued, because a
+  -- catch-all assertion that never catches anything alone is the first thing a later editor
+  -- deletes. `BEFORE UPDATE OF reason OR DELETE` keeps tgtype at 27, keeps the function,
+  -- adds no `WHEN` and passes no argument — every one of columns 3-5 and the `WHEN`/nargs
+  -- assertions stays quiet — and it DISARMS the guard: the trigger then fires only when
+  -- `reason` is in the SET list, so `UPDATE job_queue_actions SET actor_id = <other user>`
+  -- succeeds where the reviewed definition refuses it with 23001. Measured on 16.15: the
+  -- audit row's actor was rewritten. Column 6 (17e7ce53… against the manifest's 193803…) is
+  -- the only assertion that sees it. `AC5 — the catalog check` pins this.
   expected_triggers CONSTANT text[][] := ARRAY[
     ['trg_job_queue_actions_append_only',                 'job_queue_actions',
      'A', '27',  'job_queue_actions_append_only',                '193803613d7cb921896de671ebb96fef'],
@@ -156,6 +185,24 @@ DECLARE
   rec record;
   found_count int;
 BEGIN
+  -- PIN THE `search_path` THIS CHECK COMPUTES UNDER, because column 6 depends on it.
+  -- `pg_get_triggerdef` SCHEMA-QUALIFIES the executed function only when `public` is not
+  -- visible, so the same untouched trigger hashes two different ways: measured on 16.15,
+  -- `trg_job_queue_actions_append_only` is 193803613d7cb921896de671ebb96fef under a path
+  -- containing `public` and 0c86cd143fc4c57b8903ce90aa3fbbb1 under `search_path =
+  -- pg_catalog`. All seven move together. The deploy runs plain `psql`, so without this
+  -- line a HEALTHY database fails this check loudly whenever the migration role carries a
+  -- role-level or database-level `search_path` that omits `public` — a false positive on
+  -- deploy, which is the one failure this file must not invent. `true` = transaction-local,
+  -- so it does not leak to whatever psql runs next.
+  --   The manifest values below are the values under THIS pinned path (verified identical
+  -- to the previous default-path values, so pinning refreshed nothing). The nine
+  -- `pg_get_functiondef` checksums are independent of it — measured under both paths, all
+  -- nine byte-identical — because a function's definition names no schema it has to
+  -- resolve. Only column 6 needed pinning; it is pinned rather than documented so the
+  -- checksum means one thing.
+  PERFORM pg_catalog.set_config('search_path', 'pg_catalog, public', true);
+
   -- -------------------------------------------------------------------------
   -- 1. Every guard trigger exists, on the right table, and is ENABLE ALWAYS.
   --    `tgenabled`: 'O' origin (default), 'A' ALWAYS, 'R' replica, 'D' disabled.
@@ -264,6 +311,78 @@ BEGIN
     problems := problems || format(
       'trigger %s on public.%s is NOT DECLARED in this file — an undeclared trigger on a '
       'guarded table is a change nobody reviewed: %L', rec.trg, rec.tbl, rec.def);
+  END LOOP;
+
+  -- -------------------------------------------------------------------------
+  -- 1c. NO RULE, NO CHILD TABLE, NO ROW-LEVEL SECURITY on a guarded table.
+  --     Everything above this point reads `pg_trigger`, and a trigger is not the
+  --     only way to disarm a table. THREE OBJECTS WERE DEMONSTRATED against the
+  --     earlier version of this file, each leaving all seven triggers BYTE-IDENTICAL
+  --     and this check GREEN (measured, 2026-10-19):
+  --       `CREATE RULE ... ON INSERT ... DO INSTEAD NOTHING` — the audit INSERT
+  --         returns `INSERT 0 0` with no error and records nothing. The log silently
+  --         stops recording.                                      -> relhasrules
+  --       an INHERITING CHILD table plus a rule diverting the INSERT into it — the
+  --         row is written, is visible through `SELECT ... FROM job_queue_actions`,
+  --         and `crm_app` then rewrote `actor_id` and `reason` and DELETED it. This
+  --         is exactly the shape part 1b's comment says it exists to stop, reached
+  --         through `pg_inherits` instead of `pg_trigger`.         -> relhassubclass
+  --       `ENABLE ROW LEVEL SECURITY` + `POLICY ... USING (false)` — `crm_app` sees
+  --         zero rows in the entire audit log.                     -> relrowsecurity
+  --
+  --     WHO CAN DO THIS, stated so the weight is not overread: all three require
+  --     OWNERSHIP of the table, so none is reachable by `crm_app` — verified, the
+  --     API role fails `must be owner of table job_queue_actions` even with
+  --     `TEMPORARY` granted back. They are reachable by the migration role, which is
+  --     the actor this whole file exists to DETECT rather than prevent (ADR §3: the
+  --     protection against the migration role is procedural, the detection is here).
+  --     Without these three booleans that actor had an undetected persistence
+  --     primitive that hands audit tampering to `crm_app` and survives every
+  --     subsequent deploy.
+  --
+  --     The three guarded tables come from the manifest, like part 1b's list, so this
+  --     cannot drift from it. The reviewed DDL creates no rule, no child and no policy
+  --     on any of them, so the expected reading is `f | f | f` for all three.
+  -- -------------------------------------------------------------------------
+  FOR rec IN
+    SELECT c.relname AS tbl, c.relhasrules, c.relhassubclass, c.relrowsecurity
+      FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public'
+       AND c.relname IN (SELECT DISTINCT expected_triggers[s][2]
+                           FROM generate_subscripts(expected_triggers, 1) s)
+     ORDER BY c.relname
+  LOOP
+    IF rec.relhasrules THEN
+      problems := problems || format(
+        'table public.%s carries a RULE — the reviewed DDL creates none, and a rule can '
+        'make a write return success while recording nothing (`DO INSTEAD NOTHING`) or '
+        'divert it to another table: %s', rec.tbl,
+        (SELECT string_agg(r.rulename, ', ' ORDER BY r.rulename)
+           FROM pg_catalog.pg_rewrite r
+           JOIN pg_catalog.pg_class rc ON rc.oid = r.ev_class
+          WHERE rc.relname = rec.tbl AND r.rulename <> '_RETURN'));
+    END IF;
+
+    IF rec.relhassubclass THEN
+      problems := problems || format(
+        'table public.%s has an INHERITING CHILD table — rows written into a child are '
+        'visible through the parent while the parent''s triggers never fire for them, so '
+        'the guards do not apply to them: %s', rec.tbl,
+        (SELECT string_agg(cc.relname || ' (schema ' || cn.nspname || ')', ', '
+                           ORDER BY cc.relname)
+           FROM pg_catalog.pg_inherits inh
+           JOIN pg_catalog.pg_class cc ON cc.oid = inh.inhrelid
+           JOIN pg_catalog.pg_namespace cn ON cn.oid = cc.relnamespace
+           JOIN pg_catalog.pg_class pc ON pc.oid = inh.inhparent
+          WHERE pc.relname = rec.tbl));
+    END IF;
+
+    IF rec.relrowsecurity THEN
+      problems := problems || format(
+        'table public.%s has ROW LEVEL SECURITY enabled — the reviewed DDL enables none, '
+        'and a policy can hide the whole audit log from the role that reads it', rec.tbl);
+    END IF;
   END LOOP;
 
   -- -------------------------------------------------------------------------
@@ -444,7 +563,8 @@ BEGIN
 
   RAISE NOTICE
     'r5 Task 1.3b catalog check OK: % triggers pinned by definition (timing/events, function, '
-    'no WHEN, full triggerdef md5) with no undeclared trigger on the guarded tables, '
+    'no WHEN, full triggerdef md5) with no undeclared trigger, no rule, no inheriting child '
+    'and no row-level security on the guarded tables, '
     '% guard bodies pinned, % R-B functions pinned',
     array_length(expected_triggers, 1),
     array_length(expected_trigger_functions, 1),
