@@ -251,63 +251,93 @@ elif db != "":
     for problem in url_problems(db):
         reasons.append(problem)
 
-# Door 3 of 3 (path, query string, environment): libpq/pg take the database from
-# PGDATABASE when the URL does not name one - and `DATABASE_URL= PGDATABASE=crm_db
-# vite` is exactly the explicit-empty idiom this hook otherwise allows. A URL
-# that names a database wins over PGDATABASE (measured), so the environment only
-# matters when DATABASE_URL is the explicit empty string.
+# ── THE QUESTION THIS HOOK KEEPS HAVING TO ASK ──────────────────────────────
+# "What else can libpq take the database from?" The path; a query-string
+# dbname=; a #fragment that libpq reads past and urlsplit does not; PGDATABASE;
+# a service file (PGSERVICE / PGSERVICEFILE - it BEATS PGDATABASE, measured);
+# and, when none of those names one, the USER NAME (PGUSER=crm_db is crm_db -
+# measured in libpq 15 and in node-pg). Each of these was found by a reviewer
+# after the check before it had "closed" the hole. The "#" refusal and the strict
+# PGDATABASE rule below are one lesson twice: wherever libpq resolves the database
+# from something this hook does not read, require an EXPLICIT value on the command
+# line instead of enumerating the ways round it. Whoever adds the next check asks
+# that question first, and measures the answer (PQconnectStart + PQdb against an
+# unreachable port - no server, no credential) rather than reading documentation.
 #
-# WHAT THIS DOOR SEES, and what it does not. The hook reads the COMMAND LINE,
-# never the environment. Seen: an inline PGDATABASE on the launching segment
-# (checked through the same shape allowlist; PGDATABASE is passed to libpq
-# verbatim, no percent-decoding); the same variable assigned anywhere else in the
-# command (`export PGDATABASE=qa; PGDATABASE=crm_db; ...`, `declare -x`,
-# `typeset -x`) - refused, because cmdscan reads the exported value while the
-# later bare assignment is what the process gets; and a command that loads an
-# environment from somewhere the hook cannot read (`set -a`, `source`, `. file`,
-# `eval`, `--env-file`) - refused unless PGDATABASE is pinned inline. NOT seen:
-# a PGDATABASE exported by the session before this command, or by a file that
-# the launched program itself loads. Those stay a blind spot, as an inherited
-# DATABASE_URL would be - which is why an absent DATABASE_URL is refused rather
-# than assumed safe. The honest remedy is the one the refusal prints: pin
-# PGDATABASE inline (an empty `PGDATABASE=` scrubs an inherited value; libpq then
-# falls back to the user name, measured on libpq 15, exactly as when unset).
+# Door 3 of 3 (path, query string, environment). A URL that names a database wins
+# over PGDATABASE (measured, libpq and node-pg), so the environment decides only
+# when DATABASE_URL is the explicit empty string. THEN the rule is strict:
+# PGDATABASE must be pinned INLINE on the launching segment itself, non-empty and
+# an allowlisted name. That one requirement also defeats an inherited PGDATABASE,
+# an inherited PGUSER, and every way of exporting, loading or setting the variable
+# earlier in the command (export, declare -x, typeset -x, set -a, source, eval,
+# printf -v, read, ${V:=}) - an inline prefix beats all of them, so none needs to
+# be enumerated. What it costs: `DATABASE_URL= vite --port 3010` (a web server that
+# never opens a connection) is refused until it also says PGDATABASE=crm_qa. One
+# token, printed in the refusal; judged cheaper than a hook that cannot be sure.
+# An EMPTY PGDATABASE is refused too: it is the case where libpq falls back to the
+# user name, so it is not a way to scrub anything.
+#
+# PGSERVICE / PGSERVICEFILE are refused in every case, even with PGDATABASE pinned,
+# because a service file overrides it. A PGSERVICE inherited from the session is
+# not observable (the hook reads the command line, not the environment) - the same
+# blind spot as any inherited variable, and the only one left standing.
 def assignments(name):
-    return len(re.findall(r"(?<![A-Za-z0-9_])" + name + r"\+?=", cmd))
+    n = r"(?<![A-Za-z0-9_])" + name
+    return (len(re.findall(n + r"\+?=", cmd))
+            + len(re.findall(r"\bprintf\s+-v\s+" + name + r"\b", cmd))
+            + len(re.findall(r"\bread\b[^;&|\n]*" + n + r"\b", cmd))
+            + len(re.findall(r"\$\{" + name + r":?=", cmd)))
 
-# The same bare-assignment-after-export gap exists for DATABASE_URL itself:
-# `export DATABASE_URL=<qa>; DATABASE_URL=<live>; pnpm dev` gives the launch the
-# exported (safe-looking) value while the process runs against the live one. More
-# assignments of a name than launching segments that carry it = ambiguous.
-for name in ("DATABASE_URL", "PGDATABASE"):
-    if name == "PGDATABASE" and db != "":
-        continue
-    if name == "DATABASE_URL" and db is None:
-        continue
-    carried = sum(1 for s in segs if name in s.env)
-    if assignments(name) > carried:
-        reasons.append(
-            "%s is assigned somewhere else in this command as well - a bare "
-            "assignment after an export changes what the process gets while the "
-            "hook reads the exported value, so the effective value cannot be "
-            "determined. Set it once, inline on the launch" % name
-        )
-
-pgdb = env.get("PGDATABASE")
-if pgdb is not None and pgdb != "":
-    for problem in name_problems(pgdb.strip(), "PGDATABASE"):
-        reasons.append(problem)
+def literal_inline(name):
+    # On the launching segment itself, as a prefix - not satisfied by an export in
+    # an earlier segment, which cmdscan folds into seg.env but which a later bare
+    # assignment or a sourced file can still change.
+    return bool(segs) and all(
+        re.search(r"(?<![A-Za-z0-9_])" + name + r"\+?=", s.raw) for s in segs)
 
 ENV_LOAD = re.compile(
     r"(?:^|[;&|(\n]\s*)(?:source|\.)\s+[^\s;&|]"
     r"|\bset\s+(?:-[A-Za-z]*a[A-Za-z]*|-o\s+allexport)\b"
     r"|--env-file|\beval\b|\bexport\s+\$"
 )
-if db == "" and pgdb is None and ENV_LOAD.search(cmd):
+
+# DATABASE_URL: same ambiguity as PGDATABASE, but the older rule (an export in an
+# earlier segment is accepted) stays for the plain case. It is refused only when
+# the value is not literally inline AND something could change it afterwards.
+if db is not None and not literal_inline("DATABASE_URL"):
+    carried = sum(1 for s in segs if "DATABASE_URL" in s.env)
+    if ENV_LOAD.search(cmd) or assignments("DATABASE_URL") > carried:
+        reasons.append(
+            "DATABASE_URL is not set inline on the launch itself and the command "
+            "assigns or loads it elsewhere (export then bare assignment, source, "
+            "set -a, eval, read, printf -v, ${V:=}) - the effective value cannot "
+            "be determined. Set it once, as a prefix on the launch"
+        )
+
+pgdb = env.get("PGDATABASE")
+if db == "":
+    if pgdb is None:
+        reasons.append(
+            "DATABASE_URL is empty and PGDATABASE is not pinned inline - libpq then "
+            "takes the database from a service file or the user name "
+            "(PGUSER=crm_db is the live database). Add PGDATABASE=crm_qa to the launch"
+        )
+    elif not literal_inline("PGDATABASE"):
+        reasons.append(
+            "PGDATABASE reaches the launch only through an earlier export or load, "
+            "not as a prefix on the launching command itself - a later assignment or "
+            "a sourced file can still change it. Pin it as a prefix on the launch"
+        )
+if pgdb is not None and (db == "" or pgdb != ""):
+    for problem in name_problems(pgdb.strip(), "PGDATABASE"):
+        reasons.append(problem)
+
+if "PGSERVICE" in env or "PGSERVICEFILE" in env or re.search(
+        r"(?<![A-Za-z0-9_])PGSERVICE(?:FILE)?\+?=", cmd):
     reasons.append(
-        "this command loads an environment the hook cannot read (set -a / source / "
-        "eval / --env-file) and DATABASE_URL is empty, so PGDATABASE may choose the "
-        "database. Pin it inline: PGDATABASE=crm_qa (or PGDATABASE= to scrub it)"
+        "PGSERVICE / PGSERVICEFILE is set - a libpq service file overrides "
+        "PGDATABASE (measured), so the database it reaches cannot be determined"
     )
 
 port_values = []
@@ -360,8 +390,10 @@ msg = """🚫 LIVE-DB GUARD: команда запускает dev-сервер 
 
 (web-сервер игнорирует PORT/API_PORT — vite.config.ts хардкодит server.port; порт меняется ТОЛЬКО через --port)
 
-Если процесс осознанно не должен трогать БД — задай DATABASE_URL= (пустая строка) явно, а не
-полагайся на умолчание.
+If the process deliberately must not touch the database, set DATABASE_URL= (empty) explicitly AND pin
+PGDATABASE=crm_qa as a prefix on the same launch: with an empty URL libpq falls back to PGSERVICE or
+the user name (PGUSER=crm_db is the live database), so an empty URL alone is no longer enough.
+    DATABASE_URL= PGDATABASE=crm_qa vite --port 3010
 
 Не забудь и TTL-обёртку (отдельное требование, тоже обязательное):
     scripts/devops/dev-ttl.sh -- DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_qa API_PORT=3011 pnpm --filter @crm/api dev

@@ -63,8 +63,11 @@ assert_green "вне worktree/scratchpad — сессия владельца н�
 assert_green "явно безопасные значения: crm_qa + свободный порт" \
   -- h "DATABASE_URL=$SAFE_DB API_PORT=3011 pnpm --filter @crm/api dev"
 
-assert_green "явно пустая DATABASE_URL + --port 3010 (идиома git-policy)" \
-  -- h "DATABASE_URL= vite --port 3010"
+# An empty DATABASE_URL is only safe with PGDATABASE pinned on the same launch:
+# otherwise libpq takes the database from a service file or the USER NAME, and
+# PGUSER=crm_db is the live database (measured). See the red half below.
+assert_green "явно пустая DATABASE_URL + PGDATABASE=crm_qa + --port 3010" \
+  -- h "DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
 
 # ── red: every shape the #485 boot could have arrived in ──────────────────────
 assert_red "голый запуск: ни DATABASE_URL, ни порта" \
@@ -174,18 +177,68 @@ assert_red "PGDATABASE из пробелов" \
   --contains "cannot determine the database name from PGDATABASE" \
   -- h "DATABASE_URL= PGDATABASE=' ' vite --port 3010"
 
-# SR-M-1: the export-then-bare-assignment shapes. cmdscan reads the exported
-# value; the later bare assignment is what the process gets.
+# STRICT RULE (libpq's fallback chain). With DATABASE_URL empty, libpq takes the
+# database from PGDATABASE, then a service file, then the USER NAME — PGUSER=crm_db
+# is the live database (measured in libpq 15 and node-pg). So the launch must pin a
+# non-empty allowlisted PGDATABASE as its OWN prefix; that single requirement also
+# defeats an inherited PGUSER and every earlier export/load, none of which is
+# enumerated. The cost — `DATABASE_URL= vite` alone is refused — is deliberate.
+assert_red "пустой URL без PGDATABASE: libpq упадёт на имя пользователя" \
+  --contains "PGDATABASE is not pinned inline" \
+  -- h "DATABASE_URL= vite --port 3010"
+assert_red "PGUSER=crm_db + пустой URL (имя пользователя = имя базы)" \
+  --contains "PGDATABASE is not pinned inline" \
+  -- h "DATABASE_URL= PGUSER=crm_db vite --port 3010"
+assert_red "PGUSER=crm_db + пустой PGDATABASE (пустой — это и есть фолбэк на пользователя)" \
+  --contains "cannot determine the database name from PGDATABASE" \
+  -- h "DATABASE_URL= PGUSER=crm_db PGDATABASE= vite --port 3010"
+assert_red "голый PGDATABASE= больше не способ «сбросить» значение" \
+  --contains "cannot determine the database name from PGDATABASE" \
+  -- h "DATABASE_URL= PGDATABASE= vite --port 3010"
+
+# PGSERVICE / PGSERVICEFILE beat PGDATABASE in libpq (measured), so they are
+# refused even with PGDATABASE pinned, and with a non-empty URL too.
+for svc in 'PGSERVICE=live' 'PGSERVICEFILE=/tmp/x/pg_service.conf' 'PGSERVICE=live PGSERVICEFILE=/tmp/x'; do
+  assert_red "PGSERVICE*: $svc (PGDATABASE закреплён)" \
+    --contains "PGSERVICE / PGSERVICEFILE is set" \
+    -- h "DATABASE_URL= PGDATABASE=crm_qa $svc vite --port 3010"
+  assert_red "PGSERVICE*: $svc (URL непустой)" \
+    --contains "PGSERVICE / PGSERVICEFILE is set" \
+    -- h "DATABASE_URL=$SAFE_DB $svc API_PORT=3011 pnpm --filter @crm/api dev"
+done
+assert_red "export PGSERVICE=... ранее в команде" \
+  --contains "PGSERVICE / PGSERVICEFILE is set" \
+  -- h "export PGSERVICE=live; DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
+
+# SR-M-1: everything that sets PGDATABASE somewhere other than the launch prefix.
+# cmdscan reads an exported value; a later bare assignment, a sourced file or
+# printf -v / read / ${V:=} is what the process actually gets. The strict rule
+# refuses all of them because only a literal prefix on the launch counts.
 for pre in 'export PGDATABASE=qa; PGDATABASE=crm_db;' 'declare -x PGDATABASE=qa; PGDATABASE=crm_db;' \
-           'typeset -x PGDATABASE=qa; PGDATABASE=crm_db;' 'set -a; PGDATABASE=crm_db;' 'PGDATABASE=crm_db;'; do
-  assert_red "PGDATABASE назначен вне запуска: $pre" \
-    --contains "PGDATABASE is assigned somewhere else" \
+           'typeset -x PGDATABASE=qa; PGDATABASE=crm_db;' 'set -a; PGDATABASE=crm_db;' 'PGDATABASE=crm_db;' \
+           'export PGDATABASE=crm_qa;' 'printf -v PGDATABASE %s crm_db;' 'read -r PGDATABASE;' \
+           ': ${PGDATABASE:=crm_db};' ': ${PGDATABASE=crm_db};'; do
+  assert_red "PGDATABASE не префикс запуска: $pre" \
+    --contains '"decision": "block"' \
+    --contains "PGDATABASE" \
     -- h "$pre DATABASE_URL= vite --port 3010"
 done
+assert_red "экспортированный (не инлайн) PGDATABASE: причина — «только через export/загрузку»" \
+  --contains "reaches the launch only through an earlier export" \
+  -- h "export PGDATABASE=crm_qa; DATABASE_URL= vite --port 3010"
+
+# SR-M-1 / ENV_LOAD: DATABASE_URL has the same gap. An export earlier in the command
+# is accepted ONLY while nothing can change it afterwards.
 for pre in 'export DATABASE_URL=postgresql://u@h/crm_qa; DATABASE_URL=postgresql://u@h/crm_db; API_PORT=3011' \
-           'export DATABASE_URL=postgresql://u@h/crm_qa; DATABASE_URL=postgresql://u@h/crm_db; export API_PORT=3011;'; do
-  assert_red "DATABASE_URL: bare-присвоение после export: $pre" \
-    --contains "DATABASE_URL is assigned somewhere else" \
+           'export DATABASE_URL=postgresql://u@h/crm_qa; DATABASE_URL=postgresql://u@h/crm_db; export API_PORT=3011;' \
+           'export DATABASE_URL=postgresql://u@h/crm_qa; printf -v DATABASE_URL %s postgresql://u@h/crm_db; API_PORT=3011' \
+           'export DATABASE_URL=postgresql://u@h/crm_qa; read -r DATABASE_URL; API_PORT=3011' \
+           'export DATABASE_URL=postgresql://u@h/crm_qa; : ${DATABASE_URL:=x}; DATABASE_URL=postgresql://u@h/crm_db; API_PORT=3011' \
+           'export DATABASE_URL=postgresql://u@h/crm_qa; set -a; source .env; API_PORT=3011' \
+           'export DATABASE_URL=postgresql://u@h/crm_qa; . ./env.sh; API_PORT=3011' \
+           'export DATABASE_URL=postgresql://u@h/crm_qa; eval "$(cat .env)"; API_PORT=3011'; do
+  assert_red "DATABASE_URL не префикс запуска, а ниже его можно изменить: $pre" \
+    --contains "DATABASE_URL is not set inline on the launch itself" \
     -- h "$pre pnpm --filter @crm/api dev"
 done
 # cmdscan does not record `declare -x`, so this one is already refused by the older
@@ -194,16 +247,16 @@ assert_red "DATABASE_URL: declare -x + bare-присвоение" \
   --contains '"decision": "block"' \
   -- h "declare -x DATABASE_URL=postgresql://u@h/crm_qa; DATABASE_URL=postgresql://u@h/crm_db; API_PORT=3011 pnpm --filter @crm/api dev"
 
-# A command that loads an environment the hook cannot read, with DATABASE_URL
-# empty and PGDATABASE not pinned: PGDATABASE may choose the database.
+# env-file loaders with an empty URL and no pinned PGDATABASE: refused by the strict rule.
 for load in 'set -a; source .env.local;' 'source .env;' '. ./env.sh;' 'eval "$(cat .env)";' 'set -o allexport;'; do
   assert_red "env-файл + пустой DATABASE_URL без PGDATABASE: $load" \
-    --contains "loads an environment the hook cannot read" \
+    --contains "PGDATABASE is not pinned inline" \
     -- h "$load DATABASE_URL= vite --port 3010"
 done
 assert_red "--env-file + пустой DATABASE_URL без PGDATABASE" \
-  --contains "loads an environment the hook cannot read" \
+  --contains "PGDATABASE is not pinned inline" \
   -- h "DATABASE_URL= node --env-file=.env apps/api/dist/main.js"
+
 
 # PINNED GREENS: a guard that refuses legitimate scratch URLs gets switched off,
 # which is as bad as one that admits the live database.
@@ -225,10 +278,10 @@ assert_green "options без crm_db" \
   -- h "DATABASE_URL='$LIVE_BASE/crm_qa?options=-c%20statement_timeout%3D5000' API_PORT=3011 pnpm --filter @crm/api dev"
 assert_green "PGDATABASE безопасный + пустой DATABASE_URL" \
   -- h "DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
-# Bare `PGDATABASE=` is the natural way to scrub an inherited value: libpq and
-# node-pg both fall back to the user name, exactly as when it is unset (measured).
-assert_green "PGDATABASE= (пустой) — сброс унаследованного значения" \
-  -- h "DATABASE_URL= PGDATABASE= vite --port 3010"
+assert_green "inline DATABASE_URL побеждает ранний export + загрузку env-файла" \
+  -- h "export DATABASE_URL=postgresql://u@h/crm_live; set -a; source .env; DATABASE_URL=$SAFE_DB API_PORT=3011 pnpm --filter @crm/api dev"
+assert_green "PGUSER=crm_db, но PGDATABASE закреплён — закреплённое имя главнее пользователя" \
+  -- h "DATABASE_URL= PGUSER=crm_db PGDATABASE=crm_qa vite --port 3010"
 assert_green "env-файл, но PGDATABASE закреплён инлайн" \
   -- h "set -a; source .env.local; DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
 assert_green "env-файл, но DATABASE_URL непустой и безопасный (URL с путём главнее PGDATABASE)" \
@@ -236,7 +289,7 @@ assert_green "env-файл, но DATABASE_URL непустой и безопас
 assert_green "export безопасного DATABASE_URL БЕЗ повторного присвоения" \
   -- h "export DATABASE_URL=$SAFE_DB; export API_PORT=3011; pnpm --filter @crm/api dev"
 assert_green "точка как аргумент (cd .) — не source" \
-  -- h "cd . && DATABASE_URL= vite --port 3010"
+  -- h "cd . && DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
 assert_green "имя с crm_db внутри чужого слова в options: crm_db_x" \
   -- h "DATABASE_URL='$LIVE_BASE/crm_qa?options=-c%20app.crm_db_x%3D1' API_PORT=3011 pnpm --filter @crm/api dev"
 
