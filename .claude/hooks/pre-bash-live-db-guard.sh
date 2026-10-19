@@ -321,13 +321,17 @@ if db == "":
         reasons.append(
             "DATABASE_URL is empty and PGDATABASE is not pinned inline - libpq then "
             "takes the database from a service file or the user name "
-            "(PGUSER=crm_db is the live database). Add PGDATABASE=crm_qa to the launch"
+            "(PGUSER=crm_db is the live database). Corrected launches - copy one: "
+            "`DATABASE_URL= PGDATABASE=crm_qa vite --port 3010` (web) or "
+            "`DATABASE_URL= PGDATABASE=crm_qa API_PORT=3011 pnpm --filter @crm/api dev` (api)"
         )
     elif not literal_inline("PGDATABASE"):
         reasons.append(
             "PGDATABASE reaches the launch only through an earlier export or load, "
             "not as a prefix on the launching command itself - a later assignment or "
-            "a sourced file can still change it. Pin it as a prefix on the launch"
+            "a sourced file can still change it. Pin it as a prefix on the launch - "
+            "copy one: `DATABASE_URL= PGDATABASE=crm_qa vite --port 3010` (web) or "
+            "`DATABASE_URL= PGDATABASE=crm_qa API_PORT=3011 pnpm --filter @crm/api dev` (api)"
         )
 if pgdb is not None and (db == "" or pgdb != ""):
     for problem in name_problems(pgdb.strip(), "PGDATABASE"):
@@ -393,7 +397,9 @@ msg = """🚫 LIVE-DB GUARD: команда запускает dev-сервер 
 If the process deliberately must not touch the database, set DATABASE_URL= (empty) explicitly AND pin
 PGDATABASE=crm_qa as a prefix on the same launch: with an empty URL libpq falls back to PGSERVICE or
 the user name (PGUSER=crm_db is the live database), so an empty URL alone is no longer enough.
+Full launches (copy one; the port is still required):
     DATABASE_URL= PGDATABASE=crm_qa vite --port 3010
+    DATABASE_URL= PGDATABASE=crm_qa API_PORT=3011 pnpm --filter @crm/api dev
 
 Не забудь и TTL-обёртку (отдельное требование, тоже обязательное):
     scripts/devops/dev-ttl.sh -- DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_qa API_PORT=3011 pnpm --filter @crm/api dev

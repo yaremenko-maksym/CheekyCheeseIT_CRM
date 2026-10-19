@@ -185,6 +185,8 @@ assert_red "PGDATABASE из пробелов" \
 # enumerated. The cost — `DATABASE_URL= vite` alone is refused — is deliberate.
 assert_red "пустой URL без PGDATABASE: libpq упадёт на имя пользователя" \
   --contains "PGDATABASE is not pinned inline" \
+  --contains 'Corrected launches - copy one: `DATABASE_URL= PGDATABASE=crm_qa vite --port 3010` (web) or' \
+  --contains 'or `DATABASE_URL= PGDATABASE=crm_qa API_PORT=3011 pnpm --filter @crm/api dev` (api)' \
   -- h "DATABASE_URL= vite --port 3010"
 assert_red "PGUSER=crm_db + пустой URL (имя пользователя = имя базы)" \
   --contains "PGDATABASE is not pinned inline" \
@@ -225,6 +227,7 @@ for pre in 'export PGDATABASE=qa; PGDATABASE=crm_db;' 'declare -x PGDATABASE=qa;
 done
 assert_red "экспортированный (не инлайн) PGDATABASE: причина — «только через export/загрузку»" \
   --contains "reaches the launch only through an earlier export" \
+  --contains 'or `DATABASE_URL= PGDATABASE=crm_qa API_PORT=3011 pnpm --filter @crm/api dev` (api)' \
   -- h "export PGDATABASE=crm_qa; DATABASE_URL= vite --port 3010"
 
 # SR-M-1 / ENV_LOAD: DATABASE_URL has the same gap. An export earlier in the command
