@@ -245,9 +245,81 @@ KNOWN_NOT_WIRED = {
 }
 
 
+# A step that passes its body as `script_path:` instead of an inline `script:`.
+# `${{ github.workspace }}/` is the only expression this guard will resolve — a
+# computed path is refused rather than skipped (see expand_script_paths).
+# NB the value is NOT `\S+`: `${{ github.workspace }}` has spaces inside the
+# expression, and an anchored `\S+` silently failed to match the real line —
+# which made this whole expansion a no-op and the guard green with nothing to
+# check. Caught only because the guard was re-run and still refused.
+SCRIPT_PATH_RE = re.compile(r"^(\s*)script_path:\s*(.+?)\s*$")
+WORKSPACE_PREFIX = "${{ github.workspace }}/"
+
+
+def expand_script_paths(content):
+    """Inline every `script_path:` file back into the YAML text.
+
+    WHY (task-infra-deploy-arglist-too-long, 2026-10-19): the DDL apply steps
+    this whole module reasons about used to sit in deploy.yml as one 2358-line
+    inline `script:` block. That block hit Linux MAX_ARG_STRLEN — appleboy/
+    ssh-action passes `script:` as the single env string INPUT_SCRIPT, so
+    execve could no longer spawn bash and `main` stopped being deployable at
+    all. The body moved to scripts/devops/deploy-stack-on-vps.sh, passed with
+    `script_path:`.
+
+    Had this function not been written in the same change, THIS GUARD WOULD
+    HAVE GONE GREEN WITH ZERO APPLY STEPS IN ITS FIELD OF VIEW — the precise
+    shape of the 2026-07-25 incident it exists to prevent, one file over, and
+    with every DDL file on prod silently unwatched. It is the same failure as
+    check-guard-tests-exist.sh's own blind spot: an inventory defined by where
+    something lives rather than by what it is.
+
+    So the deploy surface is defined as "deploy.yml plus whatever its steps
+    execute", and the expansion is textual and in-place: the referenced file is
+    spliced in under a synthetic `script: |` at the same indentation the inline
+    block had. Every analysis downstream (step parsing, comment stripping,
+    psql/ON_ERROR_STOP checks, apply ORDER) then sees text of exactly the shape
+    it saw before the split, and needed no changes whatsoever — which is the
+    point: this function is the only thing that knows about the split.
+    """
+    out = []
+    for raw in content.splitlines():
+        m = SCRIPT_PATH_RE.match(raw)
+        if not m:
+            out.append(raw)
+            continue
+        indent, ref = m.group(1), m.group(2)
+        if not ref.startswith(WORKSPACE_PREFIX):
+            raise SystemExit(
+                "ERROR: {} has `script_path: {}`, which this guard cannot resolve.\n"
+                "Only `{}<repo-relative path>` is understood. A path this guard cannot\n"
+                "read is a step whose contents it cannot audit, and silently skipping it\n"
+                "is how DDL stops being watched — so this is a hard failure. Use the\n"
+                "workspace-relative form, or teach expand_script_paths() about the new one.".format(
+                    os.path.relpath(DEPLOY_YML, REPO_ROOT), ref, WORKSPACE_PREFIX
+                )
+            )
+        rel = ref[len(WORKSPACE_PREFIX) :]
+        path = os.path.join(REPO_ROOT, rel)
+        if not os.path.isfile(path):
+            raise SystemExit(
+                "ERROR: {} points `script_path:` at {}, which does not exist.\n"
+                "That is a broken deploy, not a guard problem: the step would fail on the\n"
+                "runner before it ever reached the VPS.".format(
+                    os.path.relpath(DEPLOY_YML, REPO_ROOT), rel
+                )
+            )
+        with open(path, "r") as f:
+            body = f.read().splitlines()
+        body_indent = indent + "  "
+        out.append("{}script: |".format(indent))
+        out.extend((body_indent + line) if line.strip() else "" for line in body)
+    return "\n".join(out)
+
+
 def read_deploy_yml():
     with open(DEPLOY_YML, "r") as f:
-        return f.read()
+        return expand_script_paths(f.read())
 
 
 def collect_all_ddl_files(ddl_dir):

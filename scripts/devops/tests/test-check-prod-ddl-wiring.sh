@@ -1316,4 +1316,100 @@ assert_green "apply order: no grants file in the sequence -> invariants not appl
   --contains "Apply-order violations (grants / privileges check): 0" \
   -- run_guard "$(make_order_case order-no-grants "$ORD_PLAIN" "$ORD_CREATOR")"
 
+# ── script_path: expansion (task-infra-deploy-arglist-too-long, 2026-10-19) ────
+# The DDL apply steps used to sit in deploy.yml as one 2358-line inline
+# `script:`. That block crossed Linux MAX_ARG_STRLEN (appleboy/ssh-action passes
+# `script:` as the single env string INPUT_SCRIPT), the runner could no longer
+# spawn bash, and `main` became undeployable for every commit. The body moved to
+# scripts/devops/deploy-stack-on-vps.sh behind `script_path:`.
+#
+# The danger that move created is this guard, not the deploy: with the applies
+# out of deploy.yml, the guard's inventory would have gone to ZERO APPLY STEPS
+# and reported OK — the 2026-07-25 incident shape all over again, with every DDL
+# file on prod silently unwatched. expand_script_paths() is what prevents that,
+# so these cases hold it down from both directions: the expansion must find a
+# real apply, and must NOT invent one.
+
+# $1 = case name, $2 = deploy.yml content, $3 = content of the referenced script
+make_script_path_case() {
+  local name="$1" deploy_yml="$2" script="$3"
+  local root="$WS/$name"
+  guard_test_fake_repo "$root" "$GUARD"
+  mkdir -p "$root/apps/api/drizzle/manual" "$root/scripts/devops"
+  printf 'ALTER TABLE t ADD COLUMN IF NOT EXISTS c text;\n' >"$root/apps/api/drizzle/manual/$DDL"
+  printf '%s' "$deploy_yml" >"$root/.github/workflows/deploy.yml"
+  if [ "$script" != "absent" ]; then
+    printf '%s' "$script" >"$root/scripts/devops/deploy-stack-on-vps.sh"
+  fi
+  printf '%s' "$root"
+}
+
+read -r -d '' SCRIPT_PATH_YML <<YML || true
+name: Deploy
+on:
+  push:
+    branches: [main]
+jobs:
+  copy-compose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Copy DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: \${{ secrets.VPS_HOST }}
+          source: 'docker-compose.prod.yml,apps/api/drizzle/manual/$DDL'
+          target: '/opt/crm'
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pull, up, migrate, health-check via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          script_path: \${{ github.workspace }}/scripts/devops/deploy-stack-on-vps.sh
+YML
+
+# Same deploy.yml, but the path is a form the guard cannot resolve. It must
+# refuse rather than skip: a step it cannot read is a step it cannot audit.
+SCRIPT_PATH_UNRESOLVABLE_YML="${SCRIPT_PATH_YML//\$\{\{ github.workspace \}\}\/scripts/\$\{\{ runner.temp \}\}\/scripts}"
+
+read -r -d '' APPLY_SCRIPT <<SH || true
+#!/usr/bin/env bash
+# This header is a comment and must be stripped exactly as it was when the
+# same text lived inline — a filename mentioned here must still not count.
+set -euo pipefail
+FIXTURE_FILE="/opt/crm/apps/api/drizzle/manual/$DDL"
+if [ ! -f "\$FIXTURE_FILE" ]; then
+  echo "ERROR: DDL file not found at \$FIXTURE_FILE"
+  exit 1
+fi
+docker compose exec -T postgres \\
+  psql -U "\$PGUSER" -d "\$PGDB" -v ON_ERROR_STOP=1 < "\$FIXTURE_FILE"
+SH
+
+# The file exists and runs a deploy, but never applies the DDL. Expansion must
+# not turn "copied, never applied" into a pass.
+read -r -d '' NO_APPLY_SCRIPT <<SH || true
+set -euo pipefail
+# SOURCE: apps/api/drizzle/manual/$DDL — mentioned, never applied.
+docker compose up -d
+SH
+
+assert_green "the apply lives in the script_path: file (post-split real shape) -> counted as applied" \
+  --contains "Copied AND applied:      1" \
+  --contains "BROKEN WIRING:           0" \
+  -- run_guard "$(make_script_path_case sp-wired "$SCRIPT_PATH_YML" "$APPLY_SCRIPT")"
+
+assert_red "script_path: file exists but never applies the DDL -> still red (expansion invents nothing)" \
+  --contains "COPIED BUT NEVER APPLIED" \
+  --contains "$DDL" \
+  -- run_guard "$(make_script_path_case sp-copy-only "$SCRIPT_PATH_YML" "$NO_APPLY_SCRIPT")"
+
+assert_red "script_path: points at a file that does not exist -> red, not silently skipped" \
+  --contains "does not exist" \
+  -- run_guard "$(make_script_path_case sp-missing "$SCRIPT_PATH_YML" absent)"
+
+assert_red "script_path: in a form the guard cannot resolve -> red, not silently skipped" \
+  --contains "cannot resolve" \
+  -- run_guard "$(make_script_path_case sp-unresolvable "$SCRIPT_PATH_UNRESOLVABLE_YML" "$APPLY_SCRIPT")"
+
 guard_test_summary "test-check-prod-ddl-wiring.sh"
