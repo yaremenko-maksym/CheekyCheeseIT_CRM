@@ -234,6 +234,8 @@ for pre in 'export DATABASE_URL=postgresql://u@h/crm_qa; DATABASE_URL=postgresql
            'export DATABASE_URL=postgresql://u@h/crm_qa; printf -v DATABASE_URL %s postgresql://u@h/crm_db; API_PORT=3011' \
            'export DATABASE_URL=postgresql://u@h/crm_qa; read -r DATABASE_URL; API_PORT=3011' \
            'export DATABASE_URL=postgresql://u@h/crm_qa; : ${DATABASE_URL:=x}; DATABASE_URL=postgresql://u@h/crm_db; API_PORT=3011' \
+           'export DATABASE_URL=postgresql://u@h/crm_qa; : ${DATABASE_URL:=x}; API_PORT=3011' \
+           'export DATABASE_URL=postgresql://u@h/crm_qa; : ${DATABASE_URL=x}; API_PORT=3011' \
            'export DATABASE_URL=postgresql://u@h/crm_qa; set -a; source .env; API_PORT=3011' \
            'export DATABASE_URL=postgresql://u@h/crm_qa; . ./env.sh; API_PORT=3011' \
            'export DATABASE_URL=postgresql://u@h/crm_qa; eval "$(cat .env)"; API_PORT=3011'; do
