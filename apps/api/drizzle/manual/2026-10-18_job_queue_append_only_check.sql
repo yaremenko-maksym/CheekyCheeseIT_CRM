@@ -19,8 +19,12 @@
 --   one test per assertion: it replays the tampering against the SHIPPED BYTES of this
 --   file and requires the specific failure message. Each was verified by DELETING its
 --   assertion here and confirming exactly that test goes red — twelve of the thirteen
---   assertions are killed that way, and the thirteenth (the identity-arguments filter in
---   part 2b) is explained where it sits. Before fix round 2 none of this was pinned: nine
+--   assertions are killed that way. The thirteenth, the identity-arguments filter in part
+--   2b, is an EQUIVALENT MUTANT with respect to this check's verdict: measured across four
+--   catalog states, deleting it changes no pass/fail outcome, only the precision of a
+--   failure message, because the overload report fires on the very precondition that makes
+--   it matter. The measurement is recorded where the filter sits. Every assertion that CAN
+--   change the verdict has a test. Before fix round 2 none of this was pinned: nine
 --   assertions could be deleted with the suite staying green, so the guarantee rested on
 --   a replay nobody could repeat. If you add an assertion, add its test in the same PR.
 --
@@ -537,16 +541,27 @@ BEGIN
     -- way; this loop was not.)
     --
     -- WHY IT CANNOT BE PINNED BY A TEST, recorded so nobody spends the afternoon trying.
-    -- Deleting this filter leaves the whole suite GREEN, and that is not a gap in the
-    -- tests but a consequence of the overload REPORT below: any overload at all makes
-    -- this check RED, so the state in which the filter could matter is already a failing
-    -- state. Removing the filter can only ADD a problem (a spurious checksum complaint
-    -- from the wrong row) — it can never turn a red into a green, and it cannot mask a
-    -- real checksum mismatch either, because an overload's own `pg_get_functiondef`
-    -- differs from the manifest too. So the filter buys message accuracy and robustness
-    -- if the report is ever removed, not detection. The REPORT is what carries the
-    -- detection, and that one IS pinned (`2b: reports an unexpected overload …`).
-    -- Measured 2026-10-19: with this filter deleted, 68/68 still pass.
+    -- Deleting this filter leaves the whole suite GREEN (measured: 68/68 still pass). That
+    -- is not a gap in the tests — it is because deleting it CANNOT CHANGE THIS CHECK'S
+    -- VERDICT, which was measured across the whole state space that matters rather than
+    -- argued (2026-10-19, PG 16.15, this check with and without the filter):
+    --   clean                                        -> GREEN   | GREEN
+    --   an overload exists                           -> RED     | RED   (same 1 problem)
+    --   an overload exists AND the real body gutted  -> RED     | RED   (same 2 problems,
+    --                                                   including the real body checksum)
+    --   the real body gutted, no overload            -> RED     | RED   (same 1 problem)
+    -- The reason it is invariant: the overload REPORT below fires on exactly the
+    -- precondition that makes this lookup ambiguous, so whenever the filter could matter
+    -- the check is ALREADY red; and removing a conjunct from a WHERE clause can only widen
+    -- the candidate rows, while this block only ever APPENDS problems. The worst case is
+    -- therefore a less precise failure MESSAGE (a real body-checksum complaint omitted
+    -- because the wrong row was read), never a red turned green, and never a masked
+    -- finding — an overload's own `pg_get_functiondef` differs from the manifest too.
+    --   So: the filter buys diagnostic precision and robustness if the report is ever
+    -- removed; the REPORT carries the detection, and that one IS pinned (`2b: reports an
+    -- unexpected overload …`). Deleting this line is an EQUIVALENT MUTANT with respect to
+    -- the verdict, which is why no behavioural test can kill it. Keep it anyway: it costs
+    -- one line and it is what makes the failure name the right object.
     SELECT p.proconfig,
            md5(pg_catalog.pg_get_functiondef(p.oid)) AS body_md5
       INTO rec
