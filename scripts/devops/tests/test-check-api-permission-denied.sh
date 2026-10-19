@@ -39,6 +39,23 @@ LOGSCAN_MATCHES_BEGIN
 LOGSCAN_MATCHES_END
 EOF
 
+# The pool `error` listener's line (PR #1038): `sqlstate=<code>: <message>` at ERROR
+# level. Both of its halves carry the signal; the code half is what still fires if
+# a driver ever words the message differently.
+cat >"$WS/pool-listener.env" <<'EOF'
+LOGSCAN_API_CONTAINERS=1
+LOGSCAN_LINES=50
+LOGSCAN_MATCHES_BEGIN
+2026-10-19T06:00:00.000000001Z [Nest] 18  - 10/19/2026, 6:00:00 AM   ERROR [DatabaseService] Postgres pool idle-client error sqlstate=42501: permission denied for table telemetry_errors
+LOGSCAN_MATCHES_END
+EOF
+cat >"$WS/pool-listener-code-only.env" <<'EOF'
+LOGSCAN_API_CONTAINERS=1
+LOGSCAN_LINES=50
+LOGSCAN_MATCHES_BEGIN
+2026-10-19T06:00:00.000000001Z [Nest] 18  - 10/19/2026, 6:00:00 AM   ERROR [DatabaseService] Postgres pool idle-client error sqlstate=42501: access reworded by a future driver
+LOGSCAN_MATCHES_END
+EOF
 cat >"$WS/clean.env" <<'EOF'
 LOGSCAN_API_CONTAINERS=1
 LOGSCAN_LINES=412
@@ -125,6 +142,14 @@ assert_red "a crafted line fires but nothing raw from it is echoed (public Actio
   --not-contains "INJECTED" --not-contains "SECRETVALUE123" --not-contains ";rm" -- \
   run_guard "$WS/hostile.env"
 
+assert_red "pool-listener line (PR #1038 shape) FIRES with logger and object" \
+  --contains "logger=DatabaseService object=table telemetry_errors" -- \
+  run_guard "$WS/pool-listener.env"
+
+assert_red "pool-listener line fires on the sqlstate half alone" \
+  --contains "logger=DatabaseService" -- \
+  run_guard "$WS/pool-listener-code-only.env"
+
 assert_exit_code "a hit exits 1 (act on it)" 1 run_guard "$WS/hit.env"
 
 # ── quiet ────────────────────────────────────────────────────────────────────
@@ -169,4 +194,4 @@ else
   printf 'FAIL  pattern drift: deploy script has [%s], checker has [%s]\n' "$deploy_re" "$RE"
 fi
 
-guard_test_summary
+guard_test_summary "test-check-api-permission-denied.sh"

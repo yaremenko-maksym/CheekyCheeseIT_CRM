@@ -142,12 +142,13 @@ while IFS= read -r line; do
   ts="$(printf '%s' "$line" | sed -n 's/^\([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}T[0-9:.]\{8,20\}Z\) .*/\1/p')"
   [ -n "$ts" ] || ts="unknown"
 
-  ctx="$(printf '%s' "$line" | sed -n 's/.*\(ERROR\|WARN\|FATAL\) *\[\([A-Za-z0-9_.-]\{1,60\}\)\].*/\2/p' | head -n 1)"
+  ctx="$(printf '%s' "$line" | sed -nE 's/.*(ERROR|WARN|FATAL) *\[([A-Za-z0-9_.-]{1,60})\].*/\2/p' | head -n 1)"
   [ -n "$ctx" ] || ctx="unknown"
 
-  obj="$(printf '%s' "$line" | sed -n 's/.*[Pp]ermission denied for \(table\|sequence\|schema\|function\|relation\|view\|type\|database\) "\{0,1\}\([A-Za-z_][A-Za-z0-9_.]\{0,62\}\).*/\1 \2/p' | head -n 1)"
+  lower="$(printf '%s' "$line" | tr 'A-Z' 'a-z')"
+  obj="$(printf '%s' "$lower" | sed -nE 's/.*permission denied for (table|sequence|schema|function|relation|view|type|database) "?([A-Za-z_][A-Za-z0-9_.]{0,62}).*/\1 \2/p' | head -n 1)"
   if [ -z "$obj" ]; then
-    obj="$(printf '%s' "$line" | sed -n 's/.*[Mm]ust be owner of \(table\|sequence\|schema\|function\|relation\|view\|type\|database\) "\{0,1\}\([A-Za-z_][A-Za-z0-9_.]\{0,62\}\).*/owner-only: \1 \2/p' | head -n 1)"
+    obj="$(printf '%s' "$lower" | sed -nE 's/.*must be owner of (table|sequence|schema|function|relation|view|type|database) "?([A-Za-z_][A-Za-z0-9_.]{0,62}).*/owner-only: \1 \2/p' | head -n 1)"
   fi
   [ -n "$obj" ] || obj="not parsed (see the VPS logs)"
 

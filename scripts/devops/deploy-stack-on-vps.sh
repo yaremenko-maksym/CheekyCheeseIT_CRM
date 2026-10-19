@@ -122,6 +122,9 @@ else
   echo "::warning::pg-backup.sh not found at /opt/crm/scripts/devops/pg-backup.sh — copy-compose job's scp step should have placed it there."
 fi
 
+# Start of the deploy window for the 42501 log scan at the end of Step 3 (below).
+DEPLOY_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
 # ── Step 1: ensure postgres + redis are up (persistent — usually already running) ──
 # api and nginx are started AFTER DDL is applied (see Step 3).
 #
@@ -2231,6 +2234,35 @@ else
   echo "WARNING: external check failed (Cloudflare/TLS may not be configured yet)"
   echo "Internal API is healthy — stack is running correctly"
 fi
+
+# ADR 2026-10-17-db-least-privilege-roles, measure 2: a `permission denied` /
+# SQLSTATE 42501 in the NEW api container's logs fails the deploy, loudly. It
+# must not pass unread: a missing grant looks exactly like a healthy API here
+# (/api/health does not touch the database). FATAL on purpose, and so is a log
+# read that fails: "could not look" must not read as "nothing there".
+# The window opens at DEPLOY_STARTED_AT, so the old container's history is not
+# this deploy's business (the standing watch, api-permission-denied-watch.yml,
+# owns that). Only metadata is printed, never the matching lines: this log is
+# public. Two-minute-old news by design: it sees what the API did while booting
+# and during the health checks; the scheduled jobs are the standing watch's.
+# PATTERN: keep identical to scripts/devops/check-api-permission-denied.sh
+# (--print-pattern); tests/test-check-api-permission-denied.sh fails on drift.
+PERMISSION_DENIED_RE='permission denied|must be (owner|superuser)|(sqlstate|code)[^0-9a-z]{0,6}42501'
+echo "==> Scanning the new api container's logs for permission denied / 42501 (since ${DEPLOY_STARTED_AT})"
+if ! API_LOGS_SINCE_DEPLOY="$(docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  logs --no-color --since "${DEPLOY_STARTED_AT}" api 2>&1)"; then
+  echo "ERROR: could not read the api container's logs; refusing to pass the 42501 check unread"
+  exit 1
+fi
+PERMISSION_DENIED_HITS="$(printf '%s\n' "$API_LOGS_SINCE_DEPLOY" | grep -aEi -e "$PERMISSION_DENIED_RE" | grep -c . || true)"
+if [ "${PERMISSION_DENIED_HITS:-0}" -gt 0 ]; then
+  echo "::error::permission denied / SQLSTATE 42501 appeared ${PERMISSION_DENIED_HITS} time(s) in the api logs during this deploy. The new image is already live; a grant is missing or a table is misclassified. Read the container logs on the VPS (docker compose logs api); this log deliberately does not repeat them."
+  exit 1
+fi
+echo "No permission denied / 42501 in $(printf '%s\n' "$API_LOGS_SINCE_DEPLOY" | grep -c .) api log line(s) since ${DEPLOY_STARTED_AT}"
 
 # task-infra-locale-edge (security-review round 1, HIGH-2 follow-up;
 # hardened in round 2, LOW-3): unlike the CRM API check above (kept
