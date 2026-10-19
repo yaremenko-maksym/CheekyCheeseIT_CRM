@@ -1897,6 +1897,53 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
   // -------------------------------------------------------------------------
   // The honest gap this task could not close (DDL header, divergence 2)
   // -------------------------------------------------------------------------
+  /**
+   * Insert a generation born PUBLISHED and already expired — the row the missing
+   * INSERT guard would refuse — and MAKE THE FAILURE MODE SAY WHICH ONE IT IS.
+   *
+   * This is the mechanical half of the GAP PIN's discrimination (fix round 2,
+   * `SR-R2-M-3` and `CR-M-8`, which are one change). A raw thrown pg error here is
+   * the exact surface that was misread once already: it is the same `23514` whether
+   * the fixture is invalid or a new guard is refusing the shape. So the error is
+   * caught and classified before it reaches the assertion:
+   *   - `err.constraint` naming a `ck_` constraint  -> the FIXTURE is wrong;
+   *   - otherwise                                   -> something REFUSED the shape,
+   *     i.e. the guard landed and the pin must be inverted.
+   * Each throws a message that says what to do, so the next reader cannot act on the
+   * wrong one.
+   */
+  async function bornExpiredGeneration(team: string) {
+    try {
+      const { rows } = await q(
+        `INSERT INTO job_queue_generations
+           (scope_kind, team_id, policy_signature, rule_version, evaluated_at,
+            expires_at, status, published_at)
+         VALUES ('TEAM', $2, $1, 'rank-v1', now() - interval '2 years',
+                 now() - interval '1 year', 'PUBLISHED', now() - interval '1 year')
+         RETURNING id, status, expires_at`,
+        [`${TAG}:${nextTag()}`, team],
+      )
+      return rows
+    } catch (error) {
+      const err = error as { code?: string; constraint?: string; message?: string; where?: string }
+      if (err.constraint?.startsWith('ck_')) {
+        throw new Error(
+          `TEST BUG, not a landed guard: this fixture INSERT violates the CHECK ` +
+            `constraint ${err.constraint}. The row must satisfy every CHECK on ` +
+            `job_queue_generations and still be born PUBLISHED and expired. Fix the ` +
+            `fixture and KEEP the pin. (SQLSTATE ${err.code}: ${err.message})`,
+        )
+      }
+      throw new Error(
+        `THE GUARD LANDED: the INSERT of a generation born PUBLISHED-and-expired was ` +
+          `REFUSED by something other than a CHECK constraint (SQLSTATE ${err.code}, ` +
+          `constraint ${err.constraint ?? 'none'}, where ${err.where ?? 'n/a'}). The gap ` +
+          `this pin records is closed — invert it into a positive assertion that the ` +
+          `INSERT is refused, and delete the GAP PIN comment. (${err.message})`,
+      )
+    }
+  }
+
   describe('GAP PIN — job_queue_generations has no INSERT guard', () => {
     it('accepts a generation created already PUBLISHED with expires_at in the past', async () => {
       // MEASURED, and deliberately left open in this PR. The three guards on this table
@@ -1914,17 +1961,27 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       // eighth trigger with its own admitted-shape semantics, its own manifest entry and
       // its own tests, decided on its own merits rather than appended to a PR already in
       // a fix round. This test records the gap so that it is a known state rather than a
-      // discovery, and GOES RED the day the guard lands — which is the signal to delete it.
-      // IF THIS TEST IS RED, READ THIS BEFORE RETIRING THE PIN. A red GAP PIN usually
-      // means the gap was closed and the pin must be inverted into a positive assertion.
-      // That is NOT the only way this one can go red, and its first version went red the
-      // other way: the INSERT itself was invalid, violating
-      // `ck_job_queue_generations_expiry_after_evaluation`, so the test failed without
-      // saying anything about whether a guard exists. Before concluding the guard landed,
-      // check the error — `23514` (check_violation) or a trigger's `23001` from
-      // `job_queue_generations_*` are different findings, and only the second means the
-      // gap is closed. Retiring a pin on a misread is how a guard gets weakened to make a
-      // test pass.
+      // discovery.
+      //
+      // IF THIS TEST IS RED: FIND OUT WHY BEFORE YOU TOUCH IT. There are two reasons it
+      // can go red and they call for opposite actions, so the order of these two
+      // paragraphs is deliberate — the previous version said "delete it" first, and that
+      // is the sentence a hurried reader acts on.
+      //   (a) THE FIXTURE IS INVALID. The INSERT below must satisfy five CHECK constraints
+      //       on this table; the FIRST version of this test violated
+      //       `ck_job_queue_generations_expiry_after_evaluation` and failed while saying
+      //       nothing at all about whether a guard exists. Fix the fixture, keep the pin.
+      //   (b) THE GUARD LANDED. An INSERT guard on `job_queue_generations` now refuses
+      //       this row. Invert the pin into a positive assertion and delete this comment.
+      // The discrimination is MECHANICAL, not left to this comment: the test catches the
+      // error and names which case it is in. It does not branch on the SQLSTATE alone,
+      // because `23514` is ambiguous in both directions — a future INSERT guard could
+      // plausibly raise `check_violation` itself as the natural code for "invalid shape",
+      // and this table already has five CHECKs that raise it for fixture reasons. What
+      // discriminates is `err.constraint`: PostgreSQL sets it to the constraint name for a
+      // real CHECK violation and leaves it unset for an error raised inside a trigger
+      // function. Retiring a pin on a misread is how a guard gets weakened to make a test
+      // pass, so the test refuses to let the misread happen silently.
       //
       // `evaluated_at` is backdated further than `expires_at` only because
       // `ck_job_queue_generations_expiry_after_evaluation` requires
@@ -1932,15 +1989,7 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       // EACH OTHER and says nothing about either against `now()`. So the row is
       // internally consistent and still born expired, which is the point.
       const team = await newTeam()
-      const { rows } = await q(
-        `INSERT INTO job_queue_generations
-           (scope_kind, team_id, policy_signature, rule_version, evaluated_at,
-            expires_at, status, published_at)
-         VALUES ('TEAM', $2, $1, 'rank-v1', now() - interval '2 years',
-                 now() - interval '1 year', 'PUBLISHED', now() - interval '1 year')
-         RETURNING id, status, expires_at`,
-        [`${TAG}:${nextTag()}`, team],
-      )
+      const rows = await bornExpiredGeneration(team)
       expect(rows[0].status).toBe('PUBLISHED')
       expect(new Date(rows[0].expires_at as string).getTime()).toBeLessThan(Date.now())
 

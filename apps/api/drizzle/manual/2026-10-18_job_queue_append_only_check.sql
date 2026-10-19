@@ -363,6 +363,20 @@ BEGIN
   FOR rec IN
     SELECT c.relname AS tbl,
            c.relrowsecurity,
+           -- WHY EXCLUDING BY NAME IS SAFE HERE, measured because it looks unsafe and the
+           -- doubt would otherwise be re-raised every review round. The worry is obvious:
+           -- the exclusion keys on the rule's NAME, not its TYPE, so a rule deliberately
+           -- named `_RETURN` on INSERT would be filtered out of a guard whose only job is
+           -- to be loud. PostgreSQL does not allow it. Measured on 16.15:
+           --   CREATE TABLE t (id int);
+           --   CREATE RULE "_RETURN" AS ON INSERT TO t DO INSTEAD NOTHING;
+           --   ERROR:  non-view rule for "t" must not be named "_RETURN"
+           -- The name is reserved for the SELECT rule that IS a view's definition, so on a
+           -- plain table `rulename = '_RETURN'` and "is a view rule" are the same set, and
+           -- the exclusion cannot hide a write-suppressing rule. (If one of these three
+           -- relations were ever REPLACED by a view, its `_RETURN` rule would be excluded
+           -- here — but a view can carry only INSTEAD OF triggers, whose tgtype differs
+           -- from every value in the manifest, so part 1 column 4 catches that instead.)
            (SELECT string_agg(r.rulename, ', ' ORDER BY r.rulename)
               FROM pg_catalog.pg_rewrite r
              WHERE r.ev_class = c.oid AND r.rulename <> '_RETURN')      AS rules,
