@@ -954,6 +954,134 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
         client.release()
       }
     })
+
+    it('redaction also reads the REAL table, not a temp table shadowing it', async () => {
+      // The same test as the one above, for the other definer function. `redact` has the
+      // same unqualified references and the same `SET search_path`, so it has the same
+      // exposure and deserves the same proof; until fix round 1 only `purge` had one,
+      // which made the pin look like a property of the pair when it was a property of one.
+      const id = await newAction({
+        actorId: actor,
+        opportunityId: opportunity,
+        reason: `${TAG} a name somebody typed`,
+      })
+      const decoy = randomUUID()
+      const client = await pool.connect()
+      try {
+        await client.query(`CREATE TEMP TABLE job_queue_actions (id uuid primary key, reason text)`)
+        await client.query(`INSERT INTO job_queue_actions (id, reason) VALUES ($1, $2)`, [
+          decoy,
+          'untouched',
+        ])
+
+        const { rows } = await client.query(
+          `SELECT crm_retention_redact_action_reason($1, $2) AS redacted`,
+          [id, 'dsr-2026-shadow'],
+        )
+        expect(rows[0].redacted).toBe(true)
+
+        // The REAL row was redacted...
+        const { rows: real } = await q(`SELECT reason FROM public.job_queue_actions WHERE id=$1`, [
+          id,
+        ])
+        expect(real[0].reason).toBe(REDACTION_TOKEN)
+        // ...and the caller's temp table was left alone.
+        const { rows: temp } = await client.query(
+          `SELECT reason FROM pg_temp.job_queue_actions WHERE id=$1`,
+          [decoy],
+        )
+        expect(temp[0].reason).toBe('untouched')
+      } finally {
+        await client.query(`DROP TABLE IF EXISTS pg_temp.job_queue_actions`)
+        client.release()
+      }
+    })
+
+    it('is INERT under the PRODUCTION grant set: the redaction raises 42501', async () => {
+      // THE TEST THAT SPEAKS ABOUT PRODUCTION. The three redaction tests above run with
+      // `PRODUCTION_WITHHELD_GRANT` in place, so what they establish is the function's
+      // LOGIC on a grant set production does not have. Production gives the role
+      // `SELECT, DELETE`; with only those, the function cannot write and raises `42501`.
+      // That inert state is the deployed reality until the owner decides the grant
+      // question, and it is pinned here so the decision cannot be made by accident —
+      // if someone grants the privilege in production, THIS test goes red and says so.
+      const id = await newAction({
+        actorId: actor,
+        opportunityId: opportunity,
+        reason: `${TAG} still here`,
+      })
+      await q(PRODUCTION_WITHHELD_REVOKE)
+      try {
+        const err = await rejected(`SELECT crm_retention_redact_action_reason($1, $2)`, [
+          id,
+          'dsr-2026-inert',
+        ])
+        expect(err.code).toBe(INSUFFICIENT_PRIVILEGE)
+        // And the reason it could not rewrite is still the original.
+        const { rows } = await q(`SELECT reason FROM job_queue_actions WHERE id=$1`, [id])
+        expect(rows[0].reason).toBe(`${TAG} still here`)
+      } finally {
+        await q(PRODUCTION_WITHHELD_GRANT)
+      }
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // The two-year retention boundary — an OWNER DECISION, recorded in the legal
+  // memo, and until fix round 1 pinned by nothing: four mutations of it stayed
+  // green. Each test below is named by the mutation it kills, and the interval
+  // lives in TWO places (the trigger and the purge function), so both are pinned.
+  //
+  // `729 days` is the "one day short" age: two calendar years is 730 or 731 days,
+  // so a 729-day-old row is inside the window — and it is well past ONE year, which
+  // is what makes a widened interval visible instead of silently agreeing.
+  // -------------------------------------------------------------------------
+  describe('the two-year retention boundary', () => {
+    const countOf = async (id: string): Promise<number> => {
+      const { rows } = await q(`SELECT count(*)::int AS n FROM job_queue_actions WHERE id=$1`, [id])
+      return rows[0].n as number
+    }
+
+    it('trigger: refuses the retention owner deleting a row one day SHORT of two years', async () => {
+      // Kills: the trigger's `interval '2 years'` widened to `'1 year'`.
+      const id = await newAction({ actorId: actor, opportunityId: opportunity, age: '729 days' })
+      const err = await asRetentionOwner((c) =>
+        rejectedOn(c, `DELETE FROM job_queue_actions WHERE id=$1`, [id]),
+      )
+      expect(err.code).toBe(RESTRICT_VIOLATION)
+      expect(await countOf(id)).toBe(1)
+    })
+
+    it('purge: leaves a row one day SHORT of two years', async () => {
+      // Kills: the purge function's `interval '2 years'` narrowed to `'1 year'`.
+      const id = await newAction({ actorId: actor, opportunityId: opportunity, age: '729 days' })
+      await q(`SELECT crm_retention_purge_job_queue_actions()`)
+      expect(await countOf(id)).toBe(1)
+    })
+
+    it('purge: deletes a row one day PAST two years', async () => {
+      // Kills: the purge function's `interval '2 years'` widened to `'3 years'`.
+      const id = await newAction({
+        actorId: actor,
+        opportunityId: opportunity,
+        age: '2 years 1 day',
+      })
+      await q(`SELECT crm_retention_purge_job_queue_actions()`)
+      expect(await countOf(id)).toBe(0)
+    })
+
+    it('redaction: refuses a NULL request id', async () => {
+      // Kills: deleting the `p_request_id IS NULL` operand from the validation. Without
+      // it, every other term of the condition evaluates to NULL for a NULL argument
+      // (`NULL !~ '…'` and `length(NULL) > 200` are both NULL), so the whole guard is
+      // NULL — not TRUE — and an unattributed redaction is accepted. The request id is
+      // the only record of WHO asked for an audit-log row to be rewritten.
+      const id = await newAction({ actorId: actor, opportunityId: opportunity })
+      const err = await rejected(`SELECT crm_retention_redact_action_reason($1, NULL)`, [id])
+      expect(err.code).toBe(INVALID_PARAMETER)
+      const { rows } = await q(`SELECT reason FROM job_queue_actions WHERE id=$1`, [id])
+      expect(rows[0].reason).not.toBe(REDACTION_TOKEN)
+    })
   })
 
   // -------------------------------------------------------------------------
@@ -1179,28 +1307,49 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       expect(firstCreate).toBeGreaterThan(guardAt)
     })
 
-    it('raises undefined_object when a required role is absent (the same predicate, probed)', async () => {
-      // The shipped file cannot be exercised on this cluster: `crm_retention_owner`
-      // exists here (r5 Task 1.3c created it) and dropping a cluster-wide role would
-      // break whatever else is using it. So the PREDICATE is probed with a name that
-      // cannot exist. The test above pins that the shipped file uses this same shape.
-      const err = await rejected(`
-        DO $probe$
-        DECLARE missing text[] := ARRAY[]::text[];
-        BEGIN
-          IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles
-                          WHERE rolname = 'crm_retention_owner_absent_probe') THEN
-            missing := missing || 'crm_retention_owner_absent_probe'::text;
-          END IF;
-          IF cardinality(missing) > 0 THEN
-            RAISE EXCEPTION 'required role(s) absent: %', array_to_string(missing, ', ')
-              USING ERRCODE = 'undefined_object';
-          END IF;
-        END
-        $probe$;
-      `)
-      expect(err.code).toBe('42704') // undefined_object
-      expect(err.message).toContain('required role(s) absent')
+    it('raises undefined_object when a required role is really absent (THE SHIPPED FILE)', async () => {
+      // This used to probe a hand-written COPY of the predicate with a role name that
+      // could not exist, which proves a predicate of that shape refuses — not that the
+      // shipped file does. The objection to exercising the real file was that
+      // `crm_retention_owner` is cluster-wide and dropping it would break whatever else
+      // uses it. That objection is answered by the transaction below: `DROP OWNED BY`
+      // and `DROP ROLE` are both transactional in PostgreSQL, so the role is genuinely
+      // gone for the length of this one connection's transaction and comes back on
+      // `ROLLBACK`, having never been gone for anybody else.
+      const client = await pool.connect()
+      let code: string | undefined
+      let message = ''
+      try {
+        await client.query('BEGIN')
+        // DROP ROLE refuses while the role holds privileges or owns anything, and after
+        // the grants file it holds both; DROP OWNED BY clears them inside the transaction.
+        await client.query(`DROP OWNED BY crm_retention_owner CASCADE`)
+        await client.query(`DROP ROLE crm_retention_owner`)
+
+        try {
+          for (const statement of splitSqlStatements(readFileSync(TRIGGERS_SQL, 'utf8'))) {
+            await client.query(statement)
+          }
+        } catch (error) {
+          code = (error as { code?: string }).code
+          message = (error as { message?: string }).message ?? ''
+        }
+      } finally {
+        await client.query('ROLLBACK').catch(() => undefined)
+        client.release()
+      }
+
+      expect(code).toBe('42704') // undefined_object
+      expect(message).toContain('required role(s) absent')
+      expect(message).toContain('crm_retention_owner')
+
+      // The rollback really did put the role back — otherwise every later test in this
+      // file would fail for an unrelated-looking reason, and this is where it is cheap
+      // to say so.
+      const { rows } = await q(
+        `SELECT count(*)::int AS n FROM pg_catalog.pg_roles WHERE rolname='crm_retention_owner'`,
+      )
+      expect(rows[0].n).toBe(1)
     })
   })
 
