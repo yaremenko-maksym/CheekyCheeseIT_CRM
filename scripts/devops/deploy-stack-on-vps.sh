@@ -23,15 +23,40 @@
 # THE FIX IS NOT TO SHRINK THE SCRIPT. Deleting comments to buy a few hundred
 # bytes would work for one merge and fail on the next, and the comments in here
 # are the reason the next person does not re-break an invariant that cost a prod
-# incident to learn. Instead the payload stopped being a string: deploy.yml now
-# passes `script_path:` pointing at THIS file, which the action forwards as
-# `INPUT_SCRIPT_FILE` → drone-ssh's `script.file` flag → `os.ReadFile(f)`,
-# appended to the very same `scripts` slice that `INPUT_SCRIPT` feeds. Verified
-# against the pinned appleboy/ssh-action@v1.2.0 `action.yml` and drone-ssh v1.8.0
-# `main.go` rather than against current docs — that is the lesson of
-# scripts/devops/check-ssh-action-capture-stdout-version.py's own incident. So
-# execution is byte-for-byte what it was: same remote shell, same `envs:`
-# passthrough, same ordering, no size ceiling any longer.
+# incident to learn.
+#
+# ── THE FIRST FIX WAS WRONG, AND HOW ─────────────────────────────────────────
+#
+# PR #1035 moved the body here and passed it with `script_path:`. That was wired
+# correctly — the next run's log shows `INPUT_SCRIPT:` empty and
+# `INPUT_SCRIPT_FILE:` set — and it still failed, on the very next deploy
+# (3928ba00e), one layer further out:
+#
+#   /bin/bash: Argument list too long
+#
+# Because drone-ssh `os.ReadFile`s the `script.file` into the SAME `scripts`
+# slice that `INPUT_SCRIPT` feeds, and then ships
+# `strings.Join(p.Config.Script, "\n")` to `ssh.Stream` as ONE command string
+# (plugin.go). The SSH exec request carries that as a single argument, so the
+# remote `/bin/bash` refused it exactly as the runner's bash had. #1035's own
+# research established that execution would be "unchanged" — and being unchanged
+# is precisely why it still failed. The mechanism was verified; the outcome was
+# not. Nothing in CI exercises a real deploy, so for a change of this shape the
+# only test is a deploy.
+#
+# ── WHAT ACTUALLY REMOVES THE CEILING ────────────────────────────────────────
+#
+# The content must travel as a FILE and the command must be short. deploy.yml's
+# `deploy` job scp's this file to /opt/crm/scripts/devops/ and the SSH step runs
+# `bash /opt/crm/scripts/devops/deploy-stack-on-vps.sh` — tens of bytes on the
+# wire as a command, 137 KB on the wire as a file, where no argument limit
+# applies. That is the same pattern the backup-freshness step at the end of that
+# job had been using all along.
+#
+# The general rule, since this file cost two production-blocking deploys to
+# learn: ANY route that hands this body to ssh-action as `script:` or
+# `script_path:` ships it as a command string and WILL hit MAX_ARG_STRLEN —
+# on the runner or on the VPS. Only scp-then-run does not.
 #
 # ── CONSEQUENCES YOU MUST KNOW BEFORE EDITING ────────────────────────────────
 #
