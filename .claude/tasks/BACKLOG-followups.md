@@ -2872,3 +2872,86 @@ alert — it was noticed only because the orchestrator was reading deploy runs b
 
 **Check on closing:** a deliberately synthesised old-failure history makes the guard report, demonstrated by a run;
 and a failure repaired within three hours still produces one notification.
+
+## 232. `db:seed` is refused on any development database that has run the append-only spec (2026-10-19)
+
+(orchestrator, from the 1.3b fix round; severity MED — it blocks a routine developer action, and the
+obvious fix would weaken an audit guard). The seed truncates `users … CASCADE`; the cascade reaches
+`job_queue_actions`; the append-only trigger refuses it with SQLSTATE `23001` and the message
+"job_queue_actions is append-only: TRUNCATE refused". Measured both ways: with the triggers installed the
+seed fails, with them dropped it completes. **The guard is doing exactly its job.** CI is unaffected
+because it seeds before any spec installs the triggers, and production is unaffected because production
+never seeds. What it hits is every developer and QA database that has run the 1.3b integration spec and
+is then re-seeded.
+
+**The reason this is a backlog entry rather than a commit in that fix round:** giving the seed path the
+ability to disarm an append-only audit guard is a security-relevant change to a tool that runs with owner
+privileges. It wants its own PR and a security review, not a tail-end commit. The sanctioned shape
+already exists in the 1.3b spec's own teardown — disable the two action triggers as the owner, truncate,
+re-enable in a `finally` — so the work is to lift that into the seed deliberately, with the review that
+deserves.
+
+**Check on closing:** `db:seed` completes on a database that has the triggers installed, and a test
+proves the triggers are re-enabled afterwards even when the seed fails midway.
+
+## 233. The integration suite's verdict depends on Cloudflare being reachable (2026-10-19)
+
+(orchestrator, from a CI failure on an unrelated PR; severity MED — a third party can turn the suite red).
+`TurnstileService.verify()` makes a live HTTPS call to Cloudflare's siteverify endpoint on every
+application submit, and converts **any** failure — network error, timeout, non-2xx, `success: false` —
+into `false`, which the caller turns into a 400. The integration specs have no stub and no bypass: even
+the "always passes" test secret needs the round trip to succeed.
+
+Observed: one apply out of ten in a single CI run failed with `APPLICATION_TURNSTILE_FAILED` while the
+other nine passed, including `contact.integration.spec.ts`'s deliberately-live siteverify test two
+minutes later. That distribution is what rules out an environment or configuration cause — those would
+have failed all ten.
+
+**Closing shape:** stop calling Cloudflare from the integration suite — stub `TurnstileService`, or gate
+the live call behind an explicit opt-in flag and keep **one** deliberately-live test if that path is
+worth covering. Do not instead pin a sequencer order or resize a spec file: that restores the
+concealment rather than removing the dependency.
+
+**Check on closing:** the suite passes with outbound network to Cloudflare blocked.
+
+## 234. The isolation hook cannot record a checkout created through an unexpanded variable, and four briefs have not fixed it (2026-10-19)
+
+(orchestrator, observed four times in one day; severity MED — it leaks worktrees and the mitigation is
+discipline, which measurably does not hold). The hook records `<agent_id> <path>` only when it sees a
+`git worktree add` whose path is a literal absolute path below the scratchpad root. An agent that writes
+`git worktree add "$S/co-pr1026-sec"` creates a tree the hook has no record of, and the later
+`git worktree remove` is refused (`WORKTREE-REMOVE` / `WORKTREE-UNRECORDED`). **The refusals are correct** —
+an unrecorded path in a shared scratchpad is one the hook cannot prove is free — and every agent
+respected them rather than working around it.
+
+What does not work is the instruction. Four reviewer and coder agents left orphans this way, including
+one whose brief spelled the correct pattern out verbatim ("expand the variable once with `echo`, then use
+the literal for both `add` and `remove`"). Four for four. **An instruction ignored four times is not an
+instruction problem.**
+
+**Candidates, in order of preference:** have the hook record the _resolved_ path — it sees the expanded
+argv, so the variable is already gone by the time it runs, which makes this look feasible and removes the
+failure mode entirely; or give agents a wrapper to call instead of raw `git worktree add`. Do not add a
+fifth paragraph to the briefs.
+
+**Check on closing:** an agent that creates a checkout through a variable can still remove its own, and a
+sibling's tree is still refused.
+
+## 235. The health endpoint reports healthy throughout a database outage (2026-10-19)
+
+(from the pool-error-listener task; severity LOW-MED — it misreports during exactly the incident it would
+be consulted in). `HealthController.check()` does not touch the database and always returns
+`status: 'ok'`. So while Postgres is down or refusing the API's credentials, the endpoint says the service
+is healthy.
+
+This did not matter much while the API crashed on a database restart, because the crash was itself the
+signal. Now that the pool logs idle-client errors and survives (entry: the listener landed 2026-10-19),
+the process stays up through an outage and the endpoint is the only thing a human or a monitor would ask —
+and it answers wrongly.
+
+Deliberately **not** widened into the listener's PR: changing what readiness means can change deploy
+behaviour, and the ADR's deploy ordering relies on `docker compose up -d` rather than a health gate, so
+this needs its own reasoning about who consumes the endpoint before its semantics move.
+
+**Check on closing:** with the database stopped, the endpoint reports unhealthy; and the deploy's own
+ordering is shown to still behave as the ADR describes.
