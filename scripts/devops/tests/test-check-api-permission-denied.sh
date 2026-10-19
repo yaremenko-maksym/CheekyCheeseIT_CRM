@@ -446,6 +446,8 @@ case " $* " in
       realfastify_boom) awk "{print \"2026-10-19T03:00:01.000000001Z \" \$0}" "$REAL_FASTIFY_ALL" ;;
       realfastify_flood) for i in $(seq 1 30); do awk "{print \"2026-10-19T03:00:01.000000001Z \" \$0}" "$REAL_FASTIFY_FILE"; done
                printf "%s\n" "2026-10-19T03:00:09.000000001Z [Nest] 18  - x   ERROR [TelemetryRetentionCronService] retention failed sqlstate=42501: permission denied for table telemetry_events" ;;
+      realfastify_flood_contract) for i in $(seq 1 30); do awk "{print \"2026-10-19T03:00:01.000000001Z \" \$0}" "$REAL_FASTIFY_FILE"; done
+               printf "%s\n" "2026-10-19T03:00:09.000000001Z [Nest] 18  - x   ERROR [DatabasePrivilege] db_privilege_denied sqlstate=42501 table=telemetry_events ctx=pool" ;;
       textecho) printf "%s\n" "2026-10-19T03:00:09.000000001Z [Nest] 18  - x   ERROR [TelemetryRetentionCronService] retention failed: permission denied for table telemetry_events {\"level\":30,\"msg\":\"echoed by a client\"}" ;;
       evil)  printf "%s\n" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [VacanciesRetentionCronService] lookup for user input ERROR [EVIL-TOKEN-xyz-attacker-chosen-text] failed: permission denied for table \"jane_doe_example_com\"" ;;
       *)     printf "%s\n" "2026-10-19T03:00:01.000000001Z [Nest] 18  - 10/19/2026, 3:00:01 AM     LOG [HealthController] ok" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x     LOG [Cron] retention pruned 0 rows" ;;
@@ -559,6 +561,16 @@ guard_test_shim "$WS" python3 '#!/usr/bin/env bash
 # one that just copies its input: neither is the filter, and neither may read as "clean".
 [ "${FAKE_PYTHON_EMPTY:-}" = 1 ] && { cat >/dev/null; exit 0; }
 [ "${FAKE_PYTHON_CAT:-}" = 1 ] && { cat; exit 0; }
+# SR-M-12: a filter that only does PART of the job. Invoked as python3 -c CODE COUNTFILE, so
+# the count file is the third argument.
+#   DROP30    drops level-30 records and the truncated record, claims one unparsed, but passes
+#             a level-50 record through UNCHANGED (its req and reqId survive)
+#   NOCOUNT   is the real filter but never reports the truncated record as unparsed
+[ "${FAKE_PYTHON_DROP30:-}" = 1 ] && { grep -v "\"level\":30" | grep -v LOGSCAN_CANARY_CUT; printf 1 >"$3"; exit 0; }
+if [ "${FAKE_PYTHON_NOCOUNT:-}" = 1 ]; then
+  real0="$(PATH=/usr/bin:/usr/local/bin:/opt/homebrew/bin:/bin command -v python3)"
+  "$real0" "$@"; rc=$?; printf 0 >"$3"; exit $rc
+fi
 real="$(PATH=/usr/bin:/usr/local/bin:/opt/homebrew/bin:/bin command -v python3)"
 exec "$real" "$@"'
 
@@ -582,10 +594,15 @@ assert_red "SR-H-5 WATCH: a genuine TEXT line that ends in an echoed {...} is NO
 
 assert_green "SR-H-5 DEPLOY: the same anonymous forgeries do not fail the deploy" \
   --contains "No permission denied / 42501" --contains "DEPLOY-CONTINUED" -- deploy_step realfastify
-assert_red "SR-H-5 DEPLOY: a genuine error in a real level-50 record still fails it" \
-  --contains "appeared 1 time(s)" --not-contains "DEPLOY-CONTINUED" -- deploy_step realfastify_boom
-assert_red "SR-H-5 DEPLOY: forgeries plus one genuine hit fail it with a count of exactly 1" \
-  --contains "appeared 1 time(s)" -- deploy_step realfastify_flood
+# SR-H-10: a TEXT pattern (`permission denied`) can be forged by an anonymous request through
+# any Nest text log line that carries decoded request data, so it may be REPORTED but must
+# never be able to stop a release. Only the contract line gates the deploy.
+assert_green "SR-H-5/SR-H-10 DEPLOY: a genuine error in a real level-50 record is REPORTED (1 other line), counted once, and does NOT gate the deploy" \
+  --contains "1 other api log line(s)" --contains "NOT gating" --contains "DEPLOY-CONTINUED" -- deploy_step realfastify_boom
+assert_green "SR-H-5/SR-H-10 DEPLOY: forgeries plus one text hit are reported with a count of exactly 1 and do not gate" \
+  --contains "1 other api log line(s)" --contains "DEPLOY-CONTINUED" -- deploy_step realfastify_flood
+assert_red "SR-H-5 DEPLOY: forgeries plus one CONTRACT line fail it with a count of exactly 1" \
+  --contains "appeared 1 time(s)" --not-contains "DEPLOY-CONTINUED" -- deploy_step realfastify_flood_contract
 
 # The filter fails CLOSED: no python means "could not look", never "found nothing".
 assert_red "SR-H-5 WATCH: a failing python filter is BLIND, not clean" --contains "req_filter" -- \
@@ -662,8 +679,8 @@ assert_red "SR-H-7 WATCH: a chunked level-50 record is re-parsed after stripping
   --contains "0 contract line(s) and 1 other" -- with_file "$WS/long-boom.split" pipeline file
 assert_green "SR-H-7 WATCH: ...and nothing was unparsed (the strip-and-reparse worked)" \
   --contains "LOGSCAN_UNPARSED=0" -- with_file "$WS/long-boom.split" remote file
-assert_red "SR-H-7 DEPLOY: ...the same record gives exactly ONE hit in the deploy gate (the genuine one), not two" \
-  --contains "appeared 1 time(s)" -- with_file "$WS/long-boom.split" deploy_step file
+assert_green "SR-H-7 DEPLOY: ...the same record gives exactly ONE reported line in the deploy (the genuine one), not two, and does not gate" \
+  --contains "1 other api log line(s)" --contains "DEPLOY-CONTINUED" -- with_file "$WS/long-boom.split" deploy_step file
 
 # ── cut: only the first chunk, a level-50 pino record that cannot be parsed at all ───────
 assert_green "SR-H-7 WATCH: an unparseable pino-looking record is DROPPED, never kept, and COUNTED (LOGSCAN_UNPARSED=1)" \
@@ -724,6 +741,41 @@ assert_red "SR-M-8 DEPLOY: a copy-input python3 fails the deploy too" \
 assert_red "SR-M-8 control: the real python3 over the same genuine hit FIRES" \
   --contains "src=contract" -- pipeline contract
 
+# ═══ SR-M-12: a filter that only does PART of the job must not pass the canary ═════════════
+# A python3 that drops level 30 but leaves a level-50 record untouched (its req and reqId
+# survive) used to pass, because the keep-canary had no req to strip. It now has one, the
+# exact stripped output is required, and a truncated canary must be dropped AND counted.
+assert_red "SR-M-12 WATCH: a filter that only drops level 30 (req and reqId survive) is BLIND" \
+  --contains "req_filter_canary" --not-contains "OK: read" -- pipeline_py FAKE_PYTHON_DROP30 contract
+assert_red "SR-M-12 DEPLOY: ...and fails the deploy" \
+  --contains "canary check failed" --not-contains "DEPLOY-CONTINUED" -- deploy_py FAKE_PYTHON_DROP30 contract
+assert_red "SR-M-12 WATCH: a filter that never counts the truncated record is BLIND (the drop-and-count path did not run)" \
+  --contains "req_filter_canary" -- pipeline_py FAKE_PYTHON_NOCOUNT contract
+assert_red "SR-M-12 DEPLOY: ...and fails the deploy" \
+  --contains "canary check failed" --not-contains "DEPLOY-CONTINUED" -- deploy_py FAKE_PYTHON_NOCOUNT contract
+assert_green "SR-M-12 control: the real filter passes all four canary checks, and the canary never shows in the counts" \
+  --contains "LOGSCAN_UNPARSED=0" --contains "LOGSCAN_HITS=0" -- remote clean
+
+# ═══ SR-M-11: a hostile LINE must not blind the scan ════════════════════════════════════════
+# 5000 digits after "level": made int() raise OUTSIDE the try, and a 200000-deep array raised
+# RecursionError, which `except ValueError` did not catch. Both gave BLIND, and a stranger can
+# put either in a log line (SR-H-10), so a stranger could switch the watch off.
+printf '2026-10-19T03:00:01.000000001Z {"level":%s}\n' "$(head -c 5000 /dev/zero | tr '\0' 7)" >"$WS/bigdigits.log"
+{ printf '2026-10-19T03:00:01.000000001Z {"level":50,"x":'; head -c 200000 /dev/zero | tr '\0' '['; head -c 200000 /dev/zero | tr '\0' ']'; printf '}\n'; } >"$WS/deep.log"
+{ cat "$WS/bigdigits.log" "$WS/deep.log"; printf '2026-10-19T03:00:09.000000001Z [Nest] 18  - x   ERROR [DatabasePrivilege] db_privilege_denied sqlstate=42501 table=document_access_log ctx=pool\n'; } >"$WS/hostile-plus-hit.log"
+for hostile_case in bigdigits deep; do
+  assert_green "SR-M-11 WATCH ($hostile_case): the hostile line is dropped and COUNTED, the scan is not blind" \
+    --contains "LOGSCAN_UNPARSED=1" -- with_file "$WS/$hostile_case.log" remote file
+  assert_exit_code "SR-M-11 WATCH ($hostile_case): ...exit 0, not 2" 0 with_file "$WS/$hostile_case.log" pipeline file
+  assert_green "SR-M-11 DEPLOY ($hostile_case): ...and the deploy block survives it too" \
+    --contains "DEPLOY-CONTINUED" --contains "1 pino-looking" -- with_file "$WS/$hostile_case.log" deploy_step file
+done
+assert_red "SR-M-11 WATCH: a genuine contract hit next to both hostile lines is still FOUND (a stranger cannot blind the scan)" \
+  --contains "1 contract line(s) and 0 other" --contains "src=contract" -- with_file "$WS/hostile-plus-hit.log" pipeline file
+assert_exit_code "SR-M-11 WATCH: ...exit 1, not 2" 1 with_file "$WS/hostile-plus-hit.log" pipeline file
+assert_red "SR-M-11 DEPLOY: ...and the deploy gate still fails on it" \
+  --contains "appeared 1 time(s)" -- with_file "$WS/hostile-plus-hit.log" deploy_step file
+
 # ═══ SR-M-9: the contract token under another logger context is not the contract ═════════
 assert_green "SR-M-9 WATCH: db_privilege_denied under a handler context is NOT a hit" \
   --contains "OK: read" --not-contains "HIT" -- pipeline ctx_other
@@ -749,10 +801,12 @@ extract_filter "$DEPLOY_SCRIPT" >"$WS/filter.deploy"
 assert_green "SR-H-5 no drift: the request-log filter in the remote script == the one in the deploy script" -- \
   bash -c "[ -s '$WS/filter.remote' ] && diff '$WS/filter.remote' '$WS/filter.deploy'"
 
-assert_red "DEPLOY: a 42501 in the new container fails the deploy and never reaches the next step" \
-  --contains "appeared 1 time(s)" --not-contains "DEPLOY-CONTINUED" --not-contains "VacanciesRetentionCronService" -- deploy_step hit
-assert_red "DEPLOY: the failure message carries no raw text from a hostile line" \
-  --not-contains "jane.doe" --not-contains "INJECTED" --not-contains "DELETE FROM" -- deploy_step hostile
+assert_green "DEPLOY: a text-only 42501 (permission denied) is REPORTED but cannot stop the release" \
+  --contains "1 other api log line(s)" --contains "NOT gating" --contains "DEPLOY-CONTINUED" --not-contains "VacanciesRetentionCronService" -- deploy_step hit
+assert_red "DEPLOY: the contract line DOES fail the deploy and never reaches the next step" \
+  --contains "appeared 1 time(s)" --not-contains "DEPLOY-CONTINUED" -- deploy_step contract
+assert_green "DEPLOY: a hostile text line (PII, SQL, injection) is reported by count only: no raw text reaches the log, and it cannot gate" \
+  --contains "1 other api log line(s)" --not-contains "jane.doe" --not-contains "INJECTED" --not-contains "DELETE FROM" --contains "DEPLOY-CONTINUED" -- deploy_step hostile
 assert_green "DEPLOY: clean logs let the deploy continue" \
   --contains "No permission denied / 42501" --contains "DEPLOY-CONTINUED" -- deploy_step clean
 assert_red "DEPLOY: an unreadable log fails the deploy instead of passing unread" \
