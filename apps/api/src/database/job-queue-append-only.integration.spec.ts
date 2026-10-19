@@ -1285,6 +1285,260 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       }
       await applyFile(CHECK_SQL)
     })
+
+    // =====================================================================
+    // ONE TEST PER ASSERTION THE MANIFEST MAKES (fix round 2, CR-H-2)
+    //
+    // WHY THESE EXIST, because it is the whole lesson of the round. The manifest's
+    // comments say each of its six columns "earns its place by a tampering that
+    // passed the earlier version of this file green" — and that was true, but the
+    // replay proving it lived in a report rather than in the repository. The code
+    // reviewer then deleted NINE of the new assertions by hand, one at a time, and
+    // the suite stayed green for every one of them: the tgtype column, the function
+    // column, the `WHEN` check, the argument count, the md5 column, the whole
+    // extra-trigger scan, that scan's table-match operand, the overload filter and
+    // the overload report. Only the pre-existing `tgenabled` assertion went red.
+    //
+    // A guarantee nobody can re-run is a guarantee that decays silently: the next
+    // edit of the check file can strip any column and CI will not notice. So each
+    // assertion now has a test that goes red when THAT assertion is deleted, and
+    // the deletion was run for each one rather than assumed (the commands are in
+    // the PR body).
+    //
+    // SHAPE, kept identical to the tests above: tamper, run the SHIPPED check bytes
+    // and require a rejection, assert the fragment only THAT assertion produces,
+    // then repair in `finally` and re-run the check to prove the repair worked. The
+    // fragment matters — several tamperings trip more than one assertion (anything
+    // that changes a definition also moves the md5), and asserting the specific
+    // fragment is what ties the test to the assertion rather than to the tampering.
+    // =====================================================================
+
+    /**
+     * Replace one guard trigger's definition and nothing else.
+     *
+     * `CREATE OR REPLACE TRIGGER` rather than DROP + CREATE so the tampering leaves
+     * the trigger present throughout — these tests are about what the CHECK sees,
+     * and a momentarily absent trigger would trip the "is MISSING" assertion
+     * instead of the one under test. It resets `tgenabled` to 'O', so each tamper
+     * sets `ENABLE ALWAYS` back: otherwise every one of these tests would trip the
+     * pre-existing `tgenabled` assertion and prove nothing about the new columns.
+     */
+    const retamper = async (definition: string) => {
+      await q(`CREATE OR REPLACE TRIGGER trg_job_queue_actions_append_only ${definition}`)
+      await q(
+        `ALTER TABLE job_queue_actions ENABLE ALWAYS TRIGGER trg_job_queue_actions_append_only`,
+      )
+    }
+
+    /**
+     * Run the shipped check bytes against a tampered catalog and return the failure
+     * message; repair the catalog and re-verify the repair regardless of outcome.
+     *
+     * It RETURNS the message rather than asserting on it so that every test below
+     * carries its own visible `expect`. That is not only for `vitest/expect-expect`:
+     * the fragment each test asserts is the only thing tying it to ONE assertion in
+     * the manifest, so it belongs at the test, not hidden in a shared helper.
+     */
+    const tamperedCheckMessage = async (repair?: () => Promise<void>): Promise<string> => {
+      try {
+        const err = await rejected(readFileSync(CHECK_SQL, 'utf8'))
+        return err.message ?? ''
+      } finally {
+        if (repair) await repair()
+        await applyFile(TRIGGERS_SQL)
+        // The repair really repaired: a tamper test that left the catalog broken
+        // would otherwise fail the NEXT test for an unrelated-looking reason.
+        await applyFile(CHECK_SQL)
+      }
+    }
+
+    // --- column 4: the timing/event/row bitmask. Three demonstrated rewrites. ---
+
+    it('column 4: fails when a guard is narrowed to fewer events (DELETE left unguarded)', async () => {
+      // tgtype 27 -> 19: the guard no longer fires on DELETE at all.
+      await retamper(
+        `BEFORE UPDATE ON public.job_queue_actions
+         FOR EACH ROW EXECUTE FUNCTION public.job_queue_actions_append_only()`,
+      )
+      expect(await tamperedCheckMessage()).toContain('WRONG timing/events')
+    })
+
+    it('column 4: fails when a BEFORE guard is flipped to AFTER', async () => {
+      // An AFTER trigger cannot refuse by returning NULL and runs once the row is
+      // already written — the guard's whole mechanism is BEFORE.
+      await retamper(
+        `AFTER UPDATE OR DELETE ON public.job_queue_actions
+         FOR EACH ROW EXECUTE FUNCTION public.job_queue_actions_append_only()`,
+      )
+      expect(await tamperedCheckMessage()).toContain('WRONG timing/events')
+    })
+
+    it('column 4: fails when a row guard becomes a statement guard', async () => {
+      // A statement trigger never sees OLD/NEW, so every per-row shape test inside
+      // the body is dead code the moment this bit moves.
+      await retamper(
+        `BEFORE UPDATE OR DELETE ON public.job_queue_actions
+         FOR EACH STATEMENT EXECUTE FUNCTION public.job_queue_actions_append_only()`,
+      )
+      expect(await tamperedCheckMessage()).toContain('WRONG timing/events')
+    })
+
+    // --- column 5: the function the trigger actually executes. ---
+
+    it('column 5: fails when a guard is repointed at a no-op function', async () => {
+      await q(`
+        CREATE OR REPLACE FUNCTION public.ac5_decoy_noop() RETURNS trigger
+        LANGUAGE plpgsql AS $noop$ BEGIN RETURN NEW; END $noop$;
+      `)
+      await retamper(
+        `BEFORE UPDATE OR DELETE ON public.job_queue_actions
+         FOR EACH ROW EXECUTE FUNCTION public.ac5_decoy_noop()`,
+      )
+      const message = await tamperedCheckMessage(async () => {
+        // The trigger is repointed back BEFORE the function is dropped: while a
+        // trigger still executes it, the function cannot be dropped.
+        await q(
+          `CREATE OR REPLACE TRIGGER trg_job_queue_actions_append_only
+             BEFORE UPDATE OR DELETE ON public.job_queue_actions
+             FOR EACH ROW EXECUTE FUNCTION public.job_queue_actions_append_only()`,
+        )
+        await q(`DROP FUNCTION IF EXISTS public.ac5_decoy_noop()`)
+      })
+      expect(message).toContain('EXECUTES')
+    })
+
+    // --- the WHEN clause: separately named because `WHEN (false)` is total. ---
+
+    it('fails when a guard gains a WHEN clause that is never true', async () => {
+      // The guard still exists, is ENABLE ALWAYS, has the right tgtype and the right
+      // function — and never runs.
+      await retamper(
+        `BEFORE UPDATE OR DELETE ON public.job_queue_actions
+         FOR EACH ROW WHEN (false)
+         EXECUTE FUNCTION public.job_queue_actions_append_only()`,
+      )
+      expect(await tamperedCheckMessage()).toContain('carries a WHEN clause')
+    })
+
+    // --- the argument count. ---
+
+    it('fails when a guard passes an argument to its function', async () => {
+      // Reachable only through the trigger's argument list, which is why the
+      // assertion is not redundant with the md5: it names the finding in its own
+      // terms instead of leaving the reader to diff two checksums.
+      await retamper(
+        `BEFORE UPDATE OR DELETE ON public.job_queue_actions
+         FOR EACH ROW EXECUTE FUNCTION public.job_queue_actions_append_only('x')`,
+      )
+      expect(await tamperedCheckMessage()).toContain('argument(s) to its function')
+    })
+
+    // --- column 6: the catch-all, and the one tampering ONLY it sees. ---
+
+    it('column 6: fails on a rewrite that every other assertion is blind to', async () => {
+      // THE test for the catch-all, and the reason the catch-all is not decoration.
+      // `BEFORE UPDATE OF reason OR DELETE` keeps tgtype at 27, keeps the function,
+      // adds no WHEN and passes no argument — columns 3-5 and both assertions above
+      // stay silent — and it DISARMS the guard: the trigger then fires only when
+      // `reason` is in the SET list. Measured on 16.15 against this schema: with
+      // this definition in place, `UPDATE job_queue_actions SET actor_id = <other>`
+      // SUCCEEDED and rewrote the audit row's actor, where the reviewed definition
+      // refuses it with 23001. Column 6 is the only thing between that rewrite and
+      // a green deploy.
+      await retamper(
+        `BEFORE UPDATE OF reason OR DELETE ON public.job_queue_actions
+         FOR EACH ROW EXECUTE FUNCTION public.job_queue_actions_append_only()`,
+      )
+      expect(await tamperedCheckMessage()).toContain('definition checksum')
+    })
+
+    // --- part 1b: the scan for triggers nobody declared. ---
+
+    it('1b: fails on an extra undeclared trigger, on each of the three guarded tables', async () => {
+      // Per-table rather than once, because the scan derives its table list from the
+      // manifest and a list that silently covered only one table would pass a
+      // single-table test.
+      for (const table of [
+        'job_queue_actions',
+        'job_queue_generation_entries',
+        'job_queue_generations',
+      ]) {
+        await q(`
+          CREATE OR REPLACE FUNCTION public.ac5_extra_noop() RETURNS trigger
+          LANGUAGE plpgsql AS $noop$ BEGIN RETURN NEW; END $noop$;
+        `)
+        await q(
+          `CREATE OR REPLACE TRIGGER ac5_extra_trigger BEFORE INSERT ON public.${table}
+             FOR EACH ROW EXECUTE FUNCTION public.ac5_extra_noop()`,
+        )
+        try {
+          const err = await rejected(readFileSync(CHECK_SQL, 'utf8'))
+          expect(err.message).toContain('NOT DECLARED')
+          expect(err.message).toContain(table)
+        } finally {
+          await q(`DROP TRIGGER IF EXISTS ac5_extra_trigger ON public.${table}`)
+          await q(`DROP FUNCTION IF EXISTS public.ac5_extra_noop()`)
+        }
+        await applyFile(CHECK_SQL)
+      }
+    })
+
+    it('1b: fails on a decoy reusing a DECLARED name on a DIFFERENT guarded table', async () => {
+      // This pins the scan's table-match operand (`expected_triggers[s][2] =
+      // c.relname`) specifically. Matching on the NAME alone would accept this
+      // decoy as declared, because `trg_job_queue_generations_frozen` IS a declared
+      // name — just not on this table. The seven declared triggers all remain
+      // present and correct, so no other assertion fires.
+      await q(`
+        CREATE OR REPLACE FUNCTION public.ac5_decoy_noop() RETURNS trigger
+        LANGUAGE plpgsql AS $noop$ BEGIN RETURN NEW; END $noop$;
+      `)
+      await q(
+        `CREATE OR REPLACE TRIGGER trg_job_queue_generations_frozen
+           BEFORE INSERT ON public.job_queue_actions
+           FOR EACH ROW EXECUTE FUNCTION public.ac5_decoy_noop()`,
+      )
+      try {
+        const err = await rejected(readFileSync(CHECK_SQL, 'utf8'))
+        expect(err.message).toContain('NOT DECLARED')
+        expect(err.message).toContain(
+          'trg_job_queue_generations_frozen on public.job_queue_actions',
+        )
+      } finally {
+        await q(
+          `DROP TRIGGER IF EXISTS trg_job_queue_generations_frozen ON public.job_queue_actions`,
+        )
+        await q(`DROP FUNCTION IF EXISTS public.ac5_decoy_noop()`)
+      }
+      await applyFile(CHECK_SQL)
+    })
+
+    // --- part 2b: the overload report. ---
+
+    it('2b: reports an unexpected overload of a guard function name', async () => {
+      // Nothing in the reviewed DDL creates an overload, so one is an unreviewed
+      // object sitting next to a security guard under a confusable name.
+      // `RETURNS int`, not `RETURNS trigger`: PostgreSQL refuses declared arguments
+      // on a trigger function outright ("trigger functions cannot have declared
+      // arguments"), so the confusable object an attacker could actually leave
+      // behind under a guard's name is a NON-trigger overload. The check matches on
+      // `proname` and non-empty identity arguments without caring about the return
+      // type, which is what makes it see this.
+      await q(`
+        CREATE OR REPLACE FUNCTION public.job_queue_actions_append_only(p_unused int)
+        RETURNS int LANGUAGE sql
+        SET search_path = pg_catalog, public, pg_temp
+        AS $over$ SELECT 1 $over$;
+      `)
+      try {
+        const err = await rejected(readFileSync(CHECK_SQL, 'utf8'))
+        expect(err.message).toContain('unexpected overload')
+        expect(err.message).toContain('job_queue_actions_append_only')
+      } finally {
+        await q(`DROP FUNCTION IF EXISTS public.job_queue_actions_append_only(int)`)
+      }
+      await applyFile(CHECK_SQL)
+    })
   })
 
   // -------------------------------------------------------------------------
