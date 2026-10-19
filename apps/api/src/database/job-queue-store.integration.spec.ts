@@ -1,9 +1,14 @@
 import { randomUUID } from 'node:crypto'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { Pool, type PoolClient } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { assertRealDbSchema, hasDatabaseUrl } from '../test/require-real-db'
+import {
+  APPEND_ONLY_TRIGGERS_DDL,
+  applyDeployDdlFile,
+  dropRolesCreated,
+  existingDeployRoles,
+  installDeployRoles,
+} from './__test-helpers__/deploy-ddl-preconditions'
 
 /**
  * r5 Task 1.2 (part 3) — the QUEUE workflow store against the REAL Postgres
@@ -40,6 +45,21 @@ import { assertRealDbSchema, hasDatabaseUrl } from '../test/require-real-db'
  * in `beforeAll`. The file is idempotent by design (`CREATE OR REPLACE` plus
  * `DROP TRIGGER IF EXISTS` then `CREATE TRIGGER`), which is what makes applying
  * it here safe next to the sibling that also applies it.
+ *
+ * THE FIRST ATTEMPT AT THAT WAS STILL INHERITING, and the correction is worth
+ * recording because the first version LOOKED self-sufficient. Applying the 1.3b
+ * DDL needs TWO roles — `crm_retention_owner` owns the R-B functions, `crm_app`
+ * is the only grantee of EXECUTE on them — and the first version created only
+ * the first, by hand. Run alone on a fresh cluster this suite therefore still
+ * failed in `beforeAll`, with `required role(s) absent: crm_app`; it passed in
+ * CI only because `db-privileges.integration.spec.ts` is larger still, runs
+ * before it, and applies the real roles file. It also left the one role it did
+ * create behind in the cluster. Both roles now come from the shipped roles file
+ * via `__test-helpers__/deploy-ddl-preconditions.ts`, and `afterAll` drops
+ * exactly the ones this run created — so the suite is a no-op on a cluster that
+ * already has them and leaves no residue on one that does not. The measurement
+ * that matters here is not "CI is green" but "`vitest run <this file>` is green
+ * on a cluster with no `crm_*` role at all".
  *
  * CLEANUP: every row is reachable from this suite's TAG (users by email, teams
  * by name, opportunities by title, records by namespace, keys / reasons /
@@ -99,41 +119,25 @@ const GUARD_TRIGGERS = [
   { table: 'job_queue_actions', trigger: 'trg_job_queue_actions_no_truncate' },
 ] as const
 
-const TRIGGERS_DDL = join(
-  __dirname,
-  '..',
-  '..',
-  'drizzle',
-  'manual',
-  '2026-10-18_job_queue_append_only_triggers.sql',
-)
+/** Deploy roles this suite created and must therefore drop again. See `afterAll`. */
+let rolesCreatedHere: readonly string[] = []
 
 /**
- * Establish this suite's preconditions: the Task 1.3b guard triggers exist and are
- * `ENABLE ALWAYS`. See the header for why the suite applies the DDL instead of hoping a
- * sibling did.
+ * Establish this suite's preconditions: the deploy roles exist, and the Task 1.3b guard
+ * triggers exist and are `ENABLE ALWAYS`. See the header for why the suite establishes them
+ * instead of hoping a sibling did.
  *
- * The DDL refuses to apply unless `crm_retention_owner` exists, because it hands that role
- * the two R-B functions. In production `2026-10-18_db_roles.sql` creates it, as the FIRST
- * manual file of the deploy; on a scratch database the only other thing that creates it is
- * another spec, which is exactly the inheritance this function exists to end. So it is
- * created here when absent, with the two attributes that make the role safe and that the
- * roles file is the source of truth for: NOLOGIN (off the network) and CONNECTION LIMIT 0.
- * Nothing else about the role is asserted here — `db-privileges.integration.spec.ts` owns
- * that, against the manifest.
+ * The 1.3b DDL refuses to apply unless BOTH `crm_retention_owner` (it owns the two R-B
+ * functions) and `crm_app` (the only grantee of EXECUTE on them) exist. An earlier version
+ * of this function created only the first, by hand — so run alone on a fresh cluster the
+ * suite still died in `beforeAll` with `required role(s) absent: crm_app`, and it left the
+ * role it had created behind in the cluster. Both roles now come from the SHIPPED roles
+ * file, so their attributes have one source of truth and cannot drift from it, and
+ * `afterAll` drops exactly the ones this run created.
  */
 async function installAppendOnlyGuards(): Promise<void> {
-  await q(`DO $ensure$
-    BEGIN
-      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'crm_retention_owner') THEN
-        CREATE ROLE crm_retention_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
-          NOREPLICATION NOBYPASSRLS INHERIT CONNECTION LIMIT 0;
-      END IF;
-    END
-    $ensure$;`)
-  // One multi-statement query: the same statement-level autocommit `psql < file` gives it,
-  // which is how the deploy applies this file.
-  await q(readFileSync(TRIGGERS_DDL, 'utf8'))
+  rolesCreatedHere = await installDeployRoles(pool)
+  await applyDeployDdlFile(pool, APPEND_ONLY_TRIGGERS_DDL)
 }
 
 const NEW_TABLES = [
@@ -283,13 +287,26 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
           WHERE tgrelid = 'job_queue_actions'::regclass AND NOT tgisinternal
           ORDER BY tgname`,
       )
-      await pool.end()
+      // Leave the cluster as this suite found it: drop exactly the roles IT created.
+      // On CI a sibling creates them first, so this is a no-op there; run alone on a
+      // fresh cluster it is what keeps the suite from leaking `crm_retention_owner`
+      // (and, with it, the two R-B functions the role owns) into the cluster.
+      let leaked: string[] = []
+      try {
+        await dropRolesCreated(pool, rolesCreatedHere)
+        if (rolesCreatedHere.length > 0) leaked = await existingDeployRoles(pool)
+      } finally {
+        await pool.end()
+      }
       const names = rows.map((r) => r.tgname).join(',')
       const wanted = GUARD_TRIGGERS.map((g) => g.trigger).join(',')
       if (names !== wanted || !rows.every((r) => r.tgenabled === 'A')) {
         throw new Error(
           `teardown left the action-log guards in a bad state: ${JSON.stringify(rows)}`,
         )
+      }
+      if (leaked.length > 0) {
+        throw new Error(`teardown left role(s) behind in the cluster: ${leaked.join(', ')}`)
       }
     }
   })
