@@ -1,0 +1,133 @@
+name: API Permission Denied Watch
+
+# Measure 2 of the least-privilege ADR (docs/architecture/2026-10-17-db-least-privilege-roles.md,
+# "What step 4 does not reach"), a PREREQUISITE of switching the API to `crm_app`:
+# match `permission denied` / SQLSTATE 42501 in the API's logs, STANDING (not only
+# during a deploy), and make a hit reach the owner.
+#
+# Why standing: six of eight cron services use a fully mocked DatabaseService, so a
+# misclassified table is found by the first cron fire (daily or monthly, plausibly
+# after the 48-hour deploy log watch) as a 42501 inside a handler that swallows its
+# errors. Nothing else would ever say so.
+#
+# HONEST STATE ON MERGE: "detection in place and verified, coverage and paging pending".
+#
+# COVERAGE DEPENDS ON A LOGGING CHANGE IN THE API (fix/api-log-db-sqlstate). A Drizzle
+# query error's message is `Failed query: ...`; "permission denied" and 42501 are only
+# on `.cause`, so today a swallowed privilege error in a cron handler does NOT reach the
+# log text this watch reads. Until the API logs the SQLSTATE from `.cause` on those
+# paths, this is not "measure 2 satisfied". THE CONTRACT is the one line that change
+# produces (PR #1042): `db_privilege_denied sqlstate=42501 table=<T> ctx=<C>`. The text
+# `permission denied` / `must be owner` is belt and braces. Until #1042 merges there is no
+# production line for the contract to match: "detection in place, coverage pending".
+#
+# PAGING IS A SEPARATE FOLLOW-UP. Today a hit (or a blind scan) FAILS this run, and
+# GitHub's failed-run notification is the only owner-reaching channel the repository
+# has (deploy-freshness.yml relies on the same one). It goes to whoever last edited the
+# cron line and nothing verifies it reaches a phone. The owner has approved a real
+# channel (an ntfy.sh topic secret); that is a follow-up to this file.
+#
+# HOW IT READS. One plain `ssh` session, read-only (`docker compose ps` / `logs`), using
+# the deploy's existing VPS_* secrets, its stdout piped straight into the checker
+# (scripts/devops/scan-api-permission-denied.sh). Nothing on the VPS is changed and no
+# credential is created. Why not appleboy/ssh-action: see that script's header.
+# Client-written log lines (Fastify logs the request URL and Host) are removed on the VPS
+# before matching, and that filter FAILS CLOSED: the level is read from the text, a record
+# split by Docker's 16 KB chunking is re-parsed after stripping the inline stamps, one that
+# still cannot be read is dropped and counted (LOGSCAN_UNPARSED, shown in the summary), and a
+# canary proves the filter really ran. The pattern is a published interface read by the API
+# side: see the comment above --print-pattern in check-api-permission-denied.sh.
+# Logic, exit codes and the output hygiene (this repo and its Actions logs are PUBLIC,
+# so no raw log line is ever printed): scripts/devops/check-api-permission-denied.sh
+# (tested: scripts/devops/tests/test-check-api-permission-denied.sh).
+#
+# Cost: one job, one SSH round-trip, ~20 s, every 30 minutes. No extra jobs.
+# Window: 40 min against a 30 min period, so a scan skipped or delayed by the shared
+# runner pool does not open a gap. The overlap means a hit can be reported by two
+# consecutive runs; that is intended (the second is the reminder).
+# Known gaps, stated rather than hidden:
+#  - a deploy recreates the api container and its logs go with it. The deploy scans its
+#    own window (deploy-stack-on-vps.sh); the minutes between the last scan and the
+#    recreate are not covered;
+#  - the API container's log driver rotates (10 MB x 5): a flood larger than that inside
+#    one window could push a hit out before the scan reads it;
+#  - GitHub auto-disables scheduled workflows after 60 days without repository activity.
+#    This repository commits daily, and deploy-freshness.yml shares the exposure; nothing
+#    here alerts on the watch itself going missing.
+on:
+  schedule:
+    # Off the hour and off deploy-freshness (:23), every 30 minutes.
+    - cron: '7,37 * * * *'
+  workflow_dispatch:
+    inputs:
+      window:
+        description: 'How far back to read, e.g. 40m or 6h (after an outage, widen it)'
+        required: false
+        default: '40m'
+
+concurrency:
+  group: api-permission-denied-watch-${{ github.event_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  watch:
+    name: API logs hold no permission denied / 42501
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      # The pattern has ONE definition (the checker). The remote grep gets it from here.
+      # `window` is validated before it reaches a remote shell.
+      - name: Resolve pattern and window
+        id: cfg
+        env:
+          WINDOW_INPUT: ${{ github.event.inputs.window }}
+        run: |
+          set -euo pipefail
+          window="${WINDOW_INPUT:-40m}"
+          if ! printf '%s' "$window" | grep -Eq '^[0-9]{1,4}[mh]$'; then
+            echo "::error::window '$window' is not <number>m or <number>h"
+            exit 2
+          fi
+          # The allowlists are READ from the checked-out source on every scan (no baked
+          # copy to drift). The script exits 2 below a plausibility floor, so a manifest
+          # whose shape changed turns this run red instead of quietly making every
+          # object `unknown`.
+          scripts/devops/derive-permission-denied-allowlists.sh > "$RUNNER_TEMP/allowlists.txt"
+          {
+            echo "window=$window"
+            echo "re=$(scripts/devops/check-api-permission-denied.sh --print-pattern)"
+            echo "contract=$(scripts/devops/check-api-permission-denied.sh --print-contract-pattern)"
+            cat "$RUNNER_TEMP/allowlists.txt"
+          } >> "$GITHUB_OUTPUT"
+
+      # ONE step: plain `ssh` piped straight into the checker. Deliberately NOT
+      # appleboy/ssh-action (fix round 1, SR-H-1/SR-M-1): its banner and its doubled
+      # GITHUB_OUTPUT write made every run exit 2, its captured output (remote stderr
+      # included, in drone-ssh 1.8.1) reached the log through the next step's env: before
+      # any checker ran, and it is a third-party binary downloaded at runtime without a
+      # checksum on a path that carries the deploy key. Here nothing is captured,
+      # rendered or round-tripped. Exit 0 clean, 1 a hit, 2 blind; the run goes red on 1
+      # and 2, which is the page. Secrets arrive via env: only, never interpolated.
+      - name: Read the API logs over SSH (read-only) and scan them
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          # Optional repo VARIABLE (public host-key lines). Unset = the key is fetched with
+          # ssh-keyscan on every run, i.e. not verified (see the driver's header).
+          VPS_KNOWN_HOSTS: ${{ vars.VPS_KNOWN_HOSTS }}
+          LOGSCAN_RE: ${{ steps.cfg.outputs.re }}
+          LOGSCAN_CONTRACT_RE: ${{ steps.cfg.outputs.contract }}
+          LOGSCAN_SINCE: ${{ steps.cfg.outputs.window }}
+          # The checker re-verifies every logger and object against the SAME lists.
+          LOGSCAN_TABLES: ${{ steps.cfg.outputs.tables }}
+          LOGSCAN_LOGGERS: ${{ steps.cfg.outputs.loggers }}
+        run: scripts/devops/scan-api-permission-denied.sh

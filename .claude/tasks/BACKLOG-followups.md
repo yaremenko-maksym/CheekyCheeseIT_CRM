@@ -2872,3 +2872,212 @@ alert — it was noticed only because the orchestrator was reading deploy runs b
 
 **Check on closing:** a deliberately synthesised old-failure history makes the guard report, demonstrated by a run;
 and a failure repaired within three hours still produces one notification.
+
+## 232. `db:seed` is refused on any development database that has run the append-only spec (2026-10-19)
+
+(orchestrator, from the 1.3b fix round; severity MED — it blocks a routine developer action, and the
+obvious fix would weaken an audit guard). The seed truncates `users … CASCADE`; the cascade reaches
+`job_queue_actions`; the append-only trigger refuses it with SQLSTATE `23001` and the message
+"job_queue_actions is append-only: TRUNCATE refused". Measured both ways: with the triggers installed the
+seed fails, with them dropped it completes. **The guard is doing exactly its job.** CI is unaffected
+because it seeds before any spec installs the triggers, and production is unaffected because production
+never seeds. What it hits is every developer and QA database that has run the 1.3b integration spec and
+is then re-seeded.
+
+**The reason this is a backlog entry rather than a commit in that fix round:** giving the seed path the
+ability to disarm an append-only audit guard is a security-relevant change to a tool that runs with owner
+privileges. It wants its own PR and a security review, not a tail-end commit. The sanctioned shape
+already exists in the 1.3b spec's own teardown — disable the two action triggers as the owner, truncate,
+re-enable in a `finally` — so the work is to lift that into the seed deliberately, with the review that
+deserves.
+
+**Check on closing:** `db:seed` completes on a database that has the triggers installed, and a test
+proves the triggers are re-enabled afterwards even when the seed fails midway.
+
+## 233. The integration suite's verdict depends on Cloudflare being reachable (2026-10-19)
+
+(orchestrator, from a CI failure on an unrelated PR; severity MED — a third party can turn the suite red).
+`TurnstileService.verify()` makes a live HTTPS call to Cloudflare's siteverify endpoint on every
+application submit, and converts **any** failure — network error, timeout, non-2xx, `success: false` —
+into `false`, which the caller turns into a 400. The integration specs have no stub and no bypass: even
+the "always passes" test secret needs the round trip to succeed.
+
+Observed: one apply out of ten in a single CI run failed with `APPLICATION_TURNSTILE_FAILED` while the
+other nine passed, including `contact.integration.spec.ts`'s deliberately-live siteverify test two
+minutes later. That distribution is what rules out an environment or configuration cause — those would
+have failed all ten.
+
+**Closing shape:** stop calling Cloudflare from the integration suite — stub `TurnstileService`, or gate
+the live call behind an explicit opt-in flag and keep **one** deliberately-live test if that path is
+worth covering. Do not instead pin a sequencer order or resize a spec file: that restores the
+concealment rather than removing the dependency.
+
+**Check on closing:** the suite passes with outbound network to Cloudflare blocked.
+
+## 234. The isolation hook cannot record a checkout created through an unexpanded variable, and four briefs have not fixed it (2026-10-19)
+
+(orchestrator, observed four times in one day; severity MED — it leaks worktrees and the mitigation is
+discipline, which measurably does not hold). The hook records `<agent_id> <path>` only when it sees a
+`git worktree add` whose path is a literal absolute path below the scratchpad root. An agent that writes
+`git worktree add "$S/co-pr1026-sec"` creates a tree the hook has no record of, and the later
+`git worktree remove` is refused (`WORKTREE-REMOVE` / `WORKTREE-UNRECORDED`). **The refusals are correct** —
+an unrecorded path in a shared scratchpad is one the hook cannot prove is free — and every agent
+respected them rather than working around it.
+
+What does not work is the instruction. Four reviewer and coder agents left orphans this way, including
+one whose brief spelled the correct pattern out verbatim ("expand the variable once with `echo`, then use
+the literal for both `add` and `remove`"). Four for four. **An instruction ignored four times is not an
+instruction problem.**
+
+**Candidates, in order of preference:** have the hook record the _resolved_ path — it sees the expanded
+argv, so the variable is already gone by the time it runs, which makes this look feasible and removes the
+failure mode entirely; or give agents a wrapper to call instead of raw `git worktree add`. Do not add a
+fifth paragraph to the briefs.
+
+**Check on closing:** an agent that creates a checkout through a variable can still remove its own, and a
+sibling's tree is still refused.
+
+## 235. The health endpoint reports healthy throughout a database outage (2026-10-19)
+
+(from the pool-error-listener task; severity LOW-MED — it misreports during exactly the incident it would
+be consulted in). `HealthController.check()` does not touch the database and always returns
+`status: 'ok'`. So while Postgres is down or refusing the API's credentials, the endpoint says the service
+is healthy.
+
+This did not matter much while the API crashed on a database restart, because the crash was itself the
+signal. Now that the pool logs idle-client errors and survives (entry: the listener landed 2026-10-19),
+the process stays up through an outage and the endpoint is the only thing a human or a monitor would ask —
+and it answers wrongly.
+
+Deliberately **not** widened into the listener's PR: changing what readiness means can change deploy
+behaviour, and the ADR's deploy ordering relies on `docker compose up -d` rather than a health gate, so
+this needs its own reasoning about who consumes the endpoint before its semantics move.
+
+**Check on closing:** with the database stopped, the endpoint reports unhealthy; and the deploy's own
+ordering is shown to still behave as the ADR describes.
+
+## 236. The telemetry exception filter stores bound query parameter values (2026-10-19)
+
+(raised by code review on PR #1042, confirmed by security review; severity MED — data minimisation, not
+disclosure). `TelemetryExceptionFilter` stores `exception.message` and `exception.stack` of every 5xx.
+For a Drizzle query error **both carry the bound parameter values**, and `sanitizeAndTruncate` redacts
+only Bearer tokens, cookie headers and passwords. So values a request supplied are written to
+`telemetry_errors` and forwarded into the issues the digest files.
+
+**Calibrate the severity correctly, because the first report of this got it wrong.** The digest files
+issues in a **private** repository — every `gh` call in `telemetry-digest.yml` targets `PRIVATE_REPO`, and
+the header carries an explicit "NEVER point this workflow at the public". The first report claimed a
+public issue because a **comment in the filter said "public GitHub issue pipeline"**, which was untrue;
+PR #1042 corrects that wording in three places. So this is "more stored than needed, in a channel
+designed for it", and the cost is what a later leak, a stale retention window or an over-broad token
+would expose.
+
+**The reusable pieces already exist** (with PR #1042): `findPgError`, `describeDbError` and
+`safeErrorStack`. The filter receives the thrown `DrizzleQueryError`, so `safeErrorStack(exception)` gives
+a frames-only stack and `describeDbError(exception) ?? exception.message` a value-free message.
+
+**Two decisions the task must make, both named by the author:** grouping shifts once, because
+`fingerprint.ts` hashes the normalised message plus top frames and the replacement uses statement
+placeholders; and a non-database error whose own message embeds a value is **not** covered by these
+helpers, so that needs its own rule.
+
+**Check on closing:** a 5xx caused by a Drizzle error stores no parameter value, proven with a
+recognisable marker; and the digest still groups errors usefully after the fingerprint input changes.
+
+## 237. `integration-db-guard.ts` shares the socket-URL bypass (2026-10-19)
+
+(found by code review on PR #1043; severity MED — the primary guard, not a second lock). For a socket-form
+URL that carries the database in a `db` query parameter, `pg` takes the database from the parameter and
+**ignores the path**. The guard reads only the path, so it allows the URL while `pg` connects to the live
+database.
+
+This is the **primary** guard — it runs on every integration invocation — so the reassuring sentence
+written during PR #1043 ("the live database was never reachable through this, because the primary guard
+decodes") is **not true**. The primary guard closes the percent-encoding route and shares this one.
+
+**The fix is known and already proven in the sibling:** PR #1043's `assertNotLiveDb` refuses if either
+`extractDbName` **or** `new Client({ connectionString }).database` says live — `pg`'s own parse, so the
+guard follows what would actually connect instead of reimplementing its rules. It also refuses a URL `pg`
+cannot parse at all, which was a separate design gap found by hand mutation.
+
+**Do not delete the path check as redundant.** Measured during #1043: a fuzz of 71,400 URL shapes found
+**1,974** where the path says live and `pg`'s parse does not, and `pg` parsed 1,414 of those fine — for
+instance a socket URL with three slashes, where `pg` resolves the OS user. Both signals are load-bearing.
+
+**Check on closing:** all four socket forms are refused by the primary guard, and a URL `pg` cannot parse
+is refused rather than allowed.
+
+## 238. The mutation gate cannot see `apps/api/src/test/**`, and one file there now deserves it (2026-10-19)
+
+(raised by the author of PR #1043 against its own evidence, endorsed by its reviewer; severity MED — a
+guard whose green is not evidence). `src/test/**` is in the `@crm/api` exclude list in
+`scripts/devops/mutation-gate.mjs`, so the gate exits 0 on a diff confined to that directory **because it
+found nothing to mutate**. On PR #1043 that produced a green gate on a change to a live-database guard,
+and the author said so in its own PR body rather than letting the green stand as proof.
+
+**Do not drop the exclusion wholesale.** The reviewer's reasoning: that directory also holds the
+integration `globalSetup` guard, which a unit-suite gate cannot kill, plus fixtures and mocks — all of
+which would report as survivors or no-coverage noise.
+
+**The shape to implement:** a **narrow, named re-include** for `assert-not-live-db.ts`, pinned by a test
+so the re-include cannot be dropped silently — the schema-exclude test is the model. It is **two places**,
+not one: the pattern list and the changed-file filter.
+
+**Why it earns the work:** both PRs that touched that file had to substitute hand mutation for the gate,
+and in both cases the hand pass left survivors the tool would have caught — three on #1043's second pass,
+one of which was a design gap rather than a test gap.
+
+**Check on closing:** a deliberate mutation of `assert-not-live-db.ts` makes the gate red, and a change
+confined to fixtures still does not.
+
+## 239. Twelve agents were cut by the stream watchdog in one evening (2026-10-19)
+
+(orchestrator, counted; severity MED — process, and the instruction demonstrably is not the fix). On the
+1.3 chain, twelve agent runs ended with "no progress for 600s". The common factor every time was a long
+**quiet** stretch, never a long step: a mechanical sweep across many fixtures, a full suite run, a
+large-output command, and — twice — an agent that had correctly backgrounded a command and then waited
+with nothing printed between probes.
+
+`.claude/rules/common/stream-watchdog.md` already prescribes the four moves, and the orchestrator
+restated them in **every** resume message. That is the point of this entry: **the instruction was given
+twelve times and the outcome did not change.** An instruction repeated and ignored is a mechanism problem.
+
+**What the cuts cost** was small each time, and only because of the `wip:` cadence — the work survived on
+`origin` in most cases. Where nothing had been pushed, a whole stretch was lost, three times.
+
+**Candidates, roughly cheapest first:** a wrapper that prints a heartbeat while a long command runs, so
+waiting is never silent; a sentence in the rule saying that **backgrounding is not enough** — the wait
+itself is the silence, which the current wording does not say; and a dispatch-time default that puts the
+first `wip:` push before any long step rather than after the first cluster.
+
+**Check on closing:** a run that spends ten minutes on one command is not cut, and the mechanism that
+prevents it does not depend on the agent remembering to print.
+
+## 240. The live-db hook cannot see a `PGDATABASE` inherited from the session (2026-10-19)
+
+(stated by the author of PR #1044 at the code, deliberately rather than as an oversight; severity LOW-MED
+— a known blind spot in a guard's coverage). `pre:bash:live-db-guard` now checks an **inline**
+`PGDATABASE` assignment through the same name rules as the URL, because an inline assignment in front of
+a dev-server command is an idiom it would otherwise wave through. But a `PGDATABASE` exported earlier in
+the session is invisible to it: the hook sees only the command line.
+
+So the guard watches two of the three doors into the same room — the URL path and an inline environment
+assignment — and the third, an inherited environment, is open by construction. An AutoTest agent measured
+the equivalent on the application side: a path-less database URL with that variable exported really does
+land in the live database.
+
+**What a fix would need:** the hook would have to read the invoking shell's environment, which a
+`PreToolUse` hook does not receive. So this may be closed not in the hook but by the thing it guards —
+for example a dev-server preflight that prints `current_database()` and refuses on the live name, which
+is the same device `live-db-access.md` already requires of agents by hand.
+
+**A false positive of the same hook, found while writing this entry.** Appending this text with a shell
+heredoc was **refused**: the hook read an example command inside the document as a launch in command
+position. Its own refusal message claims that reading about a launch no longer trips it, so that
+boundary does not hold for heredoc content. Harmless here — the entry was written with a different tool
+and nothing was bypassed — but it is evidence for the same conclusion as the blind spot above: this hook
+decides from the command text alone, which is both why it misses an inherited variable and why it
+mistakes documentation for an action.
+
+**Check on closing:** exporting the variable and then starting a dev server is refused or fails loudly
+before it connects; and writing a document that quotes such a command is not refused.
