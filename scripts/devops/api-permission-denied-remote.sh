@@ -36,11 +36,61 @@ if ! logs=$($dc logs --no-color --timestamps --since "$LOGSCAN_SINCE" api 2>&1 <
   exit 0
 fi
 
+# ── Drop what an anonymous client can write into the log (SR-H-5) ─────────────────────
+# Production logs requests with Fastify's own logger (pino JSON, apps/api/src/main.ts),
+# and `req.url` reaches it verbatim with its query string, so `GET /api/health?code=42501`
+# is a line the pattern matches. Measured against the REAL Fastify logger (see
+# tests/lib/real-fastify-request-log.ts): it is not only the `req` object. Fastify's own
+# 404 record has NO req/res key and still echoes the path in its `msg`
+# ("Route GET:/x/sqlstate=42501 not found"). So the rule is by record, not by key:
+#   - a pino record below level 50 (info/warn: request lifecycle, 404, 4xx) is never
+#     evidence of a database error, and is dropped;
+#   - a record at level 50+ is kept, with `req`, `res` and `reqId` removed (a genuine 500
+#     keeps its `err`, the client's URL is gone);
+#   - anything that is not a whole-line pino record (Nest's text Logger) is kept as is.
+# Only a line that STARTS as a JSON object (after docker's `service | timestamp ` prefix)
+# is touched, so an attacker cannot get a genuine text line dropped by echoing `{...}`.
+# Fail closed: no python3 (a documented VPS dependency already, see
+# check-backup-freshness.sh) or a crash is LOGSCAN_FAILED, never "nothing found".
+# KEEP THE PYTHON IDENTICAL IN deploy-stack-on-vps.sh (tests/test-check-api-permission-denied.sh
+# fails on drift).
+# --- BEGIN LOGSCAN_REQ_FILTER
+read -r -d '' LOGSCAN_REQ_FILTER <<'PYEOF' || true
+import json, re, sys
+rx = re.compile(r"^((?:[^|{]{0,60}\| )?(?:\d{4}-\d\d-\d\dT[0-9:.]{8,20}Z )?)(\{.*\})$")
+for raw in sys.stdin.buffer:
+    line = raw.decode("utf-8", "replace").rstrip("\r\n")
+    m = rx.match(line)
+    if not m:
+        print(line)
+        continue
+    try:
+        rec = json.loads(m.group(2))
+    except ValueError:
+        print(line)
+        continue
+    if not isinstance(rec, dict):
+        print(line)
+        continue
+    lvl = rec.get("level")
+    if isinstance(lvl, int) and lvl < 50:
+        continue
+    for k in ("req", "res", "reqId"):
+        rec.pop(k, None)
+    print(m.group(1) + json.dumps(rec, separators=(",", ":")))
+PYEOF
+# --- END LOGSCAN_REQ_FILTER
+command -v python3 >/dev/null 2>&1 || { echo "LOGSCAN_FAILED=no_python3"; exit 0; }
+if ! filtered=$(printf '%s\n' "$logs" | python3 -c "$LOGSCAN_REQ_FILTER" 2>/dev/null); then
+  echo "LOGSCAN_FAILED=req_filter"
+  exit 0
+fi
+
 echo "LOGSCAN_API_CONTAINERS=$n"
 echo "LOGSCAN_CONTAINER=${cname:-unknown}"
 echo "LOGSCAN_LINES=$(printf '%s\n' "$logs" | grep -c . || true)"
-echo "LOGSCAN_HITS=$(printf '%s\n' "$logs" | grep -aEic -e "$LOGSCAN_RE" || true)"
-printf '%s\n' "$logs" | grep -aEi -e "$LOGSCAN_RE" | tail -n 20 | while IFS= read -r l; do
+echo "LOGSCAN_HITS=$(printf '%s\n' "$filtered" | grep -aEic -e "$LOGSCAN_RE" || true)"
+printf '%s\n' "$filtered" | grep -aEi -e "$LOGSCAN_RE" | tail -n 20 | while IFS= read -r l; do
   # `docker compose logs` prefixes every line with `<service>-<n>  | ` and, with
   # --timestamps, the RFC3339 time follows the pipe. Accept both that and the bare
   # `docker logs` shape. (Measured against the real format: the first version of this

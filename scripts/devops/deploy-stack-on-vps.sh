@@ -2251,6 +2251,37 @@ fi
 # PATTERN: keep identical to scripts/devops/check-api-permission-denied.sh
 # (--print-pattern); tests/test-check-api-permission-denied.sh fails on drift.
 PERMISSION_DENIED_RE='permission denied|must be (owner|superuser)|(sqlstate|code)[^0-9a-z]{0,6}42501'
+# SR-H-5: the API's Fastify request logger writes `req.url` (query string included) and,
+# for a 404, the requested path into pino JSON records, so an ANONYMOUS request such as
+# `GET /api/health?code=42501` would otherwise fail this deploy. These records are dropped
+# or stripped before matching; see api-permission-denied-remote.sh for the measured
+# reasoning. KEEP THE PYTHON IDENTICAL to that file (the test fails on drift).
+# --- BEGIN LOGSCAN_REQ_FILTER
+read -r -d '' LOGSCAN_REQ_FILTER <<'PYEOF' || true
+import json, re, sys
+rx = re.compile(r"^((?:[^|{]{0,60}\| )?(?:\d{4}-\d\d-\d\dT[0-9:.]{8,20}Z )?)(\{.*\})$")
+for raw in sys.stdin.buffer:
+    line = raw.decode("utf-8", "replace").rstrip("\r\n")
+    m = rx.match(line)
+    if not m:
+        print(line)
+        continue
+    try:
+        rec = json.loads(m.group(2))
+    except ValueError:
+        print(line)
+        continue
+    if not isinstance(rec, dict):
+        print(line)
+        continue
+    lvl = rec.get("level")
+    if isinstance(lvl, int) and lvl < 50:
+        continue
+    for k in ("req", "res", "reqId"):
+        rec.pop(k, None)
+    print(m.group(1) + json.dumps(rec, separators=(",", ":")))
+PYEOF
+# --- END LOGSCAN_REQ_FILTER
 echo "==> Scanning the new api container's logs for permission denied / 42501 (since ${DEPLOY_STARTED_AT})"
 if ! API_LOGS_SINCE_DEPLOY="$(docker compose \
   -f docker-compose.prod.yml \
@@ -2260,7 +2291,11 @@ if ! API_LOGS_SINCE_DEPLOY="$(docker compose \
   echo "ERROR: could not read the api container's logs; refusing to pass the 42501 check unread"
   exit 1
 fi
-PERMISSION_DENIED_HITS="$(printf '%s\n' "$API_LOGS_SINCE_DEPLOY" | grep -aEi -e "$PERMISSION_DENIED_RE" | grep -c . || true)"
+if ! command -v python3 >/dev/null 2>&1 || ! API_LOGS_FILTERED="$(printf '%s\n' "$API_LOGS_SINCE_DEPLOY" | python3 -c "$LOGSCAN_REQ_FILTER")"; then
+  echo "ERROR: could not filter the api logs (python3 missing or failed); refusing to pass the 42501 check unread"
+  exit 1
+fi
+PERMISSION_DENIED_HITS="$(printf '%s\n' "$API_LOGS_FILTERED" | grep -aEi -e "$PERMISSION_DENIED_RE" | grep -c . || true)"
 if [ "${PERMISSION_DENIED_HITS:-0}" -gt 0 ]; then
   echo "::error::permission denied / SQLSTATE 42501 appeared ${PERMISSION_DENIED_HITS} time(s) in the api logs during this deploy. The new image is already live; a grant is missing or a table is misclassified. Read the container logs on the VPS (docker compose logs api); this log deliberately does not repeat them."
   exit 1
