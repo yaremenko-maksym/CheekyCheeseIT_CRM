@@ -27,10 +27,14 @@ import { splitSqlStatements } from './manual-sql-statements'
  *   DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_scratch_trig1024 \
  *     pnpm --filter @crm/api test -- job-queue-append-only.integration
  *
- * TWO THINGS THE SUITE NEEDS FROM ITS DATABASE, both stated rather than assumed:
- *   - the roles `crm_retention_owner` and `crm_app` (r5 Task 1.3c). The DDL refuses
- *     to apply without them, so their absence shows up as a setup failure naming
- *     them, not as a mystery;
+ * TWO THINGS THE SUITE NEEDS FROM ITS DATABASE, both ESTABLISHED rather than assumed:
+ *   - the roles `crm_retention_owner` and `crm_app` (r5 Task 1.3c). The suite INSTALLS
+ *     them itself, from the shipped roles file so their attributes have one source of
+ *     truth, and `afterAll` drops exactly the ones this run created — so it is a no-op
+ *     on a cluster that already had them and leaves no residue on one that did not.
+ *     (Until fix round 1 this bullet said their absence "shows up as a setup failure";
+ *     it did, which was the defect — the suite inherited them from whichever sibling
+ *     vitest happened to sequence first and could not run alone at all.);
  *   - the table privileges of `crm_retention_owner` on `job_queue_actions`. Those are
  *     1.3c's to grant in production; this suite grants them in its own scratch
  *     database so the trigger's admitted shapes can be exercised DIRECTLY (`SET ROLE`
@@ -297,8 +301,8 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
 
     // 1.3c owns these grants in production; the suite needs them to drive the
     // trigger's admitted shapes directly. Scratch-database only, and `afterAll`
-    // revokes them — see PRODUCTION GRANT SET in the header for why the UPDATE one in
-    // particular must not outlive this suite.
+    // revokes them — see the docblock on `PRODUCTION_WITHHELD_GRANT` above for why the
+    // UPDATE one in particular must not outlive this suite.
     await q(`GRANT SELECT, INSERT, DELETE ON job_queue_actions TO crm_retention_owner`)
     await q(PRODUCTION_WITHHELD_GRANT)
 
@@ -798,6 +802,25 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
   // -------------------------------------------------------------------------
   // AC4 — the R-B retention path
   // -------------------------------------------------------------------------
+  /**
+   * AC4 — the two SECURITY DEFINER functions.
+   *
+   * READ THIS BEFORE READING THE GREEN LIST BELOW (fix round 2, CR-M-6). The four
+   * tests whose titles end "(logic only: needs a grant production lacks)" run under
+   * `PRODUCTION_WITHHELD_GRANT`, a column-level `UPDATE` that production does NOT
+   * have and that part 3 of the privileges check forbids outright. They establish
+   * what the function's BODY does, and nothing about what production can do.
+   *
+   * Under the shipped grant set `crm_retention_redact_action_reason` raises `42501`
+   * on its first call — which is pinned, by `is INERT under the PRODUCTION grant
+   * set`, the one test in this describe that speaks about production. So: the purge
+   * half of the retention path is real and callable; the REDACTION half is inert, and
+   * four passing tests next to it do not change that. The reason it is inert and
+   * cannot simply be granted is in the DDL header under "KNOWN DIVERGENCE ... (2 of
+   * 2)": a redaction cannot append its `REASON_REDACTED` evidence row at all until a
+   * schema task lands the enum value, so a grant today would buy a path that runs and
+   * still fails to record the evidence that makes it legally meaningful.
+   */
   describe('AC4 — R-B: the two SECURITY DEFINER functions', () => {
     it('purges an expired row and leaves a fresh one', async () => {
       const expired = await newAction({
@@ -822,7 +845,7 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       expect(survivor[0].n).toBe(1)
     })
 
-    it('redacts a reason to the fixed token and nothing else', async () => {
+    it('redacts a reason to the fixed token and nothing else (logic only: needs a grant production lacks)', async () => {
       const id = await newAction({
         actorId: actor,
         opportunityId: opportunity,
@@ -845,7 +868,7 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       }
     })
 
-    it('is idempotent on an already-redacted row (no second write)', async () => {
+    it('is idempotent on an already-redacted row, no second write (logic only: needs a grant production lacks)', async () => {
       const id = await newAction({ actorId: actor, opportunityId: opportunity })
       await q(`SELECT crm_retention_redact_action_reason($1, $2)`, [id, 'dsr-2026-002'])
       const { rows } = await q(`SELECT crm_retention_redact_action_reason($1, $2) AS redacted`, [
@@ -855,7 +878,7 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       expect(rows[0].redacted).toBe(false)
     })
 
-    it('validates its arguments (condition 3: bounded, non-blank)', async () => {
+    it('validates its arguments, condition 3: bounded, non-blank (logic only: needs a grant production lacks)', async () => {
       const id = await newAction({ actorId: actor, opportunityId: opportunity })
       const blank = await rejected(`SELECT crm_retention_redact_action_reason($1, $2)`, [id, '   '])
       expect(blank.code).toBe(INVALID_PARAMETER)
@@ -955,7 +978,7 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       }
     })
 
-    it('redaction also reads the REAL table, not a temp table shadowing it', async () => {
+    it('redaction also reads the REAL table, not a temp table shadowing it (logic only: needs a grant production lacks)', async () => {
       // The same test as the one above, for the other definer function. `redact` has the
       // same unqualified references and the same `SET search_path`, so it has the same
       // exposure and deserves the same proof; until fix round 1 only `purge` had one,
@@ -1895,7 +1918,11 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
   })
 
   // -------------------------------------------------------------------------
-  // The honest gap this task could not close (DDL header, divergence 2)
+  // The honest gaps this task could not close. The generations INSERT gap below is
+  // recorded in the DDL header under "A DEFERRED GAP: `job_queue_generations` HAS NO
+  // INSERT GUARD" and in the PR body — NOT under divergence 2, which this comment used
+  // to point at and which is the unrelated `REASON_REDACTED` gap (fix round 2,
+  // SPEC-L-5). The second GAP PIN further down is the divergence-2 one.
   // -------------------------------------------------------------------------
   /**
    * Insert a generation born PUBLISHED and already expired — the row the missing

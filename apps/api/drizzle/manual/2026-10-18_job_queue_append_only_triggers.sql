@@ -28,6 +28,12 @@
 --   4. The R-B retention path   — two SECURITY DEFINER functions owned by
 --                                 `crm_retention_owner`, the only sanctioned way a
 --                                 log row is ever deleted or its `reason` redacted.
+--                                 CAVEAT, because item 4 overclaimed until fix round 2:
+--                                 only the PURGE half is callable. The REDACTION half
+--                                 ships UNCALLABLE — its first invocation raises
+--                                 `42501` under the shipped grant set, and that is
+--                                 deliberate, not an oversight. See "THE REDACTION
+--                                 HALF SHIPS UNCALLABLE" below.
 --
 -- APPLY ORDER — THIS FILE DEPENDS ON ROLES IT DOES NOT CREATE
 --   `crm_retention_owner` and `crm_app` are created by r5 Task 1.3c
@@ -128,6 +134,55 @@
 --   numbers after a purge is impossible, so the decision belongs to the task that
 --   turns the purge on.
 --
+-- THE REDACTION HALF SHIPS UNCALLABLE — AND NO GRANT SHOULD BE ADDED TO "FIX" IT
+--   Stated here once so the next reader does not reopen a settled question. Two
+--   different things are true of the two R-B functions and the word "inert" was doing
+--   duty for both, which is why item 4 above used to overclaim:
+--     - `crm_retention_purge_job_queue_actions` is CALLABLE and simply has no caller
+--       yet (no schedule, no cron — r5 Task 1.4 wires it). See "THE RETENTION PATH
+--       SHIPS INERT" below.
+--     - `crm_retention_redact_action_reason` CANNOT RUN AT ALL. It needs
+--       `UPDATE (reason)` on `job_queue_actions`; the role holds `SELECT, DELETE`; so
+--       the first real invocation fails closed with `42501`. MEASURED, and pinned by
+--       the integration suite ("is INERT under the PRODUCTION grant set").
+--
+--   WHY NOT JUST GRANT IT. Because the privilege is not the binding constraint. By
+--   divergence 2 below, a redaction cannot append its required `REASON_REDACTED`
+--   evidence row at all — the enum value and the two CHECK branches live in
+--   `apps/api/src/database/schema/**`, which this task is scoped out of. A grant today
+--   would therefore buy a path that RUNS and still fails to record the evidence, which
+--   is the half of the obligation that matters legally: a redaction nobody can prove
+--   happened is worse than one that refused. On top of that the minimum the function
+--   needs is a COLUMN-level `UPDATE`, and part 3 of the privileges check rejects any
+--   column-level privilege other than `SELECT` for these roles outright, with no
+--   declaration escape hatch — so the current model cannot even express the right
+--   grant. Table-level `UPDATE` would be wider than the function needs and is a worse
+--   trade than staying closed.
+--     The rule being followed: a grant in a least-privilege manifest is justified by a
+--   failing RUN, not by a trigger covering for it. The follow-up that lands the enum
+--   value and the two CHECK branches is the thing that creates a failing run worth
+--   granting against; it is recorded in the PR body.
+--
+--   CONSEQUENCE, STATED AND NOT SOFTENED: the GDPR erasure obligation of legal memo
+--   §8 item 3 is NOT DISCHARGED by this deploy. The purge half of retention works; the
+--   erasure half does not, and will not until that follow-up lands.
+--
+-- A DEFERRED GAP: `job_queue_generations` HAS NO INSERT GUARD
+--   The three guards on this table and its entries all constrain what happens AFTER a
+--   generation exists. Nothing constrains the INSERT, so a role with INSERT can create
+--   a generation that is already PUBLISHED and already expired — a state the state
+--   machine would never reach by moving through it. MEASURED, and deliberately left
+--   open here.
+--     Why it is a follow-up and not this file: there is no cross-team disclosure in it.
+--   An entry can only be added while the generation is BUILDING, so a generation born
+--   PUBLISHED is permanently EMPTY — the exposure is an integrity nuance (a nonsense
+--   row), not a read of another team's queue. Closing it means an eighth trigger with
+--   its own admitted-shape semantics, its own manifest entry and its own tests, decided
+--   on its own merits rather than appended to a PR already in a fix round.
+--     It is recorded in three places so it is a known state and not a discovery: here,
+--   in the PR body, and as a GAP PIN test in the integration suite that goes red the
+--   day the guard lands. It is NOT the same gap as divergence 2 below.
+--
 -- KNOWN DIVERGENCE FROM THE ADR, STATED RATHER THAN SMOOTHED OVER (1 of 2)
 --   ADR §3 reads "expired" from a retention-policy table (class E), because at the
 --   time the periods were not set. The owner then set them: two years, uniform across
@@ -162,6 +217,12 @@
 --   Nothing is quietly weaker than the authorities describe: the function exists, the
 --   trigger admits only its shape, and the evidence lands in the server log rather
 --   than nowhere.
+--   TWO BLOCKERS, NOT ONE — this note used to name only the missing enum value, which
+--   made the follow-up look smaller than it is. The redaction path is blocked by the
+--   missing `REASON_REDACTED` enum value AND by the missing `UPDATE (reason)`
+--   privilege, which makes the function raise `42501` before it ever reaches the point
+--   of needing the enum. Both must be resolved; see "THE REDACTION HALF SHIPS
+--   UNCALLABLE" above for why the privilege must not be granted on its own.
 -- =============================================================================
 
 
