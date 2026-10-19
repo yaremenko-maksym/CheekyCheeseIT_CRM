@@ -1,7 +1,11 @@
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
-  ALERT_CONTRACT_PATTERN,
-  ALERT_PATTERN,
+  alertContractPattern,
+  alertPattern,
+  findAlertScript,
   parsePrinted,
   readAlertPattern,
 } from './__test-helpers__/alert-patterns'
@@ -29,11 +33,35 @@ describe('the alert’s published pattern interface', () => {
     },
   )
 
-  it('the exported constants are exactly what the flags print, case-insensitive', () => {
-    expect(ALERT_CONTRACT_PATTERN.source).toBe(readAlertPattern('--print-contract-pattern'))
-    expect(ALERT_PATTERN.source).toBe(readAlertPattern('--print-pattern'))
-    expect(ALERT_CONTRACT_PATTERN.flags).toBe('i')
-    expect(ALERT_PATTERN.flags).toBe('i')
+  describe('findAlertScript walks up to the script, wherever the specs run from', () => {
+    const SCRIPT_SUFFIX = join('scripts', 'devops', 'check-api-permission-denied.sh')
+
+    it('finds it from deep inside the tree (Stryker runs from a deeper sandbox)', () => {
+      const found = findAlertScript(join(__dirname, 'no', 'such', 'deeper', 'dir'))
+      expect(found.endsWith(SCRIPT_SUFFIX)).toBe(true)
+      expect(existsSync(found)).toBe(true)
+    })
+
+    it('finds it from the directory that holds it, on the first step', () => {
+      const root = findAlertScript().slice(0, -SCRIPT_SUFFIX.length - 1)
+      expect(findAlertScript(root)).toBe(join(root, SCRIPT_SUFFIX))
+    })
+
+    it('throws, naming where it looked, when no ancestor has it — and terminates at the root', () => {
+      const outside = mkdtempSync(join(tmpdir(), 'no-alert-script-'))
+      try {
+        expect(() => findAlertScript(outside)).toThrow(/not found above .*no-alert-script-/)
+      } finally {
+        rmSync(outside, { recursive: true, force: true })
+      }
+    })
+  })
+
+  it('the pattern functions return exactly what the flags print, case-insensitive', () => {
+    expect(alertContractPattern().source).toBe(readAlertPattern('--print-contract-pattern'))
+    expect(alertPattern().source).toBe(readAlertPattern('--print-pattern'))
+    expect(alertContractPattern().flags).toBe('i')
+    expect(alertPattern().flags).toBe('i')
   })
 
   it('the full pattern is the contract plus the secondary text tier', () => {

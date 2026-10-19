@@ -9,7 +9,7 @@
  * test.
  */
 import { describe, expect, it } from 'vitest'
-import { ALERT_PATTERN } from './__test-helpers__/alert-patterns'
+import { alertPattern } from './__test-helpers__/alert-patterns'
 import { dbErrorLogSuffix, describeDbError, safeErrorStack } from './pg-errors'
 
 /** What `pg` throws: a DatabaseError — `code`, `severity`, and the identifier fields. */
@@ -156,7 +156,7 @@ describe('describeDbError — the alert contract', () => {
       expect(fragment).toBe(
         'db_error db_state=42501 db_table=- db_constraint=- db_column=- db_message=- db_statement=-',
       )
-      expect(ALERT_PATTERN.test(fragment)).toBe(false)
+      expect(alertPattern().test(fragment)).toBe(false)
     },
   )
 
@@ -164,7 +164,7 @@ describe('describeDbError — the alert contract', () => {
     const err = drizzleError(DENIED, 'delete from "document_access_log" where "created_at" < $1', [
       'x',
     ])
-    expect(ALERT_PATTERN.test(describeDbError(err) ?? '')).toBe(false)
+    expect(alertPattern().test(describeDbError(err) ?? '')).toBe(false)
   })
 
   it('names the SQLSTATE field db_state — `code` and `sqlstate` are the alert’s words', () => {

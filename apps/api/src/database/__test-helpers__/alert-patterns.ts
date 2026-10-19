@@ -12,10 +12,15 @@ import { dirname, join } from 'node:path'
  * through `grep -Ei`, so the RegExp here is case-insensitive too.
  *
  * Two tiers, which the tests must not blur:
- *   ALERT_CONTRACT_PATTERN  the CONTRACT: the pool-level line, anchored on the logger context.
- *   ALERT_PATTERN           everything that pages: the contract PLUS the English text of a
+ *   alertContractPattern()  the CONTRACT: the pool-level line, anchored on the logger context.
+ *   alertPattern()          everything that pages: the contract PLUS the English text of a
  *                           privilege error (`permission denied`, `must be owner|superuser`).
  *                           The text tier is SECONDARY: the alert reports it apart (`src=text`).
+ *
+ * Why these are FUNCTIONS and not module-level constants: a constant is evaluated when a spec
+ * IMPORTS this file, so a fault in it breaks the import and the runner collects no tests at
+ * all — which the mutation gate can only report as "not verified", never as caught. A function
+ * called inside a test fails that test instead.
  *
  * Why this replaced a pair of copies: an earlier pair kept asserting a `(sqlstate|code)…42501`
  * branch the alert no longer had, and lacked the `i` flag, so they described a pattern that did
@@ -25,16 +30,16 @@ import { dirname, join } from 'node:path'
 const SCRIPT = join('scripts', 'devops', 'check-api-permission-denied.sh')
 
 /**
- * The script, found by walking up from here. Not a fixed `../..`: Stryker runs the specs from a
- * sandbox several directories deeper than the source tree.
+ * The script, found by walking up from `from`. Not a fixed `../..`: Stryker runs the specs from
+ * a sandbox several directories deeper than the source tree.
  */
-function findScript(): string {
-  let dir = __dirname
+export function findAlertScript(from: string = __dirname): string {
+  let dir = from
   for (;;) {
     const candidate = join(dir, SCRIPT)
     if (existsSync(candidate)) return candidate
     const parent = dirname(dir)
-    if (parent === dir) throw new Error(`alert-patterns: ${SCRIPT} not found above ${__dirname}`)
+    if (parent === dir) throw new Error(`alert-patterns: ${SCRIPT} not found above ${from}`)
     dir = parent
   }
 }
@@ -54,11 +59,15 @@ export function parsePrinted(output: string): string {
 }
 
 export function readAlertPattern(flag: '--print-pattern' | '--print-contract-pattern'): string {
-  return parsePrinted(execFileSync('bash', [findScript(), flag], { encoding: 'utf8' }))
+  return parsePrinted(execFileSync('bash', [findAlertScript(), flag], { encoding: 'utf8' }))
 }
 
 /** What the alert treats as THE contract: the pool-level line. */
-export const ALERT_CONTRACT_PATTERN = new RegExp(readAlertPattern('--print-contract-pattern'), 'i')
+export function alertContractPattern(): RegExp {
+  return new RegExp(readAlertPattern('--print-contract-pattern'), 'i')
+}
 
 /** Everything that pages: the contract, plus the English text of a privilege error. */
-export const ALERT_PATTERN = new RegExp(readAlertPattern('--print-pattern'), 'i')
+export function alertPattern(): RegExp {
+  return new RegExp(readAlertPattern('--print-pattern'), 'i')
+}

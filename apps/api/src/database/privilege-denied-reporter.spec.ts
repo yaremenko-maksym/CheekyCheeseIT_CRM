@@ -1,7 +1,7 @@
 import 'reflect-metadata'
 import { Logger } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
-import { ALERT_CONTRACT_PATTERN, ALERT_PATTERN } from './__test-helpers__/alert-patterns'
+import { alertContractPattern, alertPattern } from './__test-helpers__/alert-patterns'
 import { DatabaseModule } from './database.module'
 import {
   PrivilegeDeniedReporter,
@@ -54,7 +54,7 @@ describe('PrivilegeDeniedReporter lifecycle', () => {
     expect(text).toMatch(/\[DatabasePrivilege\] db_privilege_denied sqlstate=42501/)
     // The strongest pin available without running the shell watch: what Nest really wrote,
     // against the pattern the alert itself publishes.
-    expect(ALERT_CONTRACT_PATTERN.test(text)).toBe(true)
+    expect(alertContractPattern().test(text)).toBe(true)
   })
 
   it('logs the canonical line at ERROR through a Logger whose context is DatabasePrivilege', async () => {
@@ -164,39 +164,39 @@ describe('privilegeDeniedLine — the alert contract', () => {
     expect(logged).toBe(
       'ERROR [DatabasePrivilege] db_privilege_denied sqlstate=42501 table=document_access_log ctx=pool',
     )
-    expect(ALERT_CONTRACT_PATTERN.test(logged)).toBe(true)
-    expect(ALERT_PATTERN.test(logged)).toBe(true)
+    expect(alertContractPattern().test(logged)).toBe(true)
+    expect(alertPattern().test(logged)).toBe(true)
   })
 
   // Two tiers, kept apart: the CONTRACT (anchored on the logger context) and the SECONDARY
   // English-text tier, which pages too but is reported apart by the alert.
   it('the text tier pages but is not the contract; case-insensitive', () => {
     for (const text of ['Permission Denied for table x', 'MUST BE OWNER of table x']) {
-      expect(ALERT_PATTERN.test(text)).toBe(true)
-      expect(ALERT_CONTRACT_PATTERN.test(text)).toBe(false)
+      expect(alertPattern().test(text)).toBe(true)
+      expect(alertContractPattern().test(text)).toBe(false)
     }
   })
 
   it('a bare SQLSTATE or the old fragment field is no hit at all', () => {
     for (const bare of ['sqlstate=42501', 'code: 42501', 'db_sqlstate=42501', 'db_state=42501']) {
-      expect(ALERT_PATTERN.test(bare)).toBe(false)
-      expect(ALERT_CONTRACT_PATTERN.test(bare)).toBe(false)
+      expect(alertPattern().test(bare)).toBe(false)
+      expect(alertContractPattern().test(bare)).toBe(false)
     }
   })
 
   it('the contract needs the bracketed context: unanchored text is not a contract hit', () => {
     const unanchored = 'db_privilege_denied sqlstate=42501 table=x ctx=pool'
-    expect(ALERT_CONTRACT_PATTERN.test(unanchored)).toBe(false)
-    expect(ALERT_CONTRACT_PATTERN.test(`[DatabasePrivilege] ${unanchored}`)).toBe(true)
+    expect(alertContractPattern().test(unanchored)).toBe(false)
+    expect(alertContractPattern().test(`[DatabasePrivilege] ${unanchored}`)).toBe(true)
     // ...and it needs the SQLSTATE on the same line.
-    expect(ALERT_CONTRACT_PATTERN.test('[DatabasePrivilege] db_privilege_denied table=x')).toBe(
+    expect(alertContractPattern().test('[DatabasePrivilege] db_privilege_denied table=x')).toBe(
       false,
     )
     // "The token first, the rest in any order": sqlstate may come last, many characters later.
     const reordered =
       '[DatabasePrivilege] db_privilege_denied table=document_access_log ctx=pool sqlstate=42501'
-    expect(ALERT_CONTRACT_PATTERN.test(reordered)).toBe(true)
-    expect(ALERT_PATTERN.test(reordered)).toBe(true)
+    expect(alertContractPattern().test(reordered)).toBe(true)
+    expect(alertPattern().test(reordered)).toBe(true)
   })
 
   it('never carries a statement, a parameter value, detail or where', () => {
