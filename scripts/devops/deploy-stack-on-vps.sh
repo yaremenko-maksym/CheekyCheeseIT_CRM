@@ -2250,7 +2250,7 @@ fi
 # swallowed privilege error will not match here either.
 # PATTERN: keep identical to scripts/devops/check-api-permission-denied.sh
 # (--print-pattern); tests/test-check-api-permission-denied.sh fails on drift.
-PERMISSION_DENIED_RE='permission denied|must be (owner|superuser)|(sqlstate|code)[^0-9a-z]{0,6}42501'
+PERMISSION_DENIED_RE='db_privilege_denied.*sqlstate=42501|permission denied|must be (owner|superuser)'
 # SR-H-5: the API's Fastify request logger writes `req.url` (query string included) and,
 # for a 404, the requested path into pino JSON records, so an ANONYMOUS request such as
 # `GET /api/health?code=42501` would otherwise fail this deploy. These records are dropped

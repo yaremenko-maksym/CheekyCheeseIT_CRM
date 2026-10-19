@@ -29,8 +29,9 @@
 #   LOGSCAN_API_CONTAINERS=<n>
 #   LOGSCAN_CONTAINER=<name>            first api container, charset-validated
 #   LOGSCAN_LINES=<n>                   log lines in the window
-#   LOGSCAN_HITS=<n>                    matching lines in the window
-#   LOGSCAN_HIT ts=<utc> logger=<allowlisted|unknown> object=<kind:allowlisted|kind:unknown|unknown> sqlstate=<42501|42501-by-message|unclassified>   (<=20)
+#   LOGSCAN_HITS=<n>                    lines in the window matching ANY pattern (contract + text)
+#   LOGSCAN_CONTRACT_HITS=<n>           of those, the lines matching the contract (<= HITS)
+#   LOGSCAN_HIT ts=<utc> logger=<allowlisted|unknown> object=<kind:allowlisted|kind:unknown|unknown> sqlstate=<42501|42501-by-message|unclassified> src=<contract|text>   (<=20)
 #   LOGSCAN_END
 #   (or)  LOGSCAN_FAILED=<reason>
 #
@@ -48,21 +49,46 @@
 # The statement text is deliberately not carried either; Postgres' own server log
 # has the ERROR/STATEMENT pair for the reported timestamps.
 #
-# PATTERN. One definition, here; `--print-pattern` hands it to the remote grep.
-# deploy-stack-on-vps.sh runs on the VPS without this repository, so it carries a
-# copy; tests/test-check-api-permission-denied.sh fails if the two differ.
-#   permission denied        the message of 42501 for tables/sequences/schemas/params
-#   must be owner|superuser  also 42501 (ALTER TABLE .. DISABLE TRIGGER), no such phrase
-#   sqlstate/code .. 42501   the code itself, when a log prints it labelled
-# Known noise: a non-database "Permission denied" (EACCES, ssh publickey) matches too;
-# it is reported as sqlstate=unclassified. A false page read in a minute is the
-# cheaper error.
+# PATTERNS. One definition, here. `--print-pattern` (everything that pages) and
+# `--print-contract-pattern` (the contract alone) hand them to the remote script.
+# deploy-stack-on-vps.sh runs on the VPS without this repository, so it carries a copy of
+# the full pattern; tests/test-check-api-permission-denied.sh fails if the two differ.
+#
+#   THE CONTRACT (primary) — the line the API's one chokepoint emits, PR #1042,
+#   apps/api/src/database/privilege-denied-reporter.ts:
+#       db_privilege_denied sqlstate=42501 table=<T> ctx=<C>
+#   matched as `db_privilege_denied` ... `sqlstate=42501` (the token first, the rest in any
+#   order: the API's own comment says the alert may rely on those two and on nothing else).
+#   `table=<T>` is read from that field, never parsed out of Postgres text; `table=-`
+#   means the 42501 named no table. This is the line to trust: one tested place emits it,
+#   instead of eight handlers' formatting.
+#
+#   BELT AND BRACES (secondary) — text that a privilege error carries when it did NOT pass
+#   the chokepoint (a callback-style pool call it cannot wrap) or when the chokepoint is
+#   not deployed yet:
+#       permission denied         the message of 42501 for tables/sequences/schemas/params
+#       must be owner|superuser   also 42501 (ALTER TABLE .. DISABLE TRIGGER), no such phrase
+#   These are reported as `src=text`, counted apart from the contract, and they can fire
+#   for the same failure as a contract line (a handler's own diagnostic line quotes the
+#   Postgres message). That is two lines for one failure, stated rather than hidden: the
+#   summary says "N contract, M other".
+#   NOT matched, deliberately: a bare `sqlstate=42501` / `code: 42501` (too generic: it
+#   also matched the diagnostic fragment `db_sqlstate=42501`, so one swallowed failure
+#   paged twice, and a client can put it in a query string).
+# Known noise: a non-database "Permission denied" (EACCES, ssh publickey) matches the text
+# patterns too; it is reported as sqlstate=unclassified. A false page read in a minute is
+# the cheaper error.
 set -uo pipefail
 
-PERMISSION_DENIED_RE='permission denied|must be (owner|superuser)|(sqlstate|code)[^0-9a-z]{0,6}42501'
+PERMISSION_DENIED_CONTRACT_RE='db_privilege_denied.*sqlstate=42501'
+PERMISSION_DENIED_RE="${PERMISSION_DENIED_CONTRACT_RE}"'|permission denied|must be (owner|superuser)'
 
 if [ "${1:-}" = "--print-pattern" ]; then
   printf '%s\n' "$PERMISSION_DENIED_RE"
+  exit 0
+fi
+if [ "${1:-}" = "--print-contract-pattern" ]; then
+  printf '%s\n' "$PERMISSION_DENIED_CONTRACT_RE"
   exit 0
 fi
 
@@ -105,8 +131,8 @@ if [ "$discarded" -gt 0 ]; then
 fi
 ENVELOPE="$FRAME"
 
-RE_HIT='^LOGSCAN_HIT ts=([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]{8,20}Z|unknown) logger=[A-Za-z0-9_.-]{1,60} object=[a-z0-9_.:-]{1,100} sqlstate=(42501|42501-by-message|unclassified)$'
-RE_KNOWN='^(LOGSCAN_BEGIN|LOGSCAN_API_CONTAINERS=[0-9]{1,4}|LOGSCAN_CONTAINER=(unknown|[A-Za-z0-9][A-Za-z0-9.-]{0,40}[-_]api[-_][0-9]{1,3})|LOGSCAN_LINES=[0-9]{1,9}|LOGSCAN_HITS=[0-9]{1,9}|LOGSCAN_END|LOGSCAN_FAILED=[A-Za-z0-9_.-]{1,40})$'
+RE_HIT='^LOGSCAN_HIT ts=([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]{8,20}Z|unknown) logger=[A-Za-z0-9_.-]{1,60} object=[a-z0-9_.:-]{1,100} sqlstate=(42501|42501-by-message|unclassified) src=(contract|text)$'
+RE_KNOWN='^(LOGSCAN_BEGIN|LOGSCAN_API_CONTAINERS=[0-9]{1,4}|LOGSCAN_CONTAINER=(unknown|[A-Za-z0-9][A-Za-z0-9.-]{0,40}[-_]api[-_][0-9]{1,3})|LOGSCAN_LINES=[0-9]{1,9}|LOGSCAN_HITS=[0-9]{1,9}|LOGSCAN_CONTRACT_HITS=[0-9]{1,9}|LOGSCAN_END|LOGSCAN_FAILED=[A-Za-z0-9_.-]{1,40})$'
 
 # Second lock: any line that is neither a known field line nor a valid HIT line
 # is refused WITHOUT being printed.
@@ -163,9 +189,12 @@ containers="$(field LOGSCAN_API_CONTAINERS)"
 container="$(field LOGSCAN_CONTAINER)"
 lines="$(field LOGSCAN_LINES)"
 hits="$(field LOGSCAN_HITS)"
+contract_hits="$(field LOGSCAN_CONTRACT_HITS)"
 [ -n "$containers" ] || blind "envelope has no LOGSCAN_API_CONTAINERS (truncated or wrong format)"
 [ -n "$lines" ] || blind "envelope has no LOGSCAN_LINES (truncated or wrong format)"
 [ -n "$hits" ] || blind "envelope has no LOGSCAN_HITS (truncated or wrong format)"
+[ -n "$contract_hits" ] || blind "envelope has no LOGSCAN_CONTRACT_HITS (truncated, or a remote script older than this checker)"
+[ "$contract_hits" -le "$hits" ] || blind "envelope reports ${contract_hits} contract hits out of ${hits} hits: inconsistent"
 [ "$containers" -ge 1 ] || blind "no running api container on the VPS: nothing to watch. Expected for a few minutes while a deploy recreates it (the deploy's own scan covers that window); anything longer is a real problem"
 printf '%s\n' "$ENVELOPE" | grep -qx 'LOGSCAN_END' || blind "envelope has no LOGSCAN_END (output truncated)"
 
@@ -199,14 +228,18 @@ if [ "$hits" -eq 0 ]; then
 fi
 
 # hits > 0 is red even if no detail line survived: the count alone is the alert.
-echo "::error title=API hit permission denied (42501)::${hits} matching log line(s) in container ${container:-unknown}. The API's database role lacks a grant for something a handler just did."
+other_hits=$((hits - contract_hits))
+echo "::error title=API hit permission denied (42501)::${contract_hits} contract line(s) and ${other_hits} other matching line(s) in container ${container:-unknown}. The API's database role lacks a grant for something a handler just did."
 {
-  echo "## API permission-denied watch: HIT (${hits} line(s), container ${container:-unknown})"
+  echo "## API permission-denied watch: HIT (${contract_hits} contract, ${other_hits} other; container ${container:-unknown})"
   echo ""
   echo "Postgres refused a statement from the API (42501). A scheduled job that swallows its errors is the usual way this stays unseen."
   echo ""
-  echo "| time (UTC) | logger | object | sqlstate |"
-  echo "| --- | --- | --- | --- |"
+  echo "- **contract** (\`db_privilege_denied\`): the API's one chokepoint reported it. The table comes from its \`table=\` field."
+  echo "- **text** (\`permission denied\` / \`must be owner\`): belt and braces. It can be the SAME failure seen again by a handler's own diagnostic line, or a privilege error the chokepoint cannot see. Two lines for one failure is expected, not a second incident."
+  echo ""
+  echo "| time (UTC) | logger | object | sqlstate | source |"
+  echo "| --- | --- | --- | --- | --- |"
 } >>"$SUMMARY"
 
 if [ "$detail_n" -gt 0 ]; then
@@ -214,9 +247,10 @@ if [ "$detail_n" -gt 0 ]; then
     ts="$(printf '%s' "$l" | sed -E 's/^LOGSCAN_HIT ts=([^ ]+) .*/\1/')"
     lg="$(printf '%s' "$l" | sed -E 's/.* logger=([^ ]+) .*/\1/')"
     ob="$(printf '%s' "$l" | sed -E 's/.* object=([^ ]+) .*/\1/')"
-    st="$(printf '%s' "$l" | sed -E 's/.* sqlstate=([^ ]+)$/\1/')"
-    echo "HIT time=${ts} logger=${lg} object=${ob} sqlstate=${st}"
-    echo "| ${ts} | ${lg} | ${ob} | ${st} |" >>"$SUMMARY"
+    st="$(printf '%s' "$l" | sed -E 's/.* sqlstate=([^ ]+) src=.*/\1/')"
+    sr="$(printf '%s' "$l" | sed -E 's/.* src=([^ ]+)$/\1/')"
+    echo "HIT time=${ts} logger=${lg} object=${ob} sqlstate=${st} src=${sr}"
+    echo "| ${ts} | ${lg} | ${ob} | ${st} | ${sr} |" >>"$SUMMARY"
   done <<EOF
 $hit_lines
 EOF

@@ -26,7 +26,7 @@ echo "LOGSCAN_BEGIN"
 
 # Fail closed on missing allowlists. Under `set -u` an unset list would kill the loop
 # below mid-way while LOGSCAN_END is still printed, leaving a count with no detail.
-if [ -z "${LOGSCAN_TABLES:-}" ] || [ -z "${LOGSCAN_LOGGERS:-}" ] || [ -z "${LOGSCAN_RE:-}" ] || [ -z "${LOGSCAN_SINCE:-}" ]; then
+if [ -z "${LOGSCAN_TABLES:-}" ] || [ -z "${LOGSCAN_LOGGERS:-}" ] || [ -z "${LOGSCAN_RE:-}" ] || [ -z "${LOGSCAN_CONTRACT_RE:-}" ] || [ -z "${LOGSCAN_SINCE:-}" ]; then
   echo "LOGSCAN_FAILED=inputs_missing"
   exit 0
 fi
@@ -100,6 +100,7 @@ echo "LOGSCAN_API_CONTAINERS=$n"
 echo "LOGSCAN_CONTAINER=${cname:-unknown}"
 echo "LOGSCAN_LINES=$(printf '%s\n' "$logs" | grep -c . || true)"
 echo "LOGSCAN_HITS=$(printf '%s\n' "$filtered" | grep -aEic -e "$LOGSCAN_RE" || true)"
+echo "LOGSCAN_CONTRACT_HITS=$(printf '%s\n' "$filtered" | grep -aEic -e "$LOGSCAN_CONTRACT_RE" || true)"
 printf '%s\n' "$filtered" | grep -aEi -e "$LOGSCAN_RE" | tail -n 20 | while IFS= read -r l; do
   # `docker compose logs` prefixes every line with `<service>-<n>  | ` and, with
   # --timestamps, the RFC3339 time follows the pipe. Accept both that and the bare
@@ -115,6 +116,22 @@ printf '%s\n' "$filtered" | grep -aEi -e "$LOGSCAN_RE" | tail -n 20 | while IFS=
   # the case most likely to be interesting.
   lg=$(printf '%s' "$l" | sed -nE 's/.*(ERROR|WARN|FATAL) *\[([A-Za-z0-9_.-]{1,60})\].*/\2/p' | head -n 1)
   case " $LOGSCAN_LOGGERS " in *" $lg "*) [ -n "$lg" ] || lg=unknown ;; *) lg=unknown ;; esac
+  if printf '%s' "$l" | grep -Eqi -e "$LOGSCAN_CONTRACT_RE"; then
+    # THE CONTRACT (primary): `db_privilege_denied sqlstate=42501 table=<T> ctx=<C>`, the
+    # one line the API's chokepoint emits. The table is read from its own `table=` field,
+    # never parsed out of Postgres text; `-` is the API's explicit "names no table".
+    # See check-api-permission-denied.sh for which pattern is the contract and which is
+    # belt and braces.
+    src=contract
+    st=42501
+    ob=""
+    tb=$(printf '%s' "$l" | sed -nE 's/.* table=([^ ]{1,70})( .*)?$/\1/p' | head -n 1)
+    tb=${tb#public.}
+    if [ -n "$tb" ] && [ "$tb" != "-" ]; then
+      case " $LOGSCAN_TABLES " in *" $tb "*) ob="table:$tb" ;; *) ob="table:unknown" ;; esac
+    fi
+  else
+  src=text
   lo=$(printf '%s' "$l" | tr 'A-Z' 'a-z')
   pre=""
   kn=$(printf '%s' "$lo" | sed -nE 's/.*permission denied for (table|sequence|schema|function|relation|view|type|database) "?([a-z_][a-z0-9_.]{0,62}).*/\1 \2/p' | head -n 1)
@@ -136,6 +153,7 @@ printf '%s\n' "$filtered" | grep -aEi -e "$LOGSCAN_RE" | tail -n 20 | while IFS=
   else
     st=unclassified
   fi
-  echo "LOGSCAN_HIT ts=${ts:-unknown} logger=${lg:-unknown} object=${ob:-unknown} sqlstate=$st"
+  fi
+  echo "LOGSCAN_HIT ts=${ts:-unknown} logger=${lg:-unknown} object=${ob:-unknown} sqlstate=$st src=$src"
 done
 echo "LOGSCAN_END"

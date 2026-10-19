@@ -27,7 +27,7 @@
 #                                           unset = trust-on-first-use via ssh-keyscan, with
 #                                           a warning. Same trust level as the deploy today
 #                                           (ssh-action with no fingerprint), made visible.
-#   LOGSCAN_RE LOGSCAN_SINCE LOGSCAN_TABLES LOGSCAN_LOGGERS   required (the cfg step)
+#   LOGSCAN_RE LOGSCAN_CONTRACT_RE LOGSCAN_SINCE LOGSCAN_TABLES LOGSCAN_LOGGERS   required (the cfg step)
 #   SSH_PORT                                optional, default 22 (tests)
 #   SSH_EXTRA_OPTS                          optional, word-split, tests only
 # NOTHING here creates, rotates or installs a credential: it reads the existing key into
@@ -40,7 +40,7 @@ CHECKER="$SELF_DIR/check-api-permission-denied.sh"
 
 die() { echo "::error title=API permission-denied watch is BLIND::$1"; exit 2; }
 
-for v in VPS_HOST VPS_USER VPS_SSH_KEY LOGSCAN_RE LOGSCAN_SINCE LOGSCAN_TABLES LOGSCAN_LOGGERS; do
+for v in VPS_HOST VPS_USER VPS_SSH_KEY LOGSCAN_RE LOGSCAN_CONTRACT_RE LOGSCAN_SINCE LOGSCAN_TABLES LOGSCAN_LOGGERS; do
   [ -n "${!v:-}" ] || die "required input $v is empty (a missing secret must not look like a clean scan)"
 done
 # These land on an ssh command line: no leading '-', no whitespace, no shell syntax.
@@ -66,6 +66,7 @@ fi
 # The payload: export lines (printf %q quotes the pattern's | ( ) [ ^), then the script.
 {
   printf 'export LOGSCAN_RE=%q\n' "$LOGSCAN_RE"
+  printf 'export LOGSCAN_CONTRACT_RE=%q\n' "$LOGSCAN_CONTRACT_RE"
   printf 'export LOGSCAN_SINCE=%q\n' "$LOGSCAN_SINCE"
   printf 'export LOGSCAN_TABLES=%q\n' "$LOGSCAN_TABLES"
   printf 'export LOGSCAN_LOGGERS=%q\n' "$LOGSCAN_LOGGERS"

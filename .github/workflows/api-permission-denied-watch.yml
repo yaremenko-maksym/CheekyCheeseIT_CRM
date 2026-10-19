@@ -96,6 +96,7 @@ jobs:
           {
             echo "window=$window"
             echo "re=$(scripts/devops/check-api-permission-denied.sh --print-pattern)"
+            echo "contract=$(scripts/devops/check-api-permission-denied.sh --print-contract-pattern)"
             cat "$RUNNER_TEMP/allowlists.txt"
           } >> "$GITHUB_OUTPUT"
 
@@ -115,6 +116,7 @@ jobs:
           # Optional repo VARIABLE (public host-key lines). Unset = trust on first use.
           VPS_KNOWN_HOSTS: ${{ vars.VPS_KNOWN_HOSTS }}
           LOGSCAN_RE: ${{ steps.cfg.outputs.re }}
+          LOGSCAN_CONTRACT_RE: ${{ steps.cfg.outputs.contract }}
           LOGSCAN_SINCE: ${{ steps.cfg.outputs.window }}
           # The checker re-verifies every logger and object against the SAME lists.
           LOGSCAN_TABLES: ${{ steps.cfg.outputs.tables }}
