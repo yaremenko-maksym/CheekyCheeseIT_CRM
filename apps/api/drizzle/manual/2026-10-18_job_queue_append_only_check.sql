@@ -38,15 +38,57 @@
 
 DO $check$
 DECLARE
-  -- name, table, expected trigger timing/event bitmask, expected tgenabled
+  -- SIX columns, in this order, and every one of them is asserted below:
+  --   1 trigger name
+  --   2 table
+  --   3 expected `pg_trigger.tgenabled`      ('A' = ENABLE ALWAYS)
+  --   4 expected `pg_trigger.tgtype`         (the timing/event/row-vs-statement bitmask)
+  --   5 expected trigger function            (`pg_trigger.tgfoid` resolved to proname)
+  --   6 expected `md5(pg_get_triggerdef(oid))` (the whole definition, WHEN clause included)
+  --
+  -- Columns 4-6 exist because NAME + `tgenabled` ALONE DO NOT PIN A GUARD. A trigger that
+  -- keeps its name and stays ENABLE ALWAYS can still have been rewritten to guard nothing,
+  -- and five such rewrites were demonstrated against the earlier version of this file —
+  -- each one passed it green, and two of them let `crm_retention_owner` delete a
+  -- `job_queue_actions` row seconds old:
+  --   narrowing the events (BEFORE UPDATE only, so DELETE runs unguarded)  -> column 4
+  --   flipping BEFORE to AFTER                                            -> column 4
+  --   turning the row trigger into a statement trigger                     -> column 4
+  --   adding WHEN (false)                                                  -> column 6
+  --   repointing the trigger at a no-op function                           -> column 5
+  -- The sixth rewrite — an EXTRA, undeclared trigger on a guarded table — is caught by
+  -- part 1b below, not by this array: no per-trigger assertion can see a trigger nobody
+  -- declared. `job_queue_generation_entries_building_only` is the one row here whose
+  -- tgtype is 7 (BEFORE INSERT ... FOR EACH ROW); the two `no_truncate` rows are 34
+  -- (BEFORE TRUNCATE ... FOR EACH STATEMENT, hence no ROW bit).
+  --
+  -- ON COLUMN 6 AND THE SERVER VERSION. `pg_get_triggerdef` is deparser output, so in
+  -- principle a server upgrade can move the text without anybody moving the trigger. For
+  -- THIS manifest that was measured rather than assumed: all seven checksums below are
+  -- byte-identical on PostgreSQL 16.14 and 16.15 (two containers, same DDL, 2026-10-19),
+  -- and 16.14 is what production runs while these values were taken on 16.15. The nine
+  -- `pg_get_functiondef` checksums in the two manifests further down were measured the
+  -- same way and are likewise identical across the two minors. Had they differed, the
+  -- failure mode is a LOUD one — the deploy stops with "definition checksum is X,
+  -- manifest says Y" and nothing is applied — never a silent hole; and columns 3-5, which
+  -- carry the guarantee in catalog integers rather than in deparsed text, are immune to
+  -- the deparser entirely. Refresh column 6 only together with a reviewed DDL change
+  -- (query in this file's header), never to make a red deploy go green.
   expected_triggers CONSTANT text[][] := ARRAY[
-    ['trg_job_queue_actions_append_only',                 'job_queue_actions'],
-    ['trg_job_queue_actions_no_truncate',                 'job_queue_actions'],
-    ['trg_job_queue_generation_entries_immutable',        'job_queue_generation_entries'],
-    ['trg_job_queue_generation_entries_no_truncate',      'job_queue_generation_entries'],
-    ['trg_job_queue_generation_entries_building_only',    'job_queue_generation_entries'],
-    ['trg_job_queue_generations_frozen',                  'job_queue_generations'],
-    ['trg_job_queue_generations_purge_invalidated_only',  'job_queue_generations']
+    ['trg_job_queue_actions_append_only',                 'job_queue_actions',
+     'A', '27',  'job_queue_actions_append_only',                '193803613d7cb921896de671ebb96fef'],
+    ['trg_job_queue_actions_no_truncate',                 'job_queue_actions',
+     'A', '34',  'job_queue_actions_no_truncate',                '1cf9b6eb4daec2c6c69b2eda056076bd'],
+    ['trg_job_queue_generation_entries_immutable',        'job_queue_generation_entries',
+     'A', '27',  'job_queue_generation_entries_immutable',       '5534fa98dd2a62a15603c914de52887c'],
+    ['trg_job_queue_generation_entries_no_truncate',      'job_queue_generation_entries',
+     'A', '34',  'job_queue_generation_entries_no_truncate',     '3827f42d4ddbfcf8517bafa63a41329d'],
+    ['trg_job_queue_generation_entries_building_only',    'job_queue_generation_entries',
+     'A', '7',   'job_queue_generation_entries_building_only',   'd0b0d5c9ee10132b27e66d3d5ac73fd2'],
+    ['trg_job_queue_generations_frozen',                  'job_queue_generations',
+     'A', '19',  'job_queue_generations_frozen',                 '2f9f701662e61ef68c6e2f9d2c585dad'],
+    ['trg_job_queue_generations_purge_invalidated_only',  'job_queue_generations',
+     'A', '11',  'job_queue_generations_purge_invalidated_only', 'b73c59e71d952b77f09757521481311c']
   ];
   -- Function name, IDENTITY ARGUMENTS and the expected md5(pg_get_functiondef(oid)).
   -- The middle column is `pg_get_function_identity_arguments()` verbatim, which on
@@ -99,19 +141,103 @@ BEGIN
     trg_name := expected_triggers[i][1];
     tbl_name := expected_triggers[i][2];
 
-    SELECT t.tgenabled, t.tgisinternal INTO rec
+    SELECT t.tgenabled,
+           t.tgtype,
+           p.proname                                 AS fn,
+           t.tgqual IS NOT NULL                      AS has_when,
+           t.tgnargs                                 AS nargs,
+           md5(pg_catalog.pg_get_triggerdef(t.oid))  AS def_md5,
+           pg_catalog.pg_get_triggerdef(t.oid)       AS def
+      INTO rec
       FROM pg_catalog.pg_trigger t
       JOIN pg_catalog.pg_class c ON c.oid = t.tgrelid
       JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-     WHERE n.nspname = 'public' AND c.relname = tbl_name AND t.tgname = trg_name;
+      JOIN pg_catalog.pg_proc p ON p.oid = t.tgfoid
+     WHERE n.nspname = 'public' AND c.relname = tbl_name AND t.tgname = trg_name
+       AND NOT t.tgisinternal;
 
     IF NOT FOUND THEN
       problems := problems || format('trigger %s is MISSING from public.%s', trg_name, tbl_name);
-    ELSIF rec.tgenabled <> 'A' THEN
-      problems := problems || format(
-        'trigger %s on public.%s is not ENABLE ALWAYS (tgenabled = %L)',
-        trg_name, tbl_name, rec.tgenabled);
+      CONTINUE;
     END IF;
+
+    IF rec.tgenabled <> expected_triggers[i][3] THEN
+      problems := problems || format(
+        'trigger %s on public.%s is not ENABLE ALWAYS (tgenabled = %L, expected %L)',
+        trg_name, tbl_name, rec.tgenabled, expected_triggers[i][3]);
+    END IF;
+
+    -- Column 4. One comparison covers three of the demonstrated rewrites: narrowing the
+    -- events, flipping BEFORE/AFTER, and row-vs-statement all live in this bitmask.
+    IF rec.tgtype::text <> expected_triggers[i][4] THEN
+      problems := problems || format(
+        'trigger %s on public.%s fires on the WRONG timing/events: tgtype is %s, manifest '
+        'says %s — deployed definition is %L',
+        trg_name, tbl_name, rec.tgtype, expected_triggers[i][4], rec.def);
+    END IF;
+
+    -- Column 5. A trigger keeping its name while pointing at a different function is the
+    -- cheapest way to disarm a guard without tripping any name-based assertion.
+    IF rec.fn <> expected_triggers[i][5] THEN
+      problems := problems || format(
+        'trigger %s on public.%s EXECUTES public.%s(), manifest says public.%s() — the '
+        'trigger was repointed at another function',
+        trg_name, tbl_name, rec.fn, expected_triggers[i][5]);
+    END IF;
+
+    -- A `WHEN` clause is never present in the reviewed DDL, so any is a rewrite. Named
+    -- separately from column 6 because `WHEN (false)` disarms the guard completely and
+    -- deserves to be read off the failure rather than inferred from a checksum.
+    IF rec.has_when THEN
+      problems := problems || format(
+        'trigger %s on public.%s carries a WHEN clause, which the reviewed DDL never does '
+        '— a WHEN that is ever false is a guard that does not run: %L',
+        trg_name, tbl_name, rec.def);
+    END IF;
+
+    IF rec.nargs <> 0 THEN
+      problems := problems || format(
+        'trigger %s on public.%s passes %s argument(s) to its function, expected none',
+        trg_name, tbl_name, rec.nargs);
+    END IF;
+
+    -- Column 6. The catch-all: anything the four assertions above do not name still moves
+    -- this checksum (argument text, the table it is attached to, future syntax).
+    IF rec.def_md5 <> expected_triggers[i][6] THEN
+      problems := problems || format(
+        'trigger %s on public.%s definition checksum is %s, manifest says %s — the '
+        'deployed trigger is not the reviewed one; deployed definition is %L',
+        trg_name, tbl_name, rec.def_md5, expected_triggers[i][6], rec.def);
+    END IF;
+  END LOOP;
+
+  -- -------------------------------------------------------------------------
+  -- 1b. NO TRIGGER BEYOND THE SEVEN DECLARED, on any of the guarded tables.
+  --     Per-trigger assertions are blind to a trigger nobody declared, and an
+  --     extra trigger on an append-only log is a change nobody reviewed — it can
+  --     suppress a write, rewrite NEW, or (as a BEFORE trigger returning NULL)
+  --     silently swallow rows. The table list is derived from the manifest above
+  --     rather than written out again, so it cannot drift from it.
+  --     Internal triggers (FK enforcement) are `tgisinternal` and excluded.
+  -- -------------------------------------------------------------------------
+  FOR rec IN
+    SELECT c.relname AS tbl, t.tgname AS trg, pg_catalog.pg_get_triggerdef(t.oid) AS def
+      FROM pg_catalog.pg_trigger t
+      JOIN pg_catalog.pg_class c ON c.oid = t.tgrelid
+      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public'
+       AND NOT t.tgisinternal
+       AND c.relname IN (SELECT DISTINCT expected_triggers[s][2]
+                           FROM generate_subscripts(expected_triggers, 1) s)
+       AND NOT EXISTS (SELECT 1
+                         FROM generate_subscripts(expected_triggers, 1) s
+                        WHERE expected_triggers[s][1] = t.tgname
+                          AND expected_triggers[s][2] = c.relname)
+     ORDER BY c.relname, t.tgname
+  LOOP
+    problems := problems || format(
+      'trigger %s on public.%s is NOT DECLARED in this file — an undeclared trigger on a '
+      'guarded table is a change nobody reviewed: %L', rec.trg, rec.tbl, rec.def);
   END LOOP;
 
   -- -------------------------------------------------------------------------
