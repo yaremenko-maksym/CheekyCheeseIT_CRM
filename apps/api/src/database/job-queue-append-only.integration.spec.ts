@@ -1374,6 +1374,17 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       // its own tests, decided on its own merits rather than appended to a PR already in
       // a fix round. This test records the gap so that it is a known state rather than a
       // discovery, and GOES RED the day the guard lands — which is the signal to delete it.
+      // IF THIS TEST IS RED, READ THIS BEFORE RETIRING THE PIN. A red GAP PIN usually
+      // means the gap was closed and the pin must be inverted into a positive assertion.
+      // That is NOT the only way this one can go red, and its first version went red the
+      // other way: the INSERT itself was invalid, violating
+      // `ck_job_queue_generations_expiry_after_evaluation`, so the test failed without
+      // saying anything about whether a guard exists. Before concluding the guard landed,
+      // check the error — `23514` (check_violation) or a trigger's `23001` from
+      // `job_queue_generations_*` are different findings, and only the second means the
+      // gap is closed. Retiring a pin on a misread is how a guard gets weakened to make a
+      // test pass.
+      //
       // `evaluated_at` is backdated further than `expires_at` only because
       // `ck_job_queue_generations_expiry_after_evaluation` requires
       // `expires_at > evaluated_at` — a CHECK that constrains the two columns against
