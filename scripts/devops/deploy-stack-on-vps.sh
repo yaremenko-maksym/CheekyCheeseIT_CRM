@@ -2243,8 +2243,11 @@ fi
 # The window opens at DEPLOY_STARTED_AT, so the old container's history is not
 # this deploy's business (the standing watch, api-permission-denied-watch.yml,
 # owns that). Only metadata is printed, never the matching lines: this log is
-# public. Two-minute-old news by design: it sees what the API did while booting
-# and during the health checks; the scheduled jobs are the standing watch's.
+# public. Scope: only what the API did while booting and during the health checks.
+# A cron that fires hours later is the standing watch's job, not this scan's.
+# COVERAGE DEPENDS ON THE API LOGGING THE SQLSTATE: a Drizzle error's message is
+# `Failed query: ...` and the 42501 lives on `.cause`, so until the API logs it a
+# swallowed privilege error will not match here either.
 # PATTERN: keep identical to scripts/devops/check-api-permission-denied.sh
 # (--print-pattern); tests/test-check-api-permission-denied.sh fails on drift.
 PERMISSION_DENIED_RE='permission denied|must be (owner|superuser)|(sqlstate|code)[^0-9a-z]{0,6}42501'
