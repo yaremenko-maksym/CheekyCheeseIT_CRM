@@ -26,6 +26,7 @@ WS="$(guard_test_workspace)"
 trap 'rm -rf "$WS"' EXIT
 
 RE="$(bash "$GUARD" --print-pattern)"
+CONTRACT_RE="$(bash "$GUARD" --print-contract-pattern)"
 
 # The allowlists come from the SHIPPED derivation, run against the real tree, exactly
 # as the workflow does. (Their independent cross-check is section 4.)
@@ -59,7 +60,8 @@ LOGSCAN_API_CONTAINERS=1
 LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=412
 LOGSCAN_HITS=1
-LOGSCAN_HIT ts=2026-10-19T03:00:02.123456789Z logger=TelemetryRetentionCronService object=table:telemetry_events sqlstate=42501-by-message
+LOGSCAN_CONTRACT_HITS=0
+LOGSCAN_HIT ts=2026-10-19T03:00:02.123456789Z logger=TelemetryRetentionCronService object=table:telemetry_events sqlstate=42501-by-message src=text
 LOGSCAN_END
 EOF
 
@@ -69,9 +71,10 @@ LOGSCAN_API_CONTAINERS=1
 LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=900
 LOGSCAN_HITS=3
-LOGSCAN_HIT ts=2026-10-19T04:00:00.000000001Z logger=unknown object=unknown sqlstate=42501
-LOGSCAN_HIT ts=2026-10-19T04:00:01.000000001Z logger=DocumentAccessLogRetentionCronService object=owner-only:table:document_access_log sqlstate=42501-by-message
-LOGSCAN_HIT ts=unknown logger=unknown object=unknown sqlstate=unclassified
+LOGSCAN_CONTRACT_HITS=0
+LOGSCAN_HIT ts=2026-10-19T04:00:00.000000001Z logger=unknown object=unknown sqlstate=42501 src=text
+LOGSCAN_HIT ts=2026-10-19T04:00:01.000000001Z logger=DocumentAccessLogRetentionCronService object=owner-only:table:document_access_log sqlstate=42501-by-message src=text
+LOGSCAN_HIT ts=unknown logger=unknown object=unknown sqlstate=unclassified src=text
 LOGSCAN_END
 EOF
 
@@ -82,6 +85,7 @@ LOGSCAN_API_CONTAINERS=1
 LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=10
 LOGSCAN_HITS=4
+LOGSCAN_CONTRACT_HITS=0
 LOGSCAN_END
 EOF
 
@@ -91,6 +95,7 @@ LOGSCAN_API_CONTAINERS=1
 LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=412
 LOGSCAN_HITS=0
+LOGSCAN_CONTRACT_HITS=0
 LOGSCAN_END
 EOF
 
@@ -100,6 +105,7 @@ LOGSCAN_API_CONTAINERS=1
 LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=0
 LOGSCAN_HITS=0
+LOGSCAN_CONTRACT_HITS=0
 LOGSCAN_END
 EOF
 
@@ -111,6 +117,7 @@ LOGSCAN_API_CONTAINERS=1
 LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=5
 LOGSCAN_HITS=1
+LOGSCAN_CONTRACT_HITS=0
 2026-10-19T05:00:00.000000001Z ERROR [X] permission denied for table t; email=jane.doe@example.com ::error::INJECTED
 LOGSCAN_END
 EOF
@@ -120,7 +127,8 @@ LOGSCAN_API_CONTAINERS=1
 LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=5
 LOGSCAN_HITS=1
-LOGSCAN_HIT ts=2026-10-19T05:00:00.000000001Z logger=X object=table:t;jane.doe@example.com sqlstate=42501
+LOGSCAN_CONTRACT_HITS=0
+LOGSCAN_HIT ts=2026-10-19T05:00:00.000000001Z logger=X object=table:t;jane.doe@example.com sqlstate=42501 src=text
 LOGSCAN_END
 EOF
 
@@ -132,6 +140,7 @@ LOGSCAN_API_CONTAINERS=0
 LOGSCAN_CONTAINER=unknown
 LOGSCAN_LINES=0
 LOGSCAN_HITS=0
+LOGSCAN_CONTRACT_HITS=0
 LOGSCAN_END
 EOF
 # Cut off before END: the hit could be in the part that was lost.
@@ -141,6 +150,7 @@ LOGSCAN_API_CONTAINERS=1
 LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=412
 LOGSCAN_HITS=0
+LOGSCAN_CONTRACT_HITS=0
 EOF
 printf '%s\n' '<html>ssh banner garbage</html>' >"$WS/garbage.env"
 cat >"$WS/inconsistent.env" <<'EOF'
@@ -149,7 +159,8 @@ LOGSCAN_API_CONTAINERS=1
 LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=3
 LOGSCAN_HITS=0
-LOGSCAN_HIT ts=2026-10-19T03:00:02.123456789Z logger=unknown object=table:unknown sqlstate=42501
+LOGSCAN_CONTRACT_HITS=0
+LOGSCAN_HIT ts=2026-10-19T03:00:02.123456789Z logger=unknown object=table:unknown sqlstate=42501 src=text
 LOGSCAN_END
 EOF
 
@@ -162,10 +173,10 @@ assert_red "synthetic 42501 FIRES with time, logger, object, sqlstate and contai
 assert_red "code-only, owner-only and unclassified variants all fire" \
   --contains "logger=unknown object=unknown sqlstate=42501" \
   --contains "object=owner-only:table:document_access_log" --contains "sqlstate=unclassified" \
-  --contains "3 matching" -- \
+  --contains "0 contract line(s) and 3 other" -- \
   run_guard "$WS/hit-variants.env"
 
-assert_red "a hit count with no detail lines still fires" --contains "4 matching log line" -- \
+assert_red "a hit count with no detail lines still fires" --contains "0 contract line(s) and 4 other" -- \
   run_guard "$WS/hit-count-only.env"
 
 assert_exit_code "a hit exits 1 (act on it)" 1 run_guard "$WS/hit.env"
@@ -206,7 +217,8 @@ LOGSCAN_API_CONTAINERS=1
 LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=9
 LOGSCAN_HITS=1
-LOGSCAN_HIT ts=2026-10-19T03:00:02.123456789Z logger=unknown object=table:unknown sqlstate=42501
+LOGSCAN_CONTRACT_HITS=0
+LOGSCAN_HIT ts=2026-10-19T03:00:02.123456789Z logger=unknown object=table:unknown sqlstate=42501 src=text
 LOGSCAN_END
 EOF
 cat >"$WS/offlist-logger.env" <<'EOF'
@@ -215,7 +227,8 @@ LOGSCAN_API_CONTAINERS=1
 LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=9
 LOGSCAN_HITS=1
-LOGSCAN_HIT ts=2026-10-19T03:00:02.123456789Z logger=AttackerChosenTokenHere object=table:unknown sqlstate=42501
+LOGSCAN_CONTRACT_HITS=0
+LOGSCAN_HIT ts=2026-10-19T03:00:02.123456789Z logger=AttackerChosenTokenHere object=table:unknown sqlstate=42501 src=text
 LOGSCAN_END
 EOF
 cat >"$WS/offlist-object.env" <<'EOF'
@@ -224,7 +237,8 @@ LOGSCAN_API_CONTAINERS=1
 LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=9
 LOGSCAN_HITS=1
-LOGSCAN_HIT ts=2026-10-19T03:00:02.123456789Z logger=unknown object=table:jane_doe_example_com sqlstate=42501
+LOGSCAN_CONTRACT_HITS=0
+LOGSCAN_HIT ts=2026-10-19T03:00:02.123456789Z logger=unknown object=table:jane_doe_example_com sqlstate=42501 src=text
 LOGSCAN_END
 EOF
 assert_red "UNKNOWN STILL PAGES: an unrecognised logger and object fire exactly like known ones" \
@@ -243,7 +257,8 @@ LOGSCAN_API_CONTAINERS=1
 LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=9
 LOGSCAN_HITS=1
-LOGSCAN_HIT ts=2026-10-19T03:00:02.123456789Z logger=unknown object=$1 sqlstate=42501
+LOGSCAN_CONTRACT_HITS=0
+LOGSCAN_HIT ts=2026-10-19T03:00:02.123456789Z logger=unknown object=$1 sqlstate=42501 src=text
 LOGSCAN_END
 EOF
 }
@@ -269,7 +284,8 @@ LOGSCAN_API_CONTAINERS=1
 LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=9
 LOGSCAN_HITS=1
-LOGSCAN_HIT ts=unknown logger=unknown object=table:unknown sqlstate=42501
+LOGSCAN_CONTRACT_HITS=0
+LOGSCAN_HIT ts=unknown logger=unknown object=table:unknown sqlstate=42501 src=text
 LOGSCAN_END
 EOF
 run_with_summary "$WS/hit-nots.env"
@@ -283,6 +299,7 @@ LOGSCAN_API_CONTAINERS=1
 LOGSCAN_CONTAINER=crm-api-1
 LOGSCAN_LINES=40321
 LOGSCAN_HITS=0
+LOGSCAN_CONTRACT_HITS=0
 LOGSCAN_END
 EOF
 assert_green "the public log never shows an exact traffic count (40321 lines -> a bucket)" \
@@ -308,6 +325,27 @@ assert_red "SR-M-6: output with NO frame at all is still BLIND (the script did n
 assert_exit_code "SR-M-6: ...exit 2" 2 run_guard "$WS/noise-only.env"
 assert_exit_code "SR-M-6: a second frame after the first END cannot turn a hit into a clean scan" 1 run_guard "$WS/two-frames.env"
 
+# The contract fields: CONTRACT_HITS is required and cannot exceed HITS (fail closed).
+cat >"$WS/contract-hit.env" <<'EOF'
+LOGSCAN_BEGIN
+LOGSCAN_API_CONTAINERS=1
+LOGSCAN_CONTAINER=crm-api-1
+LOGSCAN_LINES=9
+LOGSCAN_HITS=2
+LOGSCAN_CONTRACT_HITS=1
+LOGSCAN_HIT ts=2026-10-19T03:00:02.123456789Z logger=unknown object=table:document_access_log sqlstate=42501 src=contract
+LOGSCAN_HIT ts=2026-10-19T03:00:02.223456789Z logger=unknown object=table:document_access_log sqlstate=42501-by-message src=text
+LOGSCAN_END
+EOF
+grep -v '^LOGSCAN_CONTRACT_HITS=' "$WS/contract-hit.env" >"$WS/no-contract-field.env"
+sed 's/^LOGSCAN_CONTRACT_HITS=1$/LOGSCAN_CONTRACT_HITS=5/' "$WS/contract-hit.env" >"$WS/contract-gt-hits.env"
+assert_red "contract fields: '1 contract, 1 other' is reported as such, with a source column" \
+  --contains "1 contract line(s) and 1 other" --contains "src=contract" --contains "src=text" -- run_guard "$WS/contract-hit.env"
+assert_red "contract fields: an envelope with no LOGSCAN_CONTRACT_HITS is BLIND (a remote older than this checker)" \
+  --contains "LOGSCAN_CONTRACT_HITS" --contains "BLIND" -- run_guard "$WS/no-contract-field.env"
+assert_red "contract fields: more contract hits than hits is BLIND (inconsistent)" \
+  --contains "inconsistent" -- run_guard "$WS/contract-gt-hits.env"
+
 # The container name is validated against the compose naming scheme, not just a charset:
 # stray stdout is never published as a "container".
 sed 's/^LOGSCAN_CONTAINER=.*/LOGSCAN_CONTAINER=WelcometotheVPSrcfileoutput/' "$WS/hit.env" >"$WS/bad-container.env"
@@ -317,8 +355,16 @@ assert_red "container name: a charset-clean but non-compose name is refused (BLI
 # ── the pattern itself ───────────────────────────────────────────────────────
 pat_hits() { printf '%s\n' "$1" | grep -aEi -e "$RE" >/dev/null; }
 assert_green "pattern: 'permission denied for table x'" -- bash -c "$(declare -f pat_hits); RE='$RE'; pat_hits 'ERROR permission denied for table x'"
-assert_green "pattern: 'sqlstate=42501' (the labelled-code format the API change should log)" -- bash -c "$(declare -f pat_hits); RE='$RE'; pat_hits 'cron failed sqlstate=42501'"
-assert_green "pattern: \"code\":\"42501\" (JSON)" -- bash -c "$(declare -f pat_hits); RE='$RE'; pat_hits '{\"code\":\"42501\"}'"
+assert_green "pattern: THE CONTRACT line the API's chokepoint emits (PR #1042)" -- bash -c "$(declare -f pat_hits); RE='$RE'; pat_hits 'ERROR [DatabaseService] db_privilege_denied sqlstate=42501 table=document_access_log ctx=pool'"
+assert_green "pattern: ...whatever the field order after the first token" -- bash -c "$(declare -f pat_hits); RE='$RE'; pat_hits 'db_privilege_denied ctx=pool table=users sqlstate=42501'"
+assert_red "pattern: a bare 'sqlstate=42501' is NOT the contract (too generic: a client can put it in a URL)" -- bash -c "$(declare -f pat_hits); RE='$RE'; pat_hits 'cron failed sqlstate=42501'"
+assert_red "pattern: a JSON \"code\":\"42501\" alone is NOT matched either (narrowed on purpose)" -- bash -c "$(declare -f pat_hits); RE='$RE'; pat_hits '{\"code\":\"42501\"}'"
+assert_red "pattern: #1042's diagnostic fragment db_sqlstate=42501 must NOT match (one failure, one contract line)" -- bash -c "$(declare -f pat_hits); RE='$RE'; pat_hits 'db_error db_sqlstate=42501 db_table=- db_constraint=- db_column=- db_message=- db_statement=\"select 1\"'"
+assert_red "pattern: 'db_privilege_denied' with a DIFFERENT sqlstate (28P01) is not a 42501 contract line" -- bash -c "$(declare -f pat_hits); RE='$RE'; pat_hits 'db_privilege_denied sqlstate=28P01 table=-'"
+assert_green "contract regex is a subset of the full regex (everything contract is also a hit)" -- \
+  bash -c "printf '%s\n' 'db_privilege_denied sqlstate=42501 table=x ctx=pool' | grep -aEi -e '$CONTRACT_RE' >/dev/null && printf '%s\n' 'db_privilege_denied sqlstate=42501 table=x ctx=pool' | grep -aEi -e '$RE' >/dev/null"
+assert_red "contract regex does NOT match the belt-and-braces text (the two are distinguishable)" -- \
+  bash -c "printf '%s\n' 'permission denied for table x' | grep -aEi -e '$CONTRACT_RE'"
 assert_red "pattern: a bare number 42501 elsewhere (an id, a port) does NOT fire" -- bash -c "$(declare -f pat_hits); RE='$RE'; pat_hits 'processed 42501 rows'"
 assert_red "pattern: the pool-listener's other codes (57P01, 28P01) do NOT fire" -- bash -c "$(declare -f pat_hits); RE='$RE'; pat_hits 'Postgres pool idle-client error sqlstate=57P01: terminating connection'"
 assert_red "pattern: the Drizzle wrapper message alone does NOT fire (why the API must log .cause)" -- bash -c "$(declare -f pat_hits); RE='$RE'; pat_hits 'Failed query: DELETE FROM telemetry_events WHERE ts < \$1'"
@@ -341,7 +387,17 @@ case " $* " in
       hit)   printf "%s\n" \
                "2026-10-19T03:00:01.000000001Z [Nest] 18  - 10/19/2026, 3:00:01 AM     LOG [HealthController] ok" \
                "2026-10-19T03:00:02.123456789Z [Nest] 18  - 10/19/2026, 3:00:02 AM   ERROR [VacanciesRetentionCronService] retention failed error: permission denied for table vacancy_applications" ;;
-      code)  printf "%s\n" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [TelemetryRetentionCronService] retention failed sqlstate=42501: Failed query: delete from telemetry_events" ;;
+      # PR #1042: the contract line (one chokepoint) and the handler diagnostic fragment.
+      contract)       printf "%s\n" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [DatabaseService] db_privilege_denied sqlstate=42501 table=document_access_log ctx=pool" ;;
+      contract_dash)  printf "%s\n" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [DatabaseService] db_privilege_denied sqlstate=42501 table=- ctx=client" ;;
+      contract_off)   printf "%s\n" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [DatabaseService] db_privilege_denied sqlstate=42501 table=we?ird?t ctx=pool" ;;
+      contract_diag)  printf "%s\n" \
+                        "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [DatabaseService] db_privilege_denied sqlstate=42501 table=document_access_log ctx=pool" \
+                        "2026-10-19T03:00:02.100000001Z [Nest] 18  - x   ERROR [DocumentAccessLogRetentionCronService] retention failed db_error db_sqlstate=42501 db_table=document_access_log db_constraint=- db_column=- db_message=\"permission denied for table document_access_log\" db_statement=\"delete from document_access_log\"" ;;
+      contract_diag_quiet) printf "%s\n" \
+                        "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [DatabaseService] db_privilege_denied sqlstate=42501 table=document_access_log ctx=pool" \
+                        "2026-10-19T03:00:02.100000001Z [Nest] 18  - x   ERROR [DocumentAccessLogRetentionCronService] retention failed db_error db_sqlstate=42501 db_table=- db_constraint=- db_column=- db_message=- db_statement=\"select 1\"" ;;
+      diag_alone)     printf "%s\n" "2026-10-19T03:00:02.100000001Z [Nest] 18  - x   ERROR [DocumentAccessLogRetentionCronService] retention failed db_error db_sqlstate=42501 db_table=- db_constraint=- db_column=- db_message=- db_statement=\"select 1\"" ;;
       upper) printf "%s\n" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [VacanciesRetentionCronService] error: PERMISSION DENIED for table public.vacancy_applications" ;;
       owner) printf "%s\n" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [DocumentAccessLogRetentionCronService] error: must be owner of table document_access_log" ;;
       hostile) printf "%s\n" \
@@ -397,7 +453,7 @@ sed -n "/^PERMISSION_DENIED_RE='/,/^echo \"No permission denied/p" "$DEPLOY_SCRI
   echo 'echo DEPLOY-CONTINUED'
 } >"$WS/deploy-block.sh"
 
-remote() { ( PATH="$WS/bin:$PATH" FAKE_DOCKER_MODE="$1" LOGSCAN_CRM_DIR="$WS" LOGSCAN_RE="$RE" LOGSCAN_SINCE=40m bash "$REMOTE_SH" ); }
+remote() { ( PATH="$WS/bin:$PATH" FAKE_DOCKER_MODE="$1" LOGSCAN_CRM_DIR="$WS" LOGSCAN_RE="$RE" LOGSCAN_CONTRACT_RE="$CONTRACT_RE" LOGSCAN_SINCE=40m bash "$REMOTE_SH" ); }
 pipeline() { remote "$1" | env -u GITHUB_STEP_SUMMARY bash "$GUARD"; }
 deploy_step() { ( cd "$WS" && PATH="$WS/bin:$PATH" FAKE_DOCKER_MODE="$1" bash "$WS/deploy-block.sh" ); }
 
@@ -407,8 +463,25 @@ assert_green "extraction: the remote script exists and the deploy block was foun
 assert_red "PIPELINE: log with a 42501 -> remote fields -> checker FIRES" \
   --contains "HIT time=2026-10-19T03:00:02.123456789Z logger=VacanciesRetentionCronService object=table:vacancy_applications sqlstate=42501-by-message" \
   --contains "container crm-api-1" -- pipeline hit
-assert_red "PIPELINE: a labelled sqlstate=42501 with the wrapper message fires as sqlstate=42501" \
-  --contains "logger=TelemetryRetentionCronService object=unknown sqlstate=42501" -- pipeline code
+# ── THE CONTRACT (PR #1042): db_privilege_denied sqlstate=42501 table=<T> ctx=<C> ──
+assert_red "CONTRACT: the chokepoint's line fires; the table comes from its table= field; src=contract" \
+  --contains "object=table:document_access_log sqlstate=42501 src=contract" \
+  --contains "1 contract line(s) and 0 other" -- pipeline contract
+assert_green "CONTRACT: the remote reports HITS=1 and CONTRACT_HITS=1" \
+  --contains "LOGSCAN_HITS=1" --contains "LOGSCAN_CONTRACT_HITS=1" -- remote contract
+assert_red "CONTRACT: table=- (the 42501 names no table) is reported as object=unknown, and STILL pages" \
+  --contains "object=unknown sqlstate=42501 src=contract" -- pipeline contract_dash
+assert_exit_code "CONTRACT: ...exit 1" 1 pipeline contract_dash
+assert_red "CONTRACT: an off-list or odd table (we?ird?t) is table:unknown, never published, and STILL pages" \
+  --contains "object=table:unknown sqlstate=42501 src=contract" --not-contains "we?ird" -- pipeline contract_off
+assert_red "CONTRACT: the contract line plus a handler diagnostic quoting the message = 1 contract + 1 other, said plainly" \
+  --contains "1 contract line(s) and 1 other" --contains "src=contract" --contains "src=text" -- pipeline contract_diag
+assert_red "CONTRACT: the diagnostic fragment (db_sqlstate=42501, no message text) does NOT add a second hit" \
+  --contains "1 contract line(s) and 0 other" -- pipeline contract_diag_quiet
+assert_green "CONTRACT: the diagnostic fragment ALONE is not matched (the contract is the chokepoint line; decided with #1042's author)" \
+  --contains "OK: read" --not-contains "HIT" -- pipeline diag_alone
+assert_red "CONTRACT: the deploy gate fails on the contract line too" \
+  --contains "appeared 1 time(s)" --not-contains "DEPLOY-CONTINUED" -- deploy_step contract
 assert_red "PIPELINE: upper-case message is matched and its object extracted" \
   --contains "object=table:vacancy_applications" -- pipeline upper
 assert_red "PIPELINE: must-be-owner (42501 without the phrase) fires" \
@@ -455,11 +528,11 @@ assert_green "SR-H-5 WATCH: anonymous forgeries from the real logger (query stri
   --contains "OK: read" --not-contains "HIT" --not-contains "::error" -- pipeline realfastify
 assert_exit_code "SR-H-5 WATCH: ...exit 0, not 1" 0 pipeline realfastify
 assert_red "SR-H-5 WATCH: a GENUINE error in a real level-50 record is still found, exactly once, URL gone" \
-  --contains "1 matching log line" --contains "sqlstate=42501-by-message" -- pipeline realfastify_boom
+  --contains "0 contract line(s) and 1 other" --contains "sqlstate=42501-by-message" -- pipeline realfastify_boom
 assert_green "SR-H-5 WATCH: ...and the remote reports HITS=1, not one per forged record" \
   --contains "LOGSCAN_HITS=1" -- remote realfastify_boom
 assert_red "SR-H-5 WATCH: 30 rounds of forgeries cannot push a genuine hit out or inflate the count" \
-  --contains "1 matching log line" --contains "logger=TelemetryRetentionCronService" -- pipeline realfastify_flood
+  --contains "0 contract line(s) and 1 other" --contains "logger=TelemetryRetentionCronService" -- pipeline realfastify_flood
 assert_exit_code "SR-H-5 WATCH: ...and it still pages (exit 1)" 1 pipeline realfastify_flood
 assert_red "SR-H-5 WATCH: a genuine TEXT line that ends in an echoed {...} is NOT dropped" \
   --contains "logger=TelemetryRetentionCronService" -- pipeline textecho
@@ -473,7 +546,7 @@ assert_red "SR-H-5 DEPLOY: forgeries plus one genuine hit fail it with a count o
 
 # The filter fails CLOSED: no python means "could not look", never "found nothing".
 assert_red "SR-H-5 WATCH: a failing python filter is BLIND, not clean" --contains "req_filter" -- \
-  env FAKE_PYTHON_FAIL=1 bash -c "$(declare -f remote pipeline); REMOTE_SH='$REMOTE_SH' WS='$WS' RE='$RE' GUARD='$GUARD' LOGSCAN_TABLES='$LOGSCAN_TABLES' LOGSCAN_LOGGERS='$LOGSCAN_LOGGERS'; pipeline clean"
+  env FAKE_PYTHON_FAIL=1 bash -c "$(declare -f remote pipeline); REMOTE_SH='$REMOTE_SH' WS='$WS' RE='$RE' CONTRACT_RE='$CONTRACT_RE' GUARD='$GUARD' LOGSCAN_TABLES='$LOGSCAN_TABLES' LOGSCAN_LOGGERS='$LOGSCAN_LOGGERS'; pipeline clean"
 assert_red "SR-H-5 DEPLOY: a failing python filter fails the deploy instead of passing unread" \
   --contains "refusing to pass the 42501 check unread" --not-contains "DEPLOY-CONTINUED" -- \
   env FAKE_PYTHON_FAIL=1 bash -c "$(declare -f deploy_step); WS='$WS'; deploy_step clean"
@@ -600,7 +673,7 @@ scan() { # <docker-mode> [env args...]
   rm -f "$WS/ssh-args.txt"
   env -u GITHUB_STEP_SUMMARY PATH="$WS/sshshim:$WS/bin:$PATH" FAKE_DOCKER_MODE="$mode" LOGSCAN_CRM_DIR="$WS" \
     VPS_HOST=vps.example.test VPS_USER=deploy VPS_SSH_KEY="FAKE-KEY-CONTENT-NOT-A-KEY" \
-    LOGSCAN_RE="$RE" LOGSCAN_SINCE=40m SHIM_ARGS_FILE="$WS/ssh-args.txt" \
+    LOGSCAN_RE="$RE" LOGSCAN_CONTRACT_RE="$CONTRACT_RE" LOGSCAN_SINCE=40m SHIM_ARGS_FILE="$WS/ssh-args.txt" \
     "$@" bash "$SCAN_SH"
 }
 
@@ -638,7 +711,7 @@ assert_green "SEAM 5a: with VPS_KNOWN_HOSTS pinned there is no such warning" \
   --not-contains "VPS_KNOWN_HOSTS is not set" -- scan clean "VPS_KNOWN_HOSTS=vps.example.test ssh-ed25519 AAAAFAKEHOSTKEY"
 
 # The remote script fails closed on missing allowlists instead of dying mid-loop (a LOW).
-remote_no_lists() { ( PATH="$WS/bin:$PATH" FAKE_DOCKER_MODE=hit LOGSCAN_CRM_DIR="$WS" LOGSCAN_RE="$RE" LOGSCAN_SINCE=40m LOGSCAN_TABLES= LOGSCAN_LOGGERS= bash "$REMOTE_SH" ) | env -u GITHUB_STEP_SUMMARY bash "$GUARD"; }
+remote_no_lists() { ( PATH="$WS/bin:$PATH" FAKE_DOCKER_MODE=hit LOGSCAN_CRM_DIR="$WS" LOGSCAN_RE="$RE" LOGSCAN_CONTRACT_RE="$CONTRACT_RE" LOGSCAN_SINCE=40m LOGSCAN_TABLES= LOGSCAN_LOGGERS= bash "$REMOTE_SH" ) | env -u GITHUB_STEP_SUMMARY bash "$GUARD"; }
 assert_red "remote script with empty allowlists reports LOGSCAN_FAILED and the run is BLIND, not a silent half-hit" \
   --contains "inputs_missing" -- remote_no_lists
 
@@ -714,7 +787,7 @@ CONF
       local mode="$1"; shift
       echo "$mode" >"$SD/mode"
       env -u GITHUB_STEP_SUMMARY VPS_HOST=127.0.0.1 SSH_PORT="$SSHD_PORT" VPS_USER="$(id -un)" VPS_SSH_KEY="$(cat "$SD/clientkey")" \
-        VPS_KNOWN_HOSTS="$KH" LOGSCAN_RE="$RE" LOGSCAN_SINCE=40m "$@" bash "$SCAN_SH"
+        VPS_KNOWN_HOSTS="$KH" LOGSCAN_RE="$RE" LOGSCAN_CONTRACT_RE="$CONTRACT_RE" LOGSCAN_SINCE=40m "$@" bash "$SCAN_SH"
     }
     assert_green "SEAM 5b REAL ssh: clean scan exits 0" --contains "OK: read under 100 API log line(s)" -- real clean
     assert_red "SEAM 5b REAL ssh: a 42501 FIRES with its real timestamp" \
@@ -726,7 +799,7 @@ CONF
 
     # What the real producer emits, byte for byte: only our lines, each exactly once.
     echo hit >"$SD/mode"
-    { printf 'export LOGSCAN_RE=%q\nexport LOGSCAN_SINCE=40m\nexport LOGSCAN_TABLES=%q\nexport LOGSCAN_LOGGERS=%q\n' "$RE" "$LOGSCAN_TABLES" "$LOGSCAN_LOGGERS"; cat "$REMOTE_SH"; } >"$SD/payload.sh"
+    { printf 'export LOGSCAN_RE=%q\nexport LOGSCAN_CONTRACT_RE=%q\nexport LOGSCAN_SINCE=40m\nexport LOGSCAN_TABLES=%q\nexport LOGSCAN_LOGGERS=%q\n' "$RE" "$CONTRACT_RE" "$LOGSCAN_TABLES" "$LOGSCAN_LOGGERS"; cat "$REMOTE_SH"; } >"$SD/payload.sh"
     ssh -i "$SD/clientkey" -p "$SSHD_PORT" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=no \
       -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "$(id -un)@127.0.0.1" 'bash -s' <"$SD/payload.sh" >"$SD/raw.out" 2>"$SD/raw.err"
     # SR-M-6 over a real ssh: shell rc output precedes our frame. First prove the noise is

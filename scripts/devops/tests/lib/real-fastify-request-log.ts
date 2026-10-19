@@ -44,19 +44,21 @@ async function main() {
 
   const hostile = [
     // The reviewer's forgery: the query string is logged verbatim.
+    // Forgeries aimed at the CONTRACT pattern (the only thing that can page): the query
+    // string is logged verbatim. The older bare-code forgery (?code=42501) no longer matches.
+    { method: 'GET', url: '/api/health?db_privilege_denied&sqlstate=42501&table=users' },
     { method: 'GET', url: '/api/health?code=42501' },
-    { method: 'GET', url: '/api/health?sqlstate=42501&x=permission+denied' },
     // A path that does not exist: Fastify's own 404 line.
-    { method: 'GET', url: '/permission denied/sqlstate=42501' },
+    { method: 'GET', url: '/db_privilege_denied/sqlstate=42501' },
     // A content type nobody registered: Fastify answers 415 and may echo the type.
     {
       method: 'POST',
-      url: '/api/auth/login',
+      url: '/api/auth/login?db_privilege_denied&sqlstate=42501',
       headers: { 'content-type': 'application/x-permission-denied' },
       payload: 'x',
     },
     // A 500 whose request URL carries the forgery while the REAL error message is genuine.
-    { method: 'GET', url: '/api/boom?sqlstate=42501' },
+    { method: 'GET', url: '/api/boom?db_privilege_denied&sqlstate=42501' },
     // Malformed JSON.
     {
       method: 'POST',
