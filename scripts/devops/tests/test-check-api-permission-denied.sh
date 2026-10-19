@@ -392,4 +392,174 @@ assert_red "logger convention changed (none found beyond the framework list) -> 
 assert_red "missing manifest file -> FAILS LOUDLY" --contains "manifest not found" -- \
   env REPO_ROOT="$WS/does-not-exist" bash "$DERIVE"
 
+# ═══ 5. THE SEAM: the driver between the producer (ssh) and the checker ═════════
+# Fix round 1 (SR-H-1). Everything above feeds the checker output that THIS FILE built.
+# That is how the first design shipped permanently blind: appleboy/ssh-action prints a
+# banner and writes its capture twice, the checker rightly refused both, and 58 green
+# tests never saw it, because a test that constructs its own input cannot discover what
+# the real producer emits. So this section drives scan-api-permission-denied.sh itself:
+#  5a  always on: the real driver with `ssh` replaced by a stand-in (argv, key mode,
+#      stderr noise, failure), the real remote script, the fake docker;
+#  5b  when an sshd exists on this machine: the SAME driver over a REAL ssh connection to
+#      a throwaway sshd, so the bytes in the pipe are ssh's own. If sshd is unavailable
+#      the section prints SKIP (never PASS) and 5a still runs.
+
+mkdir -p "$WS/sshshim"
+cat >"$WS/sshshim/ssh" <<'EOF'
+#!/usr/bin/env bash
+# Stand-in for ssh (tests only): records argv and the key file's mode, writes noise to
+# stderr the way ssh does, optionally fails, otherwise runs the payload on stdin locally.
+printf '%s\n' "$@" >"$SHIM_ARGS_FILE"
+key=""; prev=""
+for a in "$@"; do [ "$prev" = "-i" ] && key="$a"; prev="$a"; done
+{ [ -f "$key" ] && [ -n "$(find "$key" -perm 600 2>/dev/null)" ] && echo "KEY_MODE_600"; echo "KEY_PATH=$key"; } >>"$SHIM_ARGS_FILE"
+echo "Warning: Permanently added 'vps.example.test' to the list of known hosts." >&2
+[ "${SHIM_SSH_FAIL:-}" = 1 ] && exit 255
+exec bash -s
+EOF
+chmod +x "$WS/sshshim/ssh"
+printf '%s\n' '#!/usr/bin/env bash' 'echo "vps.example.test ssh-ed25519 AAAAFAKEHOSTKEY"' >"$WS/sshshim/ssh-keyscan"
+chmod +x "$WS/sshshim/ssh-keyscan"
+
+scan() { # <docker-mode> [env args...]
+  local mode="$1"; shift
+  rm -f "$WS/ssh-args.txt"
+  env -u GITHUB_STEP_SUMMARY PATH="$WS/sshshim:$WS/bin:$PATH" FAKE_DOCKER_MODE="$mode" LOGSCAN_CRM_DIR="$WS" \
+    VPS_HOST=vps.example.test VPS_USER=deploy VPS_SSH_KEY="FAKE-KEY-CONTENT-NOT-A-KEY" \
+    LOGSCAN_RE="$RE" LOGSCAN_SINCE=40m SHIM_ARGS_FILE="$WS/ssh-args.txt" \
+    "$@" bash "$SCAN_SH"
+}
+
+assert_green "SEAM 5a: clean scan through the real driver exits 0 and says what it read" \
+  --contains "OK: read 2 API log line(s)" -- scan clean
+assert_exit_code "SEAM 5a: clean exits 0" 0 scan clean
+assert_red "SEAM 5a: a 42501 through the real driver FIRES, with the real timestamp from the compose-prefixed line" \
+  --contains "HIT time=2026-10-19T03:00:02.123456789Z logger=VacanciesRetentionCronService object=table:vacancy_applications" \
+  -- scan hit
+assert_exit_code "SEAM 5a: a hit exits 1" 1 scan hit
+assert_red "SEAM 5a: PII / SQL / injection in the production log reaches NO sink of the driver (stdout+stderr)" \
+  --contains "HIT time=" --not-contains "jane.doe" --not-contains "380501234567" --not-contains "INJECTED" \
+  --not-contains "SECRETVALUE" --not-contains "DELETE FROM" -- scan hostile
+assert_green "SEAM 5a: ssh's stderr noise reaches the job log but NOT the checker (clean stays clean)" \
+  --contains "Permanently added" --contains "OK: read" -- scan clean
+assert_exit_code "SEAM 5a: ssh failing (255) is BLIND, exit 2, never 0" 2 scan clean SHIM_SSH_FAIL=1
+assert_red "SEAM 5a: the api container missing is BLIND through the driver too" --contains "no running api container" -- scan nocontainer
+assert_red "SEAM 5a: a failing docker logs is BLIND through the driver" --contains "compose_logs" -- scan fail
+
+assert_exit_code "SEAM 5a: an empty secret is refused (exit 2) before any ssh" 2 scan clean VPS_SSH_KEY=
+assert_red "SEAM 5a: a hostile VPS_HOST (option injection) is refused and ssh is never run" \
+  --contains "VPS_HOST has an unexpected shape" -- scan clean "VPS_HOST=-oProxyCommand=touch_pwned"
+assert_green "SEAM 5a: ...and the stand-in ssh was indeed never invoked for it" -- \
+  bash -c "scan_out=0; [ ! -e '$WS/ssh-args.txt' ]"
+scan clean >/dev/null 2>&1
+assert_green "SEAM 5a: the key reached ssh in a 0600 file, passed with -i, never on the command line" -- \
+  bash -c "grep -qx KEY_MODE_600 '$WS/ssh-args.txt' && grep -qx -e '-i' '$WS/ssh-args.txt' && ! grep -q 'FAKE-KEY-CONTENT' '$WS/ssh-args.txt'"
+assert_green "SEAM 5a: ...and the key file is gone after the driver exits" -- \
+  bash -c "p=\$(sed -n 's/^KEY_PATH=//p' '$WS/ssh-args.txt'); [ -n \"\$p\" ] && [ ! -e \"\$p\" ]"
+assert_green "SEAM 5a: host key is verified (StrictHostKeyChecking=yes), no agent or password fallback" -- \
+  bash -c "grep -qx 'StrictHostKeyChecking=yes' '$WS/ssh-args.txt' && grep -qx 'BatchMode=yes' '$WS/ssh-args.txt'"
+assert_green "SEAM 5a: without VPS_KNOWN_HOSTS the trust-on-first-use window is announced, not silent" \
+  --contains "::warning::VPS_KNOWN_HOSTS is not set" -- scan clean
+assert_green "SEAM 5a: with VPS_KNOWN_HOSTS pinned there is no such warning" \
+  --not-contains "VPS_KNOWN_HOSTS is not set" -- scan clean "VPS_KNOWN_HOSTS=vps.example.test ssh-ed25519 AAAAFAKEHOSTKEY"
+
+# The remote script fails closed on missing allowlists instead of dying mid-loop (a LOW).
+remote_no_lists() { ( PATH="$WS/bin:$PATH" FAKE_DOCKER_MODE=hit LOGSCAN_CRM_DIR="$WS" LOGSCAN_RE="$RE" LOGSCAN_SINCE=40m LOGSCAN_TABLES= LOGSCAN_LOGGERS= bash "$REMOTE_SH" ) | env -u GITHUB_STEP_SUMMARY bash "$GUARD"; }
+assert_red "remote script with empty allowlists reports LOGSCAN_FAILED and the run is BLIND, not a silent half-hit" \
+  --contains "inputs_missing" -- remote_no_lists
+
+# The workflow must call the driver and hand it everything the driver requires.
+assert_green "WIRING: the workflow uses no third-party ssh action" -- bash -c "! grep -q 'uses: appleboy' '$WORKFLOW'"
+assert_green "WIRING: the workflow's last step runs the driver" -- \
+  bash -c "grep -q 'run: scripts/devops/scan-api-permission-denied.sh' '$WORKFLOW'"
+required_vars="$(sed -n 's/^for v in \(.*\); do$/\1/p' "$SCAN_SH" | head -n 1)"
+missing_wiring=""
+for v in $required_vars; do
+  grep -q "^          $v: \${{" "$WORKFLOW" || missing_wiring="$missing_wiring $v"
+done
+if [ -n "$required_vars" ] && [ -z "$missing_wiring" ]; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  WIRING: every variable the driver requires (%s) is set by the workflow step\n' "$required_vars"
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  WIRING: driver requires [%s]; the workflow does not set:%s\n' "$required_vars" "$missing_wiring"
+fi
+
+# ── 5b: the same driver over a REAL ssh connection ────────────────────────────
+SSHD_BIN=""
+for c in /usr/sbin/sshd /usr/local/sbin/sshd; do [ -x "$c" ] && SSHD_BIN="$c" && break; done
+SSHD_PID=""
+trap '[ -z "$SSHD_PID" ] || kill "$SSHD_PID" 2>/dev/null; rm -rf "$WS"' EXIT
+if [ -n "$SSHD_BIN" ] && command -v ssh-keygen >/dev/null 2>&1; then
+  SD="$WS/sshd"; mkdir -p "$SD"
+  ssh-keygen -q -t ed25519 -N '' -f "$SD/hostkey" && ssh-keygen -q -t ed25519 -N '' -f "$SD/clientkey" \
+    && ssh-keygen -q -t ed25519 -N '' -f "$SD/otherhostkey"
+  cp "$SD/clientkey.pub" "$SD/authorized_keys"; chmod 600 "$SD/authorized_keys"
+  SSHD_PORT="$(python3 -I -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1])')"
+  # ForceCommand is how the fake docker and the mode reach the session; it also models
+  # the owner's possible future restricted key (a forced command ignores the client's).
+  cat >"$SD/wrap.sh" <<WRAP
+#!/usr/bin/env bash
+export PATH="$WS/bin:\$PATH" FAKE_DOCKER_MODE="\$(cat "$SD/mode")" LOGSCAN_CRM_DIR="$WS"
+exec bash -c "\$SSH_ORIGINAL_COMMAND"
+WRAP
+  chmod +x "$SD/wrap.sh"
+  cat >"$SD/sshd_config" <<CONF
+Port $SSHD_PORT
+ListenAddress 127.0.0.1
+HostKey $SD/hostkey
+PidFile $SD/sshd.pid
+AuthorizedKeysFile $SD/authorized_keys
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+UsePAM no
+StrictModes no
+PermitUserEnvironment no
+ForceCommand $SD/wrap.sh
+LogLevel ERROR
+CONF
+  echo clean >"$SD/mode"
+  "$SSHD_BIN" -f "$SD/sshd_config" -D -e >"$SD/sshd.log" 2>&1 &
+  SSHD_PID=$!
+  up=0
+  for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    if ssh-keyscan -T 2 -p "$SSHD_PORT" 127.0.0.1 2>/dev/null | grep -q ed25519; then up=1; break; fi
+    echo "  sshd: waiting for the throwaway server ($i/20)"
+    sleep 0.5
+  done
+  if [ "$up" = 1 ]; then
+    KH="[127.0.0.1]:$SSHD_PORT $(cut -d' ' -f1,2 "$SD/hostkey.pub")"
+    OTHER_KH="[127.0.0.1]:$SSHD_PORT $(cut -d' ' -f1,2 "$SD/otherhostkey.pub")"
+    real() { # <mode> [env args...]
+      local mode="$1"; shift
+      echo "$mode" >"$SD/mode"
+      env -u GITHUB_STEP_SUMMARY VPS_HOST=127.0.0.1 SSH_PORT="$SSHD_PORT" VPS_USER="$(id -un)" VPS_SSH_KEY="$(cat "$SD/clientkey")" \
+        VPS_KNOWN_HOSTS="$KH" LOGSCAN_RE="$RE" LOGSCAN_SINCE=40m "$@" bash "$SCAN_SH"
+    }
+    assert_green "SEAM 5b REAL ssh: clean scan exits 0" --contains "OK: read 2 API log line(s)" -- real clean
+    assert_red "SEAM 5b REAL ssh: a 42501 FIRES with its real timestamp" \
+      --contains "HIT time=2026-10-19T03:00:02.123456789Z logger=VacanciesRetentionCronService object=table:vacancy_applications" -- real hit
+    assert_exit_code "SEAM 5b REAL ssh: a hit exits 1" 1 real hit
+    assert_red "SEAM 5b REAL ssh: hostile production text reaches no sink" \
+      --contains "HIT time=" --not-contains "jane.doe" --not-contains "INJECTED" --not-contains "SECRETVALUE" -- real hostile
+    assert_exit_code "SEAM 5b REAL ssh: a pinned host key that does NOT match is refused (BLIND), not trusted" 2 real clean "VPS_KNOWN_HOSTS=$OTHER_KH"
+
+    # What the real producer emits, byte for byte: only our lines, each exactly once.
+    echo hit >"$SD/mode"
+    { printf 'export LOGSCAN_RE=%q\nexport LOGSCAN_SINCE=40m\nexport LOGSCAN_TABLES=%q\nexport LOGSCAN_LOGGERS=%q\n' "$RE" "$LOGSCAN_TABLES" "$LOGSCAN_LOGGERS"; cat "$REMOTE_SH"; } >"$SD/payload.sh"
+    ssh -i "$SD/clientkey" -p "$SSHD_PORT" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=no \
+      -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "$(id -un)@127.0.0.1" 'bash -s' <"$SD/payload.sh" >"$SD/raw.out" 2>"$SD/raw.err"
+    assert_green "SEAM 5b REAL ssh: raw stdout is exactly the envelope (starts/ends right, nothing else)" -- \
+      bash -c "[ \"\$(head -n1 '$SD/raw.out')\" = LOGSCAN_API_CONTAINERS=1 ] && [ \"\$(tail -n1 '$SD/raw.out')\" = LOGSCAN_END ] && ! grep -qv '^LOGSCAN_' '$SD/raw.out'"
+    assert_green "SEAM 5b REAL ssh: ...with no line written twice (the ssh-action doubling cannot recur)" -- \
+      bash -c "[ -z \"\$(sort '$SD/raw.out' | uniq -d)\" ]"
+    assert_green "SEAM 5b REAL ssh: ...and the remote wrote nothing to stderr" -- bash -c "[ ! -s '$SD/raw.err' ]"
+  else
+    echo "SKIP  SEAM 5b REAL ssh: the throwaway sshd did not come up on this machine (5a still ran):"
+    head -n 3 "$SD/sshd.log" | sed 's/^/        /'
+  fi
+else
+  echo "SKIP  SEAM 5b REAL ssh: no sshd on this machine (5a, the stand-in seam, still ran)"
+fi
+
 guard_test_summary "test-check-api-permission-denied.sh"
