@@ -582,6 +582,153 @@ assert_red "SR-H-5 DEPLOY: a failing python filter fails the deploy instead of p
   --contains "refusing to pass the 42501 check unread" --not-contains "DEPLOY-CONTINUED" -- \
   env FAKE_PYTHON_FAIL=1 bash -c "$(declare -f deploy_step); WS='$WS'; deploy_step clean"
 
+# ═══ SR-H-7: Docker splits a log line over 16384 bytes and stamps EACH chunk ═══════════
+# `docker compose logs --timestamps` therefore hands the filter a pino record with a second
+# timestamp INSIDE it. Where it lands decides whether json.loads works, and the client
+# chooses (pino doubles each escaped quote, so the byte count is theirs to tune). The old
+# filter kept a record it could not parse, request data included. Here the record is the
+# REAL serializer output in a REAL Fastify, padded so the URL's closing quote is at byte
+# 16384, and the stamp goes right after it, between two JSON tokens.
+with_file() { FAKE_LOG_FILE="$1"; export FAKE_LOG_FILE; shift; "$@"; }
+make_long() { LOGSCAN_LONG_PAD="$2" LOGSCAN_LONG_ROUTE="$1" LOGSCAN_API_DIR="$REAL_API_DIR" "$REAL_TSX" "$SELF_DIR/lib/real-fastify-request-log.ts" 2>/dev/null; }
+url_end() { python3 -I -c 'import sys;s=sys.stdin.read().rstrip("\n");i=s.index("\"url\":\"")+7;print(s.index("\"",i)+1)'; }
+not_json() { python3 -I -c 'import json,sys
+t=open(sys.argv[1]).read().rstrip("\n").split(" ",1)[1]
+try:
+    json.loads(t)
+except ValueError:
+    sys.exit(0)
+sys.exit(1)' "$1"; }
+is_json() { python3 -I -c 'import json,sys
+json.loads(open(sys.argv[1]).read().rstrip("\n").split(" ",1)[1])' "$1"; }
+build_long() { # <route> <selector>
+  local route="$1" sel="$2" base idx0 pad rec
+  base="$(make_long "$route" 0 | grep -m1 -- "$sel")"
+  idx0="$(printf '%s' "$base" | url_end 2>/dev/null)"
+  if [ -z "$idx0" ]; then : >"$WS/long-$route.json"; return 0; fi
+  pad=$((16384 - idx0))
+  rec="$(make_long "$route" "$pad" | grep -m1 -- "$sel")"
+  printf '%s\n' "$rec" >"$WS/long-$route.json"
+  printf '%s' "$rec" | url_end >"$WS/long-$route.idx" 2>/dev/null
+  python3 -I - "$WS/long-$route.json" "$WS/long-$route.split" "$WS/long-$route.cut" "$WS/long-$route.nosplit" <<'PYEOF'
+import sys
+rec = open(sys.argv[1], encoding="utf-8").read().rstrip("\n")
+first, rest = rec[:16384], rec[16384:]
+lead = "2026-10-19T03:00:01.000000001Z "
+stamp = "2026-10-19T03:00:02.123456789Z "
+open(sys.argv[2], "w").write(lead + first + stamp + rest + "\n")  # the Docker shape
+open(sys.argv[3], "w").write(lead + first + "\n")                 # only the first chunk
+open(sys.argv[4], "w").write(lead + rec + "\n")                   # control: no split
+PYEOF
+}
+if [ -s "$REAL_FASTIFY_ALL" ]; then
+  echo "  building the >16 KB records with the real serializer (a few seconds)"
+  build_long health '"msg":"incoming request"'
+  build_long boom '"level":50'
+fi
+
+for route in health boom; do
+  assert_green "SR-H-7 fixture ($route): the real record's url ends exactly at byte 16384" -- \
+    bash -c "[ \"\$(cat '$WS/long-$route.idx' 2>/dev/null)\" = 16384 ]"
+  assert_green "SR-H-7 fixture ($route): the split record is NOT valid JSON (the exact input the old filter kept)" -- not_json "$WS/long-$route.split"
+  assert_green "SR-H-7 fixture ($route): ...while the same record unsplit IS valid JSON" -- is_json "$WS/long-$route.nosplit"
+done
+assert_green "SR-H-7 non-vacuity: unfiltered, the split health record matches the CONTRACT (a keep-what-you-cannot-parse filter would publish it)" -- \
+  bash -c "grep -aEiq -e '$CONTRACT_RE' '$WS/long-health.split'"
+
+# ── health: a level-30 record. Dropped from the TEXT, before json.loads is even tried ───
+assert_green "SR-H-7 WATCH: the chunked level-30 record is dropped -> clean, nothing published" \
+  --contains "OK: read" --not-contains "HIT" --not-contains "::error" -- with_file "$WS/long-health.split" pipeline file
+assert_exit_code "SR-H-7 WATCH: ...exit 0, not 1" 0 with_file "$WS/long-health.split" pipeline file
+assert_green "SR-H-7 WATCH: control, same size and no split -> clean" --contains "OK: read" -- with_file "$WS/long-health.nosplit" pipeline file
+assert_green "SR-H-7 DEPLOY: the chunked level-30 record does not fail the deploy" \
+  --contains "No permission denied / 42501" --contains "DEPLOY-CONTINUED" -- with_file "$WS/long-health.split" deploy_step file
+
+# ── boom: a REAL level-50 500. Stamps stripped and re-parsed: the genuine error stays, the
+#    forged hostname goes ───────────────────────────────────────────────────────────────
+assert_red "SR-H-7 WATCH: a chunked level-50 record is re-parsed after stripping the stamp: the GENUINE error survives, the forged contract does not" \
+  --contains "0 contract line(s) and 1 other" -- with_file "$WS/long-boom.split" pipeline file
+assert_green "SR-H-7 WATCH: ...and nothing was unparsed (the strip-and-reparse worked)" \
+  --contains "LOGSCAN_UNPARSED=0" -- with_file "$WS/long-boom.split" remote file
+assert_red "SR-H-7 DEPLOY: ...the same record gives exactly ONE hit in the deploy gate (the genuine one), not two" \
+  --contains "appeared 1 time(s)" -- with_file "$WS/long-boom.split" deploy_step file
+
+# ── cut: only the first chunk, a level-50 pino record that cannot be parsed at all ───────
+assert_green "SR-H-7 WATCH: an unparseable pino-looking record is DROPPED, never kept, and COUNTED (LOGSCAN_UNPARSED=1)" \
+  --contains "LOGSCAN_UNPARSED=1" --contains "LOGSCAN_HITS=0" -- with_file "$WS/long-boom.cut" remote file
+assert_green "SR-H-7 WATCH: ...so the forged contract text in it cannot page" \
+  --contains "OK: read" --not-contains "HIT" -- with_file "$WS/long-boom.cut" pipeline file
+assert_green "SR-H-7 WATCH: ...and the discard is VISIBLE in the output (a warning), not merely counted" \
+  --contains "::warning::1 pino-looking api log record(s) could not be parsed and were dropped" -- with_file "$WS/long-boom.cut" pipeline file
+pipeline_sum() { remote file | GITHUB_STEP_SUMMARY="$SUMF" bash "$GUARD"; }
+: >"$SUMF"
+with_file "$WS/long-boom.cut" pipeline_sum >/dev/null 2>&1
+assert_green "SR-H-7 WATCH: ...and in the run SUMMARY a reader can open" -- grep -q '1 pino-looking record(s) could not be parsed and were dropped' "$SUMF"
+assert_green "SR-H-7 DEPLOY: ...and the deploy log says so too, and the deploy is not failed by it" \
+  --contains "::warning::1 pino-looking api log record(s) could not be parsed" --contains "DEPLOY-CONTINUED" -- with_file "$WS/long-boom.cut" deploy_step file
+
+# ── the same through the REAL Docker json-file driver, when this machine has one ────────
+# A skip is printed as SKIP, never as a pass; the synthetic stamp above always runs.
+DOCKER_IMG=""
+if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+  for c in debian:bookworm-slim alpine:latest busybox:latest ubuntu:24.04; do
+    if docker image inspect "$c" >/dev/null 2>&1; then DOCKER_IMG="$c"; break; fi
+  done
+fi
+if [ -n "$DOCKER_IMG" ] && [ -s "$WS/long-health.json" ]; then
+  for route in health boom; do
+    echo "  docker: throwaway container ($DOCKER_IMG) writes the $route record; reading it back with --timestamps"
+    cname="logscan-chunk-$$-$route"
+    docker run --name "$cname" -v "$WS:/d:ro" "$DOCKER_IMG" cat "/d/long-$route.json" >/dev/null 2>&1
+    docker logs --timestamps "$cname" >"$WS/long-$route.docker" 2>/dev/null
+    docker rm -f "$cname" >/dev/null 2>&1
+    assert_green "SR-H-7 REAL DOCKER ($route): the json-file driver put a SECOND timestamp inside the record" -- \
+      python3 -I -c 'import re,sys;t=open(sys.argv[1]).read();sys.exit(0 if len(re.findall(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d+Z ",t))>=2 else 1)' "$WS/long-$route.docker"
+    assert_green "SR-H-7 REAL DOCKER ($route): ...and that record is not valid JSON as delivered" -- not_json "$WS/long-$route.docker"
+  done
+  assert_green "SR-H-7 REAL DOCKER: the health record, as Docker really delivers it, is dropped by the watch" \
+    --contains "OK: read" --not-contains "HIT" -- with_file "$WS/long-health.docker" pipeline file
+  assert_green "SR-H-7 REAL DOCKER: ...and does not fail the deploy gate" \
+    --contains "DEPLOY-CONTINUED" -- with_file "$WS/long-health.docker" deploy_step file
+  assert_red "SR-H-7 REAL DOCKER: the level-50 record as Docker delivers it keeps the genuine error and drops the forged contract" \
+    --contains "0 contract line(s) and 1 other" -- with_file "$WS/long-boom.docker" pipeline file
+else
+  echo "SKIP  SR-H-7 REAL DOCKER: no running docker or no local debian/alpine/busybox/ubuntu image (the synthetic stamp at byte 16384 above still ran)"
+fi
+
+# ═══ SR-M-8: the canary. A python3 that exits 0 and prints nothing, or just copies its input,
+#     must never turn a genuine hit into "clean" ══════════════════════════════════════════════
+pipeline_py() { ( export "$1=1"; pipeline "$2" ); }
+deploy_py() { ( export "$1=1"; deploy_step "$2" ); }
+assert_red "SR-M-8 WATCH: a python3 that exits 0 with EMPTY output, over a genuine contract hit, is BLIND (not clean)" \
+  --contains "req_filter_canary" --not-contains "OK: read" -- pipeline_py FAKE_PYTHON_EMPTY contract
+assert_exit_code "SR-M-8 WATCH: ...exit 2, not 0" 2 pipeline_py FAKE_PYTHON_EMPTY contract
+assert_red "SR-M-8 WATCH: a python3 that just COPIES its input is BLIND too (the filter did not run)" \
+  --contains "req_filter_canary" -- pipeline_py FAKE_PYTHON_CAT contract
+assert_red "SR-M-8 DEPLOY: an empty-output python3 fails the deploy instead of passing a genuine hit" \
+  --contains "canary check failed" --not-contains "DEPLOY-CONTINUED" -- deploy_py FAKE_PYTHON_EMPTY contract
+assert_red "SR-M-8 DEPLOY: a copy-input python3 fails the deploy too" \
+  --contains "canary check failed" --not-contains "DEPLOY-CONTINUED" -- deploy_py FAKE_PYTHON_CAT contract
+assert_red "SR-M-8 control: the real python3 over the same genuine hit FIRES" \
+  --contains "src=contract" -- pipeline contract
+
+# ═══ SR-M-9: the contract token under another logger context is not the contract ═════════
+assert_green "SR-M-9 WATCH: db_privilege_denied under a handler context is NOT a hit" \
+  --contains "OK: read" --not-contains "HIT" -- pipeline ctx_other
+assert_green "SR-M-9 DEPLOY: ...and does not fail the deploy" --contains "DEPLOY-CONTINUED" -- deploy_step ctx_other
+
+# ═══ LOGSCAN_UNPARSED at the checker, and the LAST BEGIN ═══════════════════════════════════
+sed '/^LOGSCAN_UNPARSED=/d' "$WS/clean.env" >"$WS/no-unparsed.env"
+sed 's/^LOGSCAN_UNPARSED=0$/LOGSCAN_UNPARSED=3/' "$WS/clean.env" >"$WS/unparsed3.env"
+assert_red "UNPARSED: an envelope with no LOGSCAN_UNPARSED is BLIND (a remote older than this checker)" \
+  --contains "LOGSCAN_UNPARSED" --contains "BLIND" -- run_guard "$WS/no-unparsed.env"
+assert_green "UNPARSED: 3 dropped records on a clean scan -> still clean, but the discard is a visible warning" \
+  --contains "::warning::3 pino-looking api log record(s) could not be parsed and were dropped" -- run_guard "$WS/unparsed3.env"
+run_with_summary "$WS/unparsed3.env"
+assert_green "UNPARSED: ...and it is in the summary" -- grep -q '3 pino-looking record(s) could not be parsed and were dropped' "$SUMF"
+{ printf 'LOGSCAN_BEGIN\nLOGSCAN_API_CONTAINERS=1\nLOGSCAN_CONTAINER=crm-api-1\nLOGSCAN_LINES=9\nLOGSCAN_HITS=0\nLOGSCAN_CONTRACT_HITS=0\nLOGSCAN_UNPARSED=0\nLOGSCAN_END\n'; cat "$WS/hit.env"; } >"$WS/decoy-frame.env"
+assert_exit_code "LAST BEGIN: a forged CLEAN frame printed before the real one cannot hide a hit" 1 run_guard "$WS/decoy-frame.env"
+
 # The two copies of the filter must be the same program.
 extract_filter() { sed -n '/^# --- BEGIN LOGSCAN_REQ_FILTER/,/^# --- END LOGSCAN_REQ_FILTER/p' "$1"; }
 extract_filter "$REMOTE_SH" >"$WS/filter.remote"
