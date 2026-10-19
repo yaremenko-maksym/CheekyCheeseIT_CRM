@@ -194,4 +194,83 @@ else
   printf 'FAIL  pattern drift: deploy script has [%s], checker has [%s]\n' "$deploy_re" "$RE"
 fi
 
+# ── the whole pipeline, against a fake `docker` ──────────────────────────────
+# The checker above only proves the half that reads an envelope. These run the code
+# that PRODUCES it (the remote script inside the workflow YAML) and the inline scan
+# in the deploy script, extracted from the real files, against a fake `docker`, so a
+# typo in either is a red here and not a silent no-op at the first cron fire.
+# Only two things are altered: `cd /opt/crm` becomes `cd .` (there is no /opt/crm
+# here), and docker is the shim.
+WORKFLOW="$GUARD_DIR/../../.github/workflows/api-permission-denied-watch.yml"
+
+guard_test_shim "$WS" docker '#!/usr/bin/env bash
+case " $* " in
+  *" ps "*)
+    [ "${FAKE_DOCKER_MODE:-}" = "nocontainer" ] || echo "abc123"
+    exit 0 ;;
+  *" logs "*)
+    case "${FAKE_DOCKER_MODE:-}" in
+      hit)  printf "%s\n" \
+              "2026-10-19T03:00:01.000000001Z [Nest] 18  - 10/19/2026, 3:00:01 AM     LOG [HealthController] ok" \
+              "2026-10-19T03:00:02.123456789Z [Nest] 18  - 10/19/2026, 3:00:02 AM   ERROR [VacancyRetentionService] retention failed error: permission denied for table vacancy_applications" ;;
+      pool) printf "%s\n" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [DatabaseService] Postgres pool idle-client error sqlstate=42501: permission denied for table telemetry_errors" ;;
+      fail) echo "Error response from daemon: no such service" >&2; exit 1 ;;
+      *)    printf "%s\n" "2026-10-19T03:00:01.000000001Z [Nest] 18  - 10/19/2026, 3:00:01 AM     LOG [HealthController] ok" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x     LOG [Cron] retention pruned 0 rows" ;;
+    esac
+    exit 0 ;;
+esac
+exit 0'
+
+python3 -I - "$WORKFLOW" "$WS/remote.sh" <<'PYEOF'
+import re, sys, textwrap
+src = open(sys.argv[1]).read()
+m = re.search(r"^ {10}script: \|\n((?: {12}.*\n|\n)+)", src, re.M)
+if not m:
+    sys.exit("could not find the remote script in the workflow")
+body = textwrap.dedent(m.group(1)).replace("cd /opt/crm", "cd .")
+open(sys.argv[2], "w").write(body)
+PYEOF
+
+DEPLOY_BLOCK_OK=1
+sed -n "/^PERMISSION_DENIED_RE='/,/^echo \"No permission denied/p" "$DEPLOY_SCRIPT" >"$WS/deploy-block.body"
+[ -s "$WS/deploy-block.body" ] || DEPLOY_BLOCK_OK=0
+{
+  echo 'set -euo pipefail'
+  echo 'DEPLOY_STARTED_AT=2026-10-19T03:00:00Z'
+  cat "$WS/deploy-block.body"
+  echo 'echo DEPLOY-CONTINUED'
+} >"$WS/deploy-block.sh"
+
+pipeline() { # <mode>: the remote script's output piped into the real checker
+  local mode="$1"
+  ( cd "$WS" && PATH="$WS/bin:$PATH" FAKE_DOCKER_MODE="$mode" LOGSCAN_RE="$RE" LOGSCAN_SINCE=40m bash "$WS/remote.sh" ) \
+    | env -u GITHUB_STEP_SUMMARY bash "$GUARD"
+}
+deploy_step() {
+  ( cd "$WS" && PATH="$WS/bin:$PATH" FAKE_DOCKER_MODE="$1" bash "$WS/deploy-block.sh" )
+}
+
+assert_green "extraction: the workflow's remote script and the deploy block were both found" -- \
+  bash -c "[ -s '$WS/remote.sh' ] && [ '$DEPLOY_BLOCK_OK' = 1 ]"
+
+assert_red "PIPELINE: log with a 42501 -> remote grep -> envelope -> checker FIRES" \
+  --contains "HIT time=2026-10-19T03:00:02.123456789Z logger=VacancyRetentionService object=table vacancy_applications" -- \
+  pipeline hit
+assert_red "PIPELINE: pool-listener line fires too" --contains "logger=DatabaseService object=table telemetry_errors" -- \
+  pipeline pool
+assert_green "PIPELINE: clean log stays quiet" --contains "OK: read 2 API log line(s)" --not-contains "HIT" -- \
+  pipeline clean
+assert_red "PIPELINE: docker logs failing is BLIND, not clean" --contains "compose_logs" -- pipeline fail
+assert_red "PIPELINE: no api container is BLIND, not clean" --contains "no running api container" -- pipeline nocontainer
+
+assert_red "DEPLOY: a 42501 in the new container fails the deploy and never reaches the next step" \
+  --contains "appeared 1 time(s)" --not-contains "DEPLOY-CONTINUED" --not-contains "VacancyRetentionService" -- \
+  deploy_step hit
+assert_green "DEPLOY: clean logs let the deploy continue" \
+  --contains "No permission denied / 42501" --contains "DEPLOY-CONTINUED" -- \
+  deploy_step clean
+assert_red "DEPLOY: an unreadable log fails the deploy instead of passing unread" \
+  --contains "could not read" --not-contains "DEPLOY-CONTINUED" -- \
+  deploy_step fail
+
 guard_test_summary "test-check-api-permission-denied.sh"
