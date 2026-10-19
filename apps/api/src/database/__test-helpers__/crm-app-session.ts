@@ -145,14 +145,13 @@ export function loginRoleOf(
   databaseUrl: string | undefined,
   env: Readonly<Record<string, string | undefined>> = {},
 ): string | undefined {
-  if (databaseUrl) {
-    try {
-      const url = new URL(databaseUrl)
-      const user = url.searchParams.get('user') || decodeURIComponent(url.username)
-      if (user) return user
-    } catch {
-      // Unparsable: nothing in the URL names a role. Fall through to PGUSER, as `pg` would.
-    }
+  try {
+    // `?? ''`: an absent or empty URL is unparsable too, and falls through the same way.
+    const url = new URL(databaseUrl ?? '')
+    const user = url.searchParams.get('user') || decodeURIComponent(url.username)
+    if (user) return user
+  } catch {
+    // Unparsable: nothing in the URL names a role. Fall through to PGUSER, as `pg` would.
   }
   return env['PGUSER'] || undefined
 }
@@ -166,8 +165,8 @@ export function isDeployRoleLogin(
   databaseUrl: string | undefined,
   env: Readonly<Record<string, string | undefined>> = {},
 ): boolean {
-  const role = loginRoleOf(databaseUrl, env)
-  return role !== undefined && (DEPLOY_ROLES as readonly string[]).includes(role)
+  // `includes(undefined)` is false, so "names nobody" needs no branch of its own.
+  return (DEPLOY_ROLES as readonly (string | undefined)[]).includes(loginRoleOf(databaseUrl, env))
 }
 
 /** Where the owner work goes, and which password `crm_app` will have. Pure, so it is unit-tested. */
