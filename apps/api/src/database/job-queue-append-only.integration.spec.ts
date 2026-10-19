@@ -1539,6 +1539,110 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       }
       await applyFile(CHECK_SQL)
     })
+
+    // =====================================================================
+    // PART 1c — the three ways to disarm a guarded table WITHOUT touching a
+    // trigger (fix round 2, SR-R2-M-1)
+    //
+    // Everything above reads `pg_trigger`. The security review went looking off
+    // that list and found three objects that each leave all seven triggers
+    // BYTE-IDENTICAL and the check GREEN, in other catalogs entirely: `pg_rewrite`
+    // (a rule), `pg_inherits` (a child table) and `pg_policy` (row-level security).
+    // The second is the one that matters most, because it is precisely the shape
+    // part 1b's own comment claims to stop — "it can suppress a write, rewrite NEW,
+    // or silently swallow rows" — reached by a different route.
+    //
+    // All three need OWNERSHIP of the table, so `crm_app` cannot reach them; the
+    // actor who can is the migration role, which is exactly the actor this file
+    // exists to DETECT rather than prevent. That is why they are worth catching and
+    // why they were not a HIGH.
+    //
+    // Each test replays the tampering and requires the check to go red — the
+    // red-before/green-after the manifest's standard asks of every assertion.
+    // =====================================================================
+
+    it('1c: fails on a RULE that makes the audit INSERT record nothing', async () => {
+      // `DO INSTEAD NOTHING`: the INSERT returns success, `INSERT 0 0`, and the log
+      // silently stops recording. No trigger is touched.
+      await q(
+        `CREATE RULE ac5_skip_audit_insert AS ON INSERT TO public.job_queue_actions
+           DO INSTEAD NOTHING`,
+      )
+      const message = await tamperedCheckMessage(async () => {
+        await q(`DROP RULE IF EXISTS ac5_skip_audit_insert ON public.job_queue_actions`)
+      })
+      expect(message).toContain('carries a RULE')
+      expect(message).toContain('ac5_skip_audit_insert')
+    })
+
+    it('1c: fails on an INHERITING CHILD table, including one in another schema', async () => {
+      // The child is deliberately created in a FRESH SCHEMA, not in `public`. Part 1
+      // of the privileges check ("every relation in public is classified exactly
+      // once") would have caught a child in `public`, but it is scoped
+      // `nspname = 'public'` — so a child next door is invisible to it. This
+      // assertion reads the PARENT's `relhassubclass`, which is true regardless of
+      // where the child lives, and that is the whole reason it is phrased that way.
+      await q(`CREATE SCHEMA IF NOT EXISTS ac5_shadow`)
+      await q(
+        `CREATE TABLE ac5_shadow.job_queue_actions_child ()
+           INHERITS (public.job_queue_actions)`,
+      )
+      const message = await tamperedCheckMessage(async () => {
+        await q(`DROP TABLE IF EXISTS ac5_shadow.job_queue_actions_child`)
+        await q(`DROP SCHEMA IF EXISTS ac5_shadow`)
+      })
+      expect(message).toContain('has an INHERITING CHILD table')
+      expect(message).toContain('job_queue_actions_child')
+      expect(message).toContain('ac5_shadow')
+    })
+
+    it('1c: fails on ROW LEVEL SECURITY hiding the audit log', async () => {
+      // `USING (false)` makes the whole log invisible to every role the policy
+      // applies to, with every guard still in place and still ENABLE ALWAYS.
+      await q(`ALTER TABLE public.job_queue_actions ENABLE ROW LEVEL SECURITY`)
+      await q(`CREATE POLICY ac5_hide_everything ON public.job_queue_actions USING (false)`)
+      const message = await tamperedCheckMessage(async () => {
+        await q(`DROP POLICY IF EXISTS ac5_hide_everything ON public.job_queue_actions`)
+        await q(`ALTER TABLE public.job_queue_actions DISABLE ROW LEVEL SECURITY`)
+      })
+      expect(message).toContain('has ROW LEVEL SECURITY')
+      expect(message).toContain('ac5_hide_everything')
+    })
+
+    // =====================================================================
+    // The check's own session dependency (fix round 2, CR-M-5)
+    // =====================================================================
+
+    it('passes under a search_path that does not contain public (column 6 is pinned)', async () => {
+      // `pg_get_triggerdef` schema-qualifies the executed function only when `public`
+      // is not visible, so all seven column-6 checksums move with the session's
+      // `search_path`: measured 193803… with `public` visible and 0c86cd… under
+      // `search_path = pg_catalog`. Before the check pinned its own path, a HEALTHY
+      // database failed it with seven checksum problems whenever the deploy role
+      // carried a role-level or database-level `search_path` without `public` — a
+      // false positive on deploy, the one failure mode this file must never invent.
+      //
+      // A dedicated connection with the hostile path set as a startup option, which
+      // is how a role-level or database-level setting would actually arrive.
+      const hostile = new Pool({
+        connectionString: process.env['DATABASE_URL'],
+        max: 1,
+        options: '-c search_path=pg_catalog',
+      })
+      try {
+        // `current_setting`, not `SHOW`: `SHOW` names its own output column and
+        // ignores an alias, so the assertion would read `undefined` and pass
+        // vacuously on any path.
+        const { rows } = await hostile.query<{ sp: string }>(
+          `SELECT current_setting('search_path') AS sp`,
+        )
+        expect(rows[0]?.sp).toBe('pg_catalog')
+        // It RAISES on any problem, so completing without throwing is the result.
+        await expect(hostile.query(readFileSync(CHECK_SQL, 'utf8'))).resolves.toBeDefined()
+      } finally {
+        await hostile.end()
+      }
+    })
   })
 
   // -------------------------------------------------------------------------

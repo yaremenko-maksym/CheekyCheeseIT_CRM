@@ -27,9 +27,10 @@
 --   nothing and report success), an INHERITING CHILD (rows written into it are visible
 --   through the parent and the parent's triggers never fire for them — `crm_app` rewrote
 --   and deleted such a row), and ROW LEVEL SECURITY (`USING (false)` hides the log). Part
---   1c asserts the three `pg_class` booleans that reveal them. All three need ownership of
---   the table, so none is reachable by `crm_app`; they are reachable by exactly the actor
---   this file exists to detect.
+--   1c catches all three, reading `pg_rewrite` / `pg_inherits` / `pg_policy` rather than
+--   the `pg_class` hint columns that merely suggest them (the reason is at part 1c, and it
+--   is a false-positive one). All three need ownership of the table, so none is reachable
+--   by `crm_app`; they are reachable by exactly the actor this file exists to detect.
 --
 --   Stated so nobody reads more into it: it does NOT catch a disable-edit-re-enable
 --   inside one transaction, it does not compare the log against the nightly dumps, it says
@@ -342,10 +343,37 @@ BEGIN
   --
   --     The three guarded tables come from the manifest, like part 1b's list, so this
   --     cannot drift from it. The reviewed DDL creates no rule, no child and no policy
-  --     on any of them, so the expected reading is `f | f | f` for all three.
+  --     on any of them, so every count below is expected to be zero.
+  --
+  --     NOT `pg_class.relhasrules` / `relhassubclass`, WHICH IS WHERE THIS NEARLY WENT
+  --     WRONG. Those two columns are PLANNER HINTS, not facts: PostgreSQL sets them when
+  --     a rule or a child appears and does NOT clear them when it goes away. Measured on
+  --     16.15 — create a rule and an inheriting child, drop both, and `relhasrules` and
+  --     `relhassubclass` are still `t` while `pg_rewrite` and `pg_inherits` hold nothing.
+  --     An assertion on the hints would therefore go PERMANENTLY RED on any database
+  --     where a rule or a child ever existed and was removed, which is the same defect as
+  --     a checksum that depends on the session `search_path`: a check that fails on a
+  --     healthy database teaches the next reader to ignore it. So the assertions below
+  --     read the AUTHORITATIVE catalogs — `pg_rewrite`, `pg_inherits`, `pg_policy` — and
+  --     name the offending object, which the hints cannot do either.
+  --       `relrowsecurity` IS authoritative (`ALTER TABLE ... DISABLE ROW LEVEL SECURITY`
+  --     really clears it), so it is read directly — together with `pg_policy`, because
+  --     RLS-disabled-but-policies-present is still an unreviewed object on an audit table.
   -- -------------------------------------------------------------------------
   FOR rec IN
-    SELECT c.relname AS tbl, c.relhasrules, c.relhassubclass, c.relrowsecurity
+    SELECT c.relname AS tbl,
+           c.relrowsecurity,
+           (SELECT string_agg(r.rulename, ', ' ORDER BY r.rulename)
+              FROM pg_catalog.pg_rewrite r
+             WHERE r.ev_class = c.oid AND r.rulename <> '_RETURN')      AS rules,
+           (SELECT string_agg(cn.nspname || '.' || cc.relname, ', ' ORDER BY cc.relname)
+              FROM pg_catalog.pg_inherits inh
+              JOIN pg_catalog.pg_class cc ON cc.oid = inh.inhrelid
+              JOIN pg_catalog.pg_namespace cn ON cn.oid = cc.relnamespace
+             WHERE inh.inhparent = c.oid)                              AS children,
+           (SELECT string_agg(pol.polname, ', ' ORDER BY pol.polname)
+              FROM pg_catalog.pg_policy pol
+             WHERE pol.polrelid = c.oid)                               AS policies
       FROM pg_catalog.pg_class c
       JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
      WHERE n.nspname = 'public'
@@ -353,35 +381,26 @@ BEGIN
                            FROM generate_subscripts(expected_triggers, 1) s)
      ORDER BY c.relname
   LOOP
-    IF rec.relhasrules THEN
+    IF rec.rules IS NOT NULL THEN
       problems := problems || format(
         'table public.%s carries a RULE — the reviewed DDL creates none, and a rule can '
         'make a write return success while recording nothing (`DO INSTEAD NOTHING`) or '
-        'divert it to another table: %s', rec.tbl,
-        (SELECT string_agg(r.rulename, ', ' ORDER BY r.rulename)
-           FROM pg_catalog.pg_rewrite r
-           JOIN pg_catalog.pg_class rc ON rc.oid = r.ev_class
-          WHERE rc.relname = rec.tbl AND r.rulename <> '_RETURN'));
+        'divert it to another table: %s', rec.tbl, rec.rules);
     END IF;
 
-    IF rec.relhassubclass THEN
+    IF rec.children IS NOT NULL THEN
       problems := problems || format(
         'table public.%s has an INHERITING CHILD table — rows written into a child are '
         'visible through the parent while the parent''s triggers never fire for them, so '
-        'the guards do not apply to them: %s', rec.tbl,
-        (SELECT string_agg(cc.relname || ' (schema ' || cn.nspname || ')', ', '
-                           ORDER BY cc.relname)
-           FROM pg_catalog.pg_inherits inh
-           JOIN pg_catalog.pg_class cc ON cc.oid = inh.inhrelid
-           JOIN pg_catalog.pg_namespace cn ON cn.oid = cc.relnamespace
-           JOIN pg_catalog.pg_class pc ON pc.oid = inh.inhparent
-          WHERE pc.relname = rec.tbl));
+        'the guards do not apply to them: %s', rec.tbl, rec.children);
     END IF;
 
-    IF rec.relrowsecurity THEN
+    IF rec.relrowsecurity OR rec.policies IS NOT NULL THEN
       problems := problems || format(
-        'table public.%s has ROW LEVEL SECURITY enabled — the reviewed DDL enables none, '
-        'and a policy can hide the whole audit log from the role that reads it', rec.tbl);
+        'table public.%s has ROW LEVEL SECURITY (enabled = %s, policies = %s) — the '
+        'reviewed DDL enables none, and a policy can hide the whole audit log from the '
+        'role that reads it',
+        rec.tbl, rec.relrowsecurity, coalesce(rec.policies, 'none'));
     END IF;
   END LOOP;
 
