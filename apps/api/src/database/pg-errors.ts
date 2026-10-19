@@ -106,7 +106,14 @@ export function isDeadlock(err: unknown): boolean {
  * be personal data. This module is the one place that reads the chain and decides
  * what may be written down.
  *
- * ===========================  THE LOG-LINE CONTRACT  ===========================
+ * WHICH LINE IS THE ALERT'S CONTRACT: for a privilege error (42501) it is the canonical
+ * `db_privilege_denied …` line emitted once at the pool by `privilege-denied-reporter.ts` —
+ * an alert on 42501 should match THAT, not this fragment. The fragment below is the
+ * DIAGNOSTIC detail the swallowing handlers add to their own message (every SQLSTATE, with
+ * table/constraint/column and the statement shape) so a human reading one failed run sees
+ * what failed. It is stable and greppable too, but nothing should depend on it for 42501.
+ *
+ * ===========================  THE HANDLER-FRAGMENT FORMAT  =========================
  * An error that has a database error in its `.cause` chain adds ONE fragment to the
  * log message (callers append it after their own static text, preceded by a space):
  *
@@ -152,7 +159,9 @@ type Dict = Record<string, unknown>
 /** First error in the `.cause` chain (bounded) satisfying `match`, or null. */
 function findInChain(err: unknown, match: (node: Dict) => boolean): Dict | null {
   let cur: unknown = err
-  for (let depth = 0; cur != null && typeof cur === 'object' && depth < 8; depth += 1) {
+  // Only null/undefined need guarding: reading a property off a primitive cause is
+  // harmless (`'str'['code']` is undefined) and simply ends the walk.
+  for (let depth = 0; cur != null && depth < 8; depth += 1) {
     if (match(cur as Dict)) return cur as Dict
     cur = (cur as Dict)['cause']
   }
@@ -167,6 +176,15 @@ function isPgNode(node: Dict): boolean {
     SQLSTATE_PATTERN.test(node['code']) &&
     typeof node['severity'] === 'string'
   )
+}
+
+/**
+ * The driver's `DatabaseError` in `err`'s cause chain — `err` itself included, which is
+ * what a pool-level observer sees before drizzle wraps it — or null. Shared with
+ * `privilege-denied-reporter.ts` so there is ONE definition of "a Postgres error".
+ */
+export function findPgError(err: unknown): Record<string, unknown> | null {
+  return findInChain(err, isPgNode)
 }
 
 /** drizzle's `DrizzleQueryError`: the SQL text and the params array. */
@@ -186,7 +204,7 @@ function oneLine(text: string): string {
     : flat
 }
 
-function identifier(value: unknown): string {
+export function dbIdentifier(value: unknown): string {
   return typeof value === 'string' && value !== '' ? value.replace(/[^A-Za-z0-9_$.]/g, '?') : '-'
 }
 
@@ -201,8 +219,8 @@ function fragment(
   statement: string | null,
 ): string {
   return (
-    `db_error db_sqlstate=${sqlstate} db_table=${identifier(fields['table'])} ` +
-    `db_constraint=${identifier(fields['constraint'])} db_column=${identifier(fields['column'])} ` +
+    `db_error db_sqlstate=${sqlstate} db_table=${dbIdentifier(fields['table'])} ` +
+    `db_constraint=${dbIdentifier(fields['constraint'])} db_column=${dbIdentifier(fields['column'])} ` +
     `db_message=${quoted(message)} db_statement=${quoted(statement)}`
   )
 }
@@ -218,8 +236,8 @@ export function describeDbError(err: unknown): string | null {
 
   const statement = drizzle === null ? null : (drizzle['query'] as string)
   if (pg === null) {
-    const cause = (drizzle as Dict)['cause']
-    const code = cause != null && typeof cause === 'object' ? (cause as Dict)['code'] : undefined
+    const cause = (drizzle as Dict)['cause'] as Dict | null | undefined
+    const code = cause?.['code']
     return fragment('none', {}, typeof code === 'string' ? code : null, statement)
   }
   const sqlstate = pg['code'] as string

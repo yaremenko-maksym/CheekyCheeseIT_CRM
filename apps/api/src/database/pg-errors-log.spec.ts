@@ -159,6 +159,35 @@ describe('describeDbError — the alert contract', () => {
     expect(describeDbError(pgError('a4250', 'x'))).toBeNull()
   })
 
+  it('rejects a numeric code even though RegExp#test would coerce 42501 to "42501"', () => {
+    expect(
+      describeDbError(Object.assign(new Error('x'), { code: 42501, severity: 'ERROR' })),
+    ).toBeNull()
+  })
+
+  it('terminates on a null cause, on an absent cause, and on a primitive cause', () => {
+    expect(describeDbError(new Error('x', { cause: null }))).toBeNull()
+    expect(describeDbError(new Error('x', { cause: 'a string' }))).toBeNull()
+    expect(describeDbError(new Error('x', { cause: 7 }))).toBeNull()
+  })
+
+  it('reports db_message=- for a drizzle error with no cause, a null cause, or a primitive cause', () => {
+    const bare = (cause: unknown): Error =>
+      Object.assign(new Error('x'), { query: 'select 1', params: [], cause })
+    const expected =
+      'db_error db_sqlstate=none db_table=- db_constraint=- db_column=- ' +
+      'db_message=- db_statement="select 1"'
+    expect(describeDbError(bare(undefined))).toBe(expected)
+    expect(describeDbError(bare(null))).toBe(expected)
+    expect(describeDbError(bare('a string'))).toBe(expected)
+  })
+
+  it('trims leading and trailing whitespace from the statement', () => {
+    expect(describeDbError(drizzleError(DENIED, '  \n select 1 \t ', []))).toContain(
+      'db_statement="select 1"',
+    )
+  })
+
   it('requires severity to be a string', () => {
     expect(
       describeDbError(Object.assign(new Error('x'), { code: '42501', severity: 3 })),
@@ -274,6 +303,18 @@ describe('safeErrorStack', () => {
     const stack = safeErrorStack(err) ?? ''
     expect(stack).toBe('Error\n    at Parser.parse (/x/pg.js:1:1)')
     expect(stack).not.toContain('SECRET-VALUE-123')
+  })
+
+  it('keeps only real frames: a message line that merely contains " at " is dropped', () => {
+    // The frame filter is anchored at the start of the line. Unanchored, the parameter
+    // line below would pass it and the value would reach the log.
+    const err = drizzleError(DENIED, 'select 1 where a = $1', ['meet me at noon'])
+    err.stack = [
+      'DrizzleQueryError: Failed query: select 1 where a = $1',
+      'params: meet me at noon',
+      '    at Handler.run (/x/handler.ts:1:1)',
+    ].join('\n')
+    expect(safeErrorStack(err)).toBe('DrizzleQueryError\n    at Handler.run (/x/handler.ts:1:1)')
   })
 
   it('returns the original stack for an error that is not itself a database error', () => {
