@@ -152,6 +152,9 @@ for frag in '#?dbname=crm_db' '#?dbname=crm%5Fdb' '#?DBNAME=crm_db' '#' '#frag' 
     --contains "contains a # fragment" \
     -- h "DATABASE_URL='$LIVE_BASE/crm_qa$frag' API_PORT=3011 pnpm --filter @crm/api dev"
 done
+assert_red "сообщение про # называет %23" \
+  --contains "%23" \
+  -- h "DATABASE_URL='$LIVE_BASE/crm_qa#x' API_PORT=3011 pnpm --filter @crm/api dev"
 assert_red "# перед путём, после хоста" \
   --contains "contains a # fragment" \
   -- h "DATABASE_URL='postgres://crm_user@localhost:5432#/crm_db' API_PORT=3011 pnpm --filter @crm/api dev"
@@ -252,6 +255,61 @@ assert_red "DATABASE_URL: declare -x + bare-присвоение" \
   --contains '"decision": "block"' \
   -- h "declare -x DATABASE_URL=postgresql://u@h/crm_qa; DATABASE_URL=postgresql://u@h/crm_db; API_PORT=3011 pnpm --filter @crm/api dev"
 
+# SR-H-6 — DECOYS. The pin must be among the LEADING assignment words of the launch. An
+# argument that merely looks like an assignment (`--x PGDATABASE=crm_qa`) is not a pin,
+# and used to switch the whole rule off. Every revert count quoted for the three groups
+# above measured the tests, not the rule, because none of them carried a decoy: each
+# group below repeats its cases WITH one, which is what makes reverting the rule turn
+# them red for the right reason.
+for pre in 'export PGDATABASE=qa; PGDATABASE=crm_db;' 'declare -x PGDATABASE=qa; PGDATABASE=crm_db;' \
+           'typeset -x PGDATABASE=qa; PGDATABASE=crm_db;' 'set -a; PGDATABASE=crm_db;' \
+           'export PGDATABASE=crm_qa;' 'export PGDATABASE=crm_qa; PGDATABASE=crm_db;'; do
+  assert_red "ДЕКОЙ PGDATABASE (аргумент, не префикс): $pre" \
+    --contains '"decision": "block"' \
+    --contains "PGDATABASE" \
+    -- h "$pre DATABASE_URL= vite --port 3010 --x PGDATABASE=crm_qa"
+done
+for pre in 'export DATABASE_URL=postgresql://u@h/crm_qa; DATABASE_URL=postgresql://u@h/crm_db; API_PORT=3011' \
+           'export DATABASE_URL=postgresql://u@h/crm_qa; printf -v DATABASE_URL %s postgresql://u@h/crm_db; API_PORT=3011' \
+           'export DATABASE_URL=postgresql://u@h/crm_qa; set -a; source .env; API_PORT=3011' \
+           'export DATABASE_URL=postgresql://u@h/crm_qa; eval "$(cat .env)"; API_PORT=3011'; do
+  assert_red "ДЕКОЙ DATABASE_URL (аргумент, не префикс): $pre" \
+    --contains "DATABASE_URL is not set inline on the launch itself" \
+    -- h "$pre pnpm --filter @crm/api dev --x DATABASE_URL=postgresql://u@h/crm_qa"
+done
+# The env-load group: PGDATABASE exported earlier, a file loaded, and the decoy at the end.
+for load in 'set -a; source .env.local;' 'source .env;' 'eval "$(cat .env)";' 'set -o allexport;'; do
+  assert_red "ДЕКОЙ env-файл + export PGDATABASE: $load" \
+    --contains "reaches the launch only through an earlier export" \
+    -- h "export PGDATABASE=crm_qa; $load DATABASE_URL= vite --port 3010 --x PGDATABASE=crm_qa"
+done
+
+# SR-H-5 — the shell expands the value AFTER the hook read it. `export U="h/crm_db?"`
+# then `DATABASE_URL=postgres://$U/qa` is `postgres://h/crm_db?/qa`, which
+# pg-connection-string resolves to crm_db. Any `$` or backtick in the value is refused.
+for val in 'postgres://$U/qa' 'postgres://${U}/qa' 'postgres://h/$(echo crm_db)' 'postgres://h/`echo crm_db`' \
+           'postgres://h/crm_$X' 'postgres://h/qa?dbname=$D'; do
+  assert_red "оболочка раскроет значение после проверки: $val" \
+    --contains "contains shell expansion" \
+    -- h "DATABASE_URL='$val' API_PORT=3011 pnpm --filter @crm/api dev"
+done
+assert_red "SR-H-5 буквальный сценарий из ревью" \
+  --contains "contains shell expansion" \
+  -- h 'export U="h/crm_db?"; DATABASE_URL=postgres://$U/qa vite --port 3010'
+
+# SR-M-7 — `env -i`, `env -u`, `env --unset` undo the pin AFTER the hook read it:
+# `DATABASE_URL= PGDATABASE=crm_qa PGUSER=crm_db env -u PGDATABASE vite` reaches crm_db
+# through the user-name fallback. Refused for every launch, with or without a pin.
+for envform in 'env -u PGDATABASE' 'env -i' 'env --unset=PGDATABASE' 'env --unset PGDATABASE' \
+               'env --ignore-environment' 'env -iu PGDATABASE' 'env -S "vite --port 3010"'; do
+  assert_red "env стирает закреплённое значение: $envform" \
+    --contains "env -i / -u / --unset" \
+    -- h "DATABASE_URL= PGDATABASE=crm_qa PGUSER=crm_db $envform vite --port 3010"
+done
+assert_red "env -u DATABASE_URL при непустом безопасном URL" \
+  --contains "env -i / -u / --unset" \
+  -- h "DATABASE_URL=$SAFE_DB API_PORT=3011 env -u DATABASE_URL pnpm --filter @crm/api dev"
+
 # env-file loaders with an empty URL and no pinned PGDATABASE: refused by the strict rule.
 for load in 'set -a; source .env.local;' 'source .env;' '. ./env.sh;' 'eval "$(cat .env)";' 'set -o allexport;'; do
   assert_red "env-файл + пустой DATABASE_URL без PGDATABASE: $load" \
@@ -281,6 +339,18 @@ assert_green "query dbname = безопасное имя" \
   -- h "DATABASE_URL='$LIVE_BASE/crm_qa?dbname=crm_qa' API_PORT=3011 pnpm --filter @crm/api dev"
 assert_green "options без crm_db" \
   -- h "DATABASE_URL='$LIVE_BASE/crm_qa?options=-c%20statement_timeout%3D5000' API_PORT=3011 pnpm --filter @crm/api dev"
+# The wrapper itself is fine; only the forms that CLEAR or SPLIT the environment are not.
+assert_green "обычный env-враппер с закреплёнными значениями" \
+  -- h "env DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
+assert_green "env с присваиванием, значение которого похоже на флаг: FOO=-i" \
+  -- h "env FOO=-i DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
+# A name merely MENTIONED in an argument or in text is not a PGSERVICE assignment.
+assert_green "PGSERVICE=... как аргумент запуска (не присваивание)" \
+  -- h "DATABASE_URL= PGDATABASE=crm_qa vite --port 3010 --note PGSERVICE=live"
+assert_green "echo с упоминанием PGSERVICE=... перед запуском" \
+  -- h "echo PGSERVICE=live is refused; DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
+assert_green "dev-ttl.sh-обёртка: закрепление остаётся в ведущих словах" \
+  -- h "scripts/devops/dev-ttl.sh --ttl 7200 -- DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
 assert_green "PGDATABASE безопасный + пустой DATABASE_URL" \
   -- h "DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
 assert_green "inline DATABASE_URL побеждает ранний export + загрузку env-файла" \

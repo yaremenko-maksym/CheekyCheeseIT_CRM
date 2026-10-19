@@ -123,7 +123,7 @@ INPUT=$(cat)
 echo "$INPUT" | grep -qE 'vite|nest|dev|dist/main' || exit 0
 
 printf '%s' "$INPUT" | PYTHONDONTWRITEBYTECODE=1 CMDSCAN_LIB="$SELF_DIR/lib" python3 -c '
-import importlib.util, json, os, re, sys, urllib.parse
+import importlib.util, json, os, re, shlex, sys, urllib.parse
 
 # By absolute path, not via sys.path — see the note in pre-bash-safety.sh.
 _spec = importlib.util.spec_from_file_location(
@@ -216,7 +216,14 @@ def url_problems(url):
     # a guard that claims parity with a consumer and lacks it is worse than one
     # that states its limits. A real scratch URL has no use for a fragment.
     if "#" in url:
-        return ["%s contains a # fragment - libpq reads past it, this hook does not, so the database it reaches cannot be determined" % where]
+        return ["%s contains a # fragment - libpq reads past it, this hook does not, so the database it reaches cannot be determined (write %%23 if a literal # is meant)" % where]
+    # A "$" or a backtick means the SHELL rewrites the value after this hook read
+    # it: `export U="h/crm_db?"` then `DATABASE_URL=postgres://$U/qa` becomes
+    # `postgres://h/crm_db?/qa`, which pg-connection-string (the API Pool) resolves
+    # to crm_db. The hook reads text; the process gets the expansion. A password
+    # with a "$" must be percent-encoded (%24).
+    if "$" in url or chr(96) in url:
+        return ["%s contains shell expansion ($ or a backtick) - the shell rewrites it after this hook reads it, so the database it reaches cannot be determined (percent-encode a literal $ as %%24)" % where]
     try:
         sp = urllib.parse.urlsplit(url.strip())
         params = urllib.parse.parse_qsl(sp.query, keep_blank_values=True)
@@ -289,12 +296,56 @@ def assignments(name):
             + len(re.findall(r"\bread\b[^;&|\n]*" + n + r"\b", cmd))
             + len(re.findall(r"\$\{" + name + r":?=", cmd)))
 
+ASSIGN_WORD = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\+?=")
+
+def leading_assigned(raw):
+    # The names assigned among the LEADING words of the launching segment, and
+    # nowhere else. Matching the whole segment text (SR-H-6) let a decoy argument
+    # switch the rule off: `... vite --port 3010 --x PGDATABASE=crm_qa` contains
+    # "PGDATABASE=" but pins nothing. Wrappers that sit before the assignments
+    # (env, dev-ttl.sh [--ttl N] --) are stepped over; the first word that is
+    # neither one nor an assignment ends the scan, so the launcher and everything
+    # after it count for nothing. A segment shlex cannot read pins nothing.
+    try:
+        toks = shlex.split(raw)
+    except ValueError:
+        return set()
+    names = set()
+    prev = ""
+    for t in toks:
+        m = ASSIGN_WORD.match(t)
+        if m:
+            names.add(m.group(1))
+        elif not (t.rsplit("/", 1)[-1] in ("env", "dev-ttl.sh") or t == "--"
+                  or t.startswith("-") or (t.isdigit() and prev == "--ttl")):
+            break
+        prev = t
+    return names
+
 def literal_inline(name):
-    # On the launching segment itself, as a prefix - not satisfied by an export in
-    # an earlier segment, which cmdscan folds into seg.env but which a later bare
-    # assignment or a sourced file can still change.
-    return bool(segs) and all(
-        re.search(r"(?<![A-Za-z0-9_])" + name + r"\+?=", s.raw) for s in segs)
+    # On the launching segment itself, as a LEADING prefix - not satisfied by an
+    # export in an earlier segment (cmdscan folds those into seg.env, but a later
+    # bare assignment or a sourced file can still change them), and not by a
+    # look-alike argument after the launcher.
+    return bool(segs) and all(name in leading_assigned(s.raw) for s in segs)
+
+# SR-M-7: `env -i`, `env -u`, `env --unset`, `env -S` rewrite the environment of
+# the process AFTER this hook read the pin: `DATABASE_URL= PGDATABASE=crm_qa
+# PGUSER=crm_db env -u PGDATABASE vite` reaches the live database through the
+# user-name fallback, and the DATABASE_URL variants have always been open. The hook
+# reads text, the process gets the env-edited environment - so these forms are
+# refused for every launch rather than modelled. A plain `env NAME=value cmd` is fine.
+ENV_CLEAR = re.compile(
+    r"(?<![\w./-])env\s+[^;&|\n]*?(?:(?<=\s)-[A-Za-z]*[iuS]\b|--unset\b"
+    r"|--ignore-environment\b|--split-string\b)"
+)
+if ENV_CLEAR.search(cmd):
+    reasons.append(
+        "env -i / -u / --unset / -S rewrites the environment after this hook read "
+        "it (env -u PGDATABASE undoes the pin and PGUSER=crm_db then reaches the "
+        "live database), so the effective values cannot be determined. Drop the "
+        "env option; plain `env NAME=value command` is fine"
+    )
 
 ENV_LOAD = re.compile(
     r"(?:^|[;&|(\n]\s*)(?:source|\.)\s+[^\s;&|]"
@@ -337,8 +388,15 @@ if pgdb is not None and (db == "" or pgdb != ""):
     for problem in name_problems(pgdb.strip(), "PGDATABASE"):
         reasons.append(problem)
 
-if "PGSERVICE" in env or "PGSERVICEFILE" in env or re.search(
-        r"(?<![A-Za-z0-9_])PGSERVICE(?:FILE)?\+?=", cmd):
+# Anchored to the start of a command segment (after optional export/declare/env and
+# other leading assignments): a name that is merely MENTIONED in an argument or in
+# an echo is not an assignment and must not refuse the launch.
+PGSERVICE_SET = re.compile(
+    r"(?:^|[;&|(\n])\s*(?:(?:export|declare\s+-x|typeset\s+-x|env)\s+)?"
+    r"(?:[A-Za-z_][A-Za-z0-9_]*\+?=(?:\x27[^\x27]*\x27|\"[^\"]*\"|\S)*\s+)*"
+    r"PGSERVICE(?:FILE)?\+?="
+)
+if "PGSERVICE" in env or "PGSERVICEFILE" in env or PGSERVICE_SET.search(cmd):
     reasons.append(
         "PGSERVICE / PGSERVICEFILE is set - a libpq service file overrides "
         "PGDATABASE (measured), so the database it reaches cannot be determined"
