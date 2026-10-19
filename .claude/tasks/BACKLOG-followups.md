@@ -3081,3 +3081,37 @@ mistakes documentation for an action.
 
 **Check on closing:** exporting the variable and then starting a dev server is refused or fails loudly
 before it connects; and writing a document that quotes such a command is not refused.
+
+## 241. `cmdscan` decides whether a heredoc body is code, and gets it wrong in both directions (2026-10-19)
+
+(two findings of one cause, from security reviews on PR #1044; severity MED, raised to near-term by how
+often it fires). `lib/cmdscan.py` is shared by the command-inspecting hooks. It answers one question —
+when does the text inside a heredoc or a here-string count as a command — and it answers it wrongly in
+both directions.
+
+**The bypass.** A shell fed from a heredoc or a here-string is **not re-read**, so the whole guard is
+skipped with no encoding trick at all. The live-db guard, including every check added on PR #1044, does
+not see a launch written that way. Confirmed identical at the merge-base, so it predates that PR.
+
+**The false positive.** A heredoc body with a **quoted** delimiter containing a backticked or `$( )`
+launch **is** refused, although the shell expands nothing there. Bare launch lines, apostrophes,
+single-quoted `echo` and `git commit -m` all pass, so the trigger is narrow and specific.
+
+**Why near-term rather than someday: it fired four times in one evening**, on four different actors —
+the orchestrator writing a backlog entry that quoted an example command, an architect's `sed` script
+text, and a security reviewer's own heredoc **twice while writing the review that reported it**. Each
+time the refusal was respected rather than bypassed, which is the system working; but the refusal text
+then recommends prefixing a database URL, which trains exactly the reflex the hook's own header warns
+against. A guard that obstructs correct work teaches people to disable it, and that costs more than the
+bypass it is guarding.
+
+**They are one task, not two.** Fixing the bypass alone makes the false positive worse, because both
+follow from the same decision about heredoc bodies. A regression test for either half, written before
+that decision is made, would pin the wrong behaviour — so do not add one first.
+
+**What the fix has to decide, stated as behaviour:** a heredoc body is code when the shell will expand
+or execute it, and data when it will not. An unquoted delimiter expands; a quoted delimiter does not. A
+shell reading its script from a heredoc executes it. Those three facts are the whole rule.
+
+**Check on closing:** a launch written through `bash <<'EOF'` or a here-string is refused; a document
+quoting a launch inside a quoted-delimiter heredoc is not; and both directions have a test.
