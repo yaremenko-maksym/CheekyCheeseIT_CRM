@@ -93,7 +93,10 @@ async function main() {
     },
   ] as const
   for (const r of hostile) {
-    await app.inject({ ...r, headers: { ...('headers' in r ? r.headers : {}), host: FORGED_HOST } } as never)
+    await app.inject({
+      ...r,
+      headers: { ...('headers' in r ? r.headers : {}), host: FORGED_HOST },
+    } as never)
   }
   await app.close()
   for (const l of lines) process.stdout.write(l + '\n')
