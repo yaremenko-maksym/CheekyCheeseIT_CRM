@@ -370,6 +370,17 @@ sed 's/^LOGSCAN_CONTAINER=.*/LOGSCAN_CONTAINER=WelcometotheVPSrcfileoutput/' "$W
 assert_red "container name: a charset-clean but non-compose name is refused (BLIND) and not echoed" \
   --contains "BLIND" --not-contains "Welcometothe" -- run_guard "$WS/bad-container.env"
 
+# ── the published interface: --print-pattern / --print-contract-pattern have a CONSUMER ──
+# PR #1042 (the API side) reads these instead of copying the pattern. The literals are pinned
+# so that changing a pattern is a deliberate act that also updates this test, the deploy copy
+# and the other side, never a side effect of an edit elsewhere.
+assert_green "published interface: --print-contract-pattern is exactly the anchored contract" \
+  --contains '\[DatabasePrivilege\] db_privilege_denied.*sqlstate=42501' -- bash "$GUARD" --print-contract-pattern
+assert_green "published interface: --print-pattern is exactly contract | permission denied | must be owner|superuser" \
+  --contains '\[DatabasePrivilege\] db_privilege_denied.*sqlstate=42501|permission denied|must be (owner|superuser)' -- bash "$GUARD" --print-pattern
+assert_green "published interface: ...and the two flags print one line each, nothing else" -- \
+  bash -c "[ \"\$(bash '$GUARD' --print-pattern | wc -l | tr -d ' ')\" = 1 ] && [ \"\$(bash '$GUARD' --print-contract-pattern | wc -l | tr -d ' ')\" = 1 ]"
+
 # ── the pattern itself ───────────────────────────────────────────────────────
 pat_hits() { printf '%s\n' "$1" | grep -aEi -e "$RE" >/dev/null; }
 assert_green "pattern: 'permission denied for table x'" -- bash -c "$(declare -f pat_hits); RE='$RE'; pat_hits 'ERROR permission denied for table x'"
@@ -378,7 +389,7 @@ assert_green "pattern: ...whatever the field order after the first token" -- bas
 assert_red "pattern: a bare 'sqlstate=42501' is NOT the contract (too generic: a client can put it in a URL)" -- bash -c "$(declare -f pat_hits); RE='$RE'; pat_hits 'cron failed sqlstate=42501'"
 assert_red "pattern: a JSON \"code\":\"42501\" alone is NOT matched either (narrowed on purpose)" -- bash -c "$(declare -f pat_hits); RE='$RE'; pat_hits '{\"code\":\"42501\"}'"
 assert_red "pattern: #1042's diagnostic fragment db_sqlstate=42501 must NOT match (one failure, one contract line)" -- bash -c "$(declare -f pat_hits); RE='$RE'; pat_hits 'db_error db_sqlstate=42501 db_table=- db_constraint=- db_column=- db_message=- db_statement=\"select 1\"'"
-assert_red "pattern: 'db_privilege_denied' with a DIFFERENT sqlstate (28P01) is not a 42501 contract line" -- bash -c "$(declare -f pat_hits); RE='$RE'; pat_hits 'db_privilege_denied sqlstate=28P01 table=-'"
+assert_red "pattern: 'db_privilege_denied' with a DIFFERENT sqlstate (28P01) is not a 42501 contract line" -- bash -c "$(declare -f pat_hits); RE='$RE'; pat_hits 'db_privilege_denied sqlstate=28P01 table=unknown'"
 # SR-M-9: the contract is anchored on the logger context, so user data echoed into another
 # handler's message or log line cannot forge the primary pattern.
 assert_red "SR-M-9: the contract token under ANOTHER logger context is not the contract (nor any hit)" -- \
@@ -417,7 +428,7 @@ case " $* " in
       ctx_other) printf "%s\n" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [VacanciesRetentionCronService] db_privilege_denied sqlstate=42501 table=users ctx=pool" ;;
       # PR #1042: the contract line (one chokepoint) and the handler diagnostic fragment.
       contract)       printf "%s\n" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [DatabasePrivilege] db_privilege_denied sqlstate=42501 table=document_access_log ctx=pool" ;;
-      contract_dash)  printf "%s\n" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [DatabasePrivilege] db_privilege_denied sqlstate=42501 table=- ctx=client" ;;
+      contract_dash)  printf "%s\n" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [DatabasePrivilege] db_privilege_denied sqlstate=42501 table=unknown ctx=client" ;;
       contract_off)   printf "%s\n" "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [DatabasePrivilege] db_privilege_denied sqlstate=42501 table=we?ird?t ctx=pool" ;;
       contract_diag)  printf "%s\n" \
                         "2026-10-19T03:00:02.000000001Z [Nest] 18  - x   ERROR [DatabasePrivilege] db_privilege_denied sqlstate=42501 table=document_access_log ctx=pool" \
@@ -497,8 +508,8 @@ assert_red "CONTRACT: the chokepoint's line fires; the table comes from its tabl
   --contains "1 contract line(s) and 0 other" -- pipeline contract
 assert_green "CONTRACT: the remote reports HITS=1 and CONTRACT_HITS=1" \
   --contains "LOGSCAN_HITS=1" --contains "LOGSCAN_CONTRACT_HITS=1" -- remote contract
-assert_red "CONTRACT: table=- (the 42501 names no table) is reported as object=unknown, and STILL pages" \
-  --contains "object=unknown sqlstate=42501 src=contract" -- pipeline contract_dash
+assert_red "CONTRACT: table=unknown (the 42501 names no table) is reported as object=table:unknown, and STILL pages" \
+  --contains "object=table:unknown sqlstate=42501 src=contract" -- pipeline contract_dash
 assert_exit_code "CONTRACT: ...exit 1" 1 pipeline contract_dash
 assert_red "CONTRACT: an off-list or odd table (we?ird?t) is table:unknown, never published, and STILL pages" \
   --contains "object=table:unknown sqlstate=42501 src=contract" --not-contains "we?ird" -- pipeline contract_off

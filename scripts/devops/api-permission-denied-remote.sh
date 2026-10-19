@@ -167,7 +167,9 @@ printf '%s\n' "$filtered" | grep -aEi -e "$LOGSCAN_RE" | tail -n 20 | while IFS=
   if printf '%s' "$l" | grep -Eqi -e "$LOGSCAN_CONTRACT_RE"; then
     # THE CONTRACT (primary): `db_privilege_denied sqlstate=42501 table=<T> ctx=<C>`, the
     # one line the API's chokepoint emits. The table is read from its own `table=` field,
-    # never parsed out of Postgres text; `-` is the API's explicit "names no table".
+    # never parsed out of Postgres text; the API writes the literal `unknown` when the 42501
+    # names no table. That is the same word this script uses when it cannot verify a name
+    # against the manifest: one word for one concept, so both come out as `table:unknown`.
     # See check-api-permission-denied.sh for which pattern is the contract and which is
     # belt and braces.
     src=contract
@@ -175,7 +177,7 @@ printf '%s\n' "$filtered" | grep -aEi -e "$LOGSCAN_RE" | tail -n 20 | while IFS=
     ob=""
     tb=$(printf '%s' "$l" | sed -nE 's/.* table=([^ ]{1,70})( .*)?$/\1/p' | head -n 1)
     tb=${tb#public.}
-    if [ -n "$tb" ] && [ "$tb" != "-" ]; then
+    if [ -n "$tb" ]; then
       case " $LOGSCAN_TABLES " in *" $tb "*) ob="table:$tb" ;; *) ob="table:unknown" ;; esac
     fi
   else

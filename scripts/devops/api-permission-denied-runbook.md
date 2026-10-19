@@ -21,7 +21,7 @@ Measure 2 of the least-privilege ADR (`docs/architecture/2026-10-17-db-least-pri
 
 - **The contract (primary):** the line the API's one chokepoint emits (PR #1042,
   `privilege-denied-reporter`): `db_privilege_denied sqlstate=42501 table=<T> ctx=<C>`, with
-  `table=-` meaning the 42501 named no table. The watch matches it **anchored on the logger
+  `table=unknown` meaning the 42501 named no table. The watch matches it **anchored on the logger
   context** it is emitted under, `[DatabasePrivilege] db_privilege_denied` ... `sqlstate=42501`,
   and reads the table from the `table=` field, never from Postgres text. Reported as
   `src=contract`. The anchor means request data echoed into some other handler's message cannot

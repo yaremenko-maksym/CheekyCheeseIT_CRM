@@ -61,8 +61,8 @@
 #   matched as `[DatabasePrivilege] db_privilege_denied` ... `sqlstate=42501`: the logger
 #   context it is emitted under (part of the contract, SR-M-9), the token, then the code in
 #   any order (the API's own comment says the alert may rely on those and nothing else).
-#   `table=<T>` is read from that field, never parsed out of Postgres text; `table=-`
-#   means the 42501 named no table. This is the line to trust: one tested place emits it,
+#   `table=<T>` is read from that field, never parsed out of Postgres text; `table=unknown`
+#   means the 42501 named no table (the same word this watch uses for a name it cannot verify). This is the line to trust: one tested place emits it,
 #   instead of eight handlers' formatting.
 #
 #   BELT AND BRACES (secondary) — text that a privilege error carries when it did NOT pass
@@ -92,6 +92,12 @@ set -uo pipefail
 PERMISSION_DENIED_CONTRACT_RE='\[DatabasePrivilege\] db_privilege_denied.*sqlstate=42501'
 PERMISSION_DENIED_RE="${PERMISSION_DENIED_CONTRACT_RE}"'|permission denied|must be (owner|superuser)'
 
+# PUBLISHED INTERFACE. The output of `--print-pattern` and `--print-contract-pattern` has a
+# CONSUMER outside this file: PR #1042 (the API side) reads these instead of keeping its own
+# copy of the pattern, and the VPS scripts receive them through the workflow. Changing either
+# pattern changes what they see, so: change the two flags' output deliberately and in the same
+# commit, update deploy-stack-on-vps.sh's copy, tell the API side, and update the pinned literals
+# in tests/test-check-api-permission-denied.sh (they exist to make an accidental change loud).
 if [ "${1:-}" = "--print-pattern" ]; then
   printf '%s\n' "$PERMISSION_DENIED_RE"
   exit 0
