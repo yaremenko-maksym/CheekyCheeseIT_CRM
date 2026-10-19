@@ -285,9 +285,9 @@ elif db != "":
 #     was read (`env -u PGDATABASE` undoes it, and PGUSER=crm_db then wins).
 #
 # STANDING RULE OF THIS FILE: DELETE AN APPROXIMATION BEFORE ADDING A CLEVERER ONE.
-# Every hole found here had one shape - the hook re-implemented someone else's
-# parsing with its own approximation: percent-decoding, the # fragment, the dbname
-# query key, libpq's user-name fallback, shell expansion, the whole-segment pin
+# Every hole found here had one shape - the hook re-implemented the parsing of
+# another tool with its own approximation: percent-decoding, the # fragment, the dbname
+# query key, the libpq user-name fallback, shell expansion, the whole-segment pin
 # match, the env regex, the PGSERVICE regex. The fixes that stuck stopped
 # approximating: urlsplit plus an allowlist of shape instead of a pattern for the
 # live name, an explicit pinned value instead of enumerated redirections, shlex and
