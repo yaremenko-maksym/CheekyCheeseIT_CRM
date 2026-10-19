@@ -53,10 +53,18 @@ Measure 2 of the least-privilege ADR (`docs/architecture/2026-10-17-db-least-pri
     `LOGSCAN_UNPARSED=<n>` and the checker prints a warning and a line in the run summary ("N
     pino-looking record(s) could not be parsed and were dropped"). A genuine error inside one would
     be missed, which is why the discard is visible rather than silent.
-  - A **canary** goes through the same python invocation (a level-50 record that must come back and a
-    level-30 one that must not). A `python3` that exits 0 with empty output, or just copies its
-    input, fails the scan (`LOGSCAN_FAILED=req_filter_canary`; the deploy refuses) instead of
-    turning a genuine hit into "clean".
+  - A **canary** goes through the same python invocation, and the filter must do every job it exists
+    for: a level-50 record **with a `req` and a `reqId`** must come back exactly, with both removed
+    (a filter that only drops level 30 leaves them in and fails); a level-30 record must not come
+    back; a truncated level-50 record must not come back **and must be counted** as unparsed. A
+    `python3` that exits 0 with empty output, copies its input, or does only part of the job fails
+    the scan (`LOGSCAN_FAILED=req_filter_canary`; the deploy refuses) instead of turning a genuine
+    hit into "clean".
+  - **One hostile line cannot blind the scan.** Each line is processed on its own: the level is read
+    from at most three digits, "looks like pino" is decided separately from the level, and any
+    exception on a line (a 5000-digit level, a 200000-deep array) drops and counts that line
+    instead of aborting the filter. A stranger who can put such a line into a log could otherwise
+    switch the watch off.
   - The deploy scan calls `docker compose logs` **without** `--timestamps`, so Docker's inline chunk
     stamp is not produced there today; the same hardened filter and the same chunked-record test run
     against it anyway, so adding the flag later cannot reopen the hole.
@@ -65,6 +73,27 @@ Measure 2 of the least-privilege ADR (`docs/architecture/2026-10-17-db-least-pri
     forgery).
     A text log line that echoes user input could still be forged; the way to close that is a structured
     field, not a better regex.
+
+## What the gate can and cannot trust
+
+- **Only the contract line can fail a deploy.** The unanchored text patterns (`permission denied`,
+  `must be owner|superuser`) are reported as a warning ("N other lines ... NOT gating") and can
+  never stop a release. They are forgeable by an anonymous request.
+- **Why:** Nest's text log lines are not filtered, and they carry decoded request data. Measured on
+  a real stack (Nest 11, Fastify 5, drizzle-orm 0.45.2, node-postgres, Postgres 16): a public route
+  whose slug reaches a query makes Drizzle put `params:` into its error message, Nest logs that
+  message as a text line, and `%0a` in the same parameter lets a stranger start a physical log line.
+  The pino filter is sound for pino records; text lines are the open channel.
+- **The contract is NOT forgery-proof either.** Anchoring it on `[DatabasePrivilege]` was meant to
+  need a newline plus a bracketed context, but the anchor needs only a space and a bracket, and
+  `%20` and `%5B` supply both once decoded into a message. A stranger can also choose the table
+  name from the public list, so the forged row looks genuine. Until the trusted part of that line is
+  unforgeable by construction, the deploy gate can still be failed by a stranger through the
+  contract, and the standing watch can be turned red by one. This is a known, open gap, not a
+  closed one; the decision on how to close it (a secret in the line, scrubbing request data out of
+  the API's text logs, or taking the signal out of the log stream) is recorded in the PR.
+- **Defence in depth that does not depend on that decision:** keeping request data out of Nest text
+  lines (Drizzle's `params:`) is data minimisation we owe anyway.
 
 ## Honest state
 
