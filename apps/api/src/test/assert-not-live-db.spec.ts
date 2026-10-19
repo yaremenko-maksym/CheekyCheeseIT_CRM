@@ -14,8 +14,9 @@ import { assertNotLiveDb } from './assert-not-live-db'
  */
 
 const LABEL = 'some-spec'
-const LIVE = `[${LABEL}] refusing to run against the live crm_db`
-const UNKNOWN = `[${LABEL}] cannot determine the database name from DATABASE_URL — refusing to run`
+const SHAPE = 'postgresql://crm_user:password@localhost:5432/crm_qa'
+const LIVE = `[${LABEL}] refusing to run against the live crm_db — point DATABASE_URL at a scratch database, e.g. ${SHAPE}`
+const UNKNOWN = `[${LABEL}] cannot determine the database name from DATABASE_URL — refusing to run. Put the database in the path of a URL with a host, e.g. ${SHAPE}`
 
 function messageOf(url: string): string | null {
   try {
@@ -47,6 +48,40 @@ describe('assertNotLiveDb', () => {
   it('refuses it regardless of host, port, credentials and query string', () => {
     expect(messageOf('postgresql://a:b@127.0.0.1:5544/crm_db?sslmode=disable')).toBe(LIVE)
     expect(messageOf('postgres://prod.example.com/crm_db')).toBe(LIVE)
+  })
+
+  it.each([
+    ['a socket URL with ?db= and an ignored path', 'socket:/var/run/postgresql?db=crm_db'],
+    ['the same, percent-encoded', 'socket:/var/run/postgresql?db=crm%5Fdb'],
+    ['a socket URL with credentials', 'socket://u:p@/var/run/postgresql?db=crm_db'],
+    ['a socket URL in the empty-host form', 'socket:///var/run/postgresql?db=crm_db'],
+  ])('refuses %s — pg takes the database from ?db= there and ignores the path', (_label, url) => {
+    // The path of the first form is `var/run/postgresql`, which `extractDbName` happily returns;
+    // only asking `pg` what it resolves catches it (CR-M-1 of #1043).
+    expect(messageOf(url)).toBe(LIVE)
+  })
+
+  it('allows a socket URL whose ?db= is a scratch database', () => {
+    expect(messageOf('socket:/var/run/postgresql?db=crm_qa')).toBeNull()
+  })
+
+  it('does not honour ?db= or ?dbname= on a host URL — for node-pg the path wins, and that is the rule', () => {
+    // Pinned, with its reason: libpq honours ?dbname= (the shell-side guard covers that consumer);
+    // node-pg resolves these to the PATH. If a `pg` upgrade changes this, these fail and the guard
+    // gets a decision, instead of quietly checking something other than what connects.
+    expect(messageOf('postgresql://u:p@localhost:5432/other?dbname=crm_db')).toBeNull()
+    expect(messageOf('postgresql://u:p@localhost:5432/crm_qa?db=crm_db')).toBeNull()
+  })
+
+  it('tells a developer the shape that is accepted, not only that they were refused (CR-M-2)', () => {
+    const live = messageOf('postgresql://u:p@localhost:5432/crm_db') as string
+    const unknown = messageOf('postgresql://u:p@/crm_db_scratch') as string
+    for (const message of [live, unknown]) {
+      expect(message).toContain('postgresql://crm_user:password@localhost:5432/crm_qa')
+    }
+    expect(live).toContain('point DATABASE_URL at a scratch database')
+    // The empty-host form is refused — the safe direction — and the message says why and what to use.
+    expect(unknown).toContain('a URL with a host')
   })
 
   it('carries the caller’s label, so a refusal names the spec that raised it', () => {
