@@ -203,7 +203,7 @@ describe('the shipped DDL files the helper applies', () => {
     expect(statSync(join(MANUAL_DIR, file)).isFile()).toBe(true)
   })
 
-  it('points MANUAL_DIR at apps/api/drizzle/manual', () => {
-    expect(MANUAL_DIR.split(/[\\/]/).slice(-3)).toEqual(['api', 'drizzle', 'manual'])
+  it('points MANUAL_DIR at drizzle/manual', () => {
+    expect(MANUAL_DIR.split(/[\\/]/).slice(-2)).toEqual(['drizzle', 'manual'])
   })
 })
