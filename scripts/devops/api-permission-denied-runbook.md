@@ -21,8 +21,14 @@ Measure 2 of the least-privilege ADR (`docs/architecture/2026-10-17-db-least-pri
 
 - **The contract (primary):** the line the API's one chokepoint emits (PR #1042,
   `privilege-denied-reporter`): `db_privilege_denied sqlstate=42501 table=<T> ctx=<C>`, with
-  `table=-` meaning the 42501 named no table. The watch matches `db_privilege_denied` ... `sqlstate=42501`
-  and reads the table from the `table=` field, never from Postgres text. Reported as `src=contract`.
+  `table=-` meaning the 42501 named no table. The watch matches it **anchored on the logger
+  context** it is emitted under, `[DatabasePrivilege] db_privilege_denied` ... `sqlstate=42501`,
+  and reads the table from the `table=` field, never from Postgres text. Reported as
+  `src=contract`. The anchor means request data echoed into some other handler's message cannot
+  forge the primary pattern without also injecting that bracketed context. **Two things the API
+  must keep stable, both part of the contract:** the context name `DatabasePrivilege`, and the
+  line staying on Nest's **text** `Logger.error` (a pino record at warn level carrying a genuine
+  42501 would be dropped by the level rule below).
 - **Belt and braces (secondary):** the text `permission denied` and `must be owner|superuser`, for a
   privilege error that did not pass the chokepoint (a callback-style pool call) or while the
   chokepoint is not deployed. Reported as `src=text`.
@@ -32,11 +38,33 @@ Measure 2 of the least-privilege ADR (`docs/architecture/2026-10-17-db-least-pri
   fragment `db_sqlstate=42501` (one failure, two pages), and a client can put it in a query string.
 - **Changing a token in that line is changing the alert.** Tell whoever owns this watch; nothing
   in the repository ties the two together except this contract and the test fixtures.
-- **Client-influenced logs:** Fastify's request logger writes `req.url` (query string included) and
-  the requested path of a 404 into pino JSON records. Those records are dropped (below level 50) or
-  stripped of `req`/`res` (level 50 and above) before matching, on the VPS and in the deploy scan,
-  so an anonymous request cannot forge a hit or fail the deploy gate. A text log line that echoes
-  user input could still be forged; the way to close that is a structured field, not a better regex.
+- **Client-influenced logs:** Fastify's request logger writes `req.url` (query string included),
+  `hostname` (from the Host header) and the requested path of a 404 into pino JSON records. Those
+  records are dropped (below level 50) or stripped of `req`/`res`/`reqId` (level 50 and above)
+  before matching, on the VPS and in the deploy scan, so an anonymous request cannot forge a hit or
+  fail the deploy gate. How the filter fails matters more than how it works:
+  - The level is read **from the text** (`{"level":NN`), never from a successful parse. Docker's
+    json-file driver splits any line over 16384 bytes and `--timestamps` stamps **each chunk inline**,
+    so a long record arrives with a second timestamp inside it; where the stamp lands decides whether
+    `json.loads` works, and the client chooses (pino doubles each `"` it escapes). The old filter kept
+    what it could not parse, request data included.
+  - A record that will not parse has its embedded stamps stripped and is parsed again. One that
+    still will not, but looks like pino, is **dropped, never kept**, and counted: the envelope carries
+    `LOGSCAN_UNPARSED=<n>` and the checker prints a warning and a line in the run summary ("N
+    pino-looking record(s) could not be parsed and were dropped"). A genuine error inside one would
+    be missed, which is why the discard is visible rather than silent.
+  - A **canary** goes through the same python invocation (a level-50 record that must come back and a
+    level-30 one that must not). A `python3` that exits 0 with empty output, or just copies its
+    input, fails the scan (`LOGSCAN_FAILED=req_filter_canary`; the deploy refuses) instead of
+    turning a genuine hit into "clean".
+  - The deploy scan calls `docker compose logs` **without** `--timestamps`, so Docker's inline chunk
+    stamp is not produced there today; the same hardened filter and the same chunked-record test run
+    against it anyway, so adding the flag later cannot reopen the hole.
+  - **More than one `LOGSCAN_BEGIN` or `LOGSCAN_END` is BLIND.** A genuine run prints one of each;
+    choosing a winner between two frames is wrong in both directions (a leading decoy, a trailing
+    forgery).
+    A text log line that echoes user input could still be forged; the way to close that is a structured
+    field, not a better regex.
 
 ## Honest state
 
