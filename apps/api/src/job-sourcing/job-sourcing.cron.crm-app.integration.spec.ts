@@ -102,8 +102,15 @@ describe.skipIf(!hasDatabaseUrl())(
 
     afterAll(async () => {
       try {
-        // A leak is a failure of THIS suite, not something a reviewer finds by counting rows.
-        expect(await counts()).toEqual(baseline)
+        // A leak is a failure of THIS suite, not something a reviewer finds by counting rows. A
+        // throw and not `expect`: this is a hook, and it must cover the last test whatever the order.
+        const after = await counts()
+        if (after.postings !== baseline.postings || after.suggestions !== baseline.suggestions) {
+          throw new Error(
+            `job-sourcing crm_app spec leaked rows: job_postings ${baseline.postings} -> ${after.postings}, ` +
+              `job_suggestions ${baseline.suggestions} -> ${after.suggestions}`,
+          )
+        }
       } finally {
         await session?.close()
       }
