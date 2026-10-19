@@ -14,6 +14,16 @@
 --   UNDECLARED TRIGGER, so a guard dropped, left disabled or quietly changed is caught
 --   at the next deploy.
 --
+--   EVERY ASSERTION IN THIS FILE HAS A TEST, and the tests are the reason to believe the
+--   comments. `AC5 — the catalog check` in job-queue-append-only.integration.spec.ts has
+--   one test per assertion: it replays the tampering against the SHIPPED BYTES of this
+--   file and requires the specific failure message. Each was verified by DELETING its
+--   assertion here and confirming exactly that test goes red — twelve of the thirteen
+--   assertions are killed that way, and the thirteenth (the identity-arguments filter in
+--   part 2b) is explained where it sits. Before fix round 2 none of this was pinned: nine
+--   assertions could be deleted with the suite staying green, so the guarantee rested on
+--   a replay nobody could repeat. If you add an assertion, add its test in the same PR.
+--
 --   WHAT "REWRITTEN" COVERS, because name + `tgenabled` alone did not cover it. Each
 --   declared trigger is pinned by its timing/event bitmask, the function it executes,
 --   the absence of a `WHEN` clause, its argument count, and the md5 of its whole
@@ -516,13 +526,27 @@ BEGIN
     fn_name := expected_trigger_functions[i][1];
     fn_md5  := expected_trigger_functions[i][2];
 
-    -- The identity-arguments filter is LOAD-BEARING, not decoration. Selected by
-    -- `proname` alone, an overload of a guard's name — `job_queue_actions_append_only(int)`,
-    -- say — makes this `SELECT … INTO` take an ARBITRARY one of the matching rows, so the
-    -- checksum assertion below can end up reading a function that is not the one the
-    -- triggers execute. A trigger function takes no declared arguments, so its identity
-    -- arguments are the empty string, and that is the only row this may read. (The two R-B
-    -- functions in part 2 above were already filtered this way; this loop was not.)
+    -- The identity-arguments filter: correct, kept, and NOT load-bearing for the
+    -- guarantee — which is a weaker claim than this comment used to make, and the honest
+    -- one. Selected by `proname` alone, an overload of a guard's name
+    -- (`job_queue_actions_append_only(int)`, say) makes this `SELECT … INTO` take an
+    -- ARBITRARY one of the matching rows, so the checksum assertion below could read a
+    -- function that is not the one the triggers execute. A trigger function takes no
+    -- declared arguments, so its identity arguments are the empty string, and that is the
+    -- only row this may read. (The two R-B functions in part 2 were already filtered this
+    -- way; this loop was not.)
+    --
+    -- WHY IT CANNOT BE PINNED BY A TEST, recorded so nobody spends the afternoon trying.
+    -- Deleting this filter leaves the whole suite GREEN, and that is not a gap in the
+    -- tests but a consequence of the overload REPORT below: any overload at all makes
+    -- this check RED, so the state in which the filter could matter is already a failing
+    -- state. Removing the filter can only ADD a problem (a spurious checksum complaint
+    -- from the wrong row) — it can never turn a red into a green, and it cannot mask a
+    -- real checksum mismatch either, because an overload's own `pg_get_functiondef`
+    -- differs from the manifest too. So the filter buys message accuracy and robustness
+    -- if the report is ever removed, not detection. The REPORT is what carries the
+    -- detection, and that one IS pinned (`2b: reports an unexpected overload …`).
+    -- Measured 2026-10-19: with this filter deleted, 68/68 still pass.
     SELECT p.proconfig,
            md5(pg_catalog.pg_get_functiondef(p.oid)) AS body_md5
       INTO rec
