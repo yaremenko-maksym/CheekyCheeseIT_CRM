@@ -339,7 +339,8 @@ assert_green "SR-M-6: a clean scan with leading rc text stays clean (exit 0) and
 assert_red "SR-M-6: output with NO frame at all is still BLIND (the script did not run), not clean, nothing echoed" \
   --contains "no LOGSCAN_BEGIN frame in 2 line(s)" --not-contains "Welcome" -- run_guard "$WS/noise-only.env"
 assert_exit_code "SR-M-6: ...exit 2" 2 run_guard "$WS/noise-only.env"
-assert_exit_code "SR-M-6: a second frame after the first END cannot turn a hit into a clean scan" 1 run_guard "$WS/two-frames.env"
+assert_red "SR-M-6: a second frame AFTER the first cannot turn a hit into a clean scan: ambiguous, BLIND" --contains "ambiguous" -- run_guard "$WS/two-frames.env"
+assert_exit_code "SR-M-6: ...exit 2" 2 run_guard "$WS/two-frames.env"
 
 # The contract fields: CONTRACT_HITS is required and cannot exceed HITS (fail closed).
 cat >"$WS/contract-hit.env" <<'EOF'
@@ -727,7 +728,8 @@ assert_green "UNPARSED: 3 dropped records on a clean scan -> still clean, but th
 run_with_summary "$WS/unparsed3.env"
 assert_green "UNPARSED: ...and it is in the summary" -- grep -q '3 pino-looking record(s) could not be parsed and were dropped' "$SUMF"
 { printf 'LOGSCAN_BEGIN\nLOGSCAN_API_CONTAINERS=1\nLOGSCAN_CONTAINER=crm-api-1\nLOGSCAN_LINES=9\nLOGSCAN_HITS=0\nLOGSCAN_CONTRACT_HITS=0\nLOGSCAN_UNPARSED=0\nLOGSCAN_END\n'; cat "$WS/hit.env"; } >"$WS/decoy-frame.env"
-assert_exit_code "LAST BEGIN: a forged CLEAN frame printed before the real one cannot hide a hit" 1 run_guard "$WS/decoy-frame.env"
+assert_red "DECOY FRAME: a forged CLEAN frame printed BEFORE the real one cannot hide a hit: ambiguous, BLIND" --contains "ambiguous" -- run_guard "$WS/decoy-frame.env"
+assert_exit_code "DECOY FRAME: ...exit 2, not 0" 2 run_guard "$WS/decoy-frame.env"
 
 # The two copies of the filter must be the same program.
 extract_filter() { sed -n '/^# --- BEGIN LOGSCAN_REQ_FILTER/,/^# --- END LOGSCAN_REQ_FILTER/p' "$1"; }

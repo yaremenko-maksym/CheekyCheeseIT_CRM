@@ -135,13 +135,13 @@ if ! filtered_all=$( { printf '%s\n%s\n' "$canary_keep" "$canary_drop"; printf '
 fi
 unparsed=$(cat "$countfile" 2>/dev/null)
 rm -f "$countfile"
-if ! printf '%s\n' "$filtered_all" | grep -qxF '{"msg":"LOGSCAN_CANARY"}' \
+if ! printf '%s\n' "$filtered_all" | grep -qxF "$canary_keep" \
   || printf '%s\n' "$filtered_all" | grep -qxF "$canary_drop"; then
   echo "LOGSCAN_FAILED=req_filter_canary"
   exit 0
 fi
 case "$unparsed" in '' | *[!0-9]*) echo "LOGSCAN_FAILED=req_filter"; exit 0 ;; esac
-filtered=$(printf '%s\n' "$filtered_all" | grep -vxF '{"msg":"LOGSCAN_CANARY"}')
+filtered=$(printf '%s\n' "$filtered_all" | grep -vxF "$canary_keep")
 
 echo "LOGSCAN_API_CONTAINERS=$n"
 echo "LOGSCAN_CONTAINER=${cname:-unknown}"

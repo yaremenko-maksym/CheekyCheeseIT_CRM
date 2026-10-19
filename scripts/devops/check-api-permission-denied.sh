@@ -131,8 +131,14 @@ ENVELOPE="$(cat)"
 total_nonempty="$(printf '%s\n' "$ENVELOPE" | grep -c . || true)"
 printf '%s\n' "$ENVELOPE" | grep -qx 'LOGSCAN_BEGIN' \
   || blind "no LOGSCAN_BEGIN frame in ${total_nonempty} line(s) of output: the remote script did not run, or the session wrote something else (an ssh failure, a shell rc file)"
-# From the LAST LOGSCAN_BEGIN to the first END after it: a decoy BEGIN printed earlier by
-# something with write access to the VPS session cannot win over the real frame.
+# EXACTLY ONE frame. A genuine run prints one BEGIN and one END. Two of either means
+# something else wrote frame markers into the stream (a decoy before ours, a forged frame
+# after it), and picking a winner is wrong in both directions: a first-BEGIN rule lets a
+# leading decoy win, a last-BEGIN rule lets a trailing one win. So it is BLIND, red.
+n_begin="$(printf '%s\n' "$ENVELOPE" | grep -cx 'LOGSCAN_BEGIN' || true)"
+n_end="$(printf '%s\n' "$ENVELOPE" | grep -cx 'LOGSCAN_END' || true)"
+{ [ "$n_begin" -le 1 ] && [ "$n_end" -le 1 ]; } \
+  || blind "ambiguous output: ${n_begin} LOGSCAN_BEGIN and ${n_end} LOGSCAN_END lines (a genuine run prints exactly one of each); refusing to guess which frame is real"
 FRAME="$(printf '%s\n' "$ENVELOPE" | awk '{ l[NR]=$0 } /^LOGSCAN_BEGIN$/ { b=NR } END { if (b) for (i=b; i<=NR; i++) { print l[i]; if (l[i]=="LOGSCAN_END") break } }')"
 frame_nonempty="$(printf '%s\n' "$FRAME" | grep -c . || true)"
 discarded=$((total_nonempty - frame_nonempty))

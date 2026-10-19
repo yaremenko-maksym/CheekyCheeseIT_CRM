@@ -2319,7 +2319,7 @@ if ! command -v python3 >/dev/null 2>&1 \
 fi
 LOGSCAN_UNPARSED="$(cat "$LOGSCAN_COUNTFILE" 2>/dev/null || true)"
 rm -f "$LOGSCAN_COUNTFILE"
-if ! printf '%s\n' "$API_LOGS_FILTERED_ALL" | grep -qxF '{"msg":"LOGSCAN_CANARY"}' \
+if ! printf '%s\n' "$API_LOGS_FILTERED_ALL" | grep -qxF "$LOGSCAN_CANARY_KEEP" \
   || printf '%s\n' "$API_LOGS_FILTERED_ALL" | grep -qxF "$LOGSCAN_CANARY_DROP"; then
   echo "ERROR: the log filter did not behave (canary check failed); refusing to pass the 42501 check unread"
   exit 1
@@ -2328,7 +2328,7 @@ case "$LOGSCAN_UNPARSED" in '' | *[!0-9]*)
   echo "ERROR: the log filter reported no usable unparsed count; refusing to pass the 42501 check unread"
   exit 1 ;;
 esac
-API_LOGS_FILTERED="$(printf '%s\n' "$API_LOGS_FILTERED_ALL" | grep -vxF '{"msg":"LOGSCAN_CANARY"}' || true)"
+API_LOGS_FILTERED="$(printf '%s\n' "$API_LOGS_FILTERED_ALL" | grep -vxF "$LOGSCAN_CANARY_KEEP" || true)"
 if [ "$LOGSCAN_UNPARSED" -gt 0 ]; then
   echo "::warning::${LOGSCAN_UNPARSED} pino-looking api log record(s) could not be parsed and were dropped from the 42501 scan (not shown)"
 fi
