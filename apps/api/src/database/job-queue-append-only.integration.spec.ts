@@ -4,6 +4,13 @@ import { join } from 'node:path'
 import { Pool, type PoolClient } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { assertRealDbSchema, hasDatabaseUrl } from '../test/require-real-db'
+import {
+  applyDeployDdlFile,
+  dropRolesCreated,
+  existingDeployRoles,
+  installDeployRoles,
+} from './__test-helpers__/deploy-ddl-preconditions'
+import { splitSqlStatements } from './manual-sql-statements'
 
 /**
  * r5 Task 1.3b — the append-only triggers and the R-B retention path, against the
@@ -59,6 +66,29 @@ const ACTION_TRIGGERS = [
   'trg_job_queue_actions_append_only',
   'trg_job_queue_actions_no_truncate',
 ] as const
+
+/**
+ * THE ONE GRANT PRODUCTION DOES NOT HAVE, named once so every test that depends on it can
+ * point here, and so `afterAll` can revoke exactly it.
+ *
+ * `crm_retention_redact_action_reason` needs `SELECT` plus `UPDATE (reason)` to run. The
+ * production manifest (`retentionOwnerFunctions` / the grants file) gives the role
+ * `SELECT, DELETE` and nothing more, and part 3 of the privileges check forbids any
+ * column-level privilege other than `SELECT` outright — so this grant is not merely absent
+ * today, the current model refuses to express it. Measured: under the production grant set
+ * the redaction function raises `42501`, which `AC4 — the redaction path is INERT under the
+ * production grant set` pins.
+ *
+ * Granting it here is therefore a TEST FIXTURE and never evidence about production. Whether
+ * production should gain it is an owner decision (table-level `UPDATE` is wider than the
+ * function needs; column-level is forbidden by part 3), and it is open — not something this
+ * suite may settle by granting itself the privilege and going green.
+ */
+const PRODUCTION_WITHHELD_GRANT = `GRANT UPDATE (reason, actor_id, subject_user_id) ON job_queue_actions TO crm_retention_owner`
+const PRODUCTION_WITHHELD_REVOKE = `REVOKE UPDATE (reason, actor_id, subject_user_id) ON job_queue_actions FROM crm_retention_owner`
+
+/** Deploy roles this suite created and must therefore drop again. See `afterAll`. */
+let rolesCreatedHere: readonly string[] = []
 
 let pool: Pool
 
@@ -205,10 +235,21 @@ async function newEntry(generationId: string, opportunityId: string) {
   )
 }
 
+/**
+ * Apply a manual DDL file the way the deploy does — statement by statement, with
+ * statement-level AUTOCOMMIT.
+ *
+ * It used to be ONE `pool.query(wholeFile)`, with a comment claiming the two were the
+ * same. They are not: a multi-statement simple query runs as a SINGLE IMPLICIT
+ * TRANSACTION, so everything this suite proves about idempotence — applying each file
+ * twice — was proven under a transaction the deploy never has. A transaction is the more
+ * forgiving of the two (a statement can lean on an uncommitted earlier one, and a failure
+ * mid-file rolls the lot back instead of leaving the half state the file's header
+ * discusses), so the weaker environment was the one being tested. `splitSqlStatements` is
+ * the same mechanism `db-privileges.integration.spec.ts` and the forward-DDL spec use.
+ */
 const applyFile = async (path: string) => {
-  // One `pool.query` per file: psql applies the file as a sequence of statements with
-  // statement-level autocommit, and a multi-statement simple query does the same.
-  await q(readFileSync(path, 'utf8'))
+  await applyDeployDdlFile(pool, path)
 }
 
 async function triggerState(name: string, table: string): Promise<string | undefined> {
@@ -239,6 +280,14 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
     // is writing to (two PostgreSQL instances answer on 5432 on this machine).
     console.log(`[1.3b] database=${rows[0].db} ${String(rows[0].v).split(',')[0]}`)
 
+    // This suite's own precondition, not a sibling's leftover: the 1.3b DDL refuses to
+    // apply unless `crm_retention_owner` and `crm_app` both exist, and before fix round 1
+    // this file created NEITHER — run alone it died in `beforeAll` with
+    // `required role(s) absent`. Both now come from the shipped roles file, so their
+    // attributes have a single source of truth, and `afterAll` drops exactly the ones
+    // this run created.
+    rolesCreatedHere = await installDeployRoles(pool)
+
     // AC1 / AC7 — apply both files TWICE. The second pass is the idempotency proof
     // and also the repair path the deploy relies on.
     await applyFile(TRIGGERS_SQL)
@@ -247,11 +296,11 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
     await applyFile(CHECK_SQL)
 
     // 1.3c owns these grants in production; the suite needs them to drive the
-    // trigger's admitted shapes directly. Scratch-database only.
+    // trigger's admitted shapes directly. Scratch-database only, and `afterAll`
+    // revokes them — see PRODUCTION GRANT SET in the header for why the UPDATE one in
+    // particular must not outlive this suite.
     await q(`GRANT SELECT, INSERT, DELETE ON job_queue_actions TO crm_retention_owner`)
-    await q(
-      `GRANT UPDATE (reason, actor_id, subject_user_id) ON job_queue_actions TO crm_retention_owner`,
-    )
+    await q(PRODUCTION_WITHHELD_GRANT)
 
     actor = await newUser('HR')
     opportunity = await newOpportunity()
@@ -281,7 +330,27 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       }
       // The suite's last act: if the teardown left a guard off, this raises.
       await applyFile(CHECK_SQL)
-      await pool.end()
+
+      // Give back the fixture privileges. The UPDATE one especially: left behind, it
+      // makes the redaction path look callable to every later reader of this cluster —
+      // which is exactly the false impression that made three green redaction tests
+      // read as evidence about production.
+      await q(PRODUCTION_WITHHELD_REVOKE)
+      await q(`REVOKE SELECT, INSERT, DELETE ON job_queue_actions FROM crm_retention_owner`)
+
+      // Leave the cluster as this suite found it. A no-op on CI, where a sibling
+      // creates the roles first; on a fresh cluster it is what stops this suite
+      // leaking them.
+      let leaked: string[] = []
+      try {
+        await dropRolesCreated(pool, rolesCreatedHere)
+        if (rolesCreatedHere.length > 0) leaked = await existingDeployRoles(pool)
+      } finally {
+        await pool.end()
+      }
+      if (leaked.length > 0) {
+        throw new Error(`teardown left role(s) behind in the cluster: ${leaked.join(', ')}`)
+      }
     }
   })
 
