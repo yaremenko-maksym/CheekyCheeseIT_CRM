@@ -3115,3 +3115,73 @@ shell reading its script from a heredoc executes it. Those three facts are the w
 
 **Check on closing:** a launch written through `bash <<'EOF'` or a here-string is refused; a document
 quoting a launch inside a quoted-delimiter heredoc is not; and both directions have a test.
+
+## 242. The alert pattern crosses a language boundary as ERE and is consumed as a JavaScript regex (2026-10-19)
+
+(named by the author of PR #1042 as a latent risk, not a defect today; severity LOW-MED — a silent
+divergence mode in a contract that two PRs now depend on). `check-api-permission-denied.sh` publishes its
+patterns through `--print-contract-pattern` and `--print-pattern`, and #1042's test helper consumes them
+with `new RegExp(output, 'i')`. The published text is **ERE**, written for `grep -E`.
+
+For the current patterns the two dialects agree exactly — `\[`, `.*`, a group and an alternation mean the
+same thing in both — and a syntax error would be caught by the constructor, which a test exercises. What
+neither catches is **ERE-only syntax that JavaScript reads differently**: a POSIX class such as
+`[[:alpha:]]`, or `\<`. Those would parse on both sides and mean different things, so the test would stay
+green while the two sides stopped agreeing.
+
+**Why it is worth recording rather than fixing now.** The published interface is otherwise sound and was
+measured: each flag prints exactly one non-empty newline-terminated line, byte-identical across
+invocations, and both outputs are accepted by the constructor. The risk only materialises if the shell
+side's patterns grow beyond the shared subset — which is plausible, since they have changed in every one
+of four fix rounds.
+
+**The closing shape, from the same author:** pin with **golden sample lines** checked by both the shell
+tests and the TypeScript tests, rather than by sharing the pattern text. Then the two sides agree about
+inputs and outputs instead of about syntax, and a dialect divergence fails a test.
+
+**Check on closing:** a pattern using a POSIX class is either rejected at publication or proven to mean
+the same thing on both sides.
+
+## 243. `zone-of-write.md` does not anticipate a corpus data file that expresses a hook's semantics (2026-10-19)
+
+(orchestrator, from a judgement call on PR #1044; severity LOW — a rule gap, not a violation). The rule
+grants the architect, inside `scripts/devops/`, only `check-guard-tests-exist.sh` and
+`tests/test-pre-*.sh`. `tests/lib/command-corpus.txt` is neither, yet it **encodes the expected behaviour
+of the hooks the architect owns**: a deliberate change to a hook's refusal necessarily changes a row in
+that corpus.
+
+On PR #1044 the architect hit exactly this, raised it rather than quietly editing, put the one changed row
+in its own commit and flagged it in the PR body. I accepted it, because refusing to touch the corpus
+would mean shipping a hook whose own corpus contradicts it — worse than the boundary the rule protects.
+
+**What to decide:** whether the corpus counts as part of the hook (architect's, which is what the
+behaviour implies) or as DevOps test data (which is what the paths imply). Either answer is fine; the
+present state, where the honest action requires stepping outside the stated zone, is not.
+
+**Check on closing:** the rule names the corpus explicitly, one way or the other, and the reasoning says
+why.
+
+## 244. The local prettier push gate fails open when it cannot resolve the diff base (2026-10-19)
+
+(orchestrator, from reading the hook after a CI failure it had passed; severity MED — a guard whose green
+is not evidence). `pre:bash:prettier-gate` exists to mirror the CI formatting gate before a push. Its own
+comments state the behaviour plainly: when `origin/main` is unresolvable it **allows** the push, "rather
+than block on infrastructure we lack".
+
+In a fresh agent worktree that base is often unresolvable, so the gate passes without checking anything —
+which is how an unformatted file reached CI on PR #1041 after a local push the gate had allowed. Note the
+asymmetry: if **prettier itself** is unreachable the gate fails loud and blocks, which is the right
+direction. Only the diff-base resolution fails open.
+
+**Why it matters beyond the one file:** a local gate that passes what CI then fails teaches people to stop
+running it, and this one is advertised as a mirror. Either it is a mirror, in which case an unresolvable
+base must block or fetch, or it is best-effort, in which case it should say so where the reader sees it —
+and the agent brief should stop treating its green as evidence.
+
+**This is the fourth guard this evening whose silence meant "could not check" rather than "clean"** — the
+others being the isolation ledger inversion (entry 234's cousin), the deploy-freshness guard (231), and
+the mutation gate on an excluded directory (238). The shared remedy is the same in each: refuse, or
+report loudly, when the check could not run.
+
+**Check on closing:** with `origin/main` unresolvable, a push carrying an unformatted file is refused or
+the base is fetched first; and the hook's header states which of the two it is.
