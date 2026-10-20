@@ -43,7 +43,7 @@ function asString(value: unknown): string | null {
 }
 
 /** `.slice` that never leaves a lone high surrogate at the cut. */
-function safeSlice(value: string, max: number): string {
+export function safeSlice(value: string, max: number): string {
   if (value.length <= max) return value
   let cut = value.slice(0, max)
   const last = cut.charCodeAt(cut.length - 1)

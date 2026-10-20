@@ -65,6 +65,13 @@ export function stripVolatileText(text: string): string {
     .replace(/\s+\.$/, '.')
 }
 
+/** Composed and decomposed spellings of the same text must hash alike. */
+function nfc<T>(value: T): T {
+  if (typeof value === 'string') return value.normalize('NFC') as T
+  if (Array.isArray(value)) return value.map((v) => nfc(v)) as T
+  return value
+}
+
 /** UPDATED is excluded: boards bump it on every refresh without the posting changing. */
 const HASHED_DATE_SEMANTICS = ['PUBLISHED', 'RELEASED', 'EXPIRY'] as const
 
@@ -76,18 +83,20 @@ export function computeContentHash(
     const d = fields.dates.find((x) => x.semantics === semantics)
     return [semantics, d?.value ? d.value.toISOString() : null, d?.status ?? null]
   })
-  const payload = encodeIdentityTuple([
-    version,
-    fields.title,
-    fields.companyName,
-    fields.location,
-    stripVolatileText(fields.descriptionMd),
-    fields.remote,
-    fields.employmentType,
-    fields.seniorityHint,
-    [...new Set(fields.tags)].sort(),
-    fields.applicationUrl === null ? null : stripTrackingParams(fields.applicationUrl),
-    dates,
-  ])
+  const payload = encodeIdentityTuple(
+    nfc([
+      version,
+      fields.title,
+      fields.companyName,
+      fields.location,
+      stripVolatileText(fields.descriptionMd),
+      fields.remote,
+      fields.employmentType,
+      fields.seniorityHint,
+      [...new Set(fields.tags)].sort(),
+      fields.applicationUrl === null ? null : stripTrackingParams(fields.applicationUrl),
+      dates,
+    ]),
+  )
   return createHash('sha256').update(payload).digest('hex')
 }

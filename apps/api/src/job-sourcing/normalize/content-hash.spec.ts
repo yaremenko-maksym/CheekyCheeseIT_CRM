@@ -77,6 +77,19 @@ describe('computeContentHash: fields that must NOT move the hash', () => {
   })
 })
 
+describe('computeContentHash: Unicode', () => {
+  it('composed and decomposed spellings of the same text hash identically; different text does not', () => {
+    const composed = { title: 'Caf\u00e9 Engineer', tags: ['caf\u00e9'], location: 'Z\u00fcrich' }
+    const decomposed = {
+      title: 'Cafe\u0301 Engineer',
+      tags: ['cafe\u0301'],
+      location: 'Zu\u0308rich',
+    }
+    expect(hash(decomposed)).toBe(hash(composed))
+    expect(hash({ ...composed, tags: ['cafe'] })).not.toBe(hash(composed))
+  })
+})
+
 describe('computeContentHash: fields that MUST move the hash', () => {
   // Without this half, "stays the same" is satisfied by a hash of a constant.
   const different: Array<[string, Partial<HashableFields>]> = [

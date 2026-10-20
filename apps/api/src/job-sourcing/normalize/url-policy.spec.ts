@@ -61,6 +61,22 @@ describe('checkStoredLink: rejections (each has a nearby accepted control)', () 
     expect(reasonOf('https://127.0.0.1./x')).toBe('IP_LITERAL')
   })
 
+  it('pin: non-dotted IPv4 spellings are refused (today by the URL parser folding them, not by our regex)', () => {
+    // These pass on the first run: the protection comes from `new URL`. The test exists so a refactor
+    // that stops routing through `new URL`, or checks before normalizing, fails here instead of
+    // silently reopening loopback/metadata access.
+    for (const bad of [
+      'https://0x7f.1/x',
+      'https://2130706433/x',
+      'https://0177.0.0.1/x',
+      'https://127.1/x',
+      'https://0x7f.1./x',
+    ]) {
+      expect(reasonOf(bad), bad).toBe('IP_LITERAL')
+    }
+    expect(reasonOf('https://evil.example/x')).toBe('ACCEPTED')
+  })
+
   it('an address-shaped string that is not an address cannot be a stored link at all', () => {
     expect(reasonOf('https://999.999.999.999/j')).toBe('UNPARSEABLE')
   })
