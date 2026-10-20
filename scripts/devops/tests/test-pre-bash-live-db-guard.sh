@@ -570,6 +570,60 @@ assert_green "union: при сломанном стриппере настоящ
 assert_green "union: при сломанном стриппере строка-комментарий не запуск" \
   -- without_broken_stripper "# pnpm --filter @crm/api dev"
 
+# ═══ SR-M-22 - the word-boundary rule must be observable HERE, not masked ═══════
+# The comment-free second reading finds a launch the stripper hid, so a regression in the
+# stripper's word-boundary rule left every case above green (measured: with the backslash
+# check disabled this file stayed 429/0). A launch found ONLY by the second reading carries
+# the label "[comment-free reading]"; for the escaped-space cases the stripper must find the
+# launch by itself, so the label must be ABSENT. That pins the rule, not its fallback.
+for esc in "echo a\\ # && $BARE_API" "echo a\\ # ; $BARE_API" "echo 'x'\\ # && $BARE_API"; do
+  assert_red "правило границы слова само находит запуск (метки второго чтения нет): $esc" \
+    --contains '"decision": "block"' \
+    --not-contains "comment-free reading" \
+    -- h "$esc"
+done
+
+# ═══ SR-H-20 - shapes the stripper cannot know about are caught by the second reading ══
+# A parameter expansion whose default value holds a space then #, and a process substitution
+# immediately followed by #, both run the next command in bash and zsh (verified in both).
+# They are refused, and they carry the label: the second reading did the work.
+assert_red "SR-H-20 форма 1: \${x:- #} затем запуск" \
+  --contains '"decision": "block"' \
+  --contains "comment-free reading" \
+  -- h "echo \${x:- #}; $BARE_API"
+assert_red "SR-H-20 форма 2: <(true)# затем запуск" \
+  --contains '"decision": "block"' \
+  --contains "comment-free reading" \
+  -- h "cat <(true)# ; $BARE_API"
+
+# ═══ SR-M-21 / SR-H-24 - an interpreter in front of dev-ttl.sh ═════════════════
+# SR-M-21: any flag may precede the wrapper (-o pipefail, --norc, --, +x, -O extglob,
+# --rcfile F) - the PR #485 shape, a launch with no pin. They are found by scanning forward
+# for the dev-ttl.sh token rather than by a taxonomy of shell flags.
+# SR-H-24: that scan must NEVER step over a flag that carries CODE. `bash -c '<payload>'
+# dev-ttl.sh` has the payload as the command and dev-ttl.sh as $0; the first forward scan
+# jumped over -c and its payload, so the string bash runs was never scanned (a hidden
+# payload bought a wrapped launch a pin - the trade was a MED for a HIGH). A code flag
+# before the token cancels the unwrap, so the payload reaches nested-code scanning.
+for flags in '-o pipefail' '--norc' '--' '+x' '-O extglob' '--rcfile /tmp/rc' '-x -e' '-eu'; do
+  assert_green "распознан как запуск: bash $flags dev-ttl.sh" \
+    -- recognised "bash $flags scripts/devops/dev-ttl.sh -- $BARE_API"
+  assert_red "bash $flags dev-ttl.sh без закрепления — отказ" \
+    --contains '"decision": "block"' \
+    -- h "bash $flags scripts/devops/dev-ttl.sh -- $BARE_API"
+  assert_red "bash $flags dev-ttl.sh с закреплением — интерпретатор не моделируется" \
+    --contains "wrapper the hook does not model" \
+    -- h "DATABASE_URL=$SAFE_DB PGDATABASE=crm_qa API_PORT=3011 bash $flags scripts/devops/dev-ttl.sh -- pnpm --filter @crm/api dev"
+done
+# the payload behind -c is a launch: it must be FOUND, and refused (no pin)
+for form in "bash -c '$BARE_API' dev-ttl.sh" "sh -c '$BARE_API' x dev-ttl.sh" "bash -ec '$BARE_API' x dev-ttl.sh" \
+            "bash -o pipefail -c '$BARE_API' dev-ttl.sh"; do
+  assert_green "payload за -c найден как запуск: $form" -- recognised "$form"
+  assert_red "payload за -c — отказ, dev-ttl.sh здесь это \$0, а не обёртка: $form" \
+    --contains '"decision": "block"' \
+    -- h "$form"
+done
+
 # ═══ the two LOW message defects: advice that names the forms ═════════════════
 # `pnpm exec nest start --debug` and `pnpm ... exec node --inspect dist/main` were refused
 # with "write the launcher directly", which does not say what to write.

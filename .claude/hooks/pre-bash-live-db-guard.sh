@@ -1,9 +1,11 @@
 #!/bin/bash
 # ECC stable id: pre:bash:live-db-guard
 #
-# Purpose: make it mechanically impossible for an agent worktree/scratchpad
-# process to reach the OWNER'S live dev database or collide with the
-# owner's live dev ports. 2026-08-05 incident (PR #485): an agent's dev-API
+# Purpose: make it EARLY and CHEAP to notice an agent worktree/scratchpad
+# process about to reach the OWNER'S live dev database or collide with the
+# owner's live dev ports - an advisory layer, NOT a guarantee (see STATUS:
+# ADVISORY below; the authoritative check is backlog entry 247).
+# 2026-08-05 incident (PR #485): an agent's dev-API
 # process inherited API_PORT=3000 and DATABASE_URL=.../crm_db from the
 # parent session's environment — its OWN .env in the worktree was silently
 # ignored, because dotenv (and NestJS ConfigModule) never overwrite a

@@ -346,4 +346,29 @@ assert_green "SR-M-22: форма 1 стриппер сам НЕ видит — 
 assert_green "SR-M-22: форма 2 стриппер сам НЕ видит — её держит второе чтение" \
   -- stripper_needed_help "cat <(true)# ; psql -c '$DROP'"
 
+# ── SR-H-24: an interpreter flag scan must never step over the CODE flag ─────────
+# `bash -c '<payload>' dev-ttl.sh`: the payload is the command, dev-ttl.sh is $0. A forward
+# scan for the wrapper token (added for SR-M-21, so any interpreter flag may precede it)
+# jumped over -c AND its payload, so the string bash actually runs was never scanned - this
+# hook allowed a destructive command that it blocked before. A code flag before the token now
+# cancels the unwrap and the payload reaches nested-code scanning.
+assert_red "SR-H-24: bash -c <деструктив> dev-ttl.sh" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "bash -c \"psql -c '$DROP'\" dev-ttl.sh"
+
+assert_red "SR-H-24: sh -c <rm -rf /etc> x dev-ttl.sh" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "sh -c 'rm -rf /etc' x dev-ttl.sh"
+
+assert_red "SR-H-24: объединённая короткая группа -ec" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "bash -ec \"psql -c '$DROP'\" x dev-ttl.sh"
+
+assert_red "SR-H-24: -o pipefail -c <деструктив> dev-ttl.sh" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "bash -o pipefail -c \"psql -c '$DROP'\" dev-ttl.sh"
+
+assert_green "SR-H-24: настоящая обёртка (dev-ttl.sh — первый операнд) по-прежнему не трогает safety" \
+  -- h "bash -o pipefail scripts/devops/dev-ttl.sh -- ls -la"
+
 guard_test_summary "test-pre-bash-safety.sh"

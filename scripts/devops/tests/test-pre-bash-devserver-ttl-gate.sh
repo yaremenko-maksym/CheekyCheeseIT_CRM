@@ -212,4 +212,20 @@ assert_red "ТТЛ-гейт SR-H-20 форма 2: <(true)# затем запус
   --contains "comment-free reading" \
   -- h "cat <(true)# ; pnpm --filter @crm/api dev"
 
+# ── SR-H-24 / SR-M-21: an interpreter in front of dev-ttl.sh ────────────────────
+# A launch behind `bash -c '<payload>' dev-ttl.sh` has dev-ttl.sh as $0, NOT as the wrapper:
+# the payload is a bare launch and must be refused. With any other interpreter flag before
+# the wrapper (the PR #485 shapes) the wrapper is real and the launch is wrapped.
+for form in "bash -c 'pnpm --filter @crm/api dev' dev-ttl.sh" "sh -c 'pnpm --filter @crm/api dev' x dev-ttl.sh" \
+            "bash -ec 'pnpm --filter @crm/api dev' x dev-ttl.sh" \
+            "bash -o pipefail -c 'pnpm --filter @crm/api dev' dev-ttl.sh"; do
+  assert_red "ТТЛ-гейт: payload за -c — голый запуск, dev-ttl.sh здесь \$0: $form" \
+    --contains '"decision": "block"' \
+    -- h "$form"
+done
+for flags in '-o pipefail' '--norc' '--' '+x' '-O extglob' '--rcfile /tmp/rc'; do
+  assert_green "ТТЛ-гейт: настоящая обёртка за флагами интерпретатора проходит: bash $flags" \
+    -- h "bash $flags $TTL -- pnpm --filter @crm/api dev"
+done
+
 guard_test_summary "test-pre-bash-devserver-ttl-gate.sh"
