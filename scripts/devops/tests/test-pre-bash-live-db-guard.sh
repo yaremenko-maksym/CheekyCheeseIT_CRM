@@ -354,6 +354,16 @@ for wrap in 'exec -c' 'sudo' 'command' 'npx' 'nice' 'time' 'nohup' 'command env 
     -- h "DATABASE_URL= PGDATABASE=crm_qa PGUSER=crm_db $wrap vite --port 3010"
 done
 
+# The launcher-equality half of the rule: tools that cmdscan resolves THROUGH to the
+# launcher without recording a wrapper. dotenv / dotenvx / doppler / env-cmd /
+# cross-env load or rewrite an environment (a .env may carry PGDATABASE=crm_db), and
+# nothing else refused them: the written word is plain and no wrapper is recorded.
+for tool in 'dotenv --' 'dotenvx run --' 'doppler run --' 'env-cmd' 'cross-env A=1' 'yarn' 'ssh host'; do
+  assert_red "инструмент, через который анализатор «видит» запуск: $tool" \
+    --contains "not the launcher the analyzer resolved" \
+    -- h "DATABASE_URL= PGDATABASE=crm_qa $tool vite --port 3010"
+done
+
 # SR-H-9 — env options take operands. `env -P /usr/bin -u PGDATABASE` slipped past a
 # walk that stopped at the first non-dash word, and the pin could be FORGED:
 # `env -P PGDATABASE=crm_qa vite` makes real env swallow the assignment as the -P
