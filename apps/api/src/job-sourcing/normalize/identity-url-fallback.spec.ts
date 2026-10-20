@@ -98,3 +98,34 @@ describe('buildIdentity: URL fallback', () => {
     }
   })
 })
+
+describe('buildIdentity: URL fallback, canonical pair order is pinned (not merely stable)', () => {
+  /** The `[name, value]` pairs exactly as they sit in the persisted key (last tuple element). */
+  const pairsOf = (query: string, params: readonly string[]) => {
+    const tuple: unknown = JSON.parse(keyOf(`https://jobs.example/view?${query}`, params))
+    if (!Array.isArray(tuple)) throw new Error('key is not a tuple')
+    return tuple[tuple.length - 1] as Array<[string, string]>
+  }
+
+  it('orders pairs by name ascending whatever order the URL lists them in', () => {
+    // Literal expectations: a reversed comparator still makes the URLs equal to EACH OTHER, so
+    // only an assertion on the order itself can fail.
+    const expected = [
+      ['a', '9'],
+      ['b', '1'],
+      ['c', '5'],
+    ]
+    expect(pairsOf('c=5&a=9&b=1', ['a', 'b', 'c'])).toEqual(expected)
+    expect(pairsOf('a=9&b=1&c=5', ['a', 'b', 'c'])).toEqual(expected)
+  })
+
+  it('orders pairs sharing a name by value ascending (code-unit order, not numeric)', () => {
+    const expected = [
+      ['id', '1'],
+      ['id', '10'],
+      ['id', '2'],
+    ]
+    expect(pairsOf('id=2&id=10&id=1', ['id'])).toEqual(expected)
+    expect(pairsOf('id=1&id=10&id=2', ['id'])).toEqual(expected)
+  })
+})
