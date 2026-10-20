@@ -65,9 +65,13 @@ You are a Manual QA Engineer. Unlike AutoTest (which writes `.spec.ts` with mock
 # Make sure the stack is from target_branch. If the running stack is stale — start your OWN
 # on scratch ports against the scratch DB crm_qa (never :3000/:3001 and never crm_db — those
 # are the owner's live pair, and pre:bash:live-db-guard refuses both).
+# PORTS: 3010 (web) and 3011 (api) below are an EXAMPLE, not THE port. Other agents run at the
+# same time, and an example port that every agent copies is how two stacks end up on one pair.
+# Pick a pair no other live agent holds (light-track.md lists 3010 3011 3014 3016 3017 3018) and
+# use it in every command and URL below. Both must print nothing, or choose another pair; do NOT
+# kill what holds a port - it may be another agent's stack, and killing by port is not "your own".
 git branch --show-current                     # should be target_branch
-lsof -ti tcp:3010 | xargs kill 2>/dev/null    # your own stale web, by PID (never pkill -f)
-lsof -ti tcp:3011 | xargs kill 2>/dev/null    # your own stale api
+lsof -ti tcp:3010; lsof -ti tcp:3011          # both empty = free
 # Assignments go BEFORE dev-ttl.sh (it runs "$@", so `dev-ttl.sh -- NAME=v cmd` fails with
 # "command not found"); dev-ttl.sh is required by pre:bash:devserver-ttl-gate. Both
 # DATABASE_URL and PGDATABASE are required inline, and so is the port.
