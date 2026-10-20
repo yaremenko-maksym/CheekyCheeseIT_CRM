@@ -3405,3 +3405,85 @@ formatting verdict computed with the wrong tool.
 
 **Check on closing:** with a deliberately stale local install, the pre-push gate refuses with a message
 naming the installed and the expected version, and does not report a formatting verdict at all.
+set, it cannot see an outage repaired inside its own sampling gap, which is most of them.
+
+**Check on closing:** a deliberately synthesised old-failure history makes the guard report, demonstrated by a run;
+and a failure repaired within three hours still produces one notification.
+
+## 252. Two stale `api-errors.ts` coordinates the gardener could not fix in its own zone (2026-10-20)
+
+(codebase-gardener; severity LOW — a dead coordinate an agent follows). The i18n stage-4 wave replaced
+`packages/shared/src/schemas/api-errors.ts` with the directory `api-errors/` and deleted the file. Six live
+code comments still pointed at the dead path; they are fixed by this run's PR. Two references remain, each
+outside the Coder zone:
+
+- `.claude/rules/common/russian-language.md` — the always-on language rule tells every agent that the error
+  codes "live in `packages/shared/src/schemas/api-errors.ts`". Architect zone (`.claude/rules/**`), and it is
+  the worst of the two: it is loaded into every session, so every agent reads a coordinate that resolves to
+  nothing. The live coordinate is the directory `packages/shared/src/schemas/api-errors/` (barrel `index.ts`).
+- `docs/superpowers/plans/2026-10-04-vacancy-sourcing-plan.md` — instructs the vacancy epic to "check before
+  writing" whether an error code already exists, at the dead path. Left alone deliberately: the plan file is
+  appended to by the running epic (#1030, #1032), and a one-line path fix inside it is a merge conflict for no
+  functional gain. Fix it when the epic next touches that file.
+
+The historical plans under `docs/superpowers/plans/2026-09-20-*` that _describe_ the deletion are correct as
+history and must not be "fixed" (`doc-durability.md`). **Check on closing:**
+`git grep -n 'schemas/api-errors\.ts' -- .claude docs/superpowers/plans/2026-10-04-vacancy-sourcing-plan.md`
+is empty.
+
+## 253. The Phase 4-B comment block in `payout.ts` documents a service deleted in #262 (2026-10-20)
+
+(codebase-gardener; severity LOW-MED — a comment that misdescribes the live design, not a coordinate typo).
+`packages/shared/src/schemas/finance/payout.ts` carries a block headed "Phase 4-B — Payment Channels
+(crypto / bank / cash)" whose first sentence names `PaymentChannelService`
+(`apps/api/src/finance/payment-channel.service.ts`) as "the entry point for drop-projects that need to settle
+a validated `DROP_INCOME` with the company". That file was **removed** by #262 ("drop payout settles to
+company account + senior PENDING obligation; remove legacy payment-channel"), so the paragraph describes an
+entry point that no longer exists, while the schemas underneath it (the crypto-channel recipient shape and the
+spec-aligned $3500 arithmetic) may well still be live.
+
+**Why the gardener did not touch it.** Deciding what the block should now say requires knowing which of the
+three channels survived #262 and which of the schemas below are still consumed — a finance-domain judgment,
+on the surface where this repo requires a security-reviewer. Rewriting it blind would replace a comment that
+is wrong about one coordinate with a comment that is wrong about the design. Needs a reader who can answer
+"does the crypto channel still exist, and who consumes `pendingObligationSchema`'s neighbours".
+**Check on closing:** the block either names the live settlement entry point, or the dead paragraph is gone
+and the surviving schemas keep only the invariants that are still true.
+
+## 254. The 225 unreferenced exports in `packages/shared` are forward contracts, not dead code (2026-10-20)
+
+(codebase-gardener; severity INFO — recorded so the next run does not re-discover it as a sweep). A
+whole-repo scan finds 225 exported symbols in `packages/shared/src/**` with **zero** references outside their
+defining file. The number invites a dead-code PR. It should not get one: the distribution says what it is —
+**79 of them are in `schemas/job-sourcing.ts`**, 17 in `resume.ts`, 7 in `vacancies.ts`, i.e. roughly half sit
+in the contract surface of the vacancy-sourcing epic that is still being built (open PR #1026, r5 Task 1.3b).
+Those exports are contracts written ahead of their consumers on purpose.
+
+The remainder spreads thinly over mature modules (`teams` 13, `projects` 12, `telemetry` 11, `contracts` 9,
+`users` 8, `pending` 8) and is mostly `z.infer` type aliases for endpoints whose API side uses the schema and
+not the alias — individually harmless, collectively a contract-documentation style this repo has chosen.
+**Re-measure after the vacancy epic ships**; a sweep before then would delete the epic's own interface.
+**Check on closing:** the scan is re-run post-epic and the residual (non-epic) count is triaged module by
+module, not in bulk.
+
+## 255. Gardener run of 2026-10-20 — what was found, what was deliberately left (2026-10-20)
+
+(codebase-gardener, weekly). The base is converging as the runbook predicted: the two large wins of the
+2026-10-05 trawl and the always-on rules trim (#1014, 143 KB → 95 KB) hold, and this run found little to do.
+
+**Opened this run (merge gated on green CI + clean reviewers):** the `undici` CVE chain closed by a bounded `pnpm.overrides` entry (22 of the 23
+advisories, all through `apps/web > jsdom > undici`); and six stale `api-errors.ts` coordinates re-pointed.
+
+**Measured and found clean:** `TODO`/`FIXME` across `apps/**` + `packages/**` = **2**, both dated deferrals
+with a reason; `.find()` inside a `map()` in `apps/api/src` = **0**; CI wall-clock on `main` = **7–10 min**;
+prod `any` = 42, flat; giants > 800 lines = **6**, and every one of them is either the resume/autosubmit
+cluster the owner deferred until after rollout or the brand-new privilege generator from #1027 — nothing
+newly grown.
+
+**Deliberately not done, with the reason** (so the next run does not re-litigate it): a second trimming pass
+over `.claude/rules/common/**` — #1014 stopped at 95 KB on the stated ground that the residual is mechanism
+whose removal would drop a gate, and a week is not evidence that it was wrong; compressing the live agent
+docs (`coder.md`, `code-reviewer.md`) — same deferral as item [[226]], these agents are running the vacancy
+epic right now; the two unfixable advisories `braces` (via `@lingui/cli`) and `sprintf-js` (via `mammoth`,
+see [[224]]) — both report `patched: <0.0.0`, no release exists to move to; `.claude/tasks` has grown to
+**2.3 MB** but is not loaded into any session, so the ROI is in archiving it, not in a PR.
