@@ -171,3 +171,17 @@ number attached to it, which is more than it had.
   of the chunking cadence (`docs/architecture/2026-05-23-dev-flow-rca.md`).
 - `.claude/skills/writing-for-agents/SKILL.md` — the pointer-vs-inline test and "one meaning, one
   place", both applied above.
+
+## Why there is also a report line
+
+`Pushed: <branch> @ <sha>` is the suspenders to the hook's belt, and it is there for cut 5
+specifically. The hook stops firing the moment one commit exists, which is correct for its own
+predicate (the worktree is no longer auto-removable) and insufficient for the rule's claim (the work
+is not yet outside the worktree). Nothing mechanical closes that last step: a hook cannot usefully
+demand a push, because the moment to push is a judgment about what comes next, and gating `git
+commit` on a subsequent `git push` would block the honest intermediate state.
+
+So it is handled the way `agent-isolation.md` handles the same class of problem — rule 7 there has
+no mechanic either, and is made observable by a mandatory report line. An assertion Master checks in
+one command (`git ls-remote origin <branch>`) beats an inference, and a missing line is treated as a
+missing verdict rather than as a silence to interpret.

@@ -43,6 +43,13 @@ So the chunking cadence in `git-policy.md` is read as **commit _and push_**, and
 comes **before** the first long stretch, not after it. "I committed it" is not a durability claim;
 `git push` is.
 
+**Every agent's report carries one line for it**, the same device as the `Worktree:` line in
+`agent-isolation.md` — an assertion Master can check in one command instead of inferring:
+
+```
+Pushed: <branch> @ <sha>          (or: Pushed: nothing — <why>)
+```
+
 ## Break the silence
 
 - **Announce a long step before taking it.** The output that saves you is the one written before the
@@ -57,12 +64,13 @@ comes **before** the first long stretch, not after it. "I committed it" is not a
 
 ## How we know it is violated
 
-| What is reconciled                                                                                                                                                                                          | Who                                  |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
-| `post:edit-write:undurable-work` — refuses silently no longer: it tells an agent that has accumulated substantial work in a worktree with **no commit of its own** to commit and push before producing more | the hook, at the moment of the write |
-| `scripts/devops/check-stream-silence.sh` — gaps ≥ 480 s between consecutive tool calls of one agent workspace, read from `.claude/agent-heartbeat.log` (written by `post:any:heartbeat`)                    | Master at acceptance                 |
-| An agent whose last heartbeat is minutes before its report, with nothing pushed on its branch                                                                                                               | Master at acceptance                 |
-| A foreground Bash call expected to run minutes (install, full suite, dev server)                                                                                                                            | the agent, before sending it         |
+| What is reconciled                                                                                                                                                                                     | Who                                  |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------ |
+| `post:edit-write:undurable-work` — tells an agent that has accumulated substantial work in a worktree with **no commit of its own** to commit and push before producing more                           | the hook, at the moment of the write |
+| The report line `Pushed: <branch> @ <sha>` — the agent's own claim that its work is outside its worktree, checkable in one command (`git ls-remote origin <branch>`). Its absence is a missing verdict | Master at acceptance                 |
+| `scripts/devops/check-stream-silence.sh` — gaps ≥ 480 s between consecutive tool calls of one agent workspace, read from `.claude/agent-heartbeat.log` (written by `post:any:heartbeat`)               | Master at acceptance                 |
+| An agent whose last heartbeat is minutes before its report, with nothing pushed on its branch                                                                                                          | Master at acceptance                 |
+| A foreground Bash call expected to run minutes (install, full suite, dev server)                                                                                                                       | the agent, before sending it         |
 
 The ledger is what separates **cut** from **finished and silent** without relying on anybody's
 attentiveness: a cut agent's heartbeats stop mid-stretch, and the gap between its last heartbeat and
