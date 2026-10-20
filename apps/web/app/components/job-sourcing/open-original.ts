@@ -196,7 +196,13 @@ export function openOriginalPosting(
   url: string | null | undefined,
   open: typeof window.open = typeof window === 'undefined' ? () => null : window.open.bind(window),
 ): boolean {
-  const target = typeof url === 'string' ? url.trim() : ''
+  // Early return rather than a `: ''` fallback on the next line. The fallback was
+  // unobservable — a non-string input is refused whichever placeholder it becomes,
+  // so the literal was a mutant no test could kill. Removing it deletes the
+  // operand instead of explaining it, and leaves `target` with exactly one
+  // possible origin: the trimmed argument.
+  if (typeof url !== 'string') return false
+  const target = url.trim()
   if (!isSafeExternalUrl(target)) return false
   open(target, '_blank', 'noopener,noreferrer')
   return true
