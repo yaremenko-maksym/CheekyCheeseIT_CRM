@@ -205,14 +205,14 @@ assert_red "голый PGDATABASE= больше не способ «сброси
 # refused even with PGDATABASE pinned, and with a non-empty URL too.
 for svc in 'PGSERVICE=live' 'PGSERVICEFILE=/tmp/x/pg_service.conf' 'PGSERVICE=live PGSERVICEFILE=/tmp/x'; do
   assert_red "PGSERVICE*: $svc (PGDATABASE закреплён)" \
-    --contains "PGSERVICE / PGSERVICEFILE is set" \
+    --contains "PGSERVICE / PGSERVICEFILE is set or mentioned" \
     -- h "DATABASE_URL= PGDATABASE=crm_qa $svc vite --port 3010"
   assert_red "PGSERVICE*: $svc (URL непустой)" \
-    --contains "PGSERVICE / PGSERVICEFILE is set" \
+    --contains "PGSERVICE / PGSERVICEFILE is set or mentioned" \
     -- h "DATABASE_URL=$SAFE_DB $svc API_PORT=3011 pnpm --filter @crm/api dev"
 done
 assert_red "export PGSERVICE=... ранее в команде" \
-  --contains "PGSERVICE / PGSERVICEFILE is set" \
+  --contains "PGSERVICE / PGSERVICEFILE is set or mentioned" \
   -- h "export PGSERVICE=live; DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
 
 # SRP-M-4: detection comes from the helper the file already has (assignments(): NAME=,
@@ -224,14 +224,14 @@ for pre in 'declare -x PGSERVICE=live;' 'declare PGSERVICE=live;' 'typeset -x PG
            'export PGSERVICEFILE=/tmp/x;' 'printf -v PGSERVICE %s live;' 'read -r PGSERVICE;' \
            ': ${PGSERVICE:=live};' 'A="x y" PGSERVICE=live' 'env PGSERVICE=live'; do
   assert_red "PGSERVICE: $pre" \
-    --contains "PGSERVICE / PGSERVICEFILE is set" \
+    --contains "PGSERVICE / PGSERVICEFILE is set or mentioned" \
     -- h "$pre DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
 done
 assert_red "PGSERVICE=... как аргумент запуска: fail closed (упоминание тоже отказ)" \
-  --contains "PGSERVICE / PGSERVICEFILE is set" \
+  --contains "PGSERVICE / PGSERVICEFILE is set or mentioned" \
   -- h "DATABASE_URL= PGDATABASE=crm_qa vite --port 3010 --note PGSERVICE=live"
 assert_red "echo с PGSERVICE=... перед запуском: fail closed" \
-  --contains "PGSERVICE / PGSERVICEFILE is set" \
+  --contains "PGSERVICE / PGSERVICEFILE is set or mentioned" \
   -- h "echo PGSERVICE=live; DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
 
 # SR-M-1: everything that sets PGDATABASE somewhere other than the launch prefix.
@@ -322,16 +322,72 @@ assert_red "SR-H-5 буквальный сценарий из ревью" \
 for envform in 'env -u PGDATABASE' 'env -i' 'env --unset=PGDATABASE' 'env --unset PGDATABASE' \
                'env --ignore-environment' 'env -iu PGDATABASE' 'env -S "vite --port 3010"' \
                'env -C /tmp' 'env -v -u PGDATABASE' 'env -0u PGDATABASE' 'env -vi' 'env -' \
-               '/usr/bin/env -u PGDATABASE' 'command env -u PGDATABASE' '"env" -u PGDATABASE' \
+               '/usr/bin/env -u PGDATABASE' '"env" -u PGDATABASE' \
                "'env' -u PGDATABASE" 'env --unse=PGDATABASE' 'env --ignore-env' 'env --chdir=/tmp' \
                'env --split-string=x' 'env -u PGDATABASE -u PGUSER'; do
   assert_red "env стирает закреплённое значение: $envform" \
-    --contains "env -i / -u / --unset" \
+    --contains "is followed by the option" \
     -- h "DATABASE_URL= PGDATABASE=crm_qa PGUSER=crm_db $envform vite --port 3010"
 done
 assert_red "env -u DATABASE_URL при непустом безопасном URL" \
-  --contains "env -i / -u / --unset" \
+  --contains "is followed by the option" \
   -- h "DATABASE_URL=$SAFE_DB API_PORT=3011 env -u DATABASE_URL pnpm --filter @crm/api dev"
+
+# SR-H-8 — bash computes the command word, shlex does not. Each of these runs
+# `env -u PGDATABASE` in real bash (measured by the review), so the child has no
+# PGDATABASE, an empty DATABASE_URL and PGUSER=crm_db. The closed answer: the command
+# word must be a plain literal AND the launcher the analyzer resolved, so no spelling
+# of env needs to be recognised.
+for cw in '$E' '$HOME/bin/vite' '{env,-u,PGDATABASE}' '/usr/bin/en?' '"$(which env)"' '`which env`' \
+          'e*v' '~/bin/vite' '\env'; do
+  assert_red "командное слово — не простой литерал: $cw" \
+    --contains '"decision": "block"' \
+    -- h "E=env; DATABASE_URL= PGDATABASE=crm_qa PGUSER=crm_db $cw -u PGDATABASE vite --port 3010"
+done
+assert_red "то же для DATABASE_URL: \$E -u DATABASE_URL" \
+  --contains '"decision": "block"' \
+  -- h "E=env; DATABASE_URL=$SAFE_DB API_PORT=3011 \$E -u DATABASE_URL pnpm --filter @crm/api dev"
+# SR-M-12 — wrappers the hook does not model, and that rewrite the environment or privilege.
+for wrap in 'exec -c' 'sudo' 'command' 'npx' 'nice' 'time' 'nohup' 'command env -u PGDATABASE'; do
+  assert_red "обёртка, которую хук не моделирует: $wrap" \
+    --contains "wrapper the hook does not model" \
+    -- h "DATABASE_URL= PGDATABASE=crm_qa PGUSER=crm_db $wrap vite --port 3010"
+done
+
+# SR-H-9 — env options take operands. `env -P /usr/bin -u PGDATABASE` slipped past a
+# walk that stopped at the first non-dash word, and the pin could be FORGED:
+# `env -P PGDATABASE=crm_qa vite` makes real env swallow the assignment as the -P
+# operand, while the walk counted it as a pin. Any dash-led word after env is refused.
+assert_red "env -P /usr/bin -u PGDATABASE" \
+  --contains "is followed by the option" \
+  -- h "DATABASE_URL= PGDATABASE=crm_qa PGUSER=crm_db env -P /usr/bin -u PGDATABASE vite --port 3010"
+assert_red "ПОДДЕЛЬНЫЙ пин: env -P проглатывает PGDATABASE=crm_qa как операнд" \
+  --contains "is followed by the option" \
+  -- h "DATABASE_URL= PGUSER=crm_db env -P PGDATABASE=crm_qa /abs/node_modules/.bin/vite --port 3010"
+assert_red "поддельный пин: env -u X PGDATABASE=crm_qa" \
+  --contains "is followed by the option" \
+  -- h "DATABASE_URL= PGUSER=crm_db env -u X PGDATABASE=crm_qa vite --port 3010"
+
+# SR-M-10 — EVERY env word is checked, not only the first. A second env after plain
+# assignments, or env env, with the option on the later one.
+for form in 'env A=1 env -u PGDATABASE' 'env env -u PGDATABASE' 'env A=1 env -i' \
+            'env A=1 B=2 env --unset=PGDATABASE' 'env -- env -u PGDATABASE'; do
+  assert_red "второй env с опцией: $form" \
+    --contains "is followed by the option" \
+    -- h "DATABASE_URL= PGDATABASE=crm_qa PGUSER=crm_db $form vite --port 3010"
+done
+
+# SR-M-11 — assignments() ran over raw text, so a spliced name hid from it. The
+# regexes now run over the shlex-normalized command.
+assert_red "PGSERV''ICE=svc через declare -x (склейка имени пустыми кавычками)" \
+  --contains "PGSERVICE / PGSERVICEFILE is set or mentioned" \
+  -- h "declare -x PGSERV''ICE=svc; DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
+assert_red "PGSERVICEFIL\"\"E=/tmp/x" \
+  --contains "PGSERVICE / PGSERVICEFILE is set or mentioned" \
+  -- h "export PGSERVICEFIL\"\"E=/tmp/x; DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
+assert_red "s''ource .env скрывает загрузку env-файла от ENV_LOAD" \
+  --contains "DATABASE_URL is not set inline on the launch itself" \
+  -- h "export DATABASE_URL=postgresql://u@h/crm_qa; s''ource .env; API_PORT=3011 pnpm --filter @crm/api dev"
 
 # env-file loaders with an empty URL and no pinned PGDATABASE: refused by the strict rule.
 for load in 'set -a; source .env.local;' 'source .env;' '. ./env.sh;' 'eval "$(cat .env)";' 'set -o allexport;'; do
@@ -365,11 +421,13 @@ assert_green "options без crm_db" \
 # The wrapper itself is fine; only the forms that CLEAR or SPLIT the environment are not.
 assert_green "обычный env-враппер с закреплёнными значениями" \
   -- h "env DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
-assert_green "env -v (подробный вывод) не стирает окружение" \
+assert_red "ЛЮБАЯ опция после env — отказ, даже безобидная -v: операнды опций хук не моделирует" \
+  --contains "is followed by the option" \
   -- h "env -v DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
 assert_green "env -- ограничивает опции, дальше только присваивания" \
   -- h "env -- DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
-assert_green "env --null не стирает окружение" \
+assert_red "env --null — тоже отказ: закрытое определение «простого» запуска, а не список опасных опций" \
+  --contains "is followed by the option" \
   -- h "env --null DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
 assert_green "env с присваиванием, значение которого похоже на флаг: FOO=-i" \
   -- h "env FOO=-i DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
