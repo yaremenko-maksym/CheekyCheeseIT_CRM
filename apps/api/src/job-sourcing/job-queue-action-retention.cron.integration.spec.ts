@@ -51,7 +51,6 @@ import { JobQueueActionRetentionCronService } from './job-queue-action-retention
 const TAG = `it1.4a-${randomUUID().slice(0, 8)}`
 
 let pool: Pool
-let service: JobQueueActionRetentionCronService
 let rolesCreatedHere: readonly string[] = []
 let actorId = ''
 let opportunityId = ''
@@ -134,9 +133,9 @@ describe('JobQueueActionRetentionCronService — against the real catalog', () =
     await q(`GRANT SELECT, INSERT ON job_queue_actions TO crm_app`)
     await q(`GRANT SELECT, DELETE ON job_queue_actions TO crm_retention_owner`)
 
-    service = new JobQueueActionRetentionCronService({
-      db: drizzle(pool, { schema }),
-    } as unknown as DatabaseService)
+    // No service is built on THIS connection on purpose: every case below goes
+    // through `asCrmApp`, because a purge invoked by the superuser that owns the
+    // scratch database would prove nothing about the application's privileges.
     ready = true
   }, 120_000)
 
@@ -225,17 +224,5 @@ describe('JobQueueActionRetentionCronService — against the real catalog', () =
     } finally {
       await q(`GRANT EXECUTE ON FUNCTION public.crm_retention_purge_job_queue_actions() TO crm_app`)
     }
-  })
-
-  it('AC1: the purge is live on a schedule — the handler is decorated with @Cron', () => {
-    if (!ready) return
-    // Pinning the wiring itself: a method that is correct and never scheduled leaves
-    // the function exactly as inert as PR #1026 shipped it. `@nestjs/schedule`
-    // records the slot in metadata, which is the only place a test can read it.
-    const slots = Reflect.getMetadataKeys(
-      JobQueueActionRetentionCronService.prototype,
-      'handleRetention',
-    )
-    expect(slots.length).toBeGreaterThan(0)
   })
 })

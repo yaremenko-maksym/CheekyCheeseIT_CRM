@@ -72,6 +72,34 @@ describe('JobQueueActionRetentionCronService.purgeExpiredActions', () => {
   })
 })
 
+describe('JobQueueActionRetentionCronService — the schedule itself', () => {
+  it('the handler is scheduled daily at 04:15, which is what makes the purge live', () => {
+    // THE CRUX OF THIS TASK, pinned. PR #1026 shipped the purge function with no
+    // caller at all; a caller that is correct and never scheduled leaves it exactly
+    // as inert. `@nestjs/schedule` records the slot as metadata ON THE METHOD
+    // FUNCTION under this string key (measured — it is not on the prototype/key
+    // pair), and deleting the `@Cron` line turns this case red.
+    const handler = JobQueueActionRetentionCronService.prototype.handleRetention
+    expect(Reflect.getMetadata('SCHEDULE_CRON_OPTIONS', handler)).toEqual({
+      cronTime: '15 4 * * *',
+    })
+  })
+
+  it('does not collide with another cron minute in this process', () => {
+    // 03:00 / 03:30 / 03:45 / 04:00 are taken by the other retention jobs and 05:00
+    // by the job-sourcing collection, which documents itself as running AFTER the
+    // retention band. 04:15 is inside that band and held by nothing else.
+    const taken = ['0 3 * * *', '30 3 * * *', '45 3 * * *', '0 4 * * *', '0 5 * * *']
+    const ours = (
+      Reflect.getMetadata(
+        'SCHEDULE_CRON_OPTIONS',
+        JobQueueActionRetentionCronService.prototype.handleRetention,
+      ) as { cronTime: string }
+    ).cronTime
+    expect(taken).not.toContain(ours)
+  })
+})
+
 describe('JobQueueActionRetentionCronService.handleRetention (the @Cron entrypoint)', () => {
   let errorSpy: ReturnType<typeof vi.spyOn>
   let logSpy: ReturnType<typeof vi.spyOn>
