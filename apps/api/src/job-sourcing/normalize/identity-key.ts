@@ -1,4 +1,4 @@
-import type { JobSourceType } from '@crm/shared'
+import type { JobIdentityKind, JobSourceType } from '@crm/shared'
 import { checkStoredLink } from './url-policy'
 
 /** Bump when the tuple layout changes: old and new keys must never be comparable by accident. */
@@ -6,7 +6,20 @@ export const IDENTITY_KEY_VERSION = 'v1'
 const MAX_NAMESPACE_CHARS = 128
 const MAX_NATIVE_ID_CHARS = 256
 
-export type IdentityKind = 'NATIVE' | 'URL'
+/**
+ * The store's cap on `identityKey` (`jobSourceIdentitySchema` in `@crm/shared`). Declared here as a
+ * number because the schema states it inline, so the two are bound by a conformance test
+ * (`observation.store-conformance.spec.ts`) that parses a key of exactly this length through the
+ * schema — not by hoping two literals stay equal.
+ */
+export const MAX_IDENTITY_KEY_CHARS = 2048
+
+/**
+ * The store's vocabulary, not a parallel one. `jobIdentityKindSchema` shipped in phase 1 and is in
+ * production; a local `'NATIVE' | 'URL'` spelling made this producer emit values its own consumer
+ * rejects, with nothing to notice because no test crossed the boundary.
+ */
+export type IdentityKind = JobIdentityKind
 
 export interface ObservationIdentity {
   provider: JobSourceType
@@ -18,8 +31,11 @@ export interface ObservationIdentity {
   identityKind: IdentityKind
 }
 
-/** `INVALID_NAMESPACE`: adapter bug. `NO_IDENTITY`: no usable native id AND no safe URL. */
-export type IdentityFailure = 'INVALID_NAMESPACE' | 'NO_IDENTITY'
+/**
+ * `INVALID_NAMESPACE`: adapter bug. `NO_IDENTITY`: no usable native id AND no safe URL.
+ * `IDENTITY_TOO_LONG`: a safe URL whose encoded key exceeds what the store accepts.
+ */
+export type IdentityFailure = 'INVALID_NAMESPACE' | 'NO_IDENTITY' | 'IDENTITY_TOO_LONG'
 
 export interface IdentityInput {
   provider: JobSourceType
@@ -62,25 +78,30 @@ function normalizeNativeId(raw: string | null | undefined): string | null {
   return id
 }
 
-/** [host, path, sorted [name, value] pairs] of a safe URL, keeping only the declared params. */
+/**
+ * THE canonical order for a query-param multiset, used by every module in this family that has to
+ * put params into a hashed or compared payload (identity keys here, content hashes in
+ * `content-hash.ts`). One order, declared once.
+ *
+ * Each pair is encoded to `name=value` FIRST and the encoded strings are then sorted with the
+ * default comparator (UTF-16 code units). That is a total order on distinct params, so one multiset
+ * of params has exactly one spelling, and repeated params are kept (`id=2&id=1` and `id=1&id=2`
+ * become one identity). Encoding first is what makes it unambiguous: `encodeURIComponent` escapes
+ * `=` and `&`, so no name or value can imitate a separator.
+ *
+ * Deliberately NOT a hand-written pairwise comparator. One was here, and it needed two Stryker
+ * suppressions for tie branches that no input could observe — a construct whose mutants had to be
+ * excused is better deleted than excused.
+ */
+export function canonicalParams(entries: Iterable<readonly [string, string]>): string[] {
+  return [...entries].map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).sort()
+}
+
+/** [host, path, canonical params] of a safe URL, keeping only the declared identity params. */
 function urlComponents(url: URL, identityParams: readonly string[]) {
   const wanted = new Set(identityParams)
-  const pairs: Array<[string, string]> = []
-  for (const [name, value] of url.searchParams) {
-    if (wanted.has(name)) pairs.push([name, value])
-  }
-  // Repeated params are kept; sorted so `id=2&id=1` and `id=1&id=2` are one identity.
-  // Order: name, then value, both by UTF-16 code unit. A tie means two IDENTICAL pairs, so which of
-  // them goes first is unobservable and the comparator need not (and does not) return 0 for it.
-  pairs.sort((a, b) => {
-    if (a[0] !== b[0]) {
-      // Stryker disable next-line EqualityOperator: this line is reached only when the names differ, so `<` and `<=` never disagree here. The `>=` sibling this also hides is killed by hand: reversing the comparator fails "orders pairs by name ascending" in identity-url-fallback.spec.ts
-      return a[0] < b[0] ? -1 : 1
-    }
-    // Stryker disable next-line EqualityOperator: `<=` differs from `<` only on equal values, i.e. identical pairs, whose relative order cannot be seen in the output. Proof: node -e "const o=(x,y)=>x<y?-1:1,m=(x,y)=>x<=y?-1:1,u=['1','10','2'];let bad=0;const r=(s)=>{if(JSON.stringify([...s].sort(o))!==JSON.stringify([...s].sort(m)))bad++;if(s.length<7)for(const v of u)r([...s,v])};r([]);console.log('differing sorts:',bad)" prints 'differing sorts: 0'
-    return a[1] < b[1] ? -1 : 1
-  })
-  return [url.hostname, url.pathname.replace(/\/+$/, ''), pairs] as const
+  const kept = [...url.searchParams].filter(([name]) => wanted.has(name))
+  return [url.hostname, url.pathname.replace(/\/+$/, ''), canonicalParams(kept)] as const
 }
 
 /**
@@ -95,16 +116,20 @@ export function buildIdentity(input: IdentityInput): IdentityResult {
 
   const nativeId = normalizeNativeId(input.nativeId)
   if (nativeId !== null) {
+    // Bounded by construction, so there is no length check on this branch: the tuple holds the
+    // version, the kind, a `JobSourceType` member, a namespace of at most MAX_NAMESPACE_CHARS and a
+    // native id of at most MAX_NATIVE_ID_CHARS. Even with every character JSON-escaped to six bytes
+    // that is far below MAX_IDENTITY_KEY_CHARS, and the conformance test pins the worst case.
     return {
       ok: true,
       identity: {
         provider: input.provider,
         namespace,
         nativeId,
-        identityKind: 'NATIVE',
+        identityKind: 'NATIVE_ID',
         identityKey: encodeIdentityTuple([
           IDENTITY_KEY_VERSION,
-          'NATIVE',
+          'NATIVE_ID',
           input.provider,
           namespace,
           nativeId,
@@ -115,20 +140,29 @@ export function buildIdentity(input: IdentityInput): IdentityResult {
 
   const link = checkStoredLink(input.url)
   if (!link.ok) return { ok: false, reason: 'NO_IDENTITY' }
+  const identityKey = encodeIdentityTuple([
+    IDENTITY_KEY_VERSION,
+    'URL_FALLBACK',
+    input.provider,
+    namespace,
+    ...urlComponents(link.url, input.identityParams ?? []),
+  ])
+  // A URL-derived key is NOT bounded by construction: a URL may be MAX_LINK_CHARS long on its own,
+  // and the namespace, the tuple's JSON quoting and its escaping are all added on top. Quarantine,
+  // rather than truncate to fit: two URLs sharing a long prefix would truncate to the SAME key and
+  // two distinct postings would merge into one record. A failure must not report success, and
+  // silently merging records is worse than declining to identify this one.
+  if (identityKey.length > MAX_IDENTITY_KEY_CHARS) {
+    return { ok: false, reason: 'IDENTITY_TOO_LONG' }
+  }
   return {
     ok: true,
     identity: {
       provider: input.provider,
       namespace,
       nativeId: null,
-      identityKind: 'URL',
-      identityKey: encodeIdentityTuple([
-        IDENTITY_KEY_VERSION,
-        'URL',
-        input.provider,
-        namespace,
-        ...urlComponents(link.url, input.identityParams ?? []),
-      ]),
+      identityKind: 'URL_FALLBACK',
+      identityKey,
     },
   }
 }

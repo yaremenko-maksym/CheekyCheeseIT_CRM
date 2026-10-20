@@ -27,6 +27,13 @@ import { checkStoredLink } from './url-policy'
 /** Bump when normalization output changes in a way that should re-evaluate stored observations. */
 export const NORMALIZER_VERSION = 'n1'
 
+/**
+ * The store's bounds on `adapterVersion` / `normalizerVersion` (`jobSourceRevisionSchema` in
+ * `@crm/shared`: `min(1).max(100)`). Pinned against the schema itself by
+ * `observation.store-conformance.spec.ts`, so these numbers cannot drift away from it in silence.
+ */
+export const MAX_VERSION_CHARS = 100
+
 /** Retention caps for ORIGINAL (pre-normalization) text. Larger than display limits on purpose. */
 export const ORIGINAL_LIMITS = {
   title: 2_000,
@@ -93,8 +100,50 @@ export interface SourceObservation {
   contentHash: string
 }
 
+/**
+ * The observation's own view of a phase-1 store row, and the ONLY place that crosses the two
+ * vocabularies. The store calls the provider `sourceType` and does not carry `nativeId` on the
+ * identity (its schema is `.strict()`), so there is no single object both sides accept — the seam
+ * needs an explicit projection, and it belongs in production code rather than in a test, otherwise
+ * a conformance test would only be checking a mapping invented by the test itself.
+ *
+ * Each of the ~25 phase-3 adapters persists through these, so the store's bounds are crossed in one
+ * place that `observation.store-conformance.spec.ts` parses with the real schemas.
+ */
+export function toStoredIdentity(identity: ObservationIdentity) {
+  return {
+    sourceType: identity.provider,
+    namespace: identity.namespace,
+    identityKind: identity.identityKind,
+    identityKey: identity.identityKey,
+  }
+}
+
+/**
+ * The revision fields an observation OWNS. Ids, arrival order and blob keys are the collector's,
+ * not ours, so they are deliberately absent rather than faked here. `publishedAt` is serialised
+ * because the store holds an ISO string where the observation holds a `Date`.
+ */
+export function toStoredRevisionFields(observation: SourceObservation) {
+  return {
+    adapterVersion: observation.adapterVersion,
+    normalizerVersion: observation.normalizerVersion,
+    contentHash: observation.contentHash,
+    title: observation.normalized.title,
+    companyName: observation.normalized.companyName,
+    location: observation.normalized.location,
+    applicationUrl: observation.applicationUrl,
+    publishedAt: observation.normalized.publishedAt?.toISOString() ?? null,
+  }
+}
+
 export type QuarantineReason =
-  IdentityFailure | 'UNSAFE_URL' | 'MISSING_TITLE' | 'MISSING_COMPANY' | 'INVALID_RECORD'
+  | IdentityFailure
+  | 'UNSAFE_URL'
+  | 'MISSING_TITLE'
+  | 'MISSING_COMPANY'
+  | 'INVALID_RECORD'
+  | 'INVALID_ADAPTER_VERSION'
 
 export type ObservationResult =
   { ok: true; observation: SourceObservation } | { ok: false; reason: QuarantineReason }
@@ -186,6 +235,14 @@ export function buildSourceObservation(
   options: { now?: Date } = {},
 ): ObservationResult {
   const now = options.now ?? new Date()
+
+  // An adapter version the store refuses is an adapter bug, and it has to surface here: the empty
+  // string and anything past the column's cap were accepted by this builder and then rejected at
+  // persistence, which is the same "reports success, fails later" shape as an over-long identity key.
+  const adapterVersion = typeof raw.adapterVersion === 'string' ? raw.adapterVersion.trim() : ''
+  if (adapterVersion.length === 0 || adapterVersion.length > MAX_VERSION_CHARS) {
+    return quarantine('INVALID_ADAPTER_VERSION')
+  }
 
   const identity = buildIdentity({
     provider: raw.provider,
@@ -315,7 +372,7 @@ export function buildSourceObservation(
       originalFields: { title, companyName, location, description, tags },
       normalized,
       evidence,
-      adapterVersion: raw.adapterVersion,
+      adapterVersion,
       normalizerVersion: NORMALIZER_VERSION,
       contentHash: computeContentHash({
         title: normalized.title,

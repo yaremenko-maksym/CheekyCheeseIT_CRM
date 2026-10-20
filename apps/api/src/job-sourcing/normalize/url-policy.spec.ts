@@ -1,3 +1,4 @@
+import { isIP } from 'node:net'
 import { describe, expect, it } from 'vitest'
 import { MAX_LINK_CHARS, checkStoredLink } from './url-policy'
 
@@ -151,5 +152,93 @@ describe('checkStoredLink: boundaries and malformed hosts', () => {
   it('strips trailing dots from the stored host so one host has one spelling', () => {
     const r = checkStoredLink('https://jobs.example./j')
     expect(r.ok && r.url.href).toBe('https://jobs.example/j')
+  })
+})
+
+describe('checkStoredLink: the stored host is the host that was validated (SR-H-1)', () => {
+  it('regression: a NON-dotted address spelling behind repeated trailing dots is refused', () => {
+    // These are the inputs the earlier trailing-dot regression could not catch: it used dotted
+    // quads only, which `net.isIP` already recognised BEFORE the hostname assignment. A decimal,
+    // hex or shorthand spelling is invisible to `isIP` and is folded into an address by the
+    // ASSIGNMENT, so each of these was ACCEPTED and stored as the address named beside it.
+    for (const [bad, becomes] of [
+      ['https://2852039166../x', 'instance metadata 169.254.169.254'],
+      ['https://0xa9fea9fe../x', 'instance metadata 169.254.169.254'],
+      ['https://127.1../x', 'loopback 127.0.0.1'],
+      ['https://10.1../x', 'private 10.0.0.1'],
+      ['https://0../x', '0.0.0.0'],
+      ['https://0x7f.1../x', 'loopback 127.0.0.1'],
+      ['https://2130706433../x', 'loopback 127.0.0.1'],
+    ] as const) {
+      expect(reasonOf(bad), `${bad} is stored as ${becomes}`).toBe('IP_LITERAL')
+    }
+  })
+
+  it('control: registrable names behind the same repeated trailing dots still pass', () => {
+    // The fix must be the differential (an address is an address after folding), not a ban on the
+    // input family: these hosts are names before AND after the assignment.
+    expect(reasonOf('https://a.com../x')).toBe('ACCEPTED')
+    expect(reasonOf('https://jobs.example.../j/1')).toBe('ACCEPTED')
+    expect(reasonOf('https://рф../x')).toBe('ACCEPTED')
+    expect(reasonOf('https://123abc.example../j')).toBe('ACCEPTED')
+  })
+
+  it('no accepted link can hold an address in the host it finally stores', () => {
+    // States the invariant over the accepted set rather than over one input family: the stored
+    // hostname of everything accepted, asserted in one shot so a rejection is visible as `null`.
+    const stored = [
+      'https://2852039166../x',
+      'https://0xa9fea9fe../x',
+      'https://127.1../x',
+      'https://a.com../x',
+      'https://jobs.example./j',
+      'https://рф../x',
+    ].map((raw) => {
+      const r = checkStoredLink(raw)
+      return [raw, r.ok ? isIP(r.url.hostname) : null] as const
+    })
+    expect(stored).toEqual([
+      ['https://2852039166../x', null],
+      ['https://0xa9fea9fe../x', null],
+      ['https://127.1../x', null],
+      ['https://a.com../x', 0],
+      ['https://jobs.example./j', 0],
+      ['https://рф../x', 0],
+    ])
+  })
+})
+
+describe('checkStoredLink: the length cap measures the STORED href (SR-M-1)', () => {
+  it('regression: a non-ASCII URL under the cap as text but over it as href is TOO_LONG', () => {
+    // Measured: 2000 Cyrillic path characters serialise to 12014 characters of percent-encoded
+    // `href`. The raw text passed the cap, so this was stored far past the declared limit.
+    const raw = `https://jobs.example/${'й'.repeat(2000)}`
+    expect(raw.length).toBeLessThan(MAX_LINK_CHARS)
+    expect(new URL(raw).href.length).toBeGreaterThan(MAX_LINK_CHARS)
+    expect(reasonOf(raw)).toBe('TOO_LONG')
+  })
+
+  it('every accepted link serialises within the cap', () => {
+    // `null` marks a rejection; every number present must be within the cap, so one assertion
+    // covers both "nothing over-long was accepted" and "short links were not over-rejected".
+    const lengths = [
+      `https://jobs.example/${'й'.repeat(2000)}`,
+      `https://jobs.example/${'й'.repeat(300)}`,
+      `https://jobs.example/${'a'.repeat(2000)}`,
+      'https://jobs.example/j/1',
+    ].map((raw) => {
+      const r = checkStoredLink(raw)
+      return r.ok ? r.url.href.length : null
+    })
+    expect(lengths.filter((n) => n !== null)).toHaveLength(3)
+    expect(lengths.filter((n) => n !== null && n > MAX_LINK_CHARS)).toEqual([])
+  })
+
+  it('control: a non-ASCII URL whose encoded form fits is still accepted', () => {
+    // The cap must not become a ban on non-ASCII paths.
+    const r = checkStoredLink('https://jobs.example/вакансія/1')
+    expect(r.ok && r.url.href).toBe(
+      'https://jobs.example/%D0%B2%D0%B0%D0%BA%D0%B0%D0%BD%D1%81%D1%96%D1%8F/1',
+    )
   })
 })

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { ObservedDate } from './date-policy'
-import { encodeIdentityTuple } from './identity-key'
+import { canonicalParams, encodeIdentityTuple } from './identity-key'
 
 /**
  * Bump when the canonical payload changes. It is part of the hashed payload, so a layout change
@@ -48,14 +48,12 @@ export function stripTrackingParams(raw: string): string {
   } catch {
     return raw
   }
-  // Sorting the encoded `name=value` strings (default code-unit order) is a total order on distinct
-  // params, so one multiset of params has exactly one spelling. Deliberately no pairwise comparator:
-  // a hand-written one has tie branches that no input can observe.
-  const query = [...url.searchParams]
-    .filter(([name]) => !TRACKING_PARAM.test(name))
-    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
-    .sort()
-    .join('&')
+  // `canonicalParams` IS the order this module used to spell out inline, now shared with identity
+  // keys so the family has one canonical order instead of two. Byte-for-byte the same output, which
+  // matters: `ch1` hashes already in `job_content_hash` must not move without a version bump.
+  const query = canonicalParams(
+    [...url.searchParams].filter(([name]) => !TRACKING_PARAM.test(name)),
+  ).join('&')
   return `${url.origin}${url.pathname}${query ? `?${query}` : ''}`
 }
 
