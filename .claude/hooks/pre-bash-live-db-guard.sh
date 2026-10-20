@@ -23,6 +23,25 @@
 # exactly the opposite (see class 3 below).
 #
 # ---------------------------------------------------------------------------
+# STATUS: ADVISORY. THIS HOOK IS FAST AND EARLY, NOT COMPLETE.
+# Four security rounds on this file (2026-10-19/20) ended with the same finding in
+# new spellings: the hook computes, from TEXT, what bash will do. Inside a launch it
+# recognises the model holds (about 330 probes, no env spelling / computed command word /
+# unmodelled wrapper got a recognised launch past it); but "is this a launch" defaults
+# to allow, and a hook reads text while bash resolves functions, aliases, PATH, startup
+# files and an interpreter's flags. These are NOT closable by reading text, and are
+# deliberately not chased: a shell function or alias named like the launcher, a PATH shim,
+# NODE_OPTIONS=--require, BASH_ENV, and the full value-taking-flag taxonomy of an
+# interpreter (review findings SR-H-16 and SR-H-17, SUPERSEDED, not fixed). The tripwire
+# written in the python header below has fired.
+# The authoritative check belongs where the connection is actually made: the API own
+# boot reads the database it really connected to and refuses the live name, after every
+# layer of shell, wrapper and flag has had its say (backlog entry 247, PR #1051). Until it
+# exists this hook stays as the early, cheap layer - and it stays strict about HOW a
+# launch is written, because that part is checkable. Do NOT start a further hardening
+# round here: anything new goes to entry 247.
+#
+# ---------------------------------------------------------------------------
 # WARNING - READ BEFORE EDITING THE PYTHON BELOW. It sits inside a bash
 # single-quoted string (python3 -c '...'), so ONE apostrophe anywhere in it - in a
 # comment, a docstring, a message ("someone else's", "libpq's") - ends the string
@@ -307,9 +326,10 @@ def judge(seg):
     # standing rule below - FAIL CLOSED ON ANYTHING THE HOOK CANNOT RESOLVE TO A
     # LITERAL: the command word must be a plain literal AND the launcher cmdscan
     # resolved, and a dash-led word after env is refused outright (see launch_shape).
-    # If a fifth round finds another divergence between this hook model of bash and
-    # bash, the authoritative check belongs in the dev-server start itself (a preflight
-    # that prints current_database() and refuses the live name), with this hook advisory.
+    # THE TRIPWIRE FIRED in the fifth round (SR-H-16, SR-H-17: shell functions, aliases,
+    # PATH shims, startup files - not closable by reading text). The authoritative check
+    # moved to the dev-server start itself (a preflight reading the database it really
+    # connected to; backlog entry 247) and this hook is ADVISORY - see STATUS at the top.
     # A hook can never be bash.
     #
     # STANDING RULE OF THIS FILE: DELETE AN APPROXIMATION BEFORE ADDING A CLEVERER ONE.
