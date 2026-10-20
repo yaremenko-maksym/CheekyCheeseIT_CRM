@@ -670,13 +670,17 @@ namespace gap identified above gets paid off once instead of 25 times.
   `RssProvider` and Personio — complexity surfaces at callers, so it earns its living.
   **Seam 2:** delete it and all 25 adapters re-implement `guid isPermaLink="false"`, Atom link
   relations, `content:encoded` and multiple authors — surfaces at 25 callers, earns its living.
-- **Two adapters, so the seam is real, not hypothetical:** this review produced the second one.
-  `ParseXmlAdapter` (prod) and `FastXmlParserAdapter` (the measured fallback) both satisfy
-  `XmlPort`, and the adversarial corpus is the **shared conformance suite** both must pass. A seam
-  with one adapter would be speculative indirection; this one has two working implementations on
-  day one.
-- **Test surface:** callers and tests cross the same seam. The corpus runs against `XmlPort`, so
-  the tests do not reach behind the interface and survive a parser swap unchanged.
+- **Adapters — currently one, so the seam is _hypothetical_ by the two-adapter test.** An earlier
+  revision claimed two working implementations "on day one". That is **withdrawn**:
+  `FastXmlParserAdapter` cannot satisfy the drift contract under any configuration measured
+  (R-4), so `ParseXmlAdapter` stands alone and the corpus is **not** yet a shared conformance
+  suite. Closing this is required work in 2.4, with three options set out in R-4. **This is the
+  one weakness in the recommended shape, and it is the shape's whole justification** — recorded
+  here rather than smoothed over.
+- **Test surface:** callers and tests cross the same seam. The corpus should run against
+  `XmlPort`, so tests do not reach behind the interface — but note R-1: tests that encode
+  parser-specific error _messages_ will not survive a swap, only those asserting behaviour with a
+  positive control.
 
 ### The replacement story
 
