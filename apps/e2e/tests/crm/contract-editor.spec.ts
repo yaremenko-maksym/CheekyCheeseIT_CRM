@@ -279,7 +279,7 @@ test.describe('A3-2: Contract editor tab', () => {
     // task-i18n-stage2-task5: body is the API error envelope
     // (`apiErrorEnvelopeSchema`) — `ContractTab` branches on `code`.
     // CONTRACT_TEMPLATE_MISSING carries no params (see `API_ERROR_PARAMS` in
-    // packages/shared/src/schemas/api-errors/) — the role comes from the
+    // packages/shared/src/schemas/api-errors/index.ts) — the role comes from the
     // viewed profile, not the envelope.
     await setupAdminViewingSenior(
       page,

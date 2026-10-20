@@ -149,7 +149,7 @@ export type ZodErrorCode = (typeof ZOD_ERROR_CODES)[number]
 
 /**
  * Украинский исходный текст (source locale). Явные id (`zod-error.<CODE>`) —
- * извлечение стабильно без макроса `t`/`msg` (см. `api-errors.ts` — тот же
+ * извлечение стабильно без макроса `t`/`msg` (см. `packages/shared/src/schemas/api-errors/` — тот же
  * приём, уже проверенный `pnpm i18n:extract`).
  *
  * Черновик кодера (task-i18n-stage4-task4) — `copy-reviewer` проверяет оба
@@ -477,7 +477,7 @@ export const ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor> = {
  * Английский fallback, который едет в САМОМ HTTP-теле (`ZodExceptionFilter`,
  * `apps/api/src/zod-exception.filter.ts`) для мигрированных полей — для
  * логов и клиентов без каталога. Тот же приём и то же обязательство, что
- * `API_ERROR_FALLBACK_EN` (`api-errors.ts`): равно `en`-строке каталога
+ * `API_ERROR_FALLBACK_EN` (`packages/shared/src/schemas/api-errors/index.ts`): равно `en`-строке каталога
  * дословно (`zod-errors.spec.ts` закрепляет это инвариантным тестом).
  */
 export const ZOD_ERROR_FALLBACK_EN: Record<ZodErrorCode, string> = {
