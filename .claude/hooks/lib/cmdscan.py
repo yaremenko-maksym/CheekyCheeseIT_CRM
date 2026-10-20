@@ -433,14 +433,14 @@ class Segment:
 
 
 class Scan:
-    __slots__ = ("segments", "assigns", "code_view", "degraded", "truncated", "alt")
+    __slots__ = ("segments", "assigns", "code_view", "degraded", "truncated", "alt_only")
 
     def __init__(self, segments, assigns, code_view, degraded, truncated=False):
-        # The same command read WITHOUT comment stripping (top-level scan only). The
-        # comment stripper is a parser of its own, and a slip in it must not be able
-        # to hide a launch: launches() unions this reading in, so a mistake there can
-        # only produce a refusal, never silence.
-        self.alt = None
+        # Segments that ONLY the comment-free reading produced (top-level scan only);
+        # they are already merged into `segments`. Kept separately so a test can ask
+        # "did the comment stripper get this right on its own?" - a union that masks the
+        # stripper would otherwise make its word-boundary rule unobservable.
+        self.alt_only = []
         self.segments = segments
         self.assigns = assigns
         self.code_view = code_view
@@ -720,10 +720,14 @@ def _unwrap(tokens, assigns):
         # (SR-H-15, the 2026-08-05 shape). The interpreter is recorded as a wrapper, so
         # a caller that models only env and dev-ttl.sh refuses it by name.
         if base in ("bash", "sh", "zsh", "dash", "ksh") and len(tokens) > 1:
-            j = 1
-            while j < len(tokens) and re.match(r"^-[A-Za-z]+$", tokens[j]) and tokens[j] != "-c":
-                j += 1
-            if j < len(tokens) and os.path.basename(tokens[j]) == "dev-ttl.sh":
+            # Scan FORWARD for the wrapper token instead of enumerating the interpreter
+            # flags that may precede it (-o pipefail, --norc, --, +x, -O extglob,
+            # --rcfile F ...). A taxonomy of shell flags is the same re-implementation
+            # trap that produced every hole in this area (SR-M-21), and a flag form this
+            # list forgot was the PR #485 shape: the launch got no pin at all.
+            j = next((k for k in range(1, len(tokens))
+                      if os.path.basename(tokens[k]) == "dev-ttl.sh"), None)
+            if j is not None:
                 wrappers.append(base)
                 tokens = tokens[j:]
                 continue
@@ -1334,11 +1338,30 @@ def scan(command_line, depth=0, env=None):
 
     result = Scan(segments, assigns, code_view, degraded, truncated)
     if depth == 0 and _STRIP_COMMENTS and "#" in command_line:
+        # FAIL CLOSED ON THE COMMENT STRIPPER, AS A PROPERTY OF scan(). The stripper is a
+        # parser of its own (it decides where a "#" starts a comment), it is shared by every
+        # consumer, and a slip in it hides a command from all of them. Round 5 kept the
+        # comment-free reading inside launches(), which covered the two launcher hooks and
+        # left pre-bash-safety.sh - which walks scan.segments directly - covered by nothing:
+        # `echo ${x:- #}; <destructive>` and `cat <(true)# ; <destructive>` ran in bash and zsh
+        # and were allowed. So the second reading is merged here: whoever iterates
+        # scan.segments or reads scan.code_view gets it without opting in.
+        # A segment that merely BEGINS with "#" is the comment itself and is not merged;
+        # the cost is that a comment's text can now be judged (refusal, never silence).
         _STRIP_COMMENTS = False
         try:
-            result.alt = scan(command_line, 0, env)
+            alt = scan(command_line, 0, env)
         finally:
             _STRIP_COMMENTS = True
+        have = set(sg.raw for sg in result.segments)
+        extra = [sg for sg in alt.segments
+                 if sg.raw not in have and not sg.raw.lstrip().startswith("#")]
+        result.alt_only = extra
+        result.segments = list(result.segments) + extra
+        if alt.code_view != result.code_view:
+            result.code_view = result.code_view + "\n" + alt.code_view
+        result.degraded = result.degraded or alt.degraded
+        result.truncated = result.truncated or alt.truncated
     return result
 
 
@@ -1443,27 +1466,15 @@ def launches(scan_result):
     LAUNCHING segment gets).
     """
     out = []
+    alt_raws = set(sg.raw for sg in getattr(scan_result, "alt_only", ()))
     for seg in scan_result.segments:
         for cand in candidates(seg):
             label = is_dev_server_launch(cand)
             if label:
                 if not seg.confident:
                     label = "%s — %s" % (label, seg.why)
+                if seg.raw in alt_raws:
+                    label = "%s [comment-free reading]" % label
                 out.append((cand, label))
                 break
-    # Fail closed on the comment stripper: a launch that only the comment-FREE reading
-    # sees is refused too. A segment that merely begins with "#" is the comment itself
-    # (`# pnpm dev`), not a launch hidden after one, and is skipped.
-    alt = getattr(scan_result, "alt", None)
-    if alt is not None:
-        seen = set(c.raw for c, _ in out)
-        for seg in alt.segments:
-            if seg.raw.lstrip().startswith("#"):
-                continue
-            for cand in candidates(seg):
-                label = is_dev_server_launch(cand)
-                if label and cand.raw not in seen:
-                    out.append((cand, "%s [comment-free reading]" % label))
-                    seen.add(cand.raw)
-                    break
     return out

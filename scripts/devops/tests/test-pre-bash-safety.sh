@@ -298,4 +298,52 @@ assert_red "safety: экранированный перевод строки н�
 assert_green "safety: настоящий комментарий с DROP внутри по-прежнему ничего не запускает" \
   -- h "echo hi # psql -c '$DROP'"
 
+# ── SR-H-20: round 5 hid commands from THIS hook, and nothing here caught it ───
+# The fail-closed comment-free reading lived inside launches(); this hook walks
+# scan.segments directly and never calls it, so two shapes that RUN the second command in
+# both bash and zsh were allowed here while blocked before the comment stripper existed
+# (measured against 7964505a2): a parameter expansion whose default value holds a space
+# then # (bash and zsh both treat that # as plain text), and a process substitution
+# immediately followed by # (the # is part of the word). The second reading is now merged
+# into scan() itself, so every consumer gets it without opting in.
+NL=$'\n'
+assert_red "SR-H-20 форма 1: подстановка параметра с пробелом и # в значении по умолчанию" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "echo \${x:- #}; psql -c '$DROP'"
+
+assert_red "SR-H-20 форма 2: подстановка процесса, сразу за которой #" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "cat <(true)# ; psql -c '$DROP'"
+
+assert_red "SR-H-20 форма 1, разделитель &&" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "echo \${x:- #} && psql -c '$DROP'"
+
+assert_red "SR-H-20 форма 2, разделитель новая строка" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "cat <(true)#${NL}psql -c '$DROP'"
+
+# SR-M-22 - the word-boundary rule itself. The comment-free union (above) would mask a
+# regression in the stripper, so ask the stripper ALONE: for these cases it must produce
+# every segment on its own, i.e. nothing is left for the second reading to add.
+ALT_ONLY_PY='
+import importlib.util, os, sys
+spec = importlib.util.spec_from_file_location("cmdscan", os.environ["CMDSCAN"])
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+sys.exit(0 if not m.scan(os.environ["CMD"]).alt_only else 1)
+'
+stripper_alone_sees_all() { CMDSCAN="$REPO_ROOT/.claude/hooks/lib/cmdscan.py" CMD="$1" python3 -I -c "$ALT_ONLY_PY"; }
+stripper_needed_help() { ! stripper_alone_sees_all "$1"; }
+assert_green "SR-M-22: стриппер САМ видит команду после экранированного пробела и #" \
+  -- stripper_alone_sees_all "echo a\\ # && psql -c '$DROP'"
+assert_green "SR-M-22: то же с ;" \
+  -- stripper_alone_sees_all "echo a\\ # ; psql -c '$DROP'"
+assert_green "SR-M-22: кавычка, затем экранированный пробел" \
+  -- stripper_alone_sees_all "echo 'x'\\ # && psql -c '$DROP'"
+assert_green "SR-M-22: форма 1 стриппер сам НЕ видит — её держит второе чтение (и это задокументировано)" \
+  -- stripper_needed_help "echo \${x:- #}; psql -c '$DROP'"
+assert_green "SR-M-22: форма 2 стриппер сам НЕ видит — её держит второе чтение" \
+  -- stripper_needed_help "cat <(true)# ; psql -c '$DROP'"
+
 guard_test_summary "test-pre-bash-safety.sh"
