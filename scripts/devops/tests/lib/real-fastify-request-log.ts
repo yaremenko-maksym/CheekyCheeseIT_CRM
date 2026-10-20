@@ -65,7 +65,8 @@ async function main() {
     if (urlEnd !== undefined) {
       await app.inject({ method: 'GET', url: `${route}?p=`, headers: { host: FORGED_HOST } })
       const probe = lines.find((l) => l.includes('"url":"'))
-      if (probe === undefined) throw new Error('no logged record carries a url; cannot size the pad')
+      if (probe === undefined)
+        throw new Error('no logged record carries a url; cannot size the pad')
       const start = probe.indexOf('"url":"') + 7
       pad = Number(urlEnd) - (probe.indexOf('"', start) + 1)
       lines.length = 0
