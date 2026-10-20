@@ -3253,3 +3253,48 @@ command is code, and it had never been tested as code.
 
 **Check on closing:** the launch exists in exactly one place, and every executable line in the three
 prompts passes the gates.
+
+## 247. P1 — the live-database check moves into the API's own boot; the hook becomes advisory (2026-10-20)
+
+(the orchestrator's stated stopping rule, fired by the fifth security round on PR #1044; severity HIGH as
+a design conclusion, P1 as work). Five rounds hardened `pre:bash:live-db-guard` and each one closed real
+routes to the live database — percent-encoding, a `#` fragment, the `dbname` query key, libpq's user-name
+fallback, shell expansion before the hook reads the value, and an argument decoy that disabled a check.
+Every fix was correct. None converged.
+
+**The fifth round named why, and it is structural.** Inside a launch the hook recognises, the fail-closed
+model now holds: no spelling of `env`, no computed command word and no unmodelled wrapper gets a
+recognised launch past it. But **the answer to "is this a launch" still defaults to allow.** The hook is
+fail-closed about _how_ a launch is written and fail-open about _whether_ a command is one. All five
+remaining HIGHs live in that gap:
+
+- only the **first** launch in a command is judged, so a second one after `&`, `;` or `&&` is unexamined;
+- package scripts that boot the API are not launches — and the repository's **own CI** boots it that way,
+  so an agent mirroring CI locally gets no pin and no port check;
+- the repository's own TTL wrapper, run through an interpreter, passes with no pin at all — which is the
+  shape of the 2026-08-05 incident;
+- **the literal command word is not necessarily the program that runs**: a function or alias named like
+  the launcher, a `PATH` shim, `NODE_OPTIONS=--require` and `BASH_ENV` all pass with a safe-looking pin;
+- an interpreter with an unlisted value-taking flag is not recognised.
+
+The fourth of those is the divergence the stopping rule was written for: **a hook can never be bash.** It
+reads text; bash resolves functions, aliases, `PATH`, and startup files. No amount of text analysis closes
+that, and five rounds of evidence is enough.
+
+**The decision.** The authoritative check moves to where the connection is actually made — the API's own
+boot, and the dev server's. At startup it reads the database it has genuinely connected to
+(`SELECT current_database()`), refuses to continue on the live name unless an explicit, inline escape
+hatch is present, and says so loudly. That check cannot be fooled by how the command was written, because
+it runs after every layer of shell, wrapper, script and flag has had its say. The hook stays as a fast,
+early, **advisory** refusal — valuable because it fails before anything starts, not because it is
+complete.
+
+**What this does not mean.** PR #1044 is still a strict improvement on what preceded it and should land:
+it closes six real routes. Holding it for a problem it cannot solve would leave the more permissive
+version in place. Its remaining HIGHs are recorded as superseded by this entry rather than fixed, and the
+two that **are** closable in its layer — judging every launch rather than the first, and the recognition
+list for package scripts and interpreted wrappers — belong to it.
+
+**Check on closing:** with the API started by any route — a package script, an interpreted wrapper, a
+shell function named like the launcher, a `PATH` shim — a connection to the live database refuses at boot
+with a message naming the database; and the hook's header says it is advisory.
