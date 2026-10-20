@@ -184,4 +184,32 @@ assert_green "ТТЛ-гейт: настоящий комментарий по-п
 assert_green "ТТЛ-гейт: строка-комментарий целиком — не запуск" \
   -- h "# pnpm --filter @crm/api dev"
 
+# ── SR-M-22: the word-boundary rule must be observable HERE, not masked ─────────
+# The comment-free second reading finds a launch the stripper hid, so a regression in the
+# stripper's word-boundary rule left every case above green (measured: with the backslash
+# check disabled this file stayed 46/0). A launch found ONLY by the second reading carries
+# the label "[comment-free reading]"; for the escaped-space cases the stripper must find
+# the launch by itself, so the label must be ABSENT. That pins the rule, not its fallback.
+for esc in "echo a\\ # && pnpm --filter @crm/api dev" "echo a\\ # ; pnpm --filter @crm/api dev" \
+           "echo 'x'\\ # && pnpm --filter @crm/api dev"; do
+  assert_red "ТТЛ-гейт: правило границы слова само находит запуск (метки второго чтения нет): $esc" \
+    --contains '"decision": "block"' \
+    --not-contains "comment-free reading" \
+    -- h "$esc"
+done
+
+# ── SR-H-20: shapes the stripper cannot know about are caught by the second reading ──
+# A parameter expansion whose default value holds a space then #, and a process
+# substitution immediately followed by #, both run the next command in bash and zsh.
+# They are refused here, and they carry the label - the second reading did the work.
+assert_red "ТТЛ-гейт SR-H-20 форма 1: \${x:- #} затем запуск" \
+  --contains '"decision": "block"' \
+  --contains "comment-free reading" \
+  -- h "echo \${x:- #}; pnpm --filter @crm/api dev"
+
+assert_red "ТТЛ-гейт SR-H-20 форма 2: <(true)# затем запуск" \
+  --contains '"decision": "block"' \
+  --contains "comment-free reading" \
+  -- h "cat <(true)# ; pnpm --filter @crm/api dev"
+
 guard_test_summary "test-pre-bash-devserver-ttl-gate.sh"

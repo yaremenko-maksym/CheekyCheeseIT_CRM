@@ -72,19 +72,19 @@ echo "== test-pre-bash-live-db-guard.sh =="
 echo
 
 # ── green: naming a launcher is not launching it ──────────────────────────────
-assert_green "READ: git show | grep -n vite (сообщённое ложное срабатывание)" \
+assert_not_a_launch "READ: git show | grep -n vite (сообщённое ложное срабатывание)" \
   -- h "git show HEAD:pnpm-lock.yaml | grep -n vite"
 
-assert_green "READ: ls -la node_modules/.bin/vite" \
+assert_not_a_launch "READ: ls -la node_modules/.bin/vite" \
   -- h "ls -la node_modules/.bin/vite"
 
-assert_green "READ: grep -rn 'pnpm dev' по правилам" \
+assert_not_a_launch "READ: grep -rn 'pnpm dev' по правилам" \
   -- h "grep -rn 'pnpm dev' .claude/rules"
 
-assert_green "READ: node -e печатает строку, содержащую dist/main.js" \
+assert_not_a_launch "READ: node -e печатает строку, содержащую dist/main.js" \
   -- h "node -e \"console.log('apps/api/dist/main.js')\""
 
-assert_green "READ: echo цитирует команду запуска" \
+assert_not_a_launch "READ: echo цитирует команду запуска" \
   -- h "echo 'потом запусти: pnpm --filter @crm/api dev'"
 
 assert_green "НЕ dev-сервер: vitest run (самозавершается)" \
@@ -544,7 +544,7 @@ assert_red "live-db: экранированный перевод строки н
 assert_red "live-db: три обратных слеша — пробел остаётся экранированным" \
   --contains '"decision": "block"' \
   -- h "echo \\\\\\ # && $BARE_API"
-assert_green "live-db: два обратных слеша — слэш сам экранирован, пробел разделяет слова, это комментарий" \
+assert_not_a_launch "live-db: два обратных слеша — слэш сам экранирован, пробел разделяет слова, это комментарий" \
   -- h "echo a\\\\ # $BARE_API"
 
 # The fail-closed half: launches() also reads the command WITHOUT comment stripping, so a
@@ -614,7 +614,7 @@ assert_red "--env-file + пустой DATABASE_URL без PGDATABASE" \
 # PINNED GREENS: a guard that refuses legitimate scratch URLs gets switched off,
 # which is as bad as one that admits the live database.
 for ok in crm_qa crm_db_scratch crm_dbx xcrm_db CRM_DB Crm_Db crm_db1 crm qa1 'crm%5Fqa' '%63rm_qa'; do
-  assert_green "разрешённое имя: $ok" \
+  assert_launch_green "разрешённое имя: $ok" \
     -- h "DATABASE_URL='$LIVE_BASE/$ok' API_PORT=3011 pnpm --filter @crm/api dev"
 done
 assert_launch_green "scheme postgres:// (короткая форма)" \

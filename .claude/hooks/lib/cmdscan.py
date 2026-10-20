@@ -725,8 +725,26 @@ def _unwrap(tokens, assigns):
             # --rcfile F ...). A taxonomy of shell flags is the same re-implementation
             # trap that produced every hole in this area (SR-M-21), and a flag form this
             # list forgot was the PR #485 shape: the launch got no pin at all.
-            j = next((k for k in range(1, len(tokens))
-                      if os.path.basename(tokens[k]) == "dev-ttl.sh"), None)
+            #
+            # BUT never skip over a flag that carries CODE (SR-H-24): `bash -c '<payload>'
+            # dev-ttl.sh` has the payload as the command and dev-ttl.sh as $0, and the
+            # forward scan used to jump over -c AND its payload, so the string bash really
+            # executes was never scanned at all (a destructive command allowed, and
+            # a wrapped launch hidden). A code flag before the token cancels the unwrap; the
+            # segment then takes the normal path, which hands the payload to nested-code
+            # scanning. This is the ONE flag family the scan has to know about - it is where
+            # the command lives, not an option to step past - and the list is deliberately
+            # known-incomplete everywhere else: a short group containing c (-c, -ec, -xc),
+            # or --command. Other options and their operands (-o pipefail, -O extglob,
+            # --rcfile F) are still stepped over, which is what keeps the PR #485 shapes seen.
+            j = None
+            for k in range(1, len(tokens)):
+                t = tokens[k]
+                if os.path.basename(t) == "dev-ttl.sh":
+                    j = k
+                    break
+                if t == "--command" or (t.startswith("-") and not t.startswith("--") and "c" in t[1:]):
+                    break
             if j is not None:
                 wrappers.append(base)
                 tokens = tokens[j:]
