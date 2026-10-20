@@ -515,10 +515,22 @@ synchronous in the API process, so each hit stalls the event loop that also serv
 
 Required decisions in 2.4:
 
-- **Align with the existing `MAX_FEED_BYTES` (2 MiB) or justify departing from it.** The proposed
-  8 MiB was 4× it with no stated reason. My own growth measurement independently supports 2 MiB:
-  the worst shape grows with exponent ≈1.36, which extrapolates from 194 ms at 625 KB to roughly
-  **6 s at 8 MiB but ~1 s at 2 MiB**.
+- **The byte cap: aligned at 2 MiB. The earlier 8 MiB is withdrawn, not left open.** It was 4× the
+  existing `MAX_FEED_BYTES` with no stated reason, and three independent measurements now agree it
+  was wrong rather than merely unexplained:
+
+  | Evidence                                  | At 8 MiB                   | At 2 MiB       |
+  | ----------------------------------------- | -------------------------- | -------------- |
+  | element-dense `<i/>`, measured in review  | **3 199 ms, 1 221 MB RSS** | 669 ms, 429 MB |
+  | my growth probe, extrapolated (exp ≈1.36) | ~6 s                       | ~1 s           |
+  | existing `rss.ts` cap for the same job    | —                          | **2 MiB**      |
+
+  1 221 MB RSS in a synchronous parse inside the API process is an **OOM risk in a container**, not
+  a latency nit, and it stalls the event loop that also serves the CRM. Real feeds are ~200 KiB, so
+  2 MiB is already 10× headroom. **Recommendation: `2 MiB`, the same constant as `rss.ts`** — one
+  number for one job, so the two code paths cannot drift. Raising it later requires the
+  memory measurement above to be re-run, not an assertion.
+
 - **A real wall-clock bound, or an explicit decision not to have one.** "A deadline checked around
   the call" bounds nothing — it is evaluated after the parse has already returned. A genuine bound
   needs `worker_threads` with `terminate()` on a timer, or a byte cap small enough to make time
