@@ -245,4 +245,149 @@ for sh in bash sh dash zsh ksh; do
   done
 done
 
+# ══ 2026-10-21: the gate inspected text that is DATA, not launcher position ══
+# Four refusals in one day, none of them a launch. The hook's own header claimed
+# it "only looks at the command in launcher position"; that was false for a
+# heredoc body and for a package-runner subcommand, and the header is corrected
+# in the same change. Each repro is a GREEN case here, with its hit count in the
+# label — the counts are what made the diagnosis specific (one defect would not
+# produce three "launches" from one markdown note).
+#
+# The asymmetry is the whole point of this section: a false positive costs a
+# retry, a false negative cost two minutes of an API on :3000 against the live
+# database (PR #485, 2026-08-05). So every green below is paired with reds that
+# pin the launch shape it must not have relaxed.
+
+# ── repro 1: a read-only dependency query ─────────────────────────────────────
+# `pnpm` is deliberately NOT in UNDERSTOOD (membership there sets confident=True
+# and short-circuits readings(), which is how that list leaked in round 3). The
+# grant is per-subcommand: a vetted print-and-exit query behind a flag grammar
+# that is complete. Everything else about a runner stays uncertain.
+assert_green "РЕПРО-1: pnpm why vite — запрос к зависимостям, не запуск (1 ложное срабатывание)" \
+  -- h "pnpm why vite"
+
+for q in "ls vite" "list vite" "info vite" "view vite" "audit" "outdated" \
+         "licenses" "why --json vite" "ls --depth 2 vite" "--filter @crm/api why vite" \
+         "-r why vite" "--depth=2 ls vite"; do
+  assert_green "РЕПРО-1 (семейство read-only подкоманд): pnpm $q" \
+    -- h "pnpm $q"
+done
+
+# The grant must not widen to a subcommand that DOES launch, nor survive a flag
+# the grammar does not know. These are the reds that make the green honest.
+assert_red "РЕПРО-1 обратная сторона: pnpm exec vite — подкоманда, которая ЗАПУСКАЕТ (без inline DATABASE_URL)" \
+  --contains '"decision": "block"' \
+  -- h "pnpm exec vite --port 3010"
+
+assert_red "РЕПРО-1 обратная сторона: pnpm dlx vite (без inline порта)" \
+  --contains '"decision": "block"' \
+  -- h "pnpm dlx vite"
+
+assert_red "РЕПРО-1 обратная сторона: npm exec -- vite (\`--\` раньше съедал командное слово)" \
+  --contains '"decision": "block"' \
+  -- h "npm exec -- vite"
+
+for bad in "-c vite" "--call vite" "--unknown-flag why vite" "--filter dev"; do
+  assert_red "РЕПРО-1 обратная сторона: грамматика флагов неполна → сегмент остаётся недостоверным: pnpm $bad" \
+    --contains '"decision": "block"' \
+    -- h "pnpm $bad"
+done
+
+# ── repros 2-4: a heredoc body is DATA, and a QUOTED delimiter proves it ───────
+# Stage 2 of lib/cmdscan.py was always emphatic that a heredoc body is data,
+# never code — and stage 1 (substitution extraction) ran FIRST and had already
+# mined it. So a markdown bullet and a Python string literal were read as
+# command substitutions. All three reported shapes used a quoted delimiter, i.e.
+# exactly the case where bash itself guarantees the body is inert (verified by
+# execution, not by reading: `cat <<'EOF'` with `$(echo X)` in the body prints
+# the text, `cat <<EOF` prints X).
+MD_NOTE=$'cat > notes.md <<\'EOF\'\n- `pnpm dev` boots the web app\n- `vite` is the bundler\n- `node dist/main` boots the api\nEOF'
+assert_green "РЕПРО-2: markdown-заметка, три упоминания в обратных кавычках (3 ложных срабатывания)" \
+  -- h "$MD_NOTE"
+
+PR_BODY=$'gh pr create --title t --body "$(cat <<\'EOF\'\nBefore: the gate refused `pnpm why vite`.\nEOF\n)"'
+assert_green "РЕПРО-3: текст описания PR в heredoc (1 ложное срабатывание)" \
+  -- h "$PR_BODY"
+
+PY_HEREDOC=$'python3 - <<\'PYEOF\'\nprint("- `vite` is the bundler")\nprint("- `pnpm dev` boots the web app")\nPYEOF'
+assert_green "РЕПРО-4: строковые литералы python в heredoc (2 ложных срабатывания)" \
+  -- h "$PY_HEREDOC"
+
+# `<<\EOF` quotes the delimiter exactly as `<<'EOF'` does (checked by running
+# bash, which prints the text unexpanded). HEREDOC_RE never matched this form,
+# so such a body used to be read as ordinary code.
+ESC_DELIM=$'cat > notes.md <<\\EOF\n$(pnpm --filter @crm/api dev)\nEOF'
+assert_green "РЕПРО-2/4 родственная форма: <<\\\\EOF тоже экранирует разделитель — тело инертно" \
+  -- h "$ESC_DELIM"
+
+# ── the other direction: an UNQUOTED body really is expanded by the shell ─────
+UNQ_SUBST=$'cat > out.txt <<EOF\n$(pnpm --filter @crm/api dev)\nEOF'
+assert_red "НЕ ослаблено: <<EOF без кавычек — подстановка в теле реально исполняется" \
+  --contains '"decision": "block"' \
+  -- h "$UNQ_SUBST"
+
+UNQ_BACKTICK=$'cat > out.txt <<EOF\n`vite --port 3010`\nEOF'
+assert_red "НЕ ослаблено: <<EOF без кавычек, обратные кавычки в теле" \
+  --contains '"decision": "block"' \
+  -- h "$UNQ_BACKTICK"
+
+UNQ_DASH=$'cat > out.txt <<-EOF\n\t$(pnpm dev)\n\tEOF'
+assert_red "НЕ ослаблено: <<-EOF (срезание табов) без кавычек" \
+  --contains '"decision": "block"' \
+  -- h "$UNQ_DASH"
+
+AFTER_HEREDOC=$'cat > note.md <<\'EOF\'\nnothing here\nEOF\npnpm --filter @crm/api dev'
+assert_red "НЕ ослаблено: запуск ПОСЛЕ закрытого heredoc — защита тела не покрывает соседа" \
+  --contains '"decision": "block"' \
+  -- h "$AFTER_HEREDOC"
+
+BEFORE_HEREDOC=$'pnpm --filter @crm/api dev\ncat > note.md <<\'EOF\'\nnothing here\nEOF'
+assert_red "НЕ ослаблено: запуск ПЕРЕД heredoc" \
+  --contains '"decision": "block"' \
+  -- h "$BEFORE_HEREDOC"
+
+# ── the parser differential: two readings of one text, failing closed ─────────
+# _heredoc_literal_spans is a SECOND reading of the same line, and a span that
+# the segmenter does not also treat as a body would exempt live code. Both of
+# the following were reproduced as fail-OPEN leaks (a launch hidden from the
+# gate) during this change and are the reason the three devices exist: the
+# comment rule is shared, a span needs its terminator, and every span is
+# confirmed against the bodies the segmenter actually captured.
+CMT_SUBST=$'# cat > note.md <<\'EOF\'\n$(pnpm --filter @crm/api dev)\nEOF'
+assert_red "ДИФФЕРЕНЦИАЛ: открывашка heredoc спрятана в комментарии — \$() форма" \
+  --contains '"decision": "block"' \
+  -- h "$CMT_SUBST"
+
+CMT_BACKTICK=$'# cat > note.md <<\'EOF\'\n`vite --port 3010`\nEOF'
+assert_red "ДИФФЕРЕНЦИАЛ: открывашка heredoc спрятана в комментарии — обратные кавычки" \
+  --contains '"decision": "block"' \
+  -- h "$CMT_BACKTICK"
+
+UNTERMINATED=$'cat > note.md <<\'EOF\'\n$(pnpm --filter @crm/api dev)'
+assert_red "ДИФФЕРЕНЦИАЛ: heredoc без терминатора — неопределённость не даёт освобождения" \
+  --contains '"decision": "block"' \
+  -- h "$UNTERMINATED"
+
+DELIM_PAREN=$'echo "$(cat <<\'EOF\'\nnote\nEOF)" && $(pnpm --filter @crm/api dev)'
+assert_red "ДИФФЕРЕНЦИАЛ: терминатор в форме \`EOF)\`, затем запуск" \
+  --contains '"decision": "block"' \
+  -- h "$DELIM_PAREN"
+
+# ── PR #485: the shape the whole gate exists for ──────────────────────────────
+# An inherited DATABASE_URL and API_PORT overrode a worktree .env and an API
+# listened on :3000 against the owner's LIVE database for about two minutes. The
+# launcher carries no inline environment at all in that shape, which is exactly
+# why "it has no DATABASE_URL on the line" can never be a reason to allow.
+assert_red "PR #485: запуск без inline DATABASE_URL" \
+  --contains '"decision": "block"' \
+  -- h "pnpm --filter @crm/api dev"
+
+assert_red "PR #485: запуск без inline порта" \
+  --contains '"decision": "block"' \
+  -- h "DATABASE_URL=postgresql://h:5432/crm_qa pnpm --filter @crm/api dev"
+
+assert_red "PR #485: собранный API, окружение целиком унаследовано" \
+  --contains '"decision": "block"' \
+  -- h "node apps/api/dist/main.js"
+
 guard_test_summary "test-pre-bash-devserver-ttl-gate.sh"

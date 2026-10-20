@@ -1264,15 +1264,23 @@ def _pkg_readonly_query(name, argv):
     """True when a package runner is provably doing a read-only QUERY.
 
     The only grant of confidence to a package runner, and the whole reason the
-    runners can stay out of UNDERSTOOD — see PKG_READONLY_SUBCMDS for why that
-    matters. It fails closed in every direction: no subcommand, a subcommand
-    outside the vetted table, or a single flag this grammar does not recognise
-    all return False, which leaves the segment UNCERTAIN and therefore re-read
-    by readings() exactly as before the fix.
+    runners can stay out of UNDERSTOOD — see PKG_QUERY_SPEC for the criterion a
+    subcommand must meet and for the two findings that forced the decision onto
+    the WHOLE argument vector rather than the subcommand name.
+
+    It fails closed in every direction. No subcommand, a subcommand outside the
+    spec, an operand the spec does not admit, or a single flag outside the
+    grammar — any of them returns False, which leaves the segment UNCERTAIN and
+    therefore re-read by readings() exactly as before the fix. A grant that
+    stopped at the first positional would keep producing one finding per
+    subcommand (`audit fix`, `version patch`, and whatever the next release
+    adds); this one refuses the token it has never seen.
     """
     if name not in PKG_RUNNERS:
         return False
     value_flags = PKG_VALUE_FLAGS | PKG_QUERY_VALUE_FLAGS
+    subcmd = None
+    operands = []
     skip = False
     for tok in argv:
         if skip:
@@ -1289,9 +1297,28 @@ def _pkg_readonly_query(name, argv):
             head = tok.split("=", 1)[0]
             if "=" in tok and (head in value_flags or head in PKG_BOOL_FLAGS):
                 continue
-            return False
-        return tok in PKG_READONLY_SUBCMDS
-    return False
+            return False            # a flag this grammar does not know
+        if subcmd is None:
+            subcmd = tok
+            continue
+        operands.append(tok)
+
+    spec = PKG_QUERY_SPEC.get(subcmd)
+    if spec is None:
+        return False
+    if not operands:
+        return True
+    if spec == "none":
+        return False
+    if spec == "pkgs":
+        # Inert selectors only. A `/`-rooted path or a `..` would be a file the
+        # runner might read; neither is needed to query a dependency, and
+        # refusing them costs a retry.
+        return all(
+            tok and not tok.startswith(("-", "/", "."))
+            for tok in operands
+        )
+    return all(tok in spec for tok in operands)
 
 
 def _psql_exec_commands(payload):
@@ -1635,8 +1662,8 @@ PKG_NON_RUN = {
     "licenses", "outdated", "pack", "prune", "rebuild", "root", "setup", "test",
     "build", "lint", "typecheck", "format",
     # print-and-exit queries, added 2026-10-21 with the `pnpm why vite` repro.
+    # `version` is deliberately absent — see PKG_QUERY_SPEC.
     "info", "view", "search", "whoami", "ping", "doctor", "bin", "help",
-    "version",
 }
 
 # ── the ONE narrow grant of confidence to a package runner (2026-10-21) ───────
@@ -1659,18 +1686,54 @@ PKG_NON_RUN = {
 # a false negative, which costs the owner's database (PR #485, 2026-08-05: an
 # API on :3000 against the live DB for two minutes).
 #
-# So the grant is per-SUBCOMMAND and fails closed:
-#   * the first positional must be in THIS table — print-and-exit queries only,
-#     each one checked against its own `--help`; no `exec`, `dlx`, `x`, `run`,
-#     `create`, `dlx`-alike, and nothing that writes;
-#   * every flag before it must be in the grammar below. ONE unrecognised flag
-#     and the segment stays uncertain, so `pnpm -c 'vite'` or any future
-#     `--call`-shaped option goes through readings() exactly as today.
-# Everything else about a runner is unchanged: still uncertain, still re-read.
-PKG_READONLY_SUBCMDS = {
-    "why", "ls", "list", "info", "view", "search", "audit", "outdated",
-    "licenses", "whoami", "ping", "doctor", "root", "bin", "help", "version",
+# So the grant is decided from the COMPLETE argument vector and fails closed on
+# the first token it does not recognise. Not from the subcommand name: a name is
+# not a behaviour, and two findings proved it in one review round —
+#
+#   `npm version` / `pnpm version` sounds like a query and is not one. It
+#   rewrites package.json, commits, tags, and RUNS the project's `preversion`,
+#   `version` and `postversion` scripts — the exec surface this design exists to
+#   refuse, reached through a door marked "tell me the version".
+#
+#   `pnpm audit` IS a query; `npm audit fix` and `pnpm audit --fix` rewrite the
+#   lockfile and can trigger an install. Same subcommand name, both behaviours.
+#
+# THE CRITERION, so that adding a subcommand is a test rather than an intuition.
+# A subcommand earns a place here only if ALL FOUR hold, each checked against
+# that subcommand's own `--help`, not against what its name suggests:
+#   1. it cannot run project-defined code (no lifecycle script, no `exec`-alike);
+#   2. it does not write package.json, the lockfile, or node_modules;
+#   3. it cannot trigger an install or a fetch of anything that then runs;
+#   4. its operands are inert selectors (package names / search terms), not
+#      verbs that change what it does.
+# `version` fails 1 and 2. `audit` passes all four only with an empty operand
+# list, which is why its entry below admits no operands and no extra flags.
+#
+# The grant also requires the whole option region, before AND after the
+# subcommand, to be inside the grammar below. ONE unrecognised token — a flag
+# like `--fix` or `-c`, a verb like `fix`, anything a future release adds — and
+# the segment stays UNCERTAIN and goes through readings() exactly as before.
+#
+# Operand policy per subcommand: "pkgs" = inert selectors are allowed;
+# "none" = the bare form only; a frozenset = exactly those literal words.
+PKG_QUERY_SPEC = {
+    "why": "pkgs",
+    "ls": "pkgs",
+    "list": "pkgs",
+    "info": "pkgs",
+    "view": "pkgs",
+    "search": "pkgs",
+    "outdated": "pkgs",
+    "help": "pkgs",
+    "licenses": frozenset({"list"}),   # `pnpm licenses list`
+    "audit": "none",                   # bare only: `fix` / `--fix` write
+    "whoami": "none",
+    "ping": "none",
+    "doctor": "none",
+    "root": "none",
+    "bin": "none",
 }
+PKG_READONLY_SUBCMDS = frozenset(PKG_QUERY_SPEC)
 # The launcher predicate must agree with the confidence grant, or a segment
 # could be trusted and then judged by a table that does not know the subcommand.
 assert PKG_READONLY_SUBCMDS <= PKG_NON_RUN, (
