@@ -433,9 +433,14 @@ class Segment:
 
 
 class Scan:
-    __slots__ = ("segments", "assigns", "code_view", "degraded", "truncated")
+    __slots__ = ("segments", "assigns", "code_view", "degraded", "truncated", "alt")
 
     def __init__(self, segments, assigns, code_view, degraded, truncated=False):
+        # The same command read WITHOUT comment stripping (top-level scan only). The
+        # comment stripper is a parser of its own, and a slip in it must not be able
+        # to hide a launch: launches() unions this reading in, so a mistake there can
+        # only produce a refusal, never silence.
+        self.alt = None
         self.segments = segments
         self.assigns = assigns
         self.code_view = code_view
@@ -514,6 +519,31 @@ def _brace_stands_alone(text, i):
     left = i == 0 or before.isspace() or before in ";&|"
     right = i + 1 == len(text) or after.isspace() or after in ";&|)"
     return left and right
+
+
+# Whether a "#" begins a comment is a question about WORD BOUNDARIES, and bash answers it
+# precisely: "#" starts a comment only at the start of a word, and an ESCAPED space or
+# newline does not end a word. `echo a\ # && pnpm dev` is the single word `a #` followed by
+# a launch, not a comment. Reading `cur[-1]` could not tell the two apart (an escaped
+# space leaves a space there), so a launch hidden after one was dropped as a comment - for
+# every hook that consumes this library (live-db-guard, devserver-ttl-gate, safety).
+# The decision is made from the text itself: count the run of backslashes before the
+# previous character; an odd run means that character is escaped.
+_STRIP_COMMENTS = True
+
+
+def _starts_word(text, i):
+    if i == 0:
+        return True
+    prev = text[i - 1]
+    k = i - 2
+    backslashes = 0
+    while k >= 0 and text[k] == "\\":
+        backslashes += 1
+        k -= 1
+    if backslashes % 2 == 1:
+        return False  # prev is escaped: an escaped space / newline / operator is not a boundary
+    return prev in " \t\n;&|()"
 
 
 def _split_segments(text):
@@ -618,7 +648,7 @@ def _split_segments(text):
         # as a launch - a full refusal for a comment (SR-M-18). The newline itself is
         # kept, so the next line is still a separate statement. `a#b`, `$#` and
         # `${#x}` do not start a word with "#" and are untouched.
-        if ch == "#" and (not cur or cur[-1] in " \t"):
+        if ch == "#" and _STRIP_COMMENTS and _starts_word(text, i):
             j = text.find("\n", i)
             i = n if j < 0 else j
             continue
@@ -1256,6 +1286,7 @@ def candidates(seg, code=False):
 
 
 def scan(command_line, depth=0, env=None):
+    global _STRIP_COMMENTS
     text, inners = _extract_substitutions(command_line or "")
     raw_segments, code_view = _split_segments(text)
 
@@ -1301,7 +1332,14 @@ def scan(command_line, depth=0, env=None):
     elif inners:
         truncated = True
 
-    return Scan(segments, assigns, code_view, degraded, truncated)
+    result = Scan(segments, assigns, code_view, degraded, truncated)
+    if depth == 0 and _STRIP_COMMENTS and "#" in command_line:
+        _STRIP_COMMENTS = False
+        try:
+            result.alt = scan(command_line, 0, env)
+        finally:
+            _STRIP_COMMENTS = True
+    return result
 
 
 # ── the shared "is this a dev-server launch" predicate ────────────────────────
@@ -1413,4 +1451,19 @@ def launches(scan_result):
                     label = "%s — %s" % (label, seg.why)
                 out.append((cand, label))
                 break
+    # Fail closed on the comment stripper: a launch that only the comment-FREE reading
+    # sees is refused too. A segment that merely begins with "#" is the comment itself
+    # (`# pnpm dev`), not a launch hidden after one, and is skipped.
+    alt = getattr(scan_result, "alt", None)
+    if alt is not None:
+        seen = set(c.raw for c, _ in out)
+        for seg in alt.segments:
+            if seg.raw.lstrip().startswith("#"):
+                continue
+            for cand in candidates(seg):
+                label = is_dev_server_launch(cand)
+                if label and cand.raw not in seen:
+                    out.append((cand, "%s [comment-free reading]" % label))
+                    seen.add(cand.raw)
+                    break
     return out

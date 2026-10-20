@@ -271,4 +271,31 @@ assert_red "ЛОВУШКА: хук со сломанным bash тоже даё�
   --not-contains "decision" \
   -- hook_at "$(hook_with_broken_bash "$WS")" "rm -rf /etc" "$WS"
 
+# ── SHARED LIBRARY: the comment stripper in lib/cmdscan.py ────────────────────
+# Three hooks consume that library (devserver-ttl-gate, live-db-guard and THIS one, the
+# broadest). The stripper decided a "#" starts a comment by reading the previous character;
+# an ESCAPED space leaves a space there without ending the word, so `echo a\ # && <cmd>` had
+# everything after the # dropped as a comment - a destructive command included. bash: "#"
+# begins a comment only at a word start, and an escaped space does not end a word. Each
+# consumer carries its own case. (This file exercises pre:bash:safety.)
+assert_red "safety: команда спрятана после экранированного пробела и #: echo a\\ # && psql ..." \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "echo a\\ # && psql -c '$DROP'"
+
+assert_red "safety: то же с ;" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "echo a\\ # ; psql -c '$DROP'"
+
+assert_red "safety: кавычка, затем экранированный пробел" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "echo 'x'\\ # && psql -c '$DROP'"
+
+assert_red "safety: экранированный перевод строки не заканчивает слово" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "echo a\\
+# && psql -c '$DROP'"
+
+assert_green "safety: настоящий комментарий с DROP внутри по-прежнему ничего не запускает" \
+  -- h "echo hi # psql -c '$DROP'"
+
 guard_test_summary "test-pre-bash-safety.sh"

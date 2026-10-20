@@ -29,6 +29,45 @@ trap 'rm -rf "$WS"' EXIT
 
 h() { hook_at "$HOOK" "$@"; }
 
+# SR-M-19 - a check whose pass does not mean what the reader assumes. "The hook allowed
+# it" cannot tell a launch that was PINNED from a command the hook never RECOGNISED as a
+# launch: both exit 0. Every green case that is launch-shaped therefore also asserts that
+# cmdscan recognises it as a launch (assert_launch_green), and the non-launches that must
+# stay quiet assert the opposite (assert_not_a_launch). Without this, deleting a launcher
+# from the recognition list turns the whole suite green for the wrong reason.
+RECOGNISE_PY='
+import importlib.util, os, sys
+spec = importlib.util.spec_from_file_location("cmdscan", os.environ["CMDSCAN"])
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+hits = m.launches(m.scan(os.environ["CMD"]))
+sys.exit(0 if hits else 1)
+'
+recognised() { CMDSCAN="$REPO_ROOT/.claude/hooks/lib/cmdscan.py" CMD="$1" python3 -I -c "$RECOGNISE_PY"; }
+not_recognised() { ! recognised "$1"; }
+
+# the command string is the argument after `-- h` in an assert_* call
+_cmd_of() {
+  local seen=0 a
+  for a in "$@"; do
+    if [ "$seen" = 2 ]; then printf '%s' "$a"; return; fi
+    if [ "$seen" = 1 ] && [ "$a" = "h" ]; then seen=2; continue; fi
+    [ "$a" = "--" ] && seen=1
+  done
+}
+
+assert_launch_green() {
+  assert_green "$@"
+  local c; c="$(_cmd_of "$@")"
+  assert_green "  ...и распознан как запуск (не просто «разрешён»): ${c:0:80}" -- recognised "$c"
+}
+assert_not_a_launch() {
+  local desc="$1"; shift
+  assert_green "$desc" "$@"
+  local c; c="$(_cmd_of "$@")"
+  assert_green "  ...и НЕ распознан как запуск: ${c:0:80}" -- not_recognised "$c"
+}
+
 echo "== test-pre-bash-live-db-guard.sh =="
 echo
 
@@ -60,13 +99,13 @@ assert_green "НЕ dev-сервер: pnpm --filter @crm/web build" \
 assert_green "вне worktree/scratchpad — сессия владельца не гейтится" \
   -- h "pnpm --filter @crm/api dev" "$WS"
 
-assert_green "явно безопасные значения: crm_qa + свободный порт" \
+assert_launch_green "явно безопасные значения: crm_qa + свободный порт" \
   -- h "DATABASE_URL=$SAFE_DB API_PORT=3011 pnpm --filter @crm/api dev"
 
 # An empty DATABASE_URL is only safe with PGDATABASE pinned on the same launch:
 # otherwise libpq takes the database from a service file or the USER NAME, and
 # PGUSER=crm_db is the live database (measured). See the red half below.
-assert_green "явно пустая DATABASE_URL + PGDATABASE=crm_qa + --port 3010" \
+assert_launch_green "явно пустая DATABASE_URL + PGDATABASE=crm_qa + --port 3010" \
   -- h "DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
 
 # ── red: every shape the #485 boot could have arrived in ──────────────────────
@@ -400,6 +439,151 @@ assert_red "s''ource .env скрывает загрузку env-файла от 
   --contains "DATABASE_URL is not set inline on the launch itself" \
   -- h "export DATABASE_URL=postgresql://u@h/crm_qa; s''ource .env; API_PORT=3011 pnpm --filter @crm/api dev"
 
+NL=$'\n'
+P_API="DATABASE_URL=$SAFE_DB PGDATABASE=crm_qa API_PORT=3011 pnpm --filter @crm/api dev"
+P_WEB="DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
+LIVE_API="DATABASE_URL=$LIVE_DB API_PORT=3012 pnpm --filter @crm/api dev"
+BARE_API="pnpm --filter @crm/api dev"
+
+# ═══ SR-H-13 - EVERY launch in the command is judged, not only the first ═══════
+# `... crm_qa ... pnpm dev & ... crm_db ... pnpm dev` was allowed because only hits[0]
+# was looked at; the same with ;  &&  ||  | and a newline, and with a safe vite first.
+for sep in ' & ' '; ' ' && ' ' || ' ' | ' "$NL"; do
+  assert_red "второй запуск живой (crm_db) после безопасного, разделитель [${sep//$NL/NL}]" \
+    --contains "launch 2" --contains "crm_db" \
+    -- h "$P_API$sep$LIVE_API"
+  assert_red "первый живой, второй безопасный [${sep//$NL/NL}]" \
+    --contains "launch 1" --contains "crm_db" \
+    -- h "$LIVE_API$sep$P_API"
+  assert_red "безопасный web, затем голый api [${sep//$NL/NL}]" \
+    --contains "launch 2" \
+    -- h "$P_WEB$sep$BARE_API"
+done
+assert_red "три запуска, средний живой" \
+  --contains "launch 2" \
+  -- h "$P_API & $LIVE_API & $P_WEB"
+assert_red "три запуска, последний без закрепления" \
+  --contains "launch 3" \
+  -- h "$P_API & $P_WEB & $BARE_API"
+assert_launch_green "два полностью закреплённых запуска (api + web) — обоих судят и оба проходят" \
+  -- h "$P_API & $P_WEB"
+
+# ═══ SR-H-14 - package scripts that boot a server ARE launches ═════════════════
+# `start` is `node dist/main` for the api and `vite preview` for the web app, and ci.yml,
+# e2e.yml and sw-smoke.spec.ts all boot the api that way, so an agent mirroring CI used to
+# get no pin at all. `-r` was wrongly a value flag (it swallowed `dev`), and run-script was
+# treated as exec. Each form: recognised, refused unpinned, accepted pinned.
+for form in 'pnpm --filter @crm/api start' 'pnpm -C apps/api start' 'pnpm --dir apps/api start' \
+            'npm start' 'npm run start' 'yarn start' 'turbo start' 'turbo run start' \
+            'pnpm -r dev' 'pnpm -r start' 'pnpm run-script dev' 'pnpm run-script start' \
+            'pnpm run start' 'pnpm --filter @crm/web preview' 'bun run dev'; do
+  assert_green "распознан как запуск: $form" -- recognised "$form"
+  assert_red "без закрепления — отказ: $form" \
+    --contains '"decision": "block"' \
+    -- h "$form"
+  assert_launch_green "с закреплением и портом — разрешён и распознан: $form" \
+    -- h "DATABASE_URL=$SAFE_DB PGDATABASE=crm_qa API_PORT=3011 $form"
+done
+for nl in 'pnpm test' 'pnpm install' 'pnpm add start-foo' 'pnpm --filter @crm/api test' \
+          'pnpm build' 'pnpm typecheck' 'npm run build' 'pnpm --filter @crm/e2e test'; do
+  assert_not_a_launch "не запуск (и не должен им стать): $nl" -- h "$nl"
+done
+
+# ═══ SR-H-15 - our own wrapper run THROUGH an interpreter ═════════════════════
+# `bash scripts/devops/dev-ttl.sh -- <launch>` was allowed with NO pin while the same
+# command without `bash` was refused: the 2026-08-05 shape through a side door.
+for w in 'bash scripts/devops/dev-ttl.sh -- pnpm --filter @crm/api dev' \
+         'sh scripts/devops/dev-ttl.sh --ttl 60 -- vite --port 3010' \
+         'bash -x scripts/devops/dev-ttl.sh -- pnpm --filter @crm/api dev' \
+         'zsh scripts/devops/dev-ttl.sh -- pnpm -r dev' \
+         'dash scripts/devops/dev-ttl.sh -- pnpm --filter @crm/api start'; do
+  assert_green "распознан как запуск: $w" -- recognised "$w"
+  assert_red "интерпретатор + dev-ttl.sh без закрепления — отказ: $w" \
+    --contains '"decision": "block"' \
+    -- h "$w"
+  assert_red "...и с закреплением: интерпретатор — обёртка, которую хук не моделирует: $w" \
+    --contains "wrapper the hook does not model" \
+    -- h "DATABASE_URL=$SAFE_DB PGDATABASE=crm_qa API_PORT=3011 $w"
+done
+
+# ═══ SR-M-18 - a comment is not a command ═════════════════════════════════════
+# A line that begins with # was a segment whose command word was `#`, and the words after
+# it were judged as a launch: a full refusal for a comment.
+assert_not_a_launch "строка-комментарий с запуском внутри" -- h '# pnpm --filter @crm/api dev'
+assert_not_a_launch "комментарий после команды" -- h 'ls -la # then run vite --port 3000'
+assert_not_a_launch "комментарий на второй строке" -- h "ls${NL}# pnpm --filter @crm/api dev"
+assert_launch_green "комментарий после ЗАКРЕПЛЁННОГО запуска упоминает crm_db и 3001" \
+  -- h "$P_API # not crm_db, not :3001"
+assert_launch_green "# внутри слова — не комментарий" \
+  -- h "$P_API --note a#b"
+assert_red "комментарий не прячет следующую строку" \
+  --contains '"decision": "block"' \
+  -- h "# harmless${NL}$BARE_API"
+assert_red "комментарий после ; не прячет следующий запуск" \
+  --contains '"decision": "block"' \
+  -- h "ls; # note${NL}$BARE_API"
+
+# ═══ SHARED LIBRARY: the comment stripper in lib/cmdscan.py ════════════════════
+# Three hooks consume it (devserver-ttl-gate, safety and THIS one; each has its own case in
+# its own suite). The stripper read the previous character to decide a "#" starts a comment,
+# and an ESCAPED space leaves a space there without ending the word: `echo a\ # && <launch>`
+# had the launch dropped as a comment. bash: "#" begins a comment only at a word start; an
+# escaped space does not end a word. (This file exercises pre:bash:live-db-guard.)
+assert_red "live-db: запуск спрятан после экранированного пробела и #: echo a\\ # && ..." \
+  --contains '"decision": "block"' \
+  -- h "echo a\\ # && $BARE_API"
+assert_red "live-db: то же с ;" \
+  --contains '"decision": "block"' \
+  -- h "echo a\\ # ; $BARE_API"
+assert_red "live-db: кавычка, затем экранированный пробел" \
+  --contains '"decision": "block"' \
+  -- h "echo 'x'\\ # && $BARE_API"
+assert_red "live-db: экранированный перевод строки не заканчивает слово" \
+  --contains '"decision": "block"' \
+  -- h "echo a\\${NL}# && $BARE_API"
+assert_red "live-db: три обратных слеша — пробел остаётся экранированным" \
+  --contains '"decision": "block"' \
+  -- h "echo \\\\\\ # && $BARE_API"
+assert_green "live-db: два обратных слеша — слэш сам экранирован, пробел разделяет слова, это комментарий" \
+  -- h "echo a\\\\ # $BARE_API"
+
+# The fail-closed half: launches() also reads the command WITHOUT comment stripping, so a
+# future slip in the stripper can only produce a refusal, never silence. Proven on its own
+# by breaking the stripper on purpose (every # becomes a comment, the old bug) and checking
+# the launch is still found; genuine comments still must not become launches.
+BROKEN_STRIPPER_PY='
+import importlib.util, os, sys
+spec = importlib.util.spec_from_file_location("cmdscan", os.environ["CMDSCAN"])
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+m._starts_word = lambda text, i: True
+sys.exit(0 if m.launches(m.scan(os.environ["CMD"])) else 1)
+'
+with_broken_stripper() { CMDSCAN="$REPO_ROOT/.claude/hooks/lib/cmdscan.py" CMD="$1" python3 -I -c "$BROKEN_STRIPPER_PY"; }
+without_broken_stripper() { ! with_broken_stripper "$1"; }
+assert_green "union: при СЛОМАННОМ стриппере запуск после экранированного пробела всё равно найден" \
+  -- with_broken_stripper "echo a\\ # && pnpm --filter @crm/api dev"
+assert_green "union: при сломанном стриппере — то же с ;" \
+  -- with_broken_stripper "echo a\\ # ; vite --port 3010"
+assert_green "union: при сломанном стриппере настоящий комментарий всё ещё не запуск" \
+  -- without_broken_stripper "echo hi # pnpm --filter @crm/api dev"
+assert_green "union: при сломанном стриппере строка-комментарий не запуск" \
+  -- without_broken_stripper "# pnpm --filter @crm/api dev"
+
+# ═══ the two LOW message defects: advice that names the forms ═════════════════
+# `pnpm exec nest start --debug` and `pnpm ... exec node --inspect dist/main` were refused
+# with "write the launcher directly", which does not say what to write.
+for form in 'pnpm exec nest start --debug' 'pnpm --filter @crm/api exec node --inspect dist/main'; do
+  assert_red "отказ называет рабочие формы: $form" \
+    --contains 'node --inspect apps/api/dist/main' \
+    --contains 'NODE_OPTIONS=--inspect pnpm' \
+    -- h "DATABASE_URL=$SAFE_DB PGDATABASE=crm_qa API_PORT=3011 $form"
+done
+assert_launch_green "названная форма 1 действительно принимается: node --inspect" \
+  -- h "DATABASE_URL=$SAFE_DB PGDATABASE=crm_qa API_PORT=3011 node --inspect apps/api/dist/main"
+assert_launch_green "названная форма 2 действительно принимается: NODE_OPTIONS=--inspect" \
+  -- h "NODE_OPTIONS=--inspect DATABASE_URL=$SAFE_DB PGDATABASE=crm_qa API_PORT=3011 pnpm --filter @crm/api dev"
+
 # TWO VIEWS, REFUSE IF EITHER MATCHES. Normalizing through shlex resolves spliced quotes
 # but flattens the command: newlines vanish, so a pattern anchored on the start of a
 # statement no longer matches `source .env` on its own line. The raw-text pass catches
@@ -433,55 +617,55 @@ for ok in crm_qa crm_db_scratch crm_dbx xcrm_db CRM_DB Crm_Db crm_db1 crm qa1 'c
   assert_green "разрешённое имя: $ok" \
     -- h "DATABASE_URL='$LIVE_BASE/$ok' API_PORT=3011 pnpm --filter @crm/api dev"
 done
-assert_green "scheme postgres:// (короткая форма)" \
+assert_launch_green "scheme postgres:// (короткая форма)" \
   -- h "DATABASE_URL='postgres://crm_user:password@localhost:5432/crm_qa' API_PORT=3011 pnpm --filter @crm/api dev"
-assert_green "uppercase scheme: urlsplit lowercases it, the name checks still run" \
+assert_launch_green "uppercase scheme: urlsplit lowercases it, the name checks still run" \
   -- h "DATABASE_URL='POSTGRESQL://crm_user@localhost:5432/crm_qa' API_PORT=3011 pnpm --filter @crm/api dev"
-assert_green "URL без порта и без пароля" \
+assert_launch_green "URL без порта и без пароля" \
   -- h "DATABASE_URL='postgresql://crm_user@localhost/crm_qa' API_PORT=3011 pnpm --filter @crm/api dev"
-assert_green "посторонние query-параметры" \
+assert_launch_green "посторонние query-параметры" \
   -- h "DATABASE_URL='$LIVE_BASE/crm_qa?sslmode=require&application_name=x&connect_timeout=5' API_PORT=3011 pnpm --filter @crm/api dev"
-assert_green "query dbname = безопасное имя" \
+assert_launch_green "query dbname = безопасное имя" \
   -- h "DATABASE_URL='$LIVE_BASE/crm_qa?dbname=crm_qa' API_PORT=3011 pnpm --filter @crm/api dev"
-assert_green "options без crm_db" \
+assert_launch_green "options без crm_db" \
   -- h "DATABASE_URL='$LIVE_BASE/crm_qa?options=-c%20statement_timeout%3D5000' API_PORT=3011 pnpm --filter @crm/api dev"
 # The wrapper itself is fine; only the forms that CLEAR or SPLIT the environment are not.
-assert_green "обычный env-враппер с закреплёнными значениями" \
+assert_launch_green "обычный env-враппер с закреплёнными значениями" \
   -- h "env DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
 assert_red "ЛЮБАЯ опция после env — отказ, даже безобидная -v: операнды опций хук не моделирует" \
   --contains "is followed by the option" \
   -- h "env -v DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
-assert_green "env -- ограничивает опции, дальше только присваивания" \
+assert_launch_green "env -- ограничивает опции, дальше только присваивания" \
   -- h "env -- DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
 assert_red "env --null — тоже отказ: закрытое определение «простого» запуска, а не список опасных опций" \
   --contains "is followed by the option" \
   -- h "env --null DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
-assert_green "env с присваиванием, значение которого похоже на флаг: FOO=-i" \
+assert_launch_green "env с присваиванием, значение которого похоже на флаг: FOO=-i" \
   -- h "env FOO=-i DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
-assert_green "dev-ttl.sh-обёртка: закрепление остаётся в ведущих словах" \
+assert_launch_green "dev-ttl.sh-обёртка: закрепление остаётся в ведущих словах" \
   -- h "scripts/devops/dev-ttl.sh --ttl 7200 -- DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
-assert_green "PGDATABASE безопасный + пустой DATABASE_URL" \
+assert_launch_green "PGDATABASE безопасный + пустой DATABASE_URL" \
   -- h "DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
-assert_green "inline DATABASE_URL побеждает ранний export + загрузку env-файла" \
+assert_launch_green "inline DATABASE_URL побеждает ранний export + загрузку env-файла" \
   -- h "export DATABASE_URL=postgresql://u@h/crm_live; set -a; source .env; DATABASE_URL=$SAFE_DB API_PORT=3011 pnpm --filter @crm/api dev"
-assert_green "PGUSER=crm_db, но PGDATABASE закреплён — закреплённое имя главнее пользователя" \
+assert_launch_green "PGUSER=crm_db, но PGDATABASE закреплён — закреплённое имя главнее пользователя" \
   -- h "DATABASE_URL= PGUSER=crm_db PGDATABASE=crm_qa vite --port 3010"
-assert_green "env-файл, но PGDATABASE закреплён инлайн" \
+assert_launch_green "env-файл, но PGDATABASE закреплён инлайн" \
   -- h "set -a; source .env.local; DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
-assert_green "env-файл, но DATABASE_URL непустой и безопасный (URL с путём главнее PGDATABASE)" \
+assert_launch_green "env-файл, но DATABASE_URL непустой и безопасный (URL с путём главнее PGDATABASE)" \
   -- h "set -a; source .env.local; DATABASE_URL=$SAFE_DB API_PORT=3011 pnpm --filter @crm/api dev"
-assert_green "export безопасного DATABASE_URL БЕЗ повторного присвоения" \
+assert_launch_green "export безопасного DATABASE_URL БЕЗ повторного присвоения" \
   -- h "export DATABASE_URL=$SAFE_DB; export API_PORT=3011; pnpm --filter @crm/api dev"
-assert_green "точка как аргумент (cd .) — не source" \
+assert_launch_green "точка как аргумент (cd .) — не source" \
   -- h "cd . && DATABASE_URL= PGDATABASE=crm_qa vite --port 3010"
-assert_green "имя с crm_db внутри чужого слова в options: crm_db_x" \
+assert_launch_green "имя с crm_db внутри чужого слова в options: crm_db_x" \
   -- h "DATABASE_URL='$LIVE_BASE/crm_qa?options=-c%20app.crm_db_x%3D1' API_PORT=3011 pnpm --filter @crm/api dev"
 
 # The decoding must not turn into a blanket refusal of other databases.
-assert_green "закодированное, но НЕ живое имя: crm%5Fqa" \
+assert_launch_green "закодированное, но НЕ живое имя: crm%5Fqa" \
   -- h "DATABASE_URL=$LIVE_BASE/crm%5Fqa API_PORT=3011 pnpm --filter @crm/api dev"
 
-assert_green "безопасное имя с query: crm_qa?sslmode=disable" \
+assert_launch_green "безопасное имя с query: crm_qa?sslmode=disable" \
   -- h "DATABASE_URL=$LIVE_BASE/crm_qa?sslmode=disable API_PORT=3011 pnpm --filter @crm/api dev"
 
 assert_red "safe DB, но живой порт владельца 3001" \

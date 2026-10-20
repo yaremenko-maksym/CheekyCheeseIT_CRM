@@ -138,4 +138,50 @@ assert_red "ЛОВУШКА: хук со сломанным bash тоже даё�
   --not-contains "decision" \
   -- hook_at "$(hook_with_broken_bash "$WS")" "pnpm --filter @crm/api dev"
 
+# ── package scripts that boot a server: start / preview (SR-H-14) ──────────────
+# The hot-path prefilter used to look only for vite|nest|dev|dist/main, so a command with
+# none of those words never reached the analyzer. These pass the prefilter now.
+for form in 'pnpm --filter @crm/api start' 'pnpm -C apps/api start' 'npm start' 'turbo start' \
+            'pnpm -r dev' 'pnpm run-script dev' 'pnpm --filter @crm/web preview'; do
+  assert_red "ТТЛ-гейт: без обёртки — отказ: $form" \
+    --contains '"decision": "block"' \
+    -- h "$form"
+  assert_green "ТТЛ-гейт: с обёрткой проходит: $form" \
+    -- h "$TTL -- $form"
+done
+assert_red "ТТЛ-гейт: интерпретатор + dev-ttl.sh не отменяет проверку обёртки у соседнего запуска" \
+  --contains '"decision": "block"' \
+  -- h "bash $TTL -- pnpm --filter @crm/api dev & pnpm --filter @crm/api start"
+
+# ── SHARED LIBRARY: the comment stripper in lib/cmdscan.py ────────────────────
+# Three hooks consume that library (this one, live-db-guard, safety), and the stripper
+# decided a "#" starts a comment by reading the previous character. An ESCAPED space
+# leaves a space there without ending the word, so `echo a\ # && <launch>` had everything
+# after the # dropped as a comment - the launch included - for every one of them. bash's
+# rule is stated plainly: "#" begins a comment only at a word start, and an escaped space
+# does not end a word. Each hook carries its OWN case, because a test that only covered one
+# consumer would leave the other two to chance. (This file exercises pre:bash:devserver-ttl-gate.)
+assert_red "ТТЛ-гейт: запуск спрятан после экранированного пробела и #: echo a\\ # && ..." \
+  --contains '"decision": "block"' \
+  -- h "echo a\\ # && pnpm --filter @crm/api dev"
+
+assert_red "ТТЛ-гейт: то же с ;" \
+  --contains '"decision": "block"' \
+  -- h "echo a\\ # ; pnpm --filter @crm/api dev"
+
+assert_red "ТТЛ-гейт: кавычка, затем экранированный пробел" \
+  --contains '"decision": "block"' \
+  -- h "echo 'x'\\ # && pnpm --filter @crm/api dev"
+
+assert_red "ТТЛ-гейт: экранированный перевод строки не заканчивает слово" \
+  --contains '"decision": "block"' \
+  -- h "echo a\\
+# && pnpm --filter @crm/api dev"
+
+assert_green "ТТЛ-гейт: настоящий комментарий по-прежнему не запуск" \
+  -- h "echo hi # pnpm --filter @crm/api dev"
+
+assert_green "ТТЛ-гейт: строка-комментарий целиком — не запуск" \
+  -- h "# pnpm --filter @crm/api dev"
+
 guard_test_summary "test-pre-bash-devserver-ttl-gate.sh"

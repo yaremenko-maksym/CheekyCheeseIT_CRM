@@ -132,7 +132,7 @@ INPUT=$(cat)
 # Hot path: if no launcher word occurs anywhere in the payload, nothing below
 # can fire — leave before paying for a python start. Deliberately a SUPERSET of
 # what the analyzer can block (never a second, divergent policy).
-echo "$INPUT" | grep -qE 'vite|nest|dev|dist/main' || exit 0
+echo "$INPUT" | grep -qE 'vite|nest|dev|dist/main|start|preview' || exit 0
 
 printf '%s' "$INPUT" | PYTHONDONTWRITEBYTECODE=1 CMDSCAN_LIB="$SELF_DIR/lib" python3 -c '
 import importlib.util, json, os, re, shlex, sys, urllib.parse
@@ -410,6 +410,13 @@ def judge(seg):
     # plain by construction.
     ASSIGN_WORD = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\+?=")
     PLAIN_WORD = re.compile(r"^[A-Za-z0-9_./@+-]+$")
+    # "write the launcher directly" is advice nobody can act on unless it names the forms.
+    # These run the same thing without a runner or wrapper in between (node flags for the
+    # api: `node --inspect apps/api/dist/main`, or the flag through NODE_OPTIONS in front
+    # of the pnpm launch).
+    LAUNCHER_FORMS = ("`node --inspect apps/api/dist/main` (api, built), "
+                      "`NODE_OPTIONS=--inspect pnpm --filter @crm/api dev` (api, dev), "
+                      "`vite --port 3010` (web) - each with the DATABASE_URL / PGDATABASE / port prefix")
     DEVTTL_TTL = re.compile(r"^--ttl=[0-9]+$")
 
     def launch_shape(seg):
@@ -454,9 +461,9 @@ def judge(seg):
         if not PLAIN_WORD.match(word):
             return names, ["the command word %r is not a plain literal (a variable, a substitution, a brace or glob) - the shell computes it, the hook cannot" % word]
         if seg.wrappers and any(w not in ("env", "dev-ttl.sh") for w in seg.wrappers):
-            return names, ["the launch goes through a wrapper the hook does not model (%s) - write the launcher directly" % ", ".join(seg.wrappers)]
+            return names, ["the launch goes through a wrapper the hook does not model (%s) - write the launcher directly: %s" % (", ".join(seg.wrappers), LAUNCHER_FORMS)]
         if word.rsplit("/", 1)[-1] != seg.name:
-            return names, ["the written command word %r is not the launcher the analyzer resolved (%r) - write the launcher directly" % (word, seg.name)]
+            return names, ["the written command word %r is not the launcher the analyzer resolved (%r) - write the launcher directly: %s" % (word, seg.name, LAUNCHER_FORMS)]
         return names, []
 
     shapes = [launch_shape(s) for s in segs]
@@ -625,7 +632,7 @@ esac
 # silently disappear — but it never impersonates a decision on the merits.
 echo "[pre:bash:live-db-guard] INTERNAL ERROR: анализатор не отработал (rc=$RC) — это НЕ вердикт хука." >&2
 
-LEGACY='(^|[/[:space:]])nest(\.js)?[[:space:]]+start|(^|[/[:space:]])vite([[:space:]]|$)|(^|[[:space:]])(pnpm|npm|yarn|turbo)([[:space:]]+(-[^[:space:]]+|--filter[[:space:]]+[^[:space:]]+|run))*[[:space:]]+dev(:start)?([[:space:]]|$)|node[[:space:]][^;|&]*dist/main'
+LEGACY='(^|[/[:space:]])nest(\.js)?[[:space:]]+start|(^|[/[:space:]])vite([[:space:]]|$)|(^|[[:space:]])(pnpm|npm|yarn|turbo)([[:space:]]+(-[^[:space:]]+|--filter[[:space:]]+[^[:space:]]+|run))*[[:space:]]+(dev|start|preview)(:[[:alnum:]_.-]+)?([[:space:]]|$)|node[[:space:]][^;|&]*dist/main'
 # The raw stdin is JSON, so the command's last token is followed by `"` — the
 # legacy pattern's `([[:space:]]|$)` boundary would silently never match and the
 # fallback would let everything through. Turning JSON punctuation into spaces
