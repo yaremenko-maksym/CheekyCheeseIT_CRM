@@ -237,7 +237,7 @@ export class SeniorShareChangeService {
       // task-648-fix-round-1 (COPY-H-1) / round-2 (COPY-M-13): the reader
       // seeing this 403 has `ImpersonationBanner`'s «Вы вошли как «X»»
       // across the top of the same screen — same phrasing lives in
-      // `SHARE_DECISION_IMPERSONATION` (`packages/shared/src/schemas/api-errors.ts`).
+      // `SHARE_DECISION_IMPERSONATION` (`packages/shared/src/schemas/api-errors/base.ts`).
       // task-i18n-stage2-task5: the envelope carries `code`, not this prose —
       // the client re-translates by `code` (`getApiErrorMessage`), so this
       // string is no longer what reaches the browser (the English fallback

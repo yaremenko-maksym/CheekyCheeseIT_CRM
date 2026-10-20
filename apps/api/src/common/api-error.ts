@@ -67,13 +67,13 @@ function interpolate(code: ApiErrorCode, params?: Record<string, string | number
 
 /**
  * task-i18n-stage2-task5. Builds the standard error envelope
- * (`apiErrorEnvelopeSchema`, `packages/shared/src/schemas/api-errors.ts`) as
+ * (`apiErrorEnvelopeSchema`, `packages/shared/src/schemas/api-errors/`) as
  * an `HttpException` body. `message` is always the English fallback — never
  * user-facing on its own; the client re-translates by `code` through
  * `API_ERROR_MESSAGES` (`getApiErrorMessage`, `apps/web/app/lib/axios-utils.ts`).
  *
  * The third parameter is generic over `code` (SR-M-1, PR #694 round 1):
- * `ParamsFor<C>` — see `packages/shared/src/schemas/api-errors.ts` — is
+ * `ParamsFor<C>` — see `packages/shared/src/schemas/api-errors/` — is
  * `never` for a code that declares no params (so passing a third argument
  * at all is a compile error) and an object with EXACTLY the declared keys
  * otherwise — kept as a conditional tuple (not `params?`) rather than

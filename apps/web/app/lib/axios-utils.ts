@@ -129,7 +129,7 @@ function isGenericHttpReasonPhrase(message: string): boolean {
 /**
  * Parses `err.response.data` against `apiErrorEnvelopeSchema` — the shape
  * `apiError()` (`apps/api/src/common/api-error.ts`) builds for the eight
- * codes in the registry (`packages/shared/src/schemas/api-errors.ts`).
+ * codes in the registry (`packages/shared/src/schemas/api-errors/`).
  * `.safeParse` rather than `.parse`: an ordinary NestJS error body (no
  * `code` field, or a `code` outside the registry) is the EXPECTED shape for
  * every endpoint not yet migrated to `apiError()` — that is not a parse
