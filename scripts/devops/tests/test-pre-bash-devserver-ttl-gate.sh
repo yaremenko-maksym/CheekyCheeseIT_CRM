@@ -361,6 +361,16 @@ ESC_DELIM=$'cat > notes.md <<\\EOF\n$(pnpm --filter @crm/api dev)\nEOF'
 assert_green "РЕПРО-2/4 родственная форма: <<\\\\EOF тоже экранирует разделитель — тело инертно" \
   -- h "$ESC_DELIM"
 
+# Found by attacking the span scanner rather than by reading it: an escaped
+# quote before the opener makes the span scanner and the segmenter take different
+# routes through the line. On main this was refused; the refusal was wrong, and
+# the proof is execution rather than argument — run the shape and the body lands
+# in the file verbatim, no marker file, nothing executed. A quoted delimiter is
+# inert no matter what precedes the opener.
+ESC_QUOTE_BEFORE=$'echo \\" ; cat > n.md <<\'EOF\'\n$(pnpm --filter @crm/api dev)\nEOF'
+assert_green "СУЖЕНИЕ: экранированная кавычка перед закавыченным heredoc — тело всё равно инертно (проверено исполнением)" \
+  -- h "$ESC_QUOTE_BEFORE"
+
 # ── the other direction: an UNQUOTED body really is expanded by the shell ─────
 UNQ_SUBST=$'cat > out.txt <<EOF\n$(pnpm --filter @crm/api dev)\nEOF'
 assert_red "НЕ ослаблено: <<EOF без кавычек — подстановка в теле реально исполняется" \
@@ -386,6 +396,33 @@ BEFORE_HEREDOC=$'pnpm --filter @crm/api dev\ncat > note.md <<\'EOF\'\nnothing he
 assert_red "НЕ ослаблено: запуск ПЕРЕД heredoc" \
   --contains '"decision": "block"' \
   -- h "$BEFORE_HEREDOC"
+
+# Quote-parity shapes, all of which DO launch in bash — the span scanner and the
+# segmenter walk quotes differently, and an exemption must never survive that.
+PARITY_1=$'echo "$(echo \\"x\\")" ; cat > n.md <<\'EOF\'\nnote\nEOF\npnpm --filter @crm/api dev'
+assert_red "ЧЁТНОСТЬ КАВЫЧЕК: кавычка внутри подстановки, затем heredoc, затем запуск" \
+  --contains '"decision": "block"' \
+  -- h "$PARITY_1"
+
+PARITY_2=$'echo "unclosed ; cat > n.md <<\'EOF\'\n$(pnpm --filter @crm/api dev)\nEOF'
+assert_red "ЧЁТНОСТЬ КАВЫЧЕК: незакрытая кавычка перед открывашкой" \
+  --contains '"decision": "block"' \
+  -- h "$PARITY_2"
+
+PARITY_3=$'cat > n.md <<\'EOF\'\nnote\nEOF\necho "$(pnpm --filter @crm/api dev)"'
+assert_red "ЧЁТНОСТЬ КАВЫЧЕК: запуск в подстановке ПОСЛЕ закавыченного тела" \
+  --contains '"decision": "block"' \
+  -- h "$PARITY_3"
+
+PARITY_4=$'cat n.md <<\'A\' <<B\nfirst\nA\n$(pnpm --filter @crm/api dev)\nB'
+assert_red "ЧЁТНОСТЬ КАВЫЧЕК: два heredoc в одной строке, второй без кавычек" \
+  --contains '"decision": "block"' \
+  -- h "$PARITY_4"
+
+PARITY_5=$'cat <<\'A\'\n`vite`\nA\ncat <<B\n$(pnpm --filter @crm/api dev)\nB'
+assert_red "ЧЁТНОСТЬ КАВЫЧЕК: закавыченное тело, затем незакавыченное с запуском" \
+  --contains '"decision": "block"' \
+  -- h "$PARITY_5"
 
 # ── the parser differential: two readings of one text, failing closed ─────────
 # _heredoc_literal_spans is a SECOND reading of the same line, and a span that
