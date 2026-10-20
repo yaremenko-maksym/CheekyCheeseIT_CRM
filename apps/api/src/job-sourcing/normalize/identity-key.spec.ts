@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildIdentity, encodeIdentityTuple } from './identity-key'
+import { buildIdentity, encodeIdentityTuple, IDENTITY_KEY_VERSION } from './identity-key'
 
 /** A deliberately naive encoder: what we must NOT ship. Used only to prove the fixtures can collide. */
 const naiveJoin = (parts: readonly string[]) => parts.join('|')
@@ -53,20 +53,21 @@ describe('buildIdentity: native id', () => {
   it('a namespace and native id that straddle the delimiter do not collide (builder level)', () => {
     const left = {
       provider: 'REMOTEOK_API',
-      namespace: 'x|NATIVE|y',
+      namespace: 'x|y',
       nativeId: 'z',
       url: null,
     } as const
     const right = {
       provider: 'REMOTEOK_API',
       namespace: 'x',
-      nativeId: 'y|NATIVE|z',
+      nativeId: 'y|z',
       url: null,
     } as const
-    // Precondition: a delimiter encoding of (provider, namespace, kind, id) collides for this pair.
-    expect(naiveJoin([left.provider, left.namespace, 'NATIVE', left.nativeId])).toBe(
-      naiveJoin([right.provider, right.namespace, 'NATIVE', right.nativeId]),
-    )
+    // Precondition: delimiter-joining the REAL key layout collides for this pair. The layout is the
+    // builder's own (version, kind, provider, namespace, id), so this fixture can actually fail.
+    const naiveKey = (i: typeof left | typeof right) =>
+      naiveJoin([IDENTITY_KEY_VERSION, 'NATIVE', i.provider, i.namespace, i.nativeId])
+    expect(naiveKey(left)).toBe(naiveKey(right))
     const a = keyOf(left)
     const b = keyOf(right)
     expect(a).not.toBeNull()
