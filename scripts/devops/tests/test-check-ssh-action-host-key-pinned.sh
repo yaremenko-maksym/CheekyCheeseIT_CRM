@@ -23,6 +23,18 @@ FP2="SHA256:lIxW01oTxlPOaVOsl3Fa7LkghgcHVRBaCc4QRdTLedg"
 WS="$(guard_test_workspace)"
 trap 'rm -rf "$WS"' EXIT
 
+blank_canary_table() {
+  local g="$1/scripts/devops/$GUARD"
+  python3 - "$g" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+s = s.replace("\nCANARY_FILES = {\n", "\nCANARY_FILES = {}\n_UNUSED_CANARY_TABLE = {\n", 1)
+open(p, "w").write(s)
+PY
+  grep -q '^CANARY_FILES = {}$' "$g" || { echo "FATAL: could not blank CANARY_FILES in the guard copy"; exit 2; }
+}
+
 # $1 = case name, $2 = workflow content, $3 = optional exempt entry injected into the
 # COPY of the guard's (empty) PINNING_EXEMPT table, so the exemption path can be run.
 make_case() {
@@ -30,6 +42,10 @@ make_case() {
   local root="$WS/$name"
   guard_test_fake_repo "$root" "$GUARD"
   printf '%s' "$workflow" >"$root/.github/workflows/deploy.yml"
+  # Blank the canary table in the COPY by default, so existing cases are unaffected by the real
+  # canary entry (its file does not exist in a fake repo -> a dangling-entry violation otherwise).
+  # `CANARY_FILES = {` sits alone on its line; the remainder becomes an unused dict.
+  blank_canary_table "$root"
   if [ -n "$action" ]; then
     mkdir -p "$root/.github/actions/deploy-helper"
     printf '%s' "$action" >"$root/.github/actions/deploy-helper/action.yml"
@@ -372,5 +388,80 @@ assert_green "pinned step inside .github/actions/** is counted (3 workflow + 1 a
 assert_red "zero appleboy steps found -> red (a broken scan must not read as a clean repo)" \
   --contains "found 0 appleboy steps" \
   -- run_guard "$(make_case no-steps "$NO_STEPS_YML")"
+
+# ── Canary exemption: enumerated, exact, and not wider than its file ───────────────
+# These cases keep the guard's REAL CANARY_FILES table (make_canary_case does not blank it) and
+# use the REAL canary workflow as the fixture, mutated one way per case.
+WRONG="SHA256:AuHfbJTFqiPWuLmua9z5OkwxN8CieDEDRQT2EhnNgZO"   # = CANARY_WRONG_LITERAL
+CANARY_REL=".github/workflows/host-key-pin-canary.yml"
+REAL_CANARY="$SELF_DIR/../../../$CANARY_REL"
+[ -f "$REAL_CANARY" ] || { echo "FATAL: real canary workflow missing at $REAL_CANARY"; exit 2; }
+
+# $1 = case name, $2 = deploy.yml content, $3 = canary file to install ("" = none)
+make_canary_case() {
+  local name="$1" deploy="$2" canary="${3:-}"
+  local root="$WS/$name"
+  guard_test_fake_repo "$root" "$GUARD"
+  printf '%s' "$deploy" >"$root/.github/workflows/deploy.yml"
+  if [ -n "$canary" ]; then cp "$canary" "$root/$CANARY_REL"; fi
+  printf '%s' "$root"
+}
+
+# $1 = output path, $2 = mode: more | fewer | third | nofp
+mutate_canary() {
+  python3 - "$REAL_CANARY" "$1" "$2" "$FP" "$FP2" "$WRONG" <<'PY'
+import sys
+src, out, mode, fp, fp2, wrong = sys.argv[1:7]
+lines = open(src).read().split("\n")
+def first(pred):
+    return next(i for i, l in enumerate(lines) if pred(l))
+if mode == "more":      # one extra wrong step: turn the first correct pin into the wrong one
+    i = first(lambda l: l.strip() == "fingerprint: " + fp); lines[i] = lines[i].replace(fp, wrong)
+elif mode == "fewer":   # one wrong step fewer
+    i = first(lambda l: l.strip() == "fingerprint: " + wrong); lines[i] = lines[i].replace(wrong, fp)
+elif mode == "third":   # a third distinct literal next to the real and the wrong one
+    i = first(lambda l: l.strip() == "fingerprint: " + fp); lines[i] = lines[i].replace(fp, fp2)
+elif mode == "nofp":    # a canary step with no fingerprint at all
+    i = first(lambda l: l.strip() == "fingerprint: " + wrong); del lines[i]
+open(out, "w").write("\n".join(lines))
+PY
+}
+
+for mode in more fewer third nofp; do mutate_canary "$WS/canary-$mode.yml" "$mode"; done
+
+WRONG_IN_DEPLOY_YML="${HEAD}      - name: a
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          fingerprint: $WRONG
+          script: ls
+"
+
+assert_green "real canary file: exempt, exactly 3 wrong steps, listed in the output" \
+  --contains "3 wrong step(s) declared, 3 found" --contains "Violations found:             0" \
+  -- run_guard "$(make_canary_case canary-real "$ALL_PINNED_YML" "$REAL_CANARY")"
+
+assert_red "wrong literal in deploy.yml (not the listed file) -> red, exemption does not widen" \
+  --contains "outside a CANARY_FILES entry" \
+  -- run_guard "$(make_canary_case wrong-in-deploy "$WRONG_IN_DEPLOY_YML" "$REAL_CANARY")"
+
+assert_red "canary with ONE MORE wrong step than declared -> red" \
+  --contains "declares exactly 3 step(s) with the wrong fingerprint but has 4" \
+  -- run_guard "$(make_canary_case canary-more "$ALL_PINNED_YML" "$WS/canary-more.yml")"
+
+assert_red "canary with ONE FEWER wrong step than declared -> red" \
+  --contains "declares exactly 3 step(s) with the wrong fingerprint but has 2" \
+  -- run_guard "$(make_canary_case canary-fewer "$ALL_PINNED_YML" "$WS/canary-fewer.yml")"
+
+assert_red "a THIRD distinct literal inside the canary -> red (one real literal still required)" \
+  --contains "disagree on the fingerprint" \
+  -- run_guard "$(make_canary_case canary-third "$ALL_PINNED_YML" "$WS/canary-third.yml")"
+
+assert_red "a canary step with no fingerprint -> red (the exemption is not a pin waiver)" \
+  --contains "supports pinning but has no" \
+  -- run_guard "$(make_canary_case canary-nofp "$ALL_PINNED_YML" "$WS/canary-nofp.yml")"
+
+assert_red "table entry whose file is missing (dangling exemption) -> red" \
+  --contains "does not exist" \
+  -- run_guard "$(make_canary_case canary-dangling "$ALL_PINNED_YML" "")"
 
 guard_test_summary "test-check-ssh-action-host-key-pinned.sh"

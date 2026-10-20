@@ -1,0 +1,231 @@
+name: Host-key pin canary
+
+# NEGATIVE-CONTROL CANARY for host-key pinning. Manual only: never on push, never on a schedule.
+#
+# Why: a green deploy cannot tell "the fingerprint matched" from "the action silently ignored an
+# input it does not declare". For each action version this runs a PAIR against the real VPS:
+#   negative control - deliberately WRONG fingerprint; expected to FAIL (host-key mismatch)
+#   positive control - the correct fingerprint, same target; expected to SUCCEED
+# The positive half is what separates "the pin enforces" from "this step is broken for an
+# unrelated reason". The final assert job-step turns the outcomes into one readable result:
+# green only if every control behaved as expected.
+#
+# Writes to the VPS: only files under a run-unique /tmp path, removed in the same run.
+# Never touches /opt/crm, the stack, the database or any file the deploy uses.
+#
+# The wrong literal below is a TEST VALUE (the real fingerprint with its case inverted). It is
+# tolerated only here, in an exact count, by scripts/devops/check-ssh-action-host-key-pinned.py
+# (CANARY_FILES). Do not copy it anywhere else.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: host-key-pin-canary
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    name: Host-key pin canary
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      # Run-unique throwaway directory on the VPS. Validated against this prefix before removal.
+      CANARY_PREFIX: /tmp/hostkey-canary-
+      CANARY_DIR: /tmp/hostkey-canary-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Generate payload files on the runner
+        run: |
+          set -euo pipefail
+          mkdir -p canary-payload
+          for n in scp-neg scp-pos; do
+            echo "host-key canary $n run ${GITHUB_RUN_ID}" > "canary-payload/${n}.txt"
+          done
+          ls -l canary-payload
+
+      # ── Pair 1: ssh-action v1.2.0 (known-good reference row) ─────────────────────────
+      - name: ssh-action v1.2.0 NEGATIVE (wrong fingerprint, expect FAIL)
+        id: ssh120_neg
+        continue-on-error: true
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          # TEST VALUE: the real fingerprint with its case inverted. Must be rejected.
+          fingerprint: SHA256:AuHfbJTFqiPWuLmua9z5OkwxN8CieDEDRQT2EhnNgZO
+          envs: CANARY_DIR
+          script: |
+            set -eu
+            mkdir -p "$CANARY_DIR"
+            touch "$CANARY_DIR/ssh120-neg"
+
+      - name: ssh-action v1.2.0 POSITIVE (correct fingerprint, expect PASS)
+        id: ssh120_pos
+        continue-on-error: true
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          envs: CANARY_DIR
+          script: |
+            set -eu
+            mkdir -p "$CANARY_DIR"
+            touch "$CANARY_DIR/ssh120-pos"
+
+      # ── Pair 2: ssh-action v1.2.3 (unproven at runtime) ──────────────────────────────
+      - name: ssh-action v1.2.3 NEGATIVE (wrong fingerprint, expect FAIL)
+        id: ssh123_neg
+        continue-on-error: true
+        uses: appleboy/ssh-action@v1.2.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          # TEST VALUE: the real fingerprint with its case inverted. Must be rejected.
+          fingerprint: SHA256:AuHfbJTFqiPWuLmua9z5OkwxN8CieDEDRQT2EhnNgZO
+          envs: CANARY_DIR
+          script: |
+            set -eu
+            mkdir -p "$CANARY_DIR"
+            touch "$CANARY_DIR/ssh123-neg"
+
+      - name: ssh-action v1.2.3 POSITIVE (correct fingerprint, expect PASS)
+        id: ssh123_pos
+        continue-on-error: true
+        uses: appleboy/ssh-action@v1.2.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          envs: CANARY_DIR
+          script: |
+            set -eu
+            mkdir -p "$CANARY_DIR"
+            touch "$CANARY_DIR/ssh123-pos"
+
+      # ── Pair 3: scp-action v0.1.7 (carries 48 of the 55 call sites) ──────────────────
+      # scp-action keeps the source directory tree under target, so the files land at
+      # $CANARY_DIR/canary-payload/scp-{neg,pos}.txt. Each control copies its own file.
+      - name: scp-action v0.1.7 NEGATIVE (wrong fingerprint, expect FAIL)
+        id: scp_neg
+        continue-on-error: true
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          # TEST VALUE: the real fingerprint with its case inverted. Must be rejected.
+          fingerprint: SHA256:AuHfbJTFqiPWuLmua9z5OkwxN8CieDEDRQT2EhnNgZO
+          source: canary-payload/scp-neg.txt
+          target: ${{ env.CANARY_DIR }}
+
+      - name: scp-action v0.1.7 POSITIVE (correct fingerprint, expect PASS)
+        id: scp_pos
+        continue-on-error: true
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          source: canary-payload/scp-pos.txt
+          target: ${{ env.CANARY_DIR }}
+
+      # ── Verification and cleanup: always run, on the proven version with the real pin ──
+      # Verify: every positive file landed AND every negative file is absent. The second half
+      # is what shows no data crossed on a mismatch (a failed step alone does not).
+      - name: Verify what landed on the host (positive present, negative absent)
+        id: verify
+        if: always()
+        continue-on-error: true
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          envs: CANARY_DIR,CANARY_PREFIX
+          script: |
+            set -u
+            case "$CANARY_DIR" in
+              "$CANARY_PREFIX"*) ;;
+              *) echo "REFUSING: CANARY_DIR '$CANARY_DIR' is outside $CANARY_PREFIX"; exit 1 ;;
+            esac
+            bad=0
+            for f in ssh120-pos ssh123-pos canary-payload/scp-pos.txt; do
+              if [ -f "$CANARY_DIR/$f" ]; then echo "OK   present: $f"; else echo "BAD  MISSING (positive control wrote nothing): $f"; bad=1; fi
+            done
+            for f in ssh120-neg ssh123-neg canary-payload/scp-neg.txt; do
+              if [ -e "$CANARY_DIR/$f" ]; then echo "BAD  PRESENT (data crossed on a host-key mismatch): $f"; bad=1; else echo "OK   absent: $f"; fi
+            done
+            exit "$bad"
+
+      # Cleanup: remove ONLY the run-unique directory, after re-validating its exact shape.
+      - name: Remove the throwaway directory from the host
+        id: cleanup
+        if: always()
+        continue-on-error: true
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          envs: CANARY_DIR
+          script: |
+            set -eu
+            if ! printf '%s' "$CANARY_DIR" | grep -Eq '^/tmp/hostkey-canary-[0-9]+-[0-9]+$'; then
+              echo "REFUSING to remove '$CANARY_DIR': not a canary directory"; exit 1
+            fi
+            rm -rf -- "$CANARY_DIR"
+            test ! -e "$CANARY_DIR" && echo "removed $CANARY_DIR"
+
+      # ── Assertion: the run is green only if EVERY control behaved as expected ──────────
+      # Outcomes arrive through env: (never interpolated into the script body).
+      - name: Assert every control behaved as expected
+        if: always()
+        env:
+          SSH120_NEG: ${{ steps.ssh120_neg.outcome }}
+          SSH120_POS: ${{ steps.ssh120_pos.outcome }}
+          SSH123_NEG: ${{ steps.ssh123_neg.outcome }}
+          SSH123_POS: ${{ steps.ssh123_pos.outcome }}
+          SCP_NEG: ${{ steps.scp_neg.outcome }}
+          SCP_POS: ${{ steps.scp_pos.outcome }}
+          VERIFY: ${{ steps.verify.outcome }}
+          CLEANUP: ${{ steps.cleanup.outcome }}
+        run: |
+          set -u
+          fail=0
+          {
+            echo "## Host-key pin canary"
+            echo
+            echo "| Control | Expected | Actual | Result |"
+            echo "| --- | --- | --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          check() { # <label> <expected outcome> <actual outcome> <meaning if wrong>
+            if [ "$3" = "$2" ]; then r=OK; else r=MISBEHAVED; fail=1; echo "::error::CONTROL MISBEHAVED: $1 - expected $2, got $3. $4"; fi
+            echo "| $1 | $2 | $3 | $r |" >> "$GITHUB_STEP_SUMMARY"
+          }
+          NEG="a wrong fingerprint was NOT rejected: this version does not enforce the pin (or ignores the input)."
+          POS="the correct fingerprint did not connect: the step is broken for an unrelated reason, so its negative result proves nothing."
+          check "ssh-action v1.2.0 negative" failure "$SSH120_NEG" "$NEG"
+          check "ssh-action v1.2.0 positive" success "$SSH120_POS" "$POS"
+          check "ssh-action v1.2.3 negative" failure "$SSH123_NEG" "$NEG"
+          check "ssh-action v1.2.3 positive" success "$SSH123_POS" "$POS"
+          check "scp-action v0.1.7 negative" failure "$SCP_NEG" "$NEG"
+          check "scp-action v0.1.7 positive" success "$SCP_POS" "$POS"
+          check "verify (positive files landed, negative files absent)" success "$VERIFY" "See the verify step log: a negative file PRESENT means data crossed on a mismatch; a positive file MISSING means a positive control wrote nothing."
+          check "cleanup (throwaway directory removed)" success "$CLEANUP" "The run-unique directory under /tmp may still exist on the host; remove it by hand."
+          if [ "$fail" -ne 0 ]; then
+            echo "FAIL: at least one control misbehaved - host-key pinning is NOT proven for every version."
+            exit 1
+          fi
+          echo "PASS: every negative control was rejected and every positive control connected."
