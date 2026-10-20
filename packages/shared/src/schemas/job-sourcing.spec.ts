@@ -574,6 +574,14 @@ describe('navigation urls reject embedded credentials (R11-H-4)', () => {
     expect(externalHttpsUrlSchema.safeParse('https:///path').success).toBe(false)
   })
 
+  it('whitespace in the path is refused, which `.url()` alone permits', () => {
+    // `.url()` accepts `https://host.test/a b` — WHATWG percent-encodes the
+    // space — so the `\\S*` in the tail of the pattern is what refuses it, as
+    // the column's `[^[:space:]]*` does.
+    expect(externalHttpsUrlSchema.safeParse('https://host.test/a b').success).toBe(false)
+    expect(externalHttpsUrlSchema.safeParse('https://host.test/a%20b').success).toBe(true)
+  })
+
   it('the scheme check still blocks javascript: and data:', () => {
     expect(externalHttpsUrlSchema.safeParse('javascript:alert(1)').success).toBe(false)
     expect(

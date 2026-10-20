@@ -141,7 +141,7 @@ export const jobExclusionOriginSchema = z.enum(['MANUAL', 'PROJECT'])
  * guard was WEAKER than the column the value comes out of — which already
  * refused it. A guard on a value may not be weaker than its column.
  */
-const EXTERNAL_HTTPS_URL_PATTERN = /^https:\/\/[^\s/?#@]+([/?#]\S*)?$/i
+const EXTERNAL_HTTPS_URL_PATTERN = /^https:\/\/[^/?#@]+([/?#]\S*)?$/i
 
 export const externalHttpsUrlSchema = z
   .string()
@@ -153,13 +153,24 @@ export const externalHttpsUrlSchema = z
   // package is DOM/Node-agnostic (no `URL` global in its tsconfig lib).
   //
   // The authority — everything up to the first `/`, `?` or `#` — must be
-  // non-empty and free of `@` and of whitespace. A path, query or fragment may
-  // follow and MAY contain `@`: `https://host/a@b` is an ordinary posting URL,
-  // and refusing it would silently drop legitimate postings. Same shape as the
-  // column's `^https://[^[:space:]/?#@]+([/?#][^[:space:]]*)?$`; the two
-  // character classes differ only in which exotic code points each engine
-  // counts as whitespace (JS `\s` vs PG `[[:space:]]`, enumerated in that
-  // column's own comment), and no host or path legitimately contains one.
+  // non-empty and free of `@`. A path, query or fragment may follow and MAY
+  // contain `@`: `https://host/a@b` is an ordinary posting URL, and refusing it
+  // would silently drop legitimate postings. Whitespace is excluded from the
+  // path (`\S*`) because `.url()` does NOT refuse it there — WHATWG
+  // percent-encodes a space in a path and accepts the URL — but it is NOT
+  // excluded from the authority, where `.url()` already refuses it (a space is
+  // illegal in a host, measured: `https:// x` fails `.url()` on its own).
+  //
+  // That is the one deliberate difference from the column's
+  // `^https://[^[:space:]/?#@]+([/?#][^[:space:]]*)?$`: the CHECK has no
+  // `.url()` in front of it and must therefore state the authority's whitespace
+  // exclusion itself, as does `isSafeExternalUrl`, which is a bare regex. The
+  // authority SHAPE — non-empty, no `@` — is identical in all three, and that is
+  // what R11-H-4 was about. The operand was dropped here rather than carried as
+  // dead redundancy because no input can distinguish it (`.url()` refuses first),
+  // so no test could pin it, and a line-scoped mutation suppression would have
+  // hidden the `@` and non-empty mutants too — the two that carry the security
+  // property.
   .refine(
     (value) => EXTERNAL_HTTPS_URL_PATTERN.test(value),
     'URL must be https, with a host and no embedded credentials',

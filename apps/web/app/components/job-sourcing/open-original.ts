@@ -44,6 +44,12 @@
  * path, query or fragment may follow and may contain `@`, because
  * `https://host/a@b` is an ordinary posting URL and `canonicalizePostingUrl`
  * legitimately produces `https://host/path?kept=params`.
+ *
+ * The one character the shared schema's class does NOT list is whitespace in the
+ * authority: that schema has `.url()` in front of the regex and `.url()` refuses
+ * it there already, so the operand would be unkillable by any test. This is a
+ * bare regex with nothing in front of it, so it states the exclusion itself —
+ * `https:// x` is refused HERE by this class, and the test says so.
  */
 export function isSafeExternalUrl(url: string | null | undefined): boolean {
   if (!url) return false
