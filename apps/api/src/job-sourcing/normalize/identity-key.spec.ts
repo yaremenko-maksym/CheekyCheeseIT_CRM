@@ -1,0 +1,102 @@
+import { describe, expect, it } from 'vitest'
+import { buildIdentity, encodeIdentityTuple } from './identity-key'
+
+/** A deliberately naive encoder: what we must NOT ship. Used only to prove the fixtures can collide. */
+const naiveJoin = (parts: readonly string[]) => parts.join('|')
+
+const keyOf = (input: Parameters<typeof buildIdentity>[0]): string | null => {
+  const r = buildIdentity(input)
+  return r.ok ? r.identity.identityKey : null
+}
+
+describe('encodeIdentityTuple: delimiter collisions', () => {
+  // Each pair is two DIFFERENT component sets that a '|' join maps to ONE string.
+  const collidingPairs: Array<[string, readonly string[], readonly string[]]> = [
+    ['a component containing the delimiter', ['a|b', 'c'], ['a', 'b|c']],
+    ['an empty component next to a populated one', ['a|', 'b'], ['a', '|b']],
+    ['a component that is the concatenation of two others', ['a|b', 'c'], ['a', 'b', 'c']],
+  ]
+
+  it.each(collidingPairs)(
+    'fixture collides under delimiter concatenation but the tuple encoder keeps it apart: %s',
+    (_name, left, right) => {
+      // Precondition: the fixture really collides under the naive encoder. If this fails the
+      // fixture is decoration, not evidence.
+      expect(naiveJoin(left)).toBe(naiveJoin(right))
+      expect(encodeIdentityTuple(left)).not.toBe(encodeIdentityTuple(right))
+    },
+  )
+
+  it('is deterministic and parses back to exactly the component list', () => {
+    const parts = ['v1', 'NATIVE', 'REMOTEOK_API', 'board', 'id"with\\odd|chars']
+    expect(encodeIdentityTuple(parts)).toBe(encodeIdentityTuple([...parts]))
+    expect(JSON.parse(encodeIdentityTuple(parts))).toEqual(parts)
+  })
+})
+
+describe('buildIdentity: native id', () => {
+  const base = { provider: 'REMOTEOK_API', namespace: 'board', url: null } as const
+
+  it('uses the native id and marks the identity NATIVE', () => {
+    const r = buildIdentity({ ...base, nativeId: '12345' })
+    expect(r).toMatchObject({
+      ok: true,
+      identity: {
+        provider: 'REMOTEOK_API',
+        namespace: 'board',
+        nativeId: '12345',
+        identityKind: 'NATIVE',
+      },
+    })
+  })
+
+  it('a namespace and native id that straddle the delimiter do not collide (builder level)', () => {
+    const left = {
+      provider: 'REMOTEOK_API',
+      namespace: 'x|NATIVE|y',
+      nativeId: 'z',
+      url: null,
+    } as const
+    const right = {
+      provider: 'REMOTEOK_API',
+      namespace: 'x',
+      nativeId: 'y|NATIVE|z',
+      url: null,
+    } as const
+    // Precondition: a delimiter encoding of (provider, namespace, kind, id) collides for this pair.
+    expect(naiveJoin([left.provider, left.namespace, 'NATIVE', left.nativeId])).toBe(
+      naiveJoin([right.provider, right.namespace, 'NATIVE', right.nativeId]),
+    )
+    const a = keyOf(left)
+    const b = keyOf(right)
+    expect(a).not.toBeNull()
+    expect(b).not.toBeNull()
+    expect(a).not.toBe(b)
+  })
+
+  it('the same id in a different namespace or provider is a different identity', () => {
+    const keys = [
+      keyOf({ provider: 'REMOTEOK_API', namespace: 'eu', nativeId: '1', url: null }),
+      keyOf({ provider: 'REMOTEOK_API', namespace: 'us', nativeId: '1', url: null }),
+      keyOf({ provider: 'DOU_RSS', namespace: 'eu', nativeId: '1', url: null }),
+    ]
+    expect(new Set(keys).size).toBe(3)
+  })
+
+  it('namespace is case/NFC-insensitive, native id is case-sensitive', () => {
+    expect(keyOf({ ...base, namespace: 'Board', nativeId: 'a' })).toBe(
+      keyOf({ ...base, namespace: 'board', nativeId: 'a' }),
+    )
+    expect(keyOf({ ...base, namespace: 'café', nativeId: 'a' })).toBe(
+      keyOf({ ...base, namespace: 'café', nativeId: 'a' }),
+    )
+    expect(keyOf({ ...base, nativeId: 'AbC' })).not.toBe(keyOf({ ...base, nativeId: 'abc' }))
+  })
+
+  it('an empty namespace is an adapter bug: quarantine, never a shared key', () => {
+    expect(buildIdentity({ ...base, namespace: '  ', nativeId: '1' })).toEqual({
+      ok: false,
+      reason: 'INVALID_NAMESPACE',
+    })
+  })
+})
