@@ -323,16 +323,16 @@ The filter is merged (#451) in observation mode — right now it blocks nothing.
 ## Infrastructure — found 2026-07-31 during the merge session
 
 9. **The merge automation cannot merge PRs that touch `.github/workflows/**`.** The token has no
-permission to modify pipeline files: `GraphQL: refusing to allow a GitHub App to create or
-   update workflow .github/workflows/ci.yml without workflows permission`. Two PRs (#437, #449)
-hung silently — the label is set, the merge step fails, and it looks like "CI is red".
-They had to be merged manually. Fix: either grant the permission or explicitly separate such PRs with a clear
-message so it does not look like a check failure.
-**CLOSED.** The second path was chosen. Verified on PR #498 (2026-08-07): the automation detects
-such PRs, leaves a comment in the PR with an explanation («это НЕ сбой проверок, нужен ручной
-мерж») and finishes successfully rather than silently. The `workflow`permission is intentionally not granted to auto-merge:
-it is GitHub's built-in protection against uncontrolled pipeline changes by automation, and a bypass
-for convenience would be a security downgrade. Manually merging such PRs is an ordinary `gh pr merge --squash`, without `--admin`.
+   permission to modify pipeline files: `GraphQL: refusing to allow a GitHub App to create or
+update workflow .github/workflows/ci.yml without workflows permission`. Two PRs (#437, #449)
+   hung silently — the label is set, the merge step fails, and it looks like "CI is red".
+   They had to be merged manually. Fix: either grant the permission or explicitly separate such PRs with a clear
+   message so it does not look like a check failure.
+   **CLOSED.** The second path was chosen. Verified on PR #498 (2026-08-07): the automation detects
+   such PRs, leaves a comment in the PR with an explanation («это НЕ сбой проверок, нужен ручной
+   мерж») and finishes successfully rather than silently. The `workflow`permission is intentionally not granted to auto-merge:
+   it is GitHub's built-in protection against uncontrolled pipeline changes by automation, and a bypass
+   for convenience would be a security downgrade. Manually merging such PRs is an ordinary `gh pr merge --squash`, without `--admin`.
 10. **A deploy failure does not raise an alert.** The deploy failed 2026-07-27 21:22 and stayed red for
     **four days** — nobody found out, prod quietly ran on old code. We set up a notification about a red
     main branch (#441/#446), but not on `Deploy → failure`. Set it up.
@@ -3379,3 +3379,29 @@ refuse **more** than before rather than less, which is why none blocked the merg
 **Check on closing:** the operand-flag families give the same verdict as each other or the header states
 why they differ; a sample of the newly refused launch spellings has been judged safe-or-not by a human
 reading; and a differential run records which of the three gaps it closed.
+
+## 251. The local prettier gate runs whatever prettier is installed, so its green says nothing about CI (2026-10-20)
+
+The local pre-push gate exists to be a mirror of the CI format check — catch it before the push so the
+PR never goes red. It resolves the formatter from the local install, and the local install is whatever
+a past `install` happened to put there. The declared range and the version CI resolves from the
+lockfile can therefore both differ from it, silently.
+
+**Observed.** A backlog-only PR went red on the format check with the local gate green. The local
+install was two minors behind the declared range; the newer formatter indents the continuation lines of
+an ordered list item differently. The affected lines were in an entry written months earlier — latent
+all along, surfaced because the check reads every changed **file**, not only the changed lines.
+
+**And the two gates can be mutually unsatisfiable.** Formatting the file with the version CI runs made
+the local gate refuse the push; satisfying the local gate would have made CI refuse the merge. There is
+no file content that passes both while the installs disagree, so the only repair is to the environment,
+and nothing told the author that — the gate reported a formatting problem, which is not what it had.
+
+**Why this is the same defect as the rest of this section.** A gate whose silence or approval means
+"the thing I happened to load is satisfied" is not a gate on the property anyone cares about. The fix
+is for the gate to assert the version it is mirroring — compare the resolved formatter against the
+version the lockfile pins and fail loudly on a mismatch, naming both — rather than to report a
+formatting verdict computed with the wrong tool.
+
+**Check on closing:** with a deliberately stale local install, the pre-push gate refuses with a message
+naming the installed and the expected version, and does not report a formatting verdict at all.
