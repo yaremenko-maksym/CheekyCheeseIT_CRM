@@ -19,8 +19,10 @@ export type LinkRejection =
 export type LinkCheck = { ok: true; url: URL } | { ok: false; reason: LinkRejection }
 
 export function checkStoredLink(raw: string | null | undefined): LinkCheck {
-  const text = typeof raw === 'string' ? raw.trim() : ''
-  if (text.length === 0) return { ok: false, reason: 'UNPARSEABLE' }
+  if (typeof raw !== 'string') return { ok: false, reason: 'UNPARSEABLE' }
+  // No separate empty-string guard: `new URL('')` throws and lands in the same UNPARSEABLE below,
+  // so a guard here would be a branch no input can distinguish.
+  const text = raw.trim()
   if (text.length > MAX_LINK_CHARS) return { ok: false, reason: 'TOO_LONG' }
 
   let url: URL
@@ -43,7 +45,8 @@ export function checkStoredLink(raw: string | null | undefined): LinkCheck {
   // `isIP` on the final host covers dotted quads and bracket-stripped IPv6; the parser has already
   // folded decimal/hex/octal IPv4 into dotted form, and rejects out-of-range quads outright.
   if (host.startsWith('[') || isIP(host) !== 0) return { ok: false, reason: 'IP_LITERAL' }
-  // `example.com.` and `example.com` are one host; the parser keeps the dot.
-  if (host !== url.hostname) url.hostname = host
+  // `example.com.` and `example.com` are one host; the parser keeps the dot. Assigning the value
+  // the URL already holds is a no-op, so this needs no "only if different" guard.
+  url.hostname = host
   return { ok: true, url }
 }

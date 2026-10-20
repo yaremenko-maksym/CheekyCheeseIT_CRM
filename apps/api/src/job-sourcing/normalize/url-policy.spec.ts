@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { checkStoredLink } from './url-policy'
+import { MAX_LINK_CHARS, checkStoredLink } from './url-policy'
 
 const reasonOf = (raw: string | null | undefined) => {
   const r = checkStoredLink(raw)
@@ -114,5 +114,36 @@ describe('checkStoredLink: host normalization', () => {
 
   it('keeps genuinely different hosts different', () => {
     expect(hostOf('https://bücher.example/j')).not.toBe(hostOf('https://bucher.example/j'))
+  })
+})
+
+describe('checkStoredLink: boundaries and malformed hosts', () => {
+  it('trims surrounding whitespace before parsing; whitespace-only is empty', () => {
+    expect(reasonOf('  https://jobs.example/j \n')).toBe('ACCEPTED')
+    expect(reasonOf('   \t ')).toBe('UNPARSEABLE')
+  })
+
+  it('the length cap is inclusive: exactly MAX_LINK_CHARS is accepted, one more is TOO_LONG', () => {
+    const prefix = 'https://jobs.example/'
+    expect(reasonOf(prefix + 'a'.repeat(MAX_LINK_CHARS - prefix.length))).toBe('ACCEPTED')
+    expect(reasonOf(prefix + 'a'.repeat(MAX_LINK_CHARS - prefix.length + 1))).toBe('TOO_LONG')
+  })
+
+  it('a password with no username is still userinfo', () => {
+    expect(reasonOf('https://:pw@jobs.example/j')).toBe('USERINFO')
+  })
+
+  it('refuses an empty host left by stripping dots, and an empty label inside the name', () => {
+    // The parser keeps all of these as names; only our check stands in the way.
+    expect(reasonOf('https://./x')).toBe('UNPARSEABLE')
+    expect(reasonOf('https://..../x')).toBe('UNPARSEABLE')
+    expect(reasonOf('https://a..b/x')).toBe('UNPARSEABLE')
+    expect(reasonOf('https://a..b../x')).toBe('UNPARSEABLE')
+    expect(reasonOf('https://a.b/x')).toBe('ACCEPTED')
+  })
+
+  it('strips trailing dots from the stored host so one host has one spelling', () => {
+    const r = checkStoredLink('https://jobs.example./j')
+    expect(r.ok && r.url.href).toBe('https://jobs.example/j')
   })
 })
