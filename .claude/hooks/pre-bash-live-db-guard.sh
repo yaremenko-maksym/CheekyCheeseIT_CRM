@@ -581,7 +581,8 @@ Full launches (copy one; the port is still required):
     DATABASE_URL= PGDATABASE=crm_qa API_PORT=3011 pnpm --filter @crm/api dev
 
 Не забудь и TTL-обёртку (отдельное требование, тоже обязательное):
-    scripts/devops/dev-ttl.sh -- DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_qa API_PORT=3011 pnpm --filter @crm/api dev
+    DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_qa PGDATABASE=crm_qa API_PORT=3011 scripts/devops/dev-ttl.sh -- pnpm --filter @crm/api dev
+(assignments go BEFORE dev-ttl.sh: it runs its arguments as a command, so NAME=value after the double dash fails with "command not found")
 
 Читать про запуск (grep/ls/git show, где слово vite или pnpm dev стоит аргументом) этот хук
 больше не мешает — он смотрит только на команду в позиции запуска.

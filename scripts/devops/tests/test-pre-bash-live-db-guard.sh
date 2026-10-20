@@ -72,6 +72,7 @@ assert_green "явно пустая DATABASE_URL + PGDATABASE=crm_qa + --port 30
 # ── red: every shape the #485 boot could have arrived in ──────────────────────
 assert_red "голый запуск: ни DATABASE_URL, ни порта" \
   --contains '"decision": "block"' \
+  --contains 'API_PORT=3011 scripts/devops/dev-ttl.sh -- pnpm --filter @crm/api dev' \
   --contains "[pre:bash:live-db-guard] BLOCK" \
   -- h "pnpm --filter @crm/api dev"
 
