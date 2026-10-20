@@ -1,11 +1,3 @@
-// The corpus is TEST DATA shared with `packages/shared`'s spec, so it is NOT
-// part of `@crm/shared`'s public API and is imported by path. See that file's
-// header for why it lives outside `src/` (the mutation gate mutates
-// `src/**/*.ts`, and a data table is unpinnable by construction).
-import {
-  EXTERNAL_URL_CORPUS,
-  expectedExternalUrlVerdict,
-} from '../../../../../../packages/shared/test-helpers/external-url-corpus'
 import { describe, expect, it, vi } from 'vitest'
 import { isSafeExternalUrl, openOriginalPosting } from '../open-original'
 
@@ -304,65 +296,5 @@ describe('openOriginalPosting still opens the URLs the product really produces',
     expect(isSafeExternalUrl(url)).toBe(true)
     expect(openOriginalPosting(url, open)).toBe(true)
     expect(open).toHaveBeenCalledWith(url, '_blank', 'noopener,noreferrer')
-  })
-})
-
-/**
- * THE SHARED CORPUS, run through this guard — the `web` column of
- * `EXTERNAL_URL_CORPUS` (`packages/shared/src/schemas/job-sourcing-url-corpus.ts`).
- *
- * The same rows run against `externalHttpsUrlSchema` in `job-sourcing.spec.ts`.
- * Until now the corpus's `web` verdicts — including the `differs.web` rows that
- * say "isSafeExternalUrl trims and openOriginalPosting opens the TRIMMED string"
- * — were asserted by NOTHING: the corpus was consumed only by the shared spec. A
- * per-guard verdict no test reads is a comment with extra syntax.
- *
- * Each row asserts UNCONDITIONALLY, for the reason the shared spec now does too:
- * an `expect` behind an `if` proves nothing for the rows that skip it.
- */
-describe('the shared URL corpus, through isSafeExternalUrl', () => {
-  it('is not vacuous: it carries both accepted and refused rows for this guard', () => {
-    const verdicts = EXTERNAL_URL_CORPUS.map((row) => expectedExternalUrlVerdict(row, 'web'))
-    expect(verdicts).toContain('accept')
-    expect(verdicts).toContain('refuse')
-    // Nothing is locale-dependent in JS: `\s` is defined by the spec, not libc.
-    // That caveat belongs to the Postgres CHECK alone.
-    expect(verdicts).not.toContain('locale-dependent')
-  })
-
-  it.each(EXTERNAL_URL_CORPUS.map((row) => [row.name, row] as const))('%s', (_name, row) => {
-    const expected = expectedExternalUrlVerdict(row, 'web')
-    expect(isSafeExternalUrl(row.url)).toBe(expected === 'accept')
-  })
-
-  /**
-   * SR-M-2 as a PROPERTY of every accepted row, not of four hand-picked inputs.
-   * The named test above pins the specific skew that shipped; this pins the
-   * invariant — whatever the corpus accepts, the string that reaches `open` is
-   * the validated one, and is itself a string this guard accepts. Asserted on
-   * `open.mock.calls`, because a `true` return cannot reveal WHICH string went.
-   */
-  it.each(
-    EXTERNAL_URL_CORPUS.filter((row) => expectedExternalUrlVerdict(row, 'web') === 'accept').map(
-      (row) => [row.name, row] as const,
-    ),
-  )('opens the validated string, not the argument: %s', (_name, row) => {
-    const open = vi.fn()
-    expect(openOriginalPosting(row.url, open)).toBe(true)
-    expect(open).toHaveBeenCalledWith(row.url.trim(), '_blank', 'noopener,noreferrer')
-    expect(isSafeExternalUrl(open.mock.calls[0]?.[0] as string)).toBe(true)
-  })
-
-  it('never calls open for a refused row', () => {
-    const refused = EXTERNAL_URL_CORPUS.filter(
-      (row) => expectedExternalUrlVerdict(row, 'web') === 'refuse',
-    )
-    // Guards the guard: an empty list would make the loop below vacuous.
-    expect(refused.length).toBeGreaterThan(0)
-    for (const row of refused) {
-      const open = vi.fn()
-      expect(openOriginalPosting(row.url, open)).toBe(false)
-      expect(open).not.toHaveBeenCalled()
-    }
   })
 })

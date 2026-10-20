@@ -19,7 +19,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",
-    "build": "tsc -p tsconfig.build.json --outDir dist",
+    "build": "tsc --outDir dist",
     "test": "vitest run",
     "test:watch": "vitest"
   },

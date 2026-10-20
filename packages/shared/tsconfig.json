@@ -8,10 +8,6 @@
     "declaration": true,
     "declarationMap": true
   },
-  // Specs ARE included here on purpose: this config is what `typecheck`
-  // (`tsc --noEmit`) uses, and a spec that does not typecheck is a spec nobody
-  // notices is broken. The BUILD uses `tsconfig.build.json`, which drops them —
-  // see the reason there.
   "include": ["src"],
   "exclude": ["node_modules", "dist"]
 }
