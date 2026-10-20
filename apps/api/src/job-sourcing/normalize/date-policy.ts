@@ -125,7 +125,8 @@ function parseRfc2822(raw: string): Parsed {
   const month = MONTHS.indexOf(String(m[2]).toLowerCase()) + 1
   const offset = zoneOffsetMinutes(m[7])
   // Legacy named zones (EST, PST...) are obsolete in RFC 5322 and ambiguous: rejected, not guessed.
-  if (month === 0 || offset === null) return { status: 'INVALID' }
+  // An unknown month name gives month 0, which `buildInstant` rejects as an impossible calendar value.
+  if (offset === null) return { status: 'INVALID' }
   return buildInstant(
     [Number(m[3]), month, Number(m[1]), Number(m[4]), Number(m[5]), Number(m[6] ?? 0), 0],
     offset,
