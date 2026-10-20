@@ -773,6 +773,31 @@ known, priced in above, and are wrapper work by design.
 - **R-5 is a probe, not a proof.** Ten shapes across an 8× range is not fuzzing, and the real
   advisory record for this class is dominated by shapes nobody enumerated in advance.
 
+## Review findings and where each landed
+
+Two review axes ran against this document (PR #1064). The verdict survived both; the wrapper
+contract did not. Recorded here so the disposition of each finding is greppable rather than
+reconstructed from PR comments.
+
+| ID           | Substance                                                     | Disposition                                                |
+| ------------ | ------------------------------------------------------------- | ---------------------------------------------------------- |
+| `MASTER-M-1` | "no option can resolve a DTD entity" is false                 | **fixed** — restated as the capability argument            |
+| `MASTER-M-2` | advisory data belonged in the table, `13` → `12`              | **fixed** — GHSA + DTD columns, basis stated               |
+| `SR-H-1`     | the three pinned assertions are not falsifiable               | **open → Task 2.4**, R-1; assertions removed from this doc |
+| `SR-M-2`     | bound values falsified; wall clock bounds nothing             | **open → Task 2.4**, R-2; 8 MiB withdrawn → 2 MiB          |
+| `SR-M-3`     | byte-level DOCTYPE check bypassable; `TextDecoder` non-fatal  | **open → Task 2.4**, R-3                                   |
+| `SR-M-4`     | fallback accepts undefined entities under every config        | **open → Task 2.4**, R-4; seam reclassified hypothetical   |
+| `SR-M-5`     | "independent corroboration" overclaims                        | **fixed** — paragraph withdrawn                            |
+| `SR-M-6`     | stale figures; query truncates without `pageInfo`             | **fixed** — 12 / 8, query gains `pageInfo`                 |
+| `SPEC-M-1`   | same as SR-M-4, from the spec axis                            | **open → Task 2.4**, R-4                                   |
+| `SPEC-M-2`   | advisory classes do not support the claim                     | **fixed** — same retraction as SR-M-5                      |
+| `SPEC-M-3`   | "thirteen" and "nine in 2026" stale                           | **fixed**                                                  |
+| `SPEC-M-4`   | `xml-stream` licence wrong; `sax` reason wrong; column sparse | **fixed** — both corrected, all ten rows sourced           |
+| `SPEC-M-5`   | C-20 unstated; 8 MiB unexplained; bounds DOU-only             | **fixed** (C-20, 2 MiB) + **open → 2.4** (bounds, R-2)     |
+
+**Findings: MASTER-M-1, MASTER-M-2, SR-H-1, SR-M-2, SR-M-3, SR-M-4, SR-M-5, SR-M-6, SPEC-M-1,
+SPEC-M-2, SPEC-M-3, SPEC-M-4, SPEC-M-5 (13)**
+
 ## Sources
 
 Every claim above traces to one of:
