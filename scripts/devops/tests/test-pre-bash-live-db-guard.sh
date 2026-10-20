@@ -637,7 +637,8 @@ for sh in bash sh dash zsh ksh; do
   for t in "-c '@P@' @W@" "@W@ -c '@P@'" "--rcfile @W@ -c '@P@'" "--init-file @W@ -c '@P@'" \
            "-o pipefail -c '@P@' @W@" "-o @W@ -c '@P@'" "-O extglob -c '@P@' @W@" "+O @W@ -c '@P@'" \
            "+o @W@ -c '@P@'" "-ec '@P@' x @W@" "-xc '@P@' @W@" "-c '@P@' -- @W@" "@W@ -- -c '@P@'" \
-           "-x -e -c '@P@' @W@ -- ls" "@W@ -x -c '@P@'" "-c '@P@' -c '@P@' @W@"; do
+           "-x -e -c '@P@' @W@ -- ls" "@W@ -x -c '@P@'" "-c '@P@' -c '@P@' @W@" \
+           "-c 'ls' -c '@P@' @W@" "-c 'ls' -c '@P@'" "-c 'ls' x -ec '@P@'"; do
     cmd="$sh ${t//@P@/pnpm --filter @crm/api dev}"; cmd="${cmd//@W@/dev-ttl.sh}"
     assert_red "SR-H-24 (семейство): $cmd" \
       --contains '"decision": "block"' \
