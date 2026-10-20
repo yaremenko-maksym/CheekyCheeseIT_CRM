@@ -624,6 +624,27 @@ for form in "bash -c '$BARE_API' dev-ttl.sh" "sh -c '$BARE_API' x dev-ttl.sh" "b
     -- h "$form"
 done
 
+# ═══ SR-H-24, the FAMILY: a code flag's payload is never discarded, wherever it sits ═══
+# Three attempts: the first discarded the payload with the tokens in front of a wrapper, the
+# second guarded ONE position (a code flag before the wrapper token) and still lost
+# `bash --rcfile dev-ttl.sh -c '<payload>'`, and only the third made it an invariant that does
+# not depend on position (every code flag's payload in the interpreter's whole token list goes
+# to nested-code scanning, whether or not any unwrap happens). The sweep puts ONE payload - a
+# launch with no pin - at every placement in the option region, before the wrapper token,
+# after it, as an operand of --rcfile / --init-file / -o / +o / -O / +O, in a combined short
+# group, behind --, repeated. Every placement must be found as a launch and refused.
+for sh in bash sh dash zsh ksh; do
+  for t in "-c '@P@' @W@" "@W@ -c '@P@'" "--rcfile @W@ -c '@P@'" "--init-file @W@ -c '@P@'" \
+           "-o pipefail -c '@P@' @W@" "-o @W@ -c '@P@'" "-O extglob -c '@P@' @W@" "+O @W@ -c '@P@'" \
+           "+o @W@ -c '@P@'" "-ec '@P@' x @W@" "-xc '@P@' @W@" "-c '@P@' -- @W@" "@W@ -- -c '@P@'" \
+           "-x -e -c '@P@' @W@ -- ls" "@W@ -x -c '@P@'" "-c '@P@' -c '@P@' @W@"; do
+    cmd="$sh ${t//@P@/pnpm --filter @crm/api dev}"; cmd="${cmd//@W@/dev-ttl.sh}"
+    assert_red "SR-H-24 (семейство): $cmd" \
+      --contains '"decision": "block"' \
+      -- h "$cmd"
+  done
+done
+
 # ═══ the two LOW message defects: advice that names the forms ═════════════════
 # `pnpm exec nest start --debug` and `pnpm ... exec node --inspect dist/main` were refused
 # with "write the launcher directly", which does not say what to write.

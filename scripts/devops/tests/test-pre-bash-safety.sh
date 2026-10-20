@@ -371,4 +371,26 @@ assert_red "SR-H-24: -o pipefail -c <деструктив> dev-ttl.sh" \
 assert_green "SR-H-24: настоящая обёртка (dev-ttl.sh — первый операнд) по-прежнему не трогает safety" \
   -- h "bash -o pipefail scripts/devops/dev-ttl.sh -- ls -la"
 
+# ── SR-H-24, the FAMILY: a code flag's payload is never discarded, wherever the flag sits ──
+# Three attempts on this one: the first discarded the payload with the tokens in front of a
+# wrapper, the second guarded ONE position (a code flag before the wrapper token) and so still
+# lost `bash --rcfile dev-ttl.sh -c '<payload>'`, and only the third made it an invariant that
+# does not depend on position: every code flag's payload in the interpreter's whole token list
+# goes to nested-code scanning, whether or not any unwrap happens. So the test sweeps ONE
+# structural payload (rm -rf /etc - NOT a psql DROP, which a text reading of a mis-parsed
+# segment catches anyway and so cannot discriminate) across every placement in the option
+# region: before the wrapper token, after it, as an operand of --rcfile / --init-file / -o /
+# +o / -O / +O, in a combined short group, behind --, repeated. Every placement refused.
+for sh in bash sh dash zsh ksh; do
+  for t in "-c '@P@' @W@" "@W@ -c '@P@'" "--rcfile @W@ -c '@P@'" "--init-file @W@ -c '@P@'" \
+           "-o pipefail -c '@P@' @W@" "-o @W@ -c '@P@'" "-O extglob -c '@P@' @W@" "+O @W@ -c '@P@'" \
+           "+o @W@ -c '@P@'" "-ec '@P@' x @W@" "-xc '@P@' @W@" "-c '@P@' -- @W@" "@W@ -- -c '@P@'" \
+           "-x -e -c '@P@' @W@ -- ls" "@W@ -x -c '@P@'" "-c '@P@' -c '@P@' @W@"; do
+    cmd="$sh ${t//@P@/rm -rf /etc}"; cmd="${cmd//@W@/dev-ttl.sh}"
+    assert_red "SR-H-24 (семейство): $cmd" \
+      --contains "[pre:bash:safety] BLOCK" \
+      -- h "$cmd"
+  done
+done
+
 guard_test_summary "test-pre-bash-safety.sh"

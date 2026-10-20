@@ -228,4 +228,20 @@ for flags in '-o pipefail' '--norc' '--' '+x' '-O extglob' '--rcfile /tmp/rc'; d
     -- h "bash $flags $TTL -- pnpm --filter @crm/api dev"
 done
 
+# ── SR-H-24, the FAMILY (this hook's consumer view) ─────────────────────────────
+# A code flag's payload is never discarded, wherever the flag sits in the interpreter's option
+# region (see the safety suite for the history: three attempts, only the position-independent
+# one is an invariant). Here the payload is a bare launch; every placement must be refused.
+for sh in bash sh dash zsh ksh; do
+  for t in "-c '@P@' @W@" "@W@ -c '@P@'" "--rcfile @W@ -c '@P@'" "--init-file @W@ -c '@P@'" \
+           "-o pipefail -c '@P@' @W@" "-o @W@ -c '@P@'" "-O extglob -c '@P@' @W@" "+O @W@ -c '@P@'" \
+           "+o @W@ -c '@P@'" "-ec '@P@' x @W@" "-xc '@P@' @W@" "-c '@P@' -- @W@" "@W@ -- -c '@P@'" \
+           "-x -e -c '@P@' @W@ -- ls" "@W@ -x -c '@P@'" "-c '@P@' -c '@P@' @W@"; do
+    cmd="$sh ${t//@P@/pnpm --filter @crm/api dev}"; cmd="${cmd//@W@/dev-ttl.sh}"
+    assert_red "ТТЛ-гейт SR-H-24 (семейство): $cmd" \
+      --contains '"decision": "block"' \
+      -- h "$cmd"
+  done
+done
+
 guard_test_summary "test-pre-bash-devserver-ttl-gate.sh"

@@ -246,6 +246,31 @@ WRAPPER_SPEC = {
 
 INTERPRETERS = {"sh", "bash", "zsh", "dash", "ksh", "ash"}
 
+
+def _is_code_flag(tok):
+    # Deliberately BROAD: any dash-led token containing "c" (-c, -ec, -xc, --command, and
+    # also --rcfile). Over-matching only hands one more operand to nested scanning, which is
+    # the safe direction; the list that would be exact is a taxonomy of every interpreter
+    # option, and a known-incomplete list that never hides a payload beats a complete-looking
+    # one that does.
+    return tok.startswith("-") and "c" in tok[1:]
+
+
+def _interpreter_code_payloads(tokens):
+    """EVERY payload an interpreter's code flags introduce, wherever the flags sit.
+
+    SR-H-24 is a family, not an instance: the payload of `-c` has to reach nested-code
+    scanning independently of (a) where the flag is relative to anything else, (b) whether
+    the segment is later unwrapped, reclassified or its tokens rewritten. The first attempt
+    discarded the payload with the tokens in front of a wrapper, the second guarded ONE
+    position (a code flag before the wrapper token) and so still lost
+    `bash --rcfile dev-ttl.sh -c <payload>`. Decided by position, the invariant had a hole
+    per placement; so it is now a sweep over the whole token list, and no later step gets to
+    decide whether it applies.
+    """
+    return [tokens[i + 1] for i, t in enumerate(tokens)
+            if _is_code_flag(t) and i + 1 < len(tokens)]
+
 # Commands this module claims to understand well enough to judge by NAME ALONE.
 # Membership means one of exactly two things and nothing else:
 #
@@ -746,6 +771,10 @@ def _unwrap(tokens, assigns):
                 if t == "--command" or (t.startswith("-") and not t.startswith("--") and "c" in t[1:]):
                     break
             if j is not None:
+                # Whatever this unwrap throws away (or reclassifies as an argument of
+                # dev-ttl.sh), no code flag's payload goes with it: sweep the WHOLE
+                # interpreter token list first, before and after the token alike.
+                nested_code.extend(_interpreter_code_payloads(tokens[1:]))
                 wrappers.append(base)
                 tokens = tokens[j:]
                 continue
@@ -1120,10 +1149,7 @@ def _build_segment(raw, tokens, heredocs, running_env, depth, degraded):
 
     # `sh -c "<script>"` — the script is code, not an argument. Parse it.
     if name in INTERPRETERS:
-        for idx, tok in enumerate(argv):
-            if tok.startswith("-") and "c" in tok[1:] and idx + 1 < len(argv):
-                nested.append(argv[idx + 1])
-                break
+        nested.extend(_interpreter_code_payloads(argv))
 
     if name == "find":
         nested.extend(_find_exec_commands(argv))
