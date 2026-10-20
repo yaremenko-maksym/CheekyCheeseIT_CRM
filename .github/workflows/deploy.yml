@@ -959,6 +959,15 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          # PILOT (host-key pinning): the ONLY step so far that verifies the VPS host key.
+          # A LITERAL on purpose, not vars.*: an empty/renamed variable would silently turn
+          # verification off (easyssh-proxy falls back to InsecureIgnoreHostKey), a literal
+          # cannot be empty and is reviewed in git. It is public data. Rotating the host key
+          # therefore needs a PR - correct for a trust anchor.
+          # It is the ECDSA key, NOT ED25519: Go's x/crypto/ssh offers ECDSA before ED25519 and
+          # easyssh-proxy sets no HostKeyAlgorithms, so ECDSA is what gets negotiated. Format:
+          # "SHA256:<unpadded base64>", compared by exact string equality.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
           # Pass env vars declared above into the remote shell.
           envs: IMAGE_TAG,POSTGRES_PASSWORD,GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET,JWT_SECRET,SESSION_SECRET,CREDENTIALS_ENC_KEY,S3_ENDPOINT,S3_FORCE_PATH_STYLE,S3_REGION,S3_BUCKET,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,TURNSTILE_SECRET_KEY,TELEMETRY_DIGEST_TOKEN,TELEMETRY_SESSION_SALT,GOOGLE_INDEXING_SA_EMAIL,GOOGLE_INDEXING_SA_KEY_B64,PUBLIC_LANDING_ORIGIN,RESEND_API_KEY,CLOUDFLARE_AI_TOKEN,CLOUDFLARE_ACCOUNT_ID,JEV_API_KEY,OPENROUTER_API_KEY,LOCAL_MODEL_URL,LOCAL_MODEL_KEY,LOCAL_MODEL_NAME,INFERENCE_EXTRACTION_PROVIDER,GH_ACTOR
           script: |
