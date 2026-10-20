@@ -388,6 +388,10 @@ UNDERSTOOD = set(INTERPRETERS) | {
 
 ASSIGN_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$", re.S)
 HEREDOC_RE = re.compile(r"^<<(-?)\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\2")
+# `<<\EOF` quotes the delimiter exactly as `<<'EOF'` does — bash treats a
+# backslash-escaped delimiter as quoted and performs NO expansion in the body.
+# HEREDOC_RE never matched this form, so such a body was read as ordinary code.
+HEREDOC_ESC_RE = re.compile(r"^<<(-?)\s*\\([A-Za-z_][A-Za-z0-9_]*)")
 OPERATORS = ("||", "&&", ";;", ";", "|", "&", "\n")
 SUBST_MARKER = "$__CMDSCAN_SUBST__"
 
@@ -481,13 +485,127 @@ class Scan:
 # $( ... ) and ` ... ` RUN commands, so their contents are parsed as commands of
 # their own. In command position they leave a marker, so the segment's command
 # word reads as unresolvable (dynamic) rather than as the literal "$(".
-def _extract_substitutions(text):
+def _heredoc_opener(text, i):
+    """(length, delimiter, strip_tabs, literal) if a heredoc opens at text[i].
+
+    `literal` is bash's own distinction and the one that matters here: a QUOTED
+    delimiter (`<<'EOF'`, `<<"EOF"`, `<<\\EOF`) suppresses EVERY expansion in the
+    body, so the body is data and nothing else. An unquoted `<<EOF` body really
+    is expanded by the shell, so a substitution written in one really does run
+    and must keep being read as code.
+    """
+    if not text.startswith("<<", i) or text.startswith("<<<", i):
+        return None
+    rest = text[i:]
+    m = HEREDOC_RE.match(rest)
+    if m:
+        return m.end(), m.group(3), m.group(1) == "-", bool(m.group(2))
+    m = HEREDOC_ESC_RE.match(rest)
+    if m:
+        return m.end(), m.group(2), m.group(1) == "-", True
+    return None
+
+
+def _heredoc_literal_spans(text):
+    """Byte spans of heredoc bodies whose delimiter was QUOTED.
+
+    WHY THIS EXISTS (2026-10-21). Stage 2 below is emphatic that a heredoc body
+    is data, never code — and stage 1 ran FIRST and had already mined it. The
+    substitution extractor walked the whole line before anyone had decided where
+    the heredoc bodies were, so every `$(…)` and backtick inside a body was
+    lifted out and recursively scanned as a command. Three of the four false
+    positives reported on 2026-10-21 were exactly that, and all three used a
+    QUOTED delimiter, i.e. the one case where bash itself guarantees the body is
+    inert:
+
+        cat > note.md <<'EOF' … `pnpm dev` boots the web app … EOF   -> 3 "launches"
+        gh pr create --body "$(cat <<'EOF' … `pnpm why vite` … EOF)" -> 1 "launch"
+        python3 - <<'PYEOF' … print("- `vite` …") … PYEOF            -> 2 "launches"
+
+    A markdown bullet and a Python string literal are not command position, and
+    a guard that reads them is reading the wrong text — which is the whole
+    disease this module was written to cure, surviving in the one stage that ran
+    before segmentation.
+
+    Nothing is relaxed for the body an unquoted `<<EOF` introduces: the shell
+    expands it, so it stays code. The scan deliberately MIRRORS the body loop in
+    _split_segments — the two must agree on where a body ends, or a span would
+    protect text the segmenter still reads as code.
+    """
+    spans = []
+    pending = []
+    quote = None
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if quote is not None:
+            if ch == "\\" and quote == '"' and i + 1 < n:
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+            i += 1
+            continue
+        if ch in ("'", '"'):
+            quote = ch
+            i += 1
+            continue
+        if ch == "\\" and i + 1 < n:
+            i += 2
+            continue
+        opener = _heredoc_opener(text, i)
+        if opener is not None:
+            length, delim, strip_tabs, literal = opener
+            pending.append((delim, strip_tabs, literal))
+            i += length
+            continue
+        if ch == "\n" and pending:
+            i += 1
+            for delim, strip_tabs, literal in pending:
+                start = i
+                body_end = i
+                while i < n:
+                    j = text.find("\n", i)
+                    line = text[i:] if j < 0 else text[i:j]
+                    nxt = n if j < 0 else j + 1
+                    cand = line.lstrip("\t") if strip_tabs else line
+                    i = nxt
+                    if cand.strip() == delim:
+                        break
+                    body_end = i
+                if literal and body_end > start:
+                    spans.append((start, body_end))
+            pending = []
+            continue
+        i += 1
+    return spans
+
+
+def _span_end(i, spans):
+    """End offset of the protected span containing `i`, or None."""
+    for start, end in spans:
+        if start <= i < end:
+            return end
+    return None
+
+
+def _extract_substitutions(text, protected=()):
     out = []
     inners = []
     i = 0
     n = len(text)
     while i < n:
         ch = text[i]
+        if protected:
+            # Emitted verbatim, so the segmenter still sees the body and still
+            # attaches it as this segment's PAYLOAD — the data surface that
+            # `psql <<'EOF' … EOF` is judged on. Only the harvesting stops.
+            end = _span_end(i, protected)
+            if end is not None:
+                out.append(text[i:end])
+                i = end
+                continue
         if ch == "'":  # single quotes suppress substitution entirely
             j = text.find("'", i + 1)
             j = n - 1 if j < 0 else j
@@ -1327,7 +1445,9 @@ def candidates(seg, code=False):
 
 def scan(command_line, depth=0, env=None):
     global _STRIP_COMMENTS
-    text, inners = _extract_substitutions(command_line or "")
+    command_line = command_line or ""
+    text, inners = _extract_substitutions(
+        command_line, _heredoc_literal_spans(command_line))
     raw_segments, code_view = _split_segments(text)
 
     segments = []
