@@ -47,6 +47,28 @@ describe('checkStoredLink: rejections (each has a nearby accepted control)', () 
     expect(reasonOf('https://123abc.example/j')).toBe('ACCEPTED')
   })
 
+  it('regression: repeated trailing dots must not smuggle an address past the check', () => {
+    // The parser keeps `127.0.0.1...` as a NAME (not an address), so a pre-normalization check
+    // passes it, and trailing-dot stripping then yields the bare loopback literal. These were
+    // ACCEPTED by the first implementation; `127.0.0.1.` (one dot) never was.
+    for (const bad of [
+      'https://127.0.0.1../x',
+      'https://127.0.0.1.../x',
+      'https://169.254.169.254.../latest/meta-data',
+    ]) {
+      expect(reasonOf(bad), bad).toBe('IP_LITERAL')
+    }
+    expect(reasonOf('https://127.0.0.1./x')).toBe('IP_LITERAL')
+  })
+
+  it('an address-shaped string that is not an address cannot be a stored link at all', () => {
+    expect(reasonOf('https://999.999.999.999/j')).toBe('UNPARSEABLE')
+  })
+
+  it('does not treat a name that merely contains digits as an address', () => {
+    expect(reasonOf('https://123abc.example/j')).toBe('ACCEPTED')
+  })
+
   it('rejects unparseable, empty, nullish and oversized input', () => {
     expect(reasonOf('not a url')).toBe('UNPARSEABLE')
     expect(reasonOf('')).toBe('UNPARSEABLE')
