@@ -187,3 +187,45 @@ jobs:
             fi
             rm -rf -- "$CANARY_DIR"
             test ! -e "$CANARY_DIR" && echo "removed $CANARY_DIR"
+
+      # ── Assertion: the run is green only if EVERY control behaved as expected ──────────
+      # Outcomes arrive through env: (never interpolated into the script body).
+      - name: Assert every control behaved as expected
+        if: always()
+        env:
+          SSH120_NEG: ${{ steps.ssh120_neg.outcome }}
+          SSH120_POS: ${{ steps.ssh120_pos.outcome }}
+          SSH123_NEG: ${{ steps.ssh123_neg.outcome }}
+          SSH123_POS: ${{ steps.ssh123_pos.outcome }}
+          SCP_NEG: ${{ steps.scp_neg.outcome }}
+          SCP_POS: ${{ steps.scp_pos.outcome }}
+          VERIFY: ${{ steps.verify.outcome }}
+          CLEANUP: ${{ steps.cleanup.outcome }}
+        run: |
+          set -u
+          fail=0
+          {
+            echo "## Host-key pin canary"
+            echo
+            echo "| Control | Expected | Actual | Result |"
+            echo "| --- | --- | --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          check() { # <label> <expected outcome> <actual outcome> <meaning if wrong>
+            if [ "$3" = "$2" ]; then r=OK; else r=MISBEHAVED; fail=1; echo "::error::CONTROL MISBEHAVED: $1 - expected $2, got $3. $4"; fi
+            echo "| $1 | $2 | $3 | $r |" >> "$GITHUB_STEP_SUMMARY"
+          }
+          NEG="a wrong fingerprint was NOT rejected: this version does not enforce the pin (or ignores the input)."
+          POS="the correct fingerprint did not connect: the step is broken for an unrelated reason, so its negative result proves nothing."
+          check "ssh-action v1.2.0 negative" failure "$SSH120_NEG" "$NEG"
+          check "ssh-action v1.2.0 positive" success "$SSH120_POS" "$POS"
+          check "ssh-action v1.2.3 negative" failure "$SSH123_NEG" "$NEG"
+          check "ssh-action v1.2.3 positive" success "$SSH123_POS" "$POS"
+          check "scp-action v0.1.7 negative" failure "$SCP_NEG" "$NEG"
+          check "scp-action v0.1.7 positive" success "$SCP_POS" "$POS"
+          check "verify (positive files landed, negative files absent)" success "$VERIFY" "See the verify step log: a negative file PRESENT means data crossed on a mismatch; a positive file MISSING means a positive control wrote nothing."
+          check "cleanup (throwaway directory removed)" success "$CLEANUP" "The run-unique directory under /tmp may still exist on the host; remove it by hand."
+          if [ "$fail" -ne 0 ]; then
+            echo "FAIL: at least one control misbehaved - host-key pinning is NOT proven for every version."
+            exit 1
+          fi
+          echo "PASS: every negative control was rejected and every positive control connected."
