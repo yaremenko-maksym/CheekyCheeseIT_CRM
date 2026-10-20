@@ -1,0 +1,48 @@
+name: Host-key pin canary
+
+# NEGATIVE-CONTROL CANARY for host-key pinning. Manual only: never on push, never on a schedule.
+#
+# Why: a green deploy cannot tell "the fingerprint matched" from "the action silently ignored an
+# input it does not declare". For each action version this runs a PAIR against the real VPS:
+#   negative control - deliberately WRONG fingerprint; expected to FAIL (host-key mismatch)
+#   positive control - the correct fingerprint, same target; expected to SUCCEED
+# The positive half is what separates "the pin enforces" from "this step is broken for an
+# unrelated reason". The final assert job-step turns the outcomes into one readable result:
+# green only if every control behaved as expected.
+#
+# Writes to the VPS: only files under a run-unique /tmp path, removed in the same run.
+# Never touches /opt/crm, the stack, the database or any file the deploy uses.
+#
+# The wrong literal below is a TEST VALUE (the real fingerprint with its case inverted). It is
+# tolerated only here, in an exact count, by scripts/devops/check-ssh-action-host-key-pinned.py
+# (CANARY_FILES). Do not copy it anywhere else.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: host-key-pin-canary
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    name: Host-key pin canary
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      # Run-unique throwaway directory on the VPS. Validated against this prefix before removal.
+      CANARY_PREFIX: /tmp/hostkey-canary-
+      CANARY_DIR: /tmp/hostkey-canary-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Generate payload files on the runner
+        run: |
+          set -euo pipefail
+          mkdir -p canary-payload
+          for n in scp-neg scp-pos; do
+            echo "host-key canary $n run ${GITHUB_RUN_ID}" > "canary-payload/${n}.txt"
+          done
+          ls -l canary-payload
