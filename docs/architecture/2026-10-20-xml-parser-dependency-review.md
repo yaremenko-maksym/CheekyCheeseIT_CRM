@@ -24,13 +24,9 @@ option can switch on.**
 Measured: all four attack documents fail with `Named entity isn't defined`, and the network canary
 recorded **0 hits across all 78 parser×case runs**.
 
-**The historical record agrees, independently: the parsers carrying DTD machinery hold 36 of the
-37 advisories across this shortlist; the one adopted here, which has none, has zero.**
-`@xmldom/xmldom` holds 22, `fast-xml-parser` 12, `libxmljs2` 2 — and the single remaining advisory
-(against `xml2js`) is prototype pollution, not an entity class. That figure comes from four years
-of other people's incidents rather than from reading source, so it is **corroboration from an
-unrelated line of evidence**, not a restatement. It is also the part of this document that
-survives being summarised into one sentence, which the option-surface reasoning does not.
+The capability argument stands on its own. It is deliberately **not** propped up by the advisory
+distribution — see "Why the advisory counts are not corroboration" below, where an earlier
+revision of this document made exactly that mistake and it was removed.
 
 **This is deliberately _not_ phrased as "no option can resolve an entity", because that weaker
 claim is false and was falsified during review.** Two of the eight options do bear on entities:
@@ -76,25 +72,48 @@ read first.
 | ------------------- | -------------------------------- | ------------- | ------- | -------------------------------------------------- | ------------ | ------------------- | ----------------- | ----------------------- | ------------ | ---------------------------------------------- |
 | `@rgrove/parse-xml` | **0**                            | **none**      | 5.0.0   | **ISC** (`node_modules/@rgrove/parse-xml/LICENSE`) | 2026-08-30   | 5                   | no                | **0**                   | 396 KB       | **ADOPTED**                                    |
 | `fast-xml-parser`   | **12** (1 CRITICAL, 6 HIGH)      | yes           | 5.11.2  | **MIT** (`node_modules/fast-xml-parser/LICENSE`)   | 2026-09-29   | 72                  | no                | 6 direct / 7 transitive | 1.4 MB       | fallback adapter — latest HIGH 2026-07-21      |
-| `sax`               | 0                                | partial       | 1.6.1   | **BlueOak-1.0.0** (`LICENSE.md`)                   | 2026-07-24   | 8                   | no                | 0                       | 72 KB        | rejected — error-tolerant by design            |
+| `sax`               | 0                                | partial       | 1.6.1   | **BlueOak-1.0.0** (`LICENSE.md`)                   | 2026-07-24   | 8                   | no                | 0                       | 72 KB        | **runner-up** — rejected on integration cost   |
 | `@xmldom/xmldom`    | **22** (1 CRITICAL, **18 HIGH**) | yes           | 0.9.12  | **MIT** (`LICENSE`)                                | 2026-08-23   | 18                  | no                | 0                       | 452 KB       | rejected — worst row in the table              |
-| `saxes`             | 0                                | partial       | 6.0.0   | ISC                                                | 2022-05-17   | **0**               | no                | 1                       | 164 KB       | rejected — maintenance lapse                   |
-| `xml2js`            | 1 (MODERATE, 2023-04-05)         | no            | 0.6.2   | MIT                                                | 2024-05-31   | 0 since 2024-05     | no                | 2                       | 3.4 MB       | rejected — effectively unmaintained            |
-| `htmlparser2`       | 0                                | no            | 12.0.0  | MIT                                                | 2026-03-20   | 5                   | no                | 4                       | 235 KB       | rejected — HTML error recovery, not strict XML |
-| `libxmljs2`         | **2 (both CRITICAL)**            | yes (libxml2) | 0.37.0  | MIT                                                | 2025-06-01   | 2                   | **yes (libxml2)** | 3                       | 7.2 MB       | rejected — see below                           |
-| `node-xml-stream`   | 0                                | no            | 1.0.2   | MIT                                                | 2022-05-11   | 0                   | no                | —                       | —            | rejected — abandoned                           |
-| `xml-stream`        | 0                                | no            | 0.4.5   | _none declared_                                    | 2024-11-04   | 0                   | yes (expat)       | —                       | —            | rejected — no licence field, native            |
+| `saxes`             | 0                                | partial       | 6.0.0   | **ISC** (`package.json` field only, no file)       | 2022-05-17   | **0**               | no                | 1                       | 164 KB       | rejected — maintenance lapse                   |
+| `xml2js`            | 1 (MODERATE, 2023-04-05)         | no            | 0.6.2   | **MIT** (`LICENSE`)                                | 2024-05-31   | 0 since 2024-05     | no                | 2                       | 3.4 MB       | rejected — effectively unmaintained            |
+| `htmlparser2`       | 0                                | no            | 12.0.0  | **MIT** (`LICENSE`)                                | 2026-03-20   | 5                   | no                | 4                       | 235 KB       | rejected — HTML error recovery, not strict XML |
+| `libxmljs2`         | **2 (both CRITICAL)**            | yes (libxml2) | 0.37.0  | **MIT** (`LICENSE`)                                | 2025-06-01   | 2                   | **yes (libxml2)** | 3                       | 7.2 MB       | rejected — native bindings, 2 CRITICALs        |
+| `node-xml-stream`   | 0                                | no            | 1.0.2   | **MIT** (field only, not installed)                | 2022-05-11   | 0                   | no                | —                       | —            | rejected — abandoned since 2022                |
+| `xml-stream`        | 0                                | no            | 0.4.5   | **MIT** (`LICENSE`; field absent — see note)       | 2024-11-04   | 0                   | yes (expat)       | —                       | —            | rejected — abandoned + native expat            |
 
-**The pattern in those two columns is the document's strongest single argument, and it is not
-about popularity.** Of the **37** advisories across the whole shortlist, **36 sit with the three
-parsers that carry DTD machinery** — `@xmldom/xmldom` (22), `fast-xml-parser` (12) and `libxmljs2`
-(2). The one remaining advisory, against `xml2js`, is a prototype-pollution issue, **not** an
-entity or XXE class. The chosen parser, which has no DTD machinery at all, has **zero**.
+### Why the advisory counts are **not** corroboration of the capability argument
 
-This matters because it is **independent corroboration**. The capability argument in the verdict
-is derived from reading the parser's source; this is derived from four years of other people's
-incident history. Two unrelated lines of evidence agreeing is worth more than either alone, and
-unlike the option-surface reasoning, it survives being summarised into one sentence.
+An earlier revision of this document claimed the distribution above was "the capability argument
+showing up in the historical record" — that the DTD-carrying parsers hold 36 of the 37 advisories,
+therefore DTD machinery causes advisories. **That claim does not survive reading the advisories,
+and it is withdrawn.** It was checked by class rather than by count:
+
+| Package           | Advisories | Actual classes                                                                                                                                                                                                                  | Entity/XXE class? |
+| ----------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| `@xmldom/xmldom`  | 22         | DocType **name** injection; attribute / element / PI / comment / CDATA **serialization** injection (`requireWellFormed`); quadratic attribute deduplication; quadratic-time parsing; quadratic memory; 2 × ReDoS; recursion DoS | **none**          |
+| `libxmljs2`       | 2          | type confusion                                                                                                                                                                                                                  | **none**          |
+| `fast-xml-parser` | 12         | ~7 entity / DOCTYPE class, remainder prototype pollution and DoS                                                                                                                                                                | partly            |
+| `xml2js`          | 1          | prototype pollution                                                                                                                                                                                                             | no                |
+
+So roughly **24 of the 36 do not bear on entity handling at all**. The counts are real and the
+column stays — an advisory load is a maintenance fact worth knowing — but they do **not** test the
+proposition they were cited for, and a reader who accepts the count as evidence for the capability
+argument has been misled.
+
+Two further reasons not to lean on it, both fair: **zero advisories for a low-traffic package is
+also what low scrutiny produces**, so the chosen parser's `0` is not purely a safety signal; and
+the original framing ("not about popularity") asserted away precisely that objection.
+
+**What the numbers do legitimately support**, stated narrowly: `fast-xml-parser`'s own history
+contains repeated **entity and DOCTYPE-class** advisories (~7 of 12), which is direct evidence
+that _its_ DTD machinery has been a recurring source of defects — relevant to it being the
+fallback rather than the primary. Nothing more is claimed.
+
+**This mistake is the same defect as MASTER-M-1**, two revisions later and in the opposite
+direction: there an absolute claim outran the evidence, here a true-sounding statistic was
+recruited for a proposition it does not address. Both were available to catch for free. It is
+recorded in `BACKLOG-followups.md` entry 259, which is about exactly this, and the recurrence
+inside the same document is the most useful thing in that entry.
 
 Two rows deserve their numbers stated rather than characterised:
 
@@ -112,9 +131,34 @@ Two rows deserve their numbers stated rather than characterised:
 **No copyleft appeared.** ISC, MIT and BlueOak-1.0.0 are all permissive and compatible with a
 closed-source commercial product. `fast-xml-parser`'s 7 transitive packages are each MIT
 (`@nodable/entities`, `fast-xml-builder`, `is-unsafe`, `path-expression-matcher`, `strnum`,
-`anynum`, `xml-naming`), verified by reading each `package.json` `license` field. `xml-stream`
-declares **no licence at all**, which is a rejection on its own — absent a grant, the default is
-"no permission".
+`anynum`, `xml-naming`), verified by reading each `package.json` `license` field.
+
+> **Correction — `xml-stream`'s licence.** An earlier revision rejected it for declaring "no
+> licence at all… absent a grant, the default is no permission". **That was wrong.** Unpacking
+> `xml-stream@0.4.5` shows a `LICENSE` file carrying a **full MIT grant**; only the `package.json`
+> `license` field is absent. The error is worse than a wrong cell: this document states its method
+> as "licence read from the `LICENSE` file inside the installed package, not from the npm page",
+> and on the one row where the file and the field disagreed, the field was used. **The rejection
+> stands on different grounds** — abandoned (no release since 2024, 0 since) and native expat
+> bindings, the same liability as `libxmljs2`.
+>
+> **Two rows could not be read from a file** and say so in the table rather than implying
+> otherwise: `saxes` ships no licence file (ISC in the field only), and `node-xml-stream` was never
+> installed, so its MIT is field-only and its deps and size are "not measured" rather than "—".
+
+> **Correction — `sax`'s rejection reason.** An earlier revision rejected it as "error-tolerant by
+> design". **In strict mode it is not:** `sax.parser(true, { strictEntities: true })` throws
+> `Unclosed root tag` on the truncated envelope and `Invalid character entity` on an undefined
+> entity — so it satisfies the drift requirement that `fast-xml-parser` fails. It is also
+> maintained (2026-07-24), **0 advisories**, 0 dependencies, 72 KB. It is therefore the
+> **runner-up, not a dismissal**, and is rejected on _integration cost_: it is a tokenizer, so the
+> document tree, namespace scoping and feed semantics would all be ours to build, and its
+> error-tolerant default is a footgun to inherit across ~25 adapters (strict mode and a correct
+> `onerror` are opt-in, and getting either wrong fails silently). **One consequence to preserve:**
+> because `sax` is streaming, it is the one candidate that could enforce a **wall-clock bound
+> mid-parse** by checking a deadline inside its handlers. If a time bound ever proves necessary
+> and a byte cap proves insufficient, `sax` is where to look, and this review should not be read
+> as having closed that door.
 
 **`libxmljs2` rejected on the native-bindings liability, stated rather than argued:** it compiles
 libxml2 from source via `node-gyp` unless a prebuild matches. That puts a C toolchain on the
@@ -145,11 +189,22 @@ single query. The alternatives are traps: the raw response returns one row per
 withdrawn advisories (`@xmldom/xmldom`: 23 unfiltered, **22** non-withdrawn). To re-derive:
 
 ```bash
+# NOTE the pageInfo: without it this query silently truncates at the page size.
+# @xmldom/xmldom already returns 41 rows, so `first: 50` has little headroom left and a
+# future recheck would under-count without announcing it.
 gh api graphql -f query='{ securityVulnerabilities(ecosystem: NPM, package: "fast-xml-parser",
-  first: 50) { nodes { advisory { ghsaId severity publishedAt withdrawnAt } } } }' \
-  --jq '[.data.securityVulnerabilities.nodes[].advisory | select(.withdrawnAt == null)]
-        | map(.ghsaId) | unique | length'
+  first: 100) { pageInfo { hasNextPage } nodes { advisory { ghsaId severity publishedAt
+  withdrawnAt } } } }' \
+  --jq '.data.securityVulnerabilities
+        | (if .pageInfo.hasNextPage then "TRUNCATED — paginate" else "complete" end) as $c
+        | [.nodes[].advisory | select(.withdrawnAt == null)] | map(.ghsaId) | unique | length
+        | "\(.) (\($c))"'
 ```
+
+**Row counts are not advisory counts, and the gap grows.** At the time of writing:
+`fast-xml-parser` 17 rows → 12 advisories; `@xmldom/xmldom` 41 rows → 22. Any recheck must assert
+`hasNextPage == false` or paginate, otherwise the number degrades silently — the failure mode this
+whole document is about.
 
 > **Correction.** An earlier revision of this file said "13" for `fast-xml-parser`. That was a
 > miscount of the 17 version-range rows by eye, not a different counting basis. The correct figure
@@ -165,15 +220,16 @@ gh api graphql -f query='{ securityVulnerabilities(ecosystem: NPM, package: "fas
 Three consequences, stated rather than buried:
 
 1. **It reframes fast-xml-parser's release cadence.** Above I recorded 72 releases since 2024 as a
-   health signal; the advisory history shows a good part of that churn is **security response**,
-   including nine advisories in 2026 alone. High cadence here means "frequently found vulnerable",
-   not simply "actively maintained".
+   health signal; the advisory history shows a good part of that churn is **security response** —
+   **8 advisories published in 2026** by `publishedAt` (an earlier revision said "nine"). High
+   cadence here means "frequently found vulnerable" as much as "actively maintained".
 2. **The chosen fallback version is patched** — 5.11.2 is past 5.10.1 — but if the
    `FastXmlParserAdapter` is ever activated, it must be **re-pinned at activation time**, not
    adopted at the version recorded in this document.
-3. **It independently supports the verdict.** The parser with no DTD machinery has no advisory
-   history; the parser with DTD and entity machinery has thirteen. That is the capability argument
-   showing up in the historical record.
+3. **~7 of fast-xml-parser's 12 advisories are entity or DOCTYPE class.** That is evidence about
+   _that_ package's DTD machinery specifically, and it is the only inference the counts support.
+   It is **not** evidence that DTD machinery causes advisories in general — see "Why the advisory
+   counts are not corroboration" above.
 
 `npm audit` over the installed set separately reported **`found 0 vulnerabilities`**
 (fast-xml-parser 5.11.2, @rgrove/parse-xml 5.0.0, sax 1.6.1, @xmldom/xmldom 0.9.12 and all
