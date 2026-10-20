@@ -118,6 +118,15 @@ describe('buildIdentity: persisted key layout and limits (literal expectations)'
     )
   })
 
+  it('with no identityParams declared, no query param can enter the key, whatever its name', () => {
+    // The default is the EMPTY allow-list. An arbitrary-looking name guards against a default that
+    // quietly allows something.
+    const url = 'https://jobs.example/j/1?Stryker%20was%20here=1&id=7'
+    expect(keyOf({ ...base, nativeId: null, url })).toBe(
+      '["v1","URL","REMOTEOK_API","board","jobs.example","/j/1",[]]',
+    )
+  })
+
   it('accepts a namespace of exactly 128 chars and quarantines 129', () => {
     expect(buildIdentity({ ...base, namespace: 'n'.repeat(128), nativeId: '1' }).ok).toBe(true)
     expect(buildIdentity({ ...base, namespace: 'n'.repeat(129), nativeId: '1' })).toEqual({
