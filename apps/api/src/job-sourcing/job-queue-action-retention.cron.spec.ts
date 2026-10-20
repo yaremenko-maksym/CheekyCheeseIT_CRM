@@ -2,9 +2,13 @@ import { Logger } from '@nestjs/common'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DatabaseService } from '../database/database.service'
 import {
+  JOB_QUEUE_ACTION_PURGE_FAILURE_MARKER,
   JOB_QUEUE_ACTION_PURGE_SQL,
   JobQueueActionRetentionCronService,
 } from './job-queue-action-retention.cron'
+
+/** A value that must never appear in a log line. */
+const SECRET = 'SECRET-VALUE-123'
 
 /**
  * r5 Task 1.4a — the caller the purge function did not have.
@@ -61,12 +65,28 @@ describe('JobQueueActionRetentionCronService.purgeExpiredActions', () => {
     await expect(new JobQueueActionRetentionCronService(db).purgeExpiredActions()).resolves.toBe(17)
   })
 
-  it('reports 0 when the function returns no row at all', async () => {
+  /**
+   * WHICH OF THE TWO THE DRIVER CAN ACTUALLY PRODUCE, since the question decides what
+   * these two cases are worth. `undefined` is the reachable one: it is what
+   * `rows[0]?.purged` yields whenever the result carries no row, which is the shape a
+   * failed or rewritten statement would hand back. A `null` VALUE is not reachable
+   * through the shipped function — it is declared `RETURNS bigint` and `GET
+   * DIAGNOSTICS` always assigns the row count, so it cannot return SQL NULL — but a
+   * future `AS purged` over a different expression could, and `Number(null)` being 0
+   * rather than NaN is a coincidence of JS worth having pinned either way. Both are
+   * asserted; only the first is a real driver state today.
+   */
+  it('reports 0 rather than NaN when the result carries no row (the real NaN risk)', async () => {
     const { db } = dbReturning(undefined)
     await expect(new JobQueueActionRetentionCronService(db).purgeExpiredActions()).resolves.toBe(0)
   })
 
-  it('reports 0 rather than NaN when the value is null', async () => {
+  it('reports 0 for a SQL NULL count (which JS numeric coercion already gives)', async () => {
+    // Renamed in fix round 1: as "reports 0 rather than NaN when the value is null"
+    // this case documented a risk it does not carry. `Number(null)` IS 0, so it passes
+    // with or without any null handling — the NaN risk belongs to `undefined`, which
+    // the case above owns. Kept, because the behaviour is worth stating; no longer
+    // claiming to pin a guard it cannot pin.
     const { db } = dbReturning(null)
     await expect(new JobQueueActionRetentionCronService(db).purgeExpiredActions()).resolves.toBe(0)
   })
@@ -144,19 +164,62 @@ describe('JobQueueActionRetentionCronService.handleRetention (the @Cron entrypoi
     )
   })
 
-  it('survives a permission failure the same way (42501 is logged, not thrown)', async () => {
-    // The shape a missing EXECUTE grant would take. It must look like an incident in
-    // the log and like a no-op to the scheduler.
+  it('logs the SQLSTATE of a wrapped driver error, without the query parameters', async () => {
+    // CR-M-3. The first version of this case used a FLAT error carrying `code` and
+    // `severity`, which is not what production produces: drizzle rejects with a
+    // `DrizzleQueryError` whose own `.code` is `undefined` and whose `.cause` is the
+    // driver error holding the SQLSTATE. A fixture of the wrong shape would have gone
+    // green while the real path logged `db_state=none`.
+    //
+    // This matters past tidiness: `42501` here is a security signal with an alert on
+    // it (PR #1041), and an unasserted log path is how such a signal goes quiet. The
+    // shape below mirrors the canonical fixture in
+    // `database/swallowing-handlers-db-error-log.spec.ts`; THAT file is the repo-wide
+    // registry of swallow-and-log handlers and this service should be added to its
+    // CASES list — it is in another zone, so it is left as a follow-up rather than
+    // edited here.
     const svc = new JobQueueActionRetentionCronService({} as unknown as DatabaseService)
-    // `severity` as well as `code`: that is what makes it a driver error to
-    // `findPgError`, and a fixture carrying only `code` would test nothing real.
-    const denied = Object.assign(new Error('permission denied for function'), {
-      code: '42501',
+    const driver = Object.assign(new Error('permission denied for function'), {
       severity: 'ERROR',
+      code: '42501',
     })
-    vi.spyOn(svc, 'purgeExpiredActions').mockRejectedValue(denied)
+    const wrapper = Object.assign(new Error(`Failed query: ${JOB_QUEUE_ACTION_PURGE_SQL}`), {
+      query: JOB_QUEUE_ACTION_PURGE_SQL,
+      params: [SECRET],
+      cause: driver,
+    })
+    wrapper.name = 'DrizzleQueryError'
+    vi.spyOn(svc, 'purgeExpiredActions').mockRejectedValue(wrapper)
 
     await expect(svc.handleRetention()).resolves.toBeUndefined()
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('42501'), expect.anything())
+
+    const [message, stack] = errorSpy.mock.calls[0] as [string, string | undefined]
+    // The SQLSTATE reached the log, read through `.cause` rather than off the wrapper.
+    expect(message).toContain('db_state=42501')
+    // And no parameter value rode along, in either argument.
+    expect(message).not.toContain(SECRET)
+    expect(stack ?? '').not.toContain(SECRET)
+  })
+
+  it('marks EVERY failure with a greppable token, not only the one SQLSTATE with an alert', async () => {
+    // SR-M-2. A `42883`, a lock timeout or a connection loss matches no alert pattern,
+    // and since the handler never rethrows the failure would otherwise go nowhere at
+    // all. Asserted on an error with NO SQLSTATE, which is the case that had no channel.
+    const svc = new JobQueueActionRetentionCronService({} as unknown as DatabaseService)
+    vi.spyOn(svc, 'purgeExpiredActions').mockRejectedValue(new Error('connection terminated'))
+
+    await expect(svc.handleRetention()).resolves.toBeUndefined()
+
+    // THE LITERAL, NOT THE IMPORTED CONSTANT, and that is the point rather than an
+    // oversight. Asserting `stringContaining(JOB_QUEUE_ACTION_PURGE_FAILURE_MARKER)`
+    // takes the expected value from the very code under test, so emptying the constant
+    // left the assertion passing — a tautological test, and the mutation gate caught it
+    // as a surviving `StringLiteral` mutant (fix round 1). An alert pattern will be
+    // written against this exact token, so the token is what the test must state.
+    const [message] = errorSpy.mock.calls[0] as [string]
+    expect(message).toContain('crm_retention_purge_failed')
+    // And the exported constant is the same token, so the pattern DevOps writes against
+    // one of them matches the other.
+    expect(JOB_QUEUE_ACTION_PURGE_FAILURE_MARKER).toBe('crm_retention_purge_failed')
   })
 })

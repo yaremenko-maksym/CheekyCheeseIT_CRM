@@ -20,8 +20,10 @@ import { JobSourcingService } from './job-sourcing.service'
  *
  * `JobQueueActionRetentionCronService` is a SECOND cron, deliberately separate from
  * `JobSourcingCronService`: it discharges the statutory two-year retention of
- * `job_queue_actions` and must not be skippable by an external feed being down. See
- * its class doc comment. It needs no `ScheduleModule.forRoot()` here for the same
+ * `job_queue_actions`, and every other retention duty in this process is likewise its
+ * own service with its own slot. (It is NOT separate because a failing feed could
+ * skip it — `collectAll` catches per source and carries on; see its class doc, which
+ * records that correction.) It needs no `ScheduleModule.forRoot()` here for the same
  * reason `JobSourcingCronService` does not — the scheduler is rooted once elsewhere
  * and discovers every `@Cron` in the application.
  */

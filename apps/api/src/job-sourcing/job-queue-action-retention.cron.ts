@@ -12,6 +12,21 @@ export const JOB_QUEUE_ACTION_PURGE_SQL =
   'SELECT public.crm_retention_purge_job_queue_actions() AS purged'
 
 /**
+ * The failure marker, exported so an alert pattern and the spec quote the SAME string.
+ *
+ * SR-M-2: a silent failure has no channel. Only `42501` has an alert pattern today, so
+ * a `42883`, a lock timeout or a connection loss produced an ERROR line whose SQLSTATE
+ * matched nothing — and because the handler correctly never rethrows, the failure went
+ * nowhere at all. This is the same property as logging a zero count: a silent failure
+ * is indistinguishable from a job that never ran. The marker is deliberately a single
+ * unpunctuated token so a log pattern can match it exactly, and it is emitted for EVERY
+ * failure, whatever the SQLSTATE. Widening the alert patterns to match it is DevOps'
+ * half of this finding and is routed separately — this is the half in this zone: there
+ * is now something for a pattern to match.
+ */
+export const JOB_QUEUE_ACTION_PURGE_FAILURE_MARKER = 'crm_retention_purge_failed'
+
+/**
  * JobQueueActionRetentionCronService — r5 Task 1.4a: the caller
  * `crm_retention_purge_job_queue_actions()` shipped without.
  *
@@ -24,14 +39,21 @@ export const JOB_QUEUE_ACTION_PURGE_SQL =
  * a scratch catalog by the integration sibling of this file rather than assumed.
  *
  * WHY ITS OWN SERVICE RATHER THAN A SECOND CALL IN `JobSourcingCronService`
- * (AC1 asks for the one-line justification): that handler's first act is an external
- * HTTP collection, and its single try/catch means a failure there — a dead feed, a
- * timeout, an exhausted budget — returns before any later statement in the same
- * handler runs. A statutory retention duty must not be skippable by a third party
- * being down, so it gets its own handler and its own slot. It also matches what the
- * codebase already does with every other retention duty
- * (`VacanciesRetentionCronService`, `TelemetryRetentionCronService`,
- * `DocumentAccessLogRetentionCronService`, `MeetingRecorderRetentionCronService`).
+ * (AC1 asks for the one-line justification). Two reasons, both checkable:
+ *   - the convention: every other retention duty in this process is already its own
+ *     service — `VacanciesRetentionCronService`, `TelemetryRetentionCronService`,
+ *     `DocumentAccessLogRetentionCronService`, `MeetingRecorderRetentionCronService`;
+ *   - an independent schedule slot: a statutory duty gets a time of its own, inside
+ *     the retention band, rather than inheriting the collection's 05:00 slot and
+ *     whatever that slot is later retuned to for feed-politeness reasons.
+ *
+ * WHAT IS *NOT* A REASON, recorded because this comment asserted it until review
+ * round 1 and a later reader would have trusted it: that a dead feed would stop the
+ * purge from running. It would not. `JobSourcingService.collectAll` catches each
+ * source's failure INSIDE its per-source loop and carries on, and `DouRssProvider`
+ * bounds a stalled feed at 15 s (`FETCH_TIMEOUT_MS`), so `purgeStalePostings` is
+ * reached today even when every source fails. The decision above stands on the two
+ * reasons that are true; it never needed that one.
  *
  * Slot: 04:15 daily — inside the retention band (03:00 / 03:30 / 03:45 / 04:00)
  * that `JobSourcingCronService` documents itself as running AFTER, on a minute no
@@ -73,7 +95,8 @@ export class JobQueueActionRetentionCronService {
       this.logger.log(`Job queue action-log retention: purged ${purged} expired row(s)`)
     } catch (error: unknown) {
       this.logger.error(
-        `Job queue action-log retention cron failed; will retry next cycle${dbErrorLogSuffix(error)}`,
+        `${JOB_QUEUE_ACTION_PURGE_FAILURE_MARKER} Job queue action-log retention cron failed; ` +
+          `will retry next cycle${dbErrorLogSuffix(error)}`,
         safeErrorStack(error),
       )
       // Do NOT rethrow — see the class doc comment (C-23).
@@ -94,8 +117,16 @@ export class JobQueueActionRetentionCronService {
   async purgeExpiredActions(): Promise<number> {
     const result = await this.db.db.execute(sql.raw(JOB_QUEUE_ACTION_PURGE_SQL))
     const purged = (result.rows[0] as { purged?: string | number | null } | undefined)?.purged
-    // `pg` hands a bigint back as a string; without Number() the logged count would
-    // be a string and any later comparison lexicographic.
-    return purged === null || purged === undefined ? 0 : Number(purged)
+    // `pg` hands a bigint back as a string; without Number() the logged count would be
+    // a string and any later comparison lexicographic.
+    //
+    // `?? 0` rather than an explicit `null`/`undefined` conditional, and the reason is
+    // that the conditional could not be verified (fix round 1): `Number(null)` IS 0, so
+    // a mutation collapsing the `purged === null` operand produced the same answer for
+    // every input and no test could distinguish it — an equivalent mutant, not a
+    // coverage gap. `??` has no such twin: a mutation to `&&` yields `Number(undefined)`
+    // = NaN for an absent row and 0 for a real count of 17, so both are observable and
+    // the existing cases below kill them.
+    return Number(purged ?? 0)
   }
 }

@@ -85,6 +85,46 @@ describe('shouldKeepPosting — new-store context (r5 §1.4)', () => {
       ),
     ).toBe(false))
 
+  it('a null lastObservedAt is NOT a date — a never-observed record is not kept by that clause', () => {
+    // Kills: collapsing the null guard to `true` (ConditionalExpression). Deleting an
+    // operand is one mutation; collapsing a guard is another, and the hand-deletion
+    // pass of round 1 could not see the second — this case is the gap closed.
+    // `null` coerces to 0 in a date comparison, so without the guard a record that has
+    // never been observed compares as though it had been observed at the epoch. The
+    // only thing keeping this row is the disabled-cleanup clause further down, so with
+    // cleanup ON it must be droppable.
+    expect(
+      shouldKeepPosting(
+        { ...legacyDroppable, observation: observed({ lastObservedAt: null }) },
+        cutoff,
+        cleanupOn,
+      ),
+    ).toBe(false)
+    // And the same row with a real, fresh observation IS kept — so the assertion above
+    // is about the null, not about the clause being unreachable.
+    expect(
+      shouldKeepPosting(
+        { ...legacyDroppable, observation: observed({ lastObservedAt: fresh }) },
+        cutoff,
+        cleanupOn,
+      ),
+    ).toBe(true)
+  })
+
+  it('keeps a record observed EXACTLY at the cutoff (the boundary is inclusive)', () =>
+    // Kills: `>=` narrowed to `>` (EqualityOperator) — ONE case closing both CR-H-1's
+    // third mutant and SPEC-M-2, which are the same finding reached from two axes.
+    // The same boundary the SQL side is proven on from the outside at 729 days versus
+    // two years and a day — and the clause likeliest to drift from the SQL later, so
+    // it is pinned on the pure twin too.
+    expect(
+      shouldKeepPosting(
+        { ...legacyDroppable, observation: observed({ lastObservedAt: cutoff }) },
+        cutoff,
+        cleanupOn,
+      ),
+    ).toBe(true))
+
   it('keeps a record whose bridged opportunity carries logged actions (FK RESTRICT, 23503)', () =>
     // Kills: `obs.hasLoggedActions`. A DELETE here is refused by the database by
     // design; the legal deletion of such a row is a tombstone UPDATE.

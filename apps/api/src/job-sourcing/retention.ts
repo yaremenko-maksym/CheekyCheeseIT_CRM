@@ -12,11 +12,18 @@ export interface ObservationContext {
    */
   lastObservedAt: Date | null
   /**
-   * The bridged opportunity carries rows in `job_queue_actions`. Every parent FK
-   * out of the action log is RESTRICT, so a DELETE is refused with `23503` BY
-   * DESIGN (r5 §1.4, carried from Task 1.2) — the legal deletion of such a record
-   * is a tombstone: an UPDATE clearing text and keeping the row. Keeping it here
-   * means the retention job never issues a statement the database must refuse.
+   * The bridged opportunity carries rows in `job_queue_actions`. Every parent FK out
+   * of the action log is RESTRICT, so once a posting is bridged, a DELETE of its
+   * opportunity is refused with `23503` BY DESIGN (r5 §1.4, carried from Task 1.2) —
+   * the legal deletion of such a record is a tombstone: an UPDATE clearing text and
+   * keeping the row.
+   *
+   * NOT A LIVE DEFENCE TODAY, and the wording used to imply otherwise: the legacy
+   * `job_postings` store and the new `job_queue_*` store are FK-DISJOINT, so no
+   * statement `purgeStalePostings` can issue is capable of reaching a `23503` at
+   * all. This flag is INTENT for the SQL mirror that the bridging task must write —
+   * it records which rows that future statement may not touch, so the rule exists
+   * before the first statement that could break it.
    */
   hasLoggedActions: boolean
   /** An input to a backfill that has not been verified yet — protected until it is. */
@@ -66,11 +73,23 @@ export interface RetentionRow {
  * IN_PROGRESS is HR's working history; DISMISSED must survive, or the vacancy
  * would be re-collected after the purge and come back as a brand-new queue row.
  *
- * The new-store clauses have no SQL counterpart YET, and that is agreement rather
- * than drift: no row carries an `observation` today (collection into the new store
- * is Phase 2+), so for every row the SQL can see, this function returns exactly
- * what the SQL predicate returns. When those columns land, the SQL gains the
- * mirrored conjuncts and this comment is the record of which ones.
+ * THE NEW-STORE CLAUSES BELOW HAVE NO SQL COUNTERPART, AND NO PRODUCTION CALLER
+ * SUPPLIES THEM — stated plainly, because the first version of this comment called
+ * that "agreement rather than drift" and the claim was vacuous (CR-M-2). What is
+ * actually true:
+ *   - every call site of this function today is in its own spec, and all of them
+ *     pass two arguments, so `observation` and `policy` are unreachable in
+ *     production. The clauses are ANTICIPATORY, not live;
+ *   - the two sides do not agree even in principle. For an observed, stale,
+ *     undecided row this function KEEPS the row while the SQL DELETES it. They
+ *     coincide only because nothing supplies an observation, i.e. because the
+ *     anticipated input never arrives — not because the predicates match.
+ * So: this is the pure twin of a predicate the SQL does not have yet, and it
+ * DIVERGES FROM THE SQL THE MOMENT A CALLER SUPPLIES AN OBSERVATION. Whoever wires
+ * the new store into retention must land the mirrored SQL conjuncts in the same
+ * change, or the two sides will disagree in production rather than on paper. The
+ * three legacy clauses above are a true mirror today and are what the existing
+ * integration cases exercise.
  */
 export function shouldKeepPosting(
   row: RetentionRow,
@@ -85,7 +104,26 @@ export function shouldKeepPosting(
   // ── new-store context (r5 §1.4) ──
   const obs = row.observation
   if (obs === undefined) return false
-  if (obs.lastObservedAt !== null && obs.lastObservedAt >= cutoff) return true
+  // `.getTime()` on both sides rather than comparing the `Date` objects directly, and
+  // the null guard beside it, are ONE decision with a measured justification (fix
+  // round 1). Written the obvious way — `obs.lastObservedAt !== null &&
+  // obs.lastObservedAt >= cutoff` — the guard is REDUNDANT: `null >= aDate` is `false`
+  // in JavaScript, so the conjunction returns exactly what its second operand returns
+  // for every input, and the mutation gate rightly flagged the collapse to `true` as a
+  // surviving mutant that no test can kill. The three available answers were measured
+  // rather than argued:
+  //   - keep the redundant guard and suppress the mutant — a clause no test can kill;
+  //   - delete the guard — does NOT COMPILE: `TS18047: 'obs.lastObservedAt' is possibly
+  //     'null'` under strict null checks, and the only way through is a `!` assertion
+  //     that tells the type system something the type does not say;
+  //   - compare timestamps, which is this line: the guard stops being decorative and
+  //     starts preventing a `TypeError`, so collapsing it to `true` is now KILLED (six
+  //     cases go red, among them "a null lastObservedAt is NOT a date").
+  // It also removes the coercion hazard on its own terms: a record that has never been
+  // observed can no longer compare as though it had been observed at the epoch.
+  // `>=` and not `>`: a record observed exactly AT the cutoff is still observed, and
+  // that boundary has its own case — it is the clause likeliest to drift from the SQL.
+  if (obs.lastObservedAt !== null && obs.lastObservedAt.getTime() >= cutoff.getTime()) return true
   if (obs.hasLoggedActions) return true
   if (obs.unverifiedBackfillInput) return true
   return !policy.newStoreCleanupEnabled
