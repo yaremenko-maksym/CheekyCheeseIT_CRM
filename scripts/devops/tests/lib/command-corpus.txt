@@ -590,3 +590,38 @@ allow	all	CXX=g++ make -j4
 allow	all	MAKE=gmake ./configure
 allow	all	RSYNC_RSH=ssh rsync -av apps/ host:/tmp/
 allow	all	CC_FLAGS='-O2 -Wall' make all
+
+# ═══ 2026-10-21: reading the wrong text, round 4 ══════════════════════════════
+# `pnpm why vite` was refused four times in one day. The predicates were right;
+# the analyzer was judging a dependency QUERY by re-reading its arguments from
+# every position, because a package runner is not in UNDERSTOOD and so is
+# uncertain. The grant is per-subcommand and decided from the whole argv —
+# PKG_QUERY_SPEC in lib/cmdscan.py, with the criterion a subcommand must meet.
+# The three heredoc repros cannot live here: this corpus is one line per case.
+# They are in scripts/devops/tests/test-pre-bash-devserver-ttl-gate.sh.
+narrowed	db,ttl	pnpm why vite
+narrowed	db,ttl	pnpm ls vite
+narrowed	db,ttl	pnpm list vite
+narrowed	db,ttl	pnpm info vite
+narrowed	db,ttl	pnpm view vite
+narrowed	db,ttl	pnpm outdated vite
+narrowed	db,ttl	pnpm why --json vite
+narrowed	db,ttl	pnpm ls --depth 2 vite
+narrowed	db,ttl	pnpm --filter @crm/api why vite
+narrowed	db,ttl	pnpm -r why vite
+allow	all	pnpm licenses list
+allow	all	pnpm audit
+allow	all	pnpm whoami
+# the grant stops at the first token it does not recognise. `version` runs the
+# project`s preversion/version/postversion scripts and `audit fix` writes, so
+# neither earns confidence — a launcher-looking token in the same argv is still
+# refused, which is how a re-grant would show up as a failure here.
+block	db,ttl	npm version vite
+block	db,ttl	npm audit fix vite
+block	db,ttl	pnpm audit --fix vite
+block	db,ttl	pnpm licenses vite
+block	db,ttl	pnpm -c vite
+block	db,ttl	pnpm --call vite
+block	db,ttl	pnpm --unknown-flag why vite
+block	db,ttl	pnpm dlx vite
+block	db,ttl	pnpm why vite && pnpm --filter @crm/api dev
