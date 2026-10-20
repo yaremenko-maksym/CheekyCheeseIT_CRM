@@ -78,3 +78,35 @@ jobs:
             set -eu
             mkdir -p "$CANARY_DIR"
             touch "$CANARY_DIR/ssh120-pos"
+
+      # ── Pair 2: ssh-action v1.2.3 (unproven at runtime) ──────────────────────────────
+      - name: ssh-action v1.2.3 NEGATIVE (wrong fingerprint, expect FAIL)
+        id: ssh123_neg
+        continue-on-error: true
+        uses: appleboy/ssh-action@v1.2.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          # TEST VALUE: the real fingerprint with its case inverted. Must be rejected.
+          fingerprint: SHA256:AuHfbJTFqiPWuLmua9z5OkwxN8CieDEDRQT2EhnNgZO
+          envs: CANARY_DIR
+          script: |
+            set -eu
+            mkdir -p "$CANARY_DIR"
+            touch "$CANARY_DIR/ssh123-neg"
+
+      - name: ssh-action v1.2.3 POSITIVE (correct fingerprint, expect PASS)
+        id: ssh123_pos
+        continue-on-error: true
+        uses: appleboy/ssh-action@v1.2.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          envs: CANARY_DIR
+          script: |
+            set -eu
+            mkdir -p "$CANARY_DIR"
+            touch "$CANARY_DIR/ssh123-pos"
