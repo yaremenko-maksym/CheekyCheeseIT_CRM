@@ -36,6 +36,40 @@
 # understand, and the list claimed too much — `bun x pnpm dev` counted as "a bun
 # command" and booted unwrapped. The list now holds only commands that execute
 # nothing, or whose exec surface cmdscan hands over (lib/cmdscan.py, UNDERSTOOD).
+#
+# FOURTH ROUND (2026-10-21) — THE CLAIM BELOW WAS FALSE, AND THAT WAS THE DEFECT.
+# This header used to end by stating that reading ABOUT a launch no longer trips
+# the gate, because it looks only at launcher position. It refused four commands
+# in one day, none of which launched anything:
+#
+#   pnpm why vite                      a dependency query. `pnpm` is not in
+#                                      UNDERSTOOD, so the segment was UNCERTAIN,
+#                                      so readings() re-read it from every
+#                                      position and one reading was `vite`. The
+#                                      subcommand table was never consulted.
+#   cat > note.md <<'EOF' … EOF        a markdown note whose PROSE spelled
+#                                      `pnpm dev` in backticks: 3 "launches".
+#   gh pr create --body "$(cat <<'EOF' the PR description text: 1 "launch".
+#   python3 - <<'PYEOF' … PYEOF        python STRING LITERALS: 2 "launches".
+#
+# The three heredocs share one cause: substitution extraction ran BEFORE heredoc
+# capture, so bodies that stage 2 is emphatic are data had already been mined for
+# `$(…)` and backticks — in bodies with a QUOTED delimiter, where bash itself
+# performs no expansion at all. A guard that documents a property it does not
+# have is worse than one that documents nothing, so the claim is now narrower and
+# true, and each clause of it has a test:
+#
+#   * launcher position means the command word of a segment, AND
+#   * a package runner's arguments are read only when the subcommand is outside
+#     the vetted read-only set (PKG_QUERY_SPEC), AND
+#   * a heredoc body with a quoted delimiter is never read as code — but only
+#     while the segmenter agrees it IS that body; where the two readings of the
+#     line disagree, the text is inspected rather than exempted.
+#
+# Nothing was relaxed to achieve it. An unquoted `<<EOF` body is still code (the
+# shell really does expand it), `pnpm exec` / `dlx` / `x` and every non-query
+# subcommand are still re-read, and the PR #485 shape — a launcher with no inline
+# DATABASE_URL and no inline port — is still refused.
 # ---------------------------------------------------------------------------
 #
 # Contract (mirrors pre-bash-coder-push-gate.sh):
@@ -128,8 +162,11 @@ reason = """🚫 DEVSERVER-TTL BLOCK: старт dev-сервера в agent-wor
 Перед бутом проверь, не занят ли порт твоим же старым сервером:
     lsof -ti tcp:<PORT> | xargs kill -9
 
-Читать про запуск (grep/ls/git show, где слово стоит аргументом) хук не мешает —
-он смотрит только на команду в позиции запуска.
+Читать и писать про запуск хук не мешает: слово аргументом (grep/ls/git show),
+read-only подкоманда пакетного менеджера (`pnpm why vite`) и тело heredoc с
+закавыченным разделителем (`<<'EOF'` — markdown-заметка, тело PR, строковые
+литералы python) — не запуск. Если что-то из этого всё же отказано — это баг
+хука, а не повод добавить обёртку: см. шапку .claude/hooks/pre-bash-devserver-ttl-gate.sh.
 
 См. .claude/rules/common/light-track.md («Параллельный диспатч») и scripts/devops/dev-ttl.sh.""" % label
 

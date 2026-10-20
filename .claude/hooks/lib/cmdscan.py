@@ -92,6 +92,34 @@ The cost is false positives on unknown commands that carry launcher-looking or
 rm-looking arguments. That is the deliberate trade: a false positive costs a
 minute, a miss costs the owner's database.
 
+ROUND 4 (2026-10-21): WHERE IT LOOKS, NOT WHAT IT MATCHES
+---------------------------------------------------------
+Four refusals in one day, none of them a launch: `pnpm why vite`, a markdown note
+whose prose spelled `pnpm dev` in backticks, a PR description, and a python
+heredoc's string literals. The predicates were right; the analyzer was reading
+text that is DATA being written or passed, not a command. Two causes, each fixed
+by narrowing where it looks:
+
+  * stage 1 (substitution extraction) ran BEFORE stage 2 decided where the
+    heredoc bodies were, so every `$(…)` and backtick inside a body had already
+    been lifted out and scanned as code — including bodies with a QUOTED
+    delimiter, where bash performs no expansion whatsoever. See
+    _heredoc_literal_spans, and note that it is a SECOND reading of the same
+    text: two of its three devices exist only to make a disagreement with the
+    segmenter fail closed, after two such disagreements were reproduced as leaks.
+  * a package runner was UNCERTAIN for lack of an UNDERSTOOD entry, so
+    readings() re-read its arguments from every position and `vite` was one of
+    them. Fixed WITHOUT adding the runners to UNDERSTOOD (that would set
+    confident=True and short-circuit readings() wholesale — the round-3 mistake
+    under a new name) and without handing over their exec surface. Instead a
+    single narrow grant: see PKG_QUERY_SPEC, decided from the complete argument
+    vector, refusing the first token it does not recognise.
+
+The direction of "fail closed" differs between the two and the distinction is
+worth keeping straight: for a false positive it means REFUSING, for a parser
+disagreement it means NOT EXEMPTING. One invariant covers both — when uncertain,
+inspect rather than exempt.
+
 WHAT IT STILL DOES NOT DO — it does not evaluate the shell.
 
 STATED GAPS (accepted, same line pre-bash-cross-agent-blast.sh draws):

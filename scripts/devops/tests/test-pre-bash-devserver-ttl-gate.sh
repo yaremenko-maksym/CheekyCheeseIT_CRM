@@ -287,11 +287,52 @@ assert_red "РЕПРО-1 обратная сторона: npm exec -- vite (\`--
   --contains '"decision": "block"' \
   -- h "npm exec -- vite"
 
-for bad in "-c vite" "--call vite" "--unknown-flag why vite" "--filter dev"; do
+for bad in "-c vite" "--call vite" "--unknown-flag why vite"; do
   assert_red "РЕПРО-1 обратная сторона: грамматика флагов неполна → сегмент остаётся недостоверным: pnpm $bad" \
     --contains '"decision": "block"' \
     -- h "pnpm $bad"
 done
+
+# ── the grant is decided by the WHOLE argv, not by the subcommand name ────────
+# Two findings in one review round, both of them a name that does not describe a
+# behaviour:
+#   `npm version` / `pnpm version` rewrites package.json, commits, tags, and RUNS
+#     the project's preversion/version/postversion scripts — the exec surface this
+#     design refuses to hand over, reached through a door marked "tell me the version".
+#   `pnpm audit` is a query; `npm audit fix` and `pnpm audit --fix` rewrite the
+#     lockfile and can trigger an install.
+#
+# READ THE TWO HALVES OF THIS SECTION TOGETHER, because they assert different
+# things and swapping them is how the section would rot:
+#   * the GREEN half says the GATE must not refuse these — neither form boots a
+#     dev server, so refusing them would be a new false positive;
+#   * the RED half probes the GRANT. A launcher-looking token in the same argv is
+#     refused only while the segment stays UNCERTAIN. Re-add `version`, or vet
+#     `fix` / `--fix`, and these go green — which is the regression signal.
+assert_green "ПОЛНЫЙ argv: npm version patch не запуск — гейт не должен его трогать" \
+  -- h "npm version patch"
+
+assert_green "ПОЛНЫЙ argv: pnpm audit --fix не запуск — гейт не должен его трогать" \
+  -- h "pnpm audit --fix"
+
+assert_red "ПОЛНЫЙ argv (зонд гранта): version исключён — сегмент недостоверен, launcher в argv отказан" \
+  --contains '"decision": "block"' \
+  -- h "npm version vite"
+
+assert_red "ПОЛНЫЙ argv (зонд гранта): npm audit fix — операнд-глагол снимает грант" \
+  --contains '"decision": "block"' \
+  -- h "npm audit fix vite"
+
+assert_red "ПОЛНЫЙ argv (зонд гранта): pnpm audit --fix — флаг вне грамматики снимает грант" \
+  --contains '"decision": "block"' \
+  -- h "pnpm audit --fix vite"
+
+assert_red "ПОЛНЫЙ argv (зонд гранта): licenses допускает только слово list" \
+  --contains '"decision": "block"' \
+  -- h "pnpm licenses vite"
+
+assert_green "ПОЛНЫЙ argv: pnpm licenses list — ровно вычитанная форма" \
+  -- h "pnpm licenses list"
 
 # ── repros 2-4: a heredoc body is DATA, and a QUOTED delimiter proves it ───────
 # Stage 2 of lib/cmdscan.py was always emphatic that a heredoc body is data,
