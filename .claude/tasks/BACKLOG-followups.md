@@ -3487,3 +3487,57 @@ docs (`coder.md`, `code-reviewer.md`) — same deferral as item [[226]], these a
 epic right now; the two unfixable advisories `braces` (via `@lingui/cli`) and `sprintf-js` (via `mammoth`,
 see [[224]]) — both report `patched: <0.0.0`, no release exists to move to; `.claude/tasks` has grown to
 **2.3 MB** but is not loaded into any session, so the ROI is in archiving it, not in a PR.
+
+## 256. A control that cannot fail proves nothing — pair every pin with a negative control (2026-10-20)
+
+**CLOSED the same day it was written, by doing it.** Recorded because the method generalises, not because the item is open.
+
+Host-key pinning was added to every deploy step that reaches the VPS, and the deploy went green. That
+green was close to worthless for most of those steps: **a successful step cannot distinguish "the
+pinned value matched" from "the action silently ignored an input it does not declare."** Fifty of the
+fifty-five steps ran on two action versions whose support for the input had been established by reading
+their source — twice, independently — and never by running anything.
+
+**The method that settled it.** A manually triggered workflow runs a **pair** of controls per version
+against the real host: a deliberately wrong value, which must FAIL, and the correct value on the same
+target, which must SUCCEED. A separate step then checks that the positive control's file **landed** and
+the negative control's file is **absent**, which proves not merely that the step failed but that no data
+crossed on a mismatch. An assertion step turns the outcomes into one readable verdict and names any
+control that misbehaved.
+
+**The positive half is the one people skip, and it carries the argument.** A step that fails because of
+a typo'd path, a missing secret or a wrong user looks exactly like a step that fails because the pin
+caught a mismatch. Without the positive control, a negative control proves only that something is
+broken.
+
+**Two traps worth carrying forward.** A negative-control step needs `continue-on-error`, so its
+_conclusion_ reads `success` while its _outcome_ is `failure` — judge such a run by the assertion step,
+never by eye over the step list. And a canary carrying a deliberately wrong literal trips any guard that
+requires every step to agree on the value, so the exemption must be enumerated and tested, never silent.
+
+**Check on closing:** any security control added to CI or deploy whose success path looks identical to
+its absent path ships with a negative control, or the PR says why one is impossible.
+
+## 257. Reviews that run find things; reviews that read confirm what the author already believed (2026-10-20)
+
+Across one feature in one day, every finding of consequence came from executing something, and reading
+produced confident wrong answers at the same rate — including the orchestrator's own.
+
+- A handshake against the real host found that the pinned key was the wrong algorithm: the client
+  negotiates one type while the pinned value named another. The value was genuine, the YAML valid, the
+  guards green, and the pin would have failed every deploy.
+- Mutating a guard eight ways found three weakenings its own tests did not kill; the tests had looked
+  comprehensive.
+- Replaying a command corpus through three consumers at two commits found that a batch of apparent
+  regressions were false positives being removed — a distinction no amount of reading the diff would
+  have produced.
+- Forcing a process id across a digit boundary turned a latent random failure into a reproducible test.
+- Read-only claims that proved wrong the same day: a call-site count given from memory, a variable
+  declared unused when a second workflow read it, and the expected format of a value.
+
+**What follows for dispatch.** A review brief should say what the reviewer is expected to **run**, and a
+review that reports only what it read should be treated as a partial pass, not a clean one. Where
+running is genuinely impossible, the report says so, and that sentence is the finding.
+
+**Check on closing:** review briefs on security-surface changes name an expected measurement, and a
+report without one is returned rather than accepted.
