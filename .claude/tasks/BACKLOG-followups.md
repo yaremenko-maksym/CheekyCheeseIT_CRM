@@ -3185,3 +3185,71 @@ report loudly, when the check could not run.
 
 **Check on closing:** with `origin/main` unresolvable, a push carrying an unformatted file is refused or
 the base is fetched first; and the hook's header states which of the two it is.
+
+## 245. The privilege-denied signal needs to leave the log stream — the journal channel (2026-10-20)
+
+(decided by the orchestrator on the DevOps agent's recommendation, after four security rounds on the log
+channel; severity MED as work, HIGH as a design conclusion). The `42501` watch and the chokepoint that
+feeds it are both on production and working: detection is in place and the line it matches is now
+deployed. What is **not** in place is a channel a stranger cannot forge.
+
+**Why the log stream cannot be the channel.** Four rounds established it by measurement, each time a new
+spelling of one fact — **the log mixes attacker-influenced text with trusted text**. An anonymous request
+forged the contract line through a decoded path parameter; Docker's 16 KiB chunking plus `--timestamps`
+made a record unparseable so the filter kept it verbatim; and the anchor added to stop the first route
+needed only `%20` and `%5B` to satisfy. Each fix was right and none converged.
+
+**Why a nonce was rejected.** `deploy-stack-on-vps.sh` prints `docker compose logs --tail=50 api` into a
+**public** Actions log on a health-check failure, GitHub masks only registered secrets, and one published
+bearer line makes the scheme forgeable by replay. A MAC over the fields survives that, but still ties the
+guarantee to a secret.
+
+**The decided shape: unforgeable by construction, not by secret.** The chokepoint appends one validated
+JSON line to a journal file inside the container; the scanner reads it with a fixed
+`docker compose exec -T api cat`. A request cannot write files, the table name is already restricted to a
+safe character class, there is no secret to leak or rotate, and it survives the 10 MB × 5 log rotation
+that the grep never did.
+
+**Two costs accepted, both to be written down in the runbook rather than discovered:** the journal is lost
+when the container is recreated, which the deploy's own scan covers; and the scanner key gains `exec`
+where it had only `logs`. That second one is a real widening — `exec` runs arbitrary commands — so the
+planned dedicated key must pin the **exact** `cat` invocation through `restrict,command=`. That is a
+precondition of the journal, not a later nicety.
+
+**Brief it as one task across both sides.** The write side is the chokepoint, the read side is the
+scanner. Every cross-side detail negotiated between two PRs this round went wrong at least once — the
+`table=-` versus `table=unknown` spelling, a copied regex that was already stale against the pattern it
+copied, and a contract that neither side's comments described the same way. One task, one author, both
+sides.
+
+**Check on closing:** a forged contract line in the log stream produces no hit; a genuine one in the
+journal does; and the deploy gate can fail on a genuine privilege error again, which it currently cannot.
+
+## 246. Three agent prompts each carry their own copy of the scratch-stack launch (2026-10-20)
+
+(from the architect's own refusal to refactor during PR #1044, which was the right call in that PR;
+severity LOW-MED — a maintenance multiplier with a measured history). `coder.md`, `manual-qa.md` and
+`ui-ux-designer.md` each spell out how to start a scratch dev stack. That one command needed **five**
+corrections in a single evening:
+
+- the bare form, which both the live-db guard and the TTL gate refuse;
+- the `dev-ttl.sh` argument order — an assignment after `--` becomes a command word and exits 127, and
+  that broken form was in the live-db hook's own refusal message, where no gate could ever catch it;
+- an unbounded `until … sleep` wait, which the unbounded-wait hook refuses;
+- `lsof -ti:<port> | xargs kill -9`, which killed the owner's live servers;
+- a shared example port pair, which would have had two concurrent agents killing each other's stack —
+  and whose first fix re-introduced the kill problem at a different scope.
+
+Each correction had to be made in up to three files, and the sixth will too.
+
+**The shape the architect proposed and I accepted as the right one:** a script, for example
+`scripts/devops/start-scratch-stack.sh`, that picks a free port pair, applies the scratch-database and
+wrapper rules in one place, and prints the ports it chose. Each prompt then shrinks to one line, and the
+port collision stops being a matter of instruction.
+
+**The verification method that found all five, and should be the standard:** extract every executable
+line from a prompt **as written** and run each through the `pre:bash` gates. A prompt that carries a
+command is code, and it had never been tested as code.
+
+**Check on closing:** the launch exists in exactly one place, and every executable line in the three
+prompts passes the gates.
