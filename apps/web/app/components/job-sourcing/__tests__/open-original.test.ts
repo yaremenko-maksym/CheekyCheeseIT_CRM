@@ -1,5 +1,9 @@
+import { EXTERNAL_URL_CORPUS, expectedExternalUrlVerdict } from '@crm/shared'
 import { describe, expect, it, vi } from 'vitest'
 import { isSafeExternalUrl, openOriginalPosting } from '../open-original'
+
+/** The canonical shape `canonicalizePostingUrl` produces, used as the trim target. */
+const CANONICAL = 'https://host.test/a'
 
 /**
  * task-job-sourcing-slice1 AC5, unit half.
@@ -124,6 +128,96 @@ describe('isSafeExternalUrl rejects embedded credentials (R11-H-4)', () => {
   it('openOriginalPosting does not open a credentialed url', () => {
     const open = vi.fn()
     expect(openOriginalPosting('https://user:pw@example.com/a', open)).toBe(false)
+    expect(open).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * SR-M-2, LAYER 2 — the four classes only `new URL` can see.
+ *
+ * Every URL below SATISFIES the shape regex: `:443`, `h.test:99999`,
+ * `a%40b.test` and `ho\u0001st.test` are all non-empty, `@`-free and
+ * whitespace-free as far as a character class can tell. A bare regex has no
+ * parser behind it, so before SR-M-2 all four were handed to `window.open`,
+ * where `new URL` — not `window.open` itself — threw a SyntaxError INSIDE the
+ * click handler. The doc comment promised `false`; the code delivered a throw.
+ *
+ * Each test states the WHATWG fact as its own assertion rather than trusting the
+ * prose: `new URL` throwing is the reason the guard can refuse these at all, and
+ * if a future runtime stops throwing, the test says so instead of silently
+ * becoming a check of nothing.
+ *
+ * THESE ARE THE TESTS THAT REDDEN WHEN THE `new URL` BLOCK IS DELETED, and the
+ * only ones that do.
+ */
+describe('isSafeExternalUrl refuses what a shape regex cannot see (layer 2: new URL)', () => {
+  it.each([
+    ['an empty host carrying a port', 'https://:443/a'],
+    ['a port outside the valid range', 'https://h.test:99999/a'],
+    ['an @ smuggled into the host percent-encoded', 'https://a%40b.test/'],
+    ['a C0 control inside the host', 'https://ho\u0001st.test/a'],
+  ])('refuses %s', (_label, url) => {
+    // The premise: this string is unparseable, which is WHY the shape check
+    // alone could not reject it and why the old code threw instead of returning.
+    expect(() => new URL(url)).toThrow()
+
+    expect(isSafeExternalUrl(url)).toBe(false)
+
+    const open = vi.fn()
+    expect(openOriginalPosting(url, open)).toBe(false)
+    expect(open).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * SR-M-2, LAYER 1 — the classes only the regex can see.
+ *
+ * `new URL` is the more thorough parser and is still the WEAKER guard for these:
+ * it NORMALISES rather than refuses. It turns a single-slash `https:/host/x` into
+ * a valid absolute URL, accepts an empty userinfo outright, and silently strips
+ * tab/CR/LF out of a host. So layer 2 does not cover for the regex, and in
+ * particular it does not cover for the leading `^` — the operand on which the
+ * whole scheme check rests.
+ *
+ * Each test asserts what `new URL` DOES with the string, so the claim "layer 2
+ * would have let this through" is measured here rather than asserted in a
+ * comment. THESE ARE THE TESTS THAT REDDEN WHEN THE REGEX IS DELETED.
+ */
+describe('isSafeExternalUrl refuses what new URL would normalise away (layer 1: the regex)', () => {
+  it('refuses a single slash after the scheme, which new URL repairs into a valid URL', () => {
+    expect(new URL('https:/host.test/x').href).toBe('https://host.test/x')
+    expect(isSafeExternalUrl('https:/host.test/x')).toBe(false)
+  })
+
+  it('refuses an empty userinfo, which new URL parses happily', () => {
+    const parsed = new URL('https://@host.test/a')
+    expect(parsed.host).toBe('host.test')
+    expect(parsed.username).toBe('')
+    expect(isSafeExternalUrl('https://@host.test/a')).toBe(false)
+  })
+
+  it('refuses tab/CR/LF inside the authority, which new URL strips before parsing', () => {
+    expect(new URL('https://ho\tst.test/a').href).toBe('https://host.test/a')
+    expect(isSafeExternalUrl('https://ho\tst.test/a')).toBe(false)
+    expect(isSafeExternalUrl('https://ho\rst.test/a')).toBe(false)
+    expect(isSafeExternalUrl('https://ho\nst.test/a')).toBe(false)
+  })
+
+  it('refuses tab and NBSP inside the path, which new URL keeps or percent-encodes', () => {
+    expect(new URL('https://host.test/a\tb').href).toBe('https://host.test/ab')
+    expect(isSafeExternalUrl('https://host.test/a\tb')).toBe(false)
+    expect(isSafeExternalUrl('https://host.test/a b')).toBe(false)
+  })
+
+  it('refuses a smuggled scheme — the `^` anchor, which new URL cannot help with', () => {
+    // `new URL` on 'javascript:https://evil.test/a' does NOT throw: it is a
+    // perfectly valid javascript: URL. Only the anchored regex refuses it, and
+    // `window.open` on it executes in OUR origin.
+    expect(new URL('javascript:https://evil.test/a').protocol).toBe('javascript:')
+    expect(isSafeExternalUrl('javascript:https://evil.test/a')).toBe(false)
+
+    const open = vi.fn()
+    expect(openOriginalPosting('javascript:https://evil.test/a', open)).toBe(false)
     expect(open).not.toHaveBeenCalled()
   })
 })

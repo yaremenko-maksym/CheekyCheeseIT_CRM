@@ -708,12 +708,32 @@ describe('the shared URL corpus, through externalHttpsUrlSchema', () => {
     expect(verdicts).not.toContain('locale-dependent')
   })
 
+  /**
+   * ONE UNCONDITIONAL ASSERTION PER ROW, deliberately — this used to be
+   * `expect(parsed.success)` followed by `if (parsed.success && row.sharedParsed)
+   * expect(parsed.data)`, which `vitest/no-conditional-expect` flagged and was
+   * right to: an `expect` inside a branch asserts NOTHING for every row that does
+   * not take the branch, so a row whose verdict was typo'd to something that is
+   * neither `accept` nor `refuse` would pass while testing nothing at all — in a
+   * file whose entire purpose is that a pass means something specific.
+   *
+   * Comparing one outcome OBJECT also tightens the value check. Before, the
+   * returned value was asserted only for rows that bothered to set
+   * `sharedParsed`; now every ACCEPTED row must echo its input unless the corpus
+   * says otherwise, so an unrecorded normalisation by `.url()` fails here instead
+   * of going unnoticed.
+   */
   it.each(EXTERNAL_URL_CORPUS.map((row) => [row.name, row] as const))('%s', (_name, row) => {
-    const expected = expectedExternalUrlVerdict(row, 'shared')
     const parsed = externalHttpsUrlSchema.safeParse(row.url)
-    expect(parsed.success).toBe(expected === 'accept')
-    if (parsed.success && row.sharedParsed !== undefined) {
-      expect(parsed.data).toBe(row.sharedParsed)
-    }
+
+    const actual = parsed.success
+      ? { verdict: 'accept', returns: parsed.data }
+      : { verdict: 'refuse' }
+    const expected =
+      expectedExternalUrlVerdict(row, 'shared') === 'accept'
+        ? { verdict: 'accept', returns: row.sharedParsed ?? row.url }
+        : { verdict: 'refuse' }
+
+    expect(actual).toEqual(expected)
   })
 })
