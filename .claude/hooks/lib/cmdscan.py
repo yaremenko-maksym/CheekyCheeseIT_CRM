@@ -538,9 +538,40 @@ def _heredoc_literal_spans(text):
     before segmentation.
 
     Nothing is relaxed for the body an unquoted `<<EOF` introduces: the shell
-    expands it, so it stays code. The scan deliberately MIRRORS the body loop in
-    _split_segments — the two must agree on where a body ends, or a span would
-    protect text the segmenter still reads as code.
+    expands it, so it stays code.
+
+    THIS SCANNER IS A SECOND READING OF THE SAME TEXT, and that is a hazard in
+    itself: `_split_segments` is the tokenizer of record, and wherever the two
+    disagree about where a body lies, a span would exempt text the segmenter
+    still reads as code. Two such disagreements were reproduced the day this was
+    written, both fail-OPEN (a launch hidden from the gate):
+
+        # cat > note.md <<'EOF'      <- the segmenter drops the line as a comment,
+        `vite --port 3010`              this scanner saw an opener and exempted
+        EOF                             the body that is really live code
+
+        cat > note.md <<'EOF'        <- no terminator line: both run the body to
+        $(pnpm --filter @crm/api dev)   end of input, but the SEGMENTER is the one
+                                        whose reading of that is already a known
+                                        open defect (backlog 241 / P1 of #1052)
+
+    So three devices, and all three resolve the same way — when the two readings
+    disagree, INSPECT rather than exempt:
+
+      1. the comment rule is SHARED (`_STRIP_COMMENTS` + `_starts_word`), so an
+         opener the segmenter drops as a comment is not seen here either;
+      2. a span is granted only if the terminator was actually FOUND — an
+         unterminated heredoc is an uncertainty, and uncertainty does not earn
+         an exemption;
+      3. every granted span is confirmed against the bodies the segmenter really
+         captured, and an unconfirmed one is harvested after all (see scan()).
+
+    Device 3 is the backstop that makes 1 and 2 belt-and-braces rather than
+    load-bearing: it needs no prediction of HOW the two readings might diverge,
+    which is what the comment-hidden opener proves is needed, because nobody
+    predicted that one either. Note the direction: for the false positives this
+    change is about, failing closed means REFUSING; here it means NOT granting
+    protection. One invariant covers both — when uncertain, inspect.
     """
     spans = []
     pending = []
@@ -564,6 +595,12 @@ def _heredoc_literal_spans(text):
         if ch == "\\" and i + 1 < n:
             i += 2
             continue
+        # Device 1: the segmenter's own comment rule, same predicate, same flag.
+        if ch == "#" and _STRIP_COMMENTS and _starts_word(text, i):
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+            pending = []
+            continue
         opener = _heredoc_opener(text, i)
         if opener is not None:
             length, delim, strip_tabs, literal = opener
@@ -575,6 +612,7 @@ def _heredoc_literal_spans(text):
             for delim, strip_tabs, literal in pending:
                 start = i
                 body_end = i
+                closed = False
                 while i < n:
                     j = text.find("\n", i)
                     line = text[i:] if j < 0 else text[i:j]
@@ -582,9 +620,11 @@ def _heredoc_literal_spans(text):
                     cand = line.lstrip("\t") if strip_tabs else line
                     i = nxt
                     if cand.strip() == delim:
+                        closed = True
                         break
                     body_end = i
-                if literal and body_end > start:
+                # Device 2: no terminator -> no exemption.
+                if literal and closed and body_end > start:
                     spans.append((start, body_end))
             pending = []
             continue
@@ -1492,9 +1532,25 @@ def candidates(seg, code=False):
 def scan(command_line, depth=0, env=None):
     global _STRIP_COMMENTS
     command_line = command_line or ""
-    text, inners = _extract_substitutions(
-        command_line, _heredoc_literal_spans(command_line))
+    spans = _heredoc_literal_spans(command_line)
+    text, inners = _extract_substitutions(command_line, spans)
     raw_segments, code_view = _split_segments(text)
+
+    # DEVICE 3 of _heredoc_literal_spans: confirm the exemption against the
+    # tokenizer of record. A span is only honest if the segmenter also captured
+    # that text as a heredoc body; where the two readings disagree, the text goes
+    # back through the extractor so its substitutions ARE harvested and judged.
+    # This needs no prediction of how the readings might diverge — which is the
+    # point, since the divergence that was reproduced (an opener hidden in a
+    # comment) was not predicted either.
+    if spans:
+        captured = set()
+        for _raw, _heredocs in raw_segments:
+            captured.update(_heredocs)
+        for start, end in spans:
+            if command_line[start:end].strip("\n") not in captured:
+                _unused, extra = _extract_substitutions(command_line[start:end])
+                inners.extend(extra)
 
     segments = []
     assigns = {}
