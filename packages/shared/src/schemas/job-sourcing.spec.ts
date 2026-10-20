@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   DESCRIPTION_MD_MAX,
   dismissJobQueueItemSchema,
+  externalHttpsUrlSchema,
   jobCollectionResultSchema,
   jobPostingSchema,
   jobQueueCardSchema,
@@ -515,5 +516,129 @@ describe('vacancy-queue contract pins', () => {
       expect(dismissJobQueueItemSchema.parse({ reason }).reason).toBe(reason)
     }
     expect(dismissJobQueueItemSchema.safeParse({ reason: 'BORING' }).success).toBe(false)
+  })
+})
+
+/**
+ * R11-H-4 — a navigation URL may not carry embedded credentials.
+ *
+ * `externalHttpsUrlSchema` is the guard on the value the browser hands to
+ * `window.open`, and it used to be `/^https:\/\/\S+$/i`, whose `\S+` matches an
+ * authority containing `@`: `https://user:pw@example.com/a` parsed. The stored
+ * column it comes out of (`HTTPS_URL_PATTERN` in
+ * `apps/api/src/database/schema/job-opportunities.ts`) already refused that, so
+ * the client-side guard was the weaker of the two. These tests pin the two to
+ * the same authority shape, from both sides: a credentialed authority is
+ * refused, and a `@` in the PATH — legitimate, and produced by real postings —
+ * still parses.
+ */
+describe('navigation urls reject embedded credentials (R11-H-4)', () => {
+  const UUID = '11111111-1111-4111-8111-111111111111'
+  const NOW = '2026-10-04T00:00:00.000Z'
+  const CREDS = 'https://user:pw@example.com/a'
+  const BARE_USER = 'https://user@example.com/a'
+
+  it('the shared field schema refuses credentials in the authority', () => {
+    expect(externalHttpsUrlSchema.safeParse(CREDS).success).toBe(false)
+    expect(externalHttpsUrlSchema.safeParse(BARE_USER).success).toBe(false)
+  })
+
+  it('a `@` in the path, query or fragment still parses', () => {
+    expect(externalHttpsUrlSchema.safeParse('https://host.test/a@b').success).toBe(true)
+    expect(externalHttpsUrlSchema.safeParse('https://host.test/jobs?ref=a@b').success).toBe(true)
+    expect(externalHttpsUrlSchema.safeParse('https://host.test/jobs#a@b').success).toBe(true)
+  })
+
+  it('an ordinary posting URL with a path, a query and a fragment still parses', () => {
+    expect(
+      externalHttpsUrlSchema.safeParse('https://jobs.dou.ua/companies/acme/vacancies/1?kept=1#top')
+        .success,
+    ).toBe(true)
+    // What `canonicalizePostingUrl` produces: lowercased host, kept params, no
+    // trailing slash. Tightening the authority must not refuse its output.
+    expect(externalHttpsUrlSchema.safeParse('https://host.test/path?kept=params').success).toBe(
+      true,
+    )
+    expect(externalHttpsUrlSchema.safeParse('https://host.test').success).toBe(true)
+  })
+
+  it('an empty or whitespace authority is refused, as the column refuses it', () => {
+    expect(externalHttpsUrlSchema.safeParse('https://').success).toBe(false)
+    expect(externalHttpsUrlSchema.safeParse('https:// x').success).toBe(false)
+    expect(externalHttpsUrlSchema.safeParse('https:///path').success).toBe(false)
+  })
+
+  it('the scheme check still blocks javascript: and data:', () => {
+    expect(externalHttpsUrlSchema.safeParse('javascript:alert(1)').success).toBe(false)
+    expect(
+      externalHttpsUrlSchema.safeParse('data:text/html,<script>alert(1)</script>').success,
+    ).toBe(false)
+    expect(externalHttpsUrlSchema.safeParse('http://host.test/a').success).toBe(false)
+  })
+
+  it('the 2048 cap holds at the bound and one past it', () => {
+    const head = 'https://host.test/'
+    const at = head + 'a'.repeat(2048 - head.length)
+    expect(at).toHaveLength(2048)
+    expect(externalHttpsUrlSchema.safeParse(at).success).toBe(true)
+    expect(externalHttpsUrlSchema.safeParse(at + 'a').success).toBe(false)
+  })
+
+  it('every field built on it refuses a credentialed url: posting, queue item, also-seen-on', () => {
+    const posting = {
+      id: UUID,
+      sourceType: 'DOU_RSS',
+      externalId: 'https://jobs.dou.ua/x/1',
+      url: 'https://jobs.dou.ua/x/1',
+      title: 't',
+      companyName: 'c',
+      location: null,
+      descriptionMd: '',
+      publishedAt: null,
+      collectedAt: NOW,
+    }
+    expect(jobPostingSchema.safeParse(posting).success).toBe(true)
+    expect(jobPostingSchema.safeParse({ ...posting, url: CREDS }).success).toBe(false)
+    expect(jobPostingSchema.safeParse({ ...posting, url: BARE_USER }).success).toBe(false)
+
+    const row = {
+      id: UUID,
+      sourceType: 'REMOTEOK_API',
+      url: 'https://x.test/a',
+      title: 't',
+      companyName: 'c',
+      location: null,
+      seniority: 'SENIOR',
+      matchedKeywords: [],
+      matchedSeniors: [],
+      stackUnknown: false,
+      alsoSeenOn: [],
+      publishedAt: null,
+      firstSeenAt: NOW,
+      queueStatus: 'NEW',
+      takenByName: null,
+      takenAt: null,
+    }
+    expect(jobQueueItemSchema.safeParse(row).success).toBe(true)
+    expect(jobQueueItemSchema.safeParse({ ...row, url: CREDS }).success).toBe(false)
+    expect(jobQueueItemSchema.safeParse({ ...row, url: BARE_USER }).success).toBe(false)
+    expect(
+      jobQueueItemSchema.safeParse({
+        ...row,
+        alsoSeenOn: [{ source: 'DJINNI_RSS', url: CREDS }],
+      }).success,
+    ).toBe(false)
+    expect(
+      jobQueueItemSchema.safeParse({
+        ...row,
+        alsoSeenOn: [{ source: 'DJINNI_RSS', url: BARE_USER }],
+      }).success,
+    ).toBe(false)
+    expect(
+      jobQueueItemSchema.safeParse({
+        ...row,
+        alsoSeenOn: [{ source: 'DJINNI_RSS', url: 'https://djinni.co/j/1@2' }],
+      }).success,
+    ).toBe(true)
   })
 })

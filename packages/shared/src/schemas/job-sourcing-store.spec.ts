@@ -207,27 +207,43 @@ describe('paged associations', () => {
     expect(jobQueueSeniorPageSchema.safeParse({ items: [], nextCursor: null }).success).toBe(false)
   })
   it('source page derives alsoSeenOn count = max(total-1, 0)', () => {
+    // A positive total carries a primary and a zero total carries none (R11-L-3,
+    // pinned in its own describe below), so each case here supplies the matching
+    // primary: this test is about the count, not about the primary.
     const base = {
       items: [],
-      primarySourceRecordId: null,
       relationVersion: 1,
       nextCursor: null,
     }
+    const withPrimary = { ...base, primarySourceRecordId: U1 }
+    const noPrimary = { ...base, primarySourceRecordId: null }
     expect(
-      jobQueueSourcePageSchema.parse({ ...base, totalSourceCount: 3, totalAlsoSeenOnCount: 2 })
-        .totalAlsoSeenOnCount,
+      jobQueueSourcePageSchema.parse({
+        ...withPrimary,
+        totalSourceCount: 3,
+        totalAlsoSeenOnCount: 2,
+      }).totalAlsoSeenOnCount,
     ).toBe(2)
     expect(
-      jobQueueSourcePageSchema.safeParse({ ...base, totalSourceCount: 3, totalAlsoSeenOnCount: 3 })
-        .success,
+      jobQueueSourcePageSchema.safeParse({
+        ...withPrimary,
+        totalSourceCount: 3,
+        totalAlsoSeenOnCount: 3,
+      }).success,
     ).toBe(false)
     expect(
-      jobQueueSourcePageSchema.safeParse({ ...base, totalSourceCount: 0, totalAlsoSeenOnCount: 0 })
-        .success,
+      jobQueueSourcePageSchema.safeParse({
+        ...noPrimary,
+        totalSourceCount: 0,
+        totalAlsoSeenOnCount: 0,
+      }).success,
     ).toBe(true)
     expect(
-      jobQueueSourcePageSchema.safeParse({ ...base, totalSourceCount: 0, totalAlsoSeenOnCount: 1 })
-        .success,
+      jobQueueSourcePageSchema.safeParse({
+        ...noPrimary,
+        totalSourceCount: 0,
+        totalAlsoSeenOnCount: 1,
+      }).success,
     ).toBe(false)
   })
   it('source page items carry https-only urls', () => {
@@ -248,7 +264,19 @@ describe('paged associations', () => {
       }).success,
     ).toBe(false)
   })
-  it('possibleDuplicates preview is bounded; confirm is strict', () => {
+  it('possibleDuplicates preview is bounded; confirm refuses an extra key and a self-duplicate', () => {
+    // R11-M-8: the previous title claimed `confirm is strict` while the body
+    // never passed an unknown key, so `.strict()` could have been dropped with
+    // the test still green. The claim is now asserted, and the title says what
+    // the body does.
+    expect(
+      confirmPossibleDuplicateSchema.safeParse({
+        opportunityId: U1,
+        duplicateOpportunityId: U2,
+        expectedRelationVersion: 1,
+        extra: 1,
+      }).success,
+    ).toBe(false)
     expect(
       confirmPossibleDuplicateSchema.safeParse({
         opportunityId: U1,
@@ -496,7 +524,8 @@ describe('mutation coverage: pages and duplicates', () => {
     items: [],
     totalSourceCount: 3,
     totalAlsoSeenOnCount: 2,
-    primarySourceRecordId: null,
+    // A positive total requires a primary (R11-L-3), so this base carries one.
+    primarySourceRecordId: U3,
     relationVersion: 1,
   }
   it('nextCursor is capped at 300 on both pages and accepts ordinary cursors', () => {
@@ -639,5 +668,196 @@ describe('mutation coverage: triage', () => {
       jobQueueTeamTriageSubscriptionWorkerSchema.safeParse({ ...row, roleFamily: 'r'.repeat(101) })
         .success,
     ).toBe(false)
+  })
+})
+
+/**
+ * R11-H-4 — the same credential guard, at the store shapes that carry a URL:
+ * `jobSourceRevisionSchema.applicationUrl` (nullable) and
+ * `jobQueueSourceItemSchema.url`, reached through `jobQueueSourcePageSchema`.
+ */
+describe('store urls reject embedded credentials (R11-H-4)', () => {
+  const CREDS = 'https://user:pw@example.com/apply'
+  const BARE_USER = 'https://user@example.com/apply'
+  const rev = {
+    id: U1,
+    sourceRecordId: U2,
+    adapterVersion: 'greenhouse@1',
+    normalizerVersion: 'norm@1',
+    contentHash: SHA,
+    descriptionSha256: SHA,
+    title: 'Senior Engineer',
+    companyName: null,
+    location: null,
+    applicationUrl: 'https://example.com/apply',
+    publishedAtRaw: 'yesterday',
+    publishedAt: null,
+    fieldProvenance: { title: U1 },
+    receivedSeq: 1,
+    receivedAt: NOW,
+  }
+  const page = (url: string) =>
+    jobQueueSourcePageSchema.safeParse({
+      items: [{ sourceRecordId: U1, sourceType: 'DJINNI_RSS', url, linkedAt: NOW }],
+      totalSourceCount: 1,
+      totalAlsoSeenOnCount: 0,
+      primarySourceRecordId: U1,
+      relationVersion: 1,
+      nextCursor: null,
+    })
+
+  it('applicationUrl refuses credentials, keeps null and keeps an ordinary url', () => {
+    expect(jobSourceRevisionSchema.safeParse(rev).success).toBe(true)
+    expect(jobSourceRevisionSchema.safeParse({ ...rev, applicationUrl: null }).success).toBe(true)
+    expect(jobSourceRevisionSchema.safeParse({ ...rev, applicationUrl: CREDS }).success).toBe(false)
+    expect(jobSourceRevisionSchema.safeParse({ ...rev, applicationUrl: BARE_USER }).success).toBe(
+      false,
+    )
+    // A `@` in the path is legitimate and must survive the tightening.
+    expect(
+      jobSourceRevisionSchema.safeParse({ ...rev, applicationUrl: 'https://host.test/a@b' })
+        .success,
+    ).toBe(true)
+  })
+
+  it('a source page item refuses credentials and keeps a path-level `@`', () => {
+    expect(page('https://djinni.co/j/1').success).toBe(true)
+    expect(page(CREDS).success).toBe(false)
+    expect(page(BARE_USER).success).toBe(false)
+    expect(page('https://djinni.co/j/1@2').success).toBe(true)
+  })
+})
+
+/**
+ * R11-M-9 — the two page item caps. `nextCursor` was pinned at 300/301 above;
+ * the item arrays themselves were declarations nobody checked.
+ */
+describe('page item arrays are bounded (R11-M-9)', () => {
+  it('senior page items: 200 pass, 201 are refused', () => {
+    const senior = { id: U1, displayName: 'A' }
+    const seniorPage = (n: number) =>
+      jobQueueSeniorPageSchema.safeParse({
+        items: Array.from({ length: n }, () => senior),
+        totalMatchedSeniorCount: n,
+        nextCursor: null,
+      })
+    expect(seniorPage(200).success).toBe(true)
+    expect(seniorPage(201).success).toBe(false)
+  })
+
+  it('source page items: 50 pass, 51 are refused', () => {
+    const sourceItem = {
+      sourceRecordId: U1,
+      sourceType: 'DJINNI_RSS',
+      url: 'https://djinni.co/j/1',
+      linkedAt: NOW,
+    }
+    const sourcePage = (n: number) =>
+      jobQueueSourcePageSchema.safeParse({
+        items: Array.from({ length: n }, () => sourceItem),
+        totalSourceCount: n,
+        totalAlsoSeenOnCount: Math.max(n - 1, 0),
+        primarySourceRecordId: U1,
+        relationVersion: 1,
+        nextCursor: null,
+      })
+    expect(sourcePage(50).success).toBe(true)
+    expect(sourcePage(51).success).toBe(false)
+  })
+})
+
+/**
+ * R11-M-8 — `.strict()` on the triage request shapes. They were strict in the
+ * code and nothing would have noticed the modifier being dropped, which on a
+ * request shape means an unknown key reaching a handler silently.
+ */
+describe('triage requests refuse unknown keys (R11-M-8)', () => {
+  const REASON = 'policy review'
+  it('revokeJobQueueTeamTriageGrantSchema', () => {
+    const ok = {
+      opportunityId: U1,
+      teamId: U2,
+      expectedGrantVersion: 1,
+      reason: REASON,
+    }
+    expect(revokeJobQueueTeamTriageGrantSchema.safeParse(ok).success).toBe(true)
+    expect(revokeJobQueueTeamTriageGrantSchema.safeParse({ ...ok, extra: 1 }).success).toBe(false)
+  })
+
+  it('createJobQueueTeamTriageSubscriptionSchema', () => {
+    const ok = {
+      teamId: U1,
+      roleFamily: 'backend',
+      sourceTypes: [],
+      policyVersion: 1,
+      expiresAt: NOW,
+      reason: REASON,
+    }
+    expect(createJobQueueTeamTriageSubscriptionSchema.safeParse(ok).success).toBe(true)
+    expect(createJobQueueTeamTriageSubscriptionSchema.safeParse({ ...ok, extra: 1 }).success).toBe(
+      false,
+    )
+  })
+
+  it('revokeJobQueueTeamTriageSubscriptionSchema', () => {
+    const ok = {
+      subscriptionId: U1,
+      expectedSubscriptionVersion: 1,
+      reason: REASON,
+    }
+    expect(revokeJobQueueTeamTriageSubscriptionSchema.safeParse(ok).success).toBe(true)
+    expect(revokeJobQueueTeamTriageSubscriptionSchema.safeParse({ ...ok, extra: 1 }).success).toBe(
+      false,
+    )
+  })
+})
+
+/**
+ * R11-L-3 — `primarySourceRecordId` is coupled to `totalSourceCount`.
+ *
+ * DECIDED, not implied: the primary exists exactly when the page has sources.
+ * A positive `totalSourceCount` REQUIRES a primary (the opportunity's own
+ * source record), and a zero total FORBIDS one — an opportunity with no source
+ * rows has nothing a primary could point at, and the neighbouring invariant
+ * `totalAlsoSeenOnCount = max(totalSourceCount - 1, 0)` already reads the
+ * primary as one of the counted sources. Both halves report on
+ * `primarySourceRecordId`, in the style of that refine.
+ */
+describe('a primary source exists exactly when the page has sources (R11-L-3)', () => {
+  const base = { items: [], relationVersion: 1, nextCursor: null }
+  const page = (over: Record<string, unknown>) =>
+    jobQueueSourcePageSchema.safeParse({ ...base, ...over })
+
+  it('a positive total with a null primary reports one custom issue on primarySourceRecordId', () => {
+    expect(
+      issuesOf(page({ totalSourceCount: 1, totalAlsoSeenOnCount: 0, primarySourceRecordId: null })),
+    ).toEqual([
+      {
+        code: 'custom',
+        message: 'a positive totalSourceCount requires primarySourceRecordId',
+        path: ['primarySourceRecordId'],
+      },
+    ])
+  })
+
+  it('a zero total with a primary reports one custom issue on primarySourceRecordId', () => {
+    expect(
+      issuesOf(page({ totalSourceCount: 0, totalAlsoSeenOnCount: 0, primarySourceRecordId: U1 })),
+    ).toEqual([
+      {
+        code: 'custom',
+        message: 'a zero totalSourceCount forbids primarySourceRecordId',
+        path: ['primarySourceRecordId'],
+      },
+    ])
+  })
+
+  it('the two matching combinations parse', () => {
+    expect(
+      page({ totalSourceCount: 4, totalAlsoSeenOnCount: 3, primarySourceRecordId: U1 }).success,
+    ).toBe(true)
+    expect(
+      page({ totalSourceCount: 0, totalAlsoSeenOnCount: 0, primarySourceRecordId: null }).success,
+    ).toBe(true)
   })
 })

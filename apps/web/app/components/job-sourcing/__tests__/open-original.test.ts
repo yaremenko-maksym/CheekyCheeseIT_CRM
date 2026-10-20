@@ -70,3 +70,46 @@ describe('openOriginalPosting', () => {
     expect(openOriginalPosting.constructor.name).toBe('Function')
   })
 })
+
+/**
+ * R11-H-4 — the last barrier before `window.open` must refuse embedded
+ * credentials, exactly as `externalHttpsUrlSchema` in `@crm/shared` does.
+ *
+ * The predicate used to be `/^https:\/\/\S+$/i`, the same shape as the shared
+ * schema's, and `\S+` matches an authority containing `@`: a feed URL of
+ * `https://user:pw@evil.test/a` opened a page whose displayed host was a
+ * plausible one. The header above claimed "two independent checks, neither one
+ * load-bearing alone" — against this class of input they were not independent,
+ * they failed identically.
+ */
+describe('isSafeExternalUrl rejects embedded credentials (R11-H-4)', () => {
+  it('refuses credentials in the authority, with and without a password', () => {
+    expect(isSafeExternalUrl('https://user:pw@example.com/a')).toBe(false)
+    expect(isSafeExternalUrl('https://user@example.com/a')).toBe(false)
+  })
+
+  it('still accepts a `@` in the path, query or fragment', () => {
+    expect(isSafeExternalUrl('https://host.test/a@b')).toBe(true)
+    expect(isSafeExternalUrl('https://host.test/jobs?ref=a@b')).toBe(true)
+    expect(isSafeExternalUrl('https://host.test/jobs#a@b')).toBe(true)
+  })
+
+  it('still accepts what canonicalizePostingUrl produces', () => {
+    expect(isSafeExternalUrl('https://host.test/path?kept=params')).toBe(true)
+    expect(isSafeExternalUrl('https://host.test/path')).toBe(true)
+    expect(isSafeExternalUrl('https://host.test')).toBe(true)
+    expect(isSafeExternalUrl('  https://host.test/path  ')).toBe(true)
+  })
+
+  it('refuses an empty or whitespace authority', () => {
+    expect(isSafeExternalUrl('https://')).toBe(false)
+    expect(isSafeExternalUrl('https:// x')).toBe(false)
+    expect(isSafeExternalUrl('https:///path')).toBe(false)
+  })
+
+  it('openOriginalPosting does not open a credentialed url', () => {
+    const open = vi.fn()
+    expect(openOriginalPosting('https://user:pw@example.com/a', open)).toBe(false)
+    expect(open).not.toHaveBeenCalled()
+  })
+})
