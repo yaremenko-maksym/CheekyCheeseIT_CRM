@@ -52,7 +52,13 @@
  *
  * TWO LAYERS, AND EACH REFUSES SOMETHING THE OTHER ACCEPTS. Neither is
  * decoration: `open-original.test.ts` carries a named test per rejection class,
- * and deleting either layer reddens a DISJOINT set of them.
+ * and deleting either layer reddens a DISJOINT set of them. Measured in both
+ * directions on this file's test, by deleting each layer in turn and counting:
+ * without the `new URL` block 4 tests go red (the WHATWG-only shapes); without
+ * the regex 11 go red, including the smuggled-scheme ones. That pair of numbers
+ * is the evidence that the two layers are not copies of each other — which was
+ * CR-M-2's complaint — and it is cheap to re-measure, so re-measure rather than
+ * trust it after editing either layer.
  *
  * LAYER 1 — the shape regex. MIRRORS, by name and deliberately,
  * `externalHttpsUrlSchema` in `packages/shared/src/schemas/job-sourcing.ts` and
@@ -62,12 +68,29 @@
  * because `https://host/a@b` is an ordinary posting URL and
  * `canonicalizePostingUrl` legitimately produces `https://host/path?kept=params`.
  *
- * The LEADING `^` is the operand carrying the scheme check, and it carries it
- * ALONE — layer 2 does not cover for it. Measured: `new URL` normalises
- * `https:/host.test/x` (one slash) into a valid https URL and accepts
- * `https://@host.test/a` (empty userinfo) outright, so with the anchor gone
- * `javascript:https://evil.test/a` reaches `window.open` — the smuggling this
- * file's header names. Layer 1 is also the ONLY layer refusing whitespace inside
+ * The LEADING `^` carries the scheme check, and as the code stands it carries it
+ * ALONE — measured, by deleting layer 2 and layer 1 in turn (see the numbers
+ * above): `new URL('javascript:https://evil.test/a')` PARSES, with
+ * `protocol === 'javascript:'`, and nothing in layer 2 looks at `protocol` any
+ * more (those operands were deleted as unkillable — see the comment in the
+ * `try`), so with the anchor gone that string reaches `window.open`. It also
+ * normalises `https:/host.test/x` (one slash) into a valid https URL and accepts
+ * `https://@host.test/a` (empty userinfo) outright.
+ *
+ * TWO THINGS KEEP THE ANCHOR HERE BEYOND THAT, and they survive any later change
+ * to layer 2: it is the CHEAPEST refusal, rejecting before anything is parsed;
+ * and the shared schema and the column CHECK are pinned on this same anchored
+ * shape, so dropping it here would break the three-way mirror even if some other
+ * check happened to cover the same inputs. The one thing not to conclude is that
+ * the anchor is decorative — delete it and the smuggling tests go red.
+ *
+ * (An earlier revision of this comment claimed the same thing with a reason that
+ * had stopped being true, and the asymmetry is worth keeping in mind: if anyone
+ * reintroduces a `protocol` check on the parsed value, layer 2 starts covering
+ * for the anchor, and the anchor's own mutants stop being killable. The two
+ * cannot both be pinned.)
+ *
+ * Layer 1 is also the ONLY layer refusing whitespace inside
  * the URL: `new URL` silently strips tab/CR/LF and percent-encodes NBSP, so
  * `https://ho<TAB>st.test/a` survives it. (On the shared side `.url()` runs first
  * and, measured, would not have helped with the smuggling either: it accepts
@@ -79,11 +102,13 @@
  * `https://h.test:99999/a` (port out of range), `https://a%40b.test/` (an `@`
  * smuggled into the host percent-encoded) and a C0 control inside the host. Those
  * did not merely slip through before — `window.open` would throw a SyntaxError
- * out of `new URL`, INSIDE the click handler, which is worse than a `false`. This
- * layer is what makes the paragraph above true rather than aspirational.
- * `protocol` is re-checked on the PARSED value, not just the raw shape;
- * `username` and `password` must BOTH be empty, since either one alone is enough
- * to show a misleading host.
+ * out of `new URL`, INSIDE the click handler, which is worse than a `false`.
+ *
+ * Layer 2 asserts NOTHING on the parsed object — not `protocol`, not `username` /
+ * `password`, not `host`. Those four checks were here and were deleted: behind
+ * layer 1 no input can make any of them false, so they were four mutants nobody
+ * could kill, and they masked layer 1's own operands while they existed. The
+ * measurement and the per-operand reasoning are in the `try` block below.
  *
  * Trimming happens HERE, so the string this predicate tests is the trimmed one.
  * `openOriginalPosting` must open that same trimmed string — see the note there.
