@@ -138,3 +138,52 @@ jobs:
           fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
           source: canary-payload/scp-pos.txt
           target: ${{ env.CANARY_DIR }}
+
+      # ── Verification and cleanup: always run, on the proven version with the real pin ──
+      # Verify: every positive file landed AND every negative file is absent. The second half
+      # is what shows no data crossed on a mismatch (a failed step alone does not).
+      - name: Verify what landed on the host (positive present, negative absent)
+        id: verify
+        if: always()
+        continue-on-error: true
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          envs: CANARY_DIR,CANARY_PREFIX
+          script: |
+            set -u
+            case "$CANARY_DIR" in
+              "$CANARY_PREFIX"*) ;;
+              *) echo "REFUSING: CANARY_DIR '$CANARY_DIR' is outside $CANARY_PREFIX"; exit 1 ;;
+            esac
+            bad=0
+            for f in ssh120-pos ssh123-pos canary-payload/scp-pos.txt; do
+              if [ -f "$CANARY_DIR/$f" ]; then echo "OK   present: $f"; else echo "BAD  MISSING (positive control wrote nothing): $f"; bad=1; fi
+            done
+            for f in ssh120-neg ssh123-neg canary-payload/scp-neg.txt; do
+              if [ -e "$CANARY_DIR/$f" ]; then echo "BAD  PRESENT (data crossed on a host-key mismatch): $f"; bad=1; else echo "OK   absent: $f"; fi
+            done
+            exit "$bad"
+
+      # Cleanup: remove ONLY the run-unique directory, after re-validating its exact shape.
+      - name: Remove the throwaway directory from the host
+        id: cleanup
+        if: always()
+        continue-on-error: true
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          envs: CANARY_DIR
+          script: |
+            set -eu
+            if ! printf '%s' "$CANARY_DIR" | grep -Eq '^/tmp/hostkey-canary-[0-9]+-[0-9]+$'; then
+              echo "REFUSING to remove '$CANARY_DIR': not a canary directory"; exit 1
+            fi
+            rm -rf -- "$CANARY_DIR"
+            test ! -e "$CANARY_DIR" && echo "removed $CANARY_DIR"
