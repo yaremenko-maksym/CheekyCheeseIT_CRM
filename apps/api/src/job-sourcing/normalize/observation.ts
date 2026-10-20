@@ -124,36 +124,47 @@ export interface RawObservationFields {
   fetch?: { fetchedAt?: Date; requestId?: string }
 }
 
-/** `{ [key]: value }` unless undefined: keeps `exactOptionalPropertyTypes` targets happy. */
+/**
+ * `{ [key]: value }`, typed as an optional property so `exactOptionalPropertyTypes` targets accept it.
+ * An undefined value stays an own key holding `undefined`: every consumer here reads the property
+ * and none tests for the key's presence (`in` / `Object.keys`), so absent and undefined coincide.
+ */
 function optional<K extends string, V>(key: K, value: V | undefined): { [P in K]?: V } {
-  return value === undefined ? {} : ({ [key]: value } as { [P in K]?: V })
+  return { [key]: value } as { [P in K]?: V }
 }
 
 function noNul(value: string): string {
   return value.replace(/\u0000/g, '')
 }
 
+/** Display truncation for a single-line field: the display value is shorter than the trimmed original. */
+function shorterThanOriginal(displayLength: number) {
+  return (text: string) => displayLength < text.trim().length
+}
+
 function boundedText(
   original: unknown,
   retentionMax: number,
-  /** Length of the normalized display value; null when the caller decides display truncation. */
-  displayLength: number | null,
+  /** Decides `displayTruncated` from the NUL-stripped original. */
+  isDisplayTruncated: (text: string) => boolean,
 ): BoundedText {
-  const text = typeof original === 'string' ? noNul(original) : ''
+  const received = typeof original === 'string' ? original : ''
+  const text = noNul(received)
   const value = safeSlice(text, retentionMax)
   return {
     value,
-    originalLength: typeof original === 'string' ? original.length : 0,
+    originalLength: received.length,
     truncated: value.length < text.length,
-    displayTruncated: displayLength !== null && displayLength < text.trim().length,
+    displayTruncated: isDisplayTruncated(text),
   }
 }
 
 function descriptionDisplayTruncated(
-  raw: string,
+  raw: string | null | undefined,
   kind: 'html' | 'text',
   descriptionMd: string,
 ): boolean {
+  if (typeof raw !== 'string') return false
   if (kind === 'text') return noNul(raw).trim().length > MAX_DESCRIPTION_CHARS
   // htmlToMarkdown cuts at the cap and appends an ellipsis; the raw input is also pre-cut.
   return (
@@ -231,24 +242,29 @@ export function buildSourceObservation(
   }
 
   const kind = raw.descriptionKind === 'text' ? 'text' : 'html'
-  const title = boundedText(raw.title, ORIGINAL_LIMITS.title, posting.title.length)
+  const title = boundedText(
+    raw.title,
+    ORIGINAL_LIMITS.title,
+    shorterThanOriginal(posting.title.length),
+  )
   const companyName = boundedText(
     raw.companyName,
     ORIGINAL_LIMITS.companyName,
-    posting.companyName.length,
+    shorterThanOriginal(posting.companyName.length),
   )
   const location =
     typeof raw.location === 'string' && raw.location.trim().length > 0
-      ? boundedText(raw.location, ORIGINAL_LIMITS.location, posting.location?.length ?? 0)
+      ? boundedText(
+          raw.location,
+          ORIGINAL_LIMITS.location,
+          shorterThanOriginal(posting.location?.length ?? 0),
+        )
       : null
   const description = {
-    ...boundedText(raw.description, ORIGINAL_LIMITS.description, null),
-    kind,
-    displayTruncated: descriptionDisplayTruncated(
-      raw.description ?? '',
-      kind,
-      posting.descriptionMd,
+    ...boundedText(raw.description, ORIGINAL_LIMITS.description, () =>
+      descriptionDisplayTruncated(raw.description, kind, posting.descriptionMd),
     ),
+    kind,
   } as const
 
   const rawTags = Array.isArray(raw.tags)
