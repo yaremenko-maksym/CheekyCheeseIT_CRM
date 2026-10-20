@@ -733,14 +733,16 @@ def _split_segments(text):
             i += 2
             continue
 
-        if text.startswith("<<", i) and not text.startswith("<<<", i):
-            m = HEREDOC_RE.match(text[i:])
-            if m:
-                pending.append((m.group(3), m.group(1) == "-"))
-                cur.append(m.group(0))
-                code.append(m.group(0))
-                i += m.end()
-                continue
+        # Through the SAME helper _heredoc_literal_spans uses, so the two cannot
+        # disagree about what opens a heredoc or where its body ends.
+        opener = _heredoc_opener(text, i)
+        if opener is not None:
+            length, delim, strip_tabs, _literal = opener
+            pending.append((delim, strip_tabs))
+            cur.append(text[i:i + length])
+            code.append(text[i:i + length])
+            i += length
+            continue
 
         if ch == "\n" and pending:
             i += 1
