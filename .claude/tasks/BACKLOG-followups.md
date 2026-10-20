@@ -323,16 +323,16 @@ The filter is merged (#451) in observation mode — right now it blocks nothing.
 ## Infrastructure — found 2026-07-31 during the merge session
 
 9. **The merge automation cannot merge PRs that touch `.github/workflows/**`.** The token has no
-   permission to modify pipeline files: `GraphQL: refusing to allow a GitHub App to create or
-update workflow .github/workflows/ci.yml without workflows permission`. Two PRs (#437, #449)
-   hung silently — the label is set, the merge step fails, and it looks like "CI is red".
-   They had to be merged manually. Fix: either grant the permission or explicitly separate such PRs with a clear
-   message so it does not look like a check failure.
-   **CLOSED.** The second path was chosen. Verified on PR #498 (2026-08-07): the automation detects
-   such PRs, leaves a comment in the PR with an explanation («это НЕ сбой проверок, нужен ручной
-   мерж») and finishes successfully rather than silently. The `workflow`permission is intentionally not granted to auto-merge:
-   it is GitHub's built-in protection against uncontrolled pipeline changes by automation, and a bypass
-   for convenience would be a security downgrade. Manually merging such PRs is an ordinary `gh pr merge --squash`, without `--admin`.
+permission to modify pipeline files: `GraphQL: refusing to allow a GitHub App to create or
+   update workflow .github/workflows/ci.yml without workflows permission`. Two PRs (#437, #449)
+hung silently — the label is set, the merge step fails, and it looks like "CI is red".
+They had to be merged manually. Fix: either grant the permission or explicitly separate such PRs with a clear
+message so it does not look like a check failure.
+**CLOSED.** The second path was chosen. Verified on PR #498 (2026-08-07): the automation detects
+such PRs, leaves a comment in the PR with an explanation («это НЕ сбой проверок, нужен ручной
+мерж») and finishes successfully rather than silently. The `workflow`permission is intentionally not granted to auto-merge:
+it is GitHub's built-in protection against uncontrolled pipeline changes by automation, and a bypass
+for convenience would be a security downgrade. Manually merging such PRs is an ordinary `gh pr merge --squash`, without `--admin`.
 10. **A deploy failure does not raise an alert.** The deploy failed 2026-07-27 21:22 and stayed red for
     **four days** — nobody found out, prod quietly ran on old code. We set up a notification about a red
     main branch (#441/#446), but not on `Deploy → failure`. Set it up.
@@ -3298,3 +3298,84 @@ list for package scripts and interpreted wrappers — belong to it.
 **Check on closing:** with the API started by any route — a package script, an interpreted wrapper, a
 shell function named like the launcher, a `PATH` shim — a connection to the live database refuses at boot
 with a message naming the database; and the hook's header says it is advisory.
+
+## 248. P1 — a change to a shared parser needs a blocked-to-allowed differential, not a green suite (2026-10-20)
+
+**The measurement that makes this P1.** On `lib/cmdscan.py`, **three of the last four defects were
+introduced by a fix**, not found in the original code. Each arrived with the suites green, because each
+fix was verified against the finding it closed rather than against the invariant it touched.
+
+- A fix to the comment stripper, built for the two launcher hooks, removed a refusal from the third
+  consumer. The fail-closed second reading it added lived inside the launch-question entry point, so the
+  hook that asks a different question inherited nothing.
+- The first repair of that took a payload-carrying interpreter flag and its payload out of the scan
+  entirely: the string the shell would actually execute stopped being read at all.
+- The second repair guarded one token position, and the same payload moved one position over.
+
+**Why a green suite cannot see this.** A hook's suite asserts the verdicts it knows to ask about. A
+refusal that disappears from a _different_ consumer, or a payload that stops being scanned, is not a
+failing assertion — it is an assertion nobody wrote. The verdict moved; no test moved with it.
+
+**The check.** A change to a parser shared by several guards arrives with a differential: replay a fixed
+adversarial command corpus through **every** consumer at the base commit and at the new one, and fail on
+any `(command, consumer)` pair whose verdict moves **blocked → allowed** unless that pair is explicitly
+listed as intended. The reverse direction is reported as a false-positive risk, not a failure. This is
+mechanical, so it belongs in the guard runner rather than in a reviewer's attention.
+
+**And the instrument needs two payload families.** A sweep run with a database-client payload found zero
+holes and was wrong: a text reading of a mis-parsed segment matches the client's name anyway, so that
+payload cannot distinguish a parsed refusal from a textual one. The same sweep with a filesystem-
+destructive payload found holes at seven placements per interpreter. A differential whose payload is
+caught by the fallback text layer measures the fallback, not the parse.
+
+**Check on closing:** a shared-parser change cannot reach main without the differential having run over
+every consumer of that parser, and a `blocked → allowed` pair fails the run rather than appearing in a
+report nobody reads.
+
+## 249. Three narrow gaps left open in the live-db guard, deliberately (2026-10-20)
+
+All three were measured and placed below the bar during the round-5 review, and are recorded so they are
+not rediscovered as new. The guard is **advisory** by the decision in entry 247, which is why none of
+them blocks.
+
+- **Degraded mode recognises fewer launch spellings than the analyzer.** When the shared library is
+  unavailable the guard falls back to a pattern, and that pattern misses a package-script launch with a
+  directory-selecting flag, the long form of the script-running subcommand, and one alternative package
+  runner. The analyzer recognises all three.
+- **A comment that contains an operator and a launch is refused.** The fail-closed comment-free reading
+  splits such a line, so a line whose launch exists only inside a comment is treated as a launch. This is
+  a false positive by construction and the cheap price of failing closed.
+- **The owner-session case is the one launch-shaped assertion still pinned only as allowed**, rather than
+  also asserting it is recognised as a launch. It sits outside the gated context by design.
+
+**Check on closing:** degraded mode recognises the same spellings as the analyzer, or the header states
+which it does not; and the comment-free reading distinguishes a launch after a comment from one inside
+it.
+
+## 250. Residuals the pre-merge differential surfaced on the live-db guard (2026-10-20)
+
+The differential described in entry 248 was run by hand before merging the guard's sixth round: 561
+command shapes across five interpreters and three payload families, times three consumer hooks — 1683
+pairs, compared at the merge base, at the then-current main and at the head, with no pair dropped. It
+answered its question (nothing structurally refused became allowed; the only loosening was textual
+false positives, proven so by the payload-family split). It also left three residuals, all of which
+refuse **more** than before rather than less, which is why none blocked the merge.
+
+- **An inconsistency between option operands.** A payload in the operand of the two single-letter
+  option flags and of the init-file flag is now allowed when the TTL wrapper follows it, while the same
+  payload in the run-commands-file flag's operand stays refused for both payload families. Both
+  verdicts are defensible — none of those positions is code — but they disagree with each other, and a
+  guard whose answer depends on which operand-taking flag was used is a guard whose rule nobody can
+  state.
+- **Roughly seventy newly refused package-script launches**, including wrapped forms. This is the
+  recognition list widening, which is the intended direction, but some of those forms may be refusals
+  of commands that were always safe. Nobody has looked at them one by one.
+- **Three coverage gaps in the differential itself**, recorded so the next run does not believe it
+  covered them: the launcher hooks were exercised with a fabricated agent-worktree working directory,
+  so the outside-a-worktree gating was never entered; payload text was placed only in operand and code
+  positions, with no quoting or escaping variants inside the payload; and the two less common
+  interpreter names are textual to the hooks, so their real shell semantics were never compared.
+
+**Check on closing:** the operand-flag families give the same verdict as each other or the header states
+why they differ; a sample of the newly refused launch spellings has been judged safe-or-not by a human
+reading; and a differential run records which of the three gaps it closed.
