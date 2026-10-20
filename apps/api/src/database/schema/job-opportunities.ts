@@ -55,10 +55,25 @@ function revisionIdColumn(): AnyPgColumn {
 
 /**
  * Stored navigation URLs: https only, with a host, no whitespace, no embedded
- * credentials. Mirrors `externalHttpsUrlSchema` (`^https://\S+$`) and is stricter
- * where the zod schema defers to `.url()`: the authority (up to the first
- * `/`, `?` or `#`) must be non-empty and free of `@`, so `https://`,
- * `https:// x` and `https://user:pass@host/` are all rejected.
+ * credentials. The authority (up to the first `/`, `?` or `#`) must be non-empty
+ * and free of `@` and whitespace, so `https://`, `https:// x` and
+ * `https://user:pass@host/` are all rejected.
+ *
+ * One of THREE guards on the same value, to be changed together:
+ *   * `externalHttpsUrlSchema` (`packages/shared/src/schemas/job-sourcing.ts`) —
+ *     `.url()` + `.max(2048)` + `^https:\/\/[^/?#@]+([/?#]\S*)?$`, with whitespace
+ *     in the authority left to `.url()`;
+ *   * `isSafeExternalUrl`
+ *     (`apps/web/app/components/job-sourcing/open-original.ts`) — the same shape
+ *     as a bare regex, plus a `new URL` parse, before `window.open`;
+ *   * this CHECK, which is shape-only: no URL parser, no length cap, and
+ *     `[:space:]` is locale-dependent for non-ASCII characters.
+ *
+ * What pins them together is `EXTERNAL_URL_CORPUS`
+ * (`packages/shared/src/schemas/job-sourcing-url-corpus.ts`), run against this
+ * CHECK in `job-source-type-enum-ddl.integration.spec.ts`. A pre-R11-H-4 version of
+ * this comment quoted the zod schema as `^https://\S+$`, which accepted
+ * credentials; do not reintroduce that shape.
  */
 const HTTPS_URL_PATTERN = '^https://[^[:space:]/?#@]+([/?#][^[:space:]]*)?$'
 const httpsUrlOrNull = (column: AnyPgColumn) =>

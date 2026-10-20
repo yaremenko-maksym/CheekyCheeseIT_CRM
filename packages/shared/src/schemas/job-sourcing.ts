@@ -121,6 +121,9 @@ export const jobExclusionOriginSchema = z.enum(['MANUAL', 'PROJECT'])
 // Shared field schemas
 // ---------------------------------------------------------------------------
 
+/** The scheme and authority shape; see `externalHttpsUrlSchema` below for what it is and is not. */
+const EXTERNAL_HTTPS_URL_PATTERN = /^https:\/\/[^/?#@]+([/?#]\S*)?$/i
+
 /**
  * `https:`-only URL with a host and no embedded credentials.
  *
@@ -130,6 +133,11 @@ export const jobExclusionOriginSchema = z.enum(['MANUAL', 'PROJECT'])
  *     `apps/api/src/database/schema/job-opportunities.ts`;
  *   * `isSafeExternalUrl` — the last barrier before `window.open`, in
  *     `apps/web/app/components/job-sourcing/open-original.ts`.
+ *
+ * What holds the three together is not this comment but `EXTERNAL_URL_CORPUS`
+ * (`./job-sourcing-url-corpus.ts`): one list of URLs with an absolute verdict per
+ * guard, run against all three. A change to one predicate that the corpus does not
+ * agree with fails a test in the guard that moved.
  *
  * Enforced here, and not only at ingest, because this is the value the browser
  * hands to `window.open`: a `javascript:` URL smuggled in through a feed would
@@ -141,8 +149,6 @@ export const jobExclusionOriginSchema = z.enum(['MANUAL', 'PROJECT'])
  * guard was WEAKER than the column the value comes out of — which already
  * refused it. A guard on a value may not be weaker than its column.
  */
-const EXTERNAL_HTTPS_URL_PATTERN = /^https:\/\/[^/?#@]+([/?#]\S*)?$/i
-
 export const externalHttpsUrlSchema = z
   .string()
   .url()

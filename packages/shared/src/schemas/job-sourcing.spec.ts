@@ -22,6 +22,7 @@ import {
   jobSuggestionListSchema,
   jobSuggestionSchema,
 } from './job-sourcing'
+import { EXTERNAL_URL_CORPUS, expectedExternalUrlVerdict } from './job-sourcing-url-corpus'
 import { MAX_STACK_KEYWORD_CHARS, MAX_STACK_KEYWORDS } from '../utils/stack-keywords'
 
 /**
@@ -687,5 +688,32 @@ describe('navigation urls reject embedded credentials (R11-H-4)', () => {
         alsoSeenOn: [{ source: 'DJINNI_RSS', url: 'https://djinni.co/j/1@2' }],
       }).success,
     ).toBe(true)
+  })
+})
+
+/**
+ * SR-M-1 / CR-M-2 — the shared URL corpus, run through `externalHttpsUrlSchema`.
+ *
+ * The same rows run in `open-original.test.ts` (web, `isSafeExternalUrl`) and in
+ * `job-source-type-enum-ddl.integration.spec.ts` (the live Postgres CHECK). Each
+ * row carries an ABSOLUTE verdict per guard, so a pass here means "this URL is
+ * refused", not "the three guards agree" — agreement would survive all three being
+ * weakened the same way, which is what R11-H-4 was.
+ */
+describe('the shared URL corpus, through externalHttpsUrlSchema', () => {
+  it('is not vacuous: it carries both accepted and refused rows for this guard', () => {
+    const verdicts = EXTERNAL_URL_CORPUS.map((row) => expectedExternalUrlVerdict(row, 'shared'))
+    expect(verdicts).toContain('accept')
+    expect(verdicts).toContain('refuse')
+    expect(verdicts).not.toContain('locale-dependent')
+  })
+
+  it.each(EXTERNAL_URL_CORPUS.map((row) => [row.name, row] as const))('%s', (_name, row) => {
+    const expected = expectedExternalUrlVerdict(row, 'shared')
+    const parsed = externalHttpsUrlSchema.safeParse(row.url)
+    expect(parsed.success).toBe(expected === 'accept')
+    if (parsed.success && row.sharedParsed !== undefined) {
+      expect(parsed.data).toBe(row.sharedParsed)
+    }
   })
 })
