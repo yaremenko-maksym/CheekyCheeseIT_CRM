@@ -107,6 +107,20 @@ describe('isSafeExternalUrl rejects embedded credentials (R11-H-4)', () => {
     expect(isSafeExternalUrl('https:///path')).toBe(false)
   })
 
+  it('the scheme must be at the START: an https url smuggled inside another scheme is refused', () => {
+    // The `^` anchor is the ONLY thing standing between a smuggled scheme and
+    // `window.open` here, because this guard has no `.url()` in front of it —
+    // unlike the shared schema, where `.url()` runs first (and, measured, would
+    // not have helped either: it accepts all three of these). Without the anchor
+    // any string that merely CONTAINS an https URL is opened, payload and all.
+    expect(isSafeExternalUrl('javascript:https://evil.test/a')).toBe(false)
+    expect(isSafeExternalUrl('data:text/html,https://host.test/a')).toBe(false)
+    expect(isSafeExternalUrl('x\nhttps://evil.test/a')).toBe(false)
+    const open = vi.fn()
+    expect(openOriginalPosting('javascript:https://evil.test/a', open)).toBe(false)
+    expect(open).not.toHaveBeenCalled()
+  })
+
   it('openOriginalPosting does not open a credentialed url', () => {
     const open = vi.fn()
     expect(openOriginalPosting('https://user:pw@example.com/a', open)).toBe(false)

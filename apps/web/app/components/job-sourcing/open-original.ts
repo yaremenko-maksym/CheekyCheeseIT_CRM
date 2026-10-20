@@ -45,6 +45,14 @@
  * `https://host/a@b` is an ordinary posting URL and `canonicalizePostingUrl`
  * legitimately produces `https://host/path?kept=params`.
  *
+ * The LEADING `^` is the operand carrying the scheme check here, and it carries
+ * it alone: this is a bare regex with no `.url()` ahead of it, so without the
+ * anchor any string merely CONTAINING an https URL matches — and
+ * `javascript:https://evil.test/a` would be handed to `window.open`, which is the
+ * smuggling this file's header names. Do not drop it when refactoring the regex.
+ * (On the shared side `.url()` runs first and, measured, would not have helped:
+ * it accepts that string too.)
+ *
  * The one character the shared schema's class does NOT list is whitespace in the
  * authority: that schema has `.url()` in front of the regex and `.url()` refuses
  * it there already, so the operand would be unkillable by any test. This is a

@@ -590,6 +590,39 @@ describe('navigation urls reject embedded credentials (R11-H-4)', () => {
     expect(externalHttpsUrlSchema.safeParse('http://host.test/a').success).toBe(false)
   })
 
+  it('the scheme must be at the START: an https url smuggled inside another scheme is refused', () => {
+    // The `^` anchor, and `.url()` does NOT stand behind it: MEASURED, every
+    // string below passes `z.string().url()` on its own, because each is a
+    // structurally valid URL. Drop the anchor and the refinement starts matching
+    // the https URL these carry as a PAYLOAD — a `javascript:` document reaching
+    // `window.open` in our origin, which is the exact threat this field exists to
+    // stop. The javascript:/data: cases above do not catch it: neither of them
+    // contains an https URL, so a mutant that deleted the anchor survived them.
+    expect(externalHttpsUrlSchema.safeParse('javascript:https://evil.test/a').success).toBe(false)
+    expect(externalHttpsUrlSchema.safeParse('data:text/html,https://host.test/a').success).toBe(
+      false,
+    )
+    expect(externalHttpsUrlSchema.safeParse('x\nhttps://evil.test/a').success).toBe(false)
+    expect(externalHttpsUrlSchema.safeParse('nothttps://host.test/a').success).toBe(false)
+  })
+
+  it('a leading newline or space parses, and the value is normalized to the clean url', () => {
+    // Not a smuggling case, and worth stating so nobody "fixes" it: `.url()` in
+    // zod v4 REPLACES the value with the WHATWG-parsed href, and WHATWG strips
+    // leading whitespace. So the refinement — and everything downstream — sees
+    // the clean URL, never the prefixed one. MEASURED, both ways round.
+    expect(externalHttpsUrlSchema.parse('\nhttps://host.test/a')).toBe('https://host.test/a')
+    expect(externalHttpsUrlSchema.parse(' https://host.test/a')).toBe('https://host.test/a')
+  })
+
+  it('the refusal names the rule, so the message is part of the contract', () => {
+    const refused = externalHttpsUrlSchema.safeParse(CREDS)
+    expect(refused.success).toBe(false)
+    expect(refused.error?.issues[0]?.message).toBe(
+      'URL must be https, with a host and no embedded credentials',
+    )
+  })
+
   it('the 2048 cap holds at the bound and one past it', () => {
     const head = 'https://host.test/'
     const at = head + 'a'.repeat(2048 - head.length)
