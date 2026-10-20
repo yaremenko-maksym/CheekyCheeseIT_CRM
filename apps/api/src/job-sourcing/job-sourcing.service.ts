@@ -7,7 +7,7 @@ import {
   Optional,
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
-import { and, desc, eq, inArray, isNull, lt, notInArray, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, lt, notExists, sql } from 'drizzle-orm'
 import type {
   CreateJobExclusionDto,
   JobCollectionFailureDto,
@@ -1033,22 +1033,34 @@ export class JobSourcingService {
     // exact "уже отклонённое не показывать повторно" promise, broken by the
     // retention job rather than by the filter. Anything the senior has ANSWERED
     // (applied or rejected) is a decision we must not forget.
-    const decidedPostingIds = await this.db.db
-      .selectDistinct({ postingId: jobSuggestions.postingId })
+    //
+    // C-08 (r5 §1.4): this is a CORRELATED `NOT EXISTS`, not a `NOT IN` over a
+    // materialised id list. The previous shape read every APPLIED/REJECTED posting
+    // id into the API process and sent them all back as bind parameters, which grows
+    // without bound in the size of `job_suggestions` — the one table here that only
+    // ever grows, since a decision is exactly what retention must never forget. The
+    // predicate is UNCHANGED: keep a posting when any senior applied to it OR
+    // rejected it, and the `queue_status = 'NEW'` clause keeps IN_PROGRESS and
+    // DISMISSED. `shouldKeepPosting` in retention.ts is the unit-level twin of these
+    // three clauses; the two mirror each other and must move together.
+    const decidedBySenior = this.db.db
+      .select({ decided: sql`1` })
       .from(jobSuggestions)
-      .where(inArray(jobSuggestions.status, ['APPLIED', 'REJECTED']))
+      .where(
+        and(
+          eq(jobSuggestions.postingId, jobPostings.id),
+          inArray(jobSuggestions.status, ['APPLIED', 'REJECTED']),
+        ),
+      )
 
-    const keep = decidedPostingIds.map((r) => r.postingId)
     const deleted = await this.db.db
       .delete(jobPostings)
       .where(
-        keep.length > 0
-          ? and(
-              lt(jobPostings.collectedAt, cutoff),
-              eq(jobPostings.queueStatus, 'NEW'),
-              notInArray(jobPostings.id, keep),
-            )
-          : and(lt(jobPostings.collectedAt, cutoff), eq(jobPostings.queueStatus, 'NEW')),
+        and(
+          lt(jobPostings.collectedAt, cutoff),
+          eq(jobPostings.queueStatus, 'NEW'),
+          notExists(decidedBySenior),
+        ),
       )
       .returning({ id: jobPostings.id })
 
