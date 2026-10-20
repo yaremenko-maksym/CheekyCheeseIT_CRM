@@ -161,3 +161,98 @@ describe('parseSourceDate: future dates and semantics', () => {
     expect(r?.status).toBe('INVALID')
   })
 })
+
+describe('parseSourceDate: ISO calendar and clock boundaries', () => {
+  it('accepts the last valid day of every month and rejects the day after it', () => {
+    const last = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    last.forEach((days, i) => {
+      const mm = String(i + 1).padStart(2, '0')
+      expect(parse(`2025-${mm}-${days}`, 'ISO_ZONED')?.value?.toISOString(), mm).toBe(
+        `2025-${mm}-${days}T00:00:00.000Z`,
+      )
+      expect(parse(`2025-${mm}-${days + 1}`, 'ISO_ZONED'), mm).toMatchObject({
+        status: 'INVALID',
+        value: null,
+      })
+    })
+  })
+
+  it('treats day 00 and month 00 as impossible, and leap years by the Gregorian rule', () => {
+    expect(parse('2025-10-00', 'ISO_ZONED')?.status).toBe('INVALID')
+    expect(parse('2025-00-10', 'ISO_ZONED')?.status).toBe('INVALID')
+    expect(parse('2100-02-29', 'ISO_ZONED', 'EXPIRY')?.status).toBe('INVALID')
+    expect(parse('2024-02-29', 'ISO_ZONED')?.value?.toISOString()).toBe('2024-02-29T00:00:00.000Z')
+  })
+
+  it('accepts the last valid hour, minute and second and rejects the next', () => {
+    expect(parse('2026-10-14T23:59:59Z', 'ISO_ZONED')?.value?.toISOString()).toBe(
+      '2026-10-14T23:59:59.000Z',
+    )
+    expect(parse('2026-10-14T00:00:00Z', 'ISO_ZONED')?.value?.toISOString()).toBe(
+      '2026-10-14T00:00:00.000Z',
+    )
+    for (const bad of ['2026-10-14T24:00:00Z', '2026-10-14T10:60:00Z', '2026-10-14T10:00:60Z']) {
+      expect(parse(bad, 'ISO_ZONED'), bad).toMatchObject({ status: 'INVALID', value: null })
+    }
+  })
+
+  it('reads each time component independently', () => {
+    expect(parse('2026-10-14T01:02:03Z', 'ISO_ZONED')?.value?.toISOString()).toBe(
+      '2026-10-14T01:02:03.000Z',
+    )
+    expect(parse('2026-10-14T10:05Z', 'ISO_ZONED')?.value?.toISOString()).toBe(
+      '2026-10-14T10:05:00.000Z',
+    )
+  })
+
+  it('accepts a space separator and lower-case t/z', () => {
+    expect(parse('2026-10-14 10:00:00Z', 'ISO_ZONED')?.value?.toISOString()).toBe(
+      '2026-10-14T10:00:00.000Z',
+    )
+    expect(parse('2026-10-14t10:00:00z', 'ISO_ZONED')?.value?.toISOString()).toBe(
+      '2026-10-14T10:00:00.000Z',
+    )
+  })
+
+  it('keeps millisecond precision from 1-9 fraction digits, truncating beyond 3', () => {
+    const at = (frac: string) => parse(`2026-10-14T10:00:00.${frac}Z`, 'ISO_ZONED')?.value
+    expect(at('5')?.getUTCMilliseconds()).toBe(500)
+    expect(at('12')?.getUTCMilliseconds()).toBe(120)
+    expect(at('123')?.getUTCMilliseconds()).toBe(123)
+    expect(at('123456789')?.getUTCMilliseconds()).toBe(123)
+    expect(at('0')?.getUTCMilliseconds()).toBe(0)
+    expect(parse('2026-10-14T10:00:00.1234567890Z', 'ISO_ZONED')?.status).toBe('INVALID')
+    expect(parse('2026-10-14T10:00:00.Z', 'ISO_ZONED')?.status).toBe('INVALID')
+  })
+
+  it('applies the sign and the full range of a numeric offset', () => {
+    const iso = (z: string) => parse(`2026-10-14T10:00:00${z}`, 'ISO_ZONED')?.value?.toISOString()
+    expect(iso('+05:30')).toBe('2026-10-14T04:30:00.000Z')
+    expect(iso('+0530')).toBe('2026-10-14T04:30:00.000Z')
+    expect(iso('-00:30')).toBe('2026-10-14T10:30:00.000Z')
+    expect(iso('+23:59')).toBe('2026-10-13T10:01:00.000Z')
+    expect(iso('-23:59')).toBe('2026-10-15T09:59:00.000Z')
+    expect(parse('2026-10-14T10:00:00+24:00', 'ISO_ZONED')?.status).toBe('INVALID')
+    expect(parse('2026-10-14T10:00:00+00:60', 'ISO_ZONED')?.status).toBe('INVALID')
+  })
+
+  it('rejects malformed shapes: wrong digit counts, other separators, leading and trailing junk', () => {
+    for (const bad of [
+      '26-10-14',
+      '2026-1-14',
+      '2026-10-1',
+      '2026-10-14T1:00:00Z',
+      '2026-10-14T10:0:00Z',
+      '2026-10-14T10:00:0Z',
+      '2026-10-14X10:00:00Z',
+      '2026-10-14T10:00:00Zx',
+      'x2026-10-14T10:00:00Z',
+      '2026-10-14T10:00.5Z',
+      '2026-10-14Z',
+      '2026-10-14T10:00:00GMT',
+      '2026-10-14T10:00:00+2:00',
+    ]) {
+      expect(parse(bad, 'ISO_ZONED'), bad).toMatchObject({ status: 'INVALID', value: null })
+    }
+  })
+})
