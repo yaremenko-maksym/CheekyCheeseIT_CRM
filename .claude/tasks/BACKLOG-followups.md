@@ -3487,3 +3487,85 @@ docs (`coder.md`, `code-reviewer.md`) — same deferral as item [[226]], these a
 epic right now; the two unfixable advisories `braces` (via `@lingui/cli`) and `sprintf-js` (via `mammoth`,
 see [[224]]) — both report `patched: <0.0.0`, no release exists to move to; `.claude/tasks` has grown to
 **2.3 MB** but is not loaded into any session, so the ROI is in archiving it, not in a PR.
+
+## 256. A control that cannot fail proves nothing — pair every pin with a negative control (2026-10-20)
+
+**CLOSED the same day it was written, by doing it.** Recorded because the method generalises, not because the item is open.
+
+Host-key pinning was added to every deploy step that reaches the VPS, and the deploy went green. That
+green was close to worthless for most of those steps: **a successful step cannot distinguish "the
+pinned value matched" from "the action silently ignored an input it does not declare."** Fifty of the
+fifty-five steps ran on two action versions whose support for the input had been established by reading
+their source — twice, independently — and never by running anything.
+
+**The method that settled it.** A manually triggered workflow runs a **pair** of controls per version
+against the real host: a deliberately wrong value, which must FAIL, and the correct value on the same
+target, which must SUCCEED. A separate step then checks that the positive control's file **landed** and
+the negative control's file is **absent**, which proves not merely that the step failed but that no data
+crossed on a mismatch. An assertion step turns the outcomes into one readable verdict and names any
+control that misbehaved.
+
+**The positive half is the one people skip, and it carries the argument.** A step that fails because of
+a typo'd path, a missing secret or a wrong user looks exactly like a step that fails because the pin
+caught a mismatch. Without the positive control, a negative control proves only that something is
+broken.
+
+**Two traps worth carrying forward.** A negative-control step needs `continue-on-error`, so its
+_conclusion_ reads `success` while its _outcome_ is `failure` — judge such a run by the assertion step,
+never by eye over the step list. And a canary carrying a deliberately wrong literal trips any guard that
+requires every step to agree on the value, so the exemption must be enumerated and tested, never silent.
+
+**Check on closing:** any security control added to CI or deploy whose success path looks identical to
+its absent path ships with a negative control, or the PR says why one is impossible.
+
+## 257. Reviews that run find things; reviews that read confirm what the author already believed (2026-10-20)
+
+Across one feature in one day, every finding of consequence came from executing something, and reading
+produced confident wrong answers at the same rate — including the orchestrator's own.
+
+- A handshake against the real host found that the pinned key was the wrong algorithm: the client
+  negotiates one type while the pinned value named another. The value was genuine, the YAML valid, the
+  guards green, and the pin would have failed every deploy.
+- Mutating a guard eight ways found three weakenings its own tests did not kill; the tests had looked
+  comprehensive.
+- Replaying a command corpus through three consumers at two commits found that a batch of apparent
+  regressions were false positives being removed — a distinction no amount of reading the diff would
+  have produced.
+- Forcing a process id across a digit boundary turned a latent random failure into a reproducible test.
+- Read-only claims that proved wrong the same day: a call-site count given from memory, a variable
+  declared unused when a second workflow read it, and the expected format of a value.
+
+**What follows for dispatch.** A review brief should say what the reviewer is expected to **run**, and a
+review that reports only what it read should be treated as a partial pass, not a clean one. Where
+running is genuinely impossible, the report says so, and that sentence is the finding.
+
+**Check on closing:** review briefs on security-surface changes name an expected measurement, and a
+report without one is returned rather than accepted.
+
+## 258. Third-party deploy actions are pinned by mutable tag, which also undermines the host-key guard (2026-10-20)
+
+Every `appleboy` ssh/scp step in the repository — roughly sixty across the deploy, the canary and two
+smaller workflows — references its action by **tag**, not by commit SHA. A tag is mutable: whoever
+controls the repository can move it, and the next run of our deploy would execute different code with
+the production SSH key in its environment.
+
+Raised twice on 2026-10-20: by the security review of the rollout as a low-confidence item, and by the
+automated commit review against the canary file. **The automated report named only the canary**, which
+is the misleading part — the canary is six steps and the deploy is fifty-one. Pinning the flagged file
+alone would leave the real exposure untouched while making the warning disappear.
+
+**The part neither report mentioned, and the reason this is more than hygiene.** The host-key guard
+(`check-ssh-action-host-key-pinned.py`) classifies each action **by tag name** to decide whether that
+version supports fingerprint pinning, and the canary proved enforcement **for those tags**. If a tag
+moves, both the classification and the proof silently describe code that is no longer what runs. The
+guard would keep passing. So SHA pinning is not an independent improvement — it is what keeps the
+host-key work true over time.
+
+**What closing it involves**, so nobody underestimates it: resolve each tag to its SHA, keep the tag in
+a trailing comment for readability, and teach the guard to key its version table by SHA with the
+comment as the human label. A plain find-and-replace would leave the guard unable to classify anything
+and, with discovery now failing closed, would turn the whole deploy red.
+
+**Check on closing:** no workflow references a third-party action by a mutable ref; the host-key
+guard's table is keyed by SHA and fails loudly on an unknown one; and the canary is re-run so the
+enforcement proof is attached to the SHAs that actually run.
