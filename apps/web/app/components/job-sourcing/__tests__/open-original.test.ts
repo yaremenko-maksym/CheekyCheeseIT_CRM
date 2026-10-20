@@ -221,3 +221,110 @@ describe('isSafeExternalUrl refuses what new URL would normalise away (layer 1: 
     expect(open).not.toHaveBeenCalled()
   })
 })
+
+/**
+ * SR-M-2, THE CHECK/USE SKEW — asserted on the ARGUMENT, not the return value.
+ *
+ * `isSafeExternalUrl` validated `url.trim()`; `openOriginalPosting` then passed
+ * the RAW `url` to `window.open`. Both facts were true at once, so the function
+ * returned `true` and opened a string nothing had checked. A test asserting the
+ * return value cannot see this — `true` was the correct return in every one of
+ * these cases. Only `open.mock.calls` can, which is why these read the argument.
+ *
+ * `window.open`'s own preprocessing strips ONLY C0 controls and space, so a
+ * leading U+00A0 / U+FEFF / U+2028 survived into the parser, which then saw no
+ * scheme at that offset and resolved the whole thing against the CRM origin — or
+ * threw.
+ */
+describe('openOriginalPosting opens the string it validated, not the raw one (SR-M-2)', () => {
+  it.each([
+    ['leading U+00A0 (NBSP)', ` ${CANONICAL}`],
+    ['leading U+FEFF (BOM)', `﻿${CANONICAL}`],
+    ['leading U+2028 (line separator)', ` ${CANONICAL}`],
+    ['leading space', ` ${CANONICAL}`],
+    ['trailing space', `${CANONICAL} `],
+    ['surrounding whitespace', `  ${CANONICAL}\n`],
+  ])('%s is trimmed before it reaches open', (_label, raw) => {
+    const open = vi.fn()
+
+    expect(openOriginalPosting(raw, open)).toBe(true)
+    // THE assertion: the exact string handed to `window.open`.
+    expect(open).toHaveBeenCalledWith(CANONICAL, '_blank', 'noopener,noreferrer')
+    // And stated as a negative too, so the failure message names the cause: the
+    // raw string must not survive into the call at all.
+    expect(open.mock.calls[0]?.[0]).not.toBe(raw)
+  })
+
+  it('is the SAME string the predicate accepted — validate and use cannot diverge', () => {
+    const raw = ` ${CANONICAL}`
+    const open = vi.fn()
+    openOriginalPosting(raw, open)
+    const opened = open.mock.calls[0]?.[0] as string
+
+    // Whatever was opened must itself pass the guard. Under the old code this
+    // failed: the opened string was the untrimmed one, which the guard refuses
+    // once it is no longer trimmed on the way in.
+    expect(isSafeExternalUrl(opened)).toBe(true)
+    expect(opened.trim()).toBe(opened)
+  })
+})
+
+/**
+ * POSITIVE CONTROLS — the half that distinguishes "stricter in the right way"
+ * from "refuses everything".
+ *
+ * A hardening that broke every real posting URL would show the same green across
+ * every refusal test above. These rows are the shapes the product actually
+ * produces: `canonicalizePostingUrl` output with kept params, an `@` in the PATH
+ * (an ordinary posting URL, not credentials), a bare host, an explicit port and an
+ * upper-case scheme. They assert the URL is OPENED, not merely that the predicate
+ * returned true, so a guard that accepted while the opener silently dropped the
+ * call would still fail.
+ */
+describe('openOriginalPosting still opens the URLs the product really produces', () => {
+  it.each([
+    ['canonical form with kept params', 'https://host.test/path?kept=params'],
+    ['an @ in the path', 'https://host.test/a@b'],
+    ['an @ in the query', 'https://host.test/jobs?ref=a@b'],
+    ['an @ in the fragment', 'https://host.test/jobs#a@b'],
+    ['a bare host', 'https://host.test'],
+    ['an explicit port', 'https://host.test:8443/a'],
+    ['an upper-case scheme and host', 'HTTPS://HOST.TEST/x'],
+    ['a real feed URL', 'https://jobs.dou.ua/companies/x/vacancies/123/'],
+  ])('opens %s', (_label, url) => {
+    const open = vi.fn()
+
+    expect(isSafeExternalUrl(url)).toBe(true)
+    expect(openOriginalPosting(url, open)).toBe(true)
+    expect(open).toHaveBeenCalledWith(url, '_blank', 'noopener,noreferrer')
+  })
+})
+
+/**
+ * THE SHARED CORPUS, run through this guard — the `web` column of
+ * `EXTERNAL_URL_CORPUS` (`packages/shared/src/schemas/job-sourcing-url-corpus.ts`).
+ *
+ * The same rows run against `externalHttpsUrlSchema` in `job-sourcing.spec.ts`.
+ * Until now the corpus's `web` verdicts — including the `differs.web` rows that
+ * say "isSafeExternalUrl trims and openOriginalPosting opens the TRIMMED string"
+ * — were asserted by NOTHING: the corpus was consumed only by the shared spec. A
+ * per-guard verdict no test reads is a comment with extra syntax.
+ *
+ * Each row asserts UNCONDITIONALLY, for the reason the shared spec now does too:
+ * an `expect` behind an `if` proves nothing for the rows that skip it.
+ */
+describe('the shared URL corpus, through isSafeExternalUrl', () => {
+  it('is not vacuous: it carries both accepted and refused rows for this guard', () => {
+    const verdicts = EXTERNAL_URL_CORPUS.map((row) => expectedExternalUrlVerdict(row, 'web'))
+    expect(verdicts).toContain('accept')
+    expect(verdicts).toContain('refuse')
+    // Nothing is locale-dependent in JS: `\s` is defined by the spec, not libc.
+    // That caveat belongs to the Postgres CHECK alone.
+    expect(verdicts).not.toContain('locale-dependent')
+  })
+
+  it.each(EXTERNAL_URL_CORPUS.map((row) => [row.name, row] as const))('%s', (_name, row) => {
+    const expected = expectedExternalUrlVerdict(row, 'web')
+    expect(isSafeExternalUrl(row.url)).toBe(expected === 'accept')
+  })
+})
