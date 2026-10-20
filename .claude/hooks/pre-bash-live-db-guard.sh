@@ -628,8 +628,16 @@ Full launches (copy one; the port is still required):
     DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_qa PGDATABASE=crm_qa API_PORT=3011 scripts/devops/dev-ttl.sh -- pnpm --filter @crm/api dev
 (assignments go BEFORE dev-ttl.sh: it runs its arguments as a command, so NAME=value after the double dash fails with "command not found")
 
-Читать про запуск (grep/ls/git show, где слово vite или pnpm dev стоит аргументом) этот хук
-больше не мешает — он смотрит только на команду в позиции запуска.
+Читать и писать про запуск этот хук не мешает: слово аргументом (grep/ls/git show),
+read-only подкоманда пакетного менеджера (`pnpm why vite`) и тело heredoc с
+закавыченным разделителем (`<<'EOF'`) — не запуск.
+
+ЧТО ВСЁ ЕЩЁ ОТКАЗЫВАЕТСЯ, ХОТЯ НЕ ЗАПУСКАЕТ (известный остаток, не чини обёрткой):
+команда вне списка разбираемых, у которой launcher-подобное слово стоит внутри
+кавычек — `sed 's/vite/x/'`, `for c in "pnpm dev"; do …`. Это осознанный обмен:
+именно это чтение кавычек ловит `script -q /dev/null pnpm dev`, см. CONFIDENCE
+в .claude/hooks/lib/cmdscan.py. Перепиши команду так, чтобы слово не стояло
+отдельным токеном внутри кавычек, или вынеси текст в файл.
 
 См. .claude/hooks/pre-bash-devserver-ttl-gate.sh и .claude/rules/common/light-track.md
 («Параллельный диспатч» — список свободных портов).""" % (label, reason_lines)

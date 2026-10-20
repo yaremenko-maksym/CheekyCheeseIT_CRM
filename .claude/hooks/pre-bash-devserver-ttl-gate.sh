@@ -168,6 +168,13 @@ read-only подкоманда пакетного менеджера (`pnpm why 
 литералы python) — не запуск. Если что-то из этого всё же отказано — это баг
 хука, а не повод добавить обёртку: см. шапку .claude/hooks/pre-bash-devserver-ttl-gate.sh.
 
+ЧТО ВСЁ ЕЩЁ ОТКАЗЫВАЕТСЯ, ХОТЯ НЕ ЗАПУСКАЕТ (известный остаток, не чини обёрткой):
+команда вне списка разбираемых, у которой launcher-подобное слово стоит внутри
+кавычек — `sed 's/vite/x/'`, `for c in "pnpm dev"; do …`. Это осознанный обмен:
+именно это чтение кавычек ловит `script -q /dev/null pnpm dev`, см. CONFIDENCE
+в .claude/hooks/lib/cmdscan.py. Перепиши команду так, чтобы слово не стояло
+отдельным токеном внутри кавычек, или вынеси текст в файл.
+
 См. .claude/rules/common/light-track.md («Параллельный диспатч») и scripts/devops/dev-ttl.sh.""" % label
 
 print(json.dumps({"decision": "block", "reason": reason}))
