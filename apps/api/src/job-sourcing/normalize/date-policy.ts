@@ -95,8 +95,10 @@ function parseIso(raw: string): Parsed {
   const m = ISO_RE.exec(raw)
   if (!m) return { status: 'INVALID' }
   const hasTime = m[4] !== undefined
-  if (hasTime && m[8] === undefined) return { status: 'MISSING_ZONE' }
-  const offset = hasTime ? zoneOffsetMinutes(m[8] ?? 'Z') : 0
+  const zone = m[8]
+  if (hasTime && zone === undefined) return { status: 'MISSING_ZONE' }
+  // A zone can only be captured together with a time, so a date-only value has none: UTC midnight.
+  const offset = zone === undefined ? 0 : zoneOffsetMinutes(zone)
   if (offset === null) return { status: 'INVALID' }
   const millis = m[7] ? Number(m[7].slice(0, 3).padEnd(3, '0')) : 0
   return buildInstant(
@@ -120,7 +122,7 @@ function parseRfc2822(raw: string): Parsed {
   const m = RFC_RE.exec(raw)
   if (!m) return { status: 'INVALID' }
   if (m[7] === undefined) return { status: 'MISSING_ZONE' }
-  const month = MONTHS.indexOf((m[2] ?? '').toLowerCase()) + 1
+  const month = MONTHS.indexOf(String(m[2]).toLowerCase()) + 1
   const offset = zoneOffsetMinutes(m[7])
   // Legacy named zones (EST, PST...) are obsolete in RFC 5322 and ambiguous: rejected, not guessed.
   if (month === 0 || offset === null) return { status: 'INVALID' }
@@ -136,10 +138,10 @@ function parseReedDmy(raw: string): Parsed {
   return buildInstant([Number(m[3]), Number(m[2]), Number(m[1]), 0, 0, 0, 0], 0)
 }
 
-function parseUnix(raw: string, unit: 'seconds' | 'milliseconds'): Parsed {
+function parseUnix(raw: string, millisPerUnit: number): Parsed {
   if (!/^\d{1,16}$/.test(raw)) return { status: 'INVALID' }
   const n = Number(raw)
-  return { status: 'OK', value: new Date(unit === 'seconds' ? n * 1000 : n) }
+  return { status: 'OK', value: new Date(n * millisPerUnit) }
 }
 
 function parseByContract(raw: string, contract: DateContract): Parsed {
@@ -151,9 +153,9 @@ function parseByContract(raw: string, contract: DateContract): Parsed {
     case 'REED_DMY':
       return parseReedDmy(raw)
     case 'UNIX_SECONDS':
-      return parseUnix(raw, 'seconds')
+      return parseUnix(raw, 1000)
     case 'UNIX_MILLISECONDS':
-      return parseUnix(raw, 'milliseconds')
+      return parseUnix(raw, 1)
   }
 }
 
@@ -161,7 +163,7 @@ function parseByContract(raw: string, contract: DateContract): Parsed {
 export function parseSourceDate(input: DateInput, now: Date): ObservedDate | null {
   const { raw: rawInput, contract, semantics } = input
   if (rawInput === null || rawInput === undefined) return null
-  const text = (typeof rawInput === 'number' ? String(rawInput) : rawInput).trim()
+  const text = String(rawInput).trim()
   if (text.length === 0) return null
   const raw = text.slice(0, MAX_RAW_CHARS)
   const done = (status: DateStatus, value: Date | null = null): ObservedDate => ({
@@ -178,7 +180,9 @@ export function parseSourceDate(input: DateInput, now: Date): ObservedDate | nul
   if (parsed.status !== 'OK') return done(parsed.status)
 
   const year = parsed.value.getUTCFullYear()
-  if (year < MIN_YEAR || year > MAX_YEAR) return done('IMPLAUSIBLE')
+  // Written as a negated range so an out-of-range instant (Invalid Date, year NaN: e.g. 14 digits
+  // read as seconds) is IMPLAUSIBLE rather than slipping through both comparisons as OK.
+  if (!(year >= MIN_YEAR && year <= MAX_YEAR)) return done('IMPLAUSIBLE')
   if (semantics !== 'EXPIRY' && parsed.value.getTime() > now.getTime() + FUTURE_TOLERANCE_MS) {
     return done('FUTURE')
   }
