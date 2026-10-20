@@ -129,6 +129,12 @@ describe('checkStoredLink: boundaries and malformed hosts', () => {
     expect(reasonOf(prefix + 'a'.repeat(MAX_LINK_CHARS - prefix.length + 1))).toBe('TOO_LONG')
   })
 
+  it('measures the length cap on the trimmed text (the URL parser would trim anyway, so only the cap sees it)', () => {
+    const prefix = 'https://jobs.example/'
+    const atCap = prefix + 'a'.repeat(MAX_LINK_CHARS - prefix.length)
+    expect(reasonOf(`${' '.repeat(50)}${atCap}${' '.repeat(50)}`)).toBe('ACCEPTED')
+  })
+
   it('a password with no username is still userinfo', () => {
     expect(reasonOf('https://:pw@jobs.example/j')).toBe('USERINFO')
   })

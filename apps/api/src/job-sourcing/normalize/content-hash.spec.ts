@@ -170,3 +170,108 @@ describe('stripTrackingParams', () => {
     expect(stripTrackingParams('not a url')).toBe('not a url')
   })
 })
+
+describe('stripTrackingParams: ordering, anchoring and output shape', () => {
+  it('sorts remaining params by name, then by value, whatever order they arrived in', () => {
+    expect(stripTrackingParams('https://a.example/p?b=2&a=1')).toBe('https://a.example/p?a=1&b=2')
+    expect(stripTrackingParams('https://a.example/p?a=2&a=1')).toBe('https://a.example/p?a=1&a=2')
+    expect(stripTrackingParams('https://a.example/p?a=1&a=2')).toBe('https://a.example/p?a=1&a=2')
+    expect(stripTrackingParams('https://a.example/p?c=3&a=2&b=1&a=1')).toBe(
+      'https://a.example/p?a=1&a=2&b=1&c=3',
+    )
+  })
+
+  it('emits no "?" when every param was tracking, and none when there were none', () => {
+    expect(stripTrackingParams('https://a.example/p?utm_source=x&gclid=y')).toBe(
+      'https://a.example/p',
+    )
+    expect(stripTrackingParams('https://a.example/p')).toBe('https://a.example/p')
+  })
+
+  it('drops a tracking name only when the WHOLE name matches (anchored both ends)', () => {
+    // Prefix/suffix lookalikes are real params and must survive.
+    expect(
+      stripTrackingParams('https://a.example/p?my_ref=1&reference=2&xutm_a=3&gclid_x=4&job=5'),
+    ).toBe('https://a.example/p?gclid_x=4&job=5&my_ref=1&reference=2&xutm_a=3')
+  })
+
+  it.each([
+    'utm_source',
+    'UTM_Medium',
+    'gclid',
+    'dclid',
+    'fbclid',
+    'msclkid',
+    'mc_cid',
+    'mc_eid',
+    '_ga',
+    'ref',
+    'ref_src',
+    'referrer',
+    'trk',
+    'trkinfo',
+    'trackingid',
+    'tracking_id',
+    'TrackingId',
+  ])('drops the tracking param %s', (name) => {
+    expect(stripTrackingParams(`https://a.example/p?${name}=1&job=5`)).toBe(
+      'https://a.example/p?job=5',
+    )
+  })
+
+  it('percent-encodes names and values it keeps', () => {
+    expect(stripTrackingParams('https://a.example/p?q=a%20b&x%20y=1')).toBe(
+      'https://a.example/p?q=a%20b&x%20y=1',
+    )
+  })
+})
+
+describe('stripVolatileText: links and whitespace', () => {
+  it('cleans tracking params from http AND https links inside the text, leaving the prose', () => {
+    expect(
+      stripVolatileText(
+        'See https://a.example/p?utm_source=x&job=5 and http://b.example/q?fbclid=y&n=1 today',
+      ),
+    ).toBe('See https://a.example/p?job=5 and http://b.example/q?n=1')
+  })
+
+  it('collapses runs of spaces/tabs to one space, but leaves a lone tab alone', () => {
+    expect(stripVolatileText('a   b')).toBe('a b')
+    expect(stripVolatileText('a \t b')).toBe('a b')
+    expect(stripVolatileText('a\tb')).toBe('a\tb')
+  })
+
+  it('collapses blank-line runs (including whitespace-only lines) to exactly one blank line', () => {
+    expect(stripVolatileText('a\n\n\n\nb')).toBe('a\n\nb')
+    expect(stripVolatileText('a\n \nb')).toBe('a\n\nb')
+    expect(stripVolatileText('a \n\nb')).toBe('a\n\nb')
+    expect(stripVolatileText('a\n\n b')).toBe('a\n\nb')
+    // A single line break and the text between breaks are left alone.
+    expect(stripVolatileText('a\nb')).toBe('a\nb')
+    expect(stripVolatileText('a\nx\nb')).toBe('a\nx\nb')
+  })
+
+  it('pulls a stranded final period back against the text', () => {
+    expect(stripVolatileText('Apply now .')).toBe('Apply now.')
+    expect(stripVolatileText('Apply now \n.')).toBe('Apply now.')
+    // Only a TRAILING stranded period: a mid-text one is not touched.
+    expect(stripVolatileText('Wait . More')).toBe('Wait . More')
+  })
+})
+
+describe('computeContentHash: version and date status', () => {
+  it('pins the version literal: changing it is a deliberate, visible one-time churn', () => {
+    expect(CONTENT_HASH_VERSION).toBe('ch1')
+    expect(computeContentHash(base)).toBe(computeContentHash(base, 'ch1'))
+    expect(computeContentHash(base)).not.toBe(computeContentHash(base, ''))
+  })
+
+  it('the same instant with a different status hashes differently', () => {
+    const flagged = { ...base.dates[0]!, status: 'FUTURE' as const }
+    expect(hash({ dates: [flagged] })).not.toBe(hash())
+  })
+
+  it('an empty application URL is not the same as none', () => {
+    expect(hash({ applicationUrl: '' })).not.toBe(hash({ applicationUrl: null }))
+  })
+})

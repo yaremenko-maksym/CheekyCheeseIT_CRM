@@ -48,9 +48,14 @@ export function stripTrackingParams(raw: string): string {
   } catch {
     return raw
   }
-  const kept = [...url.searchParams].filter(([name]) => !TRACKING_PARAM.test(name))
-  kept.sort((a, b) => (a[0] === b[0] ? (a[1] < b[1] ? -1 : 1) : a[0] < b[0] ? -1 : 1))
-  const query = kept.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&')
+  // Sorting the encoded `name=value` strings (default code-unit order) is a total order on distinct
+  // params, so one multiset of params has exactly one spelling. Deliberately no pairwise comparator:
+  // a hand-written one has tie branches that no input can observe.
+  const query = [...url.searchParams]
+    .filter(([name]) => !TRACKING_PARAM.test(name))
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+    .sort()
+    .join('&')
   return `${url.origin}${url.pathname}${query ? `?${query}` : ''}`
 }
 
@@ -94,7 +99,7 @@ export function computeContentHash(
       fields.employmentType,
       fields.seniorityHint,
       [...new Set(fields.tags)].sort(),
-      fields.applicationUrl === null ? null : stripTrackingParams(fields.applicationUrl),
+      fields.applicationUrl && stripTrackingParams(fields.applicationUrl),
       dates,
     ]),
   )
