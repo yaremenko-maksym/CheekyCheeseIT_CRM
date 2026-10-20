@@ -24,6 +24,14 @@ option can switch on.**
 Measured: all four attack documents fail with `Named entity isn't defined`, and the network canary
 recorded **0 hits across all 78 parser×case runs**.
 
+**The historical record agrees, independently: the parsers carrying DTD machinery hold 36 of the
+37 advisories across this shortlist; the one adopted here, which has none, has zero.**
+`@xmldom/xmldom` holds 22, `fast-xml-parser` 12, `libxmljs2` 2 — and the single remaining advisory
+(against `xml2js`) is prototype pollution, not an entity class. That figure comes from four years
+of other people's incidents rather than from reading source, so it is **corroboration from an
+unrelated line of evidence**, not a restatement. It is also the part of this document that
+survives being summarised into one sentence, which the option-surface reasoning does not.
+
 **This is deliberately _not_ phrased as "no option can resolve an entity", because that weaker
 claim is false and was falsified during review.** Two of the eight options do bear on entities:
 `resolveUndefinedEntity` substitutes text for an entity from a **caller-supplied** function, and
@@ -60,18 +68,46 @@ truncated feed** where the plan requires "malformed feed = drift".
 Licence read from the `LICENSE` file inside the installed package, not from the npm page.
 Release data from `npm view <pkg> time --json` on 2026-10-20.
 
-| Package             | Version | SPDX (read in)                                     | Last release | Releases since 2024 | Native bindings   | Deps                    | Install size | Outcome                                        |
-| ------------------- | ------- | -------------------------------------------------- | ------------ | ------------------- | ----------------- | ----------------------- | ------------ | ---------------------------------------------- |
-| `@rgrove/parse-xml` | 5.0.0   | **ISC** (`node_modules/@rgrove/parse-xml/LICENSE`) | 2026-08-30   | 5                   | no                | **0**                   | 396 KB       | **ADOPTED**                                    |
-| `fast-xml-parser`   | 5.11.2  | **MIT** (`node_modules/fast-xml-parser/LICENSE`)   | 2026-09-29   | 72                  | no                | 6 direct / 7 transitive | 1.4 MB       | fallback adapter                               |
-| `sax`               | 1.6.1   | **BlueOak-1.0.0** (`LICENSE.md`)                   | 2026-07-24   | 8                   | no                | 0                       | 72 KB        | rejected — error-tolerant by design            |
-| `@xmldom/xmldom`    | 0.9.12  | **MIT** (`LICENSE`)                                | 2026-08-23   | 18                  | no                | 0                       | 452 KB       | rejected — slowest, lax                        |
-| `saxes`             | 6.0.0   | ISC                                                | 2022-05-17   | **0**               | no                | 1                       | 164 KB       | rejected — maintenance lapse                   |
-| `xml2js`            | 0.6.2   | MIT                                                | 2024-05-31   | 0 since 2024-05     | no                | 2                       | 3.4 MB       | rejected — effectively unmaintained            |
-| `htmlparser2`       | 12.0.0  | MIT                                                | 2026-03-20   | 5                   | no                | 4                       | 235 KB       | rejected — HTML error recovery, not strict XML |
-| `libxmljs2`         | 0.37.0  | MIT                                                | 2025-06-01   | 2                   | **yes (libxml2)** | 3                       | 7.2 MB       | rejected — see below                           |
-| `node-xml-stream`   | 1.0.2   | MIT                                                | 2022-05-11   | 0                   | no                | —                       | —            | rejected — abandoned                           |
-| `xml-stream`        | 0.4.5   | _none declared_                                    | 2024-11-04   | 0                   | yes (expat)       | —                       | —            | rejected — no licence field, native            |
+The **GHSA** column is the count of **distinct non-withdrawn GitHub Security Advisory ids** in the
+NPM ecosystem, queried **2026-10-20** (basis and query in "Advisories" below). It is the column to
+read first.
+
+| Package             | GHSA (distinct)                  | DTD machinery | Version | SPDX (read in)                                     | Last release | Releases since 2024 | Native bindings   | Deps                    | Install size | Outcome                                        |
+| ------------------- | -------------------------------- | ------------- | ------- | -------------------------------------------------- | ------------ | ------------------- | ----------------- | ----------------------- | ------------ | ---------------------------------------------- |
+| `@rgrove/parse-xml` | **0**                            | **none**      | 5.0.0   | **ISC** (`node_modules/@rgrove/parse-xml/LICENSE`) | 2026-08-30   | 5                   | no                | **0**                   | 396 KB       | **ADOPTED**                                    |
+| `fast-xml-parser`   | **12** (1 CRITICAL, 6 HIGH)      | yes           | 5.11.2  | **MIT** (`node_modules/fast-xml-parser/LICENSE`)   | 2026-09-29   | 72                  | no                | 6 direct / 7 transitive | 1.4 MB       | fallback adapter — latest HIGH 2026-07-21      |
+| `sax`               | 0                                | partial       | 1.6.1   | **BlueOak-1.0.0** (`LICENSE.md`)                   | 2026-07-24   | 8                   | no                | 0                       | 72 KB        | rejected — error-tolerant by design            |
+| `@xmldom/xmldom`    | **22** (1 CRITICAL, **18 HIGH**) | yes           | 0.9.12  | **MIT** (`LICENSE`)                                | 2026-08-23   | 18                  | no                | 0                       | 452 KB       | rejected — worst row in the table              |
+| `saxes`             | 0                                | partial       | 6.0.0   | ISC                                                | 2022-05-17   | **0**               | no                | 1                       | 164 KB       | rejected — maintenance lapse                   |
+| `xml2js`            | 1 (MODERATE, 2023-04-05)         | no            | 0.6.2   | MIT                                                | 2024-05-31   | 0 since 2024-05     | no                | 2                       | 3.4 MB       | rejected — effectively unmaintained            |
+| `htmlparser2`       | 0                                | no            | 12.0.0  | MIT                                                | 2026-03-20   | 5                   | no                | 4                       | 235 KB       | rejected — HTML error recovery, not strict XML |
+| `libxmljs2`         | **2 (both CRITICAL)**            | yes (libxml2) | 0.37.0  | MIT                                                | 2025-06-01   | 2                   | **yes (libxml2)** | 3                       | 7.2 MB       | rejected — see below                           |
+| `node-xml-stream`   | 0                                | no            | 1.0.2   | MIT                                                | 2022-05-11   | 0                   | no                | —                       | —            | rejected — abandoned                           |
+| `xml-stream`        | 0                                | no            | 0.4.5   | _none declared_                                    | 2024-11-04   | 0                   | yes (expat)       | —                       | —            | rejected — no licence field, native            |
+
+**The pattern in those two columns is the document's strongest single argument, and it is not
+about popularity.** Of the **37** advisories across the whole shortlist, **36 sit with the three
+parsers that carry DTD machinery** — `@xmldom/xmldom` (22), `fast-xml-parser` (12) and `libxmljs2`
+(2). The one remaining advisory, against `xml2js`, is a prototype-pollution issue, **not** an
+entity or XXE class. The chosen parser, which has no DTD machinery at all, has **zero**.
+
+This matters because it is **independent corroboration**. The capability argument in the verdict
+is derived from reading the parser's source; this is derived from four years of other people's
+incident history. Two unrelated lines of evidence agreeing is worth more than either alone, and
+unlike the option-surface reasoning, it survives being summarised into one sentence.
+
+Two rows deserve their numbers stated rather than characterised:
+
+- **`@xmldom/xmldom` is the worst row in the table** — 22 advisories, **18 of them HIGH**, the most
+  recent published **2026-09-08**, about six weeks before this review. I had originally rejected it
+  merely as "slowest, lax"; that rejection is now overwhelmingly supported. It also **explains the
+  `@xmldom/xmldom: ">=0.8.15 <0.9.0"` entry in the repo's `pnpm.overrides`**: that pin is a scar
+  from this advisory stream, reached transitively rather than chosen, and anyone later wondering
+  why an unused XML package is pinned in our root `package.json` should read this row.
+- **`libxmljs2`'s two advisories are both CRITICAL.** Above I rejected it on the native-bindings
+  liability and characterised libxml2 as "the busiest XXE/entity CVE surface in this list". The
+  measured fact is sharper and should be preferred to that guess: **the wrapper itself carries two
+  criticals**, independent of libxml2's own record, on 2 releases in ~2 years.
 
 **No copyleft appeared.** ISC, MIT and BlueOak-1.0.0 are all permissive and compatible with a
 closed-source commercial product. `fast-xml-parser`'s 7 transitive packages are each MIT
@@ -82,9 +118,11 @@ declares **no licence at all**, which is a rejection on its own — absent a gra
 
 **`libxmljs2` rejected on the native-bindings liability, stated rather than argued:** it compiles
 libxml2 from source via `node-gyp` unless a prebuild matches. That puts a C toolchain on the
-critical path of every CI run and every Docker image build, couples us to libxml2's own CVE
-stream (the busiest XXE/entity CVE surface in this whole list), and its 2 releases in ~2 years is
-thin cover for that exposure. A pure-JS parser that we can bound ourselves is the cheaper risk.
+critical path of every CI run and every Docker image build, and couples us to libxml2's CVE stream
+on top of the wrapper's own. The measured figure is what carries this, not the characterisation:
+**the wrapper itself holds 2 distinct advisories and both are CRITICAL**, on 2 releases in ~2
+years — thin maintenance cover for that exposure. A pure-JS parser we can bound ourselves is the
+cheaper risk.
 
 **Advisories — queried directly against the GitHub Advisory Database**, not only via `npm audit`:
 
@@ -98,10 +136,31 @@ gh api graphql -f query='{ securityVulnerabilities(ecosystem: NPM,
 **`@rgrove/parse-xml`: zero advisories, ever.** The same query for the fallback is the opposite
 picture and is material to the decision rather than decoration:
 
-| Package             | Distinct GHSAs                 | Worst severity                       | Most recent                                 | Affects                           |
-| ------------------- | ------------------------------ | ------------------------------------ | ------------------------------------------- | --------------------------------- |
-| `@rgrove/parse-xml` | **0**                          | —                                    | —                                           | —                                 |
-| `fast-xml-parser`   | **13** (17 version-range rows) | **CRITICAL** (`GHSA-m7jm-9gc2-mpf2`) | `GHSA-8r6m-32jq-jx6q`, HIGH, **2026-07-21** | `>=5.9.3 <5.10.1`, patched 5.10.1 |
+**Counting basis — state it, because three different numbers are derivable from one query.** All
+counts in this document are **distinct non-withdrawn GHSA ids, NPM ecosystem, queried
+2026-10-20**. That basis is chosen because it counts each advisory once and is reproducible from a
+single query. The alternatives are traps: the raw response returns one row per
+**vulnerable-version-range**, so an advisory spanning a 4.x and a 5.x range appears twice —
+`fast-xml-parser` yields **17 rows for 12 advisories**. An unfiltered distinct count also picks up
+withdrawn advisories (`@xmldom/xmldom`: 23 unfiltered, **22** non-withdrawn). To re-derive:
+
+```bash
+gh api graphql -f query='{ securityVulnerabilities(ecosystem: NPM, package: "fast-xml-parser",
+  first: 50) { nodes { advisory { ghsaId severity publishedAt withdrawnAt } } } }' \
+  --jq '[.data.securityVulnerabilities.nodes[].advisory | select(.withdrawnAt == null)]
+        | map(.ghsaId) | unique | length'
+```
+
+> **Correction.** An earlier revision of this file said "13" for `fast-xml-parser`. That was a
+> miscount of the 17 version-range rows by eye, not a different counting basis. The correct figure
+> is **12**.
+
+| Package             | Distinct GHSAs (non-withdrawn) | Worst severity                       | Most recent                                 | Affects                              |
+| ------------------- | ------------------------------ | ------------------------------------ | ------------------------------------------- | ------------------------------------ |
+| `@rgrove/parse-xml` | **0**                          | —                                    | —                                           | —                                    |
+| `fast-xml-parser`   | **12** (17 version-range rows) | **CRITICAL** (`GHSA-m7jm-9gc2-mpf2`) | `GHSA-8r6m-32jq-jx6q`, HIGH, **2026-07-21** | `>=5.9.3 <5.10.1`, patched in 5.10.1 |
+| `@xmldom/xmldom`    | **22** (23 unfiltered)         | **CRITICAL** + 18 HIGH               | **2026-09-08**                              | the scar behind our `pnpm.overrides` |
+| `libxmljs2`         | **2**                          | **both CRITICAL**                    | 2024-05-02                                  | the native wrapper, not libxml2      |
 
 Three consequences, stated rather than buried:
 
@@ -465,7 +524,7 @@ and the reason this recommendation meets the bar.
 1. **Any advisory against `@rgrove/parse-xml`.** Response: activate the measured
    `FastXmlParserAdapter` via Seam 1. This conclusion's whole value is that this is cheap.
    **Re-pin fast-xml-parser to the then-current patched version at activation**, and re-run the
-   GHSA query first — it carried 13 advisories and nine in 2026 alone, so the version named in
+   GHSA query first — it carried 12 advisories and several in 2026 alone, so the version named in
    this document will likely be stale by then.
    Re-run both queries at recheck time:
    `gh api graphql -f query='{ securityVulnerabilities(ecosystem: NPM, package: "<pkg>", first: 20) { nodes { advisory { ghsaId severity publishedAt } vulnerableVersionRange } } }'`
@@ -489,7 +548,7 @@ known, priced in above, and are wrapper work by design.
 - ~~No public advisory database query beyond `npm audit`.~~ **Closed 2026-10-20**: the GitHub
   Advisory Database was queried directly via the GraphQL `securityVulnerabilities` field (command
   and output in "Candidates and why each survived or fell"). `@rgrove/parse-xml` → `[]`;
-  `fast-xml-parser` → 13 distinct GHSAs. No residual gap for npm-ecosystem advisories; a CVE with
+  `fast-xml-parser` → 12 distinct GHSAs. No residual gap for npm-ecosystem advisories; a CVE with
   no GHSA record would still be missed, which is a limitation of the database, not of this query.
 - **`sax`'s `BlueOak-1.0.0`** is permissive and OSI-approved, but it is an uncommon licence and
   has not been reviewed by counsel for this project. Irrelevant to the verdict (sax is rejected on

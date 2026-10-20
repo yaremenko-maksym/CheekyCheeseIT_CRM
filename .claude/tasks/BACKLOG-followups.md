@@ -3569,3 +3569,43 @@ and, with discovery now failing closed, would turn the whole deploy red.
 **Check on closing:** no workflow references a third-party action by a mutable ref; the host-key
 guard's table is keyed by SHA and fails loudly on an unknown one; and the canary is re-run so the
 enforcement proof is attached to the SHAs that actually run.
+
+## 259. A claim contradicted by the author's own evidence, because the false sentence was the better sentence (2026-10-20)
+
+A dependency review measured a parser's full option surface, identified two options as
+entity-bearing, wrote a section naming them "load-bearing" and requiring they be pinned — and then
+opened the same document with the headline claim that the parser had **no option** that could
+resolve an entity. Both statements were in one file, by one author, in one sitting. The
+contradiction was free to notice and went unnoticed for the length of the review.
+
+The mechanism is not haste and not missing evidence. The false sentence was **stronger**: an
+absolute reads as more authoritative than a qualified one, and the qualified version ("two options
+bear on entities, but neither grants the library a capability it lacks") takes three clauses to
+say. The author had already paid for the evidence, then discarded it at the summarising step
+because the summary sounded better without it. That is the opposite of the failure in 256 and 257:
+there, the gap was between what was measured and what was assumed; here the measurement was
+correct and the **prose** contradicted it.
+
+**Why review does not reliably catch it.** A reviewer who reads an absolute headline and its
+supporting section together tends to **harmonise** them — reading the strong claim as a shorthand
+for the careful one — rather than noticing they disagree. The two statements are far apart in the
+document and each is locally plausible. It took a reviewer deliberately trying to **falsify** the
+headline, treating it as a claim rather than a summary, to surface it.
+
+Two further consequences showed up in the same document once the habit was looked for: a
+competitor rejected as "slowest, lax" turned out to hold the worst advisory record on the
+shortlist, and another rejected by characterising a third party's CVE history when the package's
+own record was both measurable and sharper. In each case a measured fact was available and a
+characterisation was shipped instead.
+
+**What follows.** A claim stated as an absolute ("no option can", "it is impossible to", "nothing
+in X does Y") is a **falsifiable assertion, not a summary**, and the cheapest guard is to attempt
+the falsification before writing it — the attempt is usually one command against an already-
+installed package. Where the honest claim is narrower, prefer the argument that survives an option
+flip (a capability the dependency does not have) over one that rests on a current default. And
+where a number or a measured fact exists, it belongs in the sentence instead of an adjective: a
+characterisation cannot be re-derived by the next reader, and a count with a stated basis can.
+
+**Check on closing:** in a long-lived decision document, every absolute claim either carries the
+command that failed to falsify it, or is rewritten as the narrower claim that is true; and
+rejections cite measured figures rather than adjectives where a figure was obtainable.
