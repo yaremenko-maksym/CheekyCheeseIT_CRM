@@ -3541,3 +3541,31 @@ running is genuinely impossible, the report says so, and that sentence is the fi
 
 **Check on closing:** review briefs on security-surface changes name an expected measurement, and a
 report without one is returned rather than accepted.
+
+## 258. Third-party deploy actions are pinned by mutable tag, which also undermines the host-key guard (2026-10-20)
+
+Every `appleboy` ssh/scp step in the repository — roughly sixty across the deploy, the canary and two
+smaller workflows — references its action by **tag**, not by commit SHA. A tag is mutable: whoever
+controls the repository can move it, and the next run of our deploy would execute different code with
+the production SSH key in its environment.
+
+Raised twice on 2026-10-20: by the security review of the rollout as a low-confidence item, and by the
+automated commit review against the canary file. **The automated report named only the canary**, which
+is the misleading part — the canary is six steps and the deploy is fifty-one. Pinning the flagged file
+alone would leave the real exposure untouched while making the warning disappear.
+
+**The part neither report mentioned, and the reason this is more than hygiene.** The host-key guard
+(`check-ssh-action-host-key-pinned.py`) classifies each action **by tag name** to decide whether that
+version supports fingerprint pinning, and the canary proved enforcement **for those tags**. If a tag
+moves, both the classification and the proof silently describe code that is no longer what runs. The
+guard would keep passing. So SHA pinning is not an independent improvement — it is what keeps the
+host-key work true over time.
+
+**What closing it involves**, so nobody underestimates it: resolve each tag to its SHA, keep the tag in
+a trailing comment for readability, and teach the guard to key its version table by SHA with the
+comment as the human label. A plain find-and-replace would leave the guard unable to classify anything
+and, with discovery now failing closed, would turn the whole deploy red.
+
+**Check on closing:** no workflow references a third-party action by a mutable ref; the host-key
+guard's table is keyed by SHA and fails loudly on an unknown one; and the canary is re-run so the
+enforcement proof is attached to the SHAs that actually run.
