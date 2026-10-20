@@ -66,7 +66,7 @@ INPUT=$(cat)
 
 # Hot path: a superset of everything the analyzer can block, so a command with
 # none of these words never pays for a python start.
-echo "$INPUT" | grep -qE 'vite|nest|dev|dist/main' || exit 0
+echo "$INPUT" | grep -qE 'vite|nest|dev|dist/main|start|preview' || exit 0
 
 printf '%s' "$INPUT" | PYTHONDONTWRITEBYTECODE=1 CMDSCAN_LIB="$SELF_DIR/lib" python3 -c '
 import importlib.util, json, os, re, sys
@@ -149,7 +149,7 @@ esac
 # ── analyzer failure — NOT a verdict ──────────────────────────────────────────
 echo "[pre:bash:devserver-ttl-gate] INTERNAL ERROR: анализатор не отработал (rc=$RC) — это НЕ вердикт хука." >&2
 
-LEGACY='(^|[/[:space:]])nest(\.js)?[[:space:]]+start|(^|[/[:space:]])vite([[:space:]]|$)|(^|[[:space:]])(pnpm|npm|yarn|turbo)([[:space:]]+(-[^[:space:]]+|--filter[[:space:]]+[^[:space:]]+|run))*[[:space:]]+dev(:start)?([[:space:]]|$)|node[[:space:]][^;|&]*dist/main'
+LEGACY='(^|[/[:space:]])nest(\.js)?[[:space:]]+start|(^|[/[:space:]])vite([[:space:]]|$)|(^|[[:space:]])(pnpm|npm|yarn|turbo)([[:space:]]+(-[^[:space:]]+|--filter[[:space:]]+[^[:space:]]+|run))*[[:space:]]+(dev|start|preview)(:[[:alnum:]_.-]+)?([[:space:]]|$)|node[[:space:]][^;|&]*dist/main'
 # JSON punctuation flattened to spaces so the legacy pattern's `([[:space:]]|$)`
 # boundaries still hold on the raw stdin (see the sibling hook for the full note).
 FLAT=$(printf '%s' "$INPUT" | tr '"{},' '    ')

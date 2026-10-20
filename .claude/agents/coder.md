@@ -228,7 +228,7 @@ pnpm typecheck && pnpm lint && pnpm test
 
 After each Edit/Write on `.ts/.tsx` — `mcp__eslint__lint-files` (faster, does not require a full build).
 
-**Do not run `pnpm dev`** — Master manages the dev server separately.
+**Never start a dev server in its bare form** (`pnpm dev`, `vite`, `nest start`, `nohup …`): `pre:bash:live-db-guard` and `pre:bash:devserver-ttl-gate` both refuse it in a worktree, and Master's own stack (:3000/:3001, `crm_db`) is not yours to touch. When you do need servers — section 6, the E2E run — start your own with exactly the launch shown there.
 
 ### 6. E2E — mandatory rules on UI changes
 
@@ -238,9 +238,19 @@ If you change button text/labels/aria/data-testid/the DOM structure/route URLs �
 
 **E2E locally before push** is mandatory if the PR touches `apps/web/**` OR `apps/e2e/**`:
 
+Playwright does not start servers (the config deliberately has no top-level `webServer`), so bring up your own — on scratch ports against the scratch DB `crm_qa`, never :3000/:3001 or `crm_db`:
+
 ```bash
-pnpm dev &
-pnpm --filter @crm/e2e test
+# Assignments go BEFORE dev-ttl.sh: it runs "$@", so `dev-ttl.sh -- NAME=v cmd` fails with
+# "command not found". dev-ttl.sh is required by pre:bash:devserver-ttl-gate; DATABASE_URL,
+# PGDATABASE and the port are required inline by pre:bash:live-db-guard.
+# Ports: use a pair no other live agent holds (light-track.md lists 3010 3011 3014 3016 3017 3018);
+# `lsof -ti tcp:<port>` printing nothing = free. crm_qa must already hold the schema/seed.
+DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_qa PGDATABASE=crm_qa API_PORT=3011 scripts/devops/dev-ttl.sh -- pnpm --filter @crm/api dev > /tmp/api.log 2>&1 &
+DATABASE_URL= PGDATABASE=crm_qa VITE_PROXY_API_TARGET=http://localhost:3011 scripts/devops/dev-ttl.sh -- pnpm --filter @crm/web dev --port 3010 > /tmp/web.log 2>&1 &
+# wait with a deadline (pre:bash:unbounded-wait refuses an open-ended loop)
+SECONDS=0; until { curl -s -o /dev/null http://localhost:3011/api/health && curl -s -o /dev/null http://localhost:3010; } || [ "$SECONDS" -ge 120 ]; do sleep 2; done
+PLAYWRIGHT_BASE_URL=http://localhost:3010 pnpm --filter @crm/e2e test
 ```
 
 If E2E fails — do NOT push. Fix it locally.

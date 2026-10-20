@@ -246,6 +246,31 @@ WRAPPER_SPEC = {
 
 INTERPRETERS = {"sh", "bash", "zsh", "dash", "ksh", "ash"}
 
+
+def _is_code_flag(tok):
+    # Deliberately BROAD: any dash-led token containing "c" (-c, -ec, -xc, --command, and
+    # also --rcfile). Over-matching only hands one more operand to nested scanning, which is
+    # the safe direction; the list that would be exact is a taxonomy of every interpreter
+    # option, and a known-incomplete list that never hides a payload beats a complete-looking
+    # one that does.
+    return tok.startswith("-") and "c" in tok[1:]
+
+
+def _interpreter_code_payloads(tokens):
+    """EVERY payload an interpreter's code flags introduce, wherever the flags sit.
+
+    SR-H-24 is a family, not an instance: the payload of `-c` has to reach nested-code
+    scanning independently of (a) where the flag is relative to anything else, (b) whether
+    the segment is later unwrapped, reclassified or its tokens rewritten. The first attempt
+    discarded the payload with the tokens in front of a wrapper, the second guarded ONE
+    position (a code flag before the wrapper token) and so still lost
+    `bash --rcfile dev-ttl.sh -c <payload>`. Decided by position, the invariant had a hole
+    per placement; so it is now a sweep over the whole token list, and no later step gets to
+    decide whether it applies.
+    """
+    return [tokens[i + 1] for i, t in enumerate(tokens)
+            if _is_code_flag(t) and i + 1 < len(tokens)]
+
 # Commands this module claims to understand well enough to judge by NAME ALONE.
 # Membership means one of exactly two things and nothing else:
 #
@@ -433,9 +458,14 @@ class Segment:
 
 
 class Scan:
-    __slots__ = ("segments", "assigns", "code_view", "degraded", "truncated")
+    __slots__ = ("segments", "assigns", "code_view", "degraded", "truncated", "alt_only")
 
     def __init__(self, segments, assigns, code_view, degraded, truncated=False):
+        # Segments that ONLY the comment-free reading produced (top-level scan only);
+        # they are already merged into `segments`. Kept separately so a test can ask
+        # "did the comment stripper get this right on its own?" - a union that masks the
+        # stripper would otherwise make its word-boundary rule unobservable.
+        self.alt_only = []
         self.segments = segments
         self.assigns = assigns
         self.code_view = code_view
@@ -514,6 +544,31 @@ def _brace_stands_alone(text, i):
     left = i == 0 or before.isspace() or before in ";&|"
     right = i + 1 == len(text) or after.isspace() or after in ";&|)"
     return left and right
+
+
+# Whether a "#" begins a comment is a question about WORD BOUNDARIES, and bash answers it
+# precisely: "#" starts a comment only at the start of a word, and an ESCAPED space or
+# newline does not end a word. `echo a\ # && pnpm dev` is the single word `a #` followed by
+# a launch, not a comment. Reading `cur[-1]` could not tell the two apart (an escaped
+# space leaves a space there), so a launch hidden after one was dropped as a comment - for
+# every hook that consumes this library (live-db-guard, devserver-ttl-gate, safety).
+# The decision is made from the text itself: count the run of backslashes before the
+# previous character; an odd run means that character is escaped.
+_STRIP_COMMENTS = True
+
+
+def _starts_word(text, i):
+    if i == 0:
+        return True
+    prev = text[i - 1]
+    k = i - 2
+    backslashes = 0
+    while k >= 0 and text[k] == "\\":
+        backslashes += 1
+        k -= 1
+    if backslashes % 2 == 1:
+        return False  # prev is escaped: an escaped space / newline / operator is not a boundary
+    return prev in " \t\n;&|()"
 
 
 def _split_segments(text):
@@ -612,6 +667,17 @@ def _split_segments(text):
             i += len(op)
             continue
 
+        # A "#" that starts a WORD begins a comment that runs to the end of the line
+        # (bash and zsh, non-interactive). Without this a line such as `# pnpm dev`
+        # was a segment whose command word was `#`, and the words after it were judged
+        # as a launch - a full refusal for a comment (SR-M-18). The newline itself is
+        # kept, so the next line is still a separate statement. `a#b`, `$#` and
+        # `${#x}` do not start a word with "#" and are untouched.
+        if ch == "#" and _STRIP_COMMENTS and _starts_word(text, i):
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+            continue
+
         cur.append(ch)
         code.append(ch)
         i += 1
@@ -672,6 +738,38 @@ def _unwrap(tokens, assigns):
         if not tokens:
             break
         base = os.path.basename(tokens[0])
+        # `bash scripts/devops/dev-ttl.sh -- pnpm dev` is our own wrapper run THROUGH an
+        # interpreter: the interpreter executes the script file, which then runs the
+        # command after `--`. Unwrapped here the segment was `bash`, never a launch,
+        # so it got no pin at all while the same command without `bash` was refused
+        # (SR-H-15, the 2026-08-05 shape). The interpreter is recorded as a wrapper, so
+        # a caller that models only env and dev-ttl.sh refuses it by name.
+        if base in ("bash", "sh", "zsh", "dash", "ksh") and len(tokens) > 1:
+            # Scan FORWARD for the wrapper token instead of enumerating the interpreter
+            # flags that may precede it (-o pipefail, --norc, --, +x, -O extglob,
+            # --rcfile F ...). A taxonomy of shell flags is the same re-implementation
+            # trap that produced every hole in this area (SR-M-21), and a flag form this
+            # list forgot was the PR #485 shape: the launch got no pin at all.
+            #
+            # The command-carrying flag is NOT handled here, and must not be: whether the
+            # payload of `-c` reaches nested scanning cannot depend on where the flag sits
+            # relative to the token this loop finds (SR-H-24 took three attempts for exactly
+            # that reason - discard, then guard one position, then make it position-independent).
+            # It is swept below over the WHOLE token list, so this loop only has to find the
+            # wrapper and does not need to know that -c exists. An earlier rule here
+            # ("a code flag before the token cancels the unwrap") was removed because the sweep
+            # subsumes it: reverting it turned no test red, and a rule nothing tests alone is
+            # the trap this file keeps describing.
+            j = next((k for k in range(1, len(tokens))
+                      if os.path.basename(tokens[k]) == "dev-ttl.sh"), None)
+            if j is not None:
+                # Whatever this unwrap throws away (or reclassifies as an argument of
+                # dev-ttl.sh), no code flag's payload goes with it: sweep the WHOLE
+                # interpreter token list first, before and after the token alike.
+                nested_code.extend(_interpreter_code_payloads(tokens[1:]))
+                wrappers.append(base)
+                tokens = tokens[j:]
+                continue
         spec = WRAPPER_SPEC.get(base)
         if spec is None:
             break
@@ -1043,10 +1141,7 @@ def _build_segment(raw, tokens, heredocs, running_env, depth, degraded):
 
     # `sh -c "<script>"` — the script is code, not an argument. Parse it.
     if name in INTERPRETERS:
-        for idx, tok in enumerate(argv):
-            if tok.startswith("-") and "c" in tok[1:] and idx + 1 < len(argv):
-                nested.append(argv[idx + 1])
-                break
+        nested.extend(_interpreter_code_payloads(argv))
 
     if name == "find":
         nested.extend(_find_exec_commands(argv))
@@ -1231,6 +1326,7 @@ def candidates(seg, code=False):
 
 
 def scan(command_line, depth=0, env=None):
+    global _STRIP_COMMENTS
     text, inners = _extract_substitutions(command_line or "")
     raw_segments, code_view = _split_segments(text)
 
@@ -1276,7 +1372,33 @@ def scan(command_line, depth=0, env=None):
     elif inners:
         truncated = True
 
-    return Scan(segments, assigns, code_view, degraded, truncated)
+    result = Scan(segments, assigns, code_view, degraded, truncated)
+    if depth == 0 and _STRIP_COMMENTS and "#" in command_line:
+        # FAIL CLOSED ON THE COMMENT STRIPPER, AS A PROPERTY OF scan(). The stripper is a
+        # parser of its own (it decides where a "#" starts a comment), it is shared by every
+        # consumer, and a slip in it hides a command from all of them. Round 5 kept the
+        # comment-free reading inside launches(), which covered the two launcher hooks and
+        # left pre-bash-safety.sh - which walks scan.segments directly - covered by nothing:
+        # `echo ${x:- #}; <destructive>` and `cat <(true)# ; <destructive>` ran in bash and zsh
+        # and were allowed. So the second reading is merged here: whoever iterates
+        # scan.segments or reads scan.code_view gets it without opting in.
+        # A segment that merely BEGINS with "#" is the comment itself and is not merged;
+        # the cost is that a comment's text can now be judged (refusal, never silence).
+        _STRIP_COMMENTS = False
+        try:
+            alt = scan(command_line, 0, env)
+        finally:
+            _STRIP_COMMENTS = True
+        have = set(sg.raw for sg in result.segments)
+        extra = [sg for sg in alt.segments
+                 if sg.raw not in have and not sg.raw.lstrip().startswith("#")]
+        result.alt_only = extra
+        result.segments = list(result.segments) + extra
+        if alt.code_view != result.code_view:
+            result.code_view = result.code_view + "\n" + alt.code_view
+        result.degraded = result.degraded or alt.degraded
+        result.truncated = result.truncated or alt.truncated
+    return result
 
 
 # ── the shared "is this a dev-server launch" predicate ────────────────────────
@@ -1291,8 +1413,15 @@ PKG_NON_RUN = {
     "licenses", "outdated", "pack", "prune", "rebuild", "root", "setup", "test",
     "build", "lint", "typecheck", "format",
 }
-PKG_VALUE_FLAGS = {"--filter", "-F", "-C", "--dir", "--workspace", "-r"}
-DEV_SCRIPT_RE = re.compile(r"^dev(:[A-Za-z0-9_.-]+)?$")
+# NOT "-r": for pnpm it is --recursive and takes no value, so listing it made the script name
+# after it (`pnpm -r dev`) vanish as its "value" (SR-H-14). `-r` as node --require is
+# NODE_VALUE_FLAGS below, which is a different table on purpose.
+PKG_VALUE_FLAGS = {"--filter", "-F", "-C", "--dir", "--workspace"}
+# Scripts that boot a server. `start` is `node dist/main` for the api and `vite preview`
+# for the web app - both listen on the owner live default ports - and ci.yml, e2e.yml
+# and sw-smoke.spec.ts all boot the api that way, so an agent mirroring CI would otherwise
+# get no pin at all (SR-H-14).
+DEV_SCRIPT_RE = re.compile(r"^(dev|start|preview)(:[A-Za-z0-9_.-]+)?$")
 NODE_VALUE_FLAGS = {
     "-e", "--eval", "-p", "--print", "-r", "--require", "--import",
     "--experimental-loader", "--loader", "--conditions", "--max-old-space-size",
@@ -1339,7 +1468,7 @@ def is_dev_server_launch(seg):
         pos = seg.positionals(PKG_VALUE_FLAGS)
         if not pos:
             return None
-        if pos[0] in ("exec", "dlx", "x", "run-script"):
+        if pos[0] in ("exec", "dlx", "x"):  # NOT run-script: it is an alias of run
             # `pnpm exec vite` — the real command follows.
             inner = pos[1:]
             if inner and os.path.basename(inner[0]) == "vite":
@@ -1373,12 +1502,15 @@ def launches(scan_result):
     LAUNCHING segment gets).
     """
     out = []
+    alt_raws = set(sg.raw for sg in getattr(scan_result, "alt_only", ()))
     for seg in scan_result.segments:
         for cand in candidates(seg):
             label = is_dev_server_launch(cand)
             if label:
                 if not seg.confident:
                     label = "%s — %s" % (label, seg.why)
+                if seg.raw in alt_raws:
+                    label = "%s [comment-free reading]" % label
                 out.append((cand, label))
                 break
     return out

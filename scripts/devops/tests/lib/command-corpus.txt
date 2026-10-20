@@ -303,7 +303,11 @@ allow	all	./scripts/devops/reap-zombie-devservers.sh
 # it refuses any launcher in a worktree, safe values or not. That is the single
 # largest reason the substring rule had to go, and it is worth having pinned.
 narrowed	db	DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_qa API_PORT=3011 pnpm --filter @crm/api dev
-narrowed	db	DATABASE_URL= vite --port 3010
+# An empty DATABASE_URL is safe only with PGDATABASE pinned on the same launch (libpq
+# falls back to the user name, and PGUSER=crm_db is the live database). Bare
+# `DATABASE_URL= vite` was `narrowed` here until 2026-10-19; it is a block now.
+narrowed	db	DATABASE_URL= PGDATABASE=crm_qa vite --port 3010
+block	db	DATABASE_URL= vite --port 3010
 narrowed	db	scripts/devops/dev-ttl.sh -- DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_qa API_PORT=3011 pnpm --filter @crm/api dev
 block	ttl	DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_qa API_PORT=3011 pnpm --filter @crm/api dev
 allow	ttl	scripts/devops/dev-ttl.sh --ttl 7200 -- DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_qa API_PORT=3011 pnpm --filter @crm/api dev

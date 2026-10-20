@@ -10,6 +10,10 @@ question it left open: **R-B is the chosen end-of-retention option** (§3).
 The status is unchanged: the amendment records one owner decision and several measurements; it
 reverses no decision the owner accepted.
 
+**Amended 2026-10-19** with facts measured against the accepted text — see "Amendment 2026-10-19"
+below. Again the status is unchanged and no decision is reversed: what changes is the accounting of
+the scheduled jobs and three statements of fact.
+
 ## Amendment 2026-10-18 — reconciled with the implementation
 
 The implementation of this ADR (PR #1027, branch `feat/db-least-privilege-roles`, r5 Task 1.3c)
@@ -32,6 +36,48 @@ index of what changed and why.
 is `super=true login=true createrole=true`, the only non-system role in the cluster, on PostgreSQL
 16.14 — so §4 step 0 is answered, **branch 1**. The implementation's own measurements ran on 16.15;
 nothing it relies on is newer than 16.0, so the patch-level gap carries no risk.
+
+## Amendment 2026-10-19 — the accounting, corrected by measurement
+
+Four facts were measured on 2026-10-19 against the accounting in §4 ("What step 4 does not reach"),
+two of them by an independent reviewer who corrected a first reading. **Every item below came from
+measurement, not from a new decision**; the ADR's decisions stand. The accepted sentences are not
+rewritten — the one that is wrong carries an inline correction pointing here, so the error stays
+visible next to its fix.
+
+1. **Seven of the eight cron services issue `DELETE` or `UPDATE`, not the four the ADR names.** Four
+   hold `DatabaseService` directly; three reach it through a service (resume-extraction,
+   notification-email, job-sourcing) and were missed by the ADR's "mocked `DatabaseService`"
+   accounting. The salary cron is the eighth and writes nothing in that path — only `paySalary`, a
+   user action, updates `transactions`.
+2. **The ADR's "six" is a mislabelled count.** It does not claim six services; it names four whose
+   tables number exactly six (3+1+1+1). Read it as four services and six tables, so the next reader
+   does not re-derive it.
+3. **"One cron has a real-database spec" is wrong, and in our favour: three do** —
+   `salary-cron-idempotency`, `job-sourcing.integration`, `notification-email-delivery.integration`.
+4. **Those existing real-database specs connect as `crm_user`, which owns the tables and bypasses
+   every grant — so they prove nothing about `crm_app`.** This is true _today_ and is an
+   **environment** fact, not a code property: they read `DATABASE_URL`, and §5 flips it to the
+   `crm_app` URL at step 4. Until step 4 flips `DATABASE_URL`, three real-database specs exist and
+   none of them exercises a grant.
+
+**A measured consequence, not a decision.** PR #1040 (open) adds one real-database spec per
+affected cron, each asserting that the connected role is `crm_app` — which is what measure 1 asked
+for. It is recorded here because it closes the gap items 1, 3 and 4 describe, not because this
+amendment chose it.
+
+Two more facts, each of which corrects a piece of the ADR's own reasoning:
+
+- **The transaction wrap on the 1.3b triggers holds `ShareRowExclusiveLock`, not
+  `ACCESS EXCLUSIVE`, so readers are never blocked** — measured from `pg_locks`. The ADR argued
+  the DDL's safety for concurrent sessions from MVCC visibility (§4, file 2) and does not state the
+  lock level of the trigger DDL; a reader would reasonably assume the stronger lock. Writers still
+  queue behind it for the length of the transaction (that follows from the lock conflict table, it
+  was not part of the measurement), which is what `lock_timeout` is for.
+- **Measure 2's log-grep alert cannot see the paths it exists for until the API writes the SQLSTATE
+  into its log text**, because a Drizzle query error carries it only on `.cause`. PR #1042 (open)
+  adds the chokepoint. Until it is merged, "match `permission denied` / SQLSTATE `42501`" (measure 2) is a requirement the API's logging does not yet satisfy, and the prerequisite of step 5 is
+  not met by the alert's configuration alone.
 
 ## For the owner
 
@@ -912,7 +958,10 @@ production has no use for it, because every production DDL path goes over the lo
 
 **What step 4 does not reach — the scheduled jobs, and what it costs.** Step 4's proof is only as
 wide as the code CI actually executes against a real database, and the gap is exactly where the
-risk is. Of the eight cron services, one has a real-database spec; six use a fully mocked
+risk is. **[Corrected 2026-10-19, by measurement — see "Amendment 2026-10-19": three of the eight
+cron services have a real-database spec, seven issue `DELETE` or `UPDATE`, and the "six" below
+counts tables, not services (four services, 3+1+1+1 tables). The accepted sentence is left as it
+was so the correction is visible.]** Of the eight cron services, one has a real-database spec; six use a fully mocked
 `DatabaseService`, and those six are the `DELETE`-heavy ones: telemetry retention
 (`telemetry_events`, `telemetry_errors`, `csp_reports`), vacancy-application retention
 (`vacancy_applications`), meeting-recorder retention (`meeting_recorder_webhook_receipts`), and

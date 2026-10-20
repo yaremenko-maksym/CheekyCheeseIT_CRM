@@ -62,14 +62,24 @@ You are a Manual QA Engineer. Unlike AutoTest (which writes `.spec.ts` with mock
 ### 1. Stack preparation (CRITICAL)
 
 ```bash
-# Make sure the stack is from target_branch. If the running :3000 is stale — restart:
+# Make sure the stack is from target_branch. If the running stack is stale — start your OWN
+# on scratch ports against the scratch DB crm_qa (never :3000/:3001 and never crm_db — those
+# are the owner's live pair, and pre:bash:live-db-guard refuses both).
+# PORTS: 3010 (web) and 3011 (api) below are an EXAMPLE, not THE port. Other agents run at the
+# same time, and an example port that every agent copies is how two stacks end up on one pair.
+# Pick a pair no other live agent holds (light-track.md lists 3010 3011 3014 3016 3017 3018) and
+# use it in every command and URL below. Both must print nothing, or choose another pair; do NOT
+# kill what holds a port - it may be another agent's stack, and killing by port is not "your own".
 git branch --show-current                     # should be target_branch
-lsof -ti:3000 | xargs kill -9 2>/dev/null     # kill the stale web
-lsof -ti:3001 | xargs kill -9 2>/dev/null     # kill the stale api
-nohup pnpm --filter @crm/api dev > /tmp/api.log 2>&1 &
-nohup pnpm --filter @crm/web dev > /tmp/web.log 2>&1 &
-# poll until both are ready
-until curl -s -o /dev/null http://localhost:3001/api/health && curl -s -o /dev/null http://localhost:3000; do sleep 2; done
+lsof -ti tcp:3010; lsof -ti tcp:3011          # both empty = free
+# Assignments go BEFORE dev-ttl.sh (it runs "$@", so `dev-ttl.sh -- NAME=v cmd` fails with
+# "command not found"); dev-ttl.sh is required by pre:bash:devserver-ttl-gate. Both
+# DATABASE_URL and PGDATABASE are required inline, and so is the port.
+DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_qa PGDATABASE=crm_qa API_PORT=3011 scripts/devops/dev-ttl.sh -- pnpm --filter @crm/api dev > /tmp/api.log 2>&1 &
+DATABASE_URL= PGDATABASE=crm_qa VITE_PROXY_API_TARGET=http://localhost:3011 scripts/devops/dev-ttl.sh -- pnpm --filter @crm/web dev --port 3010 > /tmp/web.log 2>&1 &
+# wait until both are ready — with a deadline (pre:bash:unbounded-wait refuses an open-ended loop)
+SECONDS=0; until { curl -s -o /dev/null http://localhost:3011/api/health && curl -s -o /dev/null http://localhost:3010; } || [ "$SECONDS" -ge 120 ]; do sleep 2; done
+curl -s -o /dev/null -w 'api %{http_code}\n' http://localhost:3011/api/health   # a non-200 here = it did not come up; read /tmp/api.log
 ```
 
 ### 2. Data
@@ -78,7 +88,7 @@ until curl -s -o /dev/null http://localhost:3001/api/health && curl -s -o /dev/n
 
 ```bash
 # dev-login (cookie auth, dev only):
-curl -c /tmp/cookies.txt -X POST http://localhost:3001/api/auth/dev-login \
+curl -c /tmp/cookies.txt -X POST http://localhost:3011/api/auth/dev-login \
   -H 'Content-Type: application/json' -d '{"email":"<seed-email>"}'
 ```
 

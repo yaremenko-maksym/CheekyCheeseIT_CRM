@@ -138,4 +138,111 @@ assert_red "ЛОВУШКА: хук со сломанным bash тоже даё�
   --not-contains "decision" \
   -- hook_at "$(hook_with_broken_bash "$WS")" "pnpm --filter @crm/api dev"
 
+# ── package scripts that boot a server: start / preview (SR-H-14) ──────────────
+# The hot-path prefilter used to look only for vite|nest|dev|dist/main, so a command with
+# none of those words never reached the analyzer. These pass the prefilter now.
+for form in 'pnpm --filter @crm/api start' 'pnpm -C apps/api start' 'npm start' 'turbo start' \
+            'pnpm -r dev' 'pnpm run-script dev' 'pnpm --filter @crm/web preview'; do
+  assert_red "ТТЛ-гейт: без обёртки — отказ: $form" \
+    --contains '"decision": "block"' \
+    -- h "$form"
+  assert_green "ТТЛ-гейт: с обёрткой проходит: $form" \
+    -- h "$TTL -- $form"
+done
+assert_red "ТТЛ-гейт: интерпретатор + dev-ttl.sh не отменяет проверку обёртки у соседнего запуска" \
+  --contains '"decision": "block"' \
+  -- h "bash $TTL -- pnpm --filter @crm/api dev & pnpm --filter @crm/api start"
+
+# ── SHARED LIBRARY: the comment stripper in lib/cmdscan.py ────────────────────
+# Three hooks consume that library (this one, live-db-guard, safety), and the stripper
+# decided a "#" starts a comment by reading the previous character. An ESCAPED space
+# leaves a space there without ending the word, so `echo a\ # && <launch>` had everything
+# after the # dropped as a comment - the launch included - for every one of them. bash's
+# rule is stated plainly: "#" begins a comment only at a word start, and an escaped space
+# does not end a word. Each hook carries its OWN case, because a test that only covered one
+# consumer would leave the other two to chance. (This file exercises pre:bash:devserver-ttl-gate.)
+assert_red "ТТЛ-гейт: запуск спрятан после экранированного пробела и #: echo a\\ # && ..." \
+  --contains '"decision": "block"' \
+  -- h "echo a\\ # && pnpm --filter @crm/api dev"
+
+assert_red "ТТЛ-гейт: то же с ;" \
+  --contains '"decision": "block"' \
+  -- h "echo a\\ # ; pnpm --filter @crm/api dev"
+
+assert_red "ТТЛ-гейт: кавычка, затем экранированный пробел" \
+  --contains '"decision": "block"' \
+  -- h "echo 'x'\\ # && pnpm --filter @crm/api dev"
+
+assert_red "ТТЛ-гейт: экранированный перевод строки не заканчивает слово" \
+  --contains '"decision": "block"' \
+  -- h "echo a\\
+# && pnpm --filter @crm/api dev"
+
+assert_green "ТТЛ-гейт: настоящий комментарий по-прежнему не запуск" \
+  -- h "echo hi # pnpm --filter @crm/api dev"
+
+assert_green "ТТЛ-гейт: строка-комментарий целиком — не запуск" \
+  -- h "# pnpm --filter @crm/api dev"
+
+# ── SR-M-22: the word-boundary rule must be observable HERE, not masked ─────────
+# The comment-free second reading finds a launch the stripper hid, so a regression in the
+# stripper's word-boundary rule left every case above green (measured: with the backslash
+# check disabled this file stayed 46/0). A launch found ONLY by the second reading carries
+# the label "[comment-free reading]"; for the escaped-space cases the stripper must find
+# the launch by itself, so the label must be ABSENT. That pins the rule, not its fallback.
+for esc in "echo a\\ # && pnpm --filter @crm/api dev" "echo a\\ # ; pnpm --filter @crm/api dev" \
+           "echo 'x'\\ # && pnpm --filter @crm/api dev"; do
+  assert_red "ТТЛ-гейт: правило границы слова само находит запуск (метки второго чтения нет): $esc" \
+    --contains '"decision": "block"' \
+    --not-contains "comment-free reading" \
+    -- h "$esc"
+done
+
+# ── SR-H-20: shapes the stripper cannot know about are caught by the second reading ──
+# A parameter expansion whose default value holds a space then #, and a process
+# substitution immediately followed by #, both run the next command in bash and zsh.
+# They are refused here, and they carry the label - the second reading did the work.
+assert_red "ТТЛ-гейт SR-H-20 форма 1: \${x:- #} затем запуск" \
+  --contains '"decision": "block"' \
+  --contains "comment-free reading" \
+  -- h "echo \${x:- #}; pnpm --filter @crm/api dev"
+
+assert_red "ТТЛ-гейт SR-H-20 форма 2: <(true)# затем запуск" \
+  --contains '"decision": "block"' \
+  --contains "comment-free reading" \
+  -- h "cat <(true)# ; pnpm --filter @crm/api dev"
+
+# ── SR-H-24 / SR-M-21: an interpreter in front of dev-ttl.sh ────────────────────
+# A launch behind `bash -c '<payload>' dev-ttl.sh` has dev-ttl.sh as $0, NOT as the wrapper:
+# the payload is a bare launch and must be refused. With any other interpreter flag before
+# the wrapper (the PR #485 shapes) the wrapper is real and the launch is wrapped.
+for form in "bash -c 'pnpm --filter @crm/api dev' dev-ttl.sh" "sh -c 'pnpm --filter @crm/api dev' x dev-ttl.sh" \
+            "bash -ec 'pnpm --filter @crm/api dev' x dev-ttl.sh" \
+            "bash -o pipefail -c 'pnpm --filter @crm/api dev' dev-ttl.sh"; do
+  assert_red "ТТЛ-гейт: payload за -c — голый запуск, dev-ttl.sh здесь \$0: $form" \
+    --contains '"decision": "block"' \
+    -- h "$form"
+done
+for flags in '-o pipefail' '--norc' '--' '+x' '-O extglob' '--rcfile /tmp/rc'; do
+  assert_green "ТТЛ-гейт: настоящая обёртка за флагами интерпретатора проходит: bash $flags" \
+    -- h "bash $flags $TTL -- pnpm --filter @crm/api dev"
+done
+
+# ── SR-H-24, the FAMILY (this hook's consumer view) ─────────────────────────────
+# A code flag's payload is never discarded, wherever the flag sits in the interpreter's option
+# region (see the safety suite for the history: three attempts, only the position-independent
+# one is an invariant). Here the payload is a bare launch; every placement must be refused.
+for sh in bash sh dash zsh ksh; do
+  for t in "-c '@P@' @W@" "@W@ -c '@P@'" "--rcfile @W@ -c '@P@'" "--init-file @W@ -c '@P@'" \
+           "-o pipefail -c '@P@' @W@" "-o @W@ -c '@P@'" "-O extglob -c '@P@' @W@" "+O @W@ -c '@P@'" \
+           "+o @W@ -c '@P@'" "-ec '@P@' x @W@" "-xc '@P@' @W@" "-c '@P@' -- @W@" "@W@ -- -c '@P@'" \
+           "-x -e -c '@P@' @W@ -- ls" "@W@ -x -c '@P@'" "-c '@P@' -c '@P@' @W@" \
+           "-c 'ls' -c '@P@' @W@" "-c 'ls' -c '@P@'" "-c 'ls' x -ec '@P@'"; do
+    cmd="$sh ${t//@P@/pnpm --filter @crm/api dev}"; cmd="${cmd//@W@/dev-ttl.sh}"
+    assert_red "ТТЛ-гейт SR-H-24 (семейство): $cmd" \
+      --contains '"decision": "block"' \
+      -- h "$cmd"
+  done
+done
+
 guard_test_summary "test-pre-bash-devserver-ttl-gate.sh"

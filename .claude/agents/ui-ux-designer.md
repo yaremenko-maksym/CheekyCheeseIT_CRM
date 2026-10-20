@@ -242,19 +242,27 @@ Screenshots (before / after if Mode D applied cosmetic fixes):
 ## Useful commands (CRM-specific)
 
 ```bash
-# Dev stack (if not brought up)
+# Dev stack (if not brought up) - YOUR OWN, on scratch ports against the scratch DB crm_qa
+# (never :3000/:3001 or crm_db: the owner's live pair; pre:bash:live-db-guard refuses both).
+# PORTS: 3010 (web) and 3011 (api) below are an EXAMPLE, not THE port. Other agents run at the
+# same time, and an example port that every agent copies is how two stacks end up on one pair.
+# Pick a pair no other live agent holds (light-track.md lists 3010 3011 3014 3016 3017 3018) and
+# use it in every command and URL below. `lsof -ti tcp:<port>` printing nothing = free; if it
+# prints something, choose another pair - do NOT kill what holds it (it may be another agent's).
+# Assignments go BEFORE dev-ttl.sh (it runs "$@", so `dev-ttl.sh -- NAME=v cmd` fails with
+# "command not found"); dev-ttl.sh is required by pre:bash:devserver-ttl-gate.
 cd <repo-root>
-nohup pnpm --filter @crm/web dev > /tmp/web.log 2>&1 &
-API_PORT=3001 nohup pnpm --filter @crm/api dev > /tmp/api.log 2>&1 &
+DATABASE_URL= PGDATABASE=crm_qa VITE_PROXY_API_TARGET=http://localhost:3011 scripts/devops/dev-ttl.sh -- pnpm --filter @crm/web dev --port 3010 > /tmp/web.log 2>&1 &
+DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_qa PGDATABASE=crm_qa API_PORT=3011 scripts/devops/dev-ttl.sh -- pnpm --filter @crm/api dev > /tmp/api.log 2>&1 &
 
 # Dev login to check the UI under different roles
-curl -c /tmp/cookies.txt -X POST http://localhost:3001/api/auth/dev-login \
+curl -c /tmp/cookies.txt -X POST http://localhost:3011/api/auth/dev-login \
   -H 'Content-Type: application/json' \
   -d '{"email":"oleksiy.kovalenko@cheekycheese.dev"}'  # SENIOR
 # ADMIN: SELECT email FROM users WHERE role='ADMIN' LIMIT 1 (mcp__postgres__query)
 
 # Open a page in the Playwright MCP browser
-mcp__playwright__browser_navigate http://localhost:3000/...
+mcp__playwright__browser_navigate http://localhost:3010/...
 mcp__playwright__browser_snapshot   # a11y tree
 mcp__playwright__browser_take_screenshot
 mcp__playwright__browser_resize 320 568   # mobile
