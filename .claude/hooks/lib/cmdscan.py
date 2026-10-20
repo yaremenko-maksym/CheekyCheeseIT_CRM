@@ -381,13 +381,6 @@ UNDERSTOOD = set(INTERPRETERS) | {
     "openssl",
     # this project's toolchain (each modelled below or provably not a launcher)
     "git", "gh", "node", "python", "python3", "pip", "pip3",
-    # pnpm / npm / yarn: modelled by is_dev_server_launch (PKG_RUNNERS,
-    # PKG_NON_RUN, DEV_SCRIPT_RE) AND their one exec surface is handed over by
-    # _pkg_runner_exec_commands — both halves, or this line is the `tar` mistake
-    # again. The invariant is asserted next to PKG_RUNNERS. `bun` is absent on
-    # purpose: it is also a JS runtime (CODE_CAPABLE). `npx` is absent because
-    # running the named package IS its whole purpose.
-    "pnpm", "npm", "yarn",
     "turbo", "vite", "nest", "tsc", "vitest", "playwright",
     "prettier", "eslint", "tsx", "psql", "pg_dump", "pg_restore", "createdb",
     "dropdb", "pg_isready", "redis-cli",
@@ -1227,39 +1220,38 @@ PSQL_PIPE_RE = re.compile(
 )
 
 
-PKG_EXEC_SUBCMDS = {"exec", "dlx", "x"}
+def _pkg_readonly_query(name, argv):
+    """True when a package runner is provably doing a read-only QUERY.
 
-
-def _pkg_runner_exec_commands(argv):
-    """`pnpm exec <cmd>` / `pnpm dlx <cmd>` / `bun x <cmd>` — the rest IS a command.
-
-    WHY (2026-10-21). `pnpm why vite` was refused, and the refusal text said the
-    hook "only looks at the command in launcher position". It did not: `pnpm` was
-    absent from UNDERSTOOD, so the segment was UNCERTAIN, so readings() re-read
-    it from every position and one of those readings was `vite`. The subcommand
-    table (PKG_NON_RUN, which has held `why`, `ls`, `audit`, `outdated` all
-    along) was never consulted, because confidence is decided before it.
-
-    Putting pnpm/npm/yarn into UNDERSTOOD is only honest if what they execute is
-    extracted, which is what this does — the round-3 lesson about `tar` and
-    `git`, applied before the same mistake is repeated. It also closes a hole
-    that readings() was masking: `npm exec -- vite` produced NO launch from the
-    launcher predicate itself (`inner[0]` was `--`), and was refused only because
-    the segment happened to be uncertain. Here `--` is a flag like any other, so
-    the launch surfaces as a segment and is judged on its own merits.
-
-    `bun` stays OUT of UNDERSTOOD regardless: it is a JS runtime as well
-    (CODE_CAPABLE), and `bun x pnpm dev` once counted as "a bun command" and
-    booted unwrapped. Its exec surface is extracted here too — belt as well as
-    braces, since the uncertainty path is what currently catches it.
+    The only grant of confidence to a package runner, and the whole reason the
+    runners can stay out of UNDERSTOOD — see PKG_READONLY_SUBCMDS for why that
+    matters. It fails closed in every direction: no subcommand, a subcommand
+    outside the vetted table, or a single flag this grammar does not recognise
+    all return False, which leaves the segment UNCERTAIN and therefore re-read
+    by readings() exactly as before the fix.
     """
-    pos = _positionals(argv, PKG_VALUE_FLAGS)
-    if not pos or pos[0] not in PKG_EXEC_SUBCMDS:
-        return []
-    inner = pos[1:]
-    if not inner:
-        return []
-    return [" ".join(shlex.quote(tok) for tok in inner)]
+    if name not in PKG_RUNNERS:
+        return False
+    value_flags = PKG_VALUE_FLAGS | PKG_QUERY_VALUE_FLAGS
+    skip = False
+    for tok in argv:
+        if skip:
+            skip = False
+            continue
+        if tok.startswith("-") and tok != "-":
+            if tok in value_flags:
+                skip = True
+                continue
+            if tok in PKG_BOOL_FLAGS:
+                continue
+            # `--filter=@crm/api` glues the value on, so the token is recognised
+            # by its name half — but only if that half is in the grammar.
+            head = tok.split("=", 1)[0]
+            if "=" in tok and (head in value_flags or head in PKG_BOOL_FLAGS):
+                continue
+            return False
+        return tok in PKG_READONLY_SUBCMDS
+    return False
 
 
 def _psql_exec_commands(payload):
@@ -1326,12 +1318,6 @@ def _build_segment(raw, tokens, heredocs, running_env, depth, degraded):
     if name == "psql":
         nested.extend(_psql_exec_commands(payload))
 
-    # Same bargain as `git` and `psql` above: pnpm/npm/yarn are UNDERSTOOD only
-    # because the one surface on which they execute an arbitrary command line is
-    # handed over here rather than trusted away.
-    if name in PKG_RUNNERS:
-        nested.extend(_pkg_runner_exec_commands(argv))
-
     if name in EXEC_FLAG_SPEC:
         nested.extend(_flag_value_commands(argv, EXEC_FLAG_SPEC[name]))
 
@@ -1354,7 +1340,7 @@ def _build_segment(raw, tokens, heredocs, running_env, depth, degraded):
         why = "обёртка `%s` не имеет однозначной грамматики аргументов" % inexact
     elif not _plausible_command_word(name):
         why = "командное слово `%s` не похоже на имя команды" % name
-    elif name not in UNDERSTOOD:
+    elif name not in UNDERSTOOD and not _pkg_readonly_query(name, argv):
         why = "команда `%s` не входит в список разбираемых" % name
 
     seg = Segment(name, argv, payload, wrappers, dynamic, raw, depth, env,
@@ -1586,29 +1572,66 @@ def scan(command_line, depth=0, env=None):
 # nest start / vite / pnpm|npm|yarn|turbo dev / node ... dist/main — but decided
 # on the COMMAND WORD instead of on a substring.
 PKG_RUNNERS = {"pnpm", "npm", "yarn", "turbo", "bun"}
-# A package runner may only be UNDERSTOOD if its exec surface is extracted.
-# Stated as an import-time invariant rather than a comment, because the comment
-# is what failed last time: UNDERSTOOD promised "executes nothing, or what it
-# executes is handed over" and quietly held six commands that did neither.
-_PKG_LIKE = {"pnpm", "npm", "yarn", "bun", "npx", "turbo"}
-assert (_PKG_LIKE & UNDERSTOOD) <= PKG_RUNNERS, (
-    "a package runner in UNDERSTOOD must be modelled by is_dev_server_launch")
-assert not ({"bun", "npx"} & UNDERSTOOD), (
-    "bun is also a JS runtime and npx exists to run what it is given")
-# Package-manager subcommands that are definitely not "run a script". Every name
-# here is a QUERY: it reads the lockfile, the registry or the store and prints.
-# `pnpm why vite` is the whole reason this table now gets consulted at all — see
-# _pkg_runner_exec_commands for why it previously was not.
+# Package-manager subcommands that are definitely not "run a script".
 PKG_NON_RUN = {
     "add", "remove", "rm", "install", "i", "update", "up", "why", "list", "ls",
     "audit", "publish", "store", "config", "link", "unlink", "init", "create",
     "licenses", "outdated", "pack", "prune", "rebuild", "root", "setup", "test",
     "build", "lint", "typecheck", "format",
-    # read-only queries added 2026-10-21 with `why`'s repro: each prints and
-    # exits, none can reach a package script.
-    "info", "view", "search", "whoami", "ping", "doctor", "dedupe", "bin",
-    "help", "version", "env", "licenses:list", "fetch",
+    # print-and-exit queries, added 2026-10-21 with the `pnpm why vite` repro.
+    "info", "view", "search", "whoami", "ping", "doctor", "bin", "help",
+    "version",
 }
+
+# ── the ONE narrow grant of confidence to a package runner (2026-10-21) ───────
+# WHY A SEPARATE, SMALLER TABLE THAN PKG_NON_RUN. `pnpm why vite` was refused
+# (four times on 2026-10-21, in four shapes), and the refusal text claimed the
+# hook "only looks at the command in launcher position". It did not: `pnpm` is
+# absent from UNDERSTOOD, so the segment is UNCERTAIN, so readings() re-reads it
+# from every position and one of those readings is `vite`. PKG_NON_RUN — which
+# has held `why`, `ls`, `audit`, `outdated` all along — was never consulted,
+# because confidence is decided BEFORE the launcher predicate runs.
+#
+# THE ROUTE NOT TAKEN, and why. The obvious repair is to put pnpm/npm/yarn into
+# UNDERSTOOD. That is the round-3 mistake with a new name: membership there is
+# not a hint, it sets confident=True and short-circuits readings() ENTIRELY, and
+# the list leaked once already for promising "does not execute its argument"
+# while holding `tar`, `rsync`, `ssh`, `nc`, `psql`, `git`. A package runner
+# executes its argument too (`exec`, `dlx`, `x`, and `run <script>` where the
+# script launches), so blanket confidence would make the guard only as good as
+# an enumeration of every route from a runner to a launcher — and a gap there is
+# a false negative, which costs the owner's database (PR #485, 2026-08-05: an
+# API on :3000 against the live DB for two minutes).
+#
+# So the grant is per-SUBCOMMAND and fails closed:
+#   * the first positional must be in THIS table — print-and-exit queries only,
+#     each one checked against its own `--help`; no `exec`, `dlx`, `x`, `run`,
+#     `create`, `dlx`-alike, and nothing that writes;
+#   * every flag before it must be in the grammar below. ONE unrecognised flag
+#     and the segment stays uncertain, so `pnpm -c 'vite'` or any future
+#     `--call`-shaped option goes through readings() exactly as today.
+# Everything else about a runner is unchanged: still uncertain, still re-read.
+PKG_READONLY_SUBCMDS = {
+    "why", "ls", "list", "info", "view", "search", "audit", "outdated",
+    "licenses", "whoami", "ping", "doctor", "root", "bin", "help", "version",
+}
+# The launcher predicate must agree with the confidence grant, or a segment
+# could be trusted and then judged by a table that does not know the subcommand.
+assert PKG_READONLY_SUBCMDS <= PKG_NON_RUN, (
+    "a read-only subcommand must also be non-run, or a segment would be trusted "
+    "and then judged by a table that does not know its subcommand")
+# Flags of the runners themselves, as a COMPLETE grammar for the option region
+# in front of the subcommand. Unknown flag -> no grant (see above).
+PKG_BOOL_FLAGS = {
+    "-r", "--recursive", "--silent", "-s", "--prod", "-P", "--dev", "-D",
+    "--no-color", "--json", "--long", "--parseable", "--global", "-g",
+    "--offline", "--prefer-offline", "--frozen-lockfile",
+    "--workspace-root", "-w", "--stream", "--aggregate-output", "--help", "-h",
+    "--version", "-v",
+}
+# Value flags for the grant are PKG_VALUE_FLAGS (below, shared with the launcher
+# predicate) plus the ones only a query takes.
+PKG_QUERY_VALUE_FLAGS = {"--depth", "--registry", "--loglevel", "--prefix"}
 # NOT "-r": for pnpm it is --recursive and takes no value, so listing it made the script name
 # after it (`pnpm -r dev`) vanish as its "value" (SR-H-14). `-r` as node --require is
 # NODE_VALUE_FLAGS below, which is a different table on purpose.
