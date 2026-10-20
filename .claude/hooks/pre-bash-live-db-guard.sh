@@ -295,6 +295,18 @@ elif db != "":
 #     nothing - that decoy switched the whole rule off once);
 #   * `env` - `env -i`, `-u`, `--unset`, `-S` rewrite the environment after the pin
 #     was read (`env -u PGDATABASE` undoes it, and PGUSER=crm_db then wins).
+# That list kept growing - env was found by a regex, then by a tokenizer that knew
+# the option list, then spelled `$E`, a brace expansion or a glob, then given an
+# operand (`env -P /usr/bin -u ...`, which also let a pin be FORGED). Four review
+# rounds, four HIGH findings, one cause: this hook computing from text what bash
+# will do. So the answer is no longer a list. It is the STRONGEST form of the
+# standing rule below - FAIL CLOSED ON ANYTHING THE HOOK CANNOT RESOLVE TO A
+# LITERAL: the command word must be a plain literal AND the launcher cmdscan
+# resolved, and a dash-led word after env is refused outright (see launch_shape).
+# If a fifth round finds another divergence between this hook model of bash and
+# bash, the authoritative check belongs in the dev-server start itself (a preflight
+# that prints current_database() and refuses the live name), with this hook advisory.
+# A hook can never be bash.
 #
 # STANDING RULE OF THIS FILE: DELETE AN APPROXIMATION BEFORE ADDING A CLEVERER ONE.
 # Every hole found here had one shape - the hook re-implemented the parsing of
@@ -302,13 +314,17 @@ elif db != "":
 # query key, the libpq user-name fallback, shell expansion, the whole-segment pin
 # match, the env regex, the PGSERVICE regex. The fixes that stuck stopped
 # approximating: urlsplit plus an allowlist of shape instead of a pattern for the
-# live name, an explicit pinned value instead of enumerated redirections, shlex and
-# ONE is_env() instead of two regexes, assignments() instead of a PGSERVICE pattern.
+# live name, an explicit pinned value instead of enumerated redirections, one shlex
+# walk (launch_shape) that REFUSES what it cannot read instead of an env option list,
+# assignments() instead of a PGSERVICE pattern.
 # When this file needs to know what a shell, libpq, pg or env will do, it asks a
 # parser or demands an explicit allowlisted value; it does not grow a pattern.
 # STILL APPROXIMATIONS, and the next candidates for the same treatment: ENV_LOAD and
-# assignments() (regexes over the command text). Both fail closed, which is why they
-# are tolerable, not why they are right.
+# assignments() (regexes over the command text). Both fail closed, and both run over
+# TWO views of the command (raw text and the shlex-normalized text) and refuse if
+# EITHER matches - see both_views(). That union is deliberate: normalizing loses
+# statement boundaries (a source on its own line), the raw text cannot see through
+# spliced quotes, and the hook cannot know which one bash will follow.
 #
 # A check added to this hook needs a decoy case in its test group (an argument that
 # merely looks like the thing being checked): without one, reverting the check turns
