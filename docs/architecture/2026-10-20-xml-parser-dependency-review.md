@@ -28,6 +28,23 @@ The capability argument stands on its own. It is deliberately **not** propped up
 distribution — see "Why the advisory counts are not corroboration" below, where an earlier
 revision of this document made exactly that mistake and it was removed.
 
+### What this document decides, and what it does not
+
+**Decides:** which package to adopt, on what evidence, under what licence, with which two options
+pinned, behind which seam, and when the conclusion expires.
+
+**Does not decide — carried into Task 2.4 as acceptance criteria (R-1 … R-5 below):** the
+wrapper's test assertions and the specific bound values. Each was falsified or re-measured by
+review, and each fix is test code or implementation measured against a real wrapper rather than
+prose. A document cannot hold a falsifiable assertion, and specifying a contract that nothing
+enforces is worse than leaving it open.
+
+**Explicitly unchanged — constraint C-20:** `apps/api/src/job-sourcing/rss.ts` **stays DOU-only**
+and is **not touched** by this adoption. The existing hand-rolled scanner keeps its own documented
+caps (`MAX_FEED_BYTES` 2 MiB, `MAX_ITEMS` 200) and its legacy timestamp-query policy via
+`canonicalizePostingUrl`. `RssProvider` is a **new** base beside it, not a replacement for it, and
+DOU's golden outcomes must stay unchanged. This review proposes **no** edit to that file.
+
 **This is deliberately _not_ phrased as "no option can resolve an entity", because that weaker
 claim is false and was falsified during review.** Two of the eight options do bear on entities:
 `resolveUndefinedEntity` substitutes text for an entity from a **caller-supplied** function, and
@@ -266,7 +283,18 @@ node runner/matrix.mjs          # 6 configurations × 13 documents = 78 runs
 | billion laughs (9 levels)       | **threw** `Named entity isn't defined: &lol9;` | returned `&lol9;` **unexpanded**                                         | returned `&lol9;` unexpanded       |
 | quadratic blowup (50 KB × 2000) | **threw** `Named entity isn't defined: &a;`    | **threw** `Entity "a" size (50000) exceeds maximum allowed size (10000)` | returned `&a;` literal, unexpanded |
 
-Both candidates refuse XXE **on evidence**. The difference is _why_, and that is the decision:
+> **Precision about what "refused" means — do not flatten this.** The documents above all place a
+> **general entity reference in content** (`<title>&xxe;</title>`), and that form throws.
+> **Parameter-entity and external-DTD-only documents are _accepted_** by parse-xml: they parse
+> successfully, the DTD is retained inert (or discarded), and the canary records **0 hits**.
+> Inert acceptance is **not** a vulnerability — nothing is dereferenced, nothing is expanded, no
+> I/O occurs — but a reader must not conclude that the parser _rejects all DTD constructs_. It
+> rejects **undefined entity references**; it **ignores** the rest. Confirmed independently by the
+> security review. This is exactly why R-1's capability test must use an **internal-entity**
+> document rather than a classic XXE one.
+
+Both candidates refuse the general-entity XXE form **on evidence**. The difference is _why_, and
+that is the decision:
 
 - **parse-xml** never parses a DTD. From its own shipped source, `Parser.d.ts`:
   _"This is a loose implementation since doctype declarations are currently discarded without
@@ -413,84 +441,151 @@ above:
 | No network           | no network capability in the package                               | 0 canary hits over 78 runs                                                                                    |
 | Malformed = error    | strict XML conformance                                             | truncated envelope threw `Missing end tag for element title`                                                  |
 
-### `ignoreUndefinedEntities` is a drift-suppression switch, and the wrapper must pin it
+### The two options that must be pinned — and why the pinning is specified in Task 2.4, not here
 
-This is the one option that can convert correct behaviour into the exact failure mode used above
-to reject `fast-xml-parser` as first choice, so leaving it unpinned would be inconsistent.
+`ignoreUndefinedEntities` can convert correct behaviour into the exact failure mode used above to
+reject `fast-xml-parser` as first choice, and `resolveUndefinedEntity` is the only route by which
+entity substitution can enter. Both must be pinned by the wrapper:
 
-With `ignoreUndefinedEntities: true`, a feed carrying an undefined entity **parses
-"successfully"** and yields a literal `&x;` in the content. No throw, no signal. Task 2.4 requires
-**malformed feed = drift**; this option turns a drift signal into accepted content, and the
-vacancy text silently carries a raw entity reference. Measured: `xxe ignoreUndef => OK, text:
-"&x;"`.
+| Option                    | Pinned to             | What goes wrong if changed                                                                     | Risk class                      |
+| ------------------------- | --------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------- |
+| `ignoreUndefinedEntities` | `false` (its default) | a malformed feed is accepted as valid content instead of raising drift                         | **correctness / drift**         |
+| `resolveUndefinedEntity`  | never supplied        | a caller-written resolver is the route by which substitution — or caller-authored XXE — enters | **security**, caller-introduced |
 
-It is also the reason the two options are pinned for _different_ reasons, which a single comment
-would blur:
+**An earlier revision of this document specified three test assertions here. They have been
+removed, because they were not falsifiable — and that is a finding, not a tidy-up.** Mutation
+testing against seven wrapper variants showed:
 
-| Option                    | Pinned to             | What goes wrong if changed                                                                                         | Risk class                       |
-| ------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------ | -------------------------------- |
-| `ignoreUndefinedEntities` | `false` (its default) | a malformed feed is accepted as valid content instead of raising drift                                             | **correctness / drift**, not XXE |
-| `resolveUndefinedEntity`  | never supplied        | a caller-written resolver is the only route by which entity substitution — or, if it read files, XXE — could enter | **security**, caller-introduced  |
+- a wrapper whose `parseDocument` **always throws** passes all three;
+- the XXE assertion is **masked by this document's own `<!DOCTYPE` pre-reject** — the pre-reject
+  fires before the parser runs, so an _expanding_ parser behind it passes too, and the assertion
+  cannot detect the capability regression it exists for;
+- the third assertion inspected a **local variable** rather than the options actually handed to
+  `parseXml`, so a resolver injected at the call site, or a narrow HTML-entity resolver added later
+  to "fix" `&nbsp;` in feeds, leaves it green.
 
-**Both must be guarded by a test that can fail, not by a comment.** A comment cannot fail. Three
-assertions, run against the `XmlPort` seam so they survive a parser swap:
-
-```ts
-// 1. drift is raised, not suppressed — fails if ignoreUndefinedEntities is ever flipped true
-expect(() => xmlPort.parseDocument(feedWithUndefinedEntity, limits)).toThrow()
-
-// 2. the XXE document is still refused
-expect(() => xmlPort.parseDocument(xxeDocument, limits)).toThrow()
-
-// 3. the options object the adapter actually passes carries neither weakening setting
-expect(adapterOptions.ignoreUndefinedEntities).toBe(false)
-expect(adapterOptions.resolveUndefinedEntity).toBeUndefined()
-```
-
-Assertion 3 matters because 1 and 2 could both be satisfied by accident; it pins the surface
-itself. And because a resolver is caller-supplied, the review gate is simple and greppable: **a
-`resolveUndefinedEntity` appearing anywhere in the diff is a `BLOCK`.**
-
-**If the fallback adapter is ever activated**, FXP's hardened configuration is:
-
-```ts
-new XMLParser({
-  processEntities: false, // default is TRUE — this flip is mandatory, not cosmetic
-  htmlEntities: false,
-  ignoreAttributes: false, // needed for guid isPermaLink / Atom link rel
-  maxNestedTags: 40, // default 100; tighten to feed-realistic depth
-  // suppressValidationErr must NEVER be set: it bypasses the
-  // "External entities are not supported" guard in DocTypeReader.
-})
-```
-
-plus a **mandatory** `XMLValidator.validate()` pass before `parse()`, because without it a
-truncated feed parses silently (measured). Verified: `processEntities: { enabled: false }` leaves
-`&lol9;` literal, and `maxNestedTags: 5` throws on a depth-7 document.
+So the checks intended to close MASTER-M-1 — a finding about a claim whose true and false states
+looked identical — were themselves checks whose passing and absence looked identical. **A document
+cannot carry a falsifiable assertion.** The replacement must be test code against a real
+`XmlPort`, which cannot exist until Task 2.4 builds one, so the contract is specified there and
+listed below.
 
 ---
 
-## Bounds the wrapper must enforce before the parser sees the bytes
+## Open requirements carried into Task 2.4 (not settled here)
 
-All five are enforced by **us**, ahead of the call. The reason is uniform and not stylistic:
-`parseXml` is a **synchronous, whole-document** function with no size, depth, count or time
-option in its entire option surface. A synchronous parse cannot be interrupted once begun — no
-`AbortSignal` or timer can preempt it, because it occupies the event loop — so every bound has to
-be a precondition. That is also why these cannot be "left to the library": the library has no
-such options to leave them to.
+> **Assumption (A1, recorded per `autonomy-levels.md`).** This review was narrowed by the
+> orchestrator to **the decision plus its corrections**. The wrapper contract — assertions and
+> bound values — moves into Task 2.4 as acceptance criteria. Rationale: every item below was
+> falsified or re-measured by a reviewer, and each fix is _test code or implementation measured
+> against a real wrapper_, not prose. Keeping them here would produce a document asserting a
+> contract that nothing enforces. **Nothing below is settled; it is a requirement list.**
 
-| Bound                 | Value                                                          | Why it cannot be left to the library                                                                                                                                                                                                                                                                                                                                                 |
-| --------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Input size**        | reject > **8 MiB** before decoding                             | No size option exists. Measured: 58.8 MB parses in 1 655 ms holding 257 MB RSS. Since the parse is synchronous, the byte cap **is** the wall-clock bound — it is the only lever that bounds time at all. 8 MiB keeps a worst case in the low hundreds of ms; real feeds are ~200 KiB (`rss.ts` documents DOU's as such).                                                             |
-| **Nesting depth**     | reject > **40** by a cheap pre-scan                            | The library's only limit is the **V8 call stack**, and that is not a contract: measured cliff **5 126** at default stack but **28 422** under `--stack-size=4000`. A bound that moves with an unrelated runtime flag cannot be relied on. Feeds are depth ~5.                                                                                                                        |
-| **Element count**     | reject > **5 000** by the same pre-scan                        | No count option. Bounds tree-building memory independently of byte size (many tiny elements are cheap in bytes, costly in nodes).                                                                                                                                                                                                                                                    |
-| **Wall clock**        | deadline checked **around** the call, byte cap enforced before | Cannot be enforced _during_ a synchronous parse at all. The deadline covers fetch + decode + parse as a unit and is a liveness check for the run, not a parser interrupt.                                                                                                                                                                                                            |
-| **Declared encoding** | transcode bytes → string **before** parsing                    | The parser accepts a string, so encoding is already decided by the time it is called. Measured: every candidate produced mojibake on `encoding="windows-1251"`. Read the declaration from the first bytes, then `new TextDecoder(label).decode(bytes)` (Node 22 built-in, verified: returns `Программист`). Default UTF-8; refuse labels `TextDecoder` rejects rather than guessing. |
+### R-1 (from SR-H-1) — falsifiable assertions against a real `XmlPort`
 
-Defence in depth, cheap and worth it: **reject any document containing a `<!DOCTYPE`** before
-parsing. Feeds have no legitimate need for one, and it makes the guarantee independent of the
-parser's internals — so a future swap to a parser that _does_ read DTDs cannot silently reopen
-the hole.
+Required, each of which can fail:
+
+- **a positive control** — the same feed with `&amp;` parses to the expected value, so a
+  blanket-throwing wrapper cannot pass;
+- **assert the error type and message**, not merely that something threw;
+- **test the parser layer with the `<!DOCTYPE` pre-reject bypassed**, using an **internal**-entity
+  document (`<!ENTITY a "AAA">`, where `&a;` must not yield `AAA`), so expanding and non-expanding
+  parsers give different results;
+- **pin the real call site** — mock `@rgrove/parse-xml` and assert on the options object actually
+  passed (`ignoreUndefinedEntities` false or absent, `resolveUndefinedEntity` undefined, and no
+  unexpected keys), rather than on a local variable.
+
+### R-2 (from SR-M-2) — the bounds, re-derived against the real wrapper
+
+The causal claims in the removed bounds table were **false as measured**, and the corrected
+measurements are the input to this work, not a settled answer:
+
+| Shape at 8 MiB             | Measured                   |
+| -------------------------- | -------------------------- |
+| `<i/>` elements            | **3 199 ms, 1 221 MB RSS** |
+| `<i a="1"/>`               | 1 494 ms, 670 MB           |
+| processing instructions    | 919 ms                     |
+| `&amp;` runs               | 545 ms                     |
+| element-dense at **2 MiB** | 669 ms, 429 MB             |
+
+What this overturns: the claim that 8 MiB "keeps a worst case in the low hundreds of ms" is wrong
+by an order of magnitude, and **bytes are not "the only lever"** — the _element count_ is the real
+bound on both time and memory, and **memory, not time, is the container OOM risk**. The parse is
+synchronous in the API process, so each hit stalls the event loop that also serves the CRM.
+
+Required decisions in 2.4:
+
+- **Align with the existing `MAX_FEED_BYTES` (2 MiB) or justify departing from it.** The proposed
+  8 MiB was 4× it with no stated reason. My own growth measurement independently supports 2 MiB:
+  the worst shape grows with exponent ≈1.36, which extrapolates from 194 ms at 625 KB to roughly
+  **6 s at 8 MiB but ~1 s at 2 MiB**.
+- **A real wall-clock bound, or an explicit decision not to have one.** "A deadline checked around
+  the call" bounds nothing — it is evaluated after the parse has already returned. A genuine bound
+  needs `worker_threads` with `terminate()` on a timer, or a byte cap small enough to make time
+  moot. (Or `sax`, the streaming runner-up, which can check a deadline inside its handlers.)
+- **Specify and test the pre-scan**, or drop it. Count and depth were to be enforced by an
+  unspecified "cheap pre-scan" of attacker-controlled input; any disagreement between that scan
+  and the real parser (`<` / `>` inside attributes, comments, CDATA, PIs) is a
+  **parser-differential** surface. Note that depth and count can be checked **exactly after**
+  parsing — parse-xml throws cleanly at its stack limit — so **only bytes and memory genuinely
+  need to be preconditions**.
+
+**The depth reasoning survives and is strengthened; the specific figures do not.** Two machines
+disagree: this review measured the cliff at **5 126** default / **28 422** under
+`--stack-size=4000`; the reviewer measured **5 419** / **24 999**, **4 686** when called 1 000
+frames deep (as it would be inside Nest), and found `--stack-size=20000` **segfaults (SIGSEGV)
+rather than throwing**. That two machines cannot agree is precisely the argument for setting the
+bound ourselves rather than inheriting the stack's.
+
+### R-3 (from SR-M-3) — DOCTYPE check and decoding, ordering made explicit
+
+- The `<!DOCTYPE` pre-reject must run **on the decoded string, not on the bytes**: a byte-level
+  match is **bypassed by any UTF-16 feed** (`<\0!\0D…` does not match; it matches after
+  `TextDecoder('utf-16le')`). Measured by the reviewer.
+- `new TextDecoder(label)` is **non-fatal by default**: invalid UTF-8 (`61 FF 62`) decodes silently
+  to `a<22>b`, which contradicts "malformed = drift". Specify `{ fatal: true }`.
+
+### R-4 (from SR-M-4 / SPEC-M-1) — the fallback is a candidate-of-record, not a drop-in
+
+**Stated plainly, because the earlier claim was false.** `fast-xml-parser` parsing
+`<title>A &nbsp; B</title>` returns the literal `A &nbsp; B` **with no throw under every
+configuration this document lists**, and `XMLValidator.validate()` returns **`true`**. Confirmed
+in this review's own re-run, independently by two reviewers.
+
+Consequences, replacing "no adapter changes, no test changes" and "a configuration change plus the
+validator pass":
+
+- The fallback **fails the drift requirement** as configured, and the corpus is **not** a shared
+  conformance suite as written — the two parsers already diverge on billion laughs (parse-xml
+  throws; FXP returns `&lol9;` unexpanded).
+- Adopting it would additionally require **a custom undefined-entity scan** plus a re-pin to the
+  then-current patched version (12 advisories, ~7 of them entity/DOCTYPE class).
+- So it is a **candidate-of-record with measured behaviour**, not a drop-in. The seam still has two
+  implementations, so it is not hypothetical — but the swap has a cost, and that cost is now named
+  rather than assumed away.
+
+### R-5 — ReDoS and quadratic growth: measured here, to be re-confirmed against the wrapper
+
+This class **dominates the real advisory record** (xmldom's 2026 batch: quadratic parse, quadratic
+memory, attribute dedup, PI-grammar ReDoS) and the original corpus never ran it. Measured now, on
+parse-xml 5.0.0, warmed, best-of-3, across an 8× size range:
+
+| Shape                                    | Growth exponent     | Worst absolute   |
+| ---------------------------------------- | ------------------- | ---------------- |
+| many distinct attributes                 | **0.98**            | 73 ms at 848 KB  |
+| repeated identical attribute names       | 1.14                | 0.2 ms at 468 KB |
+| many sibling elements                    | 1.26                | 128 ms at 625 KB |
+| long adjacent text runs                  | 1.01                | 2 ms at 312 KB   |
+| late mismatched close tag                | **1.36**            | 194 ms at 625 KB |
+| unterminated PI / comment / CDATA / attr | rejects immediately | sub-millisecond  |
+
+**No catastrophic backtracking and no quadratic blowup**: every exponent is ≈1, the worst 1.36,
+which is node-allocation and GC cost rather than backtracking. parse-xml **rejects every
+unterminated construct in sub-millisecond time** — the shape behind xmldom's PI ReDoS advisory.
+
+Two honest limits: a 1.36 exponent is **mildly superlinear**, which is exactly why the byte cap is
+load-bearing (see R-2); and **this is a probe, not a proof** — it is ten shapes, not a fuzzer.
+2.4 should commit these shapes to the corpus and add xmldom's advisory batch as a fuzz list.
 
 ---
 
@@ -564,12 +659,26 @@ namespace gap identified above gets paid off once instead of 25 times.
 ### The replacement story
 
 An advisory lands against the chosen parser. Then: implement `XmlPort` over the replacement, run
-the committed adversarial corpus against it, swap the binding in the module provider. **No adapter
-changes, no test changes** — because no adapter ever saw the parser's name or its node type, and
-every test asserts against `XmlPort`. The fallback path is already measured, so the realistic
-worst case is a configuration change plus the FXP validator pass, not a redesign. Commit the
-corpus from this review as that conformance suite; it is the artifact that makes replacement cheap
-and the reason this recommendation meets the bar.
+the committed corpus against it, swap the binding in the module provider. **No adapter changes** —
+no adapter ever sees the parser's name or its node type, and that is the property the seam exists
+to provide.
+
+**Corrected, because the earlier version of this paragraph was false.** It claimed "no test
+changes" and a worst case of "a configuration change plus the FXP validator pass". Neither holds:
+
+- `fast-xml-parser` **accepts an undefined entity under every configuration listed here**, with
+  `XMLValidator.validate()` returning `true`, so it fails the drift requirement and needs
+  **additional undefined-entity detection code** (R-4).
+- The corpus is therefore **not yet a shared conformance suite** — the two parsers diverge on
+  billion laughs and on undefined entities. Making it shared is work in 2.4, not a fact today.
+- Any port-level tests that encode parser-specific error **messages** will need adjusting; only
+  tests asserting _behaviour_ (throws / returns, with a positive control) survive a swap
+  unchanged. That is a constraint on how R-1's assertions are written.
+
+So the honest claim is narrower and still worth the seam: **replacement costs a new adapter plus
+its conformance work, and zero adapter churn across ~25 call sites.** The alternative shapes (A and
+B) cost that _plus_ touching every adapter. Commit this review's corpus — including the R-5 shapes
+— as the starting point for that suite.
 
 ---
 
@@ -606,15 +715,25 @@ known, priced in above, and are wrapper work by design.
   and output in "Candidates and why each survived or fell"). `@rgrove/parse-xml` → `[]`;
   `fast-xml-parser` → 12 distinct GHSAs. No residual gap for npm-ecosystem advisories; a CVE with
   no GHSA record would still be missed, which is a limitation of the database, not of this query.
-- **`sax`'s `BlueOak-1.0.0`** is permissive and OSI-approved, but it is an uncommon licence and
-  has not been reviewed by counsel for this project. Irrelevant to the verdict (sax is rejected on
-  technical grounds), but worth knowing before adopting it elsewhere.
+- **`sax`'s `BlueOak-1.0.0`** is permissive and OSI-approved, but it is an uncommon licence and has
+  not been reviewed by counsel for this project. It now matters more than when first written,
+  because `sax` is the runner-up rather than a dismissal — read it before adopting `sax`.
 - **Real-world feed fixtures were not used.** The corpus is synthetic and adversarial by design.
   Task 2.4 separately requires authentic DOU/Djinni/WWR/EU fixtures; this review does not
   substitute for that, and a real feed could surface namespace shapes the wrapper must handle.
-- **Streaming was not evaluated.** Both finalists are whole-document parsers. If a source ever
-  needs genuinely unbounded feeds, that is a new decision, not a tweak — and the 8 MiB cap is the
-  line at which it would be triggered.
+- **The depth and element bounds were derived from DOU alone** ("feeds are depth ~5"), yet the seam
+  must also serve **Personio** and ~25 other boards whose real shapes are unmeasured. The numbers
+  are starting points for R-2, not validated limits.
+- **Only two of ten candidates were run on the corpus.** `sax`, `@xmldom/xmldom`, `saxes`,
+  `xml2js` and `htmlparser2` were rejected on licence, maintenance or design grounds without
+  adversarial runs — defensible for the rejected, but it means the comparison table's security
+  column is measured for the finalists and argued for the rest. `sax` was additionally probed on
+  truncation and undefined entities after review, which is what reclassified it.
+- **Streaming was only partly evaluated.** Both finalists are whole-document parsers; `sax` is
+  streaming and was measured on the R-5 shapes, but not on a genuinely unbounded feed. Streaming
+  is the escape hatch if a true mid-parse wall-clock bound is ever required (R-2).
+- **R-5 is a probe, not a proof.** Ten shapes across an 8× range is not fuzzing, and the real
+  advisory record for this class is dominated by shapes nobody enumerated in advance.
 
 ## Sources
 
