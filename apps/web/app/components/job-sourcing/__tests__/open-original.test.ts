@@ -1,4 +1,11 @@
-import { EXTERNAL_URL_CORPUS, expectedExternalUrlVerdict } from '@crm/shared'
+// The corpus is TEST DATA shared with `packages/shared`'s spec, so it is NOT
+// part of `@crm/shared`'s public API and is imported by path. See that file's
+// header for why it lives outside `src/` (the mutation gate mutates
+// `src/**/*.ts`, and a data table is unpinnable by construction).
+import {
+  EXTERNAL_URL_CORPUS,
+  expectedExternalUrlVerdict,
+} from '../../../../../../packages/shared/test-helpers/external-url-corpus'
 import { describe, expect, it, vi } from 'vitest'
 import { isSafeExternalUrl, openOriginalPosting } from '../open-original'
 
@@ -326,5 +333,36 @@ describe('the shared URL corpus, through isSafeExternalUrl', () => {
   it.each(EXTERNAL_URL_CORPUS.map((row) => [row.name, row] as const))('%s', (_name, row) => {
     const expected = expectedExternalUrlVerdict(row, 'web')
     expect(isSafeExternalUrl(row.url)).toBe(expected === 'accept')
+  })
+
+  /**
+   * SR-M-2 as a PROPERTY of every accepted row, not of four hand-picked inputs.
+   * The named test above pins the specific skew that shipped; this pins the
+   * invariant — whatever the corpus accepts, the string that reaches `open` is
+   * the validated one, and is itself a string this guard accepts. Asserted on
+   * `open.mock.calls`, because a `true` return cannot reveal WHICH string went.
+   */
+  it.each(
+    EXTERNAL_URL_CORPUS.filter((row) => expectedExternalUrlVerdict(row, 'web') === 'accept').map(
+      (row) => [row.name, row] as const,
+    ),
+  )('opens the validated string, not the argument: %s', (_name, row) => {
+    const open = vi.fn()
+    expect(openOriginalPosting(row.url, open)).toBe(true)
+    expect(open).toHaveBeenCalledWith(row.url.trim(), '_blank', 'noopener,noreferrer')
+    expect(isSafeExternalUrl(open.mock.calls[0]?.[0] as string)).toBe(true)
+  })
+
+  it('never calls open for a refused row', () => {
+    const refused = EXTERNAL_URL_CORPUS.filter(
+      (row) => expectedExternalUrlVerdict(row, 'web') === 'refuse',
+    )
+    // Guards the guard: an empty list would make the loop below vacuous.
+    expect(refused.length).toBeGreaterThan(0)
+    for (const row of refused) {
+      const open = vi.fn()
+      expect(openOriginalPosting(row.url, open)).toBe(false)
+      expect(open).not.toHaveBeenCalled()
+    }
   })
 })

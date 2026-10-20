@@ -1,4 +1,30 @@
 /**
+ * WHY THIS FILE IS HERE AND NOT IN `src/`
+ * ---------------------------------------
+ * It is TEST DATA, and it must be the SAME test data for two packages — the
+ * shared schema's spec and the web guard's test — because a corpus per package
+ * defeats the entire purpose of a corpus.
+ *
+ * It lived at `src/schemas/job-sourcing-url-corpus.ts`, exported from
+ * `schemas/index.ts`, which was wrong twice over:
+ *   * it shipped a fixture in the PUBLIC API of `@crm/shared`, to every consumer
+ *     of the package;
+ *   * the mutation gate mutates `packages/shared/src/**\/*.ts` and excludes only
+ *     `*.spec.ts` / `*.test.ts`, so a 239-line table landed in the gate as if it
+ *     were logic — and a data table is UNPINNABLE under mutation by
+ *     construction: mutate an input and the test faithfully checks the mutated
+ *     input; mutate an expected verdict and the test faithfully expects the
+ *     mutated verdict. Either way it passes. 149 mutants survived, and the gate
+ *     was right: there is no behaviour in a table to pin.
+ *
+ * `test-helpers/` is outside the gate's globs and outside `tsconfig.json`'s
+ * `include`, so it is neither mutated nor published. Nothing about the gate's
+ * configuration was changed to accommodate it.
+ *
+ * The BEHAVIOUR is pinned by the hand-written named tests next to each guard
+ * (the credential cases, the anchor cases, the refusal message, the trimmed-open
+ * cases). This corpus is breadth on top of those, not a replacement for them.
+ *
  * ONE corpus of URLs, run through all THREE guards that implement the
  * `https:`-only, host-required, no-credentials predicate:
  *

@@ -94,13 +94,45 @@ export function isSafeExternalUrl(url: string | null | undefined): boolean {
   const candidate = url.trim()
   if (!/^https:\/\/[^\s/?#@]+([/?#]\S*)?$/i.test(candidate)) return false
   try {
-    const parsed = new URL(candidate)
-    return (
-      parsed.protocol === 'https:' &&
-      parsed.username === '' &&
-      parsed.password === '' &&
-      parsed.host !== ''
-    )
+    // ONLY THE THROW IS LOAD-BEARING IN LAYER 2, and that is deliberate.
+    //
+    // This used to be `new URL(candidate)` followed by a conjunction asserting
+    // `protocol === 'https:'`, `username === ''`, `password === ''` and
+    // `host !== ''`. All four were REDUNDANT BEHIND THE REGEX, and the mutation
+    // gate said so: 16 survivors, because no input can distinguish them.
+    // Measured over 29 adversarial inputs (14 of which reach this line — IDN,
+    // IPv6, `%2F@`, `\@`, a trailing dot, an empty port, `https://@host/`):
+    // not one makes any of the four false. The structural reason, per operand:
+    //   * `protocol` — the regex pins a literal `https://` at position 0, so a
+    //     parse of that string cannot yield another scheme;
+    //   * `username` / `password` — userinfo exists only before an `@` in the
+    //     authority, and the regex's authority class excludes `@`;
+    //   * `host` — https is a special scheme, so an empty host is a PARSE
+    //     FAILURE, which means it leaves by the `catch` below and never reaches
+    //     a return value to check.
+    // They are deleted rather than suppressed: a suppression would have had to
+    // cover this whole expression, hiding the operands that DO carry the
+    // security property along with the four that carry nothing.
+    //
+    // What remains here is the one thing the regex cannot see — whether the
+    // string PARSES as a URL at all. That is not redundancy: `https://:443/a`,
+    // port `:99999`, `%40` in a host and a C0 control in a host all satisfy the
+    // regex's authority class and all throw (SR-M-2, measured), and each has a
+    // named test. Symmetrically, the regex is the only layer refusing a
+    // smuggled scheme and internal whitespace, which `new URL` accepts or
+    // strips. Neither layer masks the other any more, which is why both are
+    // now mutation-killable.
+    //
+    // ORDER: regex first, and the verdict does not depend on it — the two are a
+    // conjunction of independent predicates with no shared operand, so either
+    // order accepts and refuses exactly the same strings. The regex goes first
+    // because it is the MIRROR, the shape shared with `externalHttpsUrlSchema`
+    // and the column CHECK, so a reader meets the mirrored check first and
+    // `new URL` reads as the supplement it is. Do NOT reintroduce assertions on
+    // the parsed object to "harden" this: that is precisely what un-pins both
+    // layers.
+    new URL(candidate)
+    return true
   } catch {
     // `new URL` throws on an unparseable URL, and this is the one place that
     // throw is harmless. Letting it escape would blow up the click handler.
