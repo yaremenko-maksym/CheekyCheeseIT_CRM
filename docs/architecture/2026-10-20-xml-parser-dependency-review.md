@@ -560,9 +560,31 @@ validator pass":
   throws; FXP returns `&lol9;` unexpanded).
 - Adopting it would additionally require **a custom undefined-entity scan** plus a re-pin to the
   then-current patched version (12 advisories, ~7 of them entity/DOCTYPE class).
-- So it is a **candidate-of-record with measured behaviour**, not a drop-in. The seam still has two
-  implementations, so it is not hypothetical — but the swap has a cost, and that cost is now named
-  rather than assumed away.
+- So it is a **candidate-of-record with measured behaviour**, not a drop-in.
+
+**The consequence for the seam, which is the part not to miss.** `codebase-design`'s own test is
+"one adapter — the seam is hypothetical; two — it is real". An earlier revision claimed this
+review had produced the second adapter and therefore a real seam. **It had not.** Only
+`@rgrove/parse-xml` can satisfy the drift contract as specified; `fast-xml-parser` cannot, under
+any configuration listed. On that test the seam is currently **hypothetical — one working adapter
+plus a candidate** — and the "replaceable without touching 25 adapters" property is **designed
+for but not yet demonstrated**.
+
+This is a real open question for 2.4, not a caveat to file away. Three ways to close it, in
+descending preference:
+
+1. **Make `fast-xml-parser` genuinely conformant** — add the undefined-entity scan (R-4) and run it
+   against the shared corpus. Then there are two adapters and the seam is demonstrated.
+2. **Use `sax` as the second adapter instead.** It already throws on both truncation and undefined
+   entities (measured above), so it may satisfy the contract with less bridging than FXP — at the
+   cost of building the tree. This is a further reason the runner-up matters.
+3. **Accept a one-adapter seam deliberately**, on the ground that an in-memory fake implementing
+   `XmlPort` for tests is itself a second implementation — a weaker but legitimate reading of the
+   two-adapter rule.
+
+Whichever is chosen, it should be chosen **knowingly**, because the seam is the entire justification
+for the two-layer design, and a seam that has never been crossed is a hypothesis about the future
+rather than a property of the code.
 
 ### R-5 — ReDoS and quadratic growth: measured here, to be re-confirmed against the wrapper
 
