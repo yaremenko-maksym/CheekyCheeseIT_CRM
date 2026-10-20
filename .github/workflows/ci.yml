@@ -376,6 +376,16 @@ jobs:
         if: steps.scope.outputs.code == 'true'
         run: python3 scripts/devops/check-ssh-action-script-size.py
 
+      # Trust-anchor guard (task-hostkey-rollout, 2026-10-20): without `fingerprint:`
+      # appleboy/ssh-action and scp-action silently fall back to InsecureIgnoreHostKey —
+      # the deploy is green and the VPS identity is never checked, so a step that forgets
+      # the input is indistinguishable from one that has it. Fails on a pin-capable step
+      # without the literal, on a non-literal value, on an input added where the action
+      # ignores it, and on any unclassified action version. See the script's header.
+      - name: ssh/scp host-key pinning guard
+        if: steps.scope.outputs.code == 'true'
+        run: python3 scripts/devops/check-ssh-action-host-key-pinned.py
+
       # Guard tests (run-guard-tests.sh) moved to the parallel `guard_tests` job
       # and the ci-failed labelling moved to the `quality` aggregator below
       # (audit #5/#6, 2026-10): this job is now only the "core" leg.

@@ -38,6 +38,8 @@ jobs:
           INPUT_CONFIRM: ${{ inputs.confirm }}
         with:
           host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           envs: INPUT_MODE,INPUT_CONFIRM
