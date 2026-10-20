@@ -183,6 +183,78 @@ describe('buildSourceObservation: location original', () => {
   })
 })
 
+describe('buildSourceObservation: displayTruncated means a length limit cut the value', () => {
+  const BIDI = '‎‮⁧'
+  const evidenceFor = (o: ReturnType<typeof ok>, field: string) =>
+    o.evidence.filter((e) => e.field === field && e.kind === 'DISPLAY_TRUNCATED')
+
+  it.each([
+    ['title', 500],
+    ['companyName', 255],
+    ['location', 500],
+  ] as const)(
+    '%s: bidi marks under the limit are stripped for safety, not truncation: flag false, no evidence',
+    (field, limit) => {
+      // Exactly `limit` visible characters plus bidi marks: the stripped value fits whole.
+      const value = `${BIDI}${'x'.repeat(limit)}${BIDI}`
+      const o = ok({ [field]: value })
+      expect(o.originalFields[field]?.displayTruncated).toBe(false)
+      expect(evidenceFor(o, field)).toEqual([])
+    },
+  )
+
+  it('a bidi-only location is stripped to nothing: not truncated, no evidence', () => {
+    const o = ok({ location: '‎‏' })
+    expect(o.originalFields.location?.displayTruncated).toBe(false)
+    expect(evidenceFor(o, 'location')).toEqual([])
+  })
+
+  it.each([
+    ['title', 500],
+    ['companyName', 255],
+    ['location', 500],
+  ] as const)('%s: genuinely over the limit is flagged with evidence', (field, limit) => {
+    const o = ok({ [field]: 'x'.repeat(limit + 1) })
+    expect(o.originalFields[field]?.displayTruncated).toBe(true)
+    expect(evidenceFor(o, field)).toEqual([
+      { field, kind: 'DISPLAY_TRUNCATED', detail: 'exceeds display limit' },
+    ])
+  })
+
+  it.each([
+    ['title', 500],
+    ['companyName', 255],
+    ['location', 500],
+  ] as const)(
+    '%s: bidi marks AND over the limit stays flagged (stripping must not mask a real cut)',
+    (field, limit) => {
+      const o = ok({ [field]: `${BIDI}${'x'.repeat(limit + 1)}${BIDI}` })
+      expect(o.originalFields[field]?.displayTruncated).toBe(true)
+      expect(evidenceFor(o, field)).toHaveLength(1)
+    },
+  )
+
+  it('a tag with a NUL that is exactly 200 characters afterwards is not retention-truncated', () => {
+    const o = ok({ tags: [`${'t'.repeat(100)}\u0000${'t'.repeat(100)}\u0000`] })
+    // 201 characters raw: 200 after the NUL is stripped, which is within the cap.
+    expect(o.originalFields.tags.truncated).toBe(false)
+    expect(o.originalFields.tags.values[0]).toHaveLength(200)
+  })
+
+  it('a tag over 200 characters after NUL stripping is retention-truncated', () => {
+    const o = ok({ tags: [`${'t'.repeat(201)}\u0000`] })
+    expect(o.originalFields.tags.truncated).toBe(true)
+    expect(o.originalFields.tags.values[0]).toHaveLength(200)
+  })
+
+  it('a tag over 200 raw but 200 after NULs, alongside real NULs, is not truncated; a 201 + NUL one is', () => {
+    const fits = ok({ tags: ['a\u0000'.repeat(100) + 'b'.repeat(100) + '\u0000'] })
+    expect(fits.originalFields.tags.truncated).toBe(false)
+    const cut = ok({ tags: ['a\u0000'.repeat(100) + 'b'.repeat(101)] })
+    expect(cut.originalFields.tags.truncated).toBe(true)
+  })
+})
+
 describe('buildSourceObservation: originals, NUL and whitespace', () => {
   it('strips every NUL, counts the original with them, and flags nothing for a short field', () => {
     const t = ok({ title: 'a\u0000b\u0000c' }).originalFields.title

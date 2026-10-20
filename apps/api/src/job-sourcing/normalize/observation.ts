@@ -137,9 +137,13 @@ function noNul(value: string): string {
   return value.replace(/\u0000/g, '')
 }
 
-/** Display truncation for a single-line field: the display value is shorter than the trimmed original. */
-function shorterThanOriginal(displayLength: number) {
-  return (text: string) => displayLength < text.trim().length
+/**
+ * Display truncation for a single-line field: a length limit cut the value. Measured on the
+ * post-strip, pre-cap text (the display pipeline's own `cleanLine`, uncapped), so characters removed
+ * for safety (NUL, bidi marks) and trimmed whitespace never count as a cut.
+ */
+function cutAtDisplayLimit(displayLength: number) {
+  return (text: string) => cleanLine(text, Infinity).length > displayLength
 }
 
 function boundedText(
@@ -245,19 +249,19 @@ export function buildSourceObservation(
   const title = boundedText(
     raw.title,
     ORIGINAL_LIMITS.title,
-    shorterThanOriginal(posting.title.length),
+    cutAtDisplayLimit(posting.title.length),
   )
   const companyName = boundedText(
     raw.companyName,
     ORIGINAL_LIMITS.companyName,
-    shorterThanOriginal(posting.companyName.length),
+    cutAtDisplayLimit(posting.companyName.length),
   )
   const location =
     typeof raw.location === 'string' && raw.location.trim().length > 0
       ? boundedText(
           raw.location,
           ORIGINAL_LIMITS.location,
-          shorterThanOriginal(posting.location?.length ?? 0),
+          cutAtDisplayLimit(posting.location?.length ?? 0),
         )
       : null
   const description = {
@@ -275,8 +279,10 @@ export function buildSourceObservation(
       .slice(0, ORIGINAL_LIMITS.tags)
       .map((t) => safeSlice(noNul(t), ORIGINAL_LIMITS.tag)),
     originalCount: rawTags.length,
+    // A tag's length is measured after NUL stripping, as `values` are, so only a real cut counts.
     truncated:
-      rawTags.length > ORIGINAL_LIMITS.tags || rawTags.some((t) => t.length > ORIGINAL_LIMITS.tag),
+      rawTags.length > ORIGINAL_LIMITS.tags ||
+      rawTags.some((t) => noNul(t).length > ORIGINAL_LIMITS.tag),
     displayTruncated:
       rawTags.length > DISPLAY_TAGS ||
       rawTags.some((t) => cleanLine(t, Infinity).length > DISPLAY_TAG_CHARS),
