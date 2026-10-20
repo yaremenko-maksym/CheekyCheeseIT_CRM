@@ -70,9 +70,16 @@ function urlComponents(url: URL, identityParams: readonly string[]) {
     if (wanted.has(name)) pairs.push([name, value])
   }
   // Repeated params are kept; sorted so `id=2&id=1` and `id=1&id=2` are one identity.
-  pairs.sort((a, b) =>
-    a[0] === b[0] ? (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0) : a[0] < b[0] ? -1 : 1,
-  )
+  // Order: name, then value, both by UTF-16 code unit. A tie means two IDENTICAL pairs, so which of
+  // them goes first is unobservable and the comparator need not (and does not) return 0 for it.
+  pairs.sort((a, b) => {
+    if (a[0] !== b[0]) {
+      // Stryker disable next-line EqualityOperator: this line is reached only when the names differ, so `<` and `<=` never disagree here. The `>=` sibling this also hides is killed by hand: reversing the comparator fails "orders pairs by name ascending" in identity-url-fallback.spec.ts
+      return a[0] < b[0] ? -1 : 1
+    }
+    // Stryker disable next-line EqualityOperator: `<=` differs from `<` only on equal values, i.e. identical pairs, whose relative order cannot be seen in the output. Proof: node -e "const o=(x,y)=>x<y?-1:1,m=(x,y)=>x<=y?-1:1,u=['1','10','2'];let bad=0;const r=(s)=>{if(JSON.stringify([...s].sort(o))!==JSON.stringify([...s].sort(m)))bad++;if(s.length<7)for(const v of u)r([...s,v])};r([]);console.log('differing sorts:',bad)" prints 'differing sorts: 0'
+    return a[1] < b[1] ? -1 : 1
+  })
   return [url.hostname, url.pathname.replace(/\/+$/, ''), pairs] as const
 }
 
