@@ -11,6 +11,7 @@ import {
   jobQueueStatusSchema,
   jobSignalKindSchema,
   jobQueueListSchema,
+  jobQueueDismissReasonSchema,
   jobQueueQuerySchema,
   jobSourceTypeSchema,
   jobSourceBudgetSchema,
@@ -511,11 +512,16 @@ describe('vacancy-queue contract pins', () => {
     expect(jobQueueQuerySchema.safeParse({ limit: 51 }).success).toBe(false)
   })
 
-  it('dismiss: each reason is accepted, anything else is refused', () => {
-    for (const reason of ['NOT_RELEVANT', 'SPAM', 'DEAD_LINK']) {
+  it('dismiss: the reasons are exactly these three, in this order (R11-M-7)', () => {
+    // The exact set, not just "these are accepted and one invented name is
+    // not": a FOURTH reason used to pass the whole suite, which is the one
+    // change a reason enum actually undergoes.
+    expect([...jobQueueDismissReasonSchema.options]).toEqual(['NOT_RELEVANT', 'SPAM', 'DEAD_LINK'])
+    for (const reason of jobQueueDismissReasonSchema.options) {
       expect(dismissJobQueueItemSchema.parse({ reason }).reason).toBe(reason)
     }
     expect(dismissJobQueueItemSchema.safeParse({ reason: 'BORING' }).success).toBe(false)
+    expect(dismissJobQueueItemSchema.parse({}).reason).toBe('NOT_RELEVANT')
   })
 })
 

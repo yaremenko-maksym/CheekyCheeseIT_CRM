@@ -22,13 +22,32 @@
  *
  * The URL is re-checked here even though the API already validated it: it comes
  * from a third-party feed, and `window.open('javascript:…')` executes in OUR
- * origin. Two independent checks, neither one load-bearing alone.
+ * origin. What this second check buys is POSITION, not independence — it runs at
+ * the call site, on whatever string the component is actually holding, however it
+ * got there. It is deliberately the SAME predicate as the schema's, and an
+ * earlier version of this comment claimed the two were "independent checks,
+ * neither load-bearing alone", which was the misleading part: they fail
+ * identically, so a hole in the shape is a hole in both (R11-H-4 — both accepted
+ * embedded credentials). Mirror them, and change them together.
  */
 
-/** `https:`-only. A relative, `http:`, `data:` or `javascript:` URL is refused. */
+/**
+ * `https:`-only, with a host and no embedded credentials. A relative, `http:`,
+ * `data:` or `javascript:` URL is refused, and so is `https://user:pw@host/a`:
+ * `window.open` on it shows the user a plausible host while opening someone
+ * else's page.
+ *
+ * MIRRORS, by name and deliberately, `externalHttpsUrlSchema` in
+ * `packages/shared/src/schemas/job-sourcing.ts` and `HTTPS_URL_PATTERN` in
+ * `apps/api/src/database/schema/job-opportunities.ts`. The authority — up to the
+ * first `/`, `?` or `#` — must be non-empty and free of `@` and whitespace; a
+ * path, query or fragment may follow and may contain `@`, because
+ * `https://host/a@b` is an ordinary posting URL and `canonicalizePostingUrl`
+ * legitimately produces `https://host/path?kept=params`.
+ */
 export function isSafeExternalUrl(url: string | null | undefined): boolean {
   if (!url) return false
-  return /^https:\/\/\S+$/i.test(url.trim())
+  return /^https:\/\/[^\s/?#@]+([/?#]\S*)?$/i.test(url.trim())
 }
 
 /**
