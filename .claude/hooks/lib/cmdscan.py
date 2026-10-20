@@ -612,6 +612,17 @@ def _split_segments(text):
             i += len(op)
             continue
 
+        # A "#" that starts a WORD begins a comment that runs to the end of the line
+        # (bash and zsh, non-interactive). Without this a line such as `# pnpm dev`
+        # was a segment whose command word was `#`, and the words after it were judged
+        # as a launch - a full refusal for a comment (SR-M-18). The newline itself is
+        # kept, so the next line is still a separate statement. `a#b`, `$#` and
+        # `${#x}` do not start a word with "#" and are untouched.
+        if ch == "#" and (not cur or cur[-1] in " \t"):
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+            continue
+
         cur.append(ch)
         code.append(ch)
         i += 1
@@ -672,6 +683,20 @@ def _unwrap(tokens, assigns):
         if not tokens:
             break
         base = os.path.basename(tokens[0])
+        # `bash scripts/devops/dev-ttl.sh -- pnpm dev` is our own wrapper run THROUGH an
+        # interpreter: the interpreter executes the script file, which then runs the
+        # command after `--`. Unwrapped here the segment was `bash`, never a launch,
+        # so it got no pin at all while the same command without `bash` was refused
+        # (SR-H-15, the 2026-08-05 shape). The interpreter is recorded as a wrapper, so
+        # a caller that models only env and dev-ttl.sh refuses it by name.
+        if base in ("bash", "sh", "zsh", "dash", "ksh") and len(tokens) > 1:
+            j = 1
+            while j < len(tokens) and re.match(r"^-[A-Za-z]+$", tokens[j]) and tokens[j] != "-c":
+                j += 1
+            if j < len(tokens) and os.path.basename(tokens[j]) == "dev-ttl.sh":
+                wrappers.append(base)
+                tokens = tokens[j:]
+                continue
         spec = WRAPPER_SPEC.get(base)
         if spec is None:
             break
@@ -1291,8 +1316,15 @@ PKG_NON_RUN = {
     "licenses", "outdated", "pack", "prune", "rebuild", "root", "setup", "test",
     "build", "lint", "typecheck", "format",
 }
-PKG_VALUE_FLAGS = {"--filter", "-F", "-C", "--dir", "--workspace", "-r"}
-DEV_SCRIPT_RE = re.compile(r"^dev(:[A-Za-z0-9_.-]+)?$")
+# NOT "-r": for pnpm it is --recursive and takes no value, so listing it made the script name
+# after it (`pnpm -r dev`) vanish as its "value" (SR-H-14). `-r` as node --require is
+# NODE_VALUE_FLAGS below, which is a different table on purpose.
+PKG_VALUE_FLAGS = {"--filter", "-F", "-C", "--dir", "--workspace"}
+# Scripts that boot a server. `start` is `node dist/main` for the api and `vite preview`
+# for the web app - both listen on the owner live default ports - and ci.yml, e2e.yml
+# and sw-smoke.spec.ts all boot the api that way, so an agent mirroring CI would otherwise
+# get no pin at all (SR-H-14).
+DEV_SCRIPT_RE = re.compile(r"^(dev|start|preview)(:[A-Za-z0-9_.-]+)?$")
 NODE_VALUE_FLAGS = {
     "-e", "--eval", "-p", "--print", "-r", "--require", "--import",
     "--experimental-loader", "--loader", "--conditions", "--max-old-space-size",
@@ -1339,7 +1371,7 @@ def is_dev_server_launch(seg):
         pos = seg.positionals(PKG_VALUE_FLAGS)
         if not pos:
             return None
-        if pos[0] in ("exec", "dlx", "x", "run-script"):
+        if pos[0] in ("exec", "dlx", "x"):  # NOT run-script: it is an alias of run
             # `pnpm exec vite` — the real command follows.
             inner = pos[1:]
             if inner and os.path.basename(inner[0]) == "vite":
