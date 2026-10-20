@@ -133,12 +133,21 @@ describe.skipIf(!hasDatabaseUrl())(
         // distinguishes "swallowed a refusal" from "never ran" is the row it could not delete and
         // the failure it logged instead of throwing.
         expect(await exists(expired)).toBe(true)
+        // EXACTLY one error call, and it is the HANDLER's own. The pool-level
+        // `db_privilege_denied` line (privilege-denied-reporter.ts) is a second, separate line
+        // in a running app — but it is installed by Nest at `onApplicationBootstrap`, and this
+        // harness builds `DatabaseService` without Nest's lifecycle, so it is correctly absent
+        // here. (It is pinned against a real database in privilege-denied-reporter.integration.)
         expect(logged).toHaveBeenCalledTimes(1)
-        // Only the static message: how the error behind it is formatted is the handler's to
-        // change, and is being changed elsewhere; that it logged and did not throw is the claim.
-        expect(logged.mock.calls[0]?.[0]).toBe(
-          'Document access log retention cron failed — will retry next cycle',
+        // The handler's static message is still exact — an anchored prefix, not "contains" —
+        // followed by the diagnostic fragment, whose state names WHICH refusal was swallowed:
+        // 42501, read through the `.cause` chain. The fragment deliberately omits the driver's
+        // "permission denied" text (the alert matches that text), so none may appear here.
+        const message = String(logged.mock.calls[0]?.[0])
+        expect(message).toMatch(
+          /^Document access log retention cron failed — will retry next cycle db_error db_state=42501 /,
         )
+        expect(message).not.toMatch(/permission denied/i)
       } finally {
         logged.mockRestore()
       }

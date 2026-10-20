@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
+import { dbErrorLogSuffix, safeErrorStack } from '../database/pg-errors'
 import { JobSourcingService } from './job-sourcing.service'
 
 /**
@@ -45,8 +46,8 @@ export class JobSourcingCronService {
       if (purged > 0) this.logger.log(`Job sourcing retention: purged ${purged} stale posting(s)`)
     } catch (err: unknown) {
       this.logger.error(
-        'Job sourcing cron failed — will retry next cycle',
-        err instanceof Error ? err.stack : String(err),
+        `Job sourcing cron failed — will retry next cycle${dbErrorLogSuffix(err)}`,
+        safeErrorStack(err),
       )
       // Do NOT rethrow — see the class doc comment.
     }

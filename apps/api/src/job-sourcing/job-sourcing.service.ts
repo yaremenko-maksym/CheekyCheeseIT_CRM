@@ -34,6 +34,7 @@ import {
 import { HrAccessService } from '../common/hr-access.service'
 import { DEFAULT_JOB_MATCH_THRESHOLD, type Env } from '../config/env'
 import { DatabaseService } from '../database/database.service'
+import { dbErrorLogSuffix, describeDbError, safeErrorStack } from '../database/pg-errors'
 import {
   type JobPosting,
   type JobSource,
@@ -705,7 +706,7 @@ export class JobSourcingService {
       } catch (err: unknown) {
         invalid += 1
         this.logger.warn(
-          `Skipping unstorable posting ${posting.url}: ${err instanceof Error ? err.message : String(err)}`,
+          `Skipping unstorable posting ${posting.url}: ${describeDbError(err) ?? (err instanceof Error ? err.message : String(err))}`,
         )
       }
     }
@@ -1002,8 +1003,8 @@ export class JobSourcingService {
         }
         failures.push({ sourceType: source.type, message, budgetExhausted: false })
         this.logger.error(
-          `Job collection failed for source ${source.type} (${source.id})`,
-          err instanceof Error ? err.stack : String(err),
+          `Job collection failed for source ${source.type} (${source.id})${dbErrorLogSuffix(err)}`,
+          safeErrorStack(err),
         )
       }
     }

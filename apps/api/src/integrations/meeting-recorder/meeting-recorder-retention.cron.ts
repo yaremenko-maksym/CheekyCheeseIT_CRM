@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
+import { dbErrorLogSuffix, safeErrorStack } from '../../database/pg-errors'
 import { lt } from 'drizzle-orm'
 
 import { DatabaseService } from '../../database/database.service'
@@ -25,8 +26,8 @@ export class MeetingRecorderRetentionCronService {
       this.logger.log(`Meeting Recorder receipt retention: deleted ${deleted} row(s)`)
     } catch (error: unknown) {
       this.logger.error(
-        'Meeting Recorder receipt retention cron failed; will retry next cycle',
-        error instanceof Error ? error.stack : String(error),
+        `Meeting Recorder receipt retention cron failed; will retry next cycle${dbErrorLogSuffix(error)}`,
+        safeErrorStack(error),
       )
     }
   }

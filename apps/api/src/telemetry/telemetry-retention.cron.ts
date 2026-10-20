@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
+import { dbErrorLogSuffix, safeErrorStack } from '../database/pg-errors'
 import { asc, inArray, lt, sql } from 'drizzle-orm'
 import { CSP_REPORTS_ROW_CAP } from '../csp-reports/csp-reports.service'
 import { DatabaseService } from '../database/database.service'
@@ -89,8 +90,8 @@ export class TelemetryRetentionCronService {
       )
     } catch (err: unknown) {
       this.logger.error(
-        'Telemetry retention cron failed — will retry next cycle',
-        err instanceof Error ? err.stack : String(err),
+        `Telemetry retention cron failed — will retry next cycle${dbErrorLogSuffix(err)}`,
+        safeErrorStack(err),
       )
       // Do NOT rethrow — an unhandled rejection in a @Cron handler silently
       // terminates the job scheduler (same rationale as VacanciesRetentionCronService).

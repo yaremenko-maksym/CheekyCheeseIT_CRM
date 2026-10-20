@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
+import { dbErrorLogSuffix, safeErrorStack } from '../database/pg-errors'
 import { TransactionsService } from './transactions.service'
 import { previousSalaryMonthKey } from './salary-month.util'
 
@@ -36,8 +37,8 @@ export class SalaryCronService {
       this.logger.log(`Monthly salary transactions done for ${month}`)
     } catch (err: unknown) {
       this.logger.error(
-        `createMonthlySalaries failed for month ${month} — cron will retry next cycle`,
-        err instanceof Error ? err.stack : String(err),
+        `createMonthlySalaries failed for month ${month} — cron will retry next cycle${dbErrorLogSuffix(err)}`,
+        safeErrorStack(err),
       )
       // Do NOT rethrow: an unhandled rejection in a @Cron handler terminates the
       // job silently. The error is already logged above for observability.

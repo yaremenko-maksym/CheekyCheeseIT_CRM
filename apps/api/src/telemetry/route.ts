@@ -6,8 +6,8 @@
  * a query string (`?code=...&state=...` — an OAuth callback, or any future
  * token-in-URL pattern) or a hash fragment; the digest endpoint later hands
  * this value verbatim to `.github/workflows/telemetry-digest.yml`, which
- * posts it into a PUBLIC GitHub issue body. Storing the full query string
- * would leak that data into the issue.
+ * files it into an issue in a PRIVATE repository (PRIVATE_REPO). Storing the full query
+ * string would copy that data into that tracker.
  *
  * ONE helper, reused at every write site (`TelemetryErrorsService`,
  * `TelemetryEventsService`, `TelemetryExceptionFilter`) — no second,

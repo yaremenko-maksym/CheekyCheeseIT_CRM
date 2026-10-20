@@ -49,6 +49,7 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Cron } from '@nestjs/schedule'
+import { dbErrorLogSuffix, safeErrorStack } from '../database/pg-errors'
 import { and, eq, isNotNull, lt } from 'drizzle-orm'
 import type { Env } from '../config/env'
 import { DatabaseService } from '../database/database.service'
@@ -103,8 +104,8 @@ export class VacanciesRetentionCronService {
       )
     } catch (err: unknown) {
       this.logger.error(
-        'Vacancies retention cron failed — will retry next cycle',
-        err instanceof Error ? err.stack : String(err),
+        `Vacancies retention cron failed — will retry next cycle${dbErrorLogSuffix(err)}`,
+        safeErrorStack(err),
       )
       // Do NOT rethrow — an unhandled rejection in a @Cron handler silently
       // terminates the job scheduler (see SalaryCronService for the same rationale).
@@ -127,8 +128,8 @@ export class VacanciesRetentionCronService {
       this.logger.log(`Weekly Google Indexing refresh: notified ${count} PUBLISHED vacancy(ies)`)
     } catch (err: unknown) {
       this.logger.error(
-        'Weekly Google Indexing refresh failed — will retry next cycle',
-        err instanceof Error ? err.stack : String(err),
+        `Weekly Google Indexing refresh failed — will retry next cycle${dbErrorLogSuffix(err)}`,
+        safeErrorStack(err),
       )
       // Do NOT rethrow — same rationale as handleRetention above.
     }
