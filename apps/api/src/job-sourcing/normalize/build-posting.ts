@@ -32,7 +32,7 @@ const MAX_TAG_CHARS = 60
 /** Wire schema (`packages/shared`) caps url/externalId at 2048; longer entries are dropped, not cut. */
 const MAX_URL_CHARS = 2048
 /** Raw description input is cut to this multiple of MAX_DESCRIPTION_CHARS BEFORE any processing. */
-const RAW_DESCRIPTION_HEADROOM = 4
+export const RAW_DESCRIPTION_HEADROOM = 4
 
 /** Bidi overrides/isolates/marks: can visually spoof a title or company in the UI. */
 const BIDI_CHARS = /[\u200E\u200F\u061C\u202A-\u202E\u2066-\u2069]/g
@@ -52,7 +52,7 @@ function safeSlice(value: string, max: number): string {
 }
 
 /** Single-line field: NUL + bidi stripped, trimmed, surrogate-safe capped. */
-function cleanLine(value: unknown, max: number): string {
+export function cleanLine(value: unknown, max: number): string {
   const str = asString(value)
   if (str === null) return ''
   return safeSlice(stripUnstorableChars(str).replace(BIDI_CHARS, '').trim(), max)

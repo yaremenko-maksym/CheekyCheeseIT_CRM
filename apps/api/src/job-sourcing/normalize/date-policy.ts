@@ -50,8 +50,18 @@ function daysInMonth(year: number, month: number): number {
 }
 
 /** Calendar-validated UTC instant for a wall-clock reading at a fixed offset (minutes east). */
+type WallClock = readonly [
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second: number,
+  millis: number,
+]
+
 function buildInstant(
-  [year, month, day, hour, minute, second, millis]: readonly number[],
+  [year, month, day, hour, minute, second, millis]: WallClock,
   offsetMinutes: number,
 ): Parsed {
   if (
@@ -110,7 +120,7 @@ function parseRfc2822(raw: string): Parsed {
   const m = RFC_RE.exec(raw)
   if (!m) return { status: 'INVALID' }
   if (m[7] === undefined) return { status: 'MISSING_ZONE' }
-  const month = MONTHS.indexOf(m[2].toLowerCase()) + 1
+  const month = MONTHS.indexOf((m[2] ?? '').toLowerCase()) + 1
   const offset = zoneOffsetMinutes(m[7])
   // Legacy named zones (EST, PST...) are obsolete in RFC 5322 and ambiguous: rejected, not guessed.
   if (month === 0 || offset === null) return { status: 'INVALID' }
