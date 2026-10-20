@@ -17,6 +17,17 @@
         ],
         "description": "Coder progress marker — append durable activity log for PM silent-termination recovery",
         "id": "post:edit-write:coder-progress"
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks/post-edit-write-undurable-work.sh"
+          }
+        ],
+        "description": "Undurable-work gate — after an edit inside an agent worktree that holds NO commit of its own, demand commit+push once uncommitted work reaches 120 lines. Measures the BLAST RADIUS of a watchdog cut, not silence: a workspace with no commit of its own is the one the harness removes as unchanged, so a cut there loses the stretch outright instead of costing a re-read (2026-10-20: five agents cut in one day, one losing a 231-line single-call compose). PostToolUse so nothing is reverted; the first commit silences it for the session. Test: scripts/devops/tests/test-post-edit-write-undurable-work.sh",
+        "id": "post:edit-write:undurable-work"
       }
     ],
     "PreToolUse": [
