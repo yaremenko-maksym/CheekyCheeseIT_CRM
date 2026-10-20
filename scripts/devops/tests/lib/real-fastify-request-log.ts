@@ -56,7 +56,20 @@ async function main() {
   //   LOGSCAN_LONG_ROUTE=health|boom  health: level-30 record; boom: a real level-50 500
   if (process.env['LOGSCAN_LONG_PAD'] !== undefined) {
     const route = process.env['LOGSCAN_LONG_ROUTE'] === 'boom' ? '/api/boom' : '/api/health'
-    const pad = Number(process.env['LOGSCAN_LONG_PAD'])
+    let pad = Number(process.env['LOGSCAN_LONG_PAD'])
+    // LOGSCAN_LONG_URL_END=<n>: ignore LOGSCAN_LONG_PAD and size the pad HERE so the url's closing
+    // quote lands on byte n. The probe and the final record are written by the SAME process, hence
+    // the same `"pid":<n>` (which precedes the url): measuring in one process and building in
+    // another put the quote on byte n+1 whenever the two pids differed in digit count.
+    const urlEnd = process.env['LOGSCAN_LONG_URL_END']
+    if (urlEnd !== undefined) {
+      await app.inject({ method: 'GET', url: `${route}?p=`, headers: { host: FORGED_HOST } })
+      const probe = lines.find((l) => l.includes('"url":"'))
+      if (probe === undefined) throw new Error('no logged record carries a url; cannot size the pad')
+      const start = probe.indexOf('"url":"') + 7
+      pad = Number(urlEnd) - (probe.indexOf('"', start) + 1)
+      lines.length = 0
+    }
     await app.inject({
       method: 'GET',
       url: `${route}?p=${'a'.repeat(pad)}`,

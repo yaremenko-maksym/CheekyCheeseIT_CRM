@@ -630,13 +630,16 @@ except ValueError:
 sys.exit(1)' "$1"; }
 is_json() { python3 -I -c 'import json,sys
 json.loads(open(sys.argv[1]).read().rstrip("\n").split(" ",1)[1])' "$1"; }
+long_record() { # <route> <selector> -> the real record whose url ends at byte 16384, on stdout
+  local route="$1" sel="$2"
+  # ONE node process measures and builds (LOGSCAN_LONG_URL_END), so the pid, which precedes the
+  # url in the record, is the same for both. The assertions below stay the independent check.
+  LOGSCAN_LONG_URL_END=16384 make_long "$route" 0 | grep -m1 -- "$sel"
+}
 build_long() { # <route> <selector>
-  local route="$1" sel="$2" base idx0 pad rec
-  base="$(make_long "$route" 0 | grep -m1 -- "$sel")"
-  idx0="$(printf '%s' "$base" | url_end 2>/dev/null)"
-  if [ -z "$idx0" ]; then : >"$WS/long-$route.json"; return 0; fi
-  pad=$((16384 - idx0))
-  rec="$(make_long "$route" "$pad" | grep -m1 -- "$sel")"
+  local route="$1" sel="$2" rec
+  rec="$(long_record "$route" "$sel")"
+  if [ -z "$rec" ]; then : >"$WS/long-$route.json"; return 0; fi
   printf '%s\n' "$rec" >"$WS/long-$route.json"
   printf '%s' "$rec" | url_end >"$WS/long-$route.idx" 2>/dev/null
   python3 -I - "$WS/long-$route.json" "$WS/long-$route.split" "$WS/long-$route.cut" "$WS/long-$route.nosplit" <<'PYEOF'
@@ -662,6 +665,20 @@ for route in health boom; do
   assert_green "SR-H-7 fixture ($route): the split record is NOT valid JSON (the exact input the old filter kept)" -- not_json "$WS/long-$route.split"
   assert_green "SR-H-7 fixture ($route): ...while the same record unsplit IS valid JSON" -- is_json "$WS/long-$route.nosplit"
 done
+# The offset must not depend on the pid. pino writes "pid":<n> BEFORE the url, so a fixture that
+# measured in one process and built in another landed on byte 16385 whenever the two pids differed
+# in digit count (found when an unrelated PR shifted the job's pid counter across 9999 -> 10000;
+# main was green only because its counter sat elsewhere). Each start value below makes consecutive
+# node processes straddle a digit boundary at a different spot (a run may spend one or two pids).
+pid_straddle_url_end() { # <counter start>
+  printf '%s' "$1" >"$WS/pid.counter"
+  FORCE_PID_FILE="$WS/pid.counter" NODE_OPTIONS="--require $SELF_DIR/lib/force-pid.cjs" long_record boom '"level":50' | url_end 2>/dev/null
+}
+for start in 9996 9997 9998 99996 99997 99998; do
+  assert_green "SR-H-7 fixture is pid-independent: pids straddling a digit boundary (counter at $start) still end the url at byte 16384" -- \
+    bash -c "[ \"\$($(declare -f make_long long_record url_end pid_straddle_url_end); WS='$WS'; SELF_DIR='$SELF_DIR'; REAL_API_DIR='$REAL_API_DIR'; REAL_TSX='$REAL_TSX'; pid_straddle_url_end $start)\" = 16384 ]"
+done
+
 assert_green "SR-H-7 non-vacuity: unfiltered, the split health record matches the CONTRACT (a keep-what-you-cannot-parse filter would publish it)" -- \
   bash -c "grep -aEiq -e '$CONTRACT_RE' '$WS/long-health.split'"
 
