@@ -231,7 +231,7 @@ describe('api-errors', () => {
   // with no declared params accepts NO third argument at all (`never`, not
   // `{}` — the empty-object type does not catch excess properties, verified
   // empirically before choosing this shape, see `ParamsFor`'s doc comment in
-  // `./api-errors.ts`). This runs under `pnpm --filter @crm/shared typecheck`
+  // `./api-errors/index.ts`). This runs under `pnpm --filter @crm/shared typecheck`
   // (unlike `apps/api/**/*.spec.ts`, this package's tsconfig does not exclude
   // spec files) — a loosened pin fails the typecheck gate, not silently.
   //

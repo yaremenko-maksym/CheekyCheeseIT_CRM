@@ -57,7 +57,7 @@ export class ProjectDraftService {
     if (currentUser.impersonatorId) {
       // task-i18n-stage2-task5: envelope code, not this prose — the client
       // re-translates by `code` (`getApiErrorMessage`); see
-      // `PROJECT_DECISION_IMPERSONATION` (`packages/shared/src/schemas/api-errors.ts`).
+      // `PROJECT_DECISION_IMPERSONATION` (`packages/shared/src/schemas/api-errors/base.ts`).
       throw apiError('PROJECT_DECISION_IMPERSONATION', HttpStatus.FORBIDDEN)
     }
     await this.db.db.transaction(async (tx) => {
