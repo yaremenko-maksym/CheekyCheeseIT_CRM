@@ -134,10 +134,15 @@ const EXTERNAL_HTTPS_URL_PATTERN = /^https:\/\/[^/?#@]+([/?#]\S*)?$/i
  *   * `isSafeExternalUrl` — the last barrier before `window.open`, in
  *     `apps/web/app/components/job-sourcing/open-original.ts`.
  *
- * What holds the three together is not this comment but `EXTERNAL_URL_CORPUS`
- * (`./job-sourcing-url-corpus.ts`): one list of URLs with an absolute verdict per
- * guard, run against all three. A change to one predicate that the corpus does not
- * agree with fails a test in the guard that moved.
+ * THIS COMMENT IS ALL THAT HOLDS THE THREE TOGETHER — they are kept in step by
+ * hand. A shared corpus (one list of URLs, an absolute verdict per guard, run
+ * against all three) was written for this and then taken back out of the PR,
+ * because placing it outside the mutation gate's globs and outside this package's
+ * public API needed build configuration; it is deferred to a follow-up PR. An
+ * earlier revision of this comment named that corpus as the mechanism, which
+ * promised a gate that exists nowhere. Until it lands, each guard is pinned only
+ * by its own named tests — change one predicate and you must go and read the
+ * other two.
  *
  * Enforced here, and not only at ingest, because this is the value the browser
  * hands to `window.open`: a `javascript:` URL smuggled in through a feed would

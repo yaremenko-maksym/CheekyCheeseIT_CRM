@@ -62,18 +62,43 @@ function revisionIdColumn(): AnyPgColumn {
  * One of THREE guards on the same value, to be changed together:
  *   * `externalHttpsUrlSchema` (`packages/shared/src/schemas/job-sourcing.ts`) —
  *     `.url()` + `.max(2048)` + `^https:\/\/[^/?#@]+([/?#]\S*)?$`, with whitespace
- *     in the authority left to `.url()`;
+ *     in the authority left to `.url()` — which handles it in TWO different ways,
+ *     see the note below;
  *   * `isSafeExternalUrl`
  *     (`apps/web/app/components/job-sourcing/open-original.ts`) — the same shape
  *     as a bare regex, plus a `new URL` parse, before `window.open`;
  *   * this CHECK, which is shape-only: no URL parser, no length cap, and
  *     `[:space:]` is locale-dependent for non-ASCII characters.
  *
- * What pins them together is `EXTERNAL_URL_CORPUS`
- * (`packages/shared/src/schemas/job-sourcing-url-corpus.ts`), run against this
- * CHECK in `job-source-type-enum-ddl.integration.spec.ts`. A pre-R11-H-4 version of
- * this comment quoted the zod schema as `^https://\S+$`, which accepted
- * credentials; do not reintroduce that shape.
+ * NOTHING PINS THEM TOGETHER MECHANICALLY — they are kept in step by hand, each
+ * covered only by its own named tests. A shared corpus run against all three
+ * (this CHECK included, against a live server) was built and then taken back out
+ * of the PR, because placing it outside the mutation gate's globs needed build
+ * configuration; it is a follow-up. An earlier revision of this comment named
+ * that corpus, and an integration spec that would run it, as the mechanism: both
+ * promises were empty. A pre-R11-H-4 version quoted the zod schema as
+ * `^https://\S+$`, which accepted credentials; do not reintroduce that shape.
+ *
+ * WHITESPACE IN THE AUTHORITY — `.url()` splits it two ways, and the distinction
+ * matters because it is why the zod schema omits a whitespace operand that this
+ * CHECK must state itself. Measured on zod 4.6.5:
+ *   * a space or NBSP is REFUSED (the WHATWG parser throws on it);
+ *   * a tab, CR or LF is DELETED before the refinement ever sees the value, so
+ *     `https://ho<TAB>st.test/a` is ACCEPTED by `externalHttpsUrlSchema` while
+ *     this CHECK and `isSafeExternalUrl` both refuse it.
+ *
+ * That difference is in the accepted INPUT, not in the strength of the guard: the
+ * value the schema hands on is the cleaned one, `https://host.test/a`, so what
+ * reaches this column never contains the tab. Note the value is the cleaned
+ * INPUT and not the parser's `href` — `https://host.test` stays exactly that,
+ * without the trailing slash `new URL(...).href` would add — so do not reason
+ * about stored values as if they were hrefs.
+ *
+ * The one caveat is a familiar shape: this holds only while callers store the
+ * PARSED output rather than the string they validated. A caller that validated
+ * with the schema and then stored its own raw input would hand this column a tab
+ * and get a constraint violation — loud, not silent, which is the right failure,
+ * and the same "validate one value, use another" discipline SR-M-2 was about.
  */
 const HTTPS_URL_PATTERN = '^https://[^[:space:]/?#@]+([/?#][^[:space:]]*)?$'
 const httpsUrlOrNull = (column: AnyPgColumn) =>

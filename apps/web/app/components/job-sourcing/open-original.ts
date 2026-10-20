@@ -39,9 +39,19 @@
  * accepted embedded credentials). "Mirror them" is therefore no longer the
  * instruction. The instruction is the DIRECTION: narrowing the schema must
  * narrow this guard too; widening the schema must NOT widen this one silently.
- * What fails when they drift is not this comment but `EXTERNAL_URL_CORPUS`
- * (`packages/shared/src/schemas/job-sourcing-url-corpus.ts`), which states each
- * guard's verdict absolutely, per guard, and which this file's test runs.
+ * NOTHING MECHANICAL ENFORCES THAT DIRECTION TODAY — the three guards are kept in
+ * step BY HAND, by whoever edits one of them. A shared corpus with an absolute
+ * verdict per guard was built for exactly this and then taken back out of the PR
+ * (it needed build configuration to sit outside the mutation gate's globs and
+ * outside this package's public API); it is deferred to a follow-up. An earlier
+ * revision of this comment named that corpus as the thing that fails when the
+ * guards drift, which was a gate that existed nowhere — worse than admitting the
+ * absence, because the next person stops looking.
+ *
+ * What stands in for it meanwhile is the per-layer measurement in the docblock
+ * below, plus a named test per rejection class in
+ * `__tests__/open-original.test.ts`. This file's test imports nothing from
+ * `@crm/shared`.
  */
 
 /**
@@ -55,10 +65,19 @@
  * and deleting either layer reddens a DISJOINT set of them. Measured in both
  * directions on this file's test, by deleting each layer in turn and counting:
  * without the `new URL` block 4 tests go red (the WHATWG-only shapes); without
- * the regex 11 go red, including the smuggled-scheme ones. That pair of numbers
- * is the evidence that the two layers are not copies of each other — which was
- * CR-M-2's complaint — and it is cheap to re-measure, so re-measure rather than
- * trust it after editing either layer.
+ * the regex 11 go red, including the smuggled-scheme ones. Per regex operand, as
+ * measured by the delta security review on this head: dropping the leading `^`
+ * reddens 2 (both smuggled-scheme), dropping the trailing `$` reddens 4. That
+ * spread is the evidence that the two layers are not copies of each other —
+ * which was CR-M-2's complaint — and it is cheap to re-measure, so re-measure
+ * rather than trust it after editing either layer.
+ *
+ * WHAT LAYER 2 CONCRETELY BUYS, beyond the four shapes named below: the regex
+ * character classes are ASCII-literal, so fullwidth and lookalike codepoints —
+ * `＠` (U+FF20), `﹫` (U+FE6B), `％` (U+FF05), U+2100 — sail straight through
+ * layer 1 and are refused ONLY because `new URL` throws on them. Layer 2 is
+ * load-bearing for PARSE FAILURES, not for assertions on the parsed object (it
+ * makes none — see the `try` below).
  *
  * LAYER 1 — the shape regex. MIRRORS, by name and deliberately,
  * `externalHttpsUrlSchema` in `packages/shared/src/schemas/job-sourcing.ts` and
