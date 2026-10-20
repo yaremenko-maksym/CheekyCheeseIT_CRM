@@ -381,6 +381,13 @@ UNDERSTOOD = set(INTERPRETERS) | {
     "openssl",
     # this project's toolchain (each modelled below or provably not a launcher)
     "git", "gh", "node", "python", "python3", "pip", "pip3",
+    # pnpm / npm / yarn: modelled by is_dev_server_launch (PKG_RUNNERS,
+    # PKG_NON_RUN, DEV_SCRIPT_RE) AND their one exec surface is handed over by
+    # _pkg_runner_exec_commands — both halves, or this line is the `tar` mistake
+    # again. The invariant is asserted next to PKG_RUNNERS. `bun` is absent on
+    # purpose: it is also a JS runtime (CODE_CAPABLE). `npx` is absent because
+    # running the named package IS its whole purpose.
+    "pnpm", "npm", "yarn",
     "turbo", "vite", "nest", "tsc", "vitest", "playwright",
     "prettier", "eslint", "tsx", "psql", "pg_dump", "pg_restore", "createdb",
     "dropdb", "pg_isready", "redis-cli",
@@ -405,6 +412,27 @@ SHELL_KEYWORDS = {
 
 # A command name, as opposed to punctuation, a number, or a fragment of syntax.
 COMMAND_WORD_RE = re.compile(r"^[A-Za-z0-9_@.+:^%~/-][A-Za-z0-9_@.+:^%~/,-]*$")
+
+
+def _positionals(argv, value_flags=()):
+    """argv minus flags and the values consumed by `value_flags`.
+
+    Module level because _build_segment needs it on raw tokens, before a Segment
+    exists — and the package-runner exec surface must be found with the SAME
+    flag grammar the launcher predicate later judges the subcommand by.
+    """
+    out = []
+    skip = False
+    for tok in argv:
+        if skip:
+            skip = False
+            continue
+        if tok.startswith("-") and tok != "-":
+            if tok in value_flags:
+                skip = True
+            continue
+        out.append(tok)
+    return out
 
 
 def _plausible_command_word(name):
@@ -438,18 +466,7 @@ class Segment:
 
     def positionals(self, value_flags=()):
         """argv minus flags and the values consumed by `value_flags`."""
-        out = []
-        skip = False
-        for tok in self.argv:
-            if skip:
-                skip = False
-                continue
-            if tok.startswith("-") and tok != "-":
-                if tok in value_flags:
-                    skip = True
-                continue
-            out.append(tok)
-        return out
+        return _positionals(self.argv, value_flags)
 
     def text(self):
         """Everything the segment carries as data, joined — for phrase lookups."""
@@ -1210,6 +1227,41 @@ PSQL_PIPE_RE = re.compile(
 )
 
 
+PKG_EXEC_SUBCMDS = {"exec", "dlx", "x"}
+
+
+def _pkg_runner_exec_commands(argv):
+    """`pnpm exec <cmd>` / `pnpm dlx <cmd>` / `bun x <cmd>` — the rest IS a command.
+
+    WHY (2026-10-21). `pnpm why vite` was refused, and the refusal text said the
+    hook "only looks at the command in launcher position". It did not: `pnpm` was
+    absent from UNDERSTOOD, so the segment was UNCERTAIN, so readings() re-read
+    it from every position and one of those readings was `vite`. The subcommand
+    table (PKG_NON_RUN, which has held `why`, `ls`, `audit`, `outdated` all
+    along) was never consulted, because confidence is decided before it.
+
+    Putting pnpm/npm/yarn into UNDERSTOOD is only honest if what they execute is
+    extracted, which is what this does — the round-3 lesson about `tar` and
+    `git`, applied before the same mistake is repeated. It also closes a hole
+    that readings() was masking: `npm exec -- vite` produced NO launch from the
+    launcher predicate itself (`inner[0]` was `--`), and was refused only because
+    the segment happened to be uncertain. Here `--` is a flag like any other, so
+    the launch surfaces as a segment and is judged on its own merits.
+
+    `bun` stays OUT of UNDERSTOOD regardless: it is a JS runtime as well
+    (CODE_CAPABLE), and `bun x pnpm dev` once counted as "a bun command" and
+    booted unwrapped. Its exec surface is extracted here too — belt as well as
+    braces, since the uncertainty path is what currently catches it.
+    """
+    pos = _positionals(argv, PKG_VALUE_FLAGS)
+    if not pos or pos[0] not in PKG_EXEC_SUBCMDS:
+        return []
+    inner = pos[1:]
+    if not inner:
+        return []
+    return [" ".join(shlex.quote(tok) for tok in inner)]
+
+
 def _psql_exec_commands(payload):
     out = []
     for chunk in payload:
@@ -1273,6 +1325,12 @@ def _build_segment(raw, tokens, heredocs, running_env, depth, degraded):
 
     if name == "psql":
         nested.extend(_psql_exec_commands(payload))
+
+    # Same bargain as `git` and `psql` above: pnpm/npm/yarn are UNDERSTOOD only
+    # because the one surface on which they execute an arbitrary command line is
+    # handed over here rather than trusted away.
+    if name in PKG_RUNNERS:
+        nested.extend(_pkg_runner_exec_commands(argv))
 
     if name in EXEC_FLAG_SPEC:
         nested.extend(_flag_value_commands(argv, EXEC_FLAG_SPEC[name]))
@@ -1528,12 +1586,28 @@ def scan(command_line, depth=0, env=None):
 # nest start / vite / pnpm|npm|yarn|turbo dev / node ... dist/main — but decided
 # on the COMMAND WORD instead of on a substring.
 PKG_RUNNERS = {"pnpm", "npm", "yarn", "turbo", "bun"}
-# Package-manager subcommands that are definitely not "run a script".
+# A package runner may only be UNDERSTOOD if its exec surface is extracted.
+# Stated as an import-time invariant rather than a comment, because the comment
+# is what failed last time: UNDERSTOOD promised "executes nothing, or what it
+# executes is handed over" and quietly held six commands that did neither.
+_PKG_LIKE = {"pnpm", "npm", "yarn", "bun", "npx", "turbo"}
+assert (_PKG_LIKE & UNDERSTOOD) <= PKG_RUNNERS, (
+    "a package runner in UNDERSTOOD must be modelled by is_dev_server_launch")
+assert not ({"bun", "npx"} & UNDERSTOOD), (
+    "bun is also a JS runtime and npx exists to run what it is given")
+# Package-manager subcommands that are definitely not "run a script". Every name
+# here is a QUERY: it reads the lockfile, the registry or the store and prints.
+# `pnpm why vite` is the whole reason this table now gets consulted at all — see
+# _pkg_runner_exec_commands for why it previously was not.
 PKG_NON_RUN = {
     "add", "remove", "rm", "install", "i", "update", "up", "why", "list", "ls",
     "audit", "publish", "store", "config", "link", "unlink", "init", "create",
     "licenses", "outdated", "pack", "prune", "rebuild", "root", "setup", "test",
     "build", "lint", "typecheck", "format",
+    # read-only queries added 2026-10-21 with `why`'s repro: each prints and
+    # exits, none can reach a package script.
+    "info", "view", "search", "whoami", "ping", "doctor", "dedupe", "bin",
+    "help", "version", "env", "licenses:list", "fetch",
 }
 # NOT "-r": for pnpm it is --recursive and takes no value, so listing it made the script name
 # after it (`pnpm -r dev`) vanish as its "value" (SR-H-14). `-r` as node --require is
