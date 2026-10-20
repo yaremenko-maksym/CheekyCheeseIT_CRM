@@ -389,6 +389,22 @@ assert_red "s''ource .env скрывает загрузку env-файла от 
   --contains "DATABASE_URL is not set inline on the launch itself" \
   -- h "export DATABASE_URL=postgresql://u@h/crm_qa; s''ource .env; API_PORT=3011 pnpm --filter @crm/api dev"
 
+# TWO VIEWS, REFUSE IF EITHER MATCHES. Normalizing through shlex resolves spliced quotes
+# but flattens the command: newlines vanish, so a pattern anchored on the start of a
+# statement no longer matches `source .env` on its own line. The raw-text pass catches
+# it; the normalized pass catches the spliced form. Removing either one turns a case
+# below red.
+NL=$'\n'
+assert_red "source .env на отдельной строке (нормализация теряет границы строк)" \
+  --contains "DATABASE_URL is not set inline on the launch itself" \
+  -- h "export DATABASE_URL=$SAFE_DB${NL}source .env${NL}API_PORT=3011 pnpm --filter @crm/api dev"
+assert_red ". ./env.sh на отдельной строке" \
+  --contains "DATABASE_URL is not set inline on the launch itself" \
+  -- h "export DATABASE_URL=$SAFE_DB${NL}. ./env.sh${NL}API_PORT=3011 pnpm --filter @crm/api dev"
+assert_red "set -a на отдельной строке, затем source" \
+  --contains "DATABASE_URL is not set inline on the launch itself" \
+  -- h "export DATABASE_URL=$SAFE_DB${NL}set -a${NL}source .env${NL}API_PORT=3011 pnpm --filter @crm/api dev"
+
 # env-file loaders with an empty URL and no pinned PGDATABASE: refused by the strict rule.
 for load in 'set -a; source .env.local;' 'source .env;' '. ./env.sh;' 'eval "$(cat .env)";' 'set -o allexport;'; do
   assert_red "env-файл + пустой DATABASE_URL без PGDATABASE: $load" \

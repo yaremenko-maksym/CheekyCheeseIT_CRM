@@ -348,12 +348,24 @@ def normalized(text):
 
 ncmd = normalized(cmd)
 
+# TWO VIEWS, ALLOWED ONLY IF BOTH AGREE. `cmd` is the raw text; `ncmd` resolves
+# quote-splicing but FLATTENS the command - newlines vanish, so a pattern anchored on
+# the start of a statement (source .env on its own line) stops matching there. Neither
+# view is authoritative, and this hook cannot be bash, so it does not choose: every
+# check that reads text runs over BOTH and refuses if EITHER matches. Do not delete the
+# "redundant" raw-text pass - it is the one that sees statement boundaries; the
+# normalized pass is the one that sees through spliced quotes.
+def both_views(fn):
+    return fn(cmd) or fn(ncmd)
+
 def assignments(name):
     n = r"(?<![A-Za-z0-9_])" + name
-    return (len(re.findall(n + r"\+?=", ncmd))
-            + len(re.findall(r"\bprintf\s+-v\s+" + name + r"\b", ncmd))
-            + len(re.findall(r"\bread\b[^;&|\n]*" + n + r"\b", ncmd))
-            + len(re.findall(r"\$\{" + name + r":?=", ncmd)))
+    def count(text):
+        return (len(re.findall(n + r"\+?=", text))
+                + len(re.findall(r"\bprintf\s+-v\s+" + name + r"\b", text))
+                + len(re.findall(r"\bread\b[^;&|\n]*" + n + r"\b", text))
+                + len(re.findall(r"\$\{" + name + r":?=", text)))
+    return max(count(cmd), count(ncmd))
 
 # ── the launch must be written PLAINLY (SR-H-5/6/8/9, SR-M-7/12, SRP-M-3) ───────
 # Four security rounds found four HIGHs, and every one was a new spelling of one
@@ -451,7 +463,7 @@ ENV_LOAD = re.compile(
 # the value is not literally inline AND something could change it afterwards.
 if db is not None and not literal_inline("DATABASE_URL"):
     carried = sum(1 for s in segs if "DATABASE_URL" in s.env)
-    if ENV_LOAD.search(ncmd) or assignments("DATABASE_URL") > carried:
+    if both_views(ENV_LOAD.search) or assignments("DATABASE_URL") > carried:
         reasons.append(
             "DATABASE_URL is not set inline on the launch itself and the command "
             "assigns or loads it elsewhere (export then bare assignment, source, "
