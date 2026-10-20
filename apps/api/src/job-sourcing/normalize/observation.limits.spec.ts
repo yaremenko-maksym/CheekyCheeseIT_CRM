@@ -37,6 +37,18 @@ describe('description: displayTruncated is decided per kind', () => {
     ).toBe(true)
   })
 
+  it('text: surrounding whitespace is trimmed before measuring', () => {
+    const padded = `${'d'.repeat(20_000)}     `
+    expect(desc({ description: padded, descriptionKind: 'text' }).displayTruncated).toBe(false)
+  })
+
+  it('text kind reaches the normalizer: markup is escaped, not converted', () => {
+    expect(
+      ok({ description: '<b>bold</b>', descriptionKind: 'text' }).normalized.descriptionMd,
+    ).toBe('\\<b>bold\\</b>')
+    expect(ok({ description: '<b>bold</b>' }).normalized.descriptionMd).toBe('**bold**')
+  })
+
   it('html: markup that converts to short markdown is not truncated however long the raw is', () => {
     const markup = desc({ description: '<i></i>'.repeat(4_000) }) // 28 000 raw chars, empty markdown
     expect(markup.displayTruncated).toBe(false)

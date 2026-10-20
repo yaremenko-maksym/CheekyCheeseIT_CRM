@@ -216,9 +216,9 @@ export function buildSourceObservation(
   const evidence: FieldEvidence[] = []
 
   const dates: ObservedDate[] = []
-  for (const input of raw.dates ?? []) {
+  raw.dates?.forEach((input) => {
     const parsed = parseSourceDate(input, now)
-    if (parsed === null) continue
+    if (parsed === null) return
     dates.push(parsed)
     if (parsed.status !== 'OK') {
       evidence.push({
@@ -227,7 +227,7 @@ export function buildSourceObservation(
         detail: parsed.status,
       })
     }
-  }
+  })
   const published = dates.find((d) => d.semantics === 'PUBLISHED' && d.status === 'OK')
 
   let applicationUrl: string | null = null
@@ -319,7 +319,9 @@ export function buildSourceObservation(
         remote: normalized.remote ?? null,
         employmentType: normalized.employmentType ?? null,
         seniorityHint: normalized.seniorityHint ?? null,
-        tags: normalized.tags ?? [],
+        // `tags` is optional on the provider type; `new Set(undefined)` is empty, and the hash
+        // de-duplicates and sorts anyway, so this is the same input without a fallback literal.
+        tags: [...new Set(normalized.tags)],
         applicationUrl,
         dates,
       }),
