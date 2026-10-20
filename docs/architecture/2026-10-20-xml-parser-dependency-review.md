@@ -10,13 +10,42 @@ RSS/Atom adapters stay blocked. ~25 adapters inherit this choice.
 
 **Adopt `@rgrove/parse-xml@5.0.0` (ISC).** Not rejected.
 
-The single fact that decided it: **parse-xml contains no code path and no option that can resolve a
-DTD entity.** Its parser consumes a `<!DOCTYPE>` declaration and discards it without parsing the
-internal subset, so no entity can ever be _declared_, let alone dereferenced. XXE and
-billion-laughs are therefore impossible by **absence of capability**, not by a default that a
-future option flip could undo — which is precisely the bar Task 2.4 sets. Measured: all four
-attack documents fail with `Named entity isn't defined`, and the network canary recorded
-**0 hits across all 78 parser×case runs**.
+The decisive fact is a **capability argument**, and it holds under every configuration: **XXE and
+entity expansion are unreachable in parse-xml for two independent reasons, neither of which an
+option can switch on.**
+
+1. **The internal subset is never parsed**, so no entity is ever _declared_. The parser consumes a
+   `<!DOCTYPE>` declaration and discards it without reading its contents. There is consequently
+   nothing to expand and no system identifier to dereference, whatever the options say.
+2. **The package has no I/O capability to abuse.** `dist/` references no `fs`, `http`, `https`,
+   `net`, `dns`, `tls` or `child_process` — so even a configuration that substitutes text for an
+   entity cannot make the library read a file or open a socket.
+
+Measured: all four attack documents fail with `Named entity isn't defined`, and the network canary
+recorded **0 hits across all 78 parser×case runs**.
+
+**This is deliberately _not_ phrased as "no option can resolve an entity", because that weaker
+claim is false and was falsified during review.** Two of the eight options do bear on entities:
+`resolveUndefinedEntity` substitutes text for an entity from a **caller-supplied** function, and
+`ignoreUndefinedEntities: true` turns the refusal into silent pass-through. Both are pinned in
+"The exact configuration to adopt" below, and the reason the capability argument survives them is
+visible in the measurement:
+
+```
+bomb  default        => THREW: Named entity isn't defined: &lol3;
+bomb  ignoreUndef    => OK, text: "&lol3;"            # literal, nothing expanded
+bomb  resolver-evil  => OK, text: "XXXXXXXXXX"        # 10 chars, NOT exponential
+xxe   default        => THREW: Named entity isn't defined: &x;
+xxe   ignoreUndef    => OK, text: "&x;"               # literal, no file read
+xxe   resolver-evil  => OK, text: "RESOLVER-SUPPLIED" # the caller's own string
+```
+
+The billion-laughs row is the proof: with a hostile resolver the bomb yields **ten characters, not
+an exponential blow-up**, because the nested `<!ENTITY>` declarations were never parsed and so
+there is no recursion to drive. And the XXE row returns only what the caller's own function
+returned — the library never touched the filesystem. To get XXE out of parse-xml, the caller would
+have to write a file-reading resolver, i.e. implement the vulnerability itself. That is a wrapper
+invariant, which is where it is closed.
 
 `fast-xml-parser@5.11.2` (MIT) is a **viable second** and is kept as the documented fallback
 adapter — it also refused XXE on evidence. It is not first choice for two measured reasons, not
@@ -57,7 +86,37 @@ critical path of every CI run and every Docker image build, couples us to libxml
 stream (the busiest XXE/entity CVE surface in this whole list), and its 2 releases in ~2 years is
 thin cover for that exposure. A pure-JS parser that we can bound ourselves is the cheaper risk.
 
-**Advisories:** `npm audit` over the installed set reported **`found 0 vulnerabilities`**
+**Advisories — queried directly against the GitHub Advisory Database**, not only via `npm audit`:
+
+```bash
+gh api graphql -f query='{ securityVulnerabilities(ecosystem: NPM,
+  package: "@rgrove/parse-xml", first: 20) { nodes { advisory { ghsaId severity
+  publishedAt } vulnerableVersionRange firstPatchedVersion { identifier } } } }'
+→ {"data":{"securityVulnerabilities":{"nodes":[]}}}
+```
+
+**`@rgrove/parse-xml`: zero advisories, ever.** The same query for the fallback is the opposite
+picture and is material to the decision rather than decoration:
+
+| Package             | Distinct GHSAs                 | Worst severity                       | Most recent                                 | Affects                           |
+| ------------------- | ------------------------------ | ------------------------------------ | ------------------------------------------- | --------------------------------- |
+| `@rgrove/parse-xml` | **0**                          | —                                    | —                                           | —                                 |
+| `fast-xml-parser`   | **13** (17 version-range rows) | **CRITICAL** (`GHSA-m7jm-9gc2-mpf2`) | `GHSA-8r6m-32jq-jx6q`, HIGH, **2026-07-21** | `>=5.9.3 <5.10.1`, patched 5.10.1 |
+
+Three consequences, stated rather than buried:
+
+1. **It reframes fast-xml-parser's release cadence.** Above I recorded 72 releases since 2024 as a
+   health signal; the advisory history shows a good part of that churn is **security response**,
+   including nine advisories in 2026 alone. High cadence here means "frequently found vulnerable",
+   not simply "actively maintained".
+2. **The chosen fallback version is patched** — 5.11.2 is past 5.10.1 — but if the
+   `FastXmlParserAdapter` is ever activated, it must be **re-pinned at activation time**, not
+   adopted at the version recorded in this document.
+3. **It independently supports the verdict.** The parser with no DTD machinery has no advisory
+   history; the parser with DTD and entity machinery has thirteen. That is the capability argument
+   showing up in the historical record.
+
+`npm audit` over the installed set separately reported **`found 0 vulnerabilities`**
 (fast-xml-parser 5.11.2, @rgrove/parse-xml 5.0.0, sax 1.6.1, @xmldom/xmldom 0.9.12 and all
 transitives). Note the repo already pins `@xmldom/xmldom: ">=0.8.15 <0.9.0"` in
 `pnpm.overrides` — a historical response to that package's advisory history, and context for
@@ -98,10 +157,14 @@ Both candidates refuse XXE **on evidence**. The difference is _why_, and that is
   _"This is a loose implementation since doctype declarations are currently discarded without
   further parsing."_ Its complete option surface is `ignoreUndefinedEntities`, `includeOffsets`,
   `preserveCdata`, `preserveComments`, `preserveDocumentType`, `preserveXmlDeclaration`,
-  `resolveUndefinedEntity`, `sortAttributes` — **not one of these enables entity or DTD
-  resolution**. `preserveDocumentType: true` only retains the declaration as an inert node.
-  `grep` for `fs`/`http`/`fetch` across `dist/` returns **nothing**: there is no I/O capability in
-  the package to abuse.
+  `resolveUndefinedEntity`, `sortAttributes`. **Two of these eight do affect entity handling** —
+  `resolveUndefinedEntity` substitutes caller-supplied text for an entity, and
+  `ignoreUndefinedEntities` downgrades the refusal to pass-through — but **neither makes the
+  library parse a DTD or perform I/O**, which is why the capability argument in the verdict holds
+  and a flat "no option touches entities" claim would not. `preserveDocumentType: true` only
+  retains the declaration as an inert node. A grep for `require`/`import` of `fs`, `http`,
+  `https`, `net`, `dns`, `tls` and `child_process` across `dist/` returns **nothing** (exit 1):
+  there is no I/O capability in the package to abuse.
 - **fast-xml-parser** does parse the internal subset and _does_ expand internal entities by
   default (`processEntities: true` in `src/xmlparser/OptionsBuilder.js`), bounded by
   `maxEntitySize: 10000`, `maxExpansionDepth: 10000`, `maxEntityCount: 1000`,
@@ -203,12 +266,15 @@ is already forbidden by `version-pins.md`.
 import { parseXml } from '@rgrove/parse-xml'
 
 const doc = parseXml(xmlString, {
-  // Leave an undefined entity as a hard parse error. MUST stay false (its default):
-  // true would silently pass `&xxe;` through as text instead of refusing the document.
+  // DRIFT GATE. MUST stay false (its default). Measured with true: a feed carrying an
+  // undefined entity parses "successfully" and yields a literal `&x;` — a malformed feed
+  // accepted as content, which is the "malformed feed = drift" requirement inverted.
+  // Pinned by an assertion, not by this comment (see the test below).
   ignoreUndefinedEntities: false,
 
-  // Never supply a resolver. Providing resolveUndefinedEntity would hand back exactly the
-  // entity-substitution capability the library otherwise does not have.
+  // NEVER SUPPLY. This is the only route by which entity substitution can enter, and a
+  // resolver that read files would be caller-authored XXE. Measured with a hostile
+  // resolver: returns the caller's own string. Its presence in a diff is a review BLOCK.
   // resolveUndefinedEntity: <never set>
 
   preserveCdata: false, // CDATA as text; markup inside stays inert
@@ -218,9 +284,11 @@ const doc = parseXml(xmlString, {
 })
 ```
 
-**What disables DTD / entity / external-entity processing, verbatim: nothing — because nothing
-enables it.** That is the configuration claim, and it is the strongest form available. Evidence,
-each from the measurement above:
+**What disables DTD / external-entity processing, verbatim: nothing — because the library never
+parses a DTD and has no I/O capability.** What the configuration above does is close the one
+remaining hole, which is **not** XXE but **drift suppression**: `ignoreUndefinedEntities` must stay
+`false` and `resolveUndefinedEntity` must never be supplied. Evidence, each from the measurement
+above:
 
 | Guarantee            | Mechanism                                                          | Measurement proving it                                                                                        |
 | -------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
@@ -230,10 +298,43 @@ each from the measurement above:
 | No network           | no network capability in the package                               | 0 canary hits over 78 runs                                                                                    |
 | Malformed = error    | strict XML conformance                                             | truncated envelope threw `Missing end tag for element title`                                                  |
 
-**Two settings are load-bearing and must be guarded by a test, not a comment:**
-`ignoreUndefinedEntities` must remain `false`, and `resolveUndefinedEntity` must never be
-supplied. Those are the only two knobs that could weaken the guarantee, and a test asserting the
-XXE document still throws is what keeps them honest.
+### `ignoreUndefinedEntities` is a drift-suppression switch, and the wrapper must pin it
+
+This is the one option that can convert correct behaviour into the exact failure mode used above
+to reject `fast-xml-parser` as first choice, so leaving it unpinned would be inconsistent.
+
+With `ignoreUndefinedEntities: true`, a feed carrying an undefined entity **parses
+"successfully"** and yields a literal `&x;` in the content. No throw, no signal. Task 2.4 requires
+**malformed feed = drift**; this option turns a drift signal into accepted content, and the
+vacancy text silently carries a raw entity reference. Measured: `xxe ignoreUndef => OK, text:
+"&x;"`.
+
+It is also the reason the two options are pinned for _different_ reasons, which a single comment
+would blur:
+
+| Option                    | Pinned to             | What goes wrong if changed                                                                                         | Risk class                       |
+| ------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------ | -------------------------------- |
+| `ignoreUndefinedEntities` | `false` (its default) | a malformed feed is accepted as valid content instead of raising drift                                             | **correctness / drift**, not XXE |
+| `resolveUndefinedEntity`  | never supplied        | a caller-written resolver is the only route by which entity substitution — or, if it read files, XXE — could enter | **security**, caller-introduced  |
+
+**Both must be guarded by a test that can fail, not by a comment.** A comment cannot fail. Three
+assertions, run against the `XmlPort` seam so they survive a parser swap:
+
+```ts
+// 1. drift is raised, not suppressed — fails if ignoreUndefinedEntities is ever flipped true
+expect(() => xmlPort.parseDocument(feedWithUndefinedEntity, limits)).toThrow()
+
+// 2. the XXE document is still refused
+expect(() => xmlPort.parseDocument(xxeDocument, limits)).toThrow()
+
+// 3. the options object the adapter actually passes carries neither weakening setting
+expect(adapterOptions.ignoreUndefinedEntities).toBe(false)
+expect(adapterOptions.resolveUndefinedEntity).toBeUndefined()
+```
+
+Assertion 3 matters because 1 and 2 could both be satisfied by accident; it pins the surface
+itself. And because a resolver is caller-supplied, the review gate is simple and greppable: **a
+`resolveUndefinedEntity` appearing anywhere in the diff is a `BLOCK`.**
 
 **If the fallback adapter is ever activated**, FXP's hardened configuration is:
 
@@ -363,6 +464,11 @@ and the reason this recommendation meets the bar.
 
 1. **Any advisory against `@rgrove/parse-xml`.** Response: activate the measured
    `FastXmlParserAdapter` via Seam 1. This conclusion's whole value is that this is cheap.
+   **Re-pin fast-xml-parser to the then-current patched version at activation**, and re-run the
+   GHSA query first — it carried 13 advisories and nine in 2026 alone, so the version named in
+   this document will likely be stale by then.
+   Re-run both queries at recheck time:
+   `gh api graphql -f query='{ securityVulnerabilities(ecosystem: NPM, package: "<pkg>", first: 20) { nodes { advisory { ghsaId severity publishedAt } vulnerableVersionRange } } }'`
 2. **Maintenance lapse** — no release for ~18 months, or an unanswered security issue. Its cadence
    is low by design (5 releases since 2024, a strict-conformance parser that does not need churn),
    so judge by **issue responsiveness**, not release count. Note the precedent in this very
@@ -380,10 +486,11 @@ known, priced in above, and are wrapper work by design.
 
 ## What could not be established
 
-- **No public advisory database query was made beyond `npm audit`.** It reported 0
-  vulnerabilities over the installed set, which is the GitHub advisory data npm consumes, but a
-  direct GitHub Security Advisories / CVE search was not run. Low residual risk: an advisory
-  present in GHSA would surface through `npm audit`.
+- ~~No public advisory database query beyond `npm audit`.~~ **Closed 2026-10-20**: the GitHub
+  Advisory Database was queried directly via the GraphQL `securityVulnerabilities` field (command
+  and output in "Candidates and why each survived or fell"). `@rgrove/parse-xml` → `[]`;
+  `fast-xml-parser` → 13 distinct GHSAs. No residual gap for npm-ecosystem advisories; a CVE with
+  no GHSA record would still be missed, which is a limitation of the database, not of this query.
 - **`sax`'s `BlueOak-1.0.0`** is permissive and OSI-approved, but it is an uncommon licence and
   has not been reviewed by counsel for this project. Irrelevant to the verdict (sax is rejected on
   technical grounds), but worth knowing before adopting it elsewhere.
@@ -407,8 +514,15 @@ Every claim above traces to one of:
   and `npm view <pkg> time --json`, accessed 2026-10-20.
 - **Commands run** in this review, reproducible from the corpus: `node runner/gen.mjs`,
   `node runner/matrix.mjs` (78 runs), `node runner/probe.mjs`, `node runner/bounds.mjs`,
-  `npx tsc -p tsconfig.probe.json`, `npm audit`, and the `require()` executions on Node 22.23.1
-  and 20.15.1.
+  `node runner/falsify.mjs` (the option-surface falsification: `ignoreUndefinedEntities` and
+  `resolveUndefinedEntity` against the bomb and XXE documents),
+  `npx tsc -p tsconfig.probe.json`, `npm audit`, the GHSA GraphQL queries quoted above, and the
+  `require()` executions on Node 22.23.1 and 20.15.1.
+- **Review provenance:** the verdict's decisive sentence was rewritten after finding MASTER-M-1 on
+  PR #1064 falsified the weaker claim "no option can resolve a DTD entity". The verdict did not
+  change; the argument carrying it was replaced with the capability argument, which survives an
+  option flip, and the two entity-bearing options were pinned with failing assertions. Recorded
+  because the earlier phrasing read as licence not to pin the option surface.
 - **Project constraints**: `.claude/rules/common/version-pins.md` (Node pin, the Lingui 6
   dual-package-types precedent), `apps/api/tsconfig.json` + `tsconfig.base.json` (the exact
   compiler settings measured against), `apps/api/src/job-sourcing/rss.ts` (the existing
