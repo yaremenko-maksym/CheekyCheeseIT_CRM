@@ -48,6 +48,12 @@ be empty. The value is public (a host-key hash); rotating it is a PR, as a trust
 anchor should be. All steps must carry the SAME literal (one VPS) — a typo in one
 step is caught here instead of failing that step's deploy.
 
+CANARY EXEMPTION. The canary workflow listed in CANARY_FILES is a negative control that runs
+steps with a deliberately WRONG fingerprint (CANARY_WRONG_LITERAL) and expects them to fail.
+It would trip the one-literal rule, so CANARY_FILES enumerates it: that literal is tolerated
+only in a listed file and only in the exact declared count; elsewhere, in another count, or
+with the file missing, the guard fails. The table is printed on every run.
+
 Deliberately NOT a full YAML parse (no PyYAML dependency, same pragmatic approach as
 check-ssh-action-capture-stdout-version.py): step boundaries are tracked by
 indentation, sufficient because this repo's workflow YAML is 2-space-indented with no
@@ -95,6 +101,25 @@ PINNING_SUPPORTED = {
 # (action, version) -> reason it cannot pin. Empty today: every version in use
 # supports pinning. Entries here are the ONLY way for an appleboy step to be unpinned.
 PINNING_EXEMPT = {}
+
+# The deliberately WRONG fingerprint carried by the negative-control canary: the real
+# literal with its case inverted (43 chars, valid format, cannot collide with a real key).
+# TEST VALUE ONLY. It is tolerated nowhere except inside a CANARY_FILES entry, and only in
+# the exact count declared there.
+CANARY_WRONG_LITERAL = "SHA256:AuHfbJTFqiPWuLmua9z5OkwxN8CieDEDRQT2EhnNgZO"
+
+# relpath -> (reason, exact number of steps that carry CANARY_WRONG_LITERAL).
+# An exemption of the "steps disagree on the literal" check, ENUMERATED and printed on every
+# run, never a silent skip. The exact count is the anti-widening lock: one wrong step too
+# many (or too few) fails, so the wrong value cannot spread inside the canary unnoticed.
+# The `{` must stay alone on its line: the guard test blanks the table by rewriting it.
+CANARY_FILES = {
+    ".github/workflows/host-key-pin-canary.yml": (
+        "negative-control canary: 3 pairs, each pair one step with a deliberately wrong "
+        "fingerprint that MUST be rejected by the host-key check",
+        3,
+    ),
+}
 
 FINGERPRINT_LITERAL_RE = re.compile(r"^SHA256:[A-Za-z0-9+/]{43}$")
 # Owner/repo match is case-insensitive; the action part may carry a subpath; the version is
@@ -189,9 +214,10 @@ def scan_file(path):
 
 def evaluate(all_steps, all_unparsed):
     """all_steps: list of (relpath, record); all_unparsed: list of (relpath, line_no, text).
-    Returns (violations, pinned, exempt, literals)."""
+    Returns (violations, pinned, exempt, literals, canary_counts)."""
     violations, pinned, exempt = [], 0, 0
     literals = set()
+    canary_counts = {}
 
     for rel, line_no, text in all_unparsed:
         violations.append(
@@ -214,6 +240,16 @@ def evaluate(all_steps, all_unparsed):
                     where + " — fingerprint is not a literal `SHA256:<43 base64 chars>` (got {!r}); "
                     "an expression can be empty and silently disable verification".format(fp)
                 )
+            elif fp == CANARY_WRONG_LITERAL:
+                if rel in CANARY_FILES:
+                    # Counted apart: not "pinned", not part of the one-literal check. The
+                    # exact count per file is verified below.
+                    canary_counts[rel] = canary_counts.get(rel, 0) + 1
+                else:
+                    violations.append(
+                        where + " — carries the canary's deliberately WRONG fingerprint outside a "
+                        "CANARY_FILES entry; that value is a test value and is tolerated nowhere else"
+                    )
             else:
                 pinned += 1
                 literals.add(fp)
@@ -235,7 +271,20 @@ def evaluate(all_steps, all_unparsed):
                 ", ".join(sorted(literals))
             )
         )
-    return violations, pinned, exempt, literals
+    for rel, (_reason, declared) in sorted(CANARY_FILES.items()):
+        if not os.path.isfile(os.path.join(REPO_ROOT, rel)):
+            violations.append(
+                "CANARY_FILES lists {} but the file does not exist: a dangling exemption is how "
+                "this table rots; remove the entry or restore the file".format(rel)
+            )
+        elif canary_counts.get(rel, 0) != declared:
+            violations.append(
+                "{} — canary declares exactly {} step(s) with the wrong fingerprint but has {}; "
+                "the exemption is an exact count, so it cannot widen or shrink silently".format(
+                    rel, declared, canary_counts.get(rel, 0)
+                )
+            )
+    return violations, pinned, exempt, literals, canary_counts
 
 
 def main():
@@ -251,7 +300,7 @@ def main():
         all_steps.extend((rel, s) for s in steps)
         all_unparsed.extend((rel, n, t) for n, t in unparsed)
 
-    violations, pinned, exempt, _ = evaluate(all_steps, all_unparsed)
+    violations, pinned, exempt, _, canary_counts = evaluate(all_steps, all_unparsed)
     if len(all_steps) < MIN_STEPS:
         violations.append(
             "found {} appleboy steps (minimum {}): a scan that finds nothing is a broken scan, "
@@ -269,6 +318,12 @@ def main():
         print("  Exemptions:")
         for (action, version), reason in sorted(PINNING_EXEMPT.items()):
             print("    {}@{} — {}".format(action, version, reason))
+
+    if CANARY_FILES:
+        print("  Canary exemptions (wrong literal tolerated ONLY here, exact count):")
+        for rel, (reason, declared) in sorted(CANARY_FILES.items()):
+            print("    {} — {} wrong step(s) declared, {} found — {}".format(
+                rel, declared, canary_counts.get(rel, 0), reason))
 
     if violations:
         print()
