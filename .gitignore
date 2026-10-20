@@ -76,6 +76,8 @@ test-results/
 .claude/.allow-direct-edits
 .claude/coder-activity.log
 .claude/coder-activity.log.old
+.claude/agent-heartbeat.log
+.claude/agent-heartbeat.log.old
 .playwright-mcp/
 
 # Agent debug artifacts — files agents create during "verification".

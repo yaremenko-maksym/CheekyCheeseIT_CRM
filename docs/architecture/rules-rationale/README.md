@@ -48,7 +48,7 @@ Each core rule carries a single pointer line near the top, of the form:
 - `review-findings-transfer.md` — the PR #504 lost finding, the full no-CI-gate argument
 - `russian-language.md` — the 2026-10-05 flip, why the filename no longer matches the rule
 - `skills-invocation.md` — the 2026-07-28 table-drift incident, why the trigger list must stay whole, catalog provenance
-- `stream-watchdog.md` — the seven cuts of 2026-10-17, why prevention is a rule and recovery stays a skill
+- `stream-watchdog.md` — the seven cuts of 2026-10-17 and the five of 2026-10-20 that happened with the rule already injected into every agent; why the answer is a hook on the blast radius rather than a fifth paragraph, and what stays procedural
 - `version-pins.md` — the two peer-matched pairs people actually break, Lingui 6 upgrade preconditions
 - `zone-of-write.md` — the AutoTest redraw, the 2026-08-17 precedent audit, tests-on-hooks reasoning
 
