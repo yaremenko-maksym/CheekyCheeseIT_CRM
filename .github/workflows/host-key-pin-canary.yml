@@ -110,3 +110,31 @@ jobs:
             set -eu
             mkdir -p "$CANARY_DIR"
             touch "$CANARY_DIR/ssh123-pos"
+
+      # ── Pair 3: scp-action v0.1.7 (carries 48 of the 55 call sites) ──────────────────
+      # scp-action keeps the source directory tree under target, so the files land at
+      # $CANARY_DIR/canary-payload/scp-{neg,pos}.txt. Each control copies its own file.
+      - name: scp-action v0.1.7 NEGATIVE (wrong fingerprint, expect FAIL)
+        id: scp_neg
+        continue-on-error: true
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          # TEST VALUE: the real fingerprint with its case inverted. Must be rejected.
+          fingerprint: SHA256:AuHfbJTFqiPWuLmua9z5OkwxN8CieDEDRQT2EhnNgZO
+          source: canary-payload/scp-neg.txt
+          target: ${{ env.CANARY_DIR }}
+
+      - name: scp-action v0.1.7 POSITIVE (correct fingerprint, expect PASS)
+        id: scp_pos
+        continue-on-error: true
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          source: canary-payload/scp-pos.txt
+          target: ${{ env.CANARY_DIR }}
