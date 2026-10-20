@@ -101,3 +101,37 @@ describe('buildIdentity: native id', () => {
     })
   })
 })
+
+describe('buildIdentity: persisted key layout and limits (literal expectations)', () => {
+  const base = { provider: 'REMOTEOK_API', namespace: 'board', url: null } as const
+
+  it('a native identity key is exactly [version, NATIVE, provider, namespace, id]', () => {
+    expect(keyOf({ ...base, nativeId: '12345' })).toBe(
+      '["v1","NATIVE","REMOTEOK_API","board","12345"]',
+    )
+  })
+
+  it('a URL identity key is exactly [version, URL, provider, namespace, host, path, pairs]', () => {
+    // identityParams omitted on purpose: the default is "no identity params".
+    expect(keyOf({ ...base, nativeId: null, url: 'https://jobs.example/j/1/?id=7&utm=x' })).toBe(
+      '["v1","URL","REMOTEOK_API","board","jobs.example","/j/1",[]]',
+    )
+  })
+
+  it('accepts a namespace of exactly 128 chars and quarantines 129', () => {
+    expect(buildIdentity({ ...base, namespace: 'n'.repeat(128), nativeId: '1' }).ok).toBe(true)
+    expect(buildIdentity({ ...base, namespace: 'n'.repeat(129), nativeId: '1' })).toEqual({
+      ok: false,
+      reason: 'INVALID_NAMESPACE',
+    })
+  })
+
+  it('accepts a native id of exactly 256 chars; 257 falls back to the URL', () => {
+    const at = buildIdentity({ ...base, nativeId: 'i'.repeat(256) })
+    expect(at).toMatchObject({ ok: true, identity: { identityKind: 'NATIVE' } })
+    expect(buildIdentity({ ...base, nativeId: 'i'.repeat(257) })).toEqual({
+      ok: false,
+      reason: 'NO_IDENTITY',
+    })
+  })
+})
