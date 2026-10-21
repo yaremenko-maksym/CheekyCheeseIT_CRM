@@ -155,7 +155,11 @@ interface ExpensiveDocxCalibration {
   readonly document: Buffer
   /** Fastest of two full parses with no deadline in effect (fastest = least load noise). */
   readonly parseMs: number
-  /** Fastest of two round trips for a trivial document: what a child process costs before any parsing. */
+  /**
+   * SLOWEST of two round trips for a trivial document: what a child process
+   * costs before any parsing. The slower sample, because startup is the noisy
+   * side (134–260 ms measured) and the deadline has to clear its bad day.
+   */
   readonly startupMs: number
 }
 
@@ -169,7 +173,7 @@ let expensiveDocxCalibration: Promise<ExpensiveDocxCalibration> | undefined
 function calibrateExpensiveDocx(): Promise<ExpensiveDocxCalibration> {
   expensiveDocxCalibration ??= (async () => {
     const trivial = buildDocx(['резюме'])
-    const startupMs = Math.min(await timedExtract(trivial), await timedExtract(trivial))
+    const startupMs = Math.max(await timedExtract(trivial), await timedExtract(trivial))
     const document = buildExpensiveDocx()
     const parseMs = Math.min(await timedExtract(document), await timedExtract(document))
     return { document, parseMs, startupMs }
@@ -178,22 +182,37 @@ function calibrateExpensiveDocx(): Promise<ExpensiveDocxCalibration> {
 }
 
 /**
- * The deadline for the wall-clock test: a quarter of the measured parse. The
- * document therefore has to be running 4x faster than it was calibrated for the
- * deadline to lose, instead of "about as fast", which is what 1 000 ms against
- * 1 005–1 106 ms was.
+ * Why these numbers, since every number picked rather than derived is how this
+ * module's other tests went stale unannounced:
+ *
+ * - `DEADLINE_FRACTION_OF_PARSE = 4`: the deadline is a quarter of the measured
+ *   parse, so the document must run 4x FASTER than it was calibrated to escape
+ *   it. 1 000 ms against 1 005–1 106 ms was "about as fast", i.e. a coin flip.
+ *   The calibration takes the FASTEST of two parses, which makes the deadline
+ *   optimistic (earlier) — the harmless direction for "must be killed". The
+ *   calibration is cached across both tests, so load may drift between them;
+ *   the same direction argument applies, and the control below re-checks the
+ *   other side at the moment of use.
+ * - `DEADLINE_OVER_STARTUP = 2`: the deadline is at least twice the SLOWEST
+ *   startup sample, so a startup that is 2x worse than the worst one seen still
+ *   completes inside it. Chosen, not derived: the evidence is a 134–260 ms
+ *   spread (<2x), and the per-run control below observes the outcome anyway.
+ * - `MAX_DEADLINE_FRACTION_OF_PARSE = 2`: the kill must land in the first half
+ *   of the parse, or "killed mid-parse" starts to mean "killed near the end".
  */
 const DEADLINE_FRACTION_OF_PARSE = 4
-/** The kill must land in the parse, not in process startup: the deadline must clear startup by this factor. */
-const DEADLINE_OVER_STARTUP = 1.5
+const DEADLINE_OVER_STARTUP = 2
+const MAX_DEADLINE_FRACTION_OF_PARSE = 2
 /**
- * RLIMIT_CPU has whole-second granularity and the sandbox refuses anything
- * below 1 s, so this limit cannot be lowered to fit the fixture. The fixture's
- * CPU time (single-threaded parse: CPU ~= wall, measured 2 669 ms CPU for
- * 2 739 ms wall under load) must exceed it by this factor for the kernel, not
- * the clock, to be what ends the work.
+ * The CPU-rlimit test has no premise expressed in milliseconds on purpose. The
+ * limit is CPU time, the worker is MULTI-THREADED (reviewer measurement of
+ * PR #1087: ~1.6 s wall and 3.4–3.6 s user CPU for this fixture, ~2.3x; killed
+ * by `ulimit -t 1` at 0.38 s wall), so no wall-clock figure says how far past
+ * the limit the work is. The kernel is the instrument instead: the test
+ * observes the kill itself (see its `killed` / `logged` assertions, which
+ * carry a message naming this cause). Earlier wording here said CPU ~= wall
+ * and a ~1.5x margin; both were wrong.
  */
-const CPU_OVER_RLIMIT = 1.25
 /** The `cpuSeconds` the CPU-rlimit test asks the sandbox for — the smallest it accepts. */
 const EXTRACTION_CPU_SECONDS_FOR_SEAM = 1
 
@@ -731,10 +750,15 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
     // it; see `calibrateExpensiveDocx`.
     const calibration = await calibrateExpensiveDocx()
     const unbudgetable = calibration.document
-    const deadlineMs = Math.ceil(calibration.parseMs / DEADLINE_FRACTION_OF_PARSE)
+    const deadlineMs = Math.ceil(
+      Math.max(
+        calibration.parseMs / DEADLINE_FRACTION_OF_PARSE,
+        calibration.startupMs * DEADLINE_OVER_STARTUP,
+      ),
+    )
     assertPremise(
-      deadlineMs >= calibration.startupMs * DEADLINE_OVER_STARTUP,
-      `the derived deadline (${deadlineMs} ms) no longer clears process startup`,
+      deadlineMs <= calibration.parseMs / MAX_DEADLINE_FRACTION_OF_PARSE,
+      `a deadline that clears process startup (${deadlineMs} ms) is no longer within the first half of the parse`,
       calibration,
     )
 
@@ -748,6 +772,17 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
     // THE GUARANTEE: the API thread stays free while it parses. Sampling the
     // loop is the only assertion that speaks to "does the API keep answering",
     // and it is a property of isolation, not of any budget.
+    // WHERE THE KILL LANDS IS OBSERVED, NOT ASSUMED. A kill during process
+    // startup gives the same message and the same quiet loop, so the outcome
+    // alone cannot tell "contained the parse" from "never got as far as
+    // parsing". The control: the SAME deadline lets a trivial document through
+    // right now, so the worker demonstrably starts inside it on this run.
+    await expect(
+      service.extract(buildDocx(['резюме']), RESUME_DOCX_MIME, { timeoutMs: deadlineMs }),
+      `The deadline (${deadlineMs} ms) is too short for a trivial document: the kill would land ` +
+        `in process startup, not in the parse. Startup measured ${Math.round(calibration.startupMs)} ms.`,
+    ).resolves.toBeDefined()
+
     const meter = startLagMeter()
     const outcome = await service
       .extract(unbudgetable, RESUME_DOCX_MIME, { timeoutMs: deadlineMs })
@@ -760,9 +795,9 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
     // a budget, so it does not need to be tight to be meaningful.
     expect(worstStall).toBeLessThan(500)
 
-    // UNCONDITIONALLY, because the outcome is not in doubt: the deadline is a
-    // quarter of the parse measured a moment ago on this machine, and the
-    // premise check above has already proved it clears process startup.
+    // UNCONDITIONALLY, because the outcome is not in doubt: the deadline is at
+    // most half of the parse measured a moment ago on this machine, and the
+    // control above has just shown it clears process startup.
     // Wrapping these in `if (outcome !== 'resolved')` would have been a test
     // that quietly asserts nothing on the day the containment breaks — which is
     // the one day it matters.
@@ -813,18 +848,12 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
     async () => {
       // The same ~4.15 MB expensive document as the test above. The 1 s CPU
       // rlimit below cannot be lowered (whole seconds, sandbox floor), so the
-      // fixture has to out-cost it: asserted from the measured parse, not
-      // assumed. Measured 2026-10-22 the fixture is ~1.5 s quiet, i.e. a 1.5x
-      // margin over the rlimit — the thinnest in this file, hence the check.
-      // The previous `buildAttributeBombDocx(60_000)` leaned on xmldom's
-      // quadratic attribute path, which 0.8.15 fixed.
-      const calibration = await calibrateExpensiveDocx()
-      const bomb = calibration.document
-      assertPremise(
-        calibration.parseMs >= EXTRACTION_CPU_SECONDS_FOR_SEAM * 1000 * CPU_OVER_RLIMIT,
-        `the document no longer out-costs the ${EXTRACTION_CPU_SECONDS_FOR_SEAM} s CPU rlimit`,
-        calibration,
-      )
+      // fixture has to out-cost it in CPU time — which this test observes by
+      // the kill itself rather than by a wall-clock proxy (see the note above
+      // `EXTRACTION_CPU_SECONDS_FOR_SEAM`). The previous
+      // `buildAttributeBombDocx(60_000)` leaned on xmldom's quadratic
+      // attribute path, which 0.8.15 fixed.
+      const bomb = (await calibrateExpensiveDocx()).document
 
       // Path 1 — the wall-clock deadline (`timedOut`).
       await expect(service.extract(bomb, RESUME_DOCX_MIME, { timeoutMs: 50 })).rejects.toThrow(
@@ -870,8 +899,13 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
       } finally {
         warned.mockRestore()
       }
-      expect(killed).toMatch(/слишком сложный/)
-      expect(logged).toMatch(/Extraction worker killed \(code null\)/)
+      const premiseGone =
+        `Test premise gone: the expensive document finished inside a ${EXTRACTION_CPU_SECONDS_FOR_SEAM} s ` +
+        `CPU rlimit (outcome ${JSON.stringify(killed)}). The fixture (buildExpensiveDocx) no longer ` +
+        `costs enough CPU time — the parser got faster or this machine did. Fix the FIXTURE ` +
+        `(a costlier shape that still passes the acceptance budgets); do not loosen this check.`
+      expect(killed, premiseGone).toMatch(/слишком сложный/)
+      expect(logged, premiseGone).toMatch(/Extraction worker killed \(code null\)/)
 
       // The message must not depend on the test seam: a 50 ms budget once
       // produced "не уложился в 0.05 с", which is true and useless to a user.
