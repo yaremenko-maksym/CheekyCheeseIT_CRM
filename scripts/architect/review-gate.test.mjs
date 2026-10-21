@@ -40,6 +40,7 @@ const pr = (over = {}) => ({
   labels: [],
   labelEvents: [],
   commits: [{ sha: HEAD, author: COLLAB, committer: COLLAB }],
+  pushers: [{ actor: COLLAB, activity_type: 'push', timestamp: '2026-10-21T09:00:00Z' }],
   ...over,
 })
 
@@ -47,7 +48,13 @@ const OWNER_COMMITS = [
   { sha: OLD, author: OWNER, committer: OWNER },
   { sha: HEAD, author: OWNER, committer: 'web-flow' },
 ]
-const ownerPr = (over = {}) => pr({ author: OWNER, commits: OWNER_COMMITS, ...over })
+const OWNER_PUSHERS = [
+  { actor: OWNER, activity_type: 'branch_creation', timestamp: '2026-10-21T08:00:00Z' },
+  { actor: OWNER, activity_type: 'push', timestamp: '2026-10-21T09:00:00Z' },
+]
+const ownerPr = (over = {}) =>
+  pr({ author: OWNER, commits: OWNER_COMMITS, pushers: OWNER_PUSHERS, ...over })
+const has = (r, re) => r.missing.some((m) => re.test(m))
 
 const SEC_APPROVE = review({
   body: 'Security Review: APPROVE\n\nOWASP checklist passed.',
@@ -75,8 +82,19 @@ test('owner PR + a collaborator commit → fail, naming the commit', () => {
     }),
   )
   assert.equal(r.pass, false)
-  assert.equal(r.missing.length, 1)
-  assert.match(r.missing[0], /commit ccccccc: author @collaborator, committer @collaborator/)
+  assert.ok(has(r, /no review by @repo-owner with `Verdict: APPROVE`/), r.missing.join('\n'))
+  assert.ok(has(r, /commit ccccccc: author @collaborator, committer @collaborator/))
+})
+
+test('owner PR + a collaborator commit, but owner verdicts on head → pass (reviewed contribution)', () => {
+  const r = evaluate(
+    ownerPr({
+      commits: [...OWNER_COMMITS, { sha: 'c'.repeat(40), author: COLLAB, committer: COLLAB }],
+      reviews: [review()],
+    }),
+  )
+  assert.equal(r.pass, true, r.missing.join('\n'))
+  assert.match(r.reason, /non-owner contribution/)
 })
 
 test('owner PR + owner-authored commit committed by the collaborator → fail', () => {
@@ -87,7 +105,7 @@ test('owner PR + owner-authored commit committed by the collaborator → fail', 
 test('owner PR + a commit whose email is linked to no account (null login) → fail', () => {
   const r = evaluate(ownerPr({ commits: [{ sha: HEAD, author: null, committer: null }] }))
   assert.equal(r.pass, false)
-  assert.match(r.missing[0], /email not linked to any account/)
+  assert.ok(has(r, /email not linked to any account/))
 })
 
 test('owner PR: web-flow is accepted as committer but never as author', () => {
@@ -125,7 +143,7 @@ test('owner PR + merge-approved applied by the owner → pass', () => {
 test('owner PR with a truncated commit list (commitCount > listed) → fail-closed', () => {
   const r = evaluate(ownerPr({ commitCount: 300 }))
   assert.equal(r.pass, false)
-  assert.match(r.missing[0], /300 commits but only 2 were listed/)
+  assert.ok(has(r, /300 commits but only 2 were listed/))
 })
 
 test('collaborator, no reviews → fail naming the missing code review', () => {
@@ -339,7 +357,8 @@ test('missing items are all listed together, not just the first', () => {
     }),
   )
   assert.equal(r.pass, false)
-  assert.equal(r.missing.length, 3) // code review, security review, label
+  // spoofing check (content not fetched), code review, security review, label
+  assert.equal(r.missing.length, 4, r.missing.join('\n'))
 })
 
 test('malformed input throws instead of passing (empty file list = the fetch did not run)', () => {
@@ -348,6 +367,8 @@ test('malformed input throws instead of passing (empty file list = the fetch did
   assert.throws(() => evaluate({ ...pr(), reviews: undefined }), /reviews must be an array/)
   assert.throws(() => evaluate(pr({ commits: [] })), /commits is empty/)
   assert.throws(() => evaluate({ ...pr(), commits: undefined }), /commits must be an array/)
+  const { pushers: _omit, ...noPushers } = pr()
+  assert.throws(() => evaluate(noPushers), /pushers must be an array or null/)
 })
 
 test('a truncated file list (changedFiles > listed) is treated as critical — fail-closed', () => {
@@ -360,6 +381,122 @@ test('a truncated file list (changedFiles > listed) is treated as critical — f
     evaluate(pr({ ...base, changedFiles: 3500, reviews: [review(), SEC_APPROVE] })).pass,
     true,
   )
+})
+
+// --- owner-authored PRs: authenticated pusher and event sender ---------------------------------
+
+test('owner PR whose head branch was pushed by the collaborator → reviews required', () => {
+  const pushers = [
+    ...OWNER_PUSHERS,
+    { actor: COLLAB, activity_type: 'push', timestamp: '2026-10-21T09:30:00Z' },
+  ]
+  const r = evaluate(ownerPr({ pushers }))
+  assert.equal(r.pass, false)
+  assert.ok(has(r, /pushed by @collaborator, not only by the owner/))
+  assert.equal(evaluate(ownerPr({ pushers, reviews: [review()] })).pass, true)
+})
+
+test('owner PR: a collaborator force_push counts; pushes before the last branch deletion do not', () => {
+  const force = [
+    ...OWNER_PUSHERS,
+    { actor: COLLAB, activity_type: 'force_push', timestamp: '2026-10-21T09:30:00Z' },
+  ]
+  assert.equal(evaluate(ownerPr({ pushers: force })).pass, false)
+  const reused = [
+    { actor: COLLAB, activity_type: 'push', timestamp: '2026-10-01T09:00:00Z' },
+    {
+      actor: 'github-actions[bot]',
+      activity_type: 'branch_deletion',
+      timestamp: '2026-10-02T09:00:00Z',
+    },
+    ...OWNER_PUSHERS,
+  ]
+  assert.equal(evaluate(ownerPr({ pushers: reused })).pass, true)
+})
+
+test('owner PR with the head branch in another repository (pushers null) → reviews required', () => {
+  const r = evaluate(ownerPr({ pushers: null }))
+  assert.equal(r.pass, false)
+  assert.ok(has(r, /head branch is in another repository/))
+})
+
+test('owner PR on a synchronize event sent by the collaborator → fail unless owner verdicts on head', () => {
+  const event = { name: 'synchronize', sender: COLLAB }
+  const r = evaluate(ownerPr({ event }))
+  assert.equal(r.pass, false)
+  assert.ok(has(r, /triggered by a push from @collaborator/))
+  assert.equal(evaluate(ownerPr({ event, reviews: [review()] })).pass, true)
+  assert.equal(evaluate(ownerPr({ event: { name: 'synchronize', sender: OWNER } })).pass, true)
+  // a non-owner label event is judged by the label check, not the push check
+  assert.equal(evaluate(ownerPr({ event: { name: 'labeled', sender: COLLAB } })).pass, true)
+})
+
+// --- check-name spoofing -----------------------------------------------------------------------
+
+const SPOOF =
+  'on: pull_request\njobs:\n  gate:\n    name: Review Gate\n    runs-on: ubuntu-latest\n    steps:\n      - run: exit 0\n'
+const fullyReviewed = [review(), SEC_APPROVE]
+const wfPr = (filename, status, content) =>
+  pr({
+    files: [{ filename, status }],
+    workflowFiles: content === undefined ? [] : [{ path: filename, content }],
+    reviews: fullyReviewed,
+  })
+
+test('non-owner PR adding a workflow with a job named "Review Gate" → fail regardless of reviews', () => {
+  const r = evaluate(wfPr('.github/workflows/fake.yml', 'added', SPOOF))
+  assert.equal(r.pass, false)
+  assert.match(
+    r.missing[0],
+    /spoofing check: `\.github\/workflows\/fake\.yml` mentions "Review Gate"/,
+  )
+})
+
+test('spoof match ignores case and punctuation (review-gate, format() assembly)', () => {
+  for (const content of [
+    'name: review-gate',
+    "name: ${{ format('{0} {1}', 'Review', 'Gate') }}",
+    'name: REVIEW  GATE',
+  ]) {
+    assert.equal(
+      evaluate(wfPr('.github/workflows/x.yml', 'modified', content)).pass,
+      false,
+      content,
+    )
+  }
+})
+
+test('a workflow change that does not name the gate, fully reviewed → pass', () => {
+  const r = evaluate(wfPr('.github/workflows/ci.yml', 'modified', 'name: CI\non: push\n'))
+  assert.equal(r.pass, true, r.missing.join('\n'))
+})
+
+test('a changed workflow whose content was not fetched → fail (unread is not clean)', () => {
+  const r = evaluate(wfPr('.github/workflows/ci.yml', 'modified', undefined))
+  assert.equal(r.pass, false)
+  assert.match(r.missing[0], /could not read/)
+  assert.equal(evaluate(wfPr('.github/workflows/ci.yml', 'modified', null)).pass, false)
+})
+
+test('a removed workflow file is not content-checked', () => {
+  const r = evaluate(wfPr('.github/workflows/old.yml', 'removed', undefined))
+  assert.equal(r.pass, true, r.missing.join('\n'))
+})
+
+// --- renames -----------------------------------------------------------------------------------
+
+test('a rename OUT of a critical zone is still critical (previous_filename is judged)', () => {
+  const files = [
+    {
+      filename: 'apps/api/src/misc/x.ts',
+      previous_filename: 'apps/api/src/finance/x.ts',
+      status: 'renamed',
+    },
+  ]
+  const r = evaluate(pr({ files, reviews: [review()] }))
+  assert.equal(r.pass, false)
+  assert.equal(r.critical[0].path, 'apps/api/src/finance/x.ts')
+  assert.equal(evaluate(pr({ files, reviews: [review(), SEC_APPROVE] })).pass, true)
 })
 
 // --- verdict parsing ---------------------------------------------------------------------------

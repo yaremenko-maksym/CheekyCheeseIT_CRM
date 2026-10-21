@@ -165,7 +165,8 @@ const APPROVE_STATES = new Set(['COMMENTED', 'APPROVED'])
  * @param {string} pr.author        PR author login
  * @param {string} pr.owner         repository owner login (from `github.repository_owner`)
  * @param {string} pr.headSha       PR head commit sha
- * @param {string[]} pr.files       changed file paths
+ * @param {Array<string|{filename:string,previous_filename?:string,status?:string}>} pr.files
+ *        changed files as returned by the pulls/files API (a bare path string is also accepted)
  * @param {number} [pr.changedFiles] the PR's own `changed_files` count (detects a truncated list)
  * @param {Array<{author:string,state:string,body:string,commit_id:string,submitted_at:string}>} pr.reviews
  * @param {string[]} pr.labels      current label names
@@ -173,6 +174,12 @@ const APPROVE_STATES = new Set(['COMMENTED', 'APPROVED'])
  * @param {Array<{sha:string,author:string|null,committer:string|null}>} pr.commits  PR commits with
  *        their GitHub-attributed logins (null = the email is linked to no account)
  * @param {number} [pr.commitCount] the PR's own `commits` count (detects a truncated list)
+ * @param {Array<{actor:string|null,activity_type:string,timestamp:string}>|null} pr.pushers
+ *        repository activity (pushes / branch creation) on the head branch — the AUTHENTICATED
+ *        account that moved the ref. `null` when the head branch lives in another repository
+ * @param {{name:string,sender:string}} [pr.event]  the triggering event and its sender
+ * @param {Array<{path:string,content:string|null}>} [pr.workflowFiles]  head-commit content of
+ *        every changed, not-removed `.github/workflows/` file (DATA, never executed)
  * @returns {{pass:boolean, reason:string, missing:string[], critical:Array<{path:string,glob:string}>}}
  */
 export function evaluate(pr) {
@@ -183,44 +190,50 @@ export function evaluate(pr) {
     throw err
   }
 
-  const { author, owner, headSha, files, reviews, labels, labelEvents } = pr
-  const critical = criticalPaths(files)
+  const { author, owner, headSha, reviews, labels, labelEvents } = pr
+  const files = normalizeFiles(pr.files)
+  const critical = criticalPaths(files.paths)
   // The pull-request files API lists at most 3000 files. If the PR reports more changed files
   // than were listed, the unlisted ones were never looked at — so the PR is treated as touching
   // a critical path (fail-closed) instead of being judged on the part that was read.
-  if (typeof pr.changedFiles === 'number' && pr.changedFiles > files.length) {
+  if (typeof pr.changedFiles === 'number' && pr.changedFiles > files.entries.length) {
     critical.push({
-      path: `(${pr.changedFiles - files.length} changed files not listed by the API)`,
+      path: `(${pr.changedFiles - files.entries.length} changed files not listed by the API)`,
       glob: 'unlisted',
     })
   }
 
   // The label check runs for EVERY PR, owner-authored included: `merge-approved` is the owner's
   // merge decision, and a collaborator applying it to an owner's PR is the same act as applying it
-  // to his own.
+  // to his own. Owner reviews do not cure it — only the owner re-applying the label does.
   const labelProblems = checkMergeLabel({ labels, labelEvents, owner })
 
-  // Owner-authored PRs do not need reviews here (they are reviewed in the Master pipeline), but
+  // Owner-authored PRs need no reviews here (they are reviewed in the Master pipeline), but
   // authorship alone is not enough: a write-role collaborator can push onto the owner's branch and
-  // then merge by hand. So every commit must be attributed to the owner. See `checkCommitIdentity`
-  // for why this is a best-effort signal and what the hard layer is.
+  // then merge by hand. Any sign of a non-owner contribution puts the PR on the review path below,
+  // exactly as if a collaborator had opened it.
+  let contributionSignals = []
   if (sameLogin(author, owner)) {
-    const missing = [
-      ...labelProblems,
+    contributionSignals = [
+      ...checkPushers({ pushers: pr.pushers, owner }),
+      ...checkEventSender({ event: pr.event, owner }),
       ...checkCommitIdentity({ commits: pr.commits, commitCount: pr.commitCount, owner }),
     ]
-    return {
-      pass: missing.length === 0,
-      reason:
-        missing.length === 0
-          ? `author @${author} is the repository owner and every commit is attributed to the owner — owner PRs are reviewed in the Master pipeline`
-          : 'owner-authored PR, but it carries a non-owner commit or label',
-      missing,
-      critical,
+    if (contributionSignals.length === 0) {
+      return {
+        pass: labelProblems.length === 0,
+        reason:
+          labelProblems.length === 0
+            ? `author @${author} is the repository owner and no non-owner contribution was found — owner PRs are reviewed in the Master pipeline`
+            : `owner-authored PR, but \`${MERGE_LABEL}\` was not applied by the owner`,
+        missing: labelProblems,
+        critical,
+      }
     }
   }
 
   const missing = []
+  missing.push(...checkWorkflowSpoof({ entries: files.entries, workflowFiles: pr.workflowFiles }))
   const ownerReviews = reviews
     .filter((r) => sameLogin(r.author, owner) && r.state !== 'PENDING')
     .map((r) => ({ ...r, verdict: parseVerdicts(r.body), at: ts(r.submitted_at) }))
@@ -278,6 +291,14 @@ export function evaluate(pr) {
 
   missing.push(...labelProblems)
 
+  if (contributionSignals.length && missing.length) {
+    missing.push(
+      ...contributionSignals.map(
+        (m) => `why reviews are required on this owner-authored PR — ${m}`,
+      ),
+    )
+  }
+
   if (ignoredSelf.length && missing.length) {
     const who = [...new Set(ignoredSelf.map((r) => `@${r.author}`))].join(', ')
     missing.push(
@@ -289,11 +310,97 @@ export function evaluate(pr) {
     pass: missing.length === 0,
     reason:
       missing.length === 0
-        ? `reviews by @${owner} cover head ${short(headSha)}`
+        ? `reviews by @${owner} cover head ${short(headSha)}${contributionSignals.length ? ' (owner-authored PR with a non-owner contribution)' : ''}`
         : 'required reviews are missing',
     missing,
     critical,
   }
+}
+
+/** Normalise the pulls/files list: every current path PLUS every rename source path. */
+export function normalizeFiles(files) {
+  const entries = files.map((f) =>
+    typeof f === 'string' ? { filename: f, previous_filename: null, status: 'modified' } : f,
+  )
+  const paths = []
+  for (const e of entries) {
+    paths.push(e.filename)
+    // A rename OUT of a critical zone removes a file from that zone; the old path must still be
+    // judged, or moving apps/api/src/finance/x.ts to elsewhere/x.ts would look non-critical.
+    if (e.previous_filename) paths.push(e.previous_filename)
+  }
+  return { entries, paths }
+}
+
+/**
+ * Check-name spoofing. A PR could add a `pull_request` workflow whose job is named `Review Gate`
+ * and always passes; GitHub would then show two checks of that name. So any changed (not removed)
+ * workflow file that mentions the gate's name fails the gate outright, whatever the reviews say.
+ * The match ignores case and every non-alphanumeric character, so `review-gate`, `Review  Gate`
+ * and a name assembled by `format('{0} {1}', 'Review', 'Gate')` are all caught. A file whose
+ * content could not be read counts as a match — an unread file is not a clean one.
+ * Consequence, accepted on purpose: a non-owner cannot edit the gate's own workflow files (or any
+ * workflow that names it) at all; the owner does that.
+ */
+export function checkWorkflowSpoof({ entries, workflowFiles }) {
+  const wf = entries.filter(
+    (e) => e.filename.startsWith('.github/workflows/') && e.status !== 'removed',
+  )
+  if (!wf.length) return []
+  const byPath = new Map((workflowFiles ?? []).map((w) => [w.path, w.content]))
+  const out = []
+  for (const e of wf) {
+    const content = byPath.get(e.filename)
+    if (typeof content !== 'string') {
+      out.push(
+        `spoofing check: could not read \`${e.filename}\` at the head commit — a workflow file that was not read cannot be cleared`,
+      )
+    } else if (
+      content
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '')
+        .includes('reviewgate')
+    ) {
+      out.push(
+        `spoofing check: \`${e.filename}\` mentions "Review Gate" — a PR by a non-owner must not add or change a workflow that names this gate (it could report a fake passing \`Review Gate\` check). The owner must make this change himself`,
+      )
+    }
+  }
+  return out
+}
+
+// Ref updates that count as a contribution to the head branch. `branch_deletion` is not one, and
+// only activity after the latest deletion counts — a branch name reused after deletion carries
+// none of its previous life.
+const PUSH_TYPES = new Set(['push', 'force_push', 'branch_creation'])
+
+/**
+ * Who moved the head branch. Unlike commit attribution this is the AUTHENTICATED account that
+ * pushed (the repository activity API), so it cannot be forged by writing an email into a commit.
+ */
+export function checkPushers({ pushers, owner }) {
+  if (pushers === null) {
+    return ['pushers: the head branch is in another repository, so who pushed it cannot be read']
+  }
+  const since = pushers
+    .filter((p) => p.activity_type === 'branch_deletion')
+    .reduce((m, p) => Math.max(m, ts(p.timestamp)), -Infinity)
+  const others = new Set()
+  for (const p of pushers) {
+    if (!PUSH_TYPES.has(p.activity_type) || ts(p.timestamp) < since) continue
+    if (!sameLogin(p.actor, owner)) others.add(p.actor ? `@${p.actor}` : '(unknown account)')
+  }
+  return others.size
+    ? [
+        `pushers: the head branch was pushed by ${[...others].join(', ')}, not only by the owner @${owner}`,
+      ]
+    : []
+}
+
+/** A `synchronize` (push) event whose sender is not the owner is a non-owner contribution. */
+export function checkEventSender({ event, owner }) {
+  if (!event || event.name !== 'synchronize' || sameLogin(event.sender, owner)) return []
+  return [`push: this run was triggered by a push from @${event.sender}, not the owner @${owner}`]
 }
 
 /** `merge-approved`, if present, must have been applied last by the owner. */
@@ -367,6 +474,13 @@ function validate(pr) {
   for (const k of ['files', 'reviews', 'labels', 'labelEvents', 'commits']) {
     if (!Array.isArray(pr[k])) p.push(`${k} must be an array`)
   }
+  if (!('pushers' in pr) || !(pr.pushers === null || Array.isArray(pr.pushers)))
+    p.push('pushers must be an array or null (null = head branch in another repository)')
+  if (
+    Array.isArray(pr.files) &&
+    pr.files.some((f) => typeof f !== 'string' && typeof f?.filename !== 'string')
+  )
+    p.push('files entries must be paths or objects with a filename')
   if (Array.isArray(pr.commits) && pr.commits.length === 0)
     p.push('commits is empty — the commit fetch returned nothing (a PR always has a commit)')
   // A PR always changes at least one file. An empty list means the fetch did not happen, and an
