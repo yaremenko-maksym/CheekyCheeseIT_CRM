@@ -258,7 +258,7 @@ BROKEN="$(hook_with_broken_lib "$WS" pre-bash-safety.sh)"
 
 assert_red "СЛОМАННЫЙ анализатор + опасная команда: блок, помеченный ДЕГРАДИРОВАННЫМ" \
   --contains "INTERNAL ERROR" \
-  --contains "ДЕГРАДИРОВАННЫЙ РЕЖИМ" \
+  --contains "DEGRADED MODE" \
   -- hook_at "$BROKEN" "psql -c '$DROP'" "$WS"
 
 assert_red "СЛОМАННЫЙ анализатор + безобидная команда: НЕ вердикт (нет decision-контракта)" \

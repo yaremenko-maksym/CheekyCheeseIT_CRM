@@ -869,12 +869,17 @@ assert_red "ОБХОД-2: env -S сам разбивает строку и за�
 # ── crash is not a verdict (AC6) ──────────────────────────────────────────────
 BROKEN="$(hook_with_broken_lib "$WS" pre-bash-live-db-guard.sh)"
 
-assert_red "СЛОМАННЫЙ анализатор + опасный запуск: блок, но помечен как ДЕГРАДИРОВАННЫЙ" \
+# These two labels are in ENGLISH while their neighbours are not, and that is
+# deliberate rather than a half-finished job: the hook body cites the first one
+# by name ("BROKEN analyzer + a dangerous launch"), and a cross-reference that
+# resolves to nothing is the same defect as a stale guarantee (CR-M-4). Labels
+# are otherwise out of scope for the translation — nothing asserts against them.
+assert_red "BROKEN analyzer + a dangerous launch: blocks, but labelled DEGRADED" \
   --contains "INTERNAL ERROR" \
-  --contains "ДЕГРАДИРОВАННЫЙ РЕЖИМ" \
+  --contains "DEGRADED MODE" \
   -- hook_at "$BROKEN" "pnpm --filter @crm/api dev"
 
-assert_red "СЛОМАННЫЙ анализатор + безобидное чтение: НЕ вердикт (нет decision-контракта)" \
+assert_red "BROKEN analyzer + a harmless read: NOT a verdict (no decision contract)" \
   --contains "INTERNAL ERROR" \
   --not-contains "decision" \
   -- hook_at "$BROKEN" "grep -rn 'pnpm dev' .claude/rules"
