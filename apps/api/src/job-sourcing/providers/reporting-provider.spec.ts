@@ -16,6 +16,7 @@ import {
   isValidatedConfig,
   markValidated,
   MAX_CURSOR_CHARS,
+  MAX_REDACTION_INPUT_CHARS,
   MAX_REQUEST_REPORTS,
   MAX_SAMPLE_CHARS,
   MAX_SAMPLES,
@@ -1027,5 +1028,101 @@ describe('a resumed attempt loses the FULL_INVENTORY claim (SPEC-L-2)', () => {
 
   it('reports FULL_INVENTORY for the same facts unresumed', () => {
     expect(deriveCoverage(facts({ resumed: false }))).toBe('FULL_INVENTORY')
+  })
+})
+
+describe('redaction cannot be made to hang by the text it redacts', () => {
+  /**
+   * A DENIAL OF SERVICE INTRODUCED BY THE FIX FOR A CREDENTIAL LEAK — worth naming as such, since
+   * hardening that trades one security defect for another is the failure mode of this whole round.
+   *
+   * `USERINFO_RE` shipped as `([^\s:/?#@]+):([^\s:/?#@]+)@`. On text shaped `'a:' + 'b'.repeat(n)`
+   * — allowed characters, one colon, NO `@` — the second group scans to the end and backtracks one
+   * character at a time from every start position. Measured on the shipped version: 119 ms at
+   * 10 KB, 2 786 ms at 50 KB, 11 773 ms at 100 KB. Clean O(n²), on text that comes from the
+   * provider's own error body, after the byte cap has already been spent.
+   *
+   * THIS IS A TIMING ASSERTION BECAUSE NOTHING ELSE SEPARATES THE TWO VERSIONS. The redacted
+   * output is identical either way, which is exactly why the quadratic version passed its tests.
+   */
+  const hostile = `a:${'b'.repeat(200_000)}`
+
+  it('redacts 200 KB of backtracking bait in milliseconds, not minutes', () => {
+    const started = Date.now()
+    redactSecrets(hostile, ['irrelevant-secret'])
+    const elapsed = Date.now() - started
+
+    // The shipped quadratic version needed ~45 s for this input; the bounded one needs ~1 ms,
+    // because the input bound truncates before the passes even run. 1 s leaves room for a loaded
+    // CI box without leaving room for the defect.
+    expect(elapsed).toBeLessThan(1_000)
+  })
+
+  it.each([
+    ['a URL field', (t: string) => redactUrl(t, [])],
+    ['free text', (t: string) => redactText(t, [])],
+    ['a bad item`s sample', (t: string) => buildInvalidSample(1, 'r', t, []).sample],
+  ])('holds for %s too', (_name, redact) => {
+    const started = Date.now()
+    redact(hostile)
+
+    expect(Date.now() - started).toBeLessThan(1_000)
+  })
+
+  it('bounds its input, so text beyond the bound cannot reach a report', () => {
+    const out = redactSecrets('x'.repeat(MAX_REDACTION_INPUT_CHARS + 500), [])
+
+    expect(out.length).toBe(MAX_REDACTION_INPUT_CHARS)
+  })
+})
+
+describe('the registered-secret pass runs BEFORE the structural ones', () => {
+  /**
+   * THE ORDERING DEFECT. The first edition ran `USERINFO_RE` first, so a registered secret shaped
+   * like `u:p@ss-tail` was mangled into `[REDACTED]:[REDACTED]@ss-tail` before the secret loop
+   * ever ran — and `ss-tail` was then no longer part of any registered form, matched nothing, and
+   * reached the report. The structural passes destroy the very text the secret loop needs in order
+   * to recognise a secret, so they must go last.
+   *
+   * The assertion is that NO PART survives, not that the whole string is absent: "the whole string
+   * is absent" is true of the broken version too, which is how it got through.
+   */
+  const SECRET_WITH_DELIMITERS = 'u:p@ss-tail'
+
+  it.each(['u:p@ss-tail', 'u:p@ss', 'p@ss-tail', 'ss-tail', 'u:p'])(
+    'leaves no trace of the fragment `%s`',
+    (fragment) => {
+      const out = redactSecrets(`upstream rejected ${SECRET_WITH_DELIMITERS} as a credential`, [
+        SECRET_WITH_DELIMITERS,
+      ])
+
+      expect(out).not.toContain(fragment)
+    },
+  )
+
+  it('replaces such a secret with exactly one marker', () => {
+    expect(redactSecrets(`key=${SECRET_WITH_DELIMITERS}`, [SECRET_WITH_DELIMITERS])).toBe(
+      `key=${REDACTED}`,
+    )
+  })
+
+  it('leaves no trace of a secret carrying an `@` in a reported URL', () => {
+    const report = buildRequestReport(
+      {
+        ...reportBase,
+        url: `https://api.example.com/j?page=1&sig=${encodeURIComponent(SECRET_WITH_DELIMITERS)}`,
+      },
+      [SECRET_WITH_DELIMITERS],
+    )
+
+    expect(report.url).not.toContain('ss-tail')
+    expect(report.url).not.toContain(encodeURIComponent('ss-tail'))
+  })
+
+  /** The structural pass must still fire on what the secret pass left behind. */
+  it('still removes a Basic credential whose base64 prefix a registered secret already matched', () => {
+    const out = redactSecrets('Authorization: Basic Ym9iOmh1bnRlcjI=', ['bob', 'hunter2'])
+
+    expect(out).toBe(`Authorization: Basic ${REDACTED}`)
   })
 })

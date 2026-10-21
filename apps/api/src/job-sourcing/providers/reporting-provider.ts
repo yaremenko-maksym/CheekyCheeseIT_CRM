@@ -259,9 +259,29 @@ const REPORTABLE_QUERY_KEYS: ReadonlySet<string> = new Set([
   'v',
 ])
 
-/** `Basic`/`Bearer` and friends, wherever they appear — a header echoed into an error message is
- *  the shape this catches. Structural: it does not need the credential to be registered. */
-const AUTH_SCHEME_RE = /\b(Basic|Bearer|Token|ApiKey)\s+([A-Za-z0-9+/=._~-]{4,})/gi
+/**
+ * THE INPUT BOUND, and why redaction needs one at all.
+ *
+ * Redaction runs on text DERIVED FROM UPSTREAM RESPONSES — a provider's error body, a refused
+ * item's JSON — so its input length is chosen by the provider, not by us. The byte cap and the
+ * page cap do not help: redaction happens after the bytes are already in hand.
+ *
+ * Every consumer in this module then truncates to `MAX_SAMPLE_CHARS` (200) or 500, so text beyond
+ * this bound can never reach a report. Bounding the INPUT is therefore free, and it is the layer
+ * that holds even if a future regex here is accidentally superlinear again.
+ */
+export const MAX_REDACTION_INPUT_CHARS = 8192
+
+/**
+ * `Basic`/`Bearer` and friends, wherever they appear — a header echoed into an error message is
+ * the shape this catches. Structural: it does not need the credential to be registered.
+ *
+ * The token class admits `[` and `]` so that a token ALREADY half-replaced by the registered-secret
+ * pass (`Basic [REDACTED]Omh1bnRlcjI=`, when `bob` is registered and its base64 prefix matched) is
+ * still recognised as one token and removed whole. Registered secrets now run first — see
+ * `redactSecrets` — so this is the normal case, not an edge one.
+ */
+const AUTH_SCHEME_RE = /\b(Basic|Bearer|Token|ApiKey)\s+([A-Za-z0-9+/=._~[\]-]{4,1024})/gi
 
 /**
  * `user:password@` wherever it appears, not only where `URL` calls it userinfo.
@@ -272,8 +292,19 @@ const AUTH_SCHEME_RE = /\b(Basic|Bearer|Token|ApiKey)\s+([A-Za-z0-9+/=._~-]{4,})
  * strip finds nothing, and `hunter2` reaches the report through the path. Redacting the shape
  * wherever it occurs costs us the occasional `a:b@c` in a path, which is the safe direction to err
  * in.
+ *
+ * THE QUANTIFIERS ARE BOUNDED, and that is a denial-of-service fix rather than tidiness. The first
+ * edition of this regex was `([^\s:/?#@]+):([^\s:/?#@]+)@` — unbounded — which on input shaped
+ * `'a:' + 'b'.repeat(n)` (allowed characters, one colon, NO `@`) backtracks one character at a
+ * time from every start position. Measured: 119 ms at 10 KB, 2 786 ms at 50 KB, 11 773 ms at
+ * 100 KB — clean O(n²), and this text comes from the provider. The same input with `{1,256}` runs
+ * in 10 / 55 / 122 ms.
+ *
+ * Note what the first edition's tests did NOT catch: they asserted the redacted OUTPUT, which is
+ * correct in both versions. A timing assertion with a real input is the only thing that separates
+ * them, so there is one.
  */
-const USERINFO_RE = /([^\s:/?#@]+):([^\s:/?#@]+)@/g
+const USERINFO_RE = /([^\s:/?#@]{1,256}):([^\s:/?#@]{1,256})@/g
 
 /** Enough of a URL to find one inside free text (an error message, a bad item's JSON). */
 const URL_IN_TEXT_RE = /\b[a-z][a-z0-9+.-]*:\/\/[^\s"'<>\\)\]}]+/gi
@@ -312,15 +343,32 @@ function secretForms(secret: string): string[] {
  * `redactUrl` runs a structural pass first — "credential-free by construction" cannot rest on a
  * list the adapter author remembered to fill in.
  */
-export function redactSecrets(text: string, secrets: readonly string[]): string {
+function redactRegisteredSecrets(text: string, secrets: readonly string[]): string {
   let out = text
-    .replace(AUTH_SCHEME_RE, (_m, scheme: string) => `${scheme} ${REDACTED}`)
-    .replace(USERINFO_RE, `${REDACTED}:${REDACTED}@`)
+  // LONGEST FIRST: an API key and a prefix of it can both be registered, and replacing the short
+  // one first would leave the tail of the long one standing.
   const usable = [...new Set(secrets.flatMap(secretForms))].sort((a, b) => b.length - a.length)
   for (const form of usable) {
     out = out.split(form).join(REDACTED)
   }
   return out
+}
+
+/** The structural passes: shapes that are credentials whether or not anyone registered them. */
+function redactStructural(text: string): string {
+  return text
+    .replace(AUTH_SCHEME_RE, (_m, scheme: string) => `${scheme} ${REDACTED}`)
+    .replace(USERINFO_RE, `${REDACTED}:${REDACTED}@`)
+}
+
+export function redactSecrets(text: string, secrets: readonly string[]): string {
+  // REGISTERED SECRETS FIRST, then the structural regexes. The order is load-bearing and the first
+  // edition had it backwards: a registered secret shaped like `u:p@ss-tail` was mangled by
+  // `USERINFO_RE` into `[REDACTED]:[REDACTED]@ss-tail` BEFORE the secret loop ran, so `ss-tail`
+  // was no longer part of any registered form, matched nothing, and survived into the report. The
+  // structural passes destroy the very text the secret loop needs to recognise, so they go last.
+  const bounded = text.slice(0, MAX_REDACTION_INPUT_CHARS)
+  return redactStructural(redactRegisteredSecrets(bounded, secrets))
 }
 
 /**
@@ -338,7 +386,7 @@ export function redactSecrets(text: string, secrets: readonly string[]): string 
 export function redactUrl(url: string, secrets: readonly string[]): string {
   let parsed: URL
   try {
-    parsed = new URL(url)
+    parsed = new URL(url.slice(0, MAX_REDACTION_INPUT_CHARS))
   } catch {
     return `${REDACTED} (unparsable url)`
   }
@@ -366,13 +414,15 @@ export function redactUrl(url: string, secrets: readonly string[]): string {
  * credentialed URL of its own (SR-L-3) — neither is a "url field", so neither reached `redactUrl`.
  */
 export function redactText(text: string, secrets: readonly string[]): string {
-  const withUrlsRedacted = text.replace(URL_IN_TEXT_RE, (match) => {
-    // A URL found in text usually ends in a delimiter the regex could not know about; trailing
-    // punctuation is trimmed back so the parse succeeds on the URL rather than on the sentence.
-    const trimmed = match.replace(/[.,;:!?]+$/, '')
-    const tail = match.slice(trimmed.length)
-    return redactUrl(trimmed, secrets) + tail
-  })
+  const withUrlsRedacted = text
+    .slice(0, MAX_REDACTION_INPUT_CHARS)
+    .replace(URL_IN_TEXT_RE, (match) => {
+      // A URL found in text usually ends in a delimiter the regex could not know about; trailing
+      // punctuation is trimmed back so the parse succeeds on the URL rather than on the sentence.
+      const trimmed = match.replace(/[.,;:!?]+$/, '')
+      const tail = match.slice(trimmed.length)
+      return redactUrl(trimmed, secrets) + tail
+    })
   return redactSecrets(withUrlsRedacted, secrets)
 }
 
