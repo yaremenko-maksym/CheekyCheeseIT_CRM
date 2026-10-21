@@ -523,6 +523,31 @@ assert_green "CR-M-3: heredoc с хвостовым комментарием —
 assert_green "CR-M-3: та же команда без комментария — тот же вердикт (пара)" \
   -- h "$CMT_TRAILING_PLAIN"
 
+# ...и обратная сторона той же правки: сохранять `pending` БЕЗУСЛОВНО открыло
+# fail-open на пяти формах. `#` съедает `)`, поэтому в одном чтении `$(` остаётся
+# незакрытым, а в другом нет, и спан освобождал тело, которое реально исполняется.
+# Внутри незакрытой подстановки два чтения локально непримиримы, поэтому там
+# `pending` сбрасывается: отказ вместо освобождения.
+CMT_IN_SUBST=$'cat <<\'EOF\' $(true #)\n`vite`\nEOF\n)'
+assert_red "CR-M-3 fail-open: \$(true #) съедает скобку — освобождения не даём" \
+  --contains '"decision": "block"' \
+  -- h "$CMT_IN_SUBST"
+
+CMT_IN_SUBST2=$'cat <<\'EOF\' $(true #)\n`pnpm --filter @crm/api dev`\nEOF\n)'
+assert_red "CR-M-3 fail-open: то же с pnpm dev в теле" \
+  --contains '"decision": "block"' \
+  -- h "$CMT_IN_SUBST2"
+
+CMT_IN_BACKTICK=$'cat <<\'EOF\' `true #`\n`vite`\nEOF\n`'
+assert_red "CR-M-3 fail-open: обратные кавычки вместо \$()" \
+  --contains '"decision": "block"' \
+  -- h "$CMT_IN_BACKTICK"
+
+CMT_IN_SUBST_NESTED=$'cat <<\'EOF\' $(echo $(true #))\n`vite`\nEOF\n)'
+assert_red "CR-M-3 fail-open: два уровня вложенности" \
+  --contains '"decision": "block"' \
+  -- h "$CMT_IN_SUBST_NESTED"
+
 UNTERMINATED=$'cat > note.md <<\'EOF\'\n$(pnpm --filter @crm/api dev)'
 assert_red "ДИФФЕРЕНЦИАЛ: heredoc без терминатора — неопределённость не даёт освобождения" \
   --contains '"decision": "block"' \

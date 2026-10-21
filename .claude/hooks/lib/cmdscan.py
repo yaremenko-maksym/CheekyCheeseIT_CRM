@@ -648,6 +648,10 @@ def _heredoc_literal_spans(text):
     spans = []
     pending = []
     quote = None
+    # Substitution nesting in the RAW text, tracked only to decide whether a
+    # word-initial "#" is at top level — see the comment branch below.
+    subst_depth = 0
+    in_backtick = False
     i = 0
     n = len(text)
     while i < n:
@@ -667,17 +671,49 @@ def _heredoc_literal_spans(text):
         if ch == "\\" and i + 1 < n:
             i += 2
             continue
-        # Device 1: the segmenter's own comment rule, same predicate, same flag.
-        # `pending` is deliberately NOT cleared, because _split_segments does not
-        # clear it either (CR-M-3). Clearing it made `cat <<'EOF' # note` refuse
-        # while the identical command without the comment was allowed — a false
-        # positive of precisely the kind this change exists to remove, and bash
-        # agrees with the segmenter here: a trailing comment does not cancel a
-        # heredoc the same line already opened. Convergence with the tokenizer of
-        # record is the rule; the two leaks this device closes are about an opener
-        # INSIDE a comment, which this still handles because the opener is then
-        # never seen at all.
+        if text.startswith("$(", i):
+            subst_depth += 1
+            i += 2
+            continue
+        if ch == ")" and subst_depth:
+            subst_depth -= 1
+            i += 1
+            continue
+        if ch == "`":
+            in_backtick = not in_backtick
+            i += 1
+            continue
+
+        # Device 1: the segmenter's own comment rule, same predicate, same flag —
+        # but `pending` survives the comment ONLY AT TOP LEVEL.
+        #
+        # Why conditional, in two corrections. First `pending` was cleared
+        # unconditionally, and that made `cat <<'EOF' # note` refuse while the
+        # identical command without the comment was allowed (CR-M-3) — a false
+        # positive of exactly the kind this change removes, and bash sides with
+        # the segmenter: a trailing comment does not cancel a heredoc the same
+        # line already opened. Then keeping it unconditionally opened a FAIL-OPEN,
+        # measured on five shapes of
+        #
+        #     cat <<'EOF' $(true #)      <- the "#" swallows the ")", so one
+        #     `vite`                        reading leaves `$(` unclosed and the
+        #     EOF                           other does not; the span then exempted
+        #     )                             a body that really executes.
+        #
+        # Inside an unclosed `$(` or backtick the two readings cannot be
+        # reconciled locally, because they disagree about where the substitution
+        # ENDS. So top level keeps the convergence, and anything deeper clears
+        # `pending` and inspects. Note the direction: here failing closed means
+        # NOT granting protection, the opposite surface from the four repros.
+        #
+        # The alternative — teach `_extract_substitutions` to honour word-initial
+        # comments the way bash does, so both readings agree on where `$(` ends —
+        # is the better fix and is deliberately NOT taken here: it changes
+        # substitution boundaries for all three consuming hooks, which is a
+        # blast radius that wants its own PR and its own corpus sweep.
         if ch == "#" and _STRIP_COMMENTS and _starts_word(text, i):
+            if subst_depth or in_backtick:
+                pending = []
             j = text.find("\n", i)
             i = n if j < 0 else j
             continue

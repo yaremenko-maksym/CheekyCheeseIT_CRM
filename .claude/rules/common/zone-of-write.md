@@ -128,12 +128,15 @@ the first edit check `git -C <worktree> status`; do NOT write to main-repo absol
   tests on the hooks he owns) and `tests/lib/command-corpus.txt`. Everything else in
   `scripts/devops/**` — DevOps. The reverse does **not** hold: DevOps does not edit
   `.claude/hooks/**`.
-- **Why the corpus is listed** (added 2026-10-21, PR #1067): it is the input data of
-  `test-pre-bash-*.sh` and of nothing else, and its own header requires rows to be added whenever
-  the shared command analyzer is touched. Splitting the data from the test that reads it would put
-  an Architect test in one PR and the rows it asserts against in someone else's. The original glob
-  `test-pre-*.sh` simply predates anyone noticing the data file — the question was asked and
-  answered once, and is written down here so it is not re-answered differently next time.
+- **Why the corpus is listed** (added 2026-10-21, PR #1067): it is the input data of the hook
+  tests — `test-pre-bash-*.sh`, plus `test-hook-command-corpus.sh` and `compare-hooks-to-ref.sh`,
+  which read the same corpus and match no `test-pre-*` glob — and its own header requires rows to
+  be added whenever the shared command analyzer is touched. Splitting the data from the tests that
+  read it would put an Architect test in one PR and the rows it asserts against in someone else's.
+  The original glob simply predates anyone noticing the data file — the question was asked and
+  answered once, and is written down here so it is not re-answered differently next time. The two
+  extra readers are named deliberately: an earlier edition of this line said "and nothing else",
+  which was false and is the kind of claim that rots unnoticed.
 
 If an edit goes beyond these boundaries too — `.blocked.md`, like everyone.
 
