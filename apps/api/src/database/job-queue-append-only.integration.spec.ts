@@ -2285,9 +2285,14 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       //    comment line begins with `--` and so can never begin with the append. That
       //    is not hypothetical: this file's own header explains how to read the count
       //    by grepping for this very fragment, and that sentence was itself counted,
-      //    so the prose documenting the instrument inflated the instrument's reading
-      //    (measured: 29 matches anywhere, 27 in statement position, 27 inventory
-      //    entries). Deciding by position is the same fix as AC6's `^CREATE /im` below,
+      //    so the prose documenting the instrument inflated the instrument's reading.
+      //    Measured on the commit this fixed: 29 matches anywhere, 2 of them on comment
+      //    lines, 27 in statement position against 27 inventory entries — which is the
+      //    `expected 29 to be 27` the suite reported. Those three numbers are a
+      //    HISTORICAL record of that failure and are not re-measured here; the current
+      //    ones are not written down at all, because the two assertions below measure
+      //    them and go red instead of going stale.
+      //    Deciding by position is the same fix as AC6's `^CREATE /im` below,
       //    which exists so the header's prose about `CREATE OR REPLACE` does not count
       //    as a statement — and it keeps working when the next true mention is added,
       //    which rewording the comment to dodge the grep would not.
