@@ -1304,7 +1304,8 @@ def _pkg_readonly_query(name, argv):
     subcommand (`audit fix`, `version patch`, and whatever the next release
     adds); this one refuses the token it has never seen.
     """
-    if name not in PKG_RUNNERS:
+    # PKG_QUERY_RUNNERS, not PKG_RUNNERS — see the note there (SR-M-1).
+    if name not in PKG_QUERY_RUNNERS:
         return False
     value_flags = PKG_VALUE_FLAGS | PKG_QUERY_VALUE_FLAGS
     subcmd = None
@@ -1689,10 +1690,14 @@ PKG_NON_RUN = {
     "audit", "publish", "store", "config", "link", "unlink", "init", "create",
     "licenses", "outdated", "pack", "prune", "rebuild", "root", "setup", "test",
     "build", "lint", "typecheck", "format",
-    # print-and-exit queries, added 2026-10-21 with the `pnpm why vite` repro.
-    # `version` is deliberately absent — see PKG_QUERY_SPEC.
-    "info", "view", "search", "whoami", "ping", "doctor", "bin", "help",
 }
+# ...and it is consulted ONLY for PKG_QUERY_RUNNERS. For `turbo` the operand of
+# any subcommand is itself a TASK NAME — measured on turbo 2.11.7,
+# `turbo why dev` runs the `why` task AND the `dev` task — so "the first
+# positional is a subcommand, the rest are inert selectors" is simply false for
+# it, and `yarn` 1.22.22 falls through to `yarn run <script>` for most of these
+# names. See PKG_QUERY_RUNNERS.
+PKG_QUERY_RUNNERS = {"pnpm", "npm"}
 
 # ── the ONE narrow grant of confidence to a package runner (2026-10-21) ───────
 # WHY A SEPARATE, SMALLER TABLE THAN PKG_NON_RUN. `pnpm why vite` was refused
@@ -1742,6 +1747,21 @@ PKG_NON_RUN = {
 # like `--fix` or `-c`, a verb like `fix`, anything a future release adds — and
 # the segment stays UNCERTAIN and goes through readings() exactly as before.
 #
+# AND THE GRANT IS KEYED ON PKG_QUERY_RUNNERS, NOT PKG_RUNNERS (SR-M-1). The
+# criterion below was checked against pnpm and npm; it was keyed on all five
+# runners, which asserted of `turbo`, `yarn` and `bun` something nobody had
+# verified — and for two of them it is false. Measured: `turbo why dev` runs the
+# `why` task and the `dev` task (turbo 2.11.7), so for turbo criteria 1 and 4
+# fail outright; `yarn` 1.22.22 falls through to `yarn run <script>` for 7 of the
+# 15 names. Sixteen `turbo|yarn <granted> dev` shapes flipped BLOCK -> ALLOW.
+#
+# They were inert only because turbo.json happens to define none of the fifteen
+# and no manifest script collides — i.e. the gate was CORRECT ONLY BECAUSE OF
+# FACTS IT DOES NOT READ. Add a turbo task named `info`, or a script named `ls`,
+# and the guard goes quiet with nothing to notice; and since the grant sets
+# confident=True, readings() is disabled on that segment too, so the fallback is
+# gone as well. turbo/yarn/bun therefore stay UNCERTAIN and are re-read.
+#
 # Operand policy per subcommand: "pkgs" = inert selectors are allowed;
 # "none" = the bare form only; a frozenset = exactly those literal words.
 PKG_QUERY_SPEC = {
@@ -1762,11 +1782,11 @@ PKG_QUERY_SPEC = {
     "bin": "none",
 }
 PKG_READONLY_SUBCMDS = frozenset(PKG_QUERY_SPEC)
-# The launcher predicate must agree with the confidence grant, or a segment
-# could be trusted and then judged by a table that does not know the subcommand.
-assert PKG_READONLY_SUBCMDS <= PKG_NON_RUN, (
-    "a read-only subcommand must also be non-run, or a segment would be trusted "
-    "and then judged by a table that does not know its subcommand")
+# The grant and the launcher predicate must be keyed on the SAME runner set, or a
+# segment could be trusted by one and judged by the other.
+assert PKG_QUERY_RUNNERS <= PKG_RUNNERS, "a query runner must be a known runner"
+assert not ({"turbo", "yarn", "bun"} & PKG_QUERY_RUNNERS), (
+    "turbo/yarn operands are task or script names, not inert selectors")
 # Flags of the runners themselves, as a COMPLETE grammar for the option region
 # in front of the subcommand. Unknown flag -> no grant (see above).
 PKG_BOOL_FLAGS = {
@@ -1840,7 +1860,13 @@ def is_dev_server_launch(seg):
             if inner and os.path.basename(inner[0]) == "vite":
                 return "%s exec vite" % name
             return None
-        if pos[0] in PKG_NON_RUN:
+        # "The first positional is a subcommand and the rest are inert" holds
+        # only for PKG_QUERY_RUNNERS. For turbo every operand is a task name
+        # (`turbo why dev` runs BOTH tasks, measured on 2.11.7) and yarn falls
+        # through to `yarn run <script>`, so for them nothing is skipped and the
+        # dev-script sweep below sees the whole positional list (SR-M-1).
+        if name in PKG_QUERY_RUNNERS and (
+                pos[0] in PKG_NON_RUN or pos[0] in PKG_READONLY_SUBCMDS):
             return None
         for tok in pos:
             if DEV_SCRIPT_RE.match(tok):
