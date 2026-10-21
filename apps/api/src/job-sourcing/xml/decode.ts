@@ -52,6 +52,8 @@ const UTF16_LABELS = new Set(['utf-16', 'utf-16le', 'utf-16be', 'utf16le', 'ucs-
  * byte cap.
  */
 const DECLARATION_SNIFF_BYTES = 512
+/** The same window, counted in characters, for a document already decoded. */
+const DECLARATION_SNIFF_CHARS = 512
 
 interface EncodingChoice {
   label: string
@@ -92,16 +94,9 @@ function sniffUtf16WithoutBom(bytes: Uint8Array): EncodingChoice | null {
   return null
 }
 
-/**
- * The `encoding="…"` label from the XML declaration, read from the leading bytes.
- *
- * Read with a NON-fatal UTF-8 decode, which is the one place a non-fatal decode is correct: we are
- * reading an ASCII label out of bytes whose encoding is not yet known, and every encoding XML
- * permits for a declaration is ASCII-compatible in that prefix. Any replacement characters this
- * produces are in bytes we discard; the real decode below is fatal.
- */
-function readDeclaredEncoding(bytes: Uint8Array): string | null {
-  const head = new TextDecoder('utf-8').decode(bytes.subarray(0, DECLARATION_SNIFF_BYTES))
+/** The `encoding="…"` label from the XML declaration of an already-DECODED document. */
+function readDeclaredEncodingFromText(text: string): string | null {
+  const head = text.slice(0, DECLARATION_SNIFF_CHARS)
   const declarationEnd = head.indexOf('?>')
   if (!head.startsWith('<?xml') || declarationEnd === -1) return null
   const match = /\bencoding\s*=\s*("([^"]*)"|'([^']*)')/.exec(head.slice(0, declarationEnd))
@@ -109,26 +104,58 @@ function readDeclaredEncoding(bytes: Uint8Array): string | null {
   return match[2] ?? match[3] ?? null
 }
 
+/**
+ * The declaration read from the leading BYTES, for the case where nothing was sniffed.
+ *
+ * A NON-fatal UTF-8 decode, which is the one place a non-fatal decode is correct: we are reading
+ * an ASCII label out of bytes whose encoding is not yet known, and every encoding XML permits for
+ * a document with no BOM and no UTF-16 shape is ASCII-compatible across that prefix. Any
+ * replacement characters land in bytes we then discard; the real decode is fatal.
+ *
+ * **This function cannot read a UTF-16 declaration, and that is why it is not the only path.** A
+ * UTF-16 document's bytes are `3C 00 3F 00 78 00 …`; decoded as UTF-8 they do not begin with
+ * `<?xml`, so this returns `null` and every comparison against the declaration silently becomes
+ * vacuous. That is the same defect class as the byte-level `<!DOCTYPE` check R-3 is about — a
+ * check whose failure looks exactly like "nothing to check" — and it is why `decodeXml` resolves
+ * the encoding FAMILY first and reads the declaration from the decoded text afterwards.
+ */
+function readDeclaredEncodingFromBytes(bytes: Uint8Array): string | null {
+  return readDeclaredEncodingFromText(
+    new TextDecoder('utf-8').decode(bytes.subarray(0, DECLARATION_SNIFF_BYTES)),
+  )
+}
+
 /** Normalised for comparison only — the verbatim label is what we report. */
 const normalise = (label: string): string => label.trim().toLowerCase()
 
 /**
- * Resolve the encoding, decode fatally, and report which of the two sources won.
+ * Resolve the encoding, decode fatally, and report which source won.
  *
- * BOM beats the declaration, per the XML spec. The one case worth its own reason code is a UTF-16
- * BOM against a declaration naming a single-byte encoding (or the reverse): that is not a
- * precedence question, it is a document asserting two incompatible things about itself, and
- * decoding it either way yields plausible-looking nonsense. Drift, not content.
+ * THE ORDER IS THE SUBSTANCE. The encoding FAMILY is resolved first, from the BOM or the UTF-16
+ * byte shape, because only then is the XML declaration readable: a UTF-16 document's bytes are
+ * `3C 00 3F 00 78 00 …`, and a UTF-8 read of that prefix does not begin with `<?xml`, so a
+ * declaration check placed before the decode returns `null` and every comparison against it
+ * becomes vacuous — indistinguishable from "this document declared nothing". That is the same
+ * defect R-3 names for the byte-level `<!DOCTYPE` check, in the neighbouring step. It was caught
+ * here by the conflict test failing, not by reading the code.
+ *
+ * BOM beats the declaration, per the XML spec. The one case worth its own reason is a UTF-16 BOM
+ * against a declaration naming a single-byte encoding (or the reverse): not a precedence question
+ * but a document asserting two incompatible things about itself, which decodes either way to
+ * plausible-looking nonsense. Drift, not content.
  */
 export function decodeXml(bytes: Uint8Array): DecodedXml {
-  const declaredEncoding = readDeclaredEncoding(bytes)
-  const bom = sniffBom(bytes)
-  const sniffed = bom ?? sniffUtf16WithoutBom(bytes)
+  const sniffed = sniffBom(bytes) ?? sniffUtf16WithoutBom(bytes)
+  const choice: EncodingChoice =
+    sniffed ?? resolveFromDeclaration(readDeclaredEncodingFromBytes(bytes))
+  const text = decodeWith(choice, bytes)
+  // Read from the DECODED text in every case, so a UTF-16 document's own declaration is visible.
+  const declaredEncoding = readDeclaredEncodingFromText(text)
 
   if (sniffed !== null && declaredEncoding !== null) {
-    const bomIsUtf16 = UTF16_LABELS.has(normalise(sniffed.label))
+    const sniffedIsUtf16 = UTF16_LABELS.has(normalise(sniffed.label))
     const declaredIsUtf16 = UTF16_LABELS.has(normalise(declaredEncoding))
-    if (bomIsUtf16 !== declaredIsUtf16) {
+    if (sniffedIsUtf16 !== declaredIsUtf16) {
       throw new XmlPortError(
         'ENCODING_CONFLICT',
         `byte-order mark says ${sniffed.label} but the XML declaration says ${declaredEncoding}`,
@@ -136,12 +163,21 @@ export function decodeXml(bytes: Uint8Array): DecodedXml {
     }
   }
 
-  const choice: EncodingChoice =
-    sniffed ??
-    (declaredEncoding !== null
-      ? { label: declaredEncoding, source: 'declaration', bomLength: 0 }
-      : { label: 'utf-8', source: 'default', bomLength: 0 })
+  return {
+    text,
+    effectiveEncoding: choice.label,
+    declaredEncoding,
+    source: choice.source,
+  }
+}
 
+function resolveFromDeclaration(declaredEncoding: string | null): EncodingChoice {
+  return declaredEncoding !== null
+    ? { label: declaredEncoding, source: 'declaration', bomLength: 0 }
+    : { label: 'utf-8', source: 'default', bomLength: 0 }
+}
+
+function decodeWith(choice: EncodingChoice, bytes: Uint8Array): string {
   // `InstanceType<typeof TextDecoder>` rather than `TextDecoder`: under `@types/node` 20 the
   // global `TextDecoder` is a value, not a type. Not a cast — it asserts nothing the compiler
   // would otherwise check.
@@ -159,21 +195,13 @@ export function decodeXml(bytes: Uint8Array): DecodedXml {
     )
   }
 
-  let text: string
   try {
-    text = decoder.decode(bytes.subarray(choice.bomLength))
+    return decoder.decode(bytes.subarray(choice.bomLength))
   } catch (cause) {
     throw new XmlPortError(
       'UNDECODABLE',
       `bytes are not valid ${choice.label} (decoded with fatal: true)`,
       { cause },
     )
-  }
-
-  return {
-    text,
-    effectiveEncoding: choice.label,
-    declaredEncoding,
-    source: choice.source,
   }
 }
