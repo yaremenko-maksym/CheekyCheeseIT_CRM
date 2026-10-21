@@ -77,6 +77,38 @@ describe('computeContentHash: fields that must NOT move the hash', () => {
   })
 })
 
+describe('computeContentHash: golden digest (ch1 stability pin)', () => {
+  // IF THIS TEST FAILS, THE CANONICAL PAYLOAD CHANGED (field order, sort order, normalization,
+  // param stripping or date encoding). Digests already stored in `job_source_record_revisions`
+  // would silently stop matching. Do NOT just update the literal: bump CONTENT_HASH_VERSION
+  // ('ch1' -> 'ch2') so the churn is deliberate, then re-pin here under the new version.
+  it('ch1 digest of one fixed input never moves without a version bump', () => {
+    expect(CONTENT_HASH_VERSION).toBe('ch1')
+    expect(
+      computeContentHash({
+        title: 'Senior Backend Engineer',
+        companyName: 'Acme',
+        location: 'Kyiv',
+        descriptionMd: 'Build APIs.\n\nApply at https://acme.example/apply?job=5&utm_source=x',
+        remote: true,
+        employmentType: 'full_time',
+        seniorityHint: 'Senior',
+        tags: ['postgres', 'node', 'node'],
+        applicationUrl: 'https://acme.example/apply?z=1&job=5&utm_campaign=y',
+        dates: [
+          {
+            semantics: 'PUBLISHED',
+            contract: 'ISO_ZONED',
+            raw: '2026-10-01T00:00:00Z',
+            value: new Date('2026-10-01T00:00:00Z'),
+            status: 'OK',
+          },
+        ],
+      }),
+    ).toBe('e643b70c79e0b7694cc12547399bd00dcd73cb5d01b082a410158f11cdb6fea9')
+  })
+})
+
 describe('computeContentHash: application URL `ref`', () => {
   it('two apply links differing only by ref hash differently (the stored link would go stale)', () => {
     expect(hash({ applicationUrl: 'https://acme.example/apply?ref=job1' })).not.toBe(
