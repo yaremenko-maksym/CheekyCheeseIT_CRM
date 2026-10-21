@@ -16,7 +16,10 @@ const keyOf = (
 describe('buildIdentity: URL fallback', () => {
   it('without a native id the identity is URL-kind, with nativeId null', () => {
     const r = buildIdentity({ ...base, url: 'https://jobs.example/j/1', identityParams: [] })
-    expect(r).toMatchObject({ ok: true, identity: { identityKind: 'URL', nativeId: null } })
+    expect(r).toMatchObject({
+      ok: true,
+      identity: { identityKind: 'URL_FALLBACK', nativeId: null },
+    })
   })
 
   it('a blank or unusable native id falls back to the URL instead of becoming an empty-id key', () => {
@@ -29,7 +32,7 @@ describe('buildIdentity: URL fallback', () => {
       })
       expect(r, JSON.stringify(nativeId)).toMatchObject({
         ok: true,
-        identity: { identityKind: 'URL' },
+        identity: { identityKind: 'URL_FALLBACK' },
       })
     }
   })
@@ -100,32 +103,38 @@ describe('buildIdentity: URL fallback', () => {
 })
 
 describe('buildIdentity: URL fallback, canonical pair order is pinned (not merely stable)', () => {
-  /** The `[name, value]` pairs exactly as they sit in the persisted key (last tuple element). */
-  const pairsOf = (query: string, params: readonly string[]) => {
+  /**
+   * The canonical params exactly as they sit in the persisted key (last tuple element). They are
+   * encoded `name=value` strings, not `[name, value]` pairs: `canonicalParams` is now the single
+   * canonical order shared with `content-hash.ts`, which replaced the hand-written pairwise
+   * comparator this file was written against. The ordering property pinned below is unchanged, and
+   * pinning it is what makes the shared helper's order observable at all.
+   */
+  const paramsOf = (query: string, params: readonly string[]) => {
     const tuple: unknown = JSON.parse(keyOf(`https://jobs.example/view?${query}`, params))
     if (!Array.isArray(tuple)) throw new Error('key is not a tuple')
-    return tuple[tuple.length - 1] as Array<[string, string]>
+    return tuple[tuple.length - 1] as string[]
   }
 
-  it('orders pairs by name ascending whatever order the URL lists them in', () => {
-    // Literal expectations: a reversed comparator still makes the URLs equal to EACH OTHER, so
-    // only an assertion on the order itself can fail.
-    const expected = [
-      ['a', '9'],
-      ['b', '1'],
-      ['c', '5'],
-    ]
-    expect(pairsOf('c=5&a=9&b=1', ['a', 'b', 'c'])).toEqual(expected)
-    expect(pairsOf('a=9&b=1&c=5', ['a', 'b', 'c'])).toEqual(expected)
+  it('orders params by name ascending whatever order the URL lists them in', () => {
+    // Literal expectations: a reversed order still makes the two URLs equal to EACH OTHER, so only
+    // an assertion on the order itself can fail.
+    const expected = ['a=9', 'b=1', 'c=5']
+    expect(paramsOf('c=5&a=9&b=1', ['a', 'b', 'c'])).toEqual(expected)
+    expect(paramsOf('a=9&b=1&c=5', ['a', 'b', 'c'])).toEqual(expected)
   })
 
-  it('orders pairs sharing a name by value ascending (code-unit order, not numeric)', () => {
-    const expected = [
-      ['id', '1'],
-      ['id', '10'],
-      ['id', '2'],
-    ]
-    expect(pairsOf('id=2&id=10&id=1', ['id'])).toEqual(expected)
-    expect(pairsOf('id=1&id=10&id=2', ['id'])).toEqual(expected)
+  it('orders params sharing a name by value ascending (code-unit order, not numeric)', () => {
+    const expected = ['id=1', 'id=10', 'id=2']
+    expect(paramsOf('id=2&id=10&id=1', ['id'])).toEqual(expected)
+    expect(paramsOf('id=1&id=10&id=2', ['id'])).toEqual(expected)
+  })
+
+  it('a name or value containing a separator cannot imitate one', () => {
+    // Why encoding happens BEFORE the sort: `=` and `&` are escaped, so no param can forge a
+    // boundary in the encoded form the way a raw `name=value` join would allow.
+    // Two DIFFERENT params: name `a=b` with value `1`, and name `a` with value `b=1`. Encoded they
+    // stay distinct (`a%3Db=1` vs `a=b%3D1`) where a raw join would make both `a=b=1`.
+    expect(paramsOf('a%3Db=1&a=b%3D1', ['a', 'a=b'])).toEqual(['a%3Db=1', 'a=b%3D1'])
   })
 })

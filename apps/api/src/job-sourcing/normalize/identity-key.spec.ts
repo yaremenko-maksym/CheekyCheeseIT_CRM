@@ -28,7 +28,7 @@ describe('encodeIdentityTuple: delimiter collisions', () => {
   )
 
   it('is deterministic and parses back to exactly the component list', () => {
-    const parts = ['v1', 'NATIVE', 'REMOTEOK_API', 'board', 'id"with\\odd|chars']
+    const parts = ['v1', 'NATIVE_ID', 'REMOTEOK_API', 'board', 'id"with\\odd|chars']
     expect(encodeIdentityTuple(parts)).toBe(encodeIdentityTuple([...parts]))
     expect(JSON.parse(encodeIdentityTuple(parts))).toEqual(parts)
   })
@@ -45,7 +45,7 @@ describe('buildIdentity: native id', () => {
         provider: 'REMOTEOK_API',
         namespace: 'board',
         nativeId: '12345',
-        identityKind: 'NATIVE',
+        identityKind: 'NATIVE_ID',
       },
     })
   })
@@ -66,7 +66,7 @@ describe('buildIdentity: native id', () => {
     // Precondition: delimiter-joining the REAL key layout collides for this pair. The layout is the
     // builder's own (version, kind, provider, namespace, id), so this fixture can actually fail.
     const naiveKey = (i: typeof left | typeof right) =>
-      naiveJoin([IDENTITY_KEY_VERSION, 'NATIVE', i.provider, i.namespace, i.nativeId])
+      naiveJoin([IDENTITY_KEY_VERSION, 'NATIVE_ID', i.provider, i.namespace, i.nativeId])
     expect(naiveKey(left)).toBe(naiveKey(right))
     const a = keyOf(left)
     const b = keyOf(right)
@@ -107,14 +107,14 @@ describe('buildIdentity: persisted key layout and limits (literal expectations)'
 
   it('a native identity key is exactly [version, NATIVE, provider, namespace, id]', () => {
     expect(keyOf({ ...base, nativeId: '12345' })).toBe(
-      '["v1","NATIVE","REMOTEOK_API","board","12345"]',
+      '["v1","NATIVE_ID","REMOTEOK_API","board","12345"]',
     )
   })
 
-  it('a URL identity key is exactly [version, URL, provider, namespace, host, path, pairs]', () => {
+  it('a URL identity key is exactly [version, URL_FALLBACK, provider, namespace, host, path, params]', () => {
     // identityParams omitted on purpose: the default is "no identity params".
     expect(keyOf({ ...base, nativeId: null, url: 'https://jobs.example/j/1/?id=7&utm=x' })).toBe(
-      '["v1","URL","REMOTEOK_API","board","jobs.example","/j/1",[]]',
+      '["v1","URL_FALLBACK","REMOTEOK_API","board","jobs.example","/j/1",[]]',
     )
   })
 
@@ -123,7 +123,7 @@ describe('buildIdentity: persisted key layout and limits (literal expectations)'
     // quietly allows something.
     const url = 'https://jobs.example/j/1?Stryker%20was%20here=1&id=7'
     expect(keyOf({ ...base, nativeId: null, url })).toBe(
-      '["v1","URL","REMOTEOK_API","board","jobs.example","/j/1",[]]',
+      '["v1","URL_FALLBACK","REMOTEOK_API","board","jobs.example","/j/1",[]]',
     )
   })
 
@@ -137,7 +137,7 @@ describe('buildIdentity: persisted key layout and limits (literal expectations)'
 
   it('accepts a native id of exactly 256 chars; 257 falls back to the URL', () => {
     const at = buildIdentity({ ...base, nativeId: 'i'.repeat(256) })
-    expect(at).toMatchObject({ ok: true, identity: { identityKind: 'NATIVE' } })
+    expect(at).toMatchObject({ ok: true, identity: { identityKind: 'NATIVE_ID' } })
     expect(buildIdentity({ ...base, nativeId: 'i'.repeat(257) })).toEqual({
       ok: false,
       reason: 'NO_IDENTITY',

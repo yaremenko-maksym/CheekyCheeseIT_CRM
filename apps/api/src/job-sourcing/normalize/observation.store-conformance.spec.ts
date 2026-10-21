@@ -105,7 +105,7 @@ describe('a built observation is accepted by the phase-1 store schemas', () => {
         descriptionKind: 'html',
         applicationUrl: 'https://apply.example/j/1',
         tags: ['typescript', 'nestjs'],
-        dates: [{ semantics: 'PUBLISHED', raw: '2026-10-01T00:00:00.000Z' }],
+        dates: [{ semantics: 'PUBLISHED', contract: 'ISO_ZONED', raw: '2026-10-01T00:00:00.000Z' }],
       }),
     )
     expect(revision.location).toBe('Kyiv')
@@ -122,7 +122,9 @@ describe('at each boundary the store imposes (every one of these once produced a
     const namespace = 'n'.repeat(100)
     // Per input: the quarantine reason, or the key length of a row the store then parses. Collected
     // and asserted in one shot, so neither outcome can slip through as an un-run branch.
-    const outcomes = [1900, 1980, 2000, 2020, MAX_LINK_CHARS - 22].map((pathLength) => {
+    // Measured threshold with a 100-character namespace: a path of 1880 encodes to a 2036-character
+    // key (storable) and 1900 to 2056 (not). The range straddles it deliberately.
+    const outcomes = [1000, 1800, 1880, 1900, MAX_LINK_CHARS - 22].map((pathLength) => {
       const url = `https://jobs.example/${'p'.repeat(pathLength)}`
       const result = buildSourceObservation(raw({ namespace, url }))
       if (!result.ok) return { pathLength, reason: result.reason }
@@ -142,7 +144,7 @@ describe('at each boundary the store imposes (every one of these once produced a
     // Binds MAX_IDENTITY_KEY_CHARS to the schema instead of trusting two literals to match: a key
     // of exactly the cap parses and a key one longer is refused, both decided by the schema itself.
     const atCap = 'k'.repeat(MAX_IDENTITY_KEY_CHARS)
-    const base = toStoredIdentity(built())
+    const base = toStoredIdentity(built().identity)
     expect(() => jobSourceIdentitySchema.parse({ ...base, identityKey: atCap })).not.toThrow()
     expect(() => jobSourceIdentitySchema.parse({ ...base, identityKey: `${atCap}x` })).toThrow()
   })

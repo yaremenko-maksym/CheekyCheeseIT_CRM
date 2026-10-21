@@ -164,7 +164,11 @@ describe('content hash reacts to every hashed field', () => {
 
 describe('INVALID_RECORD quarantine', () => {
   it('a link whose canonical form outgrows the stored limit is quarantined, not stored cut', () => {
+    // Still quarantined, now one step EARLIER and under a different reason. 700 `é` serialise to
+    // 4200 percent-encoded characters, so the link policy itself refuses the URL (SR-M-1: the cap
+    // is measured on the stored `href`, not the raw text) instead of the normalizer rejecting the
+    // record further down. The property this test exists for — never stored cut — is unchanged.
     const url = `https://www.reed.co.uk/jobs/${'é'.repeat(700)}`
-    expect(build({ url })).toEqual({ ok: false, reason: 'INVALID_RECORD' })
+    expect(build({ url })).toEqual({ ok: false, reason: 'UNSAFE_URL' })
   })
 })

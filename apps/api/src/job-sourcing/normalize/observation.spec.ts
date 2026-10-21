@@ -38,7 +38,7 @@ describe('buildSourceObservation: shape', () => {
       provider: 'REED_API',
       namespace: 'reed-uk',
       nativeId: '555',
-      identityKind: 'NATIVE',
+      identityKind: 'NATIVE_ID',
     })
     expect(o.sourcePostingUrl).toBe('https://www.reed.co.uk/jobs/dev/555')
     expect(o.applicationUrl).toBe('https://www.reed.co.uk/jobs/dev/555/apply?utm_campaign=y')
@@ -54,7 +54,7 @@ describe('buildSourceObservation: shape', () => {
       url: 'https://news.example/item?id=42&utm=x',
       identityParams: ['id'],
     })
-    expect(o.identity.identityKind).toBe('URL')
+    expect(o.identity.identityKind).toBe('URL_FALLBACK')
     expect(o.sourcePostingUrl).toBe('https://news.example/item?id=42')
     expect(o.identity.identityKey).not.toBe(
       ok({ nativeId: null, url: 'https://news.example/item?id=43', identityParams: ['id'] })
