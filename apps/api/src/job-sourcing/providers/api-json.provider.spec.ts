@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
+import { AdapterIdentityCollisionError } from './api-json.provider'
 import {
   type ApiJsonSourceSpec,
   baseSourceConfigSchema,
@@ -7,8 +8,10 @@ import {
   DEFAULT_OVERLAP_MS,
   defineApiJsonProvider,
 } from './api-json.provider'
+import { DEFAULT_API_JSON_LIMITS } from './api-json.limits'
 import {
   type CollectionContext,
+  type FetchRequest,
   markValidated,
   type MeterReservation,
   REDACTED,
@@ -104,6 +107,9 @@ interface Harness {
   calls: string[]
   reconciles: Array<{ id: string; resolution: ReservationResolution }>
   saved: ValidatedCheckpoint[]
+  /** Every outgoing request, so the conditional-request header can be asserted. */
+  sent: FetchRequest[]
+  cache: Map<string, { etag: string; bodyText: string }>
 }
 
 function harness(opts: {
@@ -112,6 +118,9 @@ function harness(opts: {
   savePageFailsOnPage?: number
   reserveRefusesOnCall?: number
   aborted?: boolean
+  /** Abort DURING the fetch, so the in-flight cancellation path is reached rather than the
+   * pre-request check. */
+  abortOnFetch?: number
   now?: Date
   deadline?: Date
   secrets?: string[]
@@ -119,6 +128,7 @@ function harness(opts: {
   policyVersion?: number
 }): Harness {
   const calls: string[] = []
+  const sent: FetchRequest[] = []
   const reconciles: Array<{ id: string; resolution: ReservationResolution }> = []
   const saved: ValidatedCheckpoint[] = []
   const cache = new Map(Object.entries(opts.cacheSeed ?? {}))
@@ -134,10 +144,15 @@ function harness(opts: {
     deadline: opts.deadline ?? new Date('2030-01-01T00:00:00Z'),
     now: () => opts.now ?? new Date('2026-10-20T10:00:00Z'),
     secrets: opts.secrets ?? [],
-    async fetchText() {
+    async fetchText(request) {
       const page = opts.pages[fetches]
       fetches += 1
+      sent.push(request)
       calls.push(`fetch:${fetches}`)
+      if (opts.abortOnFetch === fetches) {
+        controller.abort()
+        throw new Error('aborted')
+      }
       if (page === undefined) throw new Error(`no fake response for fetch ${fetches}`)
       if (page.throws !== undefined) throw page.throws
       return {
@@ -182,7 +197,7 @@ function harness(opts: {
     },
   }
 
-  return { ctx, calls, reconciles, saved }
+  return { ctx, calls, reconciles, saved, sent, cache }
 }
 
 const onePage = (jobs: unknown[]) => ({ body: { jobs, next: null } })
@@ -941,5 +956,316 @@ describe('defineApiJsonProvider', () => {
     // The spec is data: every key is config, a schema or a pure mapping function.
     expect(Object.keys(makeSpec())).not.toContain('collectReport')
     expect(markValidated({ namespace: 'b', configVersion: 1 })).toBeDefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The boundaries the mutation gate found untested
+// ---------------------------------------------------------------------------
+
+describe('HTTP status classification', () => {
+  it.each([200, 201, 299])('treats %i as a success', async (status) => {
+    const h = harness({ pages: [{ status, body: { jobs: [job('1')], next: null } }] })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+    expect(batch.outcome).toBe('SUCCEEDED')
+  })
+
+  it.each([300, 400, 404, 499, 500, 502])('treats %i as UPSTREAM', async (status) => {
+    const h = harness({ pages: [{ status }] })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+    expect(batch.requests.at(-1)?.error?.code).toBe('UPSTREAM')
+    expect(batch.outcome).toBe('FAILED')
+  })
+
+  it('names the status in the failure message, so an operator need not guess', async () => {
+    const h = harness({ pages: [{ status: 503 }] })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+    expect(batch.requests.at(-1)?.error?.message).toBe('provider answered HTTP 503')
+  })
+})
+
+describe('the deadline boundary', () => {
+  it('stops when the clock has REACHED the deadline, not only once it is past', async () => {
+    const instant = new Date('2026-10-20T10:00:00Z')
+    const h = harness({ pages: [onePage([job('1')])], now: instant, deadline: instant })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(batch.requests.at(-1)?.error?.code).toBe('DEADLINE')
+    expect(h.calls).not.toContain('fetch:1')
+  })
+
+  it('proceeds with one millisecond left', async () => {
+    const h = harness({
+      pages: [onePage([job('1')])],
+      now: new Date('2026-10-20T10:00:00.000Z'),
+      deadline: new Date('2026-10-20T10:00:00.001Z'),
+    })
+    await expect(collectJsonPages(makeSpec(), config(), h.ctx)).resolves.toMatchObject({
+      outcome: 'SUCCEEDED',
+    })
+  })
+})
+
+describe('conditional-request plumbing', () => {
+  it('sends if-none-match when a validator is cached', async () => {
+    const h = harness({
+      pages: [{ status: 304 }],
+      cacheSeed: { p1: { etag: 'W/"v1"', bodyText: JSON.stringify({ jobs: [], next: null }) } },
+    })
+    await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(h.sent[0]?.headers?.['if-none-match']).toBe('W/"v1"')
+  })
+
+  it('sends no validator when nothing is cached', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(h.sent[0]?.headers?.['if-none-match']).toBeUndefined()
+  })
+
+  it('stores the validator a 200 carried, so the next attempt can revalidate', async () => {
+    const h = harness({ pages: [{ etag: 'W/"v2"', body: { jobs: [job('1')], next: null } }] })
+    await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(h.cache.get('p1')?.etag).toBe('W/"v2"')
+  })
+
+  it('stores nothing when the provider sent no validator', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(h.cache.has('p1')).toBe(false)
+  })
+
+  it('stores nothing for a page the adapter gave no cache key', async () => {
+    const spec = makeSpec({
+      pageRequest: () => ({ request: { url: 'https://api.example.com/jobs' } }),
+    })
+    const h = harness({ pages: [{ etag: 'W/"v3"', body: { jobs: [job('1')], next: null } }] })
+    await collectJsonPages(spec, config(), h.ctx)
+
+    expect(h.cache.size).toBe(0)
+  })
+
+  it('keeps the adapter`s own headers alongside the validator', async () => {
+    const spec = makeSpec({
+      pageRequest: () => ({
+        request: { url: 'https://api.example.com/jobs', headers: { accept: 'application/json' } },
+        cacheKey: 'p1',
+      }),
+    })
+    const h = harness({
+      pages: [{ status: 304 }],
+      cacheSeed: { p1: { etag: 'W/"v1"', bodyText: JSON.stringify({ jobs: [], next: null }) } },
+    })
+    await collectJsonPages(spec, config(), h.ctx)
+
+    expect(h.sent[0]?.headers).toEqual({ accept: 'application/json', 'if-none-match': 'W/"v1"' })
+  })
+})
+
+describe('failure messages name what broke', () => {
+  it('names the bound a payload broke', async () => {
+    const deep = '['.repeat(40) + '1' + ']'.repeat(40)
+    const h = harness({ pages: [{ bodyText: `{"jobs":[],"next":null,"x":${deep}}` }] })
+    const batch = await collectJsonPages(makeSpec({ limits: { maxDepth: 8 } }), config(), h.ctx)
+
+    expect(batch.requests.at(-1)?.error?.message).toBe('TOO_DEEP: nesting exceeds 8')
+  })
+
+  it('names the ENVELOPE as the thing that drifted, with the schema`s own words', async () => {
+    const h = harness({ pages: [{ body: { jobs: 'not an array', next: null } }] })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    const message = batch.requests.at(-1)?.error?.message
+    expect(message).toMatch(/^envelope: /)
+    // The schema's own message, not a placeholder of ours.
+    expect(message).not.toBe('envelope: did not match')
+    expect(message).toContain('array')
+  })
+
+  it('names both numbers when a page carried too many items', async () => {
+    const h = harness({ pages: [onePage([job('1'), job('2'), job('3')])] })
+    const batch = await collectJsonPages(
+      makeSpec({ limits: { maxItemsPerPage: 2 } }),
+      config(),
+      h.ctx,
+    )
+
+    expect(batch.requests.at(-1)?.error?.message).toBe('page carried 3 items, over the 2 cap')
+  })
+
+  it('labels a schema-refused item ITEM_SCHEMA, with the schema`s own words', async () => {
+    const h = harness({ pages: [onePage([{ id: '2' }])] })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    const reason = batch.invalidSamples[0]?.reason
+    expect(reason).toMatch(/^ITEM_SCHEMA: /)
+    expect(reason).not.toBe('ITEM_SCHEMA: invalid')
+  })
+
+  it('labels a quarantined item with the identity seam`s own reason', async () => {
+    const h = harness({ pages: [onePage([job('1', { url: 'http://jobs.example.com/j/1' })])] })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(batch.invalidSamples[0]?.reason).toBe('QUARANTINED: UNSAFE_URL')
+  })
+
+  it('names the mapper`s own error', async () => {
+    const spec = makeSpec({
+      mapItem: () => {
+        throw new Error('unexpected salary shape')
+      },
+    })
+    const h = harness({ pages: [onePage([job('1')])] })
+    const batch = await collectJsonPages(spec, config(), h.ctx)
+
+    expect(batch.invalidSamples[0]?.reason).toBe('MAPPER_THREW: unexpected salary shape')
+  })
+
+  it('reports a failure to read the next cursor as drift', async () => {
+    const spec = makeSpec({
+      nextCursor: () => {
+        throw new Error('cursor field moved')
+      },
+    })
+    const h = harness({ pages: [onePage([job('1')])] })
+    const batch = await collectJsonPages(spec, config(), h.ctx)
+
+    expect(batch.requests.at(-1)?.error).toEqual({
+      code: 'PARSE_DRIFT',
+      message: 'cursor field moved',
+    })
+    expect(batch.observations).toEqual([])
+  })
+
+  it('reports a failure to extract the items as drift', async () => {
+    const spec = makeSpec({
+      extractItems: () => {
+        throw new Error('jobs field moved')
+      },
+    })
+    const h = harness({ pages: [onePage([job('1')])] })
+    const batch = await collectJsonPages(spec, config(), h.ctx)
+
+    expect(batch.requests.at(-1)?.error).toEqual({
+      code: 'PARSE_DRIFT',
+      message: 'jobs field moved',
+    })
+  })
+})
+
+describe('an abort that lands mid-flight', () => {
+  it('reports CANCELLED rather than a network failure', async () => {
+    const h = harness({
+      pages: [{ body: { jobs: [job('1')], next: 'c2' } }, {}],
+      abortOnFetch: 2,
+    })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(batch.requests.at(-1)?.error?.code).toBe('CANCELLED')
+    expect(batch.outcome).toBe('CANCELLED')
+    expect(batch.coverage).toBe('PARTIAL')
+    expect(batch.observations).toHaveLength(1)
+  })
+})
+
+describe('the overlap is a real duration, not whatever the constant says', () => {
+  /**
+   * The earlier overlap test asserted the widened boundary against `DEFAULT_OVERLAP_MS` itself —
+   * tautological: change the constant and the expectation changes with it, so all three arithmetic
+   * mutants in `24 * 60 * 60 * 1000` survived. The expected instant is now a hand-written date and
+   * the constant is pinned to a hand-written number.
+   */
+  it('is twenty-four hours', () => {
+    expect(DEFAULT_OVERLAP_MS).toBe(86_400_000)
+  })
+
+  it('widens the window back by exactly one day', async () => {
+    const window = { from: new Date('2026-10-10T00:00:00Z'), to: new Date('2026-10-20T00:00:00Z') }
+    const h = harness({
+      pages: [onePage([job('9')])],
+      stored: {
+        configVersion: 99,
+        policyVersion: 1,
+        adapterVersion: 'test-1',
+        cursor: 'c3',
+        page: 2,
+        completedAt: new Date('2026-10-20T09:00:00Z'),
+      },
+    })
+    const batch = await collectJsonPages(makeSpec(), config({ window }), h.ctx)
+
+    expect(batch.scope.window?.from).toEqual(new Date('2026-10-09T00:00:00Z'))
+  })
+
+  it('does not widen a FRESH run`s window — there is nothing to overlap with', async () => {
+    const window = { from: new Date('2026-10-10T00:00:00Z'), to: new Date('2026-10-20T00:00:00Z') }
+    const h = harness({ pages: [onePage([job('9')])] })
+    const batch = await collectJsonPages(makeSpec(), config({ window }), h.ctx)
+
+    expect(batch.scope.window?.from).toEqual(new Date('2026-10-10T00:00:00Z'))
+  })
+})
+
+describe('the defaults', () => {
+  it('caps pages at ten for a spec that states no limits of its own', async () => {
+    const endless = Array.from({ length: 30 }, (_, i) => ({
+      body: { jobs: [job(String(i))], next: `c${i + 1}` },
+    }))
+    const h = harness({ pages: endless })
+    const batch = await collectJsonPages(makeSpec({ limits: undefined }), config(), h.ctx)
+
+    expect(DEFAULT_API_JSON_LIMITS.maxPages).toBe(10)
+    expect(h.calls.filter((c) => c.startsWith('fetch')).length).toBe(10)
+    expect(batch.observations).toHaveLength(10)
+  })
+
+  it('defaults a config`s namespace to the empty string the store uses for a global provider', () => {
+    expect(baseSourceConfigSchema.parse({ configVersion: 1 }).namespace).toBe('')
+  })
+})
+
+describe('the collision error identifies itself', () => {
+  it('carries its own name and the key that collided', () => {
+    const error = new AdapterIdentityCollisionError('key', 'a', 'b')
+    expect(error.name).toBe('AdapterIdentityCollisionError')
+    expect(error.identityKey).toBe('key')
+  })
+})
+
+describe('the observation builder is given the run`s clock', () => {
+  /**
+   * `ctx.now()` is passed into `buildSourceObservation`, and the only way to observe that is a date
+   * that is FUTURE relative to the run's clock while being PAST relative to the wall clock. With
+   * the real `Date.now()` substituted this posting reads as published; with the run's clock the
+   * identity seam refuses to treat it as published.
+   */
+  it('judges a publication date against the run`s clock, not the wall clock', async () => {
+    const spec = makeSpec({
+      mapItem: (item, cfg) => ({
+        namespace: cfg.namespace,
+        nativeId: item.id,
+        url: item.url,
+        title: item.title,
+        companyName: item.company,
+        dates: [
+          {
+            field: 'publishedAt',
+            contract: 'ISO_ZONED' as const,
+            semantics: 'PUBLISHED' as const,
+            raw: '2026-06-01T00:00:00Z',
+          },
+        ],
+      }),
+    })
+    // The run's clock is in January; the date is in June — FUTURE by the date policy's own 24-hour
+    // skew tolerance. Both instants are in the past relative to any wall clock that will ever run
+    // this test, so it is stable, and only the clock the loop PASSES IN decides the answer.
+    const h = harness({ pages: [onePage([job('1')])], now: new Date('2026-01-01T00:00:00Z') })
+    const batch = await collectJsonPages(spec, config(), h.ctx)
+
+    expect(batch.observations[0]?.normalized.publishedAt).toBeNull()
   })
 })
