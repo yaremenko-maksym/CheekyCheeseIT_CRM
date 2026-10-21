@@ -132,6 +132,28 @@ describe('insertBackdatedJobQueueActionAsTableOwner', () => {
     expect(shape(log)).not.toContain('ENABLE (plain — would downgrade to O)')
   })
 
+  it('asks the catalog about the one guard it disabled, bound by name', async () => {
+    const calls: { sql: string; params?: unknown[] }[] = []
+    const client = {
+      query: async (text: string, params?: unknown[]) => {
+        calls.push({ sql: String(text), params })
+        if (String(text).includes('SELECT t.tgenabled')) return { rows: [{ tgenabled: 'A' }] }
+        return { rows: [{ id: 'row-id-1' }] }
+      },
+      release: () => undefined,
+    }
+    const pool = { connect: async () => client as unknown as PoolClient } as unknown as Pool
+
+    await insertBackdatedJobQueueActionAsTableOwner(pool, ROW)
+
+    // The verification read has a `$1`, so the trigger name must be bound to it: with no
+    // parameter PostgreSQL rejects the statement outright, and with the WRONG one the
+    // helper would cheerfully report some other trigger's state as proof that this guard
+    // is back. The name is also what ties the read to the trigger actually disabled above.
+    const verify = calls.find((c) => c.sql.includes('SELECT t.tgenabled'))
+    expect(verify?.params).toEqual(['trg_job_queue_actions_created_at_now'])
+  })
+
   it('rolls back and rethrows when the INSERT itself fails, leaving no half-open window', async () => {
     const { pool, log } = fakePool({ failOn: 'INSERT INTO job_queue_actions' })
 
