@@ -80,15 +80,29 @@ const LATENCY_BUDGET_MS = 250
 const MIN_RENDER_MS = 700
 
 /**
- * Floor for the EXTRACTION case's windows, its own number and not the Typst one.
+ * Floor for the EXTRACTION case's windows, DERIVED rather than picked.
  *
- * `MIN_RENDER_MS` was chosen for a render that takes ~1.4 s; this workload
- * measured 1 261 ms in-process and 1 725 ms sandboxed. The floor only has to
- * prove the window was real, so it sits at about a third of the shorter
- * measured window: a runner up to ~3x faster than the one that measured it
- * still clears it.
+ * What the floor must guarantee: the in-process stall is long enough that the
+ * sandboxed bound (`inProcess.worst / 5`) still sits above the worst sample the
+ * sandboxed run produces on a healthy API. Healthy sandboxed worst: 12.7-13.7 ms
+ * in five runs on the author's machine (2026-10-22, @xmldom/xmldom 0.8.15,
+ * mammoth as installed), 14.8 ms in an earlier run, and 15-45 ms quoted by an
+ * earlier version of this file under load (quoted, not re-measured).
+ * Taking 45 ms as the noise ceiling, the stall must be at least 5 x 45 = 225 ms;
+ * the floor is 250 ms.
+ *
+ * Margin against the measuring machine: its in-process window is 1 104-1 214 ms
+ * (stall 1 075-1 170 ms), so a runner ~4.5x faster still clears it.
+ *
+ * Why this is not 300 or 700: a runner whose old floor of 300 failed by 4 ms
+ * ("expected 296 to be greater than 300", Mutation Gate dry run on #1085, which
+ * carried the pre-fix fixture) showed that an absolute number chosen to suit one
+ * machine is red or vacuous on another. Mutation Gate re-runs the whole suite
+ * many times and is the one instrument here that tells a flake from a pass; a
+ * timing failure at this line in that gate means the runner is faster than the
+ * 4.5x margin, not that containment broke.
  */
-const EXTRACTION_MIN_WINDOW_MS = 400
+const EXTRACTION_MIN_WINDOW_MS = 250
 
 /** Fewer samples than this and the window was not really observed. */
 const MIN_SAMPLES = 15
@@ -459,7 +473,7 @@ describe.skipIf(SKIP_LOCAL_PERF)('AC3 — API responsiveness during a resume ren
     // window includes worker spawn and a niced parse, so a slow worker would
     // loosen it (25% of 1 725 ms is already ~430 ms). Tied to the in-process
     // stall it moves with the machine in the right direction and stays near
-    // 250 ms here, which is below the 646 ms of request-thread screening this
+    // 215 ms here (1 075-1 170 ms / 5), which is below the 646 ms of request-thread screening this
     // file documents as a known gap, so that gap would fail it.
     expect(sandboxed.worst).toBeLessThan(inProcess.worst / 5)
     expect(sandboxed.samples.length).toBeGreaterThan(inProcess.samples.length * 5)
