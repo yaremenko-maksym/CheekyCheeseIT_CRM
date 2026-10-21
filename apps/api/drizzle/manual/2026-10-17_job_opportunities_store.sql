@@ -235,7 +235,7 @@ EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  CREATE TYPE "job_queue_action_kind" AS ENUM('OPENED', 'TAKEN', 'DEAD_LINK', 'SPAM', 'DISMISSED', 'UNDONE', 'RELEASED', 'REASSIGNED', 'SUPPRESSED', 'TRIAGE_GRANTED', 'TRIAGE_REVOKED', 'TRIAGE_SUBSCRIBED', 'TRIAGE_UNSUBSCRIBED');
+  CREATE TYPE "job_queue_action_kind" AS ENUM('OPENED', 'TAKEN', 'DEAD_LINK', 'SPAM', 'DISMISSED', 'UNDONE', 'RELEASED', 'REASSIGNED', 'SUPPRESSED', 'TRIAGE_GRANTED', 'TRIAGE_REVOKED', 'TRIAGE_SUBSCRIBED', 'TRIAGE_UNSUBSCRIBED', 'REASON_REDACTED');
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
@@ -661,6 +661,7 @@ CREATE TABLE IF NOT EXISTS "job_queue_actions" (
 	"team_id" uuid,
 	"subject_team_id" uuid,
 	"subject_user_id" uuid,
+	"subject_action_id" uuid,
 	"before_version" integer,
 	"after_version" integer,
 	"idempotency_key" text NOT NULL,
@@ -668,8 +669,9 @@ CREATE TABLE IF NOT EXISTS "job_queue_actions" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "uq_job_queue_actions_actor_idempotency" UNIQUE("actor_id","idempotency_key"),
 	CONSTRAINT "ck_job_queue_actions_scope_shape" CHECK (("job_queue_actions"."scope_kind" = 'TEAM' AND "job_queue_actions"."team_id" IS NOT NULL) OR ("job_queue_actions"."scope_kind" = 'STUDIO' AND "job_queue_actions"."team_id" IS NULL)),
-	CONSTRAINT "ck_job_queue_actions_target" CHECK (("job_queue_actions"."kind" IN ('TRIAGE_SUBSCRIBED', 'TRIAGE_UNSUBSCRIBED') AND "job_queue_actions"."opportunity_id" IS NULL AND "job_queue_actions"."subscription_id" IS NOT NULL AND "job_queue_actions"."source_record_id" IS NULL)
-          OR ("job_queue_actions"."kind" NOT IN ('TRIAGE_SUBSCRIBED', 'TRIAGE_UNSUBSCRIBED') AND "job_queue_actions"."opportunity_id" IS NOT NULL AND "job_queue_actions"."subscription_id" IS NULL)),
+	CONSTRAINT "ck_job_queue_actions_target" CHECK (("job_queue_actions"."kind" IN ('TRIAGE_SUBSCRIBED', 'TRIAGE_UNSUBSCRIBED') AND "job_queue_actions"."opportunity_id" IS NULL AND "job_queue_actions"."subscription_id" IS NOT NULL AND "job_queue_actions"."source_record_id" IS NULL AND "job_queue_actions"."subject_action_id" IS NULL)
+          OR ("job_queue_actions"."kind" = 'REASON_REDACTED' AND "job_queue_actions"."subject_action_id" IS NOT NULL AND "job_queue_actions"."opportunity_id" IS NULL AND "job_queue_actions"."subscription_id" IS NULL AND "job_queue_actions"."source_record_id" IS NULL)
+          OR ("job_queue_actions"."kind" NOT IN ('TRIAGE_SUBSCRIBED', 'TRIAGE_UNSUBSCRIBED') AND "job_queue_actions"."kind" <> 'REASON_REDACTED' AND "job_queue_actions"."opportunity_id" IS NOT NULL AND "job_queue_actions"."subscription_id" IS NULL AND "job_queue_actions"."subject_action_id" IS NULL)),
 	CONSTRAINT "ck_job_queue_actions_clicked_source" CHECK ("job_queue_actions"."kind" NOT IN ('OPENED', 'DEAD_LINK', 'SPAM') OR "job_queue_actions"."source_record_id" IS NOT NULL),
 	CONSTRAINT "ck_job_queue_actions_subject_team" CHECK (("job_queue_actions"."kind" IN ('TRIAGE_GRANTED', 'TRIAGE_REVOKED', 'TRIAGE_SUBSCRIBED', 'TRIAGE_UNSUBSCRIBED') AND "job_queue_actions"."subject_team_id" IS NOT NULL)
           OR ("job_queue_actions"."kind" NOT IN ('TRIAGE_GRANTED', 'TRIAGE_REVOKED', 'TRIAGE_SUBSCRIBED', 'TRIAGE_UNSUBSCRIBED') AND "job_queue_actions"."subject_team_id" IS NULL)),
@@ -677,7 +679,8 @@ CREATE TABLE IF NOT EXISTS "job_queue_actions" (
           OR ("job_queue_actions"."kind" <> 'REASSIGNED' AND "job_queue_actions"."subject_user_id" IS NULL)),
 	CONSTRAINT "ck_job_queue_actions_versions" CHECK (("job_queue_actions"."kind" IN ('OPENED', 'DEAD_LINK', 'SPAM') AND "job_queue_actions"."before_version" IS NULL AND "job_queue_actions"."after_version" IS NULL)
           OR ("job_queue_actions"."kind" = 'SUPPRESSED' AND "job_queue_actions"."before_version" IS NULL AND "job_queue_actions"."after_version" IS NULL)
-          OR ("job_queue_actions"."kind" NOT IN ('OPENED', 'DEAD_LINK', 'SPAM') AND "job_queue_actions"."before_version" IS NOT NULL AND "job_queue_actions"."after_version" IS NOT NULL AND "job_queue_actions"."before_version" >= 0 AND "job_queue_actions"."after_version" > "job_queue_actions"."before_version")),
+          OR ("job_queue_actions"."kind" = 'REASON_REDACTED' AND "job_queue_actions"."before_version" IS NULL AND "job_queue_actions"."after_version" IS NULL)
+          OR ("job_queue_actions"."kind" NOT IN ('OPENED', 'DEAD_LINK', 'SPAM') AND "job_queue_actions"."kind" <> 'REASON_REDACTED' AND "job_queue_actions"."before_version" IS NOT NULL AND "job_queue_actions"."after_version" IS NOT NULL AND "job_queue_actions"."before_version" >= 0 AND "job_queue_actions"."after_version" > "job_queue_actions"."before_version")),
 	CONSTRAINT "ck_job_queue_actions_idempotency_key_bounded" CHECK ("job_queue_actions"."idempotency_key" ~ '[^[:space:]]' AND length("job_queue_actions"."idempotency_key") <= 200),
 	CONSTRAINT "ck_job_queue_actions_reason_bounded" CHECK ("job_queue_actions"."reason" IS NULL OR ("job_queue_actions"."reason" ~ '[^[:space:]]' AND length("job_queue_actions"."reason") <= 500))
 );
