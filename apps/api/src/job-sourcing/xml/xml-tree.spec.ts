@@ -216,6 +216,26 @@ describe('measureTree', () => {
     expect(measureTree(node)).toEqual({ maxDepth: 4, elementCount: 5 })
   })
 
+  it('two branches of EQUAL depth report that depth once, not twice', () => {
+    // The `depth > maxDepth` comparison: with `>=` the result is identical, so only an input
+    // where a later branch TIES the current maximum can distinguish them... and it cannot, by
+    // value. What this test does pin is that a tie does not inflate the answer — which is the
+    // behaviour a reader cares about, and the reason the operator is not arbitrary.
+    const node = el('r', {
+      children: [el('a', { children: [el('a1')] }), el('b', { children: [el('b1')] })],
+    })
+    expect(measureTree(node)).toEqual({ maxDepth: 3, elementCount: 5 })
+  })
+
+  it('a shallower branch AFTER the deepest does not lower the maximum', () => {
+    // The direction that is genuinely observable: without the comparison at all, the last
+    // branch's depth would win and this would report 2.
+    const node = el('r', {
+      children: [el('deep', { children: [el('x', { children: [el('y')] })] }), el('shallow')],
+    })
+    expect(measureTree(node).maxDepth).toBe(4)
+  })
+
   it('text nodes are not counted as elements', () => {
     const node = el('r', { children: [text('a'), el('x'), text('b')] })
     expect(measureTree(node)).toEqual({ maxDepth: 2, elementCount: 2 })

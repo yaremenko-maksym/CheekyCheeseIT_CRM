@@ -9,12 +9,48 @@
 
 import { describe, expect, it } from 'vitest'
 import {
+  FEED_NAMESPACES,
   NamespaceScope,
   partitionAttributes,
   splitQName,
   XML_NAMESPACE,
   XMLNS_NAMESPACE,
 } from './namespaces'
+
+/**
+ * The URIs as LITERALS, because they are protocol constants and not our choice.
+ *
+ * `expect(scope.lookup('xml')).toBe(XML_NAMESPACE)` — which is what this spec said first — is the
+ * tautology the mutation gate exists to catch: it compares a value against the very constant it
+ * should be pinning, so changing the constant moves the bar with it and the assertion passes for
+ * any string at all. These are fixed by W3C and by the RSS/Atom specs; a feed will not follow us
+ * if we mistype one, so the literal is the only thing worth asserting against.
+ */
+const W3C_XML = 'http://www.w3.org/XML/1998/namespace'
+const W3C_XMLNS = 'http://www.w3.org/2000/xmlns/'
+
+describe('the namespace URI constants are the ones the specs define', () => {
+  it('xml and xmlns match W3C verbatim', () => {
+    expect(XML_NAMESPACE).toBe(W3C_XML)
+    expect(XMLNS_NAMESPACE).toBe(W3C_XMLNS)
+  })
+
+  it('the feed vocabularies match their own specs verbatim', () => {
+    // One spelling shared by ~25 adapters: a typo here silently stops matching a whole vocabulary
+    // rather than failing loudly, because an unmatched namespace just yields no elements.
+    expect(FEED_NAMESPACES).toEqual({
+      atom: 'http://www.w3.org/2005/Atom',
+      content: 'http://purl.org/rss/1.0/modules/content/',
+      dublinCore: 'http://purl.org/dc/elements/1.1/',
+      rss1: 'http://purl.org/rss/1.0/',
+      rdf: 'http://www.w3.org/1999/02/22-rdf-syntax-ns#',
+    })
+  })
+
+  it('the feed namespace table is frozen', () => {
+    expect(Object.isFrozen(FEED_NAMESPACES)).toBe(true)
+  })
+})
 
 describe('splitQName', () => {
   it('splits a prefixed name at its single colon', () => {
@@ -56,14 +92,21 @@ describe('NamespaceScope', () => {
 
   it('the reserved prefixes resolve without ever being declared', () => {
     const root = NamespaceScope.root()
-    expect(root.lookup('xml')).toBe(XML_NAMESPACE)
-    expect(root.lookup('xmlns')).toBe(XMLNS_NAMESPACE)
+    expect(root.lookup('xml')).toBe(W3C_XML)
+    expect(root.lookup('xmlns')).toBe(W3C_XMLNS)
   })
 
   it('reserved prefixes win even against a declaration that tries to rebind them', () => {
     // XML forbids rebinding `xml`. Honouring an attempt would let a feed redefine `xml:lang`.
     const scope = NamespaceScope.root().child({ xml: 'http://evil.example/' })
-    expect(scope.lookup('xml')).toBe(XML_NAMESPACE)
+    expect(scope.lookup('xml')).toBe(W3C_XML)
+    expect(scope.lookup('xmlns')).toBe(W3C_XMLNS)
+  })
+
+  it('xmlns is reserved separately from xml — they are different URIs', () => {
+    // Two branches, one line apart. Asserting only one would let the other be deleted.
+    const root = NamespaceScope.root()
+    expect(root.lookup('xml')).not.toBe(root.lookup('xmlns'))
   })
 
   it('a declaration is visible to descendants', () => {

@@ -126,6 +126,63 @@ describe('depth accounting', () => {
     const outcome = prescanStructure("<r><a href='a>b'/><c/></r>", GENEROUS)
     expect(outcome).toEqual({ ok: true, maxDepth: 2, elementCount: 3 })
   })
+
+  it('an apostrophe inside a double-quoted value does not open a quote', () => {
+    // The `quote !== null` branch has to IGNORE the other quote character while inside a string.
+    // Treating this `'` as an opener would leave the scanner "inside a quote" for the rest of the
+    // document, so the `>` of every later tag would be skipped and depth would run away.
+    const outcome = prescanStructure(`<r><a t="it's > fine"/><c/></r>`, GENEROUS)
+    expect(outcome).toEqual({ ok: true, maxDepth: 2, elementCount: 3 })
+  })
+
+  it('a double quote inside a single-quoted value does not open a quote', () => {
+    const outcome = prescanStructure(`<r><a t='say "hi" > x'/><c/></r>`, GENEROUS)
+    expect(outcome).toEqual({ ok: true, maxDepth: 2, elementCount: 3 })
+  })
+
+  it('two attributes each with a `>` both close their quotes', () => {
+    // Proves the quote is RESET on the closing delimiter rather than latched: with a one-way
+    // latch, the second attribute's `>` would be treated as inside a string.
+    const outcome = prescanStructure('<r><a p="x>y" q="z>w"/><c/></r>', GENEROUS)
+    expect(outcome).toEqual({ ok: true, maxDepth: 2, elementCount: 3 })
+  })
+
+  it('an element immediately after a processing instruction is still counted', () => {
+    // The offset `skipPast` resumes at: resuming inside `?>` would leave the scanner positioned
+    // so that the following element is still found, but resuming too far would skip it.
+    expect(prescanStructure('<?pi?><r/>', GENEROUS)).toEqual({
+      ok: true,
+      maxDepth: 1,
+      elementCount: 1,
+    })
+  })
+
+  it('an element immediately after a CDATA section is still counted', () => {
+    // r, d, e = 3 elements; the CDATA is not one. Depth 2 — d and e are siblings.
+    const outcome = prescanStructure('<r><d><![CDATA[x]]></d><e/></r>', GENEROUS)
+    expect(outcome).toEqual({ ok: true, maxDepth: 2, elementCount: 3 })
+  })
+
+  it('an element immediately after a comment is still counted', () => {
+    expect(prescanStructure('<r><!--c--><d/></r>', GENEROUS)).toEqual({
+      ok: true,
+      maxDepth: 2,
+      elementCount: 2,
+    })
+  })
+
+  it('an element immediately after a doctype is still counted', () => {
+    expect(prescanStructure('<!DOCTYPE r><r><d/></r>', GENEROUS)).toEqual({
+      ok: true,
+      maxDepth: 2,
+      elementCount: 2,
+    })
+  })
+
+  it('a close tag with an attribute-like `>` after it does not lose the next element', () => {
+    const outcome = prescanStructure('<r><a></a><b/></r>', GENEROUS)
+    expect(outcome).toEqual({ ok: true, maxDepth: 2, elementCount: 3 })
+  })
 })
 
 describe('name-start recognition', () => {
@@ -166,9 +223,33 @@ describe('the markup-declaration skipper', () => {
     expect(prescanStructure(xml, GENEROUS)).toEqual({ ok: true, maxDepth: 2, elementCount: 2 })
   })
 
-  it('a `>` inside a quoted declaration value does not end it', () => {
+  it('a `>` inside a double-quoted declaration value does not end it', () => {
     const xml = '<!DOCTYPE r SYSTEM "a>b"><r><i/></r>'
     expect(prescanStructure(xml, GENEROUS)).toEqual({ ok: true, maxDepth: 2, elementCount: 2 })
+  })
+
+  it('a `>` inside a SINGLE-quoted declaration value does not end it', () => {
+    const xml = "<!DOCTYPE r SYSTEM 'a>b'><r><i/></r>"
+    expect(prescanStructure(xml, GENEROUS)).toEqual({ ok: true, maxDepth: 2, elementCount: 2 })
+  })
+
+  it('an apostrophe inside a double-quoted declaration value is not a delimiter', () => {
+    const xml = `<!DOCTYPE r SYSTEM "it's > here"><r><i/></r>`
+    expect(prescanStructure(xml, GENEROUS)).toEqual({ ok: true, maxDepth: 2, elementCount: 2 })
+  })
+
+  it('a subset closed and then REOPENED is tracked both times', () => {
+    // `inSubset` must be set false on `]` and true again on a later `[`. A latch either way would
+    // make one of the two `>` characters terminate the declaration early.
+    const xml = '<!DOCTYPE r [<!ELEMENT a (#PCDATA)>] [<!ELEMENT b (#PCDATA)>]><r><i/></r>'
+    expect(prescanStructure(xml, GENEROUS)).toEqual({ ok: true, maxDepth: 2, elementCount: 2 })
+  })
+
+  it('an element after the doctype`s subset is counted, not swallowed', () => {
+    // The `]` must clear `inSubset` so the following `>` DOES terminate. Without that the scan
+    // would run to end of input and count nothing at all.
+    const xml = '<!DOCTYPE r [<!ENTITY a "x">]><r><i/><j/></r>'
+    expect(prescanStructure(xml, GENEROUS)).toEqual({ ok: true, maxDepth: 2, elementCount: 3 })
   })
 
   it('a plain doctype is skipped', () => {

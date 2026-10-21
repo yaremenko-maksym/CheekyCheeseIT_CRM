@@ -78,6 +78,74 @@ describe('BOM detection', () => {
     expect(() => decodeXml(concat(bytes(0xef, 0xbb), utf8('<r/>')))).toThrow(XmlPortError)
   })
 
+  /**
+   * NEAR-MISS BOMs — one byte wrong in each position.
+   *
+   * These exist because a mutation run showed the BOM conditions were **not** pinned by the
+   * happy-path tests: replacing `bytes[1] === 0xbb` with `true` survived, since no input had
+   * `EF ?? BF` with a wrong middle byte. A three-byte comparison needs three near-misses to be
+   * tested, not one correct BOM — the correct BOM proves the whole condition can be true, and
+   * each near-miss proves one conjunct is load-bearing.
+   *
+   * Each sequence below is still VALID UTF-8 — `EF`/`EE` plus two continuation bytes is an
+   * ordinary three-byte character — so the distinguishing outcome is not an error but the TEXT:
+   * a BOM is consumed and leaves `<r/>`, while a non-BOM decodes to one extra leading character.
+   * Asserting a throw here was simply wrong about these bytes, and the test said so.
+   */
+  it.each([
+    ['wrong first byte', [0xee, 0xbb, 0xbf]],
+    ['wrong second byte', [0xef, 0xbc, 0xbf]],
+    ['wrong third byte', [0xef, 0xbb, 0xbe]],
+  ])('a UTF-8 BOM with the %s is not consumed as a BOM', (_name, prefix) => {
+    const decoded = decodeXml(concat(bytes(...prefix), utf8('<r/>')))
+    expect(decoded.source).toBe('default')
+    // Five characters, not four: the three bytes became one character of content rather than
+    // being skipped. If any conjunct of the BOM test were dropped, this would be `<r/>`.
+    expect(decoded.text).toHaveLength(5)
+    expect(decoded.text.endsWith('<r/>')).toBe(true)
+    expect(decoded.text).not.toBe('<r/>')
+  })
+
+  it('FF followed by something other than FE is not a UTF-16LE BOM', () => {
+    // `FF FD` — the first byte of the LE BOM with the wrong second. `FF` is never valid UTF-8, so
+    // consuming it as a BOM versus decoding it as content are distinguishable outcomes.
+    let raised: unknown
+    try {
+      decodeXml(concat(bytes(0xff, 0xfd), utf8('<r/>')))
+    } catch (error) {
+      raised = error
+    }
+    expect((raised as XmlPortError | undefined)?.reason).toBe('UNDECODABLE')
+  })
+
+  it('FE followed by something other than FF is not a UTF-16BE BOM', () => {
+    let raised: unknown
+    try {
+      decodeXml(concat(bytes(0xfe, 0xfd), utf8('<r/>')))
+    } catch (error) {
+      raised = error
+    }
+    expect((raised as XmlPortError | undefined)?.reason).toBe('UNDECODABLE')
+  })
+
+  it('the two UTF-16 BOMs are not interchangeable', () => {
+    // `FF FE` and `FE FF` both pass a byte-order-agnostic check, and both decode *something*.
+    // Asserting the labels differ is what makes the two branches distinguishable.
+    expect(decodeXml(encodeUtf16Le('<r/>')).effectiveEncoding).toBe('utf-16le')
+    expect(decodeXml(utf16be('<r/>', true)).effectiveEncoding).toBe('utf-16be')
+  })
+
+  it('a two-byte document whose bytes ARE a BOM yields an empty document', () => {
+    // The `length >= 2` boundary from the other side: exactly two bytes, both consumed.
+    expect(decodeXml(bytes(0xff, 0xfe)).text).toBe('')
+    expect(decodeXml(bytes(0xff, 0xfe)).effectiveEncoding).toBe('utf-16le')
+  })
+
+  it('a three-byte document whose bytes ARE the UTF-8 BOM yields an empty document', () => {
+    expect(decodeXml(bytes(0xef, 0xbb, 0xbf)).text).toBe('')
+    expect(decodeXml(bytes(0xef, 0xbb, 0xbf)).effectiveEncoding).toBe('utf-8')
+  })
+
   it('a one-byte document cannot be a BOM, and the length guards hold', () => {
     // Both sniffs guard on length before indexing. `decodeXml` DECODES; it does not validate
     // XML — so a lone `<` is a successful decode of one character, and the thing being asserted
@@ -117,6 +185,33 @@ describe('BOM-less UTF-16 detection, from the shape of the leading `<`', () => {
     const decoded = decodeXml(utf8(' <r/>'))
     expect(decoded.effectiveEncoding).toBe('utf-8')
     expect(decoded.source).toBe('default')
+  })
+
+  it('`3C 01` is NOT UTF-16LE — the second byte must be NUL', () => {
+    // Near-miss for the LE branch: `<` followed by a non-NUL. Without the second conjunct this
+    // would be read as UTF-16LE and the whole document would decode to CJK-looking garbage
+    // instead of being read as UTF-8 text.
+    const decoded = decodeXml(concat(bytes(0x3c, 0x01), utf8('rest')))
+    expect(decoded.effectiveEncoding).toBe('utf-8')
+    expect(decoded.source).toBe('default')
+  })
+
+  it('`01 3C` is NOT UTF-16BE — the first byte must be NUL', () => {
+    const decoded = decodeXml(concat(bytes(0x01, 0x3c), utf8('rest')))
+    expect(decoded.effectiveEncoding).toBe('utf-8')
+    expect(decoded.source).toBe('default')
+  })
+
+  it('`00 00` is neither — both sniffs require a `<` in one position', () => {
+    // A document of NULs must not be claimed by either branch. It is invalid UTF-8? No — NUL is
+    // valid UTF-8, so this decodes, and the assertion is that it was not MIS-labelled.
+    const decoded = decodeXml(bytes(0x00, 0x00, 0x00))
+    expect(decoded.effectiveEncoding).toBe('utf-8')
+    expect(decoded.source).toBe('default')
+  })
+
+  it('a single byte `3C` cannot satisfy either sniff', () => {
+    expect(decodeXml(bytes(0x3c)).source).toBe('default')
   })
 })
 
