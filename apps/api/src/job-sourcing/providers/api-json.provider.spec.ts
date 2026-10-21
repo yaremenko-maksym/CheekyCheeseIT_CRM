@@ -58,7 +58,7 @@ function makeSpec(
   overrides: Partial<ApiJsonSourceSpec<Config, Envelope, Item>> = {},
 ): ApiJsonSourceSpec<Config, Envelope, Item> {
   return {
-    type: 'DOU',
+    type: 'REMOTEOK_API',
     adapterVersion: 'test-1',
     configSchema,
     envelopeSchema,
@@ -833,7 +833,7 @@ describe('the loop stamps provider and adapter version itself', () => {
     const batch = await collectJsonPages(makeSpec({ adapterVersion: 'v42' }), config(), h.ctx)
 
     expect(batch.observations[0]?.adapterVersion).toBe('v42')
-    expect(batch.observations[0]?.identity.provider).toBe('DOU')
+    expect(batch.observations[0]?.identity.provider).toBe('REMOTEOK_API')
   })
 })
 
@@ -841,7 +841,7 @@ describe('defineApiJsonProvider', () => {
   const provider = defineApiJsonProvider(makeSpec())
 
   it('exposes the spec`s source type', () => {
-    expect(provider.type).toBe('DOU')
+    expect(provider.type).toBe('REMOTEOK_API')
   })
 
   it('validates a seed config through the adapter`s own schema', () => {
