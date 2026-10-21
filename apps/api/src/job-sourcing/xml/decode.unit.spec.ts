@@ -258,6 +258,16 @@ describe('the declaration reader', () => {
     expect(decoded.effectiveEncoding).toBe('utf-8')
   })
 
+  it('an `encoding` pseudo-attribute on a NON-xml processing instruction is not the declaration', () => {
+    // The `startsWith('<?xml')` guard, and the one input that pins it: the document contains a
+    // `?>` and an `encoding="…"` before it, so only the prefix check can rule it out. With the
+    // literal emptied — `startsWith('')` is always true — this would be read as a declaration of
+    // `koi8-r` and the whole feed would be decoded with the wrong charset.
+    const decoded = decodeXml(utf8('<?pi encoding="koi8-r"?><r/>'))
+    expect(decoded.declaredEncoding).toBeNull()
+    expect(decoded.effectiveEncoding).toBe('utf-8')
+  })
+
   it('`encoding` as part of a longer attribute name is not matched', () => {
     // The `\b` in the regex. `xencoding="koi8-r"` is not an encoding declaration.
     const decoded = decodeXml(utf8('<?xml version="1.0" xencoding="koi8-r"?><r/>'))

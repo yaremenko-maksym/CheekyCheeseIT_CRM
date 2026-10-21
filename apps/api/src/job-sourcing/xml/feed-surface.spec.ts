@@ -110,6 +110,33 @@ describe('namespaces are resolved to URIs, not matched by prefix', () => {
     expect((raised as XmlPortError).reason).toBe('UNDECLARED_PREFIX')
   })
 
+  it('an element may not use the `xmlns` prefix', () => {
+    // A separate branch from the undeclared-prefix one: `xmlns` RESOLVES (to the xmlns namespace)
+    // but is not a legal element prefix. Without its own check the element would be admitted with
+    // a namespace no vocabulary uses, and an adapter would simply never match it.
+    let raised: unknown
+    try {
+      port.parseDocument(utf8('<r><xmlns:t>x</xmlns:t></r>'))
+    } catch (error) {
+      raised = error
+    }
+    expect((raised as XmlPortError).reason).toBe('UNDECLARED_PREFIX')
+    expect((raised as XmlPortError).message).toMatch(/xmlns/)
+  })
+
+  it('a document with no root element is MALFORMED, not an empty success', () => {
+    // `preserveComments: false` means a comment-only document parses to a tree with no root at
+    // all. Returning it as a success would hand Seam 2 a document with nothing in it, which is
+    // indistinguishable from a valid empty feed — the exact conflation the plan forbids.
+    let raised: unknown
+    try {
+      port.parseDocument(utf8('<?pi only?>'))
+    } catch (error) {
+      raised = error
+    }
+    expect((raised as XmlPortError).reason).toBe('MALFORMED')
+  })
+
   it('the reserved `xml` prefix resolves without being declared', () => {
     const document = port.parseDocument(utf8('<r xml:lang="uk"><t>x</t></r>'))
     expect(attributeValue(document.root, 'lang', XML_NAMESPACE)).toBe('uk')
