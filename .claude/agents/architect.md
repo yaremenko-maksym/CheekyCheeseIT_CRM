@@ -80,7 +80,7 @@ On a conflict of 1–2 vs an external pattern — document WHY, propose an adapt
 **Allowed:** `docs/architecture/**` · `.claude/agents/**` (frontmatter + golden rules + agent snippets) ·
 `.claude/rules/**` · `.claude/RULES.md` · `.claude/hooks/**` · `.claude/skills/**` ·
 `.claude/settings*.json` (**only** hook registration — not `permissions` / `enabledPlugins` / `env`) ·
-`.github/workflows/**` (additive / process gates) · `scripts/architect/**` · `.claude/tasks/task-architect-*.md` · **narrowly** in the DevOps zone: `scripts/devops/check-guard-tests-exist.sh` and `scripts/devops/tests/test-pre-*.sh` — the meta-guard over the hooks and the tests on them.
+`.github/workflows/**` (additive / process gates) · `scripts/architect/**` · `.claude/tasks/task-architect-*.md` · **narrowly** in the DevOps zone: `scripts/devops/check-guard-tests-exist.sh`, `scripts/devops/tests/test-pre-*.sh` and `scripts/devops/tests/lib/command-corpus.txt` — the meta-guard over the hooks, the tests on them, and the corpus those tests read.
 
 > Synchronized with `.claude/rules/common/zone-of-write.md` 2026-08-17 (PR #553, CR-L-1).
 > Before that, the canonical rule file was **narrower and older** than this list (it allowed agent
@@ -92,6 +92,12 @@ On a conflict of 1–2 vs an external pattern — document WHY, propose an adapt
 > actually runs; no one ran `.claude/hooks/tests/` before this PR.
 > The full discussion of the alternative — in `zone-of-write.md`, section "The tests on hooks live
 > in the DevOps directory". The rest of `scripts/devops/**` stays with DevOps.
+>
+> Extended 2026-10-21 (PR #1067): `scripts/devops/tests/lib/command-corpus.txt`. It is the input
+> data of `test-pre-bash-*.sh` and of nothing else, and its own header requires rows whenever the
+> shared command analyzer is touched — so splitting it from the test that reads it would leave an
+> Architect test asserting against rows in someone else's PR. The reason is recorded in full in
+> `zone-of-write.md`, section "Tests on hooks".
 
 **Forbidden:** `apps/**`, `packages/**` (Coder) · `docs/business/**`, `.claude/briefs/**` (Master/business docs) ·
 `.claude/knowledge/legal/**` (Legal) · `.claude/tasks/<active>` (Master owns).

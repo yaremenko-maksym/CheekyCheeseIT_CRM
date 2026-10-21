@@ -51,7 +51,7 @@ Each entry below is one zone row: **may** / **may NOT**.
 
 **Architect**
 
-- may: `docs/architecture/**`, `.claude/rules/**`, `.claude/hooks/**`, `.claude/skills/**`, `.claude/agents/<agent>.md` (frontmatter + golden rules), `.claude/RULES.md`, `.claude/settings*.json` (hook registration), `scripts/architect/**`, `.github/workflows/**` (additive process gates), `scripts/devops/check-guard-tests-exist.sh` + `scripts/devops/tests/test-pre-*.sh` (tests on hooks — see below)
+- may: `docs/architecture/**`, `.claude/rules/**`, `.claude/hooks/**`, `.claude/skills/**`, `.claude/agents/<agent>.md` (frontmatter + golden rules), `.claude/RULES.md`, `.claude/settings*.json` (hook registration), `scripts/architect/**`, `.github/workflows/**` (additive process gates), `scripts/devops/check-guard-tests-exist.sh` + `scripts/devops/tests/test-pre-*.sh` + `scripts/devops/tests/lib/command-corpus.txt` (tests on hooks, and the corpus they read — see below)
 - may NOT: `apps/**`, `packages/**`, `docs/business/**`, `.claude/briefs/**`, `.claude/knowledge/legal/**`, `.claude/tasks/<others' active>` (Master owns)
 
 **ui-ux-designer**
@@ -124,9 +124,16 @@ the first edit check `git -C <worktree> status`; do NOT write to main-repo absol
 - **The Architect's diffs still go through review** — a zone extension changes what does not require
   `.blocked.md`, not what does not require review.
 - **Tests on hooks:** the Architect writes in `scripts/devops/` **only**
-  `check-guard-tests-exist.sh` (the meta-guard over his own hooks) and `tests/test-pre-*.sh` (the
-  tests on the hooks he owns). Everything else in `scripts/devops/**` — DevOps. The reverse does
-  **not** hold: DevOps does not edit `.claude/hooks/**`.
+  `check-guard-tests-exist.sh` (the meta-guard over his own hooks), `tests/test-pre-*.sh` (the
+  tests on the hooks he owns) and `tests/lib/command-corpus.txt`. Everything else in
+  `scripts/devops/**` — DevOps. The reverse does **not** hold: DevOps does not edit
+  `.claude/hooks/**`.
+- **Why the corpus is listed** (added 2026-10-21, PR #1067): it is the input data of
+  `test-pre-bash-*.sh` and of nothing else, and its own header requires rows to be added whenever
+  the shared command analyzer is touched. Splitting the data from the test that reads it would put
+  an Architect test in one PR and the rows it asserts against in someone else's. The original glob
+  `test-pre-*.sh` simply predates anyone noticing the data file — the question was asked and
+  answered once, and is written down here so it is not re-answered differently next time.
 
 If an edit goes beyond these boundaries too — `.blocked.md`, like everyone.
 
