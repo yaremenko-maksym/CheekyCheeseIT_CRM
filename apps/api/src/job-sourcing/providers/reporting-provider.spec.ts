@@ -1425,25 +1425,27 @@ describe('the URL finder is linear, and timed AT the bound', () => {
    * regexes take 1 252 ms and 2 472 ms, and the linear scan takes single-digit milliseconds — so
    * the 1 s threshold is 500× clear of the fix and comfortably under both defects.
    */
-  const atTheCap = 'a.'.repeat(MAX_REDACTION_INPUT_CHARS / 2)
-  const punctuationAtTheCap = `${'.'.repeat(MAX_REDACTION_INPUT_CHARS - 1)}x`
-
+  /**
+   * EACH SHAPE AT THE FULL CAP, in its own case. An earlier edition packed all three into one
+   * 64 KiB input to save the mutation gate work; splitting the cap three ways dropped each shape
+   * to ~21 KiB, where the quadratic versions finish in well under a second and the assertion stops
+   * discriminating. The cap is the largest input the code will ever see, so that is where the
+   * guarantee has to be asserted — and the linear passes make each case ~2 ms, so the cost is
+   * nominal.
+   */
   it.each([
-    ['scheme-ish characters with no `://`', () => atTheCap],
-    ['nothing but trailing punctuation', () => punctuationAtTheCap],
-    ['a colon with no `@`', () => `a:${'b'.repeat(MAX_REDACTION_INPUT_CHARS - 2)}`],
     [
-      // Reaches the trailing-punctuation trim, which only ever ran on an already-matched URL: a
-      // huge run of dots INSIDE the match, followed by a non-punctuation character so that every
-      // start position in the run fails the end anchor. That is the input the old `/[.,;:!?]+$/`
-      // needed, and plain punctuation never reached it.
+      'scheme-ish characters that never reach `://`',
+      () => 'a.'.repeat(MAX_REDACTION_INPUT_CHARS / 2),
+    ],
+    [
       'a URL with a huge interior punctuation run',
       () => {
         const head = 'https://api.example.com/'
-        const dots = '.'.repeat(MAX_REDACTION_INPUT_CHARS - head.length - 1)
-        return `${head}${dots}x`
+        return `${head}${'.'.repeat(MAX_REDACTION_INPUT_CHARS - head.length - 1)}x`
       },
     ],
+    ['a colon with no `@` after it', () => `a:${'b'.repeat(MAX_REDACTION_INPUT_CHARS - 2)}`],
   ])('redacts %s at the cap in milliseconds', (_name, make) => {
     const text = make()
     expect(text.length).toBeLessThanOrEqual(MAX_REDACTION_INPUT_CHARS)
@@ -1451,6 +1453,8 @@ describe('the URL finder is linear, and timed AT the bound', () => {
     const started = Date.now()
     redactText(text, ['irrelevant'])
 
+    // The replaced regexes needed 1 876 ms, 4 655 ms and ~11 s on inputs of this size; the linear
+    // passes need single-digit milliseconds, so 1 s is clear of both by a wide margin.
     expect(Date.now() - started).toBeLessThan(1_000)
   })
 
