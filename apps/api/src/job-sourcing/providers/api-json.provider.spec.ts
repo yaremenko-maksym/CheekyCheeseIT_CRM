@@ -310,6 +310,47 @@ describe('bad items are isolated, not fatal', () => {
   })
 })
 
+/**
+ * THE OPEN DECISION CARRIED IN FROM TASK 2.1, pinned at this seam so it is visible rather than
+ * inherited silently.
+ *
+ * The stored-link policy (`normalize/url-policy.ts`) refuses IP literals but accepts internal
+ * hosts BY NAME — `localhost`, `*.localhost`, `metadata.google.internal`. Task 2.2's egress policy
+ * runs at FETCH time and never sees a stored link that is later rendered or fetched by the
+ * autosubmit path, so nothing between a hostile provider and a stored
+ * `https://metadata.google.internal/...` says no.
+ *
+ * MY CALL: the fix belongs in `url-policy.ts`, as ONE rule in ONE place, and not here — a second
+ * link policy at this seam would be the parallel-vocabulary defect this task exists to avoid. The
+ * rule I recommend is structural rather than a denylist (`localhost`, `metadata.*` is the
+ * allowlist-vs-denylist mistake again): refuse a single-label host, and refuse the RFC 6761 /
+ * RFC 8375 special-use suffixes `.localhost .local .internal .home.arpa .test .example .invalid`,
+ * which is a closed standards-derived set and which `metadata.google.internal` falls under.
+ *
+ * It is NOT mine to apply: it changes behaviour that merged with #1065 and the test that pins it,
+ * on a security surface (an SSRF / cloud-metadata credential path), so it is an A2 question for
+ * the owner, in my report, not an A1 edit. What is mine is that it is written down at both seams.
+ */
+describe('internal hostnames — today`s behaviour, pinned', () => {
+  it('stores a link to an internal host rather than quarantining it', async () => {
+    const h = harness({
+      pages: [onePage([job('1', { url: 'https://metadata.google.internal/j/1' })])],
+    })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(batch.counts.quarantined).toBe(0)
+    expect(batch.observations[0]?.sourcePostingUrl).toBe('https://metadata.google.internal/j/1')
+  })
+
+  it('does quarantine the IP literal form of the same host', async () => {
+    const h = harness({ pages: [onePage([job('1', { url: 'https://169.254.169.254/j/1' })])] })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(batch.counts.quarantined).toBe(1)
+    expect(batch.observations).toEqual([])
+  })
+})
+
 describe('a database failure is not a bad record', () => {
   it('reports PERSISTENCE and leaves the invalid count at zero', async () => {
     const h = harness({ pages: [onePage([job('1'), job('2')])], savePageFailsOnPage: 1 })
