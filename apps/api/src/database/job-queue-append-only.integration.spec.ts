@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { Pool, type PoolClient } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { assertRealDbSchema, hasDatabaseUrl } from '../test/require-real-db'
+import { insertBackdatedJobQueueActionAsTableOwner } from './__test-helpers__/backdated-job-queue-action'
 import {
   applyDeployDdlFile,
   dropRolesCreated,
@@ -66,6 +67,12 @@ const DDL_DIR = join(__dirname, '..', '..', 'drizzle', 'manual')
 const TRIGGERS_SQL = join(DDL_DIR, '2026-10-18_job_queue_append_only_triggers.sql')
 const CHECK_SQL = join(DDL_DIR, '2026-10-18_job_queue_append_only_check.sql')
 
+/**
+ * The guards the TEARDOWN must switch off to delete its fixture rows — not the full
+ * inventory. `trg_job_queue_actions_created_at_now` is deliberately absent: it fires on
+ * INSERT only, so the cleanup's DELETEs never meet it, and the fixture that does need it
+ * off turns it off for exactly one statement (see `newBackdatedActionAsTableOwner`).
+ */
 const ACTION_TRIGGERS = [
   'trg_job_queue_actions_append_only',
   'trg_job_queue_actions_no_truncate',
@@ -169,32 +176,56 @@ async function newOpportunity(): Promise<string> {
 }
 
 /**
- * A valid action-log row. `created_at` is explicit so a test can place a row inside
- * or outside the two-year retention window — the schema's default is `now()`, and
- * backdating LATER is impossible by design (the trigger refuses every UPDATE but the
- * redaction), so the age has to be chosen at insert time.
+ * A valid action-log row, as a WRITER produces one: `created_at` is not supplied and
+ * not supply-able. It used to take an `age`, which is how a test placed a row outside
+ * the two-year retention window; `trg_job_queue_actions_created_at_now` has since taken
+ * that capability away from every writer, this helper included. An aged row now comes
+ * from `newBackdatedActionAsTableOwner` below, which says in its name that it is
+ * manufacturing a state production cannot reach.
  */
 async function newAction(opts: {
   actorId: string
   opportunityId: string
   reason?: string | null
-  age?: string
 }): Promise<string> {
   const { rows } = await q(
     `INSERT INTO job_queue_actions
        (kind, opportunity_id, actor_id, scope_kind, before_version, after_version,
-        idempotency_key, reason, created_at)
-     VALUES ('DISMISSED', $1, $2, 'STUDIO', 0, 1, $3, $4, now() - $5::interval)
+        idempotency_key, reason)
+     VALUES ('DISMISSED', $1, $2, 'STUDIO', 0, 1, $3, $4)
      RETURNING id`,
     [
       opts.opportunityId,
       opts.actorId,
       nextTag(),
       opts.reason === undefined ? `${TAG} reason` : opts.reason,
-      opts.age ?? '0 seconds',
     ],
   )
   return rows[0].id as string
+}
+
+/**
+ * An EXPIRED action-log row — the one fixture the product forbids, built the one way
+ * that is left. See the docblock on `insertBackdatedJobQueueActionAsTableOwner`: the
+ * `created_at` guard is off for exactly the one INSERT, inside a transaction, so the
+ * window closes even if this test dies mid-way.
+ *
+ * Every call site is therefore a deliberate statement that the test needs an age; a
+ * test that merely wants a row calls `newAction` and gets `now()`, as production does.
+ */
+async function newBackdatedActionAsTableOwner(opts: {
+  actorId: string
+  opportunityId: string
+  age: string
+  reason?: string | null
+}): Promise<string> {
+  return insertBackdatedJobQueueActionAsTableOwner(pool, {
+    actorId: opts.actorId,
+    opportunityId: opts.opportunityId,
+    age: opts.age,
+    idempotencyKey: nextTag(),
+    reason: opts.reason === undefined ? `${TAG} reason` : opts.reason,
+  })
 }
 
 /**
@@ -362,7 +393,11 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
   // AC1 — the triggers exist, in the right shapes, ENABLE ALWAYS
   // -------------------------------------------------------------------------
   describe('AC1 — trigger inventory', () => {
-    it('installs seven guards, every one ENABLE ALWAYS', async () => {
+    // The count lives in ONE place — the array below. The test's title says "every
+    // guard" rather than a number on purpose: a title carrying its own copy of the
+    // figure is a second source of truth that goes stale without failing, which is
+    // exactly what happened when the eighth guard (`created_at_now`) landed.
+    it('installs every guard listed below, each one ENABLE ALWAYS', async () => {
       const { rows } = await q(
         `SELECT c.relname AS table_name, t.tgname, t.tgenabled,
                 (t.tgtype & 1) <> 0  AS is_row,
@@ -380,6 +415,7 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       )
       expect(rows.map((r) => r.tgname)).toEqual([
         'trg_job_queue_actions_append_only',
+        'trg_job_queue_actions_created_at_now',
         'trg_job_queue_actions_no_truncate',
         'trg_job_queue_generation_entries_building_only',
         'trg_job_queue_generation_entries_immutable',
@@ -405,6 +441,16 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       expect(byName['trg_job_queue_actions_no_truncate']).toMatchObject({
         is_row: false,
         on_truncate: true,
+      })
+      // The `created_at` guard is the mirror image of the append-only one: INSERT only,
+      // and on no other event. On UPDATE or DELETE it would have nothing to force (the
+      // append-only trigger refuses those) and would only add a surface.
+      expect(byName['trg_job_queue_actions_created_at_now']).toMatchObject({
+        is_row: true,
+        on_insert: true,
+        on_update: false,
+        on_delete: false,
+        on_truncate: false,
       })
       expect(byName['trg_job_queue_generation_entries_no_truncate']).toMatchObject({
         is_row: false,
@@ -467,6 +513,129 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       const err = await rejected(`TRUNCATE job_queue_actions`)
       expect(err.code).toBe(RESTRICT_VIOLATION)
       expect(err.message).toContain('TRUNCATE refused')
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // `created_at` is the DATABASE's to write (r5 Task 1.4b-i)
+  //
+  // Why this has its own cases rather than riding on the inventory test: the
+  // inventory proves the trigger EXISTS in the right shape, which a function body
+  // rewritten to drop the assignment would survive untouched. Only an INSERT that
+  // supplies a value and then reads the row back proves the column actually moved.
+  //
+  // The two-year bound of the append-only trigger and the daily purge both read this
+  // column, so these two cases are what make every retention claim in this file a
+  // claim about a timestamp the writer could not choose.
+  // -------------------------------------------------------------------------
+  describe('created_at is written by the database, not by the writer', () => {
+    it('overrides a backdated created_at supplied by the writer with now()', async () => {
+      // Three years back: far outside the retention window, so had the value survived,
+      // the very next purge would have deleted this row — the hole SR-M-1 named.
+      const { rows } = await q(
+        `INSERT INTO job_queue_actions
+           (kind, opportunity_id, actor_id, scope_kind, before_version, after_version,
+            idempotency_key, reason, created_at)
+         VALUES ('DISMISSED', $1, $2, 'STUDIO', 0, 1, $3, $4, now() - interval '3 years')
+         RETURNING id, created_at, created_at = now() AS is_now,
+                   created_at > now() - interval '1 minute' AS is_recent`,
+        [opportunity, actor, nextTag(), `${TAG} reason`],
+      )
+
+      // `now()` is the TRANSACTION timestamp and stable for the whole transaction, so
+      // the stored value equals it exactly — no tolerance window needed. `is_recent` is
+      // the same claim stated in a way that survives a future reader wondering whether
+      // the equality is an artefact of comparing now() with itself.
+      expect(rows[0].is_now).toBe(true)
+      expect(rows[0].is_recent).toBe(true)
+
+      // And the row is still there afterwards — this guard overrides, it does not refuse
+      // (the DDL header's failure-asymmetry argument: an audit guard must not be able to
+      // turn a writer's timestamp bug into a MISSING audit row).
+      const stored = await q(`SELECT count(*)::int AS n FROM job_queue_actions WHERE id=$1`, [
+        rows[0].id,
+      ])
+      expect(stored.rows[0].n).toBe(1)
+    })
+
+    it('warns the connected client when it overrode a supplied created_at, and stays silent when it did not', async () => {
+      // The loudness half of "override rather than refuse": the DDL argues the warning
+      // reaches the CLIENT, not only the server log, so the first buggy writer's author
+      // meets it on the first run. node-postgres surfaces it as a `notice` event.
+      const client = await pool.connect()
+      const notices: string[] = []
+      const collect = (n: { message?: string }) => notices.push(n.message ?? '')
+      client.on('notice', collect)
+      try {
+        await client.query(
+          `INSERT INTO job_queue_actions
+             (kind, opportunity_id, actor_id, scope_kind, before_version, after_version,
+              idempotency_key, reason, created_at)
+           VALUES ('DISMISSED', $1, $2, 'STUDIO', 0, 1, $3, $4, now() - interval '3 years')`,
+          [opportunity, actor, nextTag(), `${TAG} reason`],
+        )
+        expect(notices.join('\n')).toContain('created_at is set by the database')
+
+        // A writer that supplies nothing is silent: the comparison is diagnostics, and a
+        // warning on every legitimate INSERT would train every reader to ignore it.
+        notices.length = 0
+        await client.query(
+          `INSERT INTO job_queue_actions
+             (kind, opportunity_id, actor_id, scope_kind, before_version, after_version,
+              idempotency_key, reason)
+           VALUES ('DISMISSED', $1, $2, 'STUDIO', 0, 1, $3, $4)`,
+          [opportunity, actor, nextTag(), `${TAG} reason`],
+        )
+        expect(notices).toEqual([])
+      } finally {
+        client.off('notice', collect)
+        client.release()
+      }
+    })
+
+    it('still forces now() under session_replication_role = replica (ENABLE ALWAYS)', async () => {
+      // The bypass every guard in this file is ENABLE ALWAYS to close. A plain ENABLE
+      // trigger is skipped in replica mode, which would hand the column straight back
+      // to the writer.
+      const client = await pool.connect()
+      try {
+        await client.query(`SET session_replication_role = replica`)
+        const { rows } = await client.query(
+          `INSERT INTO job_queue_actions
+             (kind, opportunity_id, actor_id, scope_kind, before_version, after_version,
+              idempotency_key, reason, created_at)
+           VALUES ('DISMISSED', $1, $2, 'STUDIO', 0, 1, $3, $4, now() - interval '3 years')
+           RETURNING created_at = now() AS is_now`,
+          [opportunity, actor, nextTag(), `${TAG} reason`],
+        )
+        expect(rows[0].is_now).toBe(true)
+      } finally {
+        await client.query(`RESET session_replication_role`).catch(() => undefined)
+        client.release()
+      }
+    })
+
+    it('leaves the ageing fixture as the only route to an expired row', async () => {
+      // The companion claim to the three above, and the reason the fixture helper is
+      // named the way it is: with the guard on, a writer CANNOT produce a row the purge
+      // would take, so an expired row in this suite only ever comes from the owner-level
+      // helper. If this ever goes red, something re-opened the writer's route.
+      const { rows } = await q(
+        `INSERT INTO job_queue_actions
+           (kind, opportunity_id, actor_id, scope_kind, before_version, after_version,
+            idempotency_key, reason, created_at)
+         VALUES ('DISMISSED', $1, $2, 'STUDIO', 0, 1, $3, $4, now() - interval '3 years')
+         RETURNING id, created_at <= now() - interval '2 years' AS expired`,
+        [opportunity, actor, nextTag(), `${TAG} reason`],
+      )
+      expect(rows[0].expired).toBe(false)
+
+      // Proven through the sanctioned purge, not only by arithmetic on the column.
+      await q(`SELECT crm_retention_purge_job_queue_actions()`)
+      const after = await q(`SELECT count(*)::int AS n FROM job_queue_actions WHERE id=$1`, [
+        rows[0].id,
+      ])
+      expect(after.rows[0].n).toBe(1)
     })
   })
 
@@ -823,7 +992,7 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
    */
   describe('AC4 — R-B: the two SECURITY DEFINER functions', () => {
     it('purges an expired row and leaves a fresh one', async () => {
-      const expired = await newAction({
+      const expired = await newBackdatedActionAsTableOwner({
         actorId: actor,
         opportunityId: opportunity,
         age: '3 years',
@@ -939,7 +1108,7 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       // FIRST, so the caller can shadow the table the function means to read. Here
       // the function's references are unqualified ON PURPOSE (see the DDL header), so
       // this test fails the moment the `SET search_path` is dropped.
-      const expired = await newAction({
+      const expired = await newBackdatedActionAsTableOwner({
         actorId: actor,
         opportunityId: opportunity,
         age: '3 years',
@@ -1067,7 +1236,11 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
 
     it('trigger: refuses the retention owner deleting a row one day SHORT of two years', async () => {
       // Kills: the trigger's `interval '2 years'` widened to `'1 year'`.
-      const id = await newAction({ actorId: actor, opportunityId: opportunity, age: '729 days' })
+      const id = await newBackdatedActionAsTableOwner({
+        actorId: actor,
+        opportunityId: opportunity,
+        age: '729 days',
+      })
       const err = await asRetentionOwner((c) =>
         rejectedOn(c, `DELETE FROM job_queue_actions WHERE id=$1`, [id]),
       )
@@ -1077,14 +1250,18 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
 
     it('purge: leaves a row one day SHORT of two years', async () => {
       // Kills: the purge function's `interval '2 years'` narrowed to `'1 year'`.
-      const id = await newAction({ actorId: actor, opportunityId: opportunity, age: '729 days' })
+      const id = await newBackdatedActionAsTableOwner({
+        actorId: actor,
+        opportunityId: opportunity,
+        age: '729 days',
+      })
       await q(`SELECT crm_retention_purge_job_queue_actions()`)
       expect(await countOf(id)).toBe(1)
     })
 
     it('purge: deletes a row one day PAST two years', async () => {
       // Kills: the purge function's `interval '2 years'` widened to `'3 years'`.
-      const id = await newAction({
+      const id = await newBackdatedActionAsTableOwner({
         actorId: actor,
         opportunityId: opportunity,
         age: '2 years 1 day',
@@ -1121,7 +1298,7 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
     })
 
     it('allows the retention owner deleting an expired row (the admitted shape)', async () => {
-      const id = await newAction({
+      const id = await newBackdatedActionAsTableOwner({
         actorId: actor,
         opportunityId: opportunity,
         age: '2 years 1 day',
@@ -1175,7 +1352,7 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
     })
 
     it('refuses the same shapes from a session that is not the retention owner', async () => {
-      const id = await newAction({
+      const id = await newBackdatedActionAsTableOwner({
         actorId: actor,
         opportunityId: opportunity,
         age: '3 years',
