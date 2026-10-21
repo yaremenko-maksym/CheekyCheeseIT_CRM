@@ -1782,3 +1782,191 @@ describe('the request-report brand is installed the same way as the batch brand'
     expect(new UnbuiltBatchError().name).toBe('UnbuiltBatchError')
   })
 })
+
+describe('each redaction bound, at the exact character of its limit', () => {
+  /**
+   * The gate named `url.length > MAX` → `>=` and `text.length > MAX` → `>=` as surviving: a field
+   * of EXACTLY the cap must be processed, not dropped. One-sided again — the drop cases above
+   * prove over-the-cap behaviour and say nothing about the limit itself.
+   */
+  it('processes a URL of exactly the cap', () => {
+    const head = 'https://api.example.com/j?page=1&pad='
+    const url = `${head}${'x'.repeat(MAX_REDACTION_INPUT_CHARS - head.length)}`
+    expect(url.length).toBe(MAX_REDACTION_INPUT_CHARS)
+
+    const out = redactUrl(url, [])
+
+    expect(out).not.toBe(DROPPED_TOO_LONG)
+    expect(out).toContain('page=1')
+  })
+
+  it('drops a URL one character over the cap', () => {
+    const head = 'https://api.example.com/j?page=1&pad='
+    const url = `${head}${'x'.repeat(MAX_REDACTION_INPUT_CHARS - head.length + 1)}`
+    expect(url.length).toBe(MAX_REDACTION_INPUT_CHARS + 1)
+
+    expect(redactUrl(url, [])).toBe(DROPPED_TOO_LONG)
+  })
+
+  it('processes free text of exactly the cap', () => {
+    const text = `hello ${'y'.repeat(MAX_REDACTION_INPUT_CHARS - 6)}`
+    expect(text.length).toBe(MAX_REDACTION_INPUT_CHARS)
+
+    expect(redactText(text, [])).toBe(text)
+  })
+
+  /**
+   * `redactText`'s OWN guard, not the one inside `redactSecrets` it delegates to. For most inputs
+   * the two are indistinguishable — over-budget text reaches `redactSecrets`, which drops it
+   * anyway. The case that separates them is text that SHRINKS below the cap while its URLs are
+   * redacted: without `redactText`'s guard the shrunken text sails through, and an over-budget
+   * field is reported after all.
+   */
+  it('drops over-budget text even when redacting its URLs would shrink it under the cap', () => {
+    const pad = 'z'.repeat(MAX_REDACTION_INPUT_CHARS)
+    const text = `https://api.example.com/j?token=${pad}`
+    expect(text.length).toBeGreaterThan(MAX_REDACTION_INPUT_CHARS)
+
+    // Redacting `token` would collapse the whole padding to one marker, leaving a short string.
+    expect(redactText(text, [])).toBe(DROPPED_TOO_LONG)
+  })
+})
+
+describe('redactUrl`s userinfo strip is load-bearing on its own', () => {
+  /**
+   * The gate named the `username !== '' || password !== ''` branch as surviving in both
+   * directions. The reason the obvious tests do not reach it: `redactSecrets` runs afterwards and
+   * its `user:pass@` scan catches the COLON form regardless. The cases below are the ones only the
+   * URL-level strip can handle, asserted on the whole output string so there is nothing to slip
+   * through.
+   */
+  it('removes a username-only credential, which the `user:pass@` scan cannot see', () => {
+    expect(redactUrl('https://tok3n@api.example.com/j?page=1', [])).toBe(
+      'https://api.example.com/j?page=1',
+    )
+  })
+
+  it('removes a password-only credential', () => {
+    expect(redactUrl('https://:pw0rd@api.example.com/j?page=1', [])).toBe(
+      'https://api.example.com/j?page=1',
+    )
+  })
+
+  it('removes both halves at once', () => {
+    expect(redactUrl('https://u:pw@api.example.com/j?page=1', [])).toBe(
+      'https://api.example.com/j?page=1',
+    )
+  })
+
+  it('leaves a URL without userinfo byte-identical', () => {
+    expect(redactUrl('https://api.example.com/j?page=1', [])).toBe(
+      'https://api.example.com/j?page=1',
+    )
+  })
+
+  it('redacts every non-allowlisted key and no allowlisted one, in one URL', () => {
+    // Both directions of the allowlist condition in one assertion on the whole string.
+    expect(redactUrl('https://api.example.com/j?page=1&token=t1', [])).toBe(
+      `https://api.example.com/j?page=1&token=${REDACTED}`,
+    )
+  })
+})
+
+describe('the URL finder`s walks, at their boundaries', () => {
+  it('skips leading characters that cannot begin a scheme', () => {
+    // `+x://` — the walk back covers `+x`, and the forward trim drops the `+` because a scheme
+    // must begin with a letter. Without the trim the span starts at `+` and no longer parses.
+    const out = redactText('ref +x://host/p?token=t1 end', [])
+
+    expect(out).not.toContain('t1')
+    expect(out).toContain('ref +')
+    expect(out).not.toContain('(unparsable url)')
+  })
+
+  it('refuses a separator with no host rather than reporting it', () => {
+    // `new URL('https://')` throws — there is no host — so the span becomes the unparsable
+    // marker. Fail-closed is the right answer here: a string we cannot parse is exactly where a
+    // credential would hide from the structural pass.
+    expect(redactText('bare https:// end', [])).toBe(`bare ${REDACTED} (unparsable url) end`)
+  })
+
+  it('keeps a URL that ends exactly at the end of the text', () => {
+    expect(redactText('go https://api.example.com/j?page=9', [])).toBe(
+      'go https://api.example.com/j?page=9',
+    )
+  })
+
+  it('trims a punctuation run back to the separator without looping', () => {
+    // Every character after `://` is trailing punctuation, so the trim walks back to `end === sep
+    // + 3`; the `end > sep` guard and the `Math.max` on `from` are what stop this from stalling.
+    const out = redactText('a x://... b https://api.example.com/j?token=t1 c', [])
+
+    expect(out).not.toContain('t1')
+    expect(out).toContain(' c')
+  })
+
+  it('still finds a later URL after one whose body was entirely trimmed', () => {
+    const out = redactText('x://.. https://api.example.com/j?token=t2', [])
+
+    expect(out).not.toContain('t2')
+  })
+})
+
+describe('the secret-form encodings are each generated', () => {
+  const SECRET = 'ab/cd+ef=gh&ij k'
+
+  it.each([
+    [
+      'the URLSearchParams form',
+      new URLSearchParams([['v', SECRET]]).toString().slice('v='.length),
+    ],
+    ['the base64 form', Buffer.from(SECRET, 'utf8').toString('base64')],
+    ['the base64url form', Buffer.from(SECRET, 'utf8').toString('base64url')],
+  ])('redacts %s with nothing else in the text to help', (_name, form) => {
+    // Deliberately bare: no `@`, no auth scheme, no URL — so ONLY the registered-form match can
+    // remove it, and a missing form in `secretForms` is the difference.
+    const out = redactSecrets(`k=${form}`, [SECRET])
+
+    expect(out).toBe(`k=${REDACTED}`)
+  })
+
+  it('generates the URLSearchParams form without its `v=` prefix', () => {
+    // Pins the `slice('v='.length)`: a wrong slice leaves `v=` glued to the form, which then
+    // matches nothing.
+    const out = redactSecrets(`k=${new URLSearchParams([['v', SECRET]]).toString().slice(2)}`, [
+      SECRET,
+    ])
+
+    expect(out).toBe(`k=${REDACTED}`)
+    expect(out).not.toContain('v=')
+  })
+})
+
+describe('the request-report brand carries the value `true`', () => {
+  it('installs the brand as a non-enumerable `true`, not merely as a key', () => {
+    const report = buildRequestReport(
+      {
+        attempt: 1,
+        page: 1,
+        url: 'https://api.example.com/j',
+        status: 200,
+        startedAt: new Date('2026-10-20T10:00:00Z'),
+        endedAt: new Date('2026-10-20T10:00:01Z'),
+        cost: null,
+        error: null,
+      },
+      [],
+    )
+
+    const [brand] = Object.getOwnPropertySymbols(report)
+    expect(brand).toBeDefined()
+
+    const descriptor =
+      brand === undefined ? undefined : Object.getOwnPropertyDescriptor(report, brand)
+
+    // The VALUE, not just the symbol's presence: `{}` and `{ value: false }` both leave a symbol
+    // in place, so asserting the key exists cannot tell a real brand from an empty one.
+    expect(descriptor?.value).toBe(true)
+    expect(descriptor?.enumerable).toBe(false)
+  })
+})
