@@ -382,19 +382,25 @@ describe.skipIf(SKIP_LOCAL_PERF)('AC3 — API responsiveness during a resume ren
    */
   it('keeps the API answering during extraction — and would not if the parse moved back in-process', async () => {
     const { ResumeTextExtractionService } = await import('./resume-text-extraction.service')
-    const { buildAttributeBombDocx } = await import('../test/resume-fixtures')
+    const { buildDocxRawBody } = await import('../test/resume-fixtures')
     const { RESUME_DOCX_MIME } = await import('@crm/shared')
 
-    // THE SHAPE NO ACCEPTANCE BUDGET CAN SEE: 60 000 attributes on one element
-    // — 15 tags, 650 KB, ~3.4 s of parse, because xmldom's attribute handling
-    // is quadratic per element.
+    // A document that passes every acceptance budget and is still expensive to
+    // parse: 690 000 empty paragraphs, 4.1 MB, one tag per 6 bytes. Isolation is
+    // the ONLY thing standing between it and the event loop, so this is the
+    // shape the sandbox exists for.
     //
-    // It replaces a 60 000-paragraph document, and the swap is the point. That
-    // one was expensive in a dimension a budget CAN measure, so this test could
-    // be read as "isolation is a second line behind the budgets". It is not:
-    // this fixture is small, sparse in tags, and passes every budget we have,
-    // so isolation is the ONLY thing standing between it and the event loop.
-    const attack = buildAttributeBombDocx(60_000)
+    // It replaces a 60 000-attribute element, and the swap is not cosmetic. That
+    // fixture was chosen when `@xmldom/xmldom` rescanned an element's attributes
+    // as each one was added (quadratic: 1.33 MB / 120 000 attributes = 18 310 ms
+    // by the service header's account). With the installed 0.8.15 the same shape
+    // is linear: 60 000 attributes parse in ~60-100 ms, and the largest count the
+    // budgets still admit (200 000) in ~240 ms on the machine that measured it.
+    // So the in-process stall was ~100-220 ms against a sandboxed worst of 15-45 ms,
+    // a ratio that straddled the factor of 5 asserted below, and CI failed it
+    // as 218.199 > 218.214 (run 39665997715). The node-count shape is linear too,
+    // but its budget-admitted maximum is 1.2 s of parse, not 0.1 s.
+    const attack = buildDocxRawBody('<w:p/>'.repeat(690_000))
 
     const service = new ResumeTextExtractionService()
     const sandboxed = await measureWhile(() =>
@@ -408,15 +414,23 @@ describe.skipIf(SKIP_LOCAL_PERF)('AC3 — API responsiveness during a resume ren
       await mammoth.extractRawText({ buffer: attack }).catch(() => undefined)
     })
 
-    // Non-vacuity: both really parsed, and the sandboxed run really was sampled.
-    // Local floor: this only has to be a real window, not the render-sized one.
-    expect(sandboxed.renderMs).toBeGreaterThan(300)
-    expect(inProcess.renderMs).toBeGreaterThan(300)
+    // Non-vacuity: both really parsed, and the sandboxed run really was sampled
+    // throughout a window long enough for a stall to have shown.
+    expect(sandboxed.renderMs).toBeGreaterThan(MIN_RENDER_MS)
+    expect(inProcess.renderMs).toBeGreaterThan(MIN_RENDER_MS)
     expect(sandboxed.samples.length).toBeGreaterThan(MIN_SAMPLES)
 
-    // The guarantee: parsing off-thread is dramatically kinder to the API than
-    // parsing on it, on whatever hardware this happens to be.
-    expect(inProcess.worst).toBeGreaterThan(sandboxed.worst * 5)
+    // The guarantee, stated as what a stall IS rather than as two durations
+    // ordered against each other: with the parse on the main thread, ONE request
+    // is outstanding for most of the parse (measured 1 230 ms of a 1 261 ms
+    // window; the fraction is 0.97). The bound is a fraction of the run's own
+    // length, so it does not depend on how fast the machine is.
+    expect(inProcess.worst).toBeGreaterThan(inProcess.renderMs * 0.5)
+    // Off-thread, no request is held up for anything like that long (measured
+    // 14.8 ms in a 1 725 ms window, 0.9%), and the API kept serving
+    // (3 135 samples against 9 in-process).
+    expect(sandboxed.worst).toBeLessThan(sandboxed.renderMs * 0.25)
+    expect(sandboxed.samples.length).toBeGreaterThan(inProcess.samples.length * 5)
   }, 180_000)
 
   it.skipIf(process.env['RESUME_PERF'] !== '1')(
