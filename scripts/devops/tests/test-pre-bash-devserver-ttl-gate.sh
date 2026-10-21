@@ -334,6 +334,43 @@ assert_red "ПОЛНЫЙ argv (зонд гранта): licenses допускае
 assert_green "ПОЛНЫЙ argv: pnpm licenses list — ровно вычитанная форма" \
   -- h "pnpm licenses list"
 
+# ── SR-M-1: грант выдан ТОЛЬКО pnpm/npm, чьи семантики проверены ──────────────
+# Критерий PKG_QUERY_SPEC проверялся на pnpm и npm, а ключом стояли все пять
+# PKG_RUNNERS. ИЗМЕРЕНО: на turbo 2.11.7 `turbo why dev` запускает и таск `why`,
+# и таск `dev` — у turbo операнд САМ является именем таска; yarn 1.22.22 для 7 из
+# 15 имён проваливается в `yarn run <script>`. Шестнадцать форм
+# `turbo|yarn <granted> dev` переключились с BLOCK на ALLOW.
+#
+# Дырой это не стало только потому, что turbo.json не определяет ни одного из
+# пятнадцати имён, — то есть гейт был прав благодаря фактам, которых он не читает.
+# Заведи таск `info` — и гейт замолчит, причём молча: confident=True отключает и
+# readings(), то есть страховки тоже нет.
+#
+# Часть этих случаев — ОСОЗНАННЫЕ ложные срабатывания (`turbo ls dev` только
+# печатает список). Это принятое направление: повтор стоит минуту, тихая дыра с
+# триггером в другом файле стоит базы.
+for form in "why dev" "info dev" "ls dev" "ls preview" "outdated start"; do
+  assert_red "SR-M-1: turbo не получает грант: turbo $form" \
+    --contains '"decision": "block"' \
+    -- h "turbo $form"
+  assert_red "SR-M-1: yarn не получает грант: yarn $form" \
+    --contains '"decision": "block"' \
+    -- h "yarn $form"
+done
+
+assert_red "SR-M-1: bun тоже остаётся недостоверным" \
+  --contains '"decision": "block"' \
+  -- h "bun why dev"
+
+# Обратная сторона: обычные формы turbo/yarn не начали отказываться.
+for ok in "turbo build" "turbo test" "turbo run build --filter=@crm/web" "yarn install"; do
+  assert_green "SR-M-1 обратная сторона: ничего нового не запрещено: $ok" \
+    -- h "$ok"
+done
+
+assert_green "SR-M-1: грант pnpm/npm сохранён: npm why vite" \
+  -- h "npm why vite"
+
 # ── repros 2-4: a heredoc body is DATA, and a QUOTED delimiter proves it ───────
 # Stage 2 of lib/cmdscan.py was always emphatic that a heredoc body is data,
 # never code — and stage 1 (substitution extraction) ran FIRST and had already

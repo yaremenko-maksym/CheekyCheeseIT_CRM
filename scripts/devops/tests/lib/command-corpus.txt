@@ -625,3 +625,41 @@ block	db,ttl	pnpm --call vite
 block	db,ttl	pnpm --unknown-flag why vite
 block	db,ttl	pnpm dlx vite
 block	db,ttl	pnpm why vite && pnpm --filter @crm/api dev
+
+# ─── SR-M-1: the grant is keyed on pnpm/npm ONLY ─────────────────────────────
+# The four-part criterion in PKG_QUERY_SPEC was validated against pnpm and npm.
+# It was keyed on all five PKG_RUNNERS, which asserted of turbo/yarn/bun
+# something nobody checked — and for two of them it is false. MEASURED: on turbo
+# 2.11.7 `turbo why dev` runs the `why` task AND the `dev` task, because for
+# turbo every operand is a task name; yarn 1.22.22 falls through to
+# `yarn run <script>` for 7 of the 15 granted names.
+#
+# It was inert only because turbo.json happens to define none of the fifteen and
+# no manifest script collides — the gate was correct because of facts it does not
+# read, and confident=True would have disabled readings() as the fallback too.
+# These rows pin the restriction so it is checked rather than remembered; the
+# corpus previously held pnpm and npm shapes only.
+#
+# Some of these are deliberate FALSE POSITIVES (`turbo ls dev` only lists a
+# task). That is the accepted direction: a retry costs a minute, a silent hole
+# whose trigger lives in another file costs the database.
+block	db,ttl	turbo why dev
+block	db,ttl	turbo info dev
+block	db,ttl	turbo ls dev
+block	db,ttl	turbo ls preview
+block	db,ttl	turbo outdated start
+block	db,ttl	yarn why dev
+block	db,ttl	yarn info dev
+block	db,ttl	yarn ls dev
+block	db,ttl	yarn licenses preview
+block	db,ttl	bun why dev
+# ...while a turbo/yarn command with no launcher-looking operand is still allowed:
+# nothing is relaxed and nothing new is refused for the ordinary forms.
+allow	all	turbo build
+allow	all	turbo test
+allow	all	turbo run build --filter=@crm/web
+allow	all	yarn install
+# ...and the pnpm/npm queries keep their grant. `npm info dev` reads the registry
+# entry for a package literally named `dev`; it executes nothing.
+narrowed	db,ttl	npm why vite
+allow	all	npm info dev
