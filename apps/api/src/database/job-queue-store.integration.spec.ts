@@ -113,10 +113,35 @@ const nextTag = () => {
   return `${TAG}-${seq}`
 }
 
-/** The append-only guards a teardown must lift on the action log, then restore. */
+/**
+ * The append-only guards a teardown must lift on the action log, then restore. NOT the
+ * table's full trigger inventory — see `ACTION_LOG_TRIGGERS` below, which is what the
+ * teardown's self-check compares against.
+ *
+ * `trg_job_queue_actions_created_at_now` is deliberately absent: it fires on INSERT only,
+ * so the cleanup's DELETEs never meet it, and lifting a guard a teardown does not need is
+ * widening the window for nothing.
+ */
 const GUARD_TRIGGERS = [
   { table: 'job_queue_actions', trigger: 'trg_job_queue_actions_append_only' },
   { table: 'job_queue_actions', trigger: 'trg_job_queue_actions_no_truncate' },
+] as const
+
+/**
+ * Every non-internal trigger the 1.3b DDL leaves on `job_queue_actions`, in `tgname`
+ * order — the teardown's self-check reads this, not `GUARD_TRIGGERS`.
+ *
+ * The two were ONE constant until the eighth guard landed, and the conflation is what
+ * broke this suite: `trg_job_queue_actions_created_at_now` need not be disabled for a
+ * DELETE, so adding it to the teardown set would have been wrong, while leaving the
+ * self-check comparing against the teardown set made a correctly guarded table read as
+ * "a bad state". A set that must be lifted and a set that must be present are different
+ * sets, and they are now two constants that say which is which.
+ */
+const ACTION_LOG_TRIGGERS = [
+  'trg_job_queue_actions_append_only',
+  'trg_job_queue_actions_created_at_now',
+  'trg_job_queue_actions_no_truncate',
 ] as const
 
 /** Deploy roles this suite created and must therefore drop again. See `afterAll`. */
@@ -299,7 +324,7 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
         await pool.end()
       }
       const names = rows.map((r) => r.tgname).join(',')
-      const wanted = GUARD_TRIGGERS.map((g) => g.trigger).join(',')
+      const wanted = ACTION_LOG_TRIGGERS.join(',')
       if (names !== wanted || !rows.every((r) => r.tgenabled === 'A')) {
         throw new Error(
           `teardown left the action-log guards in a bad state: ${JSON.stringify(rows)}`,

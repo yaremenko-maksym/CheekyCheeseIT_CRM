@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { insertBackdatedJobQueueActionAsTableOwner } from '../database/__test-helpers__/backdated-job-queue-action'
 import {
   applyDeployDdlFile,
   APPEND_ONLY_TRIGGERS_DDL,
@@ -65,20 +66,28 @@ const nextTag = () => {
 }
 
 /**
- * An action-log row of a chosen age. `created_at` has to be set at INSERT time: the
- * append-only trigger refuses every UPDATE but the redaction, so a row cannot be
- * backdated afterwards — which is the feature, not an inconvenience.
+ * An action-log row of a chosen age — A STATE NO WRITER CAN PRODUCE, and the name says
+ * so at every call site.
+ *
+ * `created_at` can be neither supplied at INSERT time (`trg_job_queue_actions_created_at_now`
+ * overrides it) nor set afterwards (the append-only trigger refuses every UPDATE but the
+ * redaction). Both of those are the feature. A suite about a two-year boundary still needs
+ * a row on each side of it, so the age is manufactured as the TABLE OWNER with the
+ * `created_at` guard off for exactly the one INSERT — see the shared helper's docblock for
+ * why the window is a transaction rather than a block.
+ *
+ * Deliberately NOT a general "insert an action" helper: every row this file creates is
+ * aged on purpose, and a future test that wants an ordinary row should write its own
+ * INSERT and get `now()`, as production does.
  */
-async function newAction(age: string): Promise<string> {
-  const { rows } = await q(
-    `INSERT INTO job_queue_actions
-       (kind, opportunity_id, actor_id, scope_kind, before_version, after_version,
-        idempotency_key, reason, created_at)
-     VALUES ('DISMISSED', $1, $2, 'STUDIO', 0, 1, $3, $4, now() - $5::interval)
-     RETURNING id`,
-    [opportunityId, actorId, nextTag(), `${TAG} reason`, age],
-  )
-  return rows[0].id as string
+async function newBackdatedActionAsTableOwner(age: string): Promise<string> {
+  return insertBackdatedJobQueueActionAsTableOwner(pool, {
+    actorId,
+    opportunityId,
+    age,
+    idempotencyKey: nextTag(),
+    reason: `${TAG} reason`,
+  })
 }
 
 const countOf = async (id: string): Promise<number> => {
@@ -165,7 +174,7 @@ describe('JobQueueActionRetentionCronService — against the real catalog', () =
   it('AC1: the caller invokes the function as crm_app and needs no privilege change', async () => {
     if (!ready) return
     // The claim PR #1026 made and this task was told to verify rather than assume.
-    const expired = await newAction('2 years 1 day')
+    const expired = await newBackdatedActionAsTableOwner('2 years 1 day')
     const purged = await asCrmApp((svc) => svc.purgeExpiredActions())
 
     expect(purged).toBeGreaterThanOrEqual(1)
@@ -178,14 +187,14 @@ describe('JobQueueActionRetentionCronService — against the real catalog', () =
     // 729 days: inside the window, and well past one year, so an interval narrowed
     // to '1 year' on either side of the mirror would show up here instead of
     // silently agreeing. The caller passes no period — only the SQL knows it.
-    const young = await newAction('729 days')
+    const young = await newBackdatedActionAsTableOwner('729 days')
     await asCrmApp((svc) => svc.purgeExpiredActions())
     expect(await countOf(young)).toBe(1)
   })
 
   it('AC2: the same argument-free call deletes a row one day PAST two years', async () => {
     if (!ready) return
-    const expired = await newAction('2 years 1 day')
+    const expired = await newBackdatedActionAsTableOwner('2 years 1 day')
     await asCrmApp((svc) => svc.purgeExpiredActions())
     expect(await countOf(expired)).toBe(0)
   })
@@ -195,11 +204,11 @@ describe('JobQueueActionRetentionCronService — against the real catalog', () =
     // Three expired rows and a young one: the reported count must be exactly the
     // three, which is what makes the log line evidence rather than decoration.
     const expired = [
-      await newAction('3 years'),
-      await newAction('2 years 2 days'),
-      await newAction('10 years'),
+      await newBackdatedActionAsTableOwner('3 years'),
+      await newBackdatedActionAsTableOwner('2 years 2 days'),
+      await newBackdatedActionAsTableOwner('10 years'),
     ]
-    const young = await newAction('30 days')
+    const young = await newBackdatedActionAsTableOwner('30 days')
 
     const purged = await asCrmApp((svc) => svc.purgeExpiredActions())
     expect(purged).toBe(3)

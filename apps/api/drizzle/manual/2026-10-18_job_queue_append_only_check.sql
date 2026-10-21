@@ -18,9 +18,27 @@
 --   comments. `AC5 — the catalog check` in job-queue-append-only.integration.spec.ts has
 --   one test per assertion: it replays the tampering against the SHIPPED BYTES of this
 --   file and requires the specific failure message. Each was verified by DELETING its
---   assertion here and confirming exactly that test goes red — twelve of the thirteen
---   assertions are killed that way. The thirteenth, the identity-arguments filter in part
---   2b, is an EQUIVALENT MUTANT with respect to this check's verdict: measured across four
+--   assertion here and confirming exactly that test goes red.
+--     THE COUNT IS NOT WRITTEN HERE ON PURPOSE, as of fix round 4. It used to read
+--   "twelve of the thirteen assertions", and by the time anyone looked the file had
+--   twenty-five assertion sites — a hand count in a comment is the exact shape of claim
+--   that goes false in silence, which is this branch's recurring defect. The count is
+--   now MEASURED by the suite instead: `every assertion in the check is pinned by a test
+--   or a measured equivalence` counts the `problems := problems || format(` sites in the
+--   shipped bytes of this file, requires one inventory entry per site, and requires each
+--   entry to name either a test that exists or a measured equivalence. Add an assertion
+--   without classifying it and that test goes RED — so the number lives where it can
+--   fail. A SITE IS COUNTED BY POSITION: a line whose content BEGINS with that append.
+--   Read it the same way the suite does, or you will not get the suite's number:
+--     grep -cE '^[[:space:]]*problems := problems \|\| format\(' <this file>
+--   A plain `grep -c` for the fragment counts MENTIONS too — including the two in this
+--   header, one of which is the sentence above describing the fragment. That is not a
+--   quirk of the prose: it is why the suite decides by position, and the suite also
+--   asserts that sites + comment-line mentions == mentions anywhere, so a regression
+--   back to substring counting fails there instead of agreeing by luck.
+--     One thing that test cannot see, because it is a WHERE conjunct and not an assertion
+--   site: the identity-arguments filter in part
+--   2b, which is an EQUIVALENT MUTANT with respect to this check's verdict — measured across four
 --   catalog states, deleting it changes no pass/fail outcome, only the precision of a
 --   failure message, because the overload report fires on the very precondition that makes
 --   it matter. The measurement is recorded where the filter sits. Every assertion that CAN
@@ -31,12 +49,12 @@
 --   WHAT "REWRITTEN" COVERS, because name + `tgenabled` alone did not cover it. Each
 --   declared trigger is pinned by its timing/event bitmask, the function it executes,
 --   the absence of a `WHEN` clause, its argument count, and the md5 of its whole
---   `pg_get_triggerdef`; and no trigger beyond the seven declared may exist on the
+--   `pg_get_triggerdef`; and no trigger beyond the eight declared may exist on the
 --   three guarded tables. Every one of those assertions earns its place by a tampering
 --   that passed the earlier version of this file green — see the manifest's own comment.
 --
 --   WHAT "DISARMED" COVERS BEYOND TRIGGERS, because a trigger is not the only way. Three
---   objects disarm a guarded table while leaving all seven triggers byte-identical, and
+--   objects disarm a guarded table while leaving every declared trigger byte-identical, and
 --   each was measured doing it: a RULE (`DO INSTEAD NOTHING` makes the audit INSERT record
 --   nothing and report success), an INHERITING CHILD (rows written into it are visible
 --   through the parent and the parent's triggers never fire for them — `crm_app` rewrote
@@ -63,8 +81,16 @@
 --   `pg_get_functiondef` and `pg_get_triggerdef` are both deparser output, so a MAJOR
 --   PostgreSQL upgrade can change the text without anybody changing the object. Both
 --   this cluster and production run PostgreSQL 16; across the 16.14 production server
---   and the 16.15 one these values were taken on, all sixteen checksums below are
---   byte-identical (measured on two containers, 2026-10-19).
+--   and the 16.15 one these values were taken on, sixteen of the eighteen checksums below
+--   are byte-identical (measured on two containers, 2026-10-19).
+--   THE TWO THAT ARE NOT COVERED BY THAT MEASUREMENT, said plainly rather than left to be
+--   assumed from the sentence above: the pair added for
+--   `job_queue_actions_created_at_now` (r5 Task 1.4b-i, 2026-10-21) was taken on 16.15
+--   ONLY — no 16.14 container was raised for it. The risk that carries is bounded and
+--   LOUD: if 16.14 deparses either object differently, the deploy stops with "definition
+--   checksum is X, manifest says Y" and applies nothing. It is not a silent hole. The
+--   cheap way to close the gap when somebody next has a 16.14 container in hand is the
+--   two queries below, filtered to that one trigger and that one function.
 --
 --   When a body or a trigger changes in a reviewed file (or on a major upgrade),
 --   recompute and paste. Functions (both manifests):
@@ -118,15 +144,17 @@ DECLARE
   -- ON COLUMN 6, THE SESSION AND THE SERVER VERSION. Column 6 is deparser output, and it
   -- is a function of TWO things outside the trigger: the server version and the SESSION
   -- `search_path`. The second is not a theoretical concern — it moves every one of the
-  -- seven checksums (measured: 193803… with `public` visible, 0c86cd… under `search_path =
+  -- column-6 checksums (measured: 193803… with `public` visible, 0c86cd… under `search_path =
   -- pg_catalog`, because the deparser qualifies the function name only when it must). That
   -- is why the `BEGIN` below pins the path before reading anything; the manifest values
   -- here are the values under that pinned path. Without the pin this column would be the
   -- one assertion in the file that can fail on a correct database. Columns 3-5 carry their
   -- part of the guarantee in catalog integers and names, so they are immune to both.
   --   On the version half: in principle a server upgrade can move the text without anybody
-  -- moving the trigger. For THIS manifest that was measured rather than assumed: all seven
-  -- checksums below are byte-identical on PostgreSQL 16.14 and 16.15 (two containers, same
+  -- moving the trigger. For THIS manifest that was measured rather than assumed: the seven
+  -- checksums that existed on 2026-10-19 (every row below except
+  -- `trg_job_queue_actions_created_at_now`, added 2026-10-21 and measured on 16.15 only —
+  -- see the file header) are byte-identical on PostgreSQL 16.14 and 16.15 (two containers, same
   -- DDL, 2026-10-19), and 16.14 is what production runs while these values were taken on
   -- 16.15. The nine `pg_get_functiondef` checksums in the two manifests further down were
   -- measured the same way and are likewise identical across the two minors. Had they
@@ -158,7 +186,14 @@ DECLARE
     ['trg_job_queue_generations_frozen',                  'job_queue_generations',
      'A', '19',  'job_queue_generations_frozen',                 '2f9f701662e61ef68c6e2f9d2c585dad'],
     ['trg_job_queue_generations_purge_invalidated_only',  'job_queue_generations',
-     'A', '11',  'job_queue_generations_purge_invalidated_only', 'b73c59e71d952b77f09757521481311c']
+     'A', '11',  'job_queue_generations_purge_invalidated_only', 'b73c59e71d952b77f09757521481311c'],
+    -- r5 Task 1.4b-i. `created_at` is forced to `now()` on INSERT, which is what makes the
+    -- two-year bound in `job_queue_actions_append_only()` trustworthy: that bound reads this
+    -- very column. So this row is not one more guard on the pile — drop it and the DELETE
+    -- exception above becomes writer-controlled. tgtype 7 = BEFORE INSERT ... FOR EACH ROW,
+    -- the same value as `..._building_only`.
+    ['trg_job_queue_actions_created_at_now',              'job_queue_actions',
+     'A', '7',   'job_queue_actions_created_at_now',             '3020b8d4acff09452b2097b14ace70c2']
   ];
   -- Function name, IDENTITY ARGUMENTS and the expected md5(pg_get_functiondef(oid)).
   -- The middle column is `pg_get_function_identity_arguments()` verbatim, which on
@@ -186,7 +221,12 @@ DECLARE
     ['job_queue_generation_entries_no_truncate',       '0f2845e1a6add373ea5756a9f538baf6'],
     ['job_queue_generation_entries_building_only',     '9239f498636cd5f779dd27c7baa85276'],
     ['job_queue_generations_frozen',                   'ddcc16735e528255415b78dc58688278'],
-    ['job_queue_generations_purge_invalidated_only',   '33ba42122c38b8c0baece4ead04e9d35']
+    ['job_queue_generations_purge_invalidated_only',   '33ba42122c38b8c0baece4ead04e9d35'],
+    -- Pinning the TRIGGER (above) proves only that something fires BEFORE INSERT. This row is
+    -- what makes a REWRITTEN body a finding: a function that keeps its name and signature but
+    -- drops the `NEW.created_at := now()` assignment leaves every other assertion in this file
+    -- quiet, and hands the column back to its writer.
+    ['job_queue_actions_created_at_now',               '0b9093ecd63c5e1d659494c306d354f2']
   ];
   expected_search_path CONSTANT text := 'search_path=pg_catalog, public, pg_temp';
 
@@ -205,7 +245,7 @@ BEGIN
   -- visible, so the same untouched trigger hashes two different ways: measured on 16.15,
   -- `trg_job_queue_actions_append_only` is 193803613d7cb921896de671ebb96fef under a path
   -- containing `public` and 0c86cd143fc4c57b8903ce90aa3fbbb1 under `search_path =
-  -- pg_catalog`. All seven move together. The deploy runs plain `psql`, so without this
+  -- pg_catalog`. They all move together. The deploy runs plain `psql`, so without this
   -- line a HEALTHY database fails this check loudly whenever the migration role carries a
   -- role-level or database-level `search_path` that omits `public` — a false positive on
   -- deploy, which is the one failure this file must not invent. `true` = transaction-local,
@@ -217,6 +257,61 @@ BEGIN
   -- resolve. Only column 6 needed pinning; it is pinned rather than documented so the
   -- checksum means one thing.
   PERFORM pg_catalog.set_config('search_path', 'pg_catalog, public', true);
+
+  -- -------------------------------------------------------------------------
+  -- 0. THE MANIFESTS THEMSELVES ARE ASSERTED, not merely iterated.
+  --
+  --    Every part below LOOPS OVER the arrays above, so a row deleted from a manifest
+  --    deletes its own assertion with it. Whether anything notices was not symmetric
+  --    across the three manifests, and the asymmetry was the hole:
+  --      - delete an `expected_triggers` row -> the catalog trigger becomes undeclared
+  --        and part 1b reports it;
+  --      - delete an `expected_functions` row -> part 3 compares the array's length
+  --        against what `crm_retention_owner` actually owns and reports the mismatch;
+  --      - delete an `expected_trigger_functions` row -> NOTHING. Its length reached
+  --        only the closing `RAISE NOTICE`, and a NOTICE cannot fail a check.
+  --    So deleting the body-hash row of `job_queue_actions_created_at_now` left this
+  --    file GREEN while a rewritten body handed `created_at` back to its writer — the
+  --    one tampering that row exists to catch, hidden by removing the row. That the
+  --    row was NECESSARY is already measured: with the body rewritten to drop the
+  --    assignment, `tgenabled`, `tgtype` and the triggerdef md5 were all unchanged and
+  --    only the body checksum saw it (manifest comment, 2026-10-19, PG 16.15).
+  --
+  --    The counterpart scan, in the shape part 1b uses for triggers: declared triggers
+  --    and declared trigger-function checksums must cover each other exactly. It is
+  --    derived from the manifests, so it cannot drift from them; it needs no catalog
+  --    state, so it fails on the EDIT alone, on any database, including a healthy one.
+  --    Pinned by `AC5 — the catalog check` -> the two `0:` tests.
+  -- -------------------------------------------------------------------------
+  FOR i IN 1 .. array_length(expected_triggers, 1) LOOP
+    IF NOT EXISTS (
+      SELECT 1
+        FROM generate_subscripts(expected_trigger_functions, 1) s
+       WHERE expected_trigger_functions[s][1] = expected_triggers[i][5]
+    ) THEN
+      problems := problems || format(
+        'trigger %s executes public.%s(), whose body checksum is NOT DECLARED in '
+        'expected_trigger_functions — the body of a declared guard would go unpinned, '
+        'and a rewrite of it is invisible to every other assertion in this file',
+        expected_triggers[i][1], expected_triggers[i][5]);
+    END IF;
+  END LOOP;
+
+  -- The reverse direction, so a row cannot be left behind pinning nothing: a declared
+  -- body checksum whose function no declared trigger executes is either a stale row or
+  -- a deleted trigger row, and both are findings.
+  FOR i IN 1 .. array_length(expected_trigger_functions, 1) LOOP
+    IF NOT EXISTS (
+      SELECT 1
+        FROM generate_subscripts(expected_triggers, 1) s
+       WHERE expected_triggers[s][5] = expected_trigger_functions[i][1]
+    ) THEN
+      problems := problems || format(
+        'expected_trigger_functions declares public.%s(), which NO DECLARED TRIGGER '
+        'executes — a manifest row that pins nothing, or a trigger row that was removed',
+        expected_trigger_functions[i][1]);
+    END IF;
+  END LOOP;
 
   -- -------------------------------------------------------------------------
   -- 1. Every guard trigger exists, on the right table, and is ENABLE ALWAYS.

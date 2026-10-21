@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { Pool, type PoolClient } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { assertRealDbSchema, hasDatabaseUrl } from '../test/require-real-db'
+import { insertBackdatedJobQueueActionAsTableOwner } from './__test-helpers__/backdated-job-queue-action'
 import {
   applyDeployDdlFile,
   dropRolesCreated,
@@ -66,6 +67,12 @@ const DDL_DIR = join(__dirname, '..', '..', 'drizzle', 'manual')
 const TRIGGERS_SQL = join(DDL_DIR, '2026-10-18_job_queue_append_only_triggers.sql')
 const CHECK_SQL = join(DDL_DIR, '2026-10-18_job_queue_append_only_check.sql')
 
+/**
+ * The guards the TEARDOWN must switch off to delete its fixture rows — not the full
+ * inventory. `trg_job_queue_actions_created_at_now` is deliberately absent: it fires on
+ * INSERT only, so the cleanup's DELETEs never meet it, and the fixture that does need it
+ * off turns it off for exactly one statement (see `newBackdatedActionAsTableOwner`).
+ */
 const ACTION_TRIGGERS = [
   'trg_job_queue_actions_append_only',
   'trg_job_queue_actions_no_truncate',
@@ -169,32 +176,56 @@ async function newOpportunity(): Promise<string> {
 }
 
 /**
- * A valid action-log row. `created_at` is explicit so a test can place a row inside
- * or outside the two-year retention window — the schema's default is `now()`, and
- * backdating LATER is impossible by design (the trigger refuses every UPDATE but the
- * redaction), so the age has to be chosen at insert time.
+ * A valid action-log row, as a WRITER produces one: `created_at` is not supplied and
+ * not supply-able. It used to take an `age`, which is how a test placed a row outside
+ * the two-year retention window; `trg_job_queue_actions_created_at_now` has since taken
+ * that capability away from every writer, this helper included. An aged row now comes
+ * from `newBackdatedActionAsTableOwner` below, which says in its name that it is
+ * manufacturing a state production cannot reach.
  */
 async function newAction(opts: {
   actorId: string
   opportunityId: string
   reason?: string | null
-  age?: string
 }): Promise<string> {
   const { rows } = await q(
     `INSERT INTO job_queue_actions
        (kind, opportunity_id, actor_id, scope_kind, before_version, after_version,
-        idempotency_key, reason, created_at)
-     VALUES ('DISMISSED', $1, $2, 'STUDIO', 0, 1, $3, $4, now() - $5::interval)
+        idempotency_key, reason)
+     VALUES ('DISMISSED', $1, $2, 'STUDIO', 0, 1, $3, $4)
      RETURNING id`,
     [
       opts.opportunityId,
       opts.actorId,
       nextTag(),
       opts.reason === undefined ? `${TAG} reason` : opts.reason,
-      opts.age ?? '0 seconds',
     ],
   )
   return rows[0].id as string
+}
+
+/**
+ * An EXPIRED action-log row — the one fixture the product forbids, built the one way
+ * that is left. See the docblock on `insertBackdatedJobQueueActionAsTableOwner`: the
+ * `created_at` guard is off for exactly the one INSERT, inside a transaction, so the
+ * window closes even if this test dies mid-way.
+ *
+ * Every call site is therefore a deliberate statement that the test needs an age; a
+ * test that merely wants a row calls `newAction` and gets `now()`, as production does.
+ */
+async function newBackdatedActionAsTableOwner(opts: {
+  actorId: string
+  opportunityId: string
+  age: string
+  reason?: string | null
+}): Promise<string> {
+  return insertBackdatedJobQueueActionAsTableOwner(pool, {
+    actorId: opts.actorId,
+    opportunityId: opts.opportunityId,
+    age: opts.age,
+    idempotencyKey: nextTag(),
+    reason: opts.reason === undefined ? `${TAG} reason` : opts.reason,
+  })
 }
 
 /**
@@ -362,7 +393,11 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
   // AC1 — the triggers exist, in the right shapes, ENABLE ALWAYS
   // -------------------------------------------------------------------------
   describe('AC1 — trigger inventory', () => {
-    it('installs seven guards, every one ENABLE ALWAYS', async () => {
+    // The count lives in ONE place — the array below. The test's title says "every
+    // guard" rather than a number on purpose: a title carrying its own copy of the
+    // figure is a second source of truth that goes stale without failing, which is
+    // exactly what happened when the eighth guard (`created_at_now`) landed.
+    it('installs every guard listed below, each one ENABLE ALWAYS', async () => {
       const { rows } = await q(
         `SELECT c.relname AS table_name, t.tgname, t.tgenabled,
                 (t.tgtype & 1) <> 0  AS is_row,
@@ -380,6 +415,7 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       )
       expect(rows.map((r) => r.tgname)).toEqual([
         'trg_job_queue_actions_append_only',
+        'trg_job_queue_actions_created_at_now',
         'trg_job_queue_actions_no_truncate',
         'trg_job_queue_generation_entries_building_only',
         'trg_job_queue_generation_entries_immutable',
@@ -405,6 +441,16 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       expect(byName['trg_job_queue_actions_no_truncate']).toMatchObject({
         is_row: false,
         on_truncate: true,
+      })
+      // The `created_at` guard is the mirror image of the append-only one: INSERT only,
+      // and on no other event. On UPDATE or DELETE it would have nothing to force (the
+      // append-only trigger refuses those) and would only add a surface.
+      expect(byName['trg_job_queue_actions_created_at_now']).toMatchObject({
+        is_row: true,
+        on_insert: true,
+        on_update: false,
+        on_delete: false,
+        on_truncate: false,
       })
       expect(byName['trg_job_queue_generation_entries_no_truncate']).toMatchObject({
         is_row: false,
@@ -467,6 +513,129 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       const err = await rejected(`TRUNCATE job_queue_actions`)
       expect(err.code).toBe(RESTRICT_VIOLATION)
       expect(err.message).toContain('TRUNCATE refused')
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // `created_at` is the DATABASE's to write (r5 Task 1.4b-i)
+  //
+  // Why this has its own cases rather than riding on the inventory test: the
+  // inventory proves the trigger EXISTS in the right shape, which a function body
+  // rewritten to drop the assignment would survive untouched. Only an INSERT that
+  // supplies a value and then reads the row back proves the column actually moved.
+  //
+  // The two-year bound of the append-only trigger and the daily purge both read this
+  // column, so these two cases are what make every retention claim in this file a
+  // claim about a timestamp the writer could not choose.
+  // -------------------------------------------------------------------------
+  describe('created_at is written by the database, not by the writer', () => {
+    it('overrides a backdated created_at supplied by the writer with now()', async () => {
+      // Three years back: far outside the retention window, so had the value survived,
+      // the very next purge would have deleted this row — the hole SR-M-1 named.
+      const { rows } = await q(
+        `INSERT INTO job_queue_actions
+           (kind, opportunity_id, actor_id, scope_kind, before_version, after_version,
+            idempotency_key, reason, created_at)
+         VALUES ('DISMISSED', $1, $2, 'STUDIO', 0, 1, $3, $4, now() - interval '3 years')
+         RETURNING id, created_at, created_at = now() AS is_now,
+                   created_at > now() - interval '1 minute' AS is_recent`,
+        [opportunity, actor, nextTag(), `${TAG} reason`],
+      )
+
+      // `now()` is the TRANSACTION timestamp and stable for the whole transaction, so
+      // the stored value equals it exactly — no tolerance window needed. `is_recent` is
+      // the same claim stated in a way that survives a future reader wondering whether
+      // the equality is an artefact of comparing now() with itself.
+      expect(rows[0].is_now).toBe(true)
+      expect(rows[0].is_recent).toBe(true)
+
+      // And the row is still there afterwards — this guard overrides, it does not refuse
+      // (the DDL header's failure-asymmetry argument: an audit guard must not be able to
+      // turn a writer's timestamp bug into a MISSING audit row).
+      const stored = await q(`SELECT count(*)::int AS n FROM job_queue_actions WHERE id=$1`, [
+        rows[0].id,
+      ])
+      expect(stored.rows[0].n).toBe(1)
+    })
+
+    it('warns the connected client when it overrode a supplied created_at, and stays silent when it did not', async () => {
+      // The loudness half of "override rather than refuse": the DDL argues the warning
+      // reaches the CLIENT, not only the server log, so the first buggy writer's author
+      // meets it on the first run. node-postgres surfaces it as a `notice` event.
+      const client = await pool.connect()
+      const notices: string[] = []
+      const collect = (n: { message?: string }) => notices.push(n.message ?? '')
+      client.on('notice', collect)
+      try {
+        await client.query(
+          `INSERT INTO job_queue_actions
+             (kind, opportunity_id, actor_id, scope_kind, before_version, after_version,
+              idempotency_key, reason, created_at)
+           VALUES ('DISMISSED', $1, $2, 'STUDIO', 0, 1, $3, $4, now() - interval '3 years')`,
+          [opportunity, actor, nextTag(), `${TAG} reason`],
+        )
+        expect(notices.join('\n')).toContain('created_at is set by the database')
+
+        // A writer that supplies nothing is silent: the comparison is diagnostics, and a
+        // warning on every legitimate INSERT would train every reader to ignore it.
+        notices.length = 0
+        await client.query(
+          `INSERT INTO job_queue_actions
+             (kind, opportunity_id, actor_id, scope_kind, before_version, after_version,
+              idempotency_key, reason)
+           VALUES ('DISMISSED', $1, $2, 'STUDIO', 0, 1, $3, $4)`,
+          [opportunity, actor, nextTag(), `${TAG} reason`],
+        )
+        expect(notices).toEqual([])
+      } finally {
+        client.off('notice', collect)
+        client.release()
+      }
+    })
+
+    it('still forces now() under session_replication_role = replica (ENABLE ALWAYS)', async () => {
+      // The bypass every guard in this file is ENABLE ALWAYS to close. A plain ENABLE
+      // trigger is skipped in replica mode, which would hand the column straight back
+      // to the writer.
+      const client = await pool.connect()
+      try {
+        await client.query(`SET session_replication_role = replica`)
+        const { rows } = await client.query(
+          `INSERT INTO job_queue_actions
+             (kind, opportunity_id, actor_id, scope_kind, before_version, after_version,
+              idempotency_key, reason, created_at)
+           VALUES ('DISMISSED', $1, $2, 'STUDIO', 0, 1, $3, $4, now() - interval '3 years')
+           RETURNING created_at = now() AS is_now`,
+          [opportunity, actor, nextTag(), `${TAG} reason`],
+        )
+        expect(rows[0].is_now).toBe(true)
+      } finally {
+        await client.query(`RESET session_replication_role`).catch(() => undefined)
+        client.release()
+      }
+    })
+
+    it('leaves the ageing fixture as the only route to an expired row', async () => {
+      // The companion claim to the three above, and the reason the fixture helper is
+      // named the way it is: with the guard on, a writer CANNOT produce a row the purge
+      // would take, so an expired row in this suite only ever comes from the owner-level
+      // helper. If this ever goes red, something re-opened the writer's route.
+      const { rows } = await q(
+        `INSERT INTO job_queue_actions
+           (kind, opportunity_id, actor_id, scope_kind, before_version, after_version,
+            idempotency_key, reason, created_at)
+         VALUES ('DISMISSED', $1, $2, 'STUDIO', 0, 1, $3, $4, now() - interval '3 years')
+         RETURNING id, created_at <= now() - interval '2 years' AS expired`,
+        [opportunity, actor, nextTag(), `${TAG} reason`],
+      )
+      expect(rows[0].expired).toBe(false)
+
+      // Proven through the sanctioned purge, not only by arithmetic on the column.
+      await q(`SELECT crm_retention_purge_job_queue_actions()`)
+      const after = await q(`SELECT count(*)::int AS n FROM job_queue_actions WHERE id=$1`, [
+        rows[0].id,
+      ])
+      expect(after.rows[0].n).toBe(1)
     })
   })
 
@@ -823,7 +992,7 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
    */
   describe('AC4 — R-B: the two SECURITY DEFINER functions', () => {
     it('purges an expired row and leaves a fresh one', async () => {
-      const expired = await newAction({
+      const expired = await newBackdatedActionAsTableOwner({
         actorId: actor,
         opportunityId: opportunity,
         age: '3 years',
@@ -939,7 +1108,7 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       // FIRST, so the caller can shadow the table the function means to read. Here
       // the function's references are unqualified ON PURPOSE (see the DDL header), so
       // this test fails the moment the `SET search_path` is dropped.
-      const expired = await newAction({
+      const expired = await newBackdatedActionAsTableOwner({
         actorId: actor,
         opportunityId: opportunity,
         age: '3 years',
@@ -1067,7 +1236,11 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
 
     it('trigger: refuses the retention owner deleting a row one day SHORT of two years', async () => {
       // Kills: the trigger's `interval '2 years'` widened to `'1 year'`.
-      const id = await newAction({ actorId: actor, opportunityId: opportunity, age: '729 days' })
+      const id = await newBackdatedActionAsTableOwner({
+        actorId: actor,
+        opportunityId: opportunity,
+        age: '729 days',
+      })
       const err = await asRetentionOwner((c) =>
         rejectedOn(c, `DELETE FROM job_queue_actions WHERE id=$1`, [id]),
       )
@@ -1077,14 +1250,18 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
 
     it('purge: leaves a row one day SHORT of two years', async () => {
       // Kills: the purge function's `interval '2 years'` narrowed to `'1 year'`.
-      const id = await newAction({ actorId: actor, opportunityId: opportunity, age: '729 days' })
+      const id = await newBackdatedActionAsTableOwner({
+        actorId: actor,
+        opportunityId: opportunity,
+        age: '729 days',
+      })
       await q(`SELECT crm_retention_purge_job_queue_actions()`)
       expect(await countOf(id)).toBe(1)
     })
 
     it('purge: deletes a row one day PAST two years', async () => {
       // Kills: the purge function's `interval '2 years'` widened to `'3 years'`.
-      const id = await newAction({
+      const id = await newBackdatedActionAsTableOwner({
         actorId: actor,
         opportunityId: opportunity,
         age: '2 years 1 day',
@@ -1121,7 +1298,7 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
     })
 
     it('allows the retention owner deleting an expired row (the admitted shape)', async () => {
-      const id = await newAction({
+      const id = await newBackdatedActionAsTableOwner({
         actorId: actor,
         opportunityId: opportunity,
         age: '2 years 1 day',
@@ -1175,7 +1352,7 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
     })
 
     it('refuses the same shapes from a session that is not the retention owner', async () => {
-      const id = await newAction({
+      const id = await newBackdatedActionAsTableOwner({
         actorId: actor,
         opportunityId: opportunity,
         age: '3 years',
@@ -1764,6 +1941,149 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
     })
 
     // =====================================================================
+    // THE created_at GUARD'S OWN TAMPERINGS (fix round 4 — SR-M-1 + SPEC-M-1)
+    //
+    // Every tampering test above picks one of the other seven guards, so the eighth —
+    // `trg_job_queue_actions_created_at_now`, the one this PR installs — reached CI
+    // covered only by AC1's inventory, which sees the trigger's SHAPE and not whether
+    // tampering with it is detected. The red runs existed as hand-run output pasted in
+    // a PR body, and hand-run output is not a test: nothing re-runs it.
+    //
+    // Four shapes. The first three go red against assertions that were already here;
+    // the FOURTH had no assertion at all before part 0 — deleting the body-hash row
+    // deleted the only assertion that can see a rewritten body, and the check stayed
+    // GREEN while `created_at` went back to its writer. The two `0:` tests therefore
+    // tamper with the FILE, not the catalog, and feed EDITED bytes where every other
+    // test in this describe feeds the shipped ones.
+    // =====================================================================
+    describe('the created_at guard — its own four tamperings', () => {
+      const TRG = 'trg_job_queue_actions_created_at_now'
+      const FN = 'job_queue_actions_created_at_now'
+
+      /**
+       * Run the SHIPPED check bytes against a tampered catalog and return the failure
+       * message; repair from the DDL and re-verify the repair either way. Same shape as
+       * `tamperedCheckMessage` above, re-declared because that one is scoped to the
+       * column-by-column describe and this one tampers in other ways than `retamper`.
+       */
+      const messageAfterCatalogTamper = async (): Promise<string> => {
+        try {
+          const err = await rejected(readFileSync(CHECK_SQL, 'utf8'))
+          return err.message ?? ''
+        } finally {
+          await applyFile(TRIGGERS_SQL)
+          await applyFile(CHECK_SQL)
+        }
+      }
+
+      /**
+       * Cut one manifest row out of the shipped check bytes, comma and leading comments
+       * included, and prove the cut happened.
+       *
+       * The comma matters: these rows are LAST in their arrays, so removing a row and
+       * leaving its separator behind is a dangling comma, PostgreSQL rejects the file
+       * for a SYNTAX error, and a test asserting "it was rejected" would be satisfied
+       * by the wrong failure entirely.
+       *
+       * The `toMatch` matters for the same family of reason: a regex that silently
+       * matched nothing would leave the check UNEDITED, the unedited check PASSES, and
+       * the test would then fail for a reason that reads like the assertion being wrong.
+       * An instrument that returned nothing has to be shown to have looked.
+       */
+      const withoutManifestRow = (sql: string, row: RegExp): string => {
+        expect(sql).toMatch(row)
+        const edited = sql.replace(row, '')
+        expect(edited).not.toMatch(row)
+        expect(edited.length).toBeLessThan(sql.length)
+        return edited
+      }
+
+      it('1 of 4 — the trigger is dropped', async () => {
+        await q(`DROP TRIGGER ${TRG} ON public.job_queue_actions`)
+
+        const message = await messageAfterCatalogTamper()
+
+        expect(message).toContain(`trigger ${TRG} is MISSING from public.job_queue_actions`)
+      })
+
+      it('2 of 4 — the trigger is left disabled', async () => {
+        await q(`ALTER TABLE public.job_queue_actions DISABLE TRIGGER ${TRG}`)
+        expect(await triggerState(TRG, 'job_queue_actions')).toBe('D')
+
+        const message = await messageAfterCatalogTamper()
+
+        expect(message).toContain(TRG)
+        expect(message).toContain('not ENABLE ALWAYS')
+        // The repair in the helper's `finally` really restored the stronger mode, not
+        // the plain one: 'O' is skipped under `session_replication_role = replica`.
+        expect(await triggerState(TRG, 'job_queue_actions')).toBe('A')
+      })
+
+      it('3 of 4 — the function body is rewritten with the assignment removed', async () => {
+        // THE case that justifies the body-hash row, and the test is two-sided because
+        // of what was measured when it was added (PG 16.15, manifest comment): with the
+        // assignment dropped, `tgenabled`, `tgtype` and the triggerdef md5 are ALL
+        // unchanged, since none of them reads the function's body. So it is not enough
+        // to assert that the check went red — the three assertions that would make this
+        // test pass for the wrong reason must be shown to stay SILENT.
+        await q(`
+          CREATE OR REPLACE FUNCTION public.${FN}()
+          RETURNS trigger LANGUAGE plpgsql
+          SET search_path = pg_catalog, public, pg_temp
+          AS $drift$
+          BEGIN
+            -- The assignment NEW.created_at := now() removed and nothing else: the
+            -- column goes back to its writer, and with it the two-year retention
+            -- bound that reads it.
+            RETURN NEW;
+          END
+          $drift$;
+        `)
+
+        const message = await messageAfterCatalogTamper()
+
+        expect(message).toContain(`trigger function public.${FN} body checksum is`)
+        expect(message).not.toContain('not ENABLE ALWAYS')
+        expect(message).not.toContain('fires on the WRONG timing/events')
+        expect(message).not.toContain('definition checksum is')
+      })
+
+      it('0: fails when a trigger function body-hash row is deleted from the manifest', async () => {
+        // 4 of 4, and the one with its own assertion: before part 0 this edit left the
+        // check green, so the fix for a rewritten body could be removed by removing the
+        // row that catches it. No catalog tampering — the database stays HEALTHY, which
+        // is the point: the edit alone is the finding, on any database.
+        const edited = withoutManifestRow(
+          readFileSync(CHECK_SQL, 'utf8'),
+          /,\n(?:[ \t]*--[^\n]*\n)*[ \t]*\['job_queue_actions_created_at_now',\s*'[^']*'\]/,
+        )
+
+        const err = await rejected(edited)
+
+        expect(err.message).toContain(
+          `trigger ${TRG} executes public.${FN}(), whose body checksum is NOT DECLARED`,
+        )
+      })
+
+      it('0: fails when a trigger row is deleted, leaving a body-hash row that pins nothing', async () => {
+        // The reverse direction of the same coverage assertion. Both scans fire here and
+        // that is the demonstration, not a redundancy: part 1b sees the edit from the
+        // CATALOG side (an installed trigger nobody declared), part 0 from the MANIFEST
+        // side (a checksum row no declared trigger reaches) — and part 0 needs no catalog
+        // state, so it is the half that still works on a database that was never applied.
+        const edited = withoutManifestRow(
+          readFileSync(CHECK_SQL, 'utf8'),
+          /,\n(?:[ \t]*--[^\n]*\n)*[ \t]*\['trg_job_queue_actions_created_at_now',[^\]]*\]/,
+        )
+
+        const err = await rejected(edited)
+
+        expect(err.message).toContain(`declares public.${FN}(), which NO DECLARED TRIGGER executes`)
+        expect(err.message).toContain('is NOT DECLARED in this file')
+      })
+    })
+
+    // =====================================================================
     // THE "EVERY ASSERTION HAS A TEST" CLAIM, CHECKED BY THE SUITE (CR-H-9)
     //
     // Both SQL headers and the PR body make a claim of the form "every assertion that
@@ -1800,6 +2120,17 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
     }
 
     const CHECK_ASSERTIONS: readonly CheckAssertion[] = [
+      // --- part 0: the manifests cover each other (fix round 4, SR-M-1) ---
+      {
+        fragment: 'whose body checksum is NOT DECLARED in ',
+        pinnedBy: ['0: fails when a trigger function body-hash row is deleted from the manifest'],
+      },
+      {
+        fragment: 'which NO DECLARED TRIGGER ',
+        pinnedBy: [
+          '0: fails when a trigger row is deleted, leaving a body-hash row that pins nothing',
+        ],
+      },
       // --- part 1: the seven declared triggers, column by column ---
       { fragment: 'is MISSING from public.%s', pinnedBy: ['fails when a guard is dropped'] },
       {
@@ -1944,10 +2275,41 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       const sql = readFileSync(CHECK_SQL, 'utf8')
       const spec = readFileSync(__filename, 'utf8')
 
-      // 1. Arithmetic: one inventory entry per assertion site, no more and no fewer.
+      // 1. Arithmetic: one inventory entry per assertion SITE, no more and no fewer.
       //    This is the line that makes the set claim re-runnable.
-      const sites = (sql.match(/problems := problems \|\| format\(/g) ?? []).length
+      //
+      //    What is counted, and why it is counted BY POSITION: a site is a line whose
+      //    content BEGINS with the append, i.e. the append in statement position. An
+      //    earlier edition matched the fragment anywhere in the bytes, which counted
+      //    MENTIONS as well as sites — including mentions inside `--` comments, since a
+      //    comment line begins with `--` and so can never begin with the append. That
+      //    is not hypothetical: this file's own header explains how to read the count
+      //    by grepping for this very fragment, and that sentence was itself counted,
+      //    so the prose documenting the instrument inflated the instrument's reading.
+      //    Measured on the commit this fixed: 29 matches anywhere, 2 of them on comment
+      //    lines, 27 in statement position against 27 inventory entries — which is the
+      //    `expected 29 to be 27` the suite reported. Those three numbers are a
+      //    HISTORICAL record of that failure and are not re-measured here; the current
+      //    ones are not written down at all, because the two assertions below measure
+      //    them and go red instead of going stale.
+      //    Deciding by position is the same fix as AC6's `^CREATE /im` below,
+      //    which exists so the header's prose about `CREATE OR REPLACE` does not count
+      //    as a statement — and it keeps working when the next true mention is added,
+      //    which rewording the comment to dodge the grep would not.
+      const SITE_IN_STATEMENT_POSITION = /^[ \t]*problems := problems \|\| format\(/gm
+      const sites = (sql.match(SITE_IN_STATEMENT_POSITION) ?? []).length
       expect(sites).toBe(CHECK_ASSERTIONS.length)
+
+      // And the difference between a mention and a site is itself asserted, so that a
+      // regression back to substring counting is visible as a failure here rather than
+      // as a count that happens to agree today.
+      const mentionsAnywhere = (sql.match(/problems := problems \|\| format\(/g) ?? []).length
+      const mentionsInComments = sql
+        .split('\n')
+        .filter(
+          (line) => /^\s*--/.test(line) && line.includes('problems := problems || format('),
+        ).length
+      expect(sites + mentionsInComments).toBe(mentionsAnywhere)
 
       const missingFragments: string[] = []
       const unclassified: string[] = []
