@@ -103,22 +103,41 @@ async function readStable<T>(
 ): Promise<T> {
   let previous: string | undefined
   let latest: T | undefined
-  await expect
-    .poll(
-      async () => {
-        const value = await read()
-        const key = JSON.stringify(value)
-        const settled = complete(value) && key === previous
-        previous = key
-        latest = value
-        return settled
-      },
-      {
-        message: `${what}: never reached two identical, complete reads`,
-        intervals: [50, 100, 200],
-      },
+  // The last two readings, kept for the failure message: when the poll times
+  // out, "never settled" alone cannot tell a flapping page from an incomplete
+  // one, and that is exactly the case this helper exists to diagnose.
+  const readings: string[] = []
+  try {
+    await expect
+      .poll(
+        async () => {
+          const value = await read()
+          const key = JSON.stringify(value)
+          const isComplete = complete(value)
+          const settled = isComplete && key === previous
+          readings.push(`${isComplete ? 'complete' : 'INCOMPLETE'} ${key}`)
+          if (readings.length > 2) readings.shift()
+          previous = key
+          latest = value
+          return settled
+        },
+        { intervals: [50, 100, 200] },
+      )
+      .toBe(true)
+  } catch (error) {
+    const [older, newer] = readings.length === 2 ? readings : [undefined, readings[0]]
+    const verdict = !newer?.startsWith('complete')
+      ? 'the last reading was INCOMPLETE (language/labels never arrived)'
+      : older !== undefined &&
+          older.slice(older.indexOf(' ') + 1) !== newer.slice(newer.indexOf(' ') + 1)
+        ? 'the readings DIFFERED (the page kept changing)'
+        : 'the readings were identical and complete (poll ended before it could confirm)'
+    throw new Error(
+      `${what}: never reached two identical, complete reads - ${verdict}.\n` +
+        `  second-to-last: ${older ?? '(none)'}\n  last:           ${newer ?? '(none)'}\n` +
+        `  poll error: ${(error as Error).message.split('\n')[0]}`,
     )
-    .toBe(true)
+  }
   return latest as T
 }
 
@@ -183,9 +202,12 @@ async function readPageOverflow(page: import('@playwright/test').Page) {
         return {
           scrollWidth: document.documentElement.scrollWidth,
           clientWidth: document.documentElement.clientWidth,
+          // Language anchor, like every sibling reader: English renders
+          // NARROWER, so a stable English read could pass an overflow guard.
+          hasUkrainianText: /[А-Яа-яІіЇїЄє]/.test((document.body as HTMLElement).innerText),
         }
       }),
-    (o) => o.clientWidth > 0 && o.scrollWidth > 0,
+    (o) => o.clientWidth > 0 && o.scrollWidth > 0 && o.hasUkrainianText,
     'page overflow',
   )
 }
@@ -1680,9 +1702,11 @@ test.describe('X - the pending share addresses the reader, not the route', () =>
     await expect(page.getByTestId('pending-share-approval-banner')).toBeVisible()
     const rendered = await pageText(page, 'Вашу частку по проєкту')
     expect(rendered).toContain('Вашу частку по проєкту')
-    // Project page's own (untouched, still Russian) text — see the
-    // matching comment near `project-senior-share` above.
-    expect(rendered).not.toContain(`Подтверждает ${USERS.senior.displayName}`)
+    // The third-person line an ADMIN reads («Підтверджує <name>», asserted
+    // positively in Scenario A) must not be shown to the approver about
+    // themselves. This used to negate the Russian «Подтверждает …», which the
+    // product no longer renders anywhere, so the check could not fail.
+    expect(rendered).not.toContain(`Підтверджує ${USERS.senior.displayName}`)
   })
 
   // task-648-fix-round-4 (COPY-M-18). Round 3 made «предложение» the one name
@@ -1754,8 +1778,9 @@ test.describe('Y - withdrawing asks first', () => {
 // the other path: a uk user whose BROWSER says en first paints in English
 // (pre-login locale = navigator.language) and is moved to uk when `/auth/me`
 // resolves. This test owns that path deliberately: whatever the first paint
-// was, the session locale must WIN and leave a fully Ukrainian, remounted page
-// - not a page stuck in English, not a mixed one.
+// was, the session locale must WIN and leave a remounted Ukrainian page - not
+// a page stuck in English. Asserted: the browser really is en-US, the badge and
+// withdraw button read Ukrainian, and four named English strings are gone.
 //
 // What it does NOT assert: that the English flash does not happen. That flash
 // is known product behaviour (reported, not fixed here), and pinning its
@@ -1772,6 +1797,10 @@ test.describe('AA - a uk session in an en browser ends in Ukrainian', () => {
     await ready
 
     await page.goto(`/projects/${PROJECT_ID}`)
+    // Guard the premise: if the file-level pin ever leaks into this block (or
+    // the fixture starts setting a locale), this test would silently become a
+    // duplicate of the pinned ones and the en -> uk path would be uncovered.
+    expect(await page.evaluate(() => navigator.language)).toBe('en-US')
     await expect(page.locator('html')).toHaveAttribute('lang', 'uk')
     // Auto-retrying on purpose: here "wait for the switch to land" IS the
     // behaviour under test.
@@ -1780,6 +1809,10 @@ test.describe('AA - a uk session in an en browser ends in Ukrainian', () => {
       'Скасувати пропозицію',
     )
     const text = await pageText(page, 'Запропоновано')
-    expect(text).not.toContain('Proposed')
+    // Named English catalog strings from the first paint must be gone. This is
+    // all the test claims: it does not prove the page has no other English.
+    for (const english of ['Proposed', 'Senior’s share', 'Tech stack', 'Benefits']) {
+      expect(text, `English «${english}» survived the switch`).not.toContain(english)
+    }
   })
 })
