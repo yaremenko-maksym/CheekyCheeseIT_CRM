@@ -477,8 +477,8 @@ function findUrlSpans(text: string): Array<{ start: number; end: number }> {
     if (sep === -1) return spans
 
     let start = sep
-    // Stryker disable next-line ConditionalExpression,EqualityOperator: relaxing this bound reads text[-1], which is undefined, so SCHEME_CHARS.has('') is false and the backwards walk stops at the very same index; the guard documents the bound but cannot change where a scheme begins, so no input distinguishes the two.
     while (
+      // Stryker disable next-line ConditionalExpression,EqualityOperator: relaxing this bound reads text[-1], which is undefined, so SCHEME_CHARS.has('') is false and the backwards walk stops at the very same index; the guard documents the bound but cannot change where a scheme begins, so no input distinguishes the two.
       start > 0 &&
       sep - start < MAX_SCHEME_CHARS &&
       SCHEME_CHARS.has((text[start - 1] ?? '').toLowerCase())
@@ -499,12 +499,14 @@ function findUrlSpans(text: string): Array<{ start: number; end: number }> {
     }
     // Trailing sentence punctuation is not part of the URL. A loop, not `/[.,;:!?]+$/` — that
     // regex was the third quadratic instance in this file.
+    // Stryker disable next-line ConditionalExpression,EqualityOperator: this lower bound is never approached, because the forward walk leaves end at least three characters past the separator and a slash is not trailing punctuation, so the trim always halts well above it and no input can reach the boundary itself.
     while (end > sep && URL_TRAILING_PUNCTUATION.has(text[end - 1] ?? '')) {
       end -= 1
     }
 
     // No scheme letter at all means this `://` is not a URL; skip past it rather than report one.
     if (start < sep) spans.push({ start, end })
+    // Stryker disable next-line ArithmeticOperator,StringLiteral: this floor is never the larger operand, because end is always at least three characters past the separator by the walks above, so lowering the floor leaves the maximum unchanged and the scan resumes at the identical index.
     from = Math.max(end, sep + '://'.length)
   }
 }

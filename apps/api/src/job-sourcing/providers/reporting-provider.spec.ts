@@ -1597,6 +1597,21 @@ describe('the userinfo scan and URL finder, branch by branch', () => {
     expect(redactSecrets('a:b@rest', [])).toBe(`${REDACTED}:${REDACTED}@rest`)
   })
 
+  /**
+   * ADJACENT credentials, with nothing between them. This is what pins `runStart = i + 1`: with
+   * `i - 1` the next run begins before the at-sign instead of after it, so the slice that copies
+   * the text between the two redactions runs backwards and silently drops the separator. A
+   * credential comfortably in the middle of a sentence distinguishes nothing here — the mutant
+   * only shows where one run ends exactly where the next begins.
+   */
+  it('redacts two credentials with nothing between them, keeping both at-signs', () => {
+    expect(redactSecrets('a:b@c:d@e', [])).toBe(`${REDACTED}:${REDACTED}@${REDACTED}:${REDACTED}@e`)
+  })
+
+  it('redacts a credential immediately after a delimiter', () => {
+    expect(redactSecrets('x/a:b@e', [])).toBe(`x/${REDACTED}:${REDACTED}@e`)
+  })
+
   it('leaves a colon-free run before an `@` alone, however long', () => {
     expect(redactSecrets(`${'n'.repeat(500)}@host`, [])).toBe(`${'n'.repeat(500)}@host`)
   })
