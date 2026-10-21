@@ -74,6 +74,10 @@
   color: 0e8a16
   description: 'PM получил явный апрув пользователя — CI может мерджить (auto-merge-on-label.yml)'
 
+- name: skip-review
+  color: fbca04
+  description: 'Review Gate bypass — requires a Skip-Review-Reason: line in the PR body (review-gate.yml)'
+
 - name: do-not-merge
   color: b60205
   description: 'Reviewer вернул Verdict: BLOCK — мердж запрещён до фикса'
