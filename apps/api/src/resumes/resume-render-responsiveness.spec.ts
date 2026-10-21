@@ -307,8 +307,14 @@ describe.skipIf(SKIP_LOCAL_PERF)('AC3 — API responsiveness during a resume ren
     // The guarantee: blocking the loop is dramatically worse than not blocking
     // it, on whatever hardware this happens to be.
     expect(blockingRun.worst).toBeGreaterThan(asyncRun.worst * 5)
-    // And the blocked loop cannot even issue requests (39 vs 26 721 measured).
-    expect(blockingRun.samples.length).toBeLessThan(asyncRun.samples.length / 10)
+    // And the blocked loop issues far fewer requests. This is a SECONDARY
+    // signal: the ratio above is what discriminates. The count ratio is not
+    // scale-free, because CPU contention lowers the async run's count while
+    // the blocked run's stays put. Measured (2026-10-22, 8 cores, 8 busy loops
+    // as load, 15 runs): idle 39 vs 26 721 (685x); loaded 357 vs 2 857 and 357
+    // vs 3 398 (8.0x and 9.5x), which failed the former bound of 10x twice in
+    // 15 runs. The bound is 2x, 4x below the worst loaded ratio seen.
+    expect(blockingRun.samples.length).toBeLessThan(asyncRun.samples.length / 2)
   }, 180_000)
 
   it.skipIf(process.env['RESUME_PERF'] !== '1')(
