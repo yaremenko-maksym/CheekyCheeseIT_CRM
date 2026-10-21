@@ -613,7 +613,7 @@ allow	all	pnpm licenses list
 allow	all	pnpm audit
 allow	all	pnpm whoami
 # the grant stops at the first token it does not recognise. `version` runs the
-# project`s preversion/version/postversion scripts and `audit fix` writes, so
+# project's preversion/version/postversion scripts and `audit fix` writes, so
 # neither earns confidence — a launcher-looking token in the same argv is still
 # refused, which is how a re-grant would show up as a failure here.
 block	db,ttl	npm version vite

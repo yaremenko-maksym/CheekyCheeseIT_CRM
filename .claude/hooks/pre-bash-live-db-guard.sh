@@ -630,7 +630,7 @@ Full launches (copy one; the port is still required):
 
 НЕ ЗАПУСК (этот хук такое пропускает): слово аргументом (grep/ls/git show);
 read-only подкоманда ТОЛЬКО pnpm и npm (`pnpm why vite`, `npm ls`); тело heredoc
-с ЗАКАВЫЧЕННЫМ разделителем (`<<'EOF'`, `<<\EOF`).
+с ЗАКАВЫЧЕННЫМ разделителем (`<<'EOF'`, `<<\\EOF`).
 
 ОТКАЗЫВАЕТСЯ ПО ЗАМЫСЛУ, хотя и не запуск (не баг, обёртка не поможет): те же
 подкоманды у turbo / yarn / bun (`yarn why`, `turbo ls dev`) — у turbo операнд

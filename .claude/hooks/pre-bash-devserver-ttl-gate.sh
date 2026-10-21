@@ -166,7 +166,7 @@ reason = """🚫 DEVSERVER-TTL BLOCK: старт dev-сервера в agent-wor
   • слово аргументом — grep/ls/git show;
   • read-only подкоманда ТОЛЬКО pnpm и npm — `pnpm why vite`, `npm ls`,
     `pnpm outdated`; список и критерий — PKG_QUERY_SPEC в lib/cmdscan.py;
-  • тело heredoc с ЗАКАВЫЧЕННЫМ разделителем (`<<'EOF'`, `<<\EOF`) —
+  • тело heredoc с ЗАКАВЫЧЕННЫМ разделителем (`<<'EOF'`, `<<\\EOF`) —
     markdown-заметка, тело PR, строковые литералы python.
 Если отказано что-то из этого — это баг хука, а не повод добавить обёртку.
 

@@ -94,10 +94,12 @@ On a conflict of 1–2 vs an external pattern — document WHY, propose an adapt
 > in the DevOps directory". The rest of `scripts/devops/**` stays with DevOps.
 >
 > Extended 2026-10-21 (PR #1067): `scripts/devops/tests/lib/command-corpus.txt`. It is the input
-> data of `test-pre-bash-*.sh` and of nothing else, and its own header requires rows whenever the
-> shared command analyzer is touched — so splitting it from the test that reads it would leave an
-> Architect test asserting against rows in someone else's PR. The reason is recorded in full in
-> `zone-of-write.md`, section "Tests on hooks".
+> data of the hook tests — `test-pre-bash-*.sh`, plus `test-hook-command-corpus.sh` and
+> `compare-hooks-to-ref.sh`, which read the same corpus and match no `test-pre-*` glob — and its own
+> header requires rows whenever the shared command analyzer is touched, so splitting it from the
+> tests that read it would leave an Architect test asserting against rows in someone else's PR. The
+> three readers are named on purpose: an earlier edition of this line said "and nothing else", which
+> was false. The reason is recorded in full in `zone-of-write.md`, section "Tests on hooks".
 
 **Forbidden:** `apps/**`, `packages/**` (Coder) · `docs/business/**`, `.claude/briefs/**` (Master/business docs) ·
 `.claude/knowledge/legal/**` (Legal) · `.claude/tasks/<active>` (Master owns).

@@ -648,10 +648,6 @@ def _heredoc_literal_spans(text):
     spans = []
     pending = []
     quote = None
-    # Substitution nesting in the RAW text, tracked only to decide whether a
-    # word-initial "#" is at top level — see the comment branch below.
-    subst_depth = 0
-    in_backtick = False
     i = 0
     n = len(text)
     while i < n:
@@ -671,57 +667,74 @@ def _heredoc_literal_spans(text):
         if ch == "\\" and i + 1 < n:
             i += 2
             continue
-        if text.startswith("$(", i):
-            subst_depth += 1
-            i += 2
-            continue
-        if ch == ")" and subst_depth:
-            subst_depth -= 1
-            i += 1
-            continue
-        if ch == "`":
-            in_backtick = not in_backtick
-            i += 1
-            continue
-
         # Device 1: the segmenter's own comment rule, same predicate, same flag —
-        # but `pending` survives the comment ONLY AT TOP LEVEL.
+        # and then ONE COARSE QUESTION about whether the two readings can be
+        # trusted to agree on this line at all.
         #
-        # Why conditional, in two corrections. First `pending` was cleared
-        # unconditionally, and that made `cat <<'EOF' # note` refuse while the
-        # identical command without the comment was allowed (CR-M-3) — a false
-        # positive of exactly the kind this change removes, and bash sides with
-        # the segmenter: a trailing comment does not cancel a heredoc the same
-        # line already opened. Then keeping it unconditionally opened a FAIL-OPEN,
-        # measured on five shapes of
+        # `pending` is NOT cleared here: that converges with _split_segments,
+        # which does not clear it either, and bash agrees — a trailing comment
+        # does not cancel a heredoc the same line already opened. The uncertainty
+        # is handled at the OPENER instead, by the coarse rule above.
         #
-        #     cat <<'EOF' $(true #)      <- the "#" swallows the ")", so one
-        #     `vite`                        reading leaves `$(` unclosed and the
-        #     EOF                           other does not; the span then exempted
-        #     )                             a body that really executes.
+        # THAT RULE IS DELIBERATELY COARSE, AND THAT IS THE POINT. It over-refuses
+        # whenever a quoted heredoc's opener line happens to contain a
+        # parenthesis or a backtick, which is bounded and rare. The reason is not
+        # elegance, it is a record of four attempts:
         #
-        # Inside an unclosed `$(` or backtick the two readings cannot be
-        # reconciled locally, because they disagree about where the substitution
-        # ENDS. So top level keeps the convergence, and anything deeper clears
-        # `pending` and inspects. Note the direction: here failing closed means
-        # NOT granting protection, the opposite surface from the four repros.
+        #   1. clear `pending` unconditionally -> `cat <<'EOF' # note` refused
+        #      while the identical command without the comment was allowed
+        #      (CR-M-3), a false positive of the exact kind this change removes;
+        #   2. keep it unconditionally -> FAIL-OPEN on five shapes of
+        #      `cat <<'EOF' $(true #)`, where the "#" swallows the ")" so one
+        #      reading leaves `$(` unclosed and the other does not, and the span
+        #      then exempted a body that really executes;
+        #   3. keep it only outside an unclosed substitution, inferred with a
+        #      depth counter -> three more fail-opens, because the counter is a
+        #      THIRD independent reading of the same text and reproduces the
+        #      defect class of the first two: `$( (true) #)` miscounts a nested
+        #      unquoted paren, `$(`/backtick inside double quotes is not tracked
+        #      at all, and a bare `)` from a case pattern (`$(case x in x) true #)`)
+        #      closes a substitution that is still open.
         #
-        # The alternative — teach `_extract_substitutions` to honour word-initial
-        # comments the way bash does, so both readings agree on where `$(` ends —
-        # is the better fix and is deliberately NOT taken here: it changes
-        # substitution boundaries for all three consuming hooks, which is a
-        # blast radius that wants its own PR and its own corpus sweep.
+        # So: no counting, no nesting, no quote state — nothing to get wrong. If
+        # ANY `(` or backtick appears on the opener's line after the opener, the
+        # readings may disagree about where that line ends, and an uncertain
+        # reading does not earn an exemption. A retry costs a retry; a missed
+        # launch cost two minutes against the live database once already (#485).
+        #
+        # One shape is worth recording because it shows the rule over-refusing
+        # rather than catching anything: `cat <<'EOF' "$(true #)"` is a bash
+        # SYNTAX ERROR ("bad substitution: no closing `)'", measured, nothing
+        # executes). The coarse rule refuses it anyway, which is the right side to
+        # be wrong on and is cheaper than reasoning about quote state to find out.
+        #
+        # Unlike every invariant attempted on this change, this comment cannot go
+        # stale: it describes a DECISION, not a property of the code.
+        #
+        # The strictly better repair — make both readings agree, by teaching
+        # `_extract_substitutions` to honour word-initial comments as bash does —
+        # is not taken here: that function tracks no double-quote state either, so
+        # fixing it properly is the stage-order unification (backlog 241), not a
+        # local patch.
         if ch == "#" and _STRIP_COMMENTS and _starts_word(text, i):
-            if subst_depth or in_backtick:
-                pending = []
             j = text.find("\n", i)
             i = n if j < 0 else j
             continue
         opener = _heredoc_opener(text, i)
         if opener is not None:
             length, delim, strip_tabs, literal = opener
-            pending.append((delim, strip_tabs, literal))
             i += length
+            # THE COARSE RULE (see the long note at the comment branch below).
+            # If the rest of this opener's physical line carries a parenthesis or
+            # a backtick, the two readings of the line may disagree about where it
+            # ends, so this heredoc gets NO literal protection — regardless of
+            # quoting, nesting, or anything else on the line. One membership test,
+            # no arithmetic, nothing to get wrong.
+            eol = text.find("\n", i)
+            rest = text[i:] if eol < 0 else text[i:eol]
+            if any(c in rest for c in "(`"):
+                literal = False
+            pending.append((delim, strip_tabs, literal))
             continue
         if ch == "\n" and pending:
             i += 1
@@ -1873,6 +1886,19 @@ PKG_QUERY_SPEC = {
     "bin": "none",
 }
 PKG_READONLY_SUBCMDS = frozenset(PKG_QUERY_SPEC)
+# WHY BOTH TABLES EXIST, since they overlap on 7 of 15 names and the launcher
+# predicate consults them with `or`. They answer different questions and only one
+# of them gates confidence:
+#   PKG_NON_RUN       — "this subcommand does not run a package script". Older,
+#                       wider, used ONLY by is_dev_server_launch, and NOT
+#                       sufficient for a grant: `version` and `audit fix` are
+#                       non-run in that loose sense and still execute things.
+#   PKG_QUERY_SPEC    — "this subcommand is a vetted print-and-exit query, with
+#                       its operand policy". The ONLY table that grants
+#                       confidence, and the only one with a stated criterion.
+# The overlap is therefore not duplication to be collapsed: shrinking PKG_NON_RUN
+# to the query set would make the predicate refuse `pnpm install`, and widening
+# the query set to PKG_NON_RUN is the hole SR-M-1 and CR-H-1 were about.
 # The grant and the launcher predicate must be keyed on the SAME runner set, or a
 # segment could be trusted by one and judged by the other.
 assert PKG_QUERY_RUNNERS <= PKG_RUNNERS, "a query runner must be a known runner"
