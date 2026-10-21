@@ -31,12 +31,12 @@
 --   WHAT "REWRITTEN" COVERS, because name + `tgenabled` alone did not cover it. Each
 --   declared trigger is pinned by its timing/event bitmask, the function it executes,
 --   the absence of a `WHEN` clause, its argument count, and the md5 of its whole
---   `pg_get_triggerdef`; and no trigger beyond the seven declared may exist on the
+--   `pg_get_triggerdef`; and no trigger beyond the eight declared may exist on the
 --   three guarded tables. Every one of those assertions earns its place by a tampering
 --   that passed the earlier version of this file green — see the manifest's own comment.
 --
 --   WHAT "DISARMED" COVERS BEYOND TRIGGERS, because a trigger is not the only way. Three
---   objects disarm a guarded table while leaving all seven triggers byte-identical, and
+--   objects disarm a guarded table while leaving every declared trigger byte-identical, and
 --   each was measured doing it: a RULE (`DO INSTEAD NOTHING` makes the audit INSERT record
 --   nothing and report success), an INHERITING CHILD (rows written into it are visible
 --   through the parent and the parent's triggers never fire for them — `crm_app` rewrote
@@ -63,8 +63,16 @@
 --   `pg_get_functiondef` and `pg_get_triggerdef` are both deparser output, so a MAJOR
 --   PostgreSQL upgrade can change the text without anybody changing the object. Both
 --   this cluster and production run PostgreSQL 16; across the 16.14 production server
---   and the 16.15 one these values were taken on, all sixteen checksums below are
---   byte-identical (measured on two containers, 2026-10-19).
+--   and the 16.15 one these values were taken on, sixteen of the eighteen checksums below
+--   are byte-identical (measured on two containers, 2026-10-19).
+--   THE TWO THAT ARE NOT COVERED BY THAT MEASUREMENT, said plainly rather than left to be
+--   assumed from the sentence above: the pair added for
+--   `job_queue_actions_created_at_now` (r5 Task 1.4b-i, 2026-10-21) was taken on 16.15
+--   ONLY — no 16.14 container was raised for it. The risk that carries is bounded and
+--   LOUD: if 16.14 deparses either object differently, the deploy stops with "definition
+--   checksum is X, manifest says Y" and applies nothing. It is not a silent hole. The
+--   cheap way to close the gap when somebody next has a 16.14 container in hand is the
+--   two queries below, filtered to that one trigger and that one function.
 --
 --   When a body or a trigger changes in a reviewed file (or on a major upgrade),
 --   recompute and paste. Functions (both manifests):
@@ -118,15 +126,17 @@ DECLARE
   -- ON COLUMN 6, THE SESSION AND THE SERVER VERSION. Column 6 is deparser output, and it
   -- is a function of TWO things outside the trigger: the server version and the SESSION
   -- `search_path`. The second is not a theoretical concern — it moves every one of the
-  -- seven checksums (measured: 193803… with `public` visible, 0c86cd… under `search_path =
+  -- column-6 checksums (measured: 193803… with `public` visible, 0c86cd… under `search_path =
   -- pg_catalog`, because the deparser qualifies the function name only when it must). That
   -- is why the `BEGIN` below pins the path before reading anything; the manifest values
   -- here are the values under that pinned path. Without the pin this column would be the
   -- one assertion in the file that can fail on a correct database. Columns 3-5 carry their
   -- part of the guarantee in catalog integers and names, so they are immune to both.
   --   On the version half: in principle a server upgrade can move the text without anybody
-  -- moving the trigger. For THIS manifest that was measured rather than assumed: all seven
-  -- checksums below are byte-identical on PostgreSQL 16.14 and 16.15 (two containers, same
+  -- moving the trigger. For THIS manifest that was measured rather than assumed: the seven
+  -- checksums that existed on 2026-10-19 (every row below except
+  -- `trg_job_queue_actions_created_at_now`, added 2026-10-21 and measured on 16.15 only —
+  -- see the file header) are byte-identical on PostgreSQL 16.14 and 16.15 (two containers, same
   -- DDL, 2026-10-19), and 16.14 is what production runs while these values were taken on
   -- 16.15. The nine `pg_get_functiondef` checksums in the two manifests further down were
   -- measured the same way and are likewise identical across the two minors. Had they
@@ -158,7 +168,14 @@ DECLARE
     ['trg_job_queue_generations_frozen',                  'job_queue_generations',
      'A', '19',  'job_queue_generations_frozen',                 '2f9f701662e61ef68c6e2f9d2c585dad'],
     ['trg_job_queue_generations_purge_invalidated_only',  'job_queue_generations',
-     'A', '11',  'job_queue_generations_purge_invalidated_only', 'b73c59e71d952b77f09757521481311c']
+     'A', '11',  'job_queue_generations_purge_invalidated_only', 'b73c59e71d952b77f09757521481311c'],
+    -- r5 Task 1.4b-i. `created_at` is forced to `now()` on INSERT, which is what makes the
+    -- two-year bound in `job_queue_actions_append_only()` trustworthy: that bound reads this
+    -- very column. So this row is not one more guard on the pile — drop it and the DELETE
+    -- exception above becomes writer-controlled. tgtype 7 = BEFORE INSERT ... FOR EACH ROW,
+    -- the same value as `..._building_only`.
+    ['trg_job_queue_actions_created_at_now',              'job_queue_actions',
+     'A', '7',   'job_queue_actions_created_at_now',             '3020b8d4acff09452b2097b14ace70c2']
   ];
   -- Function name, IDENTITY ARGUMENTS and the expected md5(pg_get_functiondef(oid)).
   -- The middle column is `pg_get_function_identity_arguments()` verbatim, which on
@@ -186,7 +203,12 @@ DECLARE
     ['job_queue_generation_entries_no_truncate',       '0f2845e1a6add373ea5756a9f538baf6'],
     ['job_queue_generation_entries_building_only',     '9239f498636cd5f779dd27c7baa85276'],
     ['job_queue_generations_frozen',                   'ddcc16735e528255415b78dc58688278'],
-    ['job_queue_generations_purge_invalidated_only',   '33ba42122c38b8c0baece4ead04e9d35']
+    ['job_queue_generations_purge_invalidated_only',   '33ba42122c38b8c0baece4ead04e9d35'],
+    -- Pinning the TRIGGER (above) proves only that something fires BEFORE INSERT. This row is
+    -- what makes a REWRITTEN body a finding: a function that keeps its name and signature but
+    -- drops the `NEW.created_at := now()` assignment leaves every other assertion in this file
+    -- quiet, and hands the column back to its writer.
+    ['job_queue_actions_created_at_now',               '0b9093ecd63c5e1d659494c306d354f2']
   ];
   expected_search_path CONSTANT text := 'search_path=pg_catalog, public, pg_temp';
 
@@ -205,7 +227,7 @@ BEGIN
   -- visible, so the same untouched trigger hashes two different ways: measured on 16.15,
   -- `trg_job_queue_actions_append_only` is 193803613d7cb921896de671ebb96fef under a path
   -- containing `public` and 0c86cd143fc4c57b8903ce90aa3fbbb1 under `search_path =
-  -- pg_catalog`. All seven move together. The deploy runs plain `psql`, so without this
+  -- pg_catalog`. They all move together. The deploy runs plain `psql`, so without this
   -- line a HEALTHY database fails this check loudly whenever the migration role carries a
   -- role-level or database-level `search_path` that omits `public` — a false positive on
   -- deploy, which is the one failure this file must not invent. `true` = transaction-local,
