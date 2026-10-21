@@ -99,7 +99,7 @@ interface PageResponse {
   body?: unknown
   bodyText?: string
   etag?: string | null
-  throws?: Error
+  throws?: unknown
 }
 
 interface Harness {
@@ -116,6 +116,8 @@ function harness(opts: {
   pages: PageResponse[]
   stored?: ValidatedCheckpoint | null
   savePageFailsOnPage?: number
+  /** Thrown instead of an Error, to exercise the non-Error branch of every catch. */
+  savePageThrows?: unknown
   reserveRefusesOnCall?: number
   aborted?: boolean
   /** Abort DURING the fetch, so the in-flight cancellation path is reached rather than the
@@ -182,6 +184,7 @@ function harness(opts: {
       async savePage({ checkpoint }) {
         calls.push(`save:${checkpoint.page}`)
         if (opts.savePageFailsOnPage === checkpoint.page) {
+          if (opts.savePageThrows !== undefined) throw opts.savePageThrows
           throw new Error('deadlock detected')
         }
         saved.push(checkpoint)
@@ -1351,5 +1354,86 @@ describe('the observation builder is given the run`s clock', () => {
     const batch = await collectJsonPages(spec, config(), h.ctx)
 
     expect(batch.observations[0]?.normalized.publishedAt).toBeNull()
+  })
+})
+
+/**
+ * Every `catch` in the loop reads `error instanceof Error ? error.message : '<fallback>'`, and the
+ * fallback branch was reached by no test at all — nine mutants the gate reported as NO COVERAGE
+ * rather than as survivors, which is the quieter failure of the two.
+ *
+ * It is not a hypothetical branch: `throw 'string'` is legal, a rejected promise can carry
+ * anything, and several of phase 3's providers are reached through libraries that reject with
+ * plain objects. A page that throws a non-Error must still produce a typed, bounded report rather
+ * than `undefined` in an error message.
+ */
+describe('a thrown non-Error still produces a typed report', () => {
+  it('reports a mapper that threw a string', async () => {
+    const spec = makeSpec({
+      mapItem: () => {
+        throw 'not an Error'
+      },
+    })
+    const h = harness({ pages: [onePage([job('1')])] })
+    const batch = await collectJsonPages(spec, config(), h.ctx)
+
+    expect(batch.invalidSamples[0]?.reason).toBe('MAPPER_THREW: mapItem threw')
+    expect(batch.counts.invalid).toBe(1)
+  })
+
+  it('reports a fetch that rejected with a non-Error', async () => {
+    const h = harness({ pages: [{ throws: { code: 'ECONNRESET' } }] })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(batch.requests.at(-1)?.error).toEqual({
+      code: 'TRANSIENT_NETWORK',
+      message: 'the request failed',
+    })
+  })
+
+  it('reports a persist that rejected with a non-Error', async () => {
+    const h = harness({
+      pages: [onePage([job('1')])],
+      savePageFailsOnPage: 1,
+      savePageThrows: 'pg went away',
+    })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(batch.requests.at(-1)?.error).toEqual({
+      code: 'PERSISTENCE',
+      message: 'the page could not be persisted',
+    })
+    // Still OUR failure, not a bad record.
+    expect(batch.counts.invalid).toBe(0)
+  })
+
+  it('reports an item extractor that threw a non-Error', async () => {
+    const spec = makeSpec({
+      extractItems: () => {
+        throw 'jobs gone'
+      },
+    })
+    const h = harness({ pages: [onePage([job('1')])] })
+    const batch = await collectJsonPages(spec, config(), h.ctx)
+
+    expect(batch.requests.at(-1)?.error).toEqual({
+      code: 'PARSE_DRIFT',
+      message: 'the items could not be extracted',
+    })
+  })
+
+  it('reports a cursor reader that threw a non-Error', async () => {
+    const spec = makeSpec({
+      nextCursor: () => {
+        throw 'cursor gone'
+      },
+    })
+    const h = harness({ pages: [onePage([job('1')])] })
+    const batch = await collectJsonPages(spec, config(), h.ctx)
+
+    expect(batch.requests.at(-1)?.error).toEqual({
+      code: 'PARSE_DRIFT',
+      message: 'the next cursor could not be read',
+    })
   })
 })

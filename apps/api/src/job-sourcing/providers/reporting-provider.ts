@@ -1,5 +1,4 @@
 import type { JobCollectionCoverage, JobCollectionOutcome, JobMeterUnit } from '@crm/shared'
-import { jobErrorCodeSchema } from '@crm/shared'
 import type { SourceObservation } from '../normalize/observation'
 
 /**
@@ -619,9 +618,4 @@ export interface ReportingJobSourceProvider<
   readonly type: import('@crm/shared').JobSourceType
   parseConfig(raw: unknown): TConfig
   collectReport(config: TConfig, ctx: CollectionContext): Promise<CollectionBatch>
-}
-
-/** Exported for the conformance spec: the store's regex is the authority on an error code's shape. */
-export function parseErrorCodeThroughStore(code: string): string {
-  return jobErrorCodeSchema.parse(code)
 }
