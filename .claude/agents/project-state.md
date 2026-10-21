@@ -29,7 +29,44 @@ Single source of truth for the **factual state of the project**: phases, migrati
 - [x] **DROP role**: payment-routing (`dropSharePercent`, `payout_requests`, `pending_obligations`)
 - [x] **PHASE 8**: **"Company account" (USDT ERC-20)** ✅ closed — a single wallet; incoming verification by a link to a tx (etherscan + a block progress bar, idempotent by `txHash`); ADMIN dividends; salary/expense/admin-income + drop-payout via the company account. **NOT on-chain** (smart contracts cancelled by the owner 2026-06-17). PR #249–#265 (+ #277 throttle). Details — §1.1
 - [ ] **PHASE 9**: Dashboard — partly stale (per-role dashboards are already at the root `/` #223); redefine = a generic ADMIN/SENIOR dashboard (#231 MED-defer) + cross-role analytics. See ADR 2026-06-17 Part 3(c)
-- **Current focus (snapshot 2026-06-22, may be stale — check against `git log` and the backlog; moved here from CLAUDE.md 2026-10-05):** a smooth design migration into **Claude Design** (design-gate Tier 1/2, screen by screen; the pilot — the HR dashboard). Cross-cutting UI, not a numbered phase. Then PHASE 9.
+- [x] **VACANCY SOURCING — store (r5 Phase 1)** ✅ closed 2026-10-21, on production. External vacancy sourcing → relevance → autosubmit; the store half is built, the collection half is not. Details — §1.2
+- [ ] **PHASE 9**: Dashboard — see the line above this block; unchanged by the vacancy epic.
+- **Current focus (snapshot 2026-10-21, replacing the 2026-06-22 one):** the vacancy-sourcing epic. Its **Phase 1 (store) is closed and deployed**; **Phase 2 (provider kit)** is in progress in a separate session — open PRs at the time of writing: the observation-identity seam (r5 Task 2.1) and the XML-parser dependency review (preparation for Task 2.4). The **Claude Design** migration named in the previous snapshot was neither cancelled nor progressed by this work; treat its status as unverified rather than current.
+
+### 1.2. VACANCY SOURCING — store shipped, collection not (r5 Phase 1, closed 2026-10-21)
+
+> Plan and design: `docs/superpowers/plans/2026-10-10-vacancy-sourcing-plan.r5.md` and its `-design.r5.md`
+> sibling. The `2026-10-04` pair is **superseded** by r5 and kept only for task-number traceability.
+
+**What is on production.** The whole `job_opportunities` store — 16 canonical, collection and queue
+tables across three increments (#1011, #1015, #1017) — its forward DDL (#1022), the append-only
+triggers on `job_queue_actions` with the two sanctioned retention shapes (#1026), least-privileged
+database roles taking the API off the bootstrap role (#1027, ADR `2026-10-17-db-least-privilege-roles`),
+and the end-of-retention purge **live on a daily schedule** (#1062). The shared contract surface lives
+in `packages/shared/src/schemas/job-sourcing.ts` with its own api-errors module.
+
+**Retention policy, frozen by the owner 2026-10-17:** two years, uniform across every event kind; at
+expiry the rows are **deleted**; free-text reasons are prevented at input rather than redacted after.
+The legal memo recording the erasure analysis is `docs/legal/2026-10-17-job-queue-actions-erasure.md`.
+
+**What is NOT built, stated so nobody infers otherwise from "Phase 1 closed":**
+
+- **No collection.** No provider fetches anything into this store yet; Phase 2 (provider kit) is in
+  progress elsewhere. Nothing writes to the queue tables, which is why several hardening items below
+  are deferrable.
+- **Erasure of a person from the audit log is NOT discharged** — legal memo §8 item 3. A redaction
+  cannot append its required `REASON_REDACTED` evidence row, because the enum value and two CHECK
+  branches do not exist, so `crm_retention_redact_action_reason` fails closed with `42501`. Deliberate:
+  a grant is justified by a failing run, not by a trigger covering for it. Task 1.4b.
+- **`job_queue_actions.created_at` is writer-settable**, and the live purge makes that load-bearing —
+  the trigger's own two-year bound reads the same untrusted column. Must land before the first writer
+  to that table. Backlog 263.
+- **Task 1.1 was never executed as its own increment**; its contents arrived with Task 1.2 and were
+  reconciled after the fact (19 findings, 6 fixed in #1063, 13 routed to the tasks that produce or
+  consume the shapes). The three external-URL guards are kept in step **by hand** — backlog 261.
+
+**Owner constraint still binding:** external GET requests to job sites, for measurement or scraping,
+need the owner's explicit go-ahead in chat first. None have been made.
 
 ### 1.1. PHASE 8 — implemented ✅ (REDEFINED 2026-06-17; smart contracts cancelled)
 
