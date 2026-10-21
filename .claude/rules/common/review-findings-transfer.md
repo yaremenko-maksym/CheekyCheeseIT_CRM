@@ -97,3 +97,5 @@ under which to reconsider are in the rationale file.
 - `.claude/rules/common/agent-isolation.md` — an adjacent channel without a gate (the same family of defects).
 - `.claude/skills/code-review-discipline/SKILL.md` §7 — how to number when writing a review.
 - `.claude/agents/contracts.md` §4 — aggregate verdict; "all H/M/L closed before merge" (the result, not the channel).
+- `.claude/rules/common/verification-integrity.md` — the `Findings: … (N)` control line generalised:
+  an assertion a reader can check in one command, in place of a claim they must believe.

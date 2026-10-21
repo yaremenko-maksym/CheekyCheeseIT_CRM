@@ -100,11 +100,11 @@ command text looks like.
 > as a modifier of the expansion and mangles the word into something that does not name what you
 > meant. **Quoting does not help; braces do.**
 
-Combined with form 1 above this is the complete failure: the mangled argument names a nonexistent
-object, the error goes to the discarded channel, the counter prints `0`, and the `0` is reported as a
-fact about the code. The repository already carries a sibling of this gotcha — `kill $VAR` in zsh
-does not word-split, and `light-track.md` notes that the resulting failure is itself masked by
-`2>/dev/null`. Same family, same cure: brace the expansion, and do not throw away the error.
+With form 1 that is the complete failure: the mangled argument names a nonexistent object, the error
+goes to the discarded channel, the counter prints `0`, and the `0` is reported as a fact about the
+code. A sibling already lives in `light-track.md` — `kill $VAR` does not word-split in zsh, and the
+resulting failure is itself masked by `2>/dev/null`. Same family, same cure: brace the expansion, and
+do not throw away the error.
 
 ---
 
@@ -124,26 +124,15 @@ assertion is present and checkable, or it is missing.
 A claim without its assertion is indistinguishable from a claim that was never checked — which is
 the defect itself, one level up.
 
-## Why this is a rule and not a gate
+## Why there is no gate
 
-Both halves were taken as far as a concrete predicate and then **rejected on measurement**, not on
-taste. In short, with the numbers in the rationale file:
-
-- **(A)** The narrow conjunction worth refusing — a command that discards stderr _and_ pipes into a
-  counter — occurs **once** in all of this repository's scripts, and that one occurrence is
-  **legitimate** (a readiness probe, where the producer is _expected_ to fail while a service comes
-  up). Worse, `stream-watchdog.md` _prescribes_ exactly that shape for bounded probes. A gate there
-  would refuse, on its first firing, the form another always-on rule tells agents to write.
-- **(B)** The artifact differs per operation, and a `PreToolUse` gate cannot see an artifact that
-  does not exist yet. The one locally decidable candidate — refuse an install when the running Node
-  cannot satisfy the repo's engine range — was **falsified by measurement**: the install under the
-  older Node exited 0 _and_ linked its binaries correctly, so the gate would have refused a working
-  command on the evidence meant to justify it.
-
-A guard that cries wolf is a guard that gets routed around, and this class is not one where a miss
-costs the database — it costs an embarrassing wrong answer, recoverable by the next command. That
-asymmetry is the opposite of the one that justifies `pre:bash:safety` and its siblings, and it is why
-the answer here is a rule plus a named device.
+A gate for each half was taken as far as a concrete predicate and **rejected on measurement**: the
+(A) conjunction occurs once in all of this repository's scripts and that one occurrence is
+legitimate — and `stream-watchdog.md` _prescribes_ the same shape for bounded probes; the (B)
+candidate was falsified by running it. Unlike the safety hooks, a miss here costs one recoverable
+wrong answer while a false positive costs the credibility of the whole hook layer, so the asymmetry
+that justifies `pre:bash:safety` is **inverted**. Numbers, the full argument and the four conditions
+under which to reconsider are in the rationale file.
 
 ## Related rules
 
