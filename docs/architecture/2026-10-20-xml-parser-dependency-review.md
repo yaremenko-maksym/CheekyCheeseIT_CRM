@@ -129,7 +129,7 @@ fallback rather than the primary. Nothing more is claimed.
 **This mistake is the same defect as MASTER-M-1**, two revisions later and in the opposite
 direction: there an absolute claim outran the evidence, here a true-sounding statistic was
 recruited for a proposition it does not address. Both were available to catch for free. It is
-recorded in `BACKLOG-followups.md` entry 259, which is about exactly this, and the recurrence
+recorded in `BACKLOG-followups.md` entry 266, which is about exactly this, and the recurrence
 inside the same document is the most useful thing in that entry.
 
 Two rows deserve their numbers stated rather than characterised:
