@@ -113,7 +113,7 @@
 #     verdict, so the distinguishing mark is the contract: a real verdict ALWAYS
 #     carries a {"decision":"block"} body on stdout. If the analyzer dies while
 #     the coarse test says a launcher is present, the fallback still blocks —
-#     but labels itself ДЕГРАДИРОВАННЫЙ РЕЖИМ, so nobody debugs the wrong thing.
+#     but labels itself DEGRADED MODE, so nobody debugs the wrong thing.
 #   - CI runners never see this file at all (hooks are a local Claude Code
 #     mechanism; GitHub Actions does not invoke .claude/hooks/**).
 #
@@ -190,7 +190,7 @@ hits = cmdscan.launches(scan)
 if not hits and scan.truncated:
     hits = [(
         cmdscan.Segment("", [], [], [], False, cmd, 0, {}, False, None),
-        "вложенность глубже предела разбора — код не прочитан",
+        "nesting deeper than the parse limit — the code was not read",
     )]
 
 if not hits:
@@ -287,9 +287,10 @@ def judge(seg):
     db = env.get("DATABASE_URL")
     if db is None:
         reasons.append(
-            "DATABASE_URL не задана инлайн в этой команде — унаследуется из "
-            "окружения сессии, а не из .env worktree (dotenv НЕ перезаписывает "
-            "уже установленную process.env переменную). Именно так утекло PR #485."
+            "DATABASE_URL is not set inline on this command — it is inherited from "
+            "the session environment, not from the worktree .env (dotenv does NOT "
+            "overwrite an already-set process.env variable). That is exactly how "
+            "PR #485 leaked."
         )
     elif db != "":
         for problem in url_problems(db):
@@ -571,9 +572,9 @@ def judge(seg):
                 port_values.append(argv[i + 1])
     if not port_values:
         reasons.append(
-            "порт не задан инлайн в этой команде — унаследует живой порт по "
-            "умолчанию (API_PORT default 3001 в apps/api/src/main.ts, vite "
-            "server.port хардкожен 3000 в apps/web/vite.config.ts)"
+            "the port is not set inline on this command — it will inherit the live "
+            "default (API_PORT defaults to 3001 in apps/api/src/main.ts, and vite "
+            "server.port is hardcoded to 3000 in apps/web/vite.config.ts)"
         )
     else:
         # Compared as numbers: `API_PORT=03001` is 3001 to Node and was "not 3001"
@@ -581,7 +582,7 @@ def judge(seg):
         live = [p for p in port_values if int(p) in (3000, 3001)]
         if live:
             reasons.append(
-                "порт %s явно задан из живой пары владельца (web:3000 / api:3001)" % live[0]
+                "port %s is set explicitly to one of the owner live pair (web:3000 / api:3001)" % live[0]
             )
 
     return reasons
@@ -599,23 +600,24 @@ if not reasons:
     sys.exit(0)
 
 reason_lines = "\n".join("  - %s" % r for r in reasons)
-msg = """🚫 LIVE-DB GUARD: команда запускает dev-сервер из agent-worktree/scratchpad без доказуемо безопасных DATABASE_URL/порта.
+msg = """🚫 LIVE-DB GUARD: this command starts a dev server from an agent worktree/scratchpad without a provably safe DATABASE_URL/port.
 
-Запуск, который распознан: %s
+The launch that was recognised: %s
 
 %s
 
-Инцидент 2026-08-05 (PR #485): унаследованные из родительской сессии DATABASE_URL/API_PORT
-перебили .env worktree — API ~2 минуты слушал :3000 против ЖИВОЙ базы владельца. Обошлось
-случайно (0 записей за сессию). Правило: любой запуск dev-сервера из worktree ОБЯЗАН явно
-задавать И DATABASE_URL, И порт инлайн — .env файл сам по себе не гарантирует безопасность,
-потому что уже установленная process.env переменная перекрывает его молча.
+The 2026-08-05 incident (PR #485): DATABASE_URL/API_PORT inherited from the parent
+session overrode the worktree .env — the API listened on :3000 against the owner
+LIVE database for about two minutes. It ended well only by luck (0 writes that
+session). The rule: any dev-server launch from a worktree MUST set BOTH
+DATABASE_URL AND the port inline — an .env file alone guarantees nothing, because
+an already-set process.env variable silently overrides it.
 
-Правильно (безопасные значения — scratch DB crm_qa, свободные порты):
+The right way (safe values — scratch DB crm_qa, free ports):
     DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_qa API_PORT=3011 pnpm --filter @crm/api dev
     DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_qa vite --port 3010
 
-(web-сервер игнорирует PORT/API_PORT — vite.config.ts хардкодит server.port; порт меняется ТОЛЬКО через --port)
+(the web server ignores PORT/API_PORT — vite.config.ts hardcodes server.port; the port changes ONLY via --port)
 
 If the process deliberately must not touch the database, set DATABASE_URL= (empty) explicitly AND pin
 PGDATABASE=crm_qa as a prefix on the same launch: with an empty URL libpq falls back to PGSERVICE or
@@ -624,27 +626,28 @@ Full launches (copy one; the port is still required):
     DATABASE_URL= PGDATABASE=crm_qa vite --port 3010
     DATABASE_URL= PGDATABASE=crm_qa API_PORT=3011 pnpm --filter @crm/api dev
 
-Не забудь и TTL-обёртку (отдельное требование, тоже обязательное):
+Do not forget the TTL wrapper either (a separate requirement, also mandatory):
     DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_qa PGDATABASE=crm_qa API_PORT=3011 scripts/devops/dev-ttl.sh -- pnpm --filter @crm/api dev
 (assignments go BEFORE dev-ttl.sh: it runs its arguments as a command, so NAME=value after the double dash fails with "command not found")
 
-НЕ ЗАПУСК (этот хук такое пропускает): слово аргументом (grep/ls/git show);
-read-only подкоманда ТОЛЬКО pnpm и npm (`pnpm why vite`, `npm ls`); тело heredoc
-с ЗАКАВЫЧЕННЫМ разделителем (`<<'EOF'`, `<<\\EOF`).
+NOT A LAUNCH (this hook lets these through): the word as an argument
+(grep/ls/git show); a read-only subcommand of pnpm and npm ONLY (`pnpm why vite`,
+`npm ls`); a heredoc body with a QUOTED delimiter (`<<'EOF'`, `<<\\EOF`).
 
-ОТКАЗЫВАЕТСЯ ПО ЗАМЫСЛУ, хотя и не запуск (не баг, обёртка не поможет): те же
-подкоманды у turbo / yarn / bun (`yarn why`, `turbo ls dev`) — у turbo операнд
-сам является именем таска, yarn проваливается в `yarn run <script>`, поэтому
-грант им не выдан намеренно; `pnpm version` / `npm audit fix` — пишут манифест и
-запускают lifecycle-скрипты; а также команда вне списка разбираемых, у которой
-launcher-подобное слово стоит отдельным токеном внутри кавычек
-(`for c in "pnpm dev"; do …`). Последнее — осознанный обмен: именно это чтение
-кавычек ловит `script -q /dev/null pnpm dev`, см. CONFIDENCE в
-.claude/hooks/lib/cmdscan.py. Перепиши команду так, чтобы слово не стояло
-отдельным токеном внутри кавычек, или вынеси текст в файл.
+REFUSED BY DESIGN, though not a launch either (not a bug; the wrapper will not
+help): the same subcommands on turbo / yarn / bun (`yarn why`, `turbo ls dev`) —
+for turbo the operand IS a task name and yarn falls through to
+`yarn run <script>`, so the grant is withheld from them deliberately;
+`pnpm version` / `npm audit fix` — they write the manifest and run lifecycle
+scripts; and a command outside the understood list carrying a launcher-looking
+word as its own token inside quotes (`for c in "pnpm dev"; do …`). The last one
+is a deliberate trade: this same reading of quotes is what catches
+`script -q /dev/null pnpm dev`, see CONFIDENCE in
+.claude/hooks/lib/cmdscan.py. Rewrite the command so the word is not a token of
+its own inside quotes, or move the text into a file.
 
-См. .claude/hooks/pre-bash-devserver-ttl-gate.sh и .claude/rules/common/light-track.md
-(«Параллельный диспатч» — список свободных портов).""" % (label, reason_lines)
+See .claude/hooks/pre-bash-devserver-ttl-gate.sh and .claude/rules/common/light-track.md
+("Parallel dispatch" — the list of free ports).""" % (label, reason_lines)
 
 print(json.dumps({"decision": "block", "reason": msg}))
 sys.stderr.write(
@@ -664,17 +667,17 @@ esac
 # python3, missing lib/cmdscan.py, an edit that broke it). It says so loudly and
 # falls back to the pre-2026-08-18 coarse test, so the protection does not
 # silently disappear — but it never impersonates a decision on the merits.
-echo "[pre:bash:live-db-guard] INTERNAL ERROR: анализатор не отработал (rc=$RC) — это НЕ вердикт хука." >&2
+echo "[pre:bash:live-db-guard] INTERNAL ERROR: the analyzer did not run (rc=$RC) — this is NOT a verdict of the hook." >&2
 
 LEGACY='(^|[/[:space:]])nest(\.js)?[[:space:]]+start|(^|[/[:space:]])vite([[:space:]]|$)|(^|[[:space:]])(pnpm|npm|yarn|turbo)([[:space:]]+(-[^[:space:]]+|--filter[[:space:]]+[^[:space:]]+|run))*[[:space:]]+(dev|start|preview)(:[[:alnum:]_.-]+)?([[:space:]]|$)|node[[:space:]][^;|&]*dist/main'
 # The raw stdin is JSON, so the command's last token is followed by `"` — the
 # legacy pattern's `([[:space:]]|$)` boundary would silently never match and the
 # fallback would let everything through. Turning JSON punctuation into spaces
 # restores the token boundaries without needing a parser (python3 may be exactly
-# what is missing here). Verified by test case "СЛОМАННЫЙ анализатор + опасный запуск".
+# what is missing here). Verified by the test case "broken analyzer + a dangerous launch".
 FLAT=$(printf '%s' "$INPUT" | tr '"{},' '    ')
 if echo "$FLAT" | grep -qE "$LEGACY" && echo "$FLAT" | grep -qE '\.claude/worktrees/|/tmp/claude-'; then
-  printf '%s\n' '{"decision":"block","reason":"⚠️ ДЕГРАДИРОВАННЫЙ РЕЖИМ live-db-guard: анализатор команды не отработал (см. INTERNAL ERROR в stderr), поэтому применено старое грубое правило «слово-подстрока». Это может быть ЛОЖНОЕ срабатывание. Почини .claude/hooks/lib/cmdscan.py вместо обхода: bash .claude/hooks/pre-bash-live-db-guard.sh < <(echo JSON) покажет причину."}'
+  printf '%s\n' '{"decision":"block","reason":"⚠️ DEGRADED MODE live-db-guard: the command analyzer did not run (see INTERNAL ERROR on stderr), so the old coarse word-substring rule was applied. This may be a FALSE POSITIVE. Fix .claude/hooks/lib/cmdscan.py instead of bypassing it: bash .claude/hooks/pre-bash-live-db-guard.sh < <(echo JSON) will show the reason."}'
   echo "[pre:bash:live-db-guard] BLOCK (degraded fallback, coarse substring rule)" >&2
   exit 2
 fi

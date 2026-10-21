@@ -125,7 +125,7 @@ BROKEN="$(hook_with_broken_lib "$WS" pre-bash-devserver-ttl-gate.sh)"
 
 assert_red "СЛОМАННЫЙ анализатор + необёрнутый запуск: блок, помеченный ДЕГРАДИРОВАННЫМ" \
   --contains "INTERNAL ERROR" \
-  --contains "ДЕГРАДИРОВАННЫЙ РЕЖИМ" \
+  --contains "DEGRADED MODE" \
   -- hook_at "$BROKEN" "pnpm --filter @crm/api dev"
 
 assert_red "СЛОМАННЫЙ анализатор + безобидное чтение: НЕ вердикт" \

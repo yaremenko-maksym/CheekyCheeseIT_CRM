@@ -871,7 +871,7 @@ BROKEN="$(hook_with_broken_lib "$WS" pre-bash-live-db-guard.sh)"
 
 assert_red "СЛОМАННЫЙ анализатор + опасный запуск: блок, но помечен как ДЕГРАДИРОВАННЫЙ" \
   --contains "INTERNAL ERROR" \
-  --contains "ДЕГРАДИРОВАННЫЙ РЕЖИМ" \
+  --contains "DEGRADED MODE" \
   -- hook_at "$BROKEN" "pnpm --filter @crm/api dev"
 
 assert_red "СЛОМАННЫЙ анализатор + безобидное чтение: НЕ вердикт (нет decision-контракта)" \

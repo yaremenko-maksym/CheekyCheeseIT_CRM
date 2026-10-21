@@ -134,7 +134,7 @@ hits = cmdscan.launches(scan)
 if not hits and scan.truncated:
     hits = [(
         cmdscan.Segment("", [], [], [], False, cmd, 0, {}, False, None),
-        "вложенность глубже предела разбора — код не прочитан",
+        "nesting deeper than the parse limit — the code was not read",
     )]
 
 # A decoy mention of dev-ttl.sh in one segment must not whitelist an unwrapped
@@ -147,46 +147,47 @@ if not unwrapped:
     sys.exit(0)
 
 label = unwrapped[0][1]
-reason = """🚫 DEVSERVER-TTL BLOCK: старт dev-сервера в agent-worktree/scratchpad без TTL-обёртки.
+reason = """🚫 DEVSERVER-TTL BLOCK: a dev server is starting in an agent worktree/scratchpad without the TTL wrapper.
 
-Запуск, который распознан: %s
+The launch that was recognised: %s
 
-Причина: инцидент 2026-07-24 — 67 зомби nest/vite процессов из worktree загнали Mac
-в swap-трэшинг (load average 70). Dev-сервер в .claude/worktrees/** обязан
-самоликвидироваться по TTL, а не полагаться на cleanup сессии.
+Why: the 2026-07-24 incident — 67 zombie nest/vite processes from agent worktrees
+drove the Mac into swap thrashing (load average 70). A dev server under
+.claude/worktrees/** MUST expire by itself on a TTL rather than rely on session
+cleanup, because sessions die uncleanly.
 
-Правильно (обёртка даёт группе процессов TTL, default 4ч):
-    scripts/devops/dev-ttl.sh -- <твоя команда>
+The right way (the wrapper gives the process group a TTL, 4h by default):
+    scripts/devops/dev-ttl.sh -- <your command>
     scripts/devops/dev-ttl.sh --ttl 7200 -- pnpm --filter @crm/api dev
 
-Перед бутом проверь, не занят ли порт твоим же старым сервером:
+Before booting, check the port is not still held by your own earlier server:
     lsof -ti tcp:<PORT> | xargs kill -9
 
-НЕ ЗАПУСК (хук это пропускает):
-  • слово аргументом — grep/ls/git show;
-  • read-only подкоманда ТОЛЬКО pnpm и npm — `pnpm why vite`, `npm ls`,
-    `pnpm outdated`; список и критерий — PKG_QUERY_SPEC в lib/cmdscan.py;
-  • тело heredoc с ЗАКАВЫЧЕННЫМ разделителем (`<<'EOF'`, `<<\\EOF`) —
-    markdown-заметка, тело PR, строковые литералы python.
-Если отказано что-то из этого — это баг хука, а не повод добавить обёртку.
+NOT A LAUNCH (the hook lets these through):
+  • the word as an argument — grep/ls/git show;
+  • a read-only subcommand of pnpm and npm ONLY — `pnpm why vite`, `npm ls`,
+    `pnpm outdated`; the list and the criterion are PKG_QUERY_SPEC in lib/cmdscan.py;
+  • a heredoc body with a QUOTED delimiter (`<<'EOF'`, `<<\\EOF`) — a markdown
+    note, a PR body, python string literals.
+If one of these was refused, that is a bug in the hook, not a reason to add the wrapper.
 
-ОТКАЗЫВАЕТСЯ ПО ЗАМЫСЛУ, хотя и не запуск (не баг, обёртка не поможет):
-  • те же подкоманды у turbo, yarn и bun — `yarn why`, `turbo ls dev`. У turbo
-    операнд САМ является именем таска (`turbo why dev` запускает оба таска,
-    turbo 2.11.7), yarn проваливается в `yarn run <script>`, поэтому грант им
-    не выдан намеренно: см. PKG_QUERY_RUNNERS;
-  • `pnpm version` / `npm audit fix` — запускают lifecycle-скрипты и пишут
-    манифест, грант не для них;
-  • `--depth 2` ДО подкоманды (`pnpm --depth 2 ls`) — грамматика флага зависит
-    от позиции, выбрано чтение, падающее закрыто;
-  • команда вне списка разбираемых, у которой launcher-подобное слово стоит
-    отдельным токеном внутри кавычек — `for c in "pnpm dev"; do …`,
-    `cases=("pnpm dev")`. Это осознанный обмен: именно это чтение кавычек ловит
-    `script -q /dev/null pnpm dev`, см. CONFIDENCE в lib/cmdscan.py.
-Обход один и тот же: не держи слово отдельным токеном в кавычках либо вынеси
-текст в файл с закавыченным heredoc.
+REFUSED BY DESIGN, though not a launch either (not a bug; the wrapper will not help):
+  • the same subcommands on turbo, yarn and bun — `yarn why`, `turbo ls dev`. For
+    turbo the operand IS a task name (`turbo why dev` runs BOTH tasks, measured on
+    turbo 2.11.7) and yarn falls through to `yarn run <script>`, so the grant is
+    withheld from them deliberately: see PKG_QUERY_RUNNERS;
+  • `pnpm version` / `npm audit fix` — they run lifecycle scripts and write the
+    manifest, so the grant is not for them;
+  • `--depth 2` BEFORE the subcommand (`pnpm --depth 2 ls`) — the grammar of that
+    flag is position-dependent, and the reading that fails closed was chosen;
+  • a command outside the understood list carrying a launcher-looking word as its
+    own token inside quotes — `for c in "pnpm dev"; do …`, `cases=("pnpm dev")`.
+    That is a deliberate trade: this same reading of quotes is what catches
+    `script -q /dev/null pnpm dev`; see CONFIDENCE in lib/cmdscan.py.
+The way around is the same in each case: do not leave the word as its own token
+inside quotes, or move the text into a file with a quoted heredoc.
 
-См. .claude/rules/common/light-track.md («Параллельный диспатч») и scripts/devops/dev-ttl.sh.""" % label
+See .claude/rules/common/light-track.md ("Parallel dispatch") and scripts/devops/dev-ttl.sh.""" % label
 
 print(json.dumps({"decision": "block", "reason": reason}))
 sys.stderr.write(
@@ -202,7 +203,7 @@ case "$RC" in
 esac
 
 # ── analyzer failure — NOT a verdict ──────────────────────────────────────────
-echo "[pre:bash:devserver-ttl-gate] INTERNAL ERROR: анализатор не отработал (rc=$RC) — это НЕ вердикт хука." >&2
+echo "[pre:bash:devserver-ttl-gate] INTERNAL ERROR: the analyzer did not run (rc=$RC) — this is NOT a verdict of the hook." >&2
 
 LEGACY='(^|[/[:space:]])nest(\.js)?[[:space:]]+start|(^|[/[:space:]])vite([[:space:]]|$)|(^|[[:space:]])(pnpm|npm|yarn|turbo)([[:space:]]+(-[^[:space:]]+|--filter[[:space:]]+[^[:space:]]+|run))*[[:space:]]+(dev|start|preview)(:[[:alnum:]_.-]+)?([[:space:]]|$)|node[[:space:]][^;|&]*dist/main'
 # JSON punctuation flattened to spaces so the legacy pattern's `([[:space:]]|$)`
@@ -211,7 +212,7 @@ FLAT=$(printf '%s' "$INPUT" | tr '"{},' '    ')
 if echo "$FLAT" | grep -qE "$LEGACY" &&
   echo "$FLAT" | grep -qE '\.claude/worktrees/|/tmp/claude-' &&
   ! echo "$FLAT" | grep -q 'dev-ttl\.sh'; then
-  printf '%s\n' '{"decision":"block","reason":"⚠️ ДЕГРАДИРОВАННЫЙ РЕЖИМ devserver-ttl-gate: анализатор команды не отработал (см. INTERNAL ERROR в stderr), поэтому применено старое грубое правило «слово-подстрока». Это может быть ЛОЖНОЕ срабатывание. Чини .claude/hooks/lib/cmdscan.py, а не обходи хук."}'
+  printf '%s\n' '{"decision":"block","reason":"⚠️ DEGRADED MODE devserver-ttl-gate: the command analyzer did not run (see INTERNAL ERROR on stderr), so the old coarse word-substring rule was applied. This may be a FALSE POSITIVE. Fix .claude/hooks/lib/cmdscan.py instead of bypassing the hook."}'
   echo "[pre:bash:devserver-ttl-gate] BLOCK (degraded fallback, coarse substring rule)" >&2
   exit 2
 fi
