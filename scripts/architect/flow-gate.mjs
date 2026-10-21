@@ -117,8 +117,13 @@ export const isCritical = matcher(CRITICAL_PATH_GLOBS)
 export const isCopy = matcher(COPY_GLOBS)
 /** Documentation is markdown — nothing else, wherever it lives. */
 export const isDoc = (p) => p.endsWith('.md')
+// `__test-helpers__/` is a tracked test-support directory (15 files under apps/api on 2026-10-21);
+// `__mocks__/` is deliberately absent — no such directory exists in the repo.
 export const isTestFile = (p) =>
-  /\.(spec|test)\.[cm]?[jt]sx?$/.test(p) || p.includes('/__tests__/') || p.startsWith('apps/e2e/')
+  /\.(spec|test)\.[cm]?[jt]sx?$/.test(p) ||
+  p.includes('/__tests__/') ||
+  p.includes('/__test-helpers__/') ||
+  p.startsWith('apps/e2e/')
 /** Non-test product code: under apps/ or packages/, not a test file, not markdown. */
 export const isProductCode = (p) =>
   (p.startsWith('apps/') || p.startsWith('packages/')) && !isTestFile(p) && !p.endsWith('.md')

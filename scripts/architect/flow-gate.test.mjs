@@ -688,6 +688,9 @@ for (const p of [
 test('path classes: tests, product code, UI', () => {
   assert.equal(isTestFile('apps/web/app/__tests__/x.ts'), true)
   assert.equal(isTestFile('scripts/architect/flow-gate.test.mjs'), true)
+  // LOW-1: test-support helpers are test files, not product code.
+  assert.equal(isTestFile('apps/api/src/approvals/__test-helpers__/approvals-stub.ts'), true)
+  assert.equal(isProductCode('apps/api/src/approvals/__test-helpers__/approvals-stub.ts'), false)
   assert.equal(isProductCode('apps/api/src/x.ts'), true)
   assert.equal(isProductCode('apps/api/README.md'), false)
   assert.equal(isProductCode('scripts/devops/x.sh'), false)
