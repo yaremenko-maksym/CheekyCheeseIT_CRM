@@ -9,13 +9,19 @@
 // owner's decision: the flow is the default for EVERYONE — owner, collaborator, any harness — and
 // a step may be skipped only by a named line in the PR body that says why.
 //
-// What this is NOT: a defence against a malicious write-role user. Anyone can post a review that
-// says `Verdict: APPROVE`, or write a `Skip-<Step>:` line. The point is that every skipped step
-// leaves a visible, attributable record instead of silence.
+// What this is NOT: a defence against a malicious write-role user. Anyone with write access can
+// post a review that says `Verdict: APPROVE`, or write a `Skip-<Step>:` line. The point is that
+// every skipped step leaves a visible, attributable record instead of silence. Three cheap guards
+// are kept because they cost nothing to the honest flow: verdicts count only from accounts with
+// a repository association (OWNER / MEMBER / COLLABORATOR — the repo is public, and any GitHub
+// user can comment), both names of a renamed file are classified, and a PR the API could not list
+// in full fails instead of being judged on the part that was read.
 //
 // Each step is either satisfied by EVIDENCE or skipped by a PR-body line `Skip-<Step>: <reason>`
 // (key case-insensitive, reason at least MIN_REASON_LENGTH characters). One exemption: a docs-only
-// diff (every changed path `*.md` or under `.claude/`) passes outright — the light-track rule.
+// diff (every changed path, and every rename source, ends in `.md`) passes outright — the
+// light-track rule. Non-markdown files under `.claude/` (hooks, settings, scripts) are executable
+// process config, not documentation: they go through the steps, and hooks/settings are critical.
 // The step table is STEPS below; the contract is `.claude/agents/contracts.md` §4.1.
 //
 // The decision is a pure function (`evaluate`); the CLI only reads a JSON file and prints.
@@ -93,8 +99,11 @@ export const CRITICAL_PATH_GLOBS = Object.freeze([
   'apps/api/src/database/schema/**',
   // webhooks (signature verification is an auth surface)
   '**/*webhook*',
-  // CI/CD pipeline and this gate itself
+  // CI/CD pipeline, the agent-process hooks and their registration, and this gate itself — each
+  // of them gates the whole process
   '.github/workflows/**',
+  '.claude/hooks/**',
+  '.claude/settings*.json',
   'scripts/architect/flow-gate*',
 ])
 
@@ -106,7 +115,8 @@ export const COPY_GLOBS = Object.freeze([
 
 export const isCritical = matcher(CRITICAL_PATH_GLOBS)
 export const isCopy = matcher(COPY_GLOBS)
-export const isDoc = (p) => p.endsWith('.md') || p.startsWith('.claude/')
+/** Documentation is markdown — nothing else, wherever it lives. */
+export const isDoc = (p) => p.endsWith('.md')
 export const isTestFile = (p) =>
   /\.(spec|test)\.[cm]?[jt]sx?$/.test(p) || p.includes('/__tests__/') || p.startsWith('apps/e2e/')
 /** Non-test product code: under apps/ or packages/, not a test file, not markdown. */
@@ -117,8 +127,59 @@ export const isUiCode = (p) =>
   !isTestFile(p) &&
   !p.endsWith('.md')
 
-export function isDocsOnly(files) {
-  return files.length > 0 && files.every(isDoc)
+export function isDocsOnly(paths) {
+  return paths.length > 0 && paths.every(isDoc)
+}
+
+// Repository associations whose verdicts count. The repo is public: any GitHub user can post a
+// comment or a COMMENT review, so `NONE` / `CONTRIBUTOR` / `FIRST_TIMER` etc. are ignored — both
+// their positive and their negative verdicts. The PR author is NOT excluded: the owner's review
+// agents post under the owner's account, and the owner authors his own PRs.
+export const TRUSTED_ASSOCIATIONS = Object.freeze(['OWNER', 'MEMBER', 'COLLABORATOR'])
+const trusted = (it) => TRUSTED_ASSOCIATIONS.includes(it.association)
+
+// The REST lists cap out: pulls/files at 3000 entries, pulls/commits at 250.
+export const MAX_LISTED_FILES = 3000
+export const MAX_LISTED_COMMITS = 250
+
+/** Normalise the pulls/files list: entries + every path to classify (current AND rename source). */
+export function normalizeFiles(files) {
+  const entries = files.map((f) =>
+    typeof f === 'string' ? { filename: f, previous_filename: null, status: 'modified' } : f,
+  )
+  const paths = []
+  for (const e of entries) {
+    paths.push(e.filename)
+    // A rename moves a file OUT of somewhere: the source path must be judged too, or renaming
+    // `apps/api/src/auth/x.ts` to `notes/x.md` would read as docs-only and non-critical.
+    if (e.previous_filename) paths.push(e.previous_filename)
+  }
+  return { entries, paths }
+}
+
+/** Fail-closed completeness: did the fetch list the whole PR? Returns a problem or null. */
+export function completenessProblem(pr, entries) {
+  const want = pr.counts ?? {}
+  const issues = []
+  if (typeof want.changedFiles !== 'number' || typeof want.commits !== 'number') {
+    issues.push("the PR's own file/commit counts were not provided")
+  } else {
+    if (want.changedFiles >= MAX_LISTED_FILES)
+      issues.push(
+        `the PR changes ${want.changedFiles} files — the API lists at most ${MAX_LISTED_FILES}`,
+      )
+    else if (entries.length !== want.changedFiles)
+      issues.push(`listed ${entries.length} changed files, the PR reports ${want.changedFiles}`)
+    if (want.commits >= MAX_LISTED_COMMITS)
+      issues.push(
+        `the PR has ${want.commits} commits — the API lists at most ${MAX_LISTED_COMMITS}`,
+      )
+    else if (pr.commits.length !== want.commits)
+      issues.push(`listed ${pr.commits.length} commits, the PR reports ${want.commits}`)
+  }
+  return issues.length
+    ? `Completeness — could not read the whole PR (${issues.join('; ')}). Split the PR, or re-run the check (push, body edit or label); a skip line cannot cover a PR that was not read.`
+    : null
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -169,7 +230,8 @@ const ts = (s) => {
 }
 
 /**
- * The standing verdict of one kind: the LATEST counting marker decides. A PENDING item was never
+ * The standing verdict of one kind: the LATEST counting marker decides. Only items from a trusted
+ * repository association count (TRUSTED_ASSOCIATIONS), positive and negative alike. A PENDING item was never
  * submitted; a DISMISSED positive no longer stands; a negative counts in any submitted state —
  * dismissing must not be a way to make a block disappear.
  * @returns {{state:'pos'|'neg'|null, item:object|null}}
@@ -177,7 +239,7 @@ const ts = (s) => {
 export function standingVerdict(items, kind) {
   let latest = null
   for (const it of items) {
-    if (it.state === 'PENDING') continue
+    if (it.state === 'PENDING' || !trusted(it)) continue
     const v = parseMarker(it.body, kind)
     if (!v || (v === 'pos' && it.state === 'DISMISSED')) continue
     if (!latest || ts(it.at) >= ts(latest.item.at)) latest = { state: v, item: it }
@@ -349,10 +411,12 @@ export function lastWorkCommit(commits) {
 /**
  * Evaluate the gate. Pure.
  * @param {object} pr
- * @param {string[]} pr.files     changed paths
+ * @param {Array<string|{filename:string,previous_filename?:string|null,status?:string}>} pr.files
+ *        changed files as the pulls/files API returns them (a bare path is accepted)
+ * @param {{changedFiles:number, commits:number}} pr.counts  the PR's own counts (completeness)
  * @param {string}   pr.body      PR description ('' when empty)
- * @param {Array<{author:string,state:string,body:string,at:string}>} pr.reviews
- * @param {Array<{author:string,body:string,at:string}>} pr.comments  PR (issue) comments
+ * @param {Array<{author:string,association:string,state:string,body:string,at:string}>} pr.reviews
+ * @param {Array<{author:string,association:string,body:string,at:string}>} pr.comments  PR comments
  * @param {Array<{sha:string,message:string,parents?:number}>} pr.commits  oldest first
  */
 export function evaluate(pr) {
@@ -362,11 +426,17 @@ export function evaluate(pr) {
     err.code = 'MALFORMED'
     throw err
   }
-  if (isDocsOnly(pr.files)) {
+  const { entries, paths } = normalizeFiles(pr.files)
+  const incomplete = completenessProblem(pr, entries)
+  if (incomplete) {
+    return { pass: false, docsOnly: false, steps: [], failures: [incomplete], skips: [] }
+  }
+  if (isDocsOnly(paths)) {
     return { pass: true, docsOnly: true, steps: [], failures: [], skips: [] }
   }
   const ctx = {
     ...pr,
+    files: paths,
     comments: pr.comments.map((c) => ({ ...c, state: 'COMMENTED' })),
     task: bodyLine(pr.body, 'Task') || null,
   }

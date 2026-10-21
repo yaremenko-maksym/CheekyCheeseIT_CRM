@@ -22,16 +22,29 @@ import {
   isCopy,
 } from './flow-gate.mjs'
 
+const withCounts = (pr) =>
+  pr && typeof pr === 'object' && Array.isArray(pr.files) && Array.isArray(pr.commits)
+    ? { counts: { changedFiles: pr.files.length, commits: pr.commits.length }, ...pr }
+    : pr
+const ev = (pr) => evaluate(withCounts(pr))
+
 // --- fixtures ------------------------------------------------------------------------------------
 
 const rv = (body, over = {}) => ({
   author: 'a-reviewer',
+  association: 'OWNER',
   state: 'COMMENTED',
   body,
   at: '2026-10-21T10:00:00Z',
   ...over,
 })
-const cm = (body, over = {}) => ({ author: 'a-qa', body, at: '2026-10-21T10:00:00Z', ...over })
+const cm = (body, over = {}) => ({
+  author: 'a-qa',
+  association: 'COLLABORATOR',
+  body,
+  at: '2026-10-21T10:00:00Z',
+  ...over,
+})
 const commit = (message, over = {}) => ({ sha: 'f'.repeat(40), message, parents: 1, ...over })
 
 const API = 'apps/api/src/vacancies/vacancies.service.ts' // product code, not critical, not UI
@@ -54,8 +67,8 @@ const failureFor = (r, key) => r.failures.find((f) => f.startsWith(`${key} —`)
 // --- docs-only and "nothing declared" ----------------------------------------------------------
 
 test('docs-only diff → pass, no steps evaluated', () => {
-  const r = evaluate({
-    files: ['docs/a.md', '.claude/rules/common/b.md', '.claude/hooks/x.sh'],
+  const r = ev({
+    files: ['docs/a.md', '.claude/rules/common/b.md', 'README.md'],
     body: '',
     reviews: [],
     comments: [],
@@ -66,7 +79,7 @@ test('docs-only diff → pass, no steps evaluated', () => {
 })
 
 test('nothing declared on a UI + critical + copy diff → fail, listing every required step', () => {
-  const r = evaluate({
+  const r = ev({
     files: [
       'apps/web/app/routes/x.tsx',
       'apps/api/src/finance/x.ts',
@@ -96,14 +109,14 @@ test('nothing declared on a UI + critical + copy diff → fail, listing every re
 })
 
 test('a fully evidenced plain backend PR → pass', () => {
-  const r = evaluate(good())
+  const r = ev(good())
   assert.equal(r.pass, true, r.failures.join('\n'))
   assert.equal(status(r, 'Security-Review'), 'not-required')
   assert.equal(status(r, 'QA'), 'not-required')
 })
 
 test('the fail message names the step, the cause and both ways out', () => {
-  const r = evaluate(good({ reviews: [rv('Spec Review: PASS')] }))
+  const r = ev(good({ reviews: [rv('Spec Review: PASS')] }))
   assert.equal(
     failureFor(r, 'Review'),
     'Review — no "Verdict: APPROVE" review. Run code-reviewer, or add "Skip-Review: <why>" to the PR body.',
@@ -150,7 +163,7 @@ for (const step of STEPS.map((s) => s.key)) {
         : BASE_ALL
 
   test(`${step}: missing evidence → the step is missing`, () => {
-    assert.equal(status(evaluate(without), step), 'missing')
+    assert.equal(status(ev(without), step), 'missing')
   })
 
   test(`${step}: evidence → satisfied`, () => {
@@ -160,11 +173,11 @@ for (const step of STEPS.map((s) => s.key)) {
         : step === 'Plan'
           ? { ...without, body: `${without.body}Plan: docs/plan.md\n` }
           : EVIDENCE[step](without)
-    assert.equal(status(evaluate(pr), step), 'satisfied')
+    assert.equal(status(ev(pr), step), 'satisfied')
   })
 
   test(`${step}: Skip-${step} with a reason → skipped, reason echoed`, () => {
-    const r = evaluate({
+    const r = ev({
       ...without,
       body: `${without.body}Skip-${step}: light-track: a one-line config change\n`,
     })
@@ -176,14 +189,14 @@ for (const step of STEPS.map((s) => s.key)) {
   })
 
   test(`${step}: Skip-${step} with a reason under 10 characters → still missing`, () => {
-    const r = evaluate({ ...without, body: `${without.body}Skip-${step}: trivial\n` })
+    const r = ev({ ...without, body: `${without.body}Skip-${step}: trivial\n` })
     assert.equal(status(r, step), 'missing')
     assert.match(failureFor(r, step), /shorter than 10 characters/)
   })
 }
 
 test('skip key is case-insensitive and may be a list item', () => {
-  const r = evaluate(
+  const r = ev(
     good({
       reviews: [rv('Spec Review: PASS')],
       body: `${FULL_BODY}- skip-REVIEW: owner reviewed live in a call\n`,
@@ -193,7 +206,7 @@ test('skip key is case-insensitive and may be a list item', () => {
 })
 
 test('a skip inside an HTML comment (the PR template placeholder) does not count', () => {
-  const r = evaluate(
+  const r = ev(
     good({
       reviews: [rv('Spec Review: PASS')],
       body: `${FULL_BODY}<!-- Skip-Review: reason why it is fine -->\n`,
@@ -202,10 +215,161 @@ test('a skip inside an HTML comment (the PR template placeholder) does not count
   assert.equal(status(r, 'Review'), 'missing')
 })
 
+// --- docs-only is markdown only; .claude executable config is critical -------------------------
+
+const bare = (files, over = {}) => ({
+  files,
+  body: '',
+  reviews: [],
+  comments: [],
+  commits: [commit('chore: x')],
+  ...over,
+})
+
+test('a PR touching only .claude/rules/x.md is docs-only', () => {
+  assert.equal(ev(bare(['.claude/rules/x.md'])).docsOnly, true)
+})
+
+test('a PR touching only .claude/hooks/x.sh is NOT docs-only and requires Security-Review', () => {
+  const r = ev(bare(['.claude/hooks/x.sh']))
+  assert.equal(r.docsOnly, false)
+  assert.equal(status(r, 'Security-Review'), 'missing')
+})
+
+test('.claude/settings.json and settings.local.json are critical; other .claude json is not docs', () => {
+  assert.equal(isCritical('.claude/settings.json'), true)
+  assert.equal(isCritical('.claude/settings.local.json'), true)
+  const r = ev(bare(['.claude/skills/x/config.json']))
+  assert.equal(r.docsOnly, false)
+  assert.equal(status(r, 'Security-Review'), 'not-required')
+})
+
+// --- renames ------------------------------------------------------------------------------------
+
+test('a rename from a non-.md path to a .md path is not docs-only, and the source is classified', () => {
+  const files = [
+    { filename: 'notes/x.md', previous_filename: 'apps/api/src/auth/x.ts', status: 'renamed' },
+  ]
+  const r = ev(bare(files))
+  assert.equal(r.docsOnly, false)
+  assert.equal(status(r, 'Security-Review'), 'missing')
+})
+
+test('a deleted non-.md file is not docs-only', () => {
+  assert.equal(
+    ev(bare([{ filename: 'apps/api/src/x.ts', status: 'removed' }, 'docs/a.md'])).docsOnly,
+    false,
+  )
+})
+
+test('a .md → .md rename stays docs-only', () => {
+  const files = [{ filename: 'docs/b.md', previous_filename: 'docs/a.md', status: 'renamed' }]
+  assert.equal(ev(bare(files)).docsOnly, true)
+})
+
+// --- repository association --------------------------------------------------------------------
+
+test('an outsider APPROVE (association NONE) is ignored', () => {
+  const r = ev(
+    good({ reviews: [rv('Verdict: APPROVE', { association: 'NONE' }), rv('Spec Review: PASS')] }),
+  )
+  assert.equal(status(r, 'Review'), 'missing')
+})
+
+test('an outsider BLOCK (association CONTRIBUTOR) after an APPROVE is ignored', () => {
+  const r = ev(
+    good({
+      reviews: [
+        ...FULL_REVIEWS,
+        rv('Verdict: BLOCK', { association: 'CONTRIBUTOR', at: '2026-10-21T11:00:00Z' }),
+      ],
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'satisfied')
+})
+
+test('an outsider QA comment is ignored; MEMBER and COLLABORATOR count', () => {
+  const ui = good({ files: ['apps/web/app/x.tsx', 'apps/web/app/x.spec.tsx'] })
+  assert.equal(
+    status(ev({ ...ui, comments: [cm('QA Verdict: PASS', { association: 'NONE' })] }), 'QA'),
+    'missing',
+  )
+  assert.equal(
+    status(ev({ ...ui, comments: [cm('QA Verdict: PASS', { association: 'MEMBER' })] }), 'QA'),
+    'satisfied',
+  )
+  assert.equal(
+    status(
+      ev({ ...ui, comments: [cm('QA Verdict: PASS', { association: 'COLLABORATOR' })] }),
+      'QA',
+    ),
+    'satisfied',
+  )
+})
+
+test('the PR author is not excluded: an OWNER review on an owner PR counts', () => {
+  assert.equal(
+    status(
+      ev(
+        good({
+          reviews: [rv('Verdict: APPROVE', { author: 'the-owner' }), rv('Spec Review: PASS')],
+        }),
+      ),
+      'Review',
+    ),
+    'satisfied',
+  )
+})
+
+test('a review with no association field does not count (fail closed)', () => {
+  const { association: _a, ...noAssoc } = rv('Verdict: APPROVE')
+  assert.equal(
+    status(ev(good({ reviews: [noAssoc, rv('Spec Review: PASS')] })), 'Review'),
+    'missing',
+  )
+})
+
+// --- completeness (fail closed on truncation) --------------------------------------------------
+
+test('listed files fewer than the PR reports → FAIL "could not read the whole PR", even when docs-only', () => {
+  const r = evaluate({ ...bare(['docs/a.md']), counts: { changedFiles: 2, commits: 1 } })
+  assert.equal(r.pass, false)
+  assert.equal(r.docsOnly, false)
+  assert.match(
+    r.failures[0],
+    /^Completeness — could not read the whole PR \(listed 1 changed files, the PR reports 2\)/,
+  )
+})
+
+test('listed commits fewer than the PR reports → FAIL', () => {
+  const r = evaluate({ ...good(), counts: { changedFiles: 2, commits: 3 } })
+  assert.equal(r.pass, false)
+  assert.match(r.failures[0], /listed 1 commits, the PR reports 3/)
+})
+
+test('changed_files ≥ 3000 or commits ≥ 250 → FAIL even when the counts match', () => {
+  const files = Array.from({ length: 3000 }, (_, i) => `docs/f${i}.md`)
+  assert.match(
+    evaluate({ ...bare(files), counts: { changedFiles: 3000, commits: 1 } }).failures[0],
+    /lists at most 3000/,
+  )
+  const commits = Array.from({ length: 250 }, () => commit('wip: x'))
+  assert.match(
+    evaluate({ ...good({ commits }), counts: { changedFiles: 2, commits: 250 } }).failures[0],
+    /lists at most 250/,
+  )
+})
+
+test('missing counts → FAIL, a skip line cannot cover it', () => {
+  const r = evaluate({ ...good(), body: `${FULL_BODY}Skip-Completeness: whatever reason here\n` })
+  assert.equal(r.pass, false)
+  assert.match(r.failures[0], /counts were not provided/)
+})
+
 // --- verdict semantics -------------------------------------------------------------------------
 
 test('BLOCK after APPROVE → Review missing', () => {
-  const r = evaluate(
+  const r = ev(
     good({ reviews: [...FULL_REVIEWS, rv('Verdict: BLOCK', { at: '2026-10-21T11:00:00Z' })] }),
   )
   assert.equal(status(r, 'Review'), 'missing')
@@ -216,7 +380,7 @@ test('BLOCK after APPROVE → Review missing', () => {
 })
 
 test('BLOCK then a newer APPROVE → Review satisfied', () => {
-  const r = evaluate(
+  const r = ev(
     good({
       reviews: [
         rv('Verdict: BLOCK', { at: '2026-10-21T09:00:00Z' }),
@@ -229,7 +393,7 @@ test('BLOCK then a newer APPROVE → Review satisfied', () => {
 })
 
 test('a recorded skip passes even after a BLOCK', () => {
-  const r = evaluate(
+  const r = ev(
     good({
       reviews: [...FULL_REVIEWS, rv('Verdict: BLOCK', { at: '2026-10-21T11:00:00Z' })],
       body: `${FULL_BODY}Skip-Review: BLOCK finding is out of scope, see #1234\n`,
@@ -240,12 +404,12 @@ test('a recorded skip passes even after a BLOCK', () => {
 
 test('dismissed approval does not count; dismissed BLOCK still blocks; PENDING ignored', () => {
   assert.equal(
-    status(evaluate(good({ reviews: [rv('Verdict: APPROVE', { state: 'DISMISSED' })] })), 'Review'),
+    status(ev(good({ reviews: [rv('Verdict: APPROVE', { state: 'DISMISSED' })] })), 'Review'),
     'missing',
   )
   assert.equal(
     status(
-      evaluate(
+      ev(
         good({
           reviews: [
             rv('Verdict: APPROVE'),
@@ -258,13 +422,13 @@ test('dismissed approval does not count; dismissed BLOCK still blocks; PENDING i
     'missing',
   )
   assert.equal(
-    status(evaluate(good({ reviews: [rv('Verdict: APPROVE', { state: 'PENDING' })] })), 'Review'),
+    status(ev(good({ reviews: [rv('Verdict: APPROVE', { state: 'PENDING' })] })), 'Review'),
     'missing',
   )
 })
 
 test('Spec Review: ISSUES after PASS → Spec-Review missing', () => {
-  const r = evaluate(
+  const r = ev(
     good({ reviews: [...FULL_REVIEWS, rv('Spec Review: ISSUES', { at: '2026-10-21T11:00:00Z' })] }),
   )
   assert.equal(status(r, 'Spec-Review'), 'missing')
@@ -278,7 +442,7 @@ test('Design Review: POLISH-REQUESTED is negative; APPROVE is accepted as a syno
 
 test('Review/Security/Spec/Copy read reviews only; QA/Design read reviews and comments', () => {
   const ui = { ...good(), files: ['apps/web/app/routes/x.tsx', 'apps/web/app/routes/x.spec.tsx'] }
-  const viaComment = evaluate({
+  const viaComment = ev({
     ...ui,
     comments: [cm('Verdict: APPROVE'), cm('QA Verdict: PASS'), cm('Design Review: PASS')],
     reviews: [rv('Spec Review: PASS')],
@@ -302,8 +466,8 @@ test('parseMarker: markdown decoration tolerated, first marker wins, mid-sentenc
 // --- conditional requirements ------------------------------------------------------------------
 
 test('Security-Review is required only on critical paths', () => {
-  assert.equal(status(evaluate(good()), 'Security-Review'), 'not-required')
-  const crit = evaluate(
+  assert.equal(status(ev(good()), 'Security-Review'), 'not-required')
+  const crit = ev(
     good({
       files: ['apps/api/src/auth/auth.service.ts', 'apps/api/src/auth/auth.service.spec.ts'],
     }),
@@ -312,31 +476,23 @@ test('Security-Review is required only on critical paths', () => {
 })
 
 test('Tests are required only when non-test product code changes', () => {
-  assert.equal(status(evaluate(good({ files: ['scripts/devops/x.sh'] })), 'Tests'), 'not-required')
-  assert.equal(
-    status(evaluate(good({ files: ['apps/api/src/x.spec.ts'] })), 'Tests'),
-    'not-required',
-  )
-  assert.equal(status(evaluate(good({ files: [API] })), 'Tests'), 'missing')
-  assert.equal(
-    status(evaluate(good({ files: [API, 'apps/e2e/tests/x.spec.ts'] })), 'Tests'),
-    'satisfied',
-  )
+  assert.equal(status(ev(good({ files: ['scripts/devops/x.sh'] })), 'Tests'), 'not-required')
+  assert.equal(status(ev(good({ files: ['apps/api/src/x.spec.ts'] })), 'Tests'), 'not-required')
+  assert.equal(status(ev(good({ files: [API] })), 'Tests'), 'missing')
+  assert.equal(status(ev(good({ files: [API, 'apps/e2e/tests/x.spec.ts'] })), 'Tests'), 'satisfied')
 })
 
 test('QA and Design-Review are required only on non-test UI paths', () => {
-  assert.equal(status(evaluate(good()), 'QA'), 'not-required')
-  assert.equal(status(evaluate(good({ files: ['apps/web/app/x.spec.tsx'] })), 'QA'), 'not-required')
-  const ui = evaluate(
-    good({ files: ['apps/landing/app/page.tsx', 'apps/landing/app/page.spec.tsx'] }),
-  )
+  assert.equal(status(ev(good()), 'QA'), 'not-required')
+  assert.equal(status(ev(good({ files: ['apps/web/app/x.spec.tsx'] })), 'QA'), 'not-required')
+  const ui = ev(good({ files: ['apps/landing/app/page.tsx', 'apps/landing/app/page.spec.tsx'] }))
   assert.equal(status(ui, 'QA'), 'missing')
   assert.equal(status(ui, 'Design-Review'), 'missing')
 })
 
 test('Spec-Review is required only when Task is declared', () => {
-  assert.equal(status(evaluate(good()), 'Spec-Review'), 'satisfied')
-  const skipTask = evaluate(
+  assert.equal(status(ev(good()), 'Spec-Review'), 'satisfied')
+  const skipTask = ev(
     good({
       reviews: [rv('Verdict: APPROVE')],
       body: 'Skip-Task: drive-by fix found while reviewing #99\nPlan: none, one line\n',
@@ -362,11 +518,11 @@ test('AC is read from the last non-wip, non-merge commit', () => {
     commit('wip: polishing'),
   ]
   assert.equal(lastWorkCommit(commits).message.startsWith('feat: x'), true)
-  assert.equal(status(evaluate(good({ commits })), 'AC'), 'satisfied')
+  assert.equal(status(ev(good({ commits })), 'AC'), 'satisfied')
 })
 
 test('AC: a later non-wip commit without ac_verified overrides an earlier one with it', () => {
-  const r = evaluate(
+  const r = ev(
     good({
       commits: [
         commit('feat: x\n\nac_verified: 1'),
@@ -379,13 +535,13 @@ test('AC: a later non-wip commit without ac_verified overrides an earlier one wi
 })
 
 test('AC: only wip commits → missing with an explicit cause', () => {
-  const r = evaluate(good({ commits: [commit('wip: a'), commit('WIP: b')] }))
+  const r = ev(good({ commits: [commit('wip: a'), commit('WIP: b')] }))
   assert.match(failureFor(r, 'AC'), /every commit is `wip:` or a merge/)
 })
 
 test('AC: "ac_verified:" must start a line', () => {
   assert.equal(
-    status(evaluate(good({ commits: [commit('feat: mention ac_verified: in prose')] })), 'AC'),
+    status(ev(good({ commits: [commit('feat: mention ac_verified: in prose')] })), 'AC'),
     'missing',
   )
 })
@@ -437,18 +593,16 @@ test('bodyLine reads a value, null when absent, empty when blank', () => {
 })
 
 test('a blank "Task:" line (the template default) is not a declaration', () => {
-  const r = evaluate(
-    good({ body: 'Task:\nPlan: in the task file\n', reviews: [rv('Verdict: APPROVE')] }),
-  )
+  const r = ev(good({ body: 'Task:\nPlan: in the task file\n', reviews: [rv('Verdict: APPROVE')] }))
   assert.equal(status(r, 'Task'), 'missing')
   assert.equal(status(r, 'Spec-Review'), 'not-required')
 })
 
 test('malformed input throws (an unread list is not an empty one)', () => {
-  assert.throws(() => evaluate(good({ files: [] })), /files is empty/)
-  assert.throws(() => evaluate(good({ commits: [] })), /commits is empty/)
-  assert.throws(() => evaluate({ ...good(), comments: undefined }), /comments must be an array/)
-  assert.throws(() => evaluate({ ...good(), body: null }), /body must be a string/)
+  assert.throws(() => ev(good({ files: [] })), /files is empty/)
+  assert.throws(() => ev(good({ commits: [] })), /commits is empty/)
+  assert.throws(() => ev({ ...good(), comments: undefined }), /comments must be an array/)
+  assert.throws(() => ev({ ...good(), body: null }), /body must be a string/)
 })
 
 // --- CLI ----------------------------------------------------------------------------------------
@@ -458,7 +612,7 @@ const runCli = (data) => {
   const dir = mkdtempSync(join(tmpdir(), 'flow-gate-'))
   const input = join(dir, 'in.json')
   const summary = join(dir, 'summary.md')
-  writeFileSync(input, typeof data === 'string' ? data : JSON.stringify(data))
+  writeFileSync(input, typeof data === 'string' ? data : JSON.stringify(withCounts(data)))
   const res = spawnSync(process.execPath, [SCRIPT, '--input', input, '--summary', summary], {
     encoding: 'utf8',
   })
