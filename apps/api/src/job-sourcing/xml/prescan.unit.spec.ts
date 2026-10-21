@@ -81,6 +81,41 @@ describe('unterminated constructs stop the scan instead of looping', () => {
     expect(outcome.elementCount).toBeGreaterThanOrEqual(2)
   })
 
+  /**
+   * DEGENERATE constructs, where the terminator overlaps the opener.
+   *
+   * These pin the START OFFSET of each skip, which the happy-path tests cannot: for an ordinary
+   * `<?pi?>` a search beginning one character earlier finds the same `?>`, so the offset looks
+   * equivalent. It is not. In `<?>` the `?` is BOTH the opener and the first character of a
+   * would-be `?>`, so a search starting at or before it matches a terminator that does not
+   * exist — the construct is unterminated and must end the scan, and a scan that resumed instead
+   * would go on to count the elements after it.
+   *
+   * I had written these off as equivalent mutants and was about to suppress them. They are not.
+   */
+  it('`<?>` is an unterminated PI — its `?` is not also its terminator', () => {
+    expect(prescanStructure('<?><r/>', GENEROUS)).toEqual({
+      ok: true,
+      maxDepth: 0,
+      elementCount: 0,
+    })
+  })
+
+  it('`<!-->` is an unterminated comment — its `--` is not also its terminator', () => {
+    expect(prescanStructure('<!--><r/>', GENEROUS)).toEqual({
+      ok: true,
+      maxDepth: 0,
+      elementCount: 0,
+    })
+  })
+
+  it('POSITIVE CONTROL: the well-formed versions of both DO skip and keep scanning', () => {
+    // Without this pair, the two assertions above would hold for a scan that gave up on every
+    // `<?` or `<!--` whatsoever.
+    expect(prescanStructure('<?pi?><r/>', GENEROUS)).toMatchObject({ elementCount: 1 })
+    expect(prescanStructure('<!--c--><r/>', GENEROUS)).toMatchObject({ elementCount: 1 })
+  })
+
   it('an unterminated start tag does not count the element twice', () => {
     expect(prescanStructure('<r><open', GENEROUS)).toEqual({
       ok: true,
