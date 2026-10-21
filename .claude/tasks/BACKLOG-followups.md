@@ -3116,6 +3116,22 @@ shell reading its script from a heredoc executes it. Those three facts are the w
 **Check on closing:** a launch written through `bash <<'EOF'` or a here-string is refused; a document
 quoting a launch inside a quoted-delimiter heredoc is not; and both directions have a test.
 
+**Update 2026-10-21 — the deferral is now backed by five measured divergences, not by principle.**
+PR #1067 narrowed the launcher gates over six rounds, and in each round closing a divergence in one
+place opened one somewhere else: a comment-hidden opener, a quote-state difference between the two
+readings, a substitution-depth counter that miscounted nested and case-pattern parens and ignored
+`$(` inside double quotes, a physical-line check walked past by a backslash-newline continuation, and
+a hand-rolled word boundary wider than bash's (`isspace()` accepting `\r`/`\v`/`\f`). Each was a
+fail-open found by an automated review of the fix before it.
+
+That is what two independent readings of one text do under local patching, and it is the argument for
+unification: the final form only converged once the opener-line test was **inverted from a denylist to
+an allowlist**, which fails closed on constructs nobody enumerated. The adjacent `PKG_QUERY_SPEC`
+grant, an allowlist from the start, converged in a single round. Whoever picks this up should read the
+six-round history in #1067's body first — it is the cheapest available argument for doing the rewrite
+rather than a seventh patch. Note also that the interpreter-consumed-heredoc hole is **not** this
+entry: see [[266]], different cause.
+
 ## 242. The alert pattern crosses a language boundary as ERE and is consumed as a JavaScript regex (2026-10-19)
 
 (named by the author of PR #1042 as a latent risk, not a defect today; severity LOW-MED — a silent
@@ -3599,6 +3615,14 @@ the corpus assertion keyed on the degraded-mode token still passes for all three
 `check-no-russian-letters.mjs` covers `.claude/hooks/**`, proven by a case that goes red when a Russian
 line is added to a hook.
 
+**Update 2026-10-21 — the count rose again and the branch is named.** The follow-up is
+`architect/pre-bash-refusal-text-english`, and its scope table lives in PR #1067's body —
+**re-derive the figures from there rather than from this entry**, because round six of that PR added
+two more Russian refusal lines after the first measurement. The structure of the work is unchanged:
+one atomic change across all three hooks, their coupled `--contains` assertions and the `why` strings,
+plus widening `check-no-russian-letters.mjs` to `.claude/hooks/**` — without that last part the
+conversion holds only until somebody edits a refusal message, since nothing scans the hooks today.
+
 ## 260. The senior-share override spec is flaky at 320px, proven rather than suspected (2026-10-21)
 
 `projects-senior-share-override.spec.ts` asserts that the share row does not overflow its own box at
@@ -3718,3 +3742,40 @@ is compliant but unlisted weakens it as a census even while the behaviour is cor
 
 **Check on closing:** the registry's case list includes the retention cron, and the duplicated local
 assertion is either removed or marked as deliberately redundant.
+
+## 266. A heredoc body handed to an interpreter bypasses both launcher gates (2026-10-21)
+
+Measured with a marker script on `PATH`, so execution is a fact rather than a reading. Four shapes
+**execute** while **both** launcher gates allow them — the TTL gate and the live-db guard, on the
+pre-PR revision and on the post-PR one alike:
+
+```
+sh <<'EOF' … EOF          executes · allowed by both gates
+bash <<'EOF' … EOF        executes · allowed by both gates
+zsh <<'EOF' … EOF         executes · allowed by both gates
+cat <<'EOF' | sh          executes · allowed by both gates
+the same launch, plainly  refused by both gates   (control)
+```
+
+**Root cause, and it is not a parser disagreement.** A heredoc body becomes the segment's `payload`,
+while `CODE_CAPABLE` re-reads a segment's **arguments** — so the body never reaches the code path and
+**no consuming command is ever consulted**. An unquoted delimiter leaks identically, which is how we
+know the literal-span exemption is not what carries it. This is explicitly a different hole from the
+two-tokenizer differential in [[241]], with a different cause; neither entry should absorb the other.
+
+**Why it went unseen for so long is the part worth keeping.** The module docstring asserted that _"the
+consuming command is what decides, not the text"_ — false for `sh`, `bash` and `zsh`. The file said the
+case was handled, so nobody looked. That sentence is now corrected in two places and the gap is listed
+in the module's canonical **STATED GAPS**, marked **not accepted**, unlike the three gaps beside it —
+so a reader looking for "what this scanner does not do" finds it where they look rather than where it
+bites them. The same shape as every other defect found on PR #1067: the claim was true of an intention
+and false of the code, and only a check that ran the code could tell.
+
+**Not a regression, and that is why PR #1067 was merged over it:** the hole is equally open before that
+PR, which also closed two real leaks that the previous revision allowed. Holding a false-positive fix
+hostage to a pre-existing hole would have cost the measured false positives — including one that
+refused a reviewer's own harness-authoring heredoc with 37 bogus "launches" — and closed nothing.
+
+**Check on closing:** the four shapes above are refused by both gates while the plain-launch control
+stays refused; a body consumed by an interpreter reaches the same code path as an argument would; and
+the entry moves out of the STATED GAPS list rather than being re-described as accepted.
