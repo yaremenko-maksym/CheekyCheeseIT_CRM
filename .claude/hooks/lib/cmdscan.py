@@ -550,6 +550,40 @@ def _heredoc_opener(text, i):
     return None
 
 
+# Everything that MAY stand on a heredoc opener's line after the opener without
+# costing the body its literal protection: whitespace, redirection and pipe
+# punctuation, file-descriptor digits, and plain word characters for a redirect
+# target. Deliberately excludes `$`, backtick, `(`, `)`, `;`, quotes and `\` —
+# but it is the ALLOWLIST that matters, not that list: anything absent here
+# drops the exemption, including a construct nobody has thought of.
+_OPENER_TAIL_SAFE = re.compile(r"^[\s|<>&0-9A-Za-z_./@+:,%^~=-]*$")
+
+
+def _opener_tail_is_inert(text, i):
+    """True when the rest of the opener's LOGICAL line is safe to ignore.
+
+    An ALLOWLIST, and that is the whole design — see the note in
+    _heredoc_literal_spans. The four previous forms of this check scanned for
+    DANGEROUS characters, and a denylist over shell syntax is always missing one:
+    five review rounds found five, the last two being a backslash-newline
+    continuation that moves the `$(` onto the next physical line, and `${…}` /
+    a bare `$`, which carry no character the denylist was watching for.
+    """
+    eol = text.find("\n", i)
+    tail = text[i:] if eol < 0 else text[i:eol]
+    # A line continuation moves the rest of the LOGICAL line beyond the reach of
+    # any check on the physical one, so its mere presence drops protection
+    # instead of being followed.
+    if tail.rstrip().endswith("\\"):
+        return False
+    # A word-initial "#" starts a comment; its text is inert whatever it holds.
+    for k, ch in enumerate(tail):
+        if ch == "#" and (k == 0 or tail[k - 1].isspace()):
+            tail = tail[:k]
+            break
+    return bool(_OPENER_TAIL_SAFE.match(tail))
+
+
 def _heredoc_literal_spans(text):
     """Byte spans of heredoc bodies whose delimiter was QUOTED.
 
@@ -677,9 +711,9 @@ def _heredoc_literal_spans(text):
         # is handled at the OPENER instead, by the coarse rule above.
         #
         # THAT RULE IS DELIBERATELY COARSE, AND THAT IS THE POINT. It over-refuses
-        # whenever a quoted heredoc's opener line happens to contain a
-        # parenthesis or a backtick, which is bounded and rare. The reason is not
-        # elegance, it is a record of four attempts:
+        # whenever a quoted heredoc's opener line carries anything beyond
+        # whitespace, a comment and redirection, which is bounded and rare. The
+        # reason is not elegance, it is a record of five attempts:
         #
         #   1. clear `pending` unconditionally -> `cat <<'EOF' # note` refused
         #      while the identical command without the comment was allowed
@@ -696,17 +730,36 @@ def _heredoc_literal_spans(text):
         #      at all, and a bare `)` from a case pattern (`$(case x in x) true #)`)
         #      closes a substitution that is still open.
         #
-        # So: no counting, no nesting, no quote state — nothing to get wrong. If
-        # ANY `(` or backtick appears on the opener's line after the opener, the
-        # readings may disagree about where that line ends, and an uncertain
-        # reading does not earn an exemption. A retry costs a retry; a missed
-        # launch cost two minutes against the live database once already (#485).
+        #   4. scan the opener's line for `(` or a backtick -> still a DENYLIST,
+        #      and a denylist over shell syntax is always missing one: a
+        #      backslash-newline continuation moves the `$(` onto the next
+        #      physical line and walks past the check, and `${…}` or a bare `$`
+        #      carry none of the watched characters at all.
         #
-        # One shape is worth recording because it shows the rule over-refusing
-        # rather than catching anything: `cat <<'EOF' "$(true #)"` is a bash
-        # SYNTAX ERROR ("bad substitution: no closing `)'", measured, nothing
-        # executes). The coarse rule refuses it anyway, which is the right side to
-        # be wrong on and is cheaper than reasoning about quote state to find out.
+        # 5. SO THE TEST IS INVERTED. Protection survives only if the rest of the
+        # opener's LOGICAL line is on an ALLOWLIST — whitespace, a plain comment,
+        # redirection and pipe tokens, a plain redirect target. Everything else
+        # drops it. That cannot be bypassed by a construct nobody thought of,
+        # because an unrecognised construct is not on the list and so fails closed
+        # BY DEFINITION; there is nothing deeper to discover, which is exactly
+        # what the four denylist forms could not promise. A continuation is not
+        # followed either — its presence alone drops protection, so the line
+        # boundary cannot be moved under the check.
+        #
+        # THIS IS THE SAME MOVE PKG_QUERY_SPEC ALREADY MAKES, and the contrast is
+        # the lesson of the whole change: that grant admits only recognised tokens
+        # and refuses the first unrecognised one — an allowlist — and it converged
+        # in one round. This exemption was a denylist and took five. Both
+        # decisions in this file now fail closed on the unknown, and that, not
+        # the particular characters, is why.
+        #
+        # A retry costs a retry; a missed launch cost two minutes against the live
+        # database once already (#485). One shape is worth recording because it
+        # shows the rule over-refusing rather than catching anything:
+        # `cat <<'EOF' "$(true #)"` is a bash SYNTAX ERROR ("bad substitution: no
+        # closing `)'", measured — nothing executes). It is refused anyway, which
+        # is the right side to be wrong on and cheaper than reasoning about quote
+        # state to find out.
         #
         # Unlike every invariant attempted on this change, this comment cannot go
         # stale: it describes a DECISION, not a property of the code.
@@ -725,14 +778,10 @@ def _heredoc_literal_spans(text):
             length, delim, strip_tabs, literal = opener
             i += length
             # THE COARSE RULE (see the long note at the comment branch below).
-            # If the rest of this opener's physical line carries a parenthesis or
-            # a backtick, the two readings of the line may disagree about where it
-            # ends, so this heredoc gets NO literal protection — regardless of
-            # quoting, nesting, or anything else on the line. One membership test,
-            # no arithmetic, nothing to get wrong.
-            eol = text.find("\n", i)
-            rest = text[i:] if eol < 0 else text[i:eol]
-            if any(c in rest for c in "(`"):
+            # Literal protection survives only if the rest of this opener's
+            # LOGICAL line is on the allowlist — whitespace, a comment, and
+            # redirection/pipe tokens. Anything else, known or unknown, drops it.
+            if literal and not _opener_tail_is_inert(text, i):
                 literal = False
             pending.append((delim, strip_tabs, literal))
             continue
