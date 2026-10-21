@@ -3779,3 +3779,64 @@ refused a reviewer's own harness-authoring heredoc with 37 bogus "launches" — 
 **Check on closing:** the four shapes above are refused by both gates while the plain-launch control
 stays refused; a body consumed by an interpreter reaches the same code path as an argument would; and
 the entry moves out of the STATED GAPS list rather than being re-described as accepted.
+
+## 267. The hook refusal texts are a third converted, and the honest measure is the guard, not a number (2026-10-21)
+
+PR #1073 converted the three launcher hooks' refusal text and `cmdscan.py`'s `why` strings to English,
+with their coupled `--contains` assertions. **Four of twelve files are done — 85 of 257 refusal-text
+lines** — and the rest sit behind `AGENT_EXCEPTIONS` in `check-no-russian-letters.mjs`.
+
+**Do not trust the counts in this entry.** They were accurate when written and will drift with every
+conversion, which is the defect this backlog keeps recording. The stable check is to run the guard:
+`node scripts/devops/check-no-russian-letters.mjs` prints the live tally in its success line (files
+scanned, hooks still excepted). A command that recomputes beats a number that decays — the same device
+as the `Findings: … (N)` control line, and the reason this entry names the command rather than
+restating the figure. Note also that "a third" describes **files**, not volume: the remaining eight are
+smaller on average.
+
+**Why the exception list is a ratchet rather than a carve-out**, and worth understanding before editing
+it: a new hook is not on the list, so it is covered from its first line; and an excepted file that has
+become clean **fails** the guard, so an entry cannot outlive its reason. Its review round found the
+ratchet weaker than its own description in two ways — an excepted file could still _grow_, and a
+removed entry was not detected though the message claimed it was — both closed in that PR. If you
+extend the list, preserve both directions.
+
+**Check on closing:** the guard's success line reports zero hooks excepted, `AGENT_EXCEPTIONS` is
+empty or gone, and no `.claude/hooks` file contains Cyrillic.
+
+## 268. Who owns a guard whose subject is another zone (2026-10-21)
+
+`scripts/devops/check-no-russian-letters.mjs` is **DevOps-owned by location** and was extended by the
+Architect in PR #1073 to scan `.claude/hooks/**` — which is **Architect territory by subject**. The
+edit stands on an explicit Master instruction, the documented exception, and the architect flagged the
+boundary rather than crossing it quietly.
+
+The question is left deliberately open rather than answered by adding a glob: does ownership follow the
+**file** or its **subject**? Both readings are defensible, and the comparable case decided differently
+for a good reason — `scripts/devops/tests/lib/command-corpus.txt` _was_ added to the Architect zone in
+#1067, because it is test data for tests the Architect already owns, so listing it described a boundary
+that was already true. This is not that: it is a DevOps-owned guard being extended. Settling it inside
+a translation PR is how two zone descriptions drift apart, which is the failure `zone-of-write.md`
+already warns about in its own text.
+
+**Check on closing:** `zone-of-write.md` and `.claude/agents/architect.md` say the same thing about
+guards whose subject is `.claude/**`, and the rule states which of the two readings was chosen and why.
+
+## 269. The Cyrillic scan is enforced in CI by wiring, not by a structural pin (2026-10-21)
+
+`check-no-russian-letters.mjs` runs in CI only because it happens to sit in the `guard-test` runner.
+Nothing ties it there the way `check-guard-tests-exist.sh` ties each hook to a negative test case: that
+meta-guard reads the hook list from `.claude/settings.json` and **fails** when a hook has no test, so a
+missing test cannot pass silently. The Cyrillic scan has no equivalent — change the runner's wiring and
+the scan goes quiet **without failing**, leaving a guard that reports nothing and looks healthy.
+
+Raised by the architect against their own work, which is the reason it is here rather than discovered
+later. It is the same shape as the defect PR #1073 exists to prevent: a check whose absence is
+indistinguishable from a pass. One more instance of the pattern that ran through this whole epic — a
+guarantee that holds because of a fact nobody re-reads.
+
+Adjacent and worth deciding together: a PR changing only `.md` files under `.claude/hooks` currently
+gets `code=false` and skips the step entirely, caught only by the post-merge push run.
+
+**Check on closing:** removing the scan from the runner makes a test go red, and a documentation-only
+change under `.claude/hooks` is still scanned in the PR run rather than only after merge.
