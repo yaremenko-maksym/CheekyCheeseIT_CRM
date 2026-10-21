@@ -87,10 +87,22 @@ export const REJECTED_FIXTURES: readonly { file: string; reason: string }[] = [
  */
 export const GROWTH_SHAPES: readonly {
   name: string
-  /** Builds a document whose cost scales with `n`. */
+  /** Builds a document whose cost scales with `n`. Builders emit ~4 characters per unit. */
   build: (n: number) => string
   /** Whether a well-formed document results. Unterminated constructs do not. */
   wellFormed: boolean
+  /**
+   * For a REJECTED shape, where the cost of the rejection comes from — measured, because the two
+   * need different assertions and conflating them produced a wrong test:
+   *
+   * - `'flat'` — refused on the construct itself, near-constant cost. An unterminated comment is
+   *   refused in 0.06 ms whether it is 128 KB or 1 MB.
+   * - `'after-parsing'` — the document parses normally and fails LATE, so the cost is the parse.
+   *   `<r><i/>…</wrong>` with 262 144 elements costs 186 ms, and that is linear-in-elements work,
+   *   not a pathology. An absolute "rejection must be fast" ceiling is simply the wrong
+   *   instrument for it.
+   */
+  rejection?: 'flat' | 'after-parsing'
 }[] = [
   {
     name: 'many distinct attributes',
@@ -130,22 +142,36 @@ export const GROWTH_SHAPES: readonly {
     name: 'late mismatched close tag',
     build: (n) => `<r>${'<i/>'.repeat(n)}</wrong>`,
     wellFormed: false,
+    rejection: 'after-parsing',
   },
   {
+    // The worst of the rejection shapes, and the one that justified measuring them separately:
+    // 0.43 ms at 32 KB, 1.6 ms at 128 KB, 21 ms at 512 KB, 40 ms at 1 MB — exponent ~1.3 across
+    // that range. Mildly super-linear, inside the parser, consistent with the ADR's worst case of
+    // 1.36 being node-allocation and GC cost rather than backtracking. Bounded at ~80 ms by the
+    // 2 MiB byte cap, which is a second reason that cap is load-bearing.
     name: 'unterminated processing instruction',
     build: (n) => `<?${'x'.repeat(n * 4)}`,
     wellFormed: false,
+    rejection: 'flat',
   },
-  { name: 'unterminated comment', build: (n) => `<!--${'x'.repeat(n * 4)}`, wellFormed: false },
+  {
+    name: 'unterminated comment',
+    build: (n) => `<!--${'x'.repeat(n * 4)}`,
+    wellFormed: false,
+    rejection: 'flat',
+  },
   {
     name: 'unterminated cdata',
     build: (n) => `<r><![CDATA[${'x'.repeat(n * 4)}`,
     wellFormed: false,
+    rejection: 'flat',
   },
   {
     name: 'unterminated attribute value',
     build: (n) => `<r a="${'x'.repeat(n * 4)}`,
     wellFormed: false,
+    rejection: 'flat',
   },
 ]
 
