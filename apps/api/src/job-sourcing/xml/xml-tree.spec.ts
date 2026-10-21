@@ -29,6 +29,7 @@ function el(
     prefix?: string | null
     children?: XmlNodeUnion[]
     attributes?: { localName: string; ns?: string | null; value: string }[]
+    decls?: Record<string, string>
   } = {},
 ): XmlElementNode {
   const children = options.children ?? []
@@ -45,7 +46,7 @@ function el(
       value: attribute.value,
       qualifiedName: attribute.localName,
     })),
-    namespaceDeclarations: {},
+    namespaceDeclarations: options.decls ?? {},
     children,
     text: children.reduce((acc, child) => (child.kind === 'text' ? acc + child.value : acc), ''),
   }
@@ -204,7 +205,7 @@ describe('collectText', () => {
 
 describe('measureTree', () => {
   it('a single element is depth 1, count 1', () => {
-    expect(measureTree(el('r'))).toEqual({ maxDepth: 1, elementCount: 1 })
+    expect(measureTree(el('r'))).toEqual({ maxDepth: 1, elementCount: 1, attributeCount: 0 })
   })
 
   it('counts every element and reports the DEEPEST branch, not the last', () => {
@@ -213,7 +214,7 @@ describe('measureTree', () => {
     const node = el('r', {
       children: [el('a', { children: [el('b', { children: [el('c')] })] }), el('d')],
     })
-    expect(measureTree(node)).toEqual({ maxDepth: 4, elementCount: 5 })
+    expect(measureTree(node)).toEqual({ maxDepth: 4, elementCount: 5, attributeCount: 0 })
   })
 
   it('two branches of EQUAL depth report that depth once, not twice', () => {
@@ -224,7 +225,7 @@ describe('measureTree', () => {
     const node = el('r', {
       children: [el('a', { children: [el('a1')] }), el('b', { children: [el('b1')] })],
     })
-    expect(measureTree(node)).toEqual({ maxDepth: 3, elementCount: 5 })
+    expect(measureTree(node)).toEqual({ maxDepth: 3, elementCount: 5, attributeCount: 0 })
   })
 
   it('a shallower branch AFTER the deepest does not lower the maximum', () => {
@@ -238,12 +239,46 @@ describe('measureTree', () => {
 
   it('text nodes are not counted as elements', () => {
     const node = el('r', { children: [text('a'), el('x'), text('b')] })
-    expect(measureTree(node)).toEqual({ maxDepth: 2, elementCount: 2 })
+    expect(measureTree(node)).toEqual({ maxDepth: 2, elementCount: 2, attributeCount: 0 })
   })
 
   it('survives nesting far deeper than the port allows', () => {
     let deep = el('leaf')
     for (let i = 0; i < 20_000; i += 1) deep = el('a', { children: [deep] })
-    expect(measureTree(deep)).toEqual({ maxDepth: 20_001, elementCount: 20_001 })
+    expect(measureTree(deep)).toEqual({ maxDepth: 20_001, elementCount: 20_001, attributeCount: 0 })
+  })
+
+  // The attribute total exists to be COMPARED against the pre-scan, so what it must get right is
+  // the one thing the two sides disagree about by construction: the pre-scan is a tokenizer and
+  // counts an `xmlns` attribute as the attribute it syntactically is, while this tree files
+  // declarations onto `namespaceDeclarations` and out of `attributes`. If `measureTree` counted
+  // only `attributes`, every namespaced feed in existence — which is every real feed — would
+  // raise `PRESCAN_DIFFERENTIAL`. So these cases are about the REUNION, not about counting.
+  it('counts attributes across the whole tree', () => {
+    const node = el('r', {
+      attributes: [{ localName: 'a', value: '1' }],
+      children: [
+        el('b', {
+          attributes: [
+            { localName: 'c', value: '2' },
+            { localName: 'd', value: '3' },
+          ],
+        }),
+        el('e'),
+      ],
+    })
+    expect(measureTree(node)).toEqual({ maxDepth: 2, elementCount: 3, attributeCount: 3 })
+  })
+
+  it('adds namespace declarations back to the attribute total', () => {
+    const node = el('r', {
+      attributes: [{ localName: 'a', value: '1' }],
+      decls: { '': 'http://e/d', p: 'http://e/p' },
+    })
+    expect(measureTree(node).attributeCount).toBe(3)
+  })
+
+  it('an element with neither attributes nor declarations contributes nothing', () => {
+    expect(measureTree(el('r', { children: [el('x'), text('t')] })).attributeCount).toBe(0)
   })
 })

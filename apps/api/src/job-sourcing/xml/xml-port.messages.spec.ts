@@ -53,12 +53,23 @@ describe('refusal messages carry the offending value AND the limit', () => {
   })
 
   it('TIME_BUDGET names the ceiling and the budget it came from', () => {
-    const error = refusal(() => port.parseDocument(utf8(`<r>${'<i/>'.repeat(12_500)}</r>`)))
+    const error = refusal(() => port.parseDocument(utf8(`<r>${'<i/>'.repeat(25_000)}</r>`)))
     expect(error.reason).toBe('TIME_BUDGET')
-    // Both numbers: the ceiling alone would not tell a reader WHY 12 500, which is the one thing
+    // Both numbers: the ceiling alone would not tell a reader WHY 25 000, which is the one thing
     // they need to decide whether to raise the budget or reduce the feed.
-    expect(error.message).toContain('12500')
+    expect(error.message).toContain('25000')
     expect(error.message).toContain(String(DEFAULT_XML_LIMITS.maxWallClockMs))
+  })
+
+  it('TIME_BUDGET says the bound counts ATTRIBUTES too, and reports both counts', () => {
+    // A message naming only elements sends a feed owner counting the wrong thing: the document
+    // below has two elements and is refused. Reporting the split is what makes the refusal
+    // actionable — "2 + 25000" tells them immediately which axis blew the budget.
+    const attributes = Array.from({ length: 25_000 }, (_, k) => `a${k}="v"`).join(' ')
+    const error = refusal(() => port.parseDocument(utf8(`<r><i ${attributes}/></r>`)))
+    expect(error.reason).toBe('TIME_BUDGET')
+    expect(error.message).toMatch(/attribute/i)
+    expect(error.message).toContain('25000')
   })
 
   it('TOO_MANY_ELEMENTS names the element cap', () => {
@@ -152,7 +163,17 @@ describe('refusal messages carry the offending value AND the limit', () => {
       () => port.parseDocument(encodeUtf16Le('<?xml version="1.0" encoding="koi8-r"?><r/>')),
       () => port.parseDocument(new Uint8Array([...utf8('<r>'), 0xff, ...utf8('</r>')])),
       () => port.parseDocument(utf8(`${'<a>'.repeat(200)}x${'</a>'.repeat(200)}`)),
-      () => port.parseDocument(utf8(`<r>${'<i/>'.repeat(12_500)}</r>`)),
+      () => port.parseDocument(utf8(`<r>${'<i/>'.repeat(25_000)}</r>`)),
+      // The four namespace-conformance reasons. This test's stated job is to catch a reason added
+      // later without a message test, so a reason added later without a case here defeats it —
+      // adding the cases with the reasons is the only way the blanket stays blanket.
+      () => port.parseDocument(utf8('<r xmlns:p=""/>')),
+      () => port.parseDocument(utf8('<r xmlns:xml="http://example.com/o"/>')),
+      () => port.parseDocument(utf8('<r><a:b:c/></r>')),
+      () => port.parseDocument(utf8('<r xmlns:="http://example.com/d"/>')),
+      () =>
+        port.parseDocument(utf8('<r xmlns:a="http://e/u" xmlns:b="http://e/u" a:x="1" b:x="2"/>')),
+      () => port.parseDocument(utf8('<r><xmlns:t>x</xmlns:t></r>')),
     ]
     for (const [index, run] of cases.entries()) {
       expect(refusal(run).message.length, `case ${index}`).toBeGreaterThan(10)

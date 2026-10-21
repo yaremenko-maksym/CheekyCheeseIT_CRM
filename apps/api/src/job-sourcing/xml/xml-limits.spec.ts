@@ -5,9 +5,19 @@
  * itself is accepted — passes equally for a port that refuses everything. Every bound below is
  * therefore two assertions, and the pair is what makes the number a limit rather than a direction.
  *
- * The wall-clock bound gets a third kind of check, because it is the one the ADR found
- * unverifiable: a measured parse at exactly the derived ceiling, which fails if
- * `PARSE_ELEMENTS_PER_MS` has rotted by an order of magnitude.
+ * The wall-clock bound gets two further kinds of check, because it is the one the ADR found
+ * unverifiable and the one review found under-pinned:
+ *
+ *   - the DERIVED VALUE, asserted exactly (`itemCeiling(DEFAULT_XML_LIMITS) === 25_000`). The
+ *     previous edition pinned the throughput constant only through a timing assertion with a 4×
+ *     slack, which passed at ~169 ms and would have kept passing to ~1 000 ms — so the constant
+ *     had 4× of silent room to drift (CR-M-3). An exact assertion on the derived number has none,
+ *     and cannot flake.
+ *   - a measured parse at exactly the derived ceiling, in the WORST-MEASURED shape, kept as the
+ *     sanity check that the derivation is about the right quantity at all.
+ *
+ * And the residue the bounds do NOT cover is measured rather than argued about: per-byte-dominated
+ * shapes at exactly the byte cap, in the last describe block (SPEC-M-2).
  */
 
 import { describe, expect, it } from 'vitest'
@@ -16,12 +26,12 @@ import { MAX_FEED_BYTES } from '../rss'
 import { BoundedXmlPort } from './bounded-xml-port'
 import {
   DEFAULT_XML_LIMITS,
-  elementCeiling,
+  itemCeiling,
   MAX_XML_BYTES,
   MAX_XML_DEPTH,
   MAX_XML_ELEMENTS,
   MAX_XML_WALL_CLOCK_MS,
-  PARSE_ELEMENTS_PER_MS,
+  PARSE_ITEMS_PER_MS,
 } from './xml-limits'
 import { XmlPortError } from './xml-port'
 
@@ -46,7 +56,7 @@ describe('R-2: the byte cap is 2 MiB and is the SAME constant the DOU scanner us
     expect(MAX_XML_WALL_CLOCK_MS).toBe(250)
     expect(MAX_XML_DEPTH).toBe(100)
     expect(MAX_XML_ELEMENTS).toBe(100000)
-    expect(PARSE_ELEMENTS_PER_MS).toBe(50)
+    expect(PARSE_ITEMS_PER_MS).toBe(100)
   })
 
   it('it IS the scanner constant, not merely equal to it today', () => {
@@ -112,102 +122,171 @@ describe('R-2: nesting depth is OUR bound, never the V8 stack cliff', () => {
   })
 })
 
-describe('R-2: the element ceiling, and which bound set it', () => {
-  it('at the defaults the TIME budget binds, not the element cap', () => {
-    const { ceiling, boundBy } = elementCeiling(DEFAULT_XML_LIMITS)
-    expect(ceiling).toBe(12500)
-    expect(boundBy).toBe('time')
+describe('R-2: the item ceiling the wall-clock budget converts into', () => {
+  // CR-M-3, THE WHOLE POINT OF THIS FIRST ASSERTION. The derived value is pinned EXACTLY, by
+  // name, against a literal. The previous edition pinned the throughput constant only through the
+  // timing assertion further down, whose 4× slack meant the constant could move four-fold before
+  // anything went red — it measured ~169 ms against a ~1 000 ms trip wire. A constant with a 4×
+  // silent range is not pinned; it is observed. This line has no range.
+  it('at the defaults the ceiling is exactly 25 000 items', () => {
+    expect(itemCeiling(DEFAULT_XML_LIMITS)).toBe(25000)
   })
 
-  it('when the two bounds are EQUAL the element cap is reported as the binding one', () => {
-    // The only input that distinguishes `<` from `<=` in the comparison. Both give the same
-    // CEILING here, so the ceiling cannot reveal which was used — only `boundBy` can, and a
-    // caller reading "elements" versus "time" is being told which limit to raise. Without this
-    // case the operator is untestable, which is what the mutation gate reported.
-    const { ceiling, boundBy } = elementCeiling({
-      ...DEFAULT_XML_LIMITS,
-      maxWallClockMs: 100,
-      maxElements: 100 * PARSE_ELEMENTS_PER_MS,
-    })
-    expect(ceiling).toBe(5000)
-    expect(boundBy).toBe('elements')
+  it('the ceiling is the budget times the throughput constant, for any budget', () => {
+    // Two further points on the line, so the assertion above cannot be satisfied by a function
+    // that returns 25 000 regardless — which is exactly how a one-point pin rots into decoration.
+    expect(itemCeiling({ ...DEFAULT_XML_LIMITS, maxWallClockMs: 1 })).toBe(100)
+    expect(itemCeiling({ ...DEFAULT_XML_LIMITS, maxWallClockMs: 1000 })).toBe(100000)
   })
 
-  it('one millisecond less of budget flips it to time', () => {
-    // The neighbouring input, so the pair brackets the boundary instead of asserting one side.
-    const { boundBy } = elementCeiling({
-      ...DEFAULT_XML_LIMITS,
-      maxWallClockMs: 99,
-      maxElements: 100 * PARSE_ELEMENTS_PER_MS,
-    })
-    expect(boundBy).toBe('time')
+  it('the ceiling does NOT depend on the element cap', () => {
+    // It used to: the function returned `min(maxElements, fromTime)` with a `boundBy` tag saying
+    // which won. The two caps are now on different quantities — `maxElements` bounds memory in
+    // elements, this bounds time in items — so mixing them would be a category error, and the
+    // pre-scan reports which bound it hit instead of the ceiling being tagged with a guess.
+    expect(itemCeiling({ ...DEFAULT_XML_LIMITS, maxElements: 1 })).toBe(25000)
+    expect(itemCeiling({ ...DEFAULT_XML_LIMITS, maxElements: Number.MAX_SAFE_INTEGER })).toBe(25000)
   })
 
-  it('a larger time budget hands the bound back to the element cap', () => {
-    const { ceiling, boundBy } = elementCeiling({
-      ...DEFAULT_XML_LIMITS,
-      maxWallClockMs: 10_000,
-    })
-    expect(ceiling).toBe(MAX_XML_ELEMENTS)
-    expect(boundBy).toBe('elements')
+  it('the conversion is floor, not round — a budget never buys more than it affords', () => {
+    // 1.795 x 100 = 179.5, so floor gives 179 and round would give 180. A budget of 1.79
+    // (= 179 exactly) would NOT discriminate between the two and the assertion would be decoration.
+    expect(itemCeiling({ ...DEFAULT_XML_LIMITS, maxWallClockMs: 1.795 })).toBe(179)
   })
 
   it('a document exactly AT the ceiling is accepted', () => {
-    const { ceiling } = elementCeiling(DEFAULT_XML_LIMITS)
-    // `ceiling - 1` siblings plus the root = exactly `ceiling` elements.
+    const ceiling = itemCeiling(DEFAULT_XML_LIMITS)
+    // `ceiling - 1` attribute-free siblings plus the root = exactly `ceiling` items.
     const document = port.parseDocument(utf8(`<r>${'<i/>'.repeat(ceiling - 1)}</r>`))
     expect(document.elementCount).toBe(ceiling)
   })
 
-  it('one element past the ceiling is refused, with the reason naming the time budget', () => {
-    const { ceiling } = elementCeiling(DEFAULT_XML_LIMITS)
+  it('one item past the ceiling is refused, with the reason naming the time budget', () => {
+    const ceiling = itemCeiling(DEFAULT_XML_LIMITS)
     expect(reasonOf(() => port.parseDocument(utf8(`<r>${'<i/>'.repeat(ceiling)}</r>`)))).toBe(
       'TIME_BUDGET',
     )
   })
 
-  it('the element cap reports its own reason when IT is the binding bound', () => {
+  it('an ATTRIBUTE past the ceiling is refused the same way an element is', () => {
+    // SR-M-2. The acceptance side first and from the budget's own arithmetic: one element plus
+    // `ceiling - 1` attributes is exactly `ceiling` items and must pass, because a bound that
+    // refuses at its own limit is not the limit it claims.
+    const ceiling = itemCeiling(DEFAULT_XML_LIMITS)
+    const attributes = (n: number) => Array.from({ length: n }, (_, k) => `a${k}="v"`).join(' ')
+    expect(port.parseDocument(utf8(`<i ${attributes(ceiling - 1)}/>`)).elementCount).toBe(1)
+    expect(reasonOf(() => port.parseDocument(utf8(`<i ${attributes(ceiling)}/>`)))).toBe(
+      'TIME_BUDGET',
+    )
+  })
+
+  it('the shape that slipped the bound entirely is now refused — TWO elements, many attributes', () => {
+    // The finding as reported: ~150 000 attributes carried by a single element. Under the
+    // element-only budget this document was two elements and every bound passed it. The element
+    // cap here is left at its generous default to make the point that nothing else catches it.
+    const attributes = Array.from({ length: 150_000 }, (_, k) => `a${k}="v"`).join(' ')
+    expect(reasonOf(() => port.parseDocument(utf8(`<r><i ${attributes}/></r>`)))).toBe(
+      'TIME_BUDGET',
+    )
+  })
+
+  it('the element cap reports its OWN reason, distinct from the time budget', () => {
     // Distinguishable reasons are the point: "too big to parse in the time we allow" and "too big
-    // to hold" have different fixes and different people raising them.
+    // to hold" have different fixes and different people raising them. The time budget is raised
+    // here so that the element cap is the bound that bites.
     const limits = { ...DEFAULT_XML_LIMITS, maxWallClockMs: 10_000, maxElements: 20 }
     expect(reasonOf(() => port.parseDocument(utf8(`<r>${'<i/>'.repeat(25)}</r>`), limits))).toBe(
       'TOO_MANY_ELEMENTS',
     )
   })
+
+  it('a real-feed-sized document is nowhere near any of these bounds', () => {
+    // The other end of the pair: every assertion above is a refusal or a boundary, and a file of
+    // nothing but refusals cannot tell a bound from a wall. ~200 items x ~7 elements is the shape
+    // `xml-limits.ts` says the headroom is measured against.
+    const item = '<item><title>t</title><link>l</link><guid>g</guid><pubDate>d</pubDate></item>'
+    const document = port.parseDocument(utf8(`<rss><channel>${item.repeat(200)}</channel></rss>`))
+    expect(document.elementCount).toBeLessThan(itemCeiling(DEFAULT_XML_LIMITS) / 10)
+  })
 })
 
 describe('R-2: the wall-clock bound is real, and the throughput constant cannot rot silently', () => {
   it('a parse at exactly the derived ceiling lands inside the budget', () => {
-    const { ceiling } = elementCeiling(DEFAULT_XML_LIMITS)
-    // The eight-attribute shape, which measured the WORST END-TO-END throughput of the shapes
-    // probed (74 elements/ms cold against 774 for bare elements) — the slow case, not a
-    // flattering one. At the ceiling it is ~650 KB, well inside the byte cap, so it is reachable
-    // input rather than a synthetic extreme.
-    const bytes = utf8(
-      `<r>${'<i a="1" b="2" c="3" d="4" e="5" f="6" g="7" h="8"/>'.repeat(ceiling - 1)}</r>`,
-    )
+    const ceiling = itemCeiling(DEFAULT_XML_LIMITS)
+    // The FEED-LIKE shape, which is the worst items/ms measured on BOTH machines in the table in
+    // `xml-limits.ts` (309 on the author's host, 792 on an M3) — the slow case, not a flattering
+    // one. The eight-attribute shape this test used to build is, expressed in items, more than
+    // twice as FAST, so it was the flattering one once the unit was corrected.
+    const element = '<title>Senior Engineer</title>'
+    const bytes = utf8(`<r>${element.repeat(ceiling - 1)}</r>`)
     const started = process.hrtime.bigint()
     port.parseDocument(bytes, { ...DEFAULT_XML_LIMITS, maxBytes: bytes.byteLength })
     const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6
 
-    // 4x the budget, deliberately loose. WHAT THIS PROVES: `PARSE_ELEMENTS_PER_MS` is the right
-    // ORDER OF MAGNITUDE, so a ceiling derived from it cannot admit a multi-second parse. And it
-    // is NOT decoration — the first version of that constant was derived from `parseXml` alone
-    // rather than from the whole port, and this exact assertion failed at 1 013 ms, which is how
-    // the error was found. WHAT IT DOES NOT PROVE: the 1.5x safety margin over the measured worst
-    // case; that needs a tight bound, and a tight timing assertion on a shared CI runner is a
-    // flake rather than a gate.
+    // 4x the budget, deliberately loose, and NO LONGER THE ONLY PIN on the constant — the exact
+    // assertion on `itemCeiling` above is. What this adds: the derivation is about the right
+    // QUANTITY, so a ceiling derived from it cannot admit a multi-second parse. And it is not
+    // decoration — the first version of the constant was derived from `parseXml` alone rather than
+    // the whole port, and this exact assertion failed at 1 013 ms, which is how that was found. A
+    // TIGHT bound is still deliberately not attempted: on a shared CI runner it is a flake.
+    expect(elapsedMs).toBeLessThan(MAX_XML_WALL_CLOCK_MS * 4)
+  })
+})
+
+/**
+ * SPEC-M-2: the residue, measured instead of claimed away.
+ *
+ * The PR body used to say all four bounds are enforced. Three are, by a count taken before the
+ * parser runs. `maxWallClockMs` is converted into the item ceiling, and that conversion holds only
+ * for shapes whose cost tracks item count. Shapes whose cost is per-BYTE — runs of processing
+ * instructions, entity references, comments, CDATA, plain text — carry ONE element and no
+ * attributes, so the item ceiling says nothing about them and `maxBytes` is the only bound they
+ * meet. That is the narrowed claim, and these are the assertions that make the narrowed claim
+ * testable rather than a disclaimer: each shape is built at EXACTLY the byte cap, which is the
+ * worst input `maxBytes` admits, and must still complete.
+ *
+ * The multiple is loose for the usual reason (a timing assertion on a shared runner), so what this
+ * gates is a change that made any of these super-linear — which is the failure mode that would
+ * make the byte cap stop being a bound. The ADR's R-2 estimate of "near or over 250 ms at 2 MiB"
+ * for the PI and `&amp;` shapes does not reproduce: measured on an M3 at the cap, PI 75 ms,
+ * `&amp;` 57 ms, comment 37 ms, CDATA 26 ms, plain text 5 ms.
+ */
+describe('R-2: per-byte-dominated shapes are bounded by the byte cap alone, and that suffices', () => {
+  const atCap = (unit: string): Uint8Array => {
+    const open = '<r>'
+    const close = '</r>'
+    const room = MAX_XML_BYTES - open.length - close.length
+    const body = unit.repeat(Math.floor(room / unit.length))
+    const bytes = utf8(`${open}${body}${close}`)
+    // Within one unit of the cap, and never over it — otherwise the test would be measuring
+    // `TOO_MANY_BYTES` rather than the parse.
+    expect(bytes.byteLength).toBeLessThanOrEqual(MAX_XML_BYTES)
+    expect(bytes.byteLength).toBeGreaterThan(MAX_XML_BYTES - unit.length - 8)
+    return bytes
+  }
+
+  it.each([
+    ['processing instructions', '<?pi?>'],
+    ['entity references', '&amp;'],
+    ['comments', '<!--xx-->'],
+    ['CDATA sections', '<![CDATA[xx]]>'],
+    ['plain text', 'x'],
+  ])('a 2 MiB run of %s carries one element and parses inside a loose multiple', (_case, unit) => {
+    const bytes = atCap(unit)
+    const started = process.hrtime.bigint()
+    const document = port.parseDocument(bytes)
+    const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6
+
+    // One element, zero attributes: this is WHY the item ceiling cannot bound these shapes, and
+    // asserting it is what keeps the narrowed claim honest rather than merely written down.
+    expect(document.elementCount).toBe(1)
     expect(elapsedMs).toBeLessThan(MAX_XML_WALL_CLOCK_MS * 4)
   })
 
-  it('the conversion is floor, not round — a budget never buys more than it affords', () => {
-    const { ceiling } = elementCeiling({
-      ...DEFAULT_XML_LIMITS,
-      // 1.79 x 50 = 89.5, so floor gives 89 and round would give 90. A budget of 1.7 (= 85
-      // exactly) would NOT discriminate between the two and the assertion would be decoration.
-      maxWallClockMs: 1.79,
-      maxElements: Number.MAX_SAFE_INTEGER,
-    })
-    expect(ceiling).toBe(89)
+  it('one byte past the cap, the same shapes are refused on bytes', () => {
+    // The bound that IS doing the work here, asserted rather than assumed.
+    const unit = '<?pi?>'
+    const body = unit.repeat(Math.ceil(MAX_XML_BYTES / unit.length))
+    expect(reasonOf(() => port.parseDocument(utf8(`<r>${body}</r>`)))).toBe('TOO_MANY_BYTES')
   })
 })

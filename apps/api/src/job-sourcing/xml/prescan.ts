@@ -30,12 +30,31 @@
 export interface PrescanBudget {
   readonly maxDepth: number
   readonly maxElements: number
+  /**
+   * Cap on `elementCount + attributeCount` — the quantity the WALL-CLOCK budget converts into.
+   *
+   * ATTRIBUTES ARE COUNTED BECAUSE THEY WERE THE WAY AROUND THE TIME BOUND. The budget used to be
+   * spent as elements alone, so ~150 000 attributes on a SINGLE element was two elements and
+   * slipped it entirely. `xml-limits.ts` carries the measurements; the short version is that an
+   * attribute costs within the same order as an element, so a bound that counts one and not the
+   * other is not a bound on the work.
+   */
+  readonly maxItems: number
 }
 
 export interface StructureMeasurement {
   /** Deepest element nesting seen, root element = 1. */
   readonly maxDepth: number
   readonly elementCount: number
+  /**
+   * Attributes on start tags, **`xmlns` declarations included**.
+   *
+   * Included because this figure is compared against the parsed tree (`PRESCAN_DIFFERENTIAL`), and
+   * the tree keeps declarations on `namespaceDeclarations` rather than `attributes` — so
+   * `measureTree` adds the two back together. A pre-scan count that excluded them would have to
+   * recognise `xmlns` here, which is namespace knowledge this tokenizer deliberately has none of.
+   */
+  readonly attributeCount: number
 }
 
 export type PrescanOutcome =
@@ -45,7 +64,10 @@ export type PrescanOutcome =
    * document's true size: the scan stops at the first breach, so a hostile document cannot make
    * us walk all of it to find out we did not want it.
    */
-  | ({ readonly ok: false; readonly exceeded: 'depth' | 'elements' } & StructureMeasurement)
+  | ({
+      readonly ok: false
+      readonly exceeded: 'depth' | 'elements' | 'items'
+    } & StructureMeasurement)
 
 /**
  * XML name start characters, restricted to what matters here: telling an element open tag from a
@@ -106,17 +128,28 @@ function endOfMarkupDeclaration(text: string, from: number): number {
 }
 
 /**
- * End of a start tag, and whether it closed itself.
+ * End of a start tag, whether it closed itself, and how many attributes it carries.
  *
  * Quote tracking is the whole job: `<a href="a > b"/>` ends at the LAST `>`, and a scan that took
  * the first one would mis-nest everything after it.
+ *
+ * THE ATTRIBUTE COUNT IS THE COUNT OF `=` OUTSIDE QUOTES, and that is exact rather than
+ * approximate — which is the only reason it may feed a bound. `AttDef` is
+ * `Name Eq AttValue` with `AttValue` always quoted, so within a start tag every attribute
+ * contributes exactly one unquoted `=` and nothing else can: an `=` in a value is inside the
+ * quotes this loop is already tracking (`<i a="x=y"/>` → 1), whitespace around the `=` is
+ * irrelevant (`<i a = "1"/>` → 1), and an `=` cannot appear in a `Name`. Tags that are not start
+ * tags never reach here — the caller routes PIs, comments, CDATA and markup declarations away
+ * before this, so the `=` in `<?xml version="1.0"?>` is never seen, and an end tag cannot carry
+ * attributes at all.
  */
 function endOfStartTag(
   text: string,
   from: number,
-): { resumeFrom: number; selfClosing: boolean } | null {
+): { resumeFrom: number; selfClosing: boolean; attributeCount: number } | null {
   let i = from
   let quote: string | null = null
+  let attributeCount = 0
   // `for (;;)` + an undefined check, for the reasons given on `endOfMarkupDeclaration` above.
   for (;;) {
     const ch = text[i]
@@ -131,6 +164,8 @@ function endOfStartTag(
       if (ch === quote) quote = null
     } else if (ch === '"' || ch === "'") {
       quote = ch
+    } else if (ch === '=') {
+      attributeCount += 1
     } else if (ch === '>') {
       const selfClosing = text[i - 1] === '/'
       // `resumeFrom: i` — the index OF the `>`, not past it, and the name says so.
@@ -140,7 +175,7 @@ function endOfStartTag(
       // searching from the `>` or from just after it reaches the same next `<`. Rather than
       // suppress that mutant with an explanation, the arithmetic is gone — there is nothing left
       // to mutate, and the field's name now states the weaker contract it actually has.
-      return { resumeFrom: i, selfClosing }
+      return { resumeFrom: i, selfClosing, attributeCount }
     }
     i += 1
   }
@@ -156,6 +191,7 @@ export function prescanStructure(text: string, budget: PrescanBudget): PrescanOu
   let depth = 0
   let maxDepth = 0
   let elementCount = 0
+  let attributeCount = 0
   let i = 0
 
   // `for (;;)`: the `i < text.length` guard this replaced was REDUNDANT, not merely untestable.
@@ -243,17 +279,29 @@ export function prescanStructure(text: string, budget: PrescanBudget): PrescanOu
     maxDepth = Math.max(maxDepth, depth)
 
     if (depth > budget.maxDepth) {
-      return { ok: false, exceeded: 'depth', maxDepth, elementCount }
+      return { ok: false, exceeded: 'depth', maxDepth, elementCount, attributeCount }
     }
     if (elementCount > budget.maxElements) {
-      return { ok: false, exceeded: 'elements', maxDepth, elementCount }
+      return { ok: false, exceeded: 'elements', maxDepth, elementCount, attributeCount }
     }
 
     const tag = endOfStartTag(text, i)
     if (tag === null) break
+    attributeCount += tag.attributeCount
+
+    // The ITEM check is here, AFTER the tag has been walked, and that is not a hole worth closing.
+    // Walking one hostile start tag costs a pass over part of the decoded string, and the decoded
+    // string is already bounded by `maxBytes` — so the worst this ordering admits is one scan of
+    // 2 MiB, which measures single-digit ms. What it prevents is the PARSER being handed that tag,
+    // which is where the cost that matters lives. Checking per-character inside `endOfStartTag`
+    // would buy nothing and would put the budget inside the tokenizer.
+    if (elementCount + attributeCount > budget.maxItems) {
+      return { ok: false, exceeded: 'items', maxDepth, elementCount, attributeCount }
+    }
+
     if (tag.selfClosing) depth -= 1
     i = tag.resumeFrom
   }
 
-  return { ok: true, maxDepth, elementCount }
+  return { ok: true, maxDepth, elementCount, attributeCount }
 }

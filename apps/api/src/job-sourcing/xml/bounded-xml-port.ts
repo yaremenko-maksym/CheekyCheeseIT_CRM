@@ -37,7 +37,7 @@
 import { decodeXml } from './decode'
 import { parseXmlString } from './parse-xml.adapter'
 import { prescanStructure } from './prescan'
-import { DEFAULT_XML_LIMITS, elementCeiling } from './xml-limits'
+import { DEFAULT_XML_LIMITS, itemCeiling } from './xml-limits'
 import type { XmlDocument, XmlLimits, XmlPort } from './xml-port'
 import { XmlPortError } from './xml-port'
 import { measureTree } from './xml-tree'
@@ -66,36 +66,52 @@ export class BoundedXmlPort implements XmlPort {
       )
     }
 
-    const { ceiling, boundBy } = elementCeiling(limits)
+    const maxItems = itemCeiling(limits)
     const prescan = prescanStructure(decoded.text, {
       maxDepth: limits.maxDepth,
-      maxElements: ceiling,
+      maxElements: limits.maxElements,
+      maxItems,
     })
 
     if (!prescan.ok) {
+      // Which bound the SCAN says it hit decides the reason, so a caller can tell "too big to
+      // store" from "too big to parse in the time we allow" — the fixes are different, and so is
+      // who raises the limit. This used to be inferred from which of two caps on one quantity was
+      // smaller; the caps are now on different quantities and the scan reports which one it was.
       if (prescan.exceeded === 'depth') {
         throw new XmlPortError(
           'TOO_DEEP',
           `XML nests deeper than ${limits.maxDepth} elements (reached ${prescan.maxDepth})`,
         )
       }
-      // Which bound bit decides the reason, so a caller can tell "too big to store" from "too big
-      // to parse in the time we allow" — the fixes are different, and so is who raises the limit.
-      throw boundBy === 'time'
-        ? new XmlPortError(
-            'TIME_BUDGET',
-            `XML has more than ${ceiling} elements, the most a ${limits.maxWallClockMs} ms parse budget affords`,
-          )
-        : new XmlPortError('TOO_MANY_ELEMENTS', `XML has more than ${limits.maxElements} elements`)
+      if (prescan.exceeded === 'elements') {
+        throw new XmlPortError(
+          'TOO_MANY_ELEMENTS',
+          `XML has more than ${limits.maxElements} elements`,
+        )
+      }
+      throw new XmlPortError(
+        'TIME_BUDGET',
+        `XML has more than ${maxItems} elements and attributes combined (${prescan.elementCount} + ${prescan.attributeCount} so far), the most a ${limits.maxWallClockMs} ms parse budget affords`,
+      )
     }
 
     const parsed = parseXmlString(decoded.text)
     const actual = measureTree(parsed.root)
 
-    if (actual.maxDepth !== prescan.maxDepth || actual.elementCount !== prescan.elementCount) {
+    // The attribute count joins the differential, not just the budget. A counted quantity that is
+    // never compared against the parser is a quantity the scan could be wrong about in silence,
+    // which is the whole failure mode this check exists for — and the attribute count is the one
+    // the bound now rests on. `measureTree` adds `namespaceDeclarations` back in, because the scan
+    // counts `xmlns` attributes (it knows nothing of namespaces) and the tree files them apart.
+    if (
+      actual.maxDepth !== prescan.maxDepth ||
+      actual.elementCount !== prescan.elementCount ||
+      actual.attributeCount !== prescan.attributeCount
+    ) {
       throw new XmlPortError(
         'PRESCAN_DIFFERENTIAL',
-        `pre-scan measured depth ${prescan.maxDepth}/${prescan.elementCount} elements but the parsed tree has ${actual.maxDepth}/${actual.elementCount}`,
+        `pre-scan measured depth ${prescan.maxDepth}/${prescan.elementCount} elements/${prescan.attributeCount} attributes but the parsed tree has ${actual.maxDepth}/${actual.elementCount}/${actual.attributeCount}`,
       )
     }
 

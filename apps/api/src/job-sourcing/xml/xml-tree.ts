@@ -109,14 +109,30 @@ export function collectText(node: XmlElementNode): string {
   return text
 }
 
-/** Depth (root = 1) and element count of a parsed tree — the exact figures, after the fact. */
-export function measureTree(root: XmlElementNode): { maxDepth: number; elementCount: number } {
+/**
+ * Depth (root = 1), element count and attribute count of a parsed tree — the exact figures,
+ * after the fact.
+ *
+ * `attributeCount` adds `namespaceDeclarations` back to `attributes`, which looks like a strange
+ * total until you see what it is for: it is compared against the PRE-SCAN's count
+ * (`PRESCAN_DIFFERENTIAL`), and the pre-scan is a tokenizer with no notion of namespaces, so it
+ * counts an `xmlns` declaration as the attribute it syntactically is. Filing declarations away
+ * from `attributes` is this layer's choice, made after the count; undoing it here is what makes
+ * the two sides comparable.
+ */
+export function measureTree(root: XmlElementNode): {
+  maxDepth: number
+  elementCount: number
+  attributeCount: number
+} {
   let maxDepth = 0
   let elementCount = 0
+  let attributeCount = 0
   const stack: { node: XmlElementNode; depth: number }[] = [{ node: root, depth: 1 }]
   while (stack.length > 0) {
     const { node, depth } = stack.pop() as { node: XmlElementNode; depth: number }
     elementCount += 1
+    attributeCount += node.attributes.length + Object.keys(node.namespaceDeclarations).length
     // `Math.max` rather than a comparison, for the reason given in `prescan.ts`: `>` and `>=` are
     // indistinguishable here (a tie assigns the value already held), and deleting the operator is
     // better than suppressing a mutant on it.
@@ -125,5 +141,5 @@ export function measureTree(root: XmlElementNode): { maxDepth: number; elementCo
       if (isElement(child)) stack.push({ node: child, depth: depth + 1 })
     }
   }
-  return { maxDepth, elementCount }
+  return { maxDepth, elementCount, attributeCount }
 }

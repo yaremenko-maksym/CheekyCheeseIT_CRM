@@ -27,7 +27,7 @@ import { DEFAULT_XML_LIMITS } from './xml-limits'
 import { measureTree } from './xml-tree'
 
 /** A budget nothing in this spec can exceed, so the scan always runs to completion. */
-const GENEROUS = { maxDepth: 10_000, maxElements: 1_000_000 }
+const GENEROUS = { maxDepth: 10_000, maxElements: 1_000_000, maxItems: 1_000_000 }
 
 /** What a first attempt at counting looks like: every `<` that begins a name. */
 const naiveElementCount = (xml: string): number => (xml.match(/<[A-Za-z_:]/g) ?? []).length

@@ -18,25 +18,72 @@
  * whole string, the neutral-tree construction and `measureTree` — and that work is several times
  * the parse itself on attribute-heavy input.
  *
- * MEASURED, end to end through `BoundedXmlPort.parseDocument`, Node 22, inside vitest (so the
- * figures include the environment production will not have, which is the safe direction):
+ * THE UNIT IS AN **ITEM** — AN ELEMENT *OR* AN ATTRIBUTE. This is the second correction forced
+ * from outside, and it is the same mistake as the first one in a different place.
+ * -----------------------------------------------------------------------------------------
+ * The edition below this one spent the time budget as ELEMENTS. An element and an attribute cost
+ * within the same factor of each other (the tables below put them inside ~2×), so a budget that
+ * counts one and not the other is not a budget: ~150 000 attributes on a SINGLE element is two
+ * elements, and it slipped the bound entirely. The budget is now spent as `elements +
+ * attributes`, and `prescan.ts` counts both before the parser is handed anything.
  *
- *   shape              elements     bytes     cold    cold el/ms   warm    warm el/ms
- *   bare `<i/>`          50 000    200 KB     65 ms        774     74 ms        677
- *   feed-like `<item>`   50 000    1.6 MB    162 ms        309    138 ms        361
- *   eight attributes     12 500    650 KB    169 ms         74     80 ms        156
- *   eight attributes     25 000    1.3 MB    322 ms         78    216 ms        116
- *   eight attributes     50 000    2.6 MB    495 ms        101    463 ms        108   <- worst
+ * MEASUREMENT RECORD — two machines, deliberately kept, because one machine cannot tell a stale
+ * constant from a valid one and that is exactly what CR-M-3 asked for.
+ * -----------------------------------------------------------------------------------------
+ * (A) 2026-10-20, author's host, Node 22, end to end through `BoundedXmlPort.parseDocument`
+ *     inside vitest. The el/ms column is what the superseded element-only constant was read from.
  *
- *   2 MiB of `<i/>`     524 286    2.0 MiB   116 ms (parse only), RSS 237 MB
+ *   shape              elements    attrs    bytes    cold   cold el/ms   cold ITEMS/ms
+ *   bare `<i/>`          50 000        0   200 KB    65 ms        774            769
+ *   feed-like `<item>`   50 000        0   1.6 MB   162 ms        309            309   <- worst
+ *   eight attributes     12 500  100 000   650 KB   169 ms         74            666
+ *   eight attributes     25 000  200 000   1.3 MB   322 ms         78            699
+ *   eight attributes     50 000  400 000   2.6 MB   495 ms        101            909
  *
- * Three facts the table settles:
- *   1. End-to-end throughput varies ~10× by SHAPE at a fixed element count (74 vs 774), so a
- *      bound expressed in bytes alone cannot bound time. The worst observed is **74 elements/ms**.
- *   2. The byte cap alone does NOT subsume the element bound: 2.6 MB of attribute-heavy input is
- *      near the byte cap yet costs 495 ms, twice the budget. The element ceiling is load-bearing.
- *   3. The byte cap alone admits half a million elements and 237 MB of resident memory for a
+ *   2 MiB of `<i/>`     524 286        0   2.0 MiB  116 ms (parse only), RSS 237 MB
+ *
+ * (B) 2026-10-21, Apple M3 (Mac15,12, 8 cores, 16 GB), macOS 27.0.1, Node v20.15.1, same harness.
+ *     Taken while closing the review, which is why it exists: the row the review disagreed about.
+ *
+ *   shape                   elements    attrs    bytes    cold    cold ITEMS/ms
+ *   bare `<i/>`               50 001        0   195 KB     51 ms       974
+ *   bare `<i/>`              500 001        0  1 953 KB   311 ms      1609
+ *   feed-like `<item>`        48 001        0  1 203 KB    61 ms       792   <- worst on (B)
+ *   eight attributes          12 501  100 000   635 KB     62 ms      1828
+ *   eight attributes          50 001  400 000  2 539 KB   208 ms      2167
+ *   ONE element             +    2     150 000  1 649 KB   128 ms      1168
+ *   ONE element             +    2     300 000  3 407 KB   330 ms       910
+ *
+ * Four facts the two tables settle:
+ *   1. Expressed in ITEMS the throughput spread collapses from ~10× to ~3× on either machine
+ *      (309–909 on A, 792–2167 on B). That is what makes a single item constant honest where a
+ *      single element constant was not: the el/ms column spans 74…774 on the SAME machine.
+ *   2. **The worst observed is 309 items/ms**, on (A), feed-like. (B) is ~2.6× faster throughout,
+ *      so (A) is the host the constant is derived from — the slower of two is the safe direction.
+ *   3. The attribute axis genuinely overruns once counted: 300 000 attributes on ONE element cost
+ *      330 ms on the FAST machine, over a 250 ms budget, at two elements. Two independent
+ *      measurements of the 150 000-attribute case — a reviewer's ~160 ms and (B)'s 128 ms —
+ *      agree, and the 495 ms reported for it during review does not reproduce; it is the
+ *      400 000-attribute row of table (A) that costs 495 ms. The finding stands either way: the
+ *      shape is unbounded in the quantity that was being counted.
+ *   4. The byte cap alone admits half a million elements and 237 MB of resident memory for a
  *      synchronous parse inside the API process — the container OOM risk, not a latency nit.
+ *
+ * WHAT THE BOUNDS DO *NOT* COVER — stated here rather than left to be discovered (SPEC-M-2).
+ * -----------------------------------------------------------------------------------------
+ * Three of the four limits are enforced before the parser runs, by a count: `maxBytes` on the
+ * bytes, `maxDepth` and the item ceiling in the pre-scan. `maxWallClockMs` is **not** enforced as
+ * a clock — nothing here interrupts a synchronous parse — it is converted into the item ceiling
+ * and holds only for shapes whose cost tracks item count.
+ *
+ * Shapes whose cost is per-BYTE rather than per-item — runs of processing instructions, `&amp;`
+ * entity references, comments, CDATA, plain text — carry one element and are bounded by
+ * `maxBytes` alone. That residue is measured rather than asserted away, at exactly the 2 MiB cap,
+ * on (B): PI run 75 ms, `&amp;` run 57 ms, comment run 37 ms, CDATA run 26 ms, plain text 5 ms.
+ * The worst is ~3× inside the budget on (B) and would be ~8× faster than its own budget on a host
+ * 3× slower than (A). `xml-limits.spec.ts` pins these with a loose multiple, so a change that
+ * made any of them super-linear is a red test; the ADR's R-2 estimate of "near or over 250 ms at
+ * 2 MiB" for the PI and `&amp;` shapes does not reproduce on either machine.
  */
 
 import { MAX_FEED_BYTES } from '../rss'
@@ -74,9 +121,17 @@ export const MAX_XML_DEPTH = 100
  * resident memory per element. 100 000 elements is therefore ~45 MB — survivable in a container
  * alongside the rest of the API. Real feeds carry ~200 items × ~7 elements ≈ 1 500.
  *
- * This is NOT the binding default: the wall-clock budget below converts to a lower ceiling
- * (50 000). Both exist because they bound different resources and fail with different reasons —
- * a caller that raises the time budget still cannot exceed the memory cap.
+ * This is NOT the binding default: the wall-clock budget converts to an ITEM ceiling of 25 000
+ * (`itemCeiling`), and an element is an item, so no document can reach 100 000 elements at the
+ * default budget. Both bounds exist because they bound different resources and fail with
+ * different reasons — a caller that raises the time budget still cannot exceed the memory cap.
+ *
+ * THE NUMBER IN THIS PARAGRAPH IS LOAD-BEARING AND WAS WRONG (CR-M-1). It read "a lower ceiling
+ * (50 000)" while the derivation twenty lines below produced 12 500 — true when written, false
+ * after the throughput constant moved, and silent about it. That is the same defect two rounds of
+ * the parser ADR were spent on, so: the figure is now pinned by name in `xml-limits.spec.ts`
+ * (`itemCeiling(DEFAULT_XML_LIMITS) === 25_000`), and a future edit that moves the constant
+ * without touching this sentence turns the sentence red instead of stale.
  */
 export const MAX_XML_ELEMENTS = 100_000
 
@@ -90,23 +145,39 @@ export const MAX_XML_ELEMENTS = 100_000
 export const MAX_XML_WALL_CLOCK_MS = 250
 
 /**
- * END-TO-END port throughput assumed when converting the time budget into an element ceiling.
+ * END-TO-END port throughput assumed when converting the time budget into an item ceiling, where
+ * an **item** is one element or one attribute.
  *
- * **50, against a measured worst of 74** (eight attributes per element, cold) — a 1.5× margin for
- * a loaded CI runner or a slower production host. Deliberately pessimistic: being wrong in this
- * direction costs headroom on a bound that still has ~8× over a real feed; being wrong the other
- * way means the time budget silently does not hold, which is what the first edition of this
+ * **100 items/ms, against a measured worst of 309** — a 3× margin over the slower of two
+ * machines, taken because the production host is a shared VPS that neither table measured.
+ * Deliberately pessimistic: being wrong in this direction costs headroom on a bound that still
+ * leaves ~17× over a real feed (~200 items × ~7 elements ≈ 1 500 items); being wrong the other way
+ * means the time budget silently does not hold, which is what both superseded editions of this
  * constant did.
  *
- * 50 × 250 ms = 12 500 elements. At the worst measured shape that is 169 ms, inside the budget.
+ * 100 × 250 ms = **25 000 items**. At the worst shape of table (A) that is ~81 ms, and it stays
+ * inside 250 ms on a host three times slower than (A).
  *
- * Pinned by `xml-limits.spec.ts`, which parses a document of the WORST shape at exactly the
- * derived ceiling and fails if it exceeds the budget by more than 4×. What that proves: the
- * constant is the right order of magnitude, so a ceiling derived from it cannot admit a
- * multi-second parse. What it does NOT prove: the 1.5× safety margin — that needs a tight
- * assertion, and a tight timing assertion on a shared runner is a flake rather than a gate.
+ * THIS RAISES THE ELEMENT CEILING FOR ATTRIBUTE-FREE DOCUMENTS, from 12 500 to 25 000, and that
+ * is the honest consequence rather than an incidental loosening. The old 12 500 came from reading
+ * the eight-attribute row's ELEMENT count as the unit while ignoring the 100 000 attributes doing
+ * the work — conservative by accident, via a mis-specified unit. Counting the real unit makes the
+ * bound much tighter where it was blind (an attribute now costs) and drops the accidental part.
+ * Both 50 000 bare elements (65 ms) and 50 000 feed-like elements (162 ms) measured inside the
+ * budget on the slower machine, so 25 000 is not near any observed cliff.
+ *
+ * Pinned by `xml-limits.spec.ts` two ways, because the previous edition was pinned only one of
+ * them and CR-M-3 is exactly that gap:
+ *   - the DERIVED VALUE itself, `itemCeiling(DEFAULT_XML_LIMITS) === 25_000`, so the constant
+ *     cannot drift at all without a red test. The old spec asserted only that a worst-shape
+ *     document at the ceiling parsed within 4× the budget, which passed at ~169 ms and would have
+ *     kept passing up to ~1 000 ms — four times the budget — so the constant had 4× of silent room.
+ *   - a worst-shape document AT the ceiling, within that loose multiple, which is the sanity
+ *     check that the derivation is about the right quantity. A TIGHT timing assertion is
+ *     deliberately not attempted: on a shared runner it is a flake, not a gate. The exact-value
+ *     assertion is what replaces it, and it cannot flake.
  */
-export const PARSE_ELEMENTS_PER_MS = 50
+export const PARSE_ITEMS_PER_MS = 100
 
 export const DEFAULT_XML_LIMITS: XmlLimits = Object.freeze({
   maxBytes: MAX_XML_BYTES,
@@ -116,31 +187,30 @@ export const DEFAULT_XML_LIMITS: XmlLimits = Object.freeze({
 })
 
 /**
- * The element count the pre-scan actually enforces, and which of the two bounds set it.
+ * The item count the pre-scan enforces on the wall-clock budget's behalf.
  *
  * THIS IS HOW THE WALL-CLOCK BOUND IS REAL. A deadline checked around a synchronous `parseXml`
  * call is evaluated only once the parse has returned, so it reports a budget overrun instead of
  * preventing one — the ADR's exact finding. The genuine alternatives are a `worker_threads`
  * parse with `terminate()` on a timer, or making time moot by bounding the work that consumes it.
  *
- * We take the second, because the measurement says parse time tracks the element count (±9× by
+ * We take the second, because the measurement says parse time tracks the item count (±3× by
  * shape, absorbed by the conservative throughput constant) and because a worker per feed costs a
  * thread, a structured-clone of the tree and a second failure mode, for a 250 ms budget. The
- * budget is therefore SPENT AS ELEMENTS, before the parser is handed anything:
+ * budget is therefore SPENT AS ITEMS, before the parser is handed anything:
  *
- *     ceiling = min(maxElements, floor(maxWallClockMs × PARSE_ELEMENTS_PER_MS))
+ *     maxItems = floor(maxWallClockMs × PARSE_ITEMS_PER_MS)      // 25 000 at the defaults
  *
- * At the defaults that is `min(100 000, 12 500)` = 12 500, so the time budget binds and
- * `boundBy` is `'time'`. `worker_threads` stays the escape hatch if a hard mid-parse deadline is
- * ever required — as does `sax`, the streaming runner-up, which can check a deadline inside its
- * handlers.
+ * `worker_threads` stays the escape hatch if a hard mid-parse deadline is ever required — as does
+ * `sax`, the streaming runner-up, which can check a deadline inside its handlers.
+ *
+ * NO `min` AND NO `boundBy`, which the previous edition had and which are gone rather than
+ * suppressed. They existed to pick between two caps on ONE quantity; the two caps are now on
+ * DIFFERENT quantities — `maxElements` bounds memory in elements, this bounds time in items — so
+ * the pre-scan checks both and reports which one it hit (`exceeded: 'elements' | 'items'`). The
+ * reason code is then read off that, instead of being inferred from which cap was smaller. Three
+ * mutants lived on the comparison and the two-field return; deleting the construct deletes them.
  */
-export function elementCeiling(limits: XmlLimits): {
-  ceiling: number
-  boundBy: 'elements' | 'time'
-} {
-  const fromTime = Math.floor(limits.maxWallClockMs * PARSE_ELEMENTS_PER_MS)
-  return fromTime < limits.maxElements
-    ? { ceiling: fromTime, boundBy: 'time' }
-    : { ceiling: limits.maxElements, boundBy: 'elements' }
+export function itemCeiling(limits: XmlLimits): number {
+  return Math.floor(limits.maxWallClockMs * PARSE_ITEMS_PER_MS)
 }
