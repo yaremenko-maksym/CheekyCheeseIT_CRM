@@ -2582,3 +2582,42 @@ describe('a meter that cannot be reconciled loses the reservation, not the batch
     expect(batch.requests.at(-1)?.error?.code).toBe('RATE_LIMIT')
   })
 })
+
+/**
+ * The non-`Error` branch of each catch this round added, which is the convention the
+ * "a thrown non-Error still produces a typed report" block above already follows: a port may
+ * reject with a string, and the report must still carry words rather than `undefined`.
+ *
+ * Added because the mutation gate reported both fallback literals as not executed by any test.
+ */
+describe('the catches this round added survive a non-Error rejection', () => {
+  it('names the cache read failure when the cache rejects with a string', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    h.ctx.cache.get = async () => {
+      throw 'redis exploded'
+    }
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(batch.requests.at(-1)?.error?.code).toBe('PERSISTENCE')
+    expect(batch.requests.at(-1)?.error?.message).toBe(
+      'the response cache could not be read: the cache failed',
+    )
+  })
+
+  it('names the meter failure when reconcile rejects with a string', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    h.ctx.meter.reconcile = async () => {
+      throw 'ledger exploded'
+    }
+    const batch = await collectJsonPages(
+      makeSpec({ meter: { unit: 'REQUEST', amountPerRequest: 1 } }),
+      config(),
+      h.ctx,
+    )
+
+    expect(batch.requests.at(-1)?.error?.code).toBe('PERSISTENCE')
+    expect(batch.requests.at(-1)?.error?.message).toBe(
+      'the reservation could not be reconciled: the meter failed',
+    )
+  })
+})
