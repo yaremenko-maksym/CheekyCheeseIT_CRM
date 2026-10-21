@@ -218,7 +218,10 @@ test('a skip inside an HTML comment (the PR template placeholder) does not count
 
 test('SR-H-1: the verbatim PR template on a critical-path diff with no reviews → FAIL', () => {
   const here = dirname(fileURLToPath(import.meta.url))
-  const template = readFileSync(join(here, '..', '..', '.github', 'pull_request_template.md'), 'utf8')
+  const template = readFileSync(
+    join(here, '..', '..', '.github', 'pull_request_template.md'),
+    'utf8',
+  )
   // The template must actually carry the column-0 skip lines this test is about.
   assert.match(template, /^Skip-Security-Review:/m)
   const r = ev({
@@ -540,7 +543,10 @@ test('parseMarker: markdown decoration tolerated, first marker wins, mid-sentenc
 
 test('CR-M-3: a later security-reviewer BLOCK (template body) defeats an earlier APPROVE', () => {
   const here = dirname(fileURLToPath(import.meta.url))
-  const agent = readFileSync(join(here, '..', '..', '.claude', 'agents', 'security-reviewer.md'), 'utf8')
+  const agent = readFileSync(
+    join(here, '..', '..', '.claude', 'agents', 'security-reviewer.md'),
+    'utf8',
+  )
   // The BLOCK template in the agent prompt, as an agent would post it.
   const m = /"body": "(Verdict: BLOCK[^"]*)"/.exec(agent)
   assert.ok(m, 'security-reviewer.md has a BLOCK template body')

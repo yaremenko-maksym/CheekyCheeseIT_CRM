@@ -213,7 +213,12 @@ export function stripNonProse(text) {
   for (const line of noComments.split(/\r?\n/)) {
     const m = FENCE_RE.exec(line)
     if (fence) {
-      if (m && m[1][0] === fence[0] && m[1].length >= fence.length && !line.slice(m[0].length).trim())
+      if (
+        m &&
+        m[1][0] === fence[0] &&
+        m[1].length >= fence.length &&
+        !line.slice(m[0].length).trim()
+      )
         fence = null
       continue
     }
@@ -362,7 +367,8 @@ export const STEPS = Object.freeze([
   },
   {
     key: 'Tests',
-    whenText: 'the diff changes non-test code (`.ts/.tsx/.js/.jsx/.mjs/.cjs`) under `apps/` or `packages/`',
+    whenText:
+      'the diff changes non-test code (`.ts/.tsx/.js/.jsx/.mjs/.cjs`) under `apps/` or `packages/`',
     required: (ctx) => ctx.files.some(isProductCode),
     evidenceText:
       'the diff also changes a test file (`*.spec|test.*`, `__tests__/`, `__test-helpers__/`, `apps/e2e/**`)',
@@ -556,7 +562,9 @@ export function render(result, pr) {
     '',
   )
   if (result.docsOnly) {
-    lines.push('Docs-only diff (every changed path, rename sources included, ends in `.md`) — exempt, light-track.')
+    lines.push(
+      'Docs-only diff (every changed path, rename sources included, ends in `.md`) — exempt, light-track.',
+    )
   } else {
     lines.push('| Step | Status | Detail |', '| --- | --- | --- |')
     for (const s of result.steps)
