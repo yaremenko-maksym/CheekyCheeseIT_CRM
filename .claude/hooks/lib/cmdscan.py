@@ -107,6 +107,11 @@ by narrowing where it looks:
     _heredoc_literal_spans, and note that it is a SECOND reading of the same
     text: two of its three devices exist only to make a disagreement with the
     segmenter fail closed, after two such disagreements were reproduced as leaks.
+    What BOUNDS the exemption, though, is not those devices but a monotonicity —
+    substitution extraction only ever removes text, and the terminator rule is
+    one-sided — so the exempted span is always a subset of what bash itself
+    leaves inert. Stated in full there, because a mechanism described as a proof
+    is the very defect this round is about.
   * a package runner was UNCERTAIN for lack of an UNDERSTOOD entry, so
     readings() re-read its arguments from every position and `vite` was one of
     them. Fixed WITHOUT adding the runners to UNDERSTOOD (that would set
@@ -594,11 +599,43 @@ def _heredoc_literal_spans(text):
       3. every granted span is confirmed against the bodies the segmenter really
          captured, and an unconfirmed one is harvested after all (see scan()).
 
-    Device 3 is the backstop that makes 1 and 2 belt-and-braces rather than
-    load-bearing: it needs no prediction of HOW the two readings might diverge,
-    which is what the comment-hidden opener proves is needed, because nobody
-    predicted that one either. Note the direction: for the false positives this
-    change is about, failing closed means REFUSING; here it means NOT granting
+    WHAT MAKES THIS SAFE IS NOT DEVICE 3 (corrected after review, SR-M-2). The
+    first version of this comment claimed device 3 confirms "that span"; it does
+    not. It confirms the span's TEXT by set membership against the top-level
+    captured bodies, so an identical body elsewhere satisfies it and a body
+    captured inside a nested scan is not in the set at all. It is a cheap
+    backstop, not a proof, and describing it as a proof is the same defect this
+    whole change is about — a guard documenting a property it does not have.
+
+    The property that DOES hold is stronger, and it is a monotonicity rather than
+    a check. Two one-sided relations, both checkable by reading the code rather
+    than by trusting this comment:
+
+      * SUBSTITUTION EXTRACTION ONLY EVER REMOVES TEXT. `_extract_substitutions`
+        replaces a `$(…)` or backtick span with a fixed marker and emits every
+        other character verbatim; it never inserts a quote. So the raw text this
+        scanner walks carries a SUPERSET of the quote characters that
+        `_split_segments` sees, and a scanner with more quote characters enters
+        quote state at least as often — therefore recognises at most as many
+        openers, and grants MONOTONICALLY FEWER spans than the segmenter would.
+        A divergence can only lose protection, never invent it.
+
+      * THE TERMINATOR RULE IS ONE-SIDED THE SAME WAY. bash ends a body on a line
+        matching the delimiter exactly; this scanner compares `cand.strip() ==
+        delim`, which is strictly more permissive, so it ends the body no later
+        than bash does. cmdscan's body is therefore always a PREFIX of bash's
+        body — a span can never cover text that bash leaves outside the body and
+        executes.
+
+    Together those two say the exemption is always a subset of what bash itself
+    treats as inert data, which is the claim worth making: it bounds the
+    mechanism instead of asserting it was verified. Devices 1 and 2 remove the
+    two divergences that were actually reproduced, and device 3 catches an
+    unforeseen third cheaply — but the bound above is why none of them is
+    load-bearing.
+
+    Note the direction of "fail closed" here: for the false positives this change
+    is about it means REFUSING; for a parser disagreement it means NOT granting
     protection. One invariant covers both — when uncertain, inspect.
     """
     spans = []
@@ -1592,13 +1629,16 @@ def scan(command_line, depth=0, env=None):
     text, inners = _extract_substitutions(command_line, spans)
     raw_segments, code_view = _split_segments(text)
 
-    # DEVICE 3 of _heredoc_literal_spans: confirm the exemption against the
-    # tokenizer of record. A span is only honest if the segmenter also captured
-    # that text as a heredoc body; where the two readings disagree, the text goes
-    # back through the extractor so its substitutions ARE harvested and judged.
-    # This needs no prediction of how the readings might diverge — which is the
-    # point, since the divergence that was reproduced (an opener hidden in a
-    # comment) was not predicted either.
+    # DEVICE 3 of _heredoc_literal_spans: a cheap backstop, NOT a proof. It
+    # compares the span's TEXT against the top-level captured bodies, so an
+    # identical body elsewhere satisfies it and a body captured inside a nested
+    # scan is not in the set — read the SR-M-2 note in _heredoc_literal_spans for
+    # what actually bounds the exemption (substitution extraction only removes
+    # text, so spans are granted monotonically; and `strip()` against bash's
+    # exact match makes this scanner's body a prefix of bash's). The value here is
+    # that it needs no prediction of HOW the readings diverge, which matters
+    # because the divergence that was reproduced — an opener hidden in a comment —
+    # was not predicted either.
     if spans:
         captured = set()
         for _raw, _heredocs in raw_segments:
