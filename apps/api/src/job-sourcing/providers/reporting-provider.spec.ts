@@ -38,6 +38,7 @@ import {
   type ValidatedCheckpoint,
   validatedCheckpointSchema,
 } from './reporting-provider'
+import { buildSourceObservation, type SourceObservation } from '../normalize/observation'
 
 /**
  * The reporting contract's behaviour. Everything here is a pure function, so the test goes
@@ -48,7 +49,40 @@ import {
  * refused): task 2.1 shipped a correct cap whose test could not tell `>` from `>=`.
  */
 
-const clean: CollectionCounts = { raw: 10, normalized: 10, invalid: 0, quarantined: 0 }
+const clean: CollectionCounts = {
+  raw: 10,
+  normalized: 10,
+  invalid: 0,
+  quarantined: 0,
+  discarded: 0,
+}
+
+/**
+ * `n` observations, built through the real builder rather than cast from `{}`.
+ *
+ * `assertBatchInvariant` compares `counts.normalized` against `observations.LENGTH`, so the
+ * contents are irrelevant to every assertion here — but a cast would let `SourceObservation` drift
+ * away from what a batch actually carries without a single test noticing, and this file is the one
+ * that pins the batch's shape.
+ */
+function observations(n: number): SourceObservation[] {
+  return Array.from({ length: n }, (_, i) => {
+    const result = buildSourceObservation(
+      {
+        provider: 'REMOTEOK_API',
+        adapterVersion: 'a1',
+        namespace: 'board',
+        nativeId: `n${i}`,
+        url: `https://jobs.example.com/j/${i}`,
+        title: 'Senior Engineer',
+        companyName: 'Studio',
+      },
+      { now: new Date('2026-10-20T10:00:00Z') },
+    )
+    if (!result.ok) throw new Error(`fixture observation ${i} was refused: ${result.reason}`)
+    return result.observation
+  })
+}
 
 function scope(overrides: Partial<SourceCoverageScope> = {}): SourceCoverageScope {
   return { namespace: 'board', query: null, configVersion: 1, window: null, ...overrides }
@@ -86,13 +120,18 @@ describe('the constants', () => {
 describe('the error names', () => {
   it('names CountsImbalanceError', () => {
     expect(() =>
-      assertCountsBalanced({ raw: 1, normalized: 0, invalid: 0, quarantined: 0 }),
+      assertCountsBalanced({ raw: 1, normalized: 0, invalid: 0, quarantined: 0, discarded: 0 }),
     ).toThrow(expect.objectContaining({ name: 'CountsImbalanceError' }))
   })
 
   it('names BatchInvariantError', () => {
     expect(() =>
-      assertBatchInvariant({ outcome: 'FAILED', coverage: 'FULL_INVENTORY', counts: clean }),
+      assertBatchInvariant({
+        outcome: 'FAILED',
+        coverage: 'FULL_INVENTORY',
+        counts: clean,
+        observations: observations(clean.normalized),
+      }),
     ).toThrow(expect.objectContaining({ name: 'BatchInvariantError' }))
   })
 
@@ -137,7 +176,13 @@ describe('deriveOutcome', () => {
   })
 
   it('reports SUCCEEDED for an exhausted scope that returned nothing at all', () => {
-    const empty: CollectionCounts = { raw: 0, normalized: 0, invalid: 0, quarantined: 0 }
+    const empty: CollectionCounts = {
+      raw: 0,
+      normalized: 0,
+      invalid: 0,
+      quarantined: 0,
+      discarded: 0,
+    }
     expect(deriveOutcome(facts({ counts: empty, pagesCompleted: 1 }))).toBe('SUCCEEDED')
   })
 })
@@ -149,10 +194,14 @@ describe('deriveCoverage', () => {
 
   it('drops to PARTIAL when even one item could not be observed', () => {
     expect(
-      deriveCoverage(facts({ counts: { raw: 10, normalized: 9, invalid: 1, quarantined: 0 } })),
+      deriveCoverage(
+        facts({ counts: { raw: 10, normalized: 9, invalid: 1, quarantined: 0, discarded: 0 } }),
+      ),
     ).toBe('PARTIAL')
     expect(
-      deriveCoverage(facts({ counts: { raw: 10, normalized: 9, invalid: 0, quarantined: 1 } })),
+      deriveCoverage(
+        facts({ counts: { raw: 10, normalized: 9, invalid: 0, quarantined: 1, discarded: 0 } }),
+      ),
     ).toBe('PARTIAL')
   })
 
@@ -211,8 +260,8 @@ describe('the invariant above all others', () => {
   ]
   const countsCases: CollectionCounts[] = [
     clean,
-    { raw: 0, normalized: 0, invalid: 0, quarantined: 0 },
-    { raw: 4, normalized: 2, invalid: 1, quarantined: 1 },
+    { raw: 0, normalized: 0, invalid: 0, quarantined: 0, discarded: 0 },
+    { raw: 4, normalized: 2, invalid: 1, quarantined: 1, discarded: 0 },
   ]
   const scopes = [
     scope(),
@@ -251,25 +300,121 @@ describe('the invariant above all others', () => {
 describe('assertBatchInvariant', () => {
   it('refuses a hand-made batch that pairs FAILED with FULL_INVENTORY', () => {
     expect(() =>
-      assertBatchInvariant({ outcome: 'FAILED', coverage: 'FULL_INVENTORY', counts: clean }),
+      assertBatchInvariant({
+        outcome: 'FAILED',
+        coverage: 'FULL_INVENTORY',
+        counts: clean,
+        observations: observations(clean.normalized),
+      }),
     ).toThrow(/cannot claim FULL_INVENTORY/)
   })
 
   it('refuses a hand-made CANCELLED batch that claims FULL_INVENTORY', () => {
     expect(() =>
-      assertBatchInvariant({ outcome: 'CANCELLED', coverage: 'FULL_INVENTORY', counts: clean }),
+      assertBatchInvariant({
+        outcome: 'CANCELLED',
+        coverage: 'FULL_INVENTORY',
+        counts: clean,
+        observations: observations(clean.normalized),
+      }),
     ).toThrow(/cannot claim FULL_INVENTORY/)
   })
 
   it('accepts the one outcome that may claim FULL_INVENTORY', () => {
     expect(() =>
-      assertBatchInvariant({ outcome: 'SUCCEEDED', coverage: 'FULL_INVENTORY', counts: clean }),
+      assertBatchInvariant({
+        outcome: 'SUCCEEDED',
+        coverage: 'FULL_INVENTORY',
+        counts: clean,
+        observations: observations(clean.normalized),
+      }),
     ).not.toThrow()
   })
 
   it('accepts a FAILED batch that makes no coverage claim', () => {
     expect(() =>
-      assertBatchInvariant({ outcome: 'FAILED', coverage: 'PARTIAL', counts: clean }),
+      assertBatchInvariant({
+        outcome: 'FAILED',
+        coverage: 'PARTIAL',
+        counts: clean,
+        observations: observations(clean.normalized),
+      }),
+    ).not.toThrow()
+  })
+
+  /**
+   * `counts.normalized === observations.length`, both sides. The ACCEPTANCE half is first and is
+   * not a restatement of the finding: a batch whose two numbers agree must pass, including at
+   * zero, or the guard could be satisfied by refusing everything.
+   */
+  it('accepts a batch whose normalized count matches the observations it carries', () => {
+    expect(() =>
+      assertBatchInvariant({
+        outcome: 'SUCCEEDED',
+        coverage: 'PARTIAL',
+        counts: { raw: 4, normalized: 3, invalid: 1, quarantined: 0, discarded: 0 },
+        observations: observations(3),
+      }),
+    ).not.toThrow()
+  })
+
+  it('accepts a batch that carries no observations and claims none', () => {
+    expect(() =>
+      assertBatchInvariant({
+        outcome: 'SUCCEEDED',
+        coverage: 'PARTIAL',
+        counts: { raw: 2, normalized: 0, invalid: 2, quarantined: 0, discarded: 0 },
+        observations: [],
+      }),
+    ).not.toThrow()
+  })
+
+  it('refuses a batch that claims more normalized items than it carries', () => {
+    expect(() =>
+      assertBatchInvariant({
+        outcome: 'FAILED',
+        coverage: 'PARTIAL',
+        counts: { raw: 5, normalized: 2, invalid: 0, quarantined: 0, discarded: 3 },
+        observations: [],
+      }),
+    ).toThrow(/counts.normalized=2 does not match observations.length=0/)
+  })
+
+  it('refuses a batch that carries more observations than it claims', () => {
+    // The other direction, which no finding asked for: a batch handing over rows it did not
+    // account for is as unbalanced as one accounting for rows it did not hand over.
+    expect(() =>
+      assertBatchInvariant({
+        outcome: 'SUCCEEDED',
+        coverage: 'PARTIAL',
+        counts: { raw: 1, normalized: 1, invalid: 0, quarantined: 0, discarded: 0 },
+        observations: observations(2),
+      }),
+    ).toThrow(/does not match observations.length=2/)
+  })
+
+  it('refuses a SUCCEEDED batch that threw a page away', () => {
+    // Every path that discards a page ends the attempt with a failure, so this pairing cannot be
+    // produced today — which is exactly why it is a guard for phase 3's 25 adapters and is tested
+    // against a hand-made batch, the only way such a guard can have a failing test at all.
+    expect(() =>
+      assertBatchInvariant({
+        outcome: 'SUCCEEDED',
+        coverage: 'PARTIAL',
+        counts: { raw: 3, normalized: 1, invalid: 0, quarantined: 0, discarded: 2 },
+        observations: observations(1),
+      }),
+    ).toThrow(/cannot have discarded a page/)
+  })
+
+  it('accepts a PARTIAL batch that threw a page away', () => {
+    expect(() =>
+      assertBatchInvariant({
+        outcome: 'PARTIAL',
+        coverage: 'PARTIAL',
+        counts: { raw: 3, normalized: 1, invalid: 0, quarantined: 0, discarded: 2 },
+        observations: observations(1),
+      }),
     ).not.toThrow()
   })
 })
@@ -277,35 +422,76 @@ describe('assertBatchInvariant', () => {
 describe('assertCountsBalanced', () => {
   it('accepts counts whose dispositions account for exactly every raw item', () => {
     expect(() =>
-      assertCountsBalanced({ raw: 7, normalized: 4, invalid: 2, quarantined: 1 }),
+      assertCountsBalanced({ raw: 7, normalized: 4, invalid: 2, quarantined: 1, discarded: 0 }),
     ).not.toThrow()
   })
 
   it('refuses one disposition too few', () => {
     expect(() =>
-      assertCountsBalanced({ raw: 7, normalized: 4, invalid: 2, quarantined: 0 }),
+      assertCountsBalanced({ raw: 7, normalized: 4, invalid: 2, quarantined: 0, discarded: 0 }),
     ).toThrow(/do not balance/)
   })
 
   it('refuses one disposition too many', () => {
     expect(() =>
-      assertCountsBalanced({ raw: 7, normalized: 5, invalid: 2, quarantined: 1 }),
+      assertCountsBalanced({ raw: 7, normalized: 5, invalid: 2, quarantined: 1, discarded: 0 }),
     ).toThrow(/do not balance/)
+  })
+
+  /**
+   * `discarded` is a disposition like the other three, so it balances like them. Both sides: a
+   * discarded item accounts for its raw item, and a `raw` that forgets it does not balance. Added
+   * because a fourth summand is exactly the kind of thing that gets declared and then left out of
+   * the sum — and the balance check is the one place that would not notice, since dropping it from
+   * the sum makes the check STRICTER, not looser, and every pre-existing case still passes.
+   */
+  it('counts a discarded item as accounting for its raw item', () => {
+    expect(() =>
+      assertCountsBalanced({ raw: 7, normalized: 3, invalid: 2, quarantined: 1, discarded: 1 }),
+    ).not.toThrow()
+  })
+
+  it('refuses counts whose raw does not cover the discarded items', () => {
+    expect(() =>
+      assertCountsBalanced({ raw: 6, normalized: 3, invalid: 2, quarantined: 1, discarded: 1 }),
+    ).toThrow(/do not balance/)
+  })
+
+  it('names the discarded bucket in the imbalance it reports', () => {
+    expect(() =>
+      assertCountsBalanced({ raw: 9, normalized: 3, invalid: 2, quarantined: 1, discarded: 1 }),
+    ).toThrow(/discarded=1/)
   })
 })
 
 describe('toStoredReportCounts', () => {
-  it('maps raw to received and folds BOTH refusal buckets into the store`s single invalid', () => {
-    expect(toStoredReportCounts({ raw: 10, normalized: 6, invalid: 3, quarantined: 1 })).toEqual({
+  it('maps raw to received and folds ALL non-kept buckets into the store`s single invalid', () => {
+    expect(
+      toStoredReportCounts({ raw: 10, normalized: 6, invalid: 3, quarantined: 1, discarded: 0 }),
+    ).toEqual({
       received: 10,
       invalid: 4,
       normalized: 6,
     })
   })
 
+  it('folds discarded items into the store`s invalid, keeping received whole', () => {
+    // The store has ONE column for "received a row for nothing", and a page we read and then
+    // threw away belongs in it. `received` still accounts for every item, because the store's
+    // refine is "exactly one disposition per received item" — a received item with no disposition
+    // is a report the store refuses, which is what `normalized: 2` with no rows produced (CR-M-5).
+    expect(
+      toStoredReportCounts({ raw: 10, normalized: 4, invalid: 2, quarantined: 1, discarded: 3 }),
+    ).toEqual({
+      received: 10,
+      invalid: 6,
+      normalized: 4,
+    })
+  })
+
   it('refuses to project counts that do not balance, rather than emitting a report that cannot', () => {
     expect(() =>
-      toStoredReportCounts({ raw: 10, normalized: 6, invalid: 3, quarantined: 0 }),
+      toStoredReportCounts({ raw: 10, normalized: 6, invalid: 3, quarantined: 0, discarded: 0 }),
     ).toThrow(/do not balance/)
   })
 })
@@ -511,13 +697,17 @@ describe('buildCollectionBatch', () => {
   }
 
   function build(overrides: Partial<Parameters<typeof buildCollectionBatch>[0]> = {}) {
+    const resolved = overrides.facts ?? facts()
     return buildCollectionBatch({
-      observations: [],
-      facts: facts(),
+      // The observations MATCH `counts.normalized` by default, since that is the invariant every
+      // batch must satisfy. A test about something else does not have to restate it; a test about
+      // the invariant passes `observations` explicitly in order to break it.
+      observations: observations(resolved.counts.normalized),
       requests: [],
       checkpoint,
       invalidSamples: [],
       ...overrides,
+      facts: resolved,
     })
   }
 
@@ -581,7 +771,11 @@ describe('buildCollectionBatch', () => {
 
   it('refuses to produce a batch whose counts do not balance', () => {
     expect(() =>
-      build({ facts: facts({ counts: { raw: 3, normalized: 1, invalid: 0, quarantined: 0 } }) }),
+      build({
+        facts: facts({
+          counts: { raw: 3, normalized: 1, invalid: 0, quarantined: 0, discarded: 0 },
+        }),
+      }),
     ).toThrow(/do not balance/)
   })
 })
@@ -862,14 +1056,14 @@ describe('construction is the only path to a batch (CR-H-2)', () => {
     coverage: 'FULL_INVENTORY' as const,
     scope: scope(),
     requests: [],
-    counts: { raw: 5, normalized: 0, invalid: 0, quarantined: 0 },
+    counts: { raw: 5, normalized: 0, invalid: 0, quarantined: 0, discarded: 0 },
     checkpoint: null,
     invalidSamples: [],
   }
 
   it('tells an adapter-made literal apart from a built batch', () => {
     const built = buildCollectionBatch({
-      observations: [],
+      observations: observations(clean.normalized),
       facts: facts(),
       requests: [],
       checkpoint: null,
@@ -895,7 +1089,7 @@ describe('construction is the only path to a batch (CR-H-2)', () => {
 
   it('recognises a batch that went through the builder', () => {
     const batch = buildCollectionBatch({
-      observations: [],
+      observations: observations(clean.normalized),
       facts: facts(),
       requests: [],
       checkpoint: null,
@@ -909,7 +1103,7 @@ describe('construction is the only path to a batch (CR-H-2)', () => {
   /** The brand must never reach a database row or a log line — the reason it is non-enumerable. */
   it('keeps the brand out of JSON, keys and spreads', () => {
     const batch = buildCollectionBatch({
-      observations: [],
+      observations: observations(clean.normalized),
       facts: facts(),
       requests: [],
       checkpoint: null,

@@ -18,6 +18,7 @@ import {
   REDACTED,
   type ReservationResolution,
   type SourceConfigFields,
+  toStoredReportCounts,
   type ValidatedCheckpoint,
 } from './reporting-provider'
 
@@ -242,7 +243,13 @@ describe('the envelope', () => {
     expect(batch.outcome).toBe('SUCCEEDED')
     expect(batch.coverage).toBe('FULL_INVENTORY')
     expect(batch.observations).toHaveLength(2)
-    expect(batch.counts).toEqual({ raw: 2, normalized: 2, invalid: 0, quarantined: 0 })
+    expect(batch.counts).toEqual({
+      raw: 2,
+      normalized: 2,
+      invalid: 0,
+      quarantined: 0,
+      discarded: 0,
+    })
   })
 
   it('fails the subrequest on a drifted envelope and claims nothing', async () => {
@@ -289,7 +296,13 @@ describe('bad items are isolated, not fatal', () => {
 
     expect(batch.outcome).toBe('SUCCEEDED')
     expect(batch.observations).toHaveLength(2)
-    expect(batch.counts).toEqual({ raw: 3, normalized: 2, invalid: 1, quarantined: 0 })
+    expect(batch.counts).toEqual({
+      raw: 3,
+      normalized: 2,
+      invalid: 1,
+      quarantined: 0,
+      discarded: 0,
+    })
   })
 
   it('loses the FULL_INVENTORY claim over a single unobservable item', async () => {
@@ -316,7 +329,13 @@ describe('bad items are isolated, not fatal', () => {
     const h = harness({ pages: [onePage([job('1'), job('2'), job('3')])] })
     const batch = await collectJsonPages(spec, config(), h.ctx)
 
-    expect(batch.counts).toEqual({ raw: 3, normalized: 2, invalid: 1, quarantined: 0 })
+    expect(batch.counts).toEqual({
+      raw: 3,
+      normalized: 2,
+      invalid: 1,
+      quarantined: 0,
+      discarded: 0,
+    })
     expect(batch.invalidSamples.map((s) => s.reason)).toEqual([
       expect.stringContaining('MAPPER_THREW'),
     ])
@@ -328,7 +347,13 @@ describe('bad items are isolated, not fatal', () => {
     })
     const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
 
-    expect(batch.counts).toEqual({ raw: 2, normalized: 1, invalid: 0, quarantined: 1 })
+    expect(batch.counts).toEqual({
+      raw: 2,
+      normalized: 1,
+      invalid: 0,
+      quarantined: 1,
+      discarded: 0,
+    })
     expect(batch.invalidSamples[0]?.reason).toContain('QUARANTINED')
   })
 
@@ -397,14 +422,28 @@ describe('internal hostnames — today`s behaviour, pinned', () => {
 })
 
 describe('a database failure is not a bad record', () => {
-  it('reports PERSISTENCE and leaves the invalid count at zero', async () => {
+  /**
+   * THIS TEST PINNED THE DEFECT. It asserted `counts.normalized === 2` for a page whose
+   * observations were thrown away, while the test immediately below asserted
+   * `observations === []` on the same input — two adjacent assertions stating a contradiction,
+   * with the wrong one written as the expected value (CR-M-5 = SPEC-M-3).
+   *
+   * `discarded` is the field that lets both be true at once: the two items WERE received (`raw`),
+   * they were NOT refused (`invalid` and `quarantined` stay at zero, which is the AC3 claim this
+   * test exists for), and they were NOT kept either.
+   */
+  it('reports PERSISTENCE, counts nothing as invalid, and counts nothing as kept', async () => {
     const h = harness({ pages: [onePage([job('1'), job('2')])], savePageFailsOnPage: 1 })
     const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
 
     expect(batch.requests.at(-1)?.error?.code).toBe('PERSISTENCE')
-    expect(batch.counts.invalid).toBe(0)
-    expect(batch.counts.quarantined).toBe(0)
-    expect(batch.counts.normalized).toBe(2)
+    expect(batch.counts).toEqual({
+      raw: 2,
+      normalized: 0,
+      invalid: 0,
+      quarantined: 0,
+      discarded: 2,
+    })
     expect(batch.outcome).toBe('FAILED')
   })
 
@@ -414,6 +453,9 @@ describe('a database failure is not a bad record', () => {
 
     expect(batch.observations).toEqual([])
     expect(batch.checkpoint).toBeNull()
+    // The pair the invariant is about, asserted together rather than in two tests that could
+    // disagree without either failing.
+    expect(batch.counts.normalized).toBe(batch.observations.length)
   })
 
   it('keeps the pages that DID land when a later page fails to persist', async () => {
@@ -429,6 +471,130 @@ describe('a database failure is not a bad record', () => {
     expect(batch.outcome).toBe('PARTIAL')
     expect(batch.observations).toHaveLength(1)
     expect(batch.checkpoint?.position.page).toBe(1)
+    // Page one was kept, page two was discarded — one of each, in one batch.
+    expect(batch.counts).toEqual({
+      raw: 2,
+      normalized: 1,
+      invalid: 0,
+      quarantined: 0,
+      discarded: 1,
+    })
+  })
+})
+
+/**
+ * `counts.normalized` IS `observations.length`. One number, and it was in two places.
+ *
+ * The ACCEPTANCE assertions come first and are taken from the contract rather than from the
+ * finding: `normalized` is the count of observations the batch hands over, so it equals the length
+ * of the array it hands over — on a clean page, on a page with refusals, on a page with nothing at
+ * all. Written from the finding alone this describe would hold only the two failure cases, and
+ * `discarded` could have been implemented as a constant 0 on the happy path without a test
+ * noticing.
+ */
+describe('the counts describe the observations in the same batch', () => {
+  it('equals the observation count on a clean page', async () => {
+    const h = harness({ pages: [onePage([job('1'), job('2'), job('3')])] })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(batch.counts.normalized).toBe(batch.observations.length)
+    expect(batch.counts).toEqual({
+      raw: 3,
+      normalized: 3,
+      invalid: 0,
+      quarantined: 0,
+      discarded: 0,
+    })
+  })
+
+  it('equals the observation count on a page that also refused items', async () => {
+    const h = harness({ pages: [onePage([job('1'), { id: '2' }, job('3')])] })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(batch.counts.normalized).toBe(batch.observations.length)
+    expect(batch.counts).toEqual({
+      raw: 3,
+      normalized: 2,
+      invalid: 1,
+      quarantined: 0,
+      discarded: 0,
+    })
+  })
+
+  it('equals the observation count on an empty page', async () => {
+    const h = harness({ pages: [onePage([])] })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(batch.counts.normalized).toBe(batch.observations.length)
+    expect(batch.counts.discarded).toBe(0)
+  })
+
+  it('counts a KEPT page only after its persist resolved, across several pages', async () => {
+    const h = harness({
+      pages: [
+        { body: { jobs: [job('1'), job('2')], next: 'c2' } },
+        { body: { jobs: [job('3')], next: null } },
+      ],
+    })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(batch.counts.normalized).toBe(3)
+    expect(batch.counts.normalized).toBe(batch.observations.length)
+  })
+
+  it('moves a failed page`s items out of normalized, keeping raw honest', async () => {
+    // The reviewer's own case: a 5-item page whose second and third items carry distinct provider
+    // ids and one shared canonical URL, so an adapter keying identity on the URL collapses them.
+    // MEASURED WITHOUT THE FIX: `{ raw: 3, normalized: 2, invalid: 1 }` with ZERO observations,
+    // and `toStoredReportCounts` handed that `normalized: 2` to a collector with no rows to
+    // dispose of.
+    const items = [
+      job('1'),
+      job('2', { url: 'https://jobs.example.com/same' }),
+      job('3', { url: 'https://jobs.example.com/same' }),
+      job('4'),
+      job('5'),
+    ]
+    const h = harness({ pages: [{ body: { jobs: items, next: null } }] })
+    const batch = await collectJsonPages(
+      makeSpec({
+        mapItem: (item, c) => ({
+          namespace: c.namespace,
+          nativeId: null,
+          url: item.url,
+          title: item.title,
+          companyName: item.company,
+        }),
+        nativeIdOf: (item) => item.id,
+      }),
+      config(),
+      h.ctx,
+    )
+
+    expect(batch.requests.at(-1)?.error?.code).toBe('ADAPTER_INVARIANT')
+    expect(batch.observations).toEqual([])
+    expect(batch.counts).toEqual({
+      raw: 3,
+      normalized: 0,
+      invalid: 1,
+      quarantined: 0,
+      discarded: 2,
+    })
+    expect(batch.counts.normalized).toBe(batch.observations.length)
+  })
+
+  it('projects a discarded page into the store`s invalid, not its normalized', async () => {
+    const h = harness({ pages: [onePage([job('1'), job('2')])], savePageFailsOnPage: 1 })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    // The projection is what the collector consumes, so this is where the defect was actually
+    // paid for: `received` must still account for every item, and `normalized` must be a number
+    // the collector has rows for.
+    expect(toStoredReportCounts(batch.counts)).toEqual({
+      received: 2,
+      invalid: 2,
+      normalized: 0,
+    })
   })
 })
 
@@ -611,7 +777,13 @@ describe('the adapter identity invariant', () => {
     const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
 
     expect(batch.outcome).toBe('SUCCEEDED')
-    expect(batch.counts).toEqual({ raw: 4, normalized: 4, invalid: 0, quarantined: 0 })
+    expect(batch.counts).toEqual({
+      raw: 4,
+      normalized: 4,
+      invalid: 0,
+      quarantined: 0,
+      discarded: 0,
+    })
     expect(batch.observations).toHaveLength(4)
   })
 

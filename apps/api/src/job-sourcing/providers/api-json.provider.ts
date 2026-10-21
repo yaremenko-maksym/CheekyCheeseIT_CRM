@@ -204,6 +204,59 @@ export class AdapterIdentityCollisionError extends Error {
 // The loop
 // ---------------------------------------------------------------------------
 
+/**
+ * One page's dispositions, before the attempt knows whether the page survived.
+ *
+ * `discarded` is deliberately ABSENT rather than present-and-zero: a page cannot discard itself,
+ * only the attempt can discard a page, so the field has no meaning at this scale. A
+ * `discarded: 0` that `observePage` never writes would be arithmetic no test could observe.
+ */
+type PageCounts = Omit<CollectionCounts, 'discarded'>
+
+const emptyAttemptCounts = (): CollectionCounts => ({
+  raw: 0,
+  normalized: 0,
+  invalid: 0,
+  quarantined: 0,
+  discarded: 0,
+})
+
+const emptyPageCounts = (): PageCounts => ({
+  raw: 0,
+  normalized: 0,
+  invalid: 0,
+  quarantined: 0,
+})
+
+/**
+ * Add ONE page's dispositions to the attempt's, and decide where its `normalized` goes. THE ONLY
+ * PLACE THAT CHOICE IS MADE.
+ *
+ * `observePage` used to increment the attempt's counts in place, which meant the decision was
+ * taken before its outcome was known: items observed on a page that then failed stayed counted as
+ * `normalized` while their observations were thrown away, so `counts.normalized` and
+ * `observations.length` disagreed on exactly the pages that failed (CR-M-5 = SPEC-M-3). A page's
+ * counts are therefore PROVISIONAL until the page lands, and "lands" means its `savePage`
+ * resolved — not merely that its items parsed.
+ *
+ * `raw`, `invalid` and `quarantined` are unaffected by the disposition: we did receive those items
+ * and the reason each was refused does not change because the page later failed.
+ */
+function addPageCounts(
+  total: CollectionCounts,
+  page: PageCounts,
+  disposition: 'KEPT' | 'DISCARDED',
+): void {
+  total.raw += page.raw
+  total.invalid += page.invalid
+  total.quarantined += page.quarantined
+  if (disposition === 'KEPT') {
+    total.normalized += page.normalized
+  } else {
+    total.discarded += page.normalized
+  }
+}
+
 function widenScope(scope: SourceCoverageScope, overlapMs: number): SourceCoverageScope {
   if (scope.window === null) return scope
   return {
@@ -334,7 +387,7 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
   const observations: SourceObservation[] = []
   const requests: RequestReport[] = []
   const samples: InvalidSample[] = []
-  const counts: CollectionCounts = { raw: 0, normalized: 0, invalid: 0, quarantined: 0 }
+  const counts: CollectionCounts = emptyAttemptCounts()
   // Seeding the RESUMED cursor is what makes a provider handing it straight back a cycle, and a
   // test asserts exactly that. (The suppression that used to sit here claimed the `null` half was
   // unobservable; the mutant it hid is killed by that same test, so it is gone — CR-M-2.)
@@ -628,12 +681,13 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
             ctx,
             envelope.data,
             at,
-            counts,
             nativeIdByIdentityKey,
             addSample,
             limits,
           )
           if (!pageResult.ok) {
+            // The page's items were received and then thrown away with the page.
+            addPageCounts(counts, pageResult.counts, 'DISCARDED')
             failure = { ...pageResult.failure, status }
           } else {
             /**
@@ -689,12 +743,19 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
                 checkpoint: next,
               })
               observations.push(...pageResult.observations)
+              // AFTER the persist resolved, which is the only moment at which "kept" is true. A
+              // page whose `savePage` rejects is the SECOND instance of CR-M-5 — the reviewer
+              // named the observe-failure path, and this one has the same shape — and it is why
+              // the merge lives here rather than beside `observePage`.
+              addPageCounts(counts, pageResult.counts, 'KEPT')
               checkpoint = next
               pagesCompleted += 1
             } catch (error) {
               // OUR failure, not the provider's: it is PERSISTENCE and it never touches
-              // `counts.invalid` (AC3). The page is not counted as completed, so the checkpoint
-              // still names the last page that really landed.
+              // `counts.invalid` (AC3) — those items go to `discarded`, the bucket for "received,
+              // observed, then lost with the page". The page is not counted as completed, so the
+              // checkpoint still names the last page that really landed.
+              addPageCounts(counts, pageResult.counts, 'DISCARDED')
               failure = {
                 code: 'PERSISTENCE',
                 message: error instanceof Error ? error.message : 'the page could not be persisted',
@@ -823,13 +884,24 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
  * contradiction needs no defending.
  */
 type PageResult =
-  | { ok: true; observations: SourceObservation[]; nextCursor: string | null }
-  | { ok: false; failure: { code: CollectionErrorCode; message: string } }
+  | {
+      ok: true
+      observations: SourceObservation[]
+      nextCursor: string | null
+      counts: PageCounts
+    }
+  // `counts` is on BOTH arms because the caller reads it on both: a failed page's items were
+  // still received, and the attempt still has to account for them. That is the opposite of the
+  // `observations: []` / `nextCursor: null` padding this union replaced, which no caller read.
+  | { ok: false; failure: { code: CollectionErrorCode; message: string }; counts: PageCounts }
 
 /**
- * Validate and observe one page's items. Mutates `counts` and the identity map, which is why it is
- * private: the balance invariant `raw === normalized + invalid + quarantined` is only true across
- * the whole page, and exposing a half-applied count would be exposing an internal seam.
+ * Validate and observe one page's items.
+ *
+ * It RETURNS this page's counts rather than adding them to the attempt's, which is the whole of
+ * the CR-M-5 fix: whether a page's observations count as kept depends on what happens AFTER this
+ * function returns (the page still has to persist), so this function is not the one that can
+ * decide. It mutates only the cross-page identity map, which is genuinely attempt-scoped.
  */
 async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>(
   spec: ApiJsonSourceSpec<TConfig, TEnvelope, TItem>,
@@ -837,17 +909,18 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
   ctx: CollectionContext,
   envelope: TEnvelope,
   at: PageTarget,
-  counts: CollectionCounts,
   nativeIdByIdentityKey: Map<string, string>,
   addSample: (page: number, reason: string, raw: unknown) => void,
   limits: ApiJsonLimits,
 ): Promise<PageResult> {
+  const counts: PageCounts = emptyPageCounts()
   let items: readonly unknown[]
   try {
     items = spec.extractItems(envelope, config)
   } catch (error) {
     return {
       ok: false,
+      counts,
       failure: {
         code: 'PARSE_DRIFT',
         message: error instanceof Error ? error.message : 'the items could not be extracted',
@@ -860,6 +933,7 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
     // truncating keeps us from reporting a coverage we did not have.
     return {
       ok: false,
+      counts,
       failure: {
         code: 'PAYLOAD_TOO_LARGE',
         message: `page carried ${items.length} items, over the ${limits.maxItemsPerPage} cap`,
@@ -924,6 +998,7 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
         counts.invalid += 1
         return {
           ok: false,
+          counts,
           failure: {
             code: 'ADAPTER_INVARIANT',
             message: new AdapterIdentityCollisionError(identityKey, seen, nativeId).message,
@@ -946,6 +1021,7 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
   } catch (error) {
     return {
       ok: false,
+      counts,
       failure: {
         code: 'PARSE_DRIFT',
         message: error instanceof Error ? error.message : 'the next cursor could not be read',
@@ -953,7 +1029,7 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
     }
   }
 
-  return { ok: true, observations, nextCursor }
+  return { ok: true, observations, nextCursor, counts }
 }
 
 // ---------------------------------------------------------------------------

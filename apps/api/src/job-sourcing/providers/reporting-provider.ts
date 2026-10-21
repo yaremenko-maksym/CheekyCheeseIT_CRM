@@ -130,28 +130,51 @@ export interface SourceCoverageScope {
  * - `invalid`    — items the envelope or item schema refused, or whose mapper threw
  * - `quarantined`— items the observation builder refused (no identity, unsafe link, no title...)
  *
- * INVARIANT: `raw === normalized + invalid + quarantined`. Enforced by `assertCountsBalanced`,
- * which is what lets `toStoredReportCounts` hand the collector a `received` it can complete into a
- * report the store's own "exactly one disposition per received item" refine will accept.
+ * - `discarded`  — items observed cleanly on a page that then never landed
+ *
+ * `discarded` IS THE FOURTH BUCKET BECAUSE `normalized` MEANS "KEPT", NOT "ATTEMPTED".
+ *
+ * It did not exist, and `normalized` counted attempts while `observations` carried only what
+ * survived — so the two disagreed on exactly the pages that failed. Measured: a 5-item page whose
+ * second and third items collapsed onto one identity key reported `raw: 3, normalized: 2,
+ * invalid: 1` with ZERO observations, and `toStoredReportCounts` handed that `normalized: 2` to
+ * the collector, which has two items to dispose of and no rows to dispose of them with (CR-M-5 =
+ * SPEC-M-3). The old shape could not say "we read it, and then we threw the page away" without
+ * lying in one of the two directions: calling it `normalized` overstates what we kept, and rolling
+ * `raw` back would claim we never received items we did receive.
+ *
+ * So the attempt/kept distinction is a FIELD, and `raw` stays honest. A page that fails after its
+ * items were observed moves its own `normalized` into `discarded` — see `addPageCounts` in
+ * `api-json.provider.ts`, which is the only place the choice is made.
+ *
+ * INVARIANT: `raw === normalized + invalid + quarantined + discarded`. Enforced by
+ * `assertCountsBalanced`, which is what lets `toStoredReportCounts` hand the collector a
+ * `received` it can complete into a report the store's own "exactly one disposition per received
+ * item" refine will accept.
+ *
+ * SECOND INVARIANT, the one CR-M-5 was about: `normalized === observations.length` in every built
+ * batch. It lives in `assertBatchInvariant` rather than here, because it is the only invariant
+ * that needs the observations as well as the counts.
  */
 export interface CollectionCounts {
   raw: number
   normalized: number
   invalid: number
   quarantined: number
+  discarded: number
 }
 
 export class CountsImbalanceError extends Error {
   constructor(readonly counts: CollectionCounts) {
     super(
-      `counts do not balance: raw=${counts.raw} != normalized=${counts.normalized} + invalid=${counts.invalid} + quarantined=${counts.quarantined}`,
+      `counts do not balance: raw=${counts.raw} != normalized=${counts.normalized} + invalid=${counts.invalid} + quarantined=${counts.quarantined} + discarded=${counts.discarded}`,
     )
     this.name = 'CountsImbalanceError'
   }
 }
 
 export function assertCountsBalanced(counts: CollectionCounts): void {
-  if (counts.raw !== counts.normalized + counts.invalid + counts.quarantined) {
+  if (counts.raw !== counts.normalized + counts.invalid + counts.quarantined + counts.discarded) {
     throw new CountsImbalanceError(counts)
   }
 }
@@ -161,11 +184,14 @@ export function assertCountsBalanced(counts: CollectionCounts): void {
  * and production code rather than a test helper, so the conformance spec checks a mapping the
  * system actually uses instead of one the test invented.
  *
- * Both of our refusal buckets land in the store's single `invalid`: from the store's point of view
- * an item it never received a row for is invalid, and it has no column for the distinction between
- * "the schema refused it" and "the identity seam refused it". The remaining store buckets
- * (`created/revised/unchanged/duplicates/persistenceErrors`) are the collector's to fill from
- * `normalized`, which is why they are absent here rather than zero.
+ * ALL THREE of our non-kept buckets land in the store's single `invalid`: from the store's point
+ * of view an item it never received a row for is invalid, and it has no column for the
+ * distinction between "the schema refused it", "the identity seam refused it" and "its page never
+ * landed". The remaining store buckets (`created/revised/unchanged/duplicates/persistenceErrors`)
+ * are the collector's to fill from `normalized`, which is why they are absent here rather than
+ * zero — and which is why `normalized` must be the count of observations we actually hand over,
+ * not the count we read. A `normalized` the collector has no rows for is a report it cannot
+ * balance (CR-M-5).
  */
 export function toStoredReportCounts(counts: CollectionCounts): {
   received: number
@@ -175,7 +201,7 @@ export function toStoredReportCounts(counts: CollectionCounts): {
   assertCountsBalanced(counts)
   return {
     received: counts.raw,
-    invalid: counts.invalid + counts.quarantined,
+    invalid: counts.invalid + counts.quarantined + counts.discarded,
     normalized: counts.normalized,
   }
 }
@@ -1016,10 +1042,25 @@ export function assertBatchInvariant(
   // The FIELD shape, deliberately: this guard runs on a batch mid-construction, before the brand
   // is stamped, and it is tested directly against hand-made batches — which is the only way a
   // guard against a future caller can have a failing test at all.
-  batch: Pick<CollectionBatchFields, 'outcome' | 'coverage' | 'counts'>,
+  batch: Pick<CollectionBatchFields, 'outcome' | 'coverage' | 'counts' | 'observations'>,
 ): void {
   if (batch.outcome !== 'SUCCEEDED' && batch.coverage === 'FULL_INVENTORY') {
     throw new BatchInvariantError(`a ${batch.outcome} attempt cannot claim FULL_INVENTORY coverage`)
+  }
+  // THE COUNTS DESCRIBE THE OBSERVATIONS IN THE SAME BATCH, or they describe nothing. `normalized`
+  // is what we are handing over; `observations` is what we are handing over. One number, two
+  // places, and they were allowed to disagree (CR-M-5). Here rather than in
+  // `assertCountsBalanced` because this is the only invariant that needs both halves.
+  if (batch.counts.normalized !== batch.observations.length) {
+    throw new BatchInvariantError(
+      `counts.normalized=${batch.counts.normalized} does not match observations.length=${batch.observations.length}`,
+    )
+  }
+  // An attempt that threw a page away did not succeed — the only paths that discard a page are the
+  // ones that end the attempt with a failure. Stated as a guard because it is the half of
+  // `discarded`'s meaning a type cannot carry.
+  if (batch.outcome === 'SUCCEEDED' && batch.counts.discarded > 0) {
+    throw new BatchInvariantError('a SUCCEEDED attempt cannot have discarded a page')
   }
   assertCountsBalanced(batch.counts)
 }

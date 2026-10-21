@@ -87,7 +87,7 @@ describe('the outcome vocabulary is the store`s', () => {
         const facts: DerivationFacts = {
           stop,
           pagesCompleted,
-          counts: { raw: 0, normalized: 0, invalid: 0, quarantined: 0 },
+          counts: { raw: 0, normalized: 0, invalid: 0, quarantined: 0, discarded: 0 },
           scope: { namespace: 'b', query: null, configVersion: 1, window: null },
         }
         derived.add(deriveOutcome(facts))
@@ -140,7 +140,13 @@ describe('the counts projection satisfies the store`s report', () => {
   const SOURCE_ID = '11111111-1111-4111-8111-111111111111'
 
   it('completes into a report the store accepts', () => {
-    const projected = toStoredReportCounts({ raw: 10, normalized: 6, invalid: 3, quarantined: 1 })
+    const projected = toStoredReportCounts({
+      raw: 10,
+      normalized: 6,
+      invalid: 3,
+      quarantined: 1,
+      discarded: 0,
+    })
     const report = jobCollectionReportSchema.parse({
       sourceId: SOURCE_ID,
       outcome: 'SUCCEEDED',
