@@ -166,6 +166,7 @@ const APPROVE_STATES = new Set(['COMMENTED', 'APPROVED'])
  * @param {string} pr.owner         repository owner login (from `github.repository_owner`)
  * @param {string} pr.headSha       PR head commit sha
  * @param {string[]} pr.files       changed file paths
+ * @param {number} [pr.changedFiles] the PR's own `changed_files` count (detects a truncated list)
  * @param {Array<{author:string,state:string,body:string,commit_id:string,submitted_at:string}>} pr.reviews
  * @param {string[]} pr.labels      current label names
  * @param {Array<{actor:string,created_at:string}>} pr.labelEvents  `labeled` events for MERGE_LABEL
@@ -181,6 +182,12 @@ export function evaluate(pr) {
 
   const { author, owner, headSha, files, reviews, labels, labelEvents } = pr
   const critical = criticalPaths(files)
+  // The pull-request files API lists at most 3000 files. If the PR reports more changed files
+  // than were listed, the unlisted ones were never looked at — so the PR is treated as touching
+  // a critical path (fail-closed) instead of being judged on the part that was read.
+  if (typeof pr.changedFiles === 'number' && pr.changedFiles > files.length) {
+    critical.push({ path: `(${pr.changedFiles - files.length} changed files not listed by the API)`, glob: 'unlisted' })
+  }
 
   if (sameLogin(author, owner)) {
     return {

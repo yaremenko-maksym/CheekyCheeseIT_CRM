@@ -279,6 +279,15 @@ test('malformed input throws instead of passing (empty file list = the fetch did
   assert.throws(() => evaluate({ ...pr(), reviews: undefined }), /reviews must be an array/)
 })
 
+test('a truncated file list (changedFiles > listed) is treated as critical — fail-closed', () => {
+  const base = { reviews: [review()], files: ['apps/web/app/components/Button.tsx'] }
+  assert.equal(evaluate(pr({ ...base, changedFiles: 1 })).pass, true)
+  const r = evaluate(pr({ ...base, changedFiles: 3500 }))
+  assert.equal(r.pass, false)
+  assert.match(r.critical[0].path, /3499 changed files not listed/)
+  assert.equal(evaluate(pr({ ...base, changedFiles: 3500, reviews: [review(), SEC_APPROVE] })).pass, true)
+})
+
 // --- verdict parsing ---------------------------------------------------------------------------
 
 test('parseVerdicts tolerates markdown decoration and takes the first marker of each kind', () => {

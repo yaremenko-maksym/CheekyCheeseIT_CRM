@@ -1,0 +1,112 @@
+name: Review Gate
+
+# Additive process gate: a pull request by anyone other than the repository owner must carry the
+# owner account's review verdicts on its head commit before it can merge.
+#
+# WHY (audit 2026-10-21): every PR merged by the second, write-role collaborator reached `main`
+# with zero reviews, although each touched a critical-path zone (finance, Drizzle migrations,
+# webhooks, deploy workflows). Branch protection had no review requirement, `merge-approved` was
+# honoured from anyone with write access, and the review step existed only as procedure inside the
+# owner's own orchestration pipeline — which a collaborator working in another harness never runs.
+# Native "required reviews" do not fit: the owner authors most PRs and GitHub forbids approving
+# your own, with `enforce_admins` on.
+#
+# WHAT IS DECIDED: scripts/architect/review-gate.mjs (pure function, unit-tested in
+# review-gate.test.mjs, run on PRs by architect-scripts.yml). In short, for a non-owner author:
+#   - a review by the owner account whose verdict line is `Verdict: APPROVE`, on the head sha,
+#     with no owner `Verdict: BLOCK` after it;
+#   - if any critical-path file changed (globs in CRITICAL_PATH_GLOBS, derived from
+#     .claude/agents/contracts.md §2.1): also `Security Review: APPROVE` on the head sha;
+#   - if `merge-approved` is present, its latest application was by the owner.
+# Owner-authored PRs pass (their review runs in the Master pipeline). The owner login is
+# `github.repository_owner`, never hardcoded.
+#
+# TRUST MODEL — why `pull_request_target` and why nothing from the PR is executed:
+#   `pull_request_target` runs the workflow definition from the BASE branch, so a PR cannot
+#   weaken the gate that judges it (editing this file or review-gate.mjs in a PR changes nothing
+#   until that PR is merged — and both files are critical paths, so such a PR itself needs the
+#   owner's security approval). The job checks out `main` only, sparse, without credentials, and
+#   reads the PR exclusively through the REST API as data. It must NEVER check out, build, or run
+#   the PR's head — that is the classic `pull_request_target` compromise (the token and secrets of
+#   the base context in reach of untrusted code). No `${{ }}` expression carrying PR-controlled
+#   text is interpolated into a `run:` script; everything is passed through `env:`.
+#
+# WHY NOT `pull_request_review` AS A TRIGGER: that event runs the PR's own copy of the workflow
+#   (it has no `_target` variant), which is exactly the tamper path above. Re-evaluation after a
+#   review therefore happens on the next push or label change — in practice when the owner applies
+#   `merge-approved`, which is already the owner's step in the flow (contracts.md §1). The cost is
+#   that the check stays red between the review and the label; that is accepted on purpose.
+#
+# SPOOFING NOTE for whoever adds this context to branch protection: bind the required check to the
+#   GitHub Actions app (app_id 15368, as the four existing contexts are). An unbound context can be
+#   satisfied by a commit status any write-role user may post via the statuses API.
+#
+# No `paths:` filter and no `concurrency:` block, both on purpose: a required check must report on
+# every PR (a path-filtered required check leaves PRs "waiting for status"), and cancelling an
+# in-flight run would leave a `cancelled` conclusion that auto-merge reads as a hard failure. A run
+# takes seconds and is idempotent.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, labeled, unlabeled, ready_for_review]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+jobs:
+  gate:
+    name: Review Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout main (gate logic only — never the PR's code)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+          sparse-checkout: scripts/architect
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Every list is fetched with --paginate and then COUNTED in the log: an instrument that did
+      # not look must not report a negative (.claude/rules/common/verification-integrity.md). An
+      # empty file list is rejected by the script itself (a PR always changes at least one file).
+      - name: Fetch PR data (REST API, read-only)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+          OUT: ${{ runner.temp }}/pr-data.json
+        run: |
+          set -euo pipefail
+          files=$(gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files?per_page=100" --jq '.[].filename' | jq -R . | jq -s .)
+          reviews=$(gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100" \
+            --jq '.[] | {author: .user.login, state: .state, body: (.body // ""), commit_id: .commit_id, submitted_at: .submitted_at}' | jq -s .)
+          labels=$(gh api "repos/$REPO/issues/$PR_NUMBER" --jq '[.labels[].name]')
+          label_events=$(gh api --paginate "repos/$REPO/issues/$PR_NUMBER/events?per_page=100" \
+            --jq '.[] | select(.event == "labeled" and .label.name == "merge-approved") | {actor: .actor.login, created_at: .created_at}' | jq -s .)
+          jq -n \
+            --arg author "$PR_AUTHOR" --arg owner "$REPO_OWNER" --arg headSha "$HEAD_SHA" \
+            --argjson changedFiles "$CHANGED_FILES" \
+            --argjson files "$files" --argjson reviews "$reviews" \
+            --argjson labels "$labels" --argjson labelEvents "$label_events" \
+            '{author: $author, owner: $owner, headSha: $headSha, changedFiles: $changedFiles,
+              files: $files, reviews: $reviews, labels: $labels, labelEvents: $labelEvents}' >"$OUT"
+          echo "fetched: files=$(jq '.files | length' "$OUT") (PR reports $CHANGED_FILES)" \
+            "reviews=$(jq '.reviews | length' "$OUT")" \
+            "labels=$(jq '.labels | length' "$OUT")" \
+            "merge-approved-labeled-events=$(jq '.labelEvents | length' "$OUT")"
+
+      - name: Evaluate
+        env:
+          IN: ${{ runner.temp }}/pr-data.json
+        run: node scripts/architect/review-gate.mjs --input "$IN" --summary "$GITHUB_STEP_SUMMARY"
