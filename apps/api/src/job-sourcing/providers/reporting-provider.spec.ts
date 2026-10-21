@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   assertBatchInvariant,
+  assertValidatedConfig,
   assertCountsBalanced,
   buildCollectionBatch,
   buildInvalidSample,
@@ -43,7 +44,55 @@ function facts(overrides: Partial<DerivationFacts> = {}): DerivationFacts {
   return { stop: 'EXHAUSTED', pagesCompleted: 3, counts: clean, scope: scope(), ...overrides }
 }
 
+/**
+ * The REDACTED placeholder, asserted against its literal text ONCE. Everywhere else the tests use
+ * the imported constant — which on its own is a tautology: raise the constant and every assertion
+ * rises with it. One literal assertion is what anchors the rest.
+ */
+describe('the constants', () => {
+  it('redacts with the literal marker a reader of a log would recognise', () => {
+    expect(REDACTED).toBe('[REDACTED]')
+  })
+
+  it('samples at 200 characters and keeps at most 5 of them', () => {
+    expect(MAX_SAMPLE_CHARS).toBe(200)
+    expect(MAX_SAMPLES).toBe(5)
+    expect(MAX_REQUEST_REPORTS).toBe(200)
+  })
+})
+
+/** Every error class names itself, so a log line and an `instanceof`-free check both identify it. */
+describe('the error names', () => {
+  it('names CountsImbalanceError', () => {
+    expect(() =>
+      assertCountsBalanced({ raw: 1, normalized: 0, invalid: 0, quarantined: 0 }),
+    ).toThrow(expect.objectContaining({ name: 'CountsImbalanceError' }))
+  })
+
+  it('names BatchInvariantError', () => {
+    expect(() =>
+      assertBatchInvariant({ outcome: 'FAILED', coverage: 'FULL_INVENTORY', counts: clean }),
+    ).toThrow(expect.objectContaining({ name: 'BatchInvariantError' }))
+  })
+
+  it('names UnvalidatedConfigError', () => {
+    expect(() => assertValidatedConfig({ namespace: 'b', configVersion: 1 })).toThrow(
+      expect.objectContaining({ name: 'UnvalidatedConfigError' }),
+    )
+  })
+})
+
 describe('deriveOutcome', () => {
+  /**
+   * The reason `deriveOutcome` is an exhaustive switch and not a fall-through. A stop reason it
+   * does not recognise must not become a SUCCESS — that is the one answer it may never invent, and
+   * a fall-through `return 'SUCCEEDED'` invents it for every future branch that forgets to set one.
+   */
+  it('throws on a stop reason it does not recognise, rather than calling it a success', () => {
+    const bogus = facts({ stop: 'NOT_A_STOP' as StopReason })
+    expect(() => deriveOutcome(bogus)).toThrow(/unknown stop reason/)
+  })
+
   it('reports CANCELLED whatever else happened, because an aborted run claims nothing', () => {
     expect(deriveOutcome(facts({ stop: 'CANCELLED', pagesCompleted: 7 }))).toBe('CANCELLED')
   })
@@ -378,6 +427,18 @@ describe('buildInvalidSample', () => {
   it('records the page the bad item came from', () => {
     expect(buildInvalidSample(4, 'MAPPER_THREW', { a: 1 }, []).page).toBe(4)
   })
+
+  /** The REASON is bounded too, not only the sample: a Zod issue message can carry the offending
+   * value, and an unbounded reason is an unbounded log line. */
+  it('bounds the reason as well as the sample', () => {
+    const sample = buildInvalidSample(1, `ITEM_SCHEMA: ${'r'.repeat(400)}`, 'x', [])
+    expect(sample.reason).toHaveLength(MAX_SAMPLE_CHARS)
+  })
+
+  it('keeps a reason of exactly the cap whole', () => {
+    const sample = buildInvalidSample(1, 'r'.repeat(MAX_SAMPLE_CHARS), 'x', [])
+    expect(sample.reason).toBe('r'.repeat(MAX_SAMPLE_CHARS))
+  })
 })
 
 describe('decideCheckpoint', () => {
@@ -518,6 +579,16 @@ describe('config validation marker', () => {
   it('refuses a non-object', () => {
     expect(isValidatedConfig(null)).toBe(false)
     expect(isValidatedConfig('config')).toBe(false)
+  })
+
+  /**
+   * `undefined` specifically. A symbol lookup on a string or a number yields `undefined` and
+   * answers `false` anyway, so those two cases do not exercise the `typeof` guard at all — only
+   * `undefined` does, because a property lookup on it throws. Without the guard this call is a
+   * TypeError rather than a `false`.
+   */
+  it('refuses undefined without throwing', () => {
+    expect(isValidatedConfig(undefined)).toBe(false)
   })
 
   /**

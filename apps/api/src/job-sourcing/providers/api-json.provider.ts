@@ -345,7 +345,13 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
             headers: { ...pageRequest.request.headers, 'if-none-match': cached.etag },
           }
 
-    let bodyText: string
+    /**
+     * Stryker disable next-line StringLiteral: the failure paths below deliberately do NOT assign
+     * this, because `failure !== null` short-circuits before anything parses the body — so no
+     * test can observe what it holds on those paths. Declared once here instead of three times,
+     * which is also why there is one mutant to explain rather than four.
+     */
+    let bodyText = ''
     let status: number
     let failure: PageAttemptFailure | null = null
 
@@ -355,7 +361,6 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
       const statusCode = classifyStatus(status)
       if (statusCode !== null) {
         failure = { code: statusCode, message: `provider answered HTTP ${status}`, status }
-        bodyText = ''
       } else if (status === 304 && cached !== null) {
         // A valid 304 reuses the stored body rather than refetching it.
         bodyText = cached.bodyText
@@ -365,7 +370,6 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
           message: 'provider answered 304 for a request that carried no validator',
           status,
         }
-        bodyText = ''
       } else {
         bodyText = response.bodyText
         if (response.etag !== null && pageRequest.cacheKey !== undefined) {
@@ -376,7 +380,6 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
       // No response arrived. The reservation is UNCERTAIN, not RELEASED: a timeout may already
       // have been billed, and claiming otherwise would understate what we owe.
       status = 0
-      bodyText = ''
       failure = {
         code: ctx.signal.aborted ? 'CANCELLED' : 'TRANSIENT_NETWORK',
         message: error instanceof Error ? error.message : 'the request failed',
@@ -419,7 +422,7 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
             addSample,
             limits,
           )
-          if (pageResult.failure !== null) {
+          if (!pageResult.ok) {
             failure = { ...pageResult.failure, status }
           } else {
             const next: ValidatedCheckpoint = {
@@ -449,36 +452,39 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
                 status,
               }
             }
-          }
 
-          if (failure === null) {
-            requests.push(
-              buildRequestReport(
-                {
-                  attempt: 1,
-                  page: at.page,
-                  url: request.url,
-                  status,
-                  startedAt,
-                  endedAt: ctx.now(),
-                  cost,
-                  error: null,
-                },
-                ctx.secrets,
-              ),
-            )
-            const nextCursor = pageResult.nextCursor
-            if (nextCursor === null) {
-              stop = 'EXHAUSTED'
-              break
+            // Inside the branch where `pageResult` is known to have succeeded: the cursor it
+            // carries only exists on that branch, and reading it from outside was what forced a
+            // redundant re-check of a condition no test could falsify.
+            if (failure === null) {
+              requests.push(
+                buildRequestReport(
+                  {
+                    attempt: 1,
+                    page: at.page,
+                    url: request.url,
+                    status,
+                    startedAt,
+                    endedAt: ctx.now(),
+                    cost,
+                    error: null,
+                  },
+                  ctx.secrets,
+                ),
+              )
+              const nextCursor = pageResult.nextCursor
+              if (nextCursor === null) {
+                stop = 'EXHAUSTED'
+                break
+              }
+              if (seenCursors.has(nextCursor)) {
+                stop = 'CURSOR_CYCLE'
+                break
+              }
+              seenCursors.add(nextCursor)
+              at = { page: at.page + 1, cursor: nextCursor }
+              continue
             }
-            if (seenCursors.has(nextCursor)) {
-              stop = 'CURSOR_CYCLE'
-              break
-            }
-            seenCursors.add(nextCursor)
-            at = { page: at.page + 1, cursor: nextCursor }
-            continue
           }
         }
       }
@@ -513,11 +519,15 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
   })
 }
 
-interface PageObservations {
-  observations: SourceObservation[]
-  nextCursor: string | null
-  failure: { code: CollectionErrorCode; message: string } | null
-}
+/**
+ * A discriminated union rather than one record with a nullable `failure`. With the flat shape, the
+ * failure returns had to carry `observations: []` and `nextCursor: null` — fields the caller never
+ * reads on that branch, so no test could tell what they held. A shape that cannot express the
+ * contradiction needs no defending.
+ */
+type PageResult =
+  | { ok: true; observations: SourceObservation[]; nextCursor: string | null }
+  | { ok: false; failure: { code: CollectionErrorCode; message: string } }
 
 /**
  * Validate and observe one page's items. Mutates `counts` and the identity map, which is why it is
@@ -534,14 +544,13 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
   nativeIdByIdentityKey: Map<string, string>,
   addSample: (page: number, reason: string, raw: unknown) => void,
   limits: ApiJsonLimits,
-): Promise<PageObservations> {
+): Promise<PageResult> {
   let items: readonly unknown[]
   try {
     items = spec.extractItems(envelope, config)
   } catch (error) {
     return {
-      observations: [],
-      nextCursor: null,
+      ok: false,
       failure: {
         code: 'PARSE_DRIFT',
         message: error instanceof Error ? error.message : 'the items could not be extracted',
@@ -553,8 +562,7 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
     // The provider ignored the page size we asked for. Treating it as drift rather than silently
     // truncating keeps us from reporting a coverage we did not have.
     return {
-      observations: [],
-      nextCursor: null,
+      ok: false,
       failure: {
         code: 'PAYLOAD_TOO_LARGE',
         message: `page carried ${items.length} items, over the ${limits.maxItemsPerPage} cap`,
@@ -610,8 +618,7 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
         // `invalid`: we could not observe it as a distinct record.
         counts.invalid += 1
         return {
-          observations: [],
-          nextCursor: null,
+          ok: false,
           failure: {
             code: 'ADAPTER_INVARIANT',
             message: new AdapterIdentityCollisionError(identityKey, seen, nativeId).message,
@@ -633,8 +640,7 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
     nextCursor = spec.nextCursor(envelope, at)
   } catch (error) {
     return {
-      observations: [],
-      nextCursor: null,
+      ok: false,
       failure: {
         code: 'PARSE_DRIFT',
         message: error instanceof Error ? error.message : 'the next cursor could not be read',
@@ -642,7 +648,7 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
     }
   }
 
-  return { observations, nextCursor, failure: null }
+  return { ok: true, observations, nextCursor }
 }
 
 // ---------------------------------------------------------------------------

@@ -369,11 +369,24 @@ export interface DerivationFacts {
  * which is the distinction `deriveCoverage` exists to carry.
  */
 export function deriveOutcome(facts: DerivationFacts): CollectionOutcome {
-  if (facts.stop === 'CANCELLED') return 'CANCELLED'
-  if (facts.stop === 'ERROR' || facts.stop === 'COST_STOP') {
-    return facts.pagesCompleted > 0 ? 'PARTIAL' : 'FAILED'
+  // An exhaustive switch rather than a fall-through `return 'SUCCEEDED'`. With a fall-through, any
+  // unexpected stop reason — including one a future branch forgets to set — quietly becomes a
+  // SUCCESS, which is the one answer this function must never invent. Here it throws.
+  switch (facts.stop) {
+    case 'CANCELLED':
+      return 'CANCELLED'
+    case 'ERROR':
+    case 'COST_STOP':
+      return facts.pagesCompleted > 0 ? 'PARTIAL' : 'FAILED'
+    case 'EXHAUSTED':
+    case 'PAGE_CAP':
+    case 'CURSOR_CYCLE':
+      return 'SUCCEEDED'
+    default: {
+      const unexpected: never = facts.stop
+      throw new BatchInvariantError(`unknown stop reason: ${String(unexpected)}`)
+    }
   }
-  return 'SUCCEEDED'
 }
 
 /**
@@ -495,12 +508,10 @@ export type ValidatedSourceConfig = Validated<SourceConfigFields>
  * in Task 2.1, which asserted a VALUE's shape that nothing had checked.
  */
 export function markValidated<T extends SourceConfigFields>(config: T): Validated<T> {
-  Object.defineProperty(config, CONFIG_VALIDATED, {
-    value: true,
-    enumerable: false,
-    writable: false,
-    configurable: false,
-  })
+  // `writable` and `configurable` are omitted, not set to false: `defineProperty` already
+  // defaults both to false, and a value that cannot differ is a value no test can pin.
+  // `enumerable: false` IS stated, because it is load-bearing — see the spread test.
+  Object.defineProperty(config, CONFIG_VALIDATED, { value: true, enumerable: false })
   return config as Validated<T>
 }
 
