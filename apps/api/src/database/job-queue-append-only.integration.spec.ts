@@ -2347,17 +2347,58 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
     })
   })
 
-  describe('GAP PIN — the REASON_REDACTED evidence row', () => {
-    it('has no enum value to write, so the redaction logs to the server log instead', async () => {
+  // The GAP PIN that used to live here asserted the ABSENCE of the
+  // `REASON_REDACTED` enum value, so that the day it was added the pin would go
+  // red and point at the DDL header's "KNOWN DIVERGENCE ... (2 of 2)". r5 Task
+  // 1.4b-ii added it, the pin went red exactly as designed, and this is its
+  // positive counterpart: the same fact, asserted from the other side.
+  describe('the REASON_REDACTED evidence row is now writable', () => {
+    it('has its enum value, appended last so the existing members did not move', async () => {
       const { rows } = await q(
-        `SELECT count(*)::int AS n FROM pg_enum e
+        `SELECT array_agg(enumlabel ORDER BY enumsortorder) AS labels FROM pg_enum e
            JOIN pg_type t ON t.oid = e.enumtypid
-          WHERE t.typname = 'job_queue_action_kind' AND e.enumlabel = 'REASON_REDACTED'`,
+          WHERE t.typname = 'job_queue_action_kind'`,
       )
-      // When this goes red, the follow-up has landed: wire the INSERT into
-      // crm_retention_redact_action_reason() and delete this pin. See the DDL
-      // header, "KNOWN DIVERGENCE ... (2 of 2)".
-      expect(rows[0].n).toBe(0)
+      const labels = rows[0].labels as string[]
+      expect(labels).toContain('REASON_REDACTED')
+      expect(labels.at(-1)).toBe('REASON_REDACTED')
+      expect(labels).toHaveLength(14)
+    })
+
+    it('has the two CHECK branches the evidence row needs, and no third target hole', async () => {
+      const def = async (name: string) =>
+        (
+          await q(`SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conname = $1`, [
+            name,
+          ])
+        ).rows[0].def as string
+      const target = await def('ck_job_queue_actions_target')
+      const versions = await def('ck_job_queue_actions_versions')
+      // The branch that lets the row in...
+      expect(target).toContain('REASON_REDACTED')
+      expect(versions).toContain('REASON_REDACTED')
+      // ...and the exclusions that stop it ALSO satisfying the catch-all
+      // branches, which is what would make the new kind unconstrained.
+      expect(target).toMatch(/<>\s*'REASON_REDACTED'/)
+      expect(versions).toMatch(/<>\s*'REASON_REDACTED'/)
+    })
+
+    /**
+     * WHAT IS STILL NOT DISCHARGED, and why this is a pin rather than a test.
+     * The row is now WRITABLE; the redaction still cannot WRITE it, because
+     * `crm_retention_redact_action_reason` needs `UPDATE (reason)` and holds
+     * `SELECT, DELETE` — the `42501` the header describes. That grant is r5 Task
+     * 1.4b-iii, deliberately justified by this now-meaningful failing run. When
+     * the grant lands, the function appends the row and this pin goes red,
+     * pointing whoever lands it at the three places that still say "not
+     * discharged" (the DDL header, the memo's status, the r5 plan).
+     */
+    it('GAP PIN — the function still cannot write it: no INSERT wired, no UPDATE (reason) granted', async () => {
+      const { rows } = await q(
+        `SELECT pg_get_functiondef(oid) AS def FROM pg_proc
+          WHERE proname = 'crm_retention_redact_action_reason'`,
+      )
+      expect(rows[0].def).not.toContain('REASON_REDACTED')
     })
   })
 })
