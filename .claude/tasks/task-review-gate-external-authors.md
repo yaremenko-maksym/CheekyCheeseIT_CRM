@@ -214,3 +214,37 @@ docs-only pass · nothing declared fail (lists all steps) · each step: evidence
 pass / skip-with-short-reason fail · BLOCK after APPROVE fail · Security-Review required only on
 critical paths · Tests required only when product code changes · QA/Design only on UI paths ·
 Spec-Review only when Task declared · AC from last non-wip commit.
+
+### v3 amendments from Master during implementation (2026-10-21)
+
+1. **Docs-only means markdown only.** `isDoc(p) = p.endsWith('.md')`. Non-markdown `.claude/` files go
+   through the steps, and `.claude/hooks/**` plus `.claude/settings*.json` are critical paths.
+   Unit cases: `.claude/hooks/x.sh` alone is not docs-only and requires Security-Review;
+   `.claude/rules/x.md` alone is docs-only.
+2. **Renames:** fetch `{filename, previous_filename, status}` and classify both names. A rename or
+   deletion of a non-`.md` path is never docs-only.
+3. **Association:** verdicts count only from `OWNER` / `MEMBER` / `COLLABORATOR`, positive and
+   negative alike. The PR author is not excluded.
+4. **Completeness:** listed files and commits must equal the PR's `changed_files` / `commits`.
+   The check also fails at or above 3000 files / 250 commits, with a "could not read the whole PR"
+   message.
+5. **Not done:** binding verdicts to the head sha. Recorded as a known limitation in `contracts.md`
+   §4.1.
+6. **CI wiring fix:** `node --test 'scripts/architect/*.test.mjs'` (quoted glob). A bare directory
+   argument fails on Node 22 in CI.
+
+### Assumptions (A1, made while implementing v3)
+
+- `Copy-Review` evidence is read from reviews **and** PR comments, because `copy-reviewer.md` says
+  "the first line of the PR comment". Review, Security and Spec read reviews only, as the table says.
+- `Design-Review` accepts `PASS` (the real wording in `ui-ux-designer.md`) and `APPROVE` (the
+  table's wording). `POLISH-REQUESTED` counts as negative.
+- `QA` marker: `QA Verdict: PASS | FAIL`. `manual-qa.md` now posts it as a PR comment.
+- `Tests` evidence counts `.js`/`.mjs` test files too, and treats `.md` under `apps/` / `packages/`
+  as not product code. `AC` skips merge commits (parents > 1) as well as `wip` commits.
+- Root `AGENTS.md` was gitignored (#1033: turbo appends a managed block when an AI agent is
+  detected). Measured: turbo 2.11.7 **appends** its block to an existing file and keeps our
+  content. The ignore line is removed, and the file is committed with turbo's block, as turbo
+  itself advises. `.gitignore` and `.github/pull_request_template.md` are outside the Architect
+  write zone; both changes were requested by the owner through Master.
+
