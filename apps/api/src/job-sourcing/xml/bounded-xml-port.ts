@@ -74,6 +74,17 @@ export class BoundedXmlPort implements XmlPort {
     })
 
     if (!prescan.ok) {
+      // An unterminated start tag: the same `MALFORMED` the parser would have given, except the
+      // parse never happens. Measured at 147 ms of avoided `parseXml` work on a 1.6 MiB tag — see
+      // the comment at the refusal in `prescan.ts` for why that path existed and what leaked
+      // through it. The reason code is deliberately unchanged, so no caller sees a new failure
+      // mode; only the cost of this one changes.
+      if ('unterminated' in prescan) {
+        throw new XmlPortError(
+          'MALFORMED',
+          `XML has an unterminated start tag — input ended inside a <${prescan.unterminated}> with no closing '>'`,
+        )
+      }
       // Which bound the SCAN says it hit decides the reason, so a caller can tell "too big to
       // store" from "too big to parse in the time we allow" — the fixes are different, and so is
       // who raises the limit. This used to be inferred from which of two caps on one quantity was

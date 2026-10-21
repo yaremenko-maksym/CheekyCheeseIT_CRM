@@ -23,7 +23,22 @@
  * `PRESCAN_DIFFERENTIAL` at runtime if they ever differ. A divergence is therefore a red test or a
  * loud error, never a silently disabled bound.
  *
- * It deliberately does NOT validate. A malformed document is the parser's verdict to give
+ * WHY ONE UNTERMINATED CONSTRUCT IS REFUSED HERE AND THE OTHER FOUR ARE NOT
+ * ------------------------------------------------------------------------
+ * An unterminated PI, comment, CDATA section or markup declaration still ends the scan with
+ * `break`, under-counting whatever followed it — and that is deliberate, on a measurement rather
+ * than on a principle. Measured at 2 MiB on an M3, 2026-10-21: each of those shapes costs
+ * **1 ms** in `parseXml` before it comes back `MALFORMED`, because the parser refuses an
+ * unterminated construct as soon as it reaches the end of input without the terminator. There is
+ * no cost to bound, so bounding it would add a branch and a reason for nothing.
+ *
+ * An unterminated START TAG is the one exception, and it is refused at the point it is found: the
+ * same 2 MiB shape costs **147 ms**, and the attributes already inside the tag were being
+ * discarded by the `break` before they reached the item budget. The asymmetry is the measurement,
+ * not an oversight — if a future parser change makes any of the cheap four expensive, the fix is
+ * the same three lines, and the number above is what to re-measure.
+ *
+ * Otherwise it deliberately does NOT validate. A malformed document is the parser's verdict to give
  * (`MALFORMED` = drift); this scan only has to avoid UNDER-counting one.
  */
 
@@ -68,6 +83,13 @@ export type PrescanOutcome =
       readonly ok: false
       readonly exceeded: 'depth' | 'elements' | 'items'
     } & StructureMeasurement)
+  /**
+   * Input ran out INSIDE a start tag, so there is no measurement to report and the document is
+   * not well-formed. A separate arm from `exceeded` because nothing was exceeded — the scan simply
+   * cannot answer, and conflating "too big" with "unmeasurable" is how the second one gets
+   * treated as the first one's happy path. Which is exactly what happened: see `prescanStructure`.
+   */
+  | ({ readonly ok: false; readonly unterminated: 'start-tag' } & StructureMeasurement)
 
 /**
  * XML name start characters, restricted to what matters here: telling an element open tag from a
@@ -286,7 +308,28 @@ export function prescanStructure(text: string, budget: PrescanBudget): PrescanOu
     }
 
     const tag = endOfStartTag(text, i)
-    if (tag === null) break
+    if (tag === null) {
+      // AN UNTERMINATED START TAG IS REFUSED HERE, not handed on. It used to `break`, which looked
+      // harmless — the parser refuses such a document anyway, so the OUTCOME was already
+      // `MALFORMED` — and was not: `break` discarded the attributes already found inside the
+      // unterminated tag, so they never reached the `maxItems` check below, and the document went
+      // to the parser with a measurement of zero attributes. That is a path through the very bound
+      // this scan exists to enforce, in the quantity the bound was just extended to cover.
+      //
+      // MEASURED, M3, 2026-10-21: `<r><e a0="v" … a149999="v"` (1.6 MiB, 150 000 attributes, no
+      // `>`) scanned as `ok: true, attributeCount: 0`, then cost **147 ms** inside `parseXml`
+      // before coming back `MALFORMED`. The terminated form of the same document is refused by the
+      // budget in 9 ms. Both end in a refusal, so nothing wrong was ever ACCEPTED — what leaked
+      // was the cost, which is the only thing a pre-parse bound is for. 147 ms is inside the
+      // 250 ms budget on this machine; the two measurement tables in `xml-limits.ts` differ by
+      // ~9× on the same input, so it is not inside the budget on every machine.
+      //
+      // Counting the partial attributes and then testing `maxItems` would also work. Refusing is
+      // chosen because an unterminated start tag is MALFORMED by definition — no well-formed
+      // document reaches this line — so there is no behaviour to bound, and teaching a dead path
+      // to count is worse than deleting it. The reason code the caller sees is unchanged.
+      return { ok: false, unterminated: 'start-tag', maxDepth, elementCount, attributeCount }
+    }
     attributeCount += tag.attributeCount
 
     // The ITEM check is here, AFTER the tag has been walked, and that is not a hole worth closing.

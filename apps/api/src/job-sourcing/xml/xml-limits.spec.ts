@@ -190,6 +190,28 @@ describe('R-2: the item ceiling the wall-clock budget converts into', () => {
     )
   })
 
+  it('an UNTERMINATED tag cannot carry attributes past the bound', () => {
+    // The path that skipped the bound: the pre-scan used to return `ok` for this document with
+    // `attributeCount: 0`, so 150 000 attributes reached `parseXml` unmeasured and cost 147 ms
+    // before it answered `MALFORMED`. Both forms are refused now; the terminated one on the
+    // budget, the unterminated one as the malformed document it is, and neither is parsed.
+    const attributes = Array.from({ length: 150_000 }, (_, k) => `a${k}="v"`).join(' ')
+    expect(reasonOf(() => port.parseDocument(utf8(`<r><i ${attributes}/></r>`)))).toBe(
+      'TIME_BUDGET',
+    )
+    expect(reasonOf(() => port.parseDocument(utf8(`<r><i ${attributes}`)))).toBe('MALFORMED')
+  })
+
+  it('a well-formed document with attributes under the bound is still accepted', () => {
+    // The acceptance side of BOTH refusals above. Without it they are satisfied by a port that
+    // refuses every document carrying an attribute at all, which is the failure mode a test
+    // derived from a defect report walks straight into.
+    const attributes = Array.from({ length: 100 }, (_, k) => `a${k}="v"`).join(' ')
+    const document = port.parseDocument(utf8(`<r><i ${attributes}/></r>`))
+    expect(document.root.children).toHaveLength(1)
+    expect(document.elementCount).toBe(2)
+  })
+
   it('the element cap reports its OWN reason, distinct from the time budget', () => {
     // Distinguishable reasons are the point: "too big to parse in the time we allow" and "too big
     // to hold" have different fixes and different people raising them. The time budget is raised

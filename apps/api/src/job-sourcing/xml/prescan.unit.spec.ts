@@ -106,15 +106,27 @@ describe('unterminated constructs stop the scan instead of looping', () => {
     ['cdata', '<r><i/><![CDATA[ never closed'],
     ['processing instruction', '<r><i/><?php never closed'],
     ['markup declaration', '<r><i/><!ENTITY never closed'],
-    ['start tag', '<r><i/><open'],
     ['close tag', '<r><i/></open'],
   ])('an unterminated %s ends the scan with what was counted before it', (_name, xml) => {
     const outcome = prescanStructure(xml, GENEROUS)
-    // `ok: true` is correct and deliberate: the SCAN completed, it simply found nothing more. The
-    // document is malformed, and saying so is the parser's job — a scan that returned `ok: false`
-    // here would be reporting a budget breach that did not happen.
+    // `ok: true` is correct and deliberate FOR THESE FIVE: the SCAN completed, it simply found
+    // nothing more, and the document's malformedness is the parser's verdict to give. It is also
+    // measured rather than assumed — each of these shapes costs ~1 ms in `parseXml` at 2 MiB
+    // before it comes back `MALFORMED`, so there is no cost leaking through the `break`.
+    //
+    // THE START TAG IS NOT IN THIS LIST ANY MORE, and it used to be. Its `break` cost 147 ms of
+    // parse on a 1.6 MiB tag and discarded the attribute count on the way, so it had its own
+    // refusal and its own pair of tests below.
     expect(outcome.ok).toBe(true)
     expect(outcome.elementCount).toBeGreaterThanOrEqual(2)
+  })
+
+  it('an unterminated START tag is the one that is refused, not merely ended', () => {
+    expect(prescanStructure('<r><i/><open', GENEROUS)).toMatchObject({
+      ok: false,
+      unterminated: 'start-tag',
+      elementCount: 3,
+    })
   })
 
   /**
@@ -177,8 +189,12 @@ describe('unterminated constructs stop the scan instead of looping', () => {
   })
 
   it('an unterminated start tag does not count the element twice', () => {
+    // Still the original point — `<open` is counted once, not once for the name and once for a
+    // `>` that never arrives — but read off a refusal now rather than an `ok`. See the
+    // `unterminated` pair further down for why the `ok` was the defect and not the design.
     expect(prescanStructure('<r><open', GENEROUS)).toEqual({
-      ok: true,
+      ok: false,
+      unterminated: 'start-tag',
       maxDepth: 2,
       elementCount: 2,
       attributeCount: 0,
@@ -547,16 +563,52 @@ describe('the attribute count is the count of `=` outside quotes, exactly', () =
     expect(prescanStructure(text, GENEROUS).attributeCount).toBe(expected)
   })
 
-  it('an unterminated start tag contributes no attribute count', () => {
-    // The scan breaks out without reaching a `>`, so the partial tag's attributes are not added.
-    // The document is malformed and the parser will refuse it; what matters here is that the count
-    // does not grow from a tag the tree will never contain, which would be a false differential.
-    expect(prescanStructure('<r><i a="1"', GENEROUS)).toEqual({
+  // THIS PAIR REPLACES A TEST THAT ASSERTED THE DEFECT AS IF IT WERE THE DESIGN.
+  //
+  // The test here before read "an unterminated start tag contributes no attribute count", expected
+  // `ok: true, attributeCount: 0`, and explained that not counting a tag the tree will never
+  // contain avoids a false differential. Every clause of that was true, and the conclusion was
+  // wrong: the scan returned `ok`, so the document went PAST the item budget to the parser with
+  // its 150 000 attributes measured as zero — 147 ms of parse on a 1.6 MiB tag, measured. A test
+  // written to explain a `break` will always agree with the `break`.
+  //
+  // The acceptance side comes first and is the half that keeps the refusal honest: a TERMINATED
+  // tag with the same attributes must still be measured and still pass, or the fix is a wall.
+  it('a TERMINATED start tag is measured, whatever its attributes do', () => {
+    expect(prescanStructure('<r><i a="1" b="2"/></r>', GENEROUS)).toEqual({
       ok: true,
+      maxDepth: 2,
+      elementCount: 2,
+      attributeCount: 2,
+    })
+    // At the item budget exactly: 2 elements + 3 attributes = 5 items, and it passes.
+    expect(
+      prescanStructure('<r><i a="1" b="2" c="3"/></r>', { ...GENEROUS, maxItems: 5 }),
+    ).toMatchObject({ ok: true, attributeCount: 3 })
+  })
+
+  it('an UNTERMINATED start tag is refused rather than measured and passed on', () => {
+    // `unterminated`, not `exceeded`: nothing was exceeded, the scan has no answer. The partial
+    // count is still reported, because an operator reading the log wants to know how far it got.
+    expect(prescanStructure('<r><i a="1"', GENEROUS)).toEqual({
+      ok: false,
+      unterminated: 'start-tag',
       maxDepth: 2,
       elementCount: 2,
       attributeCount: 0,
     })
+  })
+
+  it('the refusal does not depend on the budget — a generous budget refuses it too', () => {
+    // The distinction that matters: this is not a bound being hit, it is a document that cannot be
+    // measured. A reader who raises every limit must still get the refusal.
+    expect(
+      prescanStructure(`<r><i ${manyAttributes(300)}`, {
+        maxDepth: Number.MAX_SAFE_INTEGER,
+        maxElements: Number.MAX_SAFE_INTEGER,
+        maxItems: Number.MAX_SAFE_INTEGER,
+      }),
+    ).toMatchObject({ ok: false, unterminated: 'start-tag' })
   })
 
   it('the ITEM budget counts elements and attributes together, and aborts at the breach', () => {
