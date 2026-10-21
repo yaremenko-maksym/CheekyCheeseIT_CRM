@@ -1477,7 +1477,22 @@ describe('finding a URL inside free text', () => {
     expect(out).toContain(' gave 500')
   })
 
-  it.each([...URL_END_CHARS].map((c) => [JSON.stringify(c), c] as const))(
+  /** Written out here, NOT read from `URL_END_CHARS`: a case list derived from the data under test
+   *  disappears when the data is mutated instead of failing. */
+  const EXPECTED_URL_END_CHARS = [' ', '\t', '\n', '\r', '"', "'", '<', '>', '\\', ')', ']', '}']
+  const EXPECTED_URL_TRAILING_PUNCTUATION = ['.', ',', ';', ':', '!', '?']
+
+  it('ends URLs at exactly the characters this test names', () => {
+    expect([...URL_END_CHARS].sort()).toEqual([...EXPECTED_URL_END_CHARS].sort())
+  })
+
+  it('trims exactly the trailing punctuation this test names', () => {
+    expect([...URL_TRAILING_PUNCTUATION].sort()).toEqual(
+      [...EXPECTED_URL_TRAILING_PUNCTUATION].sort(),
+    )
+  })
+
+  it.each(EXPECTED_URL_END_CHARS.map((c) => [JSON.stringify(c), c] as const))(
     'ends a URL at %s, leaving the character itself in place',
     (_label, delim) => {
       const out = redactText(`see https://api.example.com/j?token=abc123${delim}then`, [])
@@ -1487,7 +1502,7 @@ describe('finding a URL inside free text', () => {
     },
   )
 
-  it.each([...URL_TRAILING_PUNCTUATION].map((c) => [JSON.stringify(c), c] as const))(
+  it.each(EXPECTED_URL_TRAILING_PUNCTUATION.map((c) => [JSON.stringify(c), c] as const))(
     'does not swallow a trailing %s into the URL',
     (_label, punct) => {
       const out = redactText(`see https://api.example.com/j?page=1${punct} next`, [])
@@ -1551,5 +1566,95 @@ describe('finding a URL inside free text', () => {
     expect(out.startsWith(`${'Q'.repeat(run - absorbed)}${'q'.repeat(absorbed)}https://`)).toBe(
       true,
     )
+  })
+})
+
+describe('the userinfo scan and URL finder, branch by branch', () => {
+  /**
+   * The gate named each of these branches: an `@` with no colon, an `@` at the very start of a
+   * run, the slice bookkeeping that copies the text between credentials, and the `://` skip when
+   * no scheme letter precedes it. Each one decides whether a credential is found, so each gets an
+   * input rather than a suppression.
+   */
+
+  it('keeps the text between two credentials exactly, not just their markers', () => {
+    // Pins the `slice(copiedTo, runStart)` bookkeeping: a wrong index here silently drops or
+    // duplicates the text around a redaction.
+    expect(redactSecrets('L a:b@M c:d@R', [])).toBe(
+      `L ${REDACTED}:${REDACTED}@M ${REDACTED}:${REDACTED}@R`,
+    )
+  })
+
+  it('redacts a credential at the very start of the text', () => {
+    expect(redactSecrets('a:b@rest', [])).toBe(`${REDACTED}:${REDACTED}@rest`)
+  })
+
+  it('leaves a colon-free run before an `@` alone, however long', () => {
+    expect(redactSecrets(`${'n'.repeat(500)}@host`, [])).toBe(`${'n'.repeat(500)}@host`)
+  })
+
+  it('starts a fresh run after each `@`, so a later colon does not revive the earlier one', () => {
+    expect(redactSecrets('nocolon@then x:y@z', [])).toBe(`nocolon@then ${REDACTED}:${REDACTED}@z`)
+  })
+
+  it('finds a second URL after the first one ended', () => {
+    const out = redactText('https://a.example.com/?k=1 https://b.example.com/?k=2', [])
+
+    expect(out).toBe(`https://a.example.com/?k=${REDACTED} https://b.example.com/?k=${REDACTED}`)
+  })
+
+  it('does not rescan the text a URL already covered', () => {
+    // Two `://` inside one span: the second must not start a second span.
+    const out = redactText('https://a.example.com/x?u=https://b.example.com/y', [])
+
+    expect(out.match(/REDACTED/g) ?? []).toHaveLength(1)
+  })
+
+  it('leaves a `://` with no scheme letter at all as plain text', () => {
+    expect(redactText('x ://host/p?token=t1 y', [])).toContain('://host/p?token=t1')
+  })
+
+  it('trims only the trailing punctuation, not punctuation inside the URL', () => {
+    const out = redactText('see https://api.example.com/a.b.c?page=1.. end', [])
+
+    expect(out).toContain('a.b.c')
+    expect(out).toContain('page=1.. end')
+  })
+
+  it('reports a URL that is the whole text', () => {
+    expect(redactText('https://api.example.com/j?token=t1', [])).toBe(
+      `https://api.example.com/j?token=${REDACTED}`,
+    )
+  })
+})
+
+describe('every encoded form of a secret is generated', () => {
+  /**
+   * `secretForms` is a list of encodings; each `forms.add(...)` line is a mutant that only an
+   * input in THAT encoding can kill. The hostile secret below differs in every one of them, which
+   * is what makes the cases distinguishable at all — an alphanumeric secret has one form.
+   */
+  const SECRET = 'ab/cd+ef=gh&ij k'
+
+  it('produces a different string in each encoding, or the cases below prove nothing', () => {
+    const forms = new Set([
+      SECRET,
+      encodeURIComponent(SECRET),
+      encodeURI(SECRET),
+      new URLSearchParams([['v', SECRET]]).toString().slice('v='.length),
+      Buffer.from(SECRET, 'utf8').toString('base64'),
+      Buffer.from(SECRET, 'utf8').toString('base64url'),
+    ])
+
+    expect(forms.size).toBe(6)
+  })
+
+  it('ignores a secret whose every form is one character or shorter', () => {
+    // The `length > 1` filter: a single character would redact the whole report and say nothing.
+    expect(redactSecrets('https://a.example.com/x', ['a'])).toBe('https://a.example.com/x')
+  })
+
+  it('redacts a two-character secret, which is just inside the filter', () => {
+    expect(redactSecrets('q=ab', ['ab'])).toBe(`q=${REDACTED}`)
   })
 })
