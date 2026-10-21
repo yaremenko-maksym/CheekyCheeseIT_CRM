@@ -65,6 +65,42 @@ const good = (over = {}) => ({
 const status = (r, key) => r.steps.find((s) => s.key === key)?.status
 const failureFor = (r, key) => r.failures.find((f) => f.startsWith(`${key} —`))
 
+test('SR-M-4: the template skip block un-commented without editing → every Skip-* rejected, FAIL', () => {
+  const here = dirname(fileURLToPath(import.meta.url))
+  const template = readFileSync(
+    join(here, '..', '..', '.github', 'pull_request_template.md'),
+    'utf8',
+  )
+  const open = '<!-- To skip a step, move its line out of this comment block and write the reason.'
+  assert.ok(template.includes(open), 'template skip block opener moved; update this test')
+  const start = template.indexOf(open)
+  const end = template.indexOf('-->', start)
+  const block = template.slice(start + open.length, end)
+  const body = template.slice(0, start) + block + template.slice(end + 3)
+  assert.match(body, /^Skip-Security-Review: <.*> \(required on/m)
+  const r = ev({
+    files: ['apps/api/src/auth/auth.service.ts', 'apps/api/src/auth/auth.service.spec.ts'],
+    body,
+    reviews: [rv('Verdict: APPROVE')],
+    comments: [],
+    commits: [commit('feat(auth): x\n\nac_verified: 1')],
+  })
+  assert.equal(r.pass, false)
+  assert.equal(r.skips.length, 0)
+  assert.equal(status(r, 'Security-Review'), 'missing')
+  assert.match(failureFor(r, 'Security-Review'), /template placeholder/)
+})
+
+test('SR-M-4: a real skip reason still passes', () => {
+  const r = ev(
+    good({
+      reviews: [rv('Spec Review: PASS')],
+      body: `${FULL_BODY}Skip-Review: docs-only rename of a constant\n`,
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'skipped')
+})
+
 // --- docs-only and "nothing declared" ----------------------------------------------------------
 
 test('docs-only diff → pass, no steps evaluated', () => {

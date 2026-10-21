@@ -246,8 +246,12 @@ export function bodyLine(body, key) {
   return m ? m[1].trim() : null
 }
 
-/** A template placeholder such as `<why there is no plan>` is not a reason. */
-export const isPlaceholder = (value) => /^<.*>$/.test(String(value ?? '').trim())
+/**
+ * A template placeholder such as `<why there is no plan>` is not a reason. The template's hint
+ * lines carry a trailing `(required when …)` parenthetical after the slot, so anything that
+ * starts with `<` and still holds a `>` is the unedited slot.
+ */
+export const isPlaceholder = (value) => /^<.*>/.test(String(value ?? '').trim())
 
 // ---------------------------------------------------------------------------------------------
 // Verdict markers
