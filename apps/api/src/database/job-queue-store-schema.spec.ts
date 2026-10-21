@@ -563,7 +563,7 @@ describe('job_queue_actions (AC4)', () => {
 
   it('targets a subscription, an opportunity, or a redacted action row, by kind, in three branches', () => {
     expect(checkSql(t, 'ck_job_queue_actions_target')).toBe(
-      `("kind" IN ('TRIAGE_SUBSCRIBED', 'TRIAGE_UNSUBSCRIBED') AND "opportunity_id" IS NULL AND "subscription_id" IS NOT NULL AND "source_record_id" IS NULL AND "subject_action_id" IS NULL) OR ("kind" = 'REASON_REDACTED' AND "subject_action_id" IS NOT NULL AND "opportunity_id" IS NULL AND "subscription_id" IS NULL AND "source_record_id" IS NULL) OR ("kind" NOT IN ('TRIAGE_SUBSCRIBED', 'TRIAGE_UNSUBSCRIBED') AND "kind" <> 'REASON_REDACTED' AND "opportunity_id" IS NOT NULL AND "subscription_id" IS NULL AND "subject_action_id" IS NULL)`,
+      `("kind" IN ('TRIAGE_SUBSCRIBED', 'TRIAGE_UNSUBSCRIBED') AND "opportunity_id" IS NULL AND "subscription_id" IS NOT NULL AND "source_record_id" IS NULL AND "subject_action_id" IS NULL) OR ("kind" = 'REASON_REDACTED' AND "subject_action_id" IS NOT NULL AND "subject_action_id" <> "id" AND "opportunity_id" IS NULL AND "subscription_id" IS NULL AND "source_record_id" IS NULL) OR ("kind" NOT IN ('TRIAGE_SUBSCRIBED', 'TRIAGE_UNSUBSCRIBED') AND "kind" <> 'REASON_REDACTED' AND "opportunity_id" IS NOT NULL AND "subscription_id" IS NULL AND "subject_action_id" IS NULL)`,
     )
   })
 

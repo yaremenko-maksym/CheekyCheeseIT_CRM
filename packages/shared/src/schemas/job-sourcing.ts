@@ -1113,6 +1113,9 @@ export const jobQueueActionWorkerSchema = z
     // action row it is about and nothing outside this log.
     const onRedactedAction =
       a.subjectActionId !== null &&
+      // SR-M-2: not itself. An evidence row that is its own subject is not
+      // evidence of anything.
+      a.subjectActionId !== a.id &&
       a.opportunityId === null &&
       a.subscriptionId === null &&
       a.sourceRecordId === null

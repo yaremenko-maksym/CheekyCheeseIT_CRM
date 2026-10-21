@@ -428,14 +428,21 @@ const subscribed = {
   beforeVersion: 0,
   afterVersion: 1,
 }
-/** The redaction evidence row (r5 Task 1.4b-ii): it names an action row, nothing else. */
+/**
+ * The redaction evidence row (r5 Task 1.4b-ii): it names an action row, nothing
+ * else. The subject is its OWN constant and deliberately not `U1`, which is
+ * this fixture's own `id` — a redaction may not be its own subject (SR-M-2),
+ * and reusing `U1` here made the baseline fixture violate that the moment the
+ * clause landed.
+ */
+const SUBJECT_ACTION = '88888888-9999-4aaa-8bbb-cccccccccccc'
 const redaction = {
   ...opened,
   kind: 'REASON_REDACTED',
   opportunityId: null,
   sourceRecordId: null,
   subscriptionId: null,
-  subjectActionId: U1,
+  subjectActionId: SUBJECT_ACTION,
   beforeVersion: null,
   afterVersion: null,
   idempotencyKey: 'dsar-2026-000123',
@@ -720,6 +727,17 @@ describe('jobQueueActionWorkerSchema — REASON_REDACTED points at an action row
     expect(
       jobQueueActionWorkerSchema.safeParse({ ...redaction, subjectActionId: U3 }).success,
     ).toBe(true)
+  })
+
+  it('STILL REFUSES a redaction that names ITSELF as its subject (SR-M-2)', () => {
+    // Self-evidence is not evidence. Admitted by the first draft of this branch,
+    // found by security review, and now refused on both sides.
+    expectOnlyIssue(
+      jobQueueActionWorkerSchema,
+      { ...redaction, subjectActionId: redaction.id },
+      TARGET,
+      ['subjectActionId'],
+    )
   })
 
   it('refuses a subject action id that is not a uuid', () => {

@@ -915,6 +915,23 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
         expect(rows[0].subject_action_id).toBe('ffffffff-eeee-4ddd-8ccc-bbbbbbbbbbbb')
       })
 
+      it('STILL REFUSES a redaction that names ITSELF as its subject (SR-M-2)', async () => {
+        // Needs an explicit `id`, so it bypasses `insertAction` rather than
+        // widening that helper for one case: the row must be born with its own
+        // id already in `subject_action_id`.
+        const self = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+        const err = await rejected(
+          `INSERT INTO job_queue_actions
+             (id, kind, actor_id, scope_kind, team_id, subject_action_id, idempotency_key)
+           VALUES ($1, 'REASON_REDACTED', $2, 'TEAM', $3, $1, $4)`,
+          [self, hr, teamA, nextTag()],
+        )
+        expect(err).toEqual({
+          code: CHECK_VIOLATION,
+          constraint: 'ck_job_queue_actions_target',
+        })
+      })
+
       it('STILL REFUSES a redaction that names no subject action', async () => {
         expect(await actionRefused({ ...redactionOf(subject), subjectAction: null })).toEqual({
           code: CHECK_VIOLATION,

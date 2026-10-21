@@ -637,6 +637,14 @@ export const jobQueueActions = pgTable(
     index('idx_job_queue_actions_source_record').on(t.sourceRecordId),
     index('idx_job_queue_actions_subscription').on(t.subscriptionId),
     check('ck_job_queue_actions_scope_shape', scopeShape(t.scopeKind, t.teamId)),
+    // SR-M-2. `subject_action_id <> id` — a redaction may not name ITSELF as its
+    // subject. An evidence row that is its own subject is not evidence of
+    // anything, and it was admitted by the first draft of this branch. Both
+    // operands are non-NULL where it is evaluated (`id` is the primary key and
+    // the branch has already required the subject), so there is no UNKNOWN trap
+    // here of the kind the versions CHECK documents. It needs no foreign key, so
+    // none of the purge reasoning above changes.
+    //
     // Three branches now (r5 Task 1.4b-ii). The two pre-existing ones are
     // NARROWED, not widened: each gains `subject_action_id IS NULL`, so the new
     // column belongs to the redaction kind alone. And the last branch's guard
@@ -646,7 +654,7 @@ export const jobQueueActions = pgTable(
     check(
       'ck_job_queue_actions_target',
       sql`(${t.kind} IN ${SUBSCRIPTION_KINDS} AND ${t.opportunityId} IS NULL AND ${t.subscriptionId} IS NOT NULL AND ${t.sourceRecordId} IS NULL AND ${t.subjectActionId} IS NULL)
-          OR (${t.kind} = 'REASON_REDACTED' AND ${t.subjectActionId} IS NOT NULL AND ${t.opportunityId} IS NULL AND ${t.subscriptionId} IS NULL AND ${t.sourceRecordId} IS NULL)
+          OR (${t.kind} = 'REASON_REDACTED' AND ${t.subjectActionId} IS NOT NULL AND ${t.subjectActionId} <> ${t.id} AND ${t.opportunityId} IS NULL AND ${t.subscriptionId} IS NULL AND ${t.sourceRecordId} IS NULL)
           OR (${t.kind} NOT IN ${SUBSCRIPTION_KINDS} AND ${t.kind} <> 'REASON_REDACTED' AND ${t.opportunityId} IS NOT NULL AND ${t.subscriptionId} IS NULL AND ${t.subjectActionId} IS NULL)`,
     ),
     // An implication, not a pair: the source record is optional elsewhere (r5).
