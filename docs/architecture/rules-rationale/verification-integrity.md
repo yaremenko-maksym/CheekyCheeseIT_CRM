@@ -1,11 +1,11 @@
 # Rationale: verification-integrity
 
 > Rule: `.claude/rules/common/verification-integrity.md`
-> Written 2026-10-21, after the owner asked for the class to be closed following the seventh instance
+> Written 2026-10-21, after the owner asked for the class to be closed following the seventh instance (an eighth arrived the same day and is recorded below)
 > in one day.
 
 This file exists because the next person to meet one of these will otherwise reinvent the analysis
-from one instance and patch that instance. The seven below are **one class with two shapes**, and the
+from one instance and patch that instance. The eight below are **one class with two shapes**, and the
 two shapes want different answers. Per `doc-durability.md` they are recorded as **behaviour** — what
 the instrument did, and what made it wrong — not as coordinates.
 
@@ -16,7 +16,7 @@ the instrument did, and what made it wrong — not as coordinates.
 > An instrument reported a negative or a success when it had not actually looked, and nothing
 > distinguished "clean" from "did not run".
 
-What makes it a class rather than seven bugs: in every instance the **consumer of the result was
+What makes it a class rather than eight bugs: in every instance the **consumer of the result was
 correct given its input**. Nothing malfunctioned. A counter that is handed an empty input correctly
 reports zero; a chain that receives exit 0 correctly proceeds. The defect is that the input was
 empty, or the status was from elsewhere, **for a reason the consumer could not see** — and no
@@ -24,7 +24,7 @@ instrument in the path was obliged to say so.
 
 ---
 
-## 2. The seven instances, as measured facts
+## 2. The eight instances, as measured facts
 
 Numbered as the owner reported them, so the numbering can be cited.
 
@@ -66,12 +66,39 @@ terminated on "nothing pending" — a condition that is also true _before_ anyth
 terminating condition that does not distinguish "not started" from "finished clean" will always fire
 at the start.** — _Shape A._
 
+**(8) An agent's claim about its own diff, defeated by a shared branch ref and a whole-tree index.**
+Reported after the first seven, the same day. An agent asserted that its five commits "touch only
+test files". Two of them also **reverted another agent's work in files it never meant to edit.** The
+mechanism is worth recording precisely, because it defeats the obvious guard:
+
+- **A branch ref is shared across worktrees.** A sibling agent committing on the same branch moves
+  the ref beneath you, while **your own HEAD reflog stays silent** — nothing in your worktree's own
+  history records the move, so there is no local signal to notice.
+- **The git index is a whole-tree snapshot, not a diff against HEAD.** So an index populated earlier
+  still holds the _old_ copies of files the sibling has since changed. Committing writes those old
+  blobs — reverting the sibling — **even though every `git add` named only the intended files.**
+  Staging by explicit name is necessary and not sufficient: it controls what you _add_, not what the
+  index already carries.
+- **Fetching before the push cannot reveal it**, which is the part that makes this one nasty. The
+  sibling's commit is already an **ancestor** through the shared local ref, so there is nothing
+  behind-upstream to report and no non-fast-forward to refuse. Every remote-side check reads clean.
+
+The check that catches it is **`git show --stat HEAD` on your own commit, before asserting anything
+about it** — the commit's own file list, rather than the list you intended. This is shape (B) applied
+to a claim about one's own diff: `git add` succeeding is the exit status, and the commit's file list
+is the artifact. — _Shape B._
+
+> Recorded as instance 8 because it is the same class, not a git curiosity: the instrument (one's own
+> memory of what was staged) reported a negative — "no other files" — having never looked. It also
+> sharpens the rule's `git commit` row, which until this instance asked only whether the branch head
+> had _moved_. A head that moved is not evidence of _what_ moved with it.
+
 ### What the shapes are, and why they split
 
 | Shape                                                                       | Instances  | The mechanism                                                                                           |
 | --------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------- |
 | **(A)** failure on an unread channel, silence consumed as a negative answer | 4, 5, 6, 7 | `producer 2>/dev/null \| counter`; a counter inside `&&`; a terminating condition true before the start |
-| **(B)** exit 0 without the artifact                                         | 1, 2, 3    | the status is from the wrong command, or from a command that did not do its job                         |
+| **(B)** exit 0 without the artifact                                         | 1, 2, 3, 8 | the status is from the wrong command, or from a command that did not do its job                         |
 
 They split because the **answer** differs. (B) is closed by naming the artifact for each operation —
 a positive obligation, decidable only after the fact, and already implemented twice in this
@@ -232,13 +259,23 @@ The decision above is contingent on measurements, so it should be revisited if a
 3. **Instance 1 is reproduced** with an identified trigger that is decidable before the command runs.
    Then a gate for that specific trigger is justified, and this time with the artifact measured on
    both sides first.
-4. **A `post:bash:*` artifact check becomes cheap to own** — which first requires settling whether a
+4. **Instance 8 recurs.** Unlike the two candidates measured down, this one has a predicate that is
+   decidable _before_ the command and needs no artifact that does not exist yet: when a commit is
+   about to be made on a branch whose ref has moved since this worktree last observed it, say so.
+   The shared-ref condition is a fact a hook can read, the false-positive population looks small
+   (a deliberate commit onto a sibling's advanced ref is rare and the message would be advisory, not
+   a refusal), and the cost of the miss here is **another agent's work reverted** — which is the one
+   cost in this whole class that is not cheaply recoverable, and therefore the one place where the
+   asymmetry argument in section 5 might come out the other way. Not built here: it arrived after the
+   design was measured, and a gate deserves its own measurement rather than a rider on this one.
+5. **A `post:bash:*` artifact check becomes cheap to own** — which first requires settling whether a
    `post-*` hook's test may live where the test runner already sweeps, given the Architect zone is
    written in terms of `test-pre-*`.
 
 ## 9. Sources
 
-- The seven instances: the owner's report of 2026-10-21, following the seventh in one day. Each one's
+- Instances 1-7: the owner's report of 2026-10-21, following the seventh in one day. Instance 8: the
+  owner's report later the same day. Each one's
   "what it actually did" is the owner's measurement, not a reconstruction.
 - The one-occurrence measurement of the (A) conjunction: a search of every `.sh`, `.mjs` and `.yml`
   under the repository's script, workflow and hook directories, run on `origin/main` at the time of
