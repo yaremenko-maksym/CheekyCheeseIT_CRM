@@ -114,6 +114,18 @@ describe('the constants', () => {
     expect(MAX_SAMPLES).toBe(5)
     expect(MAX_REQUEST_REPORTS).toBe(200)
   })
+
+  /**
+   * The URL cap and its marker, anchored to literals for the reason the `REDACTED` note above
+   * gives. Every other assertion about the cap compares against the imported constants, which on
+   * their own is a tautology — and the mutation gate said so: it emptied the whole
+   * `DROPPED_URL_TOO_LONG` template and every test still passed, because both sides of
+   * `toBe(DROPPED_URL_TOO_LONG)` became `''` together.
+   */
+  it('drops an over-long URL at 2048 characters, with the bound named in the marker', () => {
+    expect(MAX_REPORT_URL_CHARS).toBe(2048)
+    expect(DROPPED_URL_TOO_LONG).toBe('[REDACTED] (url dropped: over 2048 characters)')
+  })
 })
 
 /** Every error class names itself, so a log line and an `instanceof`-free check both identify it. */

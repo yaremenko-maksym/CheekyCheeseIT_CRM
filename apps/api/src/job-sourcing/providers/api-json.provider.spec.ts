@@ -2521,3 +2521,64 @@ describe('one attempt covers one board', () => {
     expect(batch.scope.namespace).toBe('board-b')
   })
 })
+
+/**
+ * The last way out of the reserve→reconcile span: the reconcile itself. Not a finding of this
+ * round — found re-reading the `finally` that the findings produced.
+ */
+describe('a meter that cannot be reconciled loses the reservation, not the batch', () => {
+  const metered = { unit: 'REQUEST' as const, amountPerRequest: 1 }
+
+  const brokenReconcile = (h: Harness, failOnCall: number): void => {
+    let calls = 0
+    h.ctx.meter.reconcile = async () => {
+      calls += 1
+      if (calls === failOnCall) throw new Error('the meter ledger is unreachable')
+    }
+  }
+
+  it('resolves rather than rejecting when reconcile throws', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    brokenReconcile(h, 1)
+
+    await expect(
+      collectJsonPages(makeSpec({ meter: metered }), config(), h.ctx),
+    ).resolves.toBeDefined()
+  })
+
+  it('reports the meter failure as ours', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    brokenReconcile(h, 1)
+    const batch = await collectJsonPages(makeSpec({ meter: metered }), config(), h.ctx)
+
+    const last = batch.requests.at(-1)
+    expect(last?.error?.code).toBe('PERSISTENCE')
+    expect(last?.error?.message).toContain('the reservation could not be reconciled')
+  })
+
+  it('keeps the pages that already landed', async () => {
+    const h = harness({
+      pages: [
+        { body: { jobs: [job('1')], next: 'c2' } },
+        { body: { jobs: [job('2')], next: null } },
+      ],
+    })
+    // Page one reconciles; page two's does not.
+    brokenReconcile(h, 2)
+    const batch = await collectJsonPages(makeSpec({ meter: metered }), config(), h.ctx)
+
+    expect(batch.outcome).toBe('PARTIAL')
+    expect(batch.observations).toHaveLength(1)
+    expect(batch.counts.normalized).toBe(batch.observations.length)
+  })
+
+  it('does not overwrite the reason the page itself failed', async () => {
+    // The page failed with a 429 AND the reconcile then threw. The reported code is the one that
+    // explains the page, not the bookkeeping that failed after it.
+    const h = harness({ pages: [{ status: 429 }] })
+    brokenReconcile(h, 1)
+    const batch = await collectJsonPages(makeSpec({ meter: metered }), config(), h.ctx)
+
+    expect(batch.requests.at(-1)?.error?.code).toBe('RATE_LIMIT')
+  })
+})

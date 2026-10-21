@@ -149,8 +149,8 @@ export interface SourceCoverageScope {
  * `raw` back would claim we never received items we did receive.
  *
  * So the attempt/kept distinction is a FIELD, and `raw` stays honest. A page that fails after its
- * items were observed moves its own `normalized` into `discarded` — see `addPageCounts` in
- * `api-json.provider.ts`, which is the only place the choice is made.
+ * items were observed moves its own `normalized` into `discarded` — see `keepPageCounts` /
+ * `discardPageCounts` in `api-json.provider.ts`, which are the only places the choice is made.
  *
  * INVARIANT: `raw === normalized + invalid + quarantined + discarded`. Enforced by
  * `assertCountsBalanced`, which is what lets `toStoredReportCounts` hand the collector a

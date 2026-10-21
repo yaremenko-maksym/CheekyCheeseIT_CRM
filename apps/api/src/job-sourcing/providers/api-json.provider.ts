@@ -258,32 +258,42 @@ const emptyPageCounts = (): PageCounts => ({
 })
 
 /**
- * Add ONE page's dispositions to the attempt's, and decide where its `normalized` goes. THE ONLY
- * PLACE THAT CHOICE IS MADE.
+ * WHERE ONE PAGE'S DISPOSITIONS JOIN THE ATTEMPT'S, in two functions because there are two
+ * answers and the difference is one line.
  *
- * `observePage` used to increment the attempt's counts in place, which meant the decision was
- * taken before its outcome was known: items observed on a page that then failed stayed counted as
+ * `observePage` used to increment the attempt's counts in place, which meant the choice was made
+ * before its outcome was known: items observed on a page that then failed stayed counted as
  * `normalized` while their observations were thrown away, so `counts.normalized` and
  * `observations.length` disagreed on exactly the pages that failed (CR-M-5 = SPEC-M-3). A page's
- * counts are therefore PROVISIONAL until the page lands, and "lands" means its `savePage`
- * resolved — not merely that its items parsed.
+ * counts are PROVISIONAL until the page lands, and "lands" means its `savePage` resolved — not
+ * merely that its items parsed.
  *
- * `raw`, `invalid` and `quarantined` are unaffected by the disposition: we did receive those items
- * and the reason each was refused does not change because the page later failed.
+ * WHY TWO FUNCTIONS RATHER THAN ONE WITH A `'KEPT' | 'DISCARDED'` PARAMETER: the mutation gate
+ * reported the parameter's two call sites as surviving mutants, and it was right. `'DISCARDED'`
+ * mutated to `''` behaves identically, because the only value the function tested for was
+ * `'KEPT'` — so the union had one observable member and one catch-all, which is a boolean wearing
+ * a vocabulary. Suppressing that would have hidden a shape that invites a third member nothing
+ * would branch on. Split, there is no argument to get wrong and both lines that differ are
+ * reachable and asserted.
  */
-function addPageCounts(
-  total: CollectionCounts,
-  page: PageCounts,
-  disposition: 'KEPT' | 'DISCARDED',
-): void {
+function addReceived(total: CollectionCounts, page: PageCounts): void {
+  // Unaffected by which of the two follows: we did receive these items, and the reason each was
+  // refused does not change because the page later failed.
   total.raw += page.raw
   total.invalid += page.invalid
   total.quarantined += page.quarantined
-  if (disposition === 'KEPT') {
-    total.normalized += page.normalized
-  } else {
-    total.discarded += page.normalized
-  }
+}
+
+/** The page landed. Its observations are in the batch, so they are what the batch `normalized`. */
+function keepPageCounts(total: CollectionCounts, page: PageCounts): void {
+  addReceived(total, page)
+  total.normalized += page.normalized
+}
+
+/** The page did not land. Its observations were thrown away, so they are `discarded`. */
+function discardPageCounts(total: CollectionCounts, page: PageCounts): void {
+  addReceived(total, page)
+  total.discarded += page.normalized
 }
 
 function widenScope(scope: SourceCoverageScope, overlapMs: number): SourceCoverageScope {
@@ -691,7 +701,31 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
             }
     } finally {
       if (reservation !== null) {
-        await ctx.meter.reconcile(reservation, resolution)
+        /**
+         * THE RECONCILE ITSELF CAN THROW, and that was the last way out of this span that lost
+         * the attempt. Not one of the round's findings — found while re-reading the `finally` the
+         * findings produced — but the same defect exactly one line further on: the meter port
+         * rejecting left `collectJsonPages` rejecting, so every page already persisted went
+         * unreported, and the reservation was unresolved either way.
+         *
+         * There is nothing to do about the unresolved reservation from here: the one call that
+         * could resolve it is the call that failed. What CAN be saved is the batch, so the
+         * attempt ends reporting a `PERSISTENCE` failure (our storage, not the provider's) and
+         * the pages already persisted stand. Reporting beats rejecting, because an operator
+         * needs to know the meter is unresolved precisely when it is.
+         *
+         * A failure already set is NOT overwritten: it says why the page failed, which is more
+         * informative than the bookkeeping that failed afterwards.
+         */
+        try {
+          await ctx.meter.reconcile(reservation, resolution)
+        } catch (error) {
+          failure ??= {
+            code: 'PERSISTENCE',
+            message: `the reservation could not be reconciled: ${error instanceof Error ? error.message : 'the meter failed'}`,
+            status: null,
+          }
+        }
         reservation = null
       }
     }
@@ -729,7 +763,7 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
           )
           if (!pageResult.ok) {
             // The page's items were received and then thrown away with the page.
-            addPageCounts(counts, pageResult.counts, 'DISCARDED')
+            discardPageCounts(counts, pageResult.counts)
             failure = { ...pageResult.failure, status }
           } else {
             /**
@@ -825,7 +859,7 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
               // page whose `savePage` rejects is the SECOND instance of CR-M-5 — the reviewer
               // named the observe-failure path, and this one has the same shape — and it is why
               // the merge lives here rather than beside `observePage`.
-              addPageCounts(counts, pageResult.counts, 'KEPT')
+              keepPageCounts(counts, pageResult.counts)
               checkpoint = next
               pagesCompleted += 1
             } catch (error) {
@@ -833,7 +867,7 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
               // `counts.invalid` (AC3) — those items go to `discarded`, the bucket for "received,
               // observed, then lost with the page". The page is not counted as completed, so the
               // checkpoint still names the last page that really landed.
-              addPageCounts(counts, pageResult.counts, 'DISCARDED')
+              discardPageCounts(counts, pageResult.counts)
               failure = {
                 code: 'PERSISTENCE',
                 message: error instanceof Error ? error.message : 'the page could not be persisted',
