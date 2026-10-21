@@ -6,8 +6,17 @@ import { DEFAULT_JSON_LIMITS, type JsonLimits } from './bounded-json'
  * unaware of pagination.
  */
 export interface ApiJsonLimits extends JsonLimits {
-  /** Hard ceiling on pages per attempt. Hitting it is a bound, not a failure — see
-   * `deriveCoverage`: on a SEARCH scope it is a WINDOW, on a full-inventory scope PARTIAL. */
+  /**
+   * Hard ceiling on pages PER ATTEMPT — counted from the page the attempt started on, not from
+   * page one, so a resumed attempt gets a full bound of its own and every run makes progress.
+   * Hitting it is a bound, not a failure: see `deriveCoverage`, where a SEARCH scope keeps WINDOW
+   * and a full-inventory scope drops to PARTIAL.
+   *
+   * MUST BE >= 1. A zero would make the bound fire before the first request, which is the
+   * zero-fetch stall that the per-attempt counting exists to prevent — an adapter precondition,
+   * stated here rather than clamped in the loop, because silently treating 0 as 1 would hide a
+   * misconfigured adapter instead of surfacing it.
+   */
   maxPages: number
   /** More items on one page than this is drift: the provider ignored the page size we asked for,
    * and truncating silently would report a coverage we did not have. */

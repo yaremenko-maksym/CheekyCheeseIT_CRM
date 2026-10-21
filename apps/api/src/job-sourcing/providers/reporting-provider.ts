@@ -224,8 +224,14 @@ export type RequestReport = RequestReportFields & { readonly [REPORT_BUILT]: tru
  * `token|key|secret`: the names a credential travels under are per provider and unknowable from
  * here, while the names that are genuinely boring are few and shared. Across 25 adapters a
  * denylist is a list of the leaks we happened to think of.
+ *
+ * EXPORTED so the tests can iterate it. Unexported, each of these thirty literals was a mutant no
+ * assertion could reach: mutate `'per_page'` to `''` and nothing fails, because no test named
+ * `per_page`. Thirty surviving mutants is the gate telling us the data was untested, not that the
+ * gate was wrong — `reporting-provider.spec.ts` now drives both halves (every key keeps its value,
+ * and a key NOT in the set loses it) off this export.
  */
-const REPORTABLE_QUERY_KEYS: ReadonlySet<string> = new Set([
+export const REPORTABLE_QUERY_KEYS: ReadonlySet<string> = new Set([
   'page',
   'per_page',
   'pagesize',
@@ -270,7 +276,20 @@ const REPORTABLE_QUERY_KEYS: ReadonlySet<string> = new Set([
  * this bound can never reach a report. Bounding the INPUT is therefore free, and it is the layer
  * that holds even if a future regex here is accidentally superlinear again.
  */
-export const MAX_REDACTION_INPUT_CHARS = 8192
+export const MAX_REDACTION_INPUT_CHARS = 1_048_576
+
+/**
+ * What a field becomes when it is too long to redact. A MARKER, not a truncation.
+ *
+ * THE PRINCIPLE THIS ENCODES: a bound that cannot be satisfied DROPS the field; it never emits a
+ * partially-redacted one. Three bypasses in the first attempt at bounding this code all failed the
+ * same way — open. `text.slice(0, bound)` before redaction can cut a registered secret in half,
+ * and the surviving PREFIX matches no registered form, so it is emitted; a `{1,256}` quantifier
+ * stops matching a 300-character password entirely, so the whole credential is emitted; a
+ * `{4,1024}` token cap redacts the first 1024 characters and emits the tail. In each case the
+ * input that defeats the bound is the input an attacker chooses.
+ */
+export const DROPPED_TOO_LONG = `${REDACTED} (field dropped: too long to redact)`
 
 /**
  * `Basic`/`Bearer` and friends, wherever they appear — a header echoed into an error message is
@@ -281,7 +300,7 @@ export const MAX_REDACTION_INPUT_CHARS = 8192
  * still recognised as one token and removed whole. Registered secrets now run first — see
  * `redactSecrets` — so this is the normal case, not an edge one.
  */
-const AUTH_SCHEME_RE = /\b(Basic|Bearer|Token|ApiKey)\s+([A-Za-z0-9+/=._~[\]-]{4,1024})/gi
+const AUTH_SCHEME_RE = /\b(Basic|Bearer|Token|ApiKey)\s+([A-Za-z0-9+/=._~[\]-]{4,})/gi
 
 /**
  * `user:password@` wherever it appears, not only where `URL` calls it userinfo.
@@ -293,18 +312,56 @@ const AUTH_SCHEME_RE = /\b(Basic|Bearer|Token|ApiKey)\s+([A-Za-z0-9+/=._~[\]-]{4
  * wherever it occurs costs us the occasional `a:b@c` in a path, which is the safe direction to err
  * in.
  *
- * THE QUANTIFIERS ARE BOUNDED, and that is a denial-of-service fix rather than tidiness. The first
- * edition of this regex was `([^\s:/?#@]+):([^\s:/?#@]+)@` — unbounded — which on input shaped
- * `'a:' + 'b'.repeat(n)` (allowed characters, one colon, NO `@`) backtracks one character at a
- * time from every start position. Measured: 119 ms at 10 KB, 2 786 ms at 50 KB, 11 773 ms at
- * 100 KB — clean O(n²), and this text comes from the provider. The same input with `{1,256}` runs
- * in 10 / 55 / 122 ms.
+ * IT IS A HAND-WRITTEN LINEAR SCAN RATHER THAN A REGEX, after this one pattern produced two
+ * separate defects in two attempts:
  *
- * Note what the first edition's tests did NOT catch: they asserted the redacted OUTPUT, which is
- * correct in both versions. A timing assertion with a real input is the only thing that separates
- * them, so there is one.
+ *  1. As `([^\s:/?#@]+):([^\s:/?#@]+)@` it was QUADRATIC. On input shaped `'a:' + 'b'.repeat(n)`
+ *     — allowed characters, one colon, no `@` — the second group scans to the end and backtracks
+ *     one character at a time from every start position. Measured: 119 ms at 10 KB, 2 786 ms at
+ *     50 KB, 11 773 ms at 100 KB, and this text comes from the provider's own error body, after
+ *     the byte cap has already been spent. A hostile feed could hang the collector.
+ *  2. Capping the quantifiers to `{1,256}` made it linear and opened a BYPASS: a 300-character
+ *     password produces no match at all, so the entire credential is emitted verbatim. A
+ *     300-character username matched but redacted only its last 256 characters — a partial leak
+ *     that reads as success, because the output did change and the full credential is absent.
+ *
+ * The scan has neither problem and needs no cap: one pass, each character examined once, every
+ * length handled. The cost is obvious from the code rather than from a measurement — which, having
+ * been surprised by this pattern twice, is the property worth paying for.
+ *
+ * It redacts a slightly wider shape than the regex did (`a:b:c@` becomes one marker rather than
+ * matching only `b:c@`). Redacting more is the safe direction.
  */
-const USERINFO_RE = /([^\s:/?#@]{1,256}):([^\s:/?#@]{1,256})@/g
+function redactUserinfo(text: string): string {
+  const out: string[] = []
+  let copiedTo = 0
+  let runStart = 0
+  let runHasColon = false
+
+  // A run of candidate userinfo characters ends at whitespace or at any of `/ ? #`. `:` stays
+  // INSIDE the run — it is the separator that makes the run a credential.
+  const endsRun = (c: string): boolean =>
+    c === '/' || c === '?' || c === '#' || c === ' ' || c === '\t' || c === '\n' || c === '\r'
+
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i]
+    if (ch === '@') {
+      if (runHasColon && i > runStart) {
+        out.push(text.slice(copiedTo, runStart), `${REDACTED}:${REDACTED}`)
+        copiedTo = i
+      }
+      runStart = i + 1
+      runHasColon = false
+    } else if (ch === ':') {
+      runHasColon = true
+    } else if (endsRun(ch ?? '')) {
+      runStart = i + 1
+      runHasColon = false
+    }
+  }
+  out.push(text.slice(copiedTo))
+  return out.join('')
+}
 
 /** Enough of a URL to find one inside free text (an error message, a bad item's JSON). */
 const URL_IN_TEXT_RE = /\b[a-z][a-z0-9+.-]*:\/\/[^\s"'<>\\)\]}]+/gi
@@ -356,9 +413,7 @@ function redactRegisteredSecrets(text: string, secrets: readonly string[]): stri
 
 /** The structural passes: shapes that are credentials whether or not anyone registered them. */
 function redactStructural(text: string): string {
-  return text
-    .replace(AUTH_SCHEME_RE, (_m, scheme: string) => `${scheme} ${REDACTED}`)
-    .replace(USERINFO_RE, `${REDACTED}:${REDACTED}@`)
+  return redactUserinfo(text.replace(AUTH_SCHEME_RE, (_m, s: string) => `${s} ${REDACTED}`))
 }
 
 export function redactSecrets(text: string, secrets: readonly string[]): string {
@@ -367,8 +422,10 @@ export function redactSecrets(text: string, secrets: readonly string[]): string 
   // `USERINFO_RE` into `[REDACTED]:[REDACTED]@ss-tail` BEFORE the secret loop ran, so `ss-tail`
   // was no longer part of any registered form, matched nothing, and survived into the report. The
   // structural passes destroy the very text the secret loop needs to recognise, so they go last.
-  const bounded = text.slice(0, MAX_REDACTION_INPUT_CHARS)
-  return redactStructural(redactRegisteredSecrets(bounded, secrets))
+  // DROPPED, not truncated — see `DROPPED_TOO_LONG`. Truncating first can cut a registered secret
+  // in half and emit the prefix, which is the bypass this replaced.
+  if (text.length > MAX_REDACTION_INPUT_CHARS) return DROPPED_TOO_LONG
+  return redactStructural(redactRegisteredSecrets(text, secrets))
 }
 
 /**
@@ -384,9 +441,10 @@ export function redactSecrets(text: string, secrets: readonly string[]): string 
  * structural pass.
  */
 export function redactUrl(url: string, secrets: readonly string[]): string {
+  if (url.length > MAX_REDACTION_INPUT_CHARS) return DROPPED_TOO_LONG
   let parsed: URL
   try {
-    parsed = new URL(url.slice(0, MAX_REDACTION_INPUT_CHARS))
+    parsed = new URL(url)
   } catch {
     return `${REDACTED} (unparsable url)`
   }
@@ -414,15 +472,14 @@ export function redactUrl(url: string, secrets: readonly string[]): string {
  * credentialed URL of its own (SR-L-3) — neither is a "url field", so neither reached `redactUrl`.
  */
 export function redactText(text: string, secrets: readonly string[]): string {
-  const withUrlsRedacted = text
-    .slice(0, MAX_REDACTION_INPUT_CHARS)
-    .replace(URL_IN_TEXT_RE, (match) => {
-      // A URL found in text usually ends in a delimiter the regex could not know about; trailing
-      // punctuation is trimmed back so the parse succeeds on the URL rather than on the sentence.
-      const trimmed = match.replace(/[.,;:!?]+$/, '')
-      const tail = match.slice(trimmed.length)
-      return redactUrl(trimmed, secrets) + tail
-    })
+  if (text.length > MAX_REDACTION_INPUT_CHARS) return DROPPED_TOO_LONG
+  const withUrlsRedacted = text.replace(URL_IN_TEXT_RE, (match) => {
+    // A URL found in text usually ends in a delimiter the regex could not know about; trailing
+    // punctuation is trimmed back so the parse succeeds on the URL rather than on the sentence.
+    const trimmed = match.replace(/[.,;:!?]+$/, '')
+    const tail = match.slice(trimmed.length)
+    return redactUrl(trimmed, secrets) + tail
+  })
   return redactSecrets(withUrlsRedacted, secrets)
 }
 

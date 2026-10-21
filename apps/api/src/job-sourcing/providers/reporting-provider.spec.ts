@@ -16,7 +16,9 @@ import {
   isValidatedConfig,
   markValidated,
   MAX_CURSOR_CHARS,
+  DROPPED_TOO_LONG,
   MAX_REDACTION_INPUT_CHARS,
+  REPORTABLE_QUERY_KEYS,
   MAX_REQUEST_REPORTS,
   MAX_SAMPLE_CHARS,
   MAX_SAMPLES,
@@ -1069,10 +1071,10 @@ describe('redaction cannot be made to hang by the text it redacts', () => {
     expect(Date.now() - started).toBeLessThan(1_000)
   })
 
-  it('bounds its input, so text beyond the bound cannot reach a report', () => {
-    const out = redactSecrets('x'.repeat(MAX_REDACTION_INPUT_CHARS + 500), [])
+  it('DROPS a field past the bound rather than emitting a truncated one', () => {
+    const out = redactSecrets(`${'x'.repeat(MAX_REDACTION_INPUT_CHARS)}SECRETTAIL`, ['SECRETTAIL'])
 
-    expect(out.length).toBe(MAX_REDACTION_INPUT_CHARS)
+    expect(out).toBe(DROPPED_TOO_LONG)
   })
 })
 
@@ -1124,5 +1126,207 @@ describe('the registered-secret pass runs BEFORE the structural ones', () => {
     const out = redactSecrets('Authorization: Basic Ym9iOmh1bnRlcjI=', ['bob', 'hunter2'])
 
     expect(out).toBe(`Authorization: Basic ${REDACTED}`)
+  })
+})
+
+describe('every redaction bound is asserted AT and PAST its limit', () => {
+  /**
+   * THE DEFECT CLASS THIS SECTION EXISTS FOR. Three bounds added while fixing a quadratic regex
+   * all failed OPEN, and every one would have been caught by a single over-the-bound case:
+   *
+   *  - `{4,1024}` on an auth token redacted the first 1024 characters and EMITTED THE TAIL.
+   *  - `{1,256}` on userinfo stopped matching a 300-character password entirely, emitting the
+   *    whole credential; a 300-character username matched but left its first 44 characters in the
+   *    output — a partial leak that reads as success, because the output did change and the full
+   *    credential is absent. So these assert on the CONTENT, never merely that something changed.
+   *  - `slice(0, bound)` before redaction cut a registered secret in half and emitted the prefix.
+   *
+   * The rule the tests encode: a bound that cannot be satisfied DROPS the field. Nothing is ever
+   * emitted partially redacted.
+   */
+
+  describe('an auth-scheme token, at any length', () => {
+    it.each([4, 1023, 1024, 1025, 4096])('redacts a %s-character Bearer token whole', (n) => {
+      const token = 'a'.repeat(n)
+      const out = redactSecrets(`Authorization: Bearer ${token}`, [])
+
+      expect(out).toBe(`Authorization: Bearer ${REDACTED}`)
+      expect(out).not.toContain('aa')
+    })
+
+    it('leaves no tail of an over-long token', () => {
+      const out = redactSecrets(`Bearer ${'z'.repeat(5000)}`, [])
+
+      expect(out).not.toContain('z')
+    })
+
+    it('still redacts a token separated by several spaces', () => {
+      expect(redactSecrets('Bearer    abcd1234', [])).toBe(`Bearer ${REDACTED}`)
+    })
+  })
+
+  describe('userinfo, at any length', () => {
+    it.each([1, 255, 256, 257, 300, 4096])('redacts a %s-character PASSWORD whole', (n) => {
+      // 'Z' cannot occur anywhere else in this URL, so the needle means what it says — unlike a
+      // 'p', which `?page=1` supplies for free.
+      const password = 'Z'.repeat(n)
+      const out = redactUrl(`https://user:${password}@api.example.com/j?page=1`, [])
+
+      // Content, not "it changed": the capped version emitted this credential in FULL.
+      expect(out).not.toContain(password)
+      expect(out).not.toContain('Z')
+      expect(out).toContain('api.example.com')
+    })
+
+    it.each([1, 255, 256, 257, 300, 4096])('redacts a %s-character USERNAME whole', (n) => {
+      const username = 'Y'.repeat(n)
+      const out = redactUrl(`https://${username}:pw@api.example.com/j?page=1`, [])
+
+      // The capped version matched here but kept the username's FIRST characters — the partial
+      // leak that passes a "did it change" assertion.
+      expect(out).not.toContain('Y')
+      expect(out).not.toContain(username)
+    })
+
+    /**
+     * THE PATH WHERE THE CAP ACTUALLY BIT. A parseable URL is already handled by
+     * `URL.username` / `URL.password`, which have no length limit — so a `redactUrl` test cannot
+     * tell the capped version from the scan. Free text can: there is no parse, only the structural
+     * pass, and that is where a 300-character credential went out verbatim.
+     */
+    it.each([1, 255, 256, 257, 300, 4096])(
+      'redacts a %s-character PASSWORD in free text, where no URL parse helps',
+      (n) => {
+        const password = 'Q'.repeat(n)
+        const out = redactText(`fetch failed for bob:${password}@host/x`, [])
+
+        expect(out).not.toContain('Q')
+      },
+    )
+
+    it.each([1, 255, 256, 257, 300, 4096])(
+      'redacts a %s-character USERNAME in free text, asserting on content',
+      (n) => {
+        const username = 'W'.repeat(n)
+        const out = redactText(`fetch failed for ${username}:pw@host/x`, [])
+
+        // The capped version matched and redacted only the LAST 256 characters, leaving the first
+        // ones in the output while the assertion "the whole credential is absent" still held.
+        expect(out).not.toContain('W')
+      },
+    )
+  })
+
+  describe('a field past the redaction budget', () => {
+    const overBudget = (tail: string) => `${'x'.repeat(MAX_REDACTION_INPUT_CHARS)}${tail}`
+
+    it.each([
+      ['free text', (t: string) => redactText(t, ['SECRETTAIL'])],
+      ['a registered-secret pass', (t: string) => redactSecrets(t, ['SECRETTAIL'])],
+    ])('drops %s rather than emitting a half-redacted version', (_name, redact) => {
+      const out = redact(overBudget('SECRETTAIL'))
+
+      expect(out).toBe(DROPPED_TOO_LONG)
+      expect(out).not.toContain('xxxx')
+    })
+
+    it('drops an over-budget URL', () => {
+      const url = `https://api.example.com/j?page=1&pad=${'x'.repeat(MAX_REDACTION_INPUT_CHARS)}`
+
+      expect(redactUrl(url, [])).toBe(DROPPED_TOO_LONG)
+    })
+
+    it('still processes a field exactly AT the budget', () => {
+      const atBudget = 'x'.repeat(MAX_REDACTION_INPUT_CHARS)
+
+      expect(redactSecrets(atBudget, [])).toBe(atBudget)
+    })
+
+    it('never emits a prefix of a secret the bound cut in half', () => {
+      // The `slice`-before-redact bypass: the secret straddles the budget, so truncating would
+      // leave `SECRET` (matching no registered form) in the output.
+      const straddling = `${'x'.repeat(MAX_REDACTION_INPUT_CHARS - 3)}SECRETVALUE`
+      const out = redactSecrets(straddling, ['SECRETVALUE'])
+
+      expect(out).toBe(DROPPED_TOO_LONG)
+      expect(out).not.toContain('SECRET')
+    })
+  })
+})
+
+describe('the reportable-query allowlist, both halves', () => {
+  /**
+   * Thirty string literals in `REPORTABLE_QUERY_KEYS` survived mutation: turn `'per_page'` into
+   * `''` and nothing failed, because no test named `per_page`. The gate was right — the data was
+   * untested. Driving the test off the exported set covers every entry and keeps covering new ones.
+   */
+  /**
+   * WRITTEN OUT INDEPENDENTLY, not derived from `REPORTABLE_QUERY_KEYS`. The first version of this
+   * block was `it.each([...REPORTABLE_QUERY_KEYS])`, which is tautological in the exact way the
+   * mutation gate exposes: mutating `'per_page'` to `''` does not FAIL the per-key test, it
+   * DELETES it — the case list came from the mutated data — so the mutant survived with the suite
+   * green. The expected value has to come from somewhere the mutation cannot reach.
+   */
+  const EXPECTED_REPORTABLE_KEYS = [
+    'page',
+    'per_page',
+    'pagesize',
+    'page_size',
+    'limit',
+    'offset',
+    'start',
+    'cursor',
+    'after',
+    'before',
+    'q',
+    'query',
+    'search',
+    'keywords',
+    'sort',
+    'order',
+    'direction',
+    'from',
+    'to',
+    'since',
+    'until',
+    'date',
+    'updated_at',
+    'location',
+    'category',
+    'remote',
+    'format',
+    'lang',
+    'locale',
+    'version',
+    'v',
+  ]
+
+  it('is exactly the set this test names, entry for entry', () => {
+    expect([...REPORTABLE_QUERY_KEYS].sort()).toEqual([...EXPECTED_REPORTABLE_KEYS].sort())
+  })
+
+  it.each(EXPECTED_REPORTABLE_KEYS)('keeps the value of the reportable key `%s`', (key) => {
+    const out = redactUrl(`https://api.example.com/j?${key}=keepme7`, [])
+
+    expect(out).toContain(`${key}=keepme7`)
+    expect(out).not.toContain(REDACTED)
+  })
+
+  it.each(EXPECTED_REPORTABLE_KEYS)('has `%s` lowercased, since lookup lowercases', (key) => {
+    expect(key).toBe(key.toLowerCase())
+  })
+
+  it.each(['token', 'api_key', 'secret', 'password', 'hmac', 'anything_else'])(
+    'redacts the value of `%s`, which is not on the allowlist',
+    (key) => {
+      const out = redactUrl(`https://api.example.com/j?${key}=keepme7`, [])
+
+      expect(out).not.toContain('keepme7')
+      expect(out).toContain(REDACTED)
+    },
+  )
+
+  it('matches an allowlisted key case-insensitively', () => {
+    expect(redactUrl('https://api.example.com/j?PAGE=2', [])).toContain('PAGE=2')
   })
 })
