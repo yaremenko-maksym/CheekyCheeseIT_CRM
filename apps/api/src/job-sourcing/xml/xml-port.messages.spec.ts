@@ -17,6 +17,7 @@
 import { describe, expect, it } from 'vitest'
 import { encodeUtf16Le, encodeWindows1251, utf8 } from '../../test/xml-corpus'
 import { BoundedXmlPort } from './bounded-xml-port'
+import { XML_NAMESPACE, XMLNS_NAMESPACE } from './namespaces'
 import { DEFAULT_XML_LIMITS, MAX_XML_BYTES, MAX_XML_DEPTH } from './xml-limits'
 import { XmlPortError } from './xml-port'
 
@@ -204,5 +205,125 @@ describe('a successful parse reports what it actually did', () => {
   it('depth and elementCount are the real figures, not placeholders', () => {
     const document = port.parseDocument(utf8('<r><a><b/></a><c/></r>'))
     expect(document).toMatchObject({ depth: 3, elementCount: 4 })
+  })
+})
+
+/**
+ * The namespace-conformance messages, each naming WHICH rule and WHAT tripped it.
+ *
+ * Not message-polishing. Four of these refusals share one reason code (`RESERVED_NAMESPACE`) and
+ * two share another (`MALFORMED_QNAME`), so the reason alone does not tell a feed owner what to
+ * change — and the port already learned this lesson once, when `TOO_MANY_BYTES` was found to be
+ * two different investigations wearing one code (this file's own header).
+ *
+ * It is also what makes the rules TESTED rather than merely reachable. `<r xmlns="…xmlns/"/>` is
+ * refused by two independent checks — the declaration check here, and the adapter's "an element
+ * may not carry the xmlns namespace" — and they emit the same reason code. A test asserting only
+ * the code passes with either one deleted; the mutation gate found exactly that, as six surviving
+ * mutants across `reservedNamespaceName` and the five throw sites. The message is the only thing
+ * that distinguishes which check fired, so asserting it is what pins each check individually.
+ */
+describe('namespace refusals say which rule and which name', () => {
+  it.each([
+    [
+      'the xml namespace as the default',
+      `<r xmlns="${XML_NAMESPACE}"/>`,
+      'RESERVED_NAMESPACE',
+      /makes the reserved xml namespace the default/,
+    ],
+    [
+      'the xmlns namespace as the default',
+      `<r xmlns="${XMLNS_NAMESPACE}"/>`,
+      'RESERVED_NAMESPACE',
+      /makes the reserved xmlns namespace the default/,
+    ],
+    [
+      'the xmlns prefix declared',
+      '<r xmlns:xmlns="http://example.com/x"/>',
+      'RESERVED_NAMESPACE',
+      /xmlns prefix must not be declared/,
+    ],
+    [
+      'another prefix bound to the xml namespace',
+      `<r xmlns:q="${XML_NAMESPACE}"><q:x/></r>`,
+      'RESERVED_NAMESPACE',
+      /prefix "q" may not be bound to the reserved xml namespace/,
+    ],
+    [
+      'another prefix bound to the xmlns namespace',
+      `<r xmlns:q="${XMLNS_NAMESPACE}"><q:x/></r>`,
+      'RESERVED_NAMESPACE',
+      /prefix "q" may not be bound to the reserved xmlns namespace/,
+    ],
+    [
+      'the xml prefix rebound',
+      '<r xmlns:xml="http://example.com/o"/>',
+      'RESERVED_NAMESPACE',
+      /xml prefix may not be rebound to "http:\/\/example\.com\/o"/,
+    ],
+    [
+      'an element prefixed xmlns',
+      '<r><xmlns:t>x</xmlns:t></r>',
+      'RESERVED_NAMESPACE',
+      /may not use the xmlns prefix/,
+    ],
+    [
+      'a declaration whose prefix has a colon',
+      '<r xmlns:a:b="http://example.com/d"/>',
+      'MALFORMED_QNAME',
+      /has a colon in its prefix/,
+    ],
+    [
+      'an attribute named exactly xmlns:',
+      '<r xmlns:="http://example.com/d"/>',
+      'MALFORMED_QNAME',
+      /declares an empty prefix/,
+    ],
+    [
+      'two colons in a name',
+      '<r><a:b:c/></r>',
+      'MALFORMED_QNAME',
+      /"a:b:c" has more than one colon/,
+    ],
+    ['a leading colon', '<r><:x/></r>', 'MALFORMED_QNAME', /":x" has a leading or trailing colon/],
+    [
+      'a prefix undeclared with an empty value',
+      '<r xmlns:p=""/>',
+      'PREFIX_UNDECLARING',
+      /xmlns:p="" undeclares a prefix/,
+    ],
+    [
+      'two attributes with one expanded name',
+      '<r xmlns:a="http://e/u" xmlns:b="http://e/u" a:x="1" b:x="2"/>',
+      'DUPLICATE_ATTRIBUTE',
+      /has a:x and b:x, two attributes with the same expanded name/,
+    ],
+    [
+      'an undeclared prefix on an element',
+      '<r><ghost:t/></r>',
+      'UNDECLARED_PREFIX',
+      /uses prefix "ghost", which is not declared in scope/,
+    ],
+  ])('%s → %s, and the message says so', (_case, xml, reason, pattern) => {
+    const error = refusal(() => port.parseDocument(utf8(xml)))
+    expect(error.reason).toBe(reason)
+    expect(error.message).toMatch(pattern as RegExp)
+  })
+
+  it('every one of those messages cites the section it comes from, or names the rule', () => {
+    // The messages are read by whoever has to fix a feed. A reason code plus "invalid" sends them
+    // to a search engine; a section number sends them to the spec. Asserted as a blanket so a
+    // message added later without one is caught.
+    for (const xml of [
+      `<r xmlns="${XML_NAMESPACE}"/>`,
+      '<r xmlns:xmlns="http://example.com/x"/>',
+      '<r xmlns:xml="http://example.com/o"/>',
+      '<r><xmlns:t>x</xmlns:t></r>',
+      '<r xmlns:p=""/>',
+      '<r xmlns:a:b="http://example.com/d"/>',
+      '<r xmlns:="http://example.com/d"/>',
+    ]) {
+      expect(refusal(() => port.parseDocument(utf8(xml))).message).toMatch(/§\d|NCName|QName/)
+    }
   })
 })

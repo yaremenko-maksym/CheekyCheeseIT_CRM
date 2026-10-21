@@ -139,7 +139,11 @@ export class BoundedXmlPort implements XmlPort {
     ) {
       throw new XmlPortError(
         'PRESCAN_DIFFERENTIAL',
-        `pre-scan measured depth ${prescan.maxDepth}/${prescan.elementCount} elements/${prescan.attributeCount} attributes but the parsed tree has ${actual.maxDepth}/${actual.elementCount}/${actual.attributeCount}`,
+        // Both sides as the SAME depth/elements/attributes triple. The first version spelled the
+        // units out on the pre-scan side only and printed a bare triple for the tree, so the two
+        // numbers a reader has to compare were formatted differently — the one thing a diagnostic
+        // message must not do. The units are stated once, in the label.
+        `pre-scan and parser disagree on depth/elements/attributes: pre-scan measured ${prescan.maxDepth}/${prescan.elementCount}/${prescan.attributeCount} but the parsed tree has ${actual.maxDepth}/${actual.elementCount}/${actual.attributeCount}`,
       )
     }
 
