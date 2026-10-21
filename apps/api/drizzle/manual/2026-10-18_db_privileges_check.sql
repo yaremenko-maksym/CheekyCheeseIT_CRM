@@ -997,7 +997,8 @@ DECLARE
 BEGIN
   WITH declared(table_name, trigger_name, enabled) AS (VALUES
     ('job_queue_actions', 'trg_job_queue_actions_append_only', 'A'),
-    ('job_queue_actions', 'trg_job_queue_actions_no_truncate', 'A')),
+    ('job_queue_actions', 'trg_job_queue_actions_no_truncate', 'A'),
+    ('job_queue_actions', 'trg_job_queue_actions_created_at_now', 'A')),
   class_b(table_name) AS (SELECT 'job_queue_actions'),
   actual(table_name, trigger_name, enabled) AS (
     SELECT c.relname, t.tgname, t.tgenabled
