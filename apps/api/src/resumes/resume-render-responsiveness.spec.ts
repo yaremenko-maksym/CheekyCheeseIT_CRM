@@ -58,6 +58,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { DEFAULT_RESUME_LAYOUT, EMPTY_RESUME_CONTENT } from '@crm/shared'
 import { slowTemplate } from '../test/resume-render-fixtures'
 import { assertTypstAvailable } from '../test/typst-availability'
+import { inspectDocxZip } from './resume-source.util'
 import {
   ResumeTypstService,
   type ResumeRenderInput,
@@ -77,6 +78,38 @@ const LATENCY_BUDGET_MS = 250
 
 /** Below this the render was too quick for the sampling to mean anything. */
 const MIN_RENDER_MS = 700
+
+/**
+ * Floor for the EXTRACTION case's windows, DERIVED rather than picked.
+ *
+ * What the floor must guarantee: the in-process stall is long enough that the
+ * sandboxed bound (`inProcess.worst / 5`) still sits above the worst sample the
+ * sandboxed run produces on a healthy API. Healthy sandboxed worst: 12.7-13.7 ms
+ * in five runs on the author's machine (2026-10-22, @xmldom/xmldom 0.8.15,
+ * mammoth as installed), 14.8 ms in an earlier run, and 15-45 ms quoted by an
+ * earlier version of this file under load (quoted, not re-measured).
+ * Taking 45 ms as the noise ceiling, the stall must be at least 5 x 45 = 225 ms;
+ * the floor is 250 ms.
+ *
+ * Margin against the measuring machine: its in-process window is 1 104-1 214 ms
+ * (stall 1 075-1 170 ms), so a runner ~4.5x faster still clears it.
+ *
+ * Why this is not 300 or 700: a runner whose old floor of 300 failed by 4 ms
+ * ("expected 296 to be greater than 300", Mutation Gate dry run on #1085, which
+ * carried the pre-fix fixture) showed that an absolute number chosen to suit one
+ * machine is red or vacuous on another. Mutation Gate re-runs the whole suite
+ * many times and is the one instrument here that tells a flake from a pass; a
+ * timing failure at this line in that gate means the runner is faster than the
+ * 4.5x margin, not that containment broke.
+ */
+const EXTRACTION_MIN_WINDOW_MS = 250
+
+/**
+ * Floor for the in-process stall itself: 5 x the 45 ms noise ceiling above, so
+ * the sandboxed bound (`inProcess.worst / 5`) is never below that ceiling.
+ * Measured stall on the author's machine: 1 075-1 170 ms (about 4.8x margin).
+ */
+const EXTRACTION_MIN_STALL_MS = 225
 
 /** Fewer samples than this and the window was not really observed. */
 const MIN_SAMPLES = 15
@@ -171,6 +204,14 @@ function worstOf(samples: readonly number[]): number {
  *
  * `work` is started FIRST and the samplers run until it settles, so every
  * sample is taken while the render is genuinely in flight.
+ *
+ * LIMIT, silently vacuous if ignored: the probes start only after `work()`
+ * returns its promise. A `work` whose FIRST SYNCHRONOUS segment is the stall
+ * blocks the loop before any probe exists, so no request is outstanding and
+ * the reported worst is tiny. The in-process extraction case is measurable
+ * only because it begins with `await import('mammoth')`, which yields before
+ * the synchronous parse; a function that parses on its first line would need
+ * an explicit `await Promise.resolve()` ahead of the stall.
  */
 async function measureWhile(work: () => Promise<unknown>): Promise<Measurement> {
   const samples: number[] = []
@@ -273,8 +314,15 @@ describe.skipIf(SKIP_LOCAL_PERF)('AC3 — API responsiveness during a resume ren
     // The guarantee: blocking the loop is dramatically worse than not blocking
     // it, on whatever hardware this happens to be.
     expect(blockingRun.worst).toBeGreaterThan(asyncRun.worst * 5)
-    // And the blocked loop cannot even issue requests (39 vs 26 721 measured).
-    expect(blockingRun.samples.length).toBeLessThan(asyncRun.samples.length / 10)
+    // No sample-COUNT assertion here, on purpose. The count comes from the same
+    // samples as the latency ratio above, so it adds no independent evidence,
+    // and as a ratio it is not scale-free: it failed a 10x bound twice in 15
+    // runs under load. Recorded as documentation (2026-10-22, 8 cores; blocked
+    // vs async sample counts): idle 39 vs 26 721 (685x); under 8 busy loops
+    // 357 vs 2 857 and 357 vs 3 398 (8.0x and 9.5x). Contention lowered the
+    // async count by roughly an order of magnitude while the blocked count
+    // rose from 39 to 357, so the ratio collapses for reasons unrelated to
+    // whether the loop is blocked.
   }, 180_000)
 
   it.skipIf(process.env['RESUME_PERF'] !== '1')(
@@ -382,19 +430,32 @@ describe.skipIf(SKIP_LOCAL_PERF)('AC3 — API responsiveness during a resume ren
    */
   it('keeps the API answering during extraction — and would not if the parse moved back in-process', async () => {
     const { ResumeTextExtractionService } = await import('./resume-text-extraction.service')
-    const { buildAttributeBombDocx } = await import('../test/resume-fixtures')
+    const { buildDocxRawBody } = await import('../test/resume-fixtures')
     const { RESUME_DOCX_MIME } = await import('@crm/shared')
 
-    // THE SHAPE NO ACCEPTANCE BUDGET CAN SEE: 60 000 attributes on one element
-    // — 15 tags, 650 KB, ~3.4 s of parse, because xmldom's attribute handling
-    // is quadratic per element.
+    // A document that passes every acceptance budget and is still expensive to
+    // parse: 690 000 empty paragraphs, 4.1 MB, one tag per 6 bytes. Isolation is
+    // the ONLY thing standing between it and the event loop, so this is the
+    // shape the sandbox exists for.
     //
-    // It replaces a 60 000-paragraph document, and the swap is the point. That
-    // one was expensive in a dimension a budget CAN measure, so this test could
-    // be read as "isolation is a second line behind the budgets". It is not:
-    // this fixture is small, sparse in tags, and passes every budget we have,
-    // so isolation is the ONLY thing standing between it and the event loop.
-    const attack = buildAttributeBombDocx(60_000)
+    // It replaces a 60 000-attribute element, and the swap is not cosmetic. That
+    // fixture was chosen when `@xmldom/xmldom` rescanned an element's attributes
+    // as each one was added (quadratic: 1.33 MB / 120 000 attributes = 18 310 ms
+    // by the service header's account). With the installed 0.8.15 the same shape
+    // is linear: 60 000 attributes parse in ~60-100 ms, and the largest count the
+    // budgets still admit (200 000) in ~240 ms on the machine that measured it.
+    // So the in-process stall was ~100-220 ms against a sandboxed worst of 15-45 ms,
+    // a ratio that straddled the factor of 5 asserted below, and CI failed it
+    // as 218.199 > 218.214 (run 39665997715). The node-count shape is linear too,
+    // but its budget-admitted maximum is 1.2 s of parse, not 0.1 s.
+    const attack = buildDocxRawBody('<w:p/>'.repeat(690_000))
+
+    // The sandboxed run below swallows errors, so a budget refusing this
+    // document would surface only as a short window failing a floor, with no
+    // pointer to the cause. Admission is the precondition; assert it by name.
+    // (`inspectDocxZip` is the gate `extract` runs before starting a worker;
+    // it throws when a size budget refuses the document.)
+    await inspectDocxZip(attack)
 
     const service = new ResumeTextExtractionService()
     const sandboxed = await measureWhile(() =>
@@ -408,15 +469,34 @@ describe.skipIf(SKIP_LOCAL_PERF)('AC3 — API responsiveness during a resume ren
       await mammoth.extractRawText({ buffer: attack }).catch(() => undefined)
     })
 
-    // Non-vacuity: both really parsed, and the sandboxed run really was sampled.
-    // Local floor: this only has to be a real window, not the render-sized one.
-    expect(sandboxed.renderMs).toBeGreaterThan(300)
-    expect(inProcess.renderMs).toBeGreaterThan(300)
+    // Non-vacuity: both really parsed, and the sandboxed run really was sampled
+    // throughout a window long enough for a stall to have shown.
+    expect(sandboxed.renderMs).toBeGreaterThan(EXTRACTION_MIN_WINDOW_MS)
+    expect(inProcess.renderMs).toBeGreaterThan(EXTRACTION_MIN_WINDOW_MS)
     expect(sandboxed.samples.length).toBeGreaterThan(MIN_SAMPLES)
 
-    // The guarantee: parsing off-thread is dramatically kinder to the API than
-    // parsing on it, on whatever hardware this happens to be.
-    expect(inProcess.worst).toBeGreaterThan(sandboxed.worst * 5)
+    // The guarantee, stated as what a stall IS rather than as two durations
+    // ordered against each other: with the parse on the main thread, ONE request
+    // is outstanding for most of the parse (measured 1 230 ms of a 1 261 ms
+    // window; the fraction is 0.97). The bound is a fraction of the run's own
+    // length, so it does not depend on how fast the machine is.
+    expect(inProcess.worst).toBeGreaterThan(inProcess.renderMs * 0.5)
+    // The stall asserted DIRECTLY: the window floor above only guarantees half
+    // a window (125 ms at 250 ms), which would imply a sandboxed bound of 25 ms,
+    // below the noise ceiling. With the stall itself above 225 ms the bound is
+    // above 45 ms.
+    expect(inProcess.worst).toBeGreaterThan(EXTRACTION_MIN_STALL_MS)
+    // Off-thread, no request is held up for more than a fifth of what the same
+    // parse costs on the main thread (measured 14.8 ms against 1 230 ms, 83x).
+    // The bound is deliberately NOT a fraction of the sandboxed window: that
+    // window includes worker spawn and a niced parse, so a slow worker would
+    // loosen it (25% of 1 725 ms is already ~430 ms). Tied to the in-process
+    // stall it moves with the machine in the right direction and stays near
+    // 215 ms here (1 075-1 170 ms / 5). The 646 ms known gap documented below was
+    // measured on a different document (40 000 paragraphs, four concurrent
+    // extractions), so this bound is NOT evidence that the gap is detectable here.
+    expect(sandboxed.worst).toBeLessThan(inProcess.worst / 5)
+    expect(sandboxed.samples.length).toBeGreaterThan(inProcess.samples.length * 5)
   }, 180_000)
 
   it.skipIf(process.env['RESUME_PERF'] !== '1')(
