@@ -65,13 +65,39 @@ FAIL=0
 # had an apostrophe inside a single-quoted python block, died at parse time,
 # and "passed" all eight block cases while doing nothing. Check syntax first,
 # and assert the decision body below, not just the code.
-for h in "$BLAST" "$DISPATCH"; do
+#
+# WIDENED 2026-10-21 to EVERY hook, not just these two (CR-M-3). The same defect
+# recurred while translating the refusal texts: an English apostrophe in
+# `flag's` closed the single-quoted bash string holding the python program and
+# broke pre-bash-devserver-ttl-gate.sh outright. A one-off `bash -n` caught it;
+# nothing standing would have. Behaviour tests cannot reach it either, because
+# the quoting error sat on lines that run ONLY when the analyzer fails — the
+# DEGRADED `printf` branch — which no passing test exercises.
+#
+# This is the only test file inside .claude/hooks, so the property "every hook
+# parses" lives here even though it is not about cross-agent isolation.
+HOOKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SYNTAX_CHECKED=0
+for h in "$HOOKS_DIR"/*.sh; do
+  [ -f "$h" ] || continue
   if ! bash -n "$h" 2>/dev/null; then
     echo "FATAL: syntax error in $h"
     bash -n "$h"
     exit 1
   fi
+  SYNTAX_CHECKED=$((SYNTAX_CHECKED + 1))
 done
+# The shared analyzer is python, and a broken one makes every hook fall back to
+# its coarse rule while still exiting 2 — a degraded guard that looks like a
+# working one.
+if ! python3 -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=True)" \
+  "$HOOKS_DIR/lib/cmdscan.py" >/dev/null 2>&1; then
+  echo "FATAL: lib/cmdscan.py does not compile"
+  python3 -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=True)" \
+    "$HOOKS_DIR/lib/cmdscan.py"
+  exit 1
+fi
+echo "gate 0: $SYNTAX_CHECKED hooks parse, lib/cmdscan.py compiles"
 
 # Gate 0b. FIXTURE FIDELITY — the same class of problem as gate 0, learned the
 # hard way (PR #1025: green here, red in CI).
