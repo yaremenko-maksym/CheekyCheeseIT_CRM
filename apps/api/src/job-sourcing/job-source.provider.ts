@@ -15,8 +15,13 @@ import { normalizeCompanyName } from '@crm/shared'
  * a class implementing `JobSourceProvider`, and one line in the module's
  * provider registry. Nothing else.
  *
- * SCRAPING IS OUT OF BOUNDS (task §Границы): a provider may only read an
- * official feed or API.
+ * COLLECTION BOUNDARY: a provider reads an official feed or API, or — only where
+ * the site owner permits collection (manifest permission basis, robots and bot
+ * policy honoured, no login, no challenge-solving, no stealth) — cooperative
+ * HTML. All of them hand UNTRUSTED fields to the observation seam
+ * (`normalize/observation.ts`: identity, bounded originals, dated evidence,
+ * content hash), which wraps `buildNormalizedPosting`; nothing here widens what
+ * may be fetched. Fetch limits live in `http/` (Task 2.2), not in this seam.
  */
 
 /** A posting normalized to OUR shape, ready to be persisted. */
