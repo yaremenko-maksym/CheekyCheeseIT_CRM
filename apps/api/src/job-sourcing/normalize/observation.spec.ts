@@ -264,6 +264,51 @@ describe('buildSourceObservation: content hash through the real builder', () => 
   })
 })
 
+describe('buildSourceObservation vs the shipped normalizer: DOU_RSS', () => {
+  const dou = {
+    url: 'https://jobs.dou.ua/companies/epam-systems/vacancies/123/?utm_source=rss',
+    title: 'Senior Frontend Engineer',
+    companyName: 'EPAM Systems',
+    location: 'Kyiv, remote',
+    description: '<p>We are <strong>hiring</strong>.</p><ul><li>React 18</li></ul>',
+    tags: ['React', 'TypeScript'],
+  }
+  const legacy = buildNormalizedPosting('DOU_RSS', dou)!
+  const seam = ok({
+    provider: 'DOU_RSS',
+    namespace: 'dou',
+    nativeId: null,
+    adapterVersion: 'dou@1',
+    dates: [],
+    applicationUrl: null,
+    ...dou,
+  })
+
+  it('display fields and the canonical posting URL are the shipped normalizer output', () => {
+    expect(seam.normalized).toMatchObject({
+      title: legacy.title,
+      companyName: legacy.companyName,
+      companyNameNormalized: legacy.companyNameNormalized,
+      location: legacy.location,
+      descriptionMd: legacy.descriptionMd,
+      tags: legacy.tags,
+    })
+    // For a host that needs no normalization the seam's input equals the shipped input, so the
+    // canonical URL is directly comparable.
+    expect(seam.sourcePostingUrl).toBe(legacy.url)
+  })
+
+  it('CANNOT be compared: the observation carries no fingerprint, and its identity is new', () => {
+    // The legacy fingerprint is sha256(sourceType|canonicalUrl) and lives on NormalizedPosting
+    // only. The seam hands the shipped normalizer a host-normalized URL, and keys identity with
+    // its own versioned scheme, so asserting equivalence with the legacy fingerprint would force
+    // a relationship that does not exist.
+    expect('fingerprint' in seam).toBe(false)
+    expect('fingerprint' in seam.normalized).toBe(false)
+    expect(seam.identity.identityKey).not.toBe(legacy.fingerprint)
+  })
+})
+
 describe('buildSourceObservation: Unicode tags', () => {
   const composed = 'café' // e-acute as one code point
   const decomposed = 'café' // e + combining acute
