@@ -308,6 +308,10 @@ self-review counts.
    check. If `merge-approved` is applied while the previous Flow Gate run is red, auto-merge can
    read that run before the label-triggered run has started. It then posts its "did not complete"
    comment. Re-applying the label fixes it. `auto-merge-on-label.yml` is deliberately unchanged.
+4. **`COLLABORATOR` is not "has write".** GitHub reports `COLLABORATOR` for an invited
+   collaborator at any permission level, read and triage included, so a read-only collaborator's
+   verdict counts too. Checking the actual permission would cost an API call per author; the lite
+   model accepts it, since every such verdict is still attributed by name in the summary.
 
 **Light-track PRs** skip the steps they do not run with the reason `light-track: <why>`
 (`light-track.md`). The PR template (`.github/pull_request_template.md`) carries a `## Flow` block,
