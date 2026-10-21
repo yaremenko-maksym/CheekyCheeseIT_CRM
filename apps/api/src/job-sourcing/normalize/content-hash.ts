@@ -96,7 +96,9 @@ export function computeContentHash(
       fields.remote,
       fields.employmentType,
       fields.seniorityHint,
-      [...new Set(fields.tags)].sort(),
+      // NFC BEFORE dedupe and sort: composed and decomposed spellings are one tag, and sorting
+      // raw code units first would order them differently than their normalized forms.
+      [...new Set(fields.tags.map((t) => t.normalize('NFC')))].sort(),
       fields.applicationUrl && stripTrackingParams(fields.applicationUrl),
       dates,
     ]),

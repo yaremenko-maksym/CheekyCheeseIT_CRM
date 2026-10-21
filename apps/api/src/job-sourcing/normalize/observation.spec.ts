@@ -263,3 +263,28 @@ describe('buildSourceObservation: content hash through the real builder', () => 
     expect(h({ nativeId: '999' })).toBe(h())
   })
 })
+
+describe('buildSourceObservation: Unicode tags', () => {
+  const composed = 'café' // e-acute as one code point
+  const decomposed = 'café' // e + combining acute
+
+  it('composed and decomposed spellings of a tag hash alike, as one deduped tag', () => {
+    const a = ok({ tags: [composed, 'node'] })
+    const b = ok({ tags: ['node', decomposed] })
+    const both = ok({ tags: [decomposed, composed, 'node'] })
+    expect(b.contentHash).toBe(a.contentHash)
+    expect(both.contentHash).toBe(a.contentHash)
+  })
+
+  it('a different non-ASCII tag still changes the hash', () => {
+    expect(ok({ tags: ['Київ', 'node'] }).contentHash).not.toBe(
+      ok({ tags: ['Львів', 'node'] }).contentHash,
+    )
+  })
+
+  it('non-ASCII tags are order-independent', () => {
+    expect(ok({ tags: ['Київ', 'Львів'] }).contentHash).toBe(
+      ok({ tags: ['Львів', 'Київ'] }).contentHash,
+    )
+  })
+})
