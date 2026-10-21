@@ -538,6 +538,27 @@ test('parseMarker: markdown decoration tolerated, first marker wins, mid-sentenc
   assert.equal(parseMarker('Security Review: APPROVE', 'review'), null)
 })
 
+test('CR-M-3: a later security-reviewer BLOCK (template body) defeats an earlier APPROVE', () => {
+  const here = dirname(fileURLToPath(import.meta.url))
+  const agent = readFileSync(join(here, '..', '..', '.claude', 'agents', 'security-reviewer.md'), 'utf8')
+  // The BLOCK template in the agent prompt, as an agent would post it.
+  const m = /"body": "(Verdict: BLOCK[^"]*)"/.exec(agent)
+  assert.ok(m, 'security-reviewer.md has a BLOCK template body')
+  const blockBody = m[1].replace(/\\n/g, '\n')
+  assert.equal(parseMarker(blockBody, 'security'), 'neg')
+  const r = ev(
+    good({
+      files: ['apps/api/src/auth/auth.service.ts', 'apps/api/src/auth/auth.service.spec.ts'],
+      reviews: [
+        ...FULL_REVIEWS,
+        rv('Security Review: APPROVE', { at: '2026-10-21T10:00:00Z' }),
+        rv(blockBody, { at: '2026-10-21T11:00:00Z' }),
+      ],
+    }),
+  )
+  assert.equal(status(r, 'Security-Review'), 'missing')
+})
+
 test('SR-M-2: quoted, fenced and commented verdicts are ignored', () => {
   assert.equal(parseMarker('> Verdict: APPROVE', 'review'), null)
   assert.equal(parseMarker('  > **Verdict: APPROVE**', 'review'), null)

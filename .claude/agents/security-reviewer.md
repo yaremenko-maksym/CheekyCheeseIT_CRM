@@ -270,9 +270,13 @@ The label `awaiting-pm-review` is set by **code-reviewer** (the default reviewer
   "repo": "<repo-name>",
   "pull_number": <PR_NUMBER>,
   "event": "COMMENT",
-  "body": "Verdict: BLOCK\n\nSecurity Review: blocks merge\n\n## Critical security problems (HIGH confidence)\n\n### 1. [OWASP A0X — category]\n**File:** `apps/api/src/.../file.ts:42`\n**Problem:** [the concrete violation]\n**Exploit path:** [how an attacker uses it]\n**Solution:** [a concrete example of the correct code + a reference to the OWASP cheatsheet]\n\n## MED-confidence warnings\n\n- [file:line] — [a remark + a reference]"
+  "body": "Verdict: BLOCK\n\nSecurity Review: BLOCK\n\n## Critical security problems (HIGH confidence)\n\n### 1. [OWASP A0X — category]\n**File:** `apps/api/src/.../file.ts:42`\n**Problem:** [the concrete violation]\n**Exploit path:** [how an attacker uses it]\n**Solution:** [a concrete example of the correct code + a reference to the OWASP cheatsheet]\n\n## MED-confidence warnings\n\n- [file:line] — [a remark + a reference]"
 }
 ```
+
+The second marker line is load-bearing: the Flow Gate reads the `Security-Review` step only from a
+line `Security Review: APPROVE | BLOCK` (`contracts.md` §4.1). Any other wording ("blocks merge")
+is invisible to it, so a security BLOCK would never stand against an earlier security APPROVE.
 
 Master parses the first line → if `Verdict: BLOCK` → removes `awaiting-pm-review`, adds `do-not-merge`, a fix-task for Coder. See `contracts.md` §4 (verdict semantics).
 
