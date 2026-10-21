@@ -186,31 +186,71 @@ number and checked, rather than as a licence to conclude.**
 
 ### The corrected measurement — re-runnable, which the first one was not
 
-Recorded so anyone can re-run it and see where a disagreement comes from. Measured at `origin/main`
-= `2a3cb489d23377bf6013153ad86b034b773f9a83`, over `*.sh`, `*.mjs`, `*.yml`, `*.py` in the
-repository's script, workflow and hook directories:
+Recorded so anyone can re-run it and see where a disagreement comes from. **The scope is stated
+because the first write-up of this said "this repository's scripts" while only three directories had
+been measured** — a scope claim wider than the measurement is the same defect as a count wider than
+the read.
+
+Measured at `origin/main` = `46085e3713d38a9038cf91d127036327a9f789d4`.
+
+**(a) Strict conjunction, in `scripts/` + `.github/` + `.claude/hooks/` — 2 occurrences:**
 
 ```
 grep -rnE '2>[[:space:]]*/dev/null[^|]*\|([^|]*\|)*[[:space:]]*(grep[[:space:]][^|]*-[a-zA-Z]*[cq]|wc[[:space:]]+-[lwc])' \
   --include='*.sh' --include='*.mjs' --include='*.yml' --include='*.py' scripts .github .claude/hooks
 ```
 
-**Strict conjunction: 2 occurrences in 2 files.**
-
 - A readiness probe that scans a port for a host key until a service answers — **legitimate**, and
   the producer is _expected_ to fail while the service boots.
-- A parent count in our **own** push gate, derived from a `git log` whose stderr is discarded and
-  whose output is fed to `wc -w` — **a latent defect of exactly this class, in a guard.** Its
-  consequence today is conservative (a failed read counts as zero parents and falls through to the
-  block, which is the safe direction for a push gate), so it was never a bypass — but it was
-  conservative _by accident_, and an inverted condition later would have turned the same silence
-  into an allow. Fixed in this change by consuming the read's exit status instead of inferring it
-  from the count.
+- A parent count in our **own** push gate, from a `git log` whose stderr is discarded and whose
+  output is fed to `wc -w` — **a latent defect of exactly this class, in a guard.** Its consequence
+  was conservative (a failed read counted as zero parents and fell through to the block, the safe
+  direction for a push gate), so it was never a bypass — but conservative _by accident_, and an
+  inverted condition later would have turned the same silence into an allow. Fixed in this change by
+  consuming the read's exit status instead of inferring it from the count.
 
-A **looser** family — a discarded producer piped into a _filter_ whose empty output is then read as
-an answer, such as a header check whose `curl` may have failed — adds roughly six more lines. Those
-are the same defect with a much larger legitimate population, which is why the hook does not cover
-them and why the two numbers are reported separately rather than merged into one scary total.
+**(b) Strict conjunction, repository-wide — 8 raw occurrences**, over every tracked
+`*.sh`/`*.mjs`/`*.yml`/`*.py`, which is the honest denominator for a claim about "this repository":
+
+```
+git grep -nE '<the same pattern>' 2a3cb489d -- '*.sh' '*.mjs' '*.yml' '*.py'
+```
+
+The decomposition matters more than the total, so both readings are given rather than one headline
+number:
+
+| Reading                                                                 | Count |
+| ----------------------------------------------------------------------- | ----- |
+| raw matches of the pattern, repository-wide                             | **8** |
+| of those, in the three directories of (a)                               | 2     |
+| of those, vendored under `skills/ecc/` **and** matching the reader list | 2     |
+| **occurrences this hook would actually report** (producer is a reader)  | **3** |
+| occurrences whose producer is `find` — deliberately not a reader        | 4     |
+
+The two vendored ones that match are **not** excusable as out-of-scope: a `jq` over a JSON log piped
+to `wc -l`, and a `tail` of a log file piped to `grep -q`. In each, a discarded failure (a missing
+file) reads as "no matches". The four `find` producers are not counted, on the same reasoning that
+exempts probes: a tree walk that fails partway still returns meaningful output. And the readiness
+probe from (a) is not among the 3, because `ssh-keyscan` is not a reader — which is the exemption
+working as designed.
+
+**(c) The loose family — 6 occurrences** beyond the strict set: a discarded producer piped into a
+_filter_ whose empty output is then read as an answer. **Four of the six are `curl` header checks**,
+where a failed request is indistinguishable from a missing header:
+
+```
+git grep -nE '2>[[:space:]]*/dev/null[^|]*\|[[:space:]]*grep' 2a3cb489d -- scripts .github .claude/hooks
+```
+
+That command returns 7 lines; one is the readiness probe already counted in (a), leaving 6. These are
+the same defect with a much larger legitimate population, which is why the hook does not cover them
+and why the figures are reported separately rather than merged into one alarming total.
+
+**Why a fixed sha and `git grep` rather than a path-relative `grep`:** the first version of this
+section published a command whose output no longer matched its own figure, because the measurement
+had been taken before this change added its own test fixtures — and those fixtures contain the shape
+on purpose. A number that cannot be re-run is the thing this whole rule is against, so the commands
+are pinned to the pre-change tree.
 
 ### What this does to the rejection
 
@@ -225,6 +265,19 @@ them and why the two numbers are reported separately rather than merged into one
   bridge from "bounded probe" to "discard piped into a quiet matcher" was **my inference presented
   as that file's prescription**, which is precisely the move this rule forbids. The readiness-probe
   concern is real, but it rests on the corpus occurrence above, not on a citation.
+
+### The first build shipped the defect it was closing
+
+Worth recording, because it is the sharpest instance in the whole file and it happened **after** all
+eight were written down. The hook was built, tested, and green — writing its note to **stderr**. For
+a PreToolUse hook that exits 0, stderr does not reach the model; the model-visible channel is
+`hookSpecificOutput.additionalContext` on stdout. So the advisory was **an instrument reporting into
+a channel nobody reads**, and its test asserted that the note had been _written_, not that anyone
+_received_ it — a green test proving the wrong proposition.
+
+Caught in review, not by the test. The fix is the stdout channel, and the pin is a test that parses
+the JSON and fails if the note stops arriving: measured, moving the note back to stderr turns all ten
+firing cases red.
 
 ### So it was built — and it is advisory
 

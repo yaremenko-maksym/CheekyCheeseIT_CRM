@@ -1,7 +1,8 @@
 # Rule: An instrument that did not look reports nothing, not a negative
 
-**Status:** Always-on (procedural — deliberately **no gate**; two candidate gates were built to a
-predicate and then measured down, see the rationale)
+**Status:** Always-on. Half of it is mechanised: the **advisory** hook
+`pre:bash:swallowed-failure` (never refuses). The rest is procedural — see "How we know it is
+violated".
 **Applies to:** every agent and the orchestrator — anyone who reads a command's result and acts on it.
 This is the one rule that binds the reader of an output, not the writer of a file.
 
@@ -135,8 +136,10 @@ do not throw away the error.
 
 ## How we know it is violated
 
-No gate (see below). The observability is the same arithmetic the project already uses elsewhere: an
-assertion is present and checkable, or it is missing.
+One shape is mechanised (`pre:bash:swallowed-failure`, above) and it covers form 1 and the zsh trap
+in ad-hoc commands only. **Everything else here is procedural**, and the observability is the
+arithmetic the project already uses elsewhere: an assertion is present and checkable, or it is
+missing.
 
 | What is reconciled                                                                               | Who                            |
 | ------------------------------------------------------------------------------------------------ | ------------------------------ |
@@ -154,8 +157,10 @@ the defect itself, one level up.
 Form 1 and the zsh trap **are** mechanised, because the first attempt to reject a gate here rested on
 a measurement that was itself an instance of this class (a regex whose flag-cluster pattern never
 matched `grep -qE`, and which enumerated `wc -l` while missing `wc -w`). Corrected, the conjunction
-occurs **twice** in this repository's scripts, and the second was a latent defect of exactly this
-shape in one of our own guards.
+occurs **twice in `scripts/`, `.github/` and `.claude/hooks/`** — and **8 times repository-wide**, of which
+**3 are shapes this hook would actually report** (two of them vendored under `skills/ecc/`). One of the two in the
+first set was a latent defect of exactly this shape in one of our own guards. Both commands and both
+figures are in the rationale, so the numbers can be re-run.
 
 `pre:bash:swallowed-failure` prints one note and **never refuses**:
 
