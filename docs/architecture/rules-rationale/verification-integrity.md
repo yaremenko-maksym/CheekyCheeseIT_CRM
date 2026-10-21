@@ -28,11 +28,25 @@ instrument in the path was obliged to say so.
 
 Numbered as the owner reported them, so the numbering can be cited.
 
-**(1) A dependency install that exits 0 having linked nothing.** Run with a Node older than the
-range the repository's `engines` field requires, the package manager printed an unsupported-engine
-warning, linked **no** binaries, and **exited 0**. The caller believed the status; the next command
-failed obscurely, far from the cause. Caught only by checking that the binary directory had been
-populated. — _Shape B._
+**(1) A dependency install believed on its exit status alone.** As originally diagnosed — and
+repeated in several briefs — a frozen-lockfile install under a Node older than the repository's
+`engines` range printed an unsupported-engine warning, linked **no** binaries, and **exited 0**, with
+the next command failing obscurely far from the cause.
+
+**That diagnosis is wrong, and this file is the wrong place to keep repeating it.** Re-run
+deliberately in a fresh worktree under the older Node, the install **exited 0, linked its binaries
+correctly** (workspace-root and per-package binary directories both populated) and **printed no
+unsupported-engine warning at all**. So the Node major version alone does not produce this failure,
+and **the real trigger is unidentified.**
+
+What _is_ documented and measured about that Node on this repository is a **different** failure, and
+it is the lead worth following rather than guessing: the shared `ensure_node` helper's header records
+that on the older Node the compiled i18n catalog is loaded through a `require` of a `.ts` file, which
+only works with the newer Node's built-in type stripping — so specs fail with "Cannot use import
+statement outside a module", which is nothing like an unlinked binary. The same header records a
+second hazard that **is** squarely this class: the task-runner's cache key **does not include the
+Node version**, so a suite that passed under the correct Node replays as a cache hit under the wrong
+one — measured, identical hash. A green from a cache replay, with nothing verified. — _Shape B._
 
 **(2) A push reported as succeeded that never reached the remote.** An agent reported a zero exit for
 a push while the remote ref still pointed at the old commit. The zero came from a different command
@@ -83,8 +97,11 @@ mechanism is worth recording precisely, because it defeats the obvious guard:
   sibling's commit is already an **ancestor** through the shared local ref, so there is nothing
   behind-upstream to report and no non-fast-forward to refuse. Every remote-side check reads clean.
 
-The check that catches it is **`git show --stat HEAD` on your own commit, before asserting anything
-about it** — the commit's own file list, rather than the list you intended. This is shape (B) applied
+**Two checks catch it, and the earlier one is the better one.** `git diff --cached --name-only`
+lists the sibling's file while it is still only staged — before it becomes a commit, and one
+`--amend` cheaper than finding it afterwards. `git show --stat HEAD` on your own commit is the
+assertion that the claim is true once it is made. Use the first to prevent, the second to assert;
+both read a file list rather than the list you intended. This is shape (B) applied
 to a claim about one's own diff: `git add` succeeding is the exit status, and the commit's file list
 is the artifact. — _Shape B._
 
@@ -106,10 +123,15 @@ repository (below). (A) is a _shell-shaped_ defect and is the half where a gate 
 
 ---
 
-## 3. The one instrument that drew the line itself
+## 3. The instruments that drew the line themselves
 
 The mutation gate saw the mutation runner exit 0 having produced no report, and refused rather than
 inferring a pass — saying, in substance, _the run did not complete, so nothing was verified._
+
+**It is not the only one, and the earlier claim that it was is withdrawn:** the shared `ensure_node`
+helper refuses rather than falling back to the wrong Node, on the explicit grounds that a loud
+refusal is an acceptable failure mode while **a green gate on the wrong runtime is not**. Two
+instruments, same line.
 
 It is the model for the whole rule, and the reason is worth stating: it did not test for a known
 failure mode. It tested for **the presence of the thing that constitutes a result**, and treated its
@@ -120,83 +142,130 @@ caught_.
 
 ## 4. The device the project already owned, unnamed
 
-Two always-on rules had independently invented the same answer to (B) before this rule named it:
+`stream-watchdog.md` requires the report line `Pushed: <branch> @ <sha>` — an agent's claim that its
+work is outside its worktree, **checkable by the reader in one command**. That is this rule's device
+exactly, and **instance 2 is precisely the defect it exists to make visible**: a push reported as
+succeeded whose remote ref had not moved. So the generalisation — _state the artifact, not the
+outcome_ — was not invented here; it was extracted from a place that already had it.
 
-- `stream-watchdog.md` requires the report line `Pushed: <branch> @ <sha>` — an agent's claim that
-  its work is outside its worktree, **checkable by the reader in one command**.
-- `review-findings-transfer.md` requires the control line `Findings: … (N)` — making a lost finding
-  visible by arithmetic instead of attentiveness.
-
-Both replace a claim with an assertion a reader can re-run. Instance 2 is precisely the defect that
-the `Pushed:` line exists to make visible. The generalisation — _state the artifact, not the outcome_
-— was therefore not invented here; it was extracted from two places that already had it, which is
-why it is stated once in the rule and pointed at from both.
+**A cousin, not the same device** (narrowed after review): the `Findings: … (N)` control line in
+`review-findings-transfer.md` reconciles a **count across a handoff**, not an artifact against an
+exit status. Nothing there is claiming success on a status it never read. It belongs in the same
+family only in the weaker sense that both make a reader able to **check instead of believe** —
+observability by arithmetic rather than by attentiveness — and the earlier claim that it was a second
+instance of this rule's device was a stretch.
 
 ---
 
-## 5. The gate designed for (A), and the measurement that rejected it
+## 5. The gate for (A): rejected, then BUILT when the rejection's measurement did not reproduce
+
+This section is the most important one in the file, because the conclusion **reversed**, and it
+reversed for the exact reason the rule exists.
 
 ### The predicate
 
-The narrow conjunction worth considering was: **a command that discards stderr _and_ pipes into a
-counter** (a counting or quiet-matching consumer). That pairing is the mechanism of instances 5 and
-6, and it is structurally decidable — the shared command analyzer used by the `pre:bash:*` hooks
-already answers "what is in command position" and where redirections sit, so this would **not** have
-been a text match. That distinction is the one that mattered in the six-round history of the analyzer
-change that converged by **inverting a denylist into an allowlist**, after a gate that inspected text
-rather than command position produced four false positives on the owner in a single day — a markdown
+A command that **discards stderr _and_ pipes into a counter**. That is the mechanism of instances 5
+and 6, and it is structurally decidable: the shared command analyzer already answers "what is in
+command position" and where redirections sit, so this is not a text match. That distinction is the
+one that mattered in the six-round history of the launcher-gate narrowing, which converged by
+**inverting a denylist into an allowlist** after four false positives in a single day — a markdown
 heredoc, a pull-request body, a Python heredoc, and a read-only dependency query.
 
-So the gate would have been well-formed. It was rejected on frequency and on population.
+### The first measurement, and why it was wrong
 
-### The measurement
+The gate was first **rejected** on the finding that the conjunction occurred **exactly once** in the
+repository, legitimately. Two errors produced that number, and both are this very defect:
 
-Searching every shell, Node and workflow script in the repository for the conjunction:
+1. the consumer pattern required the `grep` flag cluster to **end** in `c` or `q`, so `grep -qE` —
+   an extremely common form — never matched;
+2. the counter list enumerated `wc -l` and **omitted `wc -w`**.
 
-- **exactly one occurrence**, and
-- **that occurrence is legitimate**: a readiness probe that scans a port for a host key, discarding
-  stderr because the producer is _expected_ to fail while the service comes up, retried inside a
-  bounded loop.
+A miscounting counter, inside the analysis of miscounting counters. The lesson is not "be careful
+with regexes": it is that **a population of one should have been treated as a suspiciously small
+number and checked, rather than as a licence to conclude.**
 
-A false-positive rate of one out of one on the existing corpus is already decisive, but the stronger
-finding is the second one:
+### The corrected measurement — re-runnable, which the first one was not
 
-> **`stream-watchdog.md` prescribes exactly this shape.** It instructs agents to check long-running
-> work with _single bounded probes_ rather than polling loops. A bounded probe is, in practice, a
-> producer that may legitimately fail piped into a quiet matcher, with the noise discarded.
+Recorded so anyone can re-run it and see where a disagreement comes from. Measured at `origin/main`
+= `2a3cb489d23377bf6013153ad86b034b773f9a83`, over `*.sh`, `*.mjs`, `*.yml`, `*.py` in the
+repository's script, workflow and hook directories:
 
-A gate for (A) would therefore have refused, quite possibly on its first firing, the form another
-always-on rule tells every agent to write. The analyzer's own header states the cost of that
-precisely: the documented workaround sits inside the refusal text, so two false hits are enough to
-train "prepend the prefix and retry" — **and that reflex then fires on a real launch too. A guard
-that cries wolf is a guard that gets routed around.**
+```
+grep -rnE '2>[[:space:]]*/dev/null[^|]*\|([^|]*\|)*[[:space:]]*(grep[[:space:]][^|]*-[a-zA-Z]*[cq]|wc[[:space:]]+-[lwc])' \
+  --include='*.sh' --include='*.mjs' --include='*.yml' --include='*.py' scripts .github .claude/hooks
+```
 
-### Why the cost asymmetry is inverted here
+**Strict conjunction: 2 occurrences in 2 files.**
 
-This is the load-bearing judgment, and it is the reason the conclusion differs from the hooks that
-justify all this machinery.
+- A readiness probe that scans a port for a host key until a service answers — **legitimate**, and
+  the producer is _expected_ to fail while the service boots.
+- A parent count in our **own** push gate, derived from a `git log` whose stderr is discarded and
+  whose output is fed to `wc -w` — **a latent defect of exactly this class, in a guard.** Its
+  consequence today is conservative (a failed read counts as zero parents and falls through to the
+  block, which is the safe direction for a push gate), so it was never a bypass — but it was
+  conservative _by accident_, and an inverted condition later would have turned the same silence
+  into an allow. Fixed in this change by consuming the read's exit status instead of inferring it
+  from the count.
 
-| Gate family                        | Cost of a miss                                        | Cost of a false positive                          |
-| ---------------------------------- | ----------------------------------------------------- | ------------------------------------------------- |
-| `pre:bash:safety`, `live-db-guard` | the owner's database                                  | one minute                                        |
-| `pre:bash:unbounded-wait`          | a task alive for a day                                | one minute                                        |
-| a verification-integrity gate      | **one wrong answer, recoverable by the next command** | **erosion of the whole hook layer's credibility** |
+A **looser** family — a discarded producer piped into a _filter_ whose empty output is then read as
+an answer, such as a header check whose `curl` may have failed — adds roughly six more lines. Those
+are the same defect with a much larger legitimate population, which is why the hook does not cover
+them and why the two numbers are reported separately rather than merged into one scary total.
 
-Where a miss is catastrophic and a false positive is a minute, fail toward refusing — that is the
-documented trade for the safety hooks, correctly. Here the ordering is reversed: nothing
-irreversible is being prevented, and the expensive failure is the false positive. **A gate whose
-misses are cheap and whose false positives are expensive should not be a gate.**
+### What this does to the rejection
 
-Instance 4 reinforces this independently and would have escaped the conjunction anyway: it discarded
-nothing. Its shape is a counter in a non-terminal position of an `&&` chain — and a quiet matcher in
-an `&&` chain is _the_ canonical shell idiom (`grep -q X f && echo found`). Any gate over that shape
-would be almost entirely false positives. Instance 7 is not a shell shape at all: a helper's
-terminating condition cannot be judged from the command line that invokes it.
+**Both legs of it are gone.**
 
-So of the four (A) instances, a well-formed gate reaches two, at the price of refusing a prescribed
-idiom.
+- "The population is one, and legitimate" was an artifact of a broken predicate. Corrected, the
+  population includes a live instance in our own guard, and the owner's original claim — that this
+  pairing is almost never anything but a swallowed failure read as a fact — is **supported** by the
+  corpus, not falsified by it.
+- "`stream-watchdog.md` prescribes this shape" is **false and withdrawn.** That file prescribes
+  `curl --max-time 5` and `gh pr checks`; neither discards stderr nor pipes into a matcher. The
+  bridge from "bounded probe" to "discard piped into a quiet matcher" was **my inference presented
+  as that file's prescription**, which is precisely the move this rule forbids. The readiness-probe
+  concern is real, but it rests on the corpus occurrence above, not on a citation.
 
-## 6. The gate designed for (B), and the measurement that falsified it
+### So it was built — and it is advisory
+
+`pre:bash:swallowed-failure`, with the two predicates named in the rule. It **never refuses**, and
+that is the part of the original reasoning that _did_ survive the correction:
+
+| Gate family                        | Cost of a miss                                        | Cost of a false positive                    |
+| ---------------------------------- | ----------------------------------------------------- | ------------------------------------------- |
+| `pre:bash:safety`, `live-db-guard` | the owner's database                                  | one minute                                  |
+| `pre:bash:unbounded-wait`          | a task alive for a day                                | one minute                                  |
+| this one                           | **one wrong answer, recoverable by the next command** | **the credibility of the whole hook layer** |
+
+Where a miss is catastrophic, fail toward refusing. Here the ordering is reversed, and the legitimate
+probe population is measured rather than imagined — so a refusal would trade the cheap failure for
+the expensive one. The analyzer's own header names that expensive failure exactly: the documented
+workaround sits inside the refusal text, two false hits train "prepend and retry", and that reflex
+then fires on a real launch. **An advisory has no workaround to learn, so it cannot teach one.**
+
+Service probes (`curl`, `nc`, `ssh-keyscan`, `pg_isready`, `docker ps`) are deliberately **not**
+readers, which is what keeps the legitimate corpus case silent. The reader list is an enumeration,
+and that is defensible _here_ although the analyzer's header argues the opposite for the launcher
+gates, because the direction of failure is reversed: for a refusal, a command left out costs a false
+positive and one wrongly left in costs a miss; for an advisory, one left out costs a missed note —
+nothing — and one wrongly left in costs **noise**, which is the only thing that can kill an advisory.
+So this list fails toward silence on purpose.
+
+### What the hook does not reach
+
+- **Instance 4** (`grep -c` terminating an `&&` chain) — not covered, and not coverable by refusal:
+  a quiet matcher in an `&&` chain is _the_ canonical shell idiom, so almost every hit would be a
+  false positive.
+- **Instance 7** (a terminating condition true before the work exists) — not a shell shape at all;
+  it lives inside a helper, and the command line that invokes it says nothing.
+- **Script interiors** — and this is the big one. `bash scripts/foo.sh` is one segment; the shape
+  inside is invisible. **Every strict-conjunction occurrence measured above lives in an authored
+  script, not in an ad-hoc command.** So the corpus that justifies the predicate is a population the
+  hook cannot see, and the population the hook _does_ see — ad-hoc verification commands, which is
+  what instances 5 and 6 were — is **not sampled anywhere.** The instrument for the authored-script
+  half is a static scanner, not this hook; see section 8.
+
+## 6. The gate for (B): still rejected, and this time the measurement held
 
 (B) resists a `PreToolUse` gate by construction: **the artifact does not exist yet** at the moment
 the command is inspected, and the artifact differs per operation. A `PostToolUse` check could see it,
@@ -231,59 +300,78 @@ kind of unfalsifiable claim this class is about.
 
 ## 7. What was not established, and stays open
 
-- **The mechanism of instance 6 was not reproduced.** The agent-isolation hook refuses any `zsh`
-  invocation to a worktree-isolated agent (it cannot prove the shell text will not run git), so the
-  expansion could not be exercised directly from this session. What **was** measured is the fact that
-  makes the gotcha apply at all: **the Bash tool's shell in this environment is zsh**, not bash — its
-  `$0` is `/bin/zsh` and `BASH_VERSION` is unset. The cure in the rule (`${VAR}:path`) is correct
-  regardless of which zsh word rule produced the mangling, and is stated as the owner's measurement
-  rather than as a mechanism proven here. An earlier edition of the shared analyzer's header once
-  claimed a property that a large fuzz run disproved; describing an unverified mechanism as a proof is
-  the very defect this class is about, so the gap is named instead of smoothed over.
-- **Instance 1's actual trigger** is unexplained, per section 6.
+- **Instance 1's actual trigger** is unidentified — see section 2, and the `ensure_node` lead named
+  there.
 - **Instance 7's class** — a helper whose terminating condition is satisfied by the "not started"
-  state — has no mechanical answer here and is covered only by the rule's "existence before absence".
+  state — has no mechanical answer here and is covered only by the rule's "existence before
+  absence".
+- **The ad-hoc population of the (A) shape is unsampled.** The hook's whole target population is
+  commands typed into a tool call, and nothing measures how often the shape there is a swallowed
+  failure versus a probe. The advisory form is what makes that acceptable: it costs a line of text
+  to be wrong.
+- ~~The mechanism of instance 6 was not reproduced.~~ **Withdrawn — it reproduces.** From a plain
+  Bash call, `$REV:apps/x.ts` expanded to `<cwd>/HEADpps/x.ts`: zsh consumed `:a` as the
+  absolute-path modifier and glued the remainder onto a path that names nothing. Double-quoting the
+  whole word changed nothing; `${REV}` fixed it. The enabling fact was measured too — **the
+  harness's Bash tool runs zsh here** (`$0` is `/bin/zsh`, `BASH_VERSION` unset) — so zsh's word
+  rules govern every command any agent sends. This stopped being anyone's recollection and became a
+  reproducible measurement.
 
-## 8. When to reconsider a gate
+## 8. When to reconsider
 
-The decision above is contingent on measurements, so it should be revisited if any of these change:
+The decisions here are contingent on measurements, so they should be revisited if any of these
+change.
 
-1. **The (A) conjunction starts appearing in transcripts as a wrong verification more than a couple of
-   times a month.** The corpus measured here is the repository's committed scripts; the population
-   that actually matters is what agents type ad hoc, and it is not sampled anywhere today. A cheap
-   first step is counting it after the fact from transcripts, the way
-   `scripts/devops/check-stream-silence.sh` measures silence after the fact rather than preventing it
-   — a measurement is not a gate and carries none of a gate's false-positive cost.
-2. **`stream-watchdog.md` stops prescribing bounded probes in the discard-and-match form**, which
-   would remove the main legitimate population.
-3. **Instance 1 is reproduced** with an identified trigger that is decidable before the command runs.
-   Then a gate for that specific trigger is justified, and this time with the artifact measured on
-   both sides first.
-4. **Instance 8 recurs.** Unlike the two candidates measured down, this one has a predicate that is
-   decidable _before_ the command and needs no artifact that does not exist yet: when a commit is
-   about to be made on a branch whose ref has moved since this worktree last observed it, say so.
-   The shared-ref condition is a fact a hook can read, the false-positive population looks small
-   (a deliberate commit onto a sibling's advanced ref is rare and the message would be advisory, not
-   a refusal), and the cost of the miss here is **another agent's work reverted** — which is the one
-   cost in this whole class that is not cheaply recoverable, and therefore the one place where the
-   asymmetry argument in section 5 might come out the other way. Not built here: it arrived after the
-   design was measured, and a gate deserves its own measurement rather than a rider on this one.
-5. **A `post:bash:*` artifact check becomes cheap to own** — which first requires settling whether a
-   `post-*` hook's test may live where the test runner already sweeps, given the Architect zone is
-   written in terms of `test-pre-*`.
+1. **A static scanner over authored scripts.** This is the instrument the corrected measurement
+   actually justifies and the one gap that is both real and unaddressed: every measured occurrence
+   lives in a committed script, where no hook can see it. A scanner has a measurable population, no
+   interactive false-positive cost, and a natural negative control (red on the parent-count shape,
+   green once it consumes the read's status). It is not in this change because the zone places such
+   a check and its test on either side of a boundary — see item 4 — not because it was judged
+   unnecessary.
+2. **Measure the ad-hoc population after the fact.** Counting the shape from transcripts — the way
+   stream silence is measured after the fact rather than prevented — would replace the one guess
+   left in this design with a number, and a measurement carries none of a gate's false-positive
+   cost.
+3. **Instance 8 wants a gate, and the argument for it is already made.** A commit about to be made
+   on a branch whose ref has moved beneath this worktree is decidable **before** the command, needs
+   no not-yet-existing artifact, and is the one cost in this class that is **not cheaply
+   recoverable** — another agent's work reverted. So the asymmetry in section 5 may genuinely come
+   out the other way here, and a refusal may be right where it is wrong elsewhere.
+
+   Two things must be fixed before building it, and the previous edition of this item got both
+   wrong. **It should not wait for a recurrence** — "wait and see" contradicts the
+   not-cheaply-recoverable cost that is the whole reason to consider refusing, and is the same
+   mistake as treating a population of one as a conclusion. And **the baseline must be named**: "the
+   ref moved" is only decidable against something, and the usable pair is **this worktree's own HEAD
+   reflog versus the branch reflog** — the branch ref records the sibling's move while the
+   per-worktree HEAD does not, which is exactly the asymmetry that made the incident silent.
+   The claim that its false-positive population is small is **unmeasured**, and must be measured
+   before the gate blocks rather than advises.
+
+4. **The zone boundary around a hook's test.** A `post:bash:*` artifact check, and the scanner in
+   item 1, need a test at a path derived from the thing's own name, which falls outside the
+   Architect zone as written (`test-pre-*`). That is a process question, not a technical one, and it
+   is recorded rather than routed around.
 
 ## 9. Sources
 
-- Instances 1-7: the owner's report of 2026-10-21, following the seventh in one day. Instance 8: the
-  owner's report later the same day. Each one's
-  "what it actually did" is the owner's measurement, not a reconstruction.
-- The one-occurrence measurement of the (A) conjunction: a search of every `.sh`, `.mjs` and `.yml`
-  under the repository's script, workflow and hook directories, run on `origin/main` at the time of
-  writing.
-- The falsification of the (B) install gate: a frozen-lockfile install executed in this worktree under
-  the older Node, with the binary directories inspected afterwards.
-- The shell fact: `$0` and `BASH_VERSION` read from a Bash tool call in this session.
-- The false-positive budget and the denylist→allowlist lesson: the shared command analyzer's header
-  and the six-round history of the pull request that narrowed the launcher gates.
-- The device being generalised: the mutation gate's refusal on a report-less exit 0; the `Pushed:` line
-  in `stream-watchdog.md`; the `Findings: … (N)` line in `review-findings-transfer.md`.
+- **Instances 1-7:** the owner's report of 2026-10-21, following the seventh in one day.
+  **Instance 8:** the owner's report later the same day. Each instance's "what it actually did" is a
+  measurement, not a reconstruction — except instance 1, whose original diagnosis is corrected in
+  section 2 by a re-run.
+- **The (A) measurement:** the command, the file globs and the `origin/main` sha are written out in
+  section 5 so the number can be re-run and disagreements located. The first, wrong measurement is
+  recorded there too, with the two errors that produced it.
+- **The (B) falsification:** a frozen-lockfile install executed in a fresh worktree under the older
+  Node, with the binary directories inspected afterwards.
+- **The zsh reproduction and the shell fact:** a plain Bash call in this session; the observed
+  mangling is quoted in section 7.
+- **The false-positive budget and the denylist→allowlist lesson:** the shared command analyzer's
+  header and the six-round history of the pull request that narrowed the launcher gates.
+- **The devices being generalised:** the mutation gate's refusal on a report-less exit 0; the
+  `ensure_node` helper's refusal to fall back to the wrong runtime; the `Pushed:` line in
+  `stream-watchdog.md`.
+- **The review that reopened the gate decision:** code review of this change, findings CR-H-1
+  (the measurement did not reproduce), CR-H-2 (the withdrawn prescription claim) and CR-H-3 (the
+  instance-1 contradiction).
