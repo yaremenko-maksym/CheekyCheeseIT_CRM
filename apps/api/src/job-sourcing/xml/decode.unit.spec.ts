@@ -195,15 +195,39 @@ describe('BOM detection', () => {
     expect(decodeXml(utf16be('<r/>', true)).effectiveEncoding).toBe('utf-16be')
   })
 
-  it('a two-byte document whose bytes ARE a BOM yields an empty document', () => {
-    // The `length >= 2` boundary from the other side: exactly two bytes, both consumed.
-    expect(decodeXml(bytes(0xff, 0xfe)).text).toBe('')
-    expect(decodeXml(bytes(0xff, 0xfe)).effectiveEncoding).toBe('utf-16le')
+  it.each([
+    ['FF FE (LE)', [0xff, 0xfe], 'utf-16le'],
+    ['FE FF (BE)', [0xfe, 0xff], 'utf-16be'],
+  ] as const)(
+    'a two-byte document that is exactly the %s BOM is recognised at the length boundary',
+    (_name, prefix, label) => {
+      const decoded = decodeXml(bytes(...prefix))
+      expect(decoded.text).toBe('')
+      expect(decoded.effectiveEncoding).toBe(label)
+      expect(decoded.source).toBe('bom')
+    },
+  )
+
+  it('a three-byte document that is exactly the UTF-8 BOM is recognised AS a BOM', () => {
+    const decoded = decodeXml(bytes(0xef, 0xbb, 0xbf))
+    expect(decoded.text).toBe('')
+    // `source`, not just the label — and that is the whole point of this assertion.
+    //
+    // Node's UTF-8 `TextDecoder` STRIPS a leading BOM by itself (measured: decoding `EF BB BF`
+    // yields `""`, not `"﻿"`), so the text and the label are identical whether our own
+    // sniff consumed those three bytes or never ran. That made the `>= 3` length boundary
+    // invisible: mutating it to `> 3` left all 337 tests passing. What the branch uniquely
+    // decides is the reported PROVENANCE — whether the document announced its encoding or we
+    // assumed it — so that is what has to be asserted.
+    expect(decoded.source).toBe('bom')
   })
 
-  it('a three-byte document whose bytes ARE the UTF-8 BOM yields an empty document', () => {
-    expect(decodeXml(bytes(0xef, 0xbb, 0xbf)).text).toBe('')
-    expect(decodeXml(bytes(0xef, 0xbb, 0xbf)).effectiveEncoding).toBe('utf-8')
+  it('the UTF-8 BOM branch is not redundant with TextDecoder: provenance differs', () => {
+    // The pair that shows `source` carries real information: identical text and label, different
+    // provenance. A caller reconciling a feed's declared encoding against the effective one needs
+    // to know which it is looking at.
+    expect(decodeXml(concat(bytes(0xef, 0xbb, 0xbf), utf8('<r/>'))).source).toBe('bom')
+    expect(decodeXml(utf8('<r/>')).source).toBe('default')
   })
 
   it('a one-byte document cannot be a BOM, and the length guards hold', () => {
