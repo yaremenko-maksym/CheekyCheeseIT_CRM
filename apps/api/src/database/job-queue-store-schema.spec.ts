@@ -107,8 +107,11 @@ describe('enum parity (pg <-> shared zod)', () => {
     expect(pgEnum.enumName).toBe(pgName)
   })
 
-  it('carries all thirteen action kinds and leaves the legacy signal enum alone', () => {
-    expect(jobQueueActionKindEnum.enumValues).toHaveLength(13)
+  it('carries all fourteen action kinds and leaves the legacy signal enum alone', () => {
+    // Thirteen queue kinds plus REASON_REDACTED (r5 Task 1.4b-ii), which is an
+    // evidence row about this log rather than a fourteenth queue mutation.
+    expect(jobQueueActionKindEnum.enumValues).toHaveLength(14)
+    expect(jobQueueActionKindEnum.enumValues.at(-1)).toBe('REASON_REDACTED')
     expect([...jobSignalKindEnum.enumValues]).toEqual([...jobSignalKindSchema.options])
     expect(jobSignalKindEnum.enumName).toBe('job_posting_signal_kind')
   })

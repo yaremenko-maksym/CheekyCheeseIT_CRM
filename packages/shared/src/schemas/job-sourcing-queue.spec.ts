@@ -103,6 +103,10 @@ describe('enum members and order (mirrored by the pg enums)', () => {
         'TRIAGE_REVOKED',
         'TRIAGE_SUBSCRIBED',
         'TRIAGE_UNSUBSCRIBED',
+        // r5 Task 1.4b-ii, appended LAST: the redaction evidence row. The member
+        // list is pinned in ORDER on purpose, so this line is the record that the
+        // value was added deliberately rather than a reorder slipping through.
+        'REASON_REDACTED',
       ],
     ],
   ])('%#', (schema, members) => {

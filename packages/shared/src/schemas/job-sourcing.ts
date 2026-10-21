@@ -884,6 +884,9 @@ export const jobQueueActionKindSchema = z.enum([
   'TRIAGE_REVOKED',
   'TRIAGE_SUBSCRIBED',
   'TRIAGE_UNSUBSCRIBED',
+  // The redaction evidence row (r5 Task 1.4b-ii) — the one kind whose subject is
+  // another row OF THIS LOG rather than an opportunity or a subscription.
+  'REASON_REDACTED',
 ])
 
 /** BUILDING -> PUBLISHED -> INVALIDATED; a BUILDING one may be abandoned straight to INVALIDATED. */

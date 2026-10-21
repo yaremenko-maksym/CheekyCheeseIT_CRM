@@ -479,6 +479,13 @@ export const jobQueueActionKindEnum = pgEnum('job_queue_action_kind', [
   'TRIAGE_REVOKED',
   'TRIAGE_SUBSCRIBED',
   'TRIAGE_UNSUBSCRIBED',
+  // r5 Task 1.4b-ii. NOT a queue mutation and NOT a click: the evidence row a
+  // redaction of some OTHER action row's `reason` appends, so that an erasure is
+  // provable rather than invisible (legal memo 2026-10-17 section 7 / section 8
+  // item 3; least-privilege ADR section 3, R-B). APPENDED LAST deliberately —
+  // `pg_enum` order is pinned from both sides, and inserting it among the queue
+  // kinds would reorder a type that already exists in every developer's database.
+  'REASON_REDACTED',
 ])
 
 export const jobQueueGenerationStatusEnum = pgEnum('job_queue_generation_status', [
