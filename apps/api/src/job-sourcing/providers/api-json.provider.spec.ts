@@ -14,6 +14,7 @@ import {
   type CollectionContext,
   type FetchRequest,
   markValidated,
+  MAX_CURSOR_CHARS,
   type MeterReservation,
   REDACTED,
   type ReservationResolution,
@@ -1972,6 +1973,97 @@ describe('an unusable page request is a batch, not a throw (SR-H-3)', () => {
 
     expect(h.sent[0]?.url).toBe('https://api.example.com/jobs?page=1')
     expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.observations).toHaveLength(1)
+  })
+})
+
+/**
+ * THE CURSOR IS THE ONE VALUE THE PROVIDER CHOOSES, SO ITS SIZE IS BOUNDED BEFORE IT IS STORED.
+ *
+ * The ACCEPTANCE assertions are first and both sides of the bound are asserted, because the whole
+ * risk of a cap is that it refuses cursors that are merely long — a base64 continuation token of a
+ * few hundred characters is ordinary, and a cap that broke those would freeze real sources. From
+ * the finding alone only the refusal would be here.
+ */
+describe('the cursor a provider hands back is bounded before it is persisted', () => {
+  const twoPages = (cursor: string) => [
+    { body: { jobs: [job('1')], next: cursor } },
+    { body: { jobs: [job('2')], next: null } },
+  ]
+
+  it('persists an ordinary long cursor unchanged', async () => {
+    const cursor = 'c'.repeat(600)
+    const h = harness({ pages: twoPages(cursor) })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(h.saved[0]?.position).toEqual({ kind: 'CURSOR', page: 1, cursor })
+    expect(batch.outcome).toBe('SUCCEEDED')
+  })
+
+  it('persists a cursor of exactly the cap', async () => {
+    const cursor = 'c'.repeat(MAX_CURSOR_CHARS)
+    const h = harness({ pages: twoPages(cursor) })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(h.saved[0]?.position).toEqual({ kind: 'CURSOR', page: 1, cursor })
+    expect(batch.outcome).toBe('SUCCEEDED')
+  })
+
+  it('refuses the cursor one character past the cap, keeping the page', async () => {
+    const cursor = 'c'.repeat(MAX_CURSOR_CHARS + 1)
+    const h = harness({ pages: twoPages(cursor) })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    // MEASURED WITHOUT THE FIX: a 1 MiB cursor was persisted at its full 1 048 576 characters,
+    // because the loop built `ValidatedCheckpoint` as an object literal and `MAX_CURSOR_CHARS`
+    // was enforced only when READING a stored row back (SR-M-2). Ten pages of that is ~10 MiB of
+    // checkpoint per attempt, and the row would then be refused on the way in — so the source
+    // restarted forever with nothing saying why.
+    expect(h.saved).toHaveLength(1)
+    expect(h.saved[0]?.position).toEqual({ kind: 'RESTART', page: 1 })
+    expect(JSON.stringify(h.saved[0]).length).toBeLessThan(MAX_CURSOR_CHARS)
+    // The page itself still landed: a provider's bad cursor is not a reason to lose a good page.
+    expect(batch.observations).toHaveLength(1)
+    expect(batch.outcome).toBe('PARTIAL')
+  })
+
+  it('reports WHY the oversized cursor was refused', async () => {
+    const h = harness({ pages: twoPages('c'.repeat(MAX_CURSOR_CHARS + 1)) })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    const drift = batch.requests.find((r) => r.error?.code === 'PARSE_DRIFT')
+    expect(drift?.error?.message).toContain('it cannot be stored')
+    // The schema's own words, not ours — the same discipline as the envelope-drift message.
+    expect(drift?.error?.message).toMatch(/2048/)
+  })
+
+  it('never hands an unstorable cursor to the adapter', async () => {
+    // Parsed BEFORE `pageRequest`, so 25 adapters' URL builders are never handed a megabyte of
+    // provider-chosen text. Asserted through what the adapter was asked, which is observable.
+    const seen: Array<string | null> = []
+    const h = harness({ pages: twoPages('c'.repeat(MAX_CURSOR_CHARS + 1)) })
+    await collectJsonPages(
+      makeSpec({
+        pageRequest: (_c, at) => {
+          seen.push(at.cursor)
+          return { request: { url: `https://api.example.com/jobs?page=${at.page}` } }
+        },
+      }),
+      config(),
+      h.ctx,
+    )
+
+    expect(seen).toEqual([null])
+  })
+
+  it('refuses an empty cursor, which is not a position either', async () => {
+    // The schema's `min(1)`, reachable from here: a provider returning `''` means neither "there
+    // is more" nor "there is no more", and storing it would resume at a cursor that selects
+    // nothing. The `null` the seam documents is how exhaustion is said.
+    const h = harness({ pages: twoPages('') })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(h.saved[0]?.position).toEqual({ kind: 'RESTART', page: 1 })
     expect(batch.observations).toHaveLength(1)
   })
 })

@@ -660,6 +660,35 @@ export function redactText(text: string, secrets: readonly string[]): string {
   return redactSecrets(pieces.join(''), secrets)
 }
 
+/**
+ * THE REPORTED URL IS BOUNDED, like every other field a report carries.
+ *
+ * `error.message` was capped at 500 characters and the URL at nothing, although both come from
+ * the same place — a request built from a provider-supplied cursor — and a report is persisted per
+ * subrequest, up to `MAX_REQUEST_REPORTS` of them per attempt (SR-M-2).
+ *
+ * WHERE WE DISAGREE WITH THE FINDING, measured at `e654b50ff`: the 2 097 005-character report URL
+ * no longer reproduces. `redactUrl` refuses anything over `MAX_REDACTION_INPUT_CHARS` and returns
+ * `DROPPED_TOO_LONG`, so a 1 MiB cursor already produced a 46-character URL — that half was
+ * closed, incidentally, by the redaction bound. What remains is the gap BELOW that bound: a URL of
+ * 64 KiB is reported in full, and 200 of them is ~13 MiB of telemetry for one attempt. So the cap
+ * is real and the number is not; 2 KiB is it.
+ *
+ * Why 2 KiB: it is the de-facto limit real HTTP stacks accept, and it is the same number the
+ * store puts on `identityKey` and this module puts on a cursor — a URL longer than that is not a
+ * request anyone will make, it is a payload in the wrong field.
+ *
+ * DROPPED, not truncated, for the reason `DROPPED_TOO_LONG` gives: a bound that cannot be
+ * satisfied drops the field. Applied AFTER redaction, because the redacted string is what gets
+ * persisted and therefore what has to be bounded — and a cut made after redaction cannot halve a
+ * credential in any case.
+ */
+export const MAX_REPORT_URL_CHARS = 2048
+
+/** What an over-long URL becomes. Distinct from `DROPPED_TOO_LONG` so a report says WHICH bound
+ * dropped it: "too big to redact safely" and "too big to be worth storing" are different facts. */
+export const DROPPED_URL_TOO_LONG = `${REDACTED} (url dropped: over ${MAX_REPORT_URL_CHARS} characters)`
+
 export function buildRequestReport(
   // The FIELD shape: `Omit<RequestReport, ...>` would keep the brand and demand that the CALLER
   // already hold a built report, which is the opposite of what a builder is for.
@@ -669,10 +698,11 @@ export function buildRequestReport(
   },
   secrets: readonly string[],
 ): RequestReport {
+  const redactedUrl = redactUrl(fields.url, secrets)
   const report: RequestReportFields = {
     attempt: fields.attempt,
     page: fields.page,
-    url: redactUrl(fields.url, secrets),
+    url: redactedUrl.length > MAX_REPORT_URL_CHARS ? DROPPED_URL_TOO_LONG : redactedUrl,
     status: fields.status,
     startedAt: fields.startedAt,
     endedAt: fields.endedAt,
@@ -745,7 +775,20 @@ export function buildInvalidSample(
 /** The ceiling of the store's `intColumnPositiveSchema` — a PostgreSQL `integer` column. */
 export const PG_INT_MAX = 2_147_483_647
 
-/** A cursor longer than this is not a cursor, it is a payload someone put in the wrong field. */
+/**
+ * A cursor longer than this is not a cursor, it is a payload someone put in the wrong field.
+ *
+ * IT BOUNDS BOTH DIRECTIONS NOW. It was enforced only on the way IN, by `decideCheckpoint`
+ * parsing a stored row — and the way OUT built a `ValidatedCheckpoint` as a bare object literal,
+ * which satisfies the type by assertion and parses nothing. Measured at `e654b50ff`: a provider
+ * returning a 1 MiB cursor had exactly 1 048 576 characters persisted, ten pages of which is
+ * ~10 MiB of checkpoint per attempt — and the row would then be refused on the way back in,
+ * making the source restart forever with no report saying why (SR-M-2).
+ *
+ * `collectJsonPages` therefore parses the position it is about to store, and a cursor this schema
+ * refuses is treated as an unusable cursor: the page lands, the position stored is `RESTART`, and
+ * the attempt ends reporting the drift.
+ */
 export const MAX_CURSOR_CHARS = 2048
 
 /**
@@ -813,13 +856,29 @@ export interface ValidatedCheckpoint {
  * So the boundary parses. `page` is bounded by the same PostgreSQL `integer` ceiling the store's
  * column has, because a checkpoint that cannot be persisted is not a checkpoint.
  */
-export const resumePositionSchema: z.ZodType<ResumePosition> = z.discriminatedUnion('kind', [
+/**
+ * The CURSOR arm on its own, exported because the collection loop parses exactly this on the way
+ * out — it knows it is storing a cursor position — and a parse through the whole union returns the
+ * union, which would force the caller either to cast or to handle a `RESTART` branch no input can
+ * reach. The union below is composed FROM this, so there is one declaration of the cursor bound
+ * and no copy to drift.
+ */
+export const cursorPositionSchema: z.ZodType<Extract<ResumePosition, { kind: 'CURSOR' }>> =
   z.object({
     kind: z.literal('CURSOR'),
     page: z.number().int().positive().max(PG_INT_MAX),
     cursor: z.string().min(1).max(MAX_CURSOR_CHARS),
-  }),
-  z.object({ kind: z.literal('RESTART'), page: z.number().int().positive().max(PG_INT_MAX) }),
+  })
+
+export const restartPositionSchema: z.ZodType<Extract<ResumePosition, { kind: 'RESTART' }>> =
+  z.object({
+    kind: z.literal('RESTART'),
+    page: z.number().int().positive().max(PG_INT_MAX),
+  })
+
+export const resumePositionSchema: z.ZodType<ResumePosition> = z.union([
+  cursorPositionSchema,
+  restartPositionSchema,
 ])
 
 export const validatedCheckpointSchema: z.ZodType<ValidatedCheckpoint> = z.object({

@@ -23,7 +23,9 @@ import {
   URL_END_CHARS,
   URL_TRAILING_PUNCTUATION,
   USERINFO_RUN_DELIMITERS,
+  MAX_REPORT_URL_CHARS,
   MAX_REQUEST_REPORTS,
+  DROPPED_URL_TOO_LONG,
   MAX_SAMPLE_CHARS,
   MAX_SAMPLES,
   assertBuiltBatch,
@@ -566,6 +568,71 @@ describe('buildRequestReport', () => {
       [],
     )
     expect(report.error?.message).toHaveLength(500)
+  })
+
+  /**
+   * The URL bound, both sides of it. THE ACCEPTANCE HALF IS FIRST AND IS THE ONE THAT MATTERS
+   * HERE: the cap's whole risk is that it swallows URLs an operator needs to read, so the test
+   * that an ordinary long-but-reasonable URL survives intact comes before the test that an absurd
+   * one is dropped. From the finding alone only the second would exist, and `MAX_REPORT_URL_CHARS`
+   * could have been 20 without a test objecting.
+   */
+  const longButReportable = (chars: number): string => {
+    const prefix = 'https://api.example.com/jobs?cursor='
+    return prefix + 'c'.repeat(chars - prefix.length)
+  }
+
+  it('reports an ordinary long URL in full', () => {
+    const url = longButReportable(900)
+    const report = buildRequestReport({ ...base, url, error: null }, [])
+
+    expect(report.url).toBe(url)
+  })
+
+  it('reports a URL of exactly the cap in full', () => {
+    const url = longButReportable(MAX_REPORT_URL_CHARS)
+    const report = buildRequestReport({ ...base, url, error: null }, [])
+
+    expect(report.url).toHaveLength(MAX_REPORT_URL_CHARS)
+    expect(report.url).toBe(url)
+  })
+
+  it('drops the URL one character past the cap', () => {
+    const url = longButReportable(MAX_REPORT_URL_CHARS + 1)
+    const report = buildRequestReport({ ...base, url, error: null }, [])
+
+    expect(report.url).toBe(DROPPED_URL_TOO_LONG)
+  })
+
+  it('drops rather than truncates, so no prefix of the URL is emitted', () => {
+    // The `DROPPED_TOO_LONG` principle: a bound that cannot be satisfied drops the field. A
+    // truncation would emit the first 2048 characters, and the first 2048 characters of a URL are
+    // where its credentials live.
+    //
+    // `cursor` is a REPORTABLE key on purpose. An unreportable one (`api_key=…`) has its value
+    // replaced wholesale, so redaction SHRINKS the URL and the cap is never reached — which the
+    // first version of this test discovered by failing. The length only survives redaction in a
+    // value we keep, and a provider's opaque cursor is exactly that.
+    const url = `https://api.example.com/jobs?cursor=hunter2${'p'.repeat(MAX_REPORT_URL_CHARS)}`
+    const report = buildRequestReport({ ...base, url, error: null }, ['hunter2'])
+
+    expect(report.url).toBe(DROPPED_URL_TOO_LONG)
+    expect(report.url).not.toContain('api.example.com')
+    expect(report.url).not.toContain('hunter2')
+  })
+
+  it('bounds the URL even when redaction made it longer than it arrived', () => {
+    // Redaction EXPANDS as well as shrinks: an unreportable key's value becomes a 10-character
+    // marker, so `a7=v` grows to `a7=[REDACTED]`. The cap is therefore applied to the REDACTED
+    // string — the one that gets persisted — and not to the input. Applied to the input, a URL
+    // that arrives at 919 characters would be stored at 2 269.
+    const params = Array.from({ length: 150 }, (_, i) => `a${i}=v`).join('&')
+    const url = `https://api.example.com/jobs?${params}`
+    const report = buildRequestReport({ ...base, url, error: null }, [])
+
+    expect(url.length).toBeLessThan(MAX_REPORT_URL_CHARS)
+    expect(redactUrl(url, []).length).toBeGreaterThan(MAX_REPORT_URL_CHARS)
+    expect(report.url).toBe(DROPPED_URL_TOO_LONG)
   })
 
   it('truncates an error message of 501 characters', () => {

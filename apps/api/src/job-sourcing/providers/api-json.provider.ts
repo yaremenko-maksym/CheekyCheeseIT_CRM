@@ -28,6 +28,7 @@ import {
   type RequestReport,
   type ReservationResolution,
   type ResumePosition,
+  cursorPositionSchema,
   type SourceConfigFields,
   type Validated,
   type SourceCoverageScope,
@@ -144,7 +145,21 @@ export interface ApiJsonSourceSpec<TConfig extends SourceConfigFields, TEnvelope
   readonly itemSchema: ZodType<TItem>
   pageRequest(config: TConfig, at: PageTarget): PageRequest
   extractItems(envelope: TEnvelope, config: TConfig): readonly unknown[]
-  /** The cursor for the NEXT page, or `null` when the provider's inventory is exhausted. */
+  /**
+   * The cursor for the NEXT page, or `null` when the provider's inventory is exhausted.
+   *
+   * WHATEVER YOU RETURN HERE IS UNTRUSTED INPUT, and it comes back to you as `at.cursor`. It is
+   * the only value in the loop chosen entirely by the upstream provider: the loop bounds its
+   * LENGTH (`MAX_CURSOR_CHARS`, parsed before it is stored) and nothing else, because nothing
+   * else about it is knowable from here.
+   *
+   * SO AN ADAPTER MUST NOT USE A CURSOR AS THE REQUEST TARGET. A "next URL" style cursor fed
+   * straight into `pageRequest`'s `request.url` hands the provider control of where we send the
+   * next request, credentials and all — a redirect to an attacker-chosen host, with our headers.
+   * Use the cursor as a PARAMETER of a URL the adapter builds (`?after=<cursor>`), or, if the
+   * provider really only gives absolute next-links, parse it and check its origin against the one
+   * the config configured before using it.
+   */
   nextCursor(envelope: TEnvelope, at: PageTarget): string | null
   /**
    * Map one VALIDATED item to untrusted observation fields. May throw: the item is isolated with a
@@ -281,8 +296,21 @@ type BuiltPageRequest = { ok: true; value: PageRequest } | { ok: false; message:
  * them and no caller has to re-check a condition already settled.
  */
 type PageAdvance =
-  /** The trail continues, and the next request is already built and known good. */
-  | { kind: 'CONTINUE'; cursor: string; target: PageTarget; request: PageRequest }
+  /**
+   * The trail continues, and the next request is already built and known good.
+   *
+   * `position` is the PARSED checkpoint position, not one assembled again later: the cursor was
+   * validated against `resumePositionSchema` before the adapter was handed it, and carrying the
+   * parsed value is what keeps the thing we store and the thing we checked from being two
+   * different objects (SR-M-2).
+   */
+  | {
+      kind: 'CONTINUE'
+      cursor: string
+      target: PageTarget
+      request: PageRequest
+      position: Extract<ResumePosition, { kind: 'CURSOR' }>
+    }
   /** The provider returned a cursor the adapter cannot build a request from. */
   | { kind: 'UNUSABLE_CURSOR'; page: number; message: string }
   /** The provider's inventory ran out. */
@@ -717,17 +745,53 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
                 ? { kind: 'EXHAUSTED' }
                 : ((): PageAdvance => {
                     const cursor = pageResult.nextCursor
+                    /**
+                     * THE CURSOR IS PARSED BEFORE THE ADAPTER IS HANDED IT, against the very
+                     * schema the checkpoint will have to satisfy on the way back in.
+                     *
+                     * A cursor is the ONE value in this loop chosen entirely by the provider, and
+                     * it was stored unparsed: `ValidatedCheckpoint` was built as an object
+                     * literal, whose name is a claim and whose construction checks nothing.
+                     * Measured, a 1 MiB cursor was persisted verbatim (SR-M-2).
+                     *
+                     * Parsed FIRST, before `buildPageRequest`, for two reasons: handing a
+                     * megabyte of provider-chosen text to 25 adapters' URL builders is work
+                     * nobody asked for, and a cursor we cannot store is unusable whether or not
+                     * an adapter can build a request from it.
+                     *
+                     * The whole position is parsed rather than the cursor's length compared to
+                     * `MAX_CURSOR_CHARS` here: one guard, one bound, declared in one place. The
+                     * `RESTART` position below is deliberately NOT parsed — its only field is a
+                     * page the loop itself bounded, so the parse would be a branch no input can
+                     * enter.
+                     */
+                    const stored = cursorPositionSchema.safeParse({
+                      kind: 'CURSOR',
+                      page: at.page,
+                      cursor,
+                    })
+                    if (!stored.success) {
+                      return {
+                        kind: 'UNUSABLE_CURSOR',
+                        page: nextPage,
+                        // Stryker disable next-line OptionalChaining: a Zod result with
+                        // `success: false` always carries an issue, as elsewhere in this file;
+                        // the fallback's absence is what the test asserts.
+                        message: `it cannot be stored (${stored.error.issues[0]?.message ?? 'refused'})`,
+                      }
+                    }
+                    const position = stored.data
                     const target: PageTarget = { page: nextPage, cursor, window: at.window }
                     const probe = buildPageRequest(spec, config, target)
                     return probe.ok
-                      ? { kind: 'CONTINUE', cursor, target, request: probe.value }
+                      ? { kind: 'CONTINUE', cursor, target, request: probe.value, position }
                       : { kind: 'UNUSABLE_CURSOR', page: nextPage, message: probe.message }
                   })()
 
             const position: ResumePosition =
-              advance.kind === 'CONTINUE'
-                ? { kind: 'CURSOR', page: at.page, cursor: advance.cursor }
-                : { kind: 'RESTART', page: at.page }
+              // The PARSED position on the continuing arm — the one the schema accepted, rather
+              // than a second literal built from the same parts and checked by nothing.
+              advance.kind === 'CONTINUE' ? advance.position : { kind: 'RESTART', page: at.page }
 
             const next: ValidatedCheckpoint = {
               configVersion: config.configVersion,
