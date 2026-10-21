@@ -127,6 +127,19 @@ export interface ApiJsonSourceSpec<TConfig extends SourceConfigFields, TEnvelope
    * the spec, so 25 adapters cannot each get them subtly wrong.
    */
   mapItem(item: TItem, config: TConfig): Omit<RawObservationFields, 'provider' | 'adapterVersion'>
+  /**
+   * The id the PROVIDER issued for this item, whatever the adapter chose to key identity on.
+   *
+   * It exists so the AC5 invariant is REACHABLE. `normalizeNativeId` in the identity seam is
+   * NFC + trim, so two distinct ids fed into a NATIVE_ID key can never collide — the collapse that
+   * actually happens is an adapter that keys on the canonical URL (URL_FALLBACK) while the
+   * provider was issuing distinct ids all along, and `raw.nativeId` is `null` in exactly that
+   * case. Without this field the check would be unreachable code: its passing would be
+   * indistinguishable from its absence.
+   *
+   * Defaults to the id the adapter passed into the identity.
+   */
+  nativeIdOf?(item: TItem, config: TConfig): string | null
   scopeOf(config: TConfig): SourceCoverageScope
   readonly limits?: Partial<ApiJsonLimits>
   /** What one page costs. Reserved BEFORE any I/O, per the store's reservation ordering. */
@@ -587,10 +600,15 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
     }
 
     const { identityKey } = result.observation.identity
-    const nativeId = raw.nativeId ?? null
+    const nativeId = spec.nativeIdOf?.(validated.data, config) ?? raw.nativeId ?? null
     if (nativeId !== null) {
       const seen = nativeIdByIdentityKey.get(identityKey)
       if (seen !== undefined && seen !== nativeId) {
+        // The offending item was already counted in `raw`, so it needs a disposition or the
+        // balance invariant refuses the whole batch — and an adapter invariant failure would then
+        // surface as an unhandled throw instead of the FAILED batch the ACs ask for. It is
+        // `invalid`: we could not observe it as a distinct record.
+        counts.invalid += 1
         return {
           observations: [],
           nextCursor: null,

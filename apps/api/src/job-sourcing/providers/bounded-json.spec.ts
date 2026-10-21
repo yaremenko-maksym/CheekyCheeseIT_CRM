@@ -1,5 +1,12 @@
-import { describe, expect, it } from 'vitest'
-import { DEFAULT_JSON_LIMITS, type JsonLimits, parseBoundedJson } from './bounded-json'
+import { describe, expect, it, vi } from 'vitest'
+import { MAX_FEED_BYTES } from '../rss'
+import {
+  DEFAULT_JSON_LIMITS,
+  type JsonLimits,
+  MAX_JSON_BYTES,
+  parseBoundedJson,
+  scanDepthWithin,
+} from './bounded-json'
 
 /**
  * Every bound is asserted on BOTH sides — the value AT the limit accepted, the one past it
@@ -106,14 +113,104 @@ describe('parseBoundedJson', () => {
     })
 
     /**
-     * The reason the walk is iterative. 20 000 levels is comfortably inside the default byte
-     * budget and overflows a recursive walk's stack — so a provider could kill the worker with a
-     * response that passed every fetch-time bound. The assertion is that we get a REFUSAL, which a
-     * recursive implementation cannot produce because it never returns.
+     * 20 000 levels is comfortably inside the default byte budget and overflows a recursive walk's
+     * stack — so a provider could kill the worker with a response that passed every fetch-time
+     * bound. The assertion is that we get a REFUSAL, which a recursive implementation cannot
+     * produce because it never returns.
      */
     it('refuses a 20 000-level payload without exhausting the call stack', () => {
       const result = parseBoundedJson(nest(20_000), DEFAULT_JSON_LIMITS)
       expect(result).toMatchObject({ ok: false, reason: 'TOO_DEEP' })
+    })
+
+    /**
+     * THE TEST THAT DISTINGUISHES A REAL FIX. A post-parse depth check also answers `TOO_DEEP`, so
+     * a test asserting only the reason passes against an implementation that parses four million
+     * levels in full first — measured at 819 ms and +264 MB RSS on Node 22 — and refuses them
+     * afterwards. The claim the bound actually makes is "refused BEFORE the parser sees the
+     * bytes", and the only deterministic way to assert that is that the parser is never reached.
+     *
+     * Not a timing proxy: a wall-clock threshold on shared CI is a flake, and an allocation delta
+     * depends on when the collector runs. The spy asserts the mechanism itself.
+     */
+    it('refuses a deep payload WITHOUT ever calling the parser', () => {
+      const parse = vi.spyOn(JSON, 'parse')
+      try {
+        const result = parseBoundedJson(nest(1_000_000), DEFAULT_JSON_LIMITS)
+        expect(result).toMatchObject({ ok: false, reason: 'TOO_DEEP' })
+        expect(parse).not.toHaveBeenCalled()
+      } finally {
+        parse.mockRestore()
+      }
+    })
+
+    /** The other side of the same assertion: the spy is wired up and a valid document DOES reach
+     * the parser, so the test above is not passing because the spy never sees anything. */
+    it('does call the parser for a document inside every bound', () => {
+      const parse = vi.spyOn(JSON, 'parse')
+      try {
+        expect(parseBoundedJson('{"jobs":[]}', DEFAULT_JSON_LIMITS)).toMatchObject({ ok: true })
+        expect(parse).toHaveBeenCalledTimes(1)
+      } finally {
+        parse.mockRestore()
+      }
+    })
+  })
+
+  describe('the depth pre-scan', () => {
+    it('does not count brackets inside a string literal as structure', () => {
+      // Under-counting is the direction that lets a hostile payload through; over-counting here
+      // would refuse a legitimate description full of brackets.
+      expect(scanDepthWithin('{"a":"[[[[[[[[[["}', 3)).toBe(2)
+      expect(parseBoundedJson('{"a":"[[[[[[[[[["}', limits({ maxDepth: 2 }))).toMatchObject({
+        ok: true,
+      })
+    })
+
+    /**
+     * An escaped quote must not close the string, and the way to show it is the QUOTE PARITY of
+     * everything after it. A scanner blind to the escape closes `"x\"` early, which flips every
+     * following quote, and the `[` that really is structure ends up read as string content —
+     * depth 2 instead of 3. UNDER-counting, the direction that lets a payload through.
+     *
+     * The earlier version of this test put the bracket inside a string either way, so it passed
+     * against a scanner with no escape handling at all.
+     */
+    it('does not let an escaped quote close the string and hide real structure', () => {
+      expect(scanDepthWithin('{"a":"x\\"y","b":[1]}', 10)).toBe(3)
+      expect(parseBoundedJson('{"a":"x\\"y","b":[1]}', limits({ maxDepth: 2 }))).toMatchObject({
+        ok: false,
+        reason: 'TOO_DEEP',
+      })
+    })
+
+    /** An escaped BACKSLASH consumes itself, so the quote after it still closes the string. A
+     * scanner whose escape state never resets treats the rest of the document as one string. */
+    it('lets the quote after an escaped backslash close the string', () => {
+      expect(scanDepthWithin('{"a":"c:\\\\","b":[1]}', 10)).toBe(3)
+    })
+
+    it('returns null exactly one level past the limit, and the depth at it', () => {
+      expect(scanDepthWithin(nest(5), 5)).toBe(5)
+      expect(scanDepthWithin(nest(6), 5)).toBeNull()
+    })
+
+    it('reports a bare scalar as depth 1', () => {
+      expect(scanDepthWithin('42', 1)).toBe(1)
+    })
+  })
+
+  describe('the default byte budget', () => {
+    /**
+     * R-2 of the merged XML dependency review withdrew 8 MiB after measuring it and aligned on
+     * 2 MiB — the same constant the existing RSS path already uses for the same job. Asserted
+     * against `rss.ts` itself rather than against a literal, so the two cannot drift apart
+     * silently: whichever side moves, this fails.
+     */
+    it('is the same 2 MiB the RSS path already enforces', () => {
+      expect(MAX_JSON_BYTES).toBe(2 * 1024 * 1024)
+      expect(MAX_JSON_BYTES).toBe(MAX_FEED_BYTES)
+      expect(DEFAULT_JSON_LIMITS.maxBytes).toBe(MAX_JSON_BYTES)
     })
   })
 

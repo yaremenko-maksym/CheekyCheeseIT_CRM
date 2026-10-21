@@ -1,13 +1,26 @@
 /**
  * Bounded JSON parsing for the API provider base (Task 2.3).
  *
- * Byte bounds and egress policy are Task 2.2's, applied at fetch time; what reaches here is text
- * that already passed them. What is bounded HERE is the SHAPE: a response inside the byte budget
- * can still be `[[[[[[...` a million levels deep, and a recursive walk over it crashes the worker
- * rather than failing one subrequest. So the walk is iterative and every bound is checked.
+ * The ORDER of the three bounds is the design, not an implementation detail. Each one must fire
+ * before the cost it exists to prevent:
  *
- * The byte bound is re-checked rather than trusted: this module is also the one a phase-3 adapter
- * reaches for when it parses a nested payload out of a field, where nothing checked the bytes.
+ *  1. BYTES, before `JSON.parse`. Bounds allocation.
+ *  2. DEPTH, also before `JSON.parse`, by a single pass over the raw text. This is the bound a
+ *     post-parse walk gets wrong: a document inside the byte budget but nested four million levels
+ *     deep is parsed IN FULL first (measured on Node 22 at 8 MiB: 819 ms, +264 MB RSS) and only
+ *     then refused for exceeding a `maxDepth` of 64. The semantics were right and the protection
+ *     was absent — `maxDepth: 64` advertised a guarantee two orders of magnitude cheaper than what
+ *     actually happened, and V8 parses iteratively, so there is no stack overflow to rely on
+ *     either. A pre-scan refuses it for the cost of one pass.
+ *     The already-merged XML decision record requires the same of its own wrapper in the same
+ *     words ("the bounds the wrapper must enforce BEFORE the parser sees the bytes, and why each
+ *     cannot be left to the library"); the JSON path does not get to be the weaker of the two.
+ *  3. NODES, after parsing, because a node count is not cheaply derivable from the text and the
+ *     byte cap already bounds what parsing can allocate.
+ *
+ * Fetch-time byte bounds and egress policy are Task 2.2's; what is bounded HERE is the SHAPE. The
+ * byte bound is re-checked rather than trusted, because this module is also what a phase-3 adapter
+ * reaches for to parse a nested payload out of a field, where nothing checked the bytes.
  */
 
 export interface JsonLimits {
@@ -20,8 +33,20 @@ export interface JsonLimits {
   maxNodes: number
 }
 
+/**
+ * 2 MiB, ALIGNED with `MAX_FEED_BYTES` in `rss.ts` and with R-2 of
+ * `docs/architecture/2026-10-20-xml-parser-dependency-review.md`, which withdrew 8 MiB after
+ * measuring it (~1.2 GB RSS, judged a container OOM risk rather than a latency nit).
+ *
+ * A JSON envelope gets no larger allowance than an XML one: the two carry the same job's payloads,
+ * 2 MiB is already an order of magnitude over the largest page any phase-3 provider returns, and a
+ * figure that differs from its neighbour with no measurement behind it is exactly what R-2
+ * refused. Raising it is a measurement, not an edit.
+ */
+export const MAX_JSON_BYTES = 2 * 1024 * 1024
+
 export const DEFAULT_JSON_LIMITS: JsonLimits = {
-  maxBytes: 8 * 1024 * 1024,
+  maxBytes: MAX_JSON_BYTES,
   maxDepth: 64,
   maxNodes: 200_000,
 }
@@ -32,38 +57,76 @@ export type BoundedJsonResult =
   { ok: true; value: unknown } | { ok: false; reason: JsonBoundFailure; detail: string }
 
 /**
- * Measure a parsed value's depth and node count without recursion.
+ * The nesting depth of a JSON document, read off the RAW TEXT and abandoned as soon as it passes
+ * `maxDepth`.
  *
- * Returns the FIRST bound it breaks rather than the full measurement: a payload that is both too
- * deep and too wide should report one reason, and stopping early is also what keeps the walk
- * bounded in time for a hostile payload.
+ * Brackets inside string literals are not structure, so the scan tracks the string state and the
+ * escape state: `{"a":"]]]"}` is depth 2, and a scanner blind to that would UNDER-count — the
+ * direction that lets a hostile payload through.
+ *
+ * Returns `null` when the limit is exceeded, otherwise the depth. Unbalanced brackets are not this
+ * function's problem: `JSON.parse` is the authority on well-formedness, and this scan only has to
+ * refuse what is too deep before the parser is reached.
  */
-function measure(
-  root: unknown,
-  limits: JsonLimits,
-): { ok: true; depth: number; nodes: number } | { ok: false; reason: JsonBoundFailure } {
-  // Each frame is a value and the depth at which it sits. `depth` of the root is 1.
-  const stack: Array<{ value: unknown; depth: number }> = [{ value: root, depth: 1 }]
-  let nodes = 0
-  let maxSeenDepth = 0
+export function scanDepthWithin(text: string, maxDepth: number): number | null {
+  let nesting = 0
+  let maxNesting = 0
+  let inString = false
+  let escaped = false
 
-  while (stack.length > 0) {
-    // Non-null asserted by the loop condition; `pop` on a non-empty array returns a value.
-    const frame = stack.pop() as { value: unknown; depth: number }
-    nodes += 1
-    if (nodes > limits.maxNodes) return { ok: false, reason: 'TOO_MANY_NODES' }
-    if (frame.depth > limits.maxDepth) return { ok: false, reason: 'TOO_DEEP' }
-    if (frame.depth > maxSeenDepth) maxSeenDepth = frame.depth
-
-    const { value } = frame
-    if (Array.isArray(value)) {
-      for (const child of value) stack.push({ value: child, depth: frame.depth + 1 })
-    } else if (typeof value === 'object' && value !== null) {
-      for (const child of Object.values(value)) stack.push({ value: child, depth: frame.depth + 1 })
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i]
+    if (inString) {
+      if (escaped) {
+        escaped = false
+      } else if (ch === '\\') {
+        escaped = true
+      } else if (ch === '"') {
+        inString = false
+      }
+      continue
+    }
+    if (ch === '"') {
+      inString = true
+    } else if (ch === '[' || ch === '{') {
+      nesting += 1
+      if (nesting > maxNesting) {
+        maxNesting = nesting
+        // A value nested under N open brackets sits at depth N + 1; a bare scalar is depth 1.
+        if (maxNesting + 1 > maxDepth) return null
+      }
+    } else if (ch === ']' || ch === '}') {
+      nesting -= 1
     }
   }
 
-  return { ok: true, depth: maxSeenDepth, nodes }
+  return maxNesting + 1
+}
+
+/**
+ * Count every node without recursion, stopping at the first breach.
+ *
+ * Iterative because this walk also runs over values an adapter hands in directly, where no
+ * pre-scan ran — and a recursive walk over a deep value crashes the worker instead of failing one
+ * subrequest.
+ */
+function countNodesWithin(root: unknown, maxNodes: number): number | null {
+  const stack: unknown[] = [root]
+  let nodes = 0
+
+  while (stack.length > 0) {
+    const value = stack.pop()
+    nodes += 1
+    if (nodes > maxNodes) return null
+
+    if (Array.isArray(value)) {
+      for (const child of value) stack.push(child)
+    } else if (typeof value === 'object' && value !== null) {
+      for (const child of Object.values(value)) stack.push(child)
+    }
+  }
+
+  return nodes
 }
 
 /**
@@ -83,6 +146,10 @@ export function parseBoundedJson(text: string, limits: JsonLimits): BoundedJsonR
     }
   }
 
+  if (scanDepthWithin(text, limits.maxDepth) === null) {
+    return { ok: false, reason: 'TOO_DEEP', detail: `nesting exceeds ${limits.maxDepth}` }
+  }
+
   let value: unknown
   try {
     value = JSON.parse(text)
@@ -95,15 +162,11 @@ export function parseBoundedJson(text: string, limits: JsonLimits): BoundedJsonR
     }
   }
 
-  const measured = measure(value, limits)
-  if (!measured.ok) {
+  if (countNodesWithin(value, limits.maxNodes) === null) {
     return {
       ok: false,
-      reason: measured.reason,
-      detail:
-        measured.reason === 'TOO_DEEP'
-          ? `nesting exceeds ${limits.maxDepth}`
-          : `node count exceeds ${limits.maxNodes}`,
+      reason: 'TOO_MANY_NODES',
+      detail: `node count exceeds ${limits.maxNodes}`,
     }
   }
 
