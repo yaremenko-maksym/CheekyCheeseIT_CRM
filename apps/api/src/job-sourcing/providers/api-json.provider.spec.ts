@@ -1604,8 +1604,12 @@ describe('an unusable page request is a batch, not a throw (SR-H-3)', () => {
     // The poison was never stored.
     expect(h.saved[0]?.position).toEqual({ kind: 'RESTART', page: 1 })
     expect(JSON.stringify(h.saved[0])).not.toContain('not a url')
-    // And the reason is reported rather than thrown.
-    expect(batch.requests.map((r) => r.error?.code ?? null)).toContain('PARSE_DRIFT')
+    // And the reason is reported rather than thrown — with the adapter's own words carried into
+    // it, so the message cannot be emptied without a test noticing.
+    const drift = batch.requests.find((r) => r.error?.code === 'PARSE_DRIFT')
+
+    expect(drift?.error?.message).toBe("the provider's next cursor is unusable: Invalid URL")
+    expect(drift?.page).toBe(2)
     expect(batch.outcome).toBe('PARTIAL')
   })
 
@@ -1736,6 +1740,9 @@ describe('a cursor cycle reports its own error code (SR-L-4)', () => {
     // The page the cycle WOULD have fetched, pinned so the `at.page + 1` arithmetic is observable.
     // This attempt resumed from a checkpoint at page 1, so it fetched page 2 and the cycle names 3.
     expect(cycle?.page).toBe(3)
+    expect(cycle?.error?.message).toBe(
+      'the provider handed back a cursor this attempt had already seen',
+    )
     expect(batch.outcome).toBe('SUCCEEDED')
     expect(batch.coverage).toBe('PARTIAL')
   })

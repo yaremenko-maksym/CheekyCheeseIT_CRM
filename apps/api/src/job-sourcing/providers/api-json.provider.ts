@@ -217,6 +217,24 @@ function widenScope(scope: SourceCoverageScope, overlapMs: number): SourceCovera
 type BuiltPageRequest = { ok: true; value: PageRequest } | { ok: false; message: string }
 
 /**
+ * What happens after a page has been observed — decided BEFORE the page is persisted, because the
+ * decision includes whether the provider's next cursor is usable at all, and that must be known
+ * before it is written to the database (SR-H-3).
+ *
+ * A union rather than three nullable locals. The nullable form is what produced two branches no
+ * input could enter and three separate `at.page + 1` sites; here each arm carries exactly the
+ * fields its own case needs, so the compiler supplies `request` and `cursor` on the arm that has
+ * them and no caller has to re-check a condition already settled.
+ */
+type PageAdvance =
+  /** The trail continues, and the next request is already built and known good. */
+  | { kind: 'CONTINUE'; cursor: string; target: PageTarget; request: PageRequest }
+  /** The provider returned a cursor the adapter cannot build a request from. */
+  | { kind: 'UNUSABLE_CURSOR'; page: number; message: string }
+  /** The provider's inventory ran out. */
+  | { kind: 'EXHAUSTED' }
+
+/**
  * Ask the adapter for a page request, and treat a throw as data.
  *
  * Called in TWO places, which is the point. Once for the page about to be fetched, and once for
@@ -319,8 +337,14 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
   // Seeding the RESUMED cursor is what makes a provider handing it straight back a cycle, and a
   // test asserts exactly that. (The suppression that used to sit here claimed the `null` half was
   // unobservable; the mutant it hid is killed by that same test, so it is gone — CR-M-2.)
-  const seenCursors = new Set<string>()
-  if (at.cursor !== null) seenCursors.add(at.cursor)
+  // Keyed on the DECISION, not on `at.cursor !== null`. The latter reads the same but its mutants
+  // are unobservable: on a fresh run `at.cursor` is null, and adding a null to the set changes
+  // nothing, because `has()` is only ever asked about a cursor the provider returned. Keyed this
+  // way both halves bite — `RESUME` narrows the position to a `CURSOR`, so the cursor is a string
+  // the compiler can see, and skipping the seed makes the cycle test fail.
+  const seenCursors = new Set<string>(
+    decision.kind === 'RESUME' ? [decision.from.position.cursor] : [],
+  )
   const nativeIdByIdentityKey = new Map<string, string>()
 
   let pagesCompleted = 0
@@ -567,24 +591,32 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
              * attempt ends with the drift reported, and the next attempt starts over rather than
              * replaying a rejection.
              */
-            let nextTarget: PageTarget | null = null
-            let nextRequest: PageRequest | null = null
-            let cursorRefusal: string | null = null
-            if (pageResult.nextCursor !== null) {
-              nextTarget = {
-                page: at.page + 1,
-                cursor: pageResult.nextCursor,
-                window: at.window,
-              }
-              const probe = buildPageRequest(spec, config, nextTarget)
-              if (probe.ok) nextRequest = probe.value
-              else cursorRefusal = probe.message
-            }
+            /**
+             * ONE value answering "what happens after this page", as a union rather than three
+             * nullable locals. The nullable form forced two branches nothing could enter — a
+             * `nextTarget ?? {…}` fallback and a `nextRequest === null ? … : …` ternary, both
+             * unreachable because the guards above already settled them — and it spread
+             * `at.page + 1` over three sites, which is the arithmetic an off-by-one in would
+             * reproduce SR-H-1 (a resumed attempt reporting SUCCEEDED after zero fetches). Now it
+             * appears once, and every arm below is reachable and asserted.
+             */
+            const nextPage = at.page + 1
+            const advance: PageAdvance =
+              pageResult.nextCursor === null
+                ? { kind: 'EXHAUSTED' }
+                : ((): PageAdvance => {
+                    const cursor = pageResult.nextCursor
+                    const target: PageTarget = { page: nextPage, cursor, window: at.window }
+                    const probe = buildPageRequest(spec, config, target)
+                    return probe.ok
+                      ? { kind: 'CONTINUE', cursor, target, request: probe.value }
+                      : { kind: 'UNUSABLE_CURSOR', page: nextPage, message: probe.message }
+                  })()
 
             const position: ResumePosition =
-              pageResult.nextCursor === null || cursorRefusal !== null
-                ? { kind: 'RESTART', page: at.page }
-                : { kind: 'CURSOR', page: at.page, cursor: pageResult.nextCursor }
+              advance.kind === 'CONTINUE'
+                ? { kind: 'CURSOR', page: at.page, cursor: advance.cursor }
+                : { kind: 'RESTART', page: at.page }
 
             const next: ValidatedCheckpoint = {
               configVersion: config.configVersion,
@@ -632,12 +664,11 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
                   ctx.secrets,
                 ),
               )
-              const nextCursor = pageResult.nextCursor
-              if (nextCursor === null) {
+              if (advance.kind === 'EXHAUSTED') {
                 stop = 'EXHAUSTED'
                 break
               }
-              if (cursorRefusal !== null) {
+              if (advance.kind === 'UNUSABLE_CURSOR') {
                 // The page is persisted and its position is a `RESTART`, so nothing is poisoned.
                 // The attempt ends reporting WHY, which is the part that used to be missing.
                 stop = 'ERROR'
@@ -645,7 +676,7 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
                   buildRequestReport(
                     {
                       attempt: 1,
-                      page: at.page + 1,
+                      page: advance.page,
                       url: UNBUILT_REQUEST_URL,
                       status: null,
                       startedAt: ctx.now(),
@@ -653,7 +684,7 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
                       cost: null,
                       error: {
                         code: 'PARSE_DRIFT',
-                        message: `the provider's next cursor is unusable: ${cursorRefusal}`,
+                        message: `the provider's next cursor is unusable: ${advance.message}`,
                       },
                     },
                     ctx.secrets,
@@ -661,7 +692,7 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
                 )
                 break
               }
-              if (seenCursors.has(nextCursor)) {
+              if (seenCursors.has(advance.cursor)) {
                 stop = 'CURSOR_CYCLE'
                 // `CURSOR_CYCLE` is in `COLLECTION_ERROR_CODES`, and the stop used to push no
                 // report carrying it — so a cycle was indistinguishable from a clean finish in
@@ -670,8 +701,11 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
                   buildRequestReport(
                     {
                       attempt: 1,
-                      page: at.page + 1,
-                      url: nextRequest === null ? UNBUILT_REQUEST_URL : nextRequest.request.url,
+                      page: advance.target.page,
+                      // The request the cycle WOULD have sent — available by TYPE on this arm,
+                      // which is what removed a `nextRequest === null ? …` ternary whose null
+                      // branch no input could reach.
+                      url: advance.request.request.url,
                       status: null,
                       startedAt: ctx.now(),
                       endedAt: ctx.now(),
@@ -686,12 +720,9 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
                 )
                 break
               }
-              seenCursors.add(nextCursor)
-              // Rebuilt rather than read from `nextTarget`: reaching here means `nextCursor` is
-              // non-null and its probe succeeded, so a `?? fallback` on `nextTarget` was a branch
-              // nothing could enter — dead code the mutation gate correctly refused to accept as
-              // covered. The same three fields, which the probe above already validated.
-              at = { page: at.page + 1, cursor: nextCursor, window: at.window }
+              seenCursors.add(advance.cursor)
+              // The very target whose request was validated before the persist.
+              at = advance.target
               continue
             }
           }
