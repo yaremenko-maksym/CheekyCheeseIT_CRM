@@ -131,9 +131,22 @@ if echo "$LAST_MSG" | grep -qE '^ac_verified:'; then
 fi
 
 # Merge commit — allow.
-PARENTS=$(git log -1 --pretty=%P 2>/dev/null | wc -w | tr -d ' ')
-if [ "${PARENTS:-0}" -gt 1 ] 2>/dev/null; then
-  exit 0
+#
+# THE READ IS CHECKED, NOT INFERRED FROM THE COUNT (2026-10-21, found while
+# measuring the swallowed-failure class — .claude/rules/common/verification-integrity.md).
+# This was `git log -1 --pretty=%P 2>/dev/null | wc -w`, which cannot distinguish
+# "one parent" from "the read failed": a failed read discards its error and the
+# counter reports 0 for an empty input. Here that happened to fall through to the
+# BLOCK below — the safe direction for a push gate, so it was never a bypass —
+# but it was conservative by accident rather than by decision, and an inverted
+# condition later would have turned the same silence into an allow. The status of
+# the read is now consumed where it belongs: a failed read skips this branch
+# instead of impersonating a commit with no parents.
+if PARENT_LINE=$(git log -1 --pretty=%P 2>/dev/null); then
+  PARENTS=$(printf '%s' "$PARENT_LINE" | wc -w | tr -d ' ')
+  if [ "${PARENTS:-0}" -gt 1 ] 2>/dev/null; then
+    exit 0
+  fi
 fi
 
 # Block.
