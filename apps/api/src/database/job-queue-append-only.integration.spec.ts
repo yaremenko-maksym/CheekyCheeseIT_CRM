@@ -2275,10 +2275,36 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       const sql = readFileSync(CHECK_SQL, 'utf8')
       const spec = readFileSync(__filename, 'utf8')
 
-      // 1. Arithmetic: one inventory entry per assertion site, no more and no fewer.
+      // 1. Arithmetic: one inventory entry per assertion SITE, no more and no fewer.
       //    This is the line that makes the set claim re-runnable.
-      const sites = (sql.match(/problems := problems \|\| format\(/g) ?? []).length
+      //
+      //    What is counted, and why it is counted BY POSITION: a site is a line whose
+      //    content BEGINS with the append, i.e. the append in statement position. An
+      //    earlier edition matched the fragment anywhere in the bytes, which counted
+      //    MENTIONS as well as sites — including mentions inside `--` comments, since a
+      //    comment line begins with `--` and so can never begin with the append. That
+      //    is not hypothetical: this file's own header explains how to read the count
+      //    by grepping for this very fragment, and that sentence was itself counted,
+      //    so the prose documenting the instrument inflated the instrument's reading
+      //    (measured: 29 matches anywhere, 27 in statement position, 27 inventory
+      //    entries). Deciding by position is the same fix as AC6's `^CREATE /im` below,
+      //    which exists so the header's prose about `CREATE OR REPLACE` does not count
+      //    as a statement — and it keeps working when the next true mention is added,
+      //    which rewording the comment to dodge the grep would not.
+      const SITE_IN_STATEMENT_POSITION = /^[ \t]*problems := problems \|\| format\(/gm
+      const sites = (sql.match(SITE_IN_STATEMENT_POSITION) ?? []).length
       expect(sites).toBe(CHECK_ASSERTIONS.length)
+
+      // And the difference between a mention and a site is itself asserted, so that a
+      // regression back to substring counting is visible as a failure here rather than
+      // as a count that happens to agree today.
+      const mentionsAnywhere = (sql.match(/problems := problems \|\| format\(/g) ?? []).length
+      const mentionsInComments = sql
+        .split('\n')
+        .filter(
+          (line) => /^\s*--/.test(line) && line.includes('problems := problems || format('),
+        ).length
+      expect(sites + mentionsInComments).toBe(mentionsAnywhere)
 
       const missingFragments: string[] = []
       const unclassified: string[] = []

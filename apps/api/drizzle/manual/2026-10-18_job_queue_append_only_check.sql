@@ -28,7 +28,14 @@
 --   shipped bytes of this file, requires one inventory entry per site, and requires each
 --   entry to name either a test that exists or a measured equivalence. Add an assertion
 --   without classifying it and that test goes RED — so the number lives where it can
---   fail, and reading it is `grep -c 'problems := problems || format(' <this file>`.
+--   fail. A SITE IS COUNTED BY POSITION: a line whose content BEGINS with that append.
+--   Read it the same way the suite does, or you will not get the suite's number:
+--     grep -cE '^[[:space:]]*problems := problems \|\| format\(' <this file>
+--   A plain `grep -c` for the fragment counts MENTIONS too — including the two in this
+--   header, one of which is the sentence above describing the fragment. That is not a
+--   quirk of the prose: it is why the suite decides by position, and the suite also
+--   asserts that sites + comment-line mentions == mentions anywhere, so a regression
+--   back to substring counting fails there instead of agreeing by luck.
 --     One thing that test cannot see, because it is a WHERE conjunct and not an assertion
 --   site: the identity-arguments filter in part
 --   2b, which is an EQUIVALENT MUTANT with respect to this check's verdict — measured across four
