@@ -19,15 +19,20 @@ export type DateSemantics = 'PUBLISHED' | 'UPDATED' | 'RELEASED' | 'EXPIRY'
  */
 export type DateStatus = 'OK' | 'INVALID' | 'MISSING_ZONE' | 'FUTURE' | 'IMPLAUSIBLE'
 
-export interface ObservedDate {
+interface ObservedDateBase {
   semantics: DateSemantics
   contract: DateContract
   /** As received (bounded). Always retained, whatever the status. */
   raw: string
-  /** Null unless status is OK. */
-  value: Date | null
-  status: DateStatus
 }
+
+/**
+ * A union on `status`: an OK date always has an instant, and any other status never does, so
+ * "OK with a null value" and "INVALID with a value" are unrepresentable rather than merely untested.
+ */
+export type ObservedDate =
+  | (ObservedDateBase & { status: 'OK'; value: Date })
+  | (ObservedDateBase & { status: Exclude<DateStatus, 'OK'>; value: null })
 
 export interface DateInput {
   raw: string | number | null | undefined
@@ -167,11 +172,11 @@ export function parseSourceDate(input: DateInput, now: Date): ObservedDate | nul
   const text = String(rawInput).trim()
   if (text.length === 0) return null
   const raw = text.slice(0, MAX_RAW_CHARS)
-  const done = (status: DateStatus, value: Date | null = null): ObservedDate => ({
+  const done = (status: Exclude<DateStatus, 'OK'>): ObservedDate => ({
     semantics,
     contract,
     raw,
-    value,
+    value: null,
     status,
   })
 
@@ -187,5 +192,5 @@ export function parseSourceDate(input: DateInput, now: Date): ObservedDate | nul
   if (semantics !== 'EXPIRY' && parsed.value.getTime() > now.getTime() + FUTURE_TOLERANCE_MS) {
     return done('FUTURE')
   }
-  return done('OK', parsed.value)
+  return { semantics, contract, raw, value: parsed.value, status: 'OK' }
 }
