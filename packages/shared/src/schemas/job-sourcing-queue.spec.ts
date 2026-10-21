@@ -103,6 +103,10 @@ describe('enum members and order (mirrored by the pg enums)', () => {
         'TRIAGE_REVOKED',
         'TRIAGE_SUBSCRIBED',
         'TRIAGE_UNSUBSCRIBED',
+        // r5 Task 1.4b-ii, appended LAST: the redaction evidence row. The member
+        // list is pinned in ORDER on purpose, so this line is the record that the
+        // value was added deliberately rather than a reorder slipping through.
+        'REASON_REDACTED',
       ],
     ],
   ])('%#', (schema, members) => {
@@ -399,6 +403,7 @@ const opened = {
   scope: TEAM,
   subjectTeamId: null,
   subjectUserId: null,
+  subjectActionId: null,
   beforeVersion: null,
   afterVersion: null,
   idempotencyKey: 'opened:abc',
@@ -423,13 +428,32 @@ const subscribed = {
   beforeVersion: 0,
   afterVersion: 1,
 }
+/**
+ * The redaction evidence row (r5 Task 1.4b-ii): it names an action row, nothing
+ * else. The subject is its OWN constant and deliberately not `U1`, which is
+ * this fixture's own `id` — a redaction may not be its own subject (SR-M-2),
+ * and reusing `U1` here made the baseline fixture violate that the moment the
+ * clause landed.
+ */
+const SUBJECT_ACTION = '88888888-9999-4aaa-8bbb-cccccccccccc'
+const redaction = {
+  ...opened,
+  kind: 'REASON_REDACTED',
+  opportunityId: null,
+  sourceRecordId: null,
+  subscriptionId: null,
+  subjectActionId: SUBJECT_ACTION,
+  beforeVersion: null,
+  afterVersion: null,
+  idempotencyKey: 'dsar-2026-000123',
+}
 const TARGET =
-  'a subscription action targets a subscription only; every other action targets an opportunity and no subscription'
+  'a subscription action targets a subscription only; a REASON_REDACTED action targets the action row it redacts; every other action targets an opportunity and no subscription'
 const CLICKED = 'OPENED / DEAD_LINK / SPAM reference the clicked source record'
 const SUBJECT_TEAM = 'a TRIAGE_* action names the team it concerns, and only a TRIAGE_* action does'
 const SUBJECT_USER = 'a REASSIGNED action names the new assignee, and only a REASSIGNED action does'
 const VERSIONS =
-  'telemetry (OPENED / DEAD_LINK / SPAM) carries no version; SUPPRESSED may carry none; every other action moves the version forward'
+  'telemetry (OPENED / DEAD_LINK / SPAM) and REASON_REDACTED carry no version; SUPPRESSED may carry none; every other action moves the version forward'
 
 describe('jobQueueActionWorkerSchema — server-internal (actor, key, subject user)', () => {
   it('accepts one valid row per shape: telemetry, a claim, a subscription, a grant, a reassign', () => {
@@ -609,6 +633,117 @@ describe('jobQueueActionWorkerSchema — server-internal (actor, key, subject us
       { ...takeAction, beforeVersion: 1, afterVersion: PG_INT_MAX + 1 },
       ['afterVersion'],
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The redaction evidence row (r5 Task 1.4b-ii)
+//
+// Each accepted shape below is paired with the near-misses the branch must STILL
+// refuse. The refusals are the half that matters: a branch widened one clause
+// too far is indistinguishable from a correct one until the wrong row arrives,
+// and this log is append-only, so the wrong row cannot be taken back out.
+// ---------------------------------------------------------------------------
+
+describe('jobQueueActionWorkerSchema — REASON_REDACTED points at an action row', () => {
+  it('accepts the evidence row: a subject action, no opportunity, no versions', () => {
+    expect(jobQueueActionWorkerSchema.parse(redaction)).toEqual(redaction)
+  })
+
+  it('still refuses a redaction that names no subject action at all', () => {
+    expectOnlyIssue(jobQueueActionWorkerSchema, { ...redaction, subjectActionId: null }, TARGET, [
+      'subjectActionId',
+    ])
+  })
+
+  it('still refuses a redaction that also reaches outside this log', () => {
+    // One clause per target column the third branch forces to NULL. Without
+    // these, a redaction could carry an opportunity (or a source record, or a
+    // subscription) and the row would claim two subjects at once.
+    for (const v of [{ opportunityId: U2 }, { sourceRecordId: U3 }, { subscriptionId: U1 }])
+      expectOnlyIssue(jobQueueActionWorkerSchema, { ...redaction, ...v }, TARGET, [
+        'subjectActionId',
+      ])
+  })
+
+  it('still refuses a redaction carrying versions — MUST be unversioned, unlike SUPPRESSED', () => {
+    // The distinction this pins: SUPPRESSED MAY carry a moving pair, a redaction
+    // may NOT. If `kind <> 'REASON_REDACTED'` is dropped from the last branch of
+    // ck_job_queue_actions_versions, a moving pair starts passing and this goes red.
+    for (const v of [
+      { beforeVersion: 0, afterVersion: 1 },
+      { beforeVersion: 4, afterVersion: 5 },
+      { beforeVersion: 0, afterVersion: null },
+      { beforeVersion: null, afterVersion: 1 },
+    ])
+      expectOnlyIssue(jobQueueActionWorkerSchema, { ...redaction, ...v }, VERSIONS, [
+        'afterVersion',
+      ])
+  })
+
+  it('still refuses a redaction naming a subject team or a subject user', () => {
+    expectOnlyIssue(jobQueueActionWorkerSchema, { ...redaction, subjectTeamId: U2 }, SUBJECT_TEAM, [
+      'subjectTeamId',
+    ])
+    expectOnlyIssue(jobQueueActionWorkerSchema, { ...redaction, subjectUserId: U2 }, SUBJECT_USER, [
+      'subjectUserId',
+    ])
+  })
+
+  it('leaves every OTHER kind unable to carry a subject action', () => {
+    // The two pre-existing target branches were NARROWED by this change, and
+    // this is that narrowing: the new column belongs to the redaction alone.
+    expectOnlyIssue(jobQueueActionWorkerSchema, { ...takeAction, subjectActionId: U1 }, TARGET, [
+      'opportunityId',
+    ])
+    expectOnlyIssue(jobQueueActionWorkerSchema, { ...opened, subjectActionId: U1 }, TARGET, [
+      'opportunityId',
+    ])
+    expectOnlyIssue(jobQueueActionWorkerSchema, { ...subscribed, subjectActionId: U1 }, TARGET, [
+      'opportunityId',
+    ])
+  })
+
+  it('keeps the clicked-source rule off the redaction — TELEMETRY_ACTIONS is not its set', () => {
+    // If REASON_REDACTED were folded into the telemetry set, this row would be
+    // required to name a clicked source record, and the shape above would be
+    // refused rather than accepted. That is why it got its own branch.
+    expect(jobQueueActionWorkerSchema.safeParse(redaction).success).toBe(true)
+    expect(
+      issuesOf(jobQueueActionWorkerSchema.safeParse({ ...redaction, sourceRecordId: U3 })).map(
+        (i) => i.message,
+      ),
+    ).not.toContain(CLICKED)
+  })
+
+  it('accepts a redaction in either scope, and leaves the scope rule unchanged', () => {
+    // Deliberately NOT constrained to STUDIO — see the schema header.
+    expect(jobQueueActionWorkerSchema.safeParse({ ...redaction, scope: STUDIO }).success).toBe(true)
+    expect(jobQueueActionWorkerSchema.safeParse({ ...redaction, scope: TEAM }).success).toBe(true)
+  })
+
+  it('accepts a dangling subject action id — the subject is purged first, by design', () => {
+    // There is no FK, so zod cannot and must not require the referent to exist.
+    expect(
+      jobQueueActionWorkerSchema.safeParse({ ...redaction, subjectActionId: U3 }).success,
+    ).toBe(true)
+  })
+
+  it('STILL REFUSES a redaction that names ITSELF as its subject (SR-M-2)', () => {
+    // Self-evidence is not evidence. Admitted by the first draft of this branch,
+    // found by security review, and now refused on both sides.
+    expectOnlyIssue(
+      jobQueueActionWorkerSchema,
+      { ...redaction, subjectActionId: redaction.id },
+      TARGET,
+      ['subjectActionId'],
+    )
+  })
+
+  it('refuses a subject action id that is not a uuid', () => {
+    refusedAt(jobQueueActionWorkerSchema, { ...redaction, subjectActionId: 'not-a-uuid' }, [
+      'subjectActionId',
+    ])
   })
 })
 

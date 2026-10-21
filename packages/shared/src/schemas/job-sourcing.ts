@@ -884,6 +884,9 @@ export const jobQueueActionKindSchema = z.enum([
   'TRIAGE_REVOKED',
   'TRIAGE_SUBSCRIBED',
   'TRIAGE_UNSUBSCRIBED',
+  // The redaction evidence row (r5 Task 1.4b-ii) — the one kind whose subject is
+  // another row OF THIS LOG rather than an opportunity or a subscription.
+  'REASON_REDACTED',
 ])
 
 /** BUILDING -> PUBLISHED -> INVALIDATED; a BUILDING one may be abandoned straight to INVALIDATED. */
@@ -1052,6 +1055,13 @@ const SUBSCRIPTION_ACTIONS: ReadonlySet<string> = new Set([
   'TRIAGE_UNSUBSCRIBED',
 ])
 const TELEMETRY_ACTIONS: ReadonlySet<string> = new Set(['OPENED', 'DEAD_LINK', 'SPAM'])
+/**
+ * The redaction evidence kind (r5 Task 1.4b-ii). Deliberately NOT a member of
+ * `TELEMETRY_ACTIONS`: that set also drives the clicked-source rule, which a
+ * redaction cannot satisfy — it references no source record. Same seam decision
+ * as `TELEMETRY_KINDS` in `schema/job-queue.ts`; the two must agree.
+ */
+const REDACTION_ACTION = 'REASON_REDACTED'
 
 /**
  * One row of the action log (the audit trail of every queue mutation and
@@ -1076,6 +1086,13 @@ export const jobQueueActionWorkerSchema = z
     subjectTeamId: z.string().uuid().nullable(),
     /** The new assignee of a REASSIGNED action. */
     subjectUserId: z.string().uuid().nullable(),
+    /**
+     * The row of this same log that a `REASON_REDACTED` row evidences, and the
+     * only target that points INSIDE this log. It has no foreign key in the
+     * database on purpose — the subject is purged before its evidence row falls
+     * due — so a non-null value here may name a row that no longer exists.
+     */
+    subjectActionId: z.string().uuid().nullable(),
     beforeVersion: intColumnCountSchema.nullable(),
     afterVersion: intColumnPositiveSchema.nullable(),
     /** UNIQUE per actor in the database. */
@@ -1084,15 +1101,37 @@ export const jobQueueActionWorkerSchema = z
     createdAt: z.string().datetime(),
   })
   .superRefine((a, ctx) => {
+    const redaction = a.kind === REDACTION_ACTION
     const onSubscription =
-      a.opportunityId === null && a.subscriptionId !== null && a.sourceRecordId === null
-    const onOpportunity = a.opportunityId !== null && a.subscriptionId === null
-    if (SUBSCRIPTION_ACTIONS.has(a.kind) ? !onSubscription : !onOpportunity) {
+      a.opportunityId === null &&
+      a.subscriptionId !== null &&
+      a.sourceRecordId === null &&
+      a.subjectActionId === null
+    const onOpportunity =
+      a.opportunityId !== null && a.subscriptionId === null && a.subjectActionId === null
+    // The third branch of `ck_job_queue_actions_target`: a redaction names the
+    // action row it is about and nothing outside this log.
+    const onRedactedAction =
+      a.subjectActionId !== null &&
+      // SR-M-2: not itself. An evidence row that is its own subject is not
+      // evidence of anything.
+      a.subjectActionId !== a.id &&
+      a.opportunityId === null &&
+      a.subscriptionId === null &&
+      a.sourceRecordId === null
+    const targeted = redaction
+      ? onRedactedAction
+      : SUBSCRIPTION_ACTIONS.has(a.kind)
+        ? onSubscription
+        : onOpportunity
+    if (!targeted) {
       ctx.addIssue({
         code: 'custom',
         message:
-          'a subscription action targets a subscription only; every other action targets an opportunity and no subscription',
-        path: ['opportunityId'],
+          'a subscription action targets a subscription only; a REASON_REDACTED action targets the action row it redacts; every other action targets an opportunity and no subscription',
+        // Point at the column the reader must fix, which for a redaction is the
+        // new one rather than the opportunity it deliberately does not carry.
+        path: [redaction ? 'subjectActionId' : 'opportunityId'],
       })
     }
     const telemetry = TELEMETRY_ACTIONS.has(a.kind)
@@ -1125,11 +1164,16 @@ export const jobQueueActionWorkerSchema = z
     // before-version >= 0 (a separate `!== null` operand was redundant — the
     // mutation gate showed it could be replaced by `true` unobserved).
     const forward = a.beforeVersion !== null && (a.afterVersion ?? -1) > a.beforeVersion
-    if (telemetry ? !unversioned : !forward && !versionless) {
+    // MUST be unversioned, not MAY: a redaction carries no target state at all,
+    // so unlike SUPPRESSED it is excluded from the moving-pair branch rather
+    // than also allowed into it. Mirrors `kind <> 'REASON_REDACTED'` on the
+    // last branch of `ck_job_queue_actions_versions`.
+    const mustBeUnversioned = telemetry || redaction
+    if (mustBeUnversioned ? !unversioned : !forward && !versionless) {
       ctx.addIssue({
         code: 'custom',
         message:
-          'telemetry (OPENED / DEAD_LINK / SPAM) carries no version; SUPPRESSED may carry none; every other action moves the version forward',
+          'telemetry (OPENED / DEAD_LINK / SPAM) and REASON_REDACTED carry no version; SUPPRESSED may carry none; every other action moves the version forward',
         path: ['afterVersion'],
       })
     }

@@ -107,8 +107,11 @@ describe('enum parity (pg <-> shared zod)', () => {
     expect(pgEnum.enumName).toBe(pgName)
   })
 
-  it('carries all thirteen action kinds and leaves the legacy signal enum alone', () => {
-    expect(jobQueueActionKindEnum.enumValues).toHaveLength(13)
+  it('carries all fourteen action kinds and leaves the legacy signal enum alone', () => {
+    // Thirteen queue kinds plus REASON_REDACTED (r5 Task 1.4b-ii), which is an
+    // evidence row about this log rather than a fourteenth queue mutation.
+    expect(jobQueueActionKindEnum.enumValues).toHaveLength(14)
+    expect(jobQueueActionKindEnum.enumValues.at(-1)).toBe('REASON_REDACTED')
     expect([...jobSignalKindEnum.enumValues]).toEqual([...jobSignalKindSchema.options])
     expect(jobSignalKindEnum.enumName).toBe('job_posting_signal_kind')
   })
@@ -453,6 +456,10 @@ describe('job_queue_actions (AC4)', () => {
       'team_id',
       'subject_team_id',
       'subject_user_id',
+      // r5 Task 1.4b-ii: the row of THIS log a REASON_REDACTED evidence row is
+      // about. Declared in the `subject_*` family; `db:push` appends it
+      // physically, which this list does not read.
+      'subject_action_id',
       'before_version',
       'after_version',
       'idempotency_key',
@@ -468,6 +475,7 @@ describe('job_queue_actions (AC4)', () => {
       'team_id',
       'subject_team_id',
       'subject_user_id',
+      'subject_action_id',
       'before_version',
       'after_version',
       'reason',
@@ -478,7 +486,15 @@ describe('job_queue_actions (AC4)', () => {
 
   it('never cascades: every parent reference is RESTRICT, so no delete erases audit', () => {
     const fks = getTableConfig(t).foreignKeys
+    // STILL seven with `subject_action_id` added: it carries NO foreign key, and
+    // that is load-bearing rather than an omission. A self-FK of ANY mode breaks
+    // the end-of-retention purge, which deletes a subject row up to two years
+    // before its evidence row falls due (see the schema header). If someone
+    // "fixes" the missing FK, this count goes to 8 and this test says so.
     expect(fks).toHaveLength(7)
+    expect(fks.some((f) => f.reference().columns.some((c) => c.name === 'subject_action_id'))).toBe(
+      false,
+    )
     for (const f of fks) expect(f.onDelete).toBe('restrict')
     expect(fkShape(t, 'fk_job_queue_actions_opportunity').table).toBe(jobOpportunities)
     expect(fkShape(t, 'fk_job_queue_actions_source_record').table).toBe(jobSourceRecords)
@@ -545,9 +561,9 @@ describe('job_queue_actions (AC4)', () => {
     expectScopeShape(t, 'ck_job_queue_actions_scope_shape')
   })
 
-  it('targets a subscription XOR an opportunity, by kind, in two branches', () => {
+  it('targets a subscription, an opportunity, or a redacted action row, by kind, in three branches', () => {
     expect(checkSql(t, 'ck_job_queue_actions_target')).toBe(
-      `("kind" IN ('TRIAGE_SUBSCRIBED', 'TRIAGE_UNSUBSCRIBED') AND "opportunity_id" IS NULL AND "subscription_id" IS NOT NULL AND "source_record_id" IS NULL) OR ("kind" NOT IN ('TRIAGE_SUBSCRIBED', 'TRIAGE_UNSUBSCRIBED') AND "opportunity_id" IS NOT NULL AND "subscription_id" IS NULL)`,
+      `("kind" IN ('TRIAGE_SUBSCRIBED', 'TRIAGE_UNSUBSCRIBED') AND "opportunity_id" IS NULL AND "subscription_id" IS NOT NULL AND "source_record_id" IS NULL AND "subject_action_id" IS NULL) OR ("kind" = 'REASON_REDACTED' AND "subject_action_id" IS NOT NULL AND "subject_action_id" <> "id" AND "opportunity_id" IS NULL AND "subscription_id" IS NULL AND "source_record_id" IS NULL) OR ("kind" NOT IN ('TRIAGE_SUBSCRIBED', 'TRIAGE_UNSUBSCRIBED') AND "kind" <> 'REASON_REDACTED' AND "opportunity_id" IS NOT NULL AND "subscription_id" IS NULL AND "subject_action_id" IS NULL)`,
     )
   })
 
@@ -555,6 +571,16 @@ describe('job_queue_actions (AC4)', () => {
     expect(checkSql(t, 'ck_job_queue_actions_clicked_source')).toBe(
       `"kind" NOT IN ('OPENED', 'DEAD_LINK', 'SPAM') OR "source_record_id" IS NOT NULL`,
     )
+  })
+
+  // r5 Task 1.4b-ii. `TELEMETRY_KINDS` looked like the home for a versionless
+  // kind, and it is NOT: the same set is read here, so a REASON_REDACTED row
+  // inside it would be required to name a clicked source record it does not
+  // have. The seam was checked rather than assumed, and this is the check.
+  it('does not fold the redaction evidence row into the telemetry set', () => {
+    expect(checkSql(t, 'ck_job_queue_actions_clicked_source')).not.toContain('REASON_REDACTED')
+    expect(checkSql(t, 'ck_job_queue_actions_subject_team')).not.toContain('REASON_REDACTED')
+    expect(checkSql(t, 'ck_job_queue_actions_subject_user')).not.toContain('REASON_REDACTED')
   })
 
   it('pairs the subject team with TRIAGE_* and the subject user with REASSIGNED', () => {
@@ -568,7 +594,7 @@ describe('job_queue_actions (AC4)', () => {
 
   it('leaves telemetry unversioned and moves every mutation forward', () => {
     expect(checkSql(t, 'ck_job_queue_actions_versions')).toBe(
-      `("kind" IN ('OPENED', 'DEAD_LINK', 'SPAM') AND "before_version" IS NULL AND "after_version" IS NULL) OR ("kind" = 'SUPPRESSED' AND "before_version" IS NULL AND "after_version" IS NULL) OR ("kind" NOT IN ('OPENED', 'DEAD_LINK', 'SPAM') AND "before_version" IS NOT NULL AND "after_version" IS NOT NULL AND "before_version" >= 0 AND "after_version" > "before_version")`,
+      `("kind" IN ('OPENED', 'DEAD_LINK', 'SPAM') AND "before_version" IS NULL AND "after_version" IS NULL) OR ("kind" = 'SUPPRESSED' AND "before_version" IS NULL AND "after_version" IS NULL) OR ("kind" = 'REASON_REDACTED' AND "before_version" IS NULL AND "after_version" IS NULL) OR ("kind" NOT IN ('OPENED', 'DEAD_LINK', 'SPAM') AND "kind" <> 'REASON_REDACTED' AND "before_version" IS NOT NULL AND "after_version" IS NOT NULL AND "before_version" >= 0 AND "after_version" > "before_version")`,
     )
   })
 

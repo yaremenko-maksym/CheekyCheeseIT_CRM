@@ -82,3 +82,6 @@ its death is the silence that killed it, measured rather than inferred.
 - `.claude/rules/common/light-track.md` — `pre:bash:unbounded-wait`, and how to wait correctly.
 - `.claude/rules/common/agent-isolation.md` — why the worktree the work sits in is removable at all.
 - `.claude/skills/dev-flow-resilience/SKILL.md` — recovery **after** a cut (sentinel, write-then-post).
+- `.claude/rules/common/verification-integrity.md` — the `Pushed:` line generalised: assert the
+  artifact, never the exit status. A push that reported exit 0 without reaching origin is instance 2
+  of that class, and it is what this line exists to make visible.
