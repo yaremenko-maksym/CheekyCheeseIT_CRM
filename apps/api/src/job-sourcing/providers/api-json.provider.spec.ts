@@ -189,6 +189,7 @@ function harness(opts: {
     },
     cache: {
       async get(key) {
+        calls.push(`cache.get:${String(key)}`)
         return cache.get(key) ?? null
       },
       async put(key, value) {
@@ -729,10 +730,12 @@ describe('the order of operations', () => {
     expect(h.calls).toEqual([
       'load',
       'reserve:1',
+      'cache.get:p1',
       'fetch:1',
       'reconcile:USED',
       'save:1',
       'reserve:2',
+      'cache.get:p2',
       'fetch:2',
       'reconcile:USED',
       'save:2',
@@ -970,7 +973,13 @@ describe('HTTP status classification', () => {
     expect(batch.outcome).toBe('SUCCEEDED')
   })
 
-  it.each([300, 400, 404, 499, 500, 502])('treats %i as UPSTREAM', async (status) => {
+  /**
+   * 100 is in this list to make the LOWER bound of the success range observable. Without it,
+   * `status >= 200 && status < 300` could lose its first operand and nothing would notice: every
+   * status any test used was already 200 or above, so `true && status < 300` behaved identically.
+   * A 1xx is not a body we may treat as a page.
+   */
+  it.each([100, 300, 400, 404, 499, 500, 502])('treats %i as UPSTREAM', async (status) => {
     const h = harness({ pages: [{ status }] })
     const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
     expect(batch.requests.at(-1)?.error?.code).toBe('UPSTREAM')
@@ -1153,6 +1162,81 @@ describe('failure messages name what broke', () => {
       code: 'PARSE_DRIFT',
       message: 'jobs field moved',
     })
+  })
+})
+
+describe('the stop messages say which stop it was', () => {
+  it('names the cancellation', async () => {
+    const h = harness({ pages: [onePage([job('1')])], aborted: true })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+    expect(batch.requests.at(-1)?.error?.message).toBe('the run was cancelled before this page')
+  })
+
+  it('names the deadline', async () => {
+    const instant = new Date('2026-10-20T10:00:00Z')
+    const h = harness({ pages: [onePage([job('1')])], now: instant, deadline: instant })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+    expect(batch.requests.at(-1)?.error?.message).toBe(
+      'the attempt deadline passed before this page',
+    )
+  })
+
+  it('names the refused reservation', async () => {
+    const h = harness({ pages: [onePage([job('1')])], reserveRefusesOnCall: 1 })
+    const batch = await collectJsonPages(
+      makeSpec({ meter: { unit: 'REQUEST', amountPerRequest: 1 } }),
+      config(),
+      h.ctx,
+    )
+    expect(batch.requests.at(-1)?.error?.message).toBe('the meter refused a reservation')
+  })
+
+  it('names an unsolicited 304', async () => {
+    const h = harness({ pages: [{ status: 304 }] })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+    expect(batch.requests.at(-1)?.error?.message).toBe(
+      'provider answered 304 for a request that carried no validator',
+    )
+  })
+})
+
+describe('a fresh response is never replaced by a stale cached one', () => {
+  /**
+   * The condition is `status === 304 AND something is cached`, and the `304` half is only
+   * observable when BOTH a cache entry exists and the provider answered 200: then a loop that
+   * checked only "is anything cached" would serve the stale body and silently report yesterday's
+   * inventory as today's.
+   */
+  it('uses the 200 body even though a validator was cached', async () => {
+    const h = harness({
+      pages: [{ status: 200, body: { jobs: [job('fresh')], next: null } }],
+      cacheSeed: {
+        p1: { etag: 'W/"v1"', bodyText: JSON.stringify({ jobs: [job('stale')], next: null }) },
+      },
+    })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(batch.observations).toHaveLength(1)
+    expect(batch.observations[0]?.normalized.title).toContain('fresh')
+  })
+})
+
+describe('the cache is not consulted for an uncacheable page', () => {
+  it('asks the cache nothing when the adapter named no key', async () => {
+    const spec = makeSpec({
+      pageRequest: () => ({ request: { url: 'https://api.example.com/jobs' } }),
+    })
+    const h = harness({ pages: [onePage([job('1')])] })
+    await collectJsonPages(spec, config(), h.ctx)
+
+    expect(h.calls.filter((c) => c.startsWith('cache.get'))).toEqual([])
+  })
+
+  it('asks the cache for the key the adapter named', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(h.calls).toContain('cache.get:p1')
   })
 })
 

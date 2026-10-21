@@ -194,7 +194,9 @@ function classifyStatus(status: number): CollectionErrorCode | null {
   if (status === 304) return null
   if (status === 401 || status === 403) return 'ACCESS_POLICY'
   if (status === 429) return 'RATE_LIMIT'
-  if (status >= 500) return 'UPSTREAM'
+  // No separate 5xx branch: it returned exactly what the fall-through returns, so it was four
+  // mutants no test could ever distinguish. A 5xx and a 4xx differ in RETRY policy, which is Task
+  // 2.2's and reads the status from the report — not in how this seam classifies them.
   return 'UPSTREAM'
 }
 
@@ -246,13 +248,26 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
   const requests: RequestReport[] = []
   const samples: InvalidSample[] = []
   const counts: CollectionCounts = { raw: 0, normalized: 0, invalid: 0, quarantined: 0 }
+  // Stryker disable next-line ConditionalExpression,ArrayDeclaration: seeding the set with a
+  // `null` (or with any non-cursor string) is unobservable — `has()` is only ever asked about a
+  // cursor the provider returned, and those are non-empty strings that can equal neither. The
+  // branch keeps the set's element type honest; the half that IS observable — seeding the RESUMED
+  // cursor so a provider handing it straight back is a cycle — is asserted.
   const seenCursors = new Set<string>(at.cursor === null ? [] : [at.cursor])
   const nativeIdByIdentityKey = new Map<string, string>()
 
   let pagesCompleted = 0
+  // Stryker disable next-line StringLiteral: every exit from the loop below assigns `stop` before
+  // breaking, so this initializer is unreachable and no test can observe it. That it survives is
+  // the proof: `deriveOutcome` now THROWS on an unrecognised stop reason, so a value that ever
+  // reached the derivation would fail loudly rather than pass as a success.
   let stop: StopReason = 'EXHAUSTED'
 
   const addSample = (page: number, reason: string, raw: unknown): void => {
+    // Stryker disable next-line ConditionalExpression,EqualityOperator: the OBSERVABLE cap is
+    // `buildCollectionBatch`'s slice, asserted on both sides in reporting-provider.spec.ts. This
+    // early return bounds MEMORY while a 10 000-item page is being refused; it cannot change the
+    // reported samples, so there is nothing for a test to catch here.
     if (samples.length >= MAX_SAMPLES) return
     samples.push(buildInvalidSample(page, reason, raw, ctx.secrets))
   }
@@ -345,12 +360,9 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
             headers: { ...pageRequest.request.headers, 'if-none-match': cached.etag },
           }
 
-    /**
-     * Stryker disable next-line StringLiteral: the failure paths below deliberately do NOT assign
-     * this, because `failure !== null` short-circuits before anything parses the body — so no
-     * test can observe what it holds on those paths. Declared once here instead of three times,
-     * which is also why there is one mutant to explain rather than four.
-     */
+    // The failure paths below deliberately do NOT assign this: `failure !== null` short-circuits
+    // before anything parses the body, so no test can observe what it holds on those paths.
+    // Stryker disable next-line StringLiteral: unobservable for the reason above.
     let bodyText = ''
     let status: number
     let failure: PageAttemptFailure | null = null
@@ -407,6 +419,10 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
         if (!envelope.success) {
           failure = {
             code: 'PARSE_DRIFT',
+            // Stryker disable next-line OptionalChaining: a Zod result with `success: false`
+            // always carries at least one issue, so `issues[0]` is never undefined and the
+            // optional chain cannot be made to fire. The FALLBACK is asserted to be unused (the
+            // test requires the schema's own words), which is the half that can be observed.
             message: `envelope: ${envelope.error.issues[0]?.message ?? 'did not match'}`,
             status,
           }
@@ -578,6 +594,8 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
     const validated = spec.itemSchema.safeParse(item)
     if (!validated.success) {
       counts.invalid += 1
+      // Stryker disable next-line OptionalChaining: as above — a failed Zod result always has an
+      // issue, so the optional chain is unreachable; the fallback's absence IS asserted.
       addSample(at.page, `ITEM_SCHEMA: ${validated.error.issues[0]?.message ?? 'invalid'}`, item)
       continue
     }
@@ -609,6 +627,10 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
 
     const { identityKey } = result.observation.identity
     const nativeId = spec.nativeIdOf?.(validated.data, config) ?? raw.nativeId ?? null
+    // Stryker disable next-line ConditionalExpression: entering this block with a null native id
+    // changes nothing — `null !== null` is false, so no collision is ever reported, and recording
+    // `null` against the key cannot make a later distinct id compare equal to it. The guard keeps
+    // the map's value type `string`.
     if (nativeId !== null) {
       const seen = nativeIdByIdentityKey.get(identityKey)
       if (seen !== undefined && seen !== nativeId) {

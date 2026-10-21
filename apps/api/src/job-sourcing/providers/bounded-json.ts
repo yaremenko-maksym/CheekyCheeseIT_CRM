@@ -157,16 +157,13 @@ export function parseBoundedJson(text: string, limits: JsonLimits): BoundedJsonR
     return {
       ok: false,
       reason: 'NOT_JSON',
-      /**
-       * The parser's own message, which names the offset and a short snippet but never the whole
-       * body.
-       *
-       * Stryker disable next-line MethodExpression: V8 bounds this message itself — measured at 60
-       * characters for a 5 KB malformed document, because it truncates its own snippet. No input
-       * available today makes the slice fire, so no test can kill the mutant that removes it. It
-       * stays as defence against a future parser that echoes more, and this note is why it has no
-       * test rather than a pretend one.
-       */
+      // The parser's own message, which names the offset and a short snippet but never the whole
+      // body. V8 bounds the message itself — measured at 60 characters for a 5 KB malformed
+      // document, because it truncates its own snippet. No input available today makes the slice
+      // fire, so no test can kill the mutant that removes it; it stays as defence against a
+      // future parser that echoes more, and this note is why it has no test rather than a
+      // pretend one.
+      // Stryker disable next-line MethodExpression: unobservable for the reason above (measured).
       detail: error instanceof Error ? error.message.slice(0, 200) : 'unparseable',
     }
   }
