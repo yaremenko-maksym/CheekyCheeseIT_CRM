@@ -18,9 +18,20 @@
 --   comments. `AC5 — the catalog check` in job-queue-append-only.integration.spec.ts has
 --   one test per assertion: it replays the tampering against the SHIPPED BYTES of this
 --   file and requires the specific failure message. Each was verified by DELETING its
---   assertion here and confirming exactly that test goes red — twelve of the thirteen
---   assertions are killed that way. The thirteenth, the identity-arguments filter in part
---   2b, is an EQUIVALENT MUTANT with respect to this check's verdict: measured across four
+--   assertion here and confirming exactly that test goes red.
+--     THE COUNT IS NOT WRITTEN HERE ON PURPOSE, as of fix round 4. It used to read
+--   "twelve of the thirteen assertions", and by the time anyone looked the file had
+--   twenty-five assertion sites — a hand count in a comment is the exact shape of claim
+--   that goes false in silence, which is this branch's recurring defect. The count is
+--   now MEASURED by the suite instead: `every assertion in the check is pinned by a test
+--   or a measured equivalence` counts the `problems := problems || format(` sites in the
+--   shipped bytes of this file, requires one inventory entry per site, and requires each
+--   entry to name either a test that exists or a measured equivalence. Add an assertion
+--   without classifying it and that test goes RED — so the number lives where it can
+--   fail, and reading it is `grep -c 'problems := problems || format(' <this file>`.
+--     One thing that test cannot see, because it is a WHERE conjunct and not an assertion
+--   site: the identity-arguments filter in part
+--   2b, which is an EQUIVALENT MUTANT with respect to this check's verdict — measured across four
 --   catalog states, deleting it changes no pass/fail outcome, only the precision of a
 --   failure message, because the overload report fires on the very precondition that makes
 --   it matter. The measurement is recorded where the filter sits. Every assertion that CAN
@@ -239,6 +250,61 @@ BEGIN
   -- resolve. Only column 6 needed pinning; it is pinned rather than documented so the
   -- checksum means one thing.
   PERFORM pg_catalog.set_config('search_path', 'pg_catalog, public', true);
+
+  -- -------------------------------------------------------------------------
+  -- 0. THE MANIFESTS THEMSELVES ARE ASSERTED, not merely iterated.
+  --
+  --    Every part below LOOPS OVER the arrays above, so a row deleted from a manifest
+  --    deletes its own assertion with it. Whether anything notices was not symmetric
+  --    across the three manifests, and the asymmetry was the hole:
+  --      - delete an `expected_triggers` row -> the catalog trigger becomes undeclared
+  --        and part 1b reports it;
+  --      - delete an `expected_functions` row -> part 3 compares the array's length
+  --        against what `crm_retention_owner` actually owns and reports the mismatch;
+  --      - delete an `expected_trigger_functions` row -> NOTHING. Its length reached
+  --        only the closing `RAISE NOTICE`, and a NOTICE cannot fail a check.
+  --    So deleting the body-hash row of `job_queue_actions_created_at_now` left this
+  --    file GREEN while a rewritten body handed `created_at` back to its writer — the
+  --    one tampering that row exists to catch, hidden by removing the row. That the
+  --    row was NECESSARY is already measured: with the body rewritten to drop the
+  --    assignment, `tgenabled`, `tgtype` and the triggerdef md5 were all unchanged and
+  --    only the body checksum saw it (manifest comment, 2026-10-19, PG 16.15).
+  --
+  --    The counterpart scan, in the shape part 1b uses for triggers: declared triggers
+  --    and declared trigger-function checksums must cover each other exactly. It is
+  --    derived from the manifests, so it cannot drift from them; it needs no catalog
+  --    state, so it fails on the EDIT alone, on any database, including a healthy one.
+  --    Pinned by `AC5 — the catalog check` -> the two `0:` tests.
+  -- -------------------------------------------------------------------------
+  FOR i IN 1 .. array_length(expected_triggers, 1) LOOP
+    IF NOT EXISTS (
+      SELECT 1
+        FROM generate_subscripts(expected_trigger_functions, 1) s
+       WHERE expected_trigger_functions[s][1] = expected_triggers[i][5]
+    ) THEN
+      problems := problems || format(
+        'trigger %s executes public.%s(), whose body checksum is NOT DECLARED in '
+        'expected_trigger_functions — the body of a declared guard would go unpinned, '
+        'and a rewrite of it is invisible to every other assertion in this file',
+        expected_triggers[i][1], expected_triggers[i][5]);
+    END IF;
+  END LOOP;
+
+  -- The reverse direction, so a row cannot be left behind pinning nothing: a declared
+  -- body checksum whose function no declared trigger executes is either a stale row or
+  -- a deleted trigger row, and both are findings.
+  FOR i IN 1 .. array_length(expected_trigger_functions, 1) LOOP
+    IF NOT EXISTS (
+      SELECT 1
+        FROM generate_subscripts(expected_triggers, 1) s
+       WHERE expected_triggers[s][5] = expected_trigger_functions[i][1]
+    ) THEN
+      problems := problems || format(
+        'expected_trigger_functions declares public.%s(), which NO DECLARED TRIGGER '
+        'executes — a manifest row that pins nothing, or a trigger row that was removed',
+        expected_trigger_functions[i][1]);
+    END IF;
+  END LOOP;
 
   -- -------------------------------------------------------------------------
   -- 1. Every guard trigger exists, on the right table, and is ENABLE ALWAYS.

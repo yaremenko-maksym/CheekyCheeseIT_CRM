@@ -1941,6 +1941,149 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
     })
 
     // =====================================================================
+    // THE created_at GUARD'S OWN TAMPERINGS (fix round 4 — SR-M-1 + SPEC-M-1)
+    //
+    // Every tampering test above picks one of the other seven guards, so the eighth —
+    // `trg_job_queue_actions_created_at_now`, the one this PR installs — reached CI
+    // covered only by AC1's inventory, which sees the trigger's SHAPE and not whether
+    // tampering with it is detected. The red runs existed as hand-run output pasted in
+    // a PR body, and hand-run output is not a test: nothing re-runs it.
+    //
+    // Four shapes. The first three go red against assertions that were already here;
+    // the FOURTH had no assertion at all before part 0 — deleting the body-hash row
+    // deleted the only assertion that can see a rewritten body, and the check stayed
+    // GREEN while `created_at` went back to its writer. The two `0:` tests therefore
+    // tamper with the FILE, not the catalog, and feed EDITED bytes where every other
+    // test in this describe feeds the shipped ones.
+    // =====================================================================
+    describe('the created_at guard — its own four tamperings', () => {
+      const TRG = 'trg_job_queue_actions_created_at_now'
+      const FN = 'job_queue_actions_created_at_now'
+
+      /**
+       * Run the SHIPPED check bytes against a tampered catalog and return the failure
+       * message; repair from the DDL and re-verify the repair either way. Same shape as
+       * `tamperedCheckMessage` above, re-declared because that one is scoped to the
+       * column-by-column describe and this one tampers in other ways than `retamper`.
+       */
+      const messageAfterCatalogTamper = async (): Promise<string> => {
+        try {
+          const err = await rejected(readFileSync(CHECK_SQL, 'utf8'))
+          return err.message ?? ''
+        } finally {
+          await applyFile(TRIGGERS_SQL)
+          await applyFile(CHECK_SQL)
+        }
+      }
+
+      /**
+       * Cut one manifest row out of the shipped check bytes, comma and leading comments
+       * included, and prove the cut happened.
+       *
+       * The comma matters: these rows are LAST in their arrays, so removing a row and
+       * leaving its separator behind is a dangling comma, PostgreSQL rejects the file
+       * for a SYNTAX error, and a test asserting "it was rejected" would be satisfied
+       * by the wrong failure entirely.
+       *
+       * The `toMatch` matters for the same family of reason: a regex that silently
+       * matched nothing would leave the check UNEDITED, the unedited check PASSES, and
+       * the test would then fail for a reason that reads like the assertion being wrong.
+       * An instrument that returned nothing has to be shown to have looked.
+       */
+      const withoutManifestRow = (sql: string, row: RegExp): string => {
+        expect(sql).toMatch(row)
+        const edited = sql.replace(row, '')
+        expect(edited).not.toMatch(row)
+        expect(edited.length).toBeLessThan(sql.length)
+        return edited
+      }
+
+      it('1 of 4 — the trigger is dropped', async () => {
+        await q(`DROP TRIGGER ${TRG} ON public.job_queue_actions`)
+
+        const message = await messageAfterCatalogTamper()
+
+        expect(message).toContain(`trigger ${TRG} is MISSING from public.job_queue_actions`)
+      })
+
+      it('2 of 4 — the trigger is left disabled', async () => {
+        await q(`ALTER TABLE public.job_queue_actions DISABLE TRIGGER ${TRG}`)
+        expect(await triggerState(TRG, 'job_queue_actions')).toBe('D')
+
+        const message = await messageAfterCatalogTamper()
+
+        expect(message).toContain(TRG)
+        expect(message).toContain('not ENABLE ALWAYS')
+        // The repair in the helper's `finally` really restored the stronger mode, not
+        // the plain one: 'O' is skipped under `session_replication_role = replica`.
+        expect(await triggerState(TRG, 'job_queue_actions')).toBe('A')
+      })
+
+      it('3 of 4 — the function body is rewritten with the assignment removed', async () => {
+        // THE case that justifies the body-hash row, and the test is two-sided because
+        // of what was measured when it was added (PG 16.15, manifest comment): with the
+        // assignment dropped, `tgenabled`, `tgtype` and the triggerdef md5 are ALL
+        // unchanged, since none of them reads the function's body. So it is not enough
+        // to assert that the check went red — the three assertions that would make this
+        // test pass for the wrong reason must be shown to stay SILENT.
+        await q(`
+          CREATE OR REPLACE FUNCTION public.${FN}()
+          RETURNS trigger LANGUAGE plpgsql
+          SET search_path = pg_catalog, public, pg_temp
+          AS $drift$
+          BEGIN
+            -- The assignment NEW.created_at := now() removed and nothing else: the
+            -- column goes back to its writer, and with it the two-year retention
+            -- bound that reads it.
+            RETURN NEW;
+          END
+          $drift$;
+        `)
+
+        const message = await messageAfterCatalogTamper()
+
+        expect(message).toContain(`trigger function public.${FN} body checksum is`)
+        expect(message).not.toContain('not ENABLE ALWAYS')
+        expect(message).not.toContain('fires on the WRONG timing/events')
+        expect(message).not.toContain('definition checksum is')
+      })
+
+      it('0: fails when a trigger function body-hash row is deleted from the manifest', async () => {
+        // 4 of 4, and the one with its own assertion: before part 0 this edit left the
+        // check green, so the fix for a rewritten body could be removed by removing the
+        // row that catches it. No catalog tampering — the database stays HEALTHY, which
+        // is the point: the edit alone is the finding, on any database.
+        const edited = withoutManifestRow(
+          readFileSync(CHECK_SQL, 'utf8'),
+          /,\n(?:[ \t]*--[^\n]*\n)*[ \t]*\['job_queue_actions_created_at_now',\s*'[^']*'\]/,
+        )
+
+        const err = await rejected(edited)
+
+        expect(err.message).toContain(
+          `trigger ${TRG} executes public.${FN}(), whose body checksum is NOT DECLARED`,
+        )
+      })
+
+      it('0: fails when a trigger row is deleted, leaving a body-hash row that pins nothing', async () => {
+        // The reverse direction of the same coverage assertion. Both scans fire here and
+        // that is the demonstration, not a redundancy: part 1b sees the edit from the
+        // CATALOG side (an installed trigger nobody declared), part 0 from the MANIFEST
+        // side (a checksum row no declared trigger reaches) — and part 0 needs no catalog
+        // state, so it is the half that still works on a database that was never applied.
+        const edited = withoutManifestRow(
+          readFileSync(CHECK_SQL, 'utf8'),
+          /,\n(?:[ \t]*--[^\n]*\n)*[ \t]*\['trg_job_queue_actions_created_at_now',[^\]]*\]/,
+        )
+
+        const err = await rejected(edited)
+
+        expect(err.message).toContain(`declares public.${FN}(), which NO DECLARED TRIGGER executes`)
+        expect(err.message).toContain('is NOT DECLARED in this file')
+      })
+    })
+
+    // =====================================================================
     // THE "EVERY ASSERTION HAS A TEST" CLAIM, CHECKED BY THE SUITE (CR-H-9)
     //
     // Both SQL headers and the PR body make a claim of the form "every assertion that
@@ -1977,6 +2120,17 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
     }
 
     const CHECK_ASSERTIONS: readonly CheckAssertion[] = [
+      // --- part 0: the manifests cover each other (fix round 4, SR-M-1) ---
+      {
+        fragment: 'whose body checksum is NOT DECLARED in ',
+        pinnedBy: ['0: fails when a trigger function body-hash row is deleted from the manifest'],
+      },
+      {
+        fragment: 'which NO DECLARED TRIGGER ',
+        pinnedBy: [
+          '0: fails when a trigger row is deleted, leaving a body-hash row that pins nothing',
+        ],
+      },
       // --- part 1: the seven declared triggers, column by column ---
       { fragment: 'is MISSING from public.%s', pinnedBy: ['fails when a guard is dropped'] },
       {
