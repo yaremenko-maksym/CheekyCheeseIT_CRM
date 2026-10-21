@@ -11,33 +11,35 @@
  * were not passed at all, `received` would be `undefined` and every assertion below would throw.
  * If a `resolveUndefinedEntity` were added anywhere between here and the parser, the key-set
  * assertion goes red. That is the falsifiability the removed assertions lacked.
+ *
+ * The mock DELEGATES to the real parser, so the adapter's tree walk still runs on a real
+ * `XmlDocument` and the port's pre-scan reconciliation still holds. A mock returning a canned tree
+ * would make the last test below vacuous — the port would raise `PRESCAN_DIFFERENTIAL` instead of
+ * reaching the assertion.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { xmlPort } from './bounded-xml-port'
+import { HARDENED_OPTION_KEYS, HARDENED_PARSE_OPTIONS, parseXmlString } from './parse-xml.adapter'
 
 const parseXmlMock = vi.hoisted(() => vi.fn())
+/** The real `parseXml`, captured inside the factory so the module body needs no top-level await. */
+const real = vi.hoisted(() => ({ parseXml: null as null | ((...args: never[]) => unknown) }))
 
 vi.mock('@rgrove/parse-xml', async () => {
-  // The real module supplies the node classes the adapter does `instanceof` against; only
-  // `parseXml` itself is replaced. Mocking the classes too would make the adapter's tree walk
-  // untestable and the assertions below vacuous.
+  // Only `parseXml` is replaced. The node classes stay real, because the adapter does
+  // `instanceof` against them — mocking those too would make its tree walk untestable and every
+  // assertion here vacuous.
   const actual = await vi.importActual<typeof import('@rgrove/parse-xml')>('@rgrove/parse-xml')
+  real.parseXml = actual.parseXml as unknown as (...args: never[]) => unknown
   return { ...actual, parseXml: parseXmlMock }
 })
-
-const { HARDENED_OPTION_KEYS, HARDENED_PARSE_OPTIONS, parseXmlString } =
-  await import('./parse-xml.adapter')
-const { xmlPort } = await import('./bounded-xml-port')
-const actualLib = await vi.importActual<typeof import('@rgrove/parse-xml')>('@rgrove/parse-xml')
-
-/** The real parser's output, so the adapter's tree walk still runs on something real. */
-const realParse = (xml: string): unknown => actualLib.parseXml(xml, HARDENED_PARSE_OPTIONS)
 
 const FEED = '<rss version="2.0"><channel><item><title>ok</title></item></channel></rss>'
 
 beforeEach(() => {
   parseXmlMock.mockReset()
-  parseXmlMock.mockImplementation((xml: string) => realParse(xml))
+  parseXmlMock.mockImplementation((...args: never[]) => real.parseXml?.(...args))
 })
 
 /** The options the parser was handed on the most recent call. */
@@ -86,6 +88,19 @@ describe('R-1: the options reaching the real call site', () => {
     ]
     const deliberatelyOmitted = ['resolveUndefinedEntity']
     expect([...HARDENED_OPTION_KEYS, ...deliberatelyOmitted].sort()).toEqual(librarySurface)
+  })
+
+  it('each pinned option arrives with its pinned value, not merely its key', () => {
+    parseXmlString(FEED)
+    expect(receivedOptions()).toEqual({
+      ignoreUndefinedEntities: false,
+      preserveCdata: false,
+      preserveComments: false,
+      preserveDocumentType: false,
+      preserveXmlDeclaration: true,
+      sortAttributes: false,
+      includeOffsets: false,
+    })
   })
 
   it('the frozen option object cannot be mutated into an unsafe one', () => {

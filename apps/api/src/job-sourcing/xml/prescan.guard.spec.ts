@@ -7,22 +7,23 @@
  * a `catch` that swallowed it would all leave every other spec green.
  *
  * So the scanner is replaced at its module boundary with one that miscounts, which is the only way
- * to reach the branch. Both directions are exercised — a wrong element count and a wrong depth —
- * because `||` in the condition means either half could be dropped without the other noticing.
+ * to reach the branch. Both halves of the condition are exercised — a wrong element count and a
+ * wrong depth — because `||` means either could be dropped without the other noticing.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { BoundedXmlPort } from './bounded-xml-port'
+import { XmlPortError } from './xml-port'
 
 const prescanMock = vi.hoisted(() => vi.fn())
+/** The real scanner, captured in the factory so the module body needs no top-level await. */
+const real = vi.hoisted(() => ({ prescanStructure: null as null | ((...a: never[]) => unknown) }))
 
 vi.mock('./prescan', async () => {
   const actual = await vi.importActual<typeof import('./prescan')>('./prescan')
+  real.prescanStructure = actual.prescanStructure as unknown as (...a: never[]) => unknown
   return { ...actual, prescanStructure: prescanMock }
 })
-
-const { BoundedXmlPort } = await import('./bounded-xml-port')
-const { XmlPortError } = await import('./xml-port')
-const actualPrescan = await vi.importActual<typeof import('./prescan')>('./prescan')
 
 const port = new BoundedXmlPort()
 const FEED = '<r><a><b/></a></r>' // 3 elements, depth 3
@@ -46,8 +47,10 @@ describe('R-2: a scan that disagrees with the parser is a loud error', () => {
   it('POSITIVE CONTROL: the honest scan passes the guard', () => {
     // Without this, every assertion below would also hold for a port that refused everything —
     // and the guard would be indistinguishable from a blanket failure.
-    prescanMock.mockImplementation(actualPrescan.prescanStructure)
-    expect(port.parseDocument(bytes).elementCount).toBe(3)
+    prescanMock.mockImplementation((...args: never[]) => real.prescanStructure?.(...args))
+    const document = port.parseDocument(bytes)
+    expect(document.elementCount).toBe(3)
+    expect(document.depth).toBe(3)
   })
 
   it('an UNDER-counted element total raises PRESCAN_DIFFERENTIAL', () => {
@@ -79,5 +82,12 @@ describe('R-2: a scan that disagrees with the parser is a loud error', () => {
     }
     expect(message).toContain('1/3')
     expect(message).toContain('3/3')
+  })
+
+  it('a refusal from the scan is reported as the BOUND it breached, not as a differential', () => {
+    // The guard runs only after a successful scan. A scan that refuses must still surface its own
+    // reason — otherwise a depth breach would arrive as an internal-error code.
+    prescanMock.mockReturnValue({ ok: false, exceeded: 'depth', maxDepth: 999, elementCount: 1 })
+    expect(reasonOf(() => port.parseDocument(bytes))).toBe('TOO_DEEP')
   })
 })
