@@ -147,3 +147,70 @@ so it actually runs (state the artifact: the case count it printed).
   owner decision.
 - A1: re-evaluation after a review is triggered by the owner's `merge-approved` label, not by a
   `pull_request_review` event (tamper-safety over convenience).
+
+---
+
+# SCOPE v3 (2026-10-21, owner) — SUPERSEDES everything above, including the "lite" chat message
+
+Owner intent, verbatim in substance: **the project's development harness is the default for everyone
+(owner, collaborator, any harness — Claude, Codex, manual), and skipping any step must be deliberate:
+an explicit, named skip with a reason.** No hardening against a malicious write-role user
+(commit-author checks, spoofing detection, label-actor checks, head-sha binding) — drop all of it.
+
+## Deliverable: `Flow Gate` (rename `Review Gate` → check/job name `Flow Gate`)
+
+`.github/workflows/flow-gate.yml` (`pull_request_target`, base definition, never checks out PR code;
+triggers: opened, synchronize, reopened, edited, labeled, unlabeled, ready_for_review, plus
+`pull_request_review: [submitted, dismissed]`) + pure logic `scripts/architect/flow-gate.mjs` +
+`node:test` tests, wired into CI so they actually run.
+
+> **Amended by Master (2026-10-21, answer to open question 1):** the `pull_request_review` trigger
+> is DROPPED (it runs the PR's own copy of the workflow). Re-evaluation comes from push / label /
+> body edit; the PR template says "after a review lands, re-run via a body edit or label".
+> Also: the stale-red-run vs auto-merge race is recorded as a known limitation in `contracts.md`
+> (no auto-merge change); the `skip-review` label and the `.github/labels.yml` change are dropped;
+> the lite-round A1 decisions (verdict on its own line, dismissed-review semantics, a recorded skip
+> passes even after a BLOCK) apply per step.
+
+### Applies to ALL authors. One exemption: docs-only diff (every path `*.md` or under `.claude/`) → PASS.
+
+### Steps — each is either satisfied by evidence, or skipped by a PR-body line `Skip-<Step>: <reason>`
+
+Reason: non-empty, ≥ 10 chars, key case-insensitive. Every skip (step + reason) is echoed into the
+job summary. No labels needed (the body line IS the flag + reason).
+
+| Step key          | Required when                                                                 | Evidence that satisfies it                                                       |
+| ----------------- | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `Task`            | always (non-docs)                                                             | PR body line `Task: <path or issue link>` (task files are gitignored — declared, not verified) |
+| `Plan`            | always (non-docs)                                                             | PR body line `Plan: <where>` (e.g. "in task file", a docs path)                  |
+| `Tests`           | diff changes non-test product code in `apps/**` / `packages/**`              | diff also contains `*.spec.ts(x)` / `*.test.ts(x)` / `__tests__/` / `apps/e2e/**` |
+| `Review`          | always (non-docs)                                                             | a PR review body with `Verdict: APPROVE`, no `Verdict: BLOCK` after it           |
+| `Security-Review` | diff touches critical-path globs (`contracts.md` §2.1; verify real dir names) | review body `Security Review: APPROVE`, no `Security Review: BLOCK` after it     |
+| `Spec-Review`     | a `Task:` line is present                                                     | review body `Spec Review: PASS`                                                  |
+| `Copy-Review`     | diff touches i18n catalogs (`packages/shared/src/i18n/locales/**`) or landing dictionaries | review body `Copy Review: PASS`                                       |
+| `QA`              | diff touches non-test UI code in `apps/web/**` / `apps/landing/**`           | review/comment body `QA Verdict: PASS`                                           |
+| `Design-Review`   | same as `QA`                                                                  | review/comment body `Design Review: APPROVE` (check the real verdict wording in `ui-ux-designer.md`) |
+| `AC`              | always (non-docs)                                                             | the PR's last non-`wip:` commit message contains `ac_verified:`                   |
+
+Fail message lists EVERY unsatisfied step with its two ways out, e.g.
+`Review — no "Verdict: APPROVE" review. Run code-reviewer, or add "Skip-Review: <why>" to the PR body.`
+
+### Make the default visible to every harness
+- `.github/pull_request_template.md` with a `## Flow` block: `Task:`, `Plan:` and commented
+  `<!-- Skip-<Step>: reason -->` lines for every step, one-line explanation each.
+- `AGENTS.md` at repo root (read by Codex and other harnesses): short — the flow is the default,
+  Flow Gate enforces it, how to skip a step honestly; points to `CLAUDE.md` / `contracts.md`.
+- `manual-qa.md` and `ui-ux-designer.md` agents: post their verdict to the PR as a review/comment with
+  the marker line above (code/security/spec/copy reviewers already do — verify).
+- Docs: `contracts.md` (merge gating), `project-state.md`, `light-track.md` (docs-only exemption +
+  light-track PRs use `Skip-*` lines with reason "light-track: <why>").
+
+### Owner action after merge (Master does it, authorized)
+Add `Flow Gate` to `main` branch protection required checks — exact `gh api` command in PR body.
+Remove anything about `Review Gate` / `skip-review` label.
+
+### Tests (minimum)
+docs-only pass · nothing declared fail (lists all steps) · each step: evidence pass / skip-with-reason
+pass / skip-with-short-reason fail · BLOCK after APPROVE fail · Security-Review required only on
+critical paths · Tests required only when product code changes · QA/Design only on UI paths ·
+Spec-Review only when Task declared · AC from last non-wip commit.

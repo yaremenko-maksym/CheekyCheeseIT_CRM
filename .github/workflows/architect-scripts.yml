@@ -2,19 +2,25 @@ name: Architect Scripts
 
 # Runs the node:test unit tests under scripts/architect/ on PRs that touch them.
 #
-# Why a separate workflow: review-gate.yml runs on `pull_request_target`, i.e. the BASE branch's
+# Why a separate workflow: flow-gate.yml runs on `pull_request_target`, i.e. the BASE branch's
 # copy of the gate — it can never test the PR's version of its own logic. This workflow runs the
 # PR's version on `pull_request` (no secrets, read-only token), so a change to the gate is proven
 # before it becomes the gate.
 #
 # Asserts the artifact, not the exit status: a run that executed zero tests prints the same exit 0
 # as a passing one (.claude/rules/common/verification-integrity.md, "a unit run" row).
+#
+# The test files are named by an explicit glob, quoted so the shell passes it through and Node 22
+# expands it itself. A bare directory argument (`node --test scripts/architect/`) is NOT a test
+# directory on Node 22 in CI: it is resolved as a module entry and fails with MODULE_NOT_FOUND
+# ("tests 1 / pass 0 / fail 1", PR #1082, first run) — the pass-count assertion below is what
+# made that visible instead of a confusing red.
 
 on:
   pull_request:
     paths:
       - 'scripts/architect/**'
-      - '.github/workflows/review-gate.yml'
+      - '.github/workflows/flow-gate.yml'
       - '.github/workflows/architect-scripts.yml'
 
 permissions:
@@ -34,10 +40,10 @@ jobs:
         with:
           node-version: 22
 
-      - name: node --test scripts/architect/
+      - name: node --test 'scripts/architect/*.test.mjs'
         run: |
           set -o pipefail
-          node --test --test-reporter=tap scripts/architect/ | tee "$RUNNER_TEMP/tap.txt"
+          node --test --test-reporter=tap 'scripts/architect/*.test.mjs' | tee "$RUNNER_TEMP/tap.txt"
           pass=$(sed -n 's/^# pass \([0-9]*\)$/\1/p' "$RUNNER_TEMP/tap.txt")
           fail=$(sed -n 's/^# fail \([0-9]*\)$/\1/p' "$RUNNER_TEMP/tap.txt")
           echo "passed=${pass:-none} failed=${fail:-none}"
