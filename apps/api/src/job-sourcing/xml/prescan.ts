@@ -77,8 +77,17 @@ function endOfMarkupDeclaration(text: string, from: number): number {
   let i = from
   let quote: string | null = null
   let inSubset = false
-  while (i < text.length) {
-    const ch = text[i] as string
+  // `for (;;)` with an explicit end-of-input break, not `while (i < text.length)`.
+  //
+  // Two reasons, and neither is style. The comparison carried an unobservable `<=` mutant (one
+  // extra pass over `undefined`, which matches no branch and then exits), while the SAME mutator
+  // also produces an observable `>=` on that line — so a line-scoped suppression would have
+  // silenced a live mutant along with the dead one. And the old form needed `text[i] as string`,
+  // a cast asserting something `noUncheckedIndexedAccess` is right to doubt. Reading the
+  // character and testing it for `undefined` removes the cast and the comparison together.
+  for (;;) {
+    const ch = text[i]
+    if (ch === undefined) return -1
     if (quote !== null) {
       if (ch === quote) quote = null
     } else if (ch === '"' || ch === "'") {
@@ -88,11 +97,12 @@ function endOfMarkupDeclaration(text: string, from: number): number {
     } else if (ch === ']') {
       inSubset = false
     } else if (ch === '>' && !inSubset) {
-      return i + 1
+      // The index OF the `>`, as in `endOfStartTag` — the caller only uses it to resume an
+      // `indexOf('<', …)`, and `text[i]` is a `>`, so there is no arithmetic worth having here.
+      return i
     }
     i += 1
   }
-  return -1
 }
 
 /**
@@ -107,8 +117,16 @@ function endOfStartTag(
 ): { resumeFrom: number; selfClosing: boolean } | null {
   let i = from
   let quote: string | null = null
-  while (i < text.length) {
-    const ch = text[i] as string
+  // `for (;;)` + an undefined check, for the reasons given on `endOfMarkupDeclaration` above.
+  for (;;) {
+    const ch = text[i]
+    if (ch === undefined) {
+      // `null`, not `{ end: -1, selfClosing: false }`. The old shape carried a `selfClosing` the
+      // caller could never read — it tested `end === -1` and broke first — so the field was dead
+      // weight that read as a considered value, and two mutants on it were unobservable by
+      // construction. Deleting the construct beats explaining why it cannot be seen.
+      return null
+    }
     if (quote !== null) {
       if (ch === quote) quote = null
     } else if (ch === '"' || ch === "'") {
@@ -126,11 +144,6 @@ function endOfStartTag(
     }
     i += 1
   }
-  // `null`, not `{ end: -1, selfClosing: false }`. The old shape carried a `selfClosing` the
-  // caller could never read — it tested `end === -1` and broke first — so the field was dead
-  // weight that read as a considered value, and two mutants on it were unobservable by
-  // construction. Deleting the construct beats explaining why it cannot be seen.
-  return null
 }
 
 /**
@@ -145,7 +158,10 @@ export function prescanStructure(text: string, budget: PrescanBudget): PrescanOu
   let elementCount = 0
   let i = 0
 
-  while (i < text.length) {
+  // `for (;;)`: the `i < text.length` guard this replaced was REDUNDANT, not merely untestable.
+  // `indexOf` returns -1 for any start index past the end of the string, so the `lt === -1` break
+  // below already covers end-of-input — which is why the guard's `<=` mutant was unobservable.
+  for (;;) {
     const lt = text.indexOf('<', i)
     if (lt === -1) break
     i = lt + 1
@@ -205,9 +221,11 @@ export function prescanStructure(text: string, budget: PrescanBudget): PrescanOu
       // `Math.max(0, …)`: an unbalanced close tag must not drive the counter negative and so
       // under-report the depth of what follows. The parser rejects such a document anyway.
       depth = Math.max(0, depth - 1)
-      const next = skipPast(text, i, '>')
-      if (next === -1) break
-      i = next
+      // No skip to the `>` at all. An end tag cannot contain attributes, so it cannot contain a
+      // `<` either — the next `indexOf('<', i)` therefore lands on the following tag whether we
+      // skipped this one's `>` or not, and `text[i]` is the `/`, so progress is guaranteed. The
+      // skip was a redundant call whose marker string and offset both carried unobservable
+      // mutants; deleting the call deletes them.
       continue
     }
 

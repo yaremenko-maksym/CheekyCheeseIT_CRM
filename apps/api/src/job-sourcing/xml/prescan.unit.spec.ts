@@ -109,6 +109,21 @@ describe('unterminated constructs stop the scan instead of looping', () => {
     })
   })
 
+  it('a PI whose content contains `<?` resumes PAST its terminator, not before it', () => {
+    // Pins `skipPast`'s RETURN offset (`at + marker.length`), which the ordinary cases cannot:
+    // resuming a couple of characters early normally lands before the same next `<`. Here the two
+    // characters before the terminator are themselves `<?`, so resuming early re-reads them as a
+    // second processing instruction — which is then unterminated, ends the scan, and reports zero
+    // elements for a document that has one.
+    //
+    // `<?a<?>` : the `?>` at index 4 is the terminator; indices 3-4 are `<?`.
+    expect(prescanStructure('<?a<?><r/>', GENEROUS)).toEqual({
+      ok: true,
+      maxDepth: 1,
+      elementCount: 1,
+    })
+  })
+
   it('POSITIVE CONTROL: the well-formed versions of both DO skip and keep scanning', () => {
     // Without this pair, the two assertions above would hold for a scan that gave up on every
     // `<?` or `<!--` whatsoever.
