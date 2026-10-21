@@ -172,3 +172,15 @@ describe('INVALID_RECORD quarantine', () => {
     expect(build({ url })).toEqual({ ok: false, reason: 'UNSAFE_URL' })
   })
 })
+
+describe('adapterVersion that is not a string', () => {
+  it('is quarantined as INVALID_ADAPTER_VERSION instead of throwing', () => {
+    for (const bad of [undefined, null, 7, {}]) {
+      const raw = { ...base, adapterVersion: bad } as unknown as RawObservationFields
+      expect(buildSourceObservation(raw, { now: NOW }), String(bad)).toEqual({
+        ok: false,
+        reason: 'INVALID_ADAPTER_VERSION',
+      })
+    }
+  })
+})

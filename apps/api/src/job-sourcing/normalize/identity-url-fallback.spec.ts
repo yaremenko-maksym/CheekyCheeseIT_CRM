@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildIdentity } from './identity-key'
+import { MAX_IDENTITY_KEY_CHARS, buildIdentity } from './identity-key'
 
 const base = { provider: 'JOOBLE_API', namespace: 'eu', nativeId: null } as const
 
@@ -136,5 +136,21 @@ describe('buildIdentity: URL fallback, canonical pair order is pinned (not merel
     // Two DIFFERENT params: name `a=b` with value `1`, and name `a` with value `b=1`. Encoded they
     // stay distinct (`a%3Db=1` vs `a=b%3D1`) where a raw join would make both `a=b=1`.
     expect(paramsOf('a%3Db=1&a=b%3D1', ['a', 'a=b'])).toEqual(['a%3Db=1', 'a=b%3D1'])
+  })
+})
+
+describe('buildIdentity: the key length cap is inclusive (matches the store max(2048))', () => {
+  const urlWithPath = (n: number) => `https://jobs.example/${'a'.repeat(n)}`
+  const lengthFor = (n: number) => keyOf(urlWithPath(n)).length
+
+  it('a key of exactly MAX_IDENTITY_KEY_CHARS is accepted, one character longer is quarantined', () => {
+    // The key grows by exactly one character per path character, so measure once and pad to the cap.
+    const pathLength = 1000 + (MAX_IDENTITY_KEY_CHARS - lengthFor(1000))
+    expect(lengthFor(pathLength)).toBe(MAX_IDENTITY_KEY_CHARS)
+
+    const atCap = buildIdentity({ ...base, url: urlWithPath(pathLength), identityParams: [] })
+    expect(atCap.ok).toBe(true)
+    const overCap = buildIdentity({ ...base, url: urlWithPath(pathLength + 1), identityParams: [] })
+    expect(overCap).toEqual({ ok: false, reason: 'IDENTITY_TOO_LONG' })
   })
 })

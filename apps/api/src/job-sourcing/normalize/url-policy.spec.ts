@@ -136,6 +136,16 @@ describe('checkStoredLink: boundaries and malformed hosts', () => {
     expect(reasonOf(`${' '.repeat(50)}${atCap}${' '.repeat(50)}`)).toBe('ACCEPTED')
   })
 
+  it('the cap also applies to the received text: a URL whose href shrinks under the cap is still TOO_LONG', () => {
+    // The explicit default port is dropped by the parser, so this text is over the cap while the
+    // href it serialises to is under it. Only the text check can refuse it.
+    const prefix = 'https://jobs.example:443/'
+    const raw = prefix + 'a'.repeat(MAX_LINK_CHARS - prefix.length + 1)
+    expect(raw).toHaveLength(MAX_LINK_CHARS + 1)
+    expect(new URL(raw).href.length).toBeLessThanOrEqual(MAX_LINK_CHARS)
+    expect(reasonOf(raw)).toBe('TOO_LONG')
+  })
+
   it('a password with no username is still userinfo', () => {
     expect(reasonOf('https://:pw@jobs.example/j')).toBe('USERINFO')
   })
