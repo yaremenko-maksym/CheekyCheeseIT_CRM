@@ -1344,7 +1344,7 @@ def _pkg_readonly_query(name, argv):
     # PKG_QUERY_RUNNERS, not PKG_RUNNERS — see the note there (SR-M-1).
     if name not in PKG_QUERY_RUNNERS:
         return False
-    value_flags = PKG_VALUE_FLAGS | PKG_QUERY_VALUE_FLAGS
+    value_flags = pkg_value_flags(name)   # the one accessor (CR-M-4)
     subcmd = None
     operands = []
     skip = False
@@ -1833,16 +1833,52 @@ PKG_BOOL_FLAGS = {
     "-r", "--recursive", "--silent", "-s", "--prod", "-P", "--dev", "-D",
     "--no-color", "--json", "--long", "--parseable", "--global", "-g",
     "--offline", "--prefer-offline", "--frozen-lockfile",
-    "--workspace-root", "-w", "--stream", "--aggregate-output", "--help", "-h",
-    "--version", "-v",
+    "--workspace-root", "--stream", "--aggregate-output", "--help", "-h",
+    "--version", "-v", "--depth", "--workspaces", "-ws",
 }
-# Value flags for the grant are PKG_VALUE_FLAGS (below, shared with the launcher
-# predicate) plus the ones only a query takes.
-PKG_QUERY_VALUE_FLAGS = {"--depth", "--registry", "--loglevel", "--prefix"}
+# `--depth` is BOOLEAN here on purpose, although `pnpm list --depth 2` really
+# does take a value AFTER the subcommand. Its grammar is position-dependent, and
+# of the two readings only this one fails closed: as a boolean, a `--depth 2`
+# written BEFORE the subcommand leaves `2` in subcommand position, which is in no
+# query table, so the grant is refused. As a value flag it would swallow the next
+# token — `pnpm --depth vite ls` would read as a granted `ls`. Fail closed on the
+# ambiguous position; `pnpm ls --depth 2 <pkg>` still grants, because there the
+# flag follows the subcommand and `2` is just another inert operand.
 # NOT "-r": for pnpm it is --recursive and takes no value, so listing it made the script name
 # after it (`pnpm -r dev`) vanish as its "value" (SR-H-14). `-r` as node --require is
 # NODE_VALUE_FLAGS below, which is a different table on purpose.
 PKG_VALUE_FLAGS = {"--filter", "-F", "-C", "--dir", "--workspace"}
+
+# ── ONE value-flag grammar per runner, for BOTH consumers (CR-H-1, CR-M-4) ────
+# `-w` is the finding that forced this. It is BOOLEAN for pnpm (`--workspace-root`)
+# and VALUE-TAKING for npm (`--workspace <name>`) — the same token, two grammars,
+# which is exactly the shape of the round-2 lesson about one global VALUE_FLAGS
+# set turning `env -i pnpm dev` into "run `dev`". Measured: `npm -w info start`
+# was refused on base and allowed on head, and real npm 10.7.0 ran the `start`
+# script in a workspace named `info`. Reachable only when a workspace is named
+# like a granted subcommand — i.e. correct only because of a fact the guard does
+# not read, which is the same reasoning that narrowed turbo and yarn out.
+#
+# AND THERE WAS A SECOND TABLE. The grant read `PKG_VALUE_FLAGS |
+# PKG_QUERY_VALUE_FLAGS` while the launcher predicate read `PKG_VALUE_FLAGS`, so
+# two readings answered one question and the stricter one happened to cover the
+# gap. Two grammars for one question is how the next `-w` arrives, so there is
+# now ONE accessor and both consumers call it.
+_PKG_VALUE_FLAGS_BY_RUNNER = {
+    "npm": PKG_VALUE_FLAGS | {"-w", "--prefix", "--loglevel", "--registry",
+                              "--omit", "--include"},
+    "pnpm": PKG_VALUE_FLAGS | {"--loglevel", "--registry", "--reporter"},
+}
+
+
+def pkg_value_flags(name):
+    """The authoritative value-flag set for a package runner.
+
+    Runners with no entry (turbo, yarn, bun) keep the shared base: they never
+    receive the query grant anyway, so widening their grammar would only change
+    the launcher predicate's reading for no gain.
+    """
+    return _PKG_VALUE_FLAGS_BY_RUNNER.get(name, PKG_VALUE_FLAGS)
 # Scripts that boot a server. `start` is `node dist/main` for the api and `vite preview`
 # for the web app - both listen on the owner live default ports - and ci.yml, e2e.yml
 # and sw-smoke.spec.ts all boot the api that way, so an agent mirroring CI would otherwise
@@ -1891,7 +1927,7 @@ def is_dev_server_launch(seg):
         return None
 
     if name in PKG_RUNNERS:
-        pos = seg.positionals(PKG_VALUE_FLAGS)
+        pos = seg.positionals(pkg_value_flags(name))   # same accessor (CR-M-4)
         if not pos:
             return None
         if pos[0] in ("exec", "dlx", "x"):  # NOT run-script: it is an alias of run
