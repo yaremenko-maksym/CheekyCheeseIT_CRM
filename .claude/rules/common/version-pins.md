@@ -16,6 +16,9 @@ comments** — link here.
 ### Runtime
 
 - **Node:** 22 LTS (strict; raised 2026-09-19 for Lingui 6 — ESM-only, requires ≥ 22.19). Not 24.
+  **Two things rest on this pin, not one:** `require(esm)` is available only from **22.12**, and
+  `@rgrove/parse-xml` (below) resolves in `apps/api` through nothing else. A drop to Node 20 breaks
+  both, and the second one breaks at runtime rather than at install.
 - **pnpm:** 7.32.4 (strict).
 
 ### Frontend
@@ -38,6 +41,16 @@ comments** — link here.
 - **Zod:** v4 (NOT v3 — `.transform` / `.parse` syntax differs).
 - **standardwebhooks:** `1.1.1` EXACT — signature semantics are protocol-critical and this version is
   verified against the meeting-recorder extension. Do not use a range.
+- **`@rgrove/parse-xml`:** `5.0.0` EXACT (ISC) — the XML parser behind job-sourcing feed ingestion.
+  Exact rather than a caret range because the adoption verdict rests on **one fact a minor release
+  could remove**: the library never parses the internal subset of a `<!DOCTYPE>`, so XXE and entity
+  expansion are unreachable by absence of capability rather than by a default. Read the changelog
+  before any bump; do not bump on green CI. **Two options are pinned by the wrapper, not by config**
+  (so do not go looking for them in a config file): `ignoreUndefinedEntities` stays **`false`** — a
+  drift gate, since `true` makes a feed with an undefined entity parse "successfully" into a literal
+  `&x;` — and `resolveUndefinedEntity` is **never supplied**, that being the only route by which
+  entity content can enter. **Recheck 2027-04-20**, or immediately on any advisory. ADR:
+  `docs/architecture/2026-10-20-xml-parser-dependency-review.md`.
 
 ### Infra
 
@@ -60,6 +73,10 @@ comments** — link here.
 - **Do NOT update Vite to 7.x** without a separate Architect dispatch (breaking change for `@tanstack/router-plugin`).
 - **Do NOT change the Node major version** without an explicit DevOps task + CI matrix update.
 - **Do NOT replace Fastify with Express** in the API — `@nestjs/platform-fastify` baseline + helmet/CORS integration.
+- **Do NOT widen `@rgrove/parse-xml` to a range, and do NOT bump it on green CI** — the pin carries a
+  security verdict that green CI does not re-derive. It also makes **Node ≥ 22.12** a hard floor
+  _inside_ the Node 22 line: a drop below that minor is not covered by the "major version" rule above
+  and fails at runtime.
 
 ## Why these pins (brief context)
 
@@ -69,6 +86,10 @@ comments** — link here.
   Without the override — a runtime crash on API startup.
 - **Node 22 LTS:** a prerequisite for Lingui 6 (ESM-only, requires ≥ 22.19 — on 20 `pnpm install`
   failed with `EBADENGINE`).
+- **`@rgrove/parse-xml` 5.0.0 EXACT:** unusually for a pin, the claim behind it is **falsifiable in
+  code** — `parse-xml.adapter.locality.spec.ts` asserts the exact version string, the installed
+  version and the ISC licence, so a silent bump or a licence change fails a test instead of going
+  unnoticed.
 
 ## Related rules
 

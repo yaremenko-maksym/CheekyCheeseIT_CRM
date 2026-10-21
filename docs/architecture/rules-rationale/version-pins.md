@@ -66,9 +66,62 @@ Signature semantics are protocol-critical, and this version is verified against 
 extension. A range here would let a patch release change signature behaviour, and the symptom would be
 rejected webhooks, not a build error.
 
+## `@rgrove/parse-xml` 5.0.0 exact — a pin that holds a security verdict
+
+Adopted 2026-10-20 after a dependency and licence review (ADR
+`docs/architecture/2026-10-20-xml-parser-dependency-review.md`, PR #1064) and wired into job-sourcing
+by PR #1072. It is the only pin in the file whose **exactness is a security control rather than a
+build constraint**.
+
+The verdict rests on a single behavioural fact: the library **consumes a `<!DOCTYPE>` declaration and
+discards it without reading its contents**, so no entity is ever declared. XXE and entity expansion
+are therefore unreachable **by absence of capability**, not by a safe default that a release could
+flip — measured, not inferred: XXE-to-file, XXE-to-http, billion laughs and quadratic blowup all
+threw `Named entity isn't defined`, and the out-of-band canary recorded zero hits. A minor release
+that started parsing the internal subset would remove the whole basis of the adoption **without
+failing any build**. That is why the rule says to read the changelog before a bump and not to bump on
+green CI: green CI does not re-derive the verdict.
+
+### The two options are gates, and they live in the wrapper
+
+The parser's option surface has eight entries, of which two touch entity handling. Neither makes the
+parser read a DTD, but each opens a different hole, and both are set in the wrapper rather than in a
+config file — so a reader looking for them in config finds nothing and concludes wrongly that they
+are at their defaults.
+
+| Option                    | Pinned value          | What the other value costs                                                                            | Kind of gate                |
+| ------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------- | --------------------------- |
+| `ignoreUndefinedEntities` | `false` (its default) | a feed with an undefined entity parses "successfully" into a literal `&x;` — drift, silently          | correctness / drift         |
+| `resolveUndefinedEntity`  | never supplied        | a caller-written resolver is the only route by which entity content — or caller-authored XXE — enters | security, caller-introduced |
+
+### Why this pin is coupled to Node 22
+
+The package is **ESM-only and declares no `require` condition in its `exports`**, which looks exactly
+like the dual-package trap that blocks Lingui 6 (above) — and is not one. It resolves inside
+`apps/api` through **`require(esm)`, available from Node 22.12**; the package's own `engines` declares
+`node >=22.12.0`, and our pin (`node >=22.19 <23`) satisfies it with margin. No `moduleResolution`
+change and no build change were needed.
+
+The consequence is a real coupling that the Node entry's original rationale (Lingui 6 needing
+≥ 22.19) does not mention, which is why the rule file now gives Node two reasons instead of one: a
+drop below **22.12** breaks this dependency **at runtime**, not at install, and a drop below a minor is
+not covered by the existing "do not change the Node major" prohibition.
+
+### The claim is falsifiable in code
+
+`parse-xml.adapter.locality.spec.ts` asserts the exact version string, the version actually installed,
+and the ISC licence. A silent bump or a licence change fails a test rather than passing unnoticed —
+deliberately the opposite of the defect the parser review itself produced twice, where a claim's truth
+and its falsehood looked identical.
+
+**Shelf life: recheck 2027-04-20**, or immediately on any advisory, on any change to the Node pin, or
+on a release that touches DOCTYPE handling. The ADR's own recheck procedure is the authority on how.
+
 ## Sources
 
 - CLAUDE.md "Key version constraints" + "Key technical notes".
 - `.claude/agents/project-state.md` — authoritative snapshot of versions.
 - ADR `docs/architecture/2026-05-31-ecc-migration-design.md` §4.5 (Vite 6 pin context).
 - `scripts/devops/pnpm-audit-runbook.md` — how an audit-driven override must not cross a hard pin.
+- ADR `docs/architecture/2026-10-20-xml-parser-dependency-review.md` — the `@rgrove/parse-xml`
+  adoption verdict, the measurements behind it and the recheck procedure.
