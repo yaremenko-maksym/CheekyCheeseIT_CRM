@@ -267,7 +267,7 @@ count.
 | ----------------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
 | `Task`            | always                                                                                                  | PR-body line `Task: <path or issue link>` (declared, not verified)                       |
 | `Plan`            | always                                                                                                  | PR-body line `Plan: <where>`                                                             |
-| `Tests`           | non-test product code changes under `apps/` or `packages/`                                              | the diff also changes a test file (`*.spec\|test.*`, `__tests__/`, `apps/e2e/**`)        |
+| `Tests`           | non-test code (`.ts/.tsx/.js/.jsx/.mjs/.cjs`) changes under `apps/` or `packages/` | the diff also changes a test file (`*.spec\|test.*`, `__tests__/`, `__test-helpers__/`, `apps/e2e/**`) |
 | `Review`          | always                                                                                                  | review: `Verdict: APPROVE` is the latest `Verdict:` (code-reviewer)                      |
 | `Security-Review` | a critical path (§2.1 zones, plus `.github/workflows/**`, `.claude/hooks/**`, `.claude/settings*.json`) | review: `Security Review: APPROVE` is the latest (security-reviewer)                     |
 | `Spec-Review`     | a `Task:` line is declared                                                                              | review: `Spec Review: PASS` is the latest (`ISSUES` / `BLOCK` are negative)              |

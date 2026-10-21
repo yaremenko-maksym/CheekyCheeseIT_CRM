@@ -124,9 +124,15 @@ export const isTestFile = (p) =>
   p.includes('/__tests__/') ||
   p.includes('/__test-helpers__/') ||
   p.startsWith('apps/e2e/')
-/** Non-test product code: under apps/ or packages/, not a test file, not markdown. */
+/**
+ * Non-test product CODE: a `.ts/.tsx/.js/.jsx/.mjs/.cjs` file under apps/ or packages/ that is not
+ * a test file. package.json, i18n catalogs, CSS and assets are not code — they do not require a
+ * test change (the Tests step).
+ */
 export const isProductCode = (p) =>
-  (p.startsWith('apps/') || p.startsWith('packages/')) && !isTestFile(p) && !p.endsWith('.md')
+  (p.startsWith('apps/') || p.startsWith('packages/')) &&
+  /\.(?:[cm]?js|jsx|ts|tsx)$/.test(p) &&
+  !isTestFile(p)
 export const isUiCode = (p) =>
   (p.startsWith('apps/web/') || p.startsWith('apps/landing/')) &&
   !isTestFile(p) &&
@@ -356,10 +362,10 @@ export const STEPS = Object.freeze([
   },
   {
     key: 'Tests',
-    whenText: 'the diff changes non-test product code under `apps/` or `packages/`',
+    whenText: 'the diff changes non-test code (`.ts/.tsx/.js/.jsx/.mjs/.cjs`) under `apps/` or `packages/`',
     required: (ctx) => ctx.files.some(isProductCode),
     evidenceText:
-      'the diff also changes a test file (`*.spec|test.*`, `__tests__/`, `apps/e2e/**`)',
+      'the diff also changes a test file (`*.spec|test.*`, `__tests__/`, `__test-helpers__/`, `apps/e2e/**`)',
     check: (ctx) => {
       const t = ctx.files.filter(isTestFile)
       return t.length

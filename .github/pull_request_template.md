@@ -21,7 +21,7 @@ Plan:
 
 Skip-Task: <why there is no task file or issue>
 Skip-Plan: <why there is no plan>
-Skip-Tests: <why product code changes without a test change> (required when apps/** or packages/** code changes)
+Skip-Tests: <why product code changes without a test change> (required when .ts/.tsx/.js/.jsx/.mjs/.cjs code under apps/** or packages/** changes)
 Skip-Review: <why no code-reviewer `Verdict: APPROVE`>
 Skip-Security-Review: <why no security-reviewer `Security Review: APPROVE`> (required on critical paths: auth, finance, RBAC, wallets/transactions, migrations, webhooks, workflows)
 Skip-Spec-Review: <why no spec-reviewer `Spec Review: PASS`> (required when Task: is declared)

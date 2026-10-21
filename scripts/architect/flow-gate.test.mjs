@@ -591,6 +591,26 @@ test('Tests are required only when non-test product code changes', () => {
   assert.equal(status(ev(good({ files: [API, 'apps/e2e/tests/x.spec.ts'] })), 'Tests'), 'satisfied')
 })
 
+test('LOW-2: Tests are triggered by code extensions only, not by package.json / catalogs / CSS / assets', () => {
+  for (const p of [
+    'apps/api/package.json',
+    'packages/shared/src/i18n/locales/en/messages.po',
+    'apps/web/app/styles/app.css',
+    'apps/landing/public/logo.svg',
+    'apps/web/public/favicon.png',
+  ])
+    assert.equal(status(ev(good({ files: [p] })), 'Tests'), 'not-required', p)
+  for (const p of [
+    'apps/api/src/x.ts',
+    'apps/web/app/x.tsx',
+    'apps/web/app/x.js',
+    'apps/web/app/x.jsx',
+    'packages/shared/src/x.mjs',
+    'apps/api/x.cjs',
+  ])
+    assert.equal(status(ev(good({ files: [p] })), 'Tests'), 'missing', p)
+})
+
 test('QA and Design-Review are required only on non-test UI paths', () => {
   assert.equal(status(ev(good()), 'QA'), 'not-required')
   assert.equal(status(ev(good({ files: ['apps/web/app/x.spec.tsx'] })), 'QA'), 'not-required')
