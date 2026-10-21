@@ -545,7 +545,7 @@ export function render(result, pr) {
     '',
   )
   if (result.docsOnly) {
-    lines.push('Docs-only diff (every path `*.md` or under `.claude/`) — exempt, light-track.')
+    lines.push('Docs-only diff (every changed path, rename sources included, ends in `.md`) — exempt, light-track.')
   } else {
     lines.push('| Step | Status | Detail |', '| --- | --- | --- |')
     for (const s of result.steps)

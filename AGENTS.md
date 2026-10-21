@@ -18,7 +18,7 @@ Skip-<Step>: <reason, at least 10 characters>
 
 Steps: `Task`, `Plan`, `Tests`, `Review`, `Security-Review`, `Spec-Review`, `Copy-Review`, `QA`,
 `Design-Review`, `AC`. Every skip and its reason is printed in the check summary. Skipping is allowed.
-Skipping silently is not. A docs-only diff (every path `*.md` or under `.claude/`) is exempt.
+Skipping silently is not. A docs-only diff (every changed path ends in `.md`) is exempt; non-markdown files under `.claude/` are not docs.
 
 Start from the PR template (`.github/pull_request_template.md`). It has the `Task:` / `Plan:` lines
 and a commented skip line for every step.

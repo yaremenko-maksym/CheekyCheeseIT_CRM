@@ -20,6 +20,7 @@ import {
   isProductCode,
   isUiCode,
   isCopy,
+  render,
 } from './flow-gate.mjs'
 
 const withCounts = (pr) =>
@@ -273,6 +274,13 @@ const bare = (files, over = {}) => ({
   comments: [],
   commits: [commit('chore: x')],
   ...over,
+})
+
+test('SR-M-3: the docs-only summary states the real rule (every path ends in .md)', () => {
+  const pr = withCounts(bare(['docs/a.md']))
+  const text = render(evaluate(pr), pr)
+  assert.match(text, /ends in `\.md`/)
+  assert.doesNotMatch(text, /under `\.claude\/`/)
 })
 
 test('a PR touching only .claude/rules/x.md is docs-only', () => {
