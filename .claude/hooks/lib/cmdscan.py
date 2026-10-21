@@ -133,6 +133,16 @@ STATED GAPS (accepted, same line pre-bash-cross-agent-blast.sh draws):
   - a launcher inside a script file this scanner cannot read: `./boot.sh`;
   - indirection through a variable: `C="pnpm dev"; $C` (the value is not
     tracked across segments).
+  - A HEREDOC BODY CONSUMED BY AN INTERPRETER: `sh <<'EOF' … EOF`,
+    `cat <<'EOF' | sh`, `bash <<EOF`. A body becomes the segment's `payload`,
+    while CODE_CAPABLE re-reads a segment's ARGUMENTS, so the body never reaches
+    the code path and no consuming command is ever consulted. Measured with a
+    marker on PATH: bash executes it and both launcher gates allow it, on an
+    unquoted delimiter as well as a quoted one. Unlike the three gaps above this
+    one is NOT accepted — it has its own high-priority backlog entry and task,
+    and its root cause is `payload` versus `arguments`, not any of the parser
+    disagreements discussed below. Until it is closed, neither launcher gate is
+    sound against this shape.
 `eval "<code>"` is NOT in that list — its argument is parsed as code, because
 trying to fool the first version of this scanner showed `eval 'pnpm dev'` and
 `eval 'rm -rf /etc'` slipping through while the old substring rule had caught
@@ -897,7 +907,33 @@ def _extract_substitutions(text, protected=()):
 # A heredoc body is DATA, never code: `cat > pr-body.md <<EOF ... EOF` must not
 # be read as running whatever the body happens to spell. It is attached to the
 # segment that opened it, so `psql <<EOF ... EOF` still exposes the SQL as that
-# segment's payload — the consuming command is what decides, not the text.
+# segment's payload, which is the surface a payload predicate can then judge.
+#
+# ── OPEN HOLE, STATED HERE BECAUSE THIS COMMENT USED TO DENY IT (SR-M-1) ──────
+# The sentence that stood here said "the consuming command is what decides, not
+# the text". THAT IS FALSE FOR AN INTERPRETER, and the falsehood is why the hole
+# went unlooked-at for so long: the file said the case was handled.
+#
+# What is actually true: a heredoc body becomes the segment's `payload`, while
+# the mechanism that re-reads code in another language (CODE_CAPABLE via
+# `readings(..., code=True)`) re-reads a segment's ARGUMENTS. A body is not an
+# argument, so it never reaches that path at all — no consuming command is
+# consulted, because nothing routes the body to one. The interpreter decides
+# what to run and the gate does not see it:
+#
+#     sh <<'EOF'                 -> ALLOW on both launcher gates, bash EXECUTES
+#     <launch>                      (measured with a marker on PATH; same for
+#     EOF                            bash, zsh, and `cat <<'EOF' | sh`)
+#
+# Seventeen shapes in that family, all ALLOW on the launcher gates AND on the
+# live-db guard. It is PRE-EXISTING and equally open before this change, and the
+# quoted-delimiter exemption is not what carries it — an unquoted `<<EOF` leaks
+# identically. So it is not a parser-disagreement defect and must not be filed
+# under one; its root cause is `payload` versus `arguments`.
+#
+# Tracked as its own high-priority backlog entry and task. Until it is closed,
+# NEITHER launcher gate is sound against an interpreter-consumed heredoc, and
+# nothing in this file should be read as claiming otherwise.
 #
 # Grouping is a separator too (review HIGH-2): `( … )` starts a subshell and a
 # standalone `{` / `}` starts a group, so `(pnpm dev)` and `{ rm -rf /etc ; }`
