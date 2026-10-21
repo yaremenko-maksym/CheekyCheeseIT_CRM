@@ -142,6 +142,27 @@ export function prescanStructure(text: string, budget: PrescanBudget): PrescanOu
     i = lt + 1
     const marker = text[i]
 
+    /**
+     * WHERE EACH SKIP STARTS, AND WHY TWO OF THEM MATTER AND FOUR DO NOT.
+     *
+     * A terminator search that begins a few characters early usually finds the same index, so
+     * these offsets look interchangeable. For four of the six they genuinely are, and those pass
+     * plain `i` — no arithmetic to get wrong, nothing to suppress:
+     *
+     *   - `']]>'`  cannot occur inside `![CDATA[`, so the first match is the section's own end;
+     *   - `endOfMarkupDeclaration` would scan only `<` and `!` extra, and neither is a quote, a
+     *     bracket or a `>`, so its state machine is in the same state either way;
+     *   - the close-tag `'>'` search would scan only the `/`;
+     *   - `endOfStartTag` would scan only the element name's first character, which cannot be a
+     *     quote or a `>` (it passed `isNameStart`).
+     *
+     * The two below DO matter, and the `+ 1` / `+ 3` are load-bearing, because in a DEGENERATE
+     * construct the opener's own characters can form the terminator: `<?>` and `<!-->` are
+     * unterminated, yet a search starting at or before the `?` / the `--` matches a `?>` / `-->`
+     * that is really the opener being read as the closer. The scan would then resume and count
+     * the elements after an unterminated construct. Pinned by their own cases in
+     * `prescan.unit.spec.ts`; both mutants were verified to go red.
+     */
     if (marker === '?') {
       // Processing instruction, including the XML declaration. Its content is not markup.
       const next = skipPast(text, i + 1, '?>')
@@ -160,12 +181,12 @@ export function prescanStructure(text: string, budget: PrescanBudget): PrescanOu
       if (text.startsWith('[CDATA[', i + 1)) {
         // CDATA content is literal text. `<item>` inside it is NOT an element, and counting it
         // would be the differential this scan exists to avoid.
-        const next = skipPast(text, i + 8, ']]>')
+        const next = skipPast(text, i, ']]>')
         if (next === -1) break
         i = next
         continue
       }
-      const next = endOfMarkupDeclaration(text, i + 1)
+      const next = endOfMarkupDeclaration(text, i)
       if (next === -1) break
       i = next
       continue
@@ -175,7 +196,7 @@ export function prescanStructure(text: string, budget: PrescanBudget): PrescanOu
       // `Math.max(0, …)`: an unbalanced close tag must not drive the counter negative and so
       // under-report the depth of what follows. The parser rejects such a document anyway.
       depth = Math.max(0, depth - 1)
-      const next = skipPast(text, i + 1, '>')
+      const next = skipPast(text, i, '>')
       if (next === -1) break
       i = next
       continue
@@ -201,7 +222,7 @@ export function prescanStructure(text: string, budget: PrescanBudget): PrescanOu
       return { ok: false, exceeded: 'elements', maxDepth, elementCount }
     }
 
-    const tag = endOfStartTag(text, i + 1)
+    const tag = endOfStartTag(text, i)
     if (tag === null) break
     if (tag.selfClosing) depth -= 1
     i = tag.end
