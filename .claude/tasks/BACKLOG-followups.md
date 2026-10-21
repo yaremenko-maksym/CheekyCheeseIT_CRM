@@ -3840,3 +3840,87 @@ gets `code=false` and skips the step entirely, caught only by the post-merge pus
 
 **Check on closing:** removing the scan from the runner makes a test go red, and a documentation-only
 change under `.claude/hooks` is still scanned in the PR run rather than only after merge.
+
+## 270. A claim contradicted by the author's own evidence, because the false sentence was the better sentence (2026-10-20)
+
+A dependency review measured a parser's full option surface, identified two options as
+entity-bearing, wrote a section naming them "load-bearing" and requiring they be pinned — and then
+opened the same document with the headline claim that the parser had **no option** that could
+resolve an entity. Both statements were in one file, by one author, in one sitting. The
+contradiction was free to notice and went unnoticed for the length of the review.
+
+The mechanism is not haste and not missing evidence. The false sentence was **stronger**: an
+absolute reads as more authoritative than a qualified one, and the qualified version ("two options
+bear on entities, but neither grants the library a capability it lacks") takes three clauses to
+say. The author had already paid for the evidence, then discarded it at the summarising step
+because the summary sounded better without it. That is the opposite of the failure in 256 and 257:
+there, the gap was between what was measured and what was assumed; here the measurement was
+correct and the **prose** contradicted it.
+
+**Why review does not reliably catch it.** A reviewer who reads an absolute headline and its
+supporting section together tends to **harmonise** them — reading the strong claim as a shorthand
+for the careful one — rather than noticing they disagree. The two statements are far apart in the
+document and each is locally plausible. It took a reviewer deliberately trying to **falsify** the
+headline, treating it as a claim rather than a summary, to surface it.
+
+Two further consequences showed up in the same document once the habit was looked for: a
+competitor rejected as "slowest, lax" turned out to hold the worst advisory record on the
+shortlist, and another rejected by characterising a third party's CVE history when the package's
+own record was both measurable and sharper. In each case a measured fact was available and a
+characterisation was shipped instead.
+
+**What follows.** A claim stated as an absolute ("no option can", "it is impossible to", "nothing
+in X does Y") is a **falsifiable assertion, not a summary**, and the cheapest guard is to attempt
+the falsification before writing it — the attempt is usually one command against an already-
+installed package. Where the honest claim is narrower, prefer the argument that survives an option
+flip (a capability the dependency does not have) over one that rests on a current default. And
+where a number or a measured fact exists, it belongs in the sentence instead of an adjective: a
+characterisation cannot be re-derived by the next reader, and a count with a stated basis can.
+
+**Check on closing:** in a long-lived decision document, every absolute claim either carries the
+command that failed to falsify it, or is rewritten as the narrower claim that is true; and
+rejections cite measured figures rather than adjectives where a figure was obtainable.
+
+## 271. `apps/api` never typechecks its spec files, so a spec can assert against values that do not exist (2026-10-21)
+
+Established by command, not by reading: `tsc -p apps/api/tsconfig.json --showConfig` resolves
+`exclude` to `['node_modules', 'dist', '**/*.spec.ts', '**/*.test.ts']`, and **zero** of the 384
+files in the program are specs.
+
+**What it already cost.** Two specs in the `ApiJsonProvider` work used the literal `'DOU'`, which is
+not a member of `JobSourceType` — the member is `'DOU_RSS'`. Nothing caught it but a runtime test,
+because the compiler never looked at the file. This holds for every spec in the package.
+
+**Why it belongs in this family of entries.** `pnpm typecheck` reads as covering the package, and its
+green is indistinguishable from a green that checked the specs too. A spec asserting conformance to a
+domain value that does not exist is the strongest form of a check that cannot fail: it is not merely
+weak, it is about nothing.
+
+**Closing it is not free, which is why it is an entry and not a fix.** Putting specs in the program
+surfaces an unknown number of pre-existing errors across the package at once. Options, cheapest
+first: a second tsconfig that includes specs, run as its own CI step, leaving the build config alone;
+or include them in the main program and fix the fallout; or decide to leave it, recorded, so nobody
+relies on spec-side types.
+
+**Check on closing:** introduce a deliberate type error in any `*.spec.ts` under `apps/api` and
+confirm the typecheck step fails. If it passes, the gap is still open — and that probe is its own
+negative control, because a green from the current configuration proves only that it looked nowhere.
+
+## 272. A guard test that asserts a timing property will be retried rather than fixed (2026-10-21)
+
+The CI job `Guard Tests` failed one file of 46 — `[script] SIGTERM to the parent is forwarded to the
+child` — on a branch that touches **only** `apps/api/src/job-sourcing/providers/`, with `Guard Tests`
+green on main's four preceding runs and the separate guard-over-guards workflow green at the same
+commit. A provider-only diff cannot affect signal forwarding in a devops script, so this is the test.
+
+**Why it needs a fix rather than a retry.** The assertion is about **timing**: the parent must still
+be alive, have installed its handler, and forward before the harness looks. Under CI load those
+orderings drift. "The forwarding is broken" and "the test looked too early" are indistinguishable
+from outside, and that ambiguity is what guarantees a retry next time somebody meets it.
+
+The repair is to wait on an **observable fact** — the child recording receipt, with a bounded wait —
+rather than on elapsed time. Whoever takes it should check whether the sibling cases in that file
+share the shape.
+
+**Check on closing:** run the file 50 consecutive times under artificial load. A single green run
+proves nothing here, because a flake's green and a fix's green are the same green.
