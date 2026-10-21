@@ -118,6 +118,97 @@ const service = new ResumeTextExtractionService()
 
 /**
  * ==========================================================================
+ * THE EXPENSIVE-DOCUMENT FIXTURE, AND WHY ITS COST IS MEASURED AT RUN TIME
+ * ==========================================================================
+ * Two tests need a document that passes every acceptance budget yet costs the
+ * parser more than a limit they set. Both used to state that cost as a number
+ * in a comment ("~4.8 s") and pick a limit from it. The comment was wrong the
+ * day it was read against this machine, and nothing could say so: the test kept
+ * going green, or coin-flipping, without discriminating. A deadline of 1 000 ms
+ * against a parse of 1 005–1 106 ms failed 4 of 15 isolated runs.
+ *
+ * So the cost is no longer a claim. `calibrateExpensiveDocx` times the fixture
+ * through the real pipeline on the machine running the test, the limits are
+ * DERIVED from that, and `assertPremise` fails — naming the cause — when the
+ * fixture has stopped being expensive enough to discriminate.
+ *
+ * Measured 2026-10-22 on macOS, Node 22.23.1, `@xmldom/xmldom` 0.8.15,
+ * `mammoth` 1.13.0, no induced load, through `service.extract` with no
+ * deadline in effect (4 runs each, wall ms):
+ *
+ *   `<w:p/>` x ~690 000 (4.15 MB, the shape below)    1 529–1 616
+ *   `<w:p a="1"/>` x ~345 000 (4.15 MB)                 924–  981
+ *   `<w:p><w:r><w:t>a</w:t></w:r></w:p>` x ~118 000     1 038–1 116
+ *   trivial one-paragraph document (process startup)      134–  260
+ *
+ * The earlier "~4.8 s" for the third shape was off by about 4x. Under heavy
+ * machine load (load average ~36) the same fixtures cost 2.3x as much, so the
+ * cost is not a constant of the parser: it is a property of the machine, which
+ * is why it is measured here and not written down.
+ */
+const EXPENSIVE_RUN = '<w:p/>'
+function buildExpensiveDocx(): Buffer {
+  return buildDocxRawBody(EXPENSIVE_RUN.repeat(Math.floor(4_150_000 / EXPENSIVE_RUN.length)))
+}
+
+interface ExpensiveDocxCalibration {
+  readonly document: Buffer
+  /** Fastest of two full parses with no deadline in effect (fastest = least load noise). */
+  readonly parseMs: number
+  /** Fastest of two round trips for a trivial document: what a child process costs before any parsing. */
+  readonly startupMs: number
+}
+
+async function timedExtract(document: Buffer): Promise<number> {
+  const start = performance.now()
+  await service.extract(document, RESUME_DOCX_MIME, { timeoutMs: 120_000 })
+  return performance.now() - start
+}
+
+let expensiveDocxCalibration: Promise<ExpensiveDocxCalibration> | undefined
+function calibrateExpensiveDocx(): Promise<ExpensiveDocxCalibration> {
+  expensiveDocxCalibration ??= (async () => {
+    const trivial = buildDocx(['резюме'])
+    const startupMs = Math.min(await timedExtract(trivial), await timedExtract(trivial))
+    const document = buildExpensiveDocx()
+    const parseMs = Math.min(await timedExtract(document), await timedExtract(document))
+    return { document, parseMs, startupMs }
+  })()
+  return expensiveDocxCalibration
+}
+
+/**
+ * The deadline for the wall-clock test: a quarter of the measured parse. The
+ * document therefore has to be running 4x faster than it was calibrated for the
+ * deadline to lose, instead of "about as fast", which is what 1 000 ms against
+ * 1 005–1 106 ms was.
+ */
+const DEADLINE_FRACTION_OF_PARSE = 4
+/** The kill must land in the parse, not in process startup: the deadline must clear startup by this factor. */
+const DEADLINE_OVER_STARTUP = 1.5
+/**
+ * RLIMIT_CPU has whole-second granularity and the sandbox refuses anything
+ * below 1 s, so this limit cannot be lowered to fit the fixture. The fixture's
+ * CPU time (single-threaded parse: CPU ~= wall, measured 2 669 ms CPU for
+ * 2 739 ms wall under load) must exceed it by this factor for the kernel, not
+ * the clock, to be what ends the work.
+ */
+const CPU_OVER_RLIMIT = 1.25
+/** The `cpuSeconds` the CPU-rlimit test asks the sandbox for — the smallest it accepts. */
+const EXTRACTION_CPU_SECONDS_FOR_SEAM = 1
+
+function assertPremise(ok: boolean, what: string, c: ExpensiveDocxCalibration): void {
+  expect(
+    ok,
+    `Test premise gone: ${what}. Measured here: parse ${Math.round(c.parseMs)} ms, ` +
+      `process startup ${Math.round(c.startupMs)} ms. The fixture (buildExpensiveDocx) no longer ` +
+      `costs enough to discriminate — the parser got faster or this machine did. Fix the FIXTURE ` +
+      `(a costlier shape that still passes the acceptance budgets); do not loosen this check.`,
+  ).toBe(true)
+}
+
+/**
+ * ==========================================================================
  * CAN THIS KERNEL END A CHILD BY ITS CPU RLIMIT? — ANSWERED BY RUNNING IT
  * ==========================================================================
  * One test below needs the sandbox to KILL a worker rather than let it finish,
@@ -608,24 +699,21 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
    * 0.8.15 fixed the quadratic attribute path, so the 120 000-attribute fixture
    * now parses in ~0.6 s end to end and RESOLVES — the old fixture no longer
    * exceeds anything, and the test built on it stopped proving the sandbox.
-   * Re-measured on 0.8.15 through the real pipeline, every shape that still
-   * passes the byte budget (`MAX_DOCX_PARSED_BYTES`, 4 MiB):
-   *
-   *   attributes, 330 000 on one element (3.8 MB)     1.3 s   (was ~minutes)
-   *   namespace decls, 230 000 on one element (4.0 MB) 2.0 s
-   *   `<w:p a="1"/>` x ~345 000 (4.15 MB)              3.4 s
-   *   `<w:p><w:r><w:t>a</w:t></w:r></w:p>` x ~118 000
-   *     (4.15 MB)                                      4.8 s
+   * Re-measured on 0.8.15 through the real pipeline, shapes that still pass the
+   * byte budget (`MAX_DOCX_PARSED_BYTES`, 4 MiB). THE FIGURES THIS COMMENT
+   * ORIGINALLY CARRIED (1.3 s / 2.0 s / 3.4 s / "4.8 s") WERE STALE: re-measured
+   * 2026-10-22 (table above `EXPENSIVE_RUN`) the same shapes cost 0.9–1.6 s, and
+   * the deadline test built on "4.8 s" failed 4 of 15 isolated runs because its
+   * 1 s deadline equalled the real parse time. The cost is now measured at run
+   * time (`calibrateExpensiveDocx`) and the limits derived from it.
    *
    * The quadratic cliff is gone (attributes are now linear-ish and cheap), but
    * the thesis above survives in its weaker, still-true form: the byte budget
-   * does not see NODE count, and a document made of ~118 000 small runs costs
-   * several seconds of parse while passing every acceptance budget. That shape
-   * is the fixture below. Its cost is linear in nodes and therefore
-   * machine-dependent (a loaded CI runner is several times slower), so the
-   * deadline is set low (1 s) rather than the fixture's cost chased upward:
-   * the margin is ~5x on the machine that measured it and only grows on
-   * slower ones.
+   * does not see NODE count, and a document of ~690 000 empty paragraphs costs
+   * over a second of parse while passing every acceptance budget. That shape is
+   * the fixture. Its cost is linear in nodes and therefore machine-dependent
+   * (a loaded runner is 2x+ slower), which is why the deadline is a fraction of
+   * a parse measured on the machine running the test.
    *
    * So this test asserts what is actually true and actually load-bearing: the
    * SANDBOX contains work of any shape. The document below defeats every
@@ -638,10 +726,17 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
    * previous version of this test a coin flip on a busy runner.
    */
   it('contains an expensive document no budget can see', async () => {
-    // ~118 000 one-character runs: 4.15 MB of XML (just under the 4 MiB parsed
-    // budget), ~354 000 tags, ~4.8 s of parse on 0.8.15 against a 1 s deadline.
-    const run = '<w:p><w:r><w:t>a</w:t></w:r></w:p>'
-    const unbudgetable = buildDocxRawBody(run.repeat(Math.floor(4_150_000 / run.length)))
+    // ~690 000 empty paragraphs: 4.15 MB of XML (just under the 4 MiB parsed
+    // budget). Cost is MEASURED on this machine and the deadline derived from
+    // it; see `calibrateExpensiveDocx`.
+    const calibration = await calibrateExpensiveDocx()
+    const unbudgetable = calibration.document
+    const deadlineMs = Math.ceil(calibration.parseMs / DEADLINE_FRACTION_OF_PARSE)
+    assertPremise(
+      deadlineMs >= calibration.startupMs * DEADLINE_OVER_STARTUP,
+      `the derived deadline (${deadlineMs} ms) no longer clears process startup`,
+      calibration,
+    )
 
     // Non-vacuity FIRST: prove every acceptance budget really does wave this
     // through, so the containment below is doing the work rather than a budget
@@ -655,7 +750,7 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
     // and it is a property of isolation, not of any budget.
     const meter = startLagMeter()
     const outcome = await service
-      .extract(unbudgetable, RESUME_DOCX_MIME, { timeoutMs: 1_000 })
+      .extract(unbudgetable, RESUME_DOCX_MIME, { timeoutMs: deadlineMs })
       .then(() => 'resolved')
       .catch((e: unknown) => (e as Error).message)
     const { worstStall } = meter.stop()
@@ -665,10 +760,12 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
     // a budget, so it does not need to be tight to be meaningful.
     expect(worstStall).toBeLessThan(500)
 
-    // UNCONDITIONALLY, because the outcome is not in doubt: this document needs
-    // ~4.8 s and the deadline above is 1 s. Wrapping these in `if (outcome !==
-    // 'resolved')` would have been a test that quietly asserts nothing on the
-    // day the containment breaks — which is the one day it matters.
+    // UNCONDITIONALLY, because the outcome is not in doubt: the deadline is a
+    // quarter of the parse measured a moment ago on this machine, and the
+    // premise check above has already proved it clears process startup.
+    // Wrapping these in `if (outcome !== 'resolved')` would have been a test
+    // that quietly asserts nothing on the day the containment breaks — which is
+    // the one day it matters.
     expect(outcome).toMatch(/слишком сложный/)
     expect(outcome).not.toMatch(/Не удалось прочитать/)
   }, 180_000)
@@ -714,13 +811,20 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
   it.skipIf(!CPU_RLIMIT_ENFORCED)(
     'says the same actionable thing however the sandbox ended the work',
     async () => {
-      // The same ~4.15 MB / ~354 000-tag document as the test above: ~4.8 s of
-      // parse on @xmldom/xmldom 0.8.15, so it needs several CPU-seconds and the
-      // 1 s rlimit below ends it deterministically. The previous
-      // `buildAttributeBombDocx(60_000)` leaned on xmldom's quadratic attribute
-      // path, which 0.8.15 fixed: it now parses inside the budget and resolves.
-      const run = '<w:p><w:r><w:t>a</w:t></w:r></w:p>'
-      const bomb = buildDocxRawBody(run.repeat(Math.floor(4_150_000 / run.length)))
+      // The same ~4.15 MB expensive document as the test above. The 1 s CPU
+      // rlimit below cannot be lowered (whole seconds, sandbox floor), so the
+      // fixture has to out-cost it: asserted from the measured parse, not
+      // assumed. Measured 2026-10-22 the fixture is ~1.5 s quiet, i.e. a 1.5x
+      // margin over the rlimit — the thinnest in this file, hence the check.
+      // The previous `buildAttributeBombDocx(60_000)` leaned on xmldom's
+      // quadratic attribute path, which 0.8.15 fixed.
+      const calibration = await calibrateExpensiveDocx()
+      const bomb = calibration.document
+      assertPremise(
+        calibration.parseMs >= EXTRACTION_CPU_SECONDS_FOR_SEAM * 1000 * CPU_OVER_RLIMIT,
+        `the document no longer out-costs the ${EXTRACTION_CPU_SECONDS_FOR_SEAM} s CPU rlimit`,
+        calibration,
+      )
 
       // Path 1 — the wall-clock deadline (`timedOut`).
       await expect(service.extract(bomb, RESUME_DOCX_MIME, { timeoutMs: 50 })).rejects.toThrow(
@@ -756,7 +860,10 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
       let logged = ''
       try {
         killed = await service
-          .extract(bomb, RESUME_DOCX_MIME, { cpuSeconds: 1, timeoutMs: 150_000 })
+          .extract(bomb, RESUME_DOCX_MIME, {
+            cpuSeconds: EXTRACTION_CPU_SECONDS_FOR_SEAM,
+            timeoutMs: 150_000,
+          })
           .then(() => 'resolved')
           .catch((e: unknown) => (e as Error).message)
         logged = warned.mock.calls.flat().join(' ')
