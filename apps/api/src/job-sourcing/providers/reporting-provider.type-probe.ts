@@ -1,14 +1,13 @@
-import type { ZodType } from 'zod'
 import type { CollectionBatch, CollectionBatchFields, RequestReport } from './reporting-provider'
 import type { SourceConfigFields } from './reporting-provider'
 import type { ApiJsonSourceSpec } from './api-json.provider'
 
 /**
- * `declare const`, not real schemas. This file promises above that it carries NO runtime
- * behaviour, and that promise is load-bearing twice over: it is why a `.ts` file with no spec can
- * sit in the source tree at all, and it is why the mutation gate has nothing here to mutate. A
- * first version of the `nativeIdOf` probe below built genuine `z.object(...)` schemas, which put
- * live code behind a function nobody calls — every literal in it a mutant no test could reach.
+ * TYPES ONLY. This file promises above that it carries NO runtime behaviour, and the promise is
+ * load-bearing twice over: it is why a `.ts` file with no spec may sit in the source tree at all,
+ * and it is why the mutation gate has nothing here to mutate. Both of those were briefly broken
+ * while writing the `nativeIdOf` probe below — first with real `z.object(...)` schemas, then with
+ * a real spec literal — and the gate reported the second as eighteen mutants with no coverage.
  */
 interface ProbeConfig extends SourceConfigFields {
   query: string | null
@@ -20,10 +19,6 @@ interface ProbeItem {
 interface ProbeEnvelope {
   jobs: unknown[]
 }
-
-declare const probeConfigSchema: ZodType<ProbeConfig>
-declare const probeItemSchema: ZodType<ProbeItem>
-declare const probeEnvelopeSchema: ZodType<ProbeEnvelope>
 
 /**
  * COMPILE-TIME proof of the construction brands (CR-H-2). Not a spec, deliberately.
@@ -77,33 +72,23 @@ export function brandIsRequired(): void {
  * `TypeError` in one suite rather than as a typecheck failure, and phase 3's 25 adapters are
  * precisely the authors for whom "the compiler will not let you forget" has to be true.
  *
- * HOW IT FAILS: make the field optional again and the literal below starts compiling, the
- * directive becomes unused, and `tsc` reports "Unused '@ts-expect-error' directive".
+ * `Omit<…, 'nativeIdOf'>` AND `declare const`, not a written-out spec literal — the same idiom as
+ * `brandIsRequired` above, and for the same reason this file states at the top. A real literal was
+ * tried first and the mutation gate reported eighteen mutants in it with no coverage: an object
+ * full of arrow functions and string literals, inside a function nothing calls, is live code no
+ * test can reach. The `Omit` says the one thing the probe is about and carries no code at all.
+ *
+ * HOW IT FAILS: make the field optional again and a spec WITHOUT it becomes assignable, so the
+ * directive goes unused and `tsc` reports "Unused '@ts-expect-error' directive". Verified by doing
+ * exactly that.
  */
+declare const specWithoutNativeIdOf: Omit<
+  ApiJsonSourceSpec<ProbeConfig, ProbeEnvelope, ProbeItem>,
+  'nativeIdOf'
+>
+
 export function nativeIdOfIsRequired(): void {
   // @ts-expect-error an adapter spec without nativeIdOf gets no AC5 duplicate-collapse check
-  const withoutNativeIdOf: ApiJsonSourceSpec<ProbeConfig, ProbeEnvelope, ProbeItem> = {
-    type: 'REMOTEOK_API',
-    adapterVersion: 'probe-1',
-    configSchema: probeConfigSchema,
-    envelopeSchema: probeEnvelopeSchema,
-    itemSchema: probeItemSchema,
-    pageRequest: () => ({ request: { url: 'https://api.example.com/jobs' } }),
-    extractItems: (envelope) => envelope.jobs,
-    nextCursor: () => null,
-    mapItem: (item) => ({
-      namespace: 'board',
-      nativeId: item.id,
-      url: `https://jobs.example.com/j/${item.id}`,
-      title: item.id,
-      companyName: item.id,
-    }),
-    scopeOf: (config) => ({
-      namespace: config.namespace,
-      query: null,
-      configVersion: config.configVersion,
-      window: null,
-    }),
-  }
-  void withoutNativeIdOf
+  const spec: ApiJsonSourceSpec<ProbeConfig, ProbeEnvelope, ProbeItem> = specWithoutNativeIdOf
+  void spec
 }
