@@ -582,7 +582,7 @@ def judge(seg):
         live = [p for p in port_values if int(p) in (3000, 3001)]
         if live:
             reasons.append(
-                "port %s is set explicitly to one of the owner live pair (web:3000 / api:3001)" % live[0]
+                "port %s is set explicitly to one of the owner’s live ports (web:3000 / api:3001)" % live[0]
             )
 
     return reasons
@@ -607,11 +607,11 @@ The launch that was recognised: %s
 %s
 
 The 2026-08-05 incident (PR #485): DATABASE_URL/API_PORT inherited from the parent
-session overrode the worktree .env — the API listened on :3000 against the owner
-LIVE database for about two minutes. It ended well only by luck (0 writes that
+session overrode the worktree .env — the API listened on :3000 against the owner’s LIVE
+database for about two minutes. It ended well only by luck (0 writes that
 session). The rule: any dev-server launch from a worktree MUST set BOTH
-DATABASE_URL AND the port inline — an .env file alone guarantees nothing, because
-an already-set process.env variable silently overrides it.
+DATABASE_URL AND the port inline — an .env file alone guarantees nothing, because an
+already-set process.env variable silently overrides it.
 
 The right way (safe values — scratch DB crm_qa, free ports):
     DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_qa API_PORT=3011 pnpm --filter @crm/api dev
@@ -674,7 +674,10 @@ LEGACY='(^|[/[:space:]])nest(\.js)?[[:space:]]+start|(^|[/[:space:]])vite([[:spa
 # legacy pattern's `([[:space:]]|$)` boundary would silently never match and the
 # fallback would let everything through. Turning JSON punctuation into spaces
 # restores the token boundaries without needing a parser (python3 may be exactly
-# what is missing here). Verified by the test case "broken analyzer + a dangerous launch".
+# what is missing here). Verified by the test case
+# "BROKEN analyzer + a dangerous launch: blocks, but labelled DEGRADED"
+# in scripts/devops/tests/test-pre-bash-live-db-guard.sh — quoted exactly, so a
+# grep for this string finds it.
 FLAT=$(printf '%s' "$INPUT" | tr '"{},' '    ')
 if echo "$FLAT" | grep -qE "$LEGACY" && echo "$FLAT" | grep -qE '\.claude/worktrees/|/tmp/claude-'; then
   printf '%s\n' '{"decision":"block","reason":"⚠️ DEGRADED MODE live-db-guard: the command analyzer did not run (see INTERNAL ERROR on stderr), so the old coarse word-substring rule was applied. This may be a FALSE POSITIVE. Fix .claude/hooks/lib/cmdscan.py instead of bypassing it: bash .claude/hooks/pre-bash-live-db-guard.sh < <(echo JSON) will show the reason."}'

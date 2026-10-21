@@ -154,7 +154,7 @@ The launch that was recognised: %s
 Why: the 2026-07-24 incident — 67 zombie nest/vite processes from agent worktrees
 drove the Mac into swap thrashing (load average 70). A dev server under
 .claude/worktrees/** MUST expire by itself on a TTL rather than rely on session
-cleanup, because sessions die uncleanly.
+cleanup.
 
 The right way (the wrapper gives the process group a TTL, 4h by default):
     scripts/devops/dev-ttl.sh -- <your command>
@@ -178,8 +178,8 @@ REFUSED BY DESIGN, though not a launch either (not a bug; the wrapper will not h
     withheld from them deliberately: see PKG_QUERY_RUNNERS;
   • `pnpm version` / `npm audit fix` — they run lifecycle scripts and write the
     manifest, so the grant is not for them;
-  • `--depth 2` BEFORE the subcommand (`pnpm --depth 2 ls`) — the grammar of that
-    flag is position-dependent, and the reading that fails closed was chosen;
+  • `--depth 2` BEFORE the subcommand (`pnpm --depth 2 ls`) — that flag’s grammar
+    is position-dependent, and the reading that fails closed was chosen;
   • a command outside the understood list carrying a launcher-looking word as its
     own token inside quotes — `for c in "pnpm dev"; do …`, `cases=("pnpm dev")`.
     That is a deliberate trade: this same reading of quotes is what catches
