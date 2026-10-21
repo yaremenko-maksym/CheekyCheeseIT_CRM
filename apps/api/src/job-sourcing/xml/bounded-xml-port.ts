@@ -35,7 +35,7 @@
  */
 
 import { decodeXml } from './decode'
-import { HARDENED_PARSE_OPTIONS, parseXmlString } from './parse-xml.adapter'
+import { parseXmlString } from './parse-xml.adapter'
 import { prescanStructure } from './prescan'
 import { DEFAULT_XML_LIMITS, elementCeiling } from './xml-limits'
 import type { XmlDocument, XmlLimits, XmlPort } from './xml-port'
@@ -111,6 +111,3 @@ export class BoundedXmlPort implements XmlPort {
 
 /** The port, ready to use. A class so a test can hold its own instance without module state. */
 export const xmlPort: XmlPort = new BoundedXmlPort()
-
-/** Re-exported so the options assertion and a reviewer can reach the pinned set from one place. */
-export { HARDENED_PARSE_OPTIONS }

@@ -68,14 +68,25 @@ describe('R-3: the DOCTYPE refusal survives the encoding', () => {
     expect(document.effectiveEncoding).toBe('utf-16le')
   })
 
-  it('the literal text `<!DOCTYPE` inside CDATA is still refused — and that is deliberate', () => {
+  it('the literal inside CDATA is still refused — and that is deliberate', () => {
     // A conservative false positive, recorded as a decision rather than left to be discovered: a
-    // feed mentioning `<!DOCTYPE` in a vacancy description is refused. No job board does this,
-    // and the alternative — a check that understands CDATA — is a second parser of the construct
-    // the real parser already parses, i.e. a differential surface for no benefit.
+    // feed mentioning the doctype markup in a vacancy description is refused. No job board does
+    // this, and the alternative — a check that understands CDATA — is a second parser of the
+    // construct the real parser already parses, i.e. a differential surface for no benefit.
     expect(
       reasonOf(() => port.parseDocument(utf8('<r><d><![CDATA[say <!DOCTYPE x>]]></d></r>'))),
     ).toBe('DOCTYPE_FORBIDDEN')
+  })
+
+  it('the literal inside an XML COMMENT is refused too — measured, not predicted', () => {
+    // The same conservative reach, one construct further, and it is in this suite because it bit:
+    // `attack-undefined-entity-no-doctype.xml` carried the literal in its own explanatory comment
+    // and was refused as DOCTYPE_FORBIDDEN where MALFORMED was the whole point of the fixture.
+    // Pinned here so the reach is a known property of the check rather than a trap for the next
+    // person writing a fixture.
+    expect(reasonOf(() => port.parseDocument(utf8('<r><!-- <!DOCTYPE x> --><d/></r>')))).toBe(
+      'DOCTYPE_FORBIDDEN',
+    )
   })
 })
 
