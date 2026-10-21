@@ -472,29 +472,36 @@ export interface SourceConfigFields {
   window?: CollectionWindow | null
 }
 
-export type ValidatedSourceConfig = SourceConfigFields & {
+/**
+ * An adapter's own config type, branded. Exported so that `defineApiJsonProvider` can name the
+ * type `parseConfig` returns WITHOUT a cast of its own: the brand symbol is module-private, so a
+ * caller that had to spell the intersection itself would be forced to approximate it
+ * (`{ [k: symbol]: true }`) and then cast across the gap — which is how a cast stops being a
+ * formality and starts masking a mismatch.
+ */
+export type Validated<T extends SourceConfigFields> = T & {
   readonly [CONFIG_VALIDATED]: true
 }
+
+export type ValidatedSourceConfig = Validated<SourceConfigFields>
 
 /**
  * Stamp a config that a schema has just accepted.
  *
- * THE CAST: `as T & { readonly [CONFIG_VALIDATED]: true }`. It is not masking a contract, and the
- * reason is the call site, not good intentions — `markValidated` is applied to the RESULT of a
- * `.parse()`, so every structural field has already been checked by Zod and the cast adds only the
- * phantom property that `defineProperty` just installed. Contrast the cast this feature was burned
- * by in Task 2.1, which asserted a VALUE's shape that nothing had checked.
+ * THE CAST: `as Validated<T>`. It is not masking a contract, and the reason is the call site, not
+ * good intentions — `markValidated` is applied to the RESULT of a `.parse()`, so every structural
+ * field has already been checked by Zod and the cast adds only the phantom property that
+ * `defineProperty` just installed on the line above. Contrast the cast this feature was burned by
+ * in Task 2.1, which asserted a VALUE's shape that nothing had checked.
  */
-export function markValidated<T extends SourceConfigFields>(
-  config: T,
-): T & { readonly [CONFIG_VALIDATED]: true } {
+export function markValidated<T extends SourceConfigFields>(config: T): Validated<T> {
   Object.defineProperty(config, CONFIG_VALIDATED, {
     value: true,
     enumerable: false,
     writable: false,
     configurable: false,
   })
-  return config as T & { readonly [CONFIG_VALIDATED]: true }
+  return config as Validated<T>
 }
 
 export function isValidatedConfig(value: unknown): value is ValidatedSourceConfig {
