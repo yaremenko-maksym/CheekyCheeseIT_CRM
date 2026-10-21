@@ -185,6 +185,45 @@ export interface XmlDocument {
  * decoding — and the mojibake every parser produced on a `windows-1251` feed — happens before the
  * parser is reached. Handing the port a string would put that defect permanently outside the seam.
  */
+/**
+ * THE INNER SEAM: the thing a real parser swap actually replaces (CR-M-4).
+ *
+ * `XmlPort` is the OUTER seam, the one the ~25 adapters hold. It was the only named interface
+ * here, and that left the swap claim resting on a fake: `xml-port.conformance.spec.ts` shows a
+ * second implementation of `XmlPort` that returns canned trees, which proves the outer interface
+ * is implementable without `@rgrove/parse-xml` and proves nothing about parsing. A real
+ * replacement does not write a second `XmlPort` — it keeps every bound, the decode, the
+ * `<!DOCTYPE>` refusal, the pre-scan and the namespace layer, and replaces exactly one function:
+ * `parseXmlString`. Which had no interface, so there was nothing to implement against and nothing
+ * for a test to substitute.
+ *
+ * Naming it costs these few lines and buys two things. A replacement author now has a signature
+ * rather than a file to reverse-engineer; and `BoundedXmlPort` takes one as a constructor
+ * argument, so the inner seam can be CROSSED in a test by something that is not this library —
+ * which is a demonstration rather than an assertion, and is the gap CR-M-4 named.
+ *
+ * WHAT A REPLACEMENT STILL HAS TO CHANGE, and naming the interface does not remove:
+ *   - `PARSE_ITEMS_PER_MS` is measured end to end through this parser. Another parser's
+ *     throughput is another number, and the item ceiling is derived from it.
+ *   - `PRESCAN_DIFFERENTIAL` compares our tokenizer against THIS parser's counting of elements and
+ *     attributes. A parser that counts an edge case differently turns that check red, and the
+ *     check is right to go red — but the resolution is a scanner change, not a suppression.
+ *   - `MALFORMED` must stay the verdict for a truncated envelope AND for an undefined entity with
+ *     no DOCTYPE. This is the contract `fast-xml-parser` fails under every configuration measured
+ *     (it accepts the undefined entity), which is why there is no second real adapter today.
+ */
+export interface XmlParserAdapter {
+  /**
+   * Parse a decoded string into a neutral tree, or throw `XmlPortError('MALFORMED')`.
+   *
+   * Receives TEXT, not bytes: decoding, the byte cap and the `<!DOCTYPE>` refusal all happen
+   * before this is called, and an adapter that re-did them would be duplicating bounds rather
+   * than implementing a parser. It is called only for input the pre-scan has already measured and
+   * admitted, so it may assume nothing about well-formedness and everything about size.
+   */
+  (text: string): { readonly root: XmlElementNode; readonly declaredEncoding: string | null }
+}
+
 export interface XmlPort {
   /** Parses, or throws `XmlPortError`. Never returns a partially-parsed document. */
   parseDocument(bytes: Uint8Array, limits?: XmlLimits): XmlDocument

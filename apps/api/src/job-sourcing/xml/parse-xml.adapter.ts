@@ -48,7 +48,13 @@ import {
   splitQName,
   XMLNS_NAMESPACE,
 } from './namespaces'
-import type { XmlAttribute, XmlElementNode, XmlNodeUnion, XmlTextNode } from './xml-port'
+import type {
+  XmlAttribute,
+  XmlElementNode,
+  XmlNodeUnion,
+  XmlParserAdapter,
+  XmlTextNode,
+} from './xml-port'
 import { XmlPortError } from './xml-port'
 
 /**
@@ -88,6 +94,23 @@ export interface AdapterDocument {
   readonly root: XmlElementNode
   readonly declaredEncoding: string | null
 }
+
+/**
+ * The compile-time half of the inner-seam claim (CR-M-4).
+ *
+ * If `parseXmlString`'s shape ever drifts from `XmlParserAdapter` — an extra required argument, a
+ * library node type leaking into the return — `Assert` receives `false`, violates its own
+ * `extends true` constraint, and this file stops compiling. Here, rather than at the replacement
+ * author's desk a year from now. It is what makes the interface in `xml-port.ts` a constraint
+ * rather than a comment.
+ *
+ * TYPE-ONLY, deliberately, rather than `const _check: XmlParserAdapter = parseXmlString`. That
+ * form works too and emits a statement nothing can observe — exactly the kind of construct this
+ * branch has been deleting rather than suppressing all the way through. A type alias emits
+ * nothing, so there is no mutant to explain.
+ */
+type Assert<T extends true> = T
+type _InnerSeamConforms = Assert<typeof parseXmlString extends XmlParserAdapter ? true : false>
 
 /**
  * Map one library element to a neutral element, iteratively.

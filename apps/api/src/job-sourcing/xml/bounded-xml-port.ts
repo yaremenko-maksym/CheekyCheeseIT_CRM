@@ -38,7 +38,7 @@ import { decodeXml } from './decode'
 import { parseXmlString } from './parse-xml.adapter'
 import { prescanStructure } from './prescan'
 import { DEFAULT_XML_LIMITS, itemCeiling } from './xml-limits'
-import type { XmlDocument, XmlLimits, XmlPort } from './xml-port'
+import type { XmlDocument, XmlLimits, XmlParserAdapter, XmlPort } from './xml-port'
 import { XmlPortError } from './xml-port'
 import { measureTree } from './xml-tree'
 
@@ -49,6 +49,23 @@ import { measureTree } from './xml-tree'
 const DOCTYPE_PATTERN = /<!doctype/i
 
 export class BoundedXmlPort implements XmlPort {
+  /**
+   * The INNER seam, injectable so that it can be crossed rather than asserted (CR-M-4).
+   *
+   * `xml-port.conformance.spec.ts` shows a second implementation of the OUTER interface
+   * (`CannedXmlPort`) and the review's point about it is correct: a canned port proves the canned
+   * port. A real swap replaces this one function and keeps everything else in this class — the
+   * byte cap, the decode, the `<!DOCTYPE>` refusal, the pre-scan, the differential, the namespace
+   * layer. Taking it as an argument means a test can substitute a parser that is demonstrably not
+   * `@rgrove/parse-xml` and watch all of that still hold. See `XmlParserAdapter` for what a
+   * replacement must change that this does NOT make free (the throughput constant, the
+   * differential's expectations, the `MALFORMED`-on-undefined-entity contract).
+   *
+   * Default-constructed, so `new BoundedXmlPort()` and the `xmlPort` singleton are unchanged and
+   * no caller learns about the inner seam it does not need.
+   */
+  constructor(private readonly parse: XmlParserAdapter = parseXmlString) {}
+
   parseDocument(bytes: Uint8Array, limits: XmlLimits = DEFAULT_XML_LIMITS): XmlDocument {
     if (bytes.byteLength > limits.maxBytes) {
       throw new XmlPortError(
@@ -107,7 +124,7 @@ export class BoundedXmlPort implements XmlPort {
       )
     }
 
-    const parsed = parseXmlString(decoded.text)
+    const parsed = this.parse(decoded.text)
     const actual = measureTree(parsed.root)
 
     // The attribute count joins the differential, not just the budget. A counted quantity that is
