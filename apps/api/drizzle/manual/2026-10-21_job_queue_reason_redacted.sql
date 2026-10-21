@@ -123,12 +123,41 @@ ALTER TABLE "job_queue_actions" ADD COLUMN IF NOT EXISTS "subject_action_id" uui
 -- 3. ck_job_queue_actions_target — a third branch; BOTH pre-existing branches gain
 --    `subject_action_id IS NULL`, so the new column belongs to the redaction kind
 --    alone; the catch-all gains `kind <> 'REASON_REDACTED'`
+--
+-- `subject_action_id <> id` (SR-M-2 of the security review on PR #1075): a redaction
+-- may not name ITSELF as its subject. An evidence row that is its own subject is not
+-- evidence of anything, and the first draft of this branch admitted it. Both operands
+-- are non-NULL where the clause is evaluated — `id` is the primary key and the branch
+-- has already required the subject — so there is no UNKNOWN-passes-a-CHECK trap of the
+-- kind constraint 4 below documents.
+--
+-- WHY DROP-AND-ADD RATHER THAN `NOT VALID` + `VALIDATE`, decided rather than defaulted.
+-- `NOT VALID` followed by `VALIDATE CONSTRAINT` is the right pattern on a BIG table: it
+-- avoids the full scan under ACCESS EXCLUSIVE and validates later under a weaker lock.
+-- It is not taken here, for two reasons:
+--   * `job_queue_actions` is EMPTY on production — nothing writes it yet — so the scan
+--     this would avoid costs nothing, and the plain ADD is instant;
+--   * the equivalence spec compares `convalidated`, and the security review measured all
+--     eight CHECKs on the migrated database as validated. A `NOT VALID` whose `VALIDATE`
+--     is forgotten leaves a constraint that EXISTS AND ENFORCES NOTHING for every
+--     pre-existing row — a guard present and not guarding, which is the one outcome
+--     worth more than the lock it saves. Taking the pattern would mean taking both
+--     statements, and the cheaper shape here is to take neither.
+-- The window of the DROP-and-ADD was measured closed by the review: a concurrent writer
+-- attempting the very insert the constraint would refuse blocks on ACCESS EXCLUSIVE and
+-- cannot slip through, and this file's `lock_timeout` bounds the wait.
+--
+-- THE PREDICATE IS STRICTER THAN THE POPULATION MAY BE. `ADD CONSTRAINT` scans existing
+-- rows, so a row already holding `subject_action_id = id` would make this statement fail
+-- — correctly, and loudly. There are none today because the table is empty and no code
+-- path writes it; that is stated here rather than relied on silently, because it stops
+-- being true the moment r5 Task 1.4b-iii wires the INSERT.
 -- ---------------------------------------------------------------------------
 
 BEGIN;
 ALTER TABLE "job_queue_actions" DROP CONSTRAINT IF EXISTS "ck_job_queue_actions_target";
 ALTER TABLE "job_queue_actions" ADD CONSTRAINT "ck_job_queue_actions_target" CHECK (("job_queue_actions"."kind" IN ('TRIAGE_SUBSCRIBED', 'TRIAGE_UNSUBSCRIBED') AND "job_queue_actions"."opportunity_id" IS NULL AND "job_queue_actions"."subscription_id" IS NOT NULL AND "job_queue_actions"."source_record_id" IS NULL AND "job_queue_actions"."subject_action_id" IS NULL)
-          OR ("job_queue_actions"."kind" = 'REASON_REDACTED' AND "job_queue_actions"."subject_action_id" IS NOT NULL AND "job_queue_actions"."opportunity_id" IS NULL AND "job_queue_actions"."subscription_id" IS NULL AND "job_queue_actions"."source_record_id" IS NULL)
+          OR ("job_queue_actions"."kind" = 'REASON_REDACTED' AND "job_queue_actions"."subject_action_id" IS NOT NULL AND "job_queue_actions"."subject_action_id" <> "job_queue_actions"."id" AND "job_queue_actions"."opportunity_id" IS NULL AND "job_queue_actions"."subscription_id" IS NULL AND "job_queue_actions"."source_record_id" IS NULL)
           OR ("job_queue_actions"."kind" NOT IN ('TRIAGE_SUBSCRIBED', 'TRIAGE_UNSUBSCRIBED') AND "job_queue_actions"."kind" <> 'REASON_REDACTED' AND "job_queue_actions"."opportunity_id" IS NOT NULL AND "job_queue_actions"."subscription_id" IS NULL AND "job_queue_actions"."subject_action_id" IS NULL));
 COMMIT;
 
