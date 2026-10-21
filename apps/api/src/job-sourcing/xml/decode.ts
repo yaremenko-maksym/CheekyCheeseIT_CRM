@@ -62,14 +62,24 @@ interface EncodingChoice {
   bomLength: number
 }
 
+/**
+ * NO LENGTH GUARDS, and their absence is the point.
+ *
+ * Each `if` used to begin `bytes.length >= N &&`. The mutation gate reported those guards as
+ * replaceable by `true` with no test noticing, and it was right for a reason worth keeping
+ * visible: indexing a `Uint8Array` past its end yields `undefined`, and `undefined === 0xbf` is
+ * false — so a short document already fails the byte comparison and the length check can never
+ * change the answer. The guards were redundant, not merely untested, so they are gone rather than
+ * suppressed. `decode.unit.spec.ts` covers the one-byte, two-byte and empty cases.
+ */
 function sniffBom(bytes: Uint8Array): EncodingChoice | null {
-  if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+  if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
     return { label: 'utf-8', source: 'bom', bomLength: 3 }
   }
-  if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) {
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) {
     return { label: 'utf-16le', source: 'bom', bomLength: 2 }
   }
-  if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) {
     return { label: 'utf-16be', source: 'bom', bomLength: 2 }
   }
   return null
@@ -84,7 +94,8 @@ function sniffBom(bytes: Uint8Array): EncodingChoice | null {
  * so every later check would pass on garbage.
  */
 function sniffUtf16WithoutBom(bytes: Uint8Array): EncodingChoice | null {
-  if (bytes.length < 2) return null
+  // No `if (bytes.length < 2) return null` either — same redundancy as in `sniffBom`: a missing
+  // byte reads as `undefined`, which matches neither `0x3c` nor `0x00`.
   if (bytes[0] === 0x3c && bytes[1] === 0x00) {
     return { label: 'utf-16le', source: 'utf16-sniff', bomLength: 0 }
   }

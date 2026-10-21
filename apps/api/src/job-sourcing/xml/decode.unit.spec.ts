@@ -342,6 +342,25 @@ describe('the declaration reader', () => {
     expect(decoded.effectiveEncoding).toBe('utf-8')
   })
 
+  it('an unterminated declaration is not scanned, even when `encoding` is not its last field', () => {
+    // Sharper than the earlier unterminated case, which accidentally hid the bug: there the
+    // declaration ENDED with `encoding="utf-8"`, so dropping the `=== -1` guard still matched
+    // nothing (slicing off the final character removed the closing quote the regex needs). Put
+    // `encoding` in the middle and the guard becomes load-bearing — without it, an unterminated
+    // declaration is mined for an encoding it never finished declaring.
+    const decoded = decodeXml(utf8('<?xml encoding="windows-1251" version="1.0"'))
+    expect(decoded.declaredEncoding).toBeNull()
+    expect(decoded.effectiveEncoding).toBe('utf-8')
+  })
+
+  it('`encoding` AFTER the declaration ends is not read as the declaration`s', () => {
+    // Pins the `head.slice(0, declarationEnd)` bound. Searching the whole 512-character window
+    // instead would find the `encoding` attribute in CONTENT and decode the feed with it.
+    const decoded = decodeXml(utf8('<?xml version="1.0"?><r><cfg encoding="windows-1251"/></r>'))
+    expect(decoded.declaredEncoding).toBeNull()
+    expect(decoded.effectiveEncoding).toBe('utf-8')
+  })
+
   it('an `encoding` pseudo-attribute on a NON-xml processing instruction is not the declaration', () => {
     // The `startsWith('<?xml')` guard, and the one input that pins it: the document contains a
     // `?>` and an `encoding="…"` before it, so only the prefix check can rule it out. With the
