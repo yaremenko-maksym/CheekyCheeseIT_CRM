@@ -33,8 +33,11 @@ import type { Pool } from 'pg'
  * client. `ALTER TABLE ... DISABLE TRIGGER` is transactional in PostgreSQL, so:
  *   - the window is exactly this one INSERT — the guard is off for a single statement,
  *     never for a block of test body;
- *   - restoration does not depend on our control flow. Any failure path, including a
- *     dropped connection, ends in `ROLLBACK` and the catalog reverts by itself;
+ *   - restoration does not depend on our control flow UP TO THE `COMMIT`. Any failure
+ *     before it, including a dropped connection, ends in `ROLLBACK` and the catalog
+ *     reverts by itself. After the `COMMIT` there is nothing left to restore: the
+ *     `ENABLE ALWAYS` is already durable, which is why the post-commit read below is a
+ *     read and not a repair (see the `catch` for the exact boundary);
  *   - `ENABLE ALWAYS`, not `ENABLE` — the plain form would downgrade `tgenabled` from
  *     'A' to 'O' and quietly re-open the `session_replication_role = replica` bypass
  *     that the whole DDL file exists to close. The post-commit read below is what turns
@@ -80,22 +83,21 @@ export async function insertBackdatedJobQueueActionAsTableOwner(
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
-    await client.query(`ALTER TABLE job_queue_actions DISABLE TRIGGER ${CREATED_AT_GUARD}`)
+    // Schema-qualified, all three statements and the verification read below: the read is
+    // hard-bound to `nspname = 'public'`, so an unqualified write resolved through
+    // `search_path` could disable one relation's trigger and verify another's.
+    await client.query(`ALTER TABLE public.job_queue_actions DISABLE TRIGGER ${CREATED_AT_GUARD}`)
     const { rows } = await client.query(
-      `INSERT INTO job_queue_actions
+      `INSERT INTO public.job_queue_actions
          (kind, opportunity_id, actor_id, scope_kind, before_version, after_version,
           idempotency_key, reason, created_at)
        VALUES ('DISMISSED', $1, $2, 'STUDIO', 0, 1, $3, $4, now() - $5::interval)
        RETURNING id`,
-      [
-        row.opportunityId,
-        row.actorId,
-        row.idempotencyKey,
-        row.reason === undefined ? null : row.reason,
-        row.age,
-      ],
+      [row.opportunityId, row.actorId, row.idempotencyKey, row.reason ?? null, row.age],
     )
-    await client.query(`ALTER TABLE job_queue_actions ENABLE ALWAYS TRIGGER ${CREATED_AT_GUARD}`)
+    await client.query(
+      `ALTER TABLE public.job_queue_actions ENABLE ALWAYS TRIGGER ${CREATED_AT_GUARD}`,
+    )
     await client.query('COMMIT')
 
     // The window is closed — verified, not assumed. 'A' is ENABLE ALWAYS; 'O' would mean
@@ -117,8 +119,25 @@ export async function insertBackdatedJobQueueActionAsTableOwner(
 
     return rows[0].id as string
   } catch (e) {
-    // The catalog change is transactional, so this restores the guard regardless of
-    // which statement above failed.
+    // WHAT THIS RESTORES, AND WHERE IT STOPS. The catalog change is transactional, so
+    // this `ROLLBACK` reverts the `DISABLE TRIGGER` for a failure in the BEGIN..COMMIT
+    // block above — that and nothing more. Reached from the post-commit `tgenabled`
+    // assertion instead, it restores NOTHING: the transaction is already committed and
+    // `ROLLBACK` on an idle connection is a no-op. That path is still safe, because what
+    // committed was the `ENABLE ALWAYS` — the assertion only re-reads it.
+    //   The pre-COMMIT half is what `rolls back and rethrows when the INSERT itself
+    // fails` and `rolls back when the re-enable fails` pin in this helper's spec: the
+    // statement sequence ends in ROLLBACK with no COMMIT, so no `ENABLE ALWAYS` of ours
+    // had to run. The post-COMMIT half has no test and cannot have one, because there is
+    // no observable left to assert — which is the reason it is written down here instead.
+    //   To see both halves yourself on a SCRATCH database (not measured by this PR — no
+    // local cluster was running when it was written, so treat it as the instruction, not
+    // the result):
+    //     BEGIN; ALTER TABLE public.job_queue_actions
+    //       DISABLE TRIGGER trg_job_queue_actions_created_at_now; ROLLBACK;
+    //     SELECT tgenabled FROM pg_trigger
+    //      WHERE tgname = 'trg_job_queue_actions_created_at_now';  -- expect 'A'
+    //     COMMIT; ROLLBACK;  -- expect: WARNING: there is no transaction in progress
     await client.query('ROLLBACK').catch(() => undefined)
     throw e
   } finally {

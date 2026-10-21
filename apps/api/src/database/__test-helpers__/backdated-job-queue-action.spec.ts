@@ -47,7 +47,7 @@ function fakeClient(opts: FakeOptions = {}) {
       if (sql.includes('SELECT t.tgenabled')) {
         return { rows: opts.guardMissing ? [] : [{ tgenabled: opts.tgenabled ?? 'A' }] }
       }
-      if (sql.includes('INSERT INTO job_queue_actions')) {
+      if (sql.includes('INSERT INTO public.job_queue_actions')) {
         return { rows: [{ id: 'row-id-1' }] }
       }
       return { rows: [] }
@@ -80,7 +80,7 @@ const shape = (log: readonly string[]) =>
     if (s.includes('DISABLE TRIGGER')) return 'DISABLE'
     if (s.includes('ENABLE ALWAYS TRIGGER')) return 'ENABLE ALWAYS'
     if (s.includes('ENABLE TRIGGER')) return 'ENABLE (plain — would downgrade to O)'
-    if (s.includes('INSERT INTO job_queue_actions')) return 'INSERT'
+    if (s.includes('INSERT INTO public.job_queue_actions')) return 'INSERT'
     if (s.includes('SELECT t.tgenabled')) return 'VERIFY'
     return s.trim()
   })
@@ -155,10 +155,10 @@ describe('insertBackdatedJobQueueActionAsTableOwner', () => {
   })
 
   it('rolls back and rethrows when the INSERT itself fails, leaving no half-open window', async () => {
-    const { pool, log } = fakePool({ failOn: 'INSERT INTO job_queue_actions' })
+    const { pool, log } = fakePool({ failOn: 'INSERT INTO public.job_queue_actions' })
 
     await expect(insertBackdatedJobQueueActionAsTableOwner(pool, ROW)).rejects.toThrow(
-      /refused INSERT INTO job_queue_actions/,
+      /refused INSERT INTO public\.job_queue_actions/,
     )
 
     // The failure path reaches ROLLBACK, which reverts the catalog change too: the
@@ -228,7 +228,7 @@ describe('insertBackdatedJobQueueActionAsTableOwner', () => {
 
     await insertBackdatedJobQueueActionAsTableOwner(pool, { ...ROW, reason: 'because' })
 
-    const insert = calls.find((c) => c.sql.includes('INSERT INTO job_queue_actions'))
+    const insert = calls.find((c) => c.sql.includes('INSERT INTO public.job_queue_actions'))
     // `now() - $5::interval` — the age is the database's arithmetic, not a JS date, so a
     // test asking for '2 years 1 day' gets PostgreSQL's calendar answer and not a 730-day
     // approximation of it.
@@ -236,7 +236,7 @@ describe('insertBackdatedJobQueueActionAsTableOwner', () => {
     expect(insert?.params).toEqual(['opp-1', 'actor-1', 'tag-1', 'because', '2 years 1 day'])
   })
 
-  it('distinguishes an omitted reason (NULL) from an explicitly null one', async () => {
+  it('sends an omitted reason and an explicitly null one alike, both as SQL NULL', async () => {
     const params = async (reason: string | null | undefined) => {
       const calls: unknown[][] = []
       const client = {
@@ -255,9 +255,14 @@ describe('insertBackdatedJobQueueActionAsTableOwner', () => {
       return calls.find((c) => c.length === 5)
     }
 
-    // Both become SQL NULL: the suites that need a non-null reason supply one, and the
-    // redaction tests need `null` to be reachable. The branch exists so that `undefined`
-    // cannot arrive at `pg` as a parameter it would reject.
+    // Both become SQL NULL, and the test name says so rather than claiming a distinction
+    // these assertions do not make: the suites that need a non-null reason supply one, and
+    // the redaction tests need `null` to be reachable. `?? null` in the helper is a
+    // normalisation for the reader, not a necessity: measured in the installed driver,
+    // `pg@8.23.1` `lib/utils.js` `prepareValue` returns `null` for `val == null`, under
+    // the comment "null and undefined are both null for postgres". So what is pinned here
+    // is the OUTCOME for all three inputs, not a branch — and deliberately so: an operand
+    // that cannot change behaviour cannot be asserted against.
     expect((await params(undefined))?.[3]).toBeNull()
     expect((await params(null))?.[3]).toBeNull()
     expect((await params('kept'))?.[3]).toBe('kept')
