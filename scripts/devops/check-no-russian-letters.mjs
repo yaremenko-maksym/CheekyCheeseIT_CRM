@@ -82,7 +82,11 @@ const RUSSIAN_ONLY = /[ыэъёЫЭЪЁ]/u
  * Russian back in while reporting success, so the path list could not simply be
  * widened; the rule had to be a second one.
  */
-const ANY_CYRILLIC = /[Ѐ-ӿ]/u
+// U+0400–04FF is Cyrillic, U+0500–052F Cyrillic Supplement, U+2DE0–2DFF and
+// U+A640–A69F the two Extended-A/B blocks. The first version stopped at 04FF and
+// so missed the supplement — cheap to get right, and a detector that covers
+// "most" of an alphabet is the kind of near-miss this whole guard exists to catch.
+const ANY_CYRILLIC = /[Ѐ-ԯⷠ-ⷿꙀ-ꚟ]/u
 
 const SELF_DIR = dirname(fileURLToPath(import.meta.url))
 const args = process.argv.slice(2)
@@ -103,7 +107,8 @@ const EXCLUDED_DIRS = new Set(['contracts', 'contact', 'resumes', 'job-sourcing'
 const AGENT_ROOT = join(ROOT, '.claude', 'hooks')
 
 /**
- * Hooks not yet converted to English. A RATCHET, not a carve-out.
+ * Hooks not yet converted to English: file -> the EXACT number of Cyrillic lines
+ * it is still allowed to have. A RATCHET, not a carve-out.
  *
  * Why the list exists: the conversion that widened this guard covered the three
  * `pre:bash:*` launcher/safety hooks and `lib/cmdscan.py` (85 refusal-text lines).
@@ -112,22 +117,45 @@ const AGENT_ROOT = join(ROOT, '.claude', 'hooks')
  * Without the list the guard could not be turned on at all, which is the state
  * that let Russian in here in the first place — nothing scanned these files.
  *
- * It ratchets BOTH ways. A file here that has become clean is also a failure, so
- * the list cannot quietly outlive its reason; and a NEW hook is not on the list,
- * so it is covered from its first line. Delete an entry as you convert that file.
+ * WHY A COUNT AND NOT A NAME (CR-M-1). The first version was a Set, which
+ * constrained the LIST but not the CONTENTS: three Russian lines added to an
+ * already-excepted hook and the guard printed OK — most of the risk the list
+ * exists to bound. A number means a file on this list may only ever shrink.
  *
- * Closing condition: this set is empty and this comment goes with it.
+ * It ratchets in THREE directions, and the count is checked for EQUALITY so none
+ * of them can be silent:
+ *   - grew   -> red. The exemption is a ceiling, not a licence.
+ *   - shrank -> red, asking for the number to be lowered. Bookkeeping, yes, but
+ *               an un-lowered ceiling is an exemption nobody is using and nobody
+ *               notices, which is how the old Set rotted.
+ *   - gone   -> red (see `agentStrict`): a deleted or renamed file leaves its
+ *               entry standing, and a recreated file of the same name would
+ *               INHERIT the exemption.
+ * A NEW hook is not on the list at all, so it is covered from its first line.
+ *
+ * Closing condition: this map is empty and this comment goes with it.
  */
-const AGENT_EXCEPTIONS = new Set([
-  'pre-agent-dispatch-isolation.sh',
-  'pre-bash-coder-push-gate.sh',
-  'pre-bash-cross-agent-blast.sh',
-  'pre-bash-mutation-gate.sh',
-  'pre-bash-prettier-gate.sh',
-  'pre-bash-unbounded-wait.sh',
-  'pre-edit-write-zone-of-write.sh',
-  'tests/cross-agent-hooks-smoke.sh',
+const AGENT_EXCEPTIONS = new Map([
+  ['pre-agent-dispatch-isolation.sh', 29],
+  ['pre-bash-coder-push-gate.sh', 12],
+  ['pre-bash-cross-agent-blast.sh', 62],
+  ['pre-bash-mutation-gate.sh', 2],
+  ['pre-bash-prettier-gate.sh', 18],
+  ['pre-bash-unbounded-wait.sh', 32],
+  ['pre-edit-write-zone-of-write.sh', 14],
+  ['tests/cross-agent-hooks-smoke.sh', 3],
 ])
+
+/**
+ * Whether to report an AGENT_EXCEPTIONS entry whose file is absent.
+ *
+ * On by default, off under `--root`, because `--root` points at FABRICATED trees
+ * (that is how this guard is tested) where absence is normal and reporting it
+ * would make every test case red. `--agent-strict` forces it on so the check
+ * itself can be tested — without that, "gone -> red" would be another promise
+ * with no test behind it.
+ */
+const agentStrict = rootIdx === -1 || args.includes('--agent-strict')
 
 /** @param {string} relPath path relative to apps/api/src, '/'-separated */
 function isExcluded(relPath) {
@@ -224,19 +252,29 @@ if (existsSync(AGENT_ROOT)) {
     })
     if (AGENT_EXCEPTIONS.has(rel)) {
       seen.add(rel)
-      // The other direction of the ratchet: a clean file must leave the list.
-      if (hits.length === 0) staleExceptions.push(rel)
+      const allowed = AGENT_EXCEPTIONS.get(rel)
+      if (hits.length > allowed)
+        staleExceptions.push(
+          `${rel}: ${hits.length} Cyrillic lines, but only ${allowed} are allowed — an` +
+            ` excepted file may only SHRINK. Convert the new lines, do not raise the number.`,
+        )
+      else if (hits.length < allowed)
+        staleExceptions.push(
+          `${rel}: ${hits.length} Cyrillic lines, ceiling still ${allowed} — lower the` +
+            ` number in AGENT_EXCEPTIONS (0 means delete the entry).`,
+        )
       continue
     }
     agentFiles += 1
     agentViolations.push(...hits)
   }
-  // An entry naming a file that does not exist is NOT reported: `--root` points
-  // at fabricated trees (that is how this guard is tested), where absence is
-  // normal and an absent entry can never exempt anything anyway. The half worth
-  // enforcing is the opposite one above — a file still excepted after it became
-  // clean, which is the entry that would quietly outlive its reason.
-  void seen
+  if (agentStrict)
+    for (const rel of AGENT_EXCEPTIONS.keys())
+      if (!seen.has(rel))
+        staleExceptions.push(
+          `${rel}: no such file — delete the entry. A recreated file of this name would` +
+            ` otherwise inherit the exemption.`,
+        )
 } else {
   console.error(`WARN: ${AGENT_ROOT} not found - .claude/hooks not scanned`)
 }
@@ -245,14 +283,15 @@ if (agentViolations.length > 0) {
   console.error(`Cyrillic found in .claude/hooks in ${agentViolations.length} place(s):`)
   for (const v of agentViolations) console.error(`  ${v}`)
   console.error(
-    '\nEverything under .claude/** is English, comments included' +
-      ' (.claude/rules/common/russian-language.md). Russian lives only in the owner chat.',
+    '\nFiles under .claude/hooks are English, comments included' +
+      ' (.claude/rules/common/russian-language.md). Russian lives only in the owner chat.' +
+      '\n(This scan covers .claude/hooks only — the rest of .claude/** is policy, not yet gated.)',
   )
 }
 if (staleExceptions.length > 0) {
   console.error(`AGENT_EXCEPTIONS is stale in ${staleExceptions.length} place(s):`)
   for (const v of staleExceptions) console.error(`  ${v}`)
-  console.error('\nThese files are clean (or gone). Delete their entries from AGENT_EXCEPTIONS.')
+  console.error('\nEach line says what to change. An exemption may only ever shrink.')
 }
 const agentFailed = agentViolations.length > 0 || staleExceptions.length > 0
 

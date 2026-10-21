@@ -154,9 +154,30 @@ HOOK_OK="$(new_root hook-clean)"
 mkdir -p "$HOOK_OK/.claude/hooks"
 printf '#!/bin/bash\necho "all English here"\n' >"$HOOK_OK/.claude/hooks/pre-bash-new-thing.sh"
 
+# The three ratchet directions. `pre-bash-mutation-gate.sh` has a ceiling of 2,
+# which makes it the cheapest file to over- and under-shoot deliberately.
 HOOK_STALE="$(new_root hook-stale)"
 mkdir -p "$HOOK_STALE/.claude/hooks"
 printf '#!/bin/bash\necho "English only"\n' >"$HOOK_STALE/.claude/hooks/pre-bash-unbounded-wait.sh"
+
+HOOK_GREW="$(new_root hook-grew)"
+mkdir -p "$HOOK_GREW/.claude/hooks"
+printf '#!/bin/bash\n# строка один\n# строка два\n# строка три\n' \
+  >"$HOOK_GREW/.claude/hooks/pre-bash-mutation-gate.sh"
+
+HOOK_AT_CEILING="$(new_root hook-at-ceiling)"
+mkdir -p "$HOOK_AT_CEILING/.claude/hooks"
+printf '#!/bin/bash\n# строка один\n# строка два\n' \
+  >"$HOOK_AT_CEILING/.claude/hooks/pre-bash-mutation-gate.sh"
+
+HOOK_STALE2="$(new_root hook-shrank)"
+mkdir -p "$HOOK_STALE2/.claude/hooks"
+printf '#!/bin/bash\n# строка одна\n' \
+  >"$HOOK_STALE2/.claude/hooks/pre-bash-mutation-gate.sh"
+
+HOOK_GONE="$(new_root hook-gone)"
+mkdir -p "$HOOK_GONE/.claude/hooks"
+printf '#!/bin/bash\necho "English only"\n' >"$HOOK_GONE/.claude/hooks/pre-bash-brand-new.sh"
 
 assert_red "KEY: Cyrillic with NO ы/э/ъ/ё in a new hook -> red (the product detector is blind to this line)" \
   --contains "Cyrillic found in .claude/hooks" \
@@ -167,10 +188,39 @@ assert_red "Russian in a hook COMMENT -> red (no comment exemption under .claude
   --contains "Cyrillic found in .claude/hooks" \
   -- run_guard "$HOOK_CMT"
 
-assert_red "RATCHET: an excepted hook that has become clean -> red, so the list cannot outlive its reason" \
+# ── the ratchet, all three directions ────────────────────────────────────────
+# The first version was a Set of names, which constrained the LIST but not the
+# CONTENTS: Russian added to an already-excepted hook passed silently, which is
+# most of the risk the list exists to bound (CR-M-1). The map carries a ceiling
+# and the comparison is for EQUALITY, so each direction below is a failure.
+assert_red "RATCHET grew: Cyrillic ABOVE the ceiling of an excepted hook -> red" \
+  --contains "AGENT_EXCEPTIONS is stale" \
+  --contains "only 2 are allowed" \
+  --contains "may only SHRINK" \
+  -- run_guard "$HOOK_GREW"
+
+assert_red "RATCHET shrank: an excepted hook below its ceiling -> red, lower the number" \
+  --contains "AGENT_EXCEPTIONS is stale" \
+  --contains "ceiling still 2" \
+  -- run_guard "$HOOK_STALE2"
+
+assert_red "RATCHET clean: an excepted hook with 0 Cyrillic -> red, delete the entry" \
   --contains "AGENT_EXCEPTIONS is stale" \
   --contains "pre-bash-unbounded-wait.sh" \
   -- run_guard "$HOOK_STALE"
+
+# `gone` is off under --root (fabricated trees legitimately lack these files), so
+# --agent-strict forces it on. Without this case "gone -> red" would be a promise
+# with no test behind it — which is the defect the message used to make (CR-M-2).
+assert_red "RATCHET gone: --agent-strict reports an entry whose file is absent" \
+  --contains "AGENT_EXCEPTIONS is stale" \
+  --contains "no such file" \
+  --contains "inherit the exemption" \
+  -- run_guard "$HOOK_GONE" --agent-strict
+
+assert_green "RATCHET: exactly at the ceiling passes" \
+  --contains ".claude/hooks files scanned" \
+  -- run_guard "$HOOK_AT_CEILING"
 
 assert_green "a clean new hook passes, and the count is reported" \
   --contains ".claude/hooks files scanned" \
