@@ -41,7 +41,14 @@ function scope(overrides: Partial<SourceCoverageScope> = {}): SourceCoverageScop
 }
 
 function facts(overrides: Partial<DerivationFacts> = {}): DerivationFacts {
-  return { stop: 'EXHAUSTED', pagesCompleted: 3, counts: clean, scope: scope(), ...overrides }
+  return {
+    stop: 'EXHAUSTED',
+    pagesCompleted: 3,
+    counts: clean,
+    scope: scope(),
+    resumed: false,
+    ...overrides,
+  }
 }
 
 /**
@@ -447,8 +454,7 @@ describe('decideCheckpoint', () => {
     configVersion: 2,
     policyVersion: 5,
     adapterVersion: 'a3',
-    cursor: 'c-7',
-    page: 7,
+    position: { kind: 'CURSOR', page: 7, cursor: 'c-7' },
     completedAt: new Date('2026-10-20T09:00:00Z'),
   }
 
@@ -486,8 +492,7 @@ describe('buildCollectionBatch', () => {
     configVersion: 1,
     policyVersion: 1,
     adapterVersion: 'a1',
-    cursor: null,
-    page: 2,
+    position: { kind: 'CURSOR', page: 2, cursor: 'c-2' },
     completedAt: new Date('2026-10-20T10:00:00Z'),
   }
 

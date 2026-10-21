@@ -339,7 +339,11 @@ export function redactUrl(url: string, secrets: readonly string[]): string {
     }
   }
   if (parsed.hash !== '') parsed.hash = ''
-  return redactSecrets(parsed.toString(), secrets)
+  // `searchParams.set` percent-encodes the marker's brackets (`%5BREDACTED%5D`), which is correct
+  // URL encoding and useless to a human reading a report. The marker is a literal we own, so
+  // putting it back is unambiguous — nothing else can produce that exact sequence here.
+  const serialised = parsed.toString().split(encodeURIComponent(REDACTED)).join(REDACTED)
+  return redactSecrets(serialised, secrets)
 }
 
 /**
@@ -461,25 +465,28 @@ export const MAX_CURSOR_CHARS = 2048
  * outcome and the request reports, where the difference is actually actionable.
  */
 export type ResumePosition =
-  /** Page-numbered pagination. The next attempt asks for `page + 1`. */
-  | { kind: 'PAGE'; page: number }
   /**
-   * Cursor pagination. The next attempt hands `cursor` back to the provider. A cursor only reaches
-   * this shape after the adapter has successfully BUILT a request from it — see
-   * `api-json.provider.ts`, where an unusable cursor becomes a `RESTART` instead of being stored
-   * and replayed into the same rejection forever.
+   * The trail continues. The next attempt resumes at `page + 1` by handing `cursor` back to the
+   * provider. A cursor only reaches this shape after the adapter has successfully BUILT a request
+   * from it — see `api-json.provider.ts`, where an unusable cursor becomes a `RESTART` instead of
+   * being stored and replayed into the same rejection forever.
+   *
+   * A page-numbered provider is not a separate variant: its "cursor" is the page token it returns
+   * (`String(page + 1)`, an `after=` value, whatever it uses), and `pageRequest` reads it from
+   * `at.cursor`. A third `PAGE` variant was drafted and dropped — nothing in the spec seam can
+   * produce it, since the only way to say "there is more" is to return a non-null cursor, and an
+   * unreachable variant is a case every `switch` must handle and no test can reach.
    */
   | { kind: 'CURSOR'; page: number; cursor: string }
   /**
    * Discovery starts over from the beginning next time. Either the provider's inventory was
    * exhausted at `page`, or the trail cannot be resumed. Nothing is replayed.
+   *
+   * These two are ONE variant on purpose: for the only question this type answers — where does the
+   * next attempt start — they have the same answer. WHY the trail ended is carried by the outcome
+   * and the request reports, where the difference is actually actionable.
    */
   | { kind: 'RESTART'; page: number }
-
-/** The last page this position was reached at, whatever kind it is. */
-export function positionPage(position: ResumePosition): number {
-  return position.page
-}
 
 /**
  * Where an attempt got to, and under WHICH versions it got there. The three version fields are
@@ -509,13 +516,12 @@ export interface ValidatedCheckpoint {
  * column has, because a checkpoint that cannot be persisted is not a checkpoint.
  */
 export const resumePositionSchema: z.ZodType<ResumePosition> = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('PAGE'), page: z.number().int().positive().max(PG_INT_MAX) }),
   z.object({
     kind: z.literal('CURSOR'),
     page: z.number().int().positive().max(PG_INT_MAX),
     cursor: z.string().min(1).max(MAX_CURSOR_CHARS),
   }),
-  z.object({ kind: z.literal('RESTART'), page: z.number().int().nonnegative().max(PG_INT_MAX) }),
+  z.object({ kind: z.literal('RESTART'), page: z.number().int().positive().max(PG_INT_MAX) }),
 ])
 
 export const validatedCheckpointSchema: z.ZodType<ValidatedCheckpoint> = z.object({
@@ -526,9 +532,19 @@ export const validatedCheckpointSchema: z.ZodType<ValidatedCheckpoint> = z.objec
   completedAt: z.coerce.date(),
 })
 
+/**
+ * A checkpoint that can actually be resumed from. The narrowing is in the TYPE rather than left to
+ * the caller: `decideCheckpoint` turns a `RESTART` position into `FRESH`, so a `RESUME` always
+ * carries a cursor, and the loop reads `position.cursor` without re-checking a condition the
+ * decision already settled.
+ */
+export type ResumableCheckpoint = ValidatedCheckpoint & {
+  position: Extract<ResumePosition, { kind: 'CURSOR' }>
+}
+
 export type CheckpointDecision =
   | { kind: 'FRESH' }
-  | { kind: 'RESUME'; from: ValidatedCheckpoint }
+  | { kind: 'RESUME'; from: ResumableCheckpoint }
   | {
       kind: 'RESTART_WITH_OVERLAP'
       /** `null` when the stored value did not parse: there is no checkpoint to report. */
@@ -578,9 +594,12 @@ export function decideCheckpoint(
   }
   // An exhausted or unresumable trail is not a resume instruction, whatever its versions say: a
   // `RESTART` position means discovery begins again, which is the one thing the old
-  // `cursor: null` shape could not say without also meaning "page one of a cursor API".
-  if (checkpoint.position.kind === 'RESTART') return { kind: 'FRESH' }
-  return { kind: 'RESUME', from: checkpoint }
+  // `cursor: null` shape could not say without also meaning "page one of a cursor API". This is
+  // also what keeps a capped attempt from freezing a source: it advances until the inventory runs
+  // out, stores `RESTART`, and the attempt after that reads page one again.
+  const position = checkpoint.position
+  if (position.kind === 'RESTART') return { kind: 'FRESH' }
+  return { kind: 'RESUME', from: { ...checkpoint, position } }
 }
 
 // ---------------------------------------------------------------------------

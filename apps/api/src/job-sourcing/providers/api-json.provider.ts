@@ -16,14 +16,17 @@ import {
   type CollectionContext,
   type CollectionCounts,
   type CollectionErrorCode,
+  type CollectionWindow,
   decideCheckpoint,
   type FetchRequest,
   type InvalidSample,
   markValidated,
   MAX_SAMPLES,
   type MeterReservation,
+  PG_INT_MAX,
   type ReportingJobSourceProvider,
   type RequestReport,
+  type ResumePosition,
   type SourceConfigFields,
   type Validated,
   type SourceCoverageScope,
@@ -57,8 +60,18 @@ import {
 /** `jobSourceIdentitySchema.namespace` in the phase-1 store. Its number, not ours. */
 export const NAMESPACE_MAX_CHARS = 200
 
-/** The ceiling of the store's `intColumnPositiveSchema` — a PostgreSQL `integer` column. */
-export const PG_INT_MAX = 2_147_483_647
+/**
+ * Re-exported, not re-declared: the checkpoint schema in `reporting-provider.ts` bounds a stored
+ * page by the same PostgreSQL `integer` ceiling, and two copies of a number that must agree are
+ * one copy too many.
+ */
+export { PG_INT_MAX } from './reporting-provider'
+
+/**
+ * A request URL that was never built, because the adapter threw while building it. A valid URL (so
+ * the report's structural redaction parses it) that is obviously not an endpoint.
+ */
+export const UNBUILT_REQUEST_URL = 'about:request-not-built'
 
 /** How far back a restart-with-overlap widens a windowed scope (AC4). */
 export const DEFAULT_OVERLAP_MS = 24 * 60 * 60 * 1000
@@ -81,10 +94,23 @@ export const baseSourceConfigSchema = z.object({
 // The spec — the seam
 // ---------------------------------------------------------------------------
 
-/** Where the loop is in the provider's pagination. `page` is 1-based and about to be fetched. */
-export interface PageCursor {
+/**
+ * Where the loop is, and what window it is covering. `page` is 1-based and about to be fetched.
+ *
+ * `window` is the field this type exists for. It WAS `{ page, cursor }`, and `widenScope`'s result
+ * went into a local that reached `batch.scope.window` and never `spec.pageRequest` — so a restart
+ * REPORTED a widened window and then asked the provider for the unwidened one. Measured: a
+ * checkpoint under a stale config widened the reported window to `2026-09-30` while the request on
+ * the wire still carried `from=2026-10-01` (SPEC-H-1). The three tests that covered the overlap
+ * asserted `batch.scope.window`, which is the half that was already right, so all three passed.
+ *
+ * AN ADAPTER MUST BUILD ITS REQUEST FROM `at.window`, NEVER FROM `config.window`:
+ * `config.window` is what was CONFIGURED, `at.window` is what this attempt is actually covering.
+ */
+export interface PageTarget {
   page: number
   cursor: string | null
+  window: CollectionWindow | null
 }
 
 export interface PageRequest {
@@ -115,10 +141,10 @@ export interface ApiJsonSourceSpec<TConfig extends SourceConfigFields, TEnvelope
    */
   readonly envelopeSchema: ZodType<TEnvelope>
   readonly itemSchema: ZodType<TItem>
-  pageRequest(config: TConfig, at: PageCursor): PageRequest
+  pageRequest(config: TConfig, at: PageTarget): PageRequest
   extractItems(envelope: TEnvelope, config: TConfig): readonly unknown[]
   /** The cursor for the NEXT page, or `null` when the provider's inventory is exhausted. */
-  nextCursor(envelope: TEnvelope, at: PageCursor): string | null
+  nextCursor(envelope: TEnvelope, at: PageTarget): string | null
   /**
    * Map one VALIDATED item to untrusted observation fields. May throw: the item is isolated with a
    * bounded sample and the batch goes on (AC3).
@@ -188,6 +214,31 @@ function widenScope(scope: SourceCoverageScope, overlapMs: number): SourceCovera
   }
 }
 
+type BuiltPageRequest = { ok: true; value: PageRequest } | { ok: false; message: string }
+
+/**
+ * Ask the adapter for a page request, and treat a throw as data.
+ *
+ * Called in TWO places, which is the point. Once for the page about to be fetched, and once for
+ * the page a cursor would lead to — BEFORE that cursor is persisted. A cursor the adapter cannot
+ * build a request from is unusable, and persisting it makes every later attempt reject before any
+ * fetch, with nothing in the batch to say why.
+ */
+function buildPageRequest<TConfig extends SourceConfigFields, TEnvelope, TItem>(
+  spec: ApiJsonSourceSpec<TConfig, TEnvelope, TItem>,
+  config: TConfig,
+  at: PageTarget,
+): BuiltPageRequest {
+  try {
+    return { ok: true, value: spec.pageRequest(config, at) }
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : 'the page request could not be built',
+    }
+  }
+}
+
 /** HTTP status -> our typed code. Classified from the STATUS, never from the body text. */
 function classifyStatus(status: number): CollectionErrorCode | null {
   if (status >= 200 && status < 300) return null
@@ -231,37 +282,55 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
   })
 
   let scope = spec.scopeOf(config)
-  let at: PageCursor = { page: 1, cursor: null }
+  let at: PageTarget = { page: 1, cursor: null, window: scope.window }
   let checkpoint: ValidatedCheckpoint | null = null
+  const resumed = decision.kind === 'RESUME'
 
-  if (decision.kind === 'RESUME') {
-    at = { page: decision.from.page + 1, cursor: decision.from.cursor }
-    checkpoint = decision.from
-  } else if (decision.kind === 'RESTART_WITH_OVERLAP') {
-    // The cursor belonged to a config / policy / adapter that no longer exists, so discovery
-    // starts over — and over a WIDER window, because whatever moved across the old boundary while
-    // the config changed would otherwise never be read again.
+  if (decision.kind === 'RESTART_WITH_OVERLAP') {
+    // The cursor belonged to a config / policy / adapter that no longer exists (or did not parse
+    // at all), so discovery starts over — and over a WIDER window, because whatever moved across
+    // the old boundary while the config changed would otherwise never be read again.
     scope = widenScope(scope, overlapMs)
+    // The widened window goes into the TARGET too, so the adapter asks the provider for the window
+    // we are claiming to have covered. Assigning it only to `scope` is SPEC-H-1.
+    at = { page: 1, cursor: null, window: scope.window }
+  } else if (decision.kind === 'RESUME') {
+    // Only a `CURSOR` position reaches here: `decideCheckpoint` turns a `RESTART` into `FRESH`.
+    const position = decision.from.position
+    at = { page: position.page + 1, cursor: position.cursor, window: scope.window }
+    checkpoint = decision.from
   }
+
+  /**
+   * THE PAGE BOUND IS PER ATTEMPT, measured from where this attempt started.
+   *
+   * It used to compare the ABSOLUTE page against `maxPages`, which this file's own doc calls "pages
+   * per attempt". Measured: run 1 completed 10 pages and stored page 10; run 2 resumed at page 11,
+   * found `11 > 10`, made ZERO fetches and reported SUCCEEDED — and would do so for every run
+   * after it, forever. The source froze at page 10, page 1 was never read again, and the outcome
+   * claimed success (SR-H-1). An attempt must always be able to make progress.
+   */
+  const startPage = at.page
 
   const observations: SourceObservation[] = []
   const requests: RequestReport[] = []
   const samples: InvalidSample[] = []
   const counts: CollectionCounts = { raw: 0, normalized: 0, invalid: 0, quarantined: 0 }
-  // Stryker disable next-line ConditionalExpression,ArrayDeclaration: seeding the set with a
-  // `null` (or with any non-cursor string) is unobservable — `has()` is only ever asked about a
-  // cursor the provider returned, and those are non-empty strings that can equal neither. The
-  // branch keeps the set's element type honest; the half that IS observable — seeding the RESUMED
-  // cursor so a provider handing it straight back is a cycle — is asserted.
-  const seenCursors = new Set<string>(at.cursor === null ? [] : [at.cursor])
+  // Seeding the RESUMED cursor is what makes a provider handing it straight back a cycle, and a
+  // test asserts exactly that. (The suppression that used to sit here claimed the `null` half was
+  // unobservable; the mutant it hid is killed by that same test, so it is gone — CR-M-2.)
+  const seenCursors = new Set<string>()
+  if (at.cursor !== null) seenCursors.add(at.cursor)
   const nativeIdByIdentityKey = new Map<string, string>()
 
   let pagesCompleted = 0
-  // Stryker disable next-line StringLiteral: every exit from the loop below assigns `stop` before
-  // breaking, so this initializer is unreachable and no test can observe it. That it survives is
-  // the proof: `deriveOutcome` now THROWS on an unrecognised stop reason, so a value that ever
-  // reached the derivation would fail loudly rather than pass as a success.
-  let stop: StopReason = 'EXHAUSTED'
+  // NO INITIALIZER, deliberately: the compiler now proves every path out of the loop assigns it.
+  // It used to read `= 'EXHAUSTED'` under a suppression whose stated reason was that an
+  // unrecognised value would throw in `deriveOutcome` — but `'EXHAUSTED'` is RECOGNISED, and it is
+  // the one value that carries SUCCEEDED, so a path that forgot to assign would have reported a
+  // silent success. Removing the initializer still typechecks, which means the proof was available
+  // all along (CR-M-1).
+  let stop: StopReason
 
   const addSample = (page: number, reason: string, raw: unknown): void => {
     // Stryker disable next-line ConditionalExpression,EqualityOperator: the OBSERVABLE cap is
@@ -273,13 +342,58 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
   }
 
   while (true) {
-    if (at.page > limits.maxPages) {
+    if (at.page - startPage >= limits.maxPages) {
       stop = 'PAGE_CAP'
+      // A bound we chose is still a reason the inventory is short, and `PAGE_CAP` is in
+      // `COLLECTION_ERROR_CODES` precisely so it can be reported. It used to stop silently, so an
+      // operator reading the reports saw a clean run that had simply stopped early.
+      requests.push(
+        buildRequestReport(
+          {
+            attempt: 1,
+            page: at.page,
+            url: UNBUILT_REQUEST_URL,
+            status: null,
+            startedAt: ctx.now(),
+            endedAt: ctx.now(),
+            cost: null,
+            error: {
+              code: 'PAGE_CAP',
+              message: `the attempt reached its ${limits.maxPages}-page bound`,
+            },
+          },
+          ctx.secrets,
+        ),
+      )
       break
     }
 
     const startedAt = ctx.now()
-    const pageRequest = spec.pageRequest(config, at)
+    // IN a try: `spec.pageRequest` is adapter code and it throws. It used to sit outside every
+    // catch, so a cursor the adapter could not parse escaped `collectJsonPages` as a raw
+    // `TypeError` — measured: no `CollectionBatch` at all, no outcome, no error code, nothing, and
+    // permanently, because the cursor was already persisted (SR-H-3).
+    const built = buildPageRequest(spec, config, at)
+    if (!built.ok) {
+      stop = 'ERROR'
+      requests.push(
+        buildRequestReport(
+          {
+            attempt: 1,
+            page: at.page,
+            url: UNBUILT_REQUEST_URL,
+            status: null,
+            startedAt,
+            endedAt: ctx.now(),
+            cost: null,
+            error: { code: 'PARSE_DRIFT', message: built.message },
+          },
+          ctx.secrets,
+        ),
+      )
+      break
+    }
+    const pageRequest = built.value
 
     if (ctx.signal.aborted) {
       stop = 'CANCELLED'
@@ -441,12 +555,42 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
           if (!pageResult.ok) {
             failure = { ...pageResult.failure, status }
           } else {
+            /**
+             * THE CURSOR IS VERIFIED BEFORE IT IS PERSISTED.
+             *
+             * `savePage` used to store whatever `nextCursor` returned, and the loop then handed it
+             * to `spec.pageRequest` on the NEXT iteration. A cursor the adapter cannot build a
+             * request from therefore became permanent poison: measured with an adapter doing
+             * `new URL(cursor)`, every later run threw before any fetch and produced no batch at
+             * all (SR-H-3). So the next page's request is built HERE, on this side of the persist,
+             * and an unusable cursor is stored as a `RESTART` instead — observations land, the
+             * attempt ends with the drift reported, and the next attempt starts over rather than
+             * replaying a rejection.
+             */
+            let nextTarget: PageTarget | null = null
+            let nextRequest: PageRequest | null = null
+            let cursorRefusal: string | null = null
+            if (pageResult.nextCursor !== null) {
+              nextTarget = {
+                page: at.page + 1,
+                cursor: pageResult.nextCursor,
+                window: at.window,
+              }
+              const probe = buildPageRequest(spec, config, nextTarget)
+              if (probe.ok) nextRequest = probe.value
+              else cursorRefusal = probe.message
+            }
+
+            const position: ResumePosition =
+              pageResult.nextCursor === null || cursorRefusal !== null
+                ? { kind: 'RESTART', page: at.page }
+                : { kind: 'CURSOR', page: at.page, cursor: pageResult.nextCursor }
+
             const next: ValidatedCheckpoint = {
               configVersion: config.configVersion,
               policyVersion: ctx.policyVersion,
               adapterVersion: spec.adapterVersion,
-              cursor: pageResult.nextCursor,
-              page: at.page,
+              position,
               completedAt: ctx.now(),
             }
             try {
@@ -493,12 +637,58 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
                 stop = 'EXHAUSTED'
                 break
               }
+              if (cursorRefusal !== null) {
+                // The page is persisted and its position is a `RESTART`, so nothing is poisoned.
+                // The attempt ends reporting WHY, which is the part that used to be missing.
+                stop = 'ERROR'
+                requests.push(
+                  buildRequestReport(
+                    {
+                      attempt: 1,
+                      page: at.page + 1,
+                      url: UNBUILT_REQUEST_URL,
+                      status: null,
+                      startedAt: ctx.now(),
+                      endedAt: ctx.now(),
+                      cost: null,
+                      error: {
+                        code: 'PARSE_DRIFT',
+                        message: `the provider's next cursor is unusable: ${cursorRefusal}`,
+                      },
+                    },
+                    ctx.secrets,
+                  ),
+                )
+                break
+              }
               if (seenCursors.has(nextCursor)) {
                 stop = 'CURSOR_CYCLE'
+                // `CURSOR_CYCLE` is in `COLLECTION_ERROR_CODES`, and the stop used to push no
+                // report carrying it — so a cycle was indistinguishable from a clean finish in
+                // everything except the coverage axis (SR-L-4).
+                requests.push(
+                  buildRequestReport(
+                    {
+                      attempt: 1,
+                      page: at.page + 1,
+                      url: nextRequest === null ? UNBUILT_REQUEST_URL : nextRequest.request.url,
+                      status: null,
+                      startedAt: ctx.now(),
+                      endedAt: ctx.now(),
+                      cost: null,
+                      error: {
+                        code: 'CURSOR_CYCLE',
+                        message: 'the provider handed back a cursor this attempt had already seen',
+                      },
+                    },
+                    ctx.secrets,
+                  ),
+                )
                 break
               }
               seenCursors.add(nextCursor)
-              at = { page: at.page + 1, cursor: nextCursor }
+              // `nextTarget` was built on the far side of the persist and is known good.
+              at = nextTarget ?? { page: at.page + 1, cursor: nextCursor, window: at.window }
               continue
             }
           }
@@ -528,7 +718,7 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
 
   return buildCollectionBatch({
     observations,
-    facts: { stop, pagesCompleted, counts, scope },
+    facts: { stop, pagesCompleted, counts, scope, resumed },
     requests,
     checkpoint,
     invalidSamples: samples,
@@ -555,7 +745,7 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
   config: TConfig,
   ctx: CollectionContext,
   envelope: TEnvelope,
-  at: PageCursor,
+  at: PageTarget,
   counts: CollectionCounts,
   nativeIdByIdentityKey: Map<string, string>,
   addSample: (page: number, reason: string, raw: unknown) => void,
@@ -627,10 +817,12 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
 
     const { identityKey } = result.observation.identity
     const nativeId = spec.nativeIdOf?.(validated.data, config) ?? raw.nativeId ?? null
-    // Stryker disable next-line ConditionalExpression: entering this block with a null native id
-    // changes nothing — `null !== null` is false, so no collision is ever reported, and recording
-    // `null` against the key cannot make a later distinct id compare equal to it. The guard keeps
-    // the map's value type `string`.
+    // The suppression that used to sit here claimed this guard was unobservable. It is not, and
+    // the difference is a false ADAPTER_INVARIANT: with the guard removed, an item whose provider
+    // id is unknown records `null` against its identity key, and the NEXT item on that same key —
+    // with a perfectly good id — compares `null !== 'that id'` and is reported as a collapse. A
+    // success becomes FAILED. `records a null native id without inventing a collision` is the test
+    // that kills it (CR-M-2).
     if (nativeId !== null) {
       const seen = nativeIdByIdentityKey.get(identityKey)
       if (seen !== undefined && seen !== nativeId) {

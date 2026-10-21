@@ -182,8 +182,8 @@ function harness(opts: {
         return opts.stored ?? null
       },
       async savePage({ checkpoint }) {
-        calls.push(`save:${checkpoint.page}`)
-        if (opts.savePageFailsOnPage === checkpoint.page) {
+        calls.push(`save:${checkpoint.position.page}`)
+        if (opts.savePageFailsOnPage === checkpoint.position.page) {
           if (opts.savePageThrows !== undefined) throw opts.savePageThrows
           throw new Error('deadlock detected')
         }
@@ -402,7 +402,7 @@ describe('a database failure is not a bad record', () => {
 
     expect(batch.outcome).toBe('PARTIAL')
     expect(batch.observations).toHaveLength(1)
-    expect(batch.checkpoint?.page).toBe(1)
+    expect(batch.checkpoint?.position.page).toBe(1)
   })
 })
 
@@ -422,7 +422,7 @@ describe('stops preserve completed work', () => {
     expect(batch.outcome).toBe('PARTIAL')
     expect(batch.coverage).toBe('PARTIAL')
     expect(batch.observations).toHaveLength(1)
-    expect(batch.checkpoint?.page).toBe(1)
+    expect(batch.checkpoint?.position.page).toBe(1)
   })
 
   it('reports a network failure as TRANSIENT_NETWORK with no status', async () => {
@@ -513,8 +513,7 @@ describe('bounded page iteration', () => {
       configVersion: 1,
       policyVersion: 1,
       adapterVersion: 'test-1',
-      cursor: 'c9',
-      page: 1,
+      position: { kind: 'CURSOR', page: 1, cursor: 'c9' },
       completedAt: new Date('2026-10-20T09:00:00Z'),
     }
     const h = harness({ pages: [{ body: { jobs: [job('1')], next: 'c9' } }], stored })
@@ -610,8 +609,7 @@ describe('checkpoints', () => {
     configVersion: 1,
     policyVersion: 1,
     adapterVersion: 'test-1',
-    cursor: 'c3',
-    page: 2,
+    position: { kind: 'CURSOR', page: 2, cursor: 'c3' },
     completedAt: new Date('2026-10-20T09:00:00Z'),
   }
 
@@ -619,8 +617,8 @@ describe('checkpoints', () => {
     const h = harness({ pages: [onePage([job('9')])], stored })
     const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
 
-    expect(h.saved[0]?.page).toBe(3)
-    expect(batch.checkpoint?.page).toBe(3)
+    expect(h.saved[0]?.position.page).toBe(3)
+    expect(batch.checkpoint?.position.page).toBe(3)
   })
 
   it('asks the provider for the stored cursor, not for page one', async () => {
@@ -648,8 +646,8 @@ describe('checkpoints', () => {
     })
     const batch = await collectJsonPages(makeSpec(), config(cfg), h.ctx)
 
-    expect(h.saved[0]?.page).toBe(1)
-    expect(batch.checkpoint?.page).toBe(1)
+    expect(h.saved[0]?.position.page).toBe(1)
+    expect(batch.checkpoint?.position.page).toBe(1)
   })
 
   it('restarts at page one when the ADAPTER version moved', async () => {
@@ -658,13 +656,13 @@ describe('checkpoints', () => {
       stored: { ...stored, adapterVersion: 'old' },
     })
     const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
-    expect(batch.checkpoint?.page).toBe(1)
+    expect(batch.checkpoint?.position.page).toBe(1)
   })
 
   it('restarts at page one when the POLICY version moved', async () => {
     const h = harness({ pages: [onePage([job('9')])], stored, policyVersion: 7 })
     const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
-    expect(batch.checkpoint?.page).toBe(1)
+    expect(batch.checkpoint?.position.page).toBe(1)
   })
 
   /**
@@ -1277,8 +1275,7 @@ describe('the overlap is a real duration, not whatever the constant says', () =>
         configVersion: 99,
         policyVersion: 1,
         adapterVersion: 'test-1',
-        cursor: 'c3',
-        page: 2,
+        position: { kind: 'CURSOR', page: 2, cursor: 'c3' },
         completedAt: new Date('2026-10-20T09:00:00Z'),
       },
     })
