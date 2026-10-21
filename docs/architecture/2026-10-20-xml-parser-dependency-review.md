@@ -129,8 +129,8 @@ fallback rather than the primary. Nothing more is claimed.
 **This mistake is the same defect as MASTER-M-1**, two revisions later and in the opposite
 direction: there an absolute claim outran the evidence, here a true-sounding statistic was
 recruited for a proposition it does not address. Both were available to catch for free. It is
-recorded in `BACKLOG-followups.md` entry 266, which is about exactly this, and the recurrence
-inside the same document is the most useful thing in that entry.
+queued as a `BACKLOG-followups.md` follow-up, and the recurrence inside this one document is the
+most useful part of it: the mechanism survived being named once already.
 
 Two rows deserve their numbers stated rather than characterised:
 

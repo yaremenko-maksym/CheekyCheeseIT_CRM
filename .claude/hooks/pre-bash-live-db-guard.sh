@@ -628,8 +628,20 @@ Full launches (copy one; the port is still required):
     DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_qa PGDATABASE=crm_qa API_PORT=3011 scripts/devops/dev-ttl.sh -- pnpm --filter @crm/api dev
 (assignments go BEFORE dev-ttl.sh: it runs its arguments as a command, so NAME=value after the double dash fails with "command not found")
 
-Читать про запуск (grep/ls/git show, где слово vite или pnpm dev стоит аргументом) этот хук
-больше не мешает — он смотрит только на команду в позиции запуска.
+НЕ ЗАПУСК (этот хук такое пропускает): слово аргументом (grep/ls/git show);
+read-only подкоманда ТОЛЬКО pnpm и npm (`pnpm why vite`, `npm ls`); тело heredoc
+с ЗАКАВЫЧЕННЫМ разделителем (`<<'EOF'`, `<<\\EOF`).
+
+ОТКАЗЫВАЕТСЯ ПО ЗАМЫСЛУ, хотя и не запуск (не баг, обёртка не поможет): те же
+подкоманды у turbo / yarn / bun (`yarn why`, `turbo ls dev`) — у turbo операнд
+сам является именем таска, yarn проваливается в `yarn run <script>`, поэтому
+грант им не выдан намеренно; `pnpm version` / `npm audit fix` — пишут манифест и
+запускают lifecycle-скрипты; а также команда вне списка разбираемых, у которой
+launcher-подобное слово стоит отдельным токеном внутри кавычек
+(`for c in "pnpm dev"; do …`). Последнее — осознанный обмен: именно это чтение
+кавычек ловит `script -q /dev/null pnpm dev`, см. CONFIDENCE в
+.claude/hooks/lib/cmdscan.py. Перепиши команду так, чтобы слово не стояло
+отдельным токеном внутри кавычек, или вынеси текст в файл.
 
 См. .claude/hooks/pre-bash-devserver-ttl-gate.sh и .claude/rules/common/light-track.md
 («Параллельный диспатч» — список свободных портов).""" % (label, reason_lines)
