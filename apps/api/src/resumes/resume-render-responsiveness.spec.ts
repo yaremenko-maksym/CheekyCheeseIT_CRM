@@ -104,6 +104,13 @@ const MIN_RENDER_MS = 700
  */
 const EXTRACTION_MIN_WINDOW_MS = 250
 
+/**
+ * Floor for the in-process stall itself: 5 x the 45 ms noise ceiling above, so
+ * the sandboxed bound (`inProcess.worst / 5`) is never below that ceiling.
+ * Measured stall on the author's machine: 1 075-1 170 ms (about 4.8x margin).
+ */
+const EXTRACTION_MIN_STALL_MS = 225
+
 /** Fewer samples than this and the window was not really observed. */
 const MIN_SAMPLES = 15
 
@@ -307,14 +314,15 @@ describe.skipIf(SKIP_LOCAL_PERF)('AC3 — API responsiveness during a resume ren
     // The guarantee: blocking the loop is dramatically worse than not blocking
     // it, on whatever hardware this happens to be.
     expect(blockingRun.worst).toBeGreaterThan(asyncRun.worst * 5)
-    // And the blocked loop issues far fewer requests. This is a SECONDARY
-    // signal: the ratio above is what discriminates. The count ratio is not
-    // scale-free, because CPU contention lowers the async run's count while
-    // the blocked run's stays put. Measured (2026-10-22, 8 cores, 8 busy loops
-    // as load, 15 runs): idle 39 vs 26 721 (685x); loaded 357 vs 2 857 and 357
-    // vs 3 398 (8.0x and 9.5x), which failed the former bound of 10x twice in
-    // 15 runs. The bound is 2x, 4x below the worst loaded ratio seen.
-    expect(blockingRun.samples.length).toBeLessThan(asyncRun.samples.length / 2)
+    // No sample-COUNT assertion here, on purpose. The count comes from the same
+    // samples as the latency ratio above, so it adds no independent evidence,
+    // and as a ratio it is not scale-free: it failed a 10x bound twice in 15
+    // runs under load. Recorded as documentation (2026-10-22, 8 cores; blocked
+    // vs async sample counts): idle 39 vs 26 721 (685x); under 8 busy loops
+    // 357 vs 2 857 and 357 vs 3 398 (8.0x and 9.5x). Contention lowered the
+    // async count by roughly an order of magnitude while the blocked count
+    // rose from 39 to 357, so the ratio collapses for reasons unrelated to
+    // whether the loop is blocked.
   }, 180_000)
 
   it.skipIf(process.env['RESUME_PERF'] !== '1')(
@@ -473,14 +481,20 @@ describe.skipIf(SKIP_LOCAL_PERF)('AC3 — API responsiveness during a resume ren
     // window; the fraction is 0.97). The bound is a fraction of the run's own
     // length, so it does not depend on how fast the machine is.
     expect(inProcess.worst).toBeGreaterThan(inProcess.renderMs * 0.5)
+    // The stall asserted DIRECTLY: the window floor above only guarantees half
+    // a window (125 ms at 250 ms), which would imply a sandboxed bound of 25 ms,
+    // below the noise ceiling. With the stall itself above 225 ms the bound is
+    // above 45 ms.
+    expect(inProcess.worst).toBeGreaterThan(EXTRACTION_MIN_STALL_MS)
     // Off-thread, no request is held up for more than a fifth of what the same
     // parse costs on the main thread (measured 14.8 ms against 1 230 ms, 83x).
     // The bound is deliberately NOT a fraction of the sandboxed window: that
     // window includes worker spawn and a niced parse, so a slow worker would
     // loosen it (25% of 1 725 ms is already ~430 ms). Tied to the in-process
     // stall it moves with the machine in the right direction and stays near
-    // 215 ms here (1 075-1 170 ms / 5), which is below the 646 ms of request-thread screening this
-    // file documents as a known gap, so that gap would fail it.
+    // 215 ms here (1 075-1 170 ms / 5). The 646 ms known gap documented below was
+    // measured on a different document (40 000 paragraphs, four concurrent
+    // extractions), so this bound is NOT evidence that the gap is detectable here.
     expect(sandboxed.worst).toBeLessThan(inProcess.worst / 5)
     expect(sandboxed.samples.length).toBeGreaterThan(inProcess.samples.length * 5)
   }, 180_000)
