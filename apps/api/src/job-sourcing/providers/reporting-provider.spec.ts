@@ -1658,3 +1658,123 @@ describe('every encoded form of a secret is generated', () => {
     expect(redactSecrets('q=ab', ['ab'])).toBe(`q=${REDACTED}`)
   })
 })
+
+describe('redactUrl, branch by branch', () => {
+  /**
+   * The gate named each branch below. They decide whether a credential reaches a report, so each
+   * gets an input: the userinfo-present check, the fragment strip, the marker re-decoding, and the
+   * two markers themselves.
+   */
+
+  it('passes a URL with no userinfo through untouched', () => {
+    // The other side of `username !== '' || password !== ''`: entering that branch for a URL with
+    // no userinfo must change nothing.
+    expect(redactUrl('https://api.example.com/j?page=1', [])).toBe(
+      'https://api.example.com/j?page=1',
+    )
+  })
+
+  it('strips a username with no password', () => {
+    const out = redactUrl('https://onlyuser@api.example.com/j?page=1', [])
+
+    expect(out).not.toContain('onlyuser')
+    expect(out).toContain('page=1')
+  })
+
+  it('strips a password with no username', () => {
+    const out = redactUrl('https://:onlypass@api.example.com/j?page=1', [])
+
+    expect(out).not.toContain('onlypass')
+  })
+
+  it('keeps a URL that has no fragment unchanged by the fragment strip', () => {
+    expect(redactUrl('https://api.example.com/j?page=2', [])).toBe(
+      'https://api.example.com/j?page=2',
+    )
+  })
+
+  it('drops a fragment even when it looks harmless', () => {
+    expect(redactUrl('https://api.example.com/j?page=2#section', [])).toBe(
+      'https://api.example.com/j?page=2',
+    )
+  })
+
+  it('reports the marker in readable form, not percent-encoded', () => {
+    // `searchParams.set` encodes the brackets; the re-decoding is what makes a report legible.
+    const out = redactUrl('https://api.example.com/j?token=t1', [])
+
+    expect(out).toBe(`https://api.example.com/j?token=${REDACTED}`)
+    expect(out).not.toContain('%5B')
+  })
+
+  it('names an unparsable URL as such, distinctly from an over-long one', () => {
+    expect(redactUrl('not a url at all', [])).toBe(`${REDACTED} (unparsable url)`)
+    expect(redactUrl(`https://a.example.com/?p=${'x'.repeat(MAX_REDACTION_INPUT_CHARS)}`, [])).toBe(
+      DROPPED_TOO_LONG,
+    )
+  })
+
+  it('states both markers in the text a reader of a report would see', () => {
+    expect(DROPPED_TOO_LONG).toBe('[REDACTED] (field dropped: too long to redact)')
+  })
+
+  it('redacts every non-allowlisted key when a URL carries several', () => {
+    const out = redactUrl('https://api.example.com/j?page=1&token=t1&key=k1&sort=date', [])
+
+    expect(out).not.toContain('t1')
+    expect(out).not.toContain('k1')
+    expect(out).toContain('page=1')
+    expect(out).toContain('sort=date')
+  })
+
+  it('redacts a repeated non-allowlisted key', () => {
+    const out = redactUrl('https://api.example.com/j?token=t1&token=t2', [])
+
+    expect(out).not.toContain('t1')
+    expect(out).not.toContain('t2')
+  })
+
+  it('leaves a URL with no query string alone', () => {
+    expect(redactUrl('https://api.example.com/jobs', [])).toBe('https://api.example.com/jobs')
+  })
+})
+
+describe('the request-report brand is installed the same way as the batch brand', () => {
+  it('recognises a built report and not a literal', () => {
+    const report = buildRequestReport(
+      {
+        attempt: 1,
+        page: 1,
+        url: 'https://api.example.com/j',
+        status: 200,
+        startedAt: new Date('2026-10-20T10:00:00Z'),
+        endedAt: new Date('2026-10-20T10:00:01Z'),
+        cost: null,
+        error: null,
+      },
+      [],
+    )
+
+    // The brand must be present (so the type's runtime half is real) and non-enumerable (so it
+    // never reaches a database row) — both halves, since either alone passes trivially.
+    expect(Object.getOwnPropertySymbols(report)).toHaveLength(1)
+    expect(Object.keys(report)).toEqual([
+      'attempt',
+      'page',
+      'url',
+      'status',
+      'startedAt',
+      'endedAt',
+      'error',
+      'cost',
+    ])
+    expect(JSON.parse(JSON.stringify(report))).not.toHaveProperty('requestReportBuilt')
+  })
+
+  it('names the unbuilt-batch failure in the words an operator would read', () => {
+    expect(new UnbuiltBatchError().message).toBe(
+      'a CollectionBatch reached the collector without going through buildCollectionBatch',
+    )
+    expect(new UnbuiltBatchError().name).toBe('UnbuiltBatchError')
+  })
+})

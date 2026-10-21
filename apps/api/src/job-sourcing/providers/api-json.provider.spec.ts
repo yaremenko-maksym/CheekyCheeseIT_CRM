@@ -7,6 +7,7 @@ import {
   collectJsonPages,
   DEFAULT_OVERLAP_MS,
   defineApiJsonProvider,
+  UNBUILT_REQUEST_URL,
 } from './api-json.provider'
 import { DEFAULT_API_JSON_LIMITS } from './api-json.limits'
 import {
@@ -1493,8 +1494,18 @@ describe('the page bound is per attempt, not absolute (SR-H-1)', () => {
   it('reports the cap it hit, instead of stopping silently', async () => {
     const h = harness({ pages: endlessPages(4) })
     const batch = await collectJsonPages(makeSpec({ limits: { maxPages: 2 } }), config(), h.ctx)
+    const cap = batch.requests.find((r) => r.error?.code === 'PAGE_CAP')
 
-    expect(batch.requests.map((r) => r.error?.code ?? null)).toContain('PAGE_CAP')
+    expect(cap).toBeDefined()
+    expect(cap?.error?.message).toBe('the attempt reached its 2-page bound')
+    // The report names a URL that was never built, in a form that still survives the structural
+    // redaction a report URL goes through — pinned, because a marker that silently became
+    // unparsable would read as "[REDACTED] (unparsable url)" in every capped run.
+    // The LITERAL, not the constant: `toBe(UNBUILT_REQUEST_URL)` is tautological — mutating the
+    // constant moves both sides of the assertion together and the check cannot fail.
+    expect(cap?.url).toBe('about:request-not-built')
+    expect(UNBUILT_REQUEST_URL).toBe('about:request-not-built')
+    expect(cap?.status).toBeNull()
   })
 })
 

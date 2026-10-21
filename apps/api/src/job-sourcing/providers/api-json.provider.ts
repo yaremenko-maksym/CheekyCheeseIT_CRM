@@ -687,8 +687,11 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
                 break
               }
               seenCursors.add(nextCursor)
-              // `nextTarget` was built on the far side of the persist and is known good.
-              at = nextTarget ?? { page: at.page + 1, cursor: nextCursor, window: at.window }
+              // Rebuilt rather than read from `nextTarget`: reaching here means `nextCursor` is
+              // non-null and its probe succeeded, so a `?? fallback` on `nextTarget` was a branch
+              // nothing could enter — dead code the mutation gate correctly refused to accept as
+              // covered. The same three fields, which the probe above already validated.
+              at = { page: at.page + 1, cursor: nextCursor, window: at.window }
               continue
             }
           }
