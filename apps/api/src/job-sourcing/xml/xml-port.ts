@@ -50,6 +50,39 @@ export type XmlFailureReason =
   /** A namespace prefix was used without being declared in scope. Namespace-ill-formed. */
   | 'UNDECLARED_PREFIX'
   /**
+   * A name carries a colon where a QName may not — zero or two-and-more, or one at an end.
+   *
+   * Namespaces in XML 1.0 §7: "All element and attribute names contain either zero or one colon",
+   * and §4 makes both halves `NCName`, which is "an XML Name minus the ':'". So `a:b:c`, `:x`,
+   * `x:` and the bare declaration name `xmlns:` are all names the namespace layer cannot resolve.
+   */
+  | 'MALFORMED_QNAME'
+  /**
+   * A prefixed declaration had an empty value — `xmlns:p=""`.
+   *
+   * §5 NSC "No Prefix Undeclaring": "In a namespace declaration for a prefix … the attribute
+   * value MUST NOT be empty." Undeclaring is a Namespaces **1.1** feature, and this port
+   * implements 1.0. `xmlns=""` is the separate, legal case (§6.2 "MAY be empty") and stays.
+   */
+  | 'PREFIX_UNDECLARING'
+  /**
+   * A declaration touched one of the two reserved namespaces or reserved prefixes.
+   *
+   * §3 NSC "Reserved Prefixes and Namespace Names" — four distinct refusals: rebinding `xml` to
+   * another URI, declaring `xmlns` at all, binding any other prefix to either reserved namespace
+   * name, and making either of them the default namespace. Declaring `xmlns:xml` to its own
+   * correct URI is explicitly permitted ("MAY, but need not, be declared") and is tolerated.
+   */
+  | 'RESERVED_NAMESPACE'
+  /**
+   * One element carried two attributes with the same expanded name.
+   *
+   * §6.3 NSC "Attributes Unique" — "equivalent to requiring that no element have two attributes
+   * with the same expanded name". `a:x` and `b:x` with both prefixes bound to one URI are the
+   * same attribute written twice, which the raw-name uniqueness XML itself enforces cannot see.
+   */
+  | 'DUPLICATE_ATTRIBUTE'
+  /**
    * The pre-scan and the parser disagreed about depth or element count.
    *
    * This is an INTERNAL invariant failure, not a property of the input: the pre-scan exists to

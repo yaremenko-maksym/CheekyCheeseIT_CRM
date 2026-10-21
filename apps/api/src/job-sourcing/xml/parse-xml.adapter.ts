@@ -41,7 +41,13 @@ import {
   XmlNode as LibNode,
   XmlText as LibText,
 } from '@rgrove/parse-xml'
-import { NamespaceScope, partitionAttributes, splitQName, XMLNS_NAMESPACE } from './namespaces'
+import {
+  NamespaceScope,
+  partitionAttributes,
+  resolveAttributes,
+  splitQName,
+  XMLNS_NAMESPACE,
+} from './namespaces'
 import type { XmlAttribute, XmlElementNode, XmlNodeUnion, XmlTextNode } from './xml-port'
 import { XmlPortError } from './xml-port'
 
@@ -83,30 +89,6 @@ export interface AdapterDocument {
   readonly declaredEncoding: string | null
 }
 
-function buildAttributes(
-  rest: readonly (readonly [string, string])[],
-  scope: NamespaceScope,
-  ownerName: string,
-): XmlAttribute[] {
-  return rest.map(([qualifiedName, value]) => {
-    const { prefix, localName } = splitQName(qualifiedName)
-    if (prefix === null) {
-      // An unprefixed attribute is in NO namespace — it does NOT take the default namespace.
-      // Getting this wrong would make `isPermaLink` on `<guid>` land in the Atom namespace on any
-      // feed that declared one as its default.
-      return { localName, prefix: null, namespaceUri: null, value, qualifiedName }
-    }
-    const namespaceUri = scope.lookup(prefix)
-    if (namespaceUri === undefined) {
-      throw new XmlPortError(
-        'UNDECLARED_PREFIX',
-        `attribute ${qualifiedName} on <${ownerName}> uses prefix ${JSON.stringify(prefix)}, which is not declared in scope`,
-      )
-    }
-    return { localName, prefix, namespaceUri, value, qualifiedName }
-  })
-}
-
 /**
  * Map one library element to a neutral element, iteratively.
  *
@@ -138,17 +120,21 @@ function toNeutralTree(libRoot: LibElement): XmlElementNode {
         `element <${element.name}> uses prefix ${JSON.stringify(prefix)}, which is not declared in scope`,
       )
     }
+    // §3: "Element names MUST NOT have the prefix xmlns." The only prefix that can resolve to this
+    // URI is `xmlns` itself — `checkPrefixDeclaration` refuses binding any other prefix to it —
+    // so this one test covers the constraint. The reason code was `UNDECLARED_PREFIX`, which was
+    // the wrong word for it: the prefix IS declared, by the spec, and that is the problem.
     if (namespaceUri === XMLNS_NAMESPACE) {
       throw new XmlPortError(
-        'UNDECLARED_PREFIX',
-        `element <${element.name}> may not use the xmlns prefix`,
+        'RESERVED_NAMESPACE',
+        `element <${element.name}> may not use the xmlns prefix (§3)`,
       )
     }
     return {
       element,
       scope,
       declarations,
-      attributes: buildAttributes(rest, scope, element.name),
+      attributes: resolveAttributes(rest, scope, element.name),
       name: { prefix, localName, namespaceUri },
       children: [],
       pending: [...element.children].reverse(),

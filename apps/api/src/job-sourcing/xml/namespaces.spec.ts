@@ -64,19 +64,50 @@ describe('splitQName', () => {
     expect(splitQName('title')).toEqual({ prefix: null, localName: 'title' })
   })
 
+  // THE ACCEPTANCE SIDE FIRST, and from the productions rather than from the finding.
+  //
+  // §4 gives `QName ::= PrefixedName | UnprefixedName`, `PrefixedName ::= Prefix ':' LocalPart`,
+  // with both halves `NCName` = "an XML Name minus the ':'". So the colon rule is two-sided, and
+  // a test written only from the bug report ("reject a:b:c") would pin the refusals and leave the
+  // acceptances to chance — including the one that matters most, that a legal name with a colon
+  // in it still splits. These are the names the productions ADMIT.
   it.each([
-    // Each of these is namespace-ill-formed. Returning the name WHOLE as the local name means the
-    // caller resolves it against the default namespace and gets a clean failure, rather than us
-    // inventing a prefix out of a fragment and producing a confusing one.
-    [':leading', ':leading'],
-    ['trailing:', 'trailing:'],
-    ['a:b:c', 'a:b:c'],
-    [':', ':'],
-  ])('%s is not a legal QName and is kept whole', (input, expected) => {
-    expect(splitQName(input)).toEqual({ prefix: null, localName: expected })
+    ['content:encoded', 'content', 'encoded'],
+    // An NCName may contain `.`, `-`, `_` and digits after the first character, so these are legal
+    // prefixes and legal local parts, not near-misses.
+    ['dc-x.1:value_2', 'dc-x.1', 'value_2'],
+    // §3 reserves every prefix starting with x/m/l but requires processors NOT to make it fatal.
+    ['xmlfoo:a', 'xmlfoo', 'a'],
+    ['XML-x:a', 'XML-x', 'a'],
+    // `xml` itself is a perfectly good prefix to USE; only rebinding it is constrained.
+    ['xml:lang', 'xml', 'lang'],
+  ])('%s is a QName and splits into %s / %s', (input, prefix, localName) => {
+    expect(splitQName(input)).toEqual({ prefix, localName })
   })
 
-  it('the empty name is kept whole rather than crashing', () => {
+  // And now the refusals — the same rule read from the other side.
+  it.each([
+    [':leading', 'leading or trailing colon'],
+    ['trailing:', 'leading or trailing colon'],
+    [':', 'leading or trailing colon'],
+    ['a:b:c', 'more than one colon'],
+    ['a:b:', 'more than one colon'],
+    [':a:b', 'leading or trailing colon'],
+    ['a::b', 'more than one colon'],
+  ])('%s is not a QName and is refused', (input, because) => {
+    expect(() => splitQName(input)).toThrowError(
+      expect.objectContaining({
+        reason: 'MALFORMED_QNAME',
+        message: expect.stringContaining(because),
+      }),
+    )
+  })
+
+  // The empty name has NO colon, so the production that refuses the names above says nothing
+  // about it. It cannot arise — `@rgrove/parse-xml` enforces the XML `Name` production, which is
+  // non-empty — and the point of pinning it is that this function must not be the thing that
+  // crashes if that ever stops being true.
+  it('the empty name has no colon and so is not refused by the colon rule', () => {
     expect(splitQName('')).toEqual({ prefix: null, localName: '' })
   })
 })

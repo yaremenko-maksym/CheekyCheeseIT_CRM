@@ -114,13 +114,17 @@ describe('namespaces are resolved to URIs, not matched by prefix', () => {
     // A separate branch from the undeclared-prefix one: `xmlns` RESOLVES (to the xmlns namespace)
     // but is not a legal element prefix. Without its own check the element would be admitted with
     // a namespace no vocabulary uses, and an adapter would simply never match it.
+    //
+    // The reason code is `RESERVED_NAMESPACE`, not `UNDECLARED_PREFIX` as it first was: §3 binds
+    // `xmlns` by definition, so the prefix IS declared and saying otherwise sent a feed owner
+    // looking for a declaration they must not add.
     let raised: unknown
     try {
       port.parseDocument(utf8('<r><xmlns:t>x</xmlns:t></r>'))
     } catch (error) {
       raised = error
     }
-    expect((raised as XmlPortError).reason).toBe('UNDECLARED_PREFIX')
+    expect((raised as XmlPortError).reason).toBe('RESERVED_NAMESPACE')
     expect((raised as XmlPortError).message).toMatch(/xmlns/)
   })
 
