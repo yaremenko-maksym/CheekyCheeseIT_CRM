@@ -117,7 +117,10 @@ export function measureTree(root: XmlElementNode): { maxDepth: number; elementCo
   while (stack.length > 0) {
     const { node, depth } = stack.pop() as { node: XmlElementNode; depth: number }
     elementCount += 1
-    if (depth > maxDepth) maxDepth = depth
+    // `Math.max` rather than a comparison, for the reason given in `prescan.ts`: `>` and `>=` are
+    // indistinguishable here (a tie assigns the value already held), and deleting the operator is
+    // better than suppressing a mutant on it.
+    maxDepth = Math.max(maxDepth, depth)
     for (const child of node.children) {
       if (isElement(child)) stack.push({ node: child, depth: depth + 1 })
     }

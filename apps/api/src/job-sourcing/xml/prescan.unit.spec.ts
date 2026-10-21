@@ -354,6 +354,19 @@ describe('the markup-declaration skipper', () => {
     })
   })
 
+  it('a CDATA section whose content contains `]>` is skipped to its REAL terminator', () => {
+    // This is what makes the dedicated CDATA branch load-bearing rather than redundant, and it
+    // took a mutation run to notice the question. Delete that branch and a CDATA section still
+    // falls through to `endOfMarkupDeclaration`, which usually consumes it identically — the
+    // `[` of `[CDATA[` opens its bracket tracking and the `]]` closes it, so the terminating `>`
+    // lands at the same index. The exception is content carrying `]>`: the `]` clears the bracket
+    // state and the `>` then terminates the declaration EARLY, mid-section — after which the
+    // `<fake/>` inside the CDATA is counted as a real element and the pre-scan disagrees with the
+    // parser by exactly one. Which is the differential this whole file exists to prevent.
+    const xml = '<r><d><![CDATA[]><fake/>]]></d></r>'
+    expect(prescanStructure(xml, GENEROUS)).toEqual({ ok: true, maxDepth: 2, elementCount: 2 })
+  })
+
   it('a CDATA section containing `]]` before its terminator is skipped correctly', () => {
     expect(prescanStructure('<r><d><![CDATA[a]] b]]></d></r>', GENEROUS)).toMatchObject({
       elementCount: 2,

@@ -188,7 +188,11 @@ export function prescanStructure(text: string, budget: PrescanBudget): PrescanOu
 
     elementCount += 1
     depth += 1
-    if (depth > maxDepth) maxDepth = depth
+    // `Math.max`, not `if (depth > maxDepth) maxDepth = depth`. The comparison form carried an
+    // unobservable mutant — `>=` assigns a value `maxDepth` already holds, so no input can tell
+    // the two operators apart — and the honest fix is to remove the operator rather than to
+    // explain it away in a suppression. `Math.max` says "the running maximum" directly.
+    maxDepth = Math.max(maxDepth, depth)
 
     if (depth > budget.maxDepth) {
       return { ok: false, exceeded: 'depth', maxDepth, elementCount }
