@@ -3924,3 +3924,98 @@ share the shape.
 
 **Check on closing:** run the file 50 consecutive times under artificial load. A single green run
 proves nothing here, because a flake's green and a fix's green are the same green.
+
+## 273. The meta-guard over hooks cannot require a test for a `post:` hook (2026-10-21)
+
+`check-guard-tests-exist.sh` reads the registered hook list and requires, from every hook that can
+refuse, a negative case in a test file. It locates that file by a **naming convention that encodes
+the `pre:` family only** — so a `post:`-phase hook satisfies the meta-guard by having no required
+test path at all, rather than by having a test. The zone-of-write rule has the same shape: the paths
+it grants the architect for hook tests are named for the `pre:` family, so a test for a `post:` hook
+would have no owner path either.
+
+**Why it is a gap and not a style point.** The meta-guard exists because a hook without a negative
+test is indistinguishable from a hook that never refuses. For the `pre:` family that reasoning is
+enforced; for the `post:` family the same reasoning is stated and not enforced, and the difference is
+invisible from a green run. Two `post:`-phase hooks are registered today, so this is not hypothetical.
+
+**Closing it** means deciding whether the convention should be widened (one glob covering both
+phases, plus the matching zone-of-write grant) or whether `post:` hooks are deliberately exempt
+because they cannot block — and if the latter, saying so in the meta-guard itself, where the next
+reader will be standing.
+
+**Check on closing:** register a `post:`-phase hook that can refuse and give it no test. The
+meta-guard must fail. If it passes, the gap is still open.
+
+## 274. The swallowed-failure hook reads a command's position, and an option that takes a value shifts it (2026-10-21)
+
+The advisory hook added for the swallowed-failure class decides by **argument position** — which
+token is the command, which is its subcommand — and it recognises a fixed set of commands whose exit
+code is worth warning about. An option that takes a separate value (the directory form of a version
+control invocation is the common one) inserts a token before the subcommand, so position-based
+reading can identify the wrong token and the hook stays silent.
+
+**Why this is the predictable failure of the design rather than a bug in one line.** A reader keyed on
+position is correct exactly while the shapes it meets match the shapes it was written against. The
+only durable fix is to consume options-with-values explicitly, the way the shared command analyser
+already does for the patterns it knows, instead of assuming the subcommand sits at a fixed offset.
+
+**Scope note.** This is the hook, not the rule: the always-on rule covers the class, and the hook is
+advisory, so a miss costs a missing warning rather than a wrong refusal. That is why it is an entry
+and not a fix.
+
+**Check on closing:** issue the same swallowing command twice, once plain and once with an
+option-that-takes-a-value before the subcommand, and confirm both produce the warning. A silent
+second form is the open gap.
+
+## 275. The swallowed-failure class has a second half that no command-phase hook can see (2026-10-21)
+
+A command-phase hook sees what is launched. It does **not** see the interior of a committed shell or
+Node script, so the same swallowed-failure shape written inside a repository script is invisible to
+it — and scripts are where the shape does the most damage, because a script's exit code is what a CI
+step reports as a pass.
+
+**Why it belongs with the rule rather than with the hook.** The rule names the class: an instrument
+that reports a negative or a success when it did not look. The hook catches the half that passes
+through the command line. The other half needs a **static scan over script interiors**, run in CI,
+and that is a different instrument with a different false-positive profile — a deliberate suppression
+of a known-harmless swallow is legitimate and must have a way to be written down, or the scan will be
+switched off within a week.
+
+**The sequencing matters.** The scan should be built only after the advisory hook has run long enough
+to show what it warns about in practice, because its warning log is the cheapest available estimate
+of the scan's false-positive rate.
+
+**Check on closing:** commit a script whose interior swallows a failing exit code, with no
+suppression note. CI must fail. A green CI means the second half is still unguarded.
+
+## 276. A read-only reviewer is exempted from isolation, and therefore inherits the orchestrator's live workspace (2026-10-21)
+
+The isolation rule deliberately does not force a worktree on a read-only agent: a reviewer reads the
+diff through the forge, not through a local tree, so paying for a worktree would buy nothing. That
+reasoning is sound and the exemption should stay. What the rule does not say is **where a reviewer
+without a worktree actually stands** — and the answer is the dispatcher's own directory, which for
+an orchestrator is a live write workspace with a branch checked out and, often, uncommitted work.
+
+**Observed, not theorised.** A security reviewer dispatched during this cycle reported its worktree
+as the orchestrator's own path, sitting on a branch the orchestrator had just created for unrelated
+work. It did no harm — it read every reviewed file at the PR head through the object store rather
+than trusting the tree it was standing in, and said so — but nothing in the rule required that. A
+less careful reviewer reads the local tree, believes it is reading the PR, and reports on the wrong
+content with no way for anyone to tell from the report.
+
+**The sharper version of the same hazard.** The rule already forbids issuing a reviewer a path built
+from the PR number, because that path is shared by construction between all reviewers of one PR. The
+exemption reintroduces sharing by a different route: not between siblings, but between the reviewer
+and its dispatcher. The second is worse, because the dispatcher is the one party that is certainly
+writing.
+
+**What closing it does not mean.** Not "give reviewers worktrees" — that spends the cost the
+exemption exists to avoid. The candidates are to have the reviewer read at an explicit commit rather
+than from whatever tree it inherits (which the careful one here did unprompted), or to make the
+inherited directory's identity part of the report so a mismatch is visible, the way the existing
+`Worktree:` line makes a lost worktree visible.
+
+**Check on closing:** dispatch a read-only reviewer for a PR whose head differs from the dispatcher's
+checked-out branch, and have it state which content it reviewed. If its report cannot distinguish
+the PR head from the tree it was standing in, the gap is still open.
