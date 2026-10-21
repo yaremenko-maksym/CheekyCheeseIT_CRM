@@ -4019,3 +4019,36 @@ inherited directory's identity part of the report so a mismatch is visible, the 
 **Check on closing:** dispatch a read-only reviewer for a PR whose head differs from the dispatcher's
 checked-out branch, and have it state which content it reviewed. If its report cannot distinguish
 the PR head from the tree it was standing in, the gap is still open.
+
+## 277. A reviewer's checkout can be removed by nobody, and the documented escape route does not exist (2026-10-22)
+
+A reviewer that needs to run something makes its own checkout in the shared session scratchpad. The
+cross-agent guard permits removing only a worktree it recorded as yours, and it records one only when
+the path given to `git worktree add` was a **literal**. A reviewer that creates its tree through a
+shell variable — the natural thing to do, and what the skill's own example suggests — is then refused
+when it tries to remove it, correctly, because the guard cannot expand the variable and so cannot
+establish whose tree it is.
+
+The rule answers that case by saying: a tree you cannot remove is reported to the orchestrator, who
+sees all agents while the reviewer sees none. **That route does not exist.** The orchestrator is
+refused too, by the predicate that a tree outside its own worktree is not its to remove — and that
+refusal is right as a rule and total in effect. Measured today: two reviewers asked the orchestrator
+to remove their checkouts, the orchestrator was refused on the first, and the scratchpad now holds
+**18** such trees, most of them marked prunable, from reviews closed days ago.
+
+**Why this is worth fixing rather than sweeping.** The accumulation itself is cheap — disk, and a
+noisy `worktree list`. What is not cheap is that the rule tells agents to do something that silently
+does not work, so every reviewer that follows it believes the tree will be cleaned and it never is.
+A rule whose remedy is unavailable trains the reader to stop reporting.
+
+**What closing it does not mean.** Not loosening the guard: refusing to remove a path whose owner
+cannot be established is exactly right, and the incidents behind it were three worktrees of live
+agents destroyed by a sweep that looked safe from inside. The candidates are to make the recorded
+form the easy one (so a reviewer's natural invocation is the one that gets recorded), or to give the
+owner a documented sweep that the guard recognises as theirs, or to have the trees carry their own
+expiry the way the dev-server launcher already does.
+
+**Check on closing:** have a reviewer create a checkout the way the skill's example shows, finish,
+and attempt removal. If neither the reviewer nor the orchestrator can remove it, the gap is still
+open — and count the scratchpad's trees afterwards, because the symptom is accumulation rather than
+any single refusal.
