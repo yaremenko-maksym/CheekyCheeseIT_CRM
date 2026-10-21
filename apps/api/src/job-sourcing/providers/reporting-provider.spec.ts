@@ -18,7 +18,11 @@ import {
   MAX_CURSOR_CHARS,
   DROPPED_TOO_LONG,
   MAX_REDACTION_INPUT_CHARS,
+  MAX_SCHEME_CHARS,
   REPORTABLE_QUERY_KEYS,
+  URL_END_CHARS,
+  URL_TRAILING_PUNCTUATION,
+  USERINFO_RUN_DELIMITERS,
   MAX_REQUEST_REPORTS,
   MAX_SAMPLE_CHARS,
   MAX_SAMPLES,
@@ -1331,5 +1335,221 @@ describe('the reportable-query allowlist, both halves', () => {
 
   it('matches an allowlisted key case-insensitively', () => {
     expect(redactUrl('https://api.example.com/j?PAGE=2', [])).toContain('PAGE=2')
+  })
+})
+
+describe('the userinfo scan, character by character', () => {
+  /**
+   * The scan replaced a regex that produced two defects (quadratic, then a cap that leaked). Its
+   * own logic is therefore pinned at every branch rather than trusted — and its delimiter set is
+   * DATA, asserted against an independently written list, because the seven-way `||` it started as
+   * put twenty-six unkillable mutants on one line.
+   */
+
+  const EXPECTED_DELIMITERS = [' ', '\t', '\n', '\r', '/', '?', '#']
+
+  it('is exactly the delimiter set this test names', () => {
+    expect([...USERINFO_RUN_DELIMITERS].sort()).toEqual([...EXPECTED_DELIMITERS].sort())
+  })
+
+  it.each(EXPECTED_DELIMITERS.map((d) => [JSON.stringify(d), d] as const))(
+    'treats %s as the end of a run, so the colon before it is not a credential',
+    (_label, delim) => {
+      // `user:pw` then a delimiter, then a bare `host@tail`: the `@` belongs to a run with no
+      // colon in it, so nothing here is userinfo and nothing is redacted.
+      const out = redactSecrets(`user:pw${delim}host@tail`, [])
+
+      expect(out).toBe(`user:pw${delim}host@tail`)
+    },
+  )
+
+  it('redacts when no delimiter breaks the run', () => {
+    expect(redactSecrets('user:pw@tail', [])).toBe(`${REDACTED}:${REDACTED}@tail`)
+  })
+
+  it('leaves a bare `name@host` alone — that is an email, not a credential', () => {
+    expect(redactSecrets('mail bob@example.com now', [])).toBe('mail bob@example.com now')
+  })
+
+  it('leaves an `@` with an empty run before it alone', () => {
+    expect(redactSecrets('@host', [])).toBe('@host')
+  })
+
+  it('redacts a credential that ends the string', () => {
+    expect(redactSecrets('u:p@', [])).toBe(`${REDACTED}:${REDACTED}@`)
+  })
+
+  it('redacts BOTH credentials in one string, keeping the text between them', () => {
+    const out = redactSecrets('first a:b@one and second c:d@two', [])
+
+    expect(out).toBe(`first ${REDACTED}:${REDACTED}@one and second ${REDACTED}:${REDACTED}@two`)
+  })
+
+  it('keeps the text before, between and after untouched', () => {
+    expect(redactSecrets('GET https://u:p@api.example.com/x?page=1 -> 200', [])).toBe(
+      `GET https://${REDACTED}:${REDACTED}@api.example.com/x?page=1 -> 200`,
+    )
+  })
+
+  it('redacts the whole run when it holds several colons', () => {
+    // Wider than the regex was (it matched only the last `x:y@`). Redacting more is the safe
+    // direction, and the assertion records that this is intended rather than incidental.
+    expect(redactSecrets('a:b:c@tail', [])).toBe(`${REDACTED}:${REDACTED}@tail`)
+  })
+
+  it('leaves text with no `@` at all untouched, however many colons it has', () => {
+    expect(redactSecrets('a:b:c:d', [])).toBe('a:b:c:d')
+  })
+
+  it('leaves an empty string alone', () => {
+    expect(redactSecrets('', [])).toBe('')
+  })
+
+  it('does not treat a second `@` as reopening the first credential', () => {
+    // After an `@` the run restarts, so `b` alone (no colon) is not userinfo.
+    expect(redactSecrets('u:p@b@c', [])).toBe(`${REDACTED}:${REDACTED}@b@c`)
+  })
+})
+
+describe('the URL finder is linear, and timed AT the bound', () => {
+  /**
+   * FOURTH ROUND OF THE SAME SHAPE, and the first one found by auditing rather than by being told.
+   * `\b[a-z][a-z0-9+.-]*:\/\/…` is «class»`*` followed by a literal delimiter, so text with no
+   * `://` makes it scan to the end and backtrack per start position. Measured on the regex:
+   * 77.9 ms at 16 KB, 305.6 ms at 32 KB, 1 252.1 ms at 64 KB — double the input, quadruple the
+   * time. `/[.,;:!?]+$/` was worse: 2 472.4 ms at 64 KB.
+   *
+   * THE TIMING ASSERTION IS AT `MAX_REDACTION_INPUT_CHARS`, not at a convenient size. That is the
+   * point: every one of these four rounds would have been caught by one timing case at the bound,
+   * and the bound is the largest input the code will ever process. At this size the replaced
+   * regexes take 1 252 ms and 2 472 ms, and the linear scan takes single-digit milliseconds — so
+   * the 1 s threshold is 500× clear of the fix and comfortably under both defects.
+   */
+  const atTheCap = 'a.'.repeat(MAX_REDACTION_INPUT_CHARS / 2)
+  const punctuationAtTheCap = `${'.'.repeat(MAX_REDACTION_INPUT_CHARS - 1)}x`
+
+  it.each([
+    ['scheme-ish characters with no `://`', () => atTheCap],
+    ['nothing but trailing punctuation', () => punctuationAtTheCap],
+    ['a colon with no `@`', () => `a:${'b'.repeat(MAX_REDACTION_INPUT_CHARS - 2)}`],
+    [
+      // Reaches the trailing-punctuation trim, which only ever ran on an already-matched URL: a
+      // huge run of dots INSIDE the match, followed by a non-punctuation character so that every
+      // start position in the run fails the end anchor. That is the input the old `/[.,;:!?]+$/`
+      // needed, and plain punctuation never reached it.
+      'a URL with a huge interior punctuation run',
+      () => {
+        const head = 'https://api.example.com/'
+        const dots = '.'.repeat(MAX_REDACTION_INPUT_CHARS - head.length - 1)
+        return `${head}${dots}x`
+      },
+    ],
+  ])('redacts %s at the cap in milliseconds', (_name, make) => {
+    const text = make()
+    expect(text.length).toBeLessThanOrEqual(MAX_REDACTION_INPUT_CHARS)
+
+    const started = Date.now()
+    redactText(text, ['irrelevant'])
+
+    expect(Date.now() - started).toBeLessThan(1_000)
+  })
+
+  it('finds a URL at the cap in milliseconds, not only a non-URL', () => {
+    const url = `https://api.example.com/j?page=1&pad=${'z'.repeat(1000)}`
+    const text = `${'word '.repeat(2000)}${url} ${'tail '.repeat(2000)}`
+    const started = Date.now()
+    const out = redactText(text, [])
+
+    expect(Date.now() - started).toBeLessThan(1_000)
+    expect(out).toContain('page=1')
+  })
+})
+
+describe('finding a URL inside free text', () => {
+  it('redacts a credential in a URL embedded in a sentence', () => {
+    const out = redactText(
+      'upstream failed: GET https://api.example.com/j?token=abc123 gave 500',
+      [],
+    )
+
+    expect(out).not.toContain('abc123')
+    expect(out).toContain('upstream failed: GET ')
+    expect(out).toContain(' gave 500')
+  })
+
+  it.each([...URL_END_CHARS].map((c) => [JSON.stringify(c), c] as const))(
+    'ends a URL at %s, leaving the character itself in place',
+    (_label, delim) => {
+      const out = redactText(`see https://api.example.com/j?token=abc123${delim}then`, [])
+
+      expect(out).not.toContain('abc123')
+      expect(out).toContain(`${delim}then`)
+    },
+  )
+
+  it.each([...URL_TRAILING_PUNCTUATION].map((c) => [JSON.stringify(c), c] as const))(
+    'does not swallow a trailing %s into the URL',
+    (_label, punct) => {
+      const out = redactText(`see https://api.example.com/j?page=1${punct} next`, [])
+
+      expect(out).toContain(`page=1${punct} next`)
+    },
+  )
+
+  it.each([
+    ['https', 'https://api.example.com/j?token=t1'],
+    ['a scheme with a digit', 's3://bucket/key?token=t1'],
+    ['a scheme with a plus', 'grpc+proto://host/x?token=t1'],
+    ['a scheme with a dot', 'x.y://host/p?token=t1'],
+    ['a scheme with a hyphen', 'my-scheme://host/p?token=t1'],
+    ['an uppercase scheme', 'HTTPS://api.example.com/j?token=t1'],
+  ])('finds a URL whose scheme is %s', (_name, url) => {
+    expect(redactText(`before ${url} after`, [])).not.toContain('t1')
+  })
+
+  it('does not treat a scheme starting with a digit as a URL', () => {
+    // `1a://` — the old regex required a leading letter and so does the scan. The text is left
+    // alone rather than being parsed as a URL.
+    const out = redactText('1a://host/x', [])
+
+    expect(out).toContain('1a://host/x')
+  })
+
+  it('redacts BOTH URLs in one message, keeping the text between them', () => {
+    const out = redactText(
+      'a https://x.example.com/?token=t1 b https://y.example.com/?key=t2 c',
+      [],
+    )
+
+    expect(out).not.toContain('t1')
+    expect(out).not.toContain('t2')
+    expect(out).toContain(' b ')
+    expect(out).toContain(' c')
+  })
+
+  it('leaves a bare `://` with no scheme letters alone', () => {
+    expect(redactText('weird ://host/x end', [])).toContain('://host/x')
+  })
+
+  it('walks back no further than a plausible scheme, on both sides of the bound', () => {
+    /**
+     * A long run of scheme characters running into `://` is genuinely ambiguous — `QQQhttps` is a
+     * syntactically valid scheme — so `MAX_SCHEME_CHARS` caps what gets absorbed rather than
+     * resolving it.
+     *
+     * THE RUN IS UPPERCASE for a reason: a substring assertion cannot see the split at all,
+     * because the absorbed prefix and the plain prefix are the same character and concatenating
+     * them hides the boundary. `URL` serialisation LOWERCASES the scheme, so the absorbed part
+     * comes back lowercased and the boundary becomes visible — exactly `MAX_SCHEME_CHARS`
+     * characters of scheme, no more. Unbounded, all 100 would be absorbed and all 100 lowercased.
+     */
+    const run = 100
+    const absorbed = MAX_SCHEME_CHARS - 'https'.length
+    const out = redactText(`${'Q'.repeat(run)}https://api.example.com/j?token=abc123`, [])
+
+    expect(out).not.toContain('abc123')
+    expect(out.startsWith(`${'Q'.repeat(run - absorbed)}${'q'.repeat(absorbed)}https://`)).toBe(
+      true,
+    )
   })
 })

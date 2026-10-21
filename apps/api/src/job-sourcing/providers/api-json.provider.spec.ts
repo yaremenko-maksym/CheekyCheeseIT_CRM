@@ -1722,6 +1722,9 @@ describe('a cursor cycle reports its own error code (SR-L-4)', () => {
     // The report names the request the cycle WOULD have sent, not a placeholder — otherwise the
     // branch choosing between them is unobservable and either arm passes.
     expect(cycle?.url).toContain('c9')
+    // The page the cycle WOULD have fetched, pinned so the `at.page + 1` arithmetic is observable.
+    // This attempt resumed from a checkpoint at page 1, so it fetched page 2 and the cycle names 3.
+    expect(cycle?.page).toBe(3)
     expect(batch.outcome).toBe('SUCCEEDED')
     expect(batch.coverage).toBe('PARTIAL')
   })
@@ -1786,5 +1789,60 @@ describe('what a completed page stores as its resume position', () => {
     await collectJsonPages(makeSpec(), config(), h.ctx)
 
     expect(h.saved[0]?.position).toEqual({ kind: 'CURSOR', page: 1, cursor: 'c-next' })
+  })
+})
+
+describe('the per-attempt bound, pinned on BOTH sides (SR-H-1)', () => {
+  /**
+   * The single most consequential number in this change: a resumed attempt reporting SUCCEEDED
+   * after zero fetches WAS the finding, so an off-by-one here is the same defect reported as
+   * fixed. Both sides of the boundary are asserted — the last page that still fetches and the
+   * first that does not — because a one-sided assertion cannot tell `>` from `>=`, which is the
+   * defect class this feature has now produced five times.
+   */
+  const resumedAt10: ValidatedCheckpoint = {
+    configVersion: 1,
+    policyVersion: 1,
+    adapterVersion: 'test-1',
+    position: { kind: 'CURSOR', page: 10, cursor: 'cursor-from-run-1' },
+    completedAt: new Date('2026-10-20T09:00:00Z'),
+  }
+
+  it.each([1, 2, 3, 5, 9])(
+    'fetches exactly %s page(s) for maxPages %s on a FRESH run',
+    async (n) => {
+      const h = harness({ pages: endlessPages(n + 2) })
+      await collectJsonPages(makeSpec({ limits: { maxPages: n } }), config(), h.ctx)
+
+      expect(h.calls.filter((c) => c.startsWith('fetch')).length).toBe(n)
+    },
+  )
+
+  it.each([1, 2, 3, 5, 9])(
+    'fetches exactly %s page(s) for maxPages %s on a RESUMED run too',
+    async (n) => {
+      const h = harness({ pages: endlessPages(n + 2), stored: resumedAt10 })
+      await collectJsonPages(makeSpec({ limits: { maxPages: n } }), config(), h.ctx)
+
+      expect(h.calls.filter((c) => c.startsWith('fetch')).length).toBe(n)
+    },
+  )
+
+  it('fetches the LAST page inside the bound and stops before the next one', async () => {
+    const h = harness({ pages: endlessPages(6), stored: resumedAt10 })
+    const batch = await collectJsonPages(makeSpec({ limits: { maxPages: 3 } }), config(), h.ctx)
+
+    // Pages 11, 12, 13 were fetched; the bound stopped page 14.
+    const pages = h.saved.map((c) => c.position.page)
+
+    expect(pages).toEqual([11, 12, 13])
+    expect(batch.requests.find((r) => r.error?.code === 'PAGE_CAP')?.page).toBe(14)
+  })
+
+  it('numbers the resumed pages from the stored page plus one, not from one', async () => {
+    const h = harness({ pages: endlessPages(3), stored: resumedAt10 })
+    await collectJsonPages(makeSpec({ limits: { maxPages: 2 } }), config(), h.ctx)
+
+    expect(h.saved[0]?.position.page).toBe(11)
   })
 })

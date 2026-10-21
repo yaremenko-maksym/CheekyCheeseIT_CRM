@@ -276,7 +276,26 @@ export const REPORTABLE_QUERY_KEYS: ReadonlySet<string> = new Set([
  * this bound can never reach a report. Bounding the INPUT is therefore free, and it is the layer
  * that holds even if a future regex here is accidentally superlinear again.
  */
-export const MAX_REDACTION_INPUT_CHARS = 1_048_576
+/**
+ * 64 KiB — a DECISION, not an inheritance. It was briefly 1 MiB, which was wrong twice over: it
+ * was chosen to make a timing test convenient, and it was raised 128× in the same change that
+ * introduced a new quadratic regex behind it.
+ *
+ * Why 64 KiB: the largest thing this module ever EMITS is 500 characters (a request report's
+ * message) or 200 (a sample), so 64 KiB is ~128× the biggest consumer — generous enough that a
+ * verbose but legitimate provider error body or job posting is still redacted and sampled, while a
+ * field above it is an anomaly rather than routine. It also sits three orders of magnitude below
+ * the page byte cap (2 MiB), so "too long to redact" cannot be reached by a normal page.
+ *
+ * Why not larger: a 1 MiB error message in a report is its own problem independent of redaction
+ * cost — it is telemetry nobody reads, stored per request.
+ *
+ * Why not smaller (16 KiB was considered): an oversized field is DROPPED, so the bound is also the
+ * point at which we stop being able to diagnose a bad item at all. 16 KiB is within reach of one
+ * verbose job posting, and losing the sample for exactly the items most worth inspecting is a poor
+ * trade now that every pass behind this bound is linear.
+ */
+export const MAX_REDACTION_INPUT_CHARS = 65_536
 
 /**
  * What a field becomes when it is too long to redact. A MARKER, not a truncation.
@@ -299,6 +318,18 @@ export const DROPPED_TOO_LONG = `${REDACTED} (field dropped: too long to redact)
  * pass (`Basic [REDACTED]Omh1bnRlcjI=`, when `bob` is registered and its base64 prefix matched) is
  * still recognised as one token and removed whole. Registered secrets now run first — see
  * `redactSecrets` — so this is the normal case, not an edge one.
+ *
+ * WHY THIS ONE IS LINEAR and may stay a regex, unlike the three that were replaced. It is NOT the
+ * «class»`+` followed by a delimiter shape: the quantified class is the LAST element, with nothing
+ * after it to fail and force a retry, so once the class stops the match either succeeded or is
+ * abandoned. The preceding `\s+` is quantified but its class is DISJOINT from the token class, so
+ * giving back a whitespace character only exposes another whitespace character the token class
+ * cannot accept either — one failed step, not a scan. And starts are anchored by a literal
+ * alternation (`Basic|Bearer|Token|ApiKey`), so almost no position is even a candidate.
+ *
+ * The upper bound was deliberately REMOVED: `{4,1024}` redacted a long token's first 1024
+ * characters and emitted the tail. Since the pattern is linear without a cap, the cap was pure
+ * downside — it bought nothing and opened a bypass.
  */
 const AUTH_SCHEME_RE = /\b(Basic|Bearer|Token|ApiKey)\s+([A-Za-z0-9+/=._~[\]-]{4,})/gi
 
@@ -332,16 +363,30 @@ const AUTH_SCHEME_RE = /\b(Basic|Bearer|Token|ApiKey)\s+([A-Za-z0-9+/=._~[\]-]{4
  * It redacts a slightly wider shape than the regex did (`a:b:c@` becomes one marker rather than
  * matching only `b:c@`). Redacting more is the safe direction.
  */
+/**
+ * What ends a run of candidate userinfo characters: whitespace, or any of `/ ? #`. `:` stays INSIDE
+ * the run — it is the separator that makes the run a credential.
+ *
+ * A SET, exported, rather than the seven-way `||` this started as. That disjunction was data
+ * wearing the clothes of logic: each comparison was a mutant no assertion reached, and the gate
+ * reported twenty-six survivors on the one line. Exported so the test can assert the membership
+ * against an independently written list AND exercise each delimiter's effect.
+ */
+export const USERINFO_RUN_DELIMITERS: ReadonlySet<string> = new Set([
+  ' ',
+  '\t',
+  '\n',
+  '\r',
+  '/',
+  '?',
+  '#',
+])
+
 function redactUserinfo(text: string): string {
   const out: string[] = []
   let copiedTo = 0
   let runStart = 0
   let runHasColon = false
-
-  // A run of candidate userinfo characters ends at whitespace or at any of `/ ? #`. `:` stays
-  // INSIDE the run — it is the separator that makes the run a credential.
-  const endsRun = (c: string): boolean =>
-    c === '/' || c === '?' || c === '#' || c === ' ' || c === '\t' || c === '\n' || c === '\r'
 
   for (let i = 0; i < text.length; i += 1) {
     const ch = text[i]
@@ -354,7 +399,7 @@ function redactUserinfo(text: string): string {
       runHasColon = false
     } else if (ch === ':') {
       runHasColon = true
-    } else if (endsRun(ch ?? '')) {
+    } else if (USERINFO_RUN_DELIMITERS.has(ch ?? '')) {
       runStart = i + 1
       runHasColon = false
     }
@@ -363,8 +408,100 @@ function redactUserinfo(text: string): string {
   return out.join('')
 }
 
-/** Enough of a URL to find one inside free text (an error message, a bad item's JSON). */
-const URL_IN_TEXT_RE = /\b[a-z][a-z0-9+.-]*:\/\/[^\s"'<>\\)\]}]+/gi
+/**
+ * THE SHAPE THAT KEEPS PRODUCING QUADRATIC REGEXES, and the rule that replaces it.
+ *
+ * Three regexes in this file had the form «character class»`+` followed by a literal delimiter.
+ * When the delimiter is ABSENT the class scans to the end of the input and then backtracks one
+ * character per start position — quadratic, on text an attacker supplies for free. Measured:
+ *
+ *   `([^\s:/?#@]+):…@`      (userinfo)           11 773 ms at 100 KB of `'a:' + 'b'*n`
+ *   `[a-z0-9+.-]*://…`      (this URL finder)     1 252 ms at  64 KB of `'a.'*n`
+ *   `[.,;:!?]+$`            (trailing punctuation) 2 472 ms at  64 KB of `'.'*n + 'x'`
+ *
+ * THE RULE FOR THIS MODULE: find the delimiter with `indexOf`, then bound the walk. Linear, no
+ * cap to get wrong, and the cost is legible from the code instead of from a measurement. The
+ * userinfo scan above is the same move; these two are the remaining instances.
+ *
+ * The one regex that STAYS is `AUTH_SCHEME_RE` — see the linearity note on it.
+ */
+
+/** Scheme characters, as DATA so a test can cover them. `https`, `grpc+proto`, `x-my.scheme`. */
+const SCHEME_CHARS: ReadonlySet<string> = new Set(
+  'abcdefghijklmnopqrstuvwxyz0123456789+.-'.split(''),
+)
+/** A scheme must BEGIN with a letter: `1a://x` is not a URL. */
+const SCHEME_FIRST_CHARS: ReadonlySet<string> = new Set('abcdefghijklmnopqrstuvwxyz'.split(''))
+/**
+ * The longest scheme we will walk back over. Real schemes are far shorter.
+ *
+ * It bounds how much preceding text can be absorbed into a URL span. A run of scheme characters
+ * running into `://` is genuinely ambiguous — `qqqhttps` is a syntactically valid scheme — so there
+ * is no principled split; this caps the damage at 32 characters instead of swallowing the whole
+ * run, which is what the old `\b[a-z][a-z0-9+.-]*` did. Exported so the test can pin both sides.
+ */
+export const MAX_SCHEME_CHARS = 32
+/** What ends a URL inside free text. Exported so a test can cover each one. */
+export const URL_END_CHARS: ReadonlySet<string> = new Set([
+  ' ',
+  '\t',
+  '\n',
+  '\r',
+  '"',
+  "'",
+  '<',
+  '>',
+  '\\',
+  ')',
+  ']',
+  '}',
+])
+/** Trailing punctuation that belongs to the sentence, not to the URL. */
+export const URL_TRAILING_PUNCTUATION: ReadonlySet<string> = new Set(['.', ',', ';', ':', '!', '?'])
+
+/**
+ * Every `scheme://…` span in `text`, found by a single linear pass.
+ *
+ * Each `://` is located with `indexOf`, the scheme is read backwards over at most
+ * `MAX_SCHEME_CHARS` characters, and the body is read forwards to the first terminator. Each
+ * character is examined a bounded number of times, so the whole pass is linear in the input with
+ * no backtracking anywhere.
+ */
+function findUrlSpans(text: string): Array<{ start: number; end: number }> {
+  const spans: Array<{ start: number; end: number }> = []
+  let from = 0
+  for (;;) {
+    const sep = text.indexOf('://', from)
+    if (sep === -1) return spans
+
+    let start = sep
+    while (
+      start > 0 &&
+      sep - start < MAX_SCHEME_CHARS &&
+      SCHEME_CHARS.has((text[start - 1] ?? '').toLowerCase())
+    ) {
+      start -= 1
+    }
+    // Trim any leading characters that cannot begin a scheme (`1a://`, `+x://`).
+    while (start < sep && !SCHEME_FIRST_CHARS.has((text[start] ?? '').toLowerCase())) {
+      start += 1
+    }
+
+    let end = sep + '://'.length
+    while (end < text.length && !URL_END_CHARS.has(text[end] ?? '')) {
+      end += 1
+    }
+    // Trailing sentence punctuation is not part of the URL. A loop, not `/[.,;:!?]+$/` — that
+    // regex was the third quadratic instance in this file.
+    while (end > sep && URL_TRAILING_PUNCTUATION.has(text[end - 1] ?? '')) {
+      end -= 1
+    }
+
+    // No scheme letter at all means this `://` is not a URL; skip past it rather than report one.
+    if (start < sep) spans.push({ start, end })
+    from = Math.max(end, sep + '://'.length)
+  }
+}
 
 /**
  * Every written form the same secret can arrive in.
@@ -473,14 +610,14 @@ export function redactUrl(url: string, secrets: readonly string[]): string {
  */
 export function redactText(text: string, secrets: readonly string[]): string {
   if (text.length > MAX_REDACTION_INPUT_CHARS) return DROPPED_TOO_LONG
-  const withUrlsRedacted = text.replace(URL_IN_TEXT_RE, (match) => {
-    // A URL found in text usually ends in a delimiter the regex could not know about; trailing
-    // punctuation is trimmed back so the parse succeeds on the URL rather than on the sentence.
-    const trimmed = match.replace(/[.,;:!?]+$/, '')
-    const tail = match.slice(trimmed.length)
-    return redactUrl(trimmed, secrets) + tail
-  })
-  return redactSecrets(withUrlsRedacted, secrets)
+  const pieces: string[] = []
+  let copiedTo = 0
+  for (const { start, end } of findUrlSpans(text)) {
+    pieces.push(text.slice(copiedTo, start), redactUrl(text.slice(start, end), secrets))
+    copiedTo = end
+  }
+  pieces.push(text.slice(copiedTo))
+  return redactSecrets(pieces.join(''), secrets)
 }
 
 export function buildRequestReport(
