@@ -18,9 +18,11 @@
  * reaching the assertion.
  */
 
+import { XmlDocument } from '@rgrove/parse-xml'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { xmlPort } from './bounded-xml-port'
 import { HARDENED_OPTION_KEYS, HARDENED_PARSE_OPTIONS, parseXmlString } from './parse-xml.adapter'
+import { XmlPortError } from './xml-port'
 
 const parseXmlMock = vi.hoisted(() => vi.fn())
 /** The real `parseXml`, captured inside the factory so the module body needs no top-level await. */
@@ -109,6 +111,31 @@ describe('R-1: the options reaching the real call site', () => {
     }
     expect(mutate).toThrow(TypeError)
     expect(HARDENED_PARSE_OPTIONS.ignoreUndefinedEntities).toBe(false)
+  })
+
+  it('a parsed document with no root element is MALFORMED', () => {
+    // UNREACHABLE THROUGH REAL INPUT, and reached here on purpose rather than suppressed.
+    //
+    // `XmlDocument.root` is typed `XmlElement | null`, so the adapter must handle null — but
+    // parse-xml rejects a rootless document itself (XML well-formedness requires a root element),
+    // so no byte sequence makes the guard fire: applying `if (false)` left all 336 tests passing.
+    // That made it a candidate for a line-scoped suppression, which would have been dishonest:
+    // the same `ConditionalExpression` mutator also produces the `true` variant on that line, and
+    // THAT one is observable (it would make every parse throw). Silencing the mutator would have
+    // hidden the live mutant along with the dead one.
+    //
+    // The mock seam this file already owns reaches the branch directly, so the guard gets a real
+    // test and the line keeps no suppression at all.
+    parseXmlMock.mockReturnValue(new XmlDocument([]))
+    let raised: unknown
+    try {
+      parseXmlString(FEED)
+    } catch (error) {
+      raised = error
+    }
+    expect(raised).toBeInstanceOf(XmlPortError)
+    expect((raised as XmlPortError).reason).toBe('MALFORMED')
+    expect((raised as XmlPortError).message).toMatch(/no root element/i)
   })
 
   it('the port reaches the parser through the adapter, not around it', () => {

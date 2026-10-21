@@ -124,6 +124,20 @@ describe('namespaces are resolved to URIs, not matched by prefix', () => {
     expect((raised as XmlPortError).message).toMatch(/xmlns/)
   })
 
+  it('a processing instruction inside an element is dropped, not turned into text', () => {
+    // A PI carries a string but is not content. The adapter selects text nodes by
+    // `instanceof XmlText`; admit every non-element child instead and a PI becomes a text node
+    // whose `value` is `undefined`, which concatenates into the element's `text` as the literal
+    // "undefined" — a vacancy field containing the word undefined, which is how this class of bug
+    // reaches a user.
+    const document = port.parseDocument(utf8('<r><?php echo "x"; ?><t>real</t></r>'))
+    expect(document.root.text).not.toContain('undefined')
+    expect(document.root.text.trim()).toBe('')
+    expect(findChild(document.root, 't')?.text).toBe('real')
+    // And the PI did not become an element either.
+    expect(document.elementCount).toBe(2)
+  })
+
   it('a document with no root element is MALFORMED, not an empty success', () => {
     // `preserveComments: false` means a comment-only document parses to a tree with no root at
     // all. Returning it as a success would hand Seam 2 a document with nothing in it, which is
