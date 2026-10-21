@@ -78,6 +78,28 @@ describe('R-4: the library is named in one place', () => {
     expect(production).toEqual(['job-sourcing/xml/parse-xml.adapter.ts'])
   })
 
+  it('the dependency is pinned EXACTLY, and the installed copy is that version', () => {
+    // A version in prose pins nothing. The ADR's verdict rests on one fact a minor release could
+    // remove — the library never parses an internal subset — so it says "read the changelog before
+    // any bump; do not bump on green CI". A caret range would let a minor arrive on a lockfile
+    // refresh, silently, which is the opposite of that instruction.
+    //
+    // Both halves are asserted because they can diverge: the declaration is what a developer
+    // reads, the installed copy is what runs.
+    const manifest = JSON.parse(readFileSync(join(SRC, '..', 'package.json'), 'utf8')) as {
+      dependencies: Record<string, string>
+    }
+    expect(manifest.dependencies[PACKAGE_NAME]).toBe('5.0.0')
+
+    const installed = JSON.parse(
+      readFileSync(join(SRC, '..', 'node_modules', '@rgrove', 'parse-xml', 'package.json'), 'utf8'),
+    ) as { version: string; license: string }
+    expect(installed.version).toBe('5.0.0')
+    // The licence too: ISC is what the review cleared for a closed-source commercial product, and
+    // a relicence on a future version is one of the things worth finding out about loudly.
+    expect(installed.license).toBe('ISC')
+  })
+
   it('the legacy DOU scanner is untouched by this adoption — C-20', () => {
     // rss.ts stays hand-rolled and DOU-only. Asserted here rather than trusted, because "we did
     // not touch it" is the kind of claim that is true until someone finds it convenient.
