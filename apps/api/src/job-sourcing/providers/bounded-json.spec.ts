@@ -198,6 +198,34 @@ describe('parseBoundedJson', () => {
     it('reports a bare scalar as depth 1', () => {
       expect(scanDepthWithin('42', 1)).toBe(1)
     })
+
+    /**
+     * SIBLING brackets must not accumulate. Without the closing-bracket branch the counter only
+     * ever climbs, so five sibling arrays read as five levels of nesting and a perfectly ordinary
+     * page is refused — the bound would reject real traffic rather than hostile traffic.
+     */
+    it('does not accumulate depth across sibling ARRAYS', () => {
+      expect(scanDepthWithin('[[1],[2],[3],[4],[5]]', 3)).toBe(3)
+      expect(parseBoundedJson('[[1],[2],[3],[4],[5]]', limits({ maxDepth: 3 }))).toMatchObject({
+        ok: true,
+      })
+    })
+
+    /** The same for objects, so that neither closing bracket can be dropped on its own. */
+    it('does not accumulate depth across sibling OBJECTS', () => {
+      const text = '{"a":{"b":1},"c":{"d":1},"e":{"f":1}}'
+      expect(scanDepthWithin(text, 3)).toBe(3)
+      expect(parseBoundedJson(text, limits({ maxDepth: 3 }))).toMatchObject({ ok: true })
+    })
+
+    /**
+     * The first character inside a string must not be treated as escaped. Here it IS a quote, so
+     * swallowing it leaves the string open and the `[` that follows reads as content — depth 2
+     * instead of 3. The only input shape that can tell a stale initial escape state apart.
+     */
+    it('does not start out mid-escape', () => {
+      expect(scanDepthWithin('{"":[1]}', 10)).toBe(3)
+    })
   })
 
   describe('the default byte budget', () => {
@@ -249,6 +277,33 @@ describe('parseBoundedJson', () => {
       expect(parseBoundedJson(text, limits({ maxBytes: 100_000, maxNodes: 50 }))).toMatchObject({
         ok: false,
         reason: 'TOO_MANY_NODES',
+      })
+    })
+  })
+
+  /**
+   * The refusal DETAIL is what an operator reads to size a limit, so it has to name the measured
+   * figure and the limit it broke. Asserted against hand-written numbers, never against the
+   * constant the code used — that would be the tautology the mutation gate exists to catch.
+   */
+  describe('the refusal detail names both numbers', () => {
+    it('names the byte count and the byte cap', () => {
+      const result = parseBoundedJson(`"${'a'.repeat(99)}"`, limits({ maxBytes: 100 }))
+      expect(result).toMatchObject({ reason: 'TOO_MANY_BYTES', detail: '101 bytes exceeds 100' })
+    })
+
+    it('names the depth cap', () => {
+      expect(parseBoundedJson(nest(9), limits({ maxDepth: 8 }))).toMatchObject({
+        reason: 'TOO_DEEP',
+        detail: 'nesting exceeds 8',
+      })
+    })
+
+    it('names the node cap', () => {
+      const text = JSON.stringify([1, 2, 3, 4])
+      expect(parseBoundedJson(text, limits({ maxNodes: 3 }))).toMatchObject({
+        reason: 'TOO_MANY_NODES',
+        detail: 'node count exceeds 3',
       })
     })
   })

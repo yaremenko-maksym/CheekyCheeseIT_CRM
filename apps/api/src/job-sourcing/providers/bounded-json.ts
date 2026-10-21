@@ -74,8 +74,7 @@ export function scanDepthWithin(text: string, maxDepth: number): number | null {
   let inString = false
   let escaped = false
 
-  for (let i = 0; i < text.length; i += 1) {
-    const ch = text[i]
+  for (const ch of text) {
     if (inString) {
       if (escaped) {
         escaped = false
@@ -90,11 +89,9 @@ export function scanDepthWithin(text: string, maxDepth: number): number | null {
       inString = true
     } else if (ch === '[' || ch === '{') {
       nesting += 1
-      if (nesting > maxNesting) {
-        maxNesting = nesting
-        // A value nested under N open brackets sits at depth N + 1; a bare scalar is depth 1.
-        if (maxNesting + 1 > maxDepth) return null
-      }
+      maxNesting = Math.max(maxNesting, nesting)
+      // A value nested under N open brackets sits at depth N + 1; a bare scalar is depth 1.
+      if (maxNesting + 1 > maxDepth) return null
     } else if (ch === ']' || ch === '}') {
       nesting -= 1
     }
@@ -119,9 +116,9 @@ function countNodesWithin(root: unknown, maxNodes: number): number | null {
     nodes += 1
     if (nodes > maxNodes) return null
 
-    if (Array.isArray(value)) {
-      for (const child of value) stack.push(child)
-    } else if (typeof value === 'object' && value !== null) {
+    // Arrays need no branch of their own: `Object.values` on an array yields its elements, and an
+    // array is `typeof 'object'`. One path instead of two, and no unobservable branch to defend.
+    if (typeof value === 'object' && value !== null) {
       for (const child of Object.values(value)) stack.push(child)
     }
   }
@@ -137,7 +134,10 @@ function countNodesWithin(root: unknown, maxNodes: number): number | null {
  * would make that the caller's problem to remember.
  */
 export function parseBoundedJson(text: string, limits: JsonLimits): BoundedJsonResult {
-  const bytes = Buffer.byteLength(text, 'utf8')
+  // No explicit encoding: utf8 is the default, and naming it adds a parameter whose only possible
+  // other values Node silently falls back to utf8 for anyway (measured) — an argument that cannot
+  // be wrong is an argument that cannot be tested.
+  const bytes = Buffer.byteLength(text)
   if (bytes > limits.maxBytes) {
     return {
       ok: false,
@@ -157,7 +157,16 @@ export function parseBoundedJson(text: string, limits: JsonLimits): BoundedJsonR
     return {
       ok: false,
       reason: 'NOT_JSON',
-      // The parser's own message, which names the offset but never echoes the body.
+      /**
+       * The parser's own message, which names the offset and a short snippet but never the whole
+       * body.
+       *
+       * Stryker disable next-line MethodExpression: V8 bounds this message itself — measured at 60
+       * characters for a 5 KB malformed document, because it truncates its own snippet. No input
+       * available today makes the slice fire, so no test can kill the mutant that removes it. It
+       * stays as defence against a future parser that echoes more, and this note is why it has no
+       * test rather than a pretend one.
+       */
       detail: error instanceof Error ? error.message.slice(0, 200) : 'unparseable',
     }
   }
