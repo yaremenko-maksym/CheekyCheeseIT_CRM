@@ -3988,3 +3988,34 @@ of the scan's false-positive rate.
 
 **Check on closing:** commit a script whose interior swallows a failing exit code, with no
 suppression note. CI must fail. A green CI means the second half is still unguarded.
+
+## 276. A read-only reviewer is exempted from isolation, and therefore inherits the orchestrator's live workspace (2026-10-21)
+
+The isolation rule deliberately does not force a worktree on a read-only agent: a reviewer reads the
+diff through the forge, not through a local tree, so paying for a worktree would buy nothing. That
+reasoning is sound and the exemption should stay. What the rule does not say is **where a reviewer
+without a worktree actually stands** — and the answer is the dispatcher's own directory, which for
+an orchestrator is a live write workspace with a branch checked out and, often, uncommitted work.
+
+**Observed, not theorised.** A security reviewer dispatched during this cycle reported its worktree
+as the orchestrator's own path, sitting on a branch the orchestrator had just created for unrelated
+work. It did no harm — it read every reviewed file at the PR head through the object store rather
+than trusting the tree it was standing in, and said so — but nothing in the rule required that. A
+less careful reviewer reads the local tree, believes it is reading the PR, and reports on the wrong
+content with no way for anyone to tell from the report.
+
+**The sharper version of the same hazard.** The rule already forbids issuing a reviewer a path built
+from the PR number, because that path is shared by construction between all reviewers of one PR. The
+exemption reintroduces sharing by a different route: not between siblings, but between the reviewer
+and its dispatcher. The second is worse, because the dispatcher is the one party that is certainly
+writing.
+
+**What closing it does not mean.** Not "give reviewers worktrees" — that spends the cost the
+exemption exists to avoid. The candidates are to have the reviewer read at an explicit commit rather
+than from whatever tree it inherits (which the careful one here did unprompted), or to make the
+inherited directory's identity part of the report so a mismatch is visible, the way the existing
+`Worktree:` line makes a lost worktree visible.
+
+**Check on closing:** dispatch a read-only reviewer for a PR whose head differs from the dispatcher's
+checked-out branch, and have it state which content it reviewed. If its report cannot distinguish
+the PR head from the tree it was standing in, the gap is still open.
