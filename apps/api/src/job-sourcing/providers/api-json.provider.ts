@@ -26,6 +26,7 @@ import {
   PG_INT_MAX,
   type ReportingJobSourceProvider,
   type RequestReport,
+  type ReservationResolution,
   type ResumePosition,
   type SourceConfigFields,
   type Validated,
@@ -489,25 +490,53 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
     const cost =
       reservation === null ? null : { unit: reservation.unit, amount: reservation.amount }
 
-    const cached =
-      pageRequest.cacheKey === undefined ? null : await ctx.cache.get(pageRequest.cacheKey)
-    const request: FetchRequest =
-      cached === null
-        ? pageRequest.request
-        : {
-            ...pageRequest.request,
-            headers: { ...pageRequest.request.headers, 'if-none-match': cached.etag },
-          }
-
     // The failure paths below deliberately do NOT assign this: `failure !== null` short-circuits
     // before anything parses the body, so no test can observe what it holds on those paths.
     // Stryker disable next-line StringLiteral: unobservable for the reason above.
     let bodyText = ''
     let status: number
     let failure: PageAttemptFailure | null = null
+    // A `let` because a cached validator rewrites it, and it is read by the reports below — which
+    // are outside the span, so it cannot live inside the try.
+    let request: FetchRequest = pageRequest.request
+
+    /**
+     * THE WHOLE RESERVE -> RECONCILE SPAN IS ONE TRY, WITH `reconcile` IN A `finally`.
+     *
+     * The hole was not the fetch — that was already caught — but the CACHE READ beside it.
+     * `ctx.cache.get` sat outside every catch and after the reservation, so a cache that threw
+     * left the meter log at `['reserve']` and rejected `collectJsonPages` outright: a reservation
+     * held with no resolution. That is money, not telemetry (SR-M-1).
+     *
+     * Patching that one call would leave the same hole open for the next `await` anyone adds
+     * between the reserve and the reconcile. A reservation is a RESOURCE — acquired on one line,
+     * released on every path out — and in JavaScript that is spelled `finally`.
+     *
+     * `resolution` says WHICH release, and it advances WITH the request rather than being decided
+     * inside the catch, where the catch cannot tell how far we got:
+     *
+     *   RELEASED  — nothing has left the process yet, so nothing can have been billed
+     *   UNCERTAIN — the request is in flight; a timeout may already have been billed, and
+     *               claiming RELEASED would understate what we owe
+     *   USED      — a response provably arrived, whatever its status
+     *
+     * All three are reachable and asserted, so the `finally` is not a guard without a failing test.
+     */
+    let resolution: ReservationResolution = 'RELEASED'
 
     try {
+      const cached =
+        pageRequest.cacheKey === undefined ? null : await ctx.cache.get(pageRequest.cacheKey)
+      if (cached !== null) {
+        request = {
+          ...pageRequest.request,
+          headers: { ...pageRequest.request.headers, 'if-none-match': cached.etag },
+        }
+      }
+
+      resolution = 'UNCERTAIN'
       const response = await ctx.fetchText(request)
+      resolution = 'USED'
       status = response.status
       const statusCode = classifyStatus(status)
       if (statusCode !== null) {
@@ -524,25 +553,52 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
       } else {
         bodyText = response.bodyText
         if (response.etag !== null && pageRequest.cacheKey !== undefined) {
-          await ctx.cache.put(pageRequest.cacheKey, { etag: response.etag, bodyText })
+          /**
+           * THE CACHE'S TWO FAILURES ARE NOT THE SAME FAILURE, AND DIRECTION IS WHAT DECIDES.
+           *
+           * A READ fails before anything was sent: we have no page, so the attempt reports it and
+           * stops with its completed pages intact (the branch above).
+           *
+           * A WRITE fails AFTER a 200 whose body is already in hand. The page is complete and
+           * valid; the only thing lost is the validator that would have saved a refetch next
+           * time. Letting it reach the span's catch is CR-M-4: measured, a `put` rejecting after
+           * a good 200 dropped the page entirely and reported `TRANSIENT_NETWORK` — a cache
+           * outage blamed on the provider's network, with the page gone.
+           *
+           * So the write degrades and the page stands. The reservation is still resolved by the
+           * `finally`, which is why this does not reopen SR-M-1.
+           */
+          try {
+            await ctx.cache.put(pageRequest.cacheKey, { etag: response.etag, bodyText })
+          } catch {
+            // Deliberately nothing: see above. There is no report slot for "the page is fine but
+            // the cache is not", and inventing one would mean a request report describing a
+            // subrequest that succeeded.
+          }
         }
       }
     } catch (error) {
-      // No response arrived. The reservation is UNCERTAIN, not RELEASED: a timeout may already
-      // have been billed, and claiming otherwise would understate what we owe.
       status = 0
-      failure = {
-        code: ctx.signal.aborted ? 'CANCELLED' : 'TRANSIENT_NETWORK',
-        message: error instanceof Error ? error.message : 'the request failed',
-        status: null,
+      failure =
+        // `RELEASED` is still set only while nothing has left the process — which is precisely
+        // the condition under which the throw CANNOT be the provider's. It is our own storage,
+        // so it is `PERSISTENCE`, the code this module already reserves for our fault (AC3).
+        resolution === 'RELEASED'
+          ? {
+              code: 'PERSISTENCE',
+              message: `the response cache could not be read: ${error instanceof Error ? error.message : 'the cache failed'}`,
+              status: null,
+            }
+          : {
+              code: ctx.signal.aborted ? 'CANCELLED' : 'TRANSIENT_NETWORK',
+              message: error instanceof Error ? error.message : 'the request failed',
+              status: null,
+            }
+    } finally {
+      if (reservation !== null) {
+        await ctx.meter.reconcile(reservation, resolution)
+        reservation = null
       }
-      if (reservation !== null) await ctx.meter.reconcile(reservation, 'UNCERTAIN')
-      reservation = null
-    }
-
-    if (reservation !== null) {
-      await ctx.meter.reconcile(reservation, 'USED')
-      reservation = null
     }
 
     if (failure === null) {

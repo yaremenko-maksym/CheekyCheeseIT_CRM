@@ -129,6 +129,10 @@ function harness(opts: {
   secrets?: string[]
   cacheSeed?: Record<string, { etag: string; bodyText: string }>
   policyVersion?: number
+  /** The response cache is down. READ and WRITE are separate options because their consequences
+   * are deliberately different — see the comment on `cache.put` in `api-json.provider.ts`. */
+  cacheGetThrows?: boolean
+  cachePutThrows?: boolean
 }): Harness {
   const calls: string[] = []
   const sent: FetchRequest[] = []
@@ -182,7 +186,25 @@ function harness(opts: {
         calls.push('load')
         return opts.stored ?? null
       },
+      /**
+       * THE FAKE GATES ITS LOG ON ITS OWN PROMISE, which is what makes the two order tests below
+       * able to fail at all (CR-M-3).
+       *
+       * It logged `save:N` SYNCHRONOUSLY, before returning. So a loop that dropped the `await` and
+       * moved straight on still produced `save:1` before `fetch:2`, and both order assertions —
+       * the two tests whose entire subject is "the loop does not advance until the persist
+       * resolves" (AC4) — passed. Measured on this suite with the `await` replaced by `void`:
+       * 145 of 149 passed, and the four failures were the persist-FAILURE tests catching an
+       * unhandled rejection, not the order tests.
+       *
+       * `setTimeout` rather than `await Promise.resolve()` on purpose: a macrotask is strictly
+       * ordered after every pending microtask, and every other fake here is an async function
+       * resolving in microtasks. So the gate does not depend on counting the loop's awaits — with
+       * the `await` dropped, the loop runs to completion before the first `save:` is ever logged,
+       * whatever its internal shape.
+       */
       async savePage({ checkpoint }) {
+        await new Promise((resolve) => setTimeout(resolve, 0))
         calls.push(`save:${checkpoint.position.page}`)
         if (opts.savePageFailsOnPage === checkpoint.position.page) {
           if (opts.savePageThrows !== undefined) throw opts.savePageThrows
@@ -194,9 +216,12 @@ function harness(opts: {
     cache: {
       async get(key) {
         calls.push(`cache.get:${String(key)}`)
+        if (opts.cacheGetThrows === true) throw new Error('the response cache is unreachable')
         return cache.get(key) ?? null
       },
       async put(key, value) {
+        calls.push(`cache.put:${String(key)}`)
+        if (opts.cachePutThrows === true) throw new Error('the response cache is unreachable')
         cache.set(key, value)
       },
     },
@@ -753,6 +778,12 @@ describe('the order of operations', () => {
     })
     await collectJsonPages(makeSpec(), config(), h.ctx)
 
+    // Both ordinals are pinned before they are compared. `indexOf` returns -1 for a call that
+    // never happened, and `-1 < 3` is true — so with the `await` on `savePage` dropped this
+    // assertion passed on a run where `save:1` had not been logged at all, which is the opposite
+    // of what it claims to check (CR-M-3).
+    expect(h.calls).toContain('save:1')
+    expect(h.calls).toContain('fetch:2')
     expect(h.calls.indexOf('save:1')).toBeLessThan(h.calls.indexOf('fetch:2'))
   })
 })
@@ -1073,6 +1104,146 @@ describe('conditional-request plumbing', () => {
     await collectJsonPages(spec, config(), h.ctx)
 
     expect(h.sent[0]?.headers).toEqual({ accept: 'application/json', 'if-none-match': 'W/"v1"' })
+  })
+})
+
+/**
+ * THE RESERVATION IS A RESOURCE, SO EVERY PATH RESOLVES IT.
+ *
+ * The ACCEPTANCE assertions come first and they are not derived from the finding: the
+ * specification is `reserve` -> at most one `reconcile` per reservation, on every path out of the
+ * span, with the resolution naming what we actually know about the billing. Written from the
+ * finding alone, every test here would have asserted a refusal and the arithmetic below — one
+ * reconcile per reserve, no more and no fewer — would never have been written.
+ */
+describe('every reservation an attempt takes is resolved exactly once', () => {
+  const metered = { unit: 'REQUEST' as const, amountPerRequest: 1 }
+
+  it('reconciles each page`s reservation once on a clean multi-page run', async () => {
+    const h = harness({
+      pages: [
+        { body: { jobs: [job('1')], next: 'c2' } },
+        { body: { jobs: [job('2')], next: null } },
+      ],
+    })
+    await collectJsonPages(makeSpec({ meter: metered }), config(), h.ctx)
+
+    expect(h.calls.filter((c) => c.startsWith('reserve:'))).toHaveLength(2)
+    expect(h.reconciles).toEqual([
+      { id: 'r1', resolution: 'USED' },
+      { id: 'r2', resolution: 'USED' },
+    ])
+  })
+
+  it('reconciles the reservation of a page the provider refused', async () => {
+    const h = harness({ pages: [{ status: 403 }] })
+    const batch = await collectJsonPages(makeSpec({ meter: metered }), config(), h.ctx)
+
+    // A 403 is a response: it provably arrived, so it is USED, and it is still resolved.
+    expect(h.reconciles).toEqual([{ id: 'r1', resolution: 'USED' }])
+    expect(batch.requests.at(-1)?.error?.code).toBe('ACCESS_POLICY')
+  })
+
+  it('releases — not holds — a reservation for a request that never left the process', async () => {
+    const h = harness({ pages: [onePage([job('1')])], cacheGetThrows: true })
+    const batch = await collectJsonPages(makeSpec({ meter: metered }), config(), h.ctx)
+
+    // RELEASED is the third resolution and the only honest one here: the cache threw BEFORE the
+    // fetch, so nothing left the process and nothing can have been billed. Asserting merely that
+    // *some* reconcile happened would pass for UNCERTAIN, which would overstate what we owe.
+    expect(h.reconciles).toEqual([{ id: 'r1', resolution: 'RELEASED' }])
+    expect(batch.outcome).toBe('FAILED')
+  })
+
+  it('resolves rather than rejects when the response cache cannot be read', async () => {
+    const h = harness({ pages: [onePage([job('1')])], cacheGetThrows: true })
+
+    // `.resolves`, never `.rejects.not.toThrow`. WITHOUT THE FIX this REJECTED: `ctx.cache.get`
+    // sat outside every catch and after `reserve`, so the measured meter log was `['reserve:1']`
+    // and `collectJsonPages` threw the cache's own error — no batch, no outcome, and a
+    // reservation held with no resolution (SR-M-1).
+    await expect(
+      collectJsonPages(makeSpec({ meter: metered }), config(), h.ctx),
+    ).resolves.toBeDefined()
+  })
+
+  it('reports a cache read failure as ours, not as the provider`s network', async () => {
+    const h = harness({ pages: [onePage([job('1')])], cacheGetThrows: true })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    const last = batch.requests.at(-1)
+    expect(last?.error?.code).toBe('PERSISTENCE')
+    expect(last?.error?.message).toContain('the response cache could not be read')
+    expect(last?.status).toBeNull()
+  })
+
+  it('keeps the pages that already landed when the cache stops answering', async () => {
+    const h = harness({
+      pages: [{ body: { jobs: [job('1')], next: 'c2' } }],
+      cacheGetThrows: false,
+    })
+    // Page one succeeds; the cache is then broken for page two by swapping the port under the
+    // loop, which is the only way to reach "a cache failure mid-attempt" through this seam.
+    let gets = 0
+    const realGet = h.ctx.cache.get.bind(h.ctx.cache)
+    h.ctx.cache.get = async (key) => {
+      gets += 1
+      if (gets > 1) throw new Error('the response cache is unreachable')
+      return realGet(key)
+    }
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(batch.outcome).toBe('PARTIAL')
+    expect(batch.observations).toHaveLength(1)
+    expect(batch.requests.at(-1)?.error?.code).toBe('PERSISTENCE')
+  })
+})
+
+/**
+ * The cache WRITE is the other direction, and its consequence is deliberately the opposite.
+ */
+describe('a page whose body arrived is kept, even if it cannot be cached', () => {
+  it('reports and persists the page when the cache write succeeds', async () => {
+    // ACCEPTANCE FIRST: the specification says a 200 carrying a validator is stored and the page
+    // is kept. Both halves, so the test below cannot pass by the page being dropped either way.
+    const h = harness({ pages: [{ etag: 'W/"v2"', body: { jobs: [job('1')], next: null } }] })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(h.cache.get('p1')).toEqual({ etag: 'W/"v2"', bodyText: expect.any(String) })
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.observations).toHaveLength(1)
+    expect(batch.counts.normalized).toBe(1)
+  })
+
+  it('keeps the page when the cache write fails', async () => {
+    const h = harness({
+      pages: [{ etag: 'W/"v2"', body: { jobs: [job('1')], next: null } }],
+      cachePutThrows: true,
+    })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    // WITHOUT THE FIX, measured: `observations` was empty, the outcome was FAILED and the error
+    // read `TRANSIENT_NETWORK: redis down` — a cache outage reported as the provider's network,
+    // with a page we had already fetched and paid for thrown away (CR-M-4).
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.coverage).toBe('FULL_INVENTORY')
+    expect(batch.observations).toHaveLength(1)
+    expect(batch.requests.map((r) => r.error)).toEqual([null])
+    expect(h.saved).toHaveLength(1)
+  })
+
+  it('still resolves the reservation of a page it could not cache', async () => {
+    const h = harness({
+      pages: [{ etag: 'W/"v2"', body: { jobs: [job('1')], next: null } }],
+      cachePutThrows: true,
+    })
+    await collectJsonPages(
+      makeSpec({ meter: { unit: 'REQUEST', amountPerRequest: 1 } }),
+      config(),
+      h.ctx,
+    )
+
+    expect(h.reconciles).toEqual([{ id: 'r1', resolution: 'USED' }])
   })
 })
 
