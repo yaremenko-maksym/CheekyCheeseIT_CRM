@@ -77,6 +77,20 @@ describe('computeContentHash: fields that must NOT move the hash', () => {
   })
 })
 
+describe('computeContentHash: application URL `ref`', () => {
+  it('two apply links differing only by ref hash differently (the stored link would go stale)', () => {
+    expect(hash({ applicationUrl: 'https://acme.example/apply?ref=job1' })).not.toBe(
+      hash({ applicationUrl: 'https://acme.example/apply?ref=job2' }),
+    )
+  })
+
+  it('a `ref` inside a description link is still noise and does not move the hash', () => {
+    expect(hash({ descriptionMd: 'Apply https://acme.example/a?ref=x' })).toBe(
+      hash({ descriptionMd: 'Apply https://acme.example/a?ref=y' }),
+    )
+  })
+})
+
 describe('computeContentHash: Unicode', () => {
   it('composed and decomposed spellings of the same text hash identically; different text does not', () => {
     const composed = { title: 'Caf\u00e9 Engineer', tags: ['caf\u00e9'], location: 'Z\u00fcrich' }
@@ -216,6 +230,15 @@ describe('stripTrackingParams: ordering, anchoring and output shape', () => {
   ])('drops the tracking param %s', (name) => {
     expect(stripTrackingParams(`https://a.example/p?${name}=1&job=5`)).toBe(
       'https://a.example/p?job=5',
+    )
+  })
+
+  it('keeps `ref` on an application URL, where it can select the job; still drops utm_*', () => {
+    expect(
+      stripTrackingParams('https://a.example/apply?ref=job1&utm_source=x&job=5', 'application'),
+    ).toBe('https://a.example/apply?job=5&ref=job1')
+    expect(stripTrackingParams('https://a.example/apply?ref=job1&job=5')).toBe(
+      'https://a.example/apply?job=5',
     )
   })
 

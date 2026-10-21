@@ -40,8 +40,19 @@ const RELATIVE_AGE = new RegExp(
 
 const URL_IN_TEXT = /https?:\/\/[^\s)>\]"']+/g
 
-/** Drops tracking params and the fragment; remaining params are sorted. Non-URLs pass through. */
-export function stripTrackingParams(raw: string): string {
+/**
+ * `ref` is noise on a link buried in prose, but on an APPLICATION url it can be the job or
+ * requisition selector (`?ref=job1` vs `?ref=job2` are different apply targets). The hash is the
+ * revision dedupe key, so stripping it there would collapse two different links into one revision
+ * and leave the stored link stale. Unambiguous trackers (utm_*, click ids, ref_src) stay stripped.
+ */
+const AMBIGUOUS_ON_APPLICATION_URL = /^ref$/i
+
+/**
+ * Drops tracking params and the fragment; remaining params are sorted. Non-URLs pass through.
+ * `scope: 'application'` keeps params that may select the apply target (see above).
+ */
+export function stripTrackingParams(raw: string, scope: 'text' | 'application' = 'text'): string {
   let url: URL
   try {
     url = new URL(raw)
@@ -52,7 +63,11 @@ export function stripTrackingParams(raw: string): string {
   // keys so the family has one canonical order instead of two. Byte-for-byte the same output, which
   // matters: `ch1` hashes already in `job_content_hash` must not move without a version bump.
   const query = canonicalParams(
-    [...url.searchParams].filter(([name]) => !TRACKING_PARAM.test(name)),
+    [...url.searchParams].filter(
+      ([name]) =>
+        !TRACKING_PARAM.test(name) ||
+        (scope === 'application' && AMBIGUOUS_ON_APPLICATION_URL.test(name)),
+    ),
   ).join('&')
   return `${url.origin}${url.pathname}${query ? `?${query}` : ''}`
 }
@@ -99,7 +114,7 @@ export function computeContentHash(
       // NFC BEFORE dedupe and sort: composed and decomposed spellings are one tag, and sorting
       // raw code units first would order them differently than their normalized forms.
       [...new Set(fields.tags.map((t) => t.normalize('NFC')))].sort(),
-      fields.applicationUrl && stripTrackingParams(fields.applicationUrl),
+      fields.applicationUrl && stripTrackingParams(fields.applicationUrl, 'application'),
       dates,
     ]),
   )
