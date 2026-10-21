@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ATTACK FIXTURE. Classic XXE: a general entity declared with a SYSTEM file identifier
+  and referenced in content. The canary path is deliberately one that does not exist, so
+  a parser that DID dereference it would fail loudly rather than leak a real file.
+
+  WHAT A PASSING TEST ON THIS DOCUMENT PROVES, PRECISELY: that the port refuses a
+  document of this shape. It does NOT by itself prove the parser cannot expand entities,
+  because the port's own <!DOCTYPE refusal fires before the parser is reached — the exact
+  masking the ADR found in its first attempt (SR-H-1). The capability claim is carried by
+  `attack-internal-entity.xml`, run against the adapter with this gate bypassed.
+-->
+<!DOCTYPE feed [
+  <!ENTITY xxe SYSTEM "file:///nonexistent/crm-xxe-canary-7f3a9b.txt">
+]>
+<rss version="2.0">
+  <channel>
+    <item><title>&xxe;</title></item>
+  </channel>
+</rss>

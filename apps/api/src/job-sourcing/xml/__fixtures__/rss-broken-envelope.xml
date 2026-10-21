@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SYNTHETIC. A feed truncated mid-download: <title> never closes, and neither does
+  anything above it.
+
+  This document is one of the two reasons the parser choice went the way it did.
+  `fast-xml-parser` returns {"title":""} for it — a structurally plausible object for a
+  half-downloaded feed, reported as success with vacancies silently missing, which is
+  the worst available failure mode. The plan requires malformed = drift, so this MUST
+  raise, and the test asserting so is compatibility evidence for the whole decision.
+-->
+<rss version="2.0">
+  <channel>
+    <title>Example jobs</title>
+    <item>
+      <title>Backend Dev

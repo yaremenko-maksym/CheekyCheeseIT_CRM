@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SYNTHETIC — AND THE PROVENANCE GAP IS DELIBERATE, NOT AN OVERSIGHT.
+
+  The r5 plan asks Task 2.4 for AUTHENTIC Djinni / WeWorkRemotely / EU-board feeds.
+  Obtaining those means outbound GETs to live job boards, which this project requires
+  the owner's explicit go for. So the one authentic-grammar feed in this corpus is the
+  committed DOU sample (`../../__fixtures__/dou-feed.golden.xml`), and this file carries
+  the SHAPES those three boards are documented to use, with field values invented.
+
+  What it therefore proves: the port handles these structures. What it does NOT prove:
+  that any of these boards actually emits them. Phase 3 re-acquires each feed under the
+  plan's fixture protocol (provenance, date, hash) and this file is superseded then.
+
+  Shapes represented, each the thing the board is known for:
+    - a `<group>` of items where one member is well-formed and another lacks a link
+      (the plan's "partial group": one bad member must not void the rest);
+    - the same item twice with a CHANGED description (the "updated descriptions" case);
+    - a non-conventional namespace prefix for a standard vocabulary.
+-->
+<rss version="2.0" xmlns:j="http://purl.org/rss/1.0/modules/content/">
+  <channel>
+    <title>Mixed-board synthetic shapes</title>
+    <link>https://example.org/feed</link>
+    <group>
+      <item>
+        <title>Remote Rust Engineer</title>
+        <link>https://example.org/jobs/rust-1</link>
+        <guid isPermaLink="false">rust-1</guid>
+        <j:encoded><![CDATA[<p>Rust, tokio, <i>async</i></p>]]></j:encoded>
+      </item>
+      <item>
+        <title>Member with no link at all</title>
+        <guid isPermaLink="false">broken-2</guid>
+      </item>
+    </group>
+    <item>
+      <title>Remote Rust Engineer</title>
+      <link>https://example.org/jobs/rust-1</link>
+      <guid isPermaLink="false">rust-1</guid>
+      <j:encoded><![CDATA[<p>Rust, tokio — now with <b>Postgres</b></p>]]></j:encoded>
+    </item>
+  </channel>
+</rss>

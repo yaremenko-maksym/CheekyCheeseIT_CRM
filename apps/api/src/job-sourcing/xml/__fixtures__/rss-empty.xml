@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SYNTHETIC. A VALID feed carrying zero items. The plan's contract: valid empty =
+  success with no observations, never drift. Kept distinct from the broken envelope so
+  a port that conflated "nothing to read" with "could not read" fails one of the two.
+-->
+<rss version="2.0">
+  <channel>
+    <title>No vacancies right now</title>
+    <link>https://example.com/jobs</link>
+    <description>Empty but well-formed</description>
+  </channel>
+</rss>
