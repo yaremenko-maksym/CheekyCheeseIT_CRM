@@ -245,31 +245,77 @@ when author == reviewer (one owner account `yaremenko-maksym`) — `APPROVE` ret
 `"Can not approve your own pull request"`. `COMMENT` + `Verdict:` on the first line
 of the body is used, Master parses the first line. Verified on PR #536 (2026-08-17).
 
-### 4.1. Review Gate — the verdict as a required check (lite)
+### 4.1. Flow Gate — the flow as a required check
 
-Until 2026-10-21 the review step lived only in this file and in Master's pipeline; a collaborator
-working from another harness merged five critical-path PRs with zero reviews. The `Review Gate`
-check (`.github/workflows/review-gate.yml`, logic in `scripts/architect/review-gate.mjs`) makes the
-review decision explicit for **every** PR, the owner's included. It passes when any one holds:
+Until 2026-10-21 the flow (task → plan → tests → review → security / spec / copy review → QA /
+design → AC) lived only in this file and in Master's pipeline. A collaborator working from another
+harness merged five critical-path PRs with zero reviews. The owner then decided that **the flow is
+the default for everyone** (owner, collaborator, any harness), and skipping a step must be
+deliberate. The `Flow Gate` check (`.github/workflows/flow-gate.yml`; logic and step table
+`STEPS` in `scripts/architect/flow-gate.mjs`) enforces that on every PR into `main`.
 
-| Path          | Condition                                                                                          |
-| ------------- | -------------------------------------------------------------------------------------------------- |
-| `docs-only`   | every changed path is `*.md` or under `.claude/` (the light-track exemption)                       |
-| `verdict`     | a review whose verdict line is `Verdict: APPROVE`, and no `Verdict: BLOCK` review submitted after it |
-| `skip-review` | label `skip-review` **and** a PR-body line `Skip-Review-Reason: <why>` (≥ 10 chars), echoed in the job summary |
+**Exemption:** a docs-only diff passes outright: every changed path, rename sources included, ends
+in `.md`. Non-markdown files under `.claude/` (hooks, settings, scripts) are process config and go
+through the steps.
 
-Otherwise it fails with: _"No reviewer verdict. Run code-reviewer (and security-reviewer on critical
-paths), or set label `skip-review` and add `Skip-Review-Reason: <why>` to the PR body."_
+**Each step** is either satisfied by evidence, or skipped by a PR-body line
+`Skip-<Step>: <reason>`. The key is case-insensitive and may be a list item. The reason must be at
+least 10 characters, and it is echoed into the job summary. A skip inside an HTML comment does not
+count.
 
-What it is: an intentional, recorded choice instead of a silent default. What it is **not**: a
-defence against a malicious write-role user — anyone can post a review saying `Verdict: APPROVE`.
-The security-reviewer obligation for critical-path zones (§2.1) stays procedural, as before.
+| Step              | Required when                                                                                           | Evidence                                                                                 |
+| ----------------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `Task`            | always                                                                                                  | PR-body line `Task: <path or issue link>` (declared, not verified)                       |
+| `Plan`            | always                                                                                                  | PR-body line `Plan: <where>`                                                             |
+| `Tests`           | non-test product code changes under `apps/` or `packages/`                                              | the diff also changes a test file (`*.spec\|test.*`, `__tests__/`, `apps/e2e/**`)        |
+| `Review`          | always                                                                                                  | review: `Verdict: APPROVE` is the latest `Verdict:` (code-reviewer)                      |
+| `Security-Review` | a critical path (§2.1 zones, plus `.github/workflows/**`, `.claude/hooks/**`, `.claude/settings*.json`) | review: `Security Review: APPROVE` is the latest (security-reviewer)                     |
+| `Spec-Review`     | a `Task:` line is declared                                                                              | review: `Spec Review: PASS` is the latest (`ISSUES` / `BLOCK` are negative)              |
+| `Copy-Review`     | `packages/shared/src/i18n/locales/**` or `apps/landing/app/i18n/dictionaries/**` changes                | review: `Copy Review: PASS` is the latest                                                |
+| `QA`              | non-test UI code changes under `apps/web/` or `apps/landing/`                                           | review **or PR comment**: `QA Verdict: PASS` is the latest (`FAIL` is negative)          |
+| `Design-Review`   | same as `QA`                                                                                            | review **or PR comment**: `Design Review: PASS` is the latest (`POLISH-REQUESTED` / `BLOCK` negative) |
+| `AC`              | always                                                                                                  | the last non-`wip`, non-merge commit has a line starting `ac_verified:`                  |
 
-It re-runs on push, label changes, PR-body edits and submitted/dismissed reviews.
+**Verdict semantics, the same for every step:**
 
-**Owner follow-up (after merge — the context must have run once):** add it to the required checks,
-bound to the GitHub Actions app so a hand-posted commit status cannot satisfy it. The command
-replaces the whole check list, so it restates the four existing ones:
+- A verdict is a line of its own. Markdown decoration is tolerated. The first marker of a kind in a
+  body is that body's verdict; a verdict quoted in the middle of a sentence does not count.
+- For each kind, the **latest** counting verdict decides.
+- A dismissed positive verdict does not count. A negative one counts even if dismissed. Pending
+  reviews are ignored.
+- Verdicts count only from `OWNER` / `MEMBER` / `COLLABORATOR` associations, positive and negative
+  alike. The repo is public, so any GitHub user can comment. The PR author is not excluded: the
+  owner's agents post as the owner.
+- A recorded skip passes even after a BLOCK.
+
+**Fail-closed completeness.** If the listed files or commits differ from the PR's own
+`changed_files` / `commits`, the check fails. It also fails at or above the API caps (3000 files,
+250 commits). The message is _"could not read the whole PR"_, and no skip line covers it.
+
+**What it is, and is not.** It enforces an intentional, recorded choice: a skipped step becomes a
+visible, attributable line instead of silence. It is **not** a defence against a malicious
+write-role user. Anyone with write access can post `Verdict: APPROVE` or write a skip line, and
+self-review counts.
+
+**Known limitations (accepted with the lite model):**
+
+1. **A verdict survives later pushes.** It is not bound to the head sha. The flow expects a delta
+   re-review after a fix push, and the gate does not enforce one.
+2. **No re-run on review.** There is no `pull_request_review` trigger, because that event runs the
+   PR's own copy of the workflow. After a review lands, re-run the check with a PR-body edit or a
+   label change.
+3. **Stale red run vs auto-merge.** `auto-merge-on-label.yml` fails fast on a failing required
+   check. If `merge-approved` is applied while the previous Flow Gate run is red, auto-merge can
+   read that run before the label-triggered run has started. It then posts its "did not complete"
+   comment. Re-applying the label fixes it. `auto-merge-on-label.yml` is deliberately unchanged.
+
+**Light-track PRs** skip the steps they do not run with the reason `light-track: <why>`
+(`light-track.md`). The PR template (`.github/pull_request_template.md`) carries a `## Flow` block,
+and root `AGENTS.md` tells other harnesses the same.
+
+**Owner follow-up, after merge.** The context must exist first. Add it to the required checks,
+bound to the GitHub Actions app so that a hand-posted commit status cannot satisfy it. The PATCH
+replaces the whole list, so it restates the four existing checks:
 
 ```bash
 gh api -X PATCH repos/yaremenko-maksym/CheekyCheeseIT_CRM/branches/main/protection/required_status_checks \
@@ -279,14 +325,13 @@ gh api -X PATCH repos/yaremenko-maksym/CheekyCheeseIT_CRM/branches/main/protecti
   {"context": "E2E Tests", "app_id": 15368},
   {"context": "Integration Tests (Postgres)", "app_id": 15368},
   {"context": "Mutation Gate", "app_id": 15368},
-  {"context": "Review Gate", "app_id": 15368}
+  {"context": "Flow Gate", "app_id": 15368}
 ]}
 EOF
 ```
 
-Then the `skip-review` label must exist (it is declared in `.github/labels.yml`; create it with
-`gh label create skip-review --color fbca04 --description "Review Gate bypass — requires a Skip-Review-Reason: line in the PR body (review-gate.yml)"`
-or a labels-sync run).
+Verify: `gh api repos/yaremenko-maksym/CheekyCheeseIT_CRM/branches/main/protection --jq '.required_status_checks.contexts'`
+lists `Flow Gate`.
 
 ---
 

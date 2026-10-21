@@ -273,12 +273,14 @@ Test users (`apps/api/src/database/seed.ts`): `admin`, `senior1`, `senior2`, `ju
 | `auto-merge-on-label.yml` | `pull_request` labeled               | Auto-squash-merge on the label `merge-approved`   |
 | `e2e-watchdog.yml`        | scheduled / events                   | E2E control                                       |
 | `labels-sync.yml`         | scheduled                            | Sync labels                                       |
-| `review-gate.yml`         | `pull_request_target` + review       | `Review Gate` (lite): reviewer verdict, docs-only, or recorded `skip-review` — see `contracts.md` §4.1 |
+| `flow-gate.yml`           | `pull_request_target`                | `Flow Gate`: every flow step satisfied by evidence or skipped by a `Skip-<Step>: <reason>` PR-body line; docs-only (`*.md`) exempt — `contracts.md` §4.1 |
 | `architect-scripts.yml`   | `pull_request` (scripts/architect)   | node:test for `scripts/architect/*.test.mjs`, asserts a non-zero pass count |
 
-**Review Gate — owner follow-up.** The check only blocks once it is a required context on `main`.
+**Flow Gate — owner follow-up.** The check only blocks once it is a required context on `main`.
 Until the owner adds it (command in `contracts.md` §4.1, bound to the GitHub Actions app), a red
-`Review Gate` is advisory. Verify: `gh api repos/yaremenko-maksym/CheekyCheeseIT_CRM/branches/main/protection --jq '.required_status_checks.contexts'` lists `Review Gate`.
+`Flow Gate` is advisory. Verify: `gh api repos/yaremenko-maksym/CheekyCheeseIT_CRM/branches/main/protection --jq '.required_status_checks.contexts'` lists `Flow Gate`.
+The default is visible to every harness through `.github/pull_request_template.md` (`## Flow`) and
+the committed root `AGENTS.md` (turbo appends its managed block to it; that block stays committed).
 
 Master dispatches Coder/Reviewer/AutoTest/DevOps **locally** via `Agent(isolation="worktree")`. Any mentions of "PM runs `gh workflow run coder.yml`" in old docs — are stale.
 
