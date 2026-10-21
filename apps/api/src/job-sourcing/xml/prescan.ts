@@ -101,7 +101,10 @@ function endOfMarkupDeclaration(text: string, from: number): number {
  * Quote tracking is the whole job: `<a href="a > b"/>` ends at the LAST `>`, and a scan that took
  * the first one would mis-nest everything after it.
  */
-function endOfStartTag(text: string, from: number): { end: number; selfClosing: boolean } | null {
+function endOfStartTag(
+  text: string,
+  from: number,
+): { resumeFrom: number; selfClosing: boolean } | null {
   let i = from
   let quote: string | null = null
   while (i < text.length) {
@@ -112,8 +115,14 @@ function endOfStartTag(text: string, from: number): { end: number; selfClosing: 
       quote = ch
     } else if (ch === '>') {
       const selfClosing = text[i - 1] === '/'
-      // Stryker disable next-line ArithmeticOperator: `end` is consumed ONLY as the resume index for `text.indexOf('<', end)`, and `i` is a `>` — so starting the search at the `>` or just past it reaches the same next `<`. Proven by applying `i - 1` and running the suite: 331/331 still pass. The mutator cannot mask anything else on this line, which is why the `text[i - 1]` probe was lifted out above (it IS observable, and the self-closing cases kill it).
-      return { end: i + 1, selfClosing }
+      // `resumeFrom: i` — the index OF the `>`, not past it, and the name says so.
+      //
+      // It was `end: i + 1`, which carried an unobservable `ArithmeticOperator` mutant: the value
+      // is consumed only as the start of `text.indexOf('<', …)`, and `text[i]` is a `>`, so
+      // searching from the `>` or from just after it reaches the same next `<`. Rather than
+      // suppress that mutant with an explanation, the arithmetic is gone — there is nothing left
+      // to mutate, and the field's name now states the weaker contract it actually has.
+      return { resumeFrom: i, selfClosing }
     }
     i += 1
   }
@@ -225,7 +234,7 @@ export function prescanStructure(text: string, budget: PrescanBudget): PrescanOu
     const tag = endOfStartTag(text, i)
     if (tag === null) break
     if (tag.selfClosing) depth -= 1
-    i = tag.end
+    i = tag.resumeFrom
   }
 
   return { ok: true, maxDepth, elementCount }
