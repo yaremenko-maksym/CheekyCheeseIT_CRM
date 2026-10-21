@@ -108,6 +108,11 @@ export interface CollectionWindow {
  * `query` being non-null is what makes a scope a SEARCH scope, and a search scope that hits the
  * page cap is a WINDOW rather than a truncated inventory (AC1). A full-inventory scope that hits
  * the cap is PARTIAL — we were supposed to see everything and did not.
+ *
+ * ONE `namespace`, SINGULAR, AND THAT IS THE LAYER BOUNDARY. A batch covers one board, so this
+ * layer has no representation for a multi-board attempt and no opinion about one. Aggregating
+ * several boards into a cycle verdict belongs to the collector (plan Task 2.5) — see the note on
+ * `deriveOutcome` (SPEC-M-2).
  */
 export interface SourceCoverageScope {
   namespace: string
@@ -979,29 +984,33 @@ export interface CollectionBatchFields {
 
 export type CollectionBatch = CollectionBatchFields & { readonly [BATCH_BUILT]: true }
 
-/** True only of a batch that went through `buildCollectionBatch`. */
+/**
+ * True only of a batch that went through `buildCollectionBatch`.
+ *
+ * ITS CALLER IS A TEST, DELIBERATELY, and that is a justification rather than an admission. The
+ * production claim it exists for is the one three lines down in `buildCollectionBatch`: the brand
+ * is installed NON-ENUMERABLE, so it never reaches `JSON.stringify`, a log line or a database
+ * row. `BATCH_BUILT` is module-private, so a spec cannot name the symbol and `{ ...batch }`
+ * losing the brand is not observable from outside this file by any other means. Delete this and
+ * the non-enumerability becomes an unverifiable comment.
+ *
+ * WHAT WAS DELETED beside it: `assertBuiltBatch` and `UnbuiltBatchError`, the throwing wrapper,
+ * which had no production caller and — re-examined this round — no boundary to guard. The
+ * justification offered for keeping them was "a provider resolved from a registry", so the
+ * registry was looked at: `JobSourcingService` holds a `Map<JobSourceType, JobSourceProvider>`
+ * built in its constructor from DI-injected providers, and `collectReport` is typed to return
+ * `Promise<CollectionBatch>`. No `unknown` crosses into it anywhere, so the compile-time brand
+ * already covers every path a batch can take in this codebase, and the runtime assert was a seam
+ * with no adapter. Phase 3's collector can add one line back when it has the boundary that makes
+ * it fail — written then, with the test that motivates it, rather than now with a test that
+ * asserts an imagined need.
+ */
 export function isBuiltBatch(value: unknown): value is CollectionBatch {
   return (
     typeof value === 'object' &&
     value !== null &&
     (value as Record<PropertyKey, unknown>)[BATCH_BUILT] === true
   )
-}
-
-export class UnbuiltBatchError extends Error {
-  constructor() {
-    super('a CollectionBatch reached the collector without going through buildCollectionBatch')
-    this.name = 'UnbuiltBatchError'
-  }
-}
-
-/**
- * The runtime half of the brand, for the dynamic boundary the type cannot reach: a provider
- * resolved from a registry, or one compiled separately from this package. The compile-time half
- * covers the 25 adapters that live in this repository.
- */
-export function assertBuiltBatch(value: unknown): asserts value is CollectionBatch {
-  if (!isBuiltBatch(value)) throw new UnbuiltBatchError()
 }
 
 /** Why an attempt stopped. `EXHAUSTED` is the only one that can carry SUCCEEDED. */
@@ -1027,12 +1036,27 @@ export interface DerivationFacts {
 
 /**
  * The outcome, from what happened. `CANCELLED` wins over everything (an aborted run claims
- * nothing); an error with no completed page is `FAILED`; an error after at least one completed page
- * is `PARTIAL`, which is also what "one board failing" means for a multi-board attempt (AC1).
+ * nothing); an error with no completed page is `FAILED`; an error after at least one completed
+ * page is `PARTIAL`.
  *
  * A page cap or a cursor cycle is NOT a failure: we stopped on our own bound, having kept
  * everything we read. It reports `SUCCEEDED` and loses its claim on the COVERAGE axis instead,
  * which is the distinction `deriveCoverage` exists to carry.
+ *
+ * "ONE BOARD FAILING = PARTIAL" IS NOT THIS FUNCTION'S CLAIM, AND THIS IS WHERE IT USED TO SAY IT
+ * WAS. The sentence read "...which is also what 'one board failing' means for a multi-board
+ * attempt (AC1)" — an assertion about a layer that does not exist yet, in a comment, with no test
+ * behind it and no code it could describe (SPEC-M-2). A `CollectionBatch` covers ONE
+ * `SourceCoverageScope`, whose `namespace` is one board; `collectJsonPages` is called once per
+ * source and iterates pages, never namespaces. There is no input to this function in which two
+ * boards appear, so there is nothing here to test either.
+ *
+ * WHO OWNS IT: the collector (plan Task 2.5) and `JobSourcingService`'s provider loop, which run
+ * one attempt per configured source and aggregate the batches into a cycle. "One board failing"
+ * is a statement about that aggregate — several batches, one of them FAILED, the cycle PARTIAL —
+ * and the test for it belongs with the code that does the aggregating. What this layer guarantees
+ * is the input that makes the aggregate derivable: a failed board's batch reports `FAILED` or
+ * `PARTIAL` and never `SUCCEEDED`, which IS tested here.
  */
 export function deriveOutcome(facts: DerivationFacts): CollectionOutcome {
   // An exhaustive switch rather than a fall-through `return 'SUCCEEDED'`. With a fall-through, any

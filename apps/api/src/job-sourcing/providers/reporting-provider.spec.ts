@@ -28,7 +28,6 @@ import {
   DROPPED_URL_TOO_LONG,
   MAX_SAMPLE_CHARS,
   MAX_SAMPLES,
-  assertBuiltBatch,
   redactSecrets,
   redactText,
   redactUrl,
@@ -36,7 +35,6 @@ import {
   type SourceCoverageScope,
   type StopReason,
   toStoredReportCounts,
-  UnbuiltBatchError,
   type ValidatedCheckpoint,
   validatedCheckpointSchema,
 } from './reporting-provider'
@@ -1143,10 +1141,6 @@ describe('construction is the only path to a batch (CR-H-2)', () => {
     expect(isBuiltBatch(built)).toBe(true)
   })
 
-  it('refuses an adapter-made literal at the collector boundary', () => {
-    expect(() => assertBuiltBatch(adapterLiteral)).toThrow(UnbuiltBatchError)
-  })
-
   it.each([[null], [undefined], ['a batch'], [42], [[]]])(
     'does not recognise %s as a batch',
     (value) => {
@@ -1164,7 +1158,6 @@ describe('construction is the only path to a batch (CR-H-2)', () => {
     })
 
     expect(isBuiltBatch(batch)).toBe(true)
-    expect(() => assertBuiltBatch(batch)).not.toThrow()
   })
 
   /** The brand must never reach a database row or a log line — the reason it is non-enumerable. */
@@ -2055,13 +2048,6 @@ describe('the request-report brand is installed the same way as the batch brand'
       'cost',
     ])
     expect(JSON.parse(JSON.stringify(report))).not.toHaveProperty('requestReportBuilt')
-  })
-
-  it('names the unbuilt-batch failure in the words an operator would read', () => {
-    expect(new UnbuiltBatchError().message).toBe(
-      'a CollectionBatch reached the collector without going through buildCollectionBatch',
-    )
-    expect(new UnbuiltBatchError().name).toBe('UnbuiltBatchError')
   })
 })
 

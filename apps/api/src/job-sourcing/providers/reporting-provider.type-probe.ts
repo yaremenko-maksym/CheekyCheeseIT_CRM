@@ -1,4 +1,14 @@
+import { z } from 'zod'
 import type { CollectionBatch, CollectionBatchFields, RequestReport } from './reporting-provider'
+import type { ApiJsonSourceSpec } from './api-json.provider'
+import { baseSourceConfigSchema } from './api-json.provider'
+
+const probeConfigSchema = baseSourceConfigSchema.extend({})
+const probeItemSchema = z.object({ id: z.string() })
+const probeEnvelopeSchema = z.object({ jobs: z.array(z.unknown()) })
+type ProbeConfig = z.infer<typeof probeConfigSchema>
+type ProbeItem = z.infer<typeof probeItemSchema>
+type ProbeEnvelope = z.infer<typeof probeEnvelopeSchema>
 
 /**
  * COMPILE-TIME proof of the construction brands (CR-H-2). Not a spec, deliberately.
@@ -43,4 +53,42 @@ export function brandIsRequired(): void {
   // @ts-expect-error a report that did not go through buildRequestReport is not a RequestReport
   const reportFromLiteral: RequestReport = reportFields
   void reportFromLiteral
+}
+
+/**
+ * `nativeIdOf` IS REQUIRED ON THE ADAPTER SPEC (SPEC-M-1), checked here for the same reason the
+ * brands are: the only `ApiJsonSourceSpec` literals in this repository today live in `.spec.ts`
+ * files, which `apps/api/tsconfig.json` excludes — so an omission would surface as a runtime
+ * `TypeError` in one suite rather than as a typecheck failure, and phase 3's 25 adapters are
+ * precisely the authors for whom "the compiler will not let you forget" has to be true.
+ *
+ * HOW IT FAILS: make the field optional again and the literal below starts compiling, the
+ * directive becomes unused, and `tsc` reports "Unused '@ts-expect-error' directive".
+ */
+export function nativeIdOfIsRequired(): void {
+  // @ts-expect-error an adapter spec without nativeIdOf gets no AC5 duplicate-collapse check
+  const withoutNativeIdOf: ApiJsonSourceSpec<ProbeConfig, ProbeEnvelope, ProbeItem> = {
+    type: 'REMOTEOK_API',
+    adapterVersion: 'probe-1',
+    configSchema: probeConfigSchema,
+    envelopeSchema: probeEnvelopeSchema,
+    itemSchema: probeItemSchema,
+    pageRequest: () => ({ request: { url: 'https://api.example.com/jobs' } }),
+    extractItems: (envelope) => envelope.jobs,
+    nextCursor: () => null,
+    mapItem: (item) => ({
+      namespace: 'board',
+      nativeId: item.id,
+      url: `https://jobs.example.com/j/${item.id}`,
+      title: item.id,
+      companyName: item.id,
+    }),
+    scopeOf: (config) => ({
+      namespace: config.namespace,
+      query: null,
+      configVersion: config.configVersion,
+      window: null,
+    }),
+  }
+  void withoutNativeIdOf
 }

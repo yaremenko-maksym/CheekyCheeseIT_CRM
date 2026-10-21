@@ -179,9 +179,23 @@ export interface ApiJsonSourceSpec<TConfig extends SourceConfigFields, TEnvelope
    * case. Without this field the check would be unreachable code: its passing would be
    * indistinguishable from its absence.
    *
-   * Defaults to the id the adapter passed into the identity.
+   * IT IS REQUIRED, AND IT USED TO BE OPTIONAL WITH A DEFAULT OF `raw.nativeId`. That default was
+   * silently empty in precisely the case the check exists for: an adapter keyed on the URL has
+   * `raw.nativeId === null`, so the AC5 guard saw `null` for every item, compared nothing, and
+   * reported success. Measured, two items with provider ids `1` and `2` sharing one canonical URL
+   * produced `SUCCEEDED` with two observations collapsed onto one identity key — and the adapter
+   * author got no signal, at compile time or at run time, that the check they most needed was
+   * switched off (SPEC-M-1). All 25 of phase 3's adapters write this field, which is the cost of
+   * the field being impossible to forget rather than merely documented.
+   *
+   * There are exactly two honest implementations:
+   *  - `(item) => item.id` (or wherever the provider's id lives), including for a URL-keyed
+   *    adapter — ESPECIALLY for one, since that is the configuration AC5 guards;
+   *  - `() => null`, for a provider that genuinely issues no per-posting id. This SWITCHES THE
+   *    AC5 CHECK OFF for the source, so it is a claim about the provider, written down and
+   *    reviewable — which is the whole difference from the omission it replaces.
    */
-  nativeIdOf?(item: TItem, config: TConfig): string | null
+  nativeIdOf(item: TItem, config: TConfig): string | null
   scopeOf(config: TConfig): SourceCoverageScope
   readonly limits?: Partial<ApiJsonLimits>
   /** What one page costs. Reserved BEFORE any I/O, per the store's reservation ordering. */
@@ -1045,7 +1059,10 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
     }
 
     const { identityKey } = result.observation.identity
-    const nativeId = spec.nativeIdOf?.(validated.data, config) ?? raw.nativeId ?? null
+    // No `?? raw.nativeId` fallback: the spec field is required, so there is nothing to fall back
+    // from, and the fallback was the defect (SPEC-M-1). An adapter that returns `null` here has
+    // said so deliberately.
+    const nativeId = spec.nativeIdOf(validated.data, config)
     // The suppression that used to sit here claimed this guard was unobservable. It is not, and
     // the difference is a false ADAPTER_INVARIANT: with the guard removed, an item whose provider
     // id is unknown records `null` against its identity key, and the NEXT item on that same key —

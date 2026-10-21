@@ -75,6 +75,9 @@ function makeSpec(
     }),
     extractItems: (envelope) => envelope.jobs,
     nextCursor: (envelope) => envelope.next,
+    // Required since SPEC-M-1, and stated here rather than defaulted: this fake adapter keys
+    // identity on the provider's id, so its `nativeIdOf` is that same id.
+    nativeIdOf: (item) => item.id,
     mapItem: (item, config) => ({
       namespace: config.namespace,
       nativeId: item.id,
@@ -2297,5 +2300,224 @@ describe('the per-attempt bound, pinned on BOTH sides (SR-H-1)', () => {
     await collectJsonPages(makeSpec({ limits: { maxPages: 2 } }), config(), h.ctx)
 
     expect(h.saved[0]?.position.page).toBe(11)
+  })
+})
+
+/**
+ * THE NAMESPACE IS PART OF THE IDENTITY KEY, so two boards cannot collide and one board can.
+ *
+ * The plan's red→green list names "namespace collision" and nothing tested it (SPEC-L-1). Both
+ * halves are here because only the pair says anything: that two namespaces differ is vacuous if
+ * the same namespace also differs, and that the same namespace collapses is vacuous if everything
+ * collapses. The behaviour under test is `buildIdentity`'s tuple, reached through the loop — the
+ * seam the 25 adapters use — rather than called directly.
+ */
+describe('a namespace scopes identity, so boards cannot collide with each other', () => {
+  const keysOf = (batch: { observations: Array<{ identity: { identityKey: string } }> }) =>
+    batch.observations.map((o) => o.identity.identityKey)
+
+  it('gives one posting different identity keys under different namespaces', async () => {
+    const page = [job('shared-id')]
+    const a = harness({ pages: [{ body: { jobs: page, next: null } }] })
+    const b = harness({ pages: [{ body: { jobs: page, next: null } }] })
+
+    const first = await collectJsonPages(makeSpec(), config({ namespace: 'board-a' }), a.ctx)
+    const second = await collectJsonPages(makeSpec(), config({ namespace: 'board-b' }), b.ctx)
+
+    expect(keysOf(first)).toHaveLength(1)
+    expect(keysOf(second)).toHaveLength(1)
+    expect(keysOf(first)).not.toEqual(keysOf(second))
+    // And the namespace is in the key itself, so the difference is the namespace and not some
+    // other accident of the two runs.
+    expect(keysOf(first)[0]).toContain('board-a')
+    expect(keysOf(second)[0]).toContain('board-b')
+  })
+
+  it('gives one posting the SAME identity key under the same namespace', async () => {
+    const page = [job('shared-id')]
+    const a = harness({ pages: [{ body: { jobs: page, next: null } }] })
+    const b = harness({ pages: [{ body: { jobs: page, next: null } }] })
+
+    const first = await collectJsonPages(makeSpec(), config({ namespace: 'board-a' }), a.ctx)
+    const second = await collectJsonPages(makeSpec(), config({ namespace: 'board-a' }), b.ctx)
+
+    expect(keysOf(first)).toEqual(keysOf(second))
+  })
+
+  it('does not call a repeated posting within one namespace an adapter invariant failure', async () => {
+    // A provider legitimately re-lists the same posting across pages, and the identity key is
+    // SUPPOSED to collapse those: same namespace, same provider id, one posting. AC5 is about
+    // DIFFERENT provider ids collapsing, which is the next test.
+    const h = harness({
+      pages: [
+        { body: { jobs: [job('dup')], next: 'c2' } },
+        { body: { jobs: [job('dup')], next: null } },
+      ],
+    })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(new Set(keysOf(batch)).size).toBe(1)
+    // Not de-duplicated HERE: the store has a `duplicates` disposition and the collector owns it.
+    expect(batch.counts.normalized).toBe(2)
+  })
+
+  it('still reports a collapse of two DIFFERENT provider ids within one namespace', async () => {
+    const h = harness({
+      pages: [
+        {
+          body: {
+            jobs: [
+              job('x', { url: 'https://jobs.example.com/one' }),
+              job('y', { url: 'https://jobs.example.com/one' }),
+            ],
+            next: null,
+          },
+        },
+      ],
+    })
+    const batch = await collectJsonPages(
+      makeSpec({
+        mapItem: (item, cfg) => ({
+          namespace: cfg.namespace,
+          nativeId: null,
+          url: item.url,
+          title: item.title,
+          companyName: item.company,
+        }),
+      }),
+      config(),
+      h.ctx,
+    )
+
+    expect(batch.requests.at(-1)?.error?.code).toBe('ADAPTER_INVARIANT')
+  })
+})
+
+/**
+ * `nativeIdOf` is the ONLY source of the provider id the AC5 guard compares (SPEC-M-1).
+ */
+describe('the AC5 guard reads nativeIdOf and nothing else', () => {
+  const collidingUrl = 'https://jobs.example.com/one'
+  const twoItemsOneUrl = {
+    body: {
+      jobs: [job('x', { url: collidingUrl }), job('y', { url: collidingUrl })],
+      next: null,
+    },
+  }
+  const urlKeyed = (over: Partial<ApiJsonSourceSpec<Config, Envelope, Item>> = {}) =>
+    makeSpec({
+      mapItem: (item, cfg) => ({
+        namespace: cfg.namespace,
+        // URL-keyed: this is the configuration in which AC5 can actually fire.
+        nativeId: null,
+        url: item.url,
+        title: item.title,
+        companyName: item.company,
+      }),
+      ...over,
+    })
+
+  it('catches the collapse for a URL-keyed adapter that supplies the provider id', async () => {
+    const h = harness({ pages: [twoItemsOneUrl] })
+    const batch = await collectJsonPages(
+      urlKeyed({ nativeIdOf: (item) => item.id }),
+      config(),
+      h.ctx,
+    )
+
+    expect(batch.requests.at(-1)?.error?.code).toBe('ADAPTER_INVARIANT')
+    expect(batch.outcome).toBe('FAILED')
+  })
+
+  it('switches the check off only where the adapter says so in writing', async () => {
+    const h = harness({ pages: [twoItemsOneUrl] })
+    const batch = await collectJsonPages(urlKeyed({ nativeIdOf: () => null }), config(), h.ctx)
+
+    // A provider with no per-posting id has nothing to compare, so this is correct — and it is now
+    // a sentence in the adapter rather than an omission. WITHOUT THE FIX this was what every
+    // URL-keyed adapter got by DEFAULT, because `nativeIdOf` was optional and fell back to
+    // `raw.nativeId`, which is null in exactly this configuration (SPEC-M-1).
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.requests.map((r) => r.error?.code ?? null)).not.toContain('ADAPTER_INVARIANT')
+  })
+
+  it('does not fall back to the id mapItem supplied', async () => {
+    // `mapItem` returns a perfectly good `nativeId` here and `nativeIdOf` returns null. The guard
+    // must read the latter: the old `?? raw.nativeId` fallback would make these two items collide
+    // on distinct ids and report ADAPTER_INVARIANT, which is the wrong answer for an adapter that
+    // has declared the provider issues no ids.
+    const h = harness({ pages: [twoItemsOneUrl] })
+    const batch = await collectJsonPages(
+      makeSpec({
+        mapItem: (item, cfg) => ({
+          namespace: cfg.namespace,
+          nativeId: item.id,
+          url: item.url,
+          title: item.title,
+          companyName: item.company,
+        }),
+        nativeIdOf: () => null,
+      }),
+      config(),
+      h.ctx,
+    )
+
+    expect(batch.requests.map((r) => r.error?.code ?? null)).not.toContain('ADAPTER_INVARIANT')
+  })
+
+  it('is asked for every item, with the validated item and the config', async () => {
+    const asked: Array<[string, string]> = []
+    const h = harness({ pages: [onePage([job('1'), job('2')])] })
+    await collectJsonPages(
+      makeSpec({
+        nativeIdOf: (item, cfg) => {
+          asked.push([item.id, cfg.namespace])
+          return item.id
+        },
+      }),
+      config({ namespace: 'board' }),
+      h.ctx,
+    )
+
+    expect(asked).toEqual([
+      ['1', 'board'],
+      ['2', 'board'],
+    ])
+  })
+})
+
+/**
+ * SPEC-M-2: this layer is SINGLE-NAMESPACE, and that is now a statement with a test behind it
+ * rather than a comment claiming a multi-board behaviour the code does not have.
+ *
+ * What is asserted is the layer boundary itself: one call covers one board, whatever it is handed.
+ * The aggregate claim — several boards, one failing, the cycle PARTIAL — is the collector's (plan
+ * Task 2.5), and its test belongs with the code that aggregates. What this layer owes that
+ * collector is the input that makes the aggregate derivable, which is the second test.
+ */
+describe('one attempt covers one board', () => {
+  it('reports exactly the namespace its scope named', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    const batch = await collectJsonPages(makeSpec(), config({ namespace: 'board-a' }), h.ctx)
+
+    expect(batch.scope.namespace).toBe('board-a')
+    // A `SourceCoverageScope` has one `namespace` field, so a batch cannot describe two boards —
+    // which is why "one board failing = PARTIAL" has nothing to attach to here.
+    expect(Object.keys(batch.scope).sort()).toEqual([
+      'configVersion',
+      'namespace',
+      'query',
+      'window',
+    ])
+  })
+
+  it('gives the collector a failed board it can aggregate: never SUCCEEDED, never FULL_INVENTORY', async () => {
+    const h = harness({ pages: [{ status: 500 }] })
+    const batch = await collectJsonPages(makeSpec(), config({ namespace: 'board-b' }), h.ctx)
+
+    expect(batch.outcome).not.toBe('SUCCEEDED')
+    expect(batch.coverage).not.toBe('FULL_INVENTORY')
+    expect(batch.scope.namespace).toBe('board-b')
   })
 })

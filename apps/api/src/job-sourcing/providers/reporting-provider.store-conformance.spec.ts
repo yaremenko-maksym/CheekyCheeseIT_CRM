@@ -272,6 +272,7 @@ const spec: ApiJsonSourceSpec<
   pageRequest: () => ({ request: { url: 'https://api.example.com/jobs' } }),
   extractItems: (envelope) => envelope.jobs,
   nextCursor: () => null,
+  nativeIdOf: (item) => item.id,
   mapItem: (item, config) => ({
     namespace: config.namespace,
     nativeId: item.id,
