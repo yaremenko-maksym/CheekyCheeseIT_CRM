@@ -119,6 +119,12 @@
 #      note stays worth reading.
 #   4. `2>&-`, `2>/dev/null` moved by `exec`, or a discard inherited from the
 #      caller. Only a literal per-segment redirect is seen.
+#   5. A git global option that consumes its argument and is NOT in
+#      GIT_VALUE_OPTS: the subcommand scan would read that option value as the
+#      subcommand and go silent. `git -C <dir> show` was exactly this bug
+#      (CR-M-2) and is now handled; the list is still an enumeration, so the
+#      next unlisted one fails the same way. It fails toward SILENCE, which is
+#      the correct direction for an advisory but is a gap, not a property.
 #
 # IF YOU ADD A PREDICATE: add BOTH an `assert_red_signal` (the note fires) and an
 # `assert_green --not-contains` (a legitimate look-alike stays silent) to
@@ -171,12 +177,34 @@ GIT_READ_SUBCMDS = ("show", "cat-file", "log", "diff")
 DISCARD_RE = re.compile(r"2>[\s]*/dev/null")
 UNBRACED_RE = re.compile(r"\$[A-Za-z_][A-Za-z0-9_]*:")
 
+# Global git options that CONSUME THE NEXT ARGUMENT. Taking the first
+# non-dash token as the subcommand was wrong and mattered more than it looks
+# (CR-M-2): this project steers agents to `git -C <dir>` precisely because they
+# work in worktrees, so the commonest form here was the one that escaped — and
+# it is the form that produced real false zeros.
+GIT_VALUE_OPTS = ("-C", "-c", "--git-dir", "--work-tree", "--namespace",
+                  "--exec-path", "--config-env")
+
+
+def git_subcommand(argv):
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a in GIT_VALUE_OPTS:
+            i += 2                      # option plus its value
+            continue
+        if a.startswith("-"):
+            i += 1                      # boolean flag, or --opt=value
+            continue
+        return a
+    return ""
+
+
 def is_reader(seg):
     if seg.name not in READERS:
         return False
     if seg.name == "git":
-        pos = [a for a in seg.argv if not a.startswith("-")]
-        return bool(pos) and pos[0] in GIT_READ_SUBCMDS
+        return git_subcommand(seg.argv) in GIT_READ_SUBCMDS
     return True
 
 def is_counter(seg):
@@ -241,9 +269,9 @@ for stmt in re.split(r"\n|&&|\|\||;", scan.code_view):
             if cons is not None and is_counter(cons):
                 notes.append(
                     "SWALLOWED-COUNT: `%s` discards stderr and feeds `%s`.\n"
-                    "  A count of 0 here means \"nothing matched\" OR \"nothing was read\" — "
-                    "the two are\n  indistinguishable at the counter, and the second one is "
-                    "a failed read reported as a fact.\n"
+                    "  An empty result here means \"nothing matched\" OR \"nothing was read\" — "
+                    "`-c` prints 0,\n  `-q` reports false, and NEITHER can tell you which. The "
+                    "second one is a failed read\n  reported as a fact.\n"
                     "  Do not discard stderr while verifying. Read the producer into a variable, "
                     "confirm it is\n  non-empty, then count — or drop `2>/dev/null` and look at "
                     "the error."
@@ -272,10 +300,27 @@ if notes:
         if n not in seen:
             seen.add(n)
             out.append(n)
-    sys.stderr.write(
-        "[pre:bash:swallowed-failure] ADVISORY — not blocking, nothing was refused.\n"
+    text = (
+        "SWALLOWED FAILURE (advisory — nothing was refused). This command cannot tell "
+        "\"nothing matched\" from \"nothing was read\":\n"
         + "".join("  " + n.replace("\n", "\n  ") + "\n" for n in out)
-        + "  Rule: .claude/rules/common/verification-integrity.md\n")
+        + "  Rule: .claude/rules/common/verification-integrity.md")
+    # THE CHANNEL IS THE WHOLE POINT (CR-H-1 on this PR). The first version wrote
+    # this to STDERR, which for a PreToolUse hook that exits 0 does NOT reach the
+    # model: stderr is surfaced on a REFUSAL (exit 2), and this hook never
+    # refuses. So the advisory was an instrument reporting into a channel nobody
+    # reads — this rule own defect, shipped inside the rule.
+    # The model-visible channel for a non-blocking PreToolUse hook is
+    # hookSpecificOutput.additionalContext on STDOUT, which is the mechanism the
+    # operator reminder in this environment uses and the only one observed to
+    # reach an agent. json.dumps does the escaping; a note containing quotes and
+    # newlines would otherwise emit malformed JSON and be dropped silently.
+    sys.stdout.write(json.dumps({
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "additionalContext": text,
+        }
+    }))
 sys.exit(0)
 ' || exit 0
 
