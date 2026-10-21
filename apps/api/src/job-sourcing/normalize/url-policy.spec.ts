@@ -252,3 +252,25 @@ describe('checkStoredLink: the length cap measures the STORED href (SR-M-1)', ()
     )
   })
 })
+
+describe('checkStoredLink: internal hostnames are accepted BY NAME (pinned, deliberate)', () => {
+  // This pins what the policy does TODAY so the decision is visible rather than incidental. The
+  // policy refuses IP literals (the form an attacker can compute) but has no resolver, so a name
+  // that merely RESOLVES to an internal address passes. Fetch-time egress (Task 2.2) does not cover
+  // a link that is stored and later reaches `window.open`; that render-time question is carried
+  // into Task 2.3. If this test fails because behaviour changed, update the decision record, not
+  // just the expectation.
+  it.each([
+    'https://localhost/j/1',
+    'https://app.localhost/j/1',
+    'https://metadata.google.internal/computeMetadata/v1/',
+  ])('accepts the internal name %s', (link) => {
+    expect(reasonOf(link)).toBe('ACCEPTED')
+  })
+
+  it('control: the same targets as IP literals are refused', () => {
+    expect(reasonOf('https://127.0.0.1/j/1')).toBe('IP_LITERAL')
+    expect(reasonOf('https://[::1]/j/1')).toBe('IP_LITERAL')
+    expect(reasonOf('https://169.254.169.254/latest/meta-data/')).toBe('IP_LITERAL')
+  })
+})
