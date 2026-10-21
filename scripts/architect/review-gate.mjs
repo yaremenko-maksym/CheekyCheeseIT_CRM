@@ -20,6 +20,7 @@
 // Exit codes: 0 PASS, 1 FAIL (missing items printed as ::error:: lines), 2 malformed input.
 
 import { readFileSync, appendFileSync } from 'node:fs'
+import { pathToFileURL } from 'node:url'
 
 // Critical-path zones. Derived from `.claude/agents/contracts.md` §2.1 ("Critical-path trigger
 // zones") — that table is the canonical source; when it changes, change this list.
@@ -196,18 +197,22 @@ export function evaluate(pr) {
     .map((r) => ({ ...r, verdict: parseVerdicts(r.body), at: ts(r.submitted_at) }))
 
   const ignoredSelf = reviews.filter(
-    (r) => !sameLogin(r.author, owner) && (parseVerdicts(r.body).code || parseVerdicts(r.body).security),
+    (r) =>
+      !sameLogin(r.author, owner) && (parseVerdicts(r.body).code || parseVerdicts(r.body).security),
   )
 
   // One verdict kind: the latest counting APPROVE on the head sha, then no BLOCK after it.
   const judge = (kind, label) => {
     const approvals = ownerReviews.filter(
-      (r) => r.verdict[kind] === 'APPROVE' && APPROVE_STATES.has(r.state) && r.commit_id === headSha,
+      (r) =>
+        r.verdict[kind] === 'APPROVE' && APPROVE_STATES.has(r.state) && r.commit_id === headSha,
     )
     const latestApprove = approvals.reduce((a, r) => (a && a.at >= r.at ? a : r), null)
     const blocks = ownerReviews.filter((r) => r.verdict[kind] === 'BLOCK')
     if (!latestApprove) {
-      const stale = ownerReviews.filter((r) => r.verdict[kind] === 'APPROVE' && r.commit_id !== headSha)
+      const stale = ownerReviews.filter(
+        (r) => r.verdict[kind] === 'APPROVE' && r.commit_id !== headSha,
+      )
       missing.push(
         stale.length
           ? `${label}: the owner's \`${kind === 'code' ? 'Verdict' : 'Security Review'}: APPROVE\` is on an older commit (${short(stale[stale.length - 1].commit_id)}), not on head ${short(headSha)} — re-review the head commit`
@@ -231,7 +236,8 @@ export function evaluate(pr) {
     // Not required here — but a security BLOCK that was never superseded still blocks.
     const secBlocks = ownerReviews.filter((r) => r.verdict.security === 'BLOCK')
     const secApproves = ownerReviews.filter(
-      (r) => r.verdict.security === 'APPROVE' && APPROVE_STATES.has(r.state) && r.commit_id === headSha,
+      (r) =>
+        r.verdict.security === 'APPROVE' && APPROVE_STATES.has(r.state) && r.commit_id === headSha,
     )
     const lastBlock = secBlocks.reduce((a, r) => (a && a.at >= r.at ? a : r), null)
     if (lastBlock && !secApproves.some((r) => r.at > lastBlock.at)) {
@@ -242,9 +248,14 @@ export function evaluate(pr) {
   }
 
   if (labels.includes(MERGE_LABEL)) {
-    const latest = labelEvents.reduce((a, e) => (a && ts(a.created_at) >= ts(e.created_at) ? a : e), null)
+    const latest = labelEvents.reduce(
+      (a, e) => (a && ts(a.created_at) >= ts(e.created_at) ? a : e),
+      null,
+    )
     if (!latest) {
-      missing.push(`label: \`${MERGE_LABEL}\` is present but no labeled event names who applied it — refusing to assume the owner did`)
+      missing.push(
+        `label: \`${MERGE_LABEL}\` is present but no labeled event names who applied it — refusing to assume the owner did`,
+      )
     } else if (!sameLogin(latest.actor, owner)) {
       missing.push(
         `label: \`${MERGE_LABEL}\` was applied by @${latest.actor}, not by the repository owner @${owner} — only the owner may approve a merge`,
@@ -254,12 +265,17 @@ export function evaluate(pr) {
 
   if (ignoredSelf.length && missing.length) {
     const who = [...new Set(ignoredSelf.map((r) => `@${r.author}`))].join(', ')
-    missing.push(`note: verdict lines in reviews by ${who} do not count — only reviews by the owner account @${owner} do`)
+    missing.push(
+      `note: verdict lines in reviews by ${who} do not count — only reviews by the owner account @${owner} do`,
+    )
   }
 
   return {
     pass: missing.length === 0,
-    reason: missing.length === 0 ? `reviews by @${owner} cover head ${short(headSha)}` : 'required reviews are missing',
+    reason:
+      missing.length === 0
+        ? `reviews by @${owner} cover head ${short(headSha)}`
+        : 'required reviews are missing',
     missing,
     critical,
   }
@@ -280,7 +296,8 @@ function validate(pr) {
   }
   // A PR always changes at least one file. An empty list means the fetch did not happen, and an
   // instrument that did not look must not report "no critical paths".
-  if (Array.isArray(pr.files) && pr.files.length === 0) p.push('files is empty — the changed-file fetch returned nothing')
+  if (Array.isArray(pr.files) && pr.files.length === 0)
+    p.push('files is empty — the changed-file fetch returned nothing')
   return p
 }
 
@@ -291,9 +308,13 @@ function render(result, pr) {
   const lines = []
   lines.push(`## Review Gate: ${result.pass ? 'PASS' : 'FAIL'}`)
   lines.push('')
-  lines.push(`- PR author: @${pr.author} · repository owner: @${pr.owner} · head: \`${short(pr.headSha)}\``)
+  lines.push(
+    `- PR author: @${pr.author} · repository owner: @${pr.owner} · head: \`${short(pr.headSha)}\``,
+  )
   lines.push(`- changed files: ${pr.files.length} · critical-path files: ${result.critical.length}`)
-  lines.push(`- reviews read: ${pr.reviews.length} · \`${MERGE_LABEL}\` labeled events read: ${pr.labelEvents.length}`)
+  lines.push(
+    `- reviews read: ${pr.reviews.length} · \`${MERGE_LABEL}\` labeled events read: ${pr.labelEvents.length}`,
+  )
   lines.push(`- ${result.reason}`)
   if (result.missing.length) {
     lines.push('')
@@ -303,7 +324,8 @@ function render(result, pr) {
   if (result.critical.length) {
     lines.push('')
     lines.push('### Critical-path files (require `Security Review: APPROVE` from the owner)')
-    for (const c of result.critical.slice(0, 50)) lines.push(`- \`${c.path}\` (matched \`${c.glob}\`)`)
+    for (const c of result.critical.slice(0, 50))
+      lines.push(`- \`${c.path}\` (matched \`${c.glob}\`)`)
     if (result.critical.length > 50) lines.push(`- … and ${result.critical.length - 50} more`)
   }
   lines.push('')
@@ -340,6 +362,6 @@ function main(argv) {
   return result.pass ? 0 : 1
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   process.exitCode = main(process.argv.slice(2))
 }
