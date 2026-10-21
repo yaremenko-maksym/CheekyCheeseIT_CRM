@@ -130,4 +130,54 @@ assert_green "--report prints the violation but exits 0" \
   --contains "Кошелёк" --contains "not failing" \
   -- run_guard "$RU_TS" --report
 
+# ── .claude/hooks: a SECOND scan with a DIFFERENT detector ────────────────────
+# The product scan above matches ы э ъ ё only, because the product ships
+# Ukrainian and full-Cyrillic matching would flag every "Київ". Under
+# `.claude/**` the policy is stricter — everything an agent reads is English,
+# comments included — so that scan uses ANY Cyrillic.
+#
+# WHY THE DETECTOR HAD TO DIFFER RATHER THAN THE PATH LIST BEING WIDENED:
+# measured before the choice, of the 258 Cyrillic lines then under .claude/hooks
+# the product detector saw only 140 (54%). Reusing it would have let 46% of the
+# Russian back in while printing OK. The first red case below is exactly such a
+# line — Cyrillic with no ы/э/ъ/ё in it — so if anyone ever "simplifies" the two
+# detectors into one, that case goes green and says so.
+HOOK_RU="$(new_root hook-ru)"
+mkdir -p "$HOOK_RU/.claude/hooks"
+printf '#!/bin/bash\necho "команда заблокирована"\n' >"$HOOK_RU/.claude/hooks/pre-bash-new-thing.sh"
+
+HOOK_CMT="$(new_root hook-comment)"
+mkdir -p "$HOOK_CMT/.claude/hooks"
+printf '#!/bin/bash\n# это комментарий\n' >"$HOOK_CMT/.claude/hooks/pre-bash-new-thing.sh"
+
+HOOK_OK="$(new_root hook-clean)"
+mkdir -p "$HOOK_OK/.claude/hooks"
+printf '#!/bin/bash\necho "all English here"\n' >"$HOOK_OK/.claude/hooks/pre-bash-new-thing.sh"
+
+HOOK_STALE="$(new_root hook-stale)"
+mkdir -p "$HOOK_STALE/.claude/hooks"
+printf '#!/bin/bash\necho "English only"\n' >"$HOOK_STALE/.claude/hooks/pre-bash-unbounded-wait.sh"
+
+assert_red "KEY: Cyrillic with NO ы/э/ъ/ё in a new hook -> red (the product detector is blind to this line)" \
+  --contains "Cyrillic found in .claude/hooks" \
+  --contains "pre-bash-new-thing.sh:2" \
+  -- run_guard "$HOOK_RU"
+
+assert_red "Russian in a hook COMMENT -> red (no comment exemption under .claude/**)" \
+  --contains "Cyrillic found in .claude/hooks" \
+  -- run_guard "$HOOK_CMT"
+
+assert_red "RATCHET: an excepted hook that has become clean -> red, so the list cannot outlive its reason" \
+  --contains "AGENT_EXCEPTIONS is stale" \
+  --contains "pre-bash-unbounded-wait.sh" \
+  -- run_guard "$HOOK_STALE"
+
+assert_green "a clean new hook passes, and the count is reported" \
+  --contains ".claude/hooks files scanned" \
+  -- run_guard "$HOOK_OK"
+
+assert_green "--report prints the hook violation but exits 0" \
+  --contains "Cyrillic found in .claude/hooks" --contains "not failing" \
+  -- run_guard "$HOOK_RU" --report
+
 guard_test_summary "test-check-no-russian-letters.sh"
