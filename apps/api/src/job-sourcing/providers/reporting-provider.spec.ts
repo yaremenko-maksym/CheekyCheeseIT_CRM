@@ -1509,9 +1509,13 @@ describe('finding a URL inside free text', () => {
   it.each(EXPECTED_URL_TRAILING_PUNCTUATION.map((c) => [JSON.stringify(c), c] as const))(
     'does not swallow a trailing %s into the URL',
     (_label, punct) => {
-      const out = redactText(`see https://api.example.com/j?page=1${punct} next`, [])
+      // A NON-allowlisted key, deliberately. With `page=1.` the value is reportable either way, so
+      // the assertion could not tell trimming from not trimming. With `token=t1.` the untrimmed
+      // span swallows the `.` into the redacted VALUE and it vanishes from the output — so the
+      // punctuation surviving outside the URL is the trim, observed.
+      const out = redactText(`see https://api.example.com/j?token=t1${punct} next`, [])
 
-      expect(out).toContain(`page=1${punct} next`)
+      expect(out).toBe(`see https://api.example.com/j?token=${REDACTED}${punct} next`)
     },
   )
 
@@ -1608,10 +1612,12 @@ describe('the userinfo scan and URL finder, branch by branch', () => {
   })
 
   it('does not rescan the text a URL already covered', () => {
-    // Two `://` inside one span: the second must not start a second span.
+    // Two `://` inside one span: the second must not start a second span. Asserted as the WHOLE
+    // string — counting markers passed even when the scan restarted inside the first span, because
+    // the re-found URL had no query to redact.
     const out = redactText('https://a.example.com/x?u=https://b.example.com/y', [])
 
-    expect(out.match(/REDACTED/g) ?? []).toHaveLength(1)
+    expect(out).toBe(`https://a.example.com/x?u=${REDACTED}`)
   })
 
   it('leaves a `://` with no scheme letter at all as plain text', () => {
@@ -1824,10 +1830,13 @@ describe('each redaction bound, at the exact character of its limit', () => {
    */
   it('drops over-budget text even when redacting its URLs would shrink it under the cap', () => {
     const pad = 'z'.repeat(MAX_REDACTION_INPUT_CHARS)
-    const text = `https://api.example.com/j?token=${pad}`
+    // The PREFIX is what makes this distinguishable. Without it the shrunken text happens to equal
+    // `DROPPED_TOO_LONG` anyway — the over-long URL becomes that very marker — so the assertion
+    // held whether or not `redactText` had a guard of its own. With a prefix, the unguarded path
+    // reports `before [REDACTED] (field dropped…)` and the guarded one reports the marker alone.
+    const text = `before https://api.example.com/j?token=${pad}`
     expect(text.length).toBeGreaterThan(MAX_REDACTION_INPUT_CHARS)
 
-    // Redacting `token` would collapse the whole padding to one marker, leaving a short string.
     expect(redactText(text, [])).toBe(DROPPED_TOO_LONG)
   })
 })

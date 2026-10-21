@@ -342,6 +342,7 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
   // nothing, because `has()` is only ever asked about a cursor the provider returned. Keyed this
   // way both halves bite — `RESUME` narrows the position to a `CURSOR`, so the cursor is a string
   // the compiler can see, and skipping the seed makes the cycle test fail.
+  // Stryker disable next-line ArrayDeclaration: seeding this set with any non-cursor string is unobservable, because membership is only ever tested against a cursor the provider actually returned, and those are non-empty strings that cannot equal a placeholder.
   const seenCursors = new Set<string>(
     decision.kind === 'RESUME' ? [decision.from.position.cursor] : [],
   )

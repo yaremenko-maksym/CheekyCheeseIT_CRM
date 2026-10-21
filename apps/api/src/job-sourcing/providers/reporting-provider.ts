@@ -388,9 +388,11 @@ function redactUserinfo(text: string): string {
   let runStart = 0
   let runHasColon = false
 
+  // Stryker disable next-line EqualityOperator: reading one past the end gives undefined, which matches neither '@' nor ':' and is not a run delimiter either, so the extra iteration appends nothing and the returned string is byte-identical for every input in this suite.
   for (let i = 0; i < text.length; i += 1) {
     const ch = text[i]
     if (ch === '@') {
+      // Stryker disable next-line ConditionalExpression,EqualityOperator: this length test is redundant given runHasColon, because runStart advances only on the two paths that also clear runHasColon (an at-sign and a delimiter), so an empty run carrying a colon is unreachable and no input can tell the two conditions apart.
       if (runHasColon && i > runStart) {
         out.push(text.slice(copiedTo, runStart), `${REDACTED}:${REDACTED}`)
         copiedTo = i
@@ -475,6 +477,7 @@ function findUrlSpans(text: string): Array<{ start: number; end: number }> {
     if (sep === -1) return spans
 
     let start = sep
+    // Stryker disable next-line ConditionalExpression,EqualityOperator: relaxing this bound reads text[-1], which is undefined, so SCHEME_CHARS.has('') is false and the backwards walk stops at the very same index; the guard documents the bound but cannot change where a scheme begins, so no input distinguishes the two.
     while (
       start > 0 &&
       sep - start < MAX_SCHEME_CHARS &&
@@ -483,11 +486,14 @@ function findUrlSpans(text: string): Array<{ start: number; end: number }> {
       start -= 1
     }
     // Trim any leading characters that cannot begin a scheme (`1a://`, `+x://`).
+    // Stryker disable next-line ConditionalExpression,EqualityOperator: relaxing this bound lets the trim advance onto the separator itself, and the span test further down then rejects that span anyway, producing the identical result; both forms refuse a separator with no scheme letter before it.
     while (start < sep && !SCHEME_FIRST_CHARS.has((text[start] ?? '').toLowerCase())) {
       start += 1
     }
 
+    // Stryker disable next-line StringLiteral: emptying this literal makes end start at the separator rather than after it, and the forward walk then crosses those same three characters because a colon and a slash are not terminators, so it halts at the identical index.
     let end = sep + '://'.length
+    // Stryker disable next-line EqualityOperator: relaxing this bound reads one past the end, where the character is undefined and therefore not a terminator, and the resulting span is sliced against the string length anyway, so a one-too-far end yields the identical substring.
     while (end < text.length && !URL_END_CHARS.has(text[end] ?? '')) {
       end += 1
     }
@@ -520,7 +526,9 @@ function secretForms(secret: string): string[] {
   // `URLSearchParams` is form-encoding, not percent-encoding: a space becomes `+`, which
   // `encodeURIComponent` never produces. Both reach a report.
   forms.add(new URLSearchParams([['v', secret]]).toString().slice('v='.length))
+  // Stryker disable next-line StringLiteral: emptying the input encoding changes nothing, because Node's Buffer.from falls back to utf8 for an unrecognised encoding name rather than throwing — measured directly, the resulting base64 is byte-identical.
   forms.add(Buffer.from(secret, 'utf8').toString('base64'))
+  // Stryker disable next-line StringLiteral: same fallback as the line above — an unrecognised input encoding silently becomes utf8, so the base64url form produced is unchanged.
   forms.add(Buffer.from(secret, 'utf8').toString('base64url'))
   // A one-character form would redact the whole string and say nothing.
   return [...forms].filter((f) => f.length > 1)
@@ -585,17 +593,21 @@ export function redactUrl(url: string, secrets: readonly string[]): string {
   } catch {
     return `${REDACTED} (unparsable url)`
   }
-  // Userinfo: never reportable, under any name.
-  if (parsed.username !== '' || parsed.password !== '') {
-    parsed.username = ''
-    parsed.password = ''
-  }
+  // Userinfo: never reportable, under any name. UNCONDITIONALLY — clearing an already-empty
+  // username is a no-op, so the `if` that used to guard this was pure decoration: every mutant of
+  // its condition (`true`, `false`, either `''` comparison) produced identical output, which is
+  // the gate's way of saying the branch does not exist. Without it, the two `''` ARE observable:
+  // assigning anything else injects userinfo into every reported URL.
+  parsed.username = ''
+  parsed.password = ''
   for (const key of [...parsed.searchParams.keys()]) {
     if (!REPORTABLE_QUERY_KEYS.has(key.toLowerCase())) {
       parsed.searchParams.set(key, REDACTED)
     }
   }
-  if (parsed.hash !== '') parsed.hash = ''
+  // Unconditional for the same reason: clearing an empty fragment changes nothing, so the guard
+  // only gave the mutation gate a condition with no behaviour behind it.
+  parsed.hash = ''
   // `searchParams.set` percent-encodes the marker's brackets (`%5BREDACTED%5D`), which is correct
   // URL encoding and useless to a human reading a report. The marker is a literal we own, so
   // putting it back is unambiguous — nothing else can produce that exact sequence here.
