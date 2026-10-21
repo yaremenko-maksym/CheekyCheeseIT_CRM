@@ -245,6 +245,49 @@ when author == reviewer (one owner account `yaremenko-maksym`) — `APPROVE` ret
 `"Can not approve your own pull request"`. `COMMENT` + `Verdict:` on the first line
 of the body is used, Master parses the first line. Verified on PR #536 (2026-08-17).
 
+### 4.1. Review Gate — the verdict as a required check (lite)
+
+Until 2026-10-21 the review step lived only in this file and in Master's pipeline; a collaborator
+working from another harness merged five critical-path PRs with zero reviews. The `Review Gate`
+check (`.github/workflows/review-gate.yml`, logic in `scripts/architect/review-gate.mjs`) makes the
+review decision explicit for **every** PR, the owner's included. It passes when any one holds:
+
+| Path          | Condition                                                                                          |
+| ------------- | -------------------------------------------------------------------------------------------------- |
+| `docs-only`   | every changed path is `*.md` or under `.claude/` (the light-track exemption)                       |
+| `verdict`     | a review whose verdict line is `Verdict: APPROVE`, and no `Verdict: BLOCK` review submitted after it |
+| `skip-review` | label `skip-review` **and** a PR-body line `Skip-Review-Reason: <why>` (≥ 10 chars), echoed in the job summary |
+
+Otherwise it fails with: _"No reviewer verdict. Run code-reviewer (and security-reviewer on critical
+paths), or set label `skip-review` and add `Skip-Review-Reason: <why>` to the PR body."_
+
+What it is: an intentional, recorded choice instead of a silent default. What it is **not**: a
+defence against a malicious write-role user — anyone can post a review saying `Verdict: APPROVE`.
+The security-reviewer obligation for critical-path zones (§2.1) stays procedural, as before.
+
+It re-runs on push, label changes, PR-body edits and submitted/dismissed reviews.
+
+**Owner follow-up (after merge — the context must have run once):** add it to the required checks,
+bound to the GitHub Actions app so a hand-posted commit status cannot satisfy it. The command
+replaces the whole check list, so it restates the four existing ones:
+
+```bash
+gh api -X PATCH repos/yaremenko-maksym/CheekyCheeseIT_CRM/branches/main/protection/required_status_checks \
+  --input - <<'EOF'
+{"strict": false, "checks": [
+  {"context": "Typecheck · Lint · Unit Tests", "app_id": 15368},
+  {"context": "E2E Tests", "app_id": 15368},
+  {"context": "Integration Tests (Postgres)", "app_id": 15368},
+  {"context": "Mutation Gate", "app_id": 15368},
+  {"context": "Review Gate", "app_id": 15368}
+]}
+EOF
+```
+
+Then the `skip-review` label must exist (it is declared in `.github/labels.yml`; create it with
+`gh label create skip-review --color fbca04 --description "Review Gate bypass — requires a Skip-Review-Reason: line in the PR body (review-gate.yml)"`
+or a labels-sync run).
+
 ---
 
 ## 5. Coder watchdog — recovery layers

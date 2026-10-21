@@ -2,6 +2,45 @@
 
 ## Model: opus
 
+## SCOPE CHANGE 2026-10-21 (owner, via Master) — LITE gate supersedes "What to build" below
+
+The original design (owner-account verdicts on the head sha, security-review requirement for
+critical paths, owner-author exemption, label-actor check, auto-merge changes) and the hardening
+rounds built on it (commit/pusher identity, event sender, check-name spoofing, renames) are
+**dropped**. They remain in this branch's history only. The gate that ships:
+
+- applies to **all** authors, the owner included;
+- PASS if the diff is docs-only (every changed path `*.md` or under `.claude/`);
+- PASS if some review's verdict line is `Verdict: APPROVE` and no `Verdict: BLOCK` review was
+  submitted after it;
+- PASS if label `skip-review` AND a PR-body line `Skip-Review-Reason: <text>` (key
+  case-insensitive, reason ≥ 10 chars); the reason is echoed in the job summary;
+- otherwise FAIL: "No reviewer verdict. Run code-reviewer (and security-reviewer on critical
+  paths), or set label `skip-review` and add `Skip-Review-Reason: <why>` to the PR body."
+- triggers: `pull_request_target` [opened, synchronize, reopened, labeled, unlabeled, edited,
+  ready_for_review] + `pull_request_review` [submitted, dismissed]; never check out PR code;
+- `skip-review` declared in `.github/labels.yml`; `auto-merge-on-label.yml` is NOT changed.
+
+Revised acceptance criteria:
+
+1. `review-gate.yml` exists, uses `pull_request_target` (+ `pull_request_review`), never checks
+   out PR code.
+2. `review-gate.mjs` implements the lite decision as a pure function.
+3. Unit tests: docs-only pass; verdict pass; BLOCK after APPROVE fail; label without reason fail;
+   reason without label fail; label + reason pass; nothing fail. The run prints a non-zero pass count.
+4. (dropped — no auto-merge change)
+5. Docs: `contracts.md` §4.1 and a line in `project-state.md` describe the lite gate + the owner
+   follow-up command.
+6. `actionlint` / `prettier --check` clean on touched files.
+
+Assumptions (A1, recorded):
+
+- A verdict is recognised on a line of its own (markdown decoration tolerated), the first marker
+  line of a review — not a substring anywhere. Stricter than "body contains", so a quoted or
+  mid-sentence verdict cannot count. Matches the first-line contract in §4.
+- A DISMISSED approval does not count; a BLOCK counts even if dismissed; PENDING reviews ignored.
+- `skip-review` + reason passes even after a BLOCK — the recorded skip is the owner's escape hatch.
+
 Architect, static tier. Process-governance gate on the merge path (critical: it decides what can
 reach `main`).
 
