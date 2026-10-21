@@ -131,6 +131,17 @@
         "id": "pre:bash:unbounded-wait"
       },
       {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks/pre-bash-swallowed-failure.sh"
+          }
+        ],
+        "description": "Swallowed-failure advisory — NEVER refuses, prints one note. Fires when a named-object read (git show/cat-file/log/diff, cat, head, tail, jq) discards stderr and feeds a counter (grep -c/-q, wc -l/-w/-c): a 0 there means \"nothing matched\" OR \"nothing was read\", indistinguishable at the counter, which produced two consecutive wrong verifications on 2026-10-21. Also reports an unbraced $VAR: in a revspec (the harness shell is zsh, which eats the colon as a modifier; quoting does not help, braces do). Advisory because the readiness-probe population is legitimate and a false refusal costs the credibility of the whole hook layer, while a missed note costs one recoverable wrong answer. Rule: .claude/rules/common/verification-integrity.md Test: scripts/devops/tests/test-pre-bash-swallowed-failure.sh",
+        "id": "pre:bash:swallowed-failure"
+      },
+      {
         "matcher": "Agent|Task",
         "hooks": [
           {
