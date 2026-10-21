@@ -786,6 +786,7 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
       team?: string | null
       subjectTeam?: string | null
       subjectUser?: string | null
+      subjectAction?: string | null
       before?: number | null
       after?: number | null
       key?: string
@@ -805,8 +806,9 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
       q(
         `INSERT INTO job_queue_actions
            (kind, opportunity_id, source_record_id, subscription_id, actor_id, scope_kind, team_id,
-            subject_team_id, subject_user_id, before_version, after_version, idempotency_key, reason)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+            subject_team_id, subject_user_id, subject_action_id, before_version, after_version,
+            idempotency_key, reason)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
         [
           a.kind,
           a.opportunity === undefined ? opp : a.opportunity,
@@ -817,6 +819,7 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
           a.team === undefined ? ((a.scope ?? 'TEAM') === 'TEAM' ? teamA : null) : a.team,
           a.subjectTeam ?? null,
           a.subjectUser ?? null,
+          a.subjectAction ?? null,
           a.before === undefined ? 0 : a.before,
           a.after === undefined ? 1 : a.after,
           a.key ?? nextTag(),
@@ -841,6 +844,19 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
       actor: admin,
       subjectTeam: teamA,
     })
+    /**
+     * The redaction evidence row (r5 Task 1.4b-ii): it names the action row it
+     * is about and reaches nowhere outside this log, and carries no versions.
+     */
+    const redactionOf = (actionId: string): Action => ({
+      kind: 'REASON_REDACTED',
+      opportunity: null,
+      source: null,
+      subscription: null,
+      subjectAction: actionId,
+      before: null,
+      after: null,
+    })
 
     it('accepts one valid row of every kind', async () => {
       for (const kind of ['OPENED', 'DEAD_LINK', 'SPAM']) await insertAction(telemetry(kind))
@@ -858,11 +874,150 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
         await insertAction(subscription(kind))
       // An optional source record on a non-telemetry kind (r5).
       await insertAction({ kind: 'TAKEN', source: rec })
+      // r5 Task 1.4b-ii: the fourteenth kind is the redaction evidence row, and
+      // it is the only one whose subject is a row of THIS log.
+      const subject = (await insertAction({ kind: 'DISMISSED' })).rows[0] as { id: string }
+      await insertAction(redactionOf(subject.id))
       const { rows } = await q(
         `SELECT count(DISTINCT kind)::int AS n FROM job_queue_actions WHERE actor_id IN ($1, $2)`,
         [hr, admin],
       )
-      expect(rows[0].n).toBe(13)
+      expect(rows[0].n).toBe(14)
+    })
+
+    // -----------------------------------------------------------------------
+    // The redaction evidence row (r5 Task 1.4b-ii), against the real catalog.
+    //
+    // Two CHECKs changed, and for EACH the near-misses it must still refuse are
+    // asserted beside the shape it must now accept. That second half is the
+    // point: both changed CHECKs gained a branch, and a gained branch is where
+    // a constraint silently stops constraining.
+    // -----------------------------------------------------------------------
+    describe('REASON_REDACTED evidence row', () => {
+      let subject: string
+
+      beforeAll(async () => {
+        subject = ((await insertAction({ kind: 'TAKEN' })).rows[0] as { id: string }).id
+      })
+
+      it('accepts the evidence row naming the action it redacts', async () => {
+        const { rows } = await insertAction(redactionOf(subject))
+        expect(rows[0].subject_action_id).toBe(subject)
+        expect(rows[0].before_version).toBeNull()
+        expect(rows[0].after_version).toBeNull()
+      })
+
+      it('accepts a subject action id that names no existing row — there is no FK, by design', async () => {
+        // The subject is purged up to two years before its evidence row falls
+        // due, so a dangling id is the intended end state. If someone adds the
+        // "missing" FK, this insert starts failing with 23503.
+        const { rows } = await insertAction(redactionOf('ffffffff-eeee-4ddd-8ccc-bbbbbbbbbbbb'))
+        expect(rows[0].subject_action_id).toBe('ffffffff-eeee-4ddd-8ccc-bbbbbbbbbbbb')
+      })
+
+      it('STILL REFUSES a redaction that names ITSELF as its subject (SR-M-2)', async () => {
+        // Needs an explicit `id`, so it bypasses `insertAction` rather than
+        // widening that helper for one case: the row must be born with its own
+        // id already in `subject_action_id`.
+        const self = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+        const err = await rejected(
+          `INSERT INTO job_queue_actions
+             (id, kind, actor_id, scope_kind, team_id, subject_action_id, idempotency_key)
+           VALUES ($1, 'REASON_REDACTED', $2, 'TEAM', $3, $1, $4)`,
+          [self, hr, teamA, nextTag()],
+        )
+        expect(err).toEqual({
+          code: CHECK_VIOLATION,
+          constraint: 'ck_job_queue_actions_target',
+        })
+      })
+
+      it('STILL REFUSES a redaction that names no subject action', async () => {
+        expect(await actionRefused({ ...redactionOf(subject), subjectAction: null })).toEqual({
+          code: CHECK_VIOLATION,
+          constraint: 'ck_job_queue_actions_target',
+        })
+      })
+
+      it('STILL REFUSES a redaction that also reaches outside this log', async () => {
+        for (const a of [
+          { ...redactionOf(subject), opportunity: opp },
+          { ...redactionOf(subject), source: rec },
+          { ...redactionOf(subject), subscription: sub },
+        ])
+          expect(await actionRefused(a)).toEqual({
+            code: CHECK_VIOLATION,
+            constraint: 'ck_job_queue_actions_target',
+          })
+      })
+
+      it('STILL REFUSES a redaction carrying versions — MUST be unversioned, unlike SUPPRESSED', async () => {
+        // SUPPRESSED MAY carry a moving pair; a redaction may not. This is the
+        // assertion that fails if `kind <> 'REASON_REDACTED'` is dropped from
+        // the last branch of ck_job_queue_actions_versions.
+        for (const v of [
+          { before: 0, after: 1 },
+          { before: 4, after: 5 },
+          { before: 0, after: null },
+          { before: null, after: 1 },
+        ])
+          expect(await actionRefused({ ...redactionOf(subject), ...v })).toEqual({
+            code: CHECK_VIOLATION,
+            constraint: 'ck_job_queue_actions_versions',
+          })
+      })
+
+      it('STILL REFUSES a redaction naming a subject team or a subject user', async () => {
+        expect(
+          await actionRefused({ ...redactionOf(subject), subjectTeam: teamA, actor: admin }),
+        ).toEqual({ code: CHECK_VIOLATION, constraint: 'ck_job_queue_actions_subject_team' })
+        expect(await actionRefused({ ...redactionOf(subject), subjectUser: hrOther })).toEqual({
+          code: CHECK_VIOLATION,
+          constraint: 'ck_job_queue_actions_subject_user',
+        })
+      })
+
+      it('STILL REFUSES every other kind carrying a subject action', async () => {
+        // The narrowing half of the change: both pre-existing target branches
+        // gained `subject_action_id IS NULL`, so the column is the redaction's
+        // alone. Without that, any row could claim to redact another.
+        for (const a of [
+          { kind: 'TAKEN', subjectAction: subject },
+          { ...telemetry('OPENED'), subjectAction: subject },
+          { ...subscription('TRIAGE_SUBSCRIBED'), subjectAction: subject },
+        ])
+          expect(await actionRefused(a)).toEqual({
+            code: CHECK_VIOLATION,
+            constraint: 'ck_job_queue_actions_target',
+          })
+      })
+
+      it('needs no clicked source record — the telemetry set is not its seam', async () => {
+        // Had REASON_REDACTED been added to TELEMETRY_KINDS,
+        // ck_job_queue_actions_clicked_source would demand a source record and
+        // the accepted shape above would be refused instead.
+        const { rows } = await q(
+          `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
+            WHERE conname = 'ck_job_queue_actions_clicked_source'`,
+        )
+        expect(rows[0].def).not.toContain('REASON_REDACTED')
+      })
+
+      it('is still append-only: the evidence row cannot be updated or deleted either', async () => {
+        // The new kind gets no exemption from the guard that protects the log.
+        const row = (await insertAction(redactionOf(subject))).rows[0] as { id: string }
+        expect(
+          (
+            await rejected(`UPDATE job_queue_actions SET subject_action_id = $1 WHERE id = $2`, [
+              subject,
+              row.id,
+            ])
+          ).code,
+        ).toBe(RESTRICT_VIOLATION)
+        expect((await rejected(`DELETE FROM job_queue_actions WHERE id = $1`, [row.id])).code).toBe(
+          RESTRICT_VIOLATION,
+        )
+      })
     })
 
     it('targets a subscription XOR an opportunity, by kind', async () => {
