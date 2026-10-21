@@ -107,11 +107,12 @@ by narrowing where it looks:
     _heredoc_literal_spans, and note that it is a SECOND reading of the same
     text: two of its three devices exist only to make a disagreement with the
     segmenter fail closed, after two such disagreements were reproduced as leaks.
-    What BOUNDS the exemption, though, is not those devices but a monotonicity —
-    substitution extraction only ever removes text, and the terminator rule is
-    one-sided — so the exempted span is always a subset of what bash itself
-    leaves inert. Stated in full there, because a mechanism described as a proof
-    is the very defect this round is about.
+    One relation is proven (the terminator rule is one-sided, so cmdscan's body
+    is a prefix of bash's); the rest of the bound is EMPIRICAL — 53
+    genuinely-executing shapes, all refused on both revisions, bash itself as the
+    oracle. An earlier edition of that note claimed a monotonicity that a
+    150k-shape fuzz disproved. Stated honestly there, because a mechanism
+    described as a proof is the very defect this round is about.
   * a package runner was UNCERTAIN for lack of an UNDERSTOOD entry, so
     readings() re-read its arguments from every position and `vite` was one of
     them. Fixed WITHOUT adding the runners to UNDERSTOOD (that would set
@@ -607,32 +608,38 @@ def _heredoc_literal_spans(text):
     backstop, not a proof, and describing it as a proof is the same defect this
     whole change is about — a guard documenting a property it does not have.
 
-    The property that DOES hold is stronger, and it is a monotonicity rather than
-    a check. Two one-sided relations, both checkable by reading the code rather
-    than by trusting this comment:
+    ONE RELATION IS PROVEN, THE REST OF THE BOUND IS EMPIRICAL. Said plainly,
+    because an earlier edition of this comment claimed a monotonicity that does
+    not hold, and an unsupported invariant in a guard is worse than none — the
+    next reader reasons from it.
 
-      * SUBSTITUTION EXTRACTION ONLY EVER REMOVES TEXT. `_extract_substitutions`
-        replaces a `$(…)` or backtick span with a fixed marker and emits every
-        other character verbatim; it never inserts a quote. So the raw text this
-        scanner walks carries a SUPERSET of the quote characters that
-        `_split_segments` sees, and a scanner with more quote characters enters
-        quote state at least as often — therefore recognises at most as many
-        openers, and grants MONOTONICALLY FEWER spans than the segmenter would.
-        A divergence can only lose protection, never invent it.
+      * PROVEN, by reading: THE TERMINATOR RELATION IS ONE-SIDED. bash ends a
+        body on a line matching the delimiter exactly; this scanner compares
+        `cand.strip() == delim`, which is strictly more permissive, so it ends
+        the body no LATER than bash does. cmdscan's body is therefore always a
+        prefix of bash's, and a span can never reach text that bash leaves
+        outside the body and executes.
 
-      * THE TERMINATOR RULE IS ONE-SIDED THE SAME WAY. bash ends a body on a line
-        matching the delimiter exactly; this scanner compares `cand.strip() ==
-        delim`, which is strictly more permissive, so it ends the body no later
-        than bash does. cmdscan's body is therefore always a PREFIX of bash's
-        body — a span can never cover text that bash leaves outside the body and
-        executes.
+      * NOT PROVEN, and withdrawn: "substitution extraction only removes text,
+        so this scanner grants monotonically fewer spans than the segmenter
+        captures." A 150k-shape fuzz in code review found TEN granted spans the
+        top-level segmenter does not capture, and in at least one of them
+        DEVICE 3 IS WHAT STOPS THE EXEMPTION. So device 3 is load-bearing in at
+        least one shape, and the claim that no device is load-bearing was wrong.
+        (Those ten were not shown to leak — bash was not run on them — so this is
+        a correction to the CLAIM, not a known hole.)
 
-    Together those two say the exemption is always a subset of what bash itself
-    treats as inert data, which is the claim worth making: it bounds the
-    mechanism instead of asserting it was verified. Devices 1 and 2 remove the
-    two divergences that were actually reproduced, and device 3 catches an
-    unforeseen third cheaply — but the bound above is why none of them is
-    load-bearing.
+    What the bound rests on instead is measurement, which goes stale loudly where
+    an invariant goes stale silently: a security review used bash itself as the
+    oracle (marker scripts on PATH, so "did bash execute this?" was measured, not
+    argued) over 35 hand-built and 220 randomised shapes on both revisions — 53
+    genuinely-executing shapes, all 53 refused on base AND on this branch, zero
+    cases where bash executed and this branch allowed. Every base→branch flip it
+    found was a shape bash leaves inert.
+
+    So: devices 1 and 2 remove the two divergences that were reproduced as leaks,
+    device 3 catches an unforeseen third and is load-bearing somewhere, and the
+    reason to trust the whole is the 53 refusals rather than a proof.
 
     Note the direction of "fail closed" here: for the false positives this change
     is about it means REFUSING; for a parser disagreement it means NOT granting
