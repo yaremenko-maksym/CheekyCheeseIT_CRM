@@ -384,13 +384,6 @@ export const appendOnlyTriggers: Record<string, readonly { name: string; enabled
   job_queue_actions: [
     { name: 'trg_job_queue_actions_append_only', enabled: 'A' },
     { name: 'trg_job_queue_actions_no_truncate', enabled: 'A' },
-    // r5 Task 1.4b-i. Forces `created_at = now()` on INSERT, so a backdated
-    // audit row cannot be handed to the daily purge and deleted inside
-    // twenty-four hours. Declared here because part 9 reports an undeclared
-    // trigger on this table as a failure, and the deploy runs that check AFTER
-    // the trigger DDL — undeclared means a fail-loud but broken deploy. It
-    // needs no grant; what this entry asserts is existence plus ENABLE ALWAYS.
-    { name: 'trg_job_queue_actions_created_at_now', enabled: 'A' },
   ],
 }
 
