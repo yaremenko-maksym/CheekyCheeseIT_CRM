@@ -263,6 +263,18 @@ const REPORTABLE_QUERY_KEYS: ReadonlySet<string> = new Set([
  *  the shape this catches. Structural: it does not need the credential to be registered. */
 const AUTH_SCHEME_RE = /\b(Basic|Bearer|Token|ApiKey)\s+([A-Za-z0-9+/=._~-]{4,})/gi
 
+/**
+ * `user:password@` wherever it appears, not only where `URL` calls it userinfo.
+ *
+ * Found by one of this round's own tests rather than by a reviewer:
+ * `bob:hunter2@api.example.com/x?token=abc123` PARSES — as scheme `bob:` with everything else in
+ * an opaque path — so `URL.username` and `URL.password` are both empty, the structural userinfo
+ * strip finds nothing, and `hunter2` reaches the report through the path. Redacting the shape
+ * wherever it occurs costs us the occasional `a:b@c` in a path, which is the safe direction to err
+ * in.
+ */
+const USERINFO_RE = /([^\s:/?#@]+):([^\s:/?#@]+)@/g
+
 /** Enough of a URL to find one inside free text (an error message, a bad item's JSON). */
 const URL_IN_TEXT_RE = /\b[a-z][a-z0-9+.-]*:\/\/[^\s"'<>\\)\]}]+/gi
 
@@ -301,7 +313,9 @@ function secretForms(secret: string): string[] {
  * list the adapter author remembered to fill in.
  */
 export function redactSecrets(text: string, secrets: readonly string[]): string {
-  let out = text.replace(AUTH_SCHEME_RE, (_m, scheme: string) => `${scheme} ${REDACTED}`)
+  let out = text
+    .replace(AUTH_SCHEME_RE, (_m, scheme: string) => `${scheme} ${REDACTED}`)
+    .replace(USERINFO_RE, `${REDACTED}:${REDACTED}@`)
   const usable = [...new Set(secrets.flatMap(secretForms))].sort((a, b) => b.length - a.length)
   for (const form of usable) {
     out = out.split(form).join(REDACTED)

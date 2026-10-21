@@ -12,17 +12,24 @@ import {
   decideCheckpoint,
   deriveCoverage,
   deriveOutcome,
+  isBuiltBatch,
   isValidatedConfig,
   markValidated,
+  MAX_CURSOR_CHARS,
   MAX_REQUEST_REPORTS,
   MAX_SAMPLE_CHARS,
   MAX_SAMPLES,
+  assertBuiltBatch,
   redactSecrets,
+  redactText,
+  redactUrl,
   REDACTED,
   type SourceCoverageScope,
   type StopReason,
   toStoredReportCounts,
+  UnbuiltBatchError,
   type ValidatedCheckpoint,
+  validatedCheckpointSchema,
 } from './reporting-provider'
 
 /**
@@ -611,5 +618,414 @@ describe('config validation marker', () => {
     const config = markValidated({ namespace: 'board', configVersion: 3 })
     expect(JSON.parse(JSON.stringify(config))).toEqual({ namespace: 'board', configVersion: 3 })
     expect(isValidatedConfig(JSON.parse(JSON.stringify(config)))).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Round-1 review findings, part two: redaction and the construction brands.
+// ---------------------------------------------------------------------------
+
+/**
+ * THE SECRET THE OLD TESTS SHOULD HAVE USED.
+ *
+ * Every pre-existing redaction test used `TOPSECRET123` — alphanumeric, so its raw form and its
+ * every encoded form are the SAME STRING, and exact matching handles it. That is the defect in the
+ * test INPUTS, and it is the same shape of mistake as the tautological `REDACTED` assertion found
+ * earlier in this file: the check could not fail because the input could not exercise it.
+ *
+ * This secret contains `/ + = & space`, each of which changes under at least one of the encodings
+ * an adapter builds a URL with.
+ */
+const HOSTILE_SECRET = 'ab/cd+ef=gh&ij k'
+const UNICODE_SECRET = 'ключ-доступу'
+
+const reportBase = {
+  attempt: 1,
+  page: 1,
+  status: 200,
+  startedAt: new Date('2026-10-20T10:00:00Z'),
+  endedAt: new Date('2026-10-20T10:00:01Z'),
+  cost: null,
+  error: null,
+}
+
+describe('redaction survives the encodings a URL is actually built with (SR-H-4 / CR-H-1)', () => {
+  /**
+   * WITHOUT THE FIX each of these reports the secret in full. Measured on the exact-match version:
+   * a registered `ab/cd+ef=gh&ij k` came back as `?api_key=ab%2Fcd%2Bef%3Dgh%26ij%20k` through
+   * `encodeURIComponent` and `...%26ij+k` through `URLSearchParams` — both entirely unredacted. So
+   * "credential-free by construction" was false for any adapter that built a URL the normal way.
+   */
+  it.each([
+    ['raw', (s: string) => s],
+    ['encodeURIComponent', (s: string) => encodeURIComponent(s)],
+    ['URLSearchParams', (s: string) => new URLSearchParams([['v', s]]).toString().slice(2)],
+    ['base64', (s: string) => Buffer.from(s, 'utf8').toString('base64')],
+    ['base64url', (s: string) => Buffer.from(s, 'utf8').toString('base64url')],
+  ])('redacts a hostile secret written in its %s form', (_name, encode) => {
+    const encoded = encode(HOSTILE_SECRET)
+    const out = redactText(`upstream said: api_key=${encoded} is invalid`, [HOSTILE_SECRET])
+
+    expect(out).not.toContain(encoded)
+    expect(out).toContain(REDACTED)
+  })
+
+  it('redacts a unicode secret in its percent-encoded form', () => {
+    const out = redactText(`q=${encodeURIComponent(UNICODE_SECRET)}`, [UNICODE_SECRET])
+
+    expect(out).not.toContain(encodeURIComponent(UNICODE_SECRET))
+    expect(out).toBe(`q=${REDACTED}`)
+  })
+
+  it('redacts a hostile secret carried in a reported request URL', () => {
+    const url = `https://api.example.com/j?api_key=${encodeURIComponent(HOSTILE_SECRET)}`
+    const report = buildRequestReport({ ...reportBase, url }, [HOSTILE_SECRET])
+
+    expect(report.url).not.toContain('ab%2Fcd')
+    expect(report.url).toContain(REDACTED)
+  })
+
+  it('still redacts the boring alphanumeric case the old tests covered', () => {
+    const report = buildRequestReport(
+      { ...reportBase, url: 'https://api.example.com/j?key=TOPSECRET123' },
+      ['TOPSECRET123'],
+    )
+
+    expect(report.url).toBe(`https://api.example.com/j?key=${REDACTED}`)
+  })
+})
+
+describe('redaction is STRUCTURAL first, so an unregistered credential still goes', () => {
+  /**
+   * WITHOUT THE FIX this reports the URL verbatim. `secrets: []` — nothing was registered, so
+   * exact matching had nothing to match, and the report carried a password and a token:
+   * `https://bob:hunter2@api.example.com/j?token=abc123`. A secret list is a list of the leaks
+   * someone remembered; across 25 adapters that is not a guarantee.
+   */
+  it('strips userinfo even with no secrets registered', () => {
+    const out = redactUrl('https://bob:hunter2@api.example.com/j?token=abc123', [])
+
+    expect(out).not.toContain('bob')
+    expect(out).not.toContain('hunter2')
+    expect(out).not.toContain('abc123')
+  })
+
+  /**
+   * A URL carrying a username and NO password. `user:pass@` by shape cannot see this one — the
+   * regex needs the colon — so it is the case that keeps `URL.username` load-bearing. A token
+   * pasted into the userinfo slot is a real shape: several providers document it.
+   */
+  it('strips a username-only credential, which has no colon to match on', () => {
+    const out = redactUrl('https://tok3n-in-the-userinfo@api.example.com/j?page=1', [])
+
+    expect(out).not.toContain('tok3n-in-the-userinfo')
+    expect(out).toContain('api.example.com')
+  })
+
+  it('redacts a query value whose key is not on the allowlist', () => {
+    expect(redactUrl('https://api.example.com/j?api_key=zzz', [])).toBe(
+      `https://api.example.com/j?api_key=${REDACTED}`,
+    )
+  })
+
+  it.each(['token', 'key', 'api_key', 'apikey', 'access_token', 'signature', 'sig', 'auth'])(
+    'redacts the value of `%s`',
+    (param) => {
+      const out = redactUrl(`https://api.example.com/j?${param}=abc123`, [])
+
+      expect(out).not.toContain('abc123')
+      expect(out).toContain(REDACTED)
+    },
+  )
+
+  it('keeps the pagination and search parameters an operator needs to read', () => {
+    const out = redactUrl('https://api.example.com/j?page=2&per_page=50&q=react&sort=date', [])
+
+    expect(out).toBe('https://api.example.com/j?page=2&per_page=50&q=react&sort=date')
+  })
+
+  it('drops a fragment, which is never part of what we asked for', () => {
+    expect(redactUrl('https://api.example.com/j?page=1#tok=abc123', [])).not.toContain('abc123')
+  })
+
+  /**
+   * This one was found by the test, not by a reviewer. The string PARSES — as scheme `bob:` with
+   * everything after it in an opaque path — so `URL.username` and `URL.password` are both empty
+   * and the userinfo strip finds nothing to strip. The credential reached the report through the
+   * PATH, which is why `user:pass@` is now redacted by shape wherever it appears.
+   */
+  it('redacts credentials hidden in an opaque scheme`s path', () => {
+    const out = redactUrl('bob:hunter2@api.example.com/x?token=abc123', [])
+
+    expect(out).not.toContain('hunter2')
+    expect(out).toContain(REDACTED)
+  })
+
+  it('refuses to report a URL it cannot parse at all, rather than passing it through', () => {
+    expect(redactUrl('not a url at all', [])).toBe(`${REDACTED} (unparsable url)`)
+  })
+
+  /**
+   * WITHOUT THE FIX this passes through unchanged. With `bob` and `hunter2` BOTH registered,
+   * `Authorization: Basic Ym9iOmh1bnRlcjI=` survived exact matching, because the base64 of the
+   * PAIR is not the base64 of either half. Redacting the scheme's token structurally handles it
+   * without an n-squared sweep over pairs of a list whose length we do not control.
+   */
+  it.each(['Basic', 'Bearer', 'Token', 'ApiKey'])('redacts a `%s` credential', (scheme) => {
+    const out = redactText(`Authorization: ${scheme} Ym9iOmh1bnRlcjI=`, ['bob', 'hunter2'])
+
+    expect(out).toBe(`Authorization: ${scheme} ${REDACTED}`)
+  })
+})
+
+describe('a bad item`s sample cannot carry a credential (SR-L-3)', () => {
+  /**
+   * WITHOUT THE FIX the sample reported
+   * `{"ref":"https://u:p@api.example.com/x?api_key=ab%2Fcd..."}` with the userinfo intact and the
+   * registered key unredacted — `buildInvalidSample` ran the same exact-match pass as a URL field,
+   * and a sample is free text that happens to contain a URL.
+   */
+  it('redacts an embedded credentialed URL inside a refused item', () => {
+    const sample = buildInvalidSample(
+      3,
+      'ITEM_SCHEMA',
+      { ref: `https://u:pw@api.example.com/x?api_key=${encodeURIComponent(HOSTILE_SECRET)}` },
+      [HOSTILE_SECRET],
+    )
+
+    expect(sample.sample).not.toContain('pw@')
+    expect(sample.sample).not.toContain('ab%2Fcd')
+    expect(sample.sample).toContain(REDACTED)
+  })
+
+  /**
+   * The assertion that actually pins `redactText` rather than plain secret matching: a credential
+   * that was NEVER registered, carried in a query parameter inside a sample. Only the per-URL
+   * allowlist pass can remove it — exact matching has nothing to match, and that is precisely the
+   * "credential-free by construction" claim this finding falsified.
+   */
+  it('redacts an UNREGISTERED credential in a URL inside a refused item', () => {
+    const sample = buildInvalidSample(
+      3,
+      'ITEM_SCHEMA',
+      { ref: 'https://api.example.com/x?access_token=never-registered-9x' },
+      [],
+    )
+
+    expect(sample.sample).not.toContain('never-registered-9x')
+    expect(sample.sample).toContain(REDACTED)
+  })
+
+  it('redacts an embedded credentialed URL inside a reason', () => {
+    const sample = buildInvalidSample(1, 'fetching https://u:pw@api.example.com/x failed', {}, [])
+
+    expect(sample.reason).not.toContain('pw@')
+  })
+
+  it('redacts BEFORE truncating, so a cut can never leave half a credential standing', () => {
+    const sample = buildInvalidSample(
+      1,
+      'r',
+      { pad: 'x'.repeat(MAX_SAMPLE_CHARS), token: HOSTILE_SECRET },
+      [HOSTILE_SECRET],
+    )
+
+    expect(sample.sample).not.toContain('ab/cd')
+    expect(sample.sample.length).toBeLessThanOrEqual(MAX_SAMPLE_CHARS)
+  })
+})
+
+describe('construction is the only path to a batch (CR-H-2)', () => {
+  /**
+   * WITHOUT THE FIX there is nothing to test, which is the finding. `CollectionBatch` was a plain
+   * exported interface, so any adapter implementing `ReportingJobSourceProvider` could return an
+   * object literal and `assertBatchInvariant` would never run — across 25 adapters, the difference
+   * between an invariant and a hope.
+   *
+   * This constructs the bad batch THE WAY AN ADAPTER WOULD: directly, as a literal, not through a
+   * helper nobody is obliged to call. The literal below is a `FAILED` attempt claiming
+   * `FULL_INVENTORY` with counts that do not balance — everything `buildCollectionBatch` refuses.
+   */
+  const adapterLiteral = {
+    observations: [],
+    outcome: 'FAILED' as const,
+    coverage: 'FULL_INVENTORY' as const,
+    scope: scope(),
+    requests: [],
+    counts: { raw: 5, normalized: 0, invalid: 0, quarantined: 0 },
+    checkpoint: null,
+    invalidSamples: [],
+  }
+
+  it('tells an adapter-made literal apart from a built batch', () => {
+    const built = buildCollectionBatch({
+      observations: [],
+      facts: facts(),
+      requests: [],
+      checkpoint: null,
+      invalidSamples: [],
+    })
+
+    // Paired on purpose: the negative half alone passes for a predicate that answers `false` to
+    // everything, which is a check that cannot fail.
+    expect(isBuiltBatch(adapterLiteral)).toBe(false)
+    expect(isBuiltBatch(built)).toBe(true)
+  })
+
+  it('refuses an adapter-made literal at the collector boundary', () => {
+    expect(() => assertBuiltBatch(adapterLiteral)).toThrow(UnbuiltBatchError)
+  })
+
+  it.each([[null], [undefined], ['a batch'], [42], [[]]])(
+    'does not recognise %s as a batch',
+    (value) => {
+      expect(isBuiltBatch(value)).toBe(false)
+    },
+  )
+
+  it('recognises a batch that went through the builder', () => {
+    const batch = buildCollectionBatch({
+      observations: [],
+      facts: facts(),
+      requests: [],
+      checkpoint: null,
+      invalidSamples: [],
+    })
+
+    expect(isBuiltBatch(batch)).toBe(true)
+    expect(() => assertBuiltBatch(batch)).not.toThrow()
+  })
+
+  /** The brand must never reach a database row or a log line — the reason it is non-enumerable. */
+  it('keeps the brand out of JSON, keys and spreads', () => {
+    const batch = buildCollectionBatch({
+      observations: [],
+      facts: facts(),
+      requests: [],
+      checkpoint: null,
+      invalidSamples: [],
+    })
+
+    expect(JSON.stringify(batch)).not.toContain('batchBuilt')
+    expect(Object.keys(batch)).not.toContain('batchBuilt')
+    expect(isBuiltBatch({ ...batch })).toBe(false)
+  })
+
+  it('brands a request report the same way', () => {
+    const report = buildRequestReport({ ...reportBase, url: 'https://api.example.com/j' }, [])
+
+    expect(JSON.stringify(report)).not.toContain('requestReportBuilt')
+    expect(Object.keys(report)).not.toContain('requestReportBuilt')
+  })
+})
+
+describe('a stored checkpoint is parsed at the boundary (SR-H-2)', () => {
+  const current = { configVersion: 2, policyVersion: 5, adapterVersion: 'a3' }
+
+  /**
+   * WITHOUT THE FIX every one of these is a `RESUME` carrying the value verbatim, because the
+   * parameter was typed `ValidatedCheckpoint | null` and the name was the only guarantee. `page:
+   * NaN` then disabled the page cap entirely.
+   */
+  it.each([
+    ['page NaN', { kind: 'CURSOR', page: NaN, cursor: 'c' }],
+    ['page as a string', { kind: 'CURSOR', page: '7', cursor: 'c' }],
+    ['page zero', { kind: 'CURSOR', page: 0, cursor: 'c' }],
+    ['page negative', { kind: 'CURSOR', page: -1, cursor: 'c' }],
+    ['page fractional', { kind: 'CURSOR', page: 1.5, cursor: 'c' }],
+    ['a cursor that is not a string', { kind: 'CURSOR', page: 1, cursor: 7 }],
+    ['an empty cursor', { kind: 'CURSOR', page: 1, cursor: '' }],
+    [
+      'a cursor past the length cap',
+      { kind: 'CURSOR', page: 1, cursor: 'c'.repeat(MAX_CURSOR_CHARS + 1) },
+    ],
+    ['an unknown kind', { kind: 'PAGE', page: 1 }],
+    ['no kind', { page: 1, cursor: 'c' }],
+  ])('restarts with overlap on %s', (_name, position) => {
+    const decision = decideCheckpoint(
+      {
+        configVersion: 2,
+        policyVersion: 5,
+        adapterVersion: 'a3',
+        position,
+        completedAt: new Date('2026-10-20T09:00:00Z'),
+      },
+      current,
+    )
+
+    expect(decision).toEqual({
+      kind: 'RESTART_WITH_OVERLAP',
+      discarded: null,
+      mismatch: 'UNPARSABLE',
+    })
+  })
+
+  it('accepts a cursor exactly at the length cap', () => {
+    const decision = decideCheckpoint(
+      {
+        configVersion: 2,
+        policyVersion: 5,
+        adapterVersion: 'a3',
+        position: { kind: 'CURSOR', page: 1, cursor: 'c'.repeat(MAX_CURSOR_CHARS) },
+        completedAt: new Date('2026-10-20T09:00:00Z'),
+      },
+      current,
+    )
+
+    expect(decision.kind).toBe('RESUME')
+  })
+
+  it('restarts with overlap when the whole value is the wrong shape', () => {
+    expect(decideCheckpoint('a checkpoint', current)).toEqual({
+      kind: 'RESTART_WITH_OVERLAP',
+      discarded: null,
+      mismatch: 'UNPARSABLE',
+    })
+  })
+
+  it('starts fresh on undefined, as on null', () => {
+    expect(decideCheckpoint(undefined, current)).toEqual({ kind: 'FRESH' })
+  })
+
+  /**
+   * CR-M-6: an exhausted position used to be stored as `cursor: null`, which a cursor API read as
+   * "start at page one" — the same representation for two different facts. A `RESTART` position
+   * says only one thing, and it is not a resume instruction.
+   */
+  it('starts fresh on a RESTART position rather than resuming it', () => {
+    expect(
+      decideCheckpoint(
+        {
+          configVersion: 2,
+          policyVersion: 5,
+          adapterVersion: 'a3',
+          position: { kind: 'RESTART', page: 9 },
+          completedAt: new Date('2026-10-20T09:00:00Z'),
+        },
+        current,
+      ),
+    ).toEqual({ kind: 'FRESH' })
+  })
+
+  it('parses a date that arrived as a string, the way a JSON column returns it', () => {
+    const parsed = validatedCheckpointSchema.safeParse({
+      configVersion: 2,
+      policyVersion: 5,
+      adapterVersion: 'a3',
+      position: { kind: 'CURSOR', page: 1, cursor: 'c' },
+      completedAt: '2026-10-20T09:00:00.000Z',
+    })
+
+    expect(parsed.success).toBe(true)
+  })
+})
+
+describe('a resumed attempt loses the FULL_INVENTORY claim (SPEC-L-2)', () => {
+  it('reports PARTIAL for an exhausted, clean, unwindowed RESUMED scope', () => {
+    expect(deriveCoverage(facts({ resumed: true }))).toBe('PARTIAL')
+  })
+
+  it('reports FULL_INVENTORY for the same facts unresumed', () => {
+    expect(deriveCoverage(facts({ resumed: false }))).toBe('FULL_INVENTORY')
   })
 })

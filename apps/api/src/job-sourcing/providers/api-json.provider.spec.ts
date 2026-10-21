@@ -1434,3 +1434,325 @@ describe('a thrown non-Error still produces a typed report', () => {
     })
   })
 })
+
+// ---------------------------------------------------------------------------
+// Round-1 review findings. Every test below covers a check that could not fail: the behaviour was
+// wrong AND the suite was green, so each one records what its own passing would look like if the
+// thing it checks were absent.
+// ---------------------------------------------------------------------------
+
+/** A provider with no end: every page hands back a cursor nobody has seen. Only a BOUND stops it,
+ *  which is what makes "the bound is per attempt" observable at all. */
+function endlessPages(count: number): PageResponse[] {
+  return Array.from({ length: count }, (_unused, i) => ({
+    body: { jobs: [job(`e${i + 1}`)], next: `cursor-${i + 1}` },
+  }))
+}
+
+function storedAt(position: unknown, over: Record<string, unknown> = {}): ValidatedCheckpoint {
+  return {
+    configVersion: 1,
+    policyVersion: 1,
+    adapterVersion: 'test-1',
+    position,
+    completedAt: new Date('2026-10-20T09:00:00Z'),
+    ...over,
+  } as unknown as ValidatedCheckpoint
+}
+
+describe('the page bound is per attempt, not absolute (SR-H-1)', () => {
+  /**
+   * WITHOUT THE FIX this reports `fetches: 0` and `outcome: 'SUCCEEDED'` — and a run that stops on
+   * its cap legitimately reports SUCCEEDED, which is why asserting the outcome alone could never
+   * catch it. The loop compared the ABSOLUTE page against a limit its own doc calls "per attempt",
+   * so a resumed run was born over budget: no request, nothing saved, success claimed, and the
+   * same again on every run after it. The source froze at page 10 and page 1 was never re-read.
+   */
+  it('fetches a full bound of pages starting from where it resumed', async () => {
+    const h = harness({
+      pages: endlessPages(9),
+      stored: storedAt({ kind: 'CURSOR', page: 10, cursor: 'cursor-from-run-1' }),
+    })
+    const batch = await collectJsonPages(makeSpec({ limits: { maxPages: 5 } }), config(), h.ctx)
+
+    expect(h.calls.filter((c) => c.startsWith('fetch')).length).toBe(5)
+    expect(h.sent[0]?.url).toContain('cursor-from-run-1')
+    expect(batch.observations).toHaveLength(5)
+  })
+
+  it('leaves a checkpoint strictly ahead of where it started, so runs make progress', async () => {
+    const h = harness({
+      pages: endlessPages(9),
+      stored: storedAt({ kind: 'CURSOR', page: 10, cursor: 'cursor-from-run-1' }),
+    })
+    const batch = await collectJsonPages(makeSpec({ limits: { maxPages: 3 } }), config(), h.ctx)
+
+    expect(batch.checkpoint?.position.page).toBe(13)
+  })
+
+  it('reports the cap it hit, instead of stopping silently', async () => {
+    const h = harness({ pages: endlessPages(4) })
+    const batch = await collectJsonPages(makeSpec({ limits: { maxPages: 2 } }), config(), h.ctx)
+
+    expect(batch.requests.map((r) => r.error?.code ?? null)).toContain('PAGE_CAP')
+  })
+})
+
+describe('a stored checkpoint is PARSED, not asserted (SR-H-2)', () => {
+  /**
+   * WITHOUT THE FIX the first case makes the cap vanish outright: `NaN > maxPages` is false, so it
+   * never fires and the loop runs until the fake provider runs out — measured as an UNBOUNDED
+   * loop, not merely a large one. A denial of service through one bad database row. `page: '7'` is
+   * the quieter half: `'7' + 1` is `'71'`, so the attempt resumed at page seventy-one, fetched
+   * nothing and reported SUCCEEDED.
+   */
+  it.each([
+    ['page NaN', { kind: 'CURSOR', page: NaN, cursor: 'c' }],
+    ['page as a string', { kind: 'CURSOR', page: '7', cursor: 'c' }],
+    ['page negative', { kind: 'CURSOR', page: -1_000_000, cursor: 'c' }],
+    ['page beyond a PostgreSQL integer', { kind: 'CURSOR', page: 2_147_483_648, cursor: 'c' }],
+    ['an empty cursor', { kind: 'CURSOR', page: 2, cursor: '' }],
+    ['an unknown kind', { kind: 'SOMETHING_ELSE', page: 2 }],
+    ['no position at all', undefined],
+  ])('restarts bounded discovery on %s', async (_name, position) => {
+    const h = harness({ pages: endlessPages(6), stored: storedAt(position) })
+    const batch = await collectJsonPages(makeSpec({ limits: { maxPages: 3 } }), config(), h.ctx)
+
+    // The cap holds — the half a bad `page` used to disable entirely.
+    expect(h.calls.filter((c) => c.startsWith('fetch')).length).toBe(3)
+    // And discovery restarted from page one rather than resuming a position we cannot trust.
+    expect(h.sent[0]?.url).toContain('page=1')
+    expect(batch.outcome).toBe('SUCCEEDED')
+  })
+
+  it('still resumes a checkpoint that does parse', async () => {
+    const h = harness({
+      pages: endlessPages(3),
+      stored: storedAt({ kind: 'CURSOR', page: 2, cursor: 'good-cursor' }),
+    })
+    await collectJsonPages(makeSpec({ limits: { maxPages: 1 } }), config(), h.ctx)
+
+    expect(h.sent[0]?.url).toContain('good-cursor')
+  })
+})
+
+describe('an unusable page request is a batch, not a throw (SR-H-3)', () => {
+  const throwingSpec = () =>
+    makeSpec({
+      pageRequest: () => {
+        throw new TypeError('Invalid URL')
+      },
+    })
+
+  /**
+   * WITHOUT THE FIX this rejects. `spec.pageRequest` is adapter code, it sat outside every `try`,
+   * and a cursor the adapter could not parse escaped as a raw `TypeError`: no `CollectionBatch`,
+   * no outcome, no error code, nothing for an operator to read.
+   */
+  it('reports PARSE_DRIFT when the adapter cannot build the first request', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+
+    const batch = await collectJsonPages(throwingSpec(), config(), h.ctx)
+
+    expect(batch.outcome).toBe('FAILED')
+    expect(batch.requests[0]?.error).toEqual({ code: 'PARSE_DRIFT', message: 'Invalid URL' })
+    expect(h.calls.filter((c) => c.startsWith('fetch')).length).toBe(0)
+  })
+
+  /** `.resolves`, never `.rejects.not.toThrow` — the second form passes for a promise that rejects
+   *  with the wrong error as readily as for one that resolves. */
+  it('resolves rather than rejecting', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+
+    await expect(collectJsonPages(throwingSpec(), config(), h.ctx)).resolves.toMatchObject({
+      outcome: 'FAILED',
+    })
+  })
+
+  /**
+   * WITHOUT THE FIX this is the permanent poison. `savePage` stored whatever `nextCursor` returned
+   * and the loop handed it to `pageRequest` on the NEXT iteration — so a cursor the adapter
+   * rejects was written to the database and replayed into the same rejection on every future
+   * attempt, forever, producing no batch at all. The fix builds the next request on THIS side of
+   * the persist and stores a `RESTART` instead.
+   */
+  it('keeps the page, refuses the cursor, and leaves a position that can start over', async () => {
+    const h = harness({ pages: [{ body: { jobs: [job('1')], next: 'not a url' } }] })
+    const spec = makeSpec({
+      pageRequest: (_c, at) => {
+        if (at.cursor !== null) new URL(at.cursor)
+        return { request: { url: 'https://api.example.com/jobs?page=1' } }
+      },
+    })
+
+    const batch = await collectJsonPages(spec, config(), h.ctx)
+
+    // The page landed.
+    expect(batch.observations).toHaveLength(1)
+    expect(h.saved).toHaveLength(1)
+    // The poison was never stored.
+    expect(h.saved[0]?.position).toEqual({ kind: 'RESTART', page: 1 })
+    expect(JSON.stringify(h.saved[0])).not.toContain('not a url')
+    // And the reason is reported rather than thrown.
+    expect(batch.requests.map((r) => r.error?.code ?? null)).toContain('PARSE_DRIFT')
+    expect(batch.outcome).toBe('PARTIAL')
+  })
+
+  it('starts over on the next attempt instead of replaying a refused cursor', async () => {
+    const h = harness({
+      pages: [onePage([job('2')])],
+      stored: storedAt({ kind: 'RESTART', page: 1 }),
+    })
+    const spec = makeSpec({
+      pageRequest: (_c, at) => {
+        if (at.cursor !== null) new URL(at.cursor)
+        return { request: { url: `https://api.example.com/jobs?page=${at.page}` } }
+      },
+    })
+
+    const batch = await collectJsonPages(spec, config(), h.ctx)
+
+    expect(h.sent[0]?.url).toBe('https://api.example.com/jobs?page=1')
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.observations).toHaveLength(1)
+  })
+})
+
+describe('the restart overlap reaches the WIRE, not just the report (SPEC-H-1)', () => {
+  /**
+   * WITHOUT THE FIX this fails on its first assertion while the three overlap tests already in
+   * this file stay green — which is the whole finding. `widenScope`'s result went into a local
+   * that reached `batch.scope.window` and never `spec.pageRequest`, so a restart REPORTED a window
+   * widened by a day and then asked the provider for the unwidened one. The existing tests
+   * asserted `batch.scope.window`, the half that was already right.
+   *
+   * So these assert on THE REQUEST THE FETCH PORT RECEIVED. That is the only surface on which "the
+   * overlap was applied" is distinguishable from "the overlap was reported".
+   */
+  const window = { from: new Date('2026-10-10T00:00:00Z'), to: new Date('2026-10-20T00:00:00Z') }
+  const widened = new Date('2026-10-09T00:00:00Z')
+
+  /** An adapter that builds its request from `at.window`, as the seam requires. */
+  const windowedSpec = (over: Partial<ApiJsonSourceSpec<Config, Envelope, Item>> = {}) =>
+    makeSpec({
+      pageRequest: (_c, at) => ({
+        request: {
+          url: `https://api.example.com/jobs?from=${at.window === null ? 'none' : at.window.from.toISOString()}`,
+        },
+      }),
+      ...over,
+    })
+
+  const staleConfig = () =>
+    storedAt({ kind: 'CURSOR', page: 2, cursor: 'c3' }, { configVersion: 99 })
+
+  it('sends the widened window on a restart', async () => {
+    const h = harness({ pages: [onePage([job('9')])], stored: staleConfig() })
+
+    const batch = await collectJsonPages(windowedSpec(), config({ window }), h.ctx)
+
+    expect(h.sent[0]?.url).toBe(`https://api.example.com/jobs?from=${widened.toISOString()}`)
+    // The report and the wire now agree, which is the invariant that was broken.
+    expect(batch.scope.window?.from).toEqual(widened)
+  })
+
+  it('sends the unwidened window on a FRESH run', async () => {
+    const h = harness({ pages: [onePage([job('9')])] })
+
+    const batch = await collectJsonPages(windowedSpec(), config({ window }), h.ctx)
+
+    expect(h.sent[0]?.url).toBe(`https://api.example.com/jobs?from=${window.from.toISOString()}`)
+    expect(batch.scope.window?.from).toEqual(window.from)
+  })
+
+  it('honours a spec`s own overlap on the wire', async () => {
+    const h = harness({ pages: [onePage([job('9')])], stored: staleConfig() })
+
+    await collectJsonPages(windowedSpec({ overlapMs: 60_000 }), config({ window }), h.ctx)
+
+    expect(h.sent[0]?.url).toBe(
+      `https://api.example.com/jobs?from=${new Date(window.from.getTime() - 60_000).toISOString()}`,
+    )
+  })
+})
+
+describe('a resumed attempt cannot claim the full inventory (SPEC-L-2)', () => {
+  /**
+   * WITHOUT THE FIX a checkpoint at page 4, one fetch and an exhausted cursor reported
+   * `FULL_INVENTORY` on the strength of a single tail page. A batch describes ONE attempt, and an
+   * attempt that began at page 5 never looked at pages 1-4.
+   */
+  it('reports PARTIAL for a tail-only resume that runs to exhaustion', async () => {
+    const h = harness({
+      pages: [onePage([job('9')])],
+      stored: storedAt({ kind: 'CURSOR', page: 4, cursor: 'c4' }),
+    })
+
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.coverage).toBe('PARTIAL')
+  })
+
+  it('still reports FULL_INVENTORY for an unresumed exhausted run', async () => {
+    const h = harness({ pages: [onePage([job('9')])] })
+
+    expect((await collectJsonPages(makeSpec(), config(), h.ctx)).coverage).toBe('FULL_INVENTORY')
+  })
+})
+
+describe('a cursor cycle reports its own error code (SR-L-4)', () => {
+  /**
+   * WITHOUT THE FIX the stop pushed no report carrying `CURSOR_CYCLE`, though the code is in
+   * `COLLECTION_ERROR_CODES` for this exact purpose — so a cycle was indistinguishable from a
+   * clean finish in everything except the coverage axis. The outcome stays SUCCEEDED on purpose:
+   * we stopped on our own bound having kept everything we read. What was missing is the reason.
+   */
+  it('pushes a CURSOR_CYCLE request report', async () => {
+    const h = harness({
+      pages: [{ body: { jobs: [job('1')], next: 'c9' } }],
+      stored: storedAt({ kind: 'CURSOR', page: 1, cursor: 'c9' }),
+    })
+
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(batch.requests.map((r) => r.error?.code ?? null)).toContain('CURSOR_CYCLE')
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.coverage).toBe('PARTIAL')
+  })
+})
+
+describe('an unknown provider id is not a collision (CR-M-2)', () => {
+  /**
+   * THE MUTANT THIS KILLS: `if (nativeId !== null)` mutated to `if (true)`. It survived under a
+   * suppression calling the guard unobservable, and it is not — with the guard gone, the first
+   * item records `null` against its identity key and the SECOND item on that key, carrying a
+   * perfectly good provider id, compares `null !== 'b'` and is reported as an identity collapse. A
+   * success becomes `FAILED` / `ADAPTER_INVARIANT`. All 113 spec tests passed anyway, because none
+   * of them put a null-id item and a known-id item on one key.
+   */
+  it('records a null native id without inventing a collision', async () => {
+    const sharedUrl = 'https://jobs.example.com/j/shared'
+    const h = harness({
+      pages: [onePage([job('a', { url: sharedUrl }), job('b', { url: sharedUrl })])],
+    })
+    const spec = makeSpec({
+      // Both items key identity on the same canonical URL, so they share an identity key...
+      mapItem: (item, cfg) => ({
+        namespace: cfg.namespace,
+        nativeId: null,
+        url: sharedUrl,
+        title: item.title,
+        companyName: item.company,
+      }),
+      // ...and only the second one has a provider-issued id.
+      nativeIdOf: (item) => (item.id === 'a' ? null : item.id),
+    })
+
+    const batch = await collectJsonPages(spec, config(), h.ctx)
+
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.requests.map((r) => r.error?.code ?? null)).not.toContain('ADAPTER_INVARIANT')
+    expect(batch.counts.normalized).toBe(2)
+  })
+})
