@@ -2355,7 +2355,10 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
   describe('the REASON_REDACTED evidence row is now writable', () => {
     it('has its enum value, appended last so the existing members did not move', async () => {
       const { rows } = await q(
-        `SELECT array_agg(enumlabel ORDER BY enumsortorder) AS labels FROM pg_enum e
+        // `enumlabel` is `name`, and node-pg has no parser for `name[]` — it
+        // would hand back the raw `{A,B}` string and `.at(-1)` would be `}`.
+        // The `::text` cast is what makes this an array on this side.
+        `SELECT array_agg(enumlabel::text ORDER BY enumsortorder) AS labels FROM pg_enum e
            JOIN pg_type t ON t.oid = e.enumtypid
           WHERE t.typname = 'job_queue_action_kind'`,
       )
@@ -2393,12 +2396,18 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
      * pointing whoever lands it at the three places that still say "not
      * discharged" (the DDL header, the memo's status, the r5 plan).
      */
-    it('GAP PIN — the function still cannot write it: no INSERT wired, no UPDATE (reason) granted', async () => {
+    it('GAP PIN — the function still cannot write it: no INSERT is wired into the redaction', async () => {
       const { rows } = await q(
         `SELECT pg_get_functiondef(oid) AS def FROM pg_proc
           WHERE proname = 'crm_retention_redact_action_reason'`,
       )
-      expect(rows[0].def).not.toContain('REASON_REDACTED')
+      // Assert the ABSENCE OF AN INSERT, not the absence of the string
+      // `REASON_REDACTED`: `pg_get_functiondef` returns the body's SQL comments
+      // too, and the body already NAMES the kind while explaining why it logs to
+      // the server log instead. The first draft of this pin matched that prose
+      // and failed on a correct function — a pin that reads a comment pins
+      // nothing.
+      expect(rows[0].def).not.toMatch(/insert\s+into\s+job_queue_actions/i)
     })
   })
 })
