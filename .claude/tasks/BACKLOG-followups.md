@@ -3569,3 +3569,152 @@ and, with discovery now failing closed, would turn the whole deploy red.
 **Check on closing:** no workflow references a third-party action by a mutable ref; the host-key
 guard's table is keyed by SHA and fails loudly on an unknown one; and the canary is re-run so the
 enforcement proof is attached to the SHAs that actually run.
+
+## 259. The `pre:bash:*` refusal texts are Russian, and no gate covers the hooks at all (2026-10-21)
+
+The refusal paragraphs of `pre-bash-devserver-ttl-gate.sh`, `pre-bash-live-db-guard.sh` and
+`pre-bash-safety.sh` are written in Russian, against the repository's English policy
+(`.claude/rules/common/russian-language.md`). PR #1067 added more of it, consistent with the
+surrounding block, and declared the deviation in its body rather than shipping it silently.
+
+**Why it cannot be converted a hook at a time.** `ДЕГРАДИРОВАННЫЙ РЕЖИМ` is a cross-hook contract
+token: `test-hook-command-corpus.sh` asserts it generically for every `narrowed` row across all three
+hooks. Convert two hooks and that assertion breaks for them. `cmdscan.py` is not a usable
+language-neutral substitute, because it appears in ordinary refusal text too, not only in the degraded
+path. So the conversion is one atomic change over all three hooks, their coupled `--contains`
+assertions and the `why` strings that `cmdscan.py` embeds in every hook's labels.
+
+**The finding underneath the finding, and the more important half.** `check-no-russian-letters.mjs`
+scans only `apps/api/src`. It exists to keep Russian out of the **product**, so `.claude/hooks/**` is
+outside its scan entirely — nothing would have reported this, and nothing will report the next line
+added. The conversion therefore holds only until somebody edits a refusal message, unless that scan is
+widened to the hooks in the same change.
+
+Test-case **labels** in the hook test files are deliberately out of scope: nothing asserts against
+them, so there is no coupling argument, and translating them would bury a guard change under
+translation noise.
+
+**Check on closing:** no Russian remains in any `pre:bash:*` refusal text or in the `why` strings;
+the corpus assertion keyed on the degraded-mode token still passes for all three hooks; and
+`check-no-russian-letters.mjs` covers `.claude/hooks/**`, proven by a case that goes red when a Russian
+line is added to a hook.
+
+## 260. The senior-share override spec is flaky at 320px, proven rather than suspected (2026-10-21)
+
+`projects-senior-share-override.spec.ts` asserts that the share row does not overflow its own box at
+320px. On PR #1063 that assertion **failed and then passed on the identical head**, which is what makes
+this a flake rather than a regression: two CI runs, one commit, different verdicts.
+
+Worth recording how it was _not_ diagnosed, because the wrong method was tempting. A local run on a
+scratch stack reproduced neither the failure nor a clean pass — 48 passed and 6 failed, different
+tests, one of them on a Ukrainian catalog string — so that stack was not CI-equivalent and the agent
+holding it correctly declined to call the CI failure a flake from it. The evidence is the CI-versus-CI
+comparison on one SHA, not a local re-run.
+
+The project's rule is zero tolerance for flaky E2E, so the answer is a diagnosis, not a re-run badge.
+
+**Check on closing:** the overflow assertion either becomes deterministic or is replaced by one that
+is, and the reason for the original non-determinism is written down rather than inferred.
+
+## 261. The three external-URL guards are kept in step by hand (2026-10-21)
+
+`externalHttpsUrlSchema` (shared), `isSafeExternalUrl` (web, the last barrier before `window.open`)
+and `HTTPS_URL_PATTERN` (the CHECK on every stored navigation URL) must agree on one property: https
+scheme, non-empty authority, no embedded credentials. Nothing tests that they agree. Each names the
+others in its comment and asks the next editor to change all three together.
+
+That this is a real risk rather than a theoretical one is already on the record: the guards diverged
+once — the shared schema accepted `https://user:pw@evil.test/a` while the column refused it — and a
+comment describing the schema by its old pattern outlived the fix by a whole review round.
+
+The mechanism that would close it was built and deliberately removed: one corpus of inputs with an
+absolute expected verdict **per guard**, consumed by the shared spec, the web test and the DDL
+integration spec. Absolute per-guard verdicts rather than an agreement assertion, because an agreement
+assertion stays green when a change makes both guards wrong in the same direction. It came out of
+PR #1063 because keeping the corpus out of mutated source needed build configuration — a rename plus a
+`tsconfig.build.json` — which is not a coder-zone edit and did not belong inside a fix round. The work
+is preserved as an ancestor of that branch and the follow-up starts from it.
+
+Closing it needs the architect, because the honest form of the change is "test data must not be
+mutated source", which is a statement about the mutation gate's exclusion predicate rather than about
+code.
+
+**Check on closing:** one corpus, imported by all three test surfaces, carrying a per-guard expected
+verdict for each input; a new input is added in one place; and the corpus is not a public export of
+`@crm/shared`.
+
+## 262. The auto-merge workflow dispatches post-merge CI without a retry (2026-10-21)
+
+`auto-merge-on-label.yml` squash-merges and then dispatches CI on `main`, because a `GITHUB_TOKEN`
+squash raises no push event and would otherwise leave `main` untested. On the #1063 merge that dispatch
+returned **HTTP 500** from GitHub and the job went red after the merge had already succeeded.
+
+Nothing was lost that time — CI and Deploy both ran on the merged SHA anyway — but the shape of the
+failure is what matters: a transient server error on an unretried call turns a successful merge into a
+red workflow, and with slightly worse timing into a `main` whose post-merge CI never ran. That is the
+safety net that catches a semantic conflict between two PRs each of which was green alone, so losing it
+silently is the expensive outcome.
+
+A red run that nonetheless merged is also the hardest signal to read correctly: the natural reading is
+"the merge failed", which is wrong, and the second-natural reading is "ignore it", which is worse.
+
+**Check on closing:** the dispatch retries a transient failure and fails loudly only when the
+post-merge run genuinely did not start; and the job's conclusion distinguishes "merge failed" from
+"merge succeeded, dispatch did not".
+
+## 263. `job_queue_actions.created_at` is writer-settable, and the purge now makes that load-bearing (2026-10-21)
+
+The column is `defaultNow()` with no CHECK, and the only `BEFORE INSERT` guard in the queue DDL is on
+`job_queue_generation_entries`. PR #1062 turned the end-of-retention purge on, which converts a
+backdated audit row into evidence that **deletes itself within twenty-four hours**.
+
+The append-only trigger cannot compensate, and this is the part worth reading twice: its two-year shape
+bound reads that same untrusted column. So the assurance in the DDL header that misuse "cannot delete a
+row that is not yet due" holds exactly as far as `created_at` is trustworthy, and no further.
+
+It is deferrable only because no code path writes that table yet. The remedy is a `BEFORE INSERT`
+trigger forcing `now()`, needing no schema change; it belongs with r5 Task 1.4b, and it **must land
+before the first writer to `job_queue_actions` ships** rather than before any particular merge. The day
+a writer ships without it, this stops being MED.
+
+**Check on closing:** a supplied `created_at` cannot survive an insert into that table, proven by a
+test that inserts a backdated row and finds `now()`; and the DDL header's claim is restated to rest on
+the trigger rather than on the writer's good behaviour.
+
+## 264. Two standing root overrides exist that `version-pins.md` does not record (2026-10-21)
+
+PR #1066 added `pnpm.overrides` for `follow-redirects` and `vite` to close a gating advisory pair.
+`.claude/rules/common/version-pins.md` is the single source of truth for versions and overrides — it
+documents the Fastify override by name and reason and carries a forbidden-overrides section — so two
+live overrides that exist only in `package.json` make that file quietly incomplete.
+
+Each entry needs its advisory ids, the reason it exists, and a **checkable** drop condition. The
+original wording offered was "when the dependency tree no longer resolves below the patched version",
+which is true by definition and gives a reader nothing to verify; the concrete conditions are that
+`follow-redirects` goes when the lockfile's own `axios` requires the patched range, and the other goes
+when the two app specifiers are bumped.
+
+Which is the second half: `vite` is a **direct** dependency of `apps/web` and `apps/landing`, so
+bumping those two specifiers would have closed the advisory without a standing root override at all.
+That was declined deliberately — the PR was unblocking the advisory gate for every open PR in the
+repository, and swapping an override for specifier bumps changes what two apps resolve — but the
+override is the less honest shape, because a root override hides from whoever reads an app manifest.
+
+**Check on closing:** `version-pins.md` records both overrides with ids, reason and a condition
+somebody can check; and either the direct specifiers are bumped and the `vite` override dropped, or the
+reason for keeping it is written where the pins live.
+
+## 265. The retention cron is missing from the repo-wide swallow-and-log registry (2026-10-21)
+
+`swallowing-handlers-db-error-log.spec.ts` lists every cron that catches a database error, logs it and
+does not rethrow, and asserts the shared contract on each: the SQLSTATE reaches the log through the
+driver error on `.cause`, and no parameter values go with it.
+`JobQueueActionRetentionCronService`, added by PR #1062, honours that contract and has an equivalent
+assertion in its own spec, but is absent from the registry — the implementing agent made the local
+assertion rather than reaching across zones, which was right.
+
+The registry is the thing that catches the _next_ cron written without the contract, so a member that
+is compliant but unlisted weakens it as a census even while the behaviour is correct.
+
+**Check on closing:** the registry's case list includes the retention cron, and the duplicated local
+assertion is either removed or marked as deliberately redundant.
