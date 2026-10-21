@@ -344,7 +344,8 @@ export const STEPS = Object.freeze([
   verdictStep(
     'Copy-Review',
     'copy',
-    'reviews',
+    // copy-reviewer.md posts its verdict as a PR comment, not only as a review — read both.
+    'both',
     'copy-reviewer',
     (ctx) => ctx.files.some(isCopy),
     'the diff touches i18n catalogs or landing dictionaries',

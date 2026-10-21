@@ -440,14 +440,32 @@ test('Design Review: POLISH-REQUESTED is negative; APPROVE is accepted as a syno
   assert.equal(parseMarker('Design Review: PASS', 'design'), 'pos')
 })
 
-test('Review/Security/Spec/Copy read reviews only; QA/Design read reviews and comments', () => {
-  const ui = { ...good(), files: ['apps/web/app/routes/x.tsx', 'apps/web/app/routes/x.spec.tsx'] }
+test('Review/Security/Spec read reviews only; Copy/QA/Design read reviews and comments', () => {
+  const ui = {
+    ...good(),
+    files: [
+      'apps/web/app/routes/x.tsx',
+      'apps/web/app/routes/x.spec.tsx',
+      'apps/api/src/auth/x.ts',
+      'packages/shared/src/i18n/locales/en/messages.po',
+    ],
+  }
   const viaComment = ev({
     ...ui,
-    comments: [cm('Verdict: APPROVE'), cm('QA Verdict: PASS'), cm('Design Review: PASS')],
-    reviews: [rv('Spec Review: PASS')],
+    comments: [
+      cm('Verdict: APPROVE'),
+      cm('Security Review: APPROVE'),
+      cm('Spec Review: PASS'),
+      cm('Copy Review: PASS'),
+      cm('QA Verdict: PASS'),
+      cm('Design Review: PASS'),
+    ],
+    reviews: [],
   })
   assert.equal(status(viaComment, 'Review'), 'missing')
+  assert.equal(status(viaComment, 'Security-Review'), 'missing')
+  assert.equal(status(viaComment, 'Spec-Review'), 'missing')
+  assert.equal(status(viaComment, 'Copy-Review'), 'satisfied')
   assert.equal(status(viaComment, 'QA'), 'satisfied')
   assert.equal(status(viaComment, 'Design-Review'), 'satisfied')
 })
