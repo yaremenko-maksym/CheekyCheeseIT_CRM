@@ -1,4 +1,5 @@
 import type { JobCollectionCoverage, JobCollectionOutcome, JobMeterUnit } from '@crm/shared'
+import { z } from 'zod'
 import type { SourceObservation } from '../normalize/observation'
 
 /**
@@ -63,6 +64,22 @@ export type CollectionErrorCode = (typeof COLLECTION_ERROR_CODES)[number]
 /** The redaction placeholder. Asserted BY NAME in tests, so both halves of "the key is gone and
  * something marks where it was" are checkable. */
 export const REDACTED = '[REDACTED]'
+
+/**
+ * The brands that make construction the ONLY path.
+ *
+ * `buildCollectionBatch` called itself "the ONLY producer of a `CollectionBatch`" while
+ * `CollectionBatch` was a plain exported interface — so any of phase 3's ~25 adapters could
+ * implement `ReportingJobSourceProvider` and return an object literal, and `assertBatchInvariant`
+ * would simply never run. A comment claiming exclusivity over a structural type is a convention,
+ * and a convention held by 25 authors is a hope. The brand is the same device already used for
+ * `Validated<T>`, applied to the thing the AC1 invariant actually lives on.
+ *
+ * Both symbols are module-private and both properties are installed non-enumerable, so neither
+ * reaches `JSON.stringify`, a log line, or a database row.
+ */
+const BATCH_BUILT: unique symbol = Symbol('crm.jobSourcing.batchBuilt')
+const REPORT_BUILT: unique symbol = Symbol('crm.jobSourcing.requestReportBuilt')
 
 /** A sample of a refused item is bounded to this many characters before it is ever reported. */
 export const MAX_SAMPLE_CHARS = 200
@@ -180,12 +197,16 @@ export interface MeterCost {
  * literal by an adapter would bypass that, which is why phase 3 adapters never build one: the
  * collection loop does.
  */
-export interface RequestReport {
+export interface RequestReportFields {
   /** 1-based retry ordinal of THIS subrequest. A retried page reports twice, not once. */
   attempt: number
   /** 1-based page ordinal within the attempt. */
   page: number
-  /** Credential-free request URL. */
+  /**
+   * The request URL, credential-free — a claim `buildRequestReport` makes true rather than one the
+   * caller has to. It is the reason this type is branded: a report assembled as a literal carries
+   * whatever URL the adapter had, and the adapter had the credentialed one.
+   */
   url: string
   /** HTTP status, or `null` when no response arrived (network failure, abort, deadline). */
   status: number | null
@@ -195,47 +216,174 @@ export interface RequestReport {
   cost: MeterCost | null
 }
 
+/** Only `buildRequestReport` can make one — see the brand note on `CollectionBatch`. */
+export type RequestReport = RequestReportFields & { readonly [REPORT_BUILT]: true }
+
 /**
- * Replace every known secret with `REDACTED`, longest first.
+ * The query parameters whose VALUES are safe to report. An allowlist, not a denylist of
+ * `token|key|secret`: the names a credential travels under are per provider and unknowable from
+ * here, while the names that are genuinely boring are few and shared. Across 25 adapters a
+ * denylist is a list of the leaks we happened to think of.
+ */
+const REPORTABLE_QUERY_KEYS: ReadonlySet<string> = new Set([
+  'page',
+  'per_page',
+  'pagesize',
+  'page_size',
+  'limit',
+  'offset',
+  'start',
+  'cursor',
+  'after',
+  'before',
+  'q',
+  'query',
+  'search',
+  'keywords',
+  'sort',
+  'order',
+  'direction',
+  'from',
+  'to',
+  'since',
+  'until',
+  'date',
+  'updated_at',
+  'location',
+  'category',
+  'remote',
+  'format',
+  'lang',
+  'locale',
+  'version',
+  'v',
+])
+
+/** `Basic`/`Bearer` and friends, wherever they appear — a header echoed into an error message is
+ *  the shape this catches. Structural: it does not need the credential to be registered. */
+const AUTH_SCHEME_RE = /\b(Basic|Bearer|Token|ApiKey)\s+([A-Za-z0-9+/=._~-]{4,})/gi
+
+/** Enough of a URL to find one inside free text (an error message, a bad item's JSON). */
+const URL_IN_TEXT_RE = /\b[a-z][a-z0-9+.-]*:\/\/[^\s"'<>\\)\]}]+/gi
+
+/**
+ * Every written form the same secret can arrive in.
+ *
+ * Exact string matching was the whole of this function, and it only ever worked for the one shape
+ * the tests used — an alphanumeric literal. Measured on a registered secret `ab/cd+ef=gh&ij k`:
+ * reported as `?api_key=ab%2Fcd%2Bef%3Dgh%26ij%20k` through `encodeURIComponent` and as
+ * `...%26ij+k` through `URLSearchParams`, both entirely unredacted; a percent-encoded unicode key
+ * likewise. Any adapter that builds a URL the normal way leaks a secret containing `/ + = & space`
+ * or any non-ASCII character.
+ */
+function secretForms(secret: string): string[] {
+  const forms = new Set<string>([secret])
+  forms.add(encodeURIComponent(secret))
+  forms.add(encodeURI(secret))
+  // `URLSearchParams` is form-encoding, not percent-encoding: a space becomes `+`, which
+  // `encodeURIComponent` never produces. Both reach a report.
+  forms.add(new URLSearchParams([['v', secret]]).toString().slice('v='.length))
+  forms.add(Buffer.from(secret, 'utf8').toString('base64'))
+  forms.add(Buffer.from(secret, 'utf8').toString('base64url'))
+  // A one-character form would redact the whole string and say nothing.
+  return [...forms].filter((f) => f.length > 1)
+}
+
+/**
+ * Replace every known secret, in every form it can be written in, with `REDACTED`. Longest first.
  *
  * Longest-first matters: an API key and a prefix of it can both be registered (a key and its
  * account id share a prefix in several of phase 3's providers), and replacing the short one first
- * would leave the tail of the long one in the string. Empty and one-character secrets are ignored —
- * they would redact the whole URL and tell us nothing.
+ * would leave the tail of the long one in the string.
+ *
+ * This is the SECRET-MATCHING half. It can only redact what was registered, which is why
+ * `redactUrl` runs a structural pass first — "credential-free by construction" cannot rest on a
+ * list the adapter author remembered to fill in.
  */
 export function redactSecrets(text: string, secrets: readonly string[]): string {
-  let out = text
-  const usable = [...new Set(secrets)]
-    .filter((s) => s.length > 1)
-    .sort((a, b) => b.length - a.length)
-  for (const secret of usable) {
-    out = out.split(secret).join(REDACTED)
+  let out = text.replace(AUTH_SCHEME_RE, (_m, scheme: string) => `${scheme} ${REDACTED}`)
+  const usable = [...new Set(secrets.flatMap(secretForms))].sort((a, b) => b.length - a.length)
+  for (const form of usable) {
+    out = out.split(form).join(REDACTED)
   }
   return out
 }
 
+/**
+ * Make one URL reportable: STRUCTURALLY first, then by secret matching.
+ *
+ * Structural, because the secret list is not a guarantee. Measured on the exact-match version:
+ * `https://bob:hunter2@api.example.com/j?token=abc123` was reported verbatim with `secrets: []` —
+ * nothing was registered, so nothing was redacted, and the report carried a password and a token.
+ * Both are now gone whether or not anyone registered them.
+ *
+ * A URL that does not parse is not reported raw: it goes through secret matching and is then
+ * dropped to a marker, because an unparsable string is exactly where a credential hides from the
+ * structural pass.
+ */
+export function redactUrl(url: string, secrets: readonly string[]): string {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return `${REDACTED} (unparsable url)`
+  }
+  // Userinfo: never reportable, under any name.
+  if (parsed.username !== '' || parsed.password !== '') {
+    parsed.username = ''
+    parsed.password = ''
+  }
+  for (const key of [...parsed.searchParams.keys()]) {
+    if (!REPORTABLE_QUERY_KEYS.has(key.toLowerCase())) {
+      parsed.searchParams.set(key, REDACTED)
+    }
+  }
+  if (parsed.hash !== '') parsed.hash = ''
+  return redactSecrets(parsed.toString(), secrets)
+}
+
+/**
+ * Make free text reportable: every URL inside it through `redactUrl`, then secret matching over
+ * the whole. An upstream error body echoes the request URL back, and a refused item can carry a
+ * credentialed URL of its own (SR-L-3) — neither is a "url field", so neither reached `redactUrl`.
+ */
+export function redactText(text: string, secrets: readonly string[]): string {
+  const withUrlsRedacted = text.replace(URL_IN_TEXT_RE, (match) => {
+    // A URL found in text usually ends in a delimiter the regex could not know about; trailing
+    // punctuation is trimmed back so the parse succeeds on the URL rather than on the sentence.
+    const trimmed = match.replace(/[.,;:!?]+$/, '')
+    const tail = match.slice(trimmed.length)
+    return redactUrl(trimmed, secrets) + tail
+  })
+  return redactSecrets(withUrlsRedacted, secrets)
+}
+
 export function buildRequestReport(
-  fields: Omit<RequestReport, 'url' | 'error'> & {
+  // The FIELD shape: `Omit<RequestReport, ...>` would keep the brand and demand that the CALLER
+  // already hold a built report, which is the opposite of what a builder is for.
+  fields: Omit<RequestReportFields, 'url' | 'error'> & {
     url: string
     error: { code: CollectionErrorCode; message: string } | null
   },
   secrets: readonly string[],
 ): RequestReport {
-  return {
+  const report: RequestReportFields = {
     attempt: fields.attempt,
     page: fields.page,
-    url: redactSecrets(fields.url, secrets),
+    url: redactUrl(fields.url, secrets),
     status: fields.status,
     startedAt: fields.startedAt,
     endedAt: fields.endedAt,
     error: fields.error
       ? {
           code: fields.error.code,
-          message: redactSecrets(fields.error.message, secrets).slice(0, 500),
+          message: redactText(fields.error.message, secrets).slice(0, 500),
         }
       : null,
     cost: fields.cost,
   }
+  Object.defineProperty(report, REPORT_BUILT, { value: true, enumerable: false })
+  return report as RequestReport
 }
 
 // ---------------------------------------------------------------------------
@@ -272,8 +420,13 @@ export function buildInvalidSample(
   }
   return {
     page,
-    reason: redactSecrets(reason, secrets).slice(0, MAX_SAMPLE_CHARS),
-    sample: redactSecrets(text, secrets).slice(0, MAX_SAMPLE_CHARS),
+    // `redactText`, not `redactSecrets`: a refused item routinely carries a URL of its own, and
+    // measured on the exact-match version a sample reported
+    // `{"ref":"https://u:p@api.example.com/x?api_key=ab%2Fcd..."}` with the credential intact and
+    // the key registered (SR-L-3). Truncation happens AFTER redaction, so a sample can never be
+    // cut in a way that leaves half a credential standing.
+    reason: redactText(reason, secrets).slice(0, MAX_SAMPLE_CHARS),
+    sample: redactText(text, secrets).slice(0, MAX_SAMPLE_CHARS),
   }
 }
 
@@ -287,55 +440,157 @@ export function buildInvalidSample(
  * (`jobCollectionAttemptSchema` makes the same statement about `configVersion`), and resuming a
  * cursor minted under a different config would silently skip whatever the config change added.
  */
+/** The ceiling of the store's `intColumnPositiveSchema` — a PostgreSQL `integer` column. */
+export const PG_INT_MAX = 2_147_483_647
+
+/** A cursor longer than this is not a cursor, it is a payload someone put in the wrong field. */
+export const MAX_CURSOR_CHARS = 2048
+
+/**
+ * WHERE THE NEXT ATTEMPT STARTS — and nothing else. One question, three answers, no two of which
+ * share a representation.
+ *
+ * The shape this replaces was `{ cursor: string | null; page: number }`, where `cursor: null` had
+ * to mean BOTH "this provider paginates by number, so resume at `page + 1`" AND "the inventory ran
+ * out". A cursor API loading the second one read it as the first and started again from page one
+ * (CR-M-6), and `nextCursor() === null` meaning "exhausted" contradicted the field's own doc
+ * comment. Prose cannot resolve that; the type can, so the type does.
+ *
+ * `RESTART` deliberately merges "exhausted" with "the trail cannot be picked up again": for the
+ * only question this type answers they are the same answer. WHY the trail ended is carried by the
+ * outcome and the request reports, where the difference is actually actionable.
+ */
+export type ResumePosition =
+  /** Page-numbered pagination. The next attempt asks for `page + 1`. */
+  | { kind: 'PAGE'; page: number }
+  /**
+   * Cursor pagination. The next attempt hands `cursor` back to the provider. A cursor only reaches
+   * this shape after the adapter has successfully BUILT a request from it — see
+   * `api-json.provider.ts`, where an unusable cursor becomes a `RESTART` instead of being stored
+   * and replayed into the same rejection forever.
+   */
+  | { kind: 'CURSOR'; page: number; cursor: string }
+  /**
+   * Discovery starts over from the beginning next time. Either the provider's inventory was
+   * exhausted at `page`, or the trail cannot be resumed. Nothing is replayed.
+   */
+  | { kind: 'RESTART'; page: number }
+
+/** The last page this position was reached at, whatever kind it is. */
+export function positionPage(position: ResumePosition): number {
+  return position.page
+}
+
+/**
+ * Where an attempt got to, and under WHICH versions it got there. The three version fields are
+ * the whole point: a checkpoint belongs to the config, adapter and policy that produced it
+ * (`jobCollectionAttemptSchema` makes the same statement about `configVersion`), and resuming a
+ * cursor minted under a different config would silently skip whatever the config change added.
+ */
 export interface ValidatedCheckpoint {
   configVersion: number
   policyVersion: number
   adapterVersion: string
-  /** Opaque provider cursor, or `null` for page-numbered pagination. */
-  cursor: string | null
-  /** The LAST COMPLETED page — the next attempt starts after it. */
-  page: number
+  position: ResumePosition
   completedAt: Date
 }
+
+/**
+ * THE SCHEMA THAT MAKES THE NAME TRUE.
+ *
+ * `ValidatedCheckpoint` used to be a bare interface whose name asserted a guarantee nothing
+ * provided: the value came back from a store port typed `Promise<ValidatedCheckpoint | null>`, and
+ * a row written by an older build, a hand-edited row, or a JSON round-trip satisfied the type by
+ * assertion alone. Measured on the unparsed shape: `page: NaN` made the page cap vanish entirely
+ * (`NaN > maxPages` is false) and the loop ran until the fake provider ran out — unbounded, not
+ * merely large; `page: '7'` resumed at `'7' + 1 === '71'` and fetched nothing.
+ *
+ * So the boundary parses. `page` is bounded by the same PostgreSQL `integer` ceiling the store's
+ * column has, because a checkpoint that cannot be persisted is not a checkpoint.
+ */
+export const resumePositionSchema: z.ZodType<ResumePosition> = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('PAGE'), page: z.number().int().positive().max(PG_INT_MAX) }),
+  z.object({
+    kind: z.literal('CURSOR'),
+    page: z.number().int().positive().max(PG_INT_MAX),
+    cursor: z.string().min(1).max(MAX_CURSOR_CHARS),
+  }),
+  z.object({ kind: z.literal('RESTART'), page: z.number().int().nonnegative().max(PG_INT_MAX) }),
+])
+
+export const validatedCheckpointSchema: z.ZodType<ValidatedCheckpoint> = z.object({
+  configVersion: z.number().int().positive().max(PG_INT_MAX),
+  policyVersion: z.number().int().positive().max(PG_INT_MAX),
+  adapterVersion: z.string().min(1),
+  position: resumePositionSchema,
+  completedAt: z.coerce.date(),
+})
 
 export type CheckpointDecision =
   | { kind: 'FRESH' }
   | { kind: 'RESUME'; from: ValidatedCheckpoint }
-  | { kind: 'RESTART_WITH_OVERLAP'; discarded: ValidatedCheckpoint; mismatch: CheckpointMismatch }
+  | {
+      kind: 'RESTART_WITH_OVERLAP'
+      /** `null` when the stored value did not parse: there is no checkpoint to report. */
+      discarded: ValidatedCheckpoint | null
+      mismatch: CheckpointMismatch
+    }
 
-export type CheckpointMismatch = 'CONFIG_VERSION' | 'POLICY_VERSION' | 'ADAPTER_VERSION'
+export type CheckpointMismatch =
+  'CONFIG_VERSION' | 'POLICY_VERSION' | 'ADAPTER_VERSION' | 'UNPARSABLE'
 
 /**
  * Decide what a stored checkpoint is worth. A mismatch on ANY of the three versions discards the
  * cursor and restarts bounded discovery; the caller widens its window by the spec's overlap, so
  * the restart re-reads the boundary rather than trusting that nothing moved across it (AC4).
  *
- * Checked in declaration order so the reported mismatch is deterministic: a test that asserts
- * `'CONFIG_VERSION'` for a checkpoint whose config AND adapter both moved is asserting a fact, not
- * an object-key order.
+ * Takes `unknown`, not `ValidatedCheckpoint | null`: the parameter type WAS the bug. A value that
+ * fails the schema is treated exactly like a version mismatch — restart with overlap — because
+ * both mean the same thing operationally ("we cannot trust where we were, so re-read the
+ * boundary") and because refusing the attempt outright would make one bad row a permanent outage.
+ *
+ * Versions are checked in declaration order so the reported mismatch is deterministic: a test that
+ * asserts `'CONFIG_VERSION'` for a checkpoint whose config AND adapter both moved is asserting a
+ * fact, not an object-key order.
  */
 export function decideCheckpoint(
-  stored: ValidatedCheckpoint | null,
+  stored: unknown,
   current: { configVersion: number; policyVersion: number; adapterVersion: string },
 ): CheckpointDecision {
-  if (stored === null) return { kind: 'FRESH' }
-  const mismatch: CheckpointMismatch | null =
-    stored.configVersion !== current.configVersion
+  if (stored === null || stored === undefined) return { kind: 'FRESH' }
+
+  const parsed = validatedCheckpointSchema.safeParse(stored)
+  if (!parsed.success) {
+    return { kind: 'RESTART_WITH_OVERLAP', discarded: null, mismatch: 'UNPARSABLE' }
+  }
+  const checkpoint = parsed.data
+
+  const mismatch: Exclude<CheckpointMismatch, 'UNPARSABLE'> | null =
+    checkpoint.configVersion !== current.configVersion
       ? 'CONFIG_VERSION'
-      : stored.policyVersion !== current.policyVersion
+      : checkpoint.policyVersion !== current.policyVersion
         ? 'POLICY_VERSION'
-        : stored.adapterVersion !== current.adapterVersion
+        : checkpoint.adapterVersion !== current.adapterVersion
           ? 'ADAPTER_VERSION'
           : null
-  if (mismatch !== null) return { kind: 'RESTART_WITH_OVERLAP', discarded: stored, mismatch }
-  return { kind: 'RESUME', from: stored }
+  if (mismatch !== null) {
+    return { kind: 'RESTART_WITH_OVERLAP', discarded: checkpoint, mismatch }
+  }
+  // An exhausted or unresumable trail is not a resume instruction, whatever its versions say: a
+  // `RESTART` position means discovery begins again, which is the one thing the old
+  // `cursor: null` shape could not say without also meaning "page one of a cursor API".
+  if (checkpoint.position.kind === 'RESTART') return { kind: 'FRESH' }
+  return { kind: 'RESUME', from: checkpoint }
 }
 
 // ---------------------------------------------------------------------------
 // The batch
 // ---------------------------------------------------------------------------
 
-export interface CollectionBatch {
+/**
+ * The fields of a batch. NOT the type an adapter returns — see `CollectionBatch` below.
+ */
+export interface CollectionBatchFields {
   observations: SourceObservation[]
   outcome: CollectionOutcome
   coverage: CollectionCoverage
@@ -344,6 +599,33 @@ export interface CollectionBatch {
   counts: CollectionCounts
   checkpoint: ValidatedCheckpoint | null
   invalidSamples: InvalidSample[]
+}
+
+export type CollectionBatch = CollectionBatchFields & { readonly [BATCH_BUILT]: true }
+
+/** True only of a batch that went through `buildCollectionBatch`. */
+export function isBuiltBatch(value: unknown): value is CollectionBatch {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as Record<PropertyKey, unknown>)[BATCH_BUILT] === true
+  )
+}
+
+export class UnbuiltBatchError extends Error {
+  constructor() {
+    super('a CollectionBatch reached the collector without going through buildCollectionBatch')
+    this.name = 'UnbuiltBatchError'
+  }
+}
+
+/**
+ * The runtime half of the brand, for the dynamic boundary the type cannot reach: a provider
+ * resolved from a registry, or one compiled separately from this package. The compile-time half
+ * covers the 25 adapters that live in this repository.
+ */
+export function assertBuiltBatch(value: unknown): asserts value is CollectionBatch {
+  if (!isBuiltBatch(value)) throw new UnbuiltBatchError()
 }
 
 /** Why an attempt stopped. `EXHAUSTED` is the only one that can carry SUCCEEDED. */
@@ -356,6 +638,15 @@ export interface DerivationFacts {
   pagesCompleted: number
   counts: CollectionCounts
   scope: SourceCoverageScope
+  /**
+   * Did this attempt start from a stored position rather than from the beginning?
+   *
+   * A batch describes ONE attempt, so an attempt that began at page 11 never looked at pages 1-10
+   * and cannot claim to have seen the inventory — even when it then runs to exhaustion. Measured
+   * before this field existed: a checkpoint at page 4, one fetch, `nextCursor` null, and the batch
+   * reported `FULL_INVENTORY` on the strength of a single tail page (SPEC-L-2).
+   */
+  resumed: boolean
 }
 
 /**
@@ -395,16 +686,19 @@ export function deriveOutcome(facts: DerivationFacts): CollectionOutcome {
  * - any item we could not observe means the inventory we report is demonstrably incomplete ->
  *   PARTIAL. (The store permits SUCCEEDED with `invalid > 0`, so the two axes disagree here on
  *   purpose: the attempt succeeded, the inventory is not full.)
+ * - an attempt that RESUMED never read the pages before its start, so its inventory is incomplete
+ *   by construction -> PARTIAL, even when it then ran to exhaustion (SPEC-L-2)
  * - a cap or cycle on a SEARCH scope (`query !== null`) is a WINDOW: a search was never going to
  *   enumerate an inventory, and a bounded slice of it is exactly what WINDOW means (AC1)
  * - the same cap on a FULL-INVENTORY scope is PARTIAL: we were supposed to see everything
  * - a scope that asked for a time window gets WINDOW even when exhausted
- * - only an exhausted, clean, unwindowed, unqueried scope is FULL_INVENTORY
+ * - only an exhausted, clean, unwindowed, unqueried, UNRESUMED scope is FULL_INVENTORY
  */
 export function deriveCoverage(facts: DerivationFacts): CollectionCoverage {
   const outcome = deriveOutcome(facts)
   if (outcome !== 'SUCCEEDED') return 'PARTIAL'
   if (facts.counts.invalid > 0 || facts.counts.quarantined > 0) return 'PARTIAL'
+  if (facts.resumed) return 'PARTIAL'
   const truncated = facts.stop === 'PAGE_CAP' || facts.stop === 'CURSOR_CYCLE'
   if (truncated) return facts.scope.query !== null ? 'WINDOW' : 'PARTIAL'
   if (facts.scope.window !== null || facts.scope.query !== null) return 'WINDOW'
@@ -428,7 +722,10 @@ export class BatchInvariantError extends Error {
  * only way a guard against a future caller can have a failing test at all.
  */
 export function assertBatchInvariant(
-  batch: Pick<CollectionBatch, 'outcome' | 'coverage' | 'counts'>,
+  // The FIELD shape, deliberately: this guard runs on a batch mid-construction, before the brand
+  // is stamped, and it is tested directly against hand-made batches — which is the only way a
+  // guard against a future caller can have a failing test at all.
+  batch: Pick<CollectionBatchFields, 'outcome' | 'coverage' | 'counts'>,
 ): void {
   if (batch.outcome !== 'SUCCEEDED' && batch.coverage === 'FULL_INVENTORY') {
     throw new BatchInvariantError(`a ${batch.outcome} attempt cannot claim FULL_INVENTORY coverage`)
@@ -444,7 +741,7 @@ export function buildCollectionBatch(input: {
   checkpoint: ValidatedCheckpoint | null
   invalidSamples: InvalidSample[]
 }): CollectionBatch {
-  const batch: CollectionBatch = {
+  const batch: CollectionBatchFields = {
     observations: input.observations,
     outcome: deriveOutcome(input.facts),
     coverage: deriveCoverage(input.facts),
@@ -455,7 +752,9 @@ export function buildCollectionBatch(input: {
     invalidSamples: input.invalidSamples.slice(0, MAX_SAMPLES),
   }
   assertBatchInvariant(batch)
-  return batch
+  // `enumerable: false` IS load-bearing and IS asserted: the brand must not reach a database row.
+  Object.defineProperty(batch, BATCH_BUILT, { value: true, enumerable: false })
+  return batch as CollectionBatch
 }
 
 // ---------------------------------------------------------------------------
