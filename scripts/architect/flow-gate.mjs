@@ -183,23 +183,62 @@ export function completenessProblem(pr, entries) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Non-prose stripping
+//
+// Text that is not stated by the author must not count: an HTML comment (the PR template keeps
+// every `Skip-*:` line inside one, at column 0) and a fenced code block (a quoted example). Both
+// the PR body and every review/comment body go through this before any line is read. An
+// unterminated comment or fence swallows the rest of the text — fail closed: an unclosed block
+// is not a statement either.
+
+const FENCE_RE = /^ {0,3}(`{3,}|~{3,})/
+
+export function stripNonProse(text) {
+  const noComments = String(text ?? '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<!--[\s\S]*$/, '')
+  const out = []
+  let fence = null // the opening run (e.g. "```" or "~~~~") while inside a fenced block
+  for (const line of noComments.split(/\r?\n/)) {
+    const m = FENCE_RE.exec(line)
+    if (fence) {
+      if (m && m[1][0] === fence[0] && m[1].length >= fence.length && !line.slice(m[0].length).trim())
+        fence = null
+      continue
+    }
+    if (m) {
+      fence = m[1]
+      continue
+    }
+    out.push(line)
+  }
+  return out.join('\n')
+}
+
+// ---------------------------------------------------------------------------------------------
 // PR-body lines
 
 const lineRe = (key) =>
   new RegExp(`^[ \\t]*(?:[-*][ \\t]+)?${key.replace(/-/g, '\\-')}:[ \\t]*(.*)$`, 'im')
 
-/** The value of a `Key: value` line in the PR body (trimmed), or null when there is no such line. */
+/**
+ * The value of a `Key: value` line in the PR body (trimmed), or null when there is no such line.
+ * Lines inside HTML comments and fenced code blocks are not read (stripNonProse).
+ */
 export function bodyLine(body, key) {
-  const m = lineRe(key).exec(String(body ?? ''))
+  const m = lineRe(key).exec(stripNonProse(body))
   return m ? m[1].trim() : null
 }
+
+/** A template placeholder such as `<why there is no plan>` is not a reason. */
+export const isPlaceholder = (value) => /^<.*>$/.test(String(value ?? '').trim())
 
 // ---------------------------------------------------------------------------------------------
 // Verdict markers
 
 // A verdict is stated on its own line — by contract the first line of the review
-// (`code-review-discipline` §1, `contracts.md` §4). Markdown decoration (`**…**`, `## …`, `> …`)
-// is tolerated; for each marker kind the FIRST matching line of a body is its verdict, so a body
+// (`code-review-discipline` §1, `contracts.md` §4). Markdown decoration (`**…**`, `## …`)
+// is tolerated; a quoted line (`> …`), a fenced block and an HTML comment are not read; for each marker kind the FIRST matching line of a body is its verdict, so a body
 // that later quotes an earlier verdict cannot flip it, and a verdict mid-sentence is no marker.
 export const MARKERS = Object.freeze({
   review: { prefix: 'Verdict', pos: ['APPROVE'], neg: ['BLOCK'] },
@@ -216,8 +255,11 @@ export function parseMarker(body, kind) {
   const { prefix, pos, neg } = MARKERS[kind]
   const values = [...pos, ...neg].sort((a, b) => b.length - a.length)
   const re = new RegExp(`^${prefix}:\\s*(${values.join('|')})(?![A-Z-])`)
-  for (const raw of String(body ?? '').split(/\r?\n/)) {
-    const line = raw.replace(/^[\s>#*_`-]+/, '').replace(/[*_`]+/g, '')
+  // A quoted line (`> …`) is someone else's verdict being cited, and a verdict inside a fenced
+  // block or an HTML comment is an example — none of them is the author's own marker.
+  for (const raw of stripNonProse(body).split(/\r?\n/)) {
+    if (/^\s*>/.test(raw)) continue
+    const line = raw.replace(/^[\s#*_`-]+/, '').replace(/[*_`]+/g, '')
     const m = re.exec(line)
     if (m) return pos.includes(m[1]) ? 'pos' : 'neg'
   }
@@ -453,14 +495,16 @@ export function evaluate(pr) {
       continue
     }
     const skip = bodyLine(pr.body, `Skip-${s.key}`)
-    if (skip !== null && skip.length >= MIN_REASON_LENGTH) {
+    if (skip !== null && !isPlaceholder(skip) && skip.length >= MIN_REASON_LENGTH) {
       steps.push({ key: s.key, status: 'skipped', detail: skip })
       continue
     }
     const shortNote =
-      skip !== null
-        ? ` (a "Skip-${s.key}:" line is present, but its reason is shorter than ${MIN_REASON_LENGTH} characters)`
-        : ''
+      skip === null
+        ? ''
+        : isPlaceholder(skip)
+          ? ` (a "Skip-${s.key}:" line is present, but its reason is the template placeholder)`
+          : ` (a "Skip-${s.key}:" line is present, but its reason is shorter than ${MIN_REASON_LENGTH} characters)`
     steps.push({
       key: s.key,
       status: 'missing',

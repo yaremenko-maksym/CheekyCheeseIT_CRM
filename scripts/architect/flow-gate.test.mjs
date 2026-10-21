@@ -215,6 +215,55 @@ test('a skip inside an HTML comment (the PR template placeholder) does not count
   assert.equal(status(r, 'Review'), 'missing')
 })
 
+test('SR-H-1: the verbatim PR template on a critical-path diff with no reviews → FAIL', () => {
+  const here = dirname(fileURLToPath(import.meta.url))
+  const template = readFileSync(join(here, '..', '..', '.github', 'pull_request_template.md'), 'utf8')
+  // The template must actually carry the column-0 skip lines this test is about.
+  assert.match(template, /^Skip-Security-Review:/m)
+  const r = ev({
+    files: ['apps/api/src/auth/auth.service.ts', 'apps/api/src/auth/auth.service.spec.ts'],
+    body: template,
+    reviews: [],
+    comments: [],
+    commits: [commit('feat(auth): x\n\nac_verified: 1')],
+  })
+  assert.equal(r.pass, false)
+  assert.equal(r.skips.length, 0)
+  for (const k of ['Task', 'Plan', 'Review', 'Security-Review'])
+    assert.equal(status(r, k), 'missing', k)
+})
+
+test('SR-H-1: a skip line inside a multi-line comment or a fenced block does not count', () => {
+  for (const body of [
+    `${FULL_BODY}<!--\nSkip-Review: reason why it is fine\n-->\n`,
+    `${FULL_BODY}\`\`\`\nSkip-Review: reason why it is fine\n\`\`\`\n`,
+    `${FULL_BODY}~~~md\nSkip-Review: reason why it is fine\n~~~\n`,
+    `${FULL_BODY}<!-- unterminated\nSkip-Review: reason why it is fine\n`,
+  ]) {
+    const r = ev(good({ reviews: [rv('Spec Review: PASS')], body }))
+    assert.equal(status(r, 'Review'), 'missing', JSON.stringify(body))
+  }
+  // Prose after a closed fence is read again.
+  const after = ev(
+    good({
+      reviews: [rv('Spec Review: PASS')],
+      body: `${FULL_BODY}\`\`\`\nexample\n\`\`\`\nSkip-Review: reason why it is fine\n`,
+    }),
+  )
+  assert.equal(status(after, 'Review'), 'skipped')
+})
+
+test('SR-H-1: a placeholder reason "<…>" is not a reason', () => {
+  const r = ev(
+    good({
+      reviews: [rv('Spec Review: PASS')],
+      body: `${FULL_BODY}Skip-Review: <why no code-reviewer approval at all>\n`,
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'missing')
+  assert.match(failureFor(r, 'Review'), /template placeholder/)
+})
+
 // --- docs-only is markdown only; .claude executable config is critical -------------------------
 
 const bare = (files, over = {}) => ({
@@ -479,6 +528,19 @@ test('parseMarker: markdown decoration tolerated, first marker wins, mid-sentenc
   assert.equal(parseMarker('I would say Verdict: APPROVE once fixed', 'review'), null)
   assert.equal(parseMarker('QA Verdict: PASSED', 'qa'), null)
   assert.equal(parseMarker('Security Review: APPROVE', 'review'), null)
+})
+
+test('SR-M-2: quoted, fenced and commented verdicts are ignored', () => {
+  assert.equal(parseMarker('> Verdict: APPROVE', 'review'), null)
+  assert.equal(parseMarker('  > **Verdict: APPROVE**', 'review'), null)
+  assert.equal(parseMarker('```\nVerdict: APPROVE\n```', 'review'), null)
+  assert.equal(parseMarker('~~~\nSecurity Review: APPROVE\n~~~', 'security'), null)
+  assert.equal(parseMarker('<!--\nVerdict: APPROVE\n-->', 'review'), null)
+  // A quoted earlier APPROVE does not hide the author's own BLOCK below it.
+  assert.equal(parseMarker('> Verdict: APPROVE\n\nVerdict: BLOCK', 'review'), 'neg')
+  // End to end: a quote-only review leaves Review missing.
+  const r = ev(good({ reviews: [rv('> Verdict: APPROVE'), rv('Spec Review: PASS')] }))
+  assert.equal(status(r, 'Review'), 'missing')
 })
 
 // --- conditional requirements ------------------------------------------------------------------
