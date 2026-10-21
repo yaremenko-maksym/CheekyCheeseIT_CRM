@@ -556,7 +556,11 @@ def _heredoc_opener(text, i):
 # target. Deliberately excludes `$`, backtick, `(`, `)`, `;`, quotes and `\` —
 # but it is the ALLOWLIST that matters, not that list: anything absent here
 # drops the exemption, including a construct nobody has thought of.
-_OPENER_TAIL_SAFE = re.compile(r"^[\s|<>&0-9A-Za-z_./@+:,%^~=-]*$")
+# `[ \t]`, NOT `\s`: python's `\s` also matches `\r`, `\v` and `\f`, which bash
+# does not treat as whitespace, so `\s` would let the allowlist pass a character
+# bash would act on. Same class of defect as the comment boundary below — this
+# file's own definitions drifting wider than the shell's.
+_OPENER_TAIL_SAFE = re.compile(r"^[ \t|<>&0-9A-Za-z_./@+:,%^~=-]*$")
 
 
 def _opener_tail_is_inert(text, i):
@@ -577,8 +581,28 @@ def _opener_tail_is_inert(text, i):
     if tail.rstrip().endswith("\\"):
         return False
     # A word-initial "#" starts a comment; its text is inert whatever it holds.
+    #
+    # THROUGH `_starts_word`, NOT A SECOND BOUNDARY TEST. The first version asked
+    # `tail[k - 1].isspace()`, and python's `isspace()` accepts `\n`, `\r`, `\v`
+    # and `\f` — so a character bash does not treat as a word boundary made this
+    # see a comment where bash sees none, truncate the tail, and let the
+    # allowlist pass something bash would execute. It was also wrong the other
+    # way: bash DOES begin a word after `|`, `;`, `&`, so `<<'EOF' |#x` is a
+    # comment and `isspace()` missed it. Every differential on this change came
+    # from one rule having two implementations; this was that pattern at the
+    # level of what counts as whitespace. One predicate, shared with the main
+    # loop, and both directions follow from it.
+    #
+    # DELIBERATELY NOT gated on `_STRIP_COMMENTS`. Gating it — so the
+    # comment-free second reading could SEE a disagreement instead of having it
+    # normalised away — was tried and measured: `scan()` MERGES that pass's
+    # segments into the result (`alt_only`), so "seeing" a disagreement here is
+    # indistinguishable from refusing it, and three cases went red at once,
+    # including the `cat <<'EOF' # note` false positive this change exists to
+    # remove. Observability that can only express itself as a refusal is not
+    # observability on this path.
     for k, ch in enumerate(tail):
-        if ch == "#" and (k == 0 or tail[k - 1].isspace()):
+        if ch == "#" and _starts_word(text, i + k):
             tail = tail[:k]
             break
     return bool(_OPENER_TAIL_SAFE.match(tail))
