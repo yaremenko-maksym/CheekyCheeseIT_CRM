@@ -661,10 +661,18 @@ def _heredoc_literal_spans(text):
             i += 2
             continue
         # Device 1: the segmenter's own comment rule, same predicate, same flag.
+        # `pending` is deliberately NOT cleared, because _split_segments does not
+        # clear it either (CR-M-3). Clearing it made `cat <<'EOF' # note` refuse
+        # while the identical command without the comment was allowed — a false
+        # positive of precisely the kind this change exists to remove, and bash
+        # agrees with the segmenter here: a trailing comment does not cancel a
+        # heredoc the same line already opened. Convergence with the tokenizer of
+        # record is the rule; the two leaks this device closes are about an opener
+        # INSIDE a comment, which this still handles because the opener is then
+        # never seen at all.
         if ch == "#" and _STRIP_COMMENTS and _starts_word(text, i):
             j = text.find("\n", i)
             i = n if j < 0 else j
-            pending = []
             continue
         opener = _heredoc_opener(text, i)
         if opener is not None:

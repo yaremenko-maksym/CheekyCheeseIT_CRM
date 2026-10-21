@@ -371,6 +371,37 @@ done
 assert_green "SR-M-1: грант pnpm/npm сохранён: npm why vite" \
   -- h "npm why vite"
 
+# ── CR-H-1: `-w` — одно слово, две грамматики ─────────────────────────────────
+# Для pnpm `-w` это `--workspace-root` и значения не берёт; для npm это
+# `--workspace <name>` и берёт. ИЗМЕРЕНО: `npm -w info start` отказывался на base
+# и проходил на head, а настоящий npm 10.7.0 запускал скрипт `start` в воркспейсе
+# с именем `info`. Достижимо только если воркспейс назван как одна из выданных
+# подкоманд — то есть гейт был прав благодаря факту, которого он не читает.
+for form in "start" "dev" "preview"; do
+  assert_red "CR-H-1: npm -w <workspace> $form — значение флага съедено, грант не выдан" \
+    --contains '"decision": "block"' \
+    -- h "npm -w info $form"
+done
+assert_red "CR-H-1: длинная форма тоже: npm --workspace info start" \
+  --contains '"decision": "block"' \
+  -- h "npm --workspace info start"
+assert_green "CR-H-1 обратная сторона: у pnpm -w булев (--workspace-root), запрос проходит" \
+  -- h "pnpm -w ls"
+
+# ── CR-M-4: одна грамматика флагов на оба потребителя ─────────────────────────
+# Грант читал одну таблицу, предикат запуска — другую, и спасал более строгий из
+# них. Теперь оба зовут pkg_value_flags(). `--depth` объявлен БУЛЕВЫМ: его
+# грамматика зависит от позиции, и из двух чтений только это падает закрыто —
+# `--depth 2` до подкоманды оставляет `2` в позиции подкоманды, которой нет ни в
+# одной таблице запросов.
+for amb in "--depth vite ls" "--depth 2 ls vite"; do
+  assert_red "CR-M-4: неоднозначная позиция флага → грант не выдан: pnpm $amb" \
+    --contains '"decision": "block"' \
+    -- h "pnpm $amb"
+done
+assert_green "CR-M-4: после подкоманды флаг однозначен: pnpm ls --depth 2 vite" \
+  -- h "pnpm ls --depth 2 vite"
+
 # ── repros 2-4: a heredoc body is DATA, and a QUOTED delimiter proves it ───────
 # Stage 2 of lib/cmdscan.py was always emphatic that a heredoc body is data,
 # never code — and stage 1 (substitution extraction) ran FIRST and had already
@@ -477,6 +508,20 @@ CMT_BACKTICK=$'# cat > note.md <<\'EOF\'\n`vite --port 3010`\nEOF'
 assert_red "ДИФФЕРЕНЦИАЛ: открывашка heredoc спрятана в комментарии — обратные кавычки" \
   --contains '"decision": "block"' \
   -- h "$CMT_BACKTICK"
+
+# CR-M-3: the two readings must agree about a TRAILING comment. The span scanner
+# used to clear `pending` on one and the segmenter does not, so these two
+# commands — identical but for ` # note` — disagreed: the commented one was
+# refused, the plain one allowed. bash sides with the segmenter (a trailing
+# comment does not cancel a heredoc the same line already opened), and a
+# divergence like this is a false positive of exactly the kind this change
+# removes. Asserted as a PAIR on purpose: the property is that they agree.
+CMT_TRAILING=$'cat > n.md <<\'EOF\' # note\n`pnpm dev`\nEOF'
+CMT_TRAILING_PLAIN=$'cat > n.md <<\'EOF\'\n`pnpm dev`\nEOF'
+assert_green "CR-M-3: heredoc с хвостовым комментарием — тело всё ещё данные" \
+  -- h "$CMT_TRAILING"
+assert_green "CR-M-3: та же команда без комментария — тот же вердикт (пара)" \
+  -- h "$CMT_TRAILING_PLAIN"
 
 UNTERMINATED=$'cat > note.md <<\'EOF\'\n$(pnpm --filter @crm/api dev)'
 assert_red "ДИФФЕРЕНЦИАЛ: heredoc без терминатора — неопределённость не даёт освобождения" \
