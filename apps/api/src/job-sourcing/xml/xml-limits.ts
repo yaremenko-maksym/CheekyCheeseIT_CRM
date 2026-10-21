@@ -9,24 +9,34 @@
  * parse returned, which bounds nothing. So the rule for this file is: a number without a
  * measurement beside it is a guess, and a guess is what was wrong last time.
  *
- * MEASURED HERE, against `@rgrove/parse-xml@5.0.0`, Node 22, warm, best-of-5, on the dev machine:
+ * MEASURE THE WHOLE PORT, NOT THE PARSER — this correction was itself forced by a red test.
+ * ---------------------------------------------------------------------------------------
+ * The first version of this file derived the throughput constant from `parseXml` alone (worst
+ * shape 721 elements/ms) and the ceiling test then FAILED at 1 013 ms against a 250 ms budget.
+ * The constant was not slightly optimistic; it was measuring the wrong thing. What stalls the
+ * event loop is `parseDocument` end to end — the UTF-8 decode, the structural pre-scan over the
+ * whole string, the neutral-tree construction and `measureTree` — and that work is several times
+ * the parse itself on attribute-heavy input.
  *
- *   shape                     elements    bytes      best      elements/ms
- *   bare `<i/>`                100 001    400 KB    14.8 ms         6 756
- *   `<i a="1"/>`               100 001    1.0 MB    28.6 ms         3 499
- *   feed-like `<item>` group    99 998    3.3 MB    58.5 ms         1 708
- *   nesting depth 100          100 001    700 KB    40.2 ms         2 486
- *   text-heavy                 100 001    3.7 MB    50.0 ms         2 000
- *   eight attributes each      100 001    5.2 MB   138.7 ms           721   <- worst
+ * MEASURED, end to end through `BoundedXmlPort.parseDocument`, Node 22, inside vitest (so the
+ * figures include the environment production will not have, which is the safe direction):
  *
- *   2 MiB of `<i/>`            524 286    2.0 MiB  116 ms, RSS 237 MB  (what the byte cap alone allows)
+ *   shape              elements     bytes     cold    cold el/ms   warm    warm el/ms
+ *   bare `<i/>`          50 000    200 KB     65 ms        774     74 ms        677
+ *   feed-like `<item>`   50 000    1.6 MB    162 ms        309    138 ms        361
+ *   eight attributes     12 500    650 KB    169 ms         74     80 ms        156
+ *   eight attributes     25 000    1.3 MB    322 ms         78    216 ms        116
+ *   eight attributes     50 000    2.6 MB    495 ms        101    463 ms        108   <- worst
  *
- * Two facts the table settles:
- *   1. Throughput varies ~9× by SHAPE at a fixed element count, so a bound expressed in bytes
- *      alone cannot bound time. The worst observed is 721 elements/ms.
- *   2. The byte cap alone still admits half a million elements and 237 MB of resident memory for
- *      a synchronous parse inside the API process — which is the event-loop stall and the
- *      container OOM risk, not a latency nit. Hence a separate element bound.
+ *   2 MiB of `<i/>`     524 286    2.0 MiB   116 ms (parse only), RSS 237 MB
+ *
+ * Three facts the table settles:
+ *   1. End-to-end throughput varies ~10× by SHAPE at a fixed element count (74 vs 774), so a
+ *      bound expressed in bytes alone cannot bound time. The worst observed is **74 elements/ms**.
+ *   2. The byte cap alone does NOT subsume the element bound: 2.6 MB of attribute-heavy input is
+ *      near the byte cap yet costs 495 ms, twice the budget. The element ceiling is load-bearing.
+ *   3. The byte cap alone admits half a million elements and 237 MB of resident memory for a
+ *      synchronous parse inside the API process — the container OOM risk, not a latency nit.
  */
 
 import { MAX_FEED_BYTES } from '../rss'
@@ -80,19 +90,23 @@ export const MAX_XML_ELEMENTS = 100_000
 export const MAX_XML_WALL_CLOCK_MS = 250
 
 /**
- * Parse throughput assumed when converting the time budget into an element ceiling.
+ * END-TO-END port throughput assumed when converting the time budget into an element ceiling.
  *
- * **200, against a measured worst of 721** (the eight-attribute shape above) — a 3.6× margin for
+ * **50, against a measured worst of 74** (eight attributes per element, cold) — a 1.5× margin for
  * a loaded CI runner or a slower production host. Deliberately pessimistic: being wrong in this
- * direction costs headroom on a bound that already has 30×; being wrong the other way means the
- * time budget silently does not hold.
+ * direction costs headroom on a bound that still has ~8× over a real feed; being wrong the other
+ * way means the time budget silently does not hold, which is what the first edition of this
+ * constant did.
  *
- * Pinned by `xml-limits.spec.ts`, which parses a document at exactly the derived ceiling and
- * fails if the real parse exceeds the budget by more than 4× — so the constant cannot rot by an
- * order of magnitude without a red test. What that check does NOT prove is the 3.6× margin
- * itself; it proves the constant is the right order of magnitude.
+ * 50 × 250 ms = 12 500 elements. At the worst measured shape that is 169 ms, inside the budget.
+ *
+ * Pinned by `xml-limits.spec.ts`, which parses a document of the WORST shape at exactly the
+ * derived ceiling and fails if it exceeds the budget by more than 4×. What that proves: the
+ * constant is the right order of magnitude, so a ceiling derived from it cannot admit a
+ * multi-second parse. What it does NOT prove: the 1.5× safety margin — that needs a tight
+ * assertion, and a tight timing assertion on a shared runner is a flake rather than a gate.
  */
-export const PARSE_ELEMENTS_PER_MS = 200
+export const PARSE_ELEMENTS_PER_MS = 50
 
 export const DEFAULT_XML_LIMITS: XmlLimits = Object.freeze({
   maxBytes: MAX_XML_BYTES,
@@ -116,7 +130,7 @@ export const DEFAULT_XML_LIMITS: XmlLimits = Object.freeze({
  *
  *     ceiling = min(maxElements, floor(maxWallClockMs × PARSE_ELEMENTS_PER_MS))
  *
- * At the defaults that is `min(100 000, 50 000)` = 50 000, so the time budget binds and
+ * At the defaults that is `min(100 000, 12 500)` = 12 500, so the time budget binds and
  * `boundBy` is `'time'`. `worker_threads` stays the escape hatch if a hard mid-parse deadline is
  * ever required — as does `sax`, the streaming runner-up, which can check a deadline inside its
  * handlers.

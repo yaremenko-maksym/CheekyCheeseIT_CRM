@@ -46,7 +46,7 @@ describe('R-2: the byte cap is 2 MiB and is the SAME constant the DOU scanner us
     expect(MAX_XML_WALL_CLOCK_MS).toBe(250)
     expect(MAX_XML_DEPTH).toBe(100)
     expect(MAX_XML_ELEMENTS).toBe(100000)
-    expect(PARSE_ELEMENTS_PER_MS).toBe(200)
+    expect(PARSE_ELEMENTS_PER_MS).toBe(50)
   })
 
   it('it IS the scanner constant, not merely equal to it today', () => {
@@ -115,7 +115,7 @@ describe('R-2: nesting depth is OUR bound, never the V8 stack cliff', () => {
 describe('R-2: the element ceiling, and which bound set it', () => {
   it('at the defaults the TIME budget binds, not the element cap', () => {
     const { ceiling, boundBy } = elementCeiling(DEFAULT_XML_LIMITS)
-    expect(ceiling).toBe(50000)
+    expect(ceiling).toBe(12500)
     expect(boundBy).toBe('time')
   })
 
@@ -155,9 +155,10 @@ describe('R-2: the element ceiling, and which bound set it', () => {
 describe('R-2: the wall-clock bound is real, and the throughput constant cannot rot silently', () => {
   it('a parse at exactly the derived ceiling lands inside the budget', () => {
     const { ceiling } = elementCeiling(DEFAULT_XML_LIMITS)
-    // The eight-attribute shape, which measured the WORST throughput of the ten shapes probed
-    // (721 elements/ms against 6 756 for bare elements) — so this is the slow case, not a
-    // flattering one.
+    // The eight-attribute shape, which measured the WORST END-TO-END throughput of the shapes
+    // probed (74 elements/ms cold against 774 for bare elements) — the slow case, not a
+    // flattering one. At the ceiling it is ~650 KB, well inside the byte cap, so it is reachable
+    // input rather than a synthetic extreme.
     const bytes = utf8(
       `<r>${'<i a="1" b="2" c="3" d="4" e="5" f="6" g="7" h="8"/>'.repeat(ceiling - 1)}</r>`,
     )
@@ -166,18 +167,23 @@ describe('R-2: the wall-clock bound is real, and the throughput constant cannot 
     const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6
 
     // 4x the budget, deliberately loose. WHAT THIS PROVES: `PARSE_ELEMENTS_PER_MS` is the right
-    // ORDER OF MAGNITUDE, so a ceiling derived from it cannot admit a multi-second parse. WHAT IT
-    // DOES NOT PROVE: the 3.6x safety margin over the measured worst case — that would need a
-    // tight bound, and a tight timing assertion on a shared CI runner is a flake, not a gate.
+    // ORDER OF MAGNITUDE, so a ceiling derived from it cannot admit a multi-second parse. And it
+    // is NOT decoration — the first version of that constant was derived from `parseXml` alone
+    // rather than from the whole port, and this exact assertion failed at 1 013 ms, which is how
+    // the error was found. WHAT IT DOES NOT PROVE: the 1.5x safety margin over the measured worst
+    // case; that needs a tight bound, and a tight timing assertion on a shared CI runner is a
+    // flake rather than a gate.
     expect(elapsedMs).toBeLessThan(MAX_XML_WALL_CLOCK_MS * 4)
   })
 
   it('the conversion is floor, not round — a budget never buys more than it affords', () => {
     const { ceiling } = elementCeiling({
       ...DEFAULT_XML_LIMITS,
-      maxWallClockMs: 1.7,
+      // 1.79 x 50 = 89.5, so floor gives 89 and round would give 90. A budget of 1.7 (= 85
+      // exactly) would NOT discriminate between the two and the assertion would be decoration.
+      maxWallClockMs: 1.79,
       maxElements: Number.MAX_SAFE_INTEGER,
     })
-    expect(ceiling).toBe(340)
+    expect(ceiling).toBe(89)
   })
 })
