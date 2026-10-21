@@ -106,6 +106,66 @@ describe('BOM detection', () => {
     expect(decoded.text).not.toBe('<r/>')
   })
 
+  /**
+   * THE BOM TRUTH TABLE — every near-miss, as a table, because the near-misses I wrote by hand
+   * were incomplete in a way I could not see by reading.
+   *
+   * A mutation run reported `(bytes.length >= 2 || bytes[0] === 0xff) && bytes[1] === 0xfe` as
+   * surviving. Applying it by hand confirmed it: all 319 tests passed. The gap was precise — every
+   * near-miss I had written varied the SECOND byte (`FF FD`, `FE FD`), and none varied the FIRST
+   * while keeping the second correct. So `bytes[0] === 0xff` was never load-bearing.
+   *
+   * A three-byte comparison has three conjuncts and two length boundaries; the only way to be sure
+   * each one matters is to enumerate. Hence a table rather than prose.
+   */
+  const ROOT = utf8('<r/>')
+
+  it.each([
+    // Split from the UTF-8 row rather than guarded by an `if` inside one test: a conditional
+    // `expect` is a test that may assert nothing, and eslint's `vitest/no-conditional-expect`
+    // said so. These two rows cannot assert the TEXT, because ASCII bytes after a UTF-16 BOM
+    // decode as UTF-16 to CJK — the label is what the branch decides, so the label is what is
+    // asserted.
+    [[0xff, 0xfe], 'utf-16le'],
+    [[0xfe, 0xff], 'utf-16be'],
+  ] as const)('%s is a BOM selecting %s', (prefix, label) => {
+    const decoded = decodeXml(concat(bytes(...prefix), ROOT))
+    expect(decoded.effectiveEncoding).toBe(label)
+    expect(decoded.source).toBe('bom')
+  })
+
+  it('EF BB BF is a BOM selecting utf-8, and the remainder is the document', () => {
+    const decoded = decodeXml(concat(bytes(0xef, 0xbb, 0xbf), ROOT))
+    expect(decoded.effectiveEncoding).toBe('utf-8')
+    expect(decoded.source).toBe('bom')
+    expect(decoded.text).toBe('<r/>')
+  })
+
+  it.each([
+    ['3C FE — second byte right, FIRST byte wrong, must not be UTF-16LE', [0x3c, 0xfe]],
+    ['3C FF — second byte right, FIRST byte wrong, must not be UTF-16BE', [0x3c, 0xff]],
+  ])('%s', (_name, prefix) => {
+    // These two are the inputs the hand-written near-misses lacked. `FE` and `FF` are never valid
+    // UTF-8, so "consumed as a BOM" and "decoded as content" are cleanly distinguishable: as a
+    // BOM the remainder would decode; as content the decode fails.
+    let raised: unknown
+    try {
+      decodeXml(concat(bytes(...prefix), ROOT))
+    } catch (error) {
+      raised = error
+    }
+    expect((raised as XmlPortError | undefined)?.reason).toBe('UNDECODABLE')
+  })
+
+  it('a two-byte document `3C 00` IS sniffed — the length guard is `< 2`, not `<= 2`', () => {
+    // The other length boundary. With `bytes.length <= 2` the sniff would bail on a document of
+    // exactly two bytes and read it as UTF-8, yielding `<\u0000` instead of `<`.
+    const decoded = decodeXml(bytes(0x3c, 0x00))
+    expect(decoded.effectiveEncoding).toBe('utf-16le')
+    expect(decoded.source).toBe('utf16-sniff')
+    expect(decoded.text).toBe('<')
+  })
+
   it('FF followed by something other than FE is not a UTF-16LE BOM', () => {
     // `FF FD` — the first byte of the LE BOM with the wrong second. `FF` is never valid UTF-8, so
     // consuming it as a BOM versus decoding it as content are distinguishable outcomes.

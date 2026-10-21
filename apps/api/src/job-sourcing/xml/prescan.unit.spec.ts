@@ -238,6 +238,59 @@ describe('the markup-declaration skipper', () => {
     expect(prescanStructure(xml, GENEROUS)).toEqual({ ok: true, maxDepth: 2, elementCount: 2 })
   })
 
+  /**
+   * The three tests below all hide an ELEMENT inside the construct being skipped.
+   *
+   * That is what makes them discriminating, and it took a mutation run to see why the earlier
+   * versions did not: a declaration that terminates early still lands the scanner in a position
+   * where `indexOf('<')` finds the next real element, so element-free subsets give the same answer
+   * whether the subset was tracked or not. Only a `<` INSIDE the skipped region can be
+   * mis-counted — and a feed that wants the pre-scan to disagree with the parser would put one
+   * there, so this is the threat model rather than a contrivance.
+   */
+  it('an element hidden inside the DTD subset is NOT counted', () => {
+    // Without `inSubset`, the `>` after `(#PCDATA)` ends the declaration, the scan resumes, and
+    // `<fake/>` is counted — a pre-scan reporting 2 elements where the parser sees 1.
+    const xml = '<!DOCTYPE r [<!ELEMENT fake (#PCDATA)> <fake/>]><r/>'
+    expect(prescanStructure(xml, GENEROUS)).toEqual({ ok: true, maxDepth: 1, elementCount: 1 })
+  })
+
+  it('an element hidden inside a QUOTED declaration value is NOT counted', () => {
+    // Without the quote tracking, the `>` inside the system identifier ends the declaration and
+    // `<fake/>` is counted.
+    const xml = '<!DOCTYPE r SYSTEM "a><fake/>b"><r/>'
+    expect(prescanStructure(xml, GENEROUS)).toEqual({ ok: true, maxDepth: 1, elementCount: 1 })
+  })
+
+  it('an element hidden inside a SINGLE-quoted declaration value is NOT counted', () => {
+    const xml = "<!DOCTYPE r SYSTEM 'a><fake/>b'><r/>"
+    expect(prescanStructure(xml, GENEROUS)).toEqual({ ok: true, maxDepth: 1, elementCount: 1 })
+  })
+
+  it('an element hidden inside a COMMENT is NOT counted', () => {
+    expect(prescanStructure('<r><!-- <fake/> --><d/></r>', GENEROUS)).toEqual({
+      ok: true,
+      maxDepth: 2,
+      elementCount: 2,
+    })
+  })
+
+  it('an element hidden inside a processing instruction is NOT counted', () => {
+    expect(prescanStructure('<r><?pi <fake/> ?><d/></r>', GENEROUS)).toEqual({
+      ok: true,
+      maxDepth: 2,
+      elementCount: 2,
+    })
+  })
+
+  it('the `]` must clear the subset, or the declaration never terminates', () => {
+    // The complement: if `]` did not clear `inSubset`, no later `>` would end the declaration,
+    // `endOfMarkupDeclaration` would return -1, the scan would break, and the document's real
+    // elements would be reported as ZERO — a bound that passes everything.
+    const xml = '<!DOCTYPE r [<!ELEMENT a (#PCDATA)>]><r/><s/>'
+    expect(prescanStructure(xml, GENEROUS)).toEqual({ ok: true, maxDepth: 1, elementCount: 2 })
+  })
+
   it('a subset closed and then REOPENED is tracked both times', () => {
     // `inSubset` must be set false on `]` and true again on a later `[`. A latch either way would
     // make one of the two `>` characters terminate the declaration early.

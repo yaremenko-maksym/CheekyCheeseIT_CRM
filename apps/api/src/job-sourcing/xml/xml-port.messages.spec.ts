@@ -110,6 +110,14 @@ describe('refusal messages carry the offending value AND the limit', () => {
     // is not, and throwing the detail away would make a malformed feed undiagnosable.
     expect(error.message.length).toBeGreaterThan('XML is not well-formed: '.length)
     expect(error.cause).toBeInstanceOf(Error)
+
+    // The cause's MESSAGE, not its `String()` form. `String(err)` yields "XmlError: …", which
+    // leaks the parser's class name into a message the seam exists to keep parser-neutral — and
+    // it is also what distinguishes the real `cause instanceof Error ? cause.message : String(…)`
+    // from both of its mutations (always-String, and a body that returns nothing at all).
+    expect(error.message).toContain((error.cause as Error).message)
+    expect(error.message).not.toContain('XmlError')
+    expect(error.message).not.toContain('undefined')
   })
 
   it('UNDECLARED_PREFIX names the element and the prefix', () => {
