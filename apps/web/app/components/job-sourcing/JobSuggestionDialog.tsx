@@ -69,7 +69,17 @@ import { SourceBudgetPanel } from './SourceBudgetPanel'
  *      Pinned by "pins the `a` component …", which reddens on ITS removal and
  *      not on layer 1's.
  */
-export const MARKDOWN_URL_TRANSFORM = (url: string): string => (isSafeExternalUrl(url) ? url : '')
+/**
+ * The string checked and the string returned are ONE variable, the trimmed one —
+ * the same SR-M-2 discipline as `openOriginalPosting`, for the same reason:
+ * `isSafeExternalUrl` validates `url.trim()`, so returning the raw `url` would put
+ * a string nobody validated into an `href`. Leading U+00A0 / U+FEFF / U+2028
+ * passed the check and then resolved against the CRM origin in the anchor.
+ */
+export const MARKDOWN_URL_TRANSFORM = (url: string): string => {
+  const target = url.trim()
+  return isSafeExternalUrl(target) ? target : ''
+}
 
 const MARKDOWN_COMPONENTS: Components = {
   img: () => null,

@@ -330,6 +330,28 @@ describe('JobSuggestionDialog', () => {
     expect(description.textContent).toContain('click me')
   })
 
+  /**
+   * SR-M-2 at THIS call site. `MARKDOWN_URL_TRANSFORM` validates `url.trim()`
+   * and must return that same trimmed string — returning the raw `url` would put
+   * a string nobody validated into an `href`, which is the identical defect
+   * fixed in `openOriginalPosting`.
+   *
+   * This exists because the mutation gate found `const target = url.trim()` →
+   * `const target = url` SURVIVING: every input the other tests feed this
+   * function is already trim-clean, so none of them could tell the two apart.
+   * `isSafeExternalUrl` trims internally, so under the mutant the verdict is
+   * still `true` and only the RETURNED string differs — which is why the
+   * assertion has to be on the returned value, not on acceptance.
+   */
+  it.each([
+    ['U+00A0', ' https://host.test/a'],
+    ['U+FEFF', '﻿https://host.test/a'],
+    ['U+2028', ' https://host.test/a'],
+    ['ASCII spaces', '  https://host.test/a  '],
+  ])('AC6: the transform returns the string it validated, trimmed (%s)', (_label, raw) => {
+    expect(MARKDOWN_URL_TRANSFORM(raw)).toBe('https://host.test/a')
+  })
+
   // ── Statuses + empty state ────────────────────────────────────────────────
 
   it('«Откликнулись» sends APPLIED', async () => {

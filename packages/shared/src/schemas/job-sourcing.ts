@@ -121,10 +121,38 @@ export const jobExclusionOriginSchema = z.enum(['MANUAL', 'PROJECT'])
 // Shared field schemas
 // ---------------------------------------------------------------------------
 
+/** The scheme and authority shape; see `externalHttpsUrlSchema` below for what it is and is not. */
+const EXTERNAL_HTTPS_URL_PATTERN = /^https:\/\/[^/?#@]+([/?#]\S*)?$/i
+
 /**
- * `https:`-only URL. Enforced here (not just at ingest) because this is the
- * value the browser hands to `window.open` — a `javascript:` URL smuggled in
- * through the feed would otherwise execute in OUR origin.
+ * `https:`-only URL with a host and no embedded credentials.
+ *
+ * MIRRORS, DELIBERATELY RATHER THAN COINCIDENTALLY, two other guards on the same
+ * value, and the three are to be changed together:
+ *   * `HTTPS_URL_PATTERN` — the CHECK on every stored navigation URL, in
+ *     `apps/api/src/database/schema/job-opportunities.ts`;
+ *   * `isSafeExternalUrl` — the last barrier before `window.open`, in
+ *     `apps/web/app/components/job-sourcing/open-original.ts`.
+ *
+ * THIS COMMENT IS ALL THAT HOLDS THE THREE TOGETHER — they are kept in step by
+ * hand. A shared corpus (one list of URLs, an absolute verdict per guard, run
+ * against all three) was written for this and then taken back out of the PR,
+ * because placing it outside the mutation gate's globs and outside this package's
+ * public API needed build configuration; it is deferred to a follow-up PR. An
+ * earlier revision of this comment named that corpus as the mechanism, which
+ * promised a gate that exists nowhere. Until it lands, each guard is pinned only
+ * by its own named tests — change one predicate and you must go and read the
+ * other two.
+ *
+ * Enforced here, and not only at ingest, because this is the value the browser
+ * hands to `window.open`: a `javascript:` URL smuggled in through a feed would
+ * execute in OUR origin, and a credentialed one (`https://user:pw@evil.test/a`)
+ * would show the user a plausible host while opening someone else's page.
+ *
+ * R11-H-4 is why the authority clause exists: the refinement used to be
+ * `^https://\S+$`, whose `\S+` matches an authority containing `@`, so this
+ * guard was WEAKER than the column the value comes out of — which already
+ * refused it. A guard on a value may not be weaker than its column.
  */
 export const externalHttpsUrlSchema = z
   .string()
@@ -134,7 +162,30 @@ export const externalHttpsUrlSchema = z
   // are structurally valid URLs and would sail through it. The scheme check is
   // what actually blocks them. Regex rather than `new URL()` because this
   // package is DOM/Node-agnostic (no `URL` global in its tsconfig lib).
-  .refine((value) => /^https:\/\/\S+$/i.test(value), 'URL must use https')
+  //
+  // The authority — everything up to the first `/`, `?` or `#` — must be
+  // non-empty and free of `@`. A path, query or fragment may follow and MAY
+  // contain `@`: `https://host/a@b` is an ordinary posting URL, and refusing it
+  // would silently drop legitimate postings. Whitespace is excluded from the
+  // path (`\S*`) because `.url()` does NOT refuse it there — WHATWG
+  // percent-encodes a space in a path and accepts the URL — but it is NOT
+  // excluded from the authority, where `.url()` already refuses it (a space is
+  // illegal in a host, measured: `https:// x` fails `.url()` on its own).
+  //
+  // That is the one deliberate difference from the column's
+  // `^https://[^[:space:]/?#@]+([/?#][^[:space:]]*)?$`: the CHECK has no
+  // `.url()` in front of it and must therefore state the authority's whitespace
+  // exclusion itself, as does `isSafeExternalUrl`, which is a bare regex. The
+  // authority SHAPE — non-empty, no `@` — is identical in all three, and that is
+  // what R11-H-4 was about. The operand was dropped here rather than carried as
+  // dead redundancy because no input can distinguish it (`.url()` refuses first),
+  // so no test could pin it, and a line-scoped mutation suppression would have
+  // hidden the `@` and non-empty mutants too — the two that carry the security
+  // property.
+  .refine(
+    (value) => EXTERNAL_HTTPS_URL_PATTERN.test(value),
+    'URL must be https, with a host and no embedded credentials',
+  )
 
 /** Upper bound for a posting description (~8000 words of markdown). */
 export const DESCRIPTION_MD_MAX = 50000
@@ -437,8 +488,16 @@ export const jobQueueQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(20),
 })
 
+/**
+ * Why a dismissal happened. Extracted from `dismissJobQueueItemSchema` so the
+ * member set is pinnable as an exact list the way every other enum here is
+ * (R11-M-7): inline, the suite accepted the three values and refused a fourth
+ * it named itself, so ADDING a fourth reason passed every test.
+ */
+export const jobQueueDismissReasonSchema = z.enum(['NOT_RELEVANT', 'SPAM', 'DEAD_LINK'])
+
 export const dismissJobQueueItemSchema = z.object({
-  reason: z.enum(['NOT_RELEVANT', 'SPAM', 'DEAD_LINK']).default('NOT_RELEVANT'),
+  reason: jobQueueDismissReasonSchema.default('NOT_RELEVANT'),
 })
 
 // ---------------------------------------------------------------------------
@@ -622,6 +681,20 @@ export const jobQueueSourcePageSchema = z
   .refine((p) => p.totalAlsoSeenOnCount === Math.max(p.totalSourceCount - 1, 0), {
     message: 'totalAlsoSeenOnCount must equal max(totalSourceCount - 1, 0)',
     path: ['totalAlsoSeenOnCount'],
+  })
+  // R11-L-3. The primary exists EXACTLY when the page has sources, and both
+  // directions are stated rather than implied: a page with sources has a
+  // primary among them (the invariant above already counts the primary as one
+  // of `totalSourceCount`), and a page with none has nothing a primary could
+  // point at. Before this, `{ totalSourceCount: 7, primarySourceRecordId: null }`
+  // parsed — a page claiming seven sources and no canonical one.
+  .refine((p) => !(p.totalSourceCount > 0 && p.primarySourceRecordId === null), {
+    message: 'a positive totalSourceCount requires primarySourceRecordId',
+    path: ['primarySourceRecordId'],
+  })
+  .refine((p) => !(p.totalSourceCount === 0 && p.primarySourceRecordId !== null), {
+    message: 'a zero totalSourceCount forbids primarySourceRecordId',
+    path: ['primarySourceRecordId'],
   })
 
 export const jobPossibleDuplicateSchema = z.object({
