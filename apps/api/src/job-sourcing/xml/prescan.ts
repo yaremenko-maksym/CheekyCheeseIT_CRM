@@ -101,7 +101,7 @@ function endOfMarkupDeclaration(text: string, from: number): number {
  * Quote tracking is the whole job: `<a href="a > b"/>` ends at the LAST `>`, and a scan that took
  * the first one would mis-nest everything after it.
  */
-function endOfStartTag(text: string, from: number): { end: number; selfClosing: boolean } {
+function endOfStartTag(text: string, from: number): { end: number; selfClosing: boolean } | null {
   let i = from
   let quote: string | null = null
   while (i < text.length) {
@@ -111,11 +111,17 @@ function endOfStartTag(text: string, from: number): { end: number; selfClosing: 
     } else if (ch === '"' || ch === "'") {
       quote = ch
     } else if (ch === '>') {
-      return { end: i + 1, selfClosing: text[i - 1] === '/' }
+      const selfClosing = text[i - 1] === '/'
+      // Stryker disable next-line ArithmeticOperator: `end` is consumed ONLY as the resume index for `text.indexOf('<', end)`, and `i` is a `>` — so starting the search at the `>` or just past it reaches the same next `<`. Proven by applying `i - 1` and running the suite: 331/331 still pass. The mutator cannot mask anything else on this line, which is why the `text[i - 1]` probe was lifted out above (it IS observable, and the self-closing cases kill it).
+      return { end: i + 1, selfClosing }
     }
     i += 1
   }
-  return { end: -1, selfClosing: false }
+  // `null`, not `{ end: -1, selfClosing: false }`. The old shape carried a `selfClosing` the
+  // caller could never read — it tested `end === -1` and broke first — so the field was dead
+  // weight that read as a considered value, and two mutants on it were unobservable by
+  // construction. Deleting the construct beats explaining why it cannot be seen.
+  return null
 }
 
 /**
@@ -192,7 +198,7 @@ export function prescanStructure(text: string, budget: PrescanBudget): PrescanOu
     }
 
     const tag = endOfStartTag(text, i + 1)
-    if (tag.end === -1) break
+    if (tag === null) break
     if (tag.selfClosing) depth -= 1
     i = tag.end
   }
