@@ -662,6 +662,9 @@ describe('redaction survives the encodings a URL is actually built with (SR-H-4 
   it.each([
     ['raw', (s: string) => s],
     ['encodeURIComponent', (s: string) => encodeURIComponent(s)],
+    // Distinct from the above: `encodeURI` leaves `/ + = &` alone, which is exactly the set that
+    // defeated exact matching, so an adapter putting a secret in a PATH segment needs this form.
+    ['encodeURI', (s: string) => encodeURI(s)],
     ['URLSearchParams', (s: string) => new URLSearchParams([['v', s]]).toString().slice(2)],
     ['base64', (s: string) => Buffer.from(s, 'utf8').toString('base64')],
     ['base64url', (s: string) => Buffer.from(s, 'utf8').toString('base64url')],

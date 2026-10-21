@@ -1716,7 +1716,12 @@ describe('a cursor cycle reports its own error code (SR-L-4)', () => {
 
     const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
 
-    expect(batch.requests.map((r) => r.error?.code ?? null)).toContain('CURSOR_CYCLE')
+    const cycle = batch.requests.find((r) => r.error?.code === 'CURSOR_CYCLE')
+
+    expect(cycle).toBeDefined()
+    // The report names the request the cycle WOULD have sent, not a placeholder — otherwise the
+    // branch choosing between them is unobservable and either arm passes.
+    expect(cycle?.url).toContain('c9')
     expect(batch.outcome).toBe('SUCCEEDED')
     expect(batch.coverage).toBe('PARTIAL')
   })
@@ -1754,5 +1759,32 @@ describe('an unknown provider id is not a collision (CR-M-2)', () => {
     expect(batch.outcome).toBe('SUCCEEDED')
     expect(batch.requests.map((r) => r.error?.code ?? null)).not.toContain('ADAPTER_INVARIANT')
     expect(batch.counts.normalized).toBe(2)
+  })
+})
+
+describe('what a completed page stores as its resume position', () => {
+  /**
+   * The two ways a trail ends store the SAME position, and that is the point of merging them: the
+   * next attempt starts over either way. Asserted separately because the branch that chooses the
+   * position is otherwise unobservable — both arms produce a checkpoint, and a test that only
+   * checks "a checkpoint was saved" cannot tell them apart.
+   */
+  it('stores RESTART when the provider`s inventory is exhausted', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(h.saved[0]?.position).toEqual({ kind: 'RESTART', page: 1 })
+    expect(batch.checkpoint?.position).toEqual({ kind: 'RESTART', page: 1 })
+  })
+
+  it('stores CURSOR, carrying the cursor itself, while the trail continues', async () => {
+    const h = harness({
+      pages: [{ body: { jobs: [job('1')], next: 'c-next' } }, onePage([job('2')])],
+    })
+
+    await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(h.saved[0]?.position).toEqual({ kind: 'CURSOR', page: 1, cursor: 'c-next' })
   })
 })
