@@ -1001,6 +1001,7 @@ CORRESPONDS to the requested image tag. The practical consequence:
     apps/api/drizzle/manual/2026-10-18_db_roles.sql \
     apps/api/drizzle/manual/2026-10-18_db_grants.sql \
     apps/api/drizzle/manual/2026-10-18_db_privileges_check.sql \
+    apps/api/drizzle/manual/2026-10-21_job_queue_reason_redacted.sql \
     scripts/devops/check-security-headers.sh \
     scripts/devops/check-nginx-perimeter.sh \
     scripts/devops/pg-backup.sh \

@@ -660,6 +660,7 @@ jobs:
             apps/api/drizzle/manual/2026-10-18_db_roles.sql \
             apps/api/drizzle/manual/2026-10-18_db_grants.sql \
             apps/api/drizzle/manual/2026-10-18_db_privileges_check.sql \
+            apps/api/drizzle/manual/2026-10-21_job_queue_reason_redacted.sql \
             scripts/devops/check-security-headers.sh \
             scripts/devops/check-nginx-perimeter.sh \
             scripts/devops/pg-backup.sh \
@@ -2506,6 +2507,23 @@ jobs:
           target: '/opt/crm'
           # apps/api/drizzle/manual/2026-10-18_job_queue_append_only_check.sql
           #   -> /opt/crm/apps/api/drizzle/manual/2026-10-18_job_queue_append_only_check.sql
+
+      # r5 Task 1.4b-ii. The store's fresh-create file cannot carry this change to a
+      # database that already HAS the store: its statements are guarded by NAME, so a
+      # changed CHECK predicate under an unchanged constraint name is swallowed. This
+      # file does the DROP-and-ADD. See its header.
+      - name: Copy job queue REASON_REDACTED forward DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-10-21_job_queue_reason_redacted.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-10-21_job_queue_reason_redacted.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-10-21_job_queue_reason_redacted.sql
 
       # Multipart salary changes one invariant in two deploy phases. The prepare
       # migration is backward-compatible with the currently-running API; the

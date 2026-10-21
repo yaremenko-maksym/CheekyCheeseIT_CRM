@@ -1639,15 +1639,15 @@ def _build_segment(raw, tokens, heredocs, running_env, depth, degraded):
     # ── the confidence verdict ────────────────────────────────────────────────
     why = None
     if degraded:
-        why = "строка не разобралась (незакрытые кавычки)"
+        why = "the line did not parse (unbalanced quotes)"
     elif dynamic:
-        why = "командное слово вычисляется (подстановка или переменная)"
+        why = "the command word is computed (a substitution or a variable)"
     elif inexact:
-        why = "обёртка `%s` не имеет однозначной грамматики аргументов" % inexact
+        why = "wrapper `%s` has no unambiguous argument grammar" % inexact
     elif not _plausible_command_word(name):
-        why = "командное слово `%s` не похоже на имя команды" % name
+        why = "command word `%s` does not look like a command name" % name
     elif name not in UNDERSTOOD and not _pkg_readonly_query(name, argv):
-        why = "команда `%s` не входит в список разбираемых" % name
+        why = "command `%s` is not in the understood list" % name
 
     seg = Segment(name, argv, payload, wrappers, dynamic, raw, depth, env,
                   why is None, why)
@@ -2097,10 +2097,10 @@ def is_dev_server_launch(seg):
         # a dev script / the built API". Strictly wider than the pre-narrowing
         # behaviour, so a dynamic launcher cannot become an allow.
         if LEGACY_LAUNCHER_RE.search(seg.raw):
-            return "динамическая команда"
+            return "dynamic command"
         for tok in seg.positionals():
             if DEV_SCRIPT_RE.match(tok) or DIST_MAIN_RE.search(tok):
-                return "динамическая команда (%s)" % tok
+                return "dynamic command (%s)" % tok
         return None
 
     if name == "vite":

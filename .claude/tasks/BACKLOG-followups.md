@@ -3779,3 +3779,276 @@ refused a reviewer's own harness-authoring heredoc with 37 bogus "launches" — 
 **Check on closing:** the four shapes above are refused by both gates while the plain-launch control
 stays refused; a body consumed by an interpreter reaches the same code path as an argument would; and
 the entry moves out of the STATED GAPS list rather than being re-described as accepted.
+
+## 267. The hook refusal texts are a third converted, and the honest measure is the guard, not a number (2026-10-21)
+
+PR #1073 converted the three launcher hooks' refusal text and `cmdscan.py`'s `why` strings to English,
+with their coupled `--contains` assertions. **Four of twelve files are done — 85 of 257 refusal-text
+lines** — and the rest sit behind `AGENT_EXCEPTIONS` in `check-no-russian-letters.mjs`.
+
+**Do not trust the counts in this entry.** They were accurate when written and will drift with every
+conversion, which is the defect this backlog keeps recording. The stable check is to run the guard:
+`node scripts/devops/check-no-russian-letters.mjs` prints the live tally in its success line (files
+scanned, hooks still excepted). A command that recomputes beats a number that decays — the same device
+as the `Findings: … (N)` control line, and the reason this entry names the command rather than
+restating the figure. Note also that "a third" describes **files**, not volume: the remaining eight are
+smaller on average.
+
+**Why the exception list is a ratchet rather than a carve-out**, and worth understanding before editing
+it: a new hook is not on the list, so it is covered from its first line; and an excepted file that has
+become clean **fails** the guard, so an entry cannot outlive its reason. Its review round found the
+ratchet weaker than its own description in two ways — an excepted file could still _grow_, and a
+removed entry was not detected though the message claimed it was — both closed in that PR. If you
+extend the list, preserve both directions.
+
+**Check on closing:** the guard's success line reports zero hooks excepted, `AGENT_EXCEPTIONS` is
+empty or gone, and no `.claude/hooks` file contains Cyrillic.
+
+## 268. Who owns a guard whose subject is another zone (2026-10-21)
+
+`scripts/devops/check-no-russian-letters.mjs` is **DevOps-owned by location** and was extended by the
+Architect in PR #1073 to scan `.claude/hooks/**` — which is **Architect territory by subject**. The
+edit stands on an explicit Master instruction, the documented exception, and the architect flagged the
+boundary rather than crossing it quietly.
+
+The question is left deliberately open rather than answered by adding a glob: does ownership follow the
+**file** or its **subject**? Both readings are defensible, and the comparable case decided differently
+for a good reason — `scripts/devops/tests/lib/command-corpus.txt` _was_ added to the Architect zone in
+#1067, because it is test data for tests the Architect already owns, so listing it described a boundary
+that was already true. This is not that: it is a DevOps-owned guard being extended. Settling it inside
+a translation PR is how two zone descriptions drift apart, which is the failure `zone-of-write.md`
+already warns about in its own text.
+
+**Check on closing:** `zone-of-write.md` and `.claude/agents/architect.md` say the same thing about
+guards whose subject is `.claude/**`, and the rule states which of the two readings was chosen and why.
+
+## 269. The Cyrillic scan is enforced in CI by wiring, not by a structural pin (2026-10-21)
+
+`check-no-russian-letters.mjs` runs in CI only because it happens to sit in the `guard-test` runner.
+Nothing ties it there the way `check-guard-tests-exist.sh` ties each hook to a negative test case: that
+meta-guard reads the hook list from `.claude/settings.json` and **fails** when a hook has no test, so a
+missing test cannot pass silently. The Cyrillic scan has no equivalent — change the runner's wiring and
+the scan goes quiet **without failing**, leaving a guard that reports nothing and looks healthy.
+
+Raised by the architect against their own work, which is the reason it is here rather than discovered
+later. It is the same shape as the defect PR #1073 exists to prevent: a check whose absence is
+indistinguishable from a pass. One more instance of the pattern that ran through this whole epic — a
+guarantee that holds because of a fact nobody re-reads.
+
+Adjacent and worth deciding together: a PR changing only `.md` files under `.claude/hooks` currently
+gets `code=false` and skips the step entirely, caught only by the post-merge push run.
+
+**Check on closing:** removing the scan from the runner makes a test go red, and a documentation-only
+change under `.claude/hooks` is still scanned in the PR run rather than only after merge.
+
+## 270. A claim contradicted by the author's own evidence, because the false sentence was the better sentence (2026-10-20)
+
+A dependency review measured a parser's full option surface, identified two options as
+entity-bearing, wrote a section naming them "load-bearing" and requiring they be pinned — and then
+opened the same document with the headline claim that the parser had **no option** that could
+resolve an entity. Both statements were in one file, by one author, in one sitting. The
+contradiction was free to notice and went unnoticed for the length of the review.
+
+The mechanism is not haste and not missing evidence. The false sentence was **stronger**: an
+absolute reads as more authoritative than a qualified one, and the qualified version ("two options
+bear on entities, but neither grants the library a capability it lacks") takes three clauses to
+say. The author had already paid for the evidence, then discarded it at the summarising step
+because the summary sounded better without it. That is the opposite of the failure in 256 and 257:
+there, the gap was between what was measured and what was assumed; here the measurement was
+correct and the **prose** contradicted it.
+
+**Why review does not reliably catch it.** A reviewer who reads an absolute headline and its
+supporting section together tends to **harmonise** them — reading the strong claim as a shorthand
+for the careful one — rather than noticing they disagree. The two statements are far apart in the
+document and each is locally plausible. It took a reviewer deliberately trying to **falsify** the
+headline, treating it as a claim rather than a summary, to surface it.
+
+Two further consequences showed up in the same document once the habit was looked for: a
+competitor rejected as "slowest, lax" turned out to hold the worst advisory record on the
+shortlist, and another rejected by characterising a third party's CVE history when the package's
+own record was both measurable and sharper. In each case a measured fact was available and a
+characterisation was shipped instead.
+
+**What follows.** A claim stated as an absolute ("no option can", "it is impossible to", "nothing
+in X does Y") is a **falsifiable assertion, not a summary**, and the cheapest guard is to attempt
+the falsification before writing it — the attempt is usually one command against an already-
+installed package. Where the honest claim is narrower, prefer the argument that survives an option
+flip (a capability the dependency does not have) over one that rests on a current default. And
+where a number or a measured fact exists, it belongs in the sentence instead of an adjective: a
+characterisation cannot be re-derived by the next reader, and a count with a stated basis can.
+
+**Check on closing:** in a long-lived decision document, every absolute claim either carries the
+command that failed to falsify it, or is rewritten as the narrower claim that is true; and
+rejections cite measured figures rather than adjectives where a figure was obtainable.
+
+## 271. `apps/api` never typechecks its spec files, so a spec can assert against values that do not exist (2026-10-21)
+
+Established by command, not by reading: `tsc -p apps/api/tsconfig.json --showConfig` resolves
+`exclude` to `['node_modules', 'dist', '**/*.spec.ts', '**/*.test.ts']`, and **zero** of the 384
+files in the program are specs.
+
+**What it already cost.** Two specs in the `ApiJsonProvider` work used the literal `'DOU'`, which is
+not a member of `JobSourceType` — the member is `'DOU_RSS'`. Nothing caught it but a runtime test,
+because the compiler never looked at the file. This holds for every spec in the package.
+
+**Why it belongs in this family of entries.** `pnpm typecheck` reads as covering the package, and its
+green is indistinguishable from a green that checked the specs too. A spec asserting conformance to a
+domain value that does not exist is the strongest form of a check that cannot fail: it is not merely
+weak, it is about nothing.
+
+**Closing it is not free, which is why it is an entry and not a fix.** Putting specs in the program
+surfaces an unknown number of pre-existing errors across the package at once. Options, cheapest
+first: a second tsconfig that includes specs, run as its own CI step, leaving the build config alone;
+or include them in the main program and fix the fallout; or decide to leave it, recorded, so nobody
+relies on spec-side types.
+
+**Check on closing:** introduce a deliberate type error in any `*.spec.ts` under `apps/api` and
+confirm the typecheck step fails. If it passes, the gap is still open — and that probe is its own
+negative control, because a green from the current configuration proves only that it looked nowhere.
+
+## 272. A guard test that asserts a timing property will be retried rather than fixed (2026-10-21)
+
+The CI job `Guard Tests` failed one file of 46 — `[script] SIGTERM to the parent is forwarded to the
+child` — on a branch that touches **only** `apps/api/src/job-sourcing/providers/`, with `Guard Tests`
+green on main's four preceding runs and the separate guard-over-guards workflow green at the same
+commit. A provider-only diff cannot affect signal forwarding in a devops script, so this is the test.
+
+**Why it needs a fix rather than a retry.** The assertion is about **timing**: the parent must still
+be alive, have installed its handler, and forward before the harness looks. Under CI load those
+orderings drift. "The forwarding is broken" and "the test looked too early" are indistinguishable
+from outside, and that ambiguity is what guarantees a retry next time somebody meets it.
+
+The repair is to wait on an **observable fact** — the child recording receipt, with a bounded wait —
+rather than on elapsed time. Whoever takes it should check whether the sibling cases in that file
+share the shape.
+
+**Check on closing:** run the file 50 consecutive times under artificial load. A single green run
+proves nothing here, because a flake's green and a fix's green are the same green.
+
+## 273. The meta-guard over hooks cannot require a test for a `post:` hook (2026-10-21)
+
+`check-guard-tests-exist.sh` reads the registered hook list and requires, from every hook that can
+refuse, a negative case in a test file. It locates that file by a **naming convention that encodes
+the `pre:` family only** — so a `post:`-phase hook satisfies the meta-guard by having no required
+test path at all, rather than by having a test. The zone-of-write rule has the same shape: the paths
+it grants the architect for hook tests are named for the `pre:` family, so a test for a `post:` hook
+would have no owner path either.
+
+**Why it is a gap and not a style point.** The meta-guard exists because a hook without a negative
+test is indistinguishable from a hook that never refuses. For the `pre:` family that reasoning is
+enforced; for the `post:` family the same reasoning is stated and not enforced, and the difference is
+invisible from a green run. Two `post:`-phase hooks are registered today, so this is not hypothetical.
+
+**Closing it** means deciding whether the convention should be widened (one glob covering both
+phases, plus the matching zone-of-write grant) or whether `post:` hooks are deliberately exempt
+because they cannot block — and if the latter, saying so in the meta-guard itself, where the next
+reader will be standing.
+
+**Check on closing:** register a `post:`-phase hook that can refuse and give it no test. The
+meta-guard must fail. If it passes, the gap is still open.
+
+## 274. The swallowed-failure hook reads a command's position, and an option that takes a value shifts it (2026-10-21)
+
+The advisory hook added for the swallowed-failure class decides by **argument position** — which
+token is the command, which is its subcommand — and it recognises a fixed set of commands whose exit
+code is worth warning about. An option that takes a separate value (the directory form of a version
+control invocation is the common one) inserts a token before the subcommand, so position-based
+reading can identify the wrong token and the hook stays silent.
+
+**Why this is the predictable failure of the design rather than a bug in one line.** A reader keyed on
+position is correct exactly while the shapes it meets match the shapes it was written against. The
+only durable fix is to consume options-with-values explicitly, the way the shared command analyser
+already does for the patterns it knows, instead of assuming the subcommand sits at a fixed offset.
+
+**Scope note.** This is the hook, not the rule: the always-on rule covers the class, and the hook is
+advisory, so a miss costs a missing warning rather than a wrong refusal. That is why it is an entry
+and not a fix.
+
+**Check on closing:** issue the same swallowing command twice, once plain and once with an
+option-that-takes-a-value before the subcommand, and confirm both produce the warning. A silent
+second form is the open gap.
+
+## 275. The swallowed-failure class has a second half that no command-phase hook can see (2026-10-21)
+
+A command-phase hook sees what is launched. It does **not** see the interior of a committed shell or
+Node script, so the same swallowed-failure shape written inside a repository script is invisible to
+it — and scripts are where the shape does the most damage, because a script's exit code is what a CI
+step reports as a pass.
+
+**Why it belongs with the rule rather than with the hook.** The rule names the class: an instrument
+that reports a negative or a success when it did not look. The hook catches the half that passes
+through the command line. The other half needs a **static scan over script interiors**, run in CI,
+and that is a different instrument with a different false-positive profile — a deliberate suppression
+of a known-harmless swallow is legitimate and must have a way to be written down, or the scan will be
+switched off within a week.
+
+**The sequencing matters.** The scan should be built only after the advisory hook has run long enough
+to show what it warns about in practice, because its warning log is the cheapest available estimate
+of the scan's false-positive rate.
+
+**Check on closing:** commit a script whose interior swallows a failing exit code, with no
+suppression note. CI must fail. A green CI means the second half is still unguarded.
+
+## 276. A read-only reviewer is exempted from isolation, and therefore inherits the orchestrator's live workspace (2026-10-21)
+
+The isolation rule deliberately does not force a worktree on a read-only agent: a reviewer reads the
+diff through the forge, not through a local tree, so paying for a worktree would buy nothing. That
+reasoning is sound and the exemption should stay. What the rule does not say is **where a reviewer
+without a worktree actually stands** — and the answer is the dispatcher's own directory, which for
+an orchestrator is a live write workspace with a branch checked out and, often, uncommitted work.
+
+**Observed, not theorised.** A security reviewer dispatched during this cycle reported its worktree
+as the orchestrator's own path, sitting on a branch the orchestrator had just created for unrelated
+work. It did no harm — it read every reviewed file at the PR head through the object store rather
+than trusting the tree it was standing in, and said so — but nothing in the rule required that. A
+less careful reviewer reads the local tree, believes it is reading the PR, and reports on the wrong
+content with no way for anyone to tell from the report.
+
+**The sharper version of the same hazard.** The rule already forbids issuing a reviewer a path built
+from the PR number, because that path is shared by construction between all reviewers of one PR. The
+exemption reintroduces sharing by a different route: not between siblings, but between the reviewer
+and its dispatcher. The second is worse, because the dispatcher is the one party that is certainly
+writing.
+
+**What closing it does not mean.** Not "give reviewers worktrees" — that spends the cost the
+exemption exists to avoid. The candidates are to have the reviewer read at an explicit commit rather
+than from whatever tree it inherits (which the careful one here did unprompted), or to make the
+inherited directory's identity part of the report so a mismatch is visible, the way the existing
+`Worktree:` line makes a lost worktree visible.
+
+**Check on closing:** dispatch a read-only reviewer for a PR whose head differs from the dispatcher's
+checked-out branch, and have it state which content it reviewed. If its report cannot distinguish
+the PR head from the tree it was standing in, the gap is still open.
+
+## 277. A reviewer's checkout can be removed by nobody, and the documented escape route does not exist (2026-10-22)
+
+A reviewer that needs to run something makes its own checkout in the shared session scratchpad. The
+cross-agent guard permits removing only a worktree it recorded as yours, and it records one only when
+the path given to `git worktree add` was a **literal**. A reviewer that creates its tree through a
+shell variable — the natural thing to do, and what the skill's own example suggests — is then refused
+when it tries to remove it, correctly, because the guard cannot expand the variable and so cannot
+establish whose tree it is.
+
+The rule answers that case by saying: a tree you cannot remove is reported to the orchestrator, who
+sees all agents while the reviewer sees none. **That route does not exist.** The orchestrator is
+refused too, by the predicate that a tree outside its own worktree is not its to remove — and that
+refusal is right as a rule and total in effect. Measured today: two reviewers asked the orchestrator
+to remove their checkouts, the orchestrator was refused on the first, and the scratchpad now holds
+**18** such trees, most of them marked prunable, from reviews closed days ago.
+
+**Why this is worth fixing rather than sweeping.** The accumulation itself is cheap — disk, and a
+noisy `worktree list`. What is not cheap is that the rule tells agents to do something that silently
+does not work, so every reviewer that follows it believes the tree will be cleaned and it never is.
+A rule whose remedy is unavailable trains the reader to stop reporting.
+
+**What closing it does not mean.** Not loosening the guard: refusing to remove a path whose owner
+cannot be established is exactly right, and the incidents behind it were three worktrees of live
+agents destroyed by a sweep that looked safe from inside. The candidates are to make the recorded
+form the easy one (so a reviewer's natural invocation is the one that gets recorded), or to give the
+owner a documented sweep that the guard recognises as theirs, or to have the trees carry their own
+expiry the way the dev-server launcher already does.
+
+**Check on closing:** have a reviewer create a checkout the way the skill's example shows, finish,
+and attempt removal. If neither the reviewer nor the orchestrator can remove it, the gap is still
+open — and count the scratchpad's trees afterwards, because the symptom is accumulation rather than
+any single refusal.

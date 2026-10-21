@@ -1926,6 +1926,36 @@ docker compose \
   < "$JOB_OPPORTUNITIES_STORE_FILE"
 echo "==> job opportunities store DDL applied successfully"
 
+# ── job_queue_actions: REASON_REDACTED evidence rows (r5 Task 1.4b-ii) ──
+# MUST run after store part 1, which creates the type, the table and the two CHECKs
+# this file alters, and BEFORE the grants block below, so that no grant naming the
+# new column can precede the column. Idempotent: the enum value and the column are
+# `IF NOT EXISTS`; the two CHECKs are dropped and re-added every deploy, which is
+# what makes them CONVERGE on the definition in the file — part 1's name-keyed
+# `duplicate_object` guard cannot, and `drizzle-kit push` does not detect a changed
+# CHECK under an unchanged name either.
+# Bare `psql -v ON_ERROR_STOP=1 < file` (NO `-1`): a new enum value cannot be USED in
+# the transaction that added it, and the CHECK predicates name it as a literal.
+
+# Source: apps/api/drizzle/manual/2026-10-21_job_queue_reason_redacted.sql
+JOB_QUEUE_REASON_REDACTED_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-21_job_queue_reason_redacted.sql"
+
+if [ ! -f "$JOB_QUEUE_REASON_REDACTED_FILE" ]; then
+  echo "ERROR: DDL file not found at $JOB_QUEUE_REASON_REDACTED_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying job queue REASON_REDACTED forward DDL (idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+  < "$JOB_QUEUE_REASON_REDACTED_FILE"
+echo "==> job queue REASON_REDACTED forward DDL applied successfully"
+
 # ── database privilege grants (r5 Task 1.3c) ──
 # INVARIANT: every file in this script that creates a table, view or sequence is applied
 # BEFORE this one. The multipart-salary PREPARE file (the last relation-creating file

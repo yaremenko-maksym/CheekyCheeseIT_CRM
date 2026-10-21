@@ -18,7 +18,11 @@
 --
 -- WHAT THIS FILE DELIVERS
 --   1. job_queue_actions        — append-only: UPDATE / DELETE / TRUNCATE refused,
---                                 except the two narrow R-B shapes in section 4.
+--                                 except the two narrow R-B shapes in section 4; and
+--                                 `created_at` forced to `now()` on INSERT, so the
+--                                 column every retention decision reads is written by
+--                                 the database and not by its writer. See "WHY
+--                                 `created_at` IS FORCED" below.
 --   2. job_queue_generation_entries
 --                               — immutable: UPDATE / TRUNCATE refused; DELETE refused
 --                                 unless it arrives through a parent cascade; INSERT
@@ -69,7 +73,10 @@
 --        its lock when that statement commits), and it recurred on every deploy.
 --        `CREATE OR REPLACE TRIGGER` converges a changed definition IN PLACE with no
 --        `DROP` at all, so the trigger is never absent — measured in an UNWRAPPED control
---        run, where the trigger count on the guarded tables stayed at 7 throughout.
+--        run, where the trigger count on the guarded tables stayed at 7 throughout (the
+--        count on the day of that measurement, 2026-10-19; it is 8 since the `created_at`
+--        guard below — the figure is kept as the historical reading it is, not updated,
+--        because updating it would misreport what was observed).
 --        That is why the `OR REPLACE` is load-bearing and not decoration, and it keeps
 --        this window closed even if the file is ever applied statementwise by something
 --        that is not the deploy.
@@ -118,6 +125,80 @@
 --   states exactly who is and is not bound. The companion catalog check,
 --   2026-10-18_job_queue_append_only_check.sql, is what catches a trigger LEFT
 --   disabled or dropped, on the next deploy.)
+--
+-- WHY `created_at` IS FORCED, AND WHY IT OVERRIDES RATHER THAN REFUSES (r5 Task 1.4b-i,
+-- closing SR-M-1 of PR #1062; backlog 263)
+--   THE HOLE. `job_queue_actions.created_at` is `defaultNow()` with a NOT NULL and no
+--   CHECK, and a default is only a default: any writer may supply its own value. Since
+--   PR #1062 the end-of-retention purge runs DAILY, so a row inserted with a `created_at`
+--   two years in the past is evidence that DELETES ITSELF WITHIN TWENTY-FOUR HOURS, by
+--   the sanctioned path, leaving the log looking healthy.
+--     The append-only trigger in section 1 cannot compensate, and this is the part worth
+--   reading twice: its DELETE branch admits a row whose `OLD.created_at <= now() -
+--   interval '2 years'` — it READS THE SAME UNTRUSTED COLUMN. So section 1's assurance
+--   that a misuse of the retention identity "cannot delete a row that is not yet due"
+--   holds exactly as far as `created_at` is trustworthy, and not one step further. The
+--   guard below is what makes that sentence true; the two are one mechanism.
+--
+--   WHAT IT STOPS, AND WHAT IT DOES NOT — the same claim its neighbours make, stated
+--   again rather than left to be inferred. It stops AN APPLICATION BUG: a writer that
+--   supplies a timestamp, whether from a client clock, a replayed payload, or a belief
+--   that it owns the column. It does NOT stop a superuser or the table owner: ownership
+--   alone suffices to `DISABLE TRIGGER` or `DROP TRIGGER`, here as everywhere else in
+--   this file. Against that actor the protection is procedural and the DETECTION is the
+--   companion catalog check, which pins this trigger exactly as it pins the other seven
+--   and fails the NEXT DEPLOY if it is missing, disabled, repointed or rewritten.
+--
+--   THE FORCE IS UNCONDITIONAL; THE COMPARISON IS DIAGNOSTICS. The assignment
+--   `NEW.created_at := now()` runs on every row, outside the `IF`. The comparison exists
+--   only to decide whether to complain, so a mistake in it can cost a missing warning and
+--   cannot open a hole — the inverse arrangement (assign inside the branch) would make
+--   the predicate load-bearing for the guarantee, which is the shape of defect this file
+--   keeps finding in its own history.
+--
+--   OVERRIDE, NOT REFUSAL — the choice, and the argument, because the choice is not
+--   self-evident and both answers are defensible.
+--     First, a fact that removes the usual reason to prefer refusal: DETECTION COSTS
+--   NOTHING AND IS EXACT. `now()` is the transaction timestamp and is stable for the whole
+--   transaction, so a row relying on the default arrives at this trigger with
+--   `NEW.created_at` EQUAL to `now()`, to the microsecond — `IS DISTINCT FROM now()` is
+--   therefore a precise test of "the writer supplied something of its own", with no
+--   tolerance window to tune and no clock-skew edge to admit a small backdate. Both
+--   designs can see the buggy writer equally well; the only question is what to do about
+--   it. (A writer that explicitly passes `now()` or `DEFAULT` is indistinguishable from
+--   the default, and rightly so: it supplied the correct value.)
+--     The decision rests on FAILURE ASYMMETRY. A refusal turns a timestamp bug into a
+--   MISSING AUDIT ROW — and, when the audit INSERT shares a transaction with the action it
+--   records, into the business action itself being refused. For a log whose entire purpose
+--   is evidence, "no row" is worse than "the correct row, plus a complaint": a guard
+--   protecting an audit trail must not be able to convert a writer's bug into a gap in that
+--   trail. Overriding yields a row that is correct in the column that matters, every time,
+--   including against a writer nobody has reviewed yet.
+--     Loudness is then recoverable WITHOUT paying that price: `RAISE WARNING` reaches the
+--   server log AND the connected client (node-postgres surfaces it as a `notice` event), so
+--   the first writer's author meets it on the first run, in dev and in CI, which is where
+--   the "catches a buggy writer early" argument wanted to put it. This file already uses
+--   the server log as its evidence channel for redactions, so the device is not new here.
+--     WHAT OVERRIDING COSTS, stated and not softened: a writer that MEANT a different
+--   instant — "the action happened at T, we are recording it now" — gets a row asserting
+--   the recording time, with only a warning to say its intent was discarded. That is
+--   accepted, because there is no legitimate supplied value for THIS column other than
+--   exactly `now()`: a writer that needs the event time needs a separate column, and the
+--   warning's HINT says so. Refusal would make that point more forcefully, at the cost in
+--   the paragraph above.
+--     WHEN TO REVISIT, so the choice stays falsifiable: if this warning is ever observed
+--   in a real log, a real writer supplies a real value, and the override-versus-refusal
+--   trade can be re-decided against that case instead of against this reasoning.
+--
+--   WHAT THIS DELIBERATELY TAKES AWAY, named because something depended on it. Supplying
+--   `created_at` at INSERT time was the ONLY way to produce an aged row — backdating later
+--   is impossible by design, the section 1 trigger refusing every UPDATE but the redaction
+--   — and the two integration suites that must build an EXPIRED row (the append-only suite
+--   and the retention cron's) used exactly that. Removing the capability from writers
+--   removes it from them too, by construction and not by oversight: they must now age a row
+--   as the TABLE OWNER with this trigger disabled, which is the same procedural trust they
+--   already use to replay tampering against the catalog check. That companion change lives
+--   in the test zone and is named in the PR body.
 --
 -- WHY NOT `pg_trigger_depth()` FOR THE CASCADE TEST (the trap this file avoids)
 --   MEASURED on this exact schema (rolled-back probe trigger, recorded in the
@@ -385,6 +466,55 @@ CREATE OR REPLACE TRIGGER trg_job_queue_actions_no_truncate
   FOR EACH STATEMENT EXECUTE FUNCTION public.job_queue_actions_no_truncate();
 ALTER TABLE public.job_queue_actions
   ENABLE ALWAYS TRIGGER trg_job_queue_actions_no_truncate;
+
+-- `created_at` is written by the DATABASE, never by the writer (r5 Task 1.4b-i, closing
+-- SR-M-1 of PR #1062). The full argument — why the hole mattered the day the purge
+-- started running, why this overrides instead of refusing, and what the choice costs —
+-- is in the header under "WHY `created_at` IS FORCED". The two sentences that must
+-- travel WITH the code:
+--   this stops an APPLICATION BUG, not a superuser (ownership alone disables any trigger
+--   here; the catalog check is the detection), and
+--   the DELETE branch of job_queue_actions_append_only() reads this very column, so its
+--   two-year bound is trustworthy only because of this function.
+CREATE OR REPLACE FUNCTION public.job_queue_actions_created_at_now()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $fn$
+BEGIN
+  -- Diagnostics, not the guarantee. `now()` is the TRANSACTION timestamp and is stable
+  -- for the whole transaction, so a row that relied on the column default arrives here
+  -- with `NEW.created_at` equal to it to the microsecond. That makes this an EXACT test
+  -- of "the writer supplied a value of its own" — no tolerance window, no clock-skew
+  -- edge through which a small backdate could pass as the default — and it is why
+  -- overriding gives up none of refusal's ability to see the bug. A writer that passes
+  -- `DEFAULT`, or `now()` explicitly, is silent here because it supplied the right value.
+  IF NEW.created_at IS DISTINCT FROM now() THEN
+    RAISE WARNING
+      'job_queue_actions.created_at is set by the database: supplied %, stored % (row %)',
+      NEW.created_at, now(), NEW.id
+      USING
+        DETAIL = 'This column is the input to the two-year retention bound and to the '
+                 'purge, so a supplied value is a backdated audit row. It was overridden '
+                 'rather than refused, so no evidence is lost to this bug.',
+        HINT   = 'Stop sending created_at. If the WRITER needs the instant the action '
+                 'happened, as distinct from the instant it was recorded, that is a '
+                 'separate column and a schema change — not this one.';
+  END IF;
+
+  -- The guarantee, unconditional and outside the IF above: a mistake in that comparison
+  -- can cost a warning, never the column.
+  NEW.created_at := now();
+
+  RETURN NEW;
+END
+$fn$;
+
+CREATE OR REPLACE TRIGGER trg_job_queue_actions_created_at_now
+  BEFORE INSERT ON public.job_queue_actions
+  FOR EACH ROW EXECUTE FUNCTION public.job_queue_actions_created_at_now();
+ALTER TABLE public.job_queue_actions
+  ENABLE ALWAYS TRIGGER trg_job_queue_actions_created_at_now;
 
 
 -- -----------------------------------------------------------------------------

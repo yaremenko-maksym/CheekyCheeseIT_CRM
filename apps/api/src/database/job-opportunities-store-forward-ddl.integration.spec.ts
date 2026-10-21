@@ -70,7 +70,20 @@ const MANUAL_DIR = join(__dirname, '..', '..', 'drizzle', 'manual')
 const SCHEMA_DIR = join(__dirname, 'schema')
 const PART_1 = '2026-10-17_job_opportunities_store.sql'
 const PART_2 = '2026-10-17_job_opportunities_store_indexes.sql'
+/**
+ * SR-M-4. The ALTER-shaped path for a store that is ALREADY deployed (r5 Task
+ * 1.4b-ii: the REASON_REDACTED evidence row). Before this const existed the
+ * part list was PART_1 + PART_2 and nothing in the repository applied this file
+ * at all — so the two paths could drift apart, one of them be changed and the
+ * other not, and no test anywhere would notice. The reviewer measured them
+ * byte-identical on the day it was written, which is exactly why it is pinned
+ * now, while that is still true: a missing pin is cheapest to add before it has
+ * a divergence to report.
+ */
+const PART_3_MIGRATION = '2026-10-21_job_queue_reason_redacted.sql'
 const SCHEMA = 'ddl_job_opportunities_store'
+/** Its own schema, so the migration path cannot disturb the fresh-path comparison. */
+const MIGRATION_SCHEMA = 'ddl_job_queue_reason_redacted_alter'
 const CONFIG_GUARD_SCHEMA = 'ddl_job_sources_config_guard'
 /** A non-superuser used to reproduce the masked-progress-row case (SR-M-4). */
 const UNPRIVILEGED_ROLE = 'ddl_forward_ddl_probe'
@@ -576,6 +589,7 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
   }, 180_000)
 
   afterAll(async () => {
+    await client?.query(`DROP SCHEMA IF EXISTS ${MIGRATION_SCHEMA} CASCADE`).catch(() => undefined)
     await client?.query(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE`).catch(() => undefined)
     await client
       ?.query(`DROP SCHEMA IF EXISTS ${CONFIG_GUARD_SCHEMA} CASCADE`)
@@ -989,4 +1003,71 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
     expect(repaired.indexes.find((r) => r['name'] === target)?.['valid']).toBe(true)
     expect(repaired).toEqual(afterFirstApply)
   }, 180_000)
+
+  /**
+   * SR-M-4 — THE TWO DDL PATHS ARE PINNED AGAINST EACH OTHER.
+   *
+   * A schema change like this one ships twice: inside the fresh-create file, for a
+   * database built from nothing, and as an ALTER file, for one already deployed. The
+   * tests above compare only the FRESH path against the Drizzle reference, so until
+   * this block existed a change made to one path and not the other was caught by
+   * nothing at all — the defect class this whole file exists to prevent, aimed
+   * squarely at the file itself.
+   *
+   * WHAT THIS PINS, stated narrowly so it is not read as more: the migration file
+   * applied to a store that already carries the change is a NO-OP, and the catalog it
+   * leaves still equals the Drizzle reference. So if the ALTER file's CHECK predicate,
+   * column type or enum value drifts from the schema, re-applying it CHANGES something
+   * here and these tests go red.
+   *
+   * WHAT IT DOES NOT PIN, deliberately: it does not reconstruct a genuinely
+   * pre-change database, because that needs the SUPERSEDED revision of PART_1, which
+   * lives in git history rather than on disk — and a spec that reads git history to
+   * build its fixture is a spec that breaks on a squash. The honest limit is written
+   * here instead of being papered over.
+   */
+  describe('the ALTER path agrees with the fresh path (SR-M-4)', () => {
+    let beforeMigration: Catalog
+    let afterMigration: Catalog
+
+    beforeAll(async () => {
+      await buildPreStoreStub(client, MIGRATION_SCHEMA)
+      await applyParts(client, [PART_1, PART_2])
+      beforeMigration = await readCatalog(client, MIGRATION_SCHEMA)
+      await applyParts(client, [PART_3_MIGRATION])
+      afterMigration = await readCatalog(client, MIGRATION_SCHEMA)
+      // `buildPreStoreStub` repoints `search_path`; put it back, because the sibling
+      // describes below share this connection and read the fresh schema through it.
+      await client.query(`SET search_path TO ${SCHEMA}`)
+    }, 180_000)
+
+    it('is idempotent on a store that already carries the change — nothing moves', () => {
+      // Sizes first, so a comparison of two empty catalogs cannot pass quietly.
+      expect(beforeMigration.constraints.length).toBeGreaterThan(0)
+      expect(afterMigration).toEqual(beforeMigration)
+    })
+
+    it('leaves the enum and its VALUE ORDER equal to the Drizzle reference', () => {
+      expect(afterMigration.enums).toEqual(reference.enums)
+    })
+
+    it('leaves every constraint definition equal to the Drizzle reference', () => {
+      // Where a drifted CHECK predicate surfaces: `pg_get_constraintdef` is compared
+      // in full, so one missing conjunct is a failure rather than a near-match.
+      expect(afterMigration.constraints).toEqual(reference.constraints)
+    })
+
+    it('leaves every column equal to the reference, ignoring physical position only', () => {
+      // Physical position legitimately differs between a fresh database and a migrated
+      // one, permanently and in both directions: `CREATE TABLE` places a column where
+      // it is declared, `ALTER TABLE ... ADD COLUMN` appends it. That difference is
+      // expected rather than drift — the same reasoning this file already applies to
+      // `job_sources` in `readCatalog` — so position is the one key dropped here, and
+      // the only one. Everything else (type, nullability, default, identity,
+      // generated, collation) is still compared.
+      const withoutPosition = (rows: Catalog['columns']) =>
+        rows.map(({ position: _position, ...rest }) => rest)
+      expect(withoutPosition(afterMigration.columns)).toEqual(withoutPosition(reference.columns))
+    })
+  })
 })

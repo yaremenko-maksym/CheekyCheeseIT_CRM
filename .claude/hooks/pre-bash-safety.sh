@@ -15,7 +15,7 @@
 #     echo "... DROP DATABASE crm_db ..."          -> BLOCK
 #     gh pr create --body "... DROP DATABASE ..."  -> BLOCK  (this actually
 #         happened while writing the PR description for pre-bash-cross-agent-blast)
-#     echo "никогда: git push --force origin main" -> BLOCK
+#     echo "never: git push --force origin main" -> BLOCK
 #
 # Reproduced four times on 2026-08-17/18 — the fourth time on the very probe
 # command written to demonstrate the bug. The damage is not the lost minute: a
@@ -68,7 +68,7 @@
 #     alone), so the contract is: a real verdict ALWAYS carries the decision JSON
 #     on stdout, and an analyzer failure ALWAYS says INTERNAL ERROR on stderr.
 #     If the analyzer dies while the old coarse test still sees something
-#     catastrophic, the fallback blocks anyway — labelled ДЕГРАДИРОВАННЫЙ РЕЖИМ.
+#     catastrophic, the fallback blocks anyway — labelled DEGRADED MODE.
 #
 # Specific predicates implemented (each decided on the executed command):
 #   1. `rm -r[f]` whose target is a root-level path (`/`, `/*`, `/etc`, ...),
@@ -290,7 +290,7 @@ def is_inert(seg):
 
 for seg in scan.segments:
     if DROP_RE.search(seg.text()) and not is_inert(seg):
-        blocked.append("DROP DATABASE crm_db (исполняется через `%s`)" % (seg.name or "?"))
+        blocked.append("DROP DATABASE crm_db (executed through `%s`)" % (seg.name or "?"))
         break
     for cand in candidates(seg):
         if cand.name == "dropdb" and "crm_db" in cand.positionals():
@@ -325,7 +325,7 @@ if not blocked:
                 path = tok.lstrip("<")
                 if path in written and written[path] is not seg:
                     blocked.append(
-                        "DROP DATABASE crm_db записан в %s и тут же исполняется через `%s`"
+                        "DROP DATABASE crm_db is written into %s and executed right away through `%s`"
                         % (path, seg.name or "?")
                     )
                     break
@@ -338,7 +338,7 @@ if not blocked:
 # for, so it refuses instead.
 if not blocked and scan.truncated:
     blocked.append(
-        "команда вложена глубже предела разбора — часть кода не прочитана"
+        "the command nests deeper than the parse limit — some code was not read"
     )
 
 if not blocked:
@@ -346,10 +346,10 @@ if not blocked:
 
 reason = blocked[0]
 msg = (
-    "Заблокировано safety хуком: %s. Выполни вручную если уверен.\n\n"
-    "Хук смотрит на КОМАНДУ, а не на подстроку: процитировать опасную фразу "
-    "(echo, git commit -m, gh pr create --body, heredoc в файл) можно свободно — "
-    "заблокировано именно исполнение." % reason
+    "Blocked by the safety hook: %s. Run it by hand if you are sure.\n\n"
+    "The hook looks at the COMMAND, not at a substring: quoting a dangerous phrase "
+    "(echo, git commit -m, gh pr create --body, a heredoc into a file) is free — "
+    "what is blocked is executing it." % reason
 )
 print(json.dumps({"decision": "block", "reason": msg}))
 sys.stderr.write("[pre:bash:safety] BLOCK: %s\n" % reason)
@@ -363,7 +363,7 @@ case "$RC" in
 esac
 
 # ── analyzer failure — NOT a verdict ──────────────────────────────────────────
-echo "[pre:bash:safety] INTERNAL ERROR: анализатор не отработал (rc=$RC) — это НЕ вердикт хука." >&2
+echo "[pre:bash:safety] INTERNAL ERROR: the analyzer did not run (rc=$RC) — this is NOT a verdict of the hook." >&2
 
 # JSON punctuation flattened to spaces: the raw stdin is JSON, so a command's
 # last token is followed by `"` and the patterns' `([[:space:]]|$)` boundaries
@@ -374,7 +374,7 @@ if echo "$FLAT" | grep -qE 'rm[[:space:]]+-rf?[[:space:]]+(/[a-zA-Z]|/[[:space:]
   echo "$FLAT" | grep -qE ':[[:space:]]*\([[:space:]]*\)[[:space:]]*\{[[:space:]]*:[[:space:]]*\|[[:space:]]*:[[:space:]]*&[[:space:]]*\}[[:space:]]*;[[:space:]]*:' ||
   echo "$FLAT" | grep -qE 'git[[:space:]]+push.*(--force|--force-with-lease|[[:space:]]-f([[:space:]]|$)).*((origin[[:space:]]+)?(main|master))' ||
   echo "$FLAT" | grep -qiE 'DROP[[:space:]]+DATABASE[[:space:]]+crm_db'; then
-  printf '%s\n' '{"decision":"block","reason":"⚠️ ДЕГРАДИРОВАННЫЙ РЕЖИМ safety-хука: анализатор команды не отработал (см. INTERNAL ERROR в stderr), поэтому применено старое грубое правило «слово-подстрока». Это может быть ЛОЖНОЕ срабатывание (оно ловит и обычное цитирование). Чини .claude/hooks/lib/cmdscan.py, а не обходи хук."}'
+  printf '%s\n' '{"decision":"block","reason":"⚠️ DEGRADED MODE of the safety hook: the command analyzer did not run (see INTERNAL ERROR on stderr), so the old coarse word-substring rule was applied. This may be a FALSE POSITIVE (it fires on ordinary quoting too). Fix .claude/hooks/lib/cmdscan.py instead of bypassing the hook."}'
   echo "[pre:bash:safety] BLOCK (degraded fallback, coarse substring rule)" >&2
   exit 2
 fi

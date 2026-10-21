@@ -487,6 +487,75 @@ export const jobTeamTriageSubscriptions = pgTable(
  * PHASE-6 OBLIGATIONS: `actor_id` is the authenticated actor, and the scope is
  * the one the request was authorized in; ADMIN audit reads may span teams, HR
  * reads filter on `team_id` / `subject_team_id`.
+ *
+ * THE REDACTION EVIDENCE ROW — r5 Task 1.4b-ii
+ * -------------------------------------------
+ * `REASON_REDACTED` is the one kind that is NEITHER a queue mutation NOR a
+ * click: it is the evidence that some OTHER row of this log had its `reason`
+ * replaced with the fixed token by `crm_retention_redact_action_reason()`.
+ * Both authorities require it — legal memo 2026-10-17 section 7 ("have each
+ * redaction APPEND a `REASON_REDACTED` event recording who, when and under
+ * which request"), restated as section 8 item 3, and the least-privilege ADR
+ * section 3 under R-B. Until this landed the row could not be written at all,
+ * and the DDL header recorded the consequence without softening it: the erasure
+ * obligation was NOT DISCHARGED. This makes it dischargeable; the grant that
+ * makes it actually run is r5 Task 1.4b-iii, deliberately justified by the
+ * failing run this enables rather than by a trigger covering for it.
+ *
+ * WHAT THE EVIDENCE ROW POINTS AT, AND WHY IT IS A NEW COLUMN.
+ * A redaction's subject is ANOTHER ACTION ROW. None of the three existing
+ * target columns can say that: `opportunity_id` / `source_record_id` /
+ * `subscription_id` point outside this table, and borrowing the subject's own
+ * target would (a) lose WHICH row was redacted, which is the whole evidentiary
+ * content, and (b) not even be uniform — a redacted `TRIAGE_SUBSCRIBED` row has
+ * no opportunity to borrow. So the subject is named by `subject_action_id`, in
+ * the `subject_*` family it belongs to, and `ck_job_queue_actions_target` gains
+ * a THIRD branch instead of either of the first two being loosened.
+ *
+ * WHY `subject_action_id` CARRIES NO FOREIGN KEY — the one deliberate departure
+ * from this table's "every parent is RESTRICT" rule, and not a shortcut. Every
+ * FK mode is incompatible with the end-of-retention purge:
+ *   - the subject row is OLDER than its evidence row (the redaction happens
+ *     after the action), so the subject falls due for purge up to two years
+ *     BEFORE the evidence row does. `crm_retention_purge_job_queue_actions()`
+ *     is one `DELETE ... WHERE created_at <= now() - interval '2 years'`, which
+ *     would then delete a parent whose child is still within retention;
+ *   - `RESTRICT` raises 23503 immediately, `NO ACTION` raises it at end of
+ *     statement — either way the whole purge aborts, and a retention job that
+ *     cannot run is a storage-limitation breach;
+ *   - `SET NULL` is an UPDATE, and the append-only trigger admits exactly one
+ *     UPDATE shape (`reason` to the token). It would be refused;
+ *   - `CASCADE` would erase audit evidence through a cascade, which is the one
+ *     thing every FK on this table is RESTRICT to prevent.
+ * A dangling `subject_action_id` after the subject is purged is therefore the
+ * INTENDED end state, not a defect: at that point the whole episode is outside
+ * retention. The id is still the stable identifier of what was redacted for as
+ * long as the evidence matters.
+ *
+ * NOT INDEXED, by the rule already stated for `subject_user_id`: there is no FK
+ * and therefore no RESTRICT probe, and no shipped reader filters on it. The day
+ * an erasure-report read ships it brings its own index.
+ *
+ * WHAT TASK 1.4b-iii MUST SUPPLY, because the schema cannot (stated here so it
+ * is not re-derived from this diff):
+ *   - `actor_id` is NOT NULL with a RESTRICT FK to `users`, and the memo keeps
+ *     it that way ("leave `actor_id` / `subject_user_id` NOT NULL"). The
+ *     function's signature `(p_action_id uuid, p_request_id text)` carries NO
+ *     actor, so it cannot name one. Either the function gains an actor
+ *     parameter or a service principal exists in `users` — an owner decision,
+ *     NOT a reason to make the column nullable;
+ *   - "under which request": `p_request_id` is validated in the function as
+ *     non-blank and at most 200 characters, which is exactly `JOB_HANDLE_MAX`
+ *     and exactly the bound on `idempotency_key`. That is where it fits. Note
+ *     the consequence: `uq_job_queue_actions_actor_idempotency` is per actor, so
+ *     one request redacting SEVERAL rows needs the key to distinguish them;
+ *   - `reason` on the evidence row is left free (nullable) on purpose. An
+ *     evidence row with no free text has no text that could itself later need
+ *     redacting.
+ * Deliberately NOT constrained: the scope. A redaction is a studio/legal
+ * operation, but forcing `scope_kind = 'STUDIO'` here would be a guess, and an
+ * over-tight CHECK on an append-only log is as hard to loosen as a loose one is
+ * to tighten.
  */
 export const jobQueueActions = pgTable(
   'job_queue_actions',
@@ -502,6 +571,12 @@ export const jobQueueActions = pgTable(
     teamId: uuid('team_id'),
     subjectTeamId: uuid('subject_team_id'),
     subjectUserId: uuid('subject_user_id'),
+    /**
+     * The row of THIS log whose `reason` a `REASON_REDACTED` row evidences.
+     * Deliberately NO foreign key — see "WHY `subject_action_id` CARRIES NO
+     * FOREIGN KEY" above; the referent is MEANT to vanish at end of retention.
+     */
+    subjectActionId: uuid('subject_action_id'),
     beforeVersion: integer('before_version'),
     afterVersion: integer('after_version'),
     idempotencyKey: text('idempotency_key').notNull(),
@@ -562,10 +637,25 @@ export const jobQueueActions = pgTable(
     index('idx_job_queue_actions_source_record').on(t.sourceRecordId),
     index('idx_job_queue_actions_subscription').on(t.subscriptionId),
     check('ck_job_queue_actions_scope_shape', scopeShape(t.scopeKind, t.teamId)),
+    // SR-M-2. `subject_action_id <> id` — a redaction may not name ITSELF as its
+    // subject. An evidence row that is its own subject is not evidence of
+    // anything, and it was admitted by the first draft of this branch. Both
+    // operands are non-NULL where it is evaluated (`id` is the primary key and
+    // the branch has already required the subject), so there is no UNKNOWN trap
+    // here of the kind the versions CHECK documents. It needs no foreign key, so
+    // none of the purge reasoning above changes.
+    //
+    // Three branches now (r5 Task 1.4b-ii). The two pre-existing ones are
+    // NARROWED, not widened: each gains `subject_action_id IS NULL`, so the new
+    // column belongs to the redaction kind alone. And the last branch's guard
+    // gains `kind <> 'REASON_REDACTED'` — without it a `REASON_REDACTED` row
+    // naming an opportunity and NO subject action would satisfy it, which is
+    // exactly the widening-by-omission a CHECK read branch-by-branch hides.
     check(
       'ck_job_queue_actions_target',
-      sql`(${t.kind} IN ${SUBSCRIPTION_KINDS} AND ${t.opportunityId} IS NULL AND ${t.subscriptionId} IS NOT NULL AND ${t.sourceRecordId} IS NULL)
-          OR (${t.kind} NOT IN ${SUBSCRIPTION_KINDS} AND ${t.opportunityId} IS NOT NULL AND ${t.subscriptionId} IS NULL)`,
+      sql`(${t.kind} IN ${SUBSCRIPTION_KINDS} AND ${t.opportunityId} IS NULL AND ${t.subscriptionId} IS NOT NULL AND ${t.sourceRecordId} IS NULL AND ${t.subjectActionId} IS NULL)
+          OR (${t.kind} = 'REASON_REDACTED' AND ${t.subjectActionId} IS NOT NULL AND ${t.subjectActionId} <> ${t.id} AND ${t.opportunityId} IS NULL AND ${t.subscriptionId} IS NULL AND ${t.sourceRecordId} IS NULL)
+          OR (${t.kind} NOT IN ${SUBSCRIPTION_KINDS} AND ${t.kind} <> 'REASON_REDACTED' AND ${t.opportunityId} IS NOT NULL AND ${t.subscriptionId} IS NULL AND ${t.subjectActionId} IS NULL)`,
     ),
     // An implication, not a pair: the source record is optional elsewhere (r5).
     check(
@@ -594,11 +684,23 @@ export const jobQueueActions = pgTable(
     //   - everything else targets a versioned row (assignment / dismissal
     //     `version`, triage grant `grant_version`, subscription
     //     `subscription_version`) and must move it forward.
+    //   - REASON_REDACTED: an evidence row about this log, with no target state
+    //     at all, so it MUST carry no versions (r5 Task 1.4b-ii).
+    //
+    // `TELEMETRY_KINDS` IS NOT THE SEAM, checked rather than assumed. The set
+    // reads as "a click report on a source copy", and it is shared with
+    // `ck_job_queue_actions_clicked_source` — adding `REASON_REDACTED` to it
+    // would demand a clicked `source_record_id` of a redaction, which has none.
+    // So the new kind gets its own branch, the way SUPPRESSED has one. The
+    // difference from SUPPRESSED is deliberate: SUPPRESSED MAY carry a moving
+    // pair (it stays inside the last branch), whereas REASON_REDACTED is
+    // EXCLUDED from that branch and so can never carry one.
     check(
       'ck_job_queue_actions_versions',
       sql`(${t.kind} IN ${TELEMETRY_KINDS} AND ${t.beforeVersion} IS NULL AND ${t.afterVersion} IS NULL)
           OR (${t.kind} = 'SUPPRESSED' AND ${t.beforeVersion} IS NULL AND ${t.afterVersion} IS NULL)
-          OR (${t.kind} NOT IN ${TELEMETRY_KINDS} AND ${t.beforeVersion} IS NOT NULL AND ${t.afterVersion} IS NOT NULL AND ${t.beforeVersion} >= 0 AND ${t.afterVersion} > ${t.beforeVersion})`,
+          OR (${t.kind} = 'REASON_REDACTED' AND ${t.beforeVersion} IS NULL AND ${t.afterVersion} IS NULL)
+          OR (${t.kind} NOT IN ${TELEMETRY_KINDS} AND ${t.kind} <> 'REASON_REDACTED' AND ${t.beforeVersion} IS NOT NULL AND ${t.afterVersion} IS NOT NULL AND ${t.beforeVersion} >= 0 AND ${t.afterVersion} > ${t.beforeVersion})`,
     ),
     check(
       'ck_job_queue_actions_idempotency_key_bounded',
