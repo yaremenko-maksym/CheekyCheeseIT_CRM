@@ -18,8 +18,19 @@ name: Review Gate
 #   - if any critical-path file changed (globs in CRITICAL_PATH_GLOBS, derived from
 #     .claude/agents/contracts.md §2.1): also `Security Review: APPROVE` on the head sha;
 #   - if `merge-approved` is present, its latest application was by the owner.
-# Owner-authored PRs pass (their review runs in the Master pipeline). The owner login is
-# `github.repository_owner`, never hardcoded.
+# Owner-authored PRs need no reviews here (their review runs in the Master pipeline), but they do
+# NOT pass on authorship alone — a write-role collaborator could push onto an owner branch and
+# merge by hand. For every PR the `merge-approved` check above applies, and for an owner-authored
+# PR every commit's GitHub author login and committer login must be the owner (`web-flow`, GitHub's
+# own web/API committer, is accepted as committer only; a null login — an email linked to no
+# account — is unknown, and unknown is not the owner).
+#
+# COMMIT IDENTITY IS BEST-EFFORT: GitHub derives those logins from the commit EMAIL, and anyone can
+# put any email into a commit. It catches the honest case (a collaborator's ordinary commits on an
+# owner branch), not a deliberate forgery. The hard layer is the label check (the label actor is
+# the authenticated account that applied it) together with branch protection requiring this check.
+#
+# The owner login is `github.repository_owner`, never hardcoded.
 #
 # TRUST MODEL — why `pull_request_target` and why nothing from the PR is executed:
 #   `pull_request_target` runs the workflow definition from the BASE branch, so a PR cannot
@@ -85,6 +96,7 @@ jobs:
           REPO_OWNER: ${{ github.repository_owner }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+          COMMIT_COUNT: ${{ github.event.pull_request.commits }}
           OUT: ${{ runner.temp }}/pr-data.json
         run: |
           set -euo pipefail
@@ -94,17 +106,22 @@ jobs:
           labels=$(gh api "repos/$REPO/issues/$PR_NUMBER" --jq '[.labels[].name]')
           label_events=$(gh api --paginate "repos/$REPO/issues/$PR_NUMBER/events?per_page=100" \
             --jq '.[] | select(.event == "labeled" and .label.name == "merge-approved") | {actor: .actor.login, created_at: .created_at}' | jq -s .)
+          commits=$(gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/commits?per_page=100" \
+            --jq '.[] | {sha: .sha, author: .author.login, committer: .committer.login}' | jq -s .)
           jq -n \
             --arg author "$PR_AUTHOR" --arg owner "$REPO_OWNER" --arg headSha "$HEAD_SHA" \
-            --argjson changedFiles "$CHANGED_FILES" \
+            --argjson changedFiles "$CHANGED_FILES" --argjson commitCount "$COMMIT_COUNT" \
+            --argjson commits "$commits" \
             --argjson files "$files" --argjson reviews "$reviews" \
             --argjson labels "$labels" --argjson labelEvents "$label_events" \
             '{author: $author, owner: $owner, headSha: $headSha, changedFiles: $changedFiles,
-              files: $files, reviews: $reviews, labels: $labels, labelEvents: $labelEvents}' >"$OUT"
+              commitCount: $commitCount, files: $files, reviews: $reviews, labels: $labels,
+              labelEvents: $labelEvents, commits: $commits}' >"$OUT"
           echo "fetched: files=$(jq '.files | length' "$OUT") (PR reports $CHANGED_FILES)" \
             "reviews=$(jq '.reviews | length' "$OUT")" \
             "labels=$(jq '.labels | length' "$OUT")" \
-            "merge-approved-labeled-events=$(jq '.labelEvents | length' "$OUT")"
+            "merge-approved-labeled-events=$(jq '.labelEvents | length' "$OUT")" \
+            "commits=$(jq '.commits | length' "$OUT") (PR reports $COMMIT_COUNT)"
 
       - name: Evaluate
         env:

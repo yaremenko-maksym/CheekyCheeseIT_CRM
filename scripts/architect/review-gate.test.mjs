@@ -39,8 +39,15 @@ const pr = (over = {}) => ({
   reviews: [],
   labels: [],
   labelEvents: [],
+  commits: [{ sha: HEAD, author: COLLAB, committer: COLLAB }],
   ...over,
 })
+
+const OWNER_COMMITS = [
+  { sha: OLD, author: OWNER, committer: OWNER },
+  { sha: HEAD, author: OWNER, committer: 'web-flow' },
+]
+const ownerPr = (over = {}) => pr({ author: OWNER, commits: OWNER_COMMITS, ...over })
 
 const SEC_APPROVE = review({
   body: 'Security Review: APPROVE\n\nOWASP checklist passed.',
@@ -49,14 +56,76 @@ const SEC_APPROVE = review({
 
 // --- the cases the task file names -------------------------------------------------------------
 
-test('owner author → pass, even with no reviews and critical paths', () => {
-  const r = evaluate(pr({ author: OWNER, files: ['apps/api/src/finance/x.ts'] }))
-  assert.equal(r.pass, true)
+test('owner author with only owner commits → pass, even with no reviews and critical paths', () => {
+  const r = evaluate(ownerPr({ files: ['apps/api/src/finance/x.ts'] }))
+  assert.equal(r.pass, true, r.missing.join('\n'))
   assert.deepEqual(r.missing, [])
 })
 
 test('owner login comparison is case-insensitive', () => {
-  assert.equal(evaluate(pr({ author: 'Repo-Owner' })).pass, true)
+  assert.equal(evaluate(ownerPr({ author: 'Repo-Owner' })).pass, true)
+})
+
+// --- owner-authored PRs: authorship alone is not enough ----------------------------------------
+
+test('owner PR + a collaborator commit → fail, naming the commit', () => {
+  const r = evaluate(
+    ownerPr({
+      commits: [...OWNER_COMMITS, { sha: 'c'.repeat(40), author: COLLAB, committer: COLLAB }],
+    }),
+  )
+  assert.equal(r.pass, false)
+  assert.equal(r.missing.length, 1)
+  assert.match(r.missing[0], /commit ccccccc: author @collaborator, committer @collaborator/)
+})
+
+test('owner PR + owner-authored commit committed by the collaborator → fail', () => {
+  const r = evaluate(ownerPr({ commits: [{ sha: HEAD, author: OWNER, committer: COLLAB }] }))
+  assert.equal(r.pass, false)
+})
+
+test('owner PR + a commit whose email is linked to no account (null login) → fail', () => {
+  const r = evaluate(ownerPr({ commits: [{ sha: HEAD, author: null, committer: null }] }))
+  assert.equal(r.pass, false)
+  assert.match(r.missing[0], /email not linked to any account/)
+})
+
+test('owner PR: web-flow is accepted as committer but never as author', () => {
+  assert.equal(
+    evaluate(ownerPr({ commits: [{ sha: HEAD, author: OWNER, committer: 'web-flow' }] })).pass,
+    true,
+  )
+  assert.equal(
+    evaluate(ownerPr({ commits: [{ sha: HEAD, author: 'web-flow', committer: 'web-flow' }] })).pass,
+    false,
+  )
+})
+
+test('owner PR + merge-approved applied by the collaborator → fail', () => {
+  const r = evaluate(
+    ownerPr({
+      labels: ['merge-approved'],
+      labelEvents: [{ actor: COLLAB, created_at: '2026-10-21T10:00:00Z' }],
+    }),
+  )
+  assert.equal(r.pass, false)
+  assert.match(r.missing[0], /applied by @collaborator, not by the repository owner/)
+})
+
+test('owner PR + merge-approved applied by the owner → pass', () => {
+  const r = evaluate(
+    ownerPr({
+      labels: ['merge-approved'],
+      labelEvents: [{ actor: OWNER, created_at: '2026-10-21T10:00:00Z' }],
+    }),
+  )
+  assert.equal(r.pass, true, r.missing.join('\n'))
+})
+
+test('owner PR with a truncated commit list (commitCount > listed) → fail-closed', () => {
+  const r = evaluate(ownerPr({ commitCount: 300 }))
+  assert.equal(r.pass, false)
+  assert.match(r.missing[0], /300 commits but only 2 were listed/)
 })
 
 test('collaborator, no reviews → fail naming the missing code review', () => {
@@ -277,6 +346,8 @@ test('malformed input throws instead of passing (empty file list = the fetch did
   assert.throws(() => evaluate(pr({ files: [] })), /files is empty/)
   assert.throws(() => evaluate(pr({ owner: '' })), /owner must be a non-empty string/)
   assert.throws(() => evaluate({ ...pr(), reviews: undefined }), /reviews must be an array/)
+  assert.throws(() => evaluate(pr({ commits: [] })), /commits is empty/)
+  assert.throws(() => evaluate({ ...pr(), commits: undefined }), /commits must be an array/)
 })
 
 test('a truncated file list (changedFiles > listed) is treated as critical — fail-closed', () => {
@@ -285,7 +356,10 @@ test('a truncated file list (changedFiles > listed) is treated as critical — f
   const r = evaluate(pr({ ...base, changedFiles: 3500 }))
   assert.equal(r.pass, false)
   assert.match(r.critical[0].path, /3499 changed files not listed/)
-  assert.equal(evaluate(pr({ ...base, changedFiles: 3500, reviews: [review(), SEC_APPROVE] })).pass, true)
+  assert.equal(
+    evaluate(pr({ ...base, changedFiles: 3500, reviews: [review(), SEC_APPROVE] })).pass,
+    true,
+  )
 })
 
 // --- verdict parsing ---------------------------------------------------------------------------

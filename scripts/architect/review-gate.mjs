@@ -170,6 +170,9 @@ const APPROVE_STATES = new Set(['COMMENTED', 'APPROVED'])
  * @param {Array<{author:string,state:string,body:string,commit_id:string,submitted_at:string}>} pr.reviews
  * @param {string[]} pr.labels      current label names
  * @param {Array<{actor:string,created_at:string}>} pr.labelEvents  `labeled` events for MERGE_LABEL
+ * @param {Array<{sha:string,author:string|null,committer:string|null}>} pr.commits  PR commits with
+ *        their GitHub-attributed logins (null = the email is linked to no account)
+ * @param {number} [pr.commitCount] the PR's own `commits` count (detects a truncated list)
  * @returns {{pass:boolean, reason:string, missing:string[], critical:Array<{path:string,glob:string}>}}
  */
 export function evaluate(pr) {
@@ -186,14 +189,33 @@ export function evaluate(pr) {
   // than were listed, the unlisted ones were never looked at — so the PR is treated as touching
   // a critical path (fail-closed) instead of being judged on the part that was read.
   if (typeof pr.changedFiles === 'number' && pr.changedFiles > files.length) {
-    critical.push({ path: `(${pr.changedFiles - files.length} changed files not listed by the API)`, glob: 'unlisted' })
+    critical.push({
+      path: `(${pr.changedFiles - files.length} changed files not listed by the API)`,
+      glob: 'unlisted',
+    })
   }
 
+  // The label check runs for EVERY PR, owner-authored included: `merge-approved` is the owner's
+  // merge decision, and a collaborator applying it to an owner's PR is the same act as applying it
+  // to his own.
+  const labelProblems = checkMergeLabel({ labels, labelEvents, owner })
+
+  // Owner-authored PRs do not need reviews here (they are reviewed in the Master pipeline), but
+  // authorship alone is not enough: a write-role collaborator can push onto the owner's branch and
+  // then merge by hand. So every commit must be attributed to the owner. See `checkCommitIdentity`
+  // for why this is a best-effort signal and what the hard layer is.
   if (sameLogin(author, owner)) {
+    const missing = [
+      ...labelProblems,
+      ...checkCommitIdentity({ commits: pr.commits, commitCount: pr.commitCount, owner }),
+    ]
     return {
-      pass: true,
-      reason: `author @${author} is the repository owner — owner PRs are reviewed in the Master pipeline`,
-      missing: [],
+      pass: missing.length === 0,
+      reason:
+        missing.length === 0
+          ? `author @${author} is the repository owner and every commit is attributed to the owner — owner PRs are reviewed in the Master pipeline`
+          : 'owner-authored PR, but it carries a non-owner commit or label',
+      missing,
       critical,
     }
   }
@@ -254,21 +276,7 @@ export function evaluate(pr) {
     }
   }
 
-  if (labels.includes(MERGE_LABEL)) {
-    const latest = labelEvents.reduce(
-      (a, e) => (a && ts(a.created_at) >= ts(e.created_at) ? a : e),
-      null,
-    )
-    if (!latest) {
-      missing.push(
-        `label: \`${MERGE_LABEL}\` is present but no labeled event names who applied it — refusing to assume the owner did`,
-      )
-    } else if (!sameLogin(latest.actor, owner)) {
-      missing.push(
-        `label: \`${MERGE_LABEL}\` was applied by @${latest.actor}, not by the repository owner @${owner} — only the owner may approve a merge`,
-      )
-    }
-  }
+  missing.push(...labelProblems)
 
   if (ignoredSelf.length && missing.length) {
     const who = [...new Set(ignoredSelf.map((r) => `@${r.author}`))].join(', ')
@@ -288,6 +296,64 @@ export function evaluate(pr) {
   }
 }
 
+/** `merge-approved`, if present, must have been applied last by the owner. */
+export function checkMergeLabel({ labels, labelEvents, owner }) {
+  if (!labels.includes(MERGE_LABEL)) return []
+  const latest = labelEvents.reduce(
+    (a, e) => (a && ts(a.created_at) >= ts(e.created_at) ? a : e),
+    null,
+  )
+  if (!latest) {
+    return [
+      `label: \`${MERGE_LABEL}\` is present but no labeled event names who applied it — refusing to assume the owner did`,
+    ]
+  }
+  if (!sameLogin(latest.actor, owner)) {
+    return [
+      `label: \`${MERGE_LABEL}\` was applied by @${latest.actor}, not by the repository owner @${owner} — only the owner may approve a merge`,
+    ]
+  }
+  return []
+}
+
+// GitHub's own committer for commits made through the web UI / API (merges of main into the
+// branch, suggestion commits). It never appears as an AUTHOR, so it is accepted as committer only.
+export const WEB_FLOW = 'web-flow'
+
+/**
+ * Every commit on an owner-authored PR must have author login == owner and committer login ==
+ * owner (or `web-flow`). A null login — the commit email is not linked to any GitHub account —
+ * is UNKNOWN, and unknown is not the owner.
+ *
+ * Best-effort, by construction: GitHub derives these logins from the commit's email, and anyone
+ * can write any email into a commit. A collaborator who sets the owner's linked email passes this
+ * check. What this catches is the honest/accidental case (a collaborator's normal commits on an
+ * owner branch). The hard layers are the label check (the label actor is the authenticated
+ * account) and branch protection itself.
+ */
+export function checkCommitIdentity({ commits, commitCount, owner }) {
+  const problems = []
+  if (typeof commitCount === 'number' && commitCount > commits.length) {
+    problems.push(
+      `commits: the PR has ${commitCount} commits but only ${commits.length} were listed (the API caps the list) — the unlisted ones were never checked`,
+    )
+  }
+  const bad = []
+  for (const c of commits) {
+    const authorOk = sameLogin(c.author, owner)
+    const committerOk = sameLogin(c.committer, owner) || sameLogin(c.committer, WEB_FLOW)
+    if (!authorOk || !committerOk) bad.push(c)
+  }
+  for (const c of bad.slice(0, 20)) {
+    problems.push(
+      `commit ${short(c.sha)}: author ${c.author ? '@' + c.author : '(email not linked to any account)'}, committer ${c.committer ? '@' + c.committer : '(email not linked to any account)'} — not attributed to the owner @${owner}`,
+    )
+  }
+  if (bad.length > 20)
+    problems.push(`… and ${bad.length - 20} more commits not attributed to the owner`)
+  return problems
+}
+
 function short(sha) {
   return String(sha ?? '').slice(0, 7)
 }
@@ -298,9 +364,11 @@ function validate(pr) {
   for (const k of ['author', 'owner', 'headSha']) {
     if (typeof pr[k] !== 'string' || pr[k].trim() === '') p.push(`${k} must be a non-empty string`)
   }
-  for (const k of ['files', 'reviews', 'labels', 'labelEvents']) {
+  for (const k of ['files', 'reviews', 'labels', 'labelEvents', 'commits']) {
     if (!Array.isArray(pr[k])) p.push(`${k} must be an array`)
   }
+  if (Array.isArray(pr.commits) && pr.commits.length === 0)
+    p.push('commits is empty — the commit fetch returned nothing (a PR always has a commit)')
   // A PR always changes at least one file. An empty list means the fetch did not happen, and an
   // instrument that did not look must not report "no critical paths".
   if (Array.isArray(pr.files) && pr.files.length === 0)
@@ -320,7 +388,7 @@ function render(result, pr) {
   )
   lines.push(`- changed files: ${pr.files.length} · critical-path files: ${result.critical.length}`)
   lines.push(
-    `- reviews read: ${pr.reviews.length} · \`${MERGE_LABEL}\` labeled events read: ${pr.labelEvents.length}`,
+    `- reviews read: ${pr.reviews.length} · \`${MERGE_LABEL}\` labeled events read: ${pr.labelEvents.length} · commits read: ${pr.commits.length}`,
   )
   lines.push(`- ${result.reason}`)
   if (result.missing.length) {
