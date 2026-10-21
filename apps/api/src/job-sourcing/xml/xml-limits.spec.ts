@@ -119,6 +119,30 @@ describe('R-2: the element ceiling, and which bound set it', () => {
     expect(boundBy).toBe('time')
   })
 
+  it('when the two bounds are EQUAL the element cap is reported as the binding one', () => {
+    // The only input that distinguishes `<` from `<=` in the comparison. Both give the same
+    // CEILING here, so the ceiling cannot reveal which was used — only `boundBy` can, and a
+    // caller reading "elements" versus "time" is being told which limit to raise. Without this
+    // case the operator is untestable, which is what the mutation gate reported.
+    const { ceiling, boundBy } = elementCeiling({
+      ...DEFAULT_XML_LIMITS,
+      maxWallClockMs: 100,
+      maxElements: 100 * PARSE_ELEMENTS_PER_MS,
+    })
+    expect(ceiling).toBe(5000)
+    expect(boundBy).toBe('elements')
+  })
+
+  it('one millisecond less of budget flips it to time', () => {
+    // The neighbouring input, so the pair brackets the boundary instead of asserting one side.
+    const { boundBy } = elementCeiling({
+      ...DEFAULT_XML_LIMITS,
+      maxWallClockMs: 99,
+      maxElements: 100 * PARSE_ELEMENTS_PER_MS,
+    })
+    expect(boundBy).toBe('time')
+  })
+
   it('a larger time budget hands the bound back to the element cap', () => {
     const { ceiling, boundBy } = elementCeiling({
       ...DEFAULT_XML_LIMITS,

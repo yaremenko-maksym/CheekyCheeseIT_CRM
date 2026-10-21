@@ -101,7 +101,15 @@ export class BoundedXmlPort implements XmlPort {
 
     return {
       root: parsed.root,
-      declaredEncoding: parsed.declaredEncoding ?? decoded.declaredEncoding,
+      // The PARSER's reading of the declaration, not the decoder's.
+      //
+      // This was `parsed.declaredEncoding ?? decoded.declaredEncoding`, and the mutation gate was
+      // right to flag it: both sides read the same declaration from the same decoded string, so
+      // the fallback was unreachable and no input could distinguish `??` from `&&`. Dead logic
+      // reads as a considered fallback, which is worse than its absence. The parser's structured
+      // reading is the one to keep — `decode.ts` still reads the declaration itself, but for the
+      // BOM-conflict check, which is internal to it.
+      declaredEncoding: parsed.declaredEncoding,
       effectiveEncoding: decoded.effectiveEncoding,
       depth: actual.maxDepth,
       elementCount: actual.elementCount,
