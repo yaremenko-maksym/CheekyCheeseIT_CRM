@@ -1,14 +1,29 @@
-import { z } from 'zod'
+import type { ZodType } from 'zod'
 import type { CollectionBatch, CollectionBatchFields, RequestReport } from './reporting-provider'
+import type { SourceConfigFields } from './reporting-provider'
 import type { ApiJsonSourceSpec } from './api-json.provider'
-import { baseSourceConfigSchema } from './api-json.provider'
 
-const probeConfigSchema = baseSourceConfigSchema.extend({})
-const probeItemSchema = z.object({ id: z.string() })
-const probeEnvelopeSchema = z.object({ jobs: z.array(z.unknown()) })
-type ProbeConfig = z.infer<typeof probeConfigSchema>
-type ProbeItem = z.infer<typeof probeItemSchema>
-type ProbeEnvelope = z.infer<typeof probeEnvelopeSchema>
+/**
+ * `declare const`, not real schemas. This file promises above that it carries NO runtime
+ * behaviour, and that promise is load-bearing twice over: it is why a `.ts` file with no spec can
+ * sit in the source tree at all, and it is why the mutation gate has nothing here to mutate. A
+ * first version of the `nativeIdOf` probe below built genuine `z.object(...)` schemas, which put
+ * live code behind a function nobody calls — every literal in it a mutant no test could reach.
+ */
+interface ProbeConfig extends SourceConfigFields {
+  query: string | null
+  window: null
+}
+interface ProbeItem {
+  id: string
+}
+interface ProbeEnvelope {
+  jobs: unknown[]
+}
+
+declare const probeConfigSchema: ZodType<ProbeConfig>
+declare const probeItemSchema: ZodType<ProbeItem>
+declare const probeEnvelopeSchema: ZodType<ProbeEnvelope>
 
 /**
  * COMPILE-TIME proof of the construction brands (CR-H-2). Not a spec, deliberately.
