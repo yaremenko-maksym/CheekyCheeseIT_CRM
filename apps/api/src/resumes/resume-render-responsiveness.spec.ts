@@ -58,6 +58,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { DEFAULT_RESUME_LAYOUT, EMPTY_RESUME_CONTENT } from '@crm/shared'
 import { slowTemplate } from '../test/resume-render-fixtures'
 import { assertTypstAvailable } from '../test/typst-availability'
+import { inspectDocxZip } from './resume-source.util'
 import {
   ResumeTypstService,
   type ResumeRenderInput,
@@ -77,6 +78,17 @@ const LATENCY_BUDGET_MS = 250
 
 /** Below this the render was too quick for the sampling to mean anything. */
 const MIN_RENDER_MS = 700
+
+/**
+ * Floor for the EXTRACTION case's windows, its own number and not the Typst one.
+ *
+ * `MIN_RENDER_MS` was chosen for a render that takes ~1.4 s; this workload
+ * measured 1 261 ms in-process and 1 725 ms sandboxed. The floor only has to
+ * prove the window was real, so it sits at about a third of the shorter
+ * measured window: a runner up to ~3x faster than the one that measured it
+ * still clears it.
+ */
+const EXTRACTION_MIN_WINDOW_MS = 400
 
 /** Fewer samples than this and the window was not really observed. */
 const MIN_SAMPLES = 15
@@ -171,6 +183,14 @@ function worstOf(samples: readonly number[]): number {
  *
  * `work` is started FIRST and the samplers run until it settles, so every
  * sample is taken while the render is genuinely in flight.
+ *
+ * LIMIT, silently vacuous if ignored: the probes start only after `work()`
+ * returns its promise. A `work` whose FIRST SYNCHRONOUS segment is the stall
+ * blocks the loop before any probe exists, so no request is outstanding and
+ * the reported worst is tiny. The in-process extraction case is measurable
+ * only because it begins with `await import('mammoth')`, which yields before
+ * the synchronous parse; a function that parses on its first line would need
+ * an explicit `await Promise.resolve()` ahead of the stall.
  */
 async function measureWhile(work: () => Promise<unknown>): Promise<Measurement> {
   const samples: number[] = []
@@ -402,6 +422,13 @@ describe.skipIf(SKIP_LOCAL_PERF)('AC3 — API responsiveness during a resume ren
     // but its budget-admitted maximum is 1.2 s of parse, not 0.1 s.
     const attack = buildDocxRawBody('<w:p/>'.repeat(690_000))
 
+    // The sandboxed run below swallows errors, so a budget refusing this
+    // document would surface only as a short window failing a floor, with no
+    // pointer to the cause. Admission is the precondition; assert it by name.
+    // (`inspectDocxZip` is the gate `extract` runs before starting a worker;
+    // it throws when a size budget refuses the document.)
+    await inspectDocxZip(attack)
+
     const service = new ResumeTextExtractionService()
     const sandboxed = await measureWhile(() =>
       service.extract(attack, RESUME_DOCX_MIME).catch(() => undefined),
@@ -416,8 +443,8 @@ describe.skipIf(SKIP_LOCAL_PERF)('AC3 — API responsiveness during a resume ren
 
     // Non-vacuity: both really parsed, and the sandboxed run really was sampled
     // throughout a window long enough for a stall to have shown.
-    expect(sandboxed.renderMs).toBeGreaterThan(MIN_RENDER_MS)
-    expect(inProcess.renderMs).toBeGreaterThan(MIN_RENDER_MS)
+    expect(sandboxed.renderMs).toBeGreaterThan(EXTRACTION_MIN_WINDOW_MS)
+    expect(inProcess.renderMs).toBeGreaterThan(EXTRACTION_MIN_WINDOW_MS)
     expect(sandboxed.samples.length).toBeGreaterThan(MIN_SAMPLES)
 
     // The guarantee, stated as what a stall IS rather than as two durations
@@ -426,10 +453,15 @@ describe.skipIf(SKIP_LOCAL_PERF)('AC3 — API responsiveness during a resume ren
     // window; the fraction is 0.97). The bound is a fraction of the run's own
     // length, so it does not depend on how fast the machine is.
     expect(inProcess.worst).toBeGreaterThan(inProcess.renderMs * 0.5)
-    // Off-thread, no request is held up for anything like that long (measured
-    // 14.8 ms in a 1 725 ms window, 0.9%), and the API kept serving
-    // (3 135 samples against 9 in-process).
-    expect(sandboxed.worst).toBeLessThan(sandboxed.renderMs * 0.25)
+    // Off-thread, no request is held up for more than a fifth of what the same
+    // parse costs on the main thread (measured 14.8 ms against 1 230 ms, 83x).
+    // The bound is deliberately NOT a fraction of the sandboxed window: that
+    // window includes worker spawn and a niced parse, so a slow worker would
+    // loosen it (25% of 1 725 ms is already ~430 ms). Tied to the in-process
+    // stall it moves with the machine in the right direction and stays near
+    // 250 ms here, which is below the 646 ms of request-thread screening this
+    // file documents as a known gap, so that gap would fail it.
+    expect(sandboxed.worst).toBeLessThan(inProcess.worst / 5)
     expect(sandboxed.samples.length).toBeGreaterThan(inProcess.samples.length * 5)
   }, 180_000)
 
