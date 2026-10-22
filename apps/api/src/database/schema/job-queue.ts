@@ -536,22 +536,24 @@ export const jobTeamTriageSubscriptions = pgTable(
  * and therefore no RESTRICT probe, and no shipped reader filters on it. The day
  * an erasure-report read ships it brings its own index.
  *
- * WHAT TASK 1.4b-iii MUST SUPPLY, because the schema cannot (stated here so it
- * is not re-derived from this diff):
- *   - `actor_id` is NOT NULL with a RESTRICT FK to `users`, and the memo keeps
- *     it that way ("leave `actor_id` / `subject_user_id` NOT NULL"). The
- *     function's signature `(p_action_id uuid, p_request_id text)` carries NO
- *     actor, so it cannot name one. Either the function gains an actor
- *     parameter or a service principal exists in `users` — an owner decision,
- *     NOT a reason to make the column nullable;
- *   - "under which request": `p_request_id` is validated in the function as
- *     non-blank and at most 200 characters, which is exactly `JOB_HANDLE_MAX`
- *     and exactly the bound on `idempotency_key`. That is where it fits. Note
- *     the consequence: `uq_job_queue_actions_actor_idempotency` is per actor, so
- *     one request redacting SEVERAL rows needs the key to distinguish them;
- *   - `reason` on the evidence row is left free (nullable) on purpose. An
- *     evidence row with no free text has no text that could itself later need
- *     redacting.
+ * WHAT TASK 1.4b-iii SUPPLIED, because the schema could not (stated here so it
+ * is not re-derived from the diff):
+ *   - the ACTOR: `actor_id` stays NOT NULL with its RESTRICT FK to `users`, as
+ *     the memo requires. The function gained a third argument, `p_actor_id`
+ *     (owner decision, 2026-10-22), and the evidence row's `actor_id` is that
+ *     value — no service principal, no nullable column;
+ *   - "under which request": the evidence row's `idempotency_key` is
+ *     `<request id>:<subject action id>`. The subject id is appended because
+ *     `uq_job_queue_actions_actor_idempotency` is per actor, so one request
+ *     redacting SEVERAL rows needs the key to tell them apart; the request id is
+ *     therefore bounded at 163 characters in the function, so the key never
+ *     exceeds `JOB_HANDLE_MAX` (200);
+ *   - `reason` on the evidence row is NULL, and since 1.4b-iii that is enforced
+ *     (`ck_job_queue_actions_redaction_reason_null`, SR-M-5 of PR #1075): an
+ *     evidence row with free text would need redacting itself, a recursion;
+ *   - WHO may write the row: only `crm_retention_owner`, i.e. only the definer
+ *     function. A CHECK cannot see the writer, so the append-only trigger
+ *     enforces it on INSERT (SR-M-1 of PR #1075).
  * Deliberately NOT constrained: the scope. A redaction is a studio/legal
  * operation, but forcing `scope_kind = 'STUDIO'` here would be a guess, and an
  * over-tight CHECK on an append-only log is as hard to loosen as a loose one is

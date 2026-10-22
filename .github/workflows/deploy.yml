@@ -661,6 +661,7 @@ jobs:
             apps/api/drizzle/manual/2026-10-18_db_grants.sql \
             apps/api/drizzle/manual/2026-10-18_db_privileges_check.sql \
             apps/api/drizzle/manual/2026-10-21_job_queue_reason_redacted.sql \
+            apps/api/drizzle/manual/2026-10-22_job_queue_redaction_callable.sql \
             scripts/devops/check-security-headers.sh \
             scripts/devops/check-nginx-perimeter.sh \
             scripts/devops/pg-backup.sh \
@@ -2524,6 +2525,24 @@ jobs:
           target: '/opt/crm'
           # apps/api/drizzle/manual/2026-10-21_job_queue_reason_redacted.sql
           #   -> /opt/crm/apps/api/drizzle/manual/2026-10-21_job_queue_reason_redacted.sql
+
+      # r5 Task 1.4b-iii. The redaction function's signature changes (actor added), which
+      # `CREATE OR REPLACE` cannot do on a deployed database, and SR-M-5's CHECK must reach
+      # an existing table. This file does both; it must be APPLIED after the file above and
+      # BEFORE 2026-10-18_db_grants.sql — see its header for why that order closes the
+      # window in which the old function could use the new grants.
+      - name: Copy job queue redaction-callable upgrade DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-10-22_job_queue_redaction_callable.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-10-22_job_queue_redaction_callable.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-10-22_job_queue_redaction_callable.sql
 
       # Multipart salary changes one invariant in two deploy phases. The prepare
       # migration is backward-compatible with the currently-running API; the
