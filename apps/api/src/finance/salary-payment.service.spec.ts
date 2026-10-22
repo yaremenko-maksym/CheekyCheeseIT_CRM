@@ -11,7 +11,7 @@
  */
 import { ForbiddenException, Logger } from '@nestjs/common'
 import { PgDialect } from 'drizzle-orm/pg-core'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { COMPANY_ACCOUNT_LABEL } from '@crm/shared'
 import { SalaryPaymentService } from './salary-payment.service'
@@ -26,7 +26,10 @@ vi.mock('./company-account-balance', () => ({
   lockCompanyAccount: lockMock,
   computeCompanyAccountBalanceFromLedger: balanceMock,
 }))
-vi.mock('./transaction-date.util', () => ({ resolveTransactionDate: txDateMock }))
+vi.mock('./transaction-date.util', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./transaction-date.util')>()),
+  resolveTransactionDate: txDateMock,
+}))
 
 const dialect = new PgDialect()
 /** Renders a drizzle `where` to its bound parameters (independent of the code under test). */
@@ -302,7 +305,21 @@ describe('SalaryPaymentService.paySalary — gates and refusals', () => {
     expect(h.setCalls).toHaveLength(0)
   })
 
+  // The lower bound is checked on the RESOLVED date (PR #868), so these cases
+  // let the date resolve for real instead of returning the fixed TX_DATE.
+  let realResolve: (typeof import('./transaction-date.util'))['resolveTransactionDate']
+  beforeAll(async () => {
+    realResolve = (
+      await vi.importActual<typeof import('./transaction-date.util')>('./transaction-date.util')
+    ).resolveTransactionDate
+  })
+  const resolveForReal = () =>
+    txDateMock.mockImplementation((raw: string | null | undefined, now?: Date) =>
+      realResolve(raw, now),
+    )
+
   it('refuses a payment date before the obligation date (calendar-day granularity)', async () => {
+    resolveForReal()
     const h = make()
     await expect(
       h.svc.paySalary(SALARY_ID, { ...personal, txDate: '2026-09-29' }, ADMIN),
@@ -314,6 +331,7 @@ describe('SalaryPaymentService.paySalary — gates and refusals', () => {
   })
 
   it('accepts a payment dated on the obligation day, and falls back to createdAt when txDate is null', async () => {
+    resolveForReal()
     const h = make()
     await h.svc.paySalary(SALARY_ID, { ...personal, txDate: '2026-09-30' }, ADMIN)
     expect(h.setCalls).toHaveLength(1)
@@ -322,6 +340,19 @@ describe('SalaryPaymentService.paySalary — gates and refusals', () => {
     await expect(
       h2.svc.paySalary(SALARY_ID, { ...personal, txDate: '2026-09-29' }, ADMIN),
     ).rejects.toMatchObject({ response: { code: 'FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION' } })
+  })
+
+  // SR-809-M-1 (PR #868): omitting the date resolves to "now", and "now" is
+  // still bound by the obligation date — it cannot predate a future-dated row.
+  it('refuses an omitted payment date when today is before the obligation date', async () => {
+    txDateMock.mockReturnValue(new Date('2026-09-29T12:00:00.000Z'))
+    const h = make()
+    await expect(h.svc.paySalary(SALARY_ID, personal, ADMIN)).rejects.toMatchObject({
+      response: { code: 'FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION' },
+      status: 400,
+    })
+    expect(txDateMock).toHaveBeenCalledWith(undefined, expect.any(Date))
+    expect(h.setCalls).toHaveLength(0)
   })
 
   it('asserts the receiver is not archived against the base connection, before writing', async () => {
@@ -414,7 +445,7 @@ describe('SalaryPaymentService.paySalary — ADMIN_PERSONAL flip', () => {
 
     expect(res).toEqual({ id: SALARY_ID })
     expect(h.transaction).not.toHaveBeenCalled()
-    expect(txDateMock).toHaveBeenCalledWith('2026-10-01')
+    expect(txDateMock).toHaveBeenCalledWith('2026-10-01', expect.any(Date))
     const set = h.setCalls[0]!
     expect(set).toMatchObject({
       status: 'PAID',
@@ -518,6 +549,28 @@ describe('SalaryPaymentService.paySalary — ADMIN_PERSONAL flip', () => {
     const params = paramsOf(h.updateWheres[0])
     expect(params).toEqual(expect.arrayContaining([SALARY_ID, 'PENDING']))
     expect(h.salary.salaryReceiverNotArchivedFilter).toHaveBeenCalledTimes(1)
+  })
+
+  // SR-795-M-4 (PR #868): the flip binds the snapshot `paidSet` was derived
+  // from, so a concurrent edit of the PENDING obligation makes it match zero.
+  it('binds the read amount, currency and (copied) notes into the flip', async () => {
+    const h = make({ payer })
+    await h.svc.paySalary(SALARY_ID, { ...personal, payerAdminId: 'payer-1' }, ADMIN)
+    expect(paramsOf(h.updateWheres[0])).toEqual(
+      expect.arrayContaining([SALARY_ID, 'PENDING', '100.000000', 'USD', 'row-notes']),
+    )
+  })
+
+  it('does not bind the old notes when the payment supplies its own', async () => {
+    const h = make({ payer })
+    await h.svc.paySalary(
+      SALARY_ID,
+      { ...personal, payerAdminId: 'payer-1', notes: 'new note' },
+      ADMIN,
+    )
+    const params = paramsOf(h.updateWheres[0])
+    expect(params).toEqual(expect.arrayContaining(['100.000000', 'USD']))
+    expect(params).not.toContain('row-notes')
   })
 
   it('refuses when a concurrent flip won the race (zero rows), after naming an archive cause first', async () => {
@@ -663,6 +716,14 @@ describe('SalaryPaymentService.paySalary — COMPANY_ACCOUNT flip', () => {
     expect(h.salary.assertSalaryReceiverNotArchived).toHaveBeenLastCalledWith(h.dbtx, 'emp-1')
     expect(h.salary.salaryReceiverNotArchivedFilter).toHaveBeenCalledTimes(1)
     expect(paramsOf(h.updateWheres[0])).toEqual(expect.arrayContaining([SALARY_ID, 'PENDING']))
+  })
+
+  it('binds the read amount, currency and copied notes into the company-funded flip (SR-795-M-4)', async () => {
+    const h = make()
+    await h.svc.paySalary(SALARY_ID, company, ADMIN)
+    expect(paramsOf(h.updateWheres[0])).toEqual(
+      expect.arrayContaining([SALARY_ID, 'PENDING', '100.000000', 'USD', 'row-notes']),
+    )
   })
 })
 
