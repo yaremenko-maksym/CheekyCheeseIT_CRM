@@ -207,8 +207,8 @@ mk_case regress "bigger=1000"
 assert_green "a first build publishes (coverage alone)" \
   --contains "build-graphify: OK" -- bash -c "$(build regress)"
 printf '%s\n' "" >"$TMP/regress/bin/mode"
-assert_red "a rebuild that comes out under 90% of the previous graph is refused" \
-  --contains "of previous" \
+assert_red "a rebuild that comes out under 90% of the previous graph is refused on BOTH counts" \
+  --contains "nodes < 90% of previous" --contains "edges < 90% of previous" \
   -- bash -c "$(build regress)"
 assert_green "...and the previous graph is still the published one" \
   --contains "pad999" \
