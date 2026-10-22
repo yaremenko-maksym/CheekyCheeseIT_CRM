@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common'
-import { and, eq, gte, lte, notInArray } from 'drizzle-orm'
+import { and, eq, gte, lt, lte, notInArray } from 'drizzle-orm'
 import type { MeetingRecorderRecordingInput } from '@crm/shared'
 
 import type { DrizzleTx } from '../../database/types'
@@ -61,8 +61,13 @@ export class MeetingRecorderMatcher {
    * SR-865-H-1: `callUrl` is user-writable (SENIOR/HR), so a code match alone would
    * let anyone pull a foreign transcript into their readable scope. A match also
    * needs the recording to start within ±30 min of the interview's `scheduledAt`
-   * (NULL never matches) and the interview to be neither terminal nor archived.
-   * Two candidates are no match.
+   * (NULL never matches), the interview to be neither terminal nor archived, and its
+   * match key (`callUrl` / `scheduledAt`) to have been set BEFORE the recording
+   * started — both are user-editable, so a key planted after the call began cannot
+   * capture it. Two candidates are no match.
+   *
+   * Residual, accepted by owner decision D-1 (no ADMIN confirmation): a user who
+   * knows a future meeting's code and time can plant both before it starts.
    *
    * CR-865-H-1: one indexed lookup on `interviews.call_meet_code` per key with
    * `LIMIT 2` — never load-all-then-filter.
@@ -94,6 +99,7 @@ export class MeetingRecorderMatcher {
             gte(interviews.scheduledAt, new Date(startedAt - MEETING_RECORDER_MATCH_WINDOW_MS)),
             lte(interviews.scheduledAt, new Date(startedAt + MEETING_RECORDER_MATCH_WINDOW_MS)),
             notInArray(interviews.stage, [...MEETING_RECORDER_UNMATCHABLE_STAGES]),
+            lt(interviews.matchKeyChangedAt, new Date(startedAt)),
           ),
         )
         .limit(2)

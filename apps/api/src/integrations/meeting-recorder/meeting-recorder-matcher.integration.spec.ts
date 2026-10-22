@@ -21,6 +21,8 @@ import { googleMeetCodeFromUrl, MeetingRecorderMatcher } from './meeting-recorde
 
 const SENIOR_ID = '5e1a0000-0000-4000-a000-000000000001'
 const SCHEDULED = '2026-10-07T12:00:00.000Z'
+/** When every seeded interview's callUrl/scheduledAt was set — well before the call. */
+const KEY_SET_AT = '2026-09-01T09:00:00.000Z'
 
 const IV = {
   match: '5e1a0000-0000-4000-a000-000000000010',
@@ -119,9 +121,10 @@ describe.skipIf(!hasDatabaseUrl())('MeetingRecorderMatcher — real DB', () => {
     ]
     for (const [id, callUrl, stage, scheduledAt] of rows) {
       await pool.query(
-        `INSERT INTO interviews (id, senior_id, company_name, call_url, stage, scheduled_at)
-         VALUES ($1, $2, 'Matcher Co', $3, $4, $5)`,
-        [id, SENIOR_ID, callUrl, stage, scheduledAt],
+        `INSERT INTO interviews
+           (id, senior_id, company_name, call_url, stage, scheduled_at, match_key_changed_at)
+         VALUES ($1, $2, 'Matcher Co', $3, $4, $5, $6)`,
+        [id, SENIOR_ID, callUrl, stage, scheduledAt, KEY_SET_AT],
       )
     }
     tx = drizzle(pool, { schema }) as unknown as DrizzleTx
@@ -174,6 +177,30 @@ describe.skipIf(!hasDatabaseUrl())('MeetingRecorderMatcher — real DB', () => {
     await expect(
       matcher.findExactMatch(tx, recordingAt(SCHEDULED, { meetingId: 'offr-room-aaa' })),
     ).resolves.toEqual(expect.objectContaining({ interviewId: IV.offer }))
+  })
+
+  it('ignores an interview whose call URL or schedule changed after the recording started', async () => {
+    const recording = recordingAt(shift(SCHEDULED, 5 * MIN), { meetingId: 'mtch-room-aaa' })
+    try {
+      // Equal to startedAt still counts as "not before": the key must predate the call.
+      await pool.query('UPDATE interviews SET match_key_changed_at = $2 WHERE id = $1', [
+        IV.match,
+        recording.startedAt,
+      ])
+      await expect(matcher.findExactMatch(tx, recording)).resolves.toBeNull()
+      await pool.query('UPDATE interviews SET match_key_changed_at = $2 WHERE id = $1', [
+        IV.match,
+        shift(recording.startedAt, -1000),
+      ])
+      await expect(matcher.findExactMatch(tx, recording)).resolves.toEqual(
+        expect.objectContaining({ interviewId: IV.match }),
+      )
+    } finally {
+      await pool.query('UPDATE interviews SET match_key_changed_at = $2 WHERE id = $1', [
+        IV.match,
+        KEY_SET_AT,
+      ])
+    }
   })
 
   it('never matches an interview without a scheduled time', async () => {

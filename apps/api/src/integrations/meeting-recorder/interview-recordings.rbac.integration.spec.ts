@@ -309,9 +309,10 @@ describe.skipIf(!hasDatabaseUrl())(
     let recordings: MeetingRecorderService
 
     async function cleanup(): Promise<void> {
-      await pool.query('DELETE FROM meeting_recorder_audit_log WHERE connection_id = $1', [
-        CONNECTION_ID,
-      ])
+      await pool.query(
+        'DELETE FROM meeting_recorder_audit_log WHERE connection_id = $1 OR actor_user_id = ANY($2)',
+        [CONNECTION_ID, ALL_USERS.map((u) => u.id)],
+      )
       await pool.query('DELETE FROM meeting_recorder_webhook_receipts WHERE connection_id = $1', [
         CONNECTION_ID,
       ])
@@ -656,6 +657,58 @@ describe.skipIf(!hasDatabaseUrl())(
         expect(read.statusCode).toBe(403)
         const readHr = await request('GET', `/api/interview-recordings/${row!.id}`, HR_A)
         expect(readHr.statusCode).toBe(403)
+      })
+
+      it('SENIOR sets callUrl AND scheduledAt to the foreign meeting after it started → not linked', async () => {
+        const event = foreignMeetingEvent('mr-rbac-attack-code-and-time', 1)
+        const patched = await request('PATCH', `/api/interviews/${INTERVIEW_A_ID}`, SENIOR_A, {
+          callUrl: `https://meet.google.com/${FOREIGN_MEET_CODE}`,
+          scheduledAt: event.data.recording.startedAt,
+        })
+        expect(patched.statusCode).toBe(200)
+        expect((patched.json() as { scheduledAt: string | null }).scheduledAt).toBe(
+          event.data.recording.startedAt,
+        )
+
+        await recordings.ingestWebhookEvent(CONNECTION_ID, event, CIPHERTEXT)
+
+        const row = await recordingByExternalId('mr-rbac-attack-code-and-time')
+        expect(row!.interview_id).toBeNull()
+        const read = await request('GET', `/api/interview-recordings/${row!.id}`, SENIOR_A)
+        expect(read.statusCode).toBe(403)
+      })
+
+      it('audits every callUrl / scheduledAt change, and only those', async () => {
+        const auditRows = async () =>
+          (
+            await pool.query<{ action: string; actor_user_id: string }>(
+              `SELECT action, actor_user_id FROM meeting_recorder_audit_log
+               WHERE interview_id = $1 ORDER BY created_at`,
+              [INTERVIEW_B_ID],
+            )
+          ).rows
+        const before = (await auditRows()).length
+
+        await request('PATCH', `/api/interviews/${INTERVIEW_B_ID}`, SENIOR_B, {
+          companyName: 'MR RBAC Co B renamed',
+        })
+        expect(await auditRows()).toHaveLength(before)
+
+        await request('PATCH', `/api/interviews/${INTERVIEW_B_ID}`, SENIOR_B, {
+          callUrl: 'https://meet.google.com/bbbb-bbbb-bbb',
+        })
+        await request('PATCH', `/api/interviews/${INTERVIEW_B_ID}`, ADMIN, {
+          scheduledAt: '2026-11-01T10:00:00.000Z',
+        })
+        // Re-sending the same value is not a change.
+        await request('PATCH', `/api/interviews/${INTERVIEW_B_ID}`, ADMIN, {
+          scheduledAt: '2026-11-01T10:00:00.000Z',
+        })
+
+        expect((await auditRows()).slice(before)).toEqual([
+          { action: 'interview-call-changed', actor_user_id: SENIOR_B.id },
+          { action: 'interview-call-changed', actor_user_id: ADMIN.id },
+        ])
       })
 
       it('SENIOR sets the code after the recording arrived → a later revision does not link it', async () => {

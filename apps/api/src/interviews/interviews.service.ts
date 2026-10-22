@@ -14,7 +14,6 @@ import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
 import { ProjectsService } from '../projects/projects.service'
 import {
-  interviewRecordings,
   interviews,
   meetingRecorderAuditLog,
   users,
@@ -132,22 +131,30 @@ export class InterviewsService {
 
     const hrId = currentUser.role === 'HR' ? currentUser.id : null
 
-    const [created] = await this.db.db
-      .insert(interviews)
-      .values({
-        seniorId,
-        hrId,
-        companyName: dto.companyName,
-        vacancyUrl: dto.vacancyUrl ?? null,
-        callUrl: dto.callUrl ?? null,
-        scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : null,
-        stage: 'HR_SCREEN',
-        position: positionCount,
-      })
-      .returning()
+    const created = await this.db.db.transaction(async (tx) => {
+      const [row] = await tx
+        .insert(interviews)
+        .values({
+          seniorId,
+          hrId,
+          companyName: dto.companyName,
+          vacancyUrl: dto.vacancyUrl ?? null,
+          callUrl: dto.callUrl ?? null,
+          scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : null,
+          stage: 'HR_SCREEN',
+          position: positionCount,
+          matchKeyChangedAt: new Date(),
+        })
+        .returning()
+      if (!row) throw new Error('Failed to create interview')
+      if (row.callUrl !== null || row.scheduledAt !== null) {
+        await this.auditCallChange(tx, row.id, currentUser)
+      }
+      return row
+    })
 
     const row = (await this.db.db.query.interviews.findFirst({
-      where: eq(interviews.id, created!.id),
+      where: eq(interviews.id, created.id),
       with: { senior: true, hr: true },
     })) as InterviewWithRelations
 
@@ -198,6 +205,8 @@ export class InterviewsService {
       (updateData.scheduledAt !== undefined &&
         updateData.scheduledAt?.getTime() !== interview.scheduledAt?.getTime())
 
+    if (callChanged) updateData.matchKeyChangedAt = new Date()
+
     await this.db.db.transaction(async (tx) => {
       await tx.update(interviews).set(updateData).where(eq(interviews.id, id))
       if (callChanged) await this.auditCallChange(tx, id, currentUser)
@@ -212,28 +221,20 @@ export class InterviewsService {
   }
 
   /**
-   * SR-865-H-1 follow-up: a call URL / schedule change on an interview that already
-   * has linked recordings is the auto-match input being moved after the fact, so it
-   * is recorded in the meeting-recorder audit log — one row per linked recording.
+   * SR-865-H-1: `callUrl` / `scheduledAt` are the meeting-recorder auto-match key and
+   * are user-editable, so every change (including at create) is recorded in the
+   * meeting-recorder audit log against the interview.
    */
   private async auditCallChange(
     tx: DrizzleTx,
     interviewId: string,
     actor: SessionUser,
   ): Promise<void> {
-    const linked = await tx
-      .select({ id: interviewRecordings.id, connectionId: interviewRecordings.connectionId })
-      .from(interviewRecordings)
-      .where(eq(interviewRecordings.interviewId, interviewId))
-    if (linked.length === 0) return
-    await tx.insert(meetingRecorderAuditLog).values(
-      linked.map((recording) => ({
-        action: 'interview-call-changed' as const,
-        actorUserId: actor.id,
-        connectionId: recording.connectionId,
-        interviewRecordingId: recording.id,
-      })),
-    )
+    await tx.insert(meetingRecorderAuditLog).values({
+      action: 'interview-call-changed',
+      actorUserId: actor.id,
+      interviewId,
+    })
   }
 
   async move(id: string, dto: MoveInterviewDto, currentUser: SessionUser): Promise<InterviewDto> {

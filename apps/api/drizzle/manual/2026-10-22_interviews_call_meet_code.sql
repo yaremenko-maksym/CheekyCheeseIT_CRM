@@ -15,8 +15,12 @@
 --    `https://meet.google.com/...` URL yields NULL (never auto-matched).
 -- 3. A partial index on (call_meet_code, scheduled_at) so the matcher is a single
 --    indexed lookup instead of loading every interview with a call URL.
--- 4. `meeting_recorder_audit_log.action` accepts `interview-call-changed` (a call URL
---    or schedule change on an interview that already has a linked recording).
+-- 4. `interviews.match_key_changed_at`: when `call_url` / `scheduled_at` last changed.
+--    Both are user-editable, so the matcher only considers interviews whose key was
+--    set BEFORE the recording started — a key planted after the call began cannot
+--    capture it.
+-- 5. `meeting_recorder_audit_log.action` accepts `interview-call-changed`, and the
+--    log gains `interview_id`: every call URL / schedule change is audited.
 --
 -- Idempotent: safe to re-run after a successful apply. `ADD COLUMN IF NOT EXISTS`
 -- skips existing columns. The CHECK keeps its NAME and widens its predicate, which
@@ -36,6 +40,16 @@ ALTER TABLE interviews ADD COLUMN IF NOT EXISTS call_meet_code text
 CREATE INDEX IF NOT EXISTS idx_interviews_call_meet_code_scheduled_at
   ON interviews (call_meet_code, scheduled_at)
   WHERE call_meet_code IS NOT NULL;
+
+-- Existing rows get the deploy time: fail-closed (a recording that started before
+-- the deploy is never auto-matched to them), and they carry no scheduled_at anyway.
+ALTER TABLE interviews ADD COLUMN IF NOT EXISTS match_key_changed_at timestamptz NOT NULL DEFAULT now();
+
+ALTER TABLE meeting_recorder_audit_log
+  ADD COLUMN IF NOT EXISTS interview_id uuid REFERENCES interviews(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_meeting_recorder_audit_log_interview
+  ON meeting_recorder_audit_log (interview_id);
 
 ALTER TABLE meeting_recorder_audit_log
   DROP CONSTRAINT IF EXISTS ck_meeting_recorder_audit_log_action;

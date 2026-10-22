@@ -63,6 +63,15 @@ export const interviews = pgTable(
      * this (owner decision D-1, 2026-10-22); NULL → never auto-matched.
      */
     scheduledAt: timestamp('scheduled_at', { withTimezone: true }),
+    /**
+     * When `callUrl` or `scheduledAt` last changed (set at create). Both are
+     * user-editable, so the auto-match only considers an interview whose match key
+     * was set BEFORE the recording started: a key planted after the call began
+     * cannot capture its transcript (SR-865-H-1).
+     */
+    matchKeyChangedAt: timestamp('match_key_changed_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
     stage: interviewStageEnum().notNull().default('HR_SCREEN'),
     notesDomain: varchar('notes_domain', { length: 255 }),
     notesTechStack: varchar('notes_tech_stack', { length: 500 }),
@@ -227,12 +236,15 @@ export const meetingRecorderAuditLog = pgTable(
     interviewRecordingId: uuid('interview_recording_id').references(() => interviewRecordings.id, {
       onDelete: 'set null',
     }),
+    /** The interview an `interview-call-changed` entry is about. */
+    interviewId: uuid('interview_id').references(() => interviews.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [
     index('idx_meeting_recorder_audit_log_created_at').on(t.createdAt),
     index('idx_meeting_recorder_audit_log_connection').on(t.connectionId),
     index('idx_meeting_recorder_audit_log_recording').on(t.interviewRecordingId),
+    index('idx_meeting_recorder_audit_log_interview').on(t.interviewId),
     check(
       'ck_meeting_recorder_audit_log_action',
       sql`${t.action} IN ('connection-created', 'connection-renamed', 'connection-enabled', 'connection-disabled', 'secret-replaced', 'token-issued', 'pairing-reset', 'recording-linked', 'recording-unlinked', 'recording-purged', 'media-purged', 'interview-call-changed')`,
