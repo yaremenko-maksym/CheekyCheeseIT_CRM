@@ -4052,3 +4052,26 @@ expiry the way the dev-server launcher already does.
 and attempt removal. If neither the reviewer nor the orchestrator can remove it, the gap is still
 open — and count the scratchpad's trees afterwards, because the symptom is accumulation rather than
 any single refusal.
+
+## 278. The resume-render responsiveness spec asserts a wall-clock ratio and fails on a slow runner (2026-10-22)
+
+The API unit spec for resume rendering (`AC3 — API responsiveness during a resume render`, in the
+resumes module's `resume-render-responsiveness` spec) measures the worst event-loop stall with PDF
+extraction in-process and again in the sandbox, and asserts that the in-process figure exceeds the
+sandboxed one by a factor of five. On a shared CI runner the ratio is a property of the runner's load,
+not of the code: measured once, in-process `197 ms` against a threshold of `211 ms` (sandboxed
+`42 ms` × 5), on a PR that touched no file under `apps/`. A re-run of the same commit passed.
+
+**Why this matters.** The project's position is zero tolerance for flaky tests, and the newer Flow
+Gate makes "all checks fire at 100 %" an explicit goal — a check that fails on unrelated PRs teaches
+people to re-run red until it is green, which is the habit every other gate depends on people not
+having.
+
+**What closing it does not mean.** Not deleting the guarantee: off-thread parsing being kinder to the
+event loop is the point of the sandbox. Candidates: assert an absolute ceiling on the sandboxed stall
+alone, compare medians over several samples instead of single worst cases, or move the ratio check to
+a nightly job where a single miss is a signal rather than a blocked PR.
+
+**Check on closing:** run the spec repeatedly under synthetic CPU load (e.g. several parallel
+`yes > /dev/null` processes) and confirm it does not fail; then confirm it still fails if the
+extraction is forced back onto the main thread.
