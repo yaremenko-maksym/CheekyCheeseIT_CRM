@@ -53,6 +53,27 @@ export const MEETING_RECORDER_UNMATCHABLE_STAGES = [
   'ARCHIVED',
 ] as const satisfies readonly Interview['stage'][]
 
+/**
+ * The Meet codes to look an interview up by, most trusted first, de-duplicated.
+ *
+ * Pure and exported so the ordering and the de-duplication are unit-testable:
+ * inside `findExactMatch` they would only be observable as a redundant SQL
+ * round-trip, which no assertion short of counting queries could see.
+ */
+export function meetingRecorderMatchKeys(
+  source: MeetingRecorderRecordingInput['source'],
+): Array<{ code: string; matchedBy: MeetingRecorderAutomaticMatch['matchedBy'] }> {
+  if (source.provider !== 'google-meet') return []
+
+  const idCode = source.meetingId ? source.meetingId.toLowerCase() : null
+  const urlCode = source.meetingUrl ? googleMeetCodeFromUrl(source.meetingUrl) : null
+
+  const keys: Array<{ code: string; matchedBy: MeetingRecorderAutomaticMatch['matchedBy'] }> = []
+  if (idCode) keys.push({ code: idCode, matchedBy: 'meeting-id' })
+  if (urlCode && urlCode !== idCode) keys.push({ code: urlCode, matchedBy: 'meeting-url' })
+  return keys
+}
+
 @Injectable()
 export class MeetingRecorderMatcher {
   /**
@@ -76,18 +97,11 @@ export class MeetingRecorderMatcher {
     tx: DrizzleTx,
     recording: MeetingRecorderRecordingInput,
   ): Promise<MeetingRecorderAutomaticMatch | null> {
-    const source = recording.source
-    if (source.provider !== 'google-meet') return null
+    const keys = meetingRecorderMatchKeys(recording.source)
+    if (keys.length === 0) return null
 
     const startedAt = new Date(recording.startedAt).getTime()
     if (Number.isNaN(startedAt)) return null
-
-    const idCode = source.meetingId ? source.meetingId.toLowerCase() : null
-    const urlCode = source.meetingUrl ? googleMeetCodeFromUrl(source.meetingUrl) : null
-
-    const keys: Array<{ code: string; matchedBy: MeetingRecorderAutomaticMatch['matchedBy'] }> = []
-    if (idCode) keys.push({ code: idCode, matchedBy: 'meeting-id' })
-    if (urlCode && urlCode !== idCode) keys.push({ code: urlCode, matchedBy: 'meeting-url' })
 
     for (const { code, matchedBy } of keys) {
       const candidates = await tx

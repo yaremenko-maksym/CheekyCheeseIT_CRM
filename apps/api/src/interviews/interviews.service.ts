@@ -24,6 +24,19 @@ import {
 import type { DrizzleTx } from '../database/types'
 import { InterviewAccessPolicyService } from './interview-access-policy.service'
 
+/**
+ * Does this interview carry a meeting-recorder auto-match key at all?
+ *
+ * Pure and exported so both branches are unit-testable: in `create` the decision
+ * is only observable as the presence of an audit row, which needs real Postgres.
+ */
+export function interviewCallKeyIsSet(row: {
+  callUrl: string | null
+  scheduledAt: Date | null
+}): boolean {
+  return row.callUrl !== null || row.scheduledAt !== null
+}
+
 type InterviewWithRelations = Interview & {
   senior: User | null
   hr: User | null
@@ -146,11 +159,13 @@ export class InterviewsService {
           matchKeyChangedAt: new Date(),
         })
         .returning()
-      if (!row) throw new Error('Failed to create interview')
-      if (row.callUrl !== null || row.scheduledAt !== null) {
-        await this.auditCallChange(tx, row.id, currentUser)
+      // A single-row insert with .returning() always yields exactly one row; the
+      // assertion matches the pre-existing style on this call site.
+      const createdRow = row!
+      if (interviewCallKeyIsSet(createdRow)) {
+        await this.auditCallChange(tx, createdRow.id, currentUser)
       }
-      return row
+      return createdRow
     })
 
     const row = (await this.db.db.query.interviews.findFirst({

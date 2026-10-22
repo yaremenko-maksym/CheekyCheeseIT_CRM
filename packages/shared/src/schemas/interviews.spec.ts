@@ -244,6 +244,31 @@ describe('boardSeniorSchema', () => {
   })
 })
 
+describe('interview scheduledAt — the meeting-recorder auto-match window key', () => {
+  const base = { seniorId: '11111111-1111-4111-8111-111111111111', companyName: 'Acme' }
+
+  it('accepts a UTC instant and an explicit numeric offset', () => {
+    // The numeric-offset case is why the schema passes `{ offset: true }`:
+    // without it a `+02:00` instant — what a browser in Kyiv sends — is rejected.
+    for (const value of ['2026-10-07T12:00:00.000Z', '2026-10-07T14:00:00+02:00']) {
+      expect(createInterviewSchema.safeParse({ ...base, scheduledAt: value }).success).toBe(true)
+      expect(updateInterviewSchema.safeParse({ scheduledAt: value }).success).toBe(true)
+    }
+  })
+
+  it('rejects an instant with no time zone at all, and a bare date', () => {
+    for (const value of ['2026-10-07T12:00:00', '2026-10-07', 'tomorrow']) {
+      expect(updateInterviewSchema.safeParse({ scheduledAt: value }).success).toBe(false)
+    }
+  })
+
+  it('accepts null and omitted (NULL means "never auto-matched")', () => {
+    expect(updateInterviewSchema.safeParse({ scheduledAt: null }).success).toBe(true)
+    expect(createInterviewSchema.safeParse({ ...base, scheduledAt: null }).success).toBe(true)
+    expect(createInterviewSchema.safeParse(base).success).toBe(true)
+  })
+})
+
 describe('interview URL fields — http(s) scheme allow-list', () => {
   const base = { seniorId: '11111111-1111-4111-8111-111111111111', companyName: 'Acme' }
 

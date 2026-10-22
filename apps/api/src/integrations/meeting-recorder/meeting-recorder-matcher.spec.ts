@@ -5,6 +5,9 @@ import type { DrizzleTx } from '../../database/types'
 import {
   canonicalizeGoogleMeetUrl,
   googleMeetCodeFromUrl,
+  MEETING_RECORDER_MATCH_WINDOW_MS,
+  MEETING_RECORDER_UNMATCHABLE_STAGES,
+  meetingRecorderMatchKeys,
   MeetingRecorderMatcher,
 } from './meeting-recorder-matcher'
 
@@ -88,6 +91,80 @@ describe('MeetingRecorderMatcher', () => {
     await expect(
       matcher.findExactMatch(noQueryTx, recording({ kind: 'meeting', provider: 'google-meet' })),
     ).resolves.toBeNull()
+  })
+
+  // Owner decision D-1: ±30 minutes. The expected value is hand-computed
+  // (30 min × 60 s × 1000 ms = 1 800 000) rather than re-derived from the same
+  // expression, so this cannot agree with the code by construction.
+  it('pins the auto-match window to 30 minutes expressed in milliseconds', () => {
+    expect(MEETING_RECORDER_MATCH_WINDOW_MS).toBe(1_800_000)
+  })
+
+  it('pins the stages that never receive an automatic link', () => {
+    expect([...MEETING_RECORDER_UNMATCHABLE_STAGES]).toEqual(['HIRED', 'REJECTED', 'ARCHIVED'])
+  })
+
+  describe('meetingRecorderMatchKeys', () => {
+    it('prefers the meeting id and adds the URL code only when it differs', () => {
+      expect(
+        meetingRecorderMatchKeys({
+          kind: 'meeting',
+          provider: 'google-meet',
+          meetingId: 'ABC-DEFG-HIJ',
+          meetingUrl: 'https://meet.google.com/zzz-zzzz-zzz',
+        }),
+      ).toEqual([
+        { code: 'abc-defg-hij', matchedBy: 'meeting-id' },
+        { code: 'zzz-zzzz-zzz', matchedBy: 'meeting-url' },
+      ])
+    })
+
+    it('de-duplicates when the id and the URL carry the same code', () => {
+      expect(
+        meetingRecorderMatchKeys({
+          kind: 'meeting',
+          provider: 'google-meet',
+          meetingId: 'abc-defg-hij',
+          meetingUrl: 'https://meet.google.com/ABC-DEFG-HIJ?authuser=1',
+        }),
+      ).toEqual([{ code: 'abc-defg-hij', matchedBy: 'meeting-id' }])
+    })
+
+    it('yields the single available code, or none at all', () => {
+      expect(
+        meetingRecorderMatchKeys({
+          kind: 'meeting',
+          provider: 'google-meet',
+          meetingId: 'Only-Id',
+        }),
+      ).toEqual([{ code: 'only-id', matchedBy: 'meeting-id' }])
+      expect(
+        meetingRecorderMatchKeys({
+          kind: 'meeting',
+          provider: 'google-meet',
+          meetingUrl: 'https://meet.google.com/only-url',
+        }),
+      ).toEqual([{ code: 'only-url', matchedBy: 'meeting-url' }])
+      expect(meetingRecorderMatchKeys({ kind: 'meeting', provider: 'google-meet' })).toEqual([])
+      expect(
+        meetingRecorderMatchKeys({
+          kind: 'meeting',
+          provider: 'google-meet',
+          meetingUrl: 'https://example.com/not-a-meet-room',
+        }),
+      ).toEqual([])
+    })
+
+    it('yields nothing for a non-Google-Meet provider', () => {
+      expect(
+        meetingRecorderMatchKeys({
+          kind: 'meeting',
+          provider: 'zoom',
+          meetingId: 'abc-defg-hij',
+          meetingUrl: 'https://meet.google.com/abc-defg-hij',
+        }),
+      ).toEqual([])
+    })
   })
 
   it('does not query when the recording start time is not a date', async () => {
