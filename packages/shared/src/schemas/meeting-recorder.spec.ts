@@ -4,6 +4,10 @@ import {
   createMeetingRecorderConnectionSchema,
   linkMeetingRecorderRecordingSchema,
   MEETING_RECORDER_INDEXED_IDENTIFIER_MAX_CHARS,
+  MEETING_RECORDER_LABEL_MAX_CHARS,
+  MEETING_RECORDER_NOTE_MAX_CHARS,
+  MEETING_RECORDER_SEGMENT_TEXT_MAX_CHARS,
+  MEETING_RECORDER_TITLE_MAX_CHARS,
   meetingRecorderArtifactInputSchema,
   meetingRecorderArtifactStoredSchema,
   meetingRecorderConnectionSchema,
@@ -12,6 +16,7 @@ import {
   meetingRecorderReadinessSchema,
   meetingRecorderRecordingDetailSchema,
   meetingRecorderRecordingInputSchema,
+  meetingRecorderRecordingStoredSchema,
   meetingRecorderRecordingSummarySchema,
   meetingRecorderSigningSecretSchema,
   meetingRecorderSnapshotDataSchema,
@@ -76,56 +81,178 @@ describe('meeting recorder webhook contract', () => {
     expect(parsed.type).toBe('io.github.kstroevsky.meeting-recorder.recording.ready.v1')
   })
 
-  it('rejects unknown keys recursively', () => {
-    expect(() =>
-      meetingRecorderWebhookEventSchema.parse({
-        ...snapshotEvent(),
-        unexpected: true,
+  // CR-865-M-7: the extension and the CRM ship independently. A new optional field from
+  // the provider must not turn every event into a permanent 422, so provider payloads
+  // drop unknown keys instead of rejecting them. CRM-owned DTOs stay strict (below).
+  it('strips unknown provider keys recursively instead of rejecting the event', () => {
+    const parsed = meetingRecorderWebhookEventSchema.parse({
+      ...snapshotEvent({
+        ...BASE_RECORDING,
+        futureField: 'x',
+        source: { ...BASE_RECORDING.source, unexpected: true },
+        artifacts: [
+          {
+            type: 'notes',
+            mimeType: 'text/plain',
+            delivery: 'downloaded',
+            unexpected: true,
+          },
+        ],
       }),
-    ).toThrow()
+      traceparent: '00-abc-def-01',
+    })
 
-    expect(() =>
-      meetingRecorderWebhookEventSchema.parse(
-        snapshotEvent({
-          ...BASE_RECORDING,
-          source: { ...BASE_RECORDING.source, unexpected: true },
-        }),
-      ),
-    ).toThrow()
-
-    expect(() =>
-      meetingRecorderWebhookEventSchema.parse(
-        snapshotEvent({
-          ...BASE_RECORDING,
-          artifacts: [
-            {
-              type: 'notes',
-              mimeType: 'text/plain',
-              delivery: 'downloaded',
-              unexpected: true,
-            },
-          ],
-        }),
-      ),
-    ).toThrow()
+    expect(parsed).not.toHaveProperty('traceparent')
+    if (parsed.type === 'io.github.kstroevsky.meeting-recorder.integration.test.v1') {
+      throw new Error('expected a snapshot event')
+    }
+    expect(parsed.data.recording).not.toHaveProperty('futureField')
+    expect(parsed.data.recording.source).toEqual(BASE_RECORDING.source)
+    expect(parsed.data.recording.artifacts).toEqual([
+      { type: 'notes', mimeType: 'text/plain', delivery: 'downloaded' },
+    ])
   })
 
-  it('keeps free-form sender fields envelope-bounded rather than schema-bounded', () => {
-    const longValue = 'x'.repeat(10_000)
-    expect(() =>
-      meetingRecorderWebhookEventSchema.parse(
+  it.each([
+    ['title', MEETING_RECORDER_TITLE_MAX_CHARS, (v: string) => ({ ...BASE_RECORDING, title: v })],
+    ['note', MEETING_RECORDER_NOTE_MAX_CHARS, (v: string) => ({ ...BASE_RECORDING, note: v })],
+    [
+      'transcript text',
+      MEETING_RECORDER_SEGMENT_TEXT_MAX_CHARS,
+      (v: string) => ({
+        ...BASE_RECORDING,
+        transcript: { source: 'stt', segments: [{ tStartMs: 0, tEndMs: 1, text: v }] },
+      }),
+    ],
+    [
+      'transcript speaker',
+      MEETING_RECORDER_LABEL_MAX_CHARS,
+      (v: string) => ({
+        ...BASE_RECORDING,
+        transcript: {
+          source: 'stt',
+          segments: [{ tStartMs: 0, tEndMs: 1, speaker: v, text: 'x' }],
+        },
+      }),
+    ],
+    [
+      'notation text',
+      MEETING_RECORDER_SEGMENT_TEXT_MAX_CHARS,
+      (v: string) => ({ ...BASE_RECORDING, notations: [{ tStartMs: 0, text: v }] }),
+    ],
+    [
+      'provider',
+      MEETING_RECORDER_LABEL_MAX_CHARS,
+      (v: string) => ({ ...BASE_RECORDING, source: { kind: 'meeting', provider: v } }),
+    ],
+    [
+      'topic keyword',
+      MEETING_RECORDER_LABEL_MAX_CHARS,
+      (v: string) => ({
+        ...BASE_RECORDING,
+        analysis: { status: 'completed', topics: [{ keywords: [v], importance: 1, spans: [] }] },
+      }),
+    ],
+  ])('bounds the displayed %s at its limit', (_label, max, build) => {
+    expect(meetingRecorderRecordingInputSchema.safeParse(build('x'.repeat(max))).success).toBe(true)
+    expect(meetingRecorderRecordingInputSchema.safeParse(build('x'.repeat(max + 1))).success).toBe(
+      false,
+    )
+  })
+
+  it('pins the displayed-field limits', () => {
+    expect(MEETING_RECORDER_TITLE_MAX_CHARS).toBe(1_000)
+    expect(MEETING_RECORDER_NOTE_MAX_CHARS).toBe(100_000)
+    expect(MEETING_RECORDER_SEGMENT_TEXT_MAX_CHARS).toBe(20_000)
+    expect(MEETING_RECORDER_LABEL_MAX_CHARS).toBe(256)
+  })
+
+  // SR-865-M-1: Postgres refuses a NUL character in text (22021) and in jsonb (22P05), and
+  // refuses an unpaired UTF-16 surrogate in jsonb. Such a value passed the schema, then
+  // failed in the database on every retry — and the failure carried the transcript into
+  // logs. It is refused here instead, as a 422 the provider does not retry.
+  it.each([
+    ['NUL', 'before\u0000after'],
+    ['lone high surrogate', 'before\ud800after'],
+    ['lone low surrogate', 'before\udc00after'],
+  ])('refuses a %s in every provider string field', (_label, bad) => {
+    const cases: Array<[string, unknown]> = [
+      ['event id', { ...snapshotEvent(), id: bad }],
+      ['source', { ...snapshotEvent(), source: `urn:meeting-recorder:destination:${bad}` }],
+      [
+        'recording id',
+        { ...snapshotEvent({ ...BASE_RECORDING, id: bad }), subject: `recording/${bad}` },
+      ],
+      ['title', snapshotEvent({ ...BASE_RECORDING, title: bad })],
+      ['note', snapshotEvent({ ...BASE_RECORDING, note: bad })],
+      ['provider', snapshotEvent({ ...BASE_RECORDING, source: { kind: 'tab', provider: bad } })],
+      ['meetingId', snapshotEvent({ ...BASE_RECORDING, source: { kind: 'tab', meetingId: bad } })],
+      [
+        'meetingUrl',
         snapshotEvent({
           ...BASE_RECORDING,
-          title: longValue,
-          source: {
-            kind: 'meeting',
-            provider: longValue,
-            meetingId: 'abc-defg-hij',
-            meetingUrl: `https://example.test/${longValue}`,
+          source: { kind: 'tab', meetingUrl: `https://meet.google.com/${bad}` },
+        }),
+      ],
+      ['notation', snapshotEvent({ ...BASE_RECORDING, notations: [{ tStartMs: 0, text: bad }] })],
+      [
+        'segment text',
+        snapshotEvent({
+          ...BASE_RECORDING,
+          transcript: { source: 'stt', segments: [{ tStartMs: 0, tEndMs: 1, text: bad }] },
+        }),
+      ],
+      [
+        'segment speaker',
+        snapshotEvent({
+          ...BASE_RECORDING,
+          transcript: {
+            source: 'stt',
+            segments: [{ tStartMs: 0, tEndMs: 1, speaker: bad, text: 'x' }],
           },
         }),
-      ),
-    ).not.toThrow()
+      ],
+      [
+        'analysis error',
+        snapshotEvent({ ...BASE_RECORDING, analysis: { status: 'failed', error: bad } }),
+      ],
+      [
+        'keyword',
+        snapshotEvent({
+          ...BASE_RECORDING,
+          analysis: {
+            status: 'completed',
+            topics: [{ keywords: [bad], importance: 1, spans: [] }],
+          },
+        }),
+      ],
+      [
+        'artifact mimeType',
+        snapshotEvent({
+          ...BASE_RECORDING,
+          artifacts: [{ type: 'notes', mimeType: bad, delivery: 'uploaded' }],
+        }),
+      ],
+    ]
+    for (const [field, event] of cases) {
+      expect(meetingRecorderWebhookEventSchema.safeParse(event).success, field).toBe(false)
+    }
+  })
+
+  it('keeps the stored snapshot strict: an unknown key can never be persisted or served', () => {
+    expect(
+      meetingRecorderRecordingStoredSchema.safeParse({ ...BASE_RECORDING, unexpected: true })
+        .success,
+    ).toBe(false)
+    expect(meetingRecorderRecordingStoredSchema.safeParse(BASE_RECORDING).success).toBe(true)
+  })
+
+  it('accepts a correctly paired surrogate (an emoji) in transcript text', () => {
+    const parsed = meetingRecorderRecordingInputSchema.safeParse({
+      ...BASE_RECORDING,
+      title: 'Interview \u{1F600}',
+    })
+    expect(parsed.success).toBe(true)
   })
 
   it('bounds identifiers that are persisted in PostgreSQL B-tree indexes', () => {
@@ -190,12 +317,12 @@ describe('meeting recorder webhook contract', () => {
     }
     expect(() => meetingRecorderIntegrationTestEventSchema.parse(event)).not.toThrow()
     expect(() => meetingRecorderWebhookEventSchema.parse(event)).not.toThrow()
-    expect(() =>
+    expect(
       meetingRecorderWebhookEventSchema.parse({
         ...event,
         data: { test: true, unexpected: true },
-      }),
-    ).toThrow()
+      }).data,
+    ).toEqual({ test: true })
   })
 
   it('exports exact ready and updated V1 event schemas', () => {
@@ -579,8 +706,10 @@ describe('meeting recorder schema boundaries', () => {
         },
       },
     ],
-  ])('keeps the nested %s object strict', (_label, recording) => {
-    expect(meetingRecorderRecordingInputSchema.safeParse(recording).success).toBe(false)
+  ])('strips unknown keys from the nested %s object', (_label, recording) => {
+    const parsed = meetingRecorderRecordingInputSchema.safeParse(recording)
+    expect(parsed.success).toBe(true)
+    expect(JSON.stringify(parsed.data)).not.toContain('unexpected')
   })
 
   it('requires a positive integer revision and exact readiness vocabulary', () => {
@@ -611,13 +740,13 @@ describe('meeting recorder schema boundaries', () => {
       }).success,
     ).toBe(false)
     expect(
-      meetingRecorderReadinessSchema.safeParse({
+      meetingRecorderReadinessSchema.parse({
         complete: false,
         release: 'manual',
         pending: [],
         unexpected: true,
-      }).success,
-    ).toBe(false)
+      }),
+    ).toEqual({ complete: false, release: 'manual', pending: [] })
 
     expect(
       meetingRecorderReadinessSchema.parse({
@@ -644,7 +773,6 @@ describe('meeting recorder schema boundaries', () => {
       { ...valid, datacontenttype: 'application/cloudevents+json' },
       { ...valid, type: 'io.github.kstroevsky.meeting-recorder.recording.deleted.v1' },
       { ...valid, subject: 'recording/' },
-      { ...valid, data: { ...valid.data, unexpected: true } },
     ]) {
       expect(meetingRecorderReadyEventSchema.safeParse(invalid).success).toBe(false)
     }
