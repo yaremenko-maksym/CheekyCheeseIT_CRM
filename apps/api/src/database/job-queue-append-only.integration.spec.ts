@@ -6,10 +6,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { assertRealDbSchema, hasDatabaseUrl } from '../test/require-real-db'
 import { insertBackdatedJobQueueActionAsTableOwner } from './__test-helpers__/backdated-job-queue-action'
 import {
+  GRANTS_DDL,
   applyDeployDdlFile,
+  applyProductionRetentionOwnerGrants,
   dropRolesCreated,
   existingDeployRoles,
   installDeployRoles,
+  productionRetentionOwnerGrants,
+  revokeRetentionOwnerActionLogPrivileges,
 } from './__test-helpers__/deploy-ddl-preconditions'
 import { splitSqlStatements } from './manual-sql-statements'
 
@@ -36,11 +40,15 @@ import { splitSqlStatements } from './manual-sql-statements'
  *     (Until fix round 1 this bullet said their absence "shows up as a setup failure";
  *     it did, which was the defect — the suite inherited them from whichever sibling
  *     vitest happened to sequence first and could not run alone at all.);
- *   - the table privileges of `crm_retention_owner` on `job_queue_actions`. Those are
- *     1.3c's to grant in production; this suite grants them in its own scratch
- *     database so the trigger's admitted shapes can be exercised DIRECTLY (`SET ROLE`
- *     + a plain statement), independently of the two functions — which is what ADR §3
- *     condition 5 asks the tests to prove.
+ *   - the table privileges of `crm_retention_owner` on `job_queue_actions`. The suite
+ *     gives the role EXACTLY ITS PRODUCTION GRANT SET, read statement by statement from
+ *     the generated grants file (`applyProductionRetentionOwnerGrants`), so a redaction
+ *     that passes here passes under the privileges production holds — r5 Task 1.4b-iii
+ *     retired the fixture grant this used to be. The trigger's admitted shapes are then
+ *     driven DIRECTLY too (`SET ROLE` + a plain statement), independently of the two
+ *     functions, as ADR §3 condition 5 asks. One test needs a privilege production does
+ *     NOT hold, to reach the trigger behind it; it grants that one column for its own
+ *     length and says so (`refuses a redaction that also moves another column`).
  *
  * TEARDOWN, and why it disables the triggers it just proved
  * --------------------------------------------------------
@@ -60,6 +68,7 @@ const TAG = `it1.3b-${randomUUID().slice(0, 8)}`
 const REDACTION_TOKEN = '[REASON REDACTED]'
 const RESTRICT_VIOLATION = '23001'
 const FK_VIOLATION = '23503'
+const UNIQUE_VIOLATION = '23505'
 const INSUFFICIENT_PRIVILEGE = '42501'
 const INVALID_PARAMETER = '22023'
 
@@ -79,24 +88,10 @@ const ACTION_TRIGGERS = [
 ] as const
 
 /**
- * THE ONE GRANT PRODUCTION DOES NOT HAVE, named once so every test that depends on it can
- * point here, and so `afterAll` can revoke exactly it.
- *
- * `crm_retention_redact_action_reason` needs `SELECT` plus `UPDATE (reason)` to run. The
- * production manifest (`retentionOwnerFunctions` / the grants file) gives the role
- * `SELECT, DELETE` and nothing more, and part 3 of the privileges check forbids any
- * column-level privilege other than `SELECT` outright — so this grant is not merely absent
- * today, the current model refuses to express it. Measured: under the production grant set
- * the redaction function raises `42501`, which `AC4 — the redaction path is INERT under the
- * production grant set` pins.
- *
- * Granting it here is therefore a TEST FIXTURE and never evidence about production. Whether
- * production should gain it is an owner decision (table-level `UPDATE` is wider than the
- * function needs; column-level is forbidden by part 3), and it is open — not something this
- * suite may settle by granting itself the privilege and going green.
+ * The fixed SQLSTATEs and shapes the r5 Task 1.4b-iii redaction tests read. The function now
+ * takes the actor as its third argument (owner decision, 2026-10-22).
  */
-const PRODUCTION_WITHHELD_GRANT = `GRANT UPDATE (reason, actor_id, subject_user_id) ON job_queue_actions TO crm_retention_owner`
-const PRODUCTION_WITHHELD_REVOKE = `REVOKE UPDATE (reason, actor_id, subject_user_id) ON job_queue_actions FROM crm_retention_owner`
+const REDACT = `SELECT crm_retention_redact_action_reason($1, $2, $3) AS redacted`
 
 /** Deploy roles this suite created and must therefore drop again. See `afterAll`. */
 let rolesCreatedHere: readonly string[] = []
@@ -330,12 +325,10 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
     await applyFile(CHECK_SQL)
     await applyFile(CHECK_SQL)
 
-    // 1.3c owns these grants in production; the suite needs them to drive the
-    // trigger's admitted shapes directly. Scratch-database only, and `afterAll`
-    // revokes them — see the docblock on `PRODUCTION_WITHHELD_GRANT` above for why the
-    // UPDATE one in particular must not outlive this suite.
-    await q(`GRANT SELECT, INSERT, DELETE ON job_queue_actions TO crm_retention_owner`)
-    await q(PRODUCTION_WITHHELD_GRANT)
+    // The retention owner's PRODUCTION grant set on the action log, byte for byte from
+    // the generated grants file — not a set this suite chooses (r5 Task 1.4b-iii).
+    // `afterAll` takes it away again.
+    await applyProductionRetentionOwnerGrants(pool)
 
     actor = await newUser('HR')
     opportunity = await newOpportunity()
@@ -366,12 +359,9 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       // The suite's last act: if the teardown left a guard off, this raises.
       await applyFile(CHECK_SQL)
 
-      // Give back the fixture privileges. The UPDATE one especially: left behind, it
-      // makes the redaction path look callable to every later reader of this cluster —
-      // which is exactly the false impression that made three green redaction tests
-      // read as evidence about production.
-      await q(PRODUCTION_WITHHELD_REVOKE)
-      await q(`REVOKE SELECT, INSERT, DELETE ON job_queue_actions FROM crm_retention_owner`)
+      // Give back the privileges `beforeAll` granted, table- and column-level alike, so
+      // the role does not hold them in this cluster outside a deploy.
+      await revokeRetentionOwnerActionLogPrivileges(pool)
 
       // Leave the cluster as this suite found it. A no-op on CI, where a sibling
       // creates the roles first; on a fresh cluster it is what stops this suite
@@ -429,13 +419,15 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       expect(rows.every((r) => r.is_before)).toBe(true)
 
       const byName = Object.fromEntries(rows.map((r) => [r.tgname, r]))
-      // The audit log: one row trigger for UPDATE OR DELETE, one statement trigger
-      // for TRUNCATE (a row-level DELETE trigger does NOT fire on TRUNCATE).
+      // The audit log: one row trigger for INSERT OR UPDATE OR DELETE, one statement
+      // trigger for TRUNCATE (a row-level DELETE trigger does NOT fire on TRUNCATE).
+      // INSERT since r5 Task 1.4b-iii: it is where the `REASON_REDACTED` evidence row is
+      // confined to the redaction path (SR-M-1 of PR #1075).
       expect(byName['trg_job_queue_actions_append_only']).toMatchObject({
         is_row: true,
         on_update: true,
         on_delete: true,
-        on_insert: false,
+        on_insert: true,
         on_truncate: false,
       })
       expect(byName['trg_job_queue_actions_no_truncate']).toMatchObject({
@@ -974,21 +966,14 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
   /**
    * AC4 — the two SECURITY DEFINER functions.
    *
-   * READ THIS BEFORE READING THE GREEN LIST BELOW (fix round 2, CR-M-6). The four
-   * tests whose titles end "(logic only: needs a grant production lacks)" run under
-   * `PRODUCTION_WITHHELD_GRANT`, a column-level `UPDATE` that production does NOT
-   * have and that part 3 of the privileges check forbids outright. They establish
-   * what the function's BODY does, and nothing about what production can do.
-   *
-   * Under the shipped grant set `crm_retention_redact_action_reason` raises `42501`
-   * on its first call — which is pinned, by `is INERT under the PRODUCTION grant
-   * set`, the one test in this describe that speaks about production. So: the purge
-   * half of the retention path is real and callable; the REDACTION half is inert, and
-   * four passing tests next to it do not change that. The reason it is inert and
-   * cannot simply be granted is in the DDL header under "KNOWN DIVERGENCE ... (2 of
-   * 2)": a redaction cannot append its `REASON_REDACTED` evidence row at all until a
-   * schema task lands the enum value, so a grant today would buy a path that runs and
-   * still fails to record the evidence that makes it legally meaningful.
+   * Every redaction test below runs under the retention owner's PRODUCTION grant set —
+   * `beforeAll` applies the generated grants file's own statements for that role — so what
+   * passes here is what production can do. Until r5 Task 1.4b-iii it was the opposite: the
+   * redaction raised `42501` under production's grants, and its behavioural tests ran on a
+   * column grant this suite gave itself, establishing the body's logic and nothing about
+   * production. The test that pinned that state, "is INERT under the PRODUCTION grant set",
+   * is now its own opposite, "is CALLABLE under the PRODUCTION grant set", and it reads the
+   * grant set back off the catalog to show which grants it ran under.
    */
   describe('AC4 — R-B: the two SECURITY DEFINER functions', () => {
     it('purges an expired row and leaves a fresh one', async () => {
@@ -1014,18 +999,18 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       expect(survivor[0].n).toBe(1)
     })
 
-    it('redacts a reason to the fixed token and nothing else (logic only: needs a grant production lacks)', async () => {
+    it('redacts a reason to the fixed token and appends exactly one REASON_REDACTED row naming the actor', async () => {
       const id = await newAction({
         actorId: actor,
         opportunityId: opportunity,
         reason: `${TAG} a name somebody typed`,
       })
+      // The person who asked for the erasure, deliberately NOT the subject row's actor:
+      // the evidence must carry the caller's argument, not a value copied from the subject.
+      const requester = await newUser('ADMIN')
       const { rows: before } = await q(`SELECT * FROM job_queue_actions WHERE id=$1`, [id])
 
-      const { rows } = await q(`SELECT crm_retention_redact_action_reason($1, $2) AS redacted`, [
-        id,
-        'dsr-2026-001',
-      ])
+      const { rows } = await q(REDACT, [id, 'dsr-2026-001', requester])
       expect(rows[0].redacted).toBe(true)
 
       const { rows: after } = await q(`SELECT * FROM job_queue_actions WHERE id=$1`, [id])
@@ -1035,29 +1020,124 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
         if (key === 'reason') continue
         expect(after[0][key]).toEqual(value)
       }
+
+      // The evidence row, every column the CHECKs and the task decide, by literal value.
+      const { rows: evidence } = await q(
+        `SELECT kind, subject_action_id, actor_id, scope_kind, team_id, opportunity_id,
+                source_record_id, subscription_id, subject_team_id, subject_user_id,
+                before_version, after_version, idempotency_key, reason
+           FROM job_queue_actions WHERE subject_action_id=$1`,
+        [id],
+      )
+      expect(evidence).toEqual([
+        {
+          kind: 'REASON_REDACTED',
+          subject_action_id: id,
+          actor_id: requester,
+          scope_kind: 'STUDIO',
+          team_id: null,
+          opportunity_id: null,
+          source_record_id: null,
+          subscription_id: null,
+          subject_team_id: null,
+          subject_user_id: null,
+          before_version: null,
+          after_version: null,
+          idempotency_key: `dsr-2026-001:${id}`,
+          reason: null,
+        },
+      ])
     })
 
-    it('is idempotent on an already-redacted row, no second write (logic only: needs a grant production lacks)', async () => {
+    it("copies a TEAM subject's scope onto the evidence row (the SR-M-3 placeholder, pinned)", async () => {
+      // `scope_kind` is NOT NULL, so the evidence row must carry SOME scope; which one is
+      // the open owner question SR-M-3 of PR #1075. Copying the subject's keeps the
+      // evidence exactly as visible as the row it is about. Pinned so that the day the
+      // owner decides otherwise, this test is the one that has to change.
+      const team = await newTeam()
+      const { rows: inserted } = await q(
+        `INSERT INTO job_queue_actions
+           (kind, opportunity_id, actor_id, scope_kind, team_id, before_version, after_version,
+            idempotency_key, reason)
+         VALUES ('DISMISSED', $1, $2, 'TEAM', $3, 0, 1, $4, $5) RETURNING id`,
+        [opportunity, actor, team, nextTag(), `${TAG} team-scoped reason`],
+      )
+      const id = inserted[0].id as string
+      await q(REDACT, [id, 'dsr-2026-team', actor])
+      const { rows } = await q(
+        `SELECT scope_kind, team_id FROM job_queue_actions WHERE subject_action_id=$1`,
+        [id],
+      )
+      expect(rows).toEqual([{ scope_kind: 'TEAM', team_id: team }])
+    })
+
+    it('is idempotent on an already-redacted row: no second write and no second evidence row', async () => {
       const id = await newAction({ actorId: actor, opportunityId: opportunity })
-      await q(`SELECT crm_retention_redact_action_reason($1, $2)`, [id, 'dsr-2026-002'])
-      const { rows } = await q(`SELECT crm_retention_redact_action_reason($1, $2) AS redacted`, [
-        id,
-        'dsr-2026-002',
-      ])
+      await q(REDACT, [id, 'dsr-2026-002', actor])
+      const { rows } = await q(REDACT, [id, 'dsr-2026-002', actor])
       expect(rows[0].redacted).toBe(false)
+      const { rows: evidence } = await q(
+        `SELECT count(*)::int AS n FROM job_queue_actions WHERE subject_action_id=$1`,
+        [id],
+      )
+      expect(evidence[0].n).toBe(1)
     })
 
-    it('validates its arguments, condition 3: bounded, non-blank (logic only: needs a grant production lacks)', async () => {
+    it('validates its arguments, condition 3: bounded, non-blank, an actor required', async () => {
       const id = await newAction({ actorId: actor, opportunityId: opportunity })
-      const blank = await rejected(`SELECT crm_retention_redact_action_reason($1, $2)`, [id, '   '])
-      expect(blank.code).toBe(INVALID_PARAMETER)
-      const tooLong = await rejected(`SELECT crm_retention_redact_action_reason($1, $2)`, [
-        id,
-        'x'.repeat(201),
-      ])
-      expect(tooLong.code).toBe(INVALID_PARAMETER)
-      const noId = await rejected(`SELECT crm_retention_redact_action_reason(NULL, $1)`, ['dsr'])
-      expect(noId.code).toBe(INVALID_PARAMETER)
+      const refusals: [string, unknown[]][] = [
+        ['blank request id', [id, '   ', actor]],
+        // 163 is the request id's bound: 200 (the idempotency key's) minus ':' + a uuid.
+        ['164-character request id', [id, 'x'.repeat(164), actor]],
+        ['no action id', [null, 'dsr', actor]],
+        ['no actor', [id, 'dsr', null]],
+      ]
+      for (const [label, args] of refusals) {
+        const err = await rejected(REDACT, args)
+        expect({ label, code: err.code }).toEqual({ label, code: INVALID_PARAMETER })
+      }
+      // Nothing moved on any of the refusals.
+      const { rows } = await q(`SELECT reason FROM job_queue_actions WHERE id=$1`, [id])
+      expect(rows[0].reason).toBe(`${TAG} reason`)
+      // And the bound is inclusive: 163 characters is accepted, and exactly fills the key.
+      const { rows: ok } = await q(REDACT, [id, 'x'.repeat(163), actor])
+      expect(ok[0].redacted).toBe(true)
+      const { rows: key } = await q(
+        `SELECT length(idempotency_key) AS n FROM job_queue_actions WHERE subject_action_id=$1`,
+        [id],
+      )
+      expect(key[0].n).toBe(200)
+    })
+
+    // AC2 of r5 Task 1.4b-iii: the INSERT and the UPDATE are one unit. Two independent
+    // ways to make the INSERT fail AFTER the UPDATE has run, so neither the argument
+    // validation nor the UPDATE's own WHERE clause can be what refuses.
+    it('rolls the redaction back when the evidence INSERT fails: an actor that does not exist (23503)', async () => {
+      const id = await newAction({ actorId: actor, opportunityId: opportunity })
+      const err = await rejected(REDACT, [id, 'dsr-2026-ghost', randomUUID()])
+      expect(err.code).toBe(FK_VIOLATION)
+      const { rows } = await q(`SELECT reason FROM job_queue_actions WHERE id=$1`, [id])
+      expect(rows[0].reason).toBe(`${TAG} reason`)
+      const { rows: evidence } = await q(
+        `SELECT count(*)::int AS n FROM job_queue_actions WHERE subject_action_id=$1`,
+        [id],
+      )
+      expect(evidence[0].n).toBe(0)
+    })
+
+    it('rolls the redaction back when the evidence INSERT fails: its idempotency key is taken (23505)', async () => {
+      const id = await newAction({ actorId: actor, opportunityId: opportunity })
+      // An ordinary row by the same actor, already holding the key the evidence row needs.
+      await q(
+        `INSERT INTO job_queue_actions
+           (kind, opportunity_id, actor_id, scope_kind, before_version, after_version, idempotency_key)
+         VALUES ('DISMISSED', $1, $2, 'STUDIO', 0, 1, $3)`,
+        [opportunity, actor, `dsr-2026-collide:${id}`],
+      )
+      const err = await rejected(REDACT, [id, 'dsr-2026-collide', actor])
+      expect(err.code).toBe(UNIQUE_VIOLATION)
+      const { rows } = await q(`SELECT reason FROM job_queue_actions WHERE id=$1`, [id])
+      expect(rows[0].reason).toBe(`${TAG} reason`)
     })
 
     it('pins the six conditions in the catalog', async () => {
@@ -1147,7 +1227,7 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       }
     })
 
-    it('redaction also reads the REAL table, not a temp table shadowing it (logic only: needs a grant production lacks)', async () => {
+    it('redaction also reads the REAL table, not a temp table shadowing it', async () => {
       // The same test as the one above, for the other definer function. `redact` has the
       // same unqualified references and the same `SET search_path`, so it has the same
       // exposure and deserves the same proof; until fix round 1 only `purge` had one,
@@ -1166,17 +1246,19 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
           'untouched',
         ])
 
-        const { rows } = await client.query(
-          `SELECT crm_retention_redact_action_reason($1, $2) AS redacted`,
-          [id, 'dsr-2026-shadow'],
-        )
+        const { rows } = await client.query(REDACT, [id, 'dsr-2026-shadow', actor])
         expect(rows[0].redacted).toBe(true)
 
-        // The REAL row was redacted...
+        // The REAL row was redacted, and its evidence landed in the REAL table...
         const { rows: real } = await q(`SELECT reason FROM public.job_queue_actions WHERE id=$1`, [
           id,
         ])
         expect(real[0].reason).toBe(REDACTION_TOKEN)
+        const { rows: evidence } = await q(
+          `SELECT count(*)::int AS n FROM public.job_queue_actions WHERE subject_action_id=$1`,
+          [id],
+        )
+        expect(evidence[0].n).toBe(1)
         // ...and the caller's temp table was left alone.
         const { rows: temp } = await client.query(
           `SELECT reason FROM pg_temp.job_queue_actions WHERE id=$1`,
@@ -1189,32 +1271,161 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       }
     })
 
-    it('is INERT under the PRODUCTION grant set: the redaction raises 42501', async () => {
-      // THE TEST THAT SPEAKS ABOUT PRODUCTION. The three redaction tests above run with
-      // `PRODUCTION_WITHHELD_GRANT` in place, so what they establish is the function's
-      // LOGIC on a grant set production does not have. Production gives the role
-      // `SELECT, DELETE`; with only those, the function cannot write and raises `42501`.
-      // That inert state is the deployed reality until the owner decides the grant
-      // question, and it is pinned here so the decision cannot be made by accident —
-      // if someone grants the privilege in production, THIS test goes red and says so.
+    it('is CALLABLE under the PRODUCTION grant set, called as crm_app', async () => {
+      // THE TEST THAT SPEAKS ABOUT PRODUCTION, and the opposite of the one that stood here
+      // until r5 Task 1.4b-iii ("is INERT under the PRODUCTION grant set: the redaction
+      // raises 42501"). Re-applied here rather than trusted from `beforeAll`, so nothing an
+      // earlier test granted can be what makes this pass, and then READ BACK from the
+      // catalog: the claim is about exactly these privileges and no others.
+      await applyProductionRetentionOwnerGrants(pool)
+      expect(productionRetentionOwnerGrants()).toEqual([
+        `GRANT SELECT, INSERT, DELETE ON TABLE\n  public.job_queue_actions\n  TO crm_retention_owner`,
+        `GRANT UPDATE (reason) ON TABLE public.job_queue_actions TO crm_retention_owner`,
+      ])
+      const { rows: table } = await q(
+        `SELECT privilege_type FROM information_schema.table_privileges
+          WHERE grantee = 'crm_retention_owner' AND table_schema = 'public'
+            AND table_name = 'job_queue_actions'
+          ORDER BY 1`,
+      )
+      expect(table.map((r) => r.privilege_type)).toEqual(['DELETE', 'INSERT', 'SELECT'])
+      const { rows: columns } = await q(
+        `SELECT privilege_type, column_name FROM information_schema.column_privileges
+          WHERE grantee = 'crm_retention_owner' AND table_schema = 'public'
+            AND table_name = 'job_queue_actions'
+            AND NOT has_table_privilege('crm_retention_owner', 'public.job_queue_actions', privilege_type)`,
+      )
+      expect(columns).toEqual([{ privilege_type: 'UPDATE', column_name: 'reason' }])
+
       const id = await newAction({
         actorId: actor,
         opportunityId: opportunity,
         reason: `${TAG} still here`,
       })
-      await q(PRODUCTION_WITHHELD_REVOKE)
+      const client = await pool.connect()
       try {
-        const err = await rejected(`SELECT crm_retention_redact_action_reason($1, $2)`, [
-          id,
-          'dsr-2026-inert',
-        ])
-        expect(err.code).toBe(INSUFFICIENT_PRIVILEGE)
-        // And the reason it could not rewrite is still the original.
-        const { rows } = await q(`SELECT reason FROM job_queue_actions WHERE id=$1`, [id])
-        expect(rows[0].reason).toBe(`${TAG} still here`)
+        // The API's own role: EXECUTE is granted to it by name, and the function runs as
+        // its owner, so nothing crm_app itself holds on the table is borrowed here.
+        await client.query(`SET ROLE crm_app`)
+        const { rows } = await client.query(REDACT, [id, 'dsr-2026-callable', actor])
+        expect(rows[0].redacted).toBe(true)
       } finally {
-        await q(PRODUCTION_WITHHELD_GRANT)
+        await client.query('RESET ROLE')
+        client.release()
       }
+      const { rows } = await q(`SELECT reason FROM job_queue_actions WHERE id=$1`, [id])
+      expect(rows[0].reason).toBe(REDACTION_TOKEN)
+      const { rows: evidence } = await q(
+        `SELECT actor_id FROM job_queue_actions WHERE subject_action_id=$1`,
+        [id],
+      )
+      expect(evidence).toEqual([{ actor_id: actor }])
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // SR-M-1 of PR #1075 — a REASON_REDACTED row only through the redaction path
+  //
+  // r5 Task 1.4b-iii ships the INSERT, so the CHECK branch that admits the row shape
+  // from ANY writer stops being tolerable. The append-only trigger now admits that kind
+  // only from `crm_retention_owner` (i.e. from inside the definer function), and lets
+  // that role insert nothing else.
+  //
+  // crm_app is exercised under its PRODUCTION grant on the log, read from the generated
+  // grants file, inside a transaction that is rolled back — so its privileges here are
+  // production's and leave nothing behind.
+  // -------------------------------------------------------------------------
+  describe('SR-M-1 — a REASON_REDACTED row is admitted only through the redaction path', () => {
+    const crmAppLogGrant = (): string => {
+      const statements = splitSqlStatements(readFileSync(GRANTS_DDL, 'utf8')).filter(
+        (s) => /\bTO crm_app;?$/.test(s.trim()) && s.includes('public.job_queue_actions'),
+      )
+      expect(statements).toHaveLength(1)
+      return statements[0] as string
+    }
+
+    /** Run `fn` as crm_app holding its production grant on the log; always rolled back. */
+    async function asCrmApp<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {
+      const client = await pool.connect()
+      try {
+        await client.query('BEGIN')
+        await client.query(crmAppLogGrant())
+        await client.query('SET LOCAL ROLE crm_app')
+        return await fn(client)
+      } finally {
+        await client.query('ROLLBACK').catch(() => undefined)
+        client.release()
+      }
+    }
+
+    const evidenceRowFor = (subject: string) =>
+      [
+        `INSERT INTO job_queue_actions
+         (kind, subject_action_id, actor_id, scope_kind, idempotency_key)
+       VALUES ('REASON_REDACTED', $1, $2, 'STUDIO', $3)`,
+        [subject, actor, nextTag()],
+      ] as const
+
+    it('refuses crm_app inserting a REASON_REDACTED row directly, while its ordinary inserts pass', async () => {
+      const subject = await newAction({ actorId: actor, opportunityId: opportunity })
+      const outcome = await asCrmApp(async (c) => {
+        // The control: the same role, the same privilege, an ordinary row — accepted. So
+        // the refusal below is the trigger's, not a missing grant's.
+        await c.query(
+          `INSERT INTO job_queue_actions
+             (kind, opportunity_id, actor_id, scope_kind, before_version, after_version, idempotency_key)
+           VALUES ('DISMISSED', $1, $2, 'STUDIO', 0, 1, $3)`,
+          [opportunity, actor, nextTag()],
+        )
+        await c.query('SAVEPOINT forged')
+        const [text, params] = evidenceRowFor(subject)
+        return rejectedOn(c, text, [...params])
+      })
+      expect(outcome.code).toBe(RESTRICT_VIOLATION)
+      expect(outcome.message).toContain('written only by the redaction path')
+    })
+
+    it('refuses the table owner inserting a REASON_REDACTED row too — identity, not privilege', async () => {
+      const subject = await newAction({ actorId: actor, opportunityId: opportunity })
+      const [text, params] = evidenceRowFor(subject)
+      const err = await rejected(text, [...params])
+      expect(err.code).toBe(RESTRICT_VIOLATION)
+    })
+
+    it('refuses crm_app updating a reason directly (no UPDATE privilege at all)', async () => {
+      const id = await newAction({ actorId: actor, opportunityId: opportunity })
+      const err = await asCrmApp((c) =>
+        rejectedOn(c, `UPDATE job_queue_actions SET reason=$1 WHERE id=$2`, [REDACTION_TOKEN, id]),
+      )
+      expect(err.code).toBe(INSUFFICIENT_PRIVILEGE)
+      const { rows } = await q(`SELECT reason FROM job_queue_actions WHERE id=$1`, [id])
+      expect(rows[0].reason).toBe(`${TAG} reason`)
+    })
+
+    it('refuses the retention owner inserting anything but the evidence row', async () => {
+      // Its INSERT grant exists for the evidence row alone; the trigger narrows it to that.
+      const err = await asRetentionOwner((c) =>
+        rejectedOn(
+          c,
+          `INSERT INTO job_queue_actions
+             (kind, opportunity_id, actor_id, scope_kind, before_version, after_version, idempotency_key)
+           VALUES ('DISMISSED', $1, $2, 'STUDIO', 0, 1, $3)`,
+          [opportunity, actor, nextTag()],
+        ),
+      )
+      expect(err.code).toBe(RESTRICT_VIOLATION)
+      expect(err.message).toContain('may insert only REASON_REDACTED evidence rows')
+    })
+
+    it('admits the evidence row from the retention owner (the redaction path’s identity)', async () => {
+      const subject = await newAction({ actorId: actor, opportunityId: opportunity })
+      const [text, params] = evidenceRowFor(subject)
+      await asRetentionOwner((c) => c.query(text, [...params]))
+      const { rows } = await q(
+        `SELECT count(*)::int AS n FROM job_queue_actions WHERE subject_action_id=$1`,
+        [subject],
+      )
+      expect(rows[0].n).toBe(1)
     })
   })
 
@@ -1277,7 +1488,7 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       // NULL — not TRUE — and an unattributed redaction is accepted. The request id is
       // the only record of WHO asked for an audit-log row to be rewritten.
       const id = await newAction({ actorId: actor, opportunityId: opportunity })
-      const err = await rejected(`SELECT crm_retention_redact_action_reason($1, NULL)`, [id])
+      const err = await rejected(REDACT, [id, null, actor])
       expect(err.code).toBe(INVALID_PARAMETER)
       const { rows } = await q(`SELECT reason FROM job_queue_actions WHERE id=$1`, [id])
       expect(rows[0].reason).not.toBe(REDACTION_TOKEN)
@@ -1317,16 +1528,35 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
     })
 
     it('refuses a redaction that also moves another column', async () => {
+      // The ONE test in this file that needs a privilege production does not hold. Under
+      // the production grant set the role holds `UPDATE (reason)` only, so this statement
+      // would stop at the PRIVILEGE layer (42501) and never reach the trigger — the first
+      // layer would be proved and the second, which ADR §3 condition 5 asks for
+      // independently, would not. So `actor_id` is granted for the length of this test and
+      // taken back in `finally`; the assertion is about the trigger, never about production.
       const id = await newAction({ actorId: actor, opportunityId: opportunity })
       const other = await newUser('HR')
-      const err = await asRetentionOwner((c) =>
+      const underProduction = await asRetentionOwner((c) =>
         rejectedOn(c, `UPDATE job_queue_actions SET reason=$1, actor_id=$2 WHERE id=$3`, [
           REDACTION_TOKEN,
           other,
           id,
         ]),
       )
-      expect(err.code).toBe(RESTRICT_VIOLATION)
+      expect(underProduction.code).toBe(INSUFFICIENT_PRIVILEGE)
+      await q(`GRANT UPDATE (actor_id) ON job_queue_actions TO crm_retention_owner`)
+      try {
+        const err = await asRetentionOwner((c) =>
+          rejectedOn(c, `UPDATE job_queue_actions SET reason=$1, actor_id=$2 WHERE id=$3`, [
+            REDACTION_TOKEN,
+            other,
+            id,
+          ]),
+        )
+        expect(err.code).toBe(RESTRICT_VIOLATION)
+      } finally {
+        await q(`REVOKE UPDATE (actor_id) ON job_queue_actions FROM crm_retention_owner`)
+      }
     })
 
     it('refuses a second redaction of an already-redacted row', async () => {
@@ -1336,7 +1566,7 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       // this case out, so going through the function proves nothing about the trigger
       // — which is exactly what the operand-deletion pass showed.
       const id = await newAction({ actorId: actor, opportunityId: opportunity })
-      await q(`SELECT crm_retention_redact_action_reason($1, $2)`, [id, 'dsr-2026-003'])
+      await q(REDACT, [id, 'dsr-2026-003', actor])
       const err = await asRetentionOwner((c) =>
         rejectedOn(c, `UPDATE job_queue_actions SET reason=$1 WHERE id=$2`, [REDACTION_TOKEN, id]),
       )
@@ -1462,7 +1692,7 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
 
     it('fails when the pinned search_path is removed', async () => {
       await q(
-        `ALTER FUNCTION public.crm_retention_redact_action_reason(uuid, text) RESET search_path`,
+        `ALTER FUNCTION public.crm_retention_redact_action_reason(uuid, text, uuid) RESET search_path`,
       )
       try {
         const err = await rejected(readFileSync(CHECK_SQL, 'utf8'))
@@ -1482,6 +1712,106 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
         await q(
           `REVOKE EXECUTE ON FUNCTION public.crm_retention_purge_job_queue_actions() FROM PUBLIC`,
         )
+      }
+      await applyFile(CHECK_SQL)
+    })
+
+    // =====================================================================
+    // THE 1.4b-iii SIGNATURE, PINNED (AC5 of r5 Task 1.4b-iii)
+    //
+    // The redaction function was dropped and re-created with a third argument, so every
+    // condition the catalog check pins had to be re-applied to a NEW object. Each test
+    // below tampers with exactly one of them on the three-argument function and watches
+    // the check go red; "it is pinned" is the observed failure, not the manifest row.
+    // =====================================================================
+    it('1.4b-iii: fails when pg_temp is removed from the redaction search_path', async () => {
+      await q(
+        `ALTER FUNCTION public.crm_retention_redact_action_reason(uuid, text, uuid)
+           SET search_path = pg_catalog, public`,
+      )
+      try {
+        const err = await rejected(readFileSync(CHECK_SQL, 'utf8'))
+        expect(err.message).toContain('crm_retention_redact_action_reason has proconfig')
+      } finally {
+        await applyFile(TRIGGERS_SQL)
+      }
+      await applyFile(CHECK_SQL)
+    })
+
+    it('1.4b-iii: fails when EXECUTE on the redaction is re-granted to PUBLIC', async () => {
+      await q(
+        `GRANT EXECUTE ON FUNCTION public.crm_retention_redact_action_reason(uuid, text, uuid) TO PUBLIC`,
+      )
+      try {
+        const err = await rejected(readFileSync(CHECK_SQL, 'utf8'))
+        expect(err.message).toContain(
+          'function public.crm_retention_redact_action_reason grants EXECUTE to PUBLIC',
+        )
+      } finally {
+        await q(
+          `REVOKE EXECUTE ON FUNCTION public.crm_retention_redact_action_reason(uuid, text, uuid) FROM PUBLIC`,
+        )
+      }
+      await applyFile(CHECK_SQL)
+    })
+
+    it('1.4b-iii: fails when the redaction body loses its evidence INSERT', async () => {
+      // The tampering that matters most for this task: a body that still redacts but no
+      // longer writes the evidence row. Same name, same signature, same owner, same
+      // search_path, same grants — only the body checksum can see it.
+      await q(`
+        CREATE OR REPLACE FUNCTION public.crm_retention_redact_action_reason(
+          p_action_id uuid, p_request_id text, p_actor_id uuid)
+        RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER
+        SET search_path = pg_catalog, public, pg_temp
+        AS $fn$
+        BEGIN
+          UPDATE job_queue_actions SET reason = '[REASON REDACTED]'
+           WHERE id = p_action_id AND reason IS NOT NULL AND reason <> '[REASON REDACTED]';
+          RETURN FOUND;
+        END
+        $fn$`)
+      try {
+        const err = await rejected(readFileSync(CHECK_SQL, 'utf8'))
+        expect(err.message).toContain(
+          'function public.crm_retention_redact_action_reason body checksum is',
+        )
+      } finally {
+        await applyFile(TRIGGERS_SQL)
+      }
+      await applyFile(CHECK_SQL)
+    })
+
+    it('2: reports a leftover two-argument redaction beside the reviewed one', async () => {
+      // The upgrade hazard 1.4b-iii exists to close: `CREATE OR REPLACE` cannot change an
+      // argument list, so a deploy that forgot the DROP would leave the OLD function owned,
+      // granted to crm_app and — under the new grants — able to redact without evidence.
+      // Created the way the old file created it, owner and grant included.
+      await q(`
+        CREATE FUNCTION public.crm_retention_redact_action_reason(p_action_id uuid, p_request_id text)
+        RETURNS boolean LANGUAGE sql SECURITY DEFINER
+        SET search_path = pg_catalog, public, pg_temp
+        AS $fn$ SELECT false $fn$`)
+      await q(
+        `ALTER FUNCTION public.crm_retention_redact_action_reason(uuid, text) OWNER TO crm_retention_owner`,
+      )
+      try {
+        const err = await rejected(readFileSync(CHECK_SQL, 'utf8'))
+        expect(err.message).toContain(
+          'crm_retention_redact_action_reason has 1 unexpected overload(s) (p_action_id uuid, p_request_id text)',
+        )
+        // Both DDL paths remove it: the triggers file (re-applied on every deploy) and the
+        // dated upgrade file. Proven on the triggers file here; the upgrade file is proven
+        // in the forward-DDL equivalence spec.
+        await applyFile(TRIGGERS_SQL)
+        const { rows } = await q(
+          `SELECT pg_get_function_identity_arguments(p.oid) AS args
+             FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+            WHERE n.nspname = 'public' AND p.proname = 'crm_retention_redact_action_reason'`,
+        )
+        expect(rows).toEqual([{ args: 'p_action_id uuid, p_request_id text, p_actor_id uuid' }])
+      } finally {
+        await q(`DROP FUNCTION IF EXISTS public.crm_retention_redact_action_reason(uuid, text)`)
       }
       await applyFile(CHECK_SQL)
     })
@@ -2190,6 +2520,11 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       },
       // --- part 2: the two R-B functions, ADR §3 condition by condition ---
       {
+        // r5 Task 1.4b-iii: the R-B names get the overload report the guard names had.
+        fragment: 'unexpected overload(s) (%s) — only (%s) is reviewed',
+        pinnedBy: ['2: reports a leftover two-argument redaction beside the reviewed one'],
+      },
+      {
         fragment: 'function public.%s(%s) is MISSING',
         equivalentBecause:
           'part 3 counts the functions this role owns, so a missing one also moves that ' +
@@ -2749,27 +3084,24 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
     })
 
     /**
-     * WHAT IS STILL NOT DISCHARGED, and why this is a pin rather than a test.
-     * The row is now WRITABLE; the redaction still cannot WRITE it, because
-     * `crm_retention_redact_action_reason` needs `UPDATE (reason)` and holds
-     * `SELECT, DELETE` — the `42501` the header describes. That grant is r5 Task
-     * 1.4b-iii, deliberately justified by this now-meaningful failing run. When
-     * the grant lands, the function appends the row and this pin goes red,
-     * pointing whoever lands it at the three places that still say "not
-     * discharged" (the DDL header, the memo's status, the r5 plan).
+     * THE GAP PIN THAT STOOD HERE WENT RED, AS DESIGNED (r5 Task 1.4b-iii). It asserted
+     * that the redaction wired NO INSERT; the function now appends the evidence row, and
+     * the behaviour is proven in AC4 ("appends exactly one REASON_REDACTED row naming the
+     * actor", "is CALLABLE under the PRODUCTION grant set"). The pin is inverted rather
+     * than deleted so the property stays visible from this side too: a body that stopped
+     * inserting would fail here as well as in the catalog check's checksum.
+     *   The three places the old pin pointed at: the DDL header is updated in this task;
+     * the legal memo's status and the r5 plan are outside the coder's zone and are named
+     * in the PR body for whoever owns them.
      */
-    it('GAP PIN — the function still cannot write it: no INSERT is wired into the redaction', async () => {
+    it('the redaction now wires the INSERT of its evidence row (the inverted GAP PIN)', async () => {
       const { rows } = await q(
         `SELECT pg_get_functiondef(oid) AS def FROM pg_proc
           WHERE proname = 'crm_retention_redact_action_reason'`,
       )
-      // Assert the ABSENCE OF AN INSERT, not the absence of the string
-      // `REASON_REDACTED`: `pg_get_functiondef` returns the body's SQL comments
-      // too, and the body already NAMES the kind while explaining why it logs to
-      // the server log instead. The first draft of this pin matched that prose
-      // and failed on a correct function — a pin that reads a comment pins
-      // nothing.
-      expect(rows[0].def).not.toMatch(/insert\s+into\s+job_queue_actions/i)
+      // One function under the name (the old two-argument one is gone), and it inserts.
+      expect(rows).toHaveLength(1)
+      expect(rows[0].def).toMatch(/insert\s+into\s+job_queue_actions/i)
     })
   })
 })
