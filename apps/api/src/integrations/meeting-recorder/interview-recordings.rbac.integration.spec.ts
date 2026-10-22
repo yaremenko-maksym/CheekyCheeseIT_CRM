@@ -23,6 +23,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import {
   linkMeetingRecorderRecordingSchema,
   meetingRecorderWebhookEventSchema,
+  sanitizeMeetingRecorderRecording,
   updateInterviewSchema,
   type MeetingRecorderSnapshotEvent,
   type SessionUser,
@@ -183,15 +184,15 @@ const ALL_USERS = [
 
 const TEAM_A_ID = 'd7e8f9a0-1b2c-4d3e-bb00-000000000001'
 const TEAM_B_ID = 'd7e8f9a0-1b2c-4d3e-bb00-000000000002'
-const INTERVIEW_A_ID = 'd7e8f9a0-1b2c-4d3e-cc00-000000000001'
-const INTERVIEW_B_ID = 'd7e8f9a0-1b2c-4d3e-cc00-000000000002'
-const INTERVIEW_C_ID = 'd7e8f9a0-1b2c-4d3e-cc00-000000000003'
-const INTERVIEW_NOT_ONBOARDED_ID = 'd7e8f9a0-1b2c-4d3e-cc00-000000000004'
-const CONNECTION_ID = 'd7e8f9a0-1b2c-4d3e-dd00-000000000001'
-const RECORDING_A_ID = 'd7e8f9a0-1b2c-4d3e-ee00-000000000001'
-const RECORDING_UNMATCHED_ID = 'd7e8f9a0-1b2c-4d3e-ee00-000000000002'
-const RECORDING_C_ID = 'd7e8f9a0-1b2c-4d3e-ee00-000000000003'
-const MISSING_ID = 'd7e8f9a0-1b2c-4d3e-ff00-000000000099'
+const INTERVIEW_A_ID = 'd7e8f9a0-1b2c-4d3e-a100-000000000001'
+const INTERVIEW_B_ID = 'd7e8f9a0-1b2c-4d3e-a100-000000000002'
+const INTERVIEW_C_ID = 'd7e8f9a0-1b2c-4d3e-a100-000000000003'
+const INTERVIEW_NOT_ONBOARDED_ID = 'd7e8f9a0-1b2c-4d3e-a100-000000000004'
+const CONNECTION_ID = 'd7e8f9a0-1b2c-4d3e-a200-000000000001'
+const RECORDING_A_ID = 'd7e8f9a0-1b2c-4d3e-a300-000000000001'
+const RECORDING_UNMATCHED_ID = 'd7e8f9a0-1b2c-4d3e-a300-000000000002'
+const RECORDING_C_ID = 'd7e8f9a0-1b2c-4d3e-a300-000000000003'
+const MISSING_ID = 'd7e8f9a0-1b2c-4d3e-a400-000000000099'
 const CIPHERTEXT = 'mr-rbac-signing-secret-ciphertext'
 
 const READY_FIXTURE = meetingRecorderWebhookEventSchema.parse(
@@ -226,6 +227,11 @@ let testPool: Pool | null = null
         const db = drizzle(testPool, { schema })
         const instance = Object.create(DatabaseService.prototype) as DatabaseService
         Object.assign(instance, { pool: testPool, db })
+        // The real hooks build their own pool from ConfigService; this module owns the pool.
+        Object.defineProperty(instance, 'onModuleInit', { value: () => Promise.resolve() })
+        Object.defineProperty(instance, 'onModuleDestroy', {
+          value: () => testPool?.end() ?? Promise.resolve(),
+        })
         return instance
       },
     },
@@ -370,19 +376,21 @@ describe.skipIf(!hasDatabaseUrl())(
            (id, interview_id, connection_id, external_recording_id, revision, source, title,
             started_at, matched_by, readiness, snapshot, last_event_at)
          VALUES
-           ($1, $4, $7, 'mr-rbac-linked-a', 1, 'urn:test', 'Linked A', now(), 'manual', '{}', '{}', now()),
-           ($2, NULL, $7, 'mr-rbac-unmatched', 1, 'urn:test', 'Unmatched', now(), 'unmatched', '{}', '{}', now()),
-           ($3, $5, $7, 'mr-rbac-linked-c', 1, 'urn:test', 'Linked C', now(), 'manual', '{}', '{}', now()),
-           ($6, $8, $7, 'mr-rbac-linked-d', 1, 'urn:test', 'Linked D', now(), 'manual', '{}', '{}', now())`,
+           ($1, $4, $7, 'mr-rbac-linked-a', 1, 'urn:test', 'Linked A', now(), 'manual', $9, $10, now()),
+           ($2, NULL, $7, 'mr-rbac-unmatched', 1, 'urn:test', 'Unmatched', now(), 'unmatched', $9, $10, now()),
+           ($3, $5, $7, 'mr-rbac-linked-c', 1, 'urn:test', 'Linked C', now(), 'manual', $9, $10, now()),
+           ($6, $8, $7, 'mr-rbac-linked-d', 1, 'urn:test', 'Linked D', now(), 'manual', $9, $10, now())`,
         [
           RECORDING_A_ID,
           RECORDING_UNMATCHED_ID,
           RECORDING_C_ID,
           INTERVIEW_A_ID,
           INTERVIEW_C_ID,
-          'd7e8f9a0-1b2c-4d3e-ee00-000000000004',
+          'd7e8f9a0-1b2c-4d3e-a300-000000000004',
           CONNECTION_ID,
           INTERVIEW_NOT_ONBOARDED_ID,
+          JSON.stringify(READY_FIXTURE.data.readiness),
+          JSON.stringify(sanitizeMeetingRecorderRecording(READY_FIXTURE.data.recording)),
         ],
       )
 
@@ -403,7 +411,6 @@ describe.skipIf(!hasDatabaseUrl())(
       if (!pool) return
       await cleanup()
       await app?.close()
-      await testPool?.end()
       await pool.end()
     }, 20_000)
 
@@ -421,6 +428,258 @@ describe.skipIf(!hasDatabaseUrl())(
       })
     }
 
-    // TESTS-PLACEHOLDER
+    type Case = [label: string, user: SessionUser | null, status: number]
+
+    // ── GET /api/interviews/:id/recordings ─────────────────────────────────────
+    describe('GET /api/interviews/:interviewId/recordings', () => {
+      const cases: Case[] = [
+        ['ADMIN reads any interview', ADMIN, 200],
+        ['SENIOR reads own interview', SENIOR_A, 200],
+        ['HR reads an interview of a senior in their team', HR_A, 200],
+        ['SENIOR is denied a foreign interview', SENIOR_B, 403],
+        ['HR is denied an interview of a senior off their team', HR_B, 403],
+        ['teamless SENIOR is denied (foreign interview)', SENIOR_TEAMLESS, 403],
+        ['JUNIOR is denied by role', JUNIOR, 403],
+        ['ACCOUNTANT is denied by role', ACCOUNTANT, 403],
+        ['anonymous is rejected', null, 401],
+      ]
+      it.each(cases)('%s', async (_label, user, status) => {
+        const res = await request('GET', `/api/interviews/${INTERVIEW_A_ID}/recordings`, user)
+        const ids =
+          res.statusCode === 200 ? (res.json() as Array<{ id: string }>).map((r) => r.id) : null
+        expect({ status: res.statusCode, ids }).toEqual({
+          status,
+          ids: status === 200 ? [RECORDING_A_ID] : null,
+        })
+      })
+
+      it('teamless SENIOR is denied even on their own interview', async () => {
+        const res = await request(
+          'GET',
+          `/api/interviews/${INTERVIEW_C_ID}/recordings`,
+          SENIOR_TEAMLESS,
+        )
+        expect(res.statusCode).toBe(403)
+      })
+
+      it('a SENIOR with incomplete onboarding is stopped by OnboardingGuard', async () => {
+        const res = await request(
+          'GET',
+          `/api/interviews/${INTERVIEW_NOT_ONBOARDED_ID}/recordings`,
+          NOT_ONBOARDED,
+        )
+        expect(res.statusCode).toBe(403)
+        expect(res.json()).toEqual(expect.objectContaining({ error: 'ONBOARDING_REQUIRED' }))
+      })
+
+      it('unknown interview → 404 for ADMIN', async () => {
+        const res = await request('GET', `/api/interviews/${MISSING_ID}/recordings`, ADMIN)
+        expect(res.statusCode).toBe(404)
+      })
+    })
+
+    // ── GET /api/interview-recordings/:id ─────────────────────────────────────
+    describe('GET /api/interview-recordings/:recordingId', () => {
+      const linkedCases: Case[] = [
+        ['ADMIN reads a linked recording', ADMIN, 200],
+        ['SENIOR reads a recording of own interview', SENIOR_A, 200],
+        ['HR in team reads it', HR_A, 200],
+        ['foreign SENIOR is denied', SENIOR_B, 403],
+        ['off-team HR is denied', HR_B, 403],
+        ['teamless SENIOR is denied', SENIOR_TEAMLESS, 403],
+        ['JUNIOR is denied by role', JUNIOR, 403],
+        ['ACCOUNTANT is denied by role', ACCOUNTANT, 403],
+        ['anonymous is rejected', null, 401],
+      ]
+      it.each(linkedCases)('%s', async (_label, user, status) => {
+        const res = await request('GET', `/api/interview-recordings/${RECORDING_A_ID}`, user)
+        const body = res.json() as { id?: string; code?: string }
+        // The service-level denial carries its own code; a RolesGuard denial does not.
+        const deniedByService =
+          status === 403 && user !== null && user.role !== 'JUNIOR' && user.role !== 'ACCOUNTANT'
+        expect({
+          status: res.statusCode,
+          id: status === 200 ? body.id : undefined,
+          code: deniedByService ? body.code : undefined,
+        }).toEqual({
+          status,
+          id: status === 200 ? RECORDING_A_ID : undefined,
+          code: deniedByService ? 'MEETING_RECORDER_RECORDING_ACCESS_DENIED' : undefined,
+        })
+      })
+
+      it('teamless SENIOR is denied a recording of their own interview', async () => {
+        const res = await request(
+          'GET',
+          `/api/interview-recordings/${RECORDING_C_ID}`,
+          SENIOR_TEAMLESS,
+        )
+        expect(res.statusCode).toBe(403)
+      })
+
+      const unmatchedCases: Case[] = [
+        ['ADMIN reads an unmatched recording', ADMIN, 200],
+        ['SENIOR is denied an unmatched recording', SENIOR_A, 403],
+        ['HR is denied an unmatched recording', HR_A, 403],
+      ]
+      it.each(unmatchedCases)('%s', async (_label, user, status) => {
+        const res = await request(
+          'GET',
+          `/api/interview-recordings/${RECORDING_UNMATCHED_ID}`,
+          user,
+        )
+        expect(res.statusCode).toBe(status)
+      })
+
+      it('unknown recording → 404', async () => {
+        const res = await request('GET', `/api/interview-recordings/${MISSING_ID}`, ADMIN)
+        expect(res.statusCode).toBe(404)
+      })
+    })
+
+    // ── GET /api/interview-recordings/unmatched ───────────────────────────────
+    describe('GET /api/interview-recordings/unmatched', () => {
+      const cases: Case[] = [
+        ['ADMIN lists the unmatched queue', ADMIN, 200],
+        ['SENIOR is denied', SENIOR_A, 403],
+        ['HR is denied', HR_A, 403],
+        ['JUNIOR is denied', JUNIOR, 403],
+        ['ACCOUNTANT is denied', ACCOUNTANT, 403],
+        ['anonymous is rejected', null, 401],
+      ]
+      it.each(cases)('%s', async (_label, user, status) => {
+        const res = await request('GET', '/api/interview-recordings/unmatched', user)
+        const ids =
+          res.statusCode === 200 ? (res.json() as Array<{ id: string }>).map((r) => r.id) : []
+        expect({
+          status: res.statusCode,
+          listsUnmatched: ids.includes(RECORDING_UNMATCHED_ID),
+          listsLinked: ids.includes(RECORDING_A_ID),
+        }).toEqual({ status, listsUnmatched: status === 200, listsLinked: false })
+      })
+    })
+
+    // ── PATCH /api/interview-recordings/:id/link ──────────────────────────────
+    describe('PATCH /api/interview-recordings/:id/link', () => {
+      const deniedCases: Case[] = [
+        ['SENIOR is denied (even onto own interview)', SENIOR_A, 403],
+        ['HR is denied', HR_A, 403],
+        ['JUNIOR is denied', JUNIOR, 403],
+        ['ACCOUNTANT is denied', ACCOUNTANT, 403],
+        ['anonymous is rejected', null, 401],
+      ]
+      it.each(deniedCases)('%s', async (_label, user, status) => {
+        const res = await request(
+          'PATCH',
+          `/api/interview-recordings/${RECORDING_UNMATCHED_ID}/link`,
+          user,
+          { interviewId: INTERVIEW_A_ID },
+        )
+        expect(res.statusCode).toBe(status)
+        const row = await pool.query<{ interview_id: string | null }>(
+          'SELECT interview_id FROM interview_recordings WHERE id = $1',
+          [RECORDING_UNMATCHED_ID],
+        )
+        expect(row.rows[0]?.interview_id).toBeNull()
+      })
+
+      it('ADMIN → 404 for an unknown interview, nothing linked', async () => {
+        const res = await request(
+          'PATCH',
+          `/api/interview-recordings/${RECORDING_UNMATCHED_ID}/link`,
+          ADMIN,
+          { interviewId: MISSING_ID },
+        )
+        expect(res.statusCode).toBe(404)
+      })
+
+      it('ADMIN links and unlinks; the linked SENIOR gains and then loses read access', async () => {
+        const linked = await request(
+          'PATCH',
+          `/api/interview-recordings/${RECORDING_UNMATCHED_ID}/link`,
+          ADMIN,
+          { interviewId: INTERVIEW_B_ID },
+        )
+        expect(linked.statusCode).toBe(200)
+        expect(
+          (await request('GET', `/api/interview-recordings/${RECORDING_UNMATCHED_ID}`, SENIOR_B))
+            .statusCode,
+        ).toBe(200)
+
+        const unlinked = await request(
+          'PATCH',
+          `/api/interview-recordings/${RECORDING_UNMATCHED_ID}/link`,
+          ADMIN,
+          { interviewId: null },
+        )
+        expect(unlinked.statusCode).toBe(200)
+        expect(
+          (await request('GET', `/api/interview-recordings/${RECORDING_UNMATCHED_ID}`, SENIOR_B))
+            .statusCode,
+        ).toBe(403)
+      })
+    })
+
+    // ── SR-865-H-1: a user-controlled callUrl must not pull a foreign transcript ─
+    describe('SR-865-H-1 — auto-match cannot be steered through callUrl', () => {
+      beforeEach(async () => {
+        await pool.query(`UPDATE interviews SET call_url = NULL WHERE senior_id = ANY($1)`, [
+          ALL_USERS.map((u) => u.id),
+        ])
+      })
+
+      async function recordingByExternalId(externalId: string) {
+        const res = await pool.query<{ id: string; interview_id: string | null }>(
+          `SELECT id, interview_id FROM interview_recordings
+           WHERE connection_id = $1 AND external_recording_id = $2`,
+          [CONNECTION_ID, externalId],
+        )
+        return res.rows[0]
+      }
+
+      it('SENIOR pre-sets a foreign Meet code as callUrl → the recording stays unmatched and unreadable', async () => {
+        const patched = await request('PATCH', `/api/interviews/${INTERVIEW_A_ID}`, SENIOR_A, {
+          callUrl: `https://meet.google.com/${FOREIGN_MEET_CODE}`,
+        })
+        expect(patched.statusCode).toBe(200)
+
+        await recordings.ingestWebhookEvent(
+          CONNECTION_ID,
+          foreignMeetingEvent('mr-rbac-attack-preset', 1),
+          CIPHERTEXT,
+        )
+
+        const row = await recordingByExternalId('mr-rbac-attack-preset')
+        expect(row).toBeDefined()
+        expect(row!.interview_id).toBeNull()
+        const read = await request('GET', `/api/interview-recordings/${row!.id}`, SENIOR_A)
+        expect(read.statusCode).toBe(403)
+        const readHr = await request('GET', `/api/interview-recordings/${row!.id}`, HR_A)
+        expect(readHr.statusCode).toBe(403)
+      })
+
+      it('SENIOR sets the code after the recording arrived → a later revision does not link it', async () => {
+        await recordings.ingestWebhookEvent(
+          CONNECTION_ID,
+          foreignMeetingEvent('mr-rbac-attack-posthoc', 1),
+          CIPHERTEXT,
+        )
+        const patched = await request('PATCH', `/api/interviews/${INTERVIEW_A_ID}`, SENIOR_A, {
+          callUrl: `https://meet.google.com/${FOREIGN_MEET_CODE.toUpperCase()}`,
+        })
+        expect(patched.statusCode).toBe(200)
+
+        await recordings.ingestWebhookEvent(
+          CONNECTION_ID,
+          foreignMeetingEvent('mr-rbac-attack-posthoc', 2),
+          CIPHERTEXT,
+        )
+
+        const row = await recordingByExternalId('mr-rbac-attack-posthoc')
+        expect(row!.interview_id).toBeNull()
+        const read = await request('GET', `/api/interview-recordings/${row!.id}`, SENIOR_A)
+        expect(read.statusCode).toBe(403)
+      })
+    })
   },
 )

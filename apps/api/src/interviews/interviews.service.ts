@@ -13,7 +13,16 @@ import type {
 import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
 import { ProjectsService } from '../projects/projects.service'
-import { interviews, users, visibleProjects, type Interview, type User } from '../database/schema'
+import {
+  interviewRecordings,
+  interviews,
+  meetingRecorderAuditLog,
+  users,
+  visibleProjects,
+  type Interview,
+  type User,
+} from '../database/schema'
+import type { DrizzleTx } from '../database/types'
 import { InterviewAccessPolicyService } from './interview-access-policy.service'
 
 type InterviewWithRelations = Interview & {
@@ -39,6 +48,7 @@ export class InterviewsService {
       companyName: i.companyName,
       vacancyUrl: i.vacancyUrl ?? null,
       callUrl: i.callUrl ?? null,
+      scheduledAt: i.scheduledAt ? i.scheduledAt.toISOString() : null,
       stage: i.stage,
       notesDomain: (i.notesDomain ?? null) as ItDomain | null,
       notesTechStack: i.notesTechStack ?? null,
@@ -130,6 +140,7 @@ export class InterviewsService {
         companyName: dto.companyName,
         vacancyUrl: dto.vacancyUrl ?? null,
         callUrl: dto.callUrl ?? null,
+        scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : null,
         stage: 'HR_SCREEN',
         position: positionCount,
       })
@@ -164,6 +175,9 @@ export class InterviewsService {
     if (dto.companyName !== undefined) updateData.companyName = dto.companyName
     if (dto.vacancyUrl !== undefined) updateData.vacancyUrl = dto.vacancyUrl ?? null
     if (dto.callUrl !== undefined) updateData.callUrl = dto.callUrl ?? null
+    if (dto.scheduledAt !== undefined) {
+      updateData.scheduledAt = dto.scheduledAt ? new Date(dto.scheduledAt) : null
+    }
     // Audit (HIGH): stage is NEVER written here — `updateInterviewSchema` no
     // longer carries `stage`, and stage transitions are owned exclusively by
     // `move()` (which holds transition rules + the HIRED side-effect). Any stray
@@ -179,7 +193,15 @@ export class InterviewsService {
     if (dto.notesCorpTech !== undefined) updateData.notesCorpTech = dto.notesCorpTech ?? null
     if (dto.notesGeneral !== undefined) updateData.notesGeneral = dto.notesGeneral ?? null
 
-    await this.db.db.update(interviews).set(updateData).where(eq(interviews.id, id))
+    const callChanged =
+      (updateData.callUrl !== undefined && updateData.callUrl !== interview.callUrl) ||
+      (updateData.scheduledAt !== undefined &&
+        updateData.scheduledAt?.getTime() !== interview.scheduledAt?.getTime())
+
+    await this.db.db.transaction(async (tx) => {
+      await tx.update(interviews).set(updateData).where(eq(interviews.id, id))
+      if (callChanged) await this.auditCallChange(tx, id, currentUser)
+    })
 
     const updated = (await this.db.db.query.interviews.findFirst({
       where: eq(interviews.id, id),
@@ -187,6 +209,31 @@ export class InterviewsService {
     })) as InterviewWithRelations
 
     return this.mapInterview(updated)
+  }
+
+  /**
+   * SR-865-H-1 follow-up: a call URL / schedule change on an interview that already
+   * has linked recordings is the auto-match input being moved after the fact, so it
+   * is recorded in the meeting-recorder audit log — one row per linked recording.
+   */
+  private async auditCallChange(
+    tx: DrizzleTx,
+    interviewId: string,
+    actor: SessionUser,
+  ): Promise<void> {
+    const linked = await tx
+      .select({ id: interviewRecordings.id, connectionId: interviewRecordings.connectionId })
+      .from(interviewRecordings)
+      .where(eq(interviewRecordings.interviewId, interviewId))
+    if (linked.length === 0) return
+    await tx.insert(meetingRecorderAuditLog).values(
+      linked.map((recording) => ({
+        action: 'interview-call-changed' as const,
+        actorUserId: actor.id,
+        connectionId: recording.connectionId,
+        interviewRecordingId: recording.id,
+      })),
+    )
   }
 
   async move(id: string, dto: MoveInterviewDto, currentUser: SessionUser): Promise<InterviewDto> {

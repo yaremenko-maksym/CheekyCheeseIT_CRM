@@ -29,6 +29,8 @@ export const interviewSchema = z.object({
   companyName: z.string(),
   vacancyUrl: z.string().nullable(),
   callUrl: z.string().nullable(),
+  /** When the call is scheduled to start (ISO-8601); gates meeting-recorder auto-match. */
+  scheduledAt: z.string().datetime().nullable(),
   stage: interviewStageSchema,
   notesDomain: itDomainSchema.nullable(),
   notesTechStack: z.string().nullable(),
@@ -44,11 +46,18 @@ export const interviewSchema = z.object({
   updatedAt: z.string().datetime(),
 })
 
+/**
+ * Scheduled call start, ISO-8601 with an explicit offset. The meeting recorder
+ * auto-links a recording only when it started within ±30 min of this.
+ */
+export const interviewScheduledAtSchema = z.string().datetime({ offset: true })
+
 export const createInterviewSchema = z.object({
   seniorId: z.string().uuid(),
   companyName: z.string().min(1).max(255),
   vacancyUrl: httpUrlSchema.nullable().optional(),
   callUrl: httpUrlSchema.nullable().optional(),
+  scheduledAt: interviewScheduledAtSchema.nullable().optional(),
 })
 
 // Audit (HIGH): `stage` is intentionally NOT updatable through this schema.
@@ -62,6 +71,7 @@ export const updateInterviewSchema = z.object({
   companyName: z.string().min(1).max(255).optional(),
   vacancyUrl: httpUrlSchema.nullable().optional(),
   callUrl: httpUrlSchema.nullable().optional(),
+  scheduledAt: interviewScheduledAtSchema.nullable().optional(),
   notesDomain: itDomainSchema.nullable().optional(),
   notesTechStack: z.string().max(500).nullable().optional(),
   notesTeamSize: z.string().max(100).nullable().optional(),

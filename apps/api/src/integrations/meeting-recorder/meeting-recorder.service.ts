@@ -466,7 +466,11 @@ export class MeetingRecorderService {
     let linkedByUserId = existing?.linkedByUserId ?? null
     let linkedAt = existing?.linkedAt ?? null
 
-    if (!existing || (existing.interviewId === null && !autoMatchSuppressed)) {
+    // Auto-match runs once, when the recording first arrives (SR-865-H-1 / CR-865-H-1):
+    // a later revision never re-matches, so a callUrl set after the meeting cannot
+    // pull the recording in, and the lookup does not repeat under the connection lock.
+    // An unmatched recording is linked by an ADMIN from the unmatched queue.
+    if (!existing) {
       const match = await this.matcher.findExactMatch(tx, recording)
       interviewId = match?.interviewId ?? null
       stageAtLink = match?.stageAtLink ?? null

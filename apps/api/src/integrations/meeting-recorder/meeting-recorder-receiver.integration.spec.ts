@@ -85,10 +85,12 @@ describe.skipIf(!hasDatabaseUrl())('Meeting Recorder receiver semantics — real
       [USER_ID, ADMIN.email, ADMIN.displayName],
     )
     await pool.query(
-      `INSERT INTO interviews (id, senior_id, company_name, call_url, stage)
+      // scheduled_at: auto-match needs the recording (startedAt 11:15 in the
+      // fixture) within ±30 min of the interview's scheduled time (D-1).
+      `INSERT INTO interviews (id, senior_id, company_name, call_url, stage, scheduled_at)
        VALUES
-         ($1, $3, 'Integration Test Ltd', 'https://meet.google.com/abc-defg-hij', 'TECH_INTERVIEW'),
-         ($2, $3, 'Manual Link Ltd', 'https://meet.google.com/manual-room', 'FINAL_INTERVIEW')`,
+         ($1, $3, 'Integration Test Ltd', 'https://meet.google.com/abc-defg-hij', 'TECH_INTERVIEW', '2026-10-07T11:00:00Z'),
+         ($2, $3, 'Manual Link Ltd', 'https://meet.google.com/manual-room', 'FINAL_INTERVIEW', NULL)`,
       [MATCH_INTERVIEW_ID, MANUAL_INTERVIEW_ID, USER_ID],
     )
     await pool.query(

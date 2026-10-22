@@ -178,7 +178,7 @@ describe('meeting recorder database foundation', () => {
     ])
     expect(config.checks.map((item) => item.name)).toEqual(['ck_meeting_recorder_audit_log_action'])
     expect(normalizedSql(config.checks[0]!.value)).toContain(
-      "meeting_recorder_audit_log.action IN ('connection-created', 'connection-renamed', 'connection-enabled', 'connection-disabled', 'secret-replaced', 'token-issued', 'pairing-reset', 'recording-linked', 'recording-unlinked', 'recording-purged', 'media-purged')",
+      "meeting_recorder_audit_log.action IN ('connection-created', 'connection-renamed', 'connection-enabled', 'connection-disabled', 'secret-replaced', 'token-issued', 'pairing-reset', 'recording-linked', 'recording-unlinked', 'recording-purged', 'media-purged', 'interview-call-changed')",
     )
   })
 

@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common'
-import { isNotNull } from 'drizzle-orm'
+import { and, eq, gte, lte, notInArray } from 'drizzle-orm'
 import type { MeetingRecorderRecordingInput } from '@crm/shared'
 
 import type { DrizzleTx } from '../../database/types'
@@ -40,8 +40,33 @@ export function googleMeetCodeFromUrl(value: string): string | null {
   return code ? code.toLowerCase() : null
 }
 
+/**
+ * Owner decision D-1 (2026-10-22): a recording auto-matches an interview only when
+ * it started within this distance of the interview's `scheduledAt`.
+ */
+export const MEETING_RECORDER_MATCH_WINDOW_MS = 30 * 60 * 1000
+
+/** Stages that never receive an automatic link: terminal (HIRED, REJECTED) or archived. */
+export const MEETING_RECORDER_UNMATCHABLE_STAGES = [
+  'HIRED',
+  'REJECTED',
+  'ARCHIVED',
+] as const satisfies readonly Interview['stage'][]
+
 @Injectable()
 export class MeetingRecorderMatcher {
+  /**
+   * The single interview a new recording belongs to, or null.
+   *
+   * SR-865-H-1: `callUrl` is user-writable (SENIOR/HR), so a code match alone would
+   * let anyone pull a foreign transcript into their readable scope. A match also
+   * needs the recording to start within ±30 min of the interview's `scheduledAt`
+   * (NULL never matches) and the interview to be neither terminal nor archived.
+   * Two candidates are no match.
+   *
+   * CR-865-H-1: one indexed lookup on `interviews.call_meet_code` per key with
+   * `LIMIT 2` — never load-all-then-filter.
+   */
   async findExactMatch(
     tx: DrizzleTx,
     recording: MeetingRecorderRecordingInput,
@@ -49,43 +74,32 @@ export class MeetingRecorderMatcher {
     const source = recording.source
     if (source.provider !== 'google-meet') return null
 
-    const candidates = await tx
-      .select({
-        id: interviews.id,
-        stage: interviews.stage,
-        callUrl: interviews.callUrl,
-      })
-      .from(interviews)
-      .where(isNotNull(interviews.callUrl))
+    const startedAt = new Date(recording.startedAt).getTime()
+    if (Number.isNaN(startedAt)) return null
 
-    const incomingCode = source.meetingId ? source.meetingId.toLowerCase() : null
+    const idCode = source.meetingId ? source.meetingId.toLowerCase() : null
+    const urlCode = source.meetingUrl ? googleMeetCodeFromUrl(source.meetingUrl) : null
 
-    if (incomingCode) {
-      const matches = candidates.filter(
-        (candidate) => googleMeetCodeFromUrl(candidate.callUrl!) === incomingCode,
-      )
-      if (matches.length === 1) {
-        const match = matches[0]!
-        return {
-          interviewId: match.id,
-          stageAtLink: match.stage,
-          matchedBy: 'meeting-id',
-        }
-      }
-    }
+    const keys: Array<{ code: string; matchedBy: MeetingRecorderAutomaticMatch['matchedBy'] }> = []
+    if (idCode) keys.push({ code: idCode, matchedBy: 'meeting-id' })
+    if (urlCode && urlCode !== idCode) keys.push({ code: urlCode, matchedBy: 'meeting-url' })
 
-    const incomingUrl = source.meetingUrl ? canonicalizeGoogleMeetUrl(source.meetingUrl) : null
-    if (incomingUrl) {
-      const matches = candidates.filter(
-        (candidate) => canonicalizeGoogleMeetUrl(candidate.callUrl!) === incomingUrl,
-      )
-      if (matches.length === 1) {
-        const match = matches[0]!
-        return {
-          interviewId: match.id,
-          stageAtLink: match.stage,
-          matchedBy: 'meeting-url',
-        }
+    for (const { code, matchedBy } of keys) {
+      const candidates = await tx
+        .select({ id: interviews.id, stage: interviews.stage })
+        .from(interviews)
+        .where(
+          and(
+            eq(interviews.callMeetCode, code),
+            gte(interviews.scheduledAt, new Date(startedAt - MEETING_RECORDER_MATCH_WINDOW_MS)),
+            lte(interviews.scheduledAt, new Date(startedAt + MEETING_RECORDER_MATCH_WINDOW_MS)),
+            notInArray(interviews.stage, [...MEETING_RECORDER_UNMATCHABLE_STAGES]),
+          ),
+        )
+        .limit(2)
+      if (candidates.length === 1) {
+        const match = candidates[0]!
+        return { interviewId: match.id, stageAtLink: match.stage, matchedBy }
       }
     }
 

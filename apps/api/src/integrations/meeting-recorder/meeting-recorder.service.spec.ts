@@ -513,7 +513,7 @@ describe('MeetingRecorderService snapshot revision semantics', () => {
     )
   })
 
-  it('retries exact matching for an unmatched recording that was not manually suppressed', async () => {
+  it('does not re-run matching for a later revision of an unmatched recording (SR-865-H-1)', async () => {
     const matcher = {
       findExactMatch: vi.fn().mockResolvedValue({
         interviewId: '22222222-2222-4222-8222-222222222222',
@@ -547,13 +547,13 @@ describe('MeetingRecorderService snapshot revision semantics', () => {
       ),
     ).resolves.toBeUndefined()
 
-    expect(matcher.findExactMatch).toHaveBeenCalledOnce()
+    expect(matcher.findExactMatch).not.toHaveBeenCalled()
     expect(ctx.insertValues).toHaveBeenCalledWith(
       expect.objectContaining({
         revision: 2,
-        interviewId: '22222222-2222-4222-8222-222222222222',
-        stageAtLink: 'TECH_INTERVIEW',
-        matchedBy: 'meeting-id',
+        interviewId: null,
+        stageAtLink: null,
+        matchedBy: 'unmatched',
         autoMatchSuppressed: false,
       }),
     )
