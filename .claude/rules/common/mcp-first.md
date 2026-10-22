@@ -64,9 +64,10 @@ nothing leaves the machine) by `scripts/devops/build-graphify.sh` (~45 s) into t
 - Shell coverage is uneven: scripts that dispatch through variables and loops (for example
   `run-guard-tests.sh`) yield almost no edges — static extraction, not a bug. An empty answer there
   means "unknown", not "nothing calls it".
-- Never run `graphify extract` without `--code-only`, `--no-gitignore`, `--postgres`, `label`, or
-  `cluster-only` without `--no-label`: those send file contents to a model or read the live database.
-  The build script exists so nobody types the command by hand.
+- Always run `graphify extract` with `--code-only`; without it the tool sends file contents to a model.
+  Never pass `--no-gitignore` or `--postgres` (the first indexes gitignored files, the second reads the
+  live database). Never run `graphify label`, and never run `cluster-only` without `--no-label` (both
+  call a model). The build script exists so nobody types the command by hand.
 
 ## Concrete rules (mandatory)
 

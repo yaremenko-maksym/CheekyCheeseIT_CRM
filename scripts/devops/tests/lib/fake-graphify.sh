@@ -4,18 +4,23 @@
 # Its behaviour is read from files NEXT TO IT (the build script runs the tool under
 # `env -i`, so environment variables cannot carry the scenario):
 #   ver        the string `--version` prints after "graphify " (default 0.9.93)
-#   mode       space-separated flags for the graph it writes on `extract`:
+#   mode       space-separated flags for the graph it writes on `extract`. The graph is
+#              built from the tracked files of the repo it runs in (cwd), the way the real
+#              tool's coverage follows the repo:
 #                none        write no graph at all but exit 0 (the "nothing was built" case)
+#                fail        exit 1 without writing
+#                sqlpct=N / shpct=N / codepct=N   cover only N percent of that group (default 100)
 #                llm         edges with _origin "llm"
+#                inferred    edges with _origin "inferred"
+#                noorigin    an extra edge with no _origin key
+#                nolinks     an empty edge list
 #                hyper       a non-empty hyperedges list
 #                md          a source_file ending .md
-#                env         a source_file named .env.production
+#                env=NAME    a source_file with basename NAME (e.g. env=prod.env)
 #                assets      a source_file under docs/design/assets/
-#                nosql       no .sql files
-#                small       below the node floor
 #                stalecommit built_at_commit that is not HEAD
 #                oldver      graph written by a different graphify version
-#                fail        exit 1 without writing
+#                bigger=N    pad the graph with N extra nodes and N extra edges
 # Every `extract` call records its argv to ./argv.log and its environment to ./env.log
 # beside this file.
 set -u
@@ -42,27 +47,53 @@ case "$MODE" in *" none "*) echo "[graphify extract] nothing to do"; exit 0 ;; e
 
 HEAD_SHA="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
 mkdir -p "$OUT/graphify-out"
-python3 -I - "$OUT/graphify-out/graph.json" "$MODE" "$HEAD_SHA" "$VER" <<'PY'
-import json, sys
+git ls-files -z >"$OUT/tracked.fake.z"
+python3 -I - "$OUT/graphify-out/graph.json" "$MODE" "$HEAD_SHA" "$VER" "$OUT/tracked.fake.z" <<'PY'
+import json, os, re, sys
 
-out, mode, head, ver = sys.argv[1:5]
-has = lambda m: f" {m} " in mode
+out, mode, head, ver, tracked_f = sys.argv[1:6]
+
+
+def has(m):
+    return f" {m} " in mode
+
+
+def arg(name, default):
+    m = re.search(rf" {name}=(\S+) ", mode)
+    return m.group(1) if m else default
+
+
+tracked = [f for f in open(tracked_f, "rb").read().decode().split("\0") if f]
+GROUPS = {"sql": {".sql"}, "sh": {".sh"}, "code": {".ts", ".tsx", ".js", ".mjs", ".py"}}
 nodes = []
-n_total = 800 if has("small") else 6000
-for i in range(n_total):
-    nodes.append({"id": f"n{i}", "label": f"sym{i}", "source_file": f"apps/api/src/f{i % 400}.ts"})
-sql_files = [] if has("nosql") else [f"apps/api/drizzle/manual/m{i}.sql" for i in range(12)]
-sh_files = [f"scripts/devops/s{i}.sh" for i in range(40)]
-for f in sql_files + sh_files:
-    nodes.append({"id": f"f_{f}", "label": f, "source_file": f})
+for name, exts in GROUPS.items():
+    want = [f for f in tracked if os.path.splitext(f)[1] in exts]
+    keep = int(len(want) * int(arg(name + "pct", "100")) / 100)
+    for f in want[:keep]:
+        nodes.append({"id": "f_" + f, "label": f, "source_file": f})
 if has("md"):
     nodes.append({"id": "doc", "label": "doc", "source_file": "docs/architecture/adr.md"})
-if has("env"):
-    nodes.append({"id": "envn", "label": "envn", "source_file": "apps/api/.env.production"})
+envname = arg("env", "")
+if envname:
+    nodes.append({"id": "envn", "label": "envn", "source_file": "apps/api/" + envname})
 if has("assets"):
     nodes.append({"id": "ds", "label": "ds", "source_file": "docs/design/assets/x/_ds_bundle.js"})
-origin = "llm" if has("llm") else "ast"
-links = [{"source": "n0", "target": "n1", "relation": "calls", "_origin": origin}]
+extra = int(arg("bigger", "0"))
+for i in range(extra):
+    nodes.append({"id": f"pad{i}", "label": f"pad{i}", "source_file": ""})
+origin = "llm" if has("llm") else "inferred" if has("inferred") else "ast"
+links = [
+    {"source": nodes[0]["id"], "target": nodes[1]["id"], "relation": "calls", "_origin": origin}
+    for _ in range(3)
+]
+if has("noorigin"):
+    links.append({"source": nodes[0]["id"], "target": nodes[1]["id"], "relation": "calls"})
+links += [
+    {"source": f"pad{i}", "target": nodes[0]["id"], "relation": "calls", "_origin": "ast"}
+    for i in range(extra)
+]
+if has("nolinks"):
+    links = []
 g = {
     "directed": False,
     "multigraph": False,
@@ -74,4 +105,5 @@ g = {
 }
 json.dump(g, open(out, "w"))
 PY
+rm -f "$OUT/tracked.fake.z"
 echo "[graphify extract] wrote $OUT/graphify-out/graph.json"
