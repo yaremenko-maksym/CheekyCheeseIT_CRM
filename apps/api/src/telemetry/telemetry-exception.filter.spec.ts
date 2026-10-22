@@ -1,4 +1,4 @@
-import { ArgumentsHost, HttpException, HttpStatus } from '@nestjs/common'
+import { ArgumentsHost, HttpException, HttpStatus, Logger } from '@nestjs/common'
 import type { HttpAdapterHost } from '@nestjs/core'
 import { describe, expect, it, vi } from 'vitest'
 import { isTelemetryInternalRoute, TelemetryExceptionFilter } from './telemetry-exception.filter'
@@ -172,6 +172,97 @@ describe('TelemetryExceptionFilter — recursion guard (AC4)', () => {
 
     expect(recordError).toHaveBeenCalledWith(
       expect.objectContaining({ userId: undefined, userRole: undefined }),
+    )
+  })
+})
+
+/**
+ * SR-865-M-1 (retro review of PR #865): a drizzle query failure carries the bound
+ * parameters in `message` and `stack` (`Failed query: … params: …`). On a webhook
+ * ingest those parameters are the recording snapshot — a candidate's transcript —
+ * and this filter used to store both verbatim in `telemetry_errors`, from where
+ * the digest files issues.
+ */
+describe('TelemetryExceptionFilter — database errors never record parameter values', () => {
+  const SECRET_VALUE = 'candidate said: my salary expectation is 9000'
+
+  function drizzleFailure(): Error {
+    const cause = Object.assign(new Error('unsupported Unicode escape sequence'), {
+      severity: 'ERROR',
+      code: '22P05',
+    })
+    const query = 'insert into "interview_recordings" ("title", "snapshot") values ($1, $2)'
+    const err = Object.assign(
+      new Error(`Failed query: ${query}\nparams: Weekly sync,{"text":"${SECRET_VALUE}"}`),
+      { query, params: ['Weekly sync', `{"text":"${SECRET_VALUE}"}`], cause },
+    )
+    err.name = 'DrizzleQueryError'
+    return err
+  }
+
+  it('records the SQLSTATE and statement shape, and no parameter value in message or stack', async () => {
+    const recordError = vi.fn().mockResolvedValue(undefined)
+    const telemetryErrors = { recordError } as unknown as TelemetryErrorsService
+    const filter = withHttpAdapter(new TelemetryExceptionFilter(telemetryErrors))
+
+    filter.catch(drizzleFailure(), makeHost('/api/interviews'))
+    await flushMicrotasks()
+
+    expect(recordError).toHaveBeenCalledTimes(1)
+    const recorded = recordError.mock.calls[0]![0] as { message: string; stack?: string }
+    expect(recorded.message).toBe(
+      'DrizzleQueryError: db_error db_state=22P05 db_table=- db_constraint=- db_column=- ' +
+        'db_message=- ' +
+        "db_statement=\"insert into 'interview_recordings' ('title', 'snapshot') values ($1, $2)\"",
+    )
+    expect(JSON.stringify(recorded)).not.toContain(SECRET_VALUE)
+    expect(JSON.stringify(recorded)).not.toContain('Weekly sync')
+    expect(recorded.stack?.startsWith('DrizzleQueryError\n    at ')).toBe(true)
+  })
+
+  it('hands Nest’s own error log the redacted error, not the parameter values', () => {
+    const logged = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+    const telemetryErrors = {
+      recordError: vi.fn().mockResolvedValue(undefined),
+    } as unknown as TelemetryErrorsService
+    const filter = withHttpAdapter(new TelemetryExceptionFilter(telemetryErrors))
+
+    filter.catch(drizzleFailure(), makeHost('/api/interviews'))
+
+    expect(logged).toHaveBeenCalledTimes(1)
+    const [loggedError] = logged.mock.calls[0]! as [Error]
+    expect(loggedError.message).toContain('db_state=22P05')
+    expect(`${loggedError.message}\n${loggedError.stack}`).not.toContain(SECRET_VALUE)
+    logged.mockRestore()
+  })
+
+  it('leaves a 5xx HttpException with a database cause untouched', async () => {
+    const recordError = vi.fn().mockResolvedValue(undefined)
+    const telemetryErrors = { recordError } as unknown as TelemetryErrorsService
+    const filter = withHttpAdapter(new TelemetryExceptionFilter(telemetryErrors))
+    const exception = new HttpException('Service Unavailable', HttpStatus.SERVICE_UNAVAILABLE, {
+      cause: drizzleFailure(),
+    })
+
+    filter.catch(exception, makeHost('/api/interviews'))
+    await flushMicrotasks()
+
+    expect(recordError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'Service Unavailable', stack: exception.stack }),
+    )
+  })
+
+  it('keeps message and stack unchanged for an error with no database error in it', async () => {
+    const recordError = vi.fn().mockResolvedValue(undefined)
+    const telemetryErrors = { recordError } as unknown as TelemetryErrorsService
+    const filter = withHttpAdapter(new TelemetryExceptionFilter(telemetryErrors))
+    const plain = new Error('plain failure')
+
+    filter.catch(plain, makeHost('/api/interviews'))
+    await flushMicrotasks()
+
+    expect(recordError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'plain failure', stack: plain.stack }),
     )
   })
 })

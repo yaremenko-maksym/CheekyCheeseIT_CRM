@@ -10,6 +10,7 @@ import {
 import { BaseExceptionFilter } from '@nestjs/core'
 import type { FastifyRequest } from 'fastify'
 import type { SessionUser } from '@crm/shared'
+import { dbErrorLogSuffix, safeErrorStack } from '../database/pg-errors'
 import { toPathname } from './route'
 import { TelemetryErrorsService } from './telemetry-errors.service'
 
@@ -66,7 +67,8 @@ export class TelemetryExceptionFilter extends BaseExceptionFilter {
     super()
   }
 
-  catch(exception: unknown, host: ArgumentsHost): void {
+  catch(rawException: unknown, host: ArgumentsHost): void {
+    const exception = withoutDatabaseParameters(rawException)
     // Fire-and-forget — recording must NEVER delay or break the real
     // response, which `super.catch()` below produces exactly as before.
     this.recordIfEligible(exception, host).catch((err: unknown) => {
@@ -109,6 +111,26 @@ export class TelemetryExceptionFilter extends BaseExceptionFilter {
       userRole: request.user?.role,
     })
   }
+}
+
+/**
+ * SR-865-M-1: a drizzle query failure carries the bound parameter values in its
+ * `message` and `stack` (`Failed query: … params: …`), and those values can be a
+ * candidate's transcript, an email, an amount. Both the telemetry row and Nest's own
+ * `BaseExceptionFilter` log line are written from `message`/`stack`, so a database
+ * error is replaced — before either sees it — by an error that carries only the
+ * `pg-errors` diagnostic fragment (SQLSTATE, identifiers, statement shape) and the
+ * frames. The HTTP response is unchanged: a non-HttpException is a generic 500 either way.
+ * An HttpException is left alone — its message is the one the application chose.
+ */
+function withoutDatabaseParameters(exception: unknown): unknown {
+  if (exception instanceof HttpException || !(exception instanceof Error)) return exception
+  const suffix = dbErrorLogSuffix(exception)
+  if (suffix === '') return exception
+  const redacted = new Error(`${exception.name}:${suffix}`)
+  redacted.name = exception.name
+  redacted.stack = safeErrorStack(exception) ?? redacted.name
+  return redacted
 }
 
 /** Recursion guard (AC4) — exported for direct unit testing. */
