@@ -1,0 +1,13 @@
+# .graphifyignore — what `graphify` must not index. Same pattern syntax as
+# .gitignore, and it is read IN ADDITION to .gitignore. The tool's role and the
+# build live in scripts/devops/build-graphify.sh.
+#
+# .gitignore is already honoured by graphify (that is what keeps the real .env
+# files out) — add here only what is TRACKED but must not become graph nodes.
+
+# Generated design-system bundles (two copies of one `_ds_bundle.js`, plus the
+# mockup HTML/JS beside them). Measured 2026-10-22: ~4300 of the graph's ~21400
+# nodes (20%) and 96% of all JavaScript nodes came from this directory. It is
+# throwaway design-tool output, not code anyone navigates, and it visibly
+# polluted query results. Nothing under apps/** imports from it.
+docs/design/assets/
