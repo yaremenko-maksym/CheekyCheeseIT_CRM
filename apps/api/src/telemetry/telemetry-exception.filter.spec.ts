@@ -211,13 +211,13 @@ describe('TelemetryExceptionFilter — database errors never record parameter va
     expect(recordError).toHaveBeenCalledTimes(1)
     const recorded = recordError.mock.calls[0]![0] as { message: string; stack?: string }
     expect(recorded.message).toBe(
-      'DrizzleQueryError: db_error db_state=22P05 db_table=- db_constraint=- db_column=- ' +
+      'db_error db_state=22P05 db_table=- db_constraint=- db_column=- ' +
         'db_message=- ' +
         "db_statement=\"insert into 'interview_recordings' ('title', 'snapshot') values ($1, $2)\"",
     )
     expect(JSON.stringify(recorded)).not.toContain(SECRET_VALUE)
     expect(JSON.stringify(recorded)).not.toContain('Weekly sync')
-    expect(recorded.stack?.startsWith('DrizzleQueryError\n    at ')).toBe(true)
+    expect(recorded.stack?.startsWith(`DrizzleQueryError: ${recorded.message}\n    at `)).toBe(true)
   })
 
   it('hands Nest’s own error log the redacted error, not the parameter values', () => {
