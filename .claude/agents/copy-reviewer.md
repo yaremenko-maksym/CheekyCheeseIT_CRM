@@ -99,6 +99,11 @@ Copy Review: PASS | ISSUES | BLOCK
 - **BLOCK** — empty headings, the text reads like a translation, the layout breaks on mobile,
   or a language is not fully checked.
 
+This line is the `Flow Gate` evidence for the `Copy-Review` step (`contracts.md` §4.1). The step
+is required when the PR touches the Lingui catalogs or the landing dictionaries. Post it on the
+PR, as a review (`mcp__github__create_pull_request_review`, `event: COMMENT`) or as a comment; the
+gate reads both. Only `PASS` satisfies the step, and a later `ISSUES` or `BLOCK` overrides it.
+
 Then — by the six dimensions, each finding as: **what** (address), **why a defect**
 (which rule is violated), **suggestion** (a concrete line, not "rewrite better").
 

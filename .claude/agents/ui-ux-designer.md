@@ -107,6 +107,7 @@ Trigger: a PR touches `apps/web/**`, Master dispatches after code-reviewer (in p
    - `PASS` — score ≥ 8/10 average, no HIGH issues → APPROVE-equivalent.
    - `POLISH-REQUESTED` — score 6-8/10, there are LOW/MED suggestions → can be merged, but create a follow-up task.
    - `BLOCK` — score <6/10 OR there is a generic AI pattern (Mode C trigger) OR a WCAG fail on a critical path OR a visible drift vs `design.png` (step 2.5) → Master creates `task-fix-pr-N.md`.
+   - **This comment is the `Flow Gate` evidence** for the `Design-Review` step (`contracts.md` §4.1) on any PR that touches UI code under `apps/web/` or `apps/landing/`. The check reads the first `Design Review:` line: only `PASS` satisfies the step, and `POLISH-REQUESTED` or `BLOCK` counts as negative until a later `PASS`. Keep the exact marker wording, and post a **new** comment after a fix round rather than editing the old one.
 7. Use the `superpowers:requesting-code-review` skill for discipline (write-then-post pattern — collect the report into a file `/tmp/designer-<runid>/review.md`, then post).
 
 ### Mode C — AI-slop check (quick sanitize)

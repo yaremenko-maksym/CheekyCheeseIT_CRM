@@ -1,0 +1,113 @@
+name: Flow Gate
+
+# The project's development flow is the default for EVERY PR into main — owner, collaborator, any
+# harness (Claude, Codex, a person at a keyboard). Each step (Task, Plan, Tests, Review,
+# Security-Review, Spec-Review, Copy-Review, QA, Design-Review, AC) is either satisfied by evidence
+# or skipped by a PR-body line `Skip-<Step>: <reason>` (>= 10 chars), echoed into the job summary.
+# A docs-only diff (every changed path, rename sources included, ends in `.md`) is exempt — the
+# light-track rule. Non-markdown `.claude/` files (hooks, settings, scripts) are process config and
+# go through the steps; `.claude/hooks/**` and `.claude/settings*.json` are critical paths.
+#
+# WHY (audit 2026-10-21): every PR merged by the second collaborator reached `main` with zero
+# reviews, although each touched a critical-path zone. The flow existed only as procedure inside
+# the owner's Master pipeline, which another harness never runs.
+#
+# DECISION: scripts/architect/flow-gate.mjs (pure function — the step table is STEPS there; unit
+# tests in flow-gate.test.mjs, run on PRs by architect-scripts.yml). Contract and the per-step
+# evidence table: .claude/agents/contracts.md §4.1.
+#
+# THREAT MODEL (short): this enforces an intentional, recorded choice — a skipped step becomes a
+# visible, attributable line instead of silence. It is NOT a defence against a malicious write-role
+# user (anyone with write access can post a review saying `Verdict: APPROVE`, or write a skip
+# line). Verdicts count only from OWNER / MEMBER / COLLABORATOR associations — the repo is public,
+# so any GitHub user can comment. Verdicts are not bound to the head sha: a verdict survives later
+# pushes, and the flow expects a delta re-review (known limitation, contracts.md §4.1).
+#
+# TRIGGERS: `pull_request_target` only — it runs the BASE branch's copy of this file, so a PR cannot
+# edit the gate that judges it. There is deliberately no `pull_request_review` trigger: that event
+# runs the PR's OWN copy of the workflow. So after a review lands, the check is re-run by a PR-body
+# edit or a label change (`edited` / `labeled` / `unlabeled` are triggers for exactly that).
+#
+# NEVER check out or run the PR's code: the job checks out `main` only (sparse, no credentials) and
+# reads the PR through the REST API as data. No `${{ }}` expression carrying PR-controlled text is
+# interpolated into a `run:` script.
+#
+# No `paths:` filter (a required check must report on every PR, or PRs sit "waiting for status")
+# and no `concurrency:` block (a cancelled run leaves a `cancelled` conclusion that auto-merge reads
+# as a hard failure). A run takes seconds and is idempotent.
+#
+# REQUIRED-CHECK NOTE for whoever adds this context to branch protection: bind it to the GitHub
+# Actions app (app_id 15368, like the four existing contexts) — an unbound context can be satisfied
+# by a commit status any write-role user may post through the statuses API.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled, ready_for_review]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+jobs:
+  gate:
+    name: Flow Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout main (gate logic only — never the PR's code)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+          sparse-checkout: scripts/architect
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Every list is fetched fresh (not from the event payload) and COUNTED in the log: an
+      # instrument that did not look must not report a negative
+      # (.claude/rules/common/verification-integrity.md). Empty file or commit lists are rejected
+      # by the script itself — a PR always has both — and the listed counts are compared with the
+      # PR's own `changed_files` / `commits`: a PR the API could not list in full FAILS.
+      - name: Fetch PR data (REST API, read-only)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          D: ${{ runner.temp }}/flow-gate
+        run: |
+          set -euo pipefail
+          mkdir -p "$D"
+          # Rename sources are kept (`previous_filename`): the script classifies both names.
+          gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files?per_page=100" \
+            --jq '.[] | {filename, previous_filename, status}' | jq -s . >"$D/files.json"
+          gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100" \
+            --jq '.[] | {author: .user.login, association: .author_association, state: .state, body: (.body // ""), at: .submitted_at}' \
+            | jq -s . >"$D/reviews.json"
+          gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" \
+            --jq '.[] | {author: .user.login, association: .author_association, body: (.body // ""), at: .created_at}' \
+            | jq -s . >"$D/comments.json"
+          gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/commits?per_page=100" \
+            --jq '.[] | {sha: .sha, message: .commit.message, parents: (.parents | length)}' \
+            | jq -s . >"$D/commits.json"
+          gh api "repos/$REPO/pulls/$PR_NUMBER" \
+            --jq '{body: (.body // ""), counts: {changedFiles: .changed_files, commits: .commits}}' >"$D/pr.json"
+          jq -n \
+            --slurpfile files "$D/files.json" --slurpfile reviews "$D/reviews.json" \
+            --slurpfile comments "$D/comments.json" --slurpfile commits "$D/commits.json" \
+            --slurpfile pr "$D/pr.json" \
+            '{files: $files[0], body: $pr[0].body, counts: $pr[0].counts, reviews: $reviews[0], comments: $comments[0], commits: $commits[0]}' \
+            >"$D/pr-data.json"
+          f="$D/pr-data.json"
+          echo "fetched: files=$(jq '.files | length' "$f")/$(jq '.counts.changedFiles' "$f")" \
+            "commits=$(jq '.commits | length' "$f")/$(jq '.counts.commits' "$f")" \
+            "reviews=$(jq '.reviews | length' "$f") comments=$(jq '.comments | length' "$f")" \
+            "body-chars=$(jq '.body | length' "$f")"
+
+      - name: Evaluate
+        env:
+          IN: ${{ runner.temp }}/flow-gate/pr-data.json
+        run: node scripts/architect/flow-gate.mjs --input "$IN" --summary "$GITHUB_STEP_SUMMARY"

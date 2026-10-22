@@ -40,6 +40,12 @@ creep onto the security surface.
 4. Always a PR — never a direct push to main. Merge — only an explicit "merge" from USER
    (label `merge-approved`).
 5. UI touched → a playwright screenshot in the PR.
+6. **Flow Gate** (`contracts.md` §4.1) judges every PR, light-track included. A diff where every
+   changed path ends in `.md` is exempt. Anything else, including non-markdown `.claude/` files
+   (hooks, settings, scripts — process config, not docs), goes through the steps. For each step a
+   light-track PR does not run, add a PR-body line `Skip-<Step>: light-track: <why>`, for example
+   `Skip-Review: light-track: one-line config typo, no logic`. Hooks and `settings*.json` are
+   critical paths, so `Security-Review` is required for them as well.
 
 ## Parallel dispatch (concurrency ceiling)
 
