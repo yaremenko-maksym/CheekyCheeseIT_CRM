@@ -23,6 +23,8 @@ import { DocumentsModule } from '../documents/documents.module'
 import { NotificationsModule } from '../notifications/notifications.module'
 import { PdfModule } from '../common/pdf/pdf.module'
 import { InvoicePdfService } from './invoice-pdf.service'
+import { InvoiceQueryService } from './invoice-query.service'
+import { InvoiceVerifyService } from './invoice-verify.service'
 import { InvoicesController } from './invoices.controller'
 import { InvoicesService } from './invoices.service'
 import { InvoicesVerifyController } from './invoices-verify.controller'
@@ -36,7 +38,7 @@ import { InvoicesVerifyController } from './invoices-verify.controller'
     PdfModule,
   ],
   controllers: [InvoicesController, InvoicesVerifyController],
-  providers: [InvoicesService, InvoicePdfService],
+  providers: [InvoicesService, InvoicePdfService, InvoiceQueryService, InvoiceVerifyService],
   exports: [InvoicesService, InvoicePdfService],
 })
 export class InvoicesModule {}

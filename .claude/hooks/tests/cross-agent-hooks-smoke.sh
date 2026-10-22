@@ -14,12 +14,48 @@
 set -u
 
 HOOK_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-BLAST="$HOOK_DIR/pre-bash-cross-agent-blast.sh"
+# Overridable so a claim about these cases can be re-demonstrated instead of
+# trusted: point it at a previous revision, or at a deliberately mutated copy,
+# and the cases that cover the difference must go red.
+#   CROSS_AGENT_BLAST_HOOK=/tmp/blast-mutated.sh bash "$0"
+BLAST="${CROSS_AGENT_BLAST_HOOK:-$HOOK_DIR/pre-bash-cross-agent-blast.sh}"
 DISPATCH="$HOOK_DIR/pre-agent-dispatch-isolation.sh"
 
 REPO="/Users/maksym/Desktop/programming/CheekyCheeseIT_CRM"
 MINE="$REPO/.claude/worktrees/agent-MINE"
 OTHER="$REPO/.claude/worktrees/agent-OTHER"
+
+# A reviewer is not given a worktree (agent-isolation.md rule 2), so its checkout
+# lives in the session scratchpad — which is SHARED with every sibling agent of
+# that session (measured: one flat directory, 190 entries, ~10 agents). The path
+# therefore says nothing about whose it is; ownership comes from the ledger this
+# hook writes against agent_id, exercised by scratch_case below.
+SESS="/private/tmp/claude-501/-Users-maksym-Desktop-programming-CheekyCheeseIT-CRM"
+MY_SCRATCH="$SESS/11111111-1111-1111-1111-111111111111/scratchpad"
+OTHER_SCRATCH="$SESS/22222222-2222-2222-2222-222222222222/scratchpad"
+# PORTABLE mktemp, as `lib/harness.sh` already does it. `mktemp -t <prefix>` is a
+# BSD shorthand: GNU coreutils reads the argument as a TEMPLATE and exits 1 with
+# "too few X's in template". That is not a style point — it is the defect that
+# made this suite green on macOS and red in CI (see "fidelity" below).
+LEDGER="$(mktemp "${TMPDIR:-/tmp}/cross-agent-owners.XXXXXX")"
+
+# Scratch-shaped roots this test OWNS, so the cases about what is on disk can
+# create directories without touching the real session scratchpad. The name has
+# to match the hook's /tmp/claude-<something>/<a>/<b> shape to be recognised as a
+# scratchpad at all, and the pid keeps concurrent runs apart.
+#
+# Spelled /tmp, never /private/tmp: on Linux `/private` does not exist and a
+# non-root user cannot create it (`mkdir: cannot create directory '/private':
+# Permission denied`), so a /private-rooted fixture is silently never created in
+# CI. The hook accepts either spelling, so one /private case is kept deliberately
+# further down — on a path that needs no disk.
+SMOKE_SESS="/tmp/claude-smoke-$$/proj/sess"
+SMOKE_SCRATCH="$SMOKE_SESS/scratchpad"
+# A second root where NOTHING is created, so the "scratch root itself" case is
+# decided by the one-component rule and not by the existence test.
+EMPTY_SESS="/tmp/claude-smokeb-$$/proj/sess"
+mkdir -p "$SMOKE_SCRATCH/sibling-live"
+trap 'rm -f "$LEDGER"; rm -rf "/tmp/claude-smoke-$$" "/tmp/claude-smokeb-$$"' EXIT
 
 PASS=0
 FAIL=0
@@ -29,13 +65,85 @@ FAIL=0
 # had an apostrophe inside a single-quoted python block, died at parse time,
 # and "passed" all eight block cases while doing nothing. Check syntax first,
 # and assert the decision body below, not just the code.
-for h in "$BLAST" "$DISPATCH"; do
+#
+# WIDENED 2026-10-21 to EVERY hook, not just these two (CR-M-3). The same defect
+# recurred while translating the refusal texts: an English apostrophe in
+# `flag's` closed the single-quoted bash string holding the python program and
+# broke pre-bash-devserver-ttl-gate.sh outright. A one-off `bash -n` caught it;
+# nothing standing would have. Behaviour tests cannot reach it either, because
+# the quoting error sat on lines that run ONLY when the analyzer fails — the
+# DEGRADED `printf` branch — which no passing test exercises.
+#
+# This is the only test file inside .claude/hooks, so the property "every hook
+# parses" lives here even though it is not about cross-agent isolation.
+HOOKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SYNTAX_CHECKED=0
+for h in "$HOOKS_DIR"/*.sh; do
+  [ -f "$h" ] || continue
   if ! bash -n "$h" 2>/dev/null; then
     echo "FATAL: syntax error in $h"
     bash -n "$h"
     exit 1
   fi
+  SYNTAX_CHECKED=$((SYNTAX_CHECKED + 1))
 done
+# The shared analyzer is python, and a broken one makes every hook fall back to
+# its coarse rule while still exiting 2 — a degraded guard that looks like a
+# working one.
+if ! python3 -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=True)" \
+  "$HOOKS_DIR/lib/cmdscan.py" >/dev/null 2>&1; then
+  echo "FATAL: lib/cmdscan.py does not compile"
+  python3 -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=True)" \
+    "$HOOKS_DIR/lib/cmdscan.py"
+  exit 1
+fi
+echo "gate 0: $SYNTAX_CHECKED hooks parse, lib/cmdscan.py compiles"
+
+# Gate 0b. FIXTURE FIDELITY — the same class of problem as gate 0, learned the
+# hard way (PR #1025: green here, red in CI).
+#
+# The ownership cases need two things to exist before they mean anything: a
+# writable ledger, and a directory on disk for the "add onto an existing tree"
+# case. When either is silently absent, the suite does not go red — it INVERTS:
+# recording dies, so every "expect allow" case fails while every "expect block"
+# case still passes, including the three that are supposed to prove the recording
+# rule discriminates. A broken fixture made the guard look MORE refusing, which
+# is the direction no assertion was watching.
+#
+# So the fixture is asserted, not assumed, and it fails LOUDLY rather than
+# inverting. The ledger assertions further down are the other half: they fail on
+# the "allow" side too, so recording cannot die quietly either.
+if [ -z "$LEDGER" ] || ! : >>"$LEDGER" 2>/dev/null; then
+  echo "FATAL: ledger fixture is not writable (LEDGER='$LEDGER')."
+  echo "       Without it nothing is ever recorded, and the suite would INVERT rather than fail:"
+  echo "       every allow-case red, every block-case green for the wrong reason."
+  exit 1
+fi
+if [ ! -d "$SMOKE_SCRATCH/sibling-live" ]; then
+  echo "FATAL: fixture directory $SMOKE_SCRATCH/sibling-live was not created."
+  echo "       The L-1 case (an add onto an EXISTING tree records nothing) would then"
+  echo "       pass because the path does not exist, not because the rule held."
+  exit 1
+fi
+
+# ledger_case <expect:recorded|absent> <agent_id> <path> <label>
+# Asserts on the LEDGER rather than on a refusal, so a break in recording turns a
+# case red by itself instead of only inverting the allow-cases. Matches a whole
+# line, so a record of a parent cannot be mistaken for a record of a child.
+# Paths are tmp-normalised the way the hook stores them.
+ledger_case() {
+  local expect="$1" agent="$2" path="$3" label="$4" got line
+  path="${path#/private}"
+  line="$(printf '%s\t%s' "$agent" "$path")"
+  if grep -qxF "$line" "$LEDGER" 2>/dev/null; then got="recorded"; else got="absent"; fi
+  if [ "$got" = "$expect" ]; then
+    printf '  ok    %-8s %s\n' "$got" "$label"
+    PASS=$((PASS + 1))
+  else
+    printf '  FAIL  expected %s, got %s — %s\n' "$expect" "$got" "$label"
+    FAIL=$((FAIL + 1))
+  fi
+}
 
 # bash_case <expect:block|allow> <cwd> <command> <label>
 bash_case() {
@@ -50,6 +158,26 @@ print(json.dumps({
     "tool_input": {"command": os.environ["CMD"]},
 }))')
   OUT=$(printf '%s' "$payload" | bash "$BLAST" 2>/dev/null)
+  rc=$?
+  assert "$expect" "$rc" "$label"
+}
+
+# scratch_case <expect:block|allow> <agent_id> <cwd> <command> <label>
+# Same as bash_case but carries an agent_id and points the ownership ledger at a
+# temp file, which is what makes "mine" answerable for a scratchpad path.
+scratch_case() {
+  local expect="$1" agent="$2" cwd="$3" cmd="$4" label="$5"
+  local payload rc
+  payload=$(CWD="$cwd" CMD="$cmd" AID="$agent" python3 -c '
+import json, os
+print(json.dumps({
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "cwd": os.environ["CWD"],
+    "agent_id": os.environ["AID"],
+    "tool_input": {"command": os.environ["CMD"]},
+}))')
+  OUT=$(printf '%s' "$payload" | CROSS_AGENT_WORKTREE_OWNERS="$LEDGER" bash "$BLAST" 2>/dev/null)
   rc=$?
   assert "$expect" "$rc" "$label"
 }
@@ -129,6 +257,56 @@ bash_case block "$MINE" 'while read p; do pkill -f "$p"; done < /tmp/list'  'pki
 bash_case block "$MINE" 'if [ -f /tmp/x ]; then pkill -f node; fi'         'pkill hidden behind `then`'
 bash_case block "$MINE" 'for x in 1; do sudo killall node; done'           'killall behind `do` AND a wrapper'
 
+# ── the scratchpad widening must not leak (2026-10-17/18) ────────────────────
+# Permitting a recorded scratch checkout is a widening, so each neighbour of it
+# is pinned here. The first four are the reviewer-confirmed protections; the
+# sibling cases below are the defect the first version of this widening had.
+bash_case block "$MY_SCRATCH" "git worktree remove --force $OTHER_SCRATCH/checkout" 'another SESSION scratchpad is foreign (different session id)'
+bash_case block "$MY_SCRATCH" "git worktree remove --force $OTHER"                  "another agent's worktree, judged from a scratchpad cwd"
+bash_case block "$MY_SCRATCH" 'git worktree remove --force "$W"'                    'opaque target from a scratchpad cwd is still WORKTREE-OPAQUE'
+bash_case block "$MY_SCRATCH" "git worktree remove --force $REPO"                   'the primary checkout is nobody-removes-it'
+bash_case block "$MINE" "git worktree remove --force $OTHER_SCRATCH/checkout"        'a scratch path I cannot attribute to myself stays foreign'
+
+# THE DEFECT THE PATH-BASED WIDENING HAD (CR-M-1, demonstrated with rc 0 on a
+# security reviewer checkout). The sibling runs in the SAME session and the SAME
+# scratchpad; only its agent_id differs, and that is now what decides.
+scratch_case allow agent-A "$MY_SCRATCH" "git worktree add --detach $MY_SCRATCH/sr-pr1024 deadbeef" 'agent A records its own checkout (fixture for the two cases below)'
+scratch_case block agent-B "$MY_SCRATCH" "git worktree remove --force $MY_SCRATCH/sr-pr1024" "a SIBLING agent of the same session cannot remove it"
+scratch_case block agent-A "$MY_SCRATCH" "git worktree remove --force $MY_SCRATCH/sr-pr1024-notes" 'a record of X does not cover X-notes (prefix boundary)'
+scratch_case block ""        "$MY_SCRATCH" "git worktree remove --force $MY_SCRATCH/sr-pr1024" 'without an agent_id nothing is attributable, so nothing is permitted'
+# A non-literal `add` cannot be resolved, so it records nothing — and the later
+# removal of that same tree by its real owner is refused. That is the cost of the
+# canonical "$SCRATCH/checkout" form, and the remedy is one `echo`.
+scratch_case allow agent-C "$MY_SCRATCH" 'git worktree add --detach "$SCRATCH/co-C" deadbeef' 'a non-literal add stays silent (and records nothing)'
+scratch_case block agent-C "$MY_SCRATCH" "git worktree remove --force $MY_SCRATCH/co-C" 'what was never recorded cannot be removed, even by its maker'
+
+# ── what may be RECORDED: the add branch decides ownership, so it is pinned ──
+# A PreToolUse hook records BEFORE git runs, and the first draft recorded any
+# literal-looking argument anywhere under the scratchpad. Each case below went
+# red against that draft; together they are the recording rule.
+#
+# L-1: the path of a live sibling checkout. `add` fails in git, but the line was
+# written anyway, and the next `remove` was permitted — PR #544 between siblings
+# in two commands. A tree that already exists is not one this command creates.
+scratch_case allow agent-A "$SMOKE_SCRATCH" "git worktree add --detach $SMOKE_SCRATCH/sibling-live deadbeef" 'adding onto an EXISTING path stays silent (git will refuse it, not this hook)'
+ledger_case absent agent-A "$SMOKE_SCRATCH/sibling-live" 'L-1: and it wrote NO line — asserted on the ledger, not inferred from the refusal'
+scratch_case block agent-A "$SMOKE_SCRATCH" "git worktree remove --force $SMOKE_SCRATCH/sibling-live" 'L-1: an add onto an existing tree records nothing, so removing it is still refused'
+
+# L-2: `-b mybranch` puts a BRANCH NAME in argument position. It was resolved
+# against cwd and recorded as a path. The trait that rejects it is absoluteness,
+# not a list of options that take a value.
+scratch_case allow agent-A "$SMOKE_SCRATCH" "git worktree add -b mybranch $SMOKE_SCRATCH/co-B deadbeef" 'an add with -b records the PATH argument (and stays silent)'
+ledger_case recorded agent-A "$SMOKE_SCRATCH/co-B" 'L-2: the PATH argument is what got recorded'
+ledger_case absent agent-A "$SMOKE_SCRATCH/mybranch" 'L-2: the BRANCH NAME did not — the two halves asserted separately'
+scratch_case block agent-A "$SMOKE_SCRATCH" "git worktree remove --force $SMOKE_SCRATCH/mybranch" 'L-2: a branch name is not a path, so nothing was recorded for it'
+scratch_case allow agent-A "$SMOKE_SCRATCH" "git worktree remove --force $SMOKE_SCRATCH/co-B" 'the real target of that same add IS recorded (the trait keeps the legitimate half)'
+
+# L-3: the scratch ROOT. is_owned matches prefixes, so one root line makes every
+# sibling checkout "mine" — CR-M-1 re-opened by the fix for CR-M-1.
+scratch_case allow agent-A "$EMPTY_SESS/scratchpad" "git worktree add --detach $EMPTY_SESS deadbeef" 'adding the scratch root itself stays silent'
+ledger_case absent agent-A "$EMPTY_SESS" 'L-3: and the ROOT itself was not recorded'
+scratch_case block agent-A "$EMPTY_SESS/scratchpad" "git worktree remove --force $EMPTY_SESS/scratchpad/anyones-co" 'L-3: the root is never recorded, so it grants nothing below it'
+
 echo "== pre:bash:cross-agent-blast — MUST STAY SILENT =="
 bash_case allow "$MINE" 'kill 12345'                                        'kill <PID> — the prescribed replacement (AC11)'
 bash_case allow "$MINE" 'kill -TERM 12345'                                  'kill -TERM <PID> (AC11)'
@@ -137,6 +315,24 @@ bash_case allow "$MINE" "pgrep -f 'worktrees[/]agent-' | xargs kill -9"     "own
 bash_case allow "$MINE" 'grep -rn "pkill" .claude/hooks/'                   'grep for the word pkill — argument, not command'
 bash_case allow "$MINE" 'echo "не запускай pkill -f node"'                  'echo mentioning pkill'
 bash_case allow "$MINE" "git worktree remove $MINE"                         'removing MY OWN worktree is allowed'
+
+# ── a reviewer cleaning up after itself (2026-10-17/18) ──────────────────────
+# Six reviewers in one session could not: own_wt is empty when the cwd is a
+# scratchpad, so their OWN checkout came out "not your worktree". Every refusal
+# was correct by the predicate's letter and wrong in substance.
+#
+# The first fix keyed "mine" on the scratchpad path, which was wrong: that
+# directory is SHARED by all sibling agents of the session, so it also permitted
+# removing a sibling checkout. Ownership is now recorded against agent_id when
+# this hook watches the agent create the tree, and the pair below is the whole
+# mechanism — the `add` writes the record, the `remove` reads it.
+scratch_case allow agent-A "$MY_SCRATCH" "git worktree add --detach $MY_SCRATCH/co-A deadbeef" 'creating my checkout at a literal path is recorded, not blocked'
+ledger_case recorded agent-A "$MY_SCRATCH/co-A" 'the add WROTE a ledger line (not merely "was not blocked")'
+scratch_case allow agent-A "$MY_SCRATCH" "git worktree remove --force $MY_SCRATCH/co-A" 'removing the checkout recorded against MY agent_id'
+# /tmp is a symlink to /private/tmp on macOS, so the harness reports the cwd
+# under one spelling and an agent types the other. Same directory, and the record
+# must match across the two spellings.
+scratch_case allow agent-A "$MY_SCRATCH" "git worktree remove --force /tmp/claude-501/-Users-maksym-Desktop-programming-CheekyCheeseIT-CRM/11111111-1111-1111-1111-111111111111/scratchpad/co-A" '/tmp vs /private/tmp spelling of my own recorded checkout'
 bash_case allow "$MINE" 'git worktree list'                                 'git worktree list (read-only)'
 bash_case allow "$MINE" "cat $OTHER/README.md"                              'READING another worktree is not gated'
 bash_case allow "$MINE" "rm -rf $MINE/tmp/scratch"                          'rm inside my own worktree, absolute path'

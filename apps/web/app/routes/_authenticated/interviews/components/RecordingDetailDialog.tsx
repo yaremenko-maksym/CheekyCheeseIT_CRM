@@ -11,6 +11,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { SafeHttpLink } from '@/components/SafeHttpLink'
 import { Button } from '@/components/ui/button'
 import {
   CrmDialogBody,
@@ -159,15 +160,11 @@ export function RecordingDetailDialog({
                   {detail.provider && <span>{detail.provider}</span>}
                 </div>
                 {detail.meetingUrl && (
-                  <a
-                    href={detail.meetingUrl}
-                    target="_blank"
-                    rel="noreferrer"
+                  <SafeHttpLink
+                    url={detail.meetingUrl}
                     className="block max-w-full truncate underline underline-offset-2 hover:text-foreground"
-                    title={detail.meetingUrl}
-                  >
-                    {detail.meetingUrl}
-                  </a>
+                    fallbackClassName="block max-w-full truncate"
+                  />
                 )}
                 <div className="flex flex-wrap gap-x-3 gap-y-1" aria-live="polite">
                   <span>{transcriptStatus}</span>

@@ -1,17 +1,16 @@
 import {
-  ConflictException,
   ForbiddenException,
   HttpStatus,
   Inject,
   Injectable,
+  Optional,
   forwardRef,
 } from '@nestjs/common'
-import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm'
+import { and, eq, isNotNull, isNull } from 'drizzle-orm'
 import type {
   ArchiveImpact,
   CreateProjectDto,
   DropProjectDto,
-  EffectiveTeam,
   PendingSeniorShare,
   SessionUser,
   UpdateProjectDto,
@@ -19,72 +18,37 @@ import type {
 import { NOTIFICATION_TITLES, projectPaymentTypeSchema } from '@crm/shared'
 import { apiError } from '../common/api-error'
 import { NotificationsService } from '../notifications/notifications.service'
-import type { CreateNotificationInput } from '../notifications/notifications.service'
-import { resolveDropShare, DEFAULT_DROP_SHARE_PERCENT } from '../finance/drop-share-resolver'
 import { ApprovalsService } from '../approvals/approvals.service'
 import { HrAccessService } from '../common/hr-access.service'
 import { DatabaseService } from '../database/database.service'
-import {
-  documents,
-  // security-review PR #456 round 2: `nonDeletedTransactions` (VIEW), never the
-  // raw `transactions` table — this module is outside `finance/**` and the
-  // ESLint no-restricted-imports rule bans the raw import here.
-  nonDeletedTransactions,
-  projectFinanceSettings,
-  projectMembers,
-  projects,
-  teamMembers,
-  teams,
-  users,
-  type Interview,
-  type Legend,
-  type Project,
-  type ProjectMember,
-  type User,
-} from '../database/schema'
+import { projects, teamMembers, users, type Interview, type User } from '../database/schema'
+import { ProjectAccessService, PROJECT_APPROVAL_SUBJECT_TYPE } from './project-access.service'
+import { ProjectArchiveService } from './project-archive.service'
 import { ProjectAuditLogService } from './project-audit-log.service'
+import { ProjectDraftService } from './project-draft.service'
+import { ProjectInterviewSeedService } from './project-interview-seed.service'
+import { ProjectMembersService } from './project-members.service'
+import { ProjectReadService } from './project-read.service'
+import { ProjectScopedReadService } from './project-scoped-read.service'
+import { ProjectShareChangeService } from './project-share-change.service'
+import { canSeePendingSeniorShare } from './project-visibility.util'
+import { mapProjectToDto, type ProjectWithRelations } from './project-map.util'
+import { assertLogoDocument } from './project-logo.util'
+import {
+  assertFinanceFieldsAllowed,
+  buildProjectUpdateData,
+  isFinanceOnlyPatch,
+  resolveActiveDropId,
+} from './project-update-data.util'
 import { UsersService } from '../users/users.service'
-import { resolveSeniorShare } from '../finance/senior-share-resolver'
+import {
+  isDropOverrideChange,
+  isSeniorOverrideChange,
+  pickDropDefault,
+  pickSeniorDefault,
+  resolveOverrideEffective,
+} from './project-share.util'
 import type { DrizzleTx } from '../database/types'
-
-type ProjectWithRelations = Project & {
-  senior: User | null
-  // Drop role - phase 2: relation joined by `with: { drop: true }` when
-  // mapping a project. Null for regular senior-projects (no dropId).
-  drop?: User | null
-  members: Array<ProjectMember & { user: User | null }>
-  // task-junior-ux-1-backend: legend persona for this project.
-  // Loaded via `with: { legend: true }` in all findMany/findFirst queries.
-  // `null` when no legend has been created for this project yet.
-  legend?: Legend | null
-}
-
-// task-pending-share (position 5). Pulled out of `notifyPendingSeniorShareProposed`'s
-// own signature so that method fits on one line — see that method's doc
-// comment for why (a Stryker disable-comment / multi-line-inline-type
-// interaction).
-type NotifyPendingShareInput = {
-  subjectId: string
-  approverUserId: string
-  proposedPercent: number | null
-  previousPercent: number | null
-  /**
-   * task-notification-types-producers (позиция 6). Название снимается В МОМЕНТ
-   * предложения и передаётся сюда вызывающим, у которого строка проекта уже на
-   * руках. Не читается заново: лишний запрос на пути, где данные уже есть, — и
-   * уведомление, пережившее проект (§7.4), осталось бы безымянным.
-   */
-  projectName: string | null
-  /**
-   * QA-H-1 (manual-qa круг 3, #664): строка `approvals`, которую это
-   * уведомление и представляет. Берётся из возврата
-   * `ApprovalsService.proposeInTx` — то есть это ИМЕННО та строка, что
-   * открылась сейчас, а не «согласование по такому-то объекту вообще».
-   * Повторное предложение открывает новое поколение строк, и без этого
-   * идентификатора старое уведомление оставалось активным рядом с новым.
-   */
-  approvalId: string
-}
 
 @Injectable()
 export class ProjectsService {
@@ -99,505 +63,62 @@ export class ProjectsService {
     // «вас добавили в проект», «ждёт решения: новый проект» и — через шов
     // `notifyPendingSeniorShareProposed` ниже — «ждёт решения: новая доля».
     private readonly notifications: NotificationsService,
-  ) {}
+    // Optional so the many positional `new ProjectsService(a..f)` spec
+    // factories keep working; Nest injects the provider, otherwise it is
+    // built from the same db/approvals the service already holds.
+    @Optional() access?: ProjectAccessService,
+    @Optional() members?: ProjectMembersService,
+    @Optional() read?: ProjectReadService,
+    @Optional() draft?: ProjectDraftService,
+    @Optional() archiveService?: ProjectArchiveService,
+    @Optional() shareChange?: ProjectShareChangeService,
+    @Optional() interviewSeed?: ProjectInterviewSeedService,
+    @Optional() scopedRead?: ProjectScopedReadService,
+  ) {
+    this.access = access ?? new ProjectAccessService(db, approvals)
+    this.read = read ?? new ProjectReadService(db, this.access, approvals)
+    this.members = members ?? new ProjectMembersService(db, this.access, notifications)
+    this.draft = draft ?? new ProjectDraftService(db, approvals, this.read)
+    this.archiveService =
+      archiveService ??
+      new ProjectArchiveService(db, projectAuditLogService, usersService, this.read)
+    this.shareChange =
+      shareChange ??
+      new ProjectShareChangeService(db, approvals, this.read, projectAuditLogService, notifications)
+    this.interviewSeed =
+      interviewSeed ?? new ProjectInterviewSeedService(db, approvals, notifications)
+    this.scopedRead = scopedRead ?? new ProjectScopedReadService(db, hrAccess)
+  }
+
+  private readonly access: ProjectAccessService
+  private readonly members: ProjectMembersService
+  private readonly read: ProjectReadService
+  private readonly draft: ProjectDraftService
+  private readonly archiveService: ProjectArchiveService
+  private readonly shareChange: ProjectShareChangeService
+  private readonly interviewSeed: ProjectInterviewSeedService
+  private readonly scopedRead: ProjectScopedReadService
 
   /** task-project-draft-status. `subjectType` this module registers approvals under. */
-  private static readonly APPROVAL_SUBJECT_TYPE = 'PROJECT'
-
-  /**
-   * task-pending-share (position 5). `subjectType` for a PROJECT-level
-   * senior-share-override change — distinct from `APPROVAL_SUBJECT_TYPE`
-   * above ('PROJECT', the draft-confirmation subject): the same project id
-   * can carry a live draft-confirmation proposal AND a live share-change
-   * proposal at once (different subject TYPES on the same subject id never
-   * collide — `uq_approvals_live_subject_approver` is keyed on
-   * (subjectType, subjectId, approverUserId)).
-   */
-  private static readonly SENIOR_SHARE_SUBJECT_TYPE = 'PROJECT_SENIOR_SHARE'
-
-  /**
-   * task-team-senior-share-override. Pre-computes the active senior-team
-   * overrides for every senior referenced by the supplied projects, in one
-   * DB hit. The result feeds `mapProject` so each row carries
-   * `effectiveSeniorSharePercent` + `effectiveSeniorShareSource` without
-   * an N+1 round-trip per project. Keyed by `senior.id`.
-   */
-  private async loadTeamOverridesBySenior(
-    projects: ProjectWithRelations[],
-  ): Promise<Map<string, { id: string; seniorSharePercentOverride: number | null }[]>> {
-    const seniorIds = Array.from(
-      new Set(
-        projects
-          .map((p) => p.seniorId)
-          .filter((id): id is string => typeof id === 'string' && id.length > 0),
-      ),
-    )
-    const map = new Map<string, { id: string; seniorSharePercentOverride: number | null }[]>()
-    if (seniorIds.length === 0) return map
-
-    // Use the relational query API instead of a raw `db.select(...).from(...)`
-    // join chain so existing service-spec mocks (which only stub the
-    // `db.query.<entity>.find*` surface) keep working without a wholesale
-    // mock rewrite. Try/catch protects against test doubles that don't even
-    // stub `query.teamMembers.findMany` — those simply fall through to "no
-    // overrides", which is the correct default for the resolver.
-    let rows: Array<{
-      userId: string
-      team: { id: string; seniorSharePercentOverride: number | null; archivedAt: Date | null }
-    }> = []
-    try {
-      rows = (await this.db.db.query.teamMembers.findMany({
-        where: and(inArray(teamMembers.userId, seniorIds), isNull(teamMembers.leftAt)),
-        with: { team: true },
-      })) as unknown as Array<{
-        userId: string
-        team: { id: string; seniorSharePercentOverride: number | null; archivedAt: Date | null }
-      }>
-    } catch {
-      rows = []
-    }
-
-    for (const row of rows) {
-      if (!row.team || row.team.archivedAt !== null) continue
-      const list = map.get(row.userId) ?? []
-      list.push({
-        id: row.team.id,
-        seniorSharePercentOverride: row.team.seniorSharePercentOverride ?? null,
-      })
-      map.set(row.userId, list)
-    }
-    return map
-  }
+  private static readonly APPROVAL_SUBJECT_TYPE = PROJECT_APPROVAL_SUBJECT_TYPE
 
   private mapProject(
     project: ProjectWithRelations,
     teamOverridesBySeniorId:
-      | Map<string, { id: string; seniorSharePercentOverride: number | null }[]>
-      | undefined,
+      Map<string, { id: string; seniorSharePercentOverride: number | null }[]> | undefined,
     viewerRole: SessionUser['role'],
-    /**
-     * task-project-status-filter-ui. Pre-computed (batched, never queried
-     * per-row here — `mapProject` stays synchronous) rejection-reason
-     * lookup, keyed by project id. No entry for a given id → `null` on the
-     * DTO. Defaults to an empty map (not `undefined`) so every call site —
-     * including the ones that structurally never carry a REJECTED project
-     * (`approveDraft`'s response) — can omit the argument without an
-     * optional-chaining fallback that would never be exercised.
-     * Callers: `findAll`/`findOne` pass a batch built via
-     * `ApprovalsService.getRejectionReasons`; `rejectDraft` (via
-     * `loadForResponse`) passes a single-entry map built from the reason it
-     * already has in scope (no query needed for "the project I just
-     * rejected").
-     */
     rejectionReasonByProjectId: Map<string, string> = new Map(),
-    /**
-     * SPEC-M-2 (PR #646 fix-round 1). Same batched-lookup contract as
-     * `rejectionReasonByProjectId` immediately above, for "which invited
-     * approver(s) still owe a decision" (`ApprovalsService.
-     * getPendingApproverIds`) — keyed by project id, value is the RAW
-     * (pre-mask) set of still-pending approver user ids, checked below
-     * against `project.seniorId`/`project.dropId` (also raw) to produce the
-     * two DTO booleans — see `seniorApprovalPending`'s schema doc for why
-     * booleans, not the raw ids, cross the mapping boundary. Defaults to an
-     * empty map for the same reason as its REJECTED sibling: call sites
-     * that structurally never carry a DRAFT project (e.g. `rejectDraft`'s
-     * response, always REJECTED) can omit the argument.
-     */
     pendingApproverIdsByProjectId: Map<string, Set<string>> = new Map(),
-    /**
-     * task-pending-share (position 5). Pre-resolved by the CALLER (this
-     * method itself stays synchronous — `ApprovalsService.getStatus` is
-     * async) and only on the single-project read paths that need it
-     * (findOne / update / loadForResponse). `undefined` on the list
-     * endpoint (findAll) and on `create` (a brand-new project cannot yet
-     * have a pending share proposal) — both render the DTO field as `null`,
-     * same as an explicit "nothing pending" would.
-     */
     pendingSeniorShare?: PendingSeniorShare | null,
   ) {
-    // task-team-senior-share-override. Compute effective share + source for
-    // the UI. The resolver mirrors the snapshot logic in
-    // TransactionsService.createSeniorIncome / PaymentChannelService so the
-    // value rendered here equals the value that *would* be stamped on the
-    // next income created against this project.
-    const senior = project.senior
-    let effectiveSeniorSharePercent: number | null = null
-    let effectiveSeniorShareSource: 'PROJECT' | 'TEAM' | 'USER_DEFAULT' | null = null
-    if (senior) {
-      const applicableTeams = teamOverridesBySeniorId?.get(senior.id) ?? []
-      const resolved = resolveSeniorShare(
-        { seniorSharePercentOverride: project.seniorSharePercentOverride },
-        { seniorSharePercent: senior.seniorSharePercent },
-        applicableTeams,
-      )
-      effectiveSeniorSharePercent = resolved.value
-      effectiveSeniorShareSource = resolved.source
-    }
-
-    // task-drop-share-override-and-receiver (Part A / D6). Effective drop share +
-    // source for the UI hint — same resolver the DROP_INCOME snapshot uses, so
-    // the value rendered here equals what would be stamped on the next drop
-    // income. Only meaningful for drop-projects (project.drop present).
-    const drop = project.drop
-    let effectiveDropSharePercent: number | null = null
-    let effectiveDropShareSource: 'PROJECT' | 'USER_DEFAULT' | null = null
-    if (drop) {
-      const resolvedDrop = resolveDropShare(
-        { dropSharePercentOverride: project.dropSharePercentOverride },
-        { dropSharePercent: drop.dropSharePercent },
-      )
-      effectiveDropSharePercent = resolvedDrop.value
-      effectiveDropShareSource = resolvedDrop.source
-    }
-    // Allowlist masking for JUNIOR viewers (RBAC A01):
-    // JUNIOR must not receive senior identity, drop identity, or any financial
-    // data. All sensitive fields are emitted as null so the DTO itself carries
-    // no sensitive data regardless of UI rendering. Members list is also
-    // emptied — JUNIOR knows they are a member of the project (they navigated
-    // here) but must not see the rest of the team roster via this endpoint.
-    const isJuniorViewer = viewerRole === 'JUNIOR'
-
-    // task-admin-as-senior: when the project's senior is an ADMIN user,
-    // only ADMIN and ACCOUNTANT viewers get the real seniorId (navigable profile).
-    // All other non-JUNIOR roles (SENIOR, HR, DROP) get seniorId=null — they see
-    // the displayName but cannot navigate to the admin's profile (403 for them).
-    // JUNIOR falls through to the existing null path regardless.
-    const isPrivilegedViewer = viewerRole === 'ADMIN' || viewerRole === 'ACCOUNTANT'
-    const isAdminSenior = project.senior?.role === 'ADMIN'
-
-    // Effective seniorId for non-JUNIOR viewers:
-    //   - Regular project (senior role ≠ ADMIN): real seniorId
-    //   - Admin-project + privileged viewer (ADMIN/ACCOUNTANT): real seniorId
-    //   - Admin-project + non-privileged viewer (SENIOR/HR/DROP): null (no link)
-    const effectiveSeniorId: string | null = isJuniorViewer
-      ? null
-      : isAdminSenior && !isPrivilegedViewer
-        ? null
-        : (project.seniorId ?? null)
-
-    // task-junior-ux-1-backend: legend persona enrichment for JUNIOR.
-    // JUNIOR sees the persona name/role instead of real identity (which stays null).
-    // Non-JUNIOR viewers get null for these fields (they use seniorName/seniorId).
-    // Real identity fields (seniorId, dropId, contacts) remain null for JUNIOR —
-    // allowlist is ENRICHED (persona name/role added), NOT opened (real ID stays null).
-    const legend = project.legend ?? null
-    const seniorPresentedRole: string | null =
-      isJuniorViewer && legend ? (legend.presentedRole ?? null) : null
-
-    return {
-      id: project.id,
-      name: project.name,
-      companyName: project.companyName,
-      domain: project.domain,
-      logoDocumentId: project.logoDocumentId ?? null,
-      logoExternalUrl: project.logoExternalUrl ?? null,
-      startDate: project.startDate.toISOString(),
-      // Identity masking (RBAC A01): JUNIOR must not know who the senior is.
-      // task-admin-as-senior: non-privileged viewers also get null for admin-projects.
-      seniorId: effectiveSeniorId,
-      // JUNIOR: persona fullName from legend (or null if no legend). Non-JUNIOR: real displayName.
-      seniorName: isJuniorViewer ? (legend?.fullName ?? null) : (project.senior?.displayName ?? ''),
-      // Legend persona role — JUNIOR only. Non-JUNIOR viewers get null (unused by their UI).
-      seniorPresentedRole,
-      // Drop identity masking:
-      //   JUNIOR  — must not know the drop exists or who it is (full mask).
-      //   SENIOR  — must not receive drop identity (displayName/email/avatarUrl) per
-      //             RBAC rule #2 (legend: subject = drop ?? senior). Only opaque
-      //             dropId and financial dropSharePercent are kept so the FE can
-      //             mount the ProjectDropDistribution widget and perform the
-      //             subject-check (user?.id === project?.dropId).
-      // Drop role - phase 1: surfaced on the wire so FE can render drop-aware
-      // hints/badges. NULL = legacy senior-project OR JUNIOR viewer.
-      dropId: isJuniorViewer ? null : (project.dropId ?? null),
-      // Drop role - phase 2: snapshot of the DROP user's display name.
-      // Masked for JUNIOR (no identity) AND SENIOR (identity hidden, opaque dropId kept).
-      dropName:
-        isJuniorViewer || viewerRole === 'SENIOR' ? null : (project.drop?.displayName ?? null),
-      dropSharePercent: isJuniorViewer ? null : (project.drop?.dropSharePercent ?? null),
-      // task-drop-share-override-and-receiver (Part A / D6). Per-project DROP
-      // share override + computed default + effective resolution (project
-      // override → user default → 5). Masked for JUNIOR. `null` when there is
-      // no drop on the project.
-      dropSharePercentOverride: isJuniorViewer ? null : (project.dropSharePercentOverride ?? null),
-      dropSharePercentDefault: isJuniorViewer
-        ? null
-        : drop
-          ? (drop.dropSharePercent ?? DEFAULT_DROP_SHARE_PERCENT)
-          : null,
-      effectiveDropSharePercent: isJuniorViewer ? null : effectiveDropSharePercent,
-      effectiveDropShareSource: isJuniorViewer ? null : effectiveDropShareSource,
-      // Finance masking (RBAC A01): JUNIOR members must not receive rate,
-      // currency, or share breakdown — these are emitted as null so the
-      // DTO itself carries no sensitive data regardless of UI rendering.
-      rate: isJuniorViewer ? null : project.rate,
-      currency: isJuniorViewer ? null : project.currency,
-      // Per-project SENIOR share override. NULL = senior's global default.
-      seniorSharePercentOverride: isJuniorViewer
-        ? null
-        : (project.seniorSharePercentOverride ?? null),
-      // Computed default for UI hints — falls back to 26 when senior is
-      // unreachable (e.g. soft-deleted) so the front-end never sees `null`.
-      // Masked for JUNIOR (they should not see the default either).
-      seniorSharePercentDefault: isJuniorViewer ? 0 : (project.senior?.seniorSharePercent ?? 26),
-      // task-team-senior-share-override. Pre-resolved effective share for
-      // the project's senior. Masked for JUNIOR.
-      effectiveSeniorSharePercent: isJuniorViewer ? null : effectiveSeniorSharePercent,
-      effectiveSeniorShareSource: isJuniorViewer ? null : effectiveSeniorShareSource,
-      // task-648-fix-round-1 (QA-HIGH-1/QA-MED-2). Narrower allow-list than
-      // `seniorSharePercentOverride`/`effectiveSeniorSharePercent` above: a
-      // PENDING (unconfirmed) proposal is visible only to ADMIN and the
-      // affected SENIOR themselves — task file: "ожидающее значение — только
-      // ADMIN и сам синьор". `assertAccess` already guarantees a SENIOR
-      // viewer reaching this point IS `project.seniorId` (a SENIOR can only
-      // ever fetch their OWN project), so `viewerRole === 'SENIOR'` alone is
-      // exactly "the affected senior" here — no extra id comparison needed.
-      // ACCOUNTANT/HR/DROP see the ACTIVE `effectiveSeniorSharePercent`
-      // (payroll / team-management need-to-know) but must not learn a change
-      // is even proposed. `undefined` (list endpoint / create) collapses to
-      // `null` here too — the field is simply absent on those responses.
-      pendingSeniorShare: ProjectsService.canSeePendingSeniorShare(viewerRole)
-        ? (pendingSeniorShare ?? null)
-        : null,
-      techStack: project.techStack ?? null,
-      teamSize: project.teamSize ?? null,
-      benefits: project.benefits ?? null,
-      // Additional fields masked for JUNIOR: payment terms and salary review
-      // contain compensation context that JUNIOR must not see.
-      paymentType: isJuniorViewer ? null : (project.paymentType ?? null),
-      salaryReview: isJuniorViewer ? null : (project.salaryReview ?? null),
-      corpTech: project.corpTech ?? null,
-      // Internal notes masked for JUNIOR.
-      notesGeneral: isJuniorViewer ? null : (project.notesGeneral ?? null),
-      // task-project-draft-status: never masked — a DRAFT/REJECTED project is
-      // only ever mapped for a viewer `assertAccess`/`findAll` already
-      // confirmed is ADMIN or an invited approver, so there is nobody left to
-      // mask this field FROM.
-      status: project.status,
-      // SR-M-5 (PR #646 fix-round 2). ADMIN ONLY — narrower than the
-      // "REJECTED project" access gate above. Design spec §1/§2/§6 say
-      // three times that the rejection reason is an ADMIN-only view; the
-      // reason text is free-form and AUTHORED BY an invited approver
-      // (senior or drop), so showing it to the OTHER invited approver would
-      // let that free text identify the author regardless of the identity
-      // masking this same method already does elsewhere (`dropName: null`
-      // for a SENIOR viewer, RBAC rule #2) — a drop's rejection reason
-      // reaching the senior it is deliberately hidden from is exactly the
-      // "DTO itself carries no sensitive data" violation the JUNIOR-masking
-      // comments a few lines up describe for finance fields. The reject
-      // dialog's own copy ("причину увидит админ") is what makes this
-      // narrowing correct, not just a policy choice, so viewer identity is
-      // used as-is, not the project's `assertAccess` outcome — an invited
-      // approver reading their OWN rejected project gets `null` here even
-      // though they legitimately see everything else about the row.
-      rejectionReason:
-        project.status === 'REJECTED' && viewerRole === 'ADMIN'
-          ? (rejectionReasonByProjectId.get(project.id) ?? null)
-          : null,
-      // SPEC-M-2. Checked against `project.seniorId`/`project.dropId` —
-      // the RAW, pre-mask columns on this method's own `project` param, not
-      // the (possibly-masked-to-null) `effectiveSeniorId` local above — see
-      // the schema doc for why a masked id here would silently misreport.
-      // Same "nobody left to mask this FROM" reasoning as `rejectionReason`:
-      // only ever meaningful for a DRAFT project.
-      seniorApprovalPending:
-        project.status === 'DRAFT' &&
-        (pendingApproverIdsByProjectId.get(project.id)?.has(project.seniorId) ?? false),
-      dropApprovalPending:
-        project.status === 'DRAFT' &&
-        !!project.dropId &&
-        (pendingApproverIdsByProjectId.get(project.id)?.has(project.dropId) ?? false),
-      archivedAt: project.archivedAt ? project.archivedAt.toISOString() : null,
-      createdAt: project.createdAt.toISOString(),
-      updatedAt: project.updatedAt.toISOString(),
-      // Members allowlist: JUNIOR sees an empty array — they know they are a
-      // member via project access, but must not see the full roster (senior/HR/
-      // accountant identities). SENIOR viewers have JUNIOR identity redacted
-      // (RBAC rule #1) but see all other members.
-      members: isJuniorViewer
-        ? []
-        : project.members.map((m) => {
-            const isJuniorMember = (m.user?.role ?? 'JUNIOR') === 'JUNIOR'
-            const redact = viewerRole === 'SENIOR' && isJuniorMember
-            return {
-              id: m.id,
-              userId: redact ? '[redacted]' : m.userId,
-              displayName: redact ? '' : (m.user?.displayName ?? ''),
-              email: redact ? '' : (m.user?.email ?? ''),
-              avatarUrl: redact ? null : (m.user?.avatarUrl ?? null),
-              avatarDocumentId: redact ? null : (m.user?.avatarDocumentId ?? null),
-              role: m.user?.role ?? 'JUNIOR',
-              joinedAt: m.joinedAt.toISOString(),
-              leftAt: m.leftAt ? m.leftAt.toISOString() : null,
-            }
-          }),
-    }
-  }
-
-  /**
-   * task-pending-share (position 5). Resolves the `pendingSeniorShare` DTO
-   * field for a single project — the async counterpart to the (synchronous)
-   * masking `mapProject` applies. `null` whenever there is no live PENDING
-   * proposal, determined by `ApprovalsService.getStatus` — NEVER by
-   * `pendingSeniorSharePercentOverride`'s own null-ness (that column can
-   * legitimately hold `null` WHILE pending — see the column's own schema.ts
-   * comment).
-   */
-  /**
-   * task-648-fix-round-3 (SR-L-4). WHO may even be told that a proposal is
-   * open. Three response paths asked this question in three copies of the
-   * same expression — `mapProject`'s mask, `findOne`/`loadForResponse`'s
-   * "don't pay for a value nobody sees" skip, and (from this round)
-   * `update()`'s tail. SR-bm-3 in round 2 fixed one of the copies; SR-L-4
-   * found the next one. A rule with three spellings has three chances to
-   * drift, so it now has one.
-   *
-   * ADMIN and the affected SENIOR only: ACCOUNTANT and HR can reach these
-   * paths (the propose-gate admits ACCOUNTANT outright) and JUNIOR is masked
-   * wholesale, so this is an allow-list, not a denylist — the shape
-   * `security-review` pattern 3 requires on every projection.
-   */
-  private static canSeePendingSeniorShare(viewerRole: string | undefined): boolean {
-    return viewerRole === 'ADMIN' || viewerRole === 'SENIOR'
-  }
-
-  private async loadPendingSeniorShare(
-    projectId: string,
-    senior:
-      | { id: string; displayName: string; seniorSharePercent: number | null }
-      | null
-      | undefined,
-    pendingValue: number | null | undefined,
-    // task-648-fix-round-1 (AC9 mutation-gate gap-fill): NOT optional — all
-    // three call sites already compute this via `loadTeamOverridesBySenior`
-    // before calling in (same as `mapProject`'s own identically-shaped
-    // parameter), so an optional-chaining `?.` here had no live path where
-    // it could ever short-circuit — genuinely dead defensiveness, not a
-    // real "caller might omit this" contract. `.get(senior.id)` returning
-    // `undefined` (this senior has no team override) is the real, exercised
-    // case the `?? []` below still covers.
-    teamOverridesBySeniorId: Map<
-      string,
-      { id: string; seniorSharePercentOverride: number | null }[]
-    >,
-  ): Promise<PendingSeniorShare | null> {
-    if (!senior) return null
-    const status = await this.approvals.getStatus(
-      ProjectsService.SENIOR_SHARE_SUBJECT_TYPE,
-      projectId,
+    return mapProjectToDto(
+      project,
+      teamOverridesBySeniorId,
+      viewerRole,
+      rejectionReasonByProjectId,
+      pendingApproverIdsByProjectId,
+      pendingSeniorShare,
     )
-    if (status !== 'PENDING') return null
-    // task-648-fix-round-1 (COPY-H-2/COPY-H-3): resolve what the effective
-    // percent WOULD become if this proposal is approved, via the SAME
-    // resolver `mapProject` uses for the live value — substituting the
-    // PENDING value for the live project override. This is what makes
-    // `percent: null` ("clear the override") render as the real fallback
-    // number instead of the client falling back to `percent ?? 0`.
-    // `resolveSeniorShare`'s TEAM step (`senior-share-resolver.ts`) keeps
-    // only elements where `t.seniorSharePercentOverride !== null && !==
-    // undefined`. Stryker's canned replacement (a bare string) has no such
-    // property — reading it off a string yields `undefined`, so the element
-    // is filtered out exactly like an empty array would be. `[]` and any
-    // array holding one element that isn't `ResolverTeam`-shaped are
-    // indistinguishable through the ONLY consumer of this value (below); no
-    // legitimate test can tell them apart without fabricating malformed data
-    // the real caller (`loadTeamOverridesBySenior`, a typed Drizzle query)
-    // can never actually produce.
-    // Stryker disable next-line ArrayDeclaration: see comment above — the
-    // fallback value is unobservable through resolveSeniorShare's filter.
-    const applicableTeams = teamOverridesBySeniorId.get(senior.id) ?? []
-    const effectivePercentAfterApproval = resolveSeniorShare(
-      { seniorSharePercentOverride: pendingValue },
-      { seniorSharePercent: senior.seniorSharePercent },
-      applicableTeams,
-    ).value
-    return {
-      percent: pendingValue ?? null,
-      effectivePercentAfterApproval,
-      approverId: senior.id,
-      approverName: senior.displayName,
-    }
-  }
-
-  /**
-   * Validate that the supplied `logoDocumentId` references a document with
-   * `category = 'LOGO'`. ProjectId match is enforced when present — protects
-   * against using the logo of another project. Throws `BadRequestException`.
-   * Null is treated as a clear-logo operation and short-circuits.
-   */
-  private async assertLogoDocument(
-    documentId: string | null | undefined,
-    projectId: string | null,
-  ): Promise<void> {
-    if (documentId === undefined || documentId === null) return
-    const row = await this.db.db.query.documents.findFirst({
-      where: eq(documents.id, documentId),
-    })
-    if (!row) throw apiError('LOGO_DOCUMENT_NOT_FOUND', HttpStatus.BAD_REQUEST)
-    if (row.category !== 'LOGO') {
-      throw apiError('LOGO_DOCUMENT_WRONG_CATEGORY', HttpStatus.BAD_REQUEST)
-    }
-    if (row.deletedAt !== null) {
-      throw apiError('LOGO_DOCUMENT_DELETED', HttpStatus.BAD_REQUEST)
-    }
-    if (projectId !== null && row.projectId !== null && row.projectId !== projectId) {
-      throw apiError('LOGO_DOCUMENT_WRONG_PROJECT', HttpStatus.BAD_REQUEST)
-    }
-  }
-
-  /**
-   * Enforces HR cross-team scoping on write paths.
-   *
-   * HR can only manage projects whose senior belongs to one of HR's own teams.
-   * ADMIN and ACCOUNTANT are unrestricted (no-op for them).
-   * This helper is the single enforcement point for this class of RBAC check
-   * (OWASP A01: Broken Access Control — cross-team IDOR).
-   *
-   * @param seniorId - the `seniorId` column of the target project (may be null for admin-owned)
-   * @param user     - the acting user (SessionUser from JWT)
-   */
-  private async assertHrCanManageProject(
-    seniorId: string | null,
-    user: SessionUser,
-  ): Promise<void> {
-    if (user.role !== 'HR') return
-
-    if (!seniorId) {
-      throw apiError('PROJECT_NOT_IN_YOUR_TEAMS', HttpStatus.FORBIDDEN)
-    }
-
-    const allowedSeniorIds = await this.getHrSeniorIds(user.id)
-    if (!allowedSeniorIds.includes(seniorId)) {
-      throw apiError('PROJECT_NOT_IN_YOUR_TEAMS', HttpStatus.FORBIDDEN)
-    }
-  }
-
-  /**
-   * Returns senior user IDs that this HR actively belongs to (via team_members).
-   * Both the HR membership and the senior membership must have leftAt IS NULL —
-   * an HR who has left the team must not retain access to those projects.
-   * (dedup: was previously inlined as hrCanAccessProject; leftAt fix per task-junior-ux-3-cleanup defer #1)
-   */
-  private async getHrSeniorIds(hrId: string): Promise<string[]> {
-    // Only active HR memberships
-    const hrTeams = await this.db.db
-      .select({ teamId: teamMembers.teamId })
-      .from(teamMembers)
-      .where(and(eq(teamMembers.userId, hrId), isNull(teamMembers.leftAt)))
-    if (!hrTeams.length) return []
-    const teamIds = hrTeams.map((r) => r.teamId)
-    // Only active senior memberships in those same teams
-    const seniors = await this.db.db
-      .select({ userId: teamMembers.userId })
-      .from(teamMembers)
-      .innerJoin(users, eq(users.id, teamMembers.userId))
-      .where(
-        and(
-          inArray(teamMembers.teamId, teamIds),
-          eq(users.role, 'SENIOR'),
-          isNull(teamMembers.leftAt),
-        ),
-      )
-    return seniors.map((r) => r.userId)
   }
 
   async findAll(currentUser: SessionUser, filter: { archived?: boolean | 'all' } = {}) {
@@ -666,7 +187,7 @@ export class ProjectsService {
       for (const p of [...ownerProjects, ...dropProjects]) merged.set(p.id, p)
       filtered = Array.from(merged.values())
     } else if (currentUser.role === 'HR') {
-      const seniorIds = await this.getHrSeniorIds(currentUser.id)
+      const seniorIds = await this.access.getHrSeniorIds(currentUser.id)
       filtered = filtered.filter((p) => p.seniorId !== null && seniorIds.includes(p.seniorId))
     } else if (currentUser.role === 'JUNIOR') {
       filtered = filtered.filter((p) =>
@@ -681,7 +202,7 @@ export class ProjectsService {
     // task-team-senior-share-override. Batch-load team overrides for every
     // senior referenced by the filtered set so `mapProject` resolves the
     // effective share + source without N+1 queries.
-    const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior(filtered)
+    const teamOverridesBySeniorId = await this.read.loadTeamOverridesBySenior(filtered)
     // task-project-status-filter-ui. Batch-load rejection reasons for every
     // REJECTED project in the filtered set — one round trip for the whole
     // list, not one per row. The `.length` guard here (not just inside
@@ -739,276 +260,20 @@ export class ProjectsService {
    * incomesCount is computed from a single batched read of this drop's
    * DROP_INCOME rows (no N+1).
    */
-  async findDropOwnProjects(currentUser: SessionUser): Promise<DropProjectDto[]> {
-    if (currentUser.role !== 'DROP') {
-      throw apiError('DROP_PROJECT_ACCESS_DENIED', HttpStatus.FORBIDDEN)
-    }
-
-    const ownProjects = (await this.db.db.query.projects.findMany({
-      // No archivedAt filter: drop sees both active and closed own projects
-      // (Д1 — the drop is an invited approver, so a still-DRAFT or REJECTED
-      // project belongs on their own list too). status is derived from
-      // archivedAt + projects.status in the mapping below.
-      where: eq(projects.dropId, currentUser.id),
-      with: { senior: { columns: { displayName: true } } },
-    })) as Array<Project & { senior: { displayName: string } | null }>
-
-    // Batch-count this drop's DROP_INCOME rows per project in one read (self-
-    // scoped: receiverId = self). Avoids a per-project query.
-    // security-review PR #456 round 2: sourced from the `nonDeletedTransactions`
-    // VIEW — a deleted income cannot inflate this badge no matter what (see
-    // schema.ts's doc on the view). `projects/` is outside `finance/`, so this
-    // is exactly the cross-module case the round-1 scanner failed to hold.
-    const dropIncomes = await this.db.db
-      .select({ projectId: nonDeletedTransactions.projectId })
-      .from(nonDeletedTransactions)
-      .where(
-        and(
-          eq(nonDeletedTransactions.type, 'DROP_INCOME'),
-          eq(nonDeletedTransactions.receiverId, currentUser.id),
-        ),
-      )
-    const incomesByProject = new Map<string, number>()
-    for (const tx of dropIncomes) {
-      if (!tx.projectId) continue
-      incomesByProject.set(tx.projectId, (incomesByProject.get(tx.projectId) ?? 0) + 1)
-    }
-
-    return ownProjects.map((p) => ({
-      id: p.id,
-      companyName: p.companyName,
-      seniorDisplayName: p.senior?.displayName ?? '',
-      incomesCount: incomesByProject.get(p.id) ?? 0,
-      // SR-M-2 (task-project-draft-status, security-review round 3): this DTO
-      // only ever had a 2-value status (active/closed) — before this fix it
-      // derived it from `archivedAt` ALONE, so a DRAFT or REJECTED project
-      // (never archived) showed as 'active', indistinguishable from a
-      // confirmed one, on the drop's own finance-facing list. A DRAFT/
-      // REJECTED project cannot yet accept transactions (Д2) — it belongs on
-      // the SAME "not yet usable" side of this boolean-shaped enum as an
-      // archived one, not on the 'active' side.
-      status:
-        p.archivedAt === null && p.status === 'ACTIVE' ? ('active' as const) : ('closed' as const),
-    }))
+  findDropOwnProjects(currentUser: SessionUser): Promise<DropProjectDto[]> {
+    return this.scopedRead.findDropOwnProjects(currentUser)
   }
 
-  async findOne(id: string, currentUser: SessionUser) {
-    const project = (await this.db.db.query.projects.findFirst({
-      where: eq(projects.id, id),
-      with: { senior: true, drop: true, members: { with: { user: true } }, legend: true },
-    })) as ProjectWithRelations | undefined
-
-    if (!project) throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
-    await this.assertAccess(project, currentUser)
-
-    const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior([project])
-    // task-project-status-filter-ui. Same batched lookup as `findAll`,
-    // narrowed to this one project — the call is skipped outright (not just
-    // internally short-circuited) for every project that isn't REJECTED.
-    const rejectionReasonByProjectId =
-      project.status === 'REJECTED'
-        ? await this.approvals.getRejectionReasons(ProjectsService.APPROVAL_SUBJECT_TYPE, [
-            project.id,
-          ])
-        : new Map<string, string>()
-    // SPEC-M-2 (PR #646 fix-round 1). Same guarded shape as the REJECTED
-    // lookup just above, for the DRAFT side.
-    const pendingApproverIdsByProjectId =
-      project.status === 'DRAFT'
-        ? await this.approvals.getPendingApproverIds(ProjectsService.APPROVAL_SUBJECT_TYPE, [
-            project.id,
-          ])
-        : new Map<string, Set<string>>()
-    // JUNIOR must not see effectiveTeam — it contains senior/HR/accountant
-    // identity. We skip the computation entirely (saves DB round-trip) and
-    // return undefined so the field is absent from the JUNIOR DTO.
-    const effectiveTeam =
-      currentUser.role === 'JUNIOR'
-        ? undefined
-        : await this.computeEffectiveTeam(project, currentUser.role)
-    // task-648-fix-round-1 (QA-HIGH-1): skip the lookup for anyone who is not
-    // ADMIN or the affected SENIOR — `mapProject` masks the field for every
-    // other role now (not just JUNIOR), same "don't pay for a value nobody
-    // sees" reasoning as effectiveTeam immediately above.
-    const pendingSeniorShare = ProjectsService.canSeePendingSeniorShare(currentUser.role)
-      ? await this.loadPendingSeniorShare(
-          project.id,
-          project.senior,
-          project.pendingSeniorSharePercentOverride,
-          teamOverridesBySeniorId,
-        )
-      : null
-    return {
-      ...this.mapProject(
-        project,
-        teamOverridesBySeniorId,
-        currentUser.role,
-        rejectionReasonByProjectId,
-        pendingApproverIdsByProjectId,
-        pendingSeniorShare,
-      ),
-      effectiveTeam,
-    }
-  }
-
-  /**
-   * Effective team is a computed view (NOT a snapshot at archive time).
-   * - senior: project.seniorId resolved to a user row (typed for SENIOR — but we widen to allow ADMIN-owned projects).
-   * - hrs / accountants: active team_members (leftAt IS NULL) of senior's team.
-   * - juniors: active project_members of THIS project (leftAt IS NULL).
-   *
-   * After unarchive, this naturally reflects the current senior's team — if HR changed
-   * while archived, the new HR appears here without restoring leftAt rows.
-   */
-  private async computeEffectiveTeam(
-    project: ProjectWithRelations,
-    viewerRole: SessionUser['role'],
-  ): Promise<EffectiveTeam> {
-    // task-admin-as-senior: when the project's senior is an ADMIN user,
-    // non-privileged viewers (SENIOR/HR/DROP) must not receive PII (email)
-    // or a navigable profile link. ADMIN/ACCOUNTANT see everything as-is.
-    const isAdminSeniorProject = project.senior?.role === 'ADMIN'
-    const isPrivilegedViewerForSenior = viewerRole === 'ADMIN' || viewerRole === 'ACCOUNTANT'
-    const maskAdminSenior = isAdminSeniorProject && !isPrivilegedViewerForSenior
-
-    const senior = project.senior
-      ? {
-          id: project.senior.id,
-          displayName: project.senior.displayName,
-          // Mask email when senior is ADMIN and viewer is non-privileged.
-          // Empty string keeps the type contract (z.string()) while leaking nothing.
-          email: maskAdminSenior ? '' : project.senior.email,
-          avatarUrl: project.senior.avatarUrl ?? null,
-          avatarDocumentId: project.senior.avatarDocumentId ?? null,
-          // EffectiveTeam.senior.role is typed as 'SENIOR' in the shared schema
-          // for backward compat. We keep this literal even for ADMIN-senior projects
-          // (the role field here indicates the team slot, not the DB role).
-          role: 'SENIOR' as const,
-          // task-admin-as-senior: whether the viewer can navigate to the senior's
-          // profile. False for non-privileged viewers of admin-projects.
-          profileNavigable: !maskAdminSenior,
-        }
-      : null
-
-    // Resolve senior's team via team_members where userId = senior.id.
-    let hrs: EffectiveTeam['hrs'] = []
-    let accountants: EffectiveTeam['accountants'] = []
-    if (project.senior) {
-      const seniorMembership = await this.db.db.query.teamMembers.findFirst({
-        where: and(eq(teamMembers.userId, project.senior.id), isNull(teamMembers.leftAt)),
-      })
-      if (seniorMembership) {
-        const teamId = seniorMembership.teamId
-        const teamRows = await this.db.db
-          .select({
-            id: teamMembers.id,
-            userId: teamMembers.userId,
-            displayName: users.displayName,
-            email: users.email,
-            avatarUrl: users.avatarUrl,
-            avatarDocumentId: users.avatarDocumentId,
-            role: users.role,
-          })
-          .from(teamMembers)
-          .innerJoin(users, eq(users.id, teamMembers.userId))
-          .where(and(eq(teamMembers.teamId, teamId), isNull(teamMembers.leftAt)))
-        hrs = teamRows
-          .filter((r) => r.role === 'HR')
-          .map((r) => ({
-            id: r.id,
-            userId: r.userId,
-            displayName: r.displayName,
-            email: r.email,
-            avatarUrl: r.avatarUrl ?? null,
-            avatarDocumentId: r.avatarDocumentId ?? null,
-            role: 'HR' as const,
-          }))
-        accountants = teamRows
-          .filter((r) => r.role === 'ACCOUNTANT')
-          .map((r) => ({
-            id: r.id,
-            userId: r.userId,
-            displayName: r.displayName,
-            email: r.email,
-            avatarUrl: r.avatarUrl ?? null,
-            avatarDocumentId: r.avatarDocumentId ?? null,
-            role: 'ACCOUNTANT' as const,
-          }))
-      }
-    }
-
-    // RBAC rule #1: SENIOR viewers must not see JUNIOR identity in effective team.
-    // When viewerRole === 'SENIOR', return empty array — the slot count is still
-    // visible via mapProject.members (redacted), but no personal data is leaked.
-    const juniors =
-      viewerRole === 'SENIOR'
-        ? []
-        : project.members
-            .filter((m) => m.leftAt === null && m.user?.role === 'JUNIOR')
-            .map((m) => ({
-              id: m.id,
-              userId: m.userId,
-              displayName: m.user?.displayName ?? '',
-              email: m.user?.email ?? '',
-              avatarUrl: m.user?.avatarUrl ?? null,
-              avatarDocumentId: m.user?.avatarDocumentId ?? null,
-              role: m.user?.role ?? 'JUNIOR',
-              joinedAt: m.joinedAt.toISOString(),
-              leftAt: null as null,
-            }))
-
-    // Drop role - phase 2. Surface the drop user (when project.dropId set)
-    // so FE can render «Дроп» row in the effective-team section without an
-    // extra fetch. dropSharePercent is duplicated here for the distribution
-    // breakdown widget (Phase 2 AC3).
-    //
-    // RBAC rule #2 (mirror of JUNIOR masking above): SENIOR must not receive
-    // drop identity — the legend subject is "drop ?? senior", so the drop's
-    // name/email/avatar would reveal which of the two personas is the real
-    // senior. We return null for the entire effectiveTeam.drop object when the
-    // viewer is SENIOR (same treatment as JUNIOR identity redaction above).
-    // UI: SENIOR does not render the «Дроп» row in effective-team (PR #359).
-    // Detach dialog is canManage-only (ADMIN/HR) — nothing breaks.
-    const drop: EffectiveTeam['drop'] =
-      viewerRole === 'SENIOR'
-        ? null
-        : project.drop
-          ? {
-              id: project.drop.id,
-              displayName: project.drop.displayName,
-              email: project.drop.email,
-              avatarUrl: project.drop.avatarUrl ?? null,
-              avatarDocumentId: project.drop.avatarDocumentId ?? null,
-              role: 'DROP' as const,
-              dropSharePercent: project.drop.dropSharePercent ?? 5,
-            }
-          : null
-
-    return { senior, drop, hrs, accountants, juniors }
+  findOne(id: string, currentUser: SessionUser) {
+    return this.read.findOne(id, currentUser)
   }
 
   async create(data: CreateProjectDto, currentUser: SessionUser) {
-    // seniorSharePercentOverride is field-scoped RBAC: only ADMIN and
-    // ACCOUNTANT may set it. We check this BEFORE the create-role check so
-    // an HR caller sending the field still gets the more-specific 403
-    // (and so TS doesn't narrow `currentUser.role` away from ACCOUNTANT).
+    // Field-scoped RBAC (senior/drop override, paymentType: ADMIN/ACCOUNTANT only)
+    // runs BEFORE the create-role check so an HR caller sending a finance field
+    // still gets the more-specific 403.
     const role = currentUser.role
-    if (
-      data.seniorSharePercentOverride !== undefined &&
-      role !== 'ADMIN' &&
-      role !== 'ACCOUNTANT'
-    ) {
-      throw apiError('SENIOR_SHARE_OVERRIDE_FORBIDDEN', HttpStatus.FORBIDDEN)
-    }
-    // task-drop-share-override-and-receiver (D1/D6). Field-scoped RBAC for
-    // paymentType + dropSharePercentOverride — same contract as the senior
-    // override: only ADMIN/ACCOUNTANT may send these fields.
-    if (data.dropSharePercentOverride !== undefined && role !== 'ADMIN' && role !== 'ACCOUNTANT') {
-      throw apiError('DROP_SHARE_OVERRIDE_FORBIDDEN', HttpStatus.FORBIDDEN)
-    }
-    if (data.paymentType !== undefined && role !== 'ADMIN' && role !== 'ACCOUNTANT') {
-      throw apiError('PAYMENT_TYPE_CHANGE_FORBIDDEN', HttpStatus.FORBIDDEN)
-    }
+    assertFinanceFieldsAllowed(data, role)
 
     if (role !== 'ADMIN' && role !== 'HR') {
       throw new ForbiddenException()
@@ -1022,7 +287,7 @@ export class ProjectsService {
       throw apiError('USER_NOT_SENIOR_OR_ADMIN', HttpStatus.BAD_REQUEST)
 
     // HR cross-team scoping: HR may only create projects for seniors in their own teams.
-    await this.assertHrCanManageProject(data.seniorId, currentUser)
+    await this.access.assertHrCanManageProject(data.seniorId, currentUser)
 
     const override =
       data.seniorSharePercentOverride === undefined ? null : data.seniorSharePercentOverride
@@ -1044,22 +309,13 @@ export class ProjectsService {
     // Drop role - phase 2: validate `dropId` references an active DROP user.
     // `undefined`/`null` = regular senior-project (no drop). Reject any other
     // role to keep the FK invariant (`projects.dropId` → users WHERE role=DROP).
-    let resolvedDropId: string | null = null
-    if (data.dropId !== undefined && data.dropId !== null) {
-      const drop = await this.db.db.query.users.findFirst({
-        where: eq(users.id, data.dropId),
-      })
-      if (!drop) throw apiError('DROP_NOT_FOUND', HttpStatus.NOT_FOUND)
-      if (drop.role !== 'DROP') throw apiError('USER_NOT_DROP', HttpStatus.BAD_REQUEST)
-      if (drop.archivedAt) throw apiError('DROP_ARCHIVED', HttpStatus.BAD_REQUEST)
-      resolvedDropId = drop.id
-    }
+    const resolvedDropId = await resolveActiveDropId(this.db.db, data.dropId)
 
     // Validate logo document FK before insert — if it points at a non-LOGO
     // document or a deleted row, fail with 400 instead of catching a DB
     // constraint violation. Project does not exist yet, so projectId is null.
     if (data.logoDocumentId !== undefined && data.logoDocumentId !== null) {
-      await this.assertLogoDocument(data.logoDocumentId, null)
+      await assertLogoDocument(this.db.db, data.logoDocumentId, null)
     }
 
     // task-project-draft-status, decision Д1: "Строки согласования создаются
@@ -1156,7 +412,7 @@ export class ProjectsService {
     // transactions.service.ts SENIOR_INCOME calc keeps reading the same
     // effective value via `project.financeSettings.seniorSharePercentOverride`.
     if (project && data.seniorSharePercentOverride !== undefined) {
-      await this.syncFinanceSettingsOverride(project.id, override, currentUser.id)
+      await this.shareChange.syncFinanceSettingsOverride(project.id, override, currentUser.id)
     }
 
     const created = (await this.db.db.query.projects.findFirst({
@@ -1166,7 +422,7 @@ export class ProjectsService {
       with: { senior: true, drop: true, members: { with: { user: true } }, legend: true },
     })) as ProjectWithRelations
 
-    const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior([created])
+    const teamOverridesBySeniorId = await this.read.loadTeamOverridesBySenior([created])
     // SPEC-M-2 (PR #646 fix-round 1). Unlike rejectionReason (structurally
     // impossible here — a project this method just inserted is always
     // DRAFT, never REJECTED), a fresh DRAFT's pendingApproverIds is NOT
@@ -1189,533 +445,35 @@ export class ProjectsService {
     )
   }
 
-  /**
-   * task-project-draft-status, item 4. The invited approver (senior or drop
-   * — see `create()`) confirms. `currentUser.id` is what
-   * `ApprovalsService.approveInTx` uses as `approverUserId` — never a
-   * client-supplied id, per that service's own security contract (it trusts
-   * whatever id it is given; deriving it from the session, not the request
-   * body, is THIS caller's responsibility).
-   *
-   * Atomic with the status flip: `approveInTx` + the aggregate re-read +
-   * `projects.status` write are the SAME `db.transaction` — a concurrent
-   * second approver's `approveInTx` cannot observe a project whose approvals
-   * say APPROVED-so-far but whose `status` still reads DRAFT (or vice versa).
-   *
-   * security-review round 2 (SR-H-5): refuses outright under impersonation.
-   * `currentUser.id` above is exactly what makes this endpoint's ONLY guard
-   * (an invited approver's own live `approvals` row — see `approveInTx`)
-   * satisfiable by an ADMIN who impersonated that approver: `POST
-   * /auth/impersonate` swaps `id`/`role` to the TARGET's, so the "invited
-   * caller" check cannot tell the difference. Unlike the other methods in
-   * this file (`archive`/`unarchive`/`update`/`addMember`), which read
-   * `currentUser.impersonatorId ?? currentUser.id` to ATTRIBUTE the write to
-   * the real operator, attribution is not enough here — confirmation IS the
-   * consent record this whole task exists to produce (design spec §3: a
-   * project's money "не вступают в силу, пока он не согласится в CRM"), and
-   * `approvals` has no column for "who actually clicked" to attribute to.
-   * Writing "senior APPROVED" when the senior never opened the app is worse
-   * than writing nothing — it looks like proof of consent that never
-   * happened. So this refuses instead of recording, for both approve and
-   * reject (a fabricated rejection reason would be the mirror of the same
-   * problem).
-   */
-  async approveDraft(id: string, currentUser: SessionUser) {
-    if (currentUser.impersonatorId) {
-      // task-i18n-stage2-task5: envelope code, not this prose — the client
-      // re-translates by `code` (`getApiErrorMessage`); see
-      // `PROJECT_DECISION_IMPERSONATION` (`packages/shared/src/schemas/api-errors.ts`).
-      throw apiError('PROJECT_DECISION_IMPERSONATION', HttpStatus.FORBIDDEN)
-    }
-    await this.db.db.transaction(async (tx) => {
-      await this.approvals.approveInTx(tx, {
-        subjectType: ProjectsService.APPROVAL_SUBJECT_TYPE,
-        subjectId: id,
-        approverUserId: currentUser.id,
-      })
-      await this.applyApprovalAggregate(tx, id)
-    })
-    return this.loadForResponse(id, currentUser)
+  approveDraft(id: string, currentUser: SessionUser) {
+    return this.draft.approveDraft(id, currentUser)
   }
 
-  /**
-   * task-project-draft-status, item 4 + design spec §3 decision 3/5:
-   * rejection requires a reason (enforced by `rejectApprovalInputSchema` +
-   * the DB CHECK — this service does not re-validate it, the same "the DB is
-   * the backstop" contract `ApprovalsService` documents for itself) and voids
-   * the WHOLE proposal (decision #5), never just this approver's own row.
-   *
-   * security-review round 2 (SR-H-5): same impersonation refusal as
-   * `approveDraft` above — see that method's comment for the full reasoning.
-   */
-  async rejectDraft(id: string, reason: string, currentUser: SessionUser) {
-    if (currentUser.impersonatorId) {
-      // task-i18n-stage2-task5: same code, see approveDraft's comment above.
-      throw apiError('PROJECT_DECISION_IMPERSONATION', HttpStatus.FORBIDDEN)
-    }
-    await this.db.db.transaction(async (tx) => {
-      await this.approvals.rejectInTx(tx, {
-        subjectType: ProjectsService.APPROVAL_SUBJECT_TYPE,
-        subjectId: id,
-        approverUserId: currentUser.id,
-        reason,
-      })
-      await this.applyApprovalAggregate(tx, id)
-    })
-    // task-project-status-filter-ui. `reason` is already in scope — pass it
-    // straight through instead of re-querying `approvals` for the row this
-    // very call just wrote (also keeps this path clear of the new
-    // `getRejectionReasons` query entirely, see `loadForResponse`'s doc).
-    return this.loadForResponse(id, currentUser, new Map([[id, reason]]))
+  rejectDraft(id: string, reason: string, currentUser: SessionUser) {
+    return this.draft.rejectDraft(id, reason, currentUser)
   }
 
-  /**
-   * Reads the subject's post-write aggregate (SAME tx as the approve/reject
-   * that just ran) and writes it back to `projects.status`:
-   *   APPROVED (every invited approver confirmed) → ACTIVE
-   *   REJECTED (any one declined)                 → REJECTED
-   *   PENDING  (partial agreement)                 → no write; stays DRAFT
-   * `NONE` cannot occur here — this only runs right after a row for this
-   * subject was just written.
-   */
-  private async applyApprovalAggregate(tx: DrizzleTx, projectId: string): Promise<void> {
-    const aggregate = await this.approvals.getStatusInTx(
-      tx,
-      ProjectsService.APPROVAL_SUBJECT_TYPE,
-      projectId,
-    )
-    if (aggregate === 'APPROVED' || aggregate === 'REJECTED') {
-      // ApprovalGroupStatus 'APPROVED' maps to ProjectStatus 'ACTIVE' — the
-      // two enums use different vocabulary for the same "everyone confirmed"
-      // fact (Approval is subject-agnostic and never says "ACTIVE"; the
-      // project's own status column speaks project-lifecycle language).
-      const newStatus = aggregate === 'APPROVED' ? ('ACTIVE' as const) : ('REJECTED' as const)
-      await tx
-        .update(projects)
-        .set({ status: newStatus, updatedAt: new Date() })
-        .where(eq(projects.id, projectId))
-    }
+  approveSeniorShareChange(id: string, currentUser: SessionUser) {
+    return this.shareChange.approveSeniorShareChange(id, currentUser)
   }
 
-  /**
-   * Re-fetches + maps a project for the approve/reject response.
-   *
-   * `rejectionReasonByProjectId` — task-project-status-filter-ui: the caller
-   * builds this directly instead of this method deriving it, because the
-   * two callers need it built two different ways: `rejectDraft` already has
-   * the reason it just wrote in scope (no query needed — passes a
-   * single-entry map); `approveDraft` omits it — its result is never
-   * REJECTED, so `mapProject`'s default empty map is exactly right, and
-   * deliberately NOT the same "batch-query `getRejectionReasons`" path
-   * `findAll`/`findOne` use (would be a DB round trip for a value that can
-   * never matter here).
-   */
-  private async loadForResponse(
-    id: string,
-    currentUser: SessionUser,
-    rejectionReasonByProjectId?: Map<string, string>,
-  ) {
-    const project = (await this.db.db.query.projects.findFirst({
-      where: eq(projects.id, id),
-      with: { senior: true, drop: true, members: { with: { user: true } }, legend: true },
-    })) as ProjectWithRelations | undefined
-    if (!project) throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
-    const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior([project])
-    // SPEC-M-2 (PR #646 fix-round 1). Computed HERE (not by the caller, unlike
-    // rejectionReasonByProjectId above) because it needs the SAME guard for
-    // BOTH callers: `rejectDraft`'s result is always REJECTED (never needs
-    // it — mapProject's own status check already yields `[]`), but
-    // `approveDraft`'s result can legitimately still be DRAFT (business
-    // spec §4.1 partial agreement — the other invited approver hasn't
-    // decided yet), and in that case the response SHOULD carry the
-    // remaining pending approver, not an empty array from a caller that
-    // never asked.
-    const pendingApproverIdsByProjectId =
-      project.status === 'DRAFT'
-        ? await this.approvals.getPendingApproverIds(ProjectsService.APPROVAL_SUBJECT_TYPE, [
-            project.id,
-          ])
-        : new Map<string, Set<string>>()
-    // task-pending-share: this response path is shared by approveDraft /
-    // rejectDraft / approveSeniorShareChange / rejectSeniorShareChange /
-    // cancelSeniorShareChange — the caller may just have resolved a share
-    // proposal (or a draft proposal while a share proposal ALSO happens to
-    // be live), so it resolves this rather than trusting which action got it
-    // here.
-    //
-    // task-648-fix-round-2 (SR-bm-3): but only for a viewer who may SEE it.
-    // `mapProject` (below) masks the field for every role except ADMIN and
-    // the affected SENIOR, so resolving it for an ACCOUNTANT — who reaches
-    // this method through `cancelSeniorShareChange` — was a round-trip whose
-    // result was thrown away one line later. `findOne` already applied this
-    // exact gate; the two response paths silently disagreed about who may
-    // even ask.
-    const pendingSeniorShare = ProjectsService.canSeePendingSeniorShare(currentUser.role)
-      ? await this.loadPendingSeniorShare(
-          project.id,
-          project.senior,
-          project.pendingSeniorSharePercentOverride,
-          teamOverridesBySeniorId,
-        )
-      : null
-    return this.mapProject(
-      project,
-      teamOverridesBySeniorId,
-      currentUser.role,
-      rejectionReasonByProjectId,
-      pendingApproverIdsByProjectId,
-      pendingSeniorShare,
-    )
+  rejectSeniorShareChange(id: string, reason: string, currentUser: SessionUser) {
+    return this.shareChange.rejectSeniorShareChange(id, reason, currentUser)
   }
 
-  /**
-   * «Ждёт решения: новая доля» — тому, чья доля меняется, и никому больше
-   * (§7.2 + §7.3). Позиция 5 оставила этот шов пустым и Stryker-подавленным,
-   * потому что типа уведомления ещё не существовало; позиция 6 его заполняет —
-   * подавление снято, метод стал настоящим и проверяется как всякий другой.
-   *
-   * Изменились две вещи против прежней подписи, обе намеренно:
-   *   - появился `tx` — запись пишется в ТОЙ ЖЕ транзакции, что и само
-   *     предложение (см. `proposeSeniorShareChange` ниже);
-   *   - метод стал асинхронным.
-   * Спека-хендофф (`projects.pending-share.spec.ts`) обновлена под обе.
-   */
-  private async notifyPendingSeniorShareProposed(
-    tx: DrizzleTx,
-    input: NotifyPendingShareInput,
-  ): Promise<void> {
-    // SR-H-2 (security-review круг 2): путь производителя — во вложенной
-    // транзакции (SAVEPOINT); подробности у близнеца в `UsersService`.
-    await this.notifications.emitInTx(tx, async (sp) => {
-      await this.notifications.createInTx(sp, {
-        userId: input.approverUserId,
-        type: 'SHARE_CONFIRM_REQUIRED',
-        title: NOTIFICATION_TITLES.SHARE_CONFIRM_REQUIRED,
-        subjectType: 'PROJECT',
-        subjectId: input.subjectId,
-        // Проценты — ДАННЫЕ, не текст: «26% → 30%» рисует клиент. В письмо
-        // (позиция 7) уходит только нейтральный заголовок выше — цифры за
-        // пределы нашего контура не идут (§10).
-        data: {
-          scope: 'PROJECT',
-          projectName: input.projectName,
-          previousPercent: input.previousPercent,
-          proposedPercent: input.proposedPercent,
-          approvalId: input.approvalId,
-        },
-        // Ключа НЕТ намеренно: повторное предложение обязано спросить заново —
-        // именно это и означает `supersededAt` на предыдущем поколении строк
-        // согласования. Заглушить второе предложение значило бы потерять
-        // подтверждение.
-      })
-    })
-  }
-
-  /**
-   * task-pending-share (position 5, design spec §4.3). Opens (or re-opens —
-   * `ApprovalsService.proposeInTx` supersedes the previous generation on its
-   * own) a proposal for a NEW `seniorSharePercentOverride` value. Writes
-   * ONLY `pendingSeniorSharePercentOverride` — `update()` never writes the
-   * active column directly any more; `approveSeniorShareChange` is what
-   * swaps them. `proposedValue` may legitimately be `null` — "propose
-   * clearing the override back to the team/user default" is a real proposal
-   * (see the column's own schema.ts comment).
-   */
-  private async proposeSeniorShareChange(
-    projectId: string,
-    approverUserId: string,
-    proposedValue: number | null,
-    actorId: string,
-    // Caller (`update()`) already has this on hand from the row it read
-    // before deciding to propose — no need for a second SELECT here.
-    previousValue: number | null,
-    // То же самое и по той же причине — название проекта для подписи
-    // уведомления (позиция 6).
-    projectName: string | null,
-  ): Promise<void> {
-    await this.db.db.transaction(async (tx) => {
-      const [approval] = await this.approvals.proposeInTx(tx, {
-        subjectType: ProjectsService.SENIOR_SHARE_SUBJECT_TYPE,
-        subjectId: projectId,
-        approverUserIds: [approverUserId],
-        proposedByUserId: actorId,
-      })
-      // Stryker disable next-line all: defensive-only (и условие, и текст сообщения) — `proposeInTx` вставляет по строке на каждого подтверждающего и возвращает `.returning()`; при непустом `approverUserIds` пустой массив на настоящем Postgres невозможен.
-      if (!approval) throw new Error('Failed to open senior-share approval')
-      await tx
-        .update(projects)
-        .set({ pendingSeniorSharePercentOverride: proposedValue, updatedAt: new Date() })
-        .where(eq(projects.id, projectId))
-
-      // task-notification-types-producers (позиция 6). Вызов ПЕРЕЕХАЛ внутрь
-      // транзакции: позиция 5 оставляла шов пустым и звала его после коммита,
-      // потому что звать было нечего. Теперь он пишет строку, и предложение
-      // без просьбы подтвердить — как и просьба без предложения — становятся
-      // структурно невозможны.
-      await this.notifyPendingSeniorShareProposed(tx, {
-        subjectId: projectId,
-        approverUserId,
-        proposedPercent: proposedValue,
-        previousPercent: previousValue,
-        projectName,
-        approvalId: approval.id,
-      })
-    })
-  }
-
-  /**
-   * task-pending-share, AC3: the pending → active swap (AND the
-   * project_finance_settings mirror sync) happens as ONE operation —
-   * `approveInTx` and both writes below run in the SAME transaction, so no
-   * caller can ever observe a state where the approval is APPROVED but the
-   * active percent (or its mirror) has not moved yet. `impersonatorId` guard
-   * mirrors `approveDraft` exactly — consent must come from the invited
-   * approver's own session, not an admin impersonating them.
-   */
-  async approveSeniorShareChange(id: string, currentUser: SessionUser) {
-    if (currentUser.impersonatorId) {
-      // task-648-fix-round-1 (COPY-H-1): its own Russian string — see
-      // `UsersService.approveSeniorShareChange`'s identical comment.
-      // task-648-fix-round-2 (COPY-M-13): wording matches
-      // `ImpersonationBanner`'s «Вы вошли как …» — see the users-half twin.
-      throw apiError('SHARE_APPROVE_IMPERSONATION_FORBIDDEN', HttpStatus.FORBIDDEN)
-    }
-    await this.db.db.transaction(async (tx) => {
-      await this.approvals.approveInTx(tx, {
-        subjectType: ProjectsService.SENIOR_SHARE_SUBJECT_TYPE,
-        subjectId: id,
-        approverUserId: currentUser.id,
-      })
-      const [row] = await tx
-        .select()
-        .from(projects)
-        .where(eq(projects.id, id))
-        .for('update')
-        .limit(1)
-      // task-648-fix-round-1 (COPY-H-1): Russian — defensive-only (approveInTx
-      // above already proved a live PENDING row exists; only a project
-      // deleted in the instant between that check and this re-select could
-      // reach here), but still user-facing text if it ever fires.
-      if (!row) throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
-      // `row.pendingSeniorSharePercentOverride` is read as-is (including
-      // `null`, a legitimate "clear the override" outcome) — safe to trust
-      // here because `approveInTx` above already threw for "no live PENDING
-      // row for this subject/approver", so reaching this line means a real
-      // proposal existed.
-      const newOverride = row.pendingSeniorSharePercentOverride
-      await tx
-        .update(projects)
-        .set({
-          seniorSharePercentOverride: newOverride,
-          pendingSeniorSharePercentOverride: null,
-          updatedAt: new Date(),
-        })
-        .where(eq(projects.id, id))
-      await this.syncFinanceSettingsOverride(id, newOverride, currentUser.id, tx)
-      await this.projectAuditLogService.record(
-        {
-          actorId: currentUser.id,
-          targetId: id,
-          action: 'project_edited',
-          changes: {
-            seniorSharePercentOverride: {
-              before: row.seniorSharePercentOverride ?? null,
-              after: newOverride,
-            },
-          },
-        },
-        tx,
-      )
-    })
-    return this.loadForResponse(id, currentUser)
-  }
-
-  /**
-   * task-pending-share, design spec §3 decision 3: rejection requires a
-   * reason (Zod-validated at the controller boundary, DB-enforced as the
-   * backstop by `approvals`'s own CHECK constraint) and discards the pending
-   * value — the active `seniorSharePercentOverride` is untouched, exactly
-   * "При отказе ожидающее отбрасывается, действующее не трогается" (task
-   * file, "Что сделать" §1).
-   */
-  async rejectSeniorShareChange(id: string, reason: string, currentUser: SessionUser) {
-    if (currentUser.impersonatorId) {
-      // task-648-fix-round-1 (COPY-H-1): same reasoning as approve above.
-      throw apiError('SHARE_REJECT_IMPERSONATION_FORBIDDEN', HttpStatus.FORBIDDEN)
-    }
-    await this.db.db.transaction(async (tx) => {
-      await this.approvals.rejectInTx(tx, {
-        subjectType: ProjectsService.SENIOR_SHARE_SUBJECT_TYPE,
-        subjectId: id,
-        approverUserId: currentUser.id,
-        reason,
-      })
-      await tx
-        .update(projects)
-        .set({ pendingSeniorSharePercentOverride: null, updatedAt: new Date() })
-        .where(eq(projects.id, id))
-    })
-    return this.loadForResponse(id, currentUser)
-  }
-
-  /**
-   * task-648-fix-round-1 (SR-H-1), revised in round 2 (SR-H-2).
-   * ADMIN/ACCOUNTANT withdraws an open proposal for this project's senior
-   * share outright — the counterpart to `proposeSeniorShareChange` above.
-   * This is the ONLY way to withdraw one: the "Отменить предложение" button
-   * next to the pending indicator (and inside the edit dialog) posts here.
-   * Round 1 additionally treated "slider returned to the active value" as an
-   * implicit cancel; round 2 removed that branch — see `update()`'s own note
-   * for why an implicit cancel through a side effect was the wrong shape.
-   *
-   * RBAC mirrors the PROPOSE gate in `update()` (ADMIN/ACCOUNTANT), not the
-   * approve/reject pair above — cancelling a proposal you opened is the
-   * proposer's prerogative, never the invited approver's (they get reject()
-   * for that, which requires a reason; this doesn't, because withdrawing
-   * your own draft answers to nobody).
-   *
-   * The core/public split this method used to have died with the implicit
-   * cancel: with `update()` no longer calling in, there was exactly one
-   * caller left and the indirection bought nothing.
-   */
-  async cancelSeniorShareChange(id: string, currentUser: SessionUser) {
-    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
-      // task-648-fix-round-1 (COPY-H-1): user-facing text is Russian
-      // (russian-language.md) — see `UsersService.cancelSeniorShareChange`'s
-      // identical comment.
-      throw apiError('SHARE_CANCEL_ADMIN_ACCOUNTANT_ONLY', HttpStatus.FORBIDDEN)
-    }
-    await this.db.db.transaction(async (tx) => {
-      // task-648-fix-round-3 (SR-M-8 / CR-H-4): `approvals` FIRST, then the
-      // project row — the exact shape `approveSeniorShareChange` above uses,
-      // and the order propose/approve/reject on this service have always
-      // used. Round 2 wrote this method the other way round, which made it
-      // the one path on this half that inverted the pair: an ADMIN
-      // withdrawing while the senior confirms could deadlock (`40P01`,
-      // surfaced to the admin as a 500), reproduced on a scratch database by
-      // the security reviewer. Both properties this ordering used to carry
-      // survive the move: `cancelInTx` throws when there is no live
-      // proposal, the lock+404 guard below still runs before any write, and
-      // `pendingSeniorSharePercentOverride` is untouched by `cancelInTx`, so
-      // `row` still holds the pre-cancel value the audit entry reports as
-      // `before`. A project deleted in the instant between the two now
-      // throws AFTER `cancelInTx` ran — harmless, because the throw aborts
-      // this transaction and the withdrawal rolls back with it.
-      await this.approvals.cancelInTx(tx, ProjectsService.SENIOR_SHARE_SUBJECT_TYPE, id)
-      const [row] = await tx
-        .select()
-        .from(projects)
-        .where(eq(projects.id, id))
-        .for('update')
-        .limit(1)
-      if (!row) throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
-      // Reaching this line means `cancelInTx` found a real PENDING proposal
-      // for `id` (it throws otherwise) — same "no separate existence check
-      // needed" reasoning `approveSeniorShareChange` documents above.
-      await tx
-        .update(projects)
-        .set({ pendingSeniorSharePercentOverride: null, updatedAt: new Date() })
-        .where(eq(projects.id, id))
-      // task-648-fix-round-2 (SR-M-7 / CR-M-2): a withdrawal is an
-      // administrative act on a money field and now names its actor, exactly
-      // like `approveSeniorShareChange` above already did. Same transaction
-      // as the write it describes, so the log can never claim a withdrawal
-      // that rolled back. `impersonatorId ?? id` — the REAL operator, the
-      // convention every other audit call on this service follows.
-      await this.projectAuditLogService.record(
-        {
-          actorId: currentUser.impersonatorId ?? currentUser.id,
-          targetId: id,
-          action: 'project_edited',
-          changes: {
-            pendingSeniorSharePercentOverride: {
-              before: row.pendingSeniorSharePercentOverride ?? null,
-              after: null,
-            },
-          },
-        },
-        tx,
-      )
-    })
-    return this.loadForResponse(id, currentUser)
-  }
-
-  /**
-   * Upsert the projects.senior_share_percent_override mirror into
-   * project_finance_settings. Keeps the existing finance path (which reads
-   * from financeSettings only) in sync with the new direct column.
-   *
-   * task-pending-share (position 5): now also called from
-   * `approveSeniorShareChange`, which must swap the live column AND this
-   * mirror atomically (task AC3 — "одной операцией") — hence the optional
-   * `db` parameter (defaults to the plain pool handle, same
-   * `DatabaseService['db'] | DrizzleTx` pattern `UsersService.updateUserRow`
-   * already uses) so a caller inside a transaction can pass its own `tx`.
-   */
-  private async syncFinanceSettingsOverride(
-    projectId: string,
-    override: number | null,
-    actorId: string,
-    db: DatabaseService['db'] | DrizzleTx = this.db.db,
-  ) {
-    const existing = await db.query.projectFinanceSettings.findFirst({
-      where: eq(projectFinanceSettings.projectId, projectId),
-    })
-    if (existing) {
-      await db
-        .update(projectFinanceSettings)
-        .set({
-          seniorSharePercentOverride: override,
-          updatedBy: actorId,
-          updatedAt: new Date(),
-        })
-        .where(eq(projectFinanceSettings.projectId, projectId))
-    } else {
-      await db.insert(projectFinanceSettings).values({
-        projectId,
-        seniorSharePercentOverride: override,
-        juniorSalaryOverride: null,
-        updatedBy: actorId,
-      })
-    }
+  cancelSeniorShareChange(id: string, currentUser: SessionUser) {
+    return this.shareChange.cancelSeniorShareChange(id, currentUser)
   }
 
   async update(id: string, data: UpdateProjectDto, currentUser: SessionUser) {
-    // Field-scoped RBAC: `seniorSharePercentOverride` (including explicit
-    // null to clear) is restricted to ADMIN and ACCOUNTANT. HR keeps full
-    // edit access to every other field — we only deny when this specific
-    // field is in the payload. Check BEFORE the create/update role narrow
-    // so ACCOUNTANT-only updates (just the override) are accepted.
+    // Field-scoped RBAC (senior/drop override incl. explicit null, paymentType):
+    // ADMIN/ACCOUNTANT only. HR keeps full edit access to every other field.
+    // Checked BEFORE the role narrow so ACCOUNTANT-only finance patches pass.
     const role = currentUser.role
-    if (
-      data.seniorSharePercentOverride !== undefined &&
-      role !== 'ADMIN' &&
-      role !== 'ACCOUNTANT'
-    ) {
-      throw apiError('SENIOR_SHARE_OVERRIDE_FORBIDDEN', HttpStatus.FORBIDDEN)
-    }
-    // task-drop-share-override-and-receiver (D1/D6). Field-scoped RBAC for
-    // paymentType + dropSharePercentOverride (including explicit null) — only
-    // ADMIN/ACCOUNTANT may touch these fields.
-    if (data.dropSharePercentOverride !== undefined && role !== 'ADMIN' && role !== 'ACCOUNTANT') {
-      throw apiError('DROP_SHARE_OVERRIDE_FORBIDDEN', HttpStatus.FORBIDDEN)
-    }
-    if (data.paymentType !== undefined && role !== 'ADMIN' && role !== 'ACCOUNTANT') {
-      throw apiError('PAYMENT_TYPE_CHANGE_FORBIDDEN', HttpStatus.FORBIDDEN)
-    }
+    assertFinanceFieldsAllowed(data, role)
 
-    // ACCOUNTANT may patch only when EVERY field touched is finance-scoped
-    // (senior/drop override or paymentType) — the fields the field-level RBAC
-    // above already gated to ADMIN/ACCOUNTANT. This extends the original
-    // senior-only `hasOnlyOverride` to the drop override + paymentType.
-    const FINANCE_SCOPED_FIELDS = [
-      'seniorSharePercentOverride',
-      'dropSharePercentOverride',
-      'paymentType',
-    ]
-    const dataKeys = Object.keys(data)
-    const hasOnlyOverride =
-      dataKeys.length > 0 && dataKeys.every((k) => FINANCE_SCOPED_FIELDS.includes(k))
+    // ACCOUNTANT may patch only when EVERY field touched is finance-scoped.
+    const hasOnlyOverride = isFinanceOnlyPatch(data)
 
     if (role !== 'ADMIN' && role !== 'HR' && !(role === 'ACCOUNTANT' && hasOnlyOverride)) {
       throw new ForbiddenException()
@@ -1748,7 +506,7 @@ export class ProjectsService {
     // ACCOUNTANT doing a hasOnlyOverride patch is exempted (their patch is finance-scoped,
     // not team-scoped — the field-level RBAC check above already ran).
     if (!(role === 'ACCOUNTANT' && hasOnlyOverride)) {
-      await this.assertHrCanManageProject(project.seniorId, currentUser)
+      await this.access.assertHrCanManageProject(project.seniorId, currentUser)
     }
 
     // Drop role - phase 2: validate updated `dropId` (when present). Same
@@ -1756,17 +514,8 @@ export class ProjectsService {
     // `undefined` (key absent) → leave unchanged.
     let resolvedDropId: string | null | undefined = undefined
     if (data.dropId !== undefined) {
-      if (data.dropId === null) {
-        resolvedDropId = null
-      } else {
-        const drop = await this.db.db.query.users.findFirst({
-          where: eq(users.id, data.dropId),
-        })
-        if (!drop) throw apiError('DROP_NOT_FOUND', HttpStatus.NOT_FOUND)
-        if (drop.role !== 'DROP') throw apiError('USER_NOT_DROP', HttpStatus.BAD_REQUEST)
-        if (drop.archivedAt) throw apiError('DROP_ARCHIVED', HttpStatus.BAD_REQUEST)
-        resolvedDropId = drop.id
-      }
+      resolvedDropId =
+        data.dropId === null ? null : await resolveActiveDropId(this.db.db, data.dropId)
     }
 
     // security-review round 3 (SR-M-4, task-project-draft-status) — DECLINED,
@@ -1796,86 +545,27 @@ export class ProjectsService {
     // это как сброс переопределения (пишем `null`). Иначе — пишем число.
     // Это касается и `projects.seniorSharePercentOverride`, и mirror в
     // `project_finance_settings.seniorSharePercentOverride`.
-    const seniorDefault = project.senior?.seniorSharePercent ?? 26
-    const overrideEffective: number | null | undefined =
-      data.seniorSharePercentOverride === undefined
-        ? undefined
-        : data.seniorSharePercentOverride === null
-          ? null
-          : data.seniorSharePercentOverride === seniorDefault
-            ? null
-            : data.seniorSharePercentOverride
+    const overrideEffective = resolveOverrideEffective(
+      data.seniorSharePercentOverride,
+      pickSeniorDefault(project.senior),
+    )
 
     // task-drop-share-override-and-receiver (D6). Implicit-null reset mirrors the
     // senior override: a value equal to the drop's effective default is stored
     // as null so the resolver keeps falling back to the user default.
-    const dropDefault = project.drop?.dropSharePercent ?? DEFAULT_DROP_SHARE_PERCENT
-    const dropOverrideEffective: number | null | undefined =
-      data.dropSharePercentOverride === undefined
-        ? undefined
-        : data.dropSharePercentOverride === null
-          ? null
-          : data.dropSharePercentOverride === dropDefault
-            ? null
-            : data.dropSharePercentOverride
+    const dropOverrideEffective = resolveOverrideEffective(
+      data.dropSharePercentOverride,
+      pickDropDefault(project.drop),
+    )
 
-    const updateData: Partial<typeof projects.$inferInsert> = {
-      updatedAt: new Date(),
-    }
-    if (data.name !== undefined) updateData.name = data.name
-    if (data.companyName !== undefined) updateData.companyName = data.companyName
-    if (data.domain !== undefined) updateData.domain = data.domain
+    // Validate the logo FK before applying (null clears the document path).
     if (data.logoDocumentId !== undefined) {
-      // Validate the FK before applying. Null clears the document path.
-      await this.assertLogoDocument(data.logoDocumentId, id)
-      updateData.logoDocumentId = data.logoDocumentId ?? null
-      // XOR invariant: setting documentId clears externalUrl, even when the
-      // caller didn't pass externalUrl explicitly. Without this the DB CHECK
-      // would block an update from "external set" to "doc set".
-      if (data.logoDocumentId !== null && data.logoExternalUrl === undefined) {
-        updateData.logoExternalUrl = null
-      }
+      await assertLogoDocument(this.db.db, data.logoDocumentId, id)
     }
-    if (data.logoExternalUrl !== undefined) {
-      updateData.logoExternalUrl = data.logoExternalUrl ?? null
-      // Mirror invariant — setting external clears doc id when caller didn't
-      // pass it. Skip if logoDocumentId was already set above to non-null.
-      if (data.logoExternalUrl !== null && data.logoDocumentId === undefined) {
-        updateData.logoDocumentId = null
-      }
-    }
-    if (data.rate !== undefined) updateData.rate = data.rate
-    if (data.currency !== undefined) updateData.currency = data.currency
     // task-pending-share (position 5): `seniorSharePercentOverride` is
-    // DELIBERATELY excluded from `updateData` — the live column is no
-    // longer written here. `overrideEffective` (computed above, implicit-
-    // null-at-default transform unchanged) is routed through
-    // `proposeSeniorShareChange` further down instead, which requires the
-    // project's SENIOR to confirm before it takes effect.
-    // task-drop-share-override-and-receiver (D6). Write the drop override column
-    // when the caller included it (undefined = unchanged; null / default-equal
-    // → null via implicit reset above).
-    if (dropOverrideEffective !== undefined) {
-      updateData.dropSharePercentOverride = dropOverrideEffective
-    }
-    // Drop role - phase 2. Only write the column when caller explicitly
-    // included `dropId` (undefined = unchanged). `null` clears.
-    if (resolvedDropId !== undefined) {
-      updateData.dropId = resolvedDropId
-    }
-    if (data.techStack !== undefined) updateData.techStack = data.techStack ?? null
-    if (data.teamSize !== undefined) updateData.teamSize = data.teamSize ?? null
-    if (data.benefits !== undefined) updateData.benefits = data.benefits ?? null
-    // task-drop-share-override-and-receiver (D1). paymentType is a NOT NULL enum
-    // column — validate the loose write value and only apply a real value (null
-    // is ignored: you cannot clear a NOT NULL enum; the frontend Select always
-    // sends a concrete value).
-    if (data.paymentType !== undefined && data.paymentType !== null) {
-      updateData.paymentType = projectPaymentTypeSchema.parse(data.paymentType)
-    }
-    if (data.salaryReview !== undefined) updateData.salaryReview = data.salaryReview ?? null
-    if (data.corpTech !== undefined) updateData.corpTech = data.corpTech ?? null
-    if (data.notesGeneral !== undefined) updateData.notesGeneral = data.notesGeneral ?? null
+    // DELIBERATELY excluded from the patch — `overrideEffective` is routed
+    // through `proposeSeniorShareChange` below instead (SENIOR must confirm).
+    const updateData = buildProjectUpdateData(data, resolvedDropId, dropOverrideEffective)
 
     await this.db.db.update(projects).set(updateData).where(eq(projects.id, id))
 
@@ -1888,11 +578,8 @@ export class ProjectsService {
     // "actual-change, not mere presence" gate `updateUserRow` applies to
     // every other entitlement column (no proposal spam on a routine resubmit
     // of an unchanged form).
-    if (
-      overrideEffective !== undefined &&
-      overrideEffective !== (project.seniorSharePercentOverride ?? null)
-    ) {
-      await this.proposeSeniorShareChange(
+    if (isSeniorOverrideChange(overrideEffective, project.seniorSharePercentOverride)) {
+      await this.shareChange.proposeSeniorShareChange(
         id,
         project.seniorId,
         overrideEffective,
@@ -1920,10 +607,7 @@ export class ProjectsService {
     // task-drop-share-override-and-receiver (D6). Audit the drop override change
     // (no project_finance_settings mirror sync — the canonical value lives on
     // projects.dropSharePercentOverride, which the resolver reads directly).
-    if (
-      dropOverrideEffective !== undefined &&
-      project.dropSharePercentOverride !== dropOverrideEffective
-    ) {
+    if (isDropOverrideChange(dropOverrideEffective, project.dropSharePercentOverride)) {
       // security-review round 2 (authz-hardening): attribute to the real
       // operator under impersonation — see sessionUserSchema.impersonatorId's doc.
       await this.projectAuditLogService.record({
@@ -1944,7 +628,7 @@ export class ProjectsService {
       with: { senior: true, drop: true, members: { with: { user: true } }, legend: true },
     })) as ProjectWithRelations
 
-    const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior([updated])
+    const teamOverridesBySeniorId = await this.read.loadTeamOverridesBySenior([updated])
     // CR-M-1 (PR #646 fix-round 1): update() is reachable on a REJECTED
     // project too — ProjectRow's row-Link is unconditional for isRejected,
     // same as isArchived — so a PATCH here must not silently answer
@@ -1975,8 +659,8 @@ export class ProjectsService {
     // admitted caller of this method (the propose-gate names them) — so this
     // was the third response path asking `approvals` a question whose answer
     // it then threw away, the one SR-bm-3 missed in round 2.
-    const pendingSeniorShare = ProjectsService.canSeePendingSeniorShare(currentUser.role)
-      ? await this.loadPendingSeniorShare(
+    const pendingSeniorShare = canSeePendingSeniorShare(currentUser.role)
+      ? await this.read.loadPendingSeniorShare(
           updated.id,
           updated.senior,
           updated.pendingSeniorSharePercentOverride,
@@ -1996,506 +680,33 @@ export class ProjectsService {
     )
   }
 
-  /**
-   * Soft-archive a project. Independent — does NOT touch senior or team.
-   * Sets project_members.leftAt for active JUNIORs.
-   */
-  async archive(id: string, currentUser: SessionUser) {
-    if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
-    return this.db.db.transaction(async (tx) => {
-      const project = await tx
-        .select()
-        .from(projects)
-        .where(eq(projects.id, id))
-        .then((rows) => rows[0])
-      if (!project) throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
-      if (project.archivedAt) throw apiError('PROJECT_ALREADY_ARCHIVED', HttpStatus.BAD_REQUEST)
-
-      const now = new Date()
-      await tx.update(projects).set({ archivedAt: now, updatedAt: now }).where(eq(projects.id, id))
-
-      // Remove active juniors via leftAt.
-      const activeJuniors = await tx
-        .select({ id: projectMembers.id, userId: projectMembers.userId, role: users.role })
-        .from(projectMembers)
-        .innerJoin(users, eq(users.id, projectMembers.userId))
-        .where(
-          and(
-            eq(projectMembers.projectId, id),
-            isNull(projectMembers.leftAt),
-            eq(users.role, 'JUNIOR'),
-          ),
-        )
-      if (activeJuniors.length > 0) {
-        const ids = activeJuniors.map((j) => j.id)
-        await tx.update(projectMembers).set({ leftAt: now }).where(inArray(projectMembers.id, ids))
-        // security-review round 2 (authz-hardening): attribute to the real
-        // operator under impersonation — see sessionUserSchema.impersonatorId's doc.
-        for (const j of activeJuniors) {
-          await this.projectAuditLogService.record(
-            {
-              actorId: currentUser.impersonatorId ?? currentUser.id,
-              targetId: id,
-              action: 'project_member_removed',
-              changes: { userId: { before: j.userId, after: null } },
-            },
-            tx,
-          )
-        }
-      }
-
-      await this.projectAuditLogService.record(
-        {
-          actorId: currentUser.impersonatorId ?? currentUser.id,
-          targetId: id,
-          action: 'project_archived',
-          changes: { archivedAt: { before: null, after: now.toISOString() } },
-        },
-        tx,
-      )
-
-      return this.findOne(id, currentUser)
-    })
+  archive(id: string, currentUser: SessionUser) {
+    return this.archiveService.archive(id, currentUser)
   }
 
-  /**
-   * Unarchive a project.
-   *  - If senior or team is also archived → 409 with { requiresCascade: true, entities }.
-   *    Client retries with `cascade=true` to pair-unarchive.
-   *  - On success: projects.archivedAt = NULL; project_members.leftAt NOT restored
-   *    (admin re-adds juniors via Projects page).
-   */
-  async unarchive(id: string, currentUser: SessionUser, cascade = false) {
-    if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
-    return this.db.db.transaction(async (tx) => {
-      const project = await tx
-        .select()
-        .from(projects)
-        .where(eq(projects.id, id))
-        .then((rows) => rows[0])
-      if (!project) throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
-      if (!project.archivedAt) throw apiError('PROJECT_NOT_ARCHIVED', HttpStatus.BAD_REQUEST)
-
-      const senior = await tx
-        .select()
-        .from(users)
-        .where(eq(users.id, project.seniorId))
-        .then((rows) => rows[0])
-      // Senior's team via team_members lookup.
-      let team: typeof teams.$inferSelect | undefined
-      if (senior) {
-        const seniorMembership = await tx
-          .select()
-          .from(teamMembers)
-          .where(eq(teamMembers.userId, senior.id))
-          .then((rows) => rows[0])
-        if (seniorMembership) {
-          team = await tx
-            .select()
-            .from(teams)
-            .where(eq(teams.id, seniorMembership.teamId))
-            .then((rows) => rows[0])
-        }
-      }
-
-      const entitiesToCascade: { type: 'user' | 'team'; id: string; name: string }[] = []
-      if (senior?.archivedAt)
-        entitiesToCascade.push({ type: 'user', id: senior.id, name: senior.displayName })
-      if (team?.archivedAt) entitiesToCascade.push({ type: 'team', id: team.id, name: team.name })
-
-      if (entitiesToCascade.length > 0 && !cascade) {
-        throw new ConflictException({
-          requiresCascade: true,
-          entities: entitiesToCascade,
-        })
-      }
-
-      const now = new Date()
-      const previousArchivedAt = project.archivedAt
-
-      if (cascade && senior?.archivedAt) {
-        // Pair-unarchive senior + team via the SAME outer transaction (`tx`).
-        // We deliberately DO NOT call `this.usersService.unarchive(...)` because
-        // that opens its own `db.transaction()` — making it impossible to roll
-        // back together with the project mutations below if anything throws.
-        // security-review round 2 (authz-hardening): attribute to the real
-        // operator under impersonation — see sessionUserSchema.impersonatorId's doc.
-        await this.usersService.unarchivePairTx(
-          tx,
-          senior.id,
-          currentUser.impersonatorId ?? currentUser.id,
-        )
-      }
-
-      await tx.update(projects).set({ archivedAt: null, updatedAt: now }).where(eq(projects.id, id))
-
-      await this.projectAuditLogService.record(
-        {
-          actorId: currentUser.impersonatorId ?? currentUser.id,
-          targetId: id,
-          action: 'project_unarchived',
-          changes: { archivedAt: { before: previousArchivedAt.toISOString(), after: null } },
-        },
-        tx,
-      )
-
-      // project_members.leftAt intentionally NOT restored.
-      return this.findOne(id, currentUser)
-    })
+  unarchive(id: string, currentUser: SessionUser, cascade = false) {
+    return this.archiveService.unarchive(id, currentUser, cascade)
   }
 
-  async getArchiveImpact(id: string, currentUser: SessionUser): Promise<ArchiveImpact> {
-    if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
-    const project = await this.db.db.query.projects.findFirst({
-      where: eq(projects.id, id),
-    })
-    if (!project) throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
-
-    const activeJuniors = await this.db.db
-      .select({ id: projectMembers.id })
-      .from(projectMembers)
-      .innerJoin(users, eq(users.id, projectMembers.userId))
-      .where(
-        and(
-          eq(projectMembers.projectId, id),
-          isNull(projectMembers.leftAt),
-          eq(users.role, 'JUNIOR'),
-        ),
-      )
-
-    return { type: 'project', activeMembersCount: activeJuniors.length }
+  getArchiveImpact(id: string, currentUser: SessionUser): Promise<ArchiveImpact> {
+    return this.archiveService.getArchiveImpact(id, currentUser)
   }
 
-  async addMember(projectId: string, userId: string, currentUser: SessionUser) {
-    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'HR') {
-      throw new ForbiddenException()
-    }
-
-    const project = (await this.db.db.query.projects.findFirst({
-      where: eq(projects.id, projectId),
-      with: { senior: true, drop: true, members: { with: { user: true } } },
-    })) as ProjectWithRelations | undefined
-
-    if (!project) throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
-
-    // HR cross-team scoping: HR may only add members to projects in their own teams.
-    await this.assertHrCanManageProject(project.seniorId, currentUser)
-
-    const user = await this.db.db.query.users.findFirst({
-      where: eq(users.id, userId),
-    })
-    if (!user) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
-    // task-archived-user-completeness (AC1). A membership row is an ACCRUAL
-    // SUBSCRIPTION, not a label: `createMonthlySalaries` walks
-    // `project_members WHERE left_at IS NULL` and mints a fresh PENDING salary
-    // for the junior on it every month. This INSERT is what re-opens that
-    // subscription — `UsersService.archive` closes a junior's memberships by
-    // stamping `leftAt`, and nothing here consulted `archivedAt`, so a
-    // dismissed junior could simply be added back and start accruing again.
-    // `leftAt` tracks PROJECT membership; `archivedAt` tracks EMPLOYMENT, and
-    // the accrual question belongs to the second one.
-    //
-    // Refused for every role, not just JUNIOR: HR/ACCOUNTANT memberships do
-    // not drive the cron (their salary is role-based and that query already
-    // filters `archivedAt`), but putting a dismissed person back on a live
-    // project is not something this endpoint should be able to express at all.
-    //
-    // This is the FIRST of two layers, deliberately the cheaper one. The
-    // second — `user.archivedAt` in the cron's JUNIOR loop (PR #549) — is what
-    // actually stands between an archived junior and money, and it re-reads
-    // the flag at accrual time, so a race here cannot mint a salary.
-    if (user.archivedAt) {
-      throw apiError('ARCHIVED_USER_CANNOT_JOIN_PROJECT', HttpStatus.BAD_REQUEST)
-    }
-    if (user.role !== 'JUNIOR' && user.role !== 'HR' && user.role !== 'ACCOUNTANT') {
-      throw apiError('PROJECT_MEMBER_ROLE_RESTRICTED', HttpStatus.BAD_REQUEST)
-    }
-
-    // Prevent duplicate active membership on same project
-    const existingActive = await this.db.db.query.projectMembers.findFirst({
-      where: and(
-        eq(projectMembers.projectId, projectId),
-        eq(projectMembers.userId, userId),
-        isNull(projectMembers.leftAt),
-      ),
-    })
-    if (existingActive) throw apiError('ALREADY_ACTIVE_PROJECT_MEMBER', HttpStatus.BAD_REQUEST)
-
-    // JUNIOR: max 1 per project
-    if (user.role === 'JUNIOR') {
-      const existingJunior = project.members.find(
-        (m) => m.leftAt === null && m.user?.role === 'JUNIOR',
-      )
-      if (existingJunior) {
-        throw apiError('PROJECT_HAS_ACTIVE_JUNIOR', HttpStatus.BAD_REQUEST)
-      }
-
-      // JUNIOR: cannot be active on another project simultaneously
-      const otherProjectMembership = await this.db.db.query.projectMembers.findFirst({
-        where: and(eq(projectMembers.userId, userId), isNull(projectMembers.leftAt)),
-      })
-      if (otherProjectMembership) {
-        throw apiError('JUNIOR_ALREADY_ON_ANOTHER_PROJECT', HttpStatus.BAD_REQUEST)
-      }
-    }
-
-    // task-notification-types-producers (позиция 6): «вас добавили в проект» —
-    // только самому добавленному. Остальным участникам проекта об этом не
-    // сообщаем: у проекта, в отличие от команды, такого типа в составе десяти
-    // нет, а придумывать одиннадцатый задание запрещает.
-    //
-    // Членство и уведомление — одна транзакция: откатилось членство, откатилась
-    // и запись.
-    await this.db.db.transaction(async (tx) => {
-      await tx.insert(projectMembers).values({ projectId, userId })
-      // SR-H-2 (security-review круг 2): путь производителя целиком — во
-      // ВЛОЖЕННОЙ транзакции (SAVEPOINT). Событие уже состоялось; уронить его
-      // из-за того, что уведомление о нём не собралось, — ровно то вето,
-      // которое круг 2 запретил. Откат события по-прежнему уносит и запись:
-      // savepoint вложен в транзакцию события, а не заменяет её.
-      await this.notifications.emitInTx(tx, async (sp) => {
-        const notify: CreateNotificationInput[] =
-          userId === (currentUser.impersonatorId ?? currentUser.id)
-            ? []
-            : [
-                {
-                  userId,
-                  type: 'PROJECT_MEMBER_ADDED',
-                  title: NOTIFICATION_TITLES.PROJECT_MEMBER_ADDED,
-                  subjectType: 'PROJECT',
-                  subjectId: projectId,
-                  // ORCH-3 (fix-round 7): companyName, не projects.name.
-                  data: { projectName: project.companyName },
-                },
-              ]
-        await this.notifications.createManyInTx(sp, notify)
-      })
-    })
+  addMember(projectId: string, userId: string, currentUser: SessionUser) {
+    return this.members.addMember(projectId, userId, currentUser)
   }
 
-  async removeMember(projectId: string, userId: string, currentUser: SessionUser) {
-    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'HR') {
-      throw new ForbiddenException()
-    }
-
-    // HR cross-team scoping: load project early to check seniorId.
-    const projectForScope = (await this.db.db.query.projects.findFirst({
-      where: eq(projects.id, projectId),
-      with: { senior: true, drop: true, members: { with: { user: true } } },
-    })) as ProjectWithRelations | undefined
-    if (!projectForScope) throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
-
-    await this.assertHrCanManageProject(projectForScope.seniorId, currentUser)
-
-    const activeMember = await this.db.db.query.projectMembers.findFirst({
-      where: and(
-        eq(projectMembers.projectId, projectId),
-        eq(projectMembers.userId, userId),
-        isNull(projectMembers.leftAt),
-      ),
-    })
-    if (!activeMember) throw apiError('ACTIVE_MEMBER_NOT_FOUND', HttpStatus.NOT_FOUND)
-
-    // Prevent removing last HR or last ACCOUNTANT from project
-    const userToRemove = await this.db.db.query.users.findFirst({ where: eq(users.id, userId) })
-    if (userToRemove?.role === 'HR' || userToRemove?.role === 'ACCOUNTANT') {
-      // Re-use already loaded project for the last-member check.
-      const project = projectForScope
-
-      if (project) {
-        const activeOfRole = project.members.filter(
-          (m) => m.leftAt === null && m.user?.role === userToRemove.role,
-        )
-        if (activeOfRole.length <= 1) {
-          throw apiError('CANNOT_REMOVE_LAST_ROLE_MEMBER', HttpStatus.BAD_REQUEST)
-        }
-      }
-    }
-
-    await this.db.db
-      .update(projectMembers)
-      .set({ leftAt: new Date() })
-      .where(eq(projectMembers.id, activeMember.id))
+  removeMember(projectId: string, userId: string, currentUser: SessionUser) {
+    return this.members.removeMember(projectId, userId, currentUser)
   }
 
-  /**
-   * Create a project from a HIRED interview.
-   *
-   * Audit (HIGH): accepts an optional `tx` so the caller (`InterviewsService.move`)
-   * can run this INSIDE the same transaction that flips the interview to HIRED.
-   * Without it, the interview stage update committed before this insert, so a
-   * failure here orphaned the interview in HIRED with no project. With `tx`
-   * threaded through every write, a failure rolls the stage change back too.
-   * When `tx` is omitted, behaviour is unchanged (`this.db.db`).
-   *
-   * Backlog #136: the HR/ACCOUNTANT this seeds onto the new project come from
-   * the senior's team membership below — see the `isNull(teamMembers.leftAt)`
-   * filters on both queries it runs. Both must stay: one keeps a team the
-   * senior has LEFT from contributing staff at all, the other keeps a
-   * teammate who left THAT team from being seated even while the team is
-   * still active for the senior.
-   *
-   * security-review round 2 (SR-H-6): this is the SECOND door into
-   * `insert(projects)` — `create()` above is the first — and round 1 missed
-   * it entirely: no explicit `status: 'DRAFT'` and no approval proposal, so a
-   * project hired straight out of an interview shipped fully `ACTIVE` (the
-   * column DEFAULT) with zero rows in `approvals`, unconfirmable by
-   * construction (`approveDraft` 404s everyone — there is no live row to
-   * confirm). BIZ-07 reaches this from `PATCH /api/interviews/:id/move`,
-   * which HR and SENIOR can call too, not just ADMIN. Same gate, same
-   * reason as `create()`: the senior whose money this project will move
-   * should agree to it in CRM before it starts, regardless of which door
-   * created the row. Interview-sourced projects never carry a `dropId` (no
-   * such field exists on `Interview`), so the senior is the sole invited
-   * approver here — no `[seniorId, dropId]` branch to mirror from `create()`.
-   */
-  async createFromInterview(
+  /** See ProjectInterviewSeedService.createFromInterview for the full contract. */
+  createFromInterview(
     interview: Interview & { senior: User | null },
     currentUser: SessionUser,
     tx?: DrizzleTx,
   ) {
-    const conn = tx ?? this.db.db
-    const domain = interview.notesDomain ?? 'Other'
-
-    const [project] = await conn
-      .insert(projects)
-      .values({
-        name: interview.companyName,
-        companyName: interview.companyName,
-        domain,
-        logoDocumentId: null,
-        logoExternalUrl: null,
-        startDate: new Date(),
-        seniorId: interview.seniorId,
-        rate: 0,
-        currency: 'USDT',
-        techStack: interview.notesTechStack ?? null,
-        teamSize: interview.notesTeamSize ?? null,
-        benefits: interview.notesBenefits ?? null,
-        // task-drop-share-override-and-receiver (D1 / C10). `interview.notesPaymentType`
-        // is a free-text interview note — NOT a project_payment_type enum value.
-        // Leave paymentType at the DB default ('FOP'); ADMIN/ACCOUNTANT set the
-        // real enum later via the project edit form.
-        salaryReview: interview.notesSalaryReview ?? null,
-        corpTech: interview.notesCorpTech ?? null,
-        notesGeneral: interview.notesGeneral ?? null,
-        // security-review round 2 (SR-H-6). See the method doc above — this
-        // is the door round 1 left open.
-        status: 'DRAFT',
-      })
-      .returning()
-
-    if (!project) return project
-
-    // security-review round 2 (SR-H-6). Open the approval proposal in the
-    // SAME connection as the insert above — when the caller passed a `tx`
-    // (the only real caller, `InterviewsService.move`, always does), this is
-    // the SAME transaction, so a DRAFT project without its approval row
-    // stays impossible here too (decision Д1's own invariant, see `create()`
-    // above). `conn` is `DrizzleTx | NodePgDatabase` depending on whether a
-    // `tx` was passed; `proposeInTx` only ever calls query-builder methods
-    // both share, so the cast is the same shape already used elsewhere in
-    // this codebase for the identical mismatch (e.g.
-    // `transactions.service.ts`'s `this.db.db as unknown as DrizzleTx`).
-    const [approval] = await this.approvals.proposeInTx(conn as unknown as DrizzleTx, {
-      subjectType: ProjectsService.APPROVAL_SUBJECT_TYPE,
-      subjectId: project.id,
-      approverUserIds: [interview.seniorId],
-      proposedByUserId: currentUser.id,
-    })
-    // Stryker disable next-line all: defensive-only (и условие, и текст сообщения) — `proposeInTx` возвращает `.returning()` по строке на подтверждающего; пустой массив при непустом `approverUserIds` на настоящем Postgres невозможен.
-    if (!approval) throw new Error('Failed to open project approval')
-
-    // SR-L-1 (security-review круг 1): ВТОРАЯ дверь в черновик проекта — и
-    // производитель обязан стоять у обеих. `create` выше уже просит синьора
-    // подтвердить; проект, приехавший из нанятого собеседования, открывает
-    // ровно такое же согласование, и без этой строки синьор о нём не узнавал
-    // (кнопка «подтвердить» есть, просьбы нет).
-    //
-    // Тот же контур, что и у `create`: получатели — приглашённые
-    // подтверждающие, автор действия исключён (§8.1 — своё подтверждает тост,
-    // а не колокольчик), запись идёт по тому же соединению, что и сам
-    // черновик, поэтому откат события уносит и её.
-    // SR-H-2 (security-review круг 2): именно ЗДЕСЬ вето и поймали
-    // исполнением — `TypeError` на этом пути откатывал переход собеседования в
-    // HIRED вместе с созданием проекта и записью `created_project_id` (BIZ-07).
-    // Теперь путь производителя идёт во вложенной транзакции (SAVEPOINT):
-    // ошибка откатывает ровно её, а событие живёт.
-    await this.notifications.emitInTx(conn as unknown as DrizzleTx, async (sp) => {
-      if (interview.seniorId !== (currentUser.impersonatorId ?? currentUser.id)) {
-        await this.notifications.createInTx(sp, {
-          userId: interview.seniorId,
-          type: 'PROJECT_CONFIRM_REQUIRED',
-          title: NOTIFICATION_TITLES.PROJECT_CONFIRM_REQUIRED,
-          subjectType: 'PROJECT',
-          subjectId: project.id,
-          // ORCH-3 (fix-round 7): companyName, не projects.name (здесь равны при
-          // создании из собеседования, но источник — companyName).
-          // QA-H-1 (круг 3): плюс идентификатор открывшейся строки согласования.
-          data: { projectName: project.companyName, approvalId: approval.id },
-        })
-      }
-    })
-
-    // Find all teams where this senior is CURRENTLY a member. Backlog #136:
-    // this query used to ignore `leftAt`, so a team the senior had already
-    // left still fed its HR/ACCOUNTANT into a brand-new project — a stale
-    // team membership was outliving the membership itself.
-    const seniorTeamMemberships = await conn.query.teamMembers.findMany({
-      where: and(eq(teamMembers.userId, interview.seniorId), isNull(teamMembers.leftAt)),
-    })
-    const teamIds = seniorTeamMemberships.map((m) => m.teamId)
-
-    if (teamIds.length > 0) {
-      // task-archived-user-completeness (AC1, security-review MED-3). This is
-      // the SECOND door into `project_members`, and it was open. `addMember`
-      // now refuses to seat a dismissed person on a live project; seeding a
-      // project from a HIRED interview has to obey the same invariant, or the
-      // rule holds only on the door someone happened to look at.
-      //
-      // TWO filters, because a dismissed teammate could arrive here by two
-      // different routes:
-      //
-      //   • `isNull(leftAt)` — `UsersService.archive` closes an HR's /
-      //     ACCOUNTANT's team memberships by stamping `leftAt`, and this query
-      //     did not look at it. A dismissed HR whose membership had been
-      //     closed months ago was still returned here and handed a fresh
-      //     ACTIVE row on a brand-new project.
-      //   • `archivedAt` — belt and braces for the row that is archived while
-      //     its membership is somehow still open (a cascade that missed, a
-      //     hand-edited row, a future archive path that forgets). `leftAt`
-      //     tracks TEAM membership; `archivedAt` tracks EMPLOYMENT, and the
-      //     question "may this person be seated on a project" belongs to the
-      //     second one — the same split spelled out on `addMember`.
-      //
-      // No money moves through this today (only the JUNIOR branch of
-      // `createMonthlySalaries` mints from project membership, and it re-reads
-      // `user.archivedAt`; HR/ACCOUNTANT salaries come from a separate query
-      // that already filters archived). This is about the invariant being true
-      // wherever it is stated, not about a live leak.
-      const teammates = await conn.query.teamMembers.findMany({
-        where: and(inArray(teamMembers.teamId, teamIds), isNull(teamMembers.leftAt)),
-        with: { user: { columns: { id: true, role: true, archivedAt: true } } },
-      })
-
-      const addedUserIds = new Set<string>()
-      for (const m of teammates) {
-        const u = (
-          m as typeof m & { user: { id: string; role: string; archivedAt: Date | null } | null }
-        ).user
-        if (!u) continue
-        if (u.archivedAt) continue
-        if (u.role !== 'HR' && u.role !== 'ACCOUNTANT') continue
-        if (addedUserIds.has(u.id)) continue
-        addedUserIds.add(u.id)
-        await conn.insert(projectMembers).values({
-          projectId: project.id,
-          userId: u.id,
-        })
-      }
-    }
-
-    return project
+    return this.interviewSeed.createFromInterview(interview, currentUser, tx)
   }
 
   /**
@@ -2511,7 +722,7 @@ export class ProjectsService {
    *   - HR of project's team → yes
    *   - All others → 403
    */
-  async getHrContact(
+  getHrContact(
     projectId: string,
     currentUser: SessionUser,
   ): Promise<{
@@ -2520,103 +731,12 @@ export class ProjectsService {
     phone: string | null
     avatarUrl: string | null
   }> {
-    const project = (await this.db.db.query.projects.findFirst({
-      where: eq(projects.id, projectId),
-      with: { senior: true, drop: true, members: { with: { user: true } }, legend: true },
-    })) as ProjectWithRelations | undefined
-
-    if (!project) throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
-
-    // RBAC: ADMIN, active JUNIOR member, HR of project's team
-    const isAdmin = currentUser.role === 'ADMIN'
-    const isActiveJunior =
-      currentUser.role === 'JUNIOR' &&
-      project.members.some((m) => m.userId === currentUser.id && m.leftAt === null)
-    const isTeamHr =
-      currentUser.role === 'HR' &&
-      project.seniorId !== null &&
-      (await this.hrAccess.hrSharesActiveTeamWith(currentUser.id, project.seniorId))
-
-    if (!isAdmin && !isActiveJunior && !isTeamHr) {
-      throw apiError('NO_HR_CONTACT_ACCESS', HttpStatus.FORBIDDEN)
-    }
-
-    if (!project.seniorId) {
-      return { displayName: null, telegram: null, phone: null, avatarUrl: null }
-    }
-
-    // Find HR in the senior's active team
-    const seniorMembership = await this.db.db.query.teamMembers.findFirst({
-      where: and(eq(teamMembers.userId, project.seniorId), isNull(teamMembers.leftAt)),
-    })
-    if (!seniorMembership) {
-      return { displayName: null, telegram: null, phone: null, avatarUrl: null }
-    }
-
-    const hrRow = await this.db.db
-      .select({
-        displayName: users.displayName,
-        telegram: users.telegram,
-        phone: users.phone,
-        avatarUrl: users.avatarUrl,
-      })
-      .from(teamMembers)
-      .innerJoin(users, eq(users.id, teamMembers.userId))
-      .where(
-        and(
-          eq(teamMembers.teamId, seniorMembership.teamId),
-          eq(users.role, 'HR'),
-          isNull(teamMembers.leftAt),
-        ),
-      )
-      .limit(1)
-      .then((rows) => rows[0] ?? null)
-
-    return {
-      displayName: hrRow?.displayName ?? null,
-      telegram: hrRow?.telegram ?? null,
-      phone: hrRow?.phone ?? null,
-      avatarUrl: hrRow?.avatarUrl ?? null,
-    }
+    return this.scopedRead.getHrContact(projectId, currentUser)
   }
 
-  private async assertAccess(project: ProjectWithRelations, currentUser: SessionUser) {
-    // task-project-draft-status, item 4 ("узкий путь к черновику") + decision
-    // Д1: a DRAFT or REJECTED project exists, for access purposes, ONLY for
-    // ADMIN and the invited approvers (senior + drop, per the `approvals`
-    // rows this.approvals.propose created in the SAME transaction as the
-    // insert — see `create()`). Every other role — INCLUDING ACCOUNTANT,
-    // whose branch below grants unconditional access to an ACTIVE project —
-    // gets 404, not 403: a 403 would let a caller distinguish "not mine" from
-    // "doesn't exist" from "not yet confirmed" by probing a known id
-    // (existence-oracle, same reasoning `transaction-visibility.util.ts`'s
-    // `assertTransactionVisible` documents for the identical choice).
-    // MUST run BEFORE the ADMIN/ACCOUNTANT early-return below, since that
-    // return is unconditional and would otherwise leak drafts to ACCOUNTANT.
-    if (project.status !== 'ACTIVE') {
-      if (currentUser.role === 'ADMIN') return
-      const invited = await this.approvals.isApprover(
-        ProjectsService.APPROVAL_SUBJECT_TYPE,
-        project.id,
-        currentUser.id,
-      )
-      if (invited) return
-      throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
-    }
-    if (currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT') return
-    if (currentUser.role === 'SENIOR' && project.seniorId === currentUser.id) return
-    if (currentUser.role === 'HR') {
-      const seniorIds = await this.getHrSeniorIds(currentUser.id)
-      if (project.seniorId !== null && seniorIds.includes(project.seniorId)) return
-    }
-    if (
-      currentUser.role === 'JUNIOR' &&
-      project.members.some((m) => m.userId === currentUser.id && m.leftAt === null)
-    ) {
-      return
-    }
-    // Drop role - phase 1: DROP can see their own drop-projects.
-    if (currentUser.role === 'DROP' && project.dropId === currentUser.id) return
-    throw new ForbiddenException()
+  // Thin delegate kept (not inlined): unit specs stub the guard via
+  // `vi.spyOn(service, 'assertAccess')`.
+  private assertAccess(project: ProjectWithRelations, currentUser: SessionUser) {
+    return this.access.assertAccess(project, currentUser)
   }
 }

@@ -56,6 +56,20 @@ import { describe, expect, it, vi } from 'vitest'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 
 const SRC_FILE = path.resolve(import.meta.dirname, 'transactions.service.ts')
+// Manual SALARY entry (`createSalary`) lives in the entry collaborator and the
+// monthly salary accrual (`createMonthlySalaries`) in the salary-payment
+// collaborator; the accrual scan covers every file that can mint a PENDING
+// transactions row.
+const SALARY_PAYMENT_FILE = path.resolve(import.meta.dirname, 'salary-payment.service.ts')
+const SCANNED_FILES = [
+  SRC_FILE,
+  // SENIOR_INCOME / DROP_INCOME creation lives in the senior-drop-income collaborator.
+  path.resolve(import.meta.dirname, 'senior-drop-income.service.ts'),
+  // updateSeniorIncome / updateDropIncome resubmit lives in the income-receipt collaborator.
+  path.resolve(import.meta.dirname, 'income-receipt.service.ts'),
+  path.resolve(import.meta.dirname, 'transaction-entry.service.ts'),
+  SALARY_PAYMENT_FILE,
+]
 
 // backlog 73/A-3 (mutation-gate round 2): compiles a Drizzle `where` SQL
 // object (e.g. `and(eq(transactions.type, 'SENIOR_INCOME'), eq(...)))`) down
@@ -160,46 +174,49 @@ function scanPendingAccrualSites(): Array<{ method: string; line: number }> {
   const INSERT_OTHER_TABLE = /\.insert\(\s*(?:pendingObligations|payoutRequests)\s*\)/
   const RESUBMIT_UPDATE_CALL = /replaceReceiptAtomic\(/
 
-  const lines = readFileSync(SRC_FILE, 'utf8').split('\n')
   const out: Array<{ method: string; line: number }> = []
-  let method: string | null = null
-  let inBlockComment = false
 
-  lines.forEach((line, index) => {
-    const trimmed = line.trim()
-    if (inBlockComment) {
-      if (trimmed.includes('*/')) inBlockComment = false
-      return
-    }
-    if (trimmed.startsWith('/*')) {
-      if (!trimmed.includes('*/')) inBlockComment = true
-      return
-    }
-    if (trimmed.startsWith('//') || trimmed.startsWith('*')) return
+  for (const file of SCANNED_FILES) {
+    const lines = readFileSync(file, 'utf8').split('\n')
+    let method: string | null = null
+    let inBlockComment = false
 
-    const methodMatch = METHOD.exec(line)
-    if (methodMatch?.[1]) method = methodMatch[1]
+    lines.forEach((line, index) => {
+      const trimmed = line.trim()
+      if (inBlockComment) {
+        if (trimmed.includes('*/')) inBlockComment = false
+        return
+      }
+      if (trimmed.startsWith('/*')) {
+        if (!trimmed.includes('*/')) inBlockComment = true
+        return
+      }
+      if (trimmed.startsWith('//') || trimmed.startsWith('*')) return
 
-    if (STATUS_PENDING.test(line)) {
-      // 25 lines is generous for every site actually in this file (the
-      // farthest is ~7 lines) while staying bounded.
-      const window = lines.slice(Math.max(0, index - 25), index).reverse()
-      let isAccrualSite = false
-      for (const l of window) {
-        if (INSERT_TRANSACTIONS.test(l) || RESUBMIT_UPDATE_CALL.test(l)) {
-          isAccrualSite = true
-          break
+      const methodMatch = METHOD.exec(line)
+      if (methodMatch?.[1]) method = methodMatch[1]
+
+      if (STATUS_PENDING.test(line)) {
+        // 25 lines is generous for every site actually in this file (the
+        // farthest is ~7 lines) while staying bounded.
+        const window = lines.slice(Math.max(0, index - 25), index).reverse()
+        let isAccrualSite = false
+        for (const l of window) {
+          if (INSERT_TRANSACTIONS.test(l) || RESUBMIT_UPDATE_CALL.test(l)) {
+            isAccrualSite = true
+            break
+          }
+          if (INSERT_OTHER_TABLE.test(l)) {
+            isAccrualSite = false
+            break
+          }
         }
-        if (INSERT_OTHER_TABLE.test(l)) {
-          isAccrualSite = false
-          break
+        if (isAccrualSite) {
+          out.push({ method: method ?? '<top-level>', line: index + 1 })
         }
       }
-      if (isAccrualSite) {
-        out.push({ method: method ?? '<top-level>', line: index + 1 })
-      }
-    }
-  })
+    })
+  }
   return out
 }
 
@@ -218,7 +235,7 @@ describe('transactions.service.ts — every PENDING-accrual site is accounted fo
     const sites = scanPendingAccrualSites()
     expect(sites.filter((s) => s.method === 'createMonthlySalaries')).toHaveLength(1)
 
-    const source = readFileSync(SRC_FILE, 'utf8')
+    const source = readFileSync(SALARY_PAYMENT_FILE, 'utf8')
     // Keep this structural assertion tolerant of Stryker instrumentation.
     // Mutation testing can wrap the object argument between `(` and `{`, but
     // the two call sites themselves must remain present.
@@ -697,7 +714,8 @@ describe('updateSeniorIncome — AC1/MED-1: an archived receiver is refused befo
     // out of scope here. Spying it lets this test prove ONLY the ordering
     // question: does the archived-guard run before it.
     vi.spyOn(
-      svc as unknown as { replaceReceiptAtomic: () => Promise<never> },
+      (svc as unknown as { incomeReceipt: { replaceReceiptAtomic: () => Promise<never> } })
+        .incomeReceipt,
       'replaceReceiptAtomic',
     ).mockRejectedValue(new Error('REPLACE REACHED'))
     return { svc, usersFindFirst }
@@ -764,7 +782,8 @@ describe('updateDropIncome — AC1/MED-1: an archived receiver is refused before
     } as never
     const svc = makeTransactionsService({ db })
     vi.spyOn(
-      svc as unknown as { replaceReceiptAtomic: () => Promise<never> },
+      (svc as unknown as { incomeReceipt: { replaceReceiptAtomic: () => Promise<never> } })
+        .incomeReceipt,
       'replaceReceiptAtomic',
     ).mockRejectedValue(new Error('REPLACE REACHED'))
     return { svc, usersFindFirst }

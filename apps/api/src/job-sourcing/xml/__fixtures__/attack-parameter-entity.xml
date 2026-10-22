@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ATTACK FIXTURE, AND THE NUANCE NOT TO FLATTEN.
+
+  A parameter entity plus an external DTD reference, with NO general-entity reference in
+  content. parse-xml ACCEPTS a document of this shape: it parses successfully, the DTD is
+  discarded unread, and the ADR's network canary recorded zero hits.
+
+  Inert acceptance is NOT a vulnerability — nothing is dereferenced, nothing expanded, no
+  I/O occurs. But it means the sentence "parse-xml refuses XXE" is a claim about WHICH
+  document was tested. It refuses an UNDEFINED ENTITY REFERENCE; it IGNORES the rest of
+  the DTD. A reader who concludes "all DTD constructs are rejected" has been misled.
+
+  `parse-xml.adapter.capability.spec.ts` asserts exactly that asymmetry — this document
+  parses at the adapter layer while the internal-entity one raises — so the distinction is
+  pinned by a test rather than by this comment. The port still refuses it, at the
+  <!DOCTYPE gate, which is the gate's whole purpose: defence in depth against a future
+  parser that is less inert than this one.
+-->
+<!DOCTYPE feed SYSTEM "http://127.0.0.1:1/external.dtd" [
+  <!ENTITY % pe SYSTEM "file:///nonexistent/crm-pe-canary.txt">
+  %pe;
+]>
+<rss version="2.0">
+  <channel>
+    <item><title>no entity reference in content</title></item>
+  </channel>
+</rss>

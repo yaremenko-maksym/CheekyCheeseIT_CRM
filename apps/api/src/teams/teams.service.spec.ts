@@ -184,6 +184,16 @@ describe('TeamsService.findAll', () => {
     expect(result[0]!.id).toBe('team-1')
   })
 
+  it('HR does not see a DROP team even when they are an active member of it', async () => {
+    const teams = [
+      makeTeam({ id: 'team-1', members: [makeMember('hr-1', 'HR')] }),
+      makeTeam({ id: 'drop-1', type: 'DROP', members: [makeMember('hr-1', 'HR')] }),
+    ]
+    const service = makeService(makeDb({ teamList: teams }))
+    const result = await service.findAll(hrUser)
+    expect(result.map((t) => t.id)).toEqual(['team-1'])
+  })
+
   it('SENIOR sees teams where they are a static member', async () => {
     const teams = [
       makeTeam({ id: 'team-1', members: [makeMember('senior-1', 'SENIOR')] }),
@@ -363,6 +373,16 @@ describe('TeamsService.removeMember', () => {
   it('JUNIOR cannot remove a member', async () => {
     const service = makeService(makeDb({ team: makeTeam() }))
     await expect(service.removeMember('team-1', 'user-x', juniorUser)).rejects.toThrow(
+      ForbiddenException,
+    )
+  })
+
+  it("HR cannot remove a member of another HR's team", async () => {
+    const team = makeTeam({
+      members: [makeMember('hr-99', 'HR'), makeMember('hr-98', 'HR')],
+    })
+    const service = makeService(makeDb({ team }))
+    await expect(service.removeMember('team-1', 'hr-99', hrUser)).rejects.toThrow(
       ForbiddenException,
     )
   })

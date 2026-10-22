@@ -1,30 +1,26 @@
 import { ForbiddenException, HttpStatus, Inject, Injectable, forwardRef } from '@nestjs/common'
-import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm'
+import { and, eq, isNotNull, isNull } from 'drizzle-orm'
 import type { ArchiveImpact, SessionUser } from '@crm/shared'
-import { NOTIFICATION_TITLES } from '@crm/shared'
 import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
 import { NotificationsService } from '../notifications/notifications.service'
-import type { CreateNotificationInput } from '../notifications/notifications.service'
-import {
-  projectMembers,
-  projects,
-  teamAuditLog,
-  teamMembers,
-  teams,
-  users,
-} from '../database/schema'
+import { projects, teamMembers, teams, users } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
 import { UsersService } from '../users/users.service'
 import { TeamAuditLogService } from './team-audit-log.service'
-
-type TeamWithMembers = typeof teams.$inferSelect & {
-  members: Array<typeof teamMembers.$inferSelect & { user: typeof users.$inferSelect | null }>
-}
-
-type ProjectWithMembers = typeof projects.$inferSelect & {
-  members: Array<typeof projectMembers.$inferSelect & { user: typeof users.$inferSelect | null }>
-}
+import { assertAccess, isHrOfTeam } from './team-access.util'
+import { archiveTeam, getTeamArchiveImpact, unarchiveTeam } from './team-archive.util'
+import type { TeamArchiveDeps } from './team-archive.util'
+import { mapTeam } from './team-mapping.util'
+import {
+  assertUserRole as assertUserRoleRead,
+  fetchAllProjects as fetchAllProjectsRead,
+  isActiveMemberOfTeam as isActiveMemberOfTeamRead,
+  wasFormerMemberOfTeam as wasFormerMemberOfTeamRead,
+} from './team-membership-read.util'
+import { addTeamMember, removeTeamMember } from './team-membership.util'
+import type { TeamMembershipDeps } from './team-membership.util'
+import type { ProjectWithMembers } from './team-mapping.util'
 
 @Injectable()
 export class TeamsService {
@@ -38,334 +34,18 @@ export class TeamsService {
     private readonly notifications: NotificationsService,
   ) {}
 
-  // MED-2 (security-review PR #541 follow-up): `currentUser` is REQUIRED, not
-  // optional. Both callers (findAll/findOne) already always supply it — an
-  // optional param here is a fail-open-by-omission footgun: a future caller
-  // that forgets to pass it would silently fall through the SENIOR/JUNIOR
-  // `currentUser?.role` checks below to "unmasked" instead of failing `tsc`.
-  private mapTeam(
-    team: TeamWithMembers,
-    allProjects: ProjectWithMembers[],
-    currentUser: SessionUser,
-  ) {
-    // Drop role - phase 1: early return for drop-teams keeps the legacy
-    // senior-team branch (below) byte-for-byte identical.
-    if (team.type === 'DROP') {
-      return this.mapDropTeam(team, currentUser)
-    }
-
-    // MED-2 (security-review round 2): `leftAt === null` — a rotated-out
-    // (detached) senior's team_members row must not be treated as "the
-    // team's senior" here. Without this, a stale/duplicate SENIOR row left
-    // by a rotation could seed the wrong seniorId, deriving the wrong
-    // (or an empty) junior roster for `mapTeam`'s consumers.
-    const senior = team.members.find((m) => m.user?.role === 'SENIOR' && m.leftAt === null)
-
-    const juniorMembers: Array<{
-      id: string
-      userId: string
-      displayName: string
-      email: string
-      avatarUrl: string | null
-      avatarDocumentId: string | null
-      techStack: string[] | null
-      phone: string | null
-      telegram: string | null
-      role: string
-      joinedAt: string | Date
-    }> = []
-
-    if (senior) {
-      const seniorProjects = allProjects.filter((p) => p.seniorId === senior.userId)
-      const seenJuniorIds = new Set<string>()
-      for (const project of seniorProjects) {
-        for (const pm of project.members) {
-          if (pm.leftAt === null && pm.user?.role === 'JUNIOR' && !seenJuniorIds.has(pm.userId)) {
-            seenJuniorIds.add(pm.userId)
-            juniorMembers.push({
-              id: pm.id,
-              userId: pm.userId,
-              displayName: pm.user.displayName,
-              email: pm.user.email,
-              avatarUrl: pm.user.avatarUrl ?? null,
-              avatarDocumentId: pm.user.avatarDocumentId ?? null,
-              techStack: pm.user.techStack ?? null,
-              phone: pm.user.phone ?? null,
-              telegram: pm.user.telegram ?? null,
-              role: 'JUNIOR',
-              joinedAt: pm.joinedAt.toISOString(),
-            })
-          }
-        }
-      }
-    }
-
-    // RBAC: filter junior list based on the viewer's role.
-    // JUNIOR viewer: sees only themselves (their own entry), not other JUNIORs.
-    // SENIOR viewer: sees NO juniors (junior identity hidden from SENIOR per rule #1).
-    let filteredJuniorMembers = juniorMembers
-    if (currentUser.role === 'JUNIOR') {
-      filteredJuniorMembers = juniorMembers.filter((j) => j.userId === currentUser.id)
-    } else if (currentUser.role === 'SENIOR') {
-      filteredJuniorMembers = []
-    }
-
-    // RBAC A01 (2026-06-10): JUNIOR viewer must NOT see real contacts of SENIOR/DROP members.
-    // The legend-subject persona boundary: JUNIOR interacts with the client-facing persona
-    // (legend), not the real identity. displayName and avatarUrl are safe — they are the
-    // persona display fields (kept by #157 single-directional rule).
-    // HR, ACCOUNTANT, and other non-legend-subject roles are NOT masked.
-    const isJuniorViewer = currentUser.role === 'JUNIOR'
-
-    return {
-      id: team.id,
-      name: team.name,
-      type: team.type,
-      telegram: team.telegram ?? null,
-      telegramChannel: team.telegramChannel ?? null,
-      notes: team.notes ?? null,
-      // task-team-senior-share-override. Surfaced on the wire so the FE can
-      // render the override field in the edit dialog + the MyProjectShares
-      // source badge. NULL = no team override (resolver falls through).
-      seniorSharePercentOverride: team.seniorSharePercentOverride ?? null,
-      archivedAt: team.archivedAt ? team.archivedAt.toISOString() : null,
-      createdAt: team.createdAt,
-      updatedAt: team.updatedAt,
-      members: [
-        ...team.members
-          // security-review PR #541 round 3: `m.user !== null` added — a
-          // dangling/unloaded user relation used to PASS this filter (neither
-          // `undefined !== 'ADMIN'` nor `undefined !== 'JUNIOR'` excludes it)
-          // and then default to role 'SENIOR' below, the fail-OPEN direction.
-          // MEMBER-MASK-5 (senior-junior-member-mask.unit.spec.ts) already
-          // pins the opposite, fail-CLOSED convention for mapProject
-          // (`m.user?.role ?? 'JUNIOR'`) — a dangling identity is treated as
-          // the MOST restricted role, not the least. Excluding it here
-          // (same treatment as ADMIN/JUNIOR) brings this branch to the same
-          // direction; the `?? 'JUNIOR'` default below is belt-and-suspenders
-          // for the same reason.
-          .filter(
-            (m) =>
-              m.user !== null &&
-              m.user.role !== 'ADMIN' &&
-              m.user.role !== 'JUNIOR' &&
-              m.leftAt === null,
-          )
-          .map((m) => {
-            const memberIsLegendSubject = m.user?.role === 'SENIOR' || m.user?.role === 'DROP'
-            // Mask real contacts when JUNIOR views a SENIOR or DROP team member.
-            const maskContacts = isJuniorViewer && memberIsLegendSubject
-            return {
-              id: m.id,
-              userId: m.userId,
-              displayName: m.user?.displayName ?? '',
-              email: maskContacts ? null : (m.user?.email ?? ''),
-              avatarUrl: m.user?.avatarUrl ?? null,
-              avatarDocumentId: m.user?.avatarDocumentId ?? null,
-              techStack: m.user?.techStack ?? null,
-              phone: maskContacts ? null : (m.user?.phone ?? null),
-              telegram: maskContacts ? null : (m.user?.telegram ?? null),
-              // Equivalence proof: the `.filter(...)` above this `.map(...)` requires
-              // `m.user !== null` for every element that reaches here, so `m.user` is
-              // never null/undefined at this point and `m.user?.role` / `m.user.role`
-              // read the IDENTICAL value. The `?? 'JUNIOR'` fallback (the actually
-              // meaningful half of this expression) is real belt-and-suspenders and
-              // stays unmutated — only the now-redundant `?.` is suppressed.
-              // Stryker disable next-line OptionalChaining: provably equivalent — see the paragraph immediately above (the preceding .filter() already guarantees m.user is non-null here)
-              role: m.user?.role ?? 'JUNIOR',
-              joinedAt: m.joinedAt,
-              leftAt: m.leftAt ? m.leftAt.toISOString() : null,
-            }
-          }),
-        ...filteredJuniorMembers,
-      ],
-    }
-  }
-
-  /**
-   * Drop-team variant: returns DROP owner + active SENIOR (if any) + HR(s)
-   * + accountant. JUNIORs are NOT computed via project_members (drop-teams
-   * don't propagate juniors through the senior — Phase 2 will add the
-   * drop-project distribution; for now juniors remain a senior-team
-   * concept only).
-   */
-  // MED-2 (security-review PR #541 follow-up): `currentUser` required here
-  // too — mapTeam (its only caller) now always supplies it; keeping this one
-  // optional would just move the same footgun one level down.
-  private mapDropTeam(team: TeamWithMembers, currentUser: SessionUser) {
-    // security-review PR #541 round 3: `m.user !== null` added — mirrors the
-    // identical fail-open→fail-closed fix in mapTeam's senior-team branch
-    // just above (same class of bug: a dangling user relation used to pass
-    // this filter and default to role 'DROP' below).
-    const activeMembers = team.members.filter(
-      (m) =>
-        m.leftAt === null && m.user !== null && m.user.role !== 'ADMIN' && m.user.role !== 'JUNIOR',
-    )
-    // RBAC A01 (2026-06-10): JUNIOR viewer must NOT see real contacts of SENIOR/DROP
-    // members — same legend-persona boundary as mapTeam (senior-team branch).
-    const isJuniorViewer = currentUser.role === 'JUNIOR'
-    return {
-      id: team.id,
-      name: team.name,
-      type: team.type,
-      telegram: team.telegram ?? null,
-      telegramChannel: team.telegramChannel ?? null,
-      notes: team.notes ?? null,
-      // task-team-senior-share-override. Drop-team can also carry an
-      // override — applies to the drop-projects routed through this team
-      // (when the project has no project-level override).
-      seniorSharePercentOverride: team.seniorSharePercentOverride ?? null,
-      archivedAt: team.archivedAt ? team.archivedAt.toISOString() : null,
-      createdAt: team.createdAt,
-      updatedAt: team.updatedAt,
-      members: activeMembers.map((m) => {
-        const memberIsLegendSubject = m.user?.role === 'SENIOR' || m.user?.role === 'DROP'
-        const maskContacts = isJuniorViewer && memberIsLegendSubject
-        return {
-          id: m.id,
-          userId: m.userId,
-          displayName: m.user?.displayName ?? '',
-          email: maskContacts ? null : (m.user?.email ?? ''),
-          avatarUrl: m.user?.avatarUrl ?? null,
-          avatarDocumentId: m.user?.avatarDocumentId ?? null,
-          techStack: m.user?.techStack ?? null,
-          phone: maskContacts ? null : (m.user?.phone ?? null),
-          telegram: maskContacts ? null : (m.user?.telegram ?? null),
-          // Fail-closed default (belt-and-suspenders — the filter above
-          // already excludes a dangling `user`; this default no longer
-          // matters in practice but keeps the same safe direction if that
-          // filter is ever weakened).
-          // Equivalence proof: same as the identical line in mapTeam above —
-          // `activeMembers` is already filtered to `m.user !== null`, so `m.user`
-          // is never null/undefined here and `m.user?.role` / `m.user.role` read
-          // the IDENTICAL value. The `?? 'JUNIOR'` fallback stays unmutated — only
-          // the now-redundant `?.` is suppressed.
-          // Stryker disable next-line OptionalChaining: provably equivalent — see the paragraph immediately above (the preceding .filter() already guarantees m.user is non-null here)
-          role: m.user?.role ?? 'JUNIOR',
-          joinedAt: m.joinedAt,
-          leftAt: m.leftAt ? m.leftAt.toISOString() : null,
-        }
-      }),
-    }
-  }
-
-  // HIGH-1 (security-audit authz-hardening): `team.members` returns EVERY row,
-  // including soft-deleted ones (`leftAt != null` — set by removeMember).
-  // Without the `leftAt === null` filter a member removed from the team keeps
-  // being recognized as an active HR (or, in assertAccess/findAll below, as
-  // any active member) for as long as their JWT is valid (up to 7 days) —
-  // they retain read/write access, can rename the team, remove other members,
-  // and reactivate their own row via addMember. The DROP branch of
-  // assertAccess already filtered on `leftAt === null` correctly; this is now
-  // the norm for every membership check in this file.
-  private isHrOfTeam(team: TeamWithMembers, userId: string) {
-    return team.members.some(
-      (m) => m.userId === userId && m.user?.role === 'HR' && m.leftAt === null,
-    )
-  }
-
-  /**
-   * MED-3 (security-review round 2, authz-hardening): plain active-membership
-   * check (any role), exposed publicly for callers that need to scope an
-   * action to "a team this user actually belongs to" without loading the
-   * full team+members tree. Introduced for `UsersService.createUser`'s
-   * `teamMode='JOIN_DROP_TEAM'` path — `addSeniorToDropTeam` below
-   * explicitly delegates RBAC to its caller (see that method's own
-   * docblock), so without this check an HR actor could attach the SENIOR
-   * they are provisioning to ANY drop-team with a free senior slot, not
-   * just one they belong to — reaching into another team's payment routing.
-   */
+  /** Delegate: see `team-membership-read.util` (kept on the facade for UsersService). */
   async isActiveMemberOfTeam(teamId: string, userId: string): Promise<boolean> {
-    const row = await this.db.db.query.teamMembers.findFirst({
-      where: and(
-        eq(teamMembers.teamId, teamId),
-        eq(teamMembers.userId, userId),
-        isNull(teamMembers.leftAt),
-      ),
-    })
-    return row !== undefined
+    return isActiveMemberOfTeamRead(this.db.db, teamId, userId)
   }
 
-  /**
-   * LOW (security-review round 3, follow-up to #436): scope for
-   * `UsersService.rejoinTeam`'s self-service `teamMode='JOIN_DROP_TEAM'`
-   * path. That endpoint is invoked by the SENIOR themselves — there is no
-   * HR/ADMIN actor to scope against `isActiveMemberOfTeam` above, because
-   * the whole point of a self-service endpoint is that nobody else
-   * authorizes the request. Without ANY scope check, a teamless SENIOR
-   * could self-attach to ANY drop-team with a free senior slot company-wide,
-   * not just one they have ever been part of — combined with the accepted
-   * round-1 risk (an HR actor can provision a SENIOR on an email HR
-   * controls), this chains into another team's payment routing, just one
-   * hop further than the path #436 already closed.
-   *
-   * The correct scope for a "REjoin" is a PAST `team_members` row for this
-   * EXACT team **that was held as SENIOR**, not just any past row —
-   * `team_members` carries no per-row role snapshot, so a plain
-   * `leftAt IS NOT NULL` check (round-3 v1 of this method) cannot tell a
-   * former SENIOR apart from a former HR/ACCOUNTANT/DROP member of the SAME
-   * team who was later promoted to SENIOR (role change is ADMIN-only, but
-   * routine `TeamsController.addMember`/`removeMember` calls make HR/
-   * ACCOUNTANT/DROP membership rows trivial to create and remove — far
-   * easier than the two SENIOR-only detach paths below).
-   *
-   * MED-1 (security-review round 3, follow-up to #436) — v1 tried to verify
-   * this via NEGATIVE evidence from `team_audit_log` (treat ABSENCE of a
-   * disqualifying non-SENIOR removal row as a pass). That was wrong: the
-   * SENIOR-only detach paths (`archiveDropTeam`, `rotateSenior`) wrote no
-   * audit row of their own either, so absence of evidence proved nothing —
-   * the check's correctness quietly depended on `archiveDropTeam`'s mass,
-   * un-audited HR/Accountant/DROP detach (`.update(teamMembers).set({
-   * leftAt: now }).where(teamId = X AND leftAt IS NULL)`, no per-row
-   * `team_member_removed` write) never being reachable again from a
-   * currently-active drop-team — true only because that method always also
-   * archives the team in the same call, and nothing in this codebase
-   * un-archives a drop-team today. A future "unarchive drop-team" feature
-   * would have silently reopened the exact HR/ACCOUNTANT/DROP→SENIOR
-   * promotion chain this method exists to close, with no test or docblock
-   * flagging the dependency.
-   *
-   * MED-1 round 4 (closed same PR): flipped to POSITIVE evidence instead.
-   * `archiveDropTeam`'s senior-detach and `rotateSenior`'s senior-detach —
-   * the ONLY two paths that ever move a SENIOR out of a drop-team — now
-   * EACH write their own `team_member_removed` `team_audit_log` row with
-   * `changes.role.before = 'SENIOR'` (see those methods). This method
-   * requires that exact row to exist for `(teamId, userId)` — fail-closed:
-   * no positive proof, no rejoin. This needs no migration/backfill, is
-   * immune to rows that predate this fix or get imported some other way,
-   * and closes both today's archive-only path AND any future
-   * unarchive-drop-team path the same way, instead of depending on an
-   * incidental invariant holding forever.
-   *
-   * Accepted cost (owner-reviewed): a SENIOR detached BEFORE this change
-   * shipped has no such audit row and therefore cannot self-rejoin anymore —
-   * ADMIN/HR must reattach them via `rotateSenior` (or `createUser`'s
-   * `teamMode='JOIN_DROP_TEAM'`) instead. Acceptable for the team's current
-   * size; the alternative (a role column on `team_members` itself) needs a
-   * prod migration plus edits at every one of the half-dozen insert sites.
-   */
+  /** Delegate: see `team-membership-read.util` (docblock carries the MED-1 rejoin-scope rationale). */
   async wasFormerMemberOfTeam(teamId: string, userId: string): Promise<boolean> {
-    const row = await this.db.db
-      .select({ id: teamAuditLog.id })
-      .from(teamAuditLog)
-      .where(
-        and(
-          eq(teamAuditLog.targetId, teamId),
-          eq(teamAuditLog.action, 'team_member_removed'),
-          sql`${teamAuditLog.changes} -> 'userId' ->> 'before' = ${userId}`,
-          sql`${teamAuditLog.changes} -> 'role' ->> 'before' = 'SENIOR'`,
-        ),
-      )
-      .limit(1)
-      .then((rows) => rows[0])
-
-    return row !== undefined
+    return wasFormerMemberOfTeamRead(this.db.db, teamId, userId)
   }
 
   private async fetchAllProjects(): Promise<ProjectWithMembers[]> {
-    return this.db.db.query.projects.findMany({
-      with: { members: { with: { user: true } } },
-    }) as Promise<ProjectWithMembers[]>
+    return fetchAllProjectsRead(this.db.db)
   }
 
   async create(
@@ -446,7 +126,7 @@ export class TeamsService {
       // DROP-type teams are payment-routing internals and are irrelevant to the
       // HR recruiting workflow. Filter applied before isHrOfTeam so that even if
       // an HR is technically a member of a DROP team they don't see it.
-      filtered = allTeams.filter((t) => t.type !== 'DROP' && this.isHrOfTeam(t, currentUser.id))
+      filtered = allTeams.filter((t) => t.type !== 'DROP' && isHrOfTeam(t, currentUser.id))
     } else if (currentUser.role === 'DROP') {
       // Drop role - phase 1 (task-drop-1-backend AC1). EXPLICIT branch: a DROP
       // sees ONLY teams where they are a current static member (their own
@@ -487,7 +167,7 @@ export class TeamsService {
       })
     }
 
-    return filtered.map((t) => this.mapTeam(t, allProjects, currentUser))
+    return filtered.map((t) => mapTeam(t, allProjects, currentUser))
   }
 
   async findOne(id: string, currentUser: SessionUser) {
@@ -499,8 +179,8 @@ export class TeamsService {
       this.fetchAllProjects(),
     ])
     if (!team) throw apiError('TEAM_NOT_FOUND', HttpStatus.NOT_FOUND)
-    this.assertAccess(team, currentUser, allProjects)
-    return this.mapTeam(team, allProjects, currentUser)
+    assertAccess(team, currentUser, allProjects)
+    return mapTeam(team, allProjects, currentUser)
   }
 
   async update(
@@ -539,7 +219,7 @@ export class TeamsService {
 
     // HR scope check: HR may only update teams they are a member of.
     // ACCOUNTANT is exempt from this check — their authority is cross-team.
-    if (currentUser.role === 'HR' && !this.isHrOfTeam(team, currentUser.id)) {
+    if (currentUser.role === 'HR' && !isHrOfTeam(team, currentUser.id)) {
       throw new ForbiddenException()
     }
 
@@ -602,511 +282,48 @@ export class TeamsService {
     return updated
   }
 
-  /**
-   * Soft-archive a team. By business invariant, archiving the team is equivalent
-   * to archiving its SENIOR — the two are inseparable. We delegate to
-   * UsersService.archive(team.seniorId) which performs the pair-cascade
-   * (archive senior + projects; membership of HR/Acc/Junior is left alone —
-   * see task-archive-pending-modal AC9).
-   */
+  /** Delegate: see `team-archive.util` (pair-cascade via UsersService.archive). */
   async archive(teamId: string, currentUser: SessionUser) {
-    if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
-    const team = await this.db.db.query.teams.findFirst({
-      where: eq(teams.id, teamId),
-      with: { members: { with: { user: true } } },
-    })
-    if (!team) throw apiError('TEAM_NOT_FOUND', HttpStatus.NOT_FOUND)
-    if (team.archivedAt) throw apiError('TEAM_ALREADY_ARCHIVED', HttpStatus.BAD_REQUEST)
-
-    // Drop-archive round 2 (B1): dispatch by team type. Drop-teams use the
-    // dedicated `archiveDropTeam` primitive (drop archived + projects
-    // cascade + senior detached *without* archiving).
-    //
-    // task-archive-pending-modal (AC10): `archiveDropTeam` issues several
-    // sequential writes (team, projects, the drop's own user row) — calling
-    // it bare (no `tx`) meant a failure partway left the DB in whatever state
-    // the writes-so-far produced. Wrapping the call in `db.transaction()` is
-    // what makes AC7's "одной операцией, а не по одному" true at the
-    // database level, not just in the code's shape.
-    if (team.type === 'DROP') {
-      await this.db.db.transaction((tx) => this.archiveDropTeam(teamId, tx))
-      return this.findOne(teamId, currentUser)
-    }
-
-    const seniorMember = team.members.find((m) => m.user?.role === 'SENIOR' && m.leftAt === null)
-    if (!seniorMember) {
-      throw apiError('TEAM_NO_ACTIVE_SENIOR_FOR_ARCHIVE', HttpStatus.BAD_REQUEST)
-    }
-    await this.usersService.archive(seniorMember.userId, currentUser.id)
-    return this.findOne(teamId, currentUser)
+    return archiveTeam(this.archiveDeps(), teamId, currentUser)
   }
 
-  /**
-   * Pair-unarchive: restore SENIOR + team. Projects remain archived;
-   * HR/Acc memberships remain closed (admin re-adds via Teams page).
-   */
+  /** Delegate: see `team-archive.util`. */
   async unarchive(teamId: string, currentUser: SessionUser) {
-    if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
-    const team = await this.db.db.query.teams.findFirst({
-      where: eq(teams.id, teamId),
-      with: { members: true },
-    })
-    if (!team) throw apiError('TEAM_NOT_FOUND', HttpStatus.NOT_FOUND)
-    if (!team.archivedAt) throw apiError('TEAM_NOT_ARCHIVED', HttpStatus.BAD_REQUEST)
-
-    // Find SENIOR via team_members + users join — `with: { members: true }`
-    // above doesn't include user.role, so we run a focused lookup here.
-    // MED-2 (security-review round 2): `isNull(leftAt)` — without it, a
-    // team with rotation history (a detached ex-senior row PLUS the current
-    // active senior row, both role=SENIOR) has no ORDER BY guarantee on
-    // which row `rows[0]` picks. Picking the detached one would silently
-    // restore access to the WRONG (possibly still-fired) person instead of
-    // the team's actual current senior.
-    const seniorRow = await this.db.db
-      .select({ userId: teamMembers.userId })
-      .from(teamMembers)
-      .innerJoin(users, eq(users.id, teamMembers.userId))
-      .where(
-        and(eq(teamMembers.teamId, teamId), eq(users.role, 'SENIOR'), isNull(teamMembers.leftAt)),
-      )
-      .then((rows) => rows[0])
-    if (!seniorRow) {
-      throw apiError('SENIOR_NOT_FOUND', HttpStatus.NOT_FOUND)
-    }
-    await this.usersService.unarchive(seniorRow.userId, currentUser.id)
-    return this.findOne(teamId, currentUser)
+    return unarchiveTeam(this.archiveDeps(), teamId, currentUser)
   }
 
-  /**
-   * Returns the archive impact for the team (pair = senior). UI uses for warnings.
-   */
+  /** Delegate: see `team-archive.util`. */
   async getArchiveImpact(teamId: string, currentUser: SessionUser): Promise<ArchiveImpact> {
-    if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
-    const team = await this.db.db.query.teams.findFirst({
-      where: eq(teams.id, teamId),
-    })
-    if (!team) throw apiError('TEAM_NOT_FOUND', HttpStatus.NOT_FOUND)
+    return getTeamArchiveImpact(this.archiveDeps(), teamId, currentUser)
+  }
 
-    // Drop-archive round 2 (B2): branch by team type. Drop-teams have a
-    // different "paired" entity — the drop (not a senior). UI keys on
-    // `teamType` to render the right copy + confirm-input.
-    if (team.type === 'DROP') {
-      // Resolve the drop owner (paired user for the confirmation text).
-      const dropRow = await this.db.db
-        .select({ id: users.id, displayName: users.displayName })
-        .from(teamMembers)
-        .innerJoin(users, eq(users.id, teamMembers.userId))
-        .where(
-          and(eq(teamMembers.teamId, teamId), eq(users.role, 'DROP'), isNull(teamMembers.leftAt)),
-        )
-        .then((rows) => rows[0])
-      // Active senior (informational only — gets detached without archive).
-      const seniorRow = await this.db.db
-        .select({ id: users.id, displayName: users.displayName })
-        .from(teamMembers)
-        .innerJoin(users, eq(users.id, teamMembers.userId))
-        .where(
-          and(eq(teamMembers.teamId, teamId), eq(users.role, 'SENIOR'), isNull(teamMembers.leftAt)),
-        )
-        .then((rows) => rows[0])
-      // Active HR/Accountant count. task-archive-pending-modal (AC9): these
-      // are NOT detached by `archiveDropTeam` any more — they keep their
-      // membership and keep earning. Kept as "how many are on this team" for
-      // the warning copy. Computed cheaply with a single query excluding the
-      // drop + senior rows.
-      const others = await this.db.db
-        .select({ userId: teamMembers.userId })
-        .from(teamMembers)
-        .innerJoin(users, eq(users.id, teamMembers.userId))
-        .where(
-          and(eq(teamMembers.teamId, teamId), isNull(teamMembers.leftAt), eq(users.role, 'HR')),
-        )
-      const accountants = await this.db.db
-        .select({ userId: teamMembers.userId })
-        .from(teamMembers)
-        .innerJoin(users, eq(users.id, teamMembers.userId))
-        .where(
-          and(
-            eq(teamMembers.teamId, teamId),
-            isNull(teamMembers.leftAt),
-            eq(users.role, 'ACCOUNTANT'),
-          ),
-        )
-      // Drop-projects count + names (AC8).
-      const dropProjects = dropRow
-        ? await this.db.db
-            .select({ id: projects.id, name: projects.name })
-            .from(projects)
-            .where(and(eq(projects.dropId, dropRow.id), isNull(projects.archivedAt)))
-        : []
-      // task-archive-pending-modal (AC2): the drop's own pending
-      // transactions — delegate to UsersService so the rule lives in ONE
-      // place. Only reachable when the drop resolved (a team with no active
-      // drop member has nothing to forward).
-      const dropPendingTransactions = dropRow
-        ? await this.usersService
-            .getArchiveImpact(dropRow.id, currentUser)
-            .then((i) =>
-              i.type === 'user' && i.role === 'DROP' ? (i.pendingTransactions ?? []) : [],
-            )
-        : []
-      return {
-        type: 'team',
-        isPaired: true,
-        teamName: team.name,
-        // Keep `seniorName` for legacy clients — empty if no senior attached.
-        // The new `dropName` field is what the v2 UI keys on.
-        seniorName: seniorRow?.displayName ?? '',
-        projectsCount: dropProjects.length,
-        projectNames: dropProjects.map((p) => p.name),
-        membersAffected: others.length + accountants.length,
-        teamType: 'DROP',
-        dropName: dropRow?.displayName ?? '',
-        seniorWillBeDetached: !!seniorRow,
-        pendingTransactions: dropPendingTransactions,
-      }
-    }
-
-    // SENIOR team — legacy path (unchanged 1:1 from round 1).
-    const seniorRow = await this.db.db
-      .select({ id: users.id, displayName: users.displayName })
-      .from(teamMembers)
-      .innerJoin(users, eq(users.id, teamMembers.userId))
-      .where(
-        and(eq(teamMembers.teamId, teamId), eq(users.role, 'SENIOR'), isNull(teamMembers.leftAt)),
-      )
-      .then((rows) => rows[0])
-    if (!seniorRow) {
-      return {
-        type: 'team',
-        isPaired: true,
-        teamName: team.name,
-        seniorName: '',
-        projectsCount: 0,
-        membersAffected: 0,
-        teamType: 'SENIOR',
-      }
-    }
-    const userImpact = await this.usersService.getArchiveImpact(seniorRow.id, currentUser)
-    const seniorImpact =
-      userImpact.type === 'user' && userImpact.role === 'SENIOR' ? userImpact : null
+  /** Late-bound closures: `archiveDropTeam`/`findOne` resolve on `this` at call time. */
+  private archiveDeps(): TeamArchiveDeps {
     return {
-      type: 'team',
-      isPaired: true,
-      teamName: team.name,
-      seniorName: seniorRow.displayName,
-      projectsCount: seniorImpact?.projectsCount ?? 0,
-      // task-archive-pending-modal (AC8/AC2): forwarded 1:1 from the senior's
-      // own user-impact — archiving the team IS archiving the senior.
-      projectNames: seniorImpact?.projectNames ?? [],
-      membersAffected: seniorImpact?.hrAccountantsOnTeam ?? 0,
-      teamType: 'SENIOR',
-      pendingTransactions: seniorImpact?.pendingTransactions ?? [],
+      db: this.db.db,
+      usersService: this.usersService,
+      archiveDropTeam: (teamId, tx) => this.archiveDropTeam(teamId, tx),
+      findOne: (teamId, currentUser) => this.findOne(teamId, currentUser),
     }
   }
 
+  /** Delegate: see `team-membership.util` (RBAC + soft-delete/re-add + member-added notifications). */
   async addMember(teamId: string, userId: string, currentUser: SessionUser) {
-    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'HR') {
-      throw new ForbiddenException()
-    }
-
-    const team = await this.db.db.query.teams.findFirst({
-      where: eq(teams.id, teamId),
-      with: { members: { with: { user: true } } },
-    })
-    if (!team) throw apiError('TEAM_NOT_FOUND', HttpStatus.NOT_FOUND)
-
-    if (currentUser.role === 'HR' && !this.isHrOfTeam(team, currentUser.id)) {
-      throw new ForbiddenException()
-    }
-
-    const user = await this.db.db.query.users.findFirst({ where: eq(users.id, userId) })
-    if (!user) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
-    if (user.role === 'ADMIN') throw apiError('TEAM_ADMIN_CANNOT_BE_MEMBER', HttpStatus.BAD_REQUEST)
-
-    // SEC-02 (HIGH) addMember vector: HR adding an arbitrary SENIOR via
-    // POST /teams/:id/members is the same BOLA class as the create() vector —
-    // HR gains getHrSeniorIds-based scope over a senior they had no prior
-    // relationship with. The legitimate way to assign a SENIOR to a team is
-    // via POST /api/teams (create, ADMIN-only) or rotateSenior. Restrict
-    // SENIOR additions through addMember to ADMIN-only; HR may still add
-    // JUNIOR / HR / ACCOUNTANT members (their established recruiting workflow).
-    if (user.role === 'SENIOR' && currentUser.role !== 'ADMIN') {
-      throw apiError('TEAM_ADD_SENIOR_ADMIN_ONLY', HttpStatus.FORBIDDEN)
-    }
-
-    // Prevent adding a second SENIOR
-    // MED-2 (security-review round 2, informational — consistency, not a
-    // security fix): `leftAt === null` — without it a rotated-out senior's
-    // stale row permanently blocks ever adding a new senior to this team
-    // (conservative failure, not an access bug), even though the team is
-    // legitimately senior-less after rotation. Brought in line with every
-    // other SENIOR lookup in this file.
-    if (user.role === 'SENIOR') {
-      const hasSenior = team.members.some((m) => m.user?.role === 'SENIOR' && m.leftAt === null)
-      if (hasSenior) throw apiError('TEAM_ALREADY_HAS_SENIOR', HttpStatus.BAD_REQUEST)
-    }
-
-    // Prevent adding a JUNIOR who has an active project
-    if (user.role === 'JUNIOR') {
-      const allProjects = await this.fetchAllProjects()
-      const hasActiveProject = allProjects.some((p) =>
-        p.members.some((m) => m.userId === userId && m.leftAt === null),
-      )
-      if (hasActiveProject)
-        throw apiError('JUNIOR_ALREADY_ON_ANOTHER_PROJECT', HttpStatus.BAD_REQUEST)
-    }
-
-    // Re-add semantics after the soft-delete change to removeMember: a removed
-    // member leaves a soft-deleted row (leftAt != null). Reject only ACTIVE
-    // duplicates; reactivate a soft-deleted row instead of inserting a second
-    // one (mirrors UsersService.upsertTeamMemberTx). Without this, re-adding a
-    // previously removed member would 400 ("User is already a member").
-    //
-    // HIGH-1: reactivating a soft-deleted row is intentionally gated by the
-    // SAME guard as the rest of this method (:611-613 role check + :619-621
-    // isHrOfTeam, now leftAt-filtered) — only ADMIN or an ACTIVE HR of THIS
-    // team can ever reach this line. A removed HR calling addMember on
-    // themselves (the attack chain this fix closes) is rejected by the
-    // isHrOfTeam check above and never gets here.
-    const existing = await this.db.db.query.teamMembers.findFirst({
-      where: and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)),
-    })
-    // task-notification-types-producers (позиция 6). Членство и уведомления о
-    // нём — ОДНА транзакция: «уведомление о несостоявшемся событии
-    // недопустимо», и здесь это не дисциплина, а свойство — откатилось
-    // членство, откатились и записи.
-    //
-    // Обе ветки ниже — свежая вставка и возврат ранее удалённого участника —
-    // одинаковы с точки зрения человека: его добавили в команду. Раньше ветка
-    // реактивации отличалась только `return`, и уведомление, дописанное лишь в
-    // конец метода, тихо пропустило бы половину случаев.
-    const notifyInput = {
-      teamId,
-      teamName: team.name,
-      addedUserId: userId,
-      addedUserRole: user.role,
-      addedUserName: user.displayName,
-      members: team.members,
-      currentUser,
-    }
-
-    // SR-H-2 (security-review круг 2): путь производителя целиком — во
-    // ВЛОЖЕННОЙ транзакции (SAVEPOINT), включая отбор получателей. Отбор
-    // переехал ВНУТРЬ по той же причине: пока он стоял до транзакции, его
-    // падение отменяло само членство — то есть уведомление имело вето над
-    // событием ещё до того, как событие случилось.
-    const notify = async (tx: DrizzleTx): Promise<void> => {
-      await this.notifications.emitInTx(tx, async (sp) => {
-        await this.notifications.createManyInTx(
-          sp,
-          this.buildTeamMemberAddedNotifications(notifyInput),
-        )
-      })
-    }
-
-    if (existing) {
-      if (existing.leftAt === null) {
-        throw apiError('TEAM_USER_ALREADY_MEMBER', HttpStatus.BAD_REQUEST)
-      }
-      await this.db.db.transaction(async (tx) => {
-        await tx.update(teamMembers).set({ leftAt: null }).where(eq(teamMembers.id, existing.id))
-        await notify(tx)
-      })
-      return
-    }
-
-    await this.db.db.transaction(async (tx) => {
-      await tx.insert(teamMembers).values({ teamId, userId })
-      await notify(tx)
-    })
+    return addTeamMember(this.membershipDeps(), teamId, userId, currentUser)
   }
 
-  /**
-   * Кому уходит событие «в команде прибыло» — и кому НЕ уходит.
-   *
-   * Правило раскрытия здесь не про деньги, а про личность, и оно уже
-   * зафиксировано в `mapTeam` выше: SENIOR не видит джунов вовсе, а JUNIOR
-   * видит среди джунов только себя. Уведомление обязано подчиняться тому же
-   * контуру — иначе колокольчик рассказывал бы то, что экран прячет, и это был
-   * бы обход маскировки, а не её частный случай.
-   *
-   * Автору действия не пишем: своё подтверждает тост, а не колокольчик (§8.1).
-   */
-  private buildTeamMemberAddedNotifications(input: {
-    teamId: string
-    teamName: string
-    addedUserId: string
-    addedUserRole: string
-    addedUserName: string
-    members: TeamWithMembers['members']
-    currentUser: SessionUser
-  }): CreateNotificationInput[] {
-    const actorId = input.currentUser.impersonatorId ?? input.currentUser.id
-    const out: CreateNotificationInput[] = []
-
-    if (input.addedUserId !== actorId) {
-      out.push({
-        userId: input.addedUserId,
-        type: 'TEAM_MEMBER_ADDED',
-        title: NOTIFICATION_TITLES.TEAM_MEMBER_ADDED,
-        subjectType: 'TEAM',
-        subjectId: input.teamId,
-        data: { teamName: input.teamName },
-      })
-    }
-
-    const addedIsJunior = input.addedUserRole === 'JUNIOR'
-    for (const member of input.members) {
-      if (member.leftAt !== null) continue
-      if (member.userId === input.addedUserId) continue
-      if (member.userId === actorId) continue
-      // SR-M-1 (security-review круг 1): роль НЕИЗВЕСТНА — значит самая
-      // ограниченная, а не «никакая». `?? null` открывал рассылку в
-      // непроверяемую сторону: строка членства без подтянутого профиля не
-      // попадала ни под одно условие и получала имя джуна.
-      //
-      // `mapTeam` / `mapDropTeam` в этом же файле после #541 идут именно так
-      // («a dangling identity is treated as the MOST restricted role, not the
-      // least»), и производитель обязан повторять их контур: колокольчик не
-      // имеет права рассказывать то, что прячет экран.
-      const memberRole = member.user?.role ?? 'JUNIOR'
-      // `mapTeam`: SENIOR не видит джунов, JUNIOR видит среди джунов только себя.
-      if (addedIsJunior && (memberRole === 'SENIOR' || memberRole === 'JUNIOR')) continue
-      out.push({
-        userId: member.userId,
-        type: 'TEAM_NEW_MEMBER',
-        title: NOTIFICATION_TITLES.TEAM_NEW_MEMBER,
-        subjectType: 'TEAM',
-        subjectId: input.teamId,
-        secondaryId: input.addedUserId,
-        data: { teamName: input.teamName, memberName: input.addedUserName },
-      })
-    }
-
-    return out
-  }
-
+  /** Delegate: see `team-membership.util`. */
   async removeMember(teamId: string, userId: string, currentUser: SessionUser) {
-    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'HR') {
-      throw new ForbiddenException()
-    }
-
-    const team = await this.db.db.query.teams.findFirst({
-      where: eq(teams.id, teamId),
-      with: { members: { with: { user: true } } },
-    })
-    if (!team) throw apiError('TEAM_NOT_FOUND', HttpStatus.NOT_FOUND)
-
-    if (currentUser.role === 'HR' && !this.isHrOfTeam(team, currentUser.id)) {
-      throw new ForbiddenException()
-    }
-
-    // The `members` relation returns ALL rows including soft-deleted ones
-    // (leftAt != null). Since removeMember now soft-deletes, every check below
-    // must consider only ACTIVE members — otherwise a previously-removed row
-    // would (a) be re-"found" as removable, and (b) inflate the HR/ACCOUNTANT
-    // minimum-count guards.
-    const activeMembers = team.members.filter((m) => m.leftAt === null)
-
-    const memberToRemove = activeMembers.find((m) => m.userId === userId)
-    if (!memberToRemove) throw apiError('TEAM_MEMBER_NOT_FOUND', HttpStatus.NOT_FOUND)
-
-    const removedRole = memberToRemove.user?.role
-    if (removedRole === 'SENIOR') {
-      throw apiError('TEAM_CANNOT_REMOVE_SENIOR', HttpStatus.BAD_REQUEST)
-    }
-
-    if (removedRole === 'HR') {
-      const hrCount = activeMembers.filter((m) => m.user?.role === 'HR').length
-      if (hrCount <= 1) {
-        throw apiError('HR_REQUIRED_MINIMUM_ONE', HttpStatus.BAD_REQUEST)
-      }
-    }
-
-    if (removedRole === 'ACCOUNTANT') {
-      const accountantCount = activeMembers.filter((m) => m.user?.role === 'ACCOUNTANT').length
-      if (accountantCount <= 1) {
-        throw apiError('TEAM_ACCOUNTANT_REQUIRED_MINIMUM_ONE', HttpStatus.BAD_REQUEST)
-      }
-    }
-
-    // Soft-delete the membership (set leftAt=now) instead of a physical DELETE,
-    // so the row survives for audit/history — consistent with every other exit
-    // path (archiveDropTeam, rotateSenior). A physical delete erased the
-    // membership entirely and skipped the audit trail (pre-deploy MEDIUM).
-    // The audit insert is part of the same transaction: a rollback discards both.
-    const now = new Date()
-    await this.db.db.transaction(async (tx) => {
-      await tx
-        .update(teamMembers)
-        .set({ leftAt: now })
-        .where(
-          and(
-            eq(teamMembers.teamId, teamId),
-            eq(teamMembers.userId, userId),
-            isNull(teamMembers.leftAt),
-          ),
-        )
-      // security-review round 2 (authz-hardening): attribute to the real
-      // operator under impersonation — see sessionUserSchema.impersonatorId's
-      // doc for the full rationale.
-      await this.teamAuditLogService.record(
-        {
-          actorId: currentUser.impersonatorId ?? currentUser.id,
-          targetId: teamId,
-          action: 'team_member_removed',
-          changes: {
-            userId: { before: userId, after: null },
-            role: { before: removedRole ?? null, after: null },
-          },
-        },
-        tx,
-      )
-    })
+    return removeTeamMember(this.membershipDeps(), teamId, userId, currentUser)
   }
 
-  private assertAccess(
-    team: TeamWithMembers,
-    currentUser: SessionUser,
-    allProjects: ProjectWithMembers[],
-  ) {
-    if (currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT') return
-
-    // Drop role - phase 1 (task-drop-1-backend AC2). EXPLICIT, ACTIVE-only
-    // branch evaluated BEFORE the generic membership check below: a DROP may
-    // access a team ONLY when they are a CURRENT member (`leftAt === null`),
-    // matching the findAll DROP filter. A foreign team — or one the drop has
-    // left — is unconditionally forbidden; the JUNIOR project-derivation below
-    // MUST NOT grant a DROP access. Returning/throwing here keeps the contract
-    // unambiguous and future-proof.
-    if (currentUser.role === 'DROP') {
-      if (team.members.some((m) => m.userId === currentUser.id && m.leftAt === null)) return
-      throw new ForbiddenException()
+  private membershipDeps(): TeamMembershipDeps {
+    return {
+      db: this.db.db,
+      teamAuditLogService: this.teamAuditLogService,
+      notifications: this.notifications,
+      fetchAllProjects: () => this.fetchAllProjects(),
     }
-
-    // HIGH-1: `leftAt === null` — a soft-deleted (removed) static membership
-    // must not keep granting access. Mirrors the DROP branch above.
-    if (team.members.some((m) => m.userId === currentUser.id && m.leftAt === null)) return
-
-    // For JUNIORs: check if they have an active project with this team's senior
-    // MED-2 (security-review round 2): `leftAt === null` — same fix as
-    // findAll's JUNIOR branch above; a rotated-out senior's stale row must
-    // not seed this lookup (mirror-image bug of the DROP/general branches:
-    // it could both wrongly grant access via a departed senior AND wrongly
-    // deny access by shadowing the current one).
-    if (currentUser.role === 'JUNIOR') {
-      const senior = team.members.find((m) => m.user?.role === 'SENIOR' && m.leftAt === null)
-      if (senior) {
-        const seniorProjects = allProjects.filter((p) => p.seniorId === senior.userId)
-        const hasActiveProjectWithSenior = seniorProjects.some((p) =>
-          p.members.some((m) => m.userId === currentUser.id && m.leftAt === null),
-        )
-        if (hasActiveProjectWithSenior) return
-      }
-    }
-
-    throw new ForbiddenException()
   }
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -1117,36 +334,13 @@ export class TeamsService {
   // UNCHANGED. All drop-team behavior lives in the methods below.
   // ──────────────────────────────────────────────────────────────────────────
 
-  /**
-   * Helper for asserting that a user has the expected role, surfacing
-   * a 400 instead of an opaque 500.
-   */
   private async assertUserRole(
     userId: string,
     expectedRole: 'DROP' | 'SENIOR' | 'HR' | 'ACCOUNTANT',
     tx?: DrizzleTx,
     genericMessage = false,
   ): Promise<void> {
-    // MED (security-review #328): callers that are reachable by non-ADMIN users
-    // (e.g. rotateSenior, addSeniorToDropTeam) should pass genericMessage=true
-    // so that the error message does not leak whether a userId exists or what
-    // role it holds — an information oracle usable for user enumeration.
-    const handle = tx ?? this.db.db
-    const u = await handle
-      .select()
-      .from(users)
-      .where(eq(users.id, userId))
-      .then((rows) => rows[0])
-    if (!u || u.role !== expectedRole) {
-      if (genericMessage) {
-        throw apiError('TEAM_USER_NOT_FOUND_OR_WRONG_ROLE', HttpStatus.BAD_REQUEST)
-      }
-      if (!u) throw apiError('USER_NOT_FOUND', HttpStatus.BAD_REQUEST)
-      throw apiError('TEAM_UNEXPECTED_USER_ROLE', HttpStatus.BAD_REQUEST, {
-        expectedRole,
-        actualRole: u.role,
-      })
-    }
+    return assertUserRoleRead(this.db.db, userId, expectedRole, tx, genericMessage)
   }
 
   /**

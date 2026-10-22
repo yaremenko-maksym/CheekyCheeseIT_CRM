@@ -21,11 +21,11 @@ transaction** — it should change the status `PENDING_PAYMENT → PAID` **in pl
 ### How it works now (verified by the code)
 
 **Booking of the obligation** — `TransactionsService.bookCompanyObligations`
-(`apps/api/src/finance/transactions.service.ts:2702`). Called from TWO places:
+(`apps/api/src/finance/transactions.service.ts`). Called from TWO places:
 
-1. `declareUsdtProjectIncome` (`:1199`) — ADMIN declares a USDT income → `ADMIN_INCOME`(PAID) +
+1. `declareUsdtProjectIncome` — ADMIN declares a USDT income → `ADMIN_INCOME`(PAID) +
    a senior IOU (`SENIOR_PENDING_PAYOUT`) + a drop IOU (`DROP_PENDING_PAYOUT`).
-2. `applyPayoutPaidCascade`, the drop branch (`:3115`) — a drop-payout payment → a direct `PAYOUT_DROP`
+2. `applyPayoutPaidCascade`, the drop branch — a drop-payout payment → a direct `PAYOUT_DROP`
    (the drop's share) + a senior IOU (`SENIOR_PENDING_PAYOUT`); a drop IOU is NOT created here (`drop:null`).
 
 Each IOU: `type ∈ {SENIOR_PENDING_PAYOUT, DROP_PENDING_PAYOUT}`, `status=PENDING_PAYMENT`,
@@ -33,7 +33,7 @@ Each IOU: `type ∈ {SENIOR_PENDING_PAYOUT, DROP_PENDING_PAYOUT}`, `status=PENDI
 `pending_obligations` (`debtorType='COMPANY'`, `sourceTransactionId → the IOU tx`, `status='PENDING'`).
 
 **Settle** — `PendingSettlementService.settleByCompany`
-(`apps/api/src/finance/pending-settlement.service.ts:246`):
+(`apps/api/src/finance/pending-settlement.service.ts`):
 
 1. A **conditional UPDATE** `pending_obligations` `PENDING → PAID` `WHERE status='PENDING'` `.returning()`
    — an atomic TOCTOU guard against a double click (the single source of truth against the race; there is no
@@ -50,13 +50,13 @@ The original `*_PENDING_PAYOUT` row is **not touched** → the "Awaiting payout"
 
 ### Silo consumers of the created row (what exactly must not be broken)
 
-| #   | Consumer                          | File                                                                | What it depends on today                                                                                                                                                                                                                                        |
-| --- | --------------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | The company-account ledger        | `company-account-balance.ts:117`                                    | debit terms `SENIOR_INCOME(PAID, fundingSource=COMPANY_ACCOUNT, USDT)` and `PAYOUT_DROP(PAID, COMPANY_ACCOUNT, USDT)`                                                                                                                                           |
-| 2   | The drop's balance                | `computeDropAggregate` (`transactions.service.ts:561`)              | `received = Σ PAYOUT_DROP(PAID, receiverId=drop)`; `sent = Σ PAYOUT_DROP(PAID, senderId=drop)`. C6: senderId≠drop → no double-count                                                                                                                             |
-| 3   | The invoice to the senior         | `autoCreateForSeniorPayout` (`invoices.service.ts:142`)             | the gate `tx.type === 'SENIOR_INCOME'`                                                                                                                                                                                                                          |
-| 4   | C4 totalIncome                    | `getSummary` (`transactions.service.ts:3315-3342`, monthly `:3463`) | `settlementTxIds = Set(pending_obligations.closingTransactionId)`; `SENIOR_INCOME` is counted in income **only if** `!settlementTxIds.has(id)`                                                                                                                  |
-| 5   | ADMIN_PERSONAL vs COMPANY_ACCOUNT | settle §3                                                           | COMPANY: `senderId=null`, `senderLabel='COMPANY'`, `currency=USDT`, marker=`COMPANY_ACCOUNT`. ADMIN_PERSONAL: `senderId=admin`, `senderLabel=admin.displayName`, `currency∈{USD,USDT}`, marker=`null` (the debit is caught by `adminBalances.sent` by senderId) |
+| #   | Consumer                          | File                                                | What it depends on today                                                                                                                                                                                                                                        |
+| --- | --------------------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | The company-account ledger        | `company-account-balance.ts`                        | debit terms `SENIOR_INCOME(PAID, fundingSource=COMPANY_ACCOUNT, USDT)` and `PAYOUT_DROP(PAID, COMPANY_ACCOUNT, USDT)`                                                                                                                                           |
+| 2   | The drop's balance                | `computeDropAggregate` (`transactions.service.ts`)  | `received = Σ PAYOUT_DROP(PAID, receiverId=drop)`; `sent = Σ PAYOUT_DROP(PAID, senderId=drop)`. C6: senderId≠drop → no double-count                                                                                                                             |
+| 3   | The invoice to the senior         | `autoCreateForSeniorPayout` (`invoices.service.ts`) | the gate `tx.type === 'SENIOR_INCOME'`                                                                                                                                                                                                                          |
+| 4   | C4 totalIncome                    | `getSummary` (`transactions.service.ts`, monthly)   | `settlementTxIds = Set(pending_obligations.closingTransactionId)`; `SENIOR_INCOME` is counted in income **only if** `!settlementTxIds.has(id)`                                                                                                                  |
+| 5   | ADMIN_PERSONAL vs COMPANY_ACCOUNT | settle §3                                           | COMPANY: `senderId=null`, `senderLabel='COMPANY'`, `currency=USDT`, marker=`COMPANY_ACCOUNT`. ADMIN_PERSONAL: `senderId=admin`, `senderLabel=admin.displayName`, `currency∈{USD,USDT}`, marker=`null` (the debit is caught by `adminBalances.sent` by senderId) |
 
 **Key observation.** All five consumers key on the **final form** of the row —
 `(type=SENIOR_INCOME/PAYOUT_DROP) AND (status=PAID) AND (funding markers)`. The IOU type
@@ -114,11 +114,11 @@ remain untouched. **Recommendation: Option A.**
 
 #### Critical: reset `payoutRequestId := null` on the flip (Confidence: HIGH)
 
-The IOU from the cascade branch (`:3115`) carries `payoutRequestId = requestId`. If not reset, the flipped
+The IOU from the cascade branch carries `payoutRequestId = requestId`. If not reset, the flipped
 `SENIOR_INCOME` will keep this `payoutRequestId` and:
 
 - will get into the `autoCreateForPayout` selection (aggregation of `SENIOR_INCOME/DROP_INCOME` by `payoutRequestId`);
-- will match the `findOne` enrichment (`transactions.service.ts:938` — `SENIOR_INCOME AND payoutRequestId=X`
+- will match the `findOne` enrichment (`transactions.service.ts` — `SENIOR_INCOME AND payoutRequestId=X`
   for passing `seniorSharePercent` into the PAYOUT card).
 
 Today's settle `SENIOR_INCOME` has `payoutRequestId=null` (settleByCompany does not set it).
@@ -136,16 +136,16 @@ document it as an intentional delta. Zeroing it is also acceptable — the Coder
 
 ### Answers per consumer (Option A)
 
-| #   | Consumer                                | How it changes under Option A                                                                                                                                                                                                                                                                                                                                                        |
-| --- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1   | **The ledger**                          | **Unchanged.** The flipped row — `SENIOR_INCOME`/`PAYOUT_DROP` with `fundingSource=COMPANY_ACCOUNT`,`currency=USDT` → it is caught by the EXISTING terms `companySeniorPayouts`/`companyDropPayouts`. The credit side (income `ADMIN_INCOME`/`PAYOUT` COMPANY_ACCOUNT) is not touched → the netting is identical. A new term is NOT needed.                                          |
-| 2   | **The drop's balance**                  | **Unchanged.** The flip `DROP_PENDING_PAYOUT → PAYOUT_DROP` (receiverId=drop) → `received` is credited. C6 is intact: COMPANY-funded `senderId=null`; ADMIN_PERSONAL `senderId=admin` — both ≠ drop → not counted as `sent`. Before the flip `DROP_PENDING_PAYOUT` is invisible to the aggregate (all terms require `PAYOUT_DROP`) → no double-count.                                |
-| 3   | **The invoice to the senior**           | **Unchanged in the invoice service.** The flipped row has `type='SENIOR_INCOME'` → `autoCreateForSeniorPayout(<its id>)` passes the gate. We trigger by the id of the flipped row (= sourceTransactionId). The drop flip (`PAYOUT_DROP`) does not trigger an invoice (Q6, as today).                                                                                                 |
-| 4   | **C4 totalIncome**                      | **Unchanged in getSummary.** `closingTransactionId := sourceTransactionId` → the id of the flipped `SENIOR_INCOME` ∈ `settlementTxIds` → excluded from `totalIncome` and the monthly series (its gross is already counted as `DROP_INCOME`/`ADMIN_INCOME`). `PAYOUT_DROP` is not in the income filter at all.                                                                        |
-| 5   | **ADMIN_PERSONAL vs COMPANY_ACCOUNT**   | The flip stamps the same funding fields as the "second row" today. COMPANY_ACCOUNT → a debit via the ledger term. ADMIN_PERSONAL → `senderId=admin`, marker=null → the debit is caught by `adminBalances.sent` (senderId=admin) in getSummary — **as today, byte-for-byte**. The ADMIN_PERSONAL currency guard (only USD/USDT, BIZ-03) is preserved.                                 |
-| 6   | **Type vs status**                      | Recommendation — **change `type`** (rationale above).                                                                                                                                                                                                                                                                                                                                |
-| 7   | **closingTransactionId + both sources** | `closingTransactionId := sourceTransactionId` (self). The fix lives in `settleByCompany`, which is called by BOTH IOU sources (declareUsdtProjectIncome `:1199` and applyPayoutPaidCascade `:3115`) via the same `pending_obligations` row and the same `settleByCompanySourceTransaction` → **both are automatically covered**. `bookCompanyObligations` (booking) does not change. |
-| 8   | **Prod-data migration**                 | Needed (UX-cleanup of the existing "hung" pairs), NOT money-critical (the ledger is already correct). See §Data-fix.                                                                                                                                                                                                                                                                 |
+| #   | Consumer                                | How it changes under Option A                                                                                                                                                                                                                                                                                                                                        |
+| --- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **The ledger**                          | **Unchanged.** The flipped row — `SENIOR_INCOME`/`PAYOUT_DROP` with `fundingSource=COMPANY_ACCOUNT`,`currency=USDT` → it is caught by the EXISTING terms `companySeniorPayouts`/`companyDropPayouts`. The credit side (income `ADMIN_INCOME`/`PAYOUT` COMPANY_ACCOUNT) is not touched → the netting is identical. A new term is NOT needed.                          |
+| 2   | **The drop's balance**                  | **Unchanged.** The flip `DROP_PENDING_PAYOUT → PAYOUT_DROP` (receiverId=drop) → `received` is credited. C6 is intact: COMPANY-funded `senderId=null`; ADMIN_PERSONAL `senderId=admin` — both ≠ drop → not counted as `sent`. Before the flip `DROP_PENDING_PAYOUT` is invisible to the aggregate (all terms require `PAYOUT_DROP`) → no double-count.                |
+| 3   | **The invoice to the senior**           | **Unchanged in the invoice service.** The flipped row has `type='SENIOR_INCOME'` → `autoCreateForSeniorPayout(<its id>)` passes the gate. We trigger by the id of the flipped row (= sourceTransactionId). The drop flip (`PAYOUT_DROP`) does not trigger an invoice (Q6, as today).                                                                                 |
+| 4   | **C4 totalIncome**                      | **Unchanged in getSummary.** `closingTransactionId := sourceTransactionId` → the id of the flipped `SENIOR_INCOME` ∈ `settlementTxIds` → excluded from `totalIncome` and the monthly series (its gross is already counted as `DROP_INCOME`/`ADMIN_INCOME`). `PAYOUT_DROP` is not in the income filter at all.                                                        |
+| 5   | **ADMIN_PERSONAL vs COMPANY_ACCOUNT**   | The flip stamps the same funding fields as the "second row" today. COMPANY_ACCOUNT → a debit via the ledger term. ADMIN_PERSONAL → `senderId=admin`, marker=null → the debit is caught by `adminBalances.sent` (senderId=admin) in getSummary — **as today, byte-for-byte**. The ADMIN_PERSONAL currency guard (only USD/USDT, BIZ-03) is preserved.                 |
+| 6   | **Type vs status**                      | Recommendation — **change `type`** (rationale above).                                                                                                                                                                                                                                                                                                                |
+| 7   | **closingTransactionId + both sources** | `closingTransactionId := sourceTransactionId` (self). The fix lives in `settleByCompany`, which is called by BOTH IOU sources (declareUsdtProjectIncome and applyPayoutPaidCascade) via the same `pending_obligations` row and the same `settleByCompanySourceTransaction` → **both are automatically covered**. `bookCompanyObligations` (booking) does not change. |
+| 8   | **Prod-data migration**                 | Needed (UX-cleanup of the existing "hung" pairs), NOT money-critical (the ledger is already correct). See §Data-fix.                                                                                                                                                                                                                                                 |
 
 ### TOCTOU / idempotency (we do not break)
 
@@ -314,12 +314,12 @@ that the render `Senior income/Drop share + Paid` is coherent and there is no ph
 
 ## Sources
 
-- `apps/api/src/finance/pending-settlement.service.ts:246-365` — `settleByCompany` (INSERT-second-row + TOCTOU-claim + advisory-lock).
-- `apps/api/src/finance/transactions.service.ts:2702-2795` — `bookCompanyObligations` (IOU booking); `:1199` (declare), `:3115` (the cascade drop branch) — two sources.
-- `apps/api/src/finance/company-account-balance.ts:117-219` — the ledger terms `SENIOR_INCOME`/`PAYOUT_DROP`(COMPANY_ACCOUNT).
-- `apps/api/src/finance/transactions.service.ts:561-634` — `computeDropAggregate` (C6: received/sent by PAYOUT_DROP).
-- `apps/api/src/invoices/invoices.service.ts:142-149` — `autoCreateForSeniorPayout` (the gate `type==='SENIOR_INCOME'`); `:176` autoCreateForPayout (aggregation by payoutRequestId — why the reset).
-- `apps/api/src/finance/transactions.service.ts:3315-3342,3463-3471` — the C4 `settlementTxIds` discriminator (totalIncome + monthly); `:938` the findOne enrichment.
-- `apps/api/src/database/schema.ts:681-722` — `pending_obligations` FK (`sourceTransactionId` restrict, `closingTransactionId` set-null, `uq_..._source_pending`).
-- `apps/web/.../finance/components/TransactionRow.tsx:330-333` — the "Pay out" gate (`type∈pending-set AND PENDING_PAYMENT`); `constants.ts:27,43,49,51` — the labels.
+- `apps/api/src/finance/pending-settlement.service.ts` — `settleByCompany` (INSERT-second-row + TOCTOU-claim + advisory-lock).
+- `apps/api/src/finance/transactions.service.ts` — `bookCompanyObligations` (IOU booking); declare, the cascade drop branch — two sources.
+- `apps/api/src/finance/company-account-balance.ts` — the ledger terms `SENIOR_INCOME`/`PAYOUT_DROP`(COMPANY_ACCOUNT).
+- `apps/api/src/finance/transactions.service.ts` — `computeDropAggregate` (C6: received/sent by PAYOUT_DROP).
+- `apps/api/src/invoices/invoices.service.ts` — `autoCreateForSeniorPayout` (the gate `type==='SENIOR_INCOME'`) autoCreateForPayout (aggregation by payoutRequestId — why the reset).
+- `apps/api/src/finance/transactions.service.ts` — the C4 `settlementTxIds` discriminator (totalIncome + monthly) the findOne enrichment.
+- `apps/api/src/database/schema.ts` — `pending_obligations` FK (`sourceTransactionId` restrict, `closingTransactionId` set-null, `uq_..._source_pending`).
+- `apps/web/.../finance/components/TransactionRow.tsx` — the "Pay out" gate (`type∈pending-set AND PENDING_PAYMENT`); `constants.ts` — the labels.
 - PR #374 (`gh pr view 374`) — the conflict window: `pending-settlement.service.ts` +30, `transactions.service.ts` +245/−123.

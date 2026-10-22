@@ -27,6 +27,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Cron } from '@nestjs/schedule'
+import { dbErrorLogSuffix, safeErrorStack } from '../database/pg-errors'
 import { isActionRequiredNotificationType } from '@crm/shared'
 import type { Env } from '../config/env'
 import { ResendMailerService } from '../contact/resend-mailer.service'
@@ -154,8 +155,8 @@ export class NotificationEmailCronService {
       // для ВСЕХ кронов процесса — тот же довод, что у
       // `TelemetryRetentionCronService` и `VacanciesRetentionCronService`.
       this.logger.error(
-        'Notification email sweep failed — retrying on the next tick',
-        err instanceof Error ? err.stack : String(err),
+        `Notification email sweep failed — retrying on the next tick${dbErrorLogSuffix(err)}`,
+        safeErrorStack(err),
       )
     } finally {
       // Снимает ТОЛЬКО свою метку. Иначе зависший проход, доехав до `finally`
@@ -284,7 +285,7 @@ export class NotificationEmailCronService {
       if (item.attempts >= MAX_EMAIL_ATTEMPTS) {
         await this.outbox.markFailed(item.id, reason)
         this.logger.error(
-          `Email undelivered after ${MAX_EMAIL_ATTEMPTS} attempts: ${reason} [id=${item.id}]`,
+          `Email undelivered after ${MAX_EMAIL_ATTEMPTS} attempts: ${reason} [id=${item.id}]${dbErrorLogSuffix(err)}`,
         )
         // Сдались — это событие для дайджеста: человек не узнал о том, о чём
         // должен был. Ни адрес, ни текст туда не едут.
@@ -304,7 +305,7 @@ export class NotificationEmailCronService {
       }
       await this.outbox.scheduleRetry(item.id, reason, item.attempts)
       this.logger.warn(
-        `Email not sent (attempt ${item.attempts}/${MAX_EMAIL_ATTEMPTS}): ${reason} [id=${item.id}]`,
+        `Email not sent (attempt ${item.attempts}/${MAX_EMAIL_ATTEMPTS}): ${reason} [id=${item.id}]${dbErrorLogSuffix(err)}`,
       )
     }
   }

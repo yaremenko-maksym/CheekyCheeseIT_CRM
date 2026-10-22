@@ -1,6 +1,6 @@
 ---
 name: codebase-design
-description: 'A shared vocabulary and principles for designing deep modules: module, interface, depth, seam, adapter, leverage, locality. Plus three checkable principles — the deletion test, "interface = test surface", "one adapter = a hypothetical seam, two = a real one" — and the "design it twice" pattern via parallel subagents.'
+description: "Use when designing or reshaping a module interface, choosing where a seam goes, or when code is hard to test or an architectural review finding is written. Deep-module vocabulary, deletion test, 'design it twice'."
 when_to_use: "Use when designing or reshaping a module's interface, deciding where a seam goes, arguing that code is hard to test, or writing an architectural review finding. Examples: 'where to put the seam', 'this module is too shallow', 'how to make the code testable', 'propose an interface', 'an architectural finding in review', 'there is no right seam for a regression test'."
 allowed-tools:
   - Read

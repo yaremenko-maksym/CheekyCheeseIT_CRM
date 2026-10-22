@@ -376,9 +376,9 @@ describe('createSalary — AC2: an archived receiver is refused', () => {
     ;(svc as unknown as { findOne: typeof findOne }).findOne = findOne
     ;(
       svc as unknown as {
-        afterTransactionCreated: typeof afterTransactionCreated
+        lifecycle: { afterTransactionCreated: typeof afterTransactionCreated }
       }
-    ).afterTransactionCreated = afterTransactionCreated
+    ).lifecycle.afterTransactionCreated = afterTransactionCreated
     return {
       svc,
       transactionsFindFirst,

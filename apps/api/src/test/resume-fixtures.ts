@@ -333,32 +333,6 @@ export function buildDocxRawBody(body: string): Buffer {
 }
 
 /**
- * THE DOCUMENT NO ACCEPTANCE BUDGET CAN SEE: `attributes` attributes on ONE
- * element.
- *
- * `@xmldom/xmldom` linearly rescans an element's existing attributes as each
- * new one is added (`lib/dom.js` `setAttributeNode`), so cost is quadratic in
- * attributes per element. Attributes contain no `<`, so a tag counter reads
- * this as a handful of tags, and it is small in bytes. Measured through the
- * real pipeline on this machine:
- *
- *    15 000 attributes   155 KB   15 tags      301 ms
- *    30 000 attributes   320 KB   15 tags      943 ms
- *    60 000 attributes   650 KB   15 tags    3 378 ms
- *   120 000 attributes  1.33 MB   15 tags   18 310 ms
- *
- * Doubling the attributes multiplies the cost by 3-5x. This fixture exists so
- * that the containment tests use a shape which genuinely defeats every budget,
- * rather than one the budgets would have caught anyway.
- */
-export function buildAttributeBombDocx(attributes: number, elements = 1): Buffer {
-  const parts: string[] = ['<w:p']
-  for (let i = 0; i < attributes; i += 1) parts.push(` a${i}="v"`)
-  parts.push('/>')
-  return buildDocxRawBody(parts.join('').repeat(elements))
-}
-
-/**
  * Tags one page of PER-CHARACTER-FORMATTED text costs, measured: every
  * character in its own run with its own run-properties.
  *

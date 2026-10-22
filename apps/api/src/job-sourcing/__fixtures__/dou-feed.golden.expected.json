@@ -1,0 +1,206 @@
+{
+  "_comment": "Golden output captured from the CURRENT parseRssItems + DouRssProvider.normalize on dou-feed.golden.xml (r5 compat gate). Regenerate only for a deliberate DOU behavior change.",
+  "rawItems": [
+    {
+      "title": "Senior Frontend Engineer (React, TypeScript) в EPAM, Київ, віддалено",
+      "link": "https://jobs.dou.ua/companies/epam-systems/vacancies/356562/?utm_source=jobsrss",
+      "guid": "https://jobs.dou.ua/companies/epam-systems/vacancies/356562/?1786092518",
+      "pubDate": "Fri, 07 Aug 2026 11:48:38 +0300",
+      "description": "<p>We are <strong>hiring</strong> a Senior Frontend Engineer.</p><ul><li>React 18, TypeScript</li><li>GraphQL &amp; REST</li><li>CI/CD, Docker</li></ul><p>Apply: <a href=\"https://epam.example/apply\">our page</a></p>"
+    },
+    {
+      "title": "Middle Node.js Developer в Wetelo, Inc., Луцьк, віддалено",
+      "link": "https://jobs.dou.ua/companies/wetelo/vacancies/360001/?utm_source=jobsrss",
+      "guid": "https://jobs.dou.ua/companies/wetelo/vacancies/360001/?1786092519",
+      "pubDate": "Thu, 06 Aug 2026 09:00:00 +0300",
+      "description": "<p>Node.js, PostgreSQL, Kubernetes. Remote.</p>"
+    },
+    {
+      "title": "JS Fullstack Developer (Jun+) в Advanced Software Development (ASD Team), $1100–1300, віддалено",
+      "link": "https://jobs.dou.ua/companies/asd-team/vacancies/360002/?utm_source=jobsrss",
+      "guid": "https://jobs.dou.ua/companies/asd-team/vacancies/360002/?1786092520",
+      "pubDate": "Wed, 05 Aug 2026 18:30:00 +0300",
+      "description": "<p>Junior-plus fullstack. Vue.js and Node.</p>"
+    },
+    {
+      "title": "Продажі в IT в Ciklum, Львів",
+      "link": "https://jobs.dou.ua/companies/ciklum/vacancies/360003/?utm_source=jobsrss",
+      "guid": "https://jobs.dou.ua/companies/ciklum/vacancies/360003/?1786092521",
+      "pubDate": "Tue, 04 Aug 2026 12:00:00 +0300",
+      "description": "<p>Менеджер з продажів. Досвід від 2 років.</p>"
+    },
+    {
+      "title": "Plain title with no separator",
+      "link": "https://jobs.dou.ua/companies/soft-serve/vacancies/360004/",
+      "guid": "https://jobs.dou.ua/companies/soft-serve/vacancies/360004/?1786092522",
+      "pubDate": "Mon, 03 Aug 2026 10:15:00 +0300",
+      "description": "<p>Java, Spring Boot, AWS.</p>"
+    },
+    {
+      "title": "Evil Engineer в Hacker, Київ",
+      "link": "javascript:alert(1)",
+      "guid": "javascript:alert(1)",
+      "pubDate": "Mon, 03 Aug 2026 10:15:00 +0300",
+      "description": "<p>should never be stored</p>"
+    },
+    {
+      "title": "Insecure Dev в Plainhttp, Одеса",
+      "link": "http://jobs.dou.ua/companies/plainhttp/vacancies/360005/",
+      "guid": "http://jobs.dou.ua/companies/plainhttp/vacancies/360005/?1",
+      "pubDate": "Mon, 03 Aug 2026 10:15:00 +0300",
+      "description": "<p>http only</p>"
+    },
+    {
+      "title": "",
+      "link": "https://jobs.dou.ua/companies/notitle/vacancies/360006/",
+      "guid": "https://jobs.dou.ua/companies/notitle/vacancies/360006/?1",
+      "pubDate": "Mon, 03 Aug 2026 10:15:00 +0300",
+      "description": "<p>no title</p>"
+    },
+    {
+      "title": "Mystery Role",
+      "link": "https://jobs.dou.ua/vacancies/360007/",
+      "guid": "https://jobs.dou.ua/vacancies/360007/?1",
+      "pubDate": "Mon, 03 Aug 2026 10:15:00 +0300",
+      "description": "<p>no company</p>"
+    },
+    {
+      "title": "Senior Java Developer в R&D Labs, Одеса",
+      "link": "",
+      "guid": "https://jobs.dou.ua/companies/rnd-labs/vacancies/360008/?1786092523",
+      "pubDate": "",
+      "description": ""
+    },
+    {
+      "title": "QA Automation Engineer в ТОВ «Ромашка», Дніпро, офіс",
+      "link": "https://jobs.dou.ua/companies/romashka/vacancies/360009/?utm_source=jobsrss",
+      "guid": "https://jobs.dou.ua/companies/romashka/vacancies/360009/?1786092524",
+      "pubDate": "yesterday-ish",
+      "description": "<p>Тестування, автоматизація: Playwright, Python.</p><p>Ми пропонуємо: гнучкий графік.</p>"
+    },
+    {
+      "title": "DevOps Engineer в Ciklum, Київ",
+      "link": "https://jobs.dou.ua/companies/ciklum/vacancies/360010/?utm_source=jobsrss",
+      "guid": "https://jobs.dou.ua/companies/ciklum/vacancies/360010/?1786092525",
+      "pubDate": "Mon, 03 Aug 2026 08:00:00 +0300",
+      "description": "<script>alert(1)</script><p onclick=\"x()\">Terraform, AWS, Kubernetes</p><img src=\"https://evil.example/p.png\">"
+    },
+    {
+      "title": "Senior Frontend Engineer (React, TypeScript) в EPAM, Київ, віддалено",
+      "link": "https://JOBS.dou.ua/companies/epam-systems/vacancies/356562/?utm_source=other&utm_medium=x#top",
+      "guid": "https://jobs.dou.ua/companies/epam-systems/vacancies/356562/?1999999999",
+      "pubDate": "Fri, 07 Aug 2026 11:48:38 +0300",
+      "description": "<p>re-fetch</p>"
+    }
+  ],
+  "postings": [
+    {
+      "sourceType": "DOU_RSS",
+      "externalId": "https://jobs.dou.ua/companies/epam-systems/vacancies/356562",
+      "url": "https://jobs.dou.ua/companies/epam-systems/vacancies/356562",
+      "title": "Senior Frontend Engineer (React, TypeScript)",
+      "companyName": "EPAM",
+      "companyNameNormalized": "epam",
+      "location": "Київ, віддалено",
+      "descriptionMd": "We are **hiring** a Senior Frontend Engineer.\n\n- React 18, TypeScript\n- GraphQL & REST\n- CI/CD, Docker\nApply: [our page](<https://epam.example/apply>)",
+      "publishedAt": "2026-08-07T08:48:38.000Z",
+      "fingerprint": "2e820b0e9a6438200cf757c323b4788203855c8225a635a940c05dfceffd5046"
+    },
+    {
+      "sourceType": "DOU_RSS",
+      "externalId": "https://jobs.dou.ua/companies/wetelo/vacancies/360001",
+      "url": "https://jobs.dou.ua/companies/wetelo/vacancies/360001",
+      "title": "Middle Node.js Developer",
+      "companyName": "Wetelo, Inc.",
+      "companyNameNormalized": "wetelo",
+      "location": "Луцьк, віддалено",
+      "descriptionMd": "Node.js, PostgreSQL, Kubernetes. Remote.",
+      "publishedAt": "2026-08-06T06:00:00.000Z",
+      "fingerprint": "d17054a76661df129bdd0ceccb44eb01f7b20e8b6c73b346c1b22f94d55aabb1"
+    },
+    {
+      "sourceType": "DOU_RSS",
+      "externalId": "https://jobs.dou.ua/companies/asd-team/vacancies/360002",
+      "url": "https://jobs.dou.ua/companies/asd-team/vacancies/360002",
+      "title": "JS Fullstack Developer (Jun+)",
+      "companyName": "Advanced Software Development (ASD Team)",
+      "companyNameNormalized": "advanced software development asd team",
+      "location": "$1100–1300, віддалено",
+      "descriptionMd": "Junior-plus fullstack. Vue.js and Node.",
+      "publishedAt": "2026-08-05T15:30:00.000Z",
+      "fingerprint": "a353b4e872ab75cd45984e0c8a2c19fec603798a0949796ab1db1c21182c8cc1"
+    },
+    {
+      "sourceType": "DOU_RSS",
+      "externalId": "https://jobs.dou.ua/companies/ciklum/vacancies/360003",
+      "url": "https://jobs.dou.ua/companies/ciklum/vacancies/360003",
+      "title": "Продажі в IT",
+      "companyName": "Ciklum",
+      "companyNameNormalized": "ciklum",
+      "location": "Львів",
+      "descriptionMd": "Менеджер з продажів. Досвід від 2 років.",
+      "publishedAt": "2026-08-04T09:00:00.000Z",
+      "fingerprint": "95b0b2a40a3834ad78046d4386427b4097dcf735e0a182f1b5a7fe771956da5d"
+    },
+    {
+      "sourceType": "DOU_RSS",
+      "externalId": "https://jobs.dou.ua/companies/soft-serve/vacancies/360004",
+      "url": "https://jobs.dou.ua/companies/soft-serve/vacancies/360004",
+      "title": "Plain title with no separator",
+      "companyName": "soft serve",
+      "companyNameNormalized": "soft serve",
+      "location": null,
+      "descriptionMd": "Java, Spring Boot, AWS.",
+      "publishedAt": "2026-08-03T07:15:00.000Z",
+      "fingerprint": "68bfb873f8443cce664e081e22bbfd14123c54522f5f422bd68b3f4bdd85ee9b"
+    },
+    {
+      "sourceType": "DOU_RSS",
+      "externalId": "https://jobs.dou.ua/companies/rnd-labs/vacancies/360008",
+      "url": "https://jobs.dou.ua/companies/rnd-labs/vacancies/360008",
+      "title": "Senior Java Developer",
+      "companyName": "R&D Labs",
+      "companyNameNormalized": "r d labs",
+      "location": "Одеса",
+      "descriptionMd": "",
+      "publishedAt": null,
+      "fingerprint": "6dde141c6d50a3a12e99fa666a1ea8122ba26b0acddf9b6bf43dfd7c0252f1aa"
+    },
+    {
+      "sourceType": "DOU_RSS",
+      "externalId": "https://jobs.dou.ua/companies/romashka/vacancies/360009",
+      "url": "https://jobs.dou.ua/companies/romashka/vacancies/360009",
+      "title": "QA Automation Engineer",
+      "companyName": "ТОВ «Ромашка»",
+      "companyNameNormalized": "romashka",
+      "location": "Дніпро, офіс",
+      "descriptionMd": "Тестування, автоматизація: Playwright, Python.\n\nМи пропонуємо: гнучкий графік.",
+      "publishedAt": null,
+      "fingerprint": "f5b7f83a1e4017701ed697e7c3683ff86f68417ea6eaac628940939bf7097fe4"
+    },
+    {
+      "sourceType": "DOU_RSS",
+      "externalId": "https://jobs.dou.ua/companies/ciklum/vacancies/360010",
+      "url": "https://jobs.dou.ua/companies/ciklum/vacancies/360010",
+      "title": "DevOps Engineer",
+      "companyName": "Ciklum",
+      "companyNameNormalized": "ciklum",
+      "location": "Київ",
+      "descriptionMd": "Terraform, AWS, Kubernetes",
+      "publishedAt": "2026-08-03T05:00:00.000Z",
+      "fingerprint": "fe28c0f28ffda7169e0c10c60fa243f24173f31049346851ce65880ff3b4b92c"
+    },
+    {
+      "sourceType": "DOU_RSS",
+      "externalId": "https://jobs.dou.ua/companies/epam-systems/vacancies/356562",
+      "url": "https://jobs.dou.ua/companies/epam-systems/vacancies/356562",
+      "title": "Senior Frontend Engineer (React, TypeScript)",
+      "companyName": "EPAM",
+      "companyNameNormalized": "epam",
+      "location": "Київ, віддалено",
+      "descriptionMd": "re-fetch",
+      "publishedAt": "2026-08-07T08:48:38.000Z",
+      "fingerprint": "2e820b0e9a6438200cf757c323b4788203855c8225a635a940c05dfceffd5046"
+    }
+  ]
+}

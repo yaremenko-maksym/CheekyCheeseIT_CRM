@@ -42,7 +42,7 @@ export function buildUserDialogDefaults(
     // task-i18n-stage2 (Task 3, Step 6) — create-wizard-only field (this
     // dialog's Edit mode never sends it: `adminUpdateUserSchema` has no
     // `locale`, matching the profile-view/create-wizard scope decision
-    // recorded in `users.service.ts`'s `FilteredUser` comment). Default
+    // recorded in `profile-view.util.ts`'s `FilteredUser` comment). Default
     // 'uk' matches `createUserSchema`'s own server-side default.
     // Same reasoning as `personalEmail` immediately above: the
     // `locale` `form.Field` is gated on `isCreate &&` and this

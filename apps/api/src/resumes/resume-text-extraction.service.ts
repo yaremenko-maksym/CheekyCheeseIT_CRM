@@ -22,13 +22,20 @@
  * and each attempt to name one cost a round of tuning the deadline:
  *
  *   budget keyed on BYTES        missed node count  (same bytes, 21x cost)
- *   budget keyed on NODE COUNT   missed attributes  (15 tags, 18 310 ms)
+ *   budget keyed on NODE COUNT   attributes, which proved linear (see below)
  *
- * Measured, both inside every byte budget here: 4.18 MB of `<w:p/>` is
- * 695 731 tags and 1 609 ms, while 1.33 MB carrying 120 000 attributes on ONE
- * element is 15 tags and 18 310 ms — because `@xmldom/xmldom` rescans an
- * element's attributes as each is added, so cost is quadratic in attributes,
- * and attributes contain no `<` for any tag counter to see.
+ * Measured 2026-10-21 against the installed `@xmldom/xmldom` 0.8.15 (attribute
+ * cost is linear there; earlier readings that called it quadratic do not
+ * reproduce). Attributes on ONE element:
+ *     60 000 -> 62 ms     240 000 -> 247 ms
+ *    120 000 -> 111 ms    480 000 -> 438 ms
+ * Above roughly 200 000 attributes the size budgets refuse the document before
+ * a worker starts, so the attribute route no longer reaches a stall.
+ *
+ * What stalls now is document size. Measured the same day, 4.1 MB (inside
+ * every byte budget): 690 000 empty paragraphs hold one request for 1 230 ms of
+ * a 1 261 ms window when parsed in-process, against a worst sandboxed request
+ * of 14.8 ms in a 1 725 ms window.
  *
  * A parser with several superlinear paths always has one more dimension than
  * whatever scalar is chosen to bound it. That is the same lesson the part
@@ -39,7 +46,8 @@
  *     deadline, a CPU rlimit, a heap ceiling, niceness 19 and a concurrency
  *     limit of two. It does not care WHICH dimension made a document
  *     expensive, which is exactly why it holds where a predicate cannot.
- *     Measured: the 18 310 ms attribute bomb costs the API event loop 12 ms.
+ *     Measured: the 4.1 MB paragraph document above has a worst sandboxed
+ *     request of 14.8 ms.
  *   - THE BUDGETS ARE A CHEAP, HONEST "NO". They bound SIZE and MEMORY, and
  *     they let an obviously hopeless upload be refused from metadata in about
  *     a millisecond with a message a person can act on — instead of occupying
@@ -79,24 +87,11 @@ import {
  * ==========================================================================
  * Three rounds were spent tuning this number against "the worst document the
  * budgets permit", on the assumption that such a worst case was bounded. It
- * is not. Measured on the real pipeline, both well inside every byte budget:
- *
- *   4.18 MB, 695 731 tags (`<w:p/>`)                     1 609 ms
- *   1.33 MB,      15 tags (120 000 attributes on one)   18 310 ms
- *   the same attribute shape x3                          51 s, exit 0
- *
- * The third line used to read "killed at ~28 s" and was used as evidence that
- * the heap ceiling ends such work. RE-MEASURED, it does not: that document
- * finishes, peaking at 171 MB against a 768 MB ceiling (macOS 51.0 s; Linux
- * container, 2 CPUs, 57 s). Attributes are quadratic in TIME and nearly free in
- * MEMORY, so nothing but this deadline was ever in a position to end it — which
- * is the whole point of the entry, and it is stronger, not weaker, for being
- * the only bound that applies.
- *
- * Attribute handling in `@xmldom/xmldom` is quadratic per element and carries
- * no `<`, so neither a byte cap nor a tag cap can see it — and there is no
- * reason to believe attributes are the last such dimension. So the deadline
- * does not derive from an acceptance budget; it IS the bound, and its job is
+ * is not. Measured 2026-10-21 against `@xmldom/xmldom` 0.8.15, inside every
+ * byte budget: a 4.1 MB document of 690 000 empty paragraphs holds one request
+ * for 1 230 ms of a 1 261 ms window when parsed in-process. Cost follows
+ * document size, so no byte or node cap is the whole story, and the deadline
+ * does not derive from an acceptance budget: it IS the bound, and its job is
  * to end work of ANY shape.
  *
  * WHY 60 s, then. It is sized against what a legitimate document needs, with
@@ -108,8 +103,8 @@ import {
  * on a machine two orders of magnitude slower than this one.
  *
  * It costs nothing in API responsiveness — extraction is a detached job behind
- * a child process, nothing waits on it, and the event-loop cost of the
- * 18 310 ms attribute bomb measured 12 ms. The failure it prevents is the
+ * a child process, nothing waits on it, and the worst sandboxed request of the
+ * paragraph document above measured 14.8 ms. The failure it prevents is the
  * expensive one: refusing a real CV because the machine was busy.
  *
  * THE TRADE, stated because it is real: at 60 s two slots clear ~2 pathological
@@ -121,8 +116,9 @@ import {
  * itself bounded is tracked in task-resume-followups.
  *
  * Pinned by "an expensive document no budget can see is contained by the
- * sandbox" in the spec, which uses the attribute bomb — the shape that defeats
- * every acceptance budget — and asserts the two things that actually matter:
+ * sandbox" in the spec. The spec's fixture is still an attribute-heavy document,
+ * which no longer stalls on xmldom 0.8.15 (measured 2026-10-21), so the pin does
+ * not yet exercise a shape that stalls. It asserts the two things that actually matter:
  * the event loop stays free, and the work is ended with a message a person can
  * act on. Deliberately no absolute wall-clock ceiling: that instrument moved
  * 180 ms -> 1 287 ms on THIS machine inside one minute.
@@ -172,8 +168,9 @@ export const EXTRACTION_HEAP_MB = 768
  *   - it does NOT reduce main-thread work, and it never did. This used to
  *     credit `MAX_DOCX_XML_BYTES`, a constant that does not exist under that
  *     name or any other — the thing that actually took the parse off this
- *     thread is the child process, which cut the worst continuous stall from
- *     33 336 ms to 12 ms even for a document no budget can measure.
+ *     thread is the child process: measured 2026-10-21 on xmldom 0.8.15, the
+ *     worst continuous stall falls from 1 230 ms in-process to 14.8 ms sandboxed,
+ *     for the paragraph document in the deadline block below.
  *   - it DOES bound peak MEMORY. Each in-flight extraction can hold up to
  *     `MAX_DOCX_UNCOMPRESSED_BYTES` of inflated parts plus the parser's own
  *     structures, and the upload endpoint admits ten requests a minute. Two at
@@ -416,8 +413,9 @@ export class ResumeTextExtractionService {
       // V8 heap ceiling also kill the worker, and they arrive here as a signal
       // exit with empty stdout, not as `timedOut`. That path used to answer
       // "Не удалось прочитать файл резюме" — blaming the user's document for
-      // hitting OUR limit, after making them wait ~28 s for it. Measured: the
-      // three-element attribute bomb takes exactly this path.
+      // hitting OUR limit, after making them wait ~28 s for it. (The ~28 s is an
+      // old reading, not re-measured on xmldom 0.8.15; the path itself still
+      // applies to any kill that is not a deadline timeout.)
       //
       // A SIGNAL exit (`code === null`) means something killed it, which is the
       // sandbox doing its job. A non-zero EXIT CODE means the worker itself

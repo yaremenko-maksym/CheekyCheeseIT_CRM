@@ -1,5 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "subagentPromptCacheTtl": "1h",
+  "promptCacheTtl": "1h",
   "permissions": {
     "allow": ["*"]
   },
@@ -15,6 +17,28 @@
         ],
         "description": "Coder progress marker — append durable activity log for PM silent-termination recovery",
         "id": "post:edit-write:coder-progress"
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks/post-edit-write-undurable-work.sh"
+          }
+        ],
+        "description": "Undurable-work gate — after an edit inside an agent worktree that holds NO commit of its own, demand commit+push once uncommitted work reaches 120 lines. Measures the BLAST RADIUS of a watchdog cut, not silence: a workspace with no commit of its own is the one the harness removes as unchanged, so a cut there loses the stretch outright instead of costing a re-read (2026-10-20: five agents cut in one day, one losing a 231-line single-call compose). PostToolUse so nothing is reverted; the first commit silences it for the session. Test: scripts/devops/tests/test-post-edit-write-undurable-work.sh",
+        "id": "post:edit-write:undurable-work"
+      },
+      {
+        "matcher": "Bash|Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Glob|Skill|WebFetch|WebSearch|Agent|Task|TodoWrite",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks/post-any-heartbeat.sh"
+          }
+        ],
+        "description": "Heartbeat ledger — one line per completed tool call of an agent worktree into .claude/agent-heartbeat.log, so the silence the 600 s watchdog kills on is a measured number instead of an inference. post:edit-write:coder-progress cannot answer this: it only sees edits, and on 2026-10-20 five agents were cut in one day while that log recorded two lines. Observation only, exit 0 always (advisory). Consumer: scripts/devops/check-stream-silence.sh",
+        "id": "post:any:heartbeat"
       }
     ],
     "PreToolUse": [
@@ -105,6 +129,17 @@
         ],
         "description": "Unbounded-wait gate — block a while/until wait loop with no bound (no `timeout N bash -c`, no $SECONDS / date +%s deadline, no iteration counter), any loop waiting on tasks/<id>.status|.exit (the harness never writes them), and a bare `cat` reading an agent's stdin. Decided on command position, not substring. Incidents 2026-09-21 (cat, 25h), 09-24 (Stryker grep loop, ~3h), 09-25 (.status/.exit loops, 11.5h). Test: scripts/devops/tests/test-pre-bash-unbounded-wait.sh",
         "id": "pre:bash:unbounded-wait"
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks/pre-bash-swallowed-failure.sh"
+          }
+        ],
+        "description": "Swallowed-failure advisory — NEVER refuses, prints one note. Fires when a named-object read (git show/cat-file/log/diff, cat, head, tail, jq) discards stderr and feeds a counter (grep -c/-q, wc -l/-w/-c): a 0 there means \"nothing matched\" OR \"nothing was read\", indistinguishable at the counter, which produced two consecutive wrong verifications on 2026-10-21. Also reports an unbraced $VAR: in a revspec (the harness shell is zsh, which eats the colon as a modifier; quoting does not help, braces do). Advisory because the readiness-probe population is legitimate and a false refusal costs the credibility of the whole hook layer, while a missed note costs one recoverable wrong answer. Rule: .claude/rules/common/verification-integrity.md Test: scripts/devops/tests/test-pre-bash-swallowed-failure.sh",
+        "id": "pre:bash:swallowed-failure"
       },
       {
         "matcher": "Agent|Task",

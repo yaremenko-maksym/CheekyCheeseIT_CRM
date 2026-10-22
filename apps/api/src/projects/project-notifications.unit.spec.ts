@@ -379,9 +379,13 @@ describe('«ждёт решения: новая доля» — проектна�
       {} as never,
       notifications,
     )
-    const seam = service as unknown as {
-      notifyPendingSeniorShareProposed: (tx: unknown, i: unknown) => Promise<void>
-    }
+    const seam = (
+      service as unknown as {
+        shareChange: {
+          notifyPendingSeniorShareProposed: (tx: unknown, i: unknown) => Promise<void>
+        }
+      }
+    ).shareChange
     return seam.notifyPendingSeniorShareProposed({}, input).then(() => created)
   }
 

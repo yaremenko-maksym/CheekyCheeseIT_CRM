@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ATTACK FIXTURE. XXE pointed at a network endpoint rather than a file — the
+  out-of-band variant, which is what matters for a parser running inside an API that can
+  reach internal services. Port 1 on loopback is chosen because nothing listens there, so
+  a dereference shows up as a connection error and never as a real request.
+
+  Same caveat as the file variant: the port refuses this at the <!DOCTYPE gate, so a
+  passing test proves the GATE works, not that the parser lacks the capability. The ADR's
+  independent evidence for the capability is that `dist/` references no fs/http/https/net/
+  dns/tls/child_process at all, and that a network canary recorded zero hits across 78
+  parser x document runs — neither of which a test in this repository re-proves.
+-->
+<!DOCTYPE feed [
+  <!ENTITY xxe SYSTEM "http://127.0.0.1:1/crm-xxe-canary">
+]>
+<rss version="2.0">
+  <channel>
+    <item><title>&xxe;</title></item>
+  </channel>
+</rss>

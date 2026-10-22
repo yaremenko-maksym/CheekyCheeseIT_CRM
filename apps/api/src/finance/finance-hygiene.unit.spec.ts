@@ -30,7 +30,12 @@ function makeRates(usdUah = '40.0000', eurUah = '44.0000') {
  * проверяет самого производителя, — `transaction-notifications.unit.spec.ts`.
  */
 function makeNotificationsStub() {
-  return { create: async () => null } as never
+  return {
+    notifyTransactionAdded: async () => undefined,
+    notifyTransactionStatusChanged: async () => undefined,
+    afterTransactionCreated: async () => undefined,
+    safeAutoCreateInvoice: async () => undefined,
+  } as never
 }
 
 interface MockTx {
@@ -263,6 +268,8 @@ describe('AC5 SEC-13 — assertCanReadAdminBalance: ADMIN scoped to own target',
 // Key invariant: ADMIN-caller MUST have effectiveSenderId forced to currentUser.id
 // regardless of data.senderId supplied.
 
+import { SalaryService } from './salary.service'
+import { SummaryService } from './summary.service'
 import { TransactionsService } from './transactions.service'
 
 function makeAdminTransferService(
@@ -354,7 +361,16 @@ function makeAdminTransferService(
   const etherscan = {} as never
   const invoices = {} as never
   const documents = {} as never
-  return new TransactionsService(db, invoices, documents, nbu, etherscan, makeNotificationsStub())
+  return new TransactionsService(
+    db,
+    invoices,
+    documents,
+    nbu,
+    etherscan,
+    makeNotificationsStub(),
+    new SalaryService(db),
+    new SummaryService(db, {} as never),
+  )
 }
 
 describe('AC1 BIZ-06 — createAdminTransfer: ADMIN cannot debit a partner', () => {
@@ -586,6 +602,8 @@ describe('AC3 BIZ-18 — adminUpdateTransaction: blocks edits to PAID non-compan
       nbu,
       {} as never,
       makeNotificationsStub(),
+      new SalaryService(db),
+      new SummaryService(db, {} as never),
     )
   }
 
@@ -670,6 +688,8 @@ describe('AC3 BIZ-18 — adminUpdateTransaction: blocks edits to PAID non-compan
       { getRates: async () => makeRates() } as never,
       {} as never,
       makeNotificationsStub(),
+      new SalaryService(db),
+      new SummaryService(db, {} as never),
     )
     const admin = makeViewer('ADMIN', 'admin-id')
     // Should not throw — notes-only edit
@@ -723,6 +743,8 @@ describe('AC3 BIZ-18 — adminUpdateTransaction: blocks edits to PAID non-compan
       { getRates: async () => makeRates() } as never,
       {} as never,
       makeNotificationsStub(),
+      new SalaryService(db),
+      new SummaryService(db, {} as never),
     )
     const admin = makeViewer('ADMIN', 'admin-id')
     await expect(
@@ -779,6 +801,8 @@ describe('AC4 BIZ-17 — updateDropIncome: resubmit REJECTED DROP_INCOME', () =>
       nbu,
       {} as never,
       makeNotificationsStub(),
+      new SalaryService(db),
+      new SummaryService(db, {} as never),
     )
   }
 

@@ -4,6 +4,7 @@ import { ArrowLeft } from 'lucide-react'
 import { Trans, useLingui } from '@lingui/react/macro'
 import type { MeetingRecorderUnmatchedRecordingDto } from '@crm/shared'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { SafeHttpLink } from '@/components/SafeHttpLink'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useRoleGuard } from '@/hooks/use-role-guard'
@@ -114,14 +115,11 @@ function UnmatchedInterviewRecordingsPage() {
                       {recording.provider && <span>{recording.provider}</span>}
                     </div>
                     {recording.meetingUrl && (
-                      <a
-                        href={recording.meetingUrl}
-                        target="_blank"
-                        rel="noreferrer"
+                      <SafeHttpLink
+                        url={recording.meetingUrl}
                         className="block break-all text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
-                      >
-                        {recording.meetingUrl}
-                      </a>
+                        fallbackClassName="block break-all text-xs text-muted-foreground"
+                      />
                     )}
                   </div>
 

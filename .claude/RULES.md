@@ -8,6 +8,29 @@ Single source of truth for rules applicable to all agents (Coder, AutoTest, Revi
 
 ---
 
+## 0. Two layers: mechanism (always-on) and rationale (on demand)
+
+**Added 2026-10-16** (progressive-disclosure restructure).
+
+A rule file under `.claude/rules/common/` **without** a `paths:` frontmatter block is injected into
+**every** request of every session and every subagent. So the always-on layer is kept to what an agent
+must obey, and the reasons behind it live one pointer away:
+
+| Layer         | Location                                      | Loaded                              | Contains                                                                                                                                                                      |
+| ------------- | --------------------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Mechanism** | `.claude/rules/common/<rule>.md`              | **always** (unless `paths:`-scoped) | Hook ids and refusal predicates, gates, mandatory report lines, zero-tolerance patterns, commit format, exact pins, zone rows, classifiers, "how we know it is violated" rows |
+| **Rationale** | `docs/architecture/rules-rationale/<rule>.md` | on demand                           | Incidents and dates, precedent lists, rejected alternatives, root-cause analyses, measurement narratives, `Sources`                                                           |
+
+Each core rule carries one pointer line near the top. **Read the rationale file before changing a
+rule** — most of those files exist because the obvious alternative was already tried and failed in a
+recorded way. Index and reading guidance: `docs/architecture/rules-rationale/README.md`.
+
+**Path-scoped (NOT always-on), load only when matching files are touched:** `design-gate.md`,
+`design-fidelity-review.md`, `responsive-design.md` (`apps/web/**`, `apps/landing/**`),
+`eslint-mcp-first.md` (`**/*.ts(x)`), `mutation-gate-integration-specs.md` (`**/*.spec.ts(x)`).
+
+---
+
 ## 1. Tool priority — `.claude/rules/common/mcp-first.md`
 
 **Summary:** An MCP tool fits → MCP. No MCP, there is a native one (Read / Edit / Write) → native. Shell only → Bash. Never use Bash where a suitable MCP exists.
@@ -177,6 +200,8 @@ See the full list with rationale + forbidden overrides: **[`.claude/rules/common
 - **Durability of long-lived records** — **[`rules/common/doc-durability.md`](rules/common/doc-durability.md)** (2026-08-22). A record with a lifespan > one day (backlog, `.out-of-scope/`, ADR, lessons) describes behavior and **symbols**, never line numbers. Task files and dispatch prompts are excluded deliberately: they are read the same day, and coordinator discipline requires coordinates.
 - **Phase boundaries** — **[`rules/common/phase-boundaries.md`](rules/common/phase-boundaries.md)** (2026-08-22). Six options at a phase boundary, top to bottom, the first "yes" wins: continue → `/clear` → handoff → subagent → external scheduler → compact. Compact is at the bottom deliberately: everything except "continue" turns the primary source into a secondary one.
 - **Mutation gate ↔ integration specs (`NoCoverage` there — not a hole)** — **[`rules/common/mutation-gate-integration-specs.md`](rules/common/mutation-gate-integration-specs.md)** (2026-08-18). The gate runs only the unit set; `*.integration.spec.ts` are structurally excluded from discovery (`vitest.config.mts`) — `NoCoverage` on a file exercised only by an integration spec is expected. Coverage for the gate is provided by unit doubles — this is a tool requirement, not duplication. `NoCoverage` is more serious than `Survived` (not executed at all vs executed and not caught), except for this exclusion.
+- **Stream watchdog (the cut-off is caused by silence, not by long work; durability is a PUSHED commit)** — **[`rules/common/stream-watchdog.md`](rules/common/stream-watchdog.md)** (2026-10-17, reworked 2026-10-20 after five cuts in one day with the rule already in context). Silence has two sources: **waiting** (provisioning, a boot, a foreground suite, a whole-file read) and **producing** (a long think, a large file composed in one call, a long report). Announce a long step before taking it; produce in pieces that each end in a **push**, not merely a commit; start long processes with `run_in_background: true` and probe once, bounded; read large files by window. Hook `post:edit-write:undurable-work` demands commit+push once a worktree with no commit of its own carries 120 uncommitted lines; `scripts/devops/check-stream-silence.sh` measures the silence after the fact. Recovery after a cut — `.claude/skills/dev-flow-resilience/SKILL.md`.
+- **Verification integrity (an instrument that did not look reports nothing, not a negative)** — **[`rules/common/verification-integrity.md`](rules/common/verification-integrity.md)** (2026-10-21, after eight instances in one day). Two shapes: **(A)** a failure on an unread channel consumed as a negative answer — `producer 2>/dev/null | counter` prints `0` for "nothing matched" and for "nothing was read" alike; a counter inside `&&` exits non-zero on no match and silently kills the rest of the chain; a terminating condition like "nothing pending" is also true _before_ the work is created. **(B)** exit 0 without the artifact — an install that links no binaries, a push that never reached origin, a commit that was never created. The cure is one line: **assert the artifact, never the exit status**, the device `stream-watchdog.md` (`Pushed:`) and `review-findings-transfer.md` (`Findings: … (N)`) already use, with a per-operation artifact table. zsh gotcha: write `${VAR}:path`, never `$VAR:path` (the Bash tool's shell is zsh; quoting does not help, braces do). Mechanised by the **advisory** hook `pre:bash:swallowed-failure` (never refuses: service probes legitimately discard stderr). Form 2, form 3 and the shape inside an authored script stay uncovered on purpose — see the rationale file.
 
 ---
 
@@ -185,7 +210,8 @@ See the full list with rationale + forbidden overrides: **[`.claude/rules/common
 | Doc                                         | For whom                | Size   | What's inside                                                 |
 | ------------------------------------------- | ----------------------- | ------ | ------------------------------------------------------------- |
 | `RULES.md` (this file)                      | All                     | ~5 KB  | TOC + summary + links to .claude/rules/common/                |
-| `.claude/rules/common/*.md`                 | On-demand               | varies | Per-topic detailed rules (MCP / git / skills / ...)           |
+| `.claude/rules/common/*.md`                 | **Auto-loaded**         | varies | Per-topic mechanism (MCP / git / skills / ...) — see §0       |
+| `docs/architecture/rules-rationale/*.md`    | On-demand               | varies | Why each rule says what it says — see §0                      |
 | `project-state.md`                          | All                     | ~7 KB  | Phases, migrations, RBAC, tech stack                          |
 | `contracts.md`                              | Master, Coder, Reviewer | ~6 KB  | Master-direct-dispatch contracts + labels + verdict semantics |
 | `coder.md`                                  | Coder                   | ~11 KB | Golden rules + workflow + recovery                            |

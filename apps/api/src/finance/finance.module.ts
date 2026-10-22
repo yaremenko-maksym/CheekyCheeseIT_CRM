@@ -9,18 +9,36 @@ import { BalanceController, PendingObligationsController } from './balance.contr
 import { BalanceService } from './balance.service'
 import { CompanyAccountController } from './company-account.controller'
 import { CompanyAccountService } from './company-account.service'
+import { EditCascadeService } from './edit-cascade.service'
+import { DropSelfService } from './drop-self.service'
+import { OnChainClaimService } from './onchain-claim.service'
 import { EtherscanService } from './etherscan.service'
 import { NbuCurrencyService } from './nbu-currency.service'
+import { PayoutRequestReadService } from './payout-request-read.service'
+import { PayoutRequestService } from './payout-request.service'
+import { PayoutSettlementService } from './payout-settlement.service'
+import { AdminIncomeService } from './admin-income.service'
+import { TransactionEntryService } from './transaction-entry.service'
+import { SalaryPaymentService } from './salary-payment.service'
+import { AdminEditService } from './admin-edit.service'
+import { ProjectFinanceSettingsService } from './project-finance-settings.service'
+import { PayoutConfirmationService } from './payout-confirmation.service'
+import { SeniorDropIncomeService } from './senior-drop-income.service'
+import { IncomeReceiptService } from './income-receipt.service'
 import { PendingSettlementController } from './pending-settlement.controller'
 import { PendingSettlementService } from './pending-settlement.service'
 import { SalaryCronService } from './salary-cron.service'
+import { SalaryService } from './salary.service'
+import { SummaryService } from './summary.service'
 import {
   FinanceSummaryController,
   PayoutRequestsController,
   ProjectFinanceSettingsController,
   TransactionsController,
 } from './transactions.controller'
+import { TransactionLifecycleService } from './transaction-lifecycle.service'
 import { TransactionsService } from './transactions.service'
+import { TransactionTrashService } from './transaction-trash.service'
 
 @Module({
   imports: [
@@ -47,6 +65,32 @@ import { TransactionsService } from './transactions.service'
     TransactionsService,
     EtherscanService,
     SalaryCronService,
+    // T-L6: db-only salary logic collaborator of TransactionsService.
+    SalaryService,
+    // T-L8: read-only summaries (db + NBU rates only; never depends on TransactionsService).
+    SummaryService,
+    // Post-write lifecycle collaborator: notifications, creation audit, auto-invoice
+    // (NotificationsService + InvoicesService + db; never depends on TransactionsService).
+    TransactionLifecycleService,
+    // Soft-delete / restore / audit-log read collaborator (db only).
+    TransactionTrashService,
+    // Edit-cascade core: row locks, cascade snapshot, apply, preview (db only).
+    EditCascadeService,
+    // Self-only DROP read path: summary, incomes and payments feeds (db + NBU rates only).
+    DropSelfService,
+    OnChainClaimService,
+    // Payout-request read path: role-scoped list + masked detail (db only).
+    PayoutRequestReadService,
+    PayoutRequestService,
+    PayoutSettlementService,
+    AdminIncomeService,
+    TransactionEntryService,
+    SalaryPaymentService,
+    AdminEditService,
+    ProjectFinanceSettingsService,
+    PayoutConfirmationService,
+    SeniorDropIncomeService,
+    IncomeReceiptService,
     NbuCurrencyService,
     // Phase 4-A: balance pipeline runs alongside the legacy getSummary.
     BalanceService,

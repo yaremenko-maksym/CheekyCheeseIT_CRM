@@ -18,6 +18,7 @@ import { FINANCE_INVOICES_ERROR_CODES } from './api-errors/finance-invoices'
 import { VACANCIES_ERROR_CODES } from './api-errors/vacancies'
 import { APPLICATIONS_ERROR_CODES } from './api-errors/applications'
 import { MEETING_RECORDER_ERROR_CODES } from './api-errors/meeting-recorder'
+import { JOB_SOURCING_ERROR_CODES } from './api-errors/job-sourcing'
 
 // SR-M-1 (PR #694 round 1) — the `en` catalog string for each code, read
 // straight off disk rather than via `@crm/shared`'s compiled catalog
@@ -102,6 +103,7 @@ describe('api-errors', () => {
       ['vacancies', VACANCIES_ERROR_CODES],
       ['applications', APPLICATIONS_ERROR_CODES],
       ['meeting-recorder', MEETING_RECORDER_ERROR_CODES],
+      ['job-sourcing', JOB_SOURCING_ERROR_CODES],
     ] as const
     const seenIn = new Map<string, string>()
     for (const [moduleName, codes] of perModule) {
@@ -229,7 +231,7 @@ describe('api-errors', () => {
   // with no declared params accepts NO third argument at all (`never`, not
   // `{}` — the empty-object type does not catch excess properties, verified
   // empirically before choosing this shape, see `ParamsFor`'s doc comment in
-  // `./api-errors.ts`). This runs under `pnpm --filter @crm/shared typecheck`
+  // `./api-errors/index.ts`). This runs under `pnpm --filter @crm/shared typecheck`
   // (unlike `apps/api/**/*.spec.ts`, this package's tsconfig does not exclude
   // spec files) — a loosened pin fails the typecheck gate, not silently.
   //

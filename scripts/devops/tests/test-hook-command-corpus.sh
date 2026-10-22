@@ -157,7 +157,7 @@ while IFS=$'\t' read -r expect hooks cmd <&3; do
         assert_green "[$key] ALLOW (заявленное сужение): $cmd" \
           -- hook_at "$hook" "$cmd"
         assert_red "[$key] грубое правило это ЗАПРЕЩАЛО — сужение реально: $cmd" \
-          --contains "ДЕГРАДИРОВАННЫЙ РЕЖИМ" \
+          --contains "DEGRADED MODE" \
           -- hook_at "$(broken_hook "$key")" "$cmd"
         ;;
       *)

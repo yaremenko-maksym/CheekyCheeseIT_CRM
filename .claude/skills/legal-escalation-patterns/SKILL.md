@@ -1,6 +1,6 @@
 ---
 name: legal-escalation-patterns
-description: When the Legal agent encounters hard refuse zones (multi-issuer schemes, cash channel, evasion variants) or Master encounters a user iterating evasion variants after baseline acceptance. Cross-cutting between Legal internal discipline + Master-side handling. Use in Mode A (consultation), Mode D (strategic) + Master-side on variant N iterations.
+description: 'Use when Legal hits a hard-refuse zone (multi-issuer schemes, cash channel, evasion variants) or Master sees the user iterating evasion variants after a baseline legal verdict. Legal Modes A and D plus Master-side handling.'
 when_to_use: "Use when Legal hits a hard-refuse zone, or Master sees the user iterating evasion variants after a baseline legal verdict. Examples: 'the user asks for a workaround scheme after a refusal', 'variant 2 of the same scheme', 'multi-issuer scheme', 'cash channel', 'when to engage an external lawyer', 'hard refuse boundary'."
 allowed-tools:
   - Read

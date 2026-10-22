@@ -7,7 +7,7 @@ import {
   Optional,
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
-import { and, desc, eq, inArray, isNull, lt, notInArray, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, lt, notExists, sql } from 'drizzle-orm'
 import type {
   CreateJobExclusionDto,
   JobCollectionFailureDto,
@@ -34,6 +34,7 @@ import {
 import { HrAccessService } from '../common/hr-access.service'
 import { DEFAULT_JOB_MATCH_THRESHOLD, type Env } from '../config/env'
 import { DatabaseService } from '../database/database.service'
+import { dbErrorLogSuffix, describeDbError, safeErrorStack } from '../database/pg-errors'
 import {
   type JobPosting,
   type JobSource,
@@ -705,7 +706,7 @@ export class JobSourcingService {
       } catch (err: unknown) {
         invalid += 1
         this.logger.warn(
-          `Skipping unstorable posting ${posting.url}: ${err instanceof Error ? err.message : String(err)}`,
+          `Skipping unstorable posting ${posting.url}: ${describeDbError(err) ?? (err instanceof Error ? err.message : String(err))}`,
         )
       }
     }
@@ -1002,8 +1003,8 @@ export class JobSourcingService {
         }
         failures.push({ sourceType: source.type, message, budgetExhausted: false })
         this.logger.error(
-          `Job collection failed for source ${source.type} (${source.id})`,
-          err instanceof Error ? err.stack : String(err),
+          `Job collection failed for source ${source.type} (${source.id})${dbErrorLogSuffix(err)}`,
+          safeErrorStack(err),
         )
       }
     }
@@ -1032,22 +1033,34 @@ export class JobSourcingService {
     // exact "уже отклонённое не показывать повторно" promise, broken by the
     // retention job rather than by the filter. Anything the senior has ANSWERED
     // (applied or rejected) is a decision we must not forget.
-    const decidedPostingIds = await this.db.db
-      .selectDistinct({ postingId: jobSuggestions.postingId })
+    //
+    // C-08 (r5 §1.4): this is a CORRELATED `NOT EXISTS`, not a `NOT IN` over a
+    // materialised id list. The previous shape read every APPLIED/REJECTED posting
+    // id into the API process and sent them all back as bind parameters, which grows
+    // without bound in the size of `job_suggestions` — the one table here that only
+    // ever grows, since a decision is exactly what retention must never forget. The
+    // predicate is UNCHANGED: keep a posting when any senior applied to it OR
+    // rejected it, and the `queue_status = 'NEW'` clause keeps IN_PROGRESS and
+    // DISMISSED. `shouldKeepPosting` in retention.ts is the unit-level twin of these
+    // three clauses; the two mirror each other and must move together.
+    const decidedBySenior = this.db.db
+      .select({ decided: sql`1` })
       .from(jobSuggestions)
-      .where(inArray(jobSuggestions.status, ['APPLIED', 'REJECTED']))
+      .where(
+        and(
+          eq(jobSuggestions.postingId, jobPostings.id),
+          inArray(jobSuggestions.status, ['APPLIED', 'REJECTED']),
+        ),
+      )
 
-    const keep = decidedPostingIds.map((r) => r.postingId)
     const deleted = await this.db.db
       .delete(jobPostings)
       .where(
-        keep.length > 0
-          ? and(
-              lt(jobPostings.collectedAt, cutoff),
-              eq(jobPostings.queueStatus, 'NEW'),
-              notInArray(jobPostings.id, keep),
-            )
-          : and(lt(jobPostings.collectedAt, cutoff), eq(jobPostings.queueStatus, 'NEW')),
+        and(
+          lt(jobPostings.collectedAt, cutoff),
+          eq(jobPostings.queueStatus, 'NEW'),
+          notExists(decidedBySenior),
+        ),
       )
       .returning({ id: jobPostings.id })
 

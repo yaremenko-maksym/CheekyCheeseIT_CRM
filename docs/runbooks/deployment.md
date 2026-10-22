@@ -569,6 +569,59 @@ kill %1  # stop the tunnel
 **Long-term solution (Coder task):** add `drizzle-kit` as a runtime dep in
 the prod image of the API or create a separate migrate container in `docker-compose.prod.yml`.
 
+### 5.1 Database roles in the deploy: apply order and how the `crm_app` credential reaches the VPS
+
+**Apply order inside the "Pull, up, migrate, health-check via SSH" step** (positions count distinct
+manual files in textual order, which is execution order; all 52 run in that one step):
+
+| Position | File                                                   | Why it sits there                                                                                                         |
+| -------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| 1        | `2026-10-18_db_roles.sql`                              | Roles first: the grants file and the append-only triggers file need them                                                  |
+| 47       | `2026-10-04_multiple_salary_transactions_prepare.sql`  | Creates `salary_month_initializations`; must precede the grants. Back-compat                                              |
+| 48       | `2026-10-17_job_opportunities_store.sql`               | Creates the job-store tables                                                                                              |
+| 49       | `2026-10-18_db_grants.sql`                             | After EVERY file that creates a table, view or sequence                                                                   |
+| 50       | `2026-10-17_job_opportunities_store_indexes.sql`       | Indexes only, creates no relation                                                                                         |
+| 51       | `2026-10-18_db_privileges_check.sql`                   | First run: before the container swap, so a drift fails while the old API serves                                           |
+| 52       | `2026-10-04_multiple_salary_transactions_activate.sql` | Breaking half, must follow the swap and the health gate; creates no relation                                              |
+| (end)    | `2026-10-18_db_privileges_check.sql` (second run)      | The last database step, after the post-cutover `drop_cascade_origin` marker re-run, so the END state is what is validated |
+
+Two invariants, both enforced by `scripts/devops/check-prod-ddl-wiring.py` (it derives the apply order
+from `deploy.yml` and reads each file's SQL, with no list of file names): a file whose first
+application comes after position 49 may not create a table, view, materialized view or sequence
+(`GRANTS-AFTER-CREATORS`), and the privileges check must be the last file psql applies
+(`CHECK-LAST`). The `drop_cascade_origin` marker is re-applied at the very end as a post-cutover
+sweep; its `CREATE TABLE IF NOT EXISTS` already ran at its first application far above the grants, so
+that re-run is allowed, but it is exactly why the final check sits after it. Moving the `prepare` file ahead of the grants
+means a fresh database ends the deploy with every relation granted, instead of relying on production
+already having the table. What was traded: `prepare` now runs a few steps earlier (it is
+backward-compatible, so this is safe), and the check runs twice (the extra run costs one read-only
+query; it keeps the fail-before-swap property that a single end-of-script check would lose).
+
+**Rollout step 5 handoff for the app credential** (not wired yet; the secret does not exist yet):
+
+1. The owner adds the repository secret `CRM_APP_DB_PASSWORD` (`openssl rand -hex 32`). The collector's
+   `CRM_COLLECTOR_DB_PASSWORD` (GUC `crm_roles.collector_verifier`) follows the same way later.
+   There is no owner secret: rotating `crm_user` is a deliberate manual owner step, not part of the
+   deploy (roles file header, "WHY `crm_user`'s OWN PASSWORD IS NOT SET HERE").
+2. On the runner, in the deploy job: a sparse `actions/checkout@v4` of
+   `apps/api/src/database/privileges/scram-verifier.cli.mjs` (`persist-credentials: false`), then one
+   step with the password in its own `env:` runs `printf %s "$CRM_APP_DB_PASSWORD" | node <cli>.mjs`
+   (stdin, so no argv), masks the result with `::add-mask::`, and writes `CRM_APP_DB_VERIFIER` to
+   `$GITHUB_ENV`.
+3. The runner reaches the VPS through the existing `envs:` passthrough of the ssh step (add the name
+   `CRM_APP_DB_VERIFIER`, as `GHCR_TOKEN` already does). Only the verifier travels; the password never
+   reaches the VPS.
+4. On the VPS the roles file is applied as
+   `PGOPTIONS="-c crm_roles.app_verifier=${CRM_APP_DB_VERIFIER}" docker compose ... exec -T -e PGOPTIONS postgres psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 < "$DB_ROLES_FILE"`.
+   The variable names are the script's own, `PGUSER` and `PGDB` (not `PGDATABASE`). `-e PGOPTIONS` is the
+   name only; `-e NAME=value` and `psql -v name=value` would put the value in argv.
+5. Nothing reaches a command line, a process list or the server log: the verifier is stdin on the
+   runner, an environment value afterwards, and a startup `options` parameter at the server (not a
+   statement, so not in `log_statement` output or a failing statement's logged text).
+
+To confirm at rollout rather than assume: `docker compose exec -e NAME` pass-through on the VPS's
+compose version, and `ps -ef` during the apply showing no `SCRAM-SHA-256`.
+
 ---
 
 ## 6. Bootstrap — the first two ADMIN users
@@ -942,6 +995,14 @@ CORRESPONDS to the requested image tag. The practical consequence:
     apps/api/drizzle/manual/2026-10-05_vacancy_sources_seed.sql \
     apps/api/drizzle/manual/2026-10-07_meeting_recorder_integration.sql \
     apps/api/drizzle/manual/2026-10-10_salary_creation_intent.sql \
+    apps/api/drizzle/manual/2026-10-17_job_opportunities_store.sql \
+    apps/api/drizzle/manual/2026-10-17_job_opportunities_store_indexes.sql \
+    apps/api/drizzle/manual/2026-10-18_job_queue_append_only_triggers.sql \
+    apps/api/drizzle/manual/2026-10-18_job_queue_append_only_check.sql \
+    apps/api/drizzle/manual/2026-10-18_db_roles.sql \
+    apps/api/drizzle/manual/2026-10-18_db_grants.sql \
+    apps/api/drizzle/manual/2026-10-18_db_privileges_check.sql \
+    apps/api/drizzle/manual/2026-10-21_job_queue_reason_redacted.sql \
     scripts/devops/check-security-headers.sh \
     scripts/devops/check-nginx-perimeter.sh \
     scripts/devops/pg-backup.sh \
@@ -1176,7 +1237,7 @@ sets `"aggregationMethod": "median"` at the `ci.assert` level — do not remove 
 next to `numberOfRuns`. A red assertion colors the PR check (`Lighthouse (mobile)` / `Lighthouse
 (desktop)`) — **this is NOT a required
 status check** (branch protection without required checks — see `devops.md` "Branch Protection"), so
-the red flag is visible, but does not block the merge hard; the PM/reviewer must require green before
+the red flag is visible, but does not block the merge hard; the orchestrator/reviewer must require green before
 `merge-approved` on any PR touching `apps/landing/**`.
 
 **5. Google Search Console — the ONLY step that is not automated (owner-TODO):**
@@ -1219,3 +1280,29 @@ the red flag is visible, but does not block the merge hard; the PM/reviewer must
   through Cloudflare (not only directly on the origin); `mcr.microsoft.com/playwright:v1.59.1-noble` as
   the base image of `landing-builder` does not increase the deploy build time above an acceptable level (the first
   real prod deploy after merge — measure it).
+
+## 13. Is prod actually receiving merges? (deploy freshness)
+
+Incident 2026-10-13..17: `Deploy` failed 16 times in a row (the API image did
+not build the new `@crm/inference` workspace package) and prod stayed on the
+old image for four days. Two independent signals now exist:
+
+- `deploy-alert.yml` (reaction): opens/updates an issue in the private
+  telemetry repo. **Blind spot:** it is a `workflow_run` trigger and did not
+  fire for any of the 10 deploys that `auto-merge-on-label.yml` dispatched as
+  `github-actions[bot]`.
+- `deploy-freshness.yml` (poll, every 3 h): runs
+  `scripts/devops/check-deploy-freshness.sh`, which fails the scheduled run
+  when the newest conclusive (success/failure) `deploy.yml` run on `main` is a
+  failure whose streak started more than 2 hours ago. Independent of trigger
+  type. Exit 1 = deploy is red; exit 2 = the check could not see (fails closed).
+
+Manual check at any time:
+
+```bash
+REPO=yaremenko-maksym/CheekyCheeseIT_CRM scripts/devops/check-deploy-freshness.sh
+```
+
+When adding a `workspace:*` dependency to `apps/api`, the same package needs
+`COPY` of its `package.json` and sources plus a `pnpm --filter <pkg> build` in
+`apps/api/Dockerfile` (builder stage), before `@crm/api build`.

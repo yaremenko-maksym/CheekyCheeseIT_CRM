@@ -17,6 +17,7 @@
  */
 import { Injectable, Logger } from '@nestjs/common'
 import { Cron, CronExpression } from '@nestjs/schedule'
+import { describeDbError } from '../database/pg-errors'
 import { SeniorResumesService } from './resumes.service'
 
 @Injectable()
@@ -44,7 +45,7 @@ export class ResumeExtractionCronService {
       if (renders > 0) this.logger.warn(`Re-queued ${renders} stuck resume render(s)`)
     } catch (err: unknown) {
       this.logger.error(
-        `Resume extraction sweep failed: ${err instanceof Error ? err.message : 'unknown error'}`,
+        `Resume extraction sweep failed: ${describeDbError(err) ?? (err instanceof Error ? err.message : 'unknown error')}`,
       )
     }
   }

@@ -1,6 +1,6 @@
 ---
 name: external-research
-description: 'Recon OUTSIDE the repository from primary sources: official documentation, source code, specifications, first-party APIs, texts of laws. Every claim is traced to the owner of the claim, not to a retelling. The result is a citable markdown file in the repository, not text dissolved into the session transcript.'
+description: "Use when the answer lives outside this repo: a library's actual behaviour, a third-party API contract, a spec, a law's status, a vendor's IP ranges. Traces each claim to a primary source and saves a citable markdown file in the repository."
 when_to_use: "Use when the answer lives outside this repo: a library's actual behaviour, a third-party API contract, a spec, a law's status, a vendor's IP ranges. Examples: 'how X actually works in the library', 'what this external API returns', 'what is the status of the law', 'a vendor's IP ranges', 'check whether it changed in the new version', 'need a summary of the spec'."
 allowed-tools:
   - Read

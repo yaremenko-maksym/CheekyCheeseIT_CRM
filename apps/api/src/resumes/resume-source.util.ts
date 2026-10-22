@@ -41,22 +41,22 @@ export const MAX_DOCX_UNCOMPRESSED_BYTES = 20 * 1024 * 1024
  * IT BOUNDS SIZE. IT DOES NOT BOUND PARSE COST — NOTHING HERE DOES.
  * ==========================================================================
  * This said "the bound that governs CPU". That was false, and believing it
- * produced three rounds of tuning the extraction deadline. Measured on the
- * real pipeline, both comfortably inside this budget:
+ * produced three rounds of tuning the extraction deadline. Measured 2026-10-21
+ * against the installed `@xmldom/xmldom` 0.8.15, on the real pipeline, inside
+ * this budget:
  *
- *   4.18 MB, 695 731 tags (`<w:p/>`)                     1 609 ms
- *   1.33 MB,      15 tags (120 000 attributes on one)   18 310 ms
+ *   4.1 MB, 690 000 empty paragraphs                    1 230 ms in-process
  *
- * The expensive one is 3x SMALLER, because `@xmldom/xmldom` rescans an
- * element's attributes as each new one is added — cost is quadratic in
- * attributes per element, and attributes contain no `<`, so neither a byte
- * count nor a tag count can see them. Doubling the attributes multiplied the
- * measured cost by 3-5x.
+ * Attribute cost is linear on 0.8.15, not quadratic (earlier readings that
+ * called it quadratic do not reproduce): 60 000 attributes on one element parse
+ * in 62 ms, 480 000 in 438 ms. Cost follows document size, and neither a byte
+ * count nor a tag count is guaranteed to track it, so the sandbox, not this
+ * budget, is the bound.
  *
  * A tag budget was tried here and removed: to admit real documents it had to
  * sit above ~400 000 tags (per-character formatting, what a PDF-to-Word
  * conversion produces, runs 9 600 tags a page), and everything between there
- * and the 695 731 this byte cap already allows costs under two seconds. It
+ * and the ~690 000 this byte cap already allows costs under two seconds. It
  * could only ever have produced false rejections — measured against the exact
  * code it shipped in, a twelve-page converted CV (115 216 tags) was accepted
  * and a THIRTEEN-page one refused — while the 15-tag document above walked

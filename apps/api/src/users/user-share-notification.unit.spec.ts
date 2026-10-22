@@ -36,9 +36,13 @@ function callSeam(input: {
     {} as never,
     notifications,
   )
-  const seam = service as unknown as {
-    notifyPendingSeniorShareProposed: (tx: unknown, i: unknown) => Promise<void>
-  }
+  const seam = (
+    service as unknown as {
+      seniorShare: {
+        notifyPendingSeniorShareProposed: (tx: unknown, i: unknown) => Promise<void>
+      }
+    }
+  ).seniorShare
   return seam.notifyPendingSeniorShareProposed({}, input).then(() => created)
 }
 

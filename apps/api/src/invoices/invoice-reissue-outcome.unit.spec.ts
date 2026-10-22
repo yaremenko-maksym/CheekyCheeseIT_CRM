@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Logger } from '@nestjs/common'
 
-import { InvoicesService } from './invoices.service'
+import { InvoiceReissueService } from './invoice-reissue.service'
 
 /**
  * task-paid-salary-amount-edit (SR-M-1) — the OUTCOME of an invoice void +
@@ -48,7 +48,7 @@ function makeService(opts: {
   /** Successive answers of the state read (before / after the re-issue). */
   states: Array<State | null>
 }) {
-  const svc = Object.create(InvoicesService.prototype) as InvoicesService
+  const svc = Object.create(InvoiceReissueService.prototype) as InvoiceReissueService
   const states = [...opts.states]
   const internals = svc as unknown as Record<string, unknown>
   internals['logger'] = new Logger('test')
@@ -167,7 +167,7 @@ describe('reissueSalaryInvoiceIfVoided — «повторное сохранен
  */
 describe('loadReissueState — what the two reads become', () => {
   function withReads(...answers: unknown[][]) {
-    const svc = Object.create(InvoicesService.prototype) as InvoicesService
+    const svc = Object.create(InvoiceReissueService.prototype) as InvoiceReissueService
     const queue = [...answers]
     const chain = {
       from: () => chain,
@@ -261,7 +261,7 @@ const VOID_STAGE: RepairState = {
 }
 
 function makeRepairService(states: Array<RepairState | null>) {
-  const svc = Object.create(InvoicesService.prototype) as InvoicesService
+  const svc = Object.create(InvoiceReissueService.prototype) as InvoiceReissueService
   const queue = [...states]
   const internals = svc as unknown as Record<string, unknown>
   internals['logger'] = new Logger('test')

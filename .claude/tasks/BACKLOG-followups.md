@@ -53,7 +53,7 @@ The second discrepancy (item 28) turned out to be **my** misreading, see the cor
 > `wired = {f for f in all_files if f in deploy_yml_content}` in `check-prod-ddl-wiring.py`
 > and took it for the implementation. It sits **inside the module docstring** describing how the guard
 > worked BEFORE and why that was bad. The real implementation parses steps
-> (`parse_steps`, `source_values`) and in the comment on line 238 explicitly calls
+> (`parse_steps`, `source_values`) and a comment beside them explicitly calls
 > "name mentioned, therefore wired" the naive approach it avoids.
 > Verified by execution: a devops agent built a fake `deploy.yml` in which the file name
 > appears three times in prose and never in the real steps — the guard returned FAIL.
@@ -64,7 +64,7 @@ The second discrepancy (item 28) turned out to be **my** misreading, see the cor
 > **a guard is verified by running it, not by reading it.**
 
 - **42 — alive, confirmed on `origin/main`.** `apps/api/src/app.module.spec.ts` (from #532)
-  looks by name like it closes the item, but its own docstring (line 33) says it
+  looks by name like it closes the item, but its own docstring says it
   **deliberately does not call** `Test.createTestingModule(...).compile()`: it reads the `@Module` metadata
   via `Reflect.getMetadata`. It checks the registration order of the three `APP_GUARD`s —
   useful, but the item asked for something else: build the DI container so that the class
@@ -90,20 +90,22 @@ The second discrepancy (item 28) turned out to be **my** misreading, see the cor
   `sitemap.xml` additionally has `ru`, `es`, `pt`. Six addresses outside the language clusters.
 - **40** — auto-merge is still `gh pr checks --watch --required`, with no check that both
   required contexts appeared at all.
-- **41 + 49** — dead steps about `2026-08-07_senior_resume.sql` in `deploy.yml`:
-  the copy (1037–1055) and the apply (2232–2256).
-- **47** — `describeLimits` is exported (`resume-typst.service.ts:438`), zero callers.
-- **60** — `mutation-gate.mjs:154` still excludes `src/**/*.module.ts`.
+- **41 + 49** — the pair of steps in `deploy.yml` around
+  `2026-08-10_senior_resume_template.sql` (the SCP copy in the build job and the matching apply in
+  the deploy job). Both now notice-skip when the file is absent, so they are inert rather than dead;
+  the item is whether they should exist at all now that the template has merged.
+- **60** — `mutation-gate.mjs` still excludes `src/**/*.module.ts`.
 
 ### Confirmed closed (no need to re-check)
 
 **5** (RBAC is deliberately delegated to callers and this is recorded in the docstring; the remainder is a test that
 every caller checks permissions, also in `task-authz-followups.md`) · **10**
-(`deploy-alert.yml`) · **11** (`ci.yml:821` seeds vacancies, `:833` builds the landing —
+(`deploy-alert.yml`) · **11** (`ci.yml` seeds vacancies builds the landing —
 the build runs against a non-empty set) · **17** (`vitest.config.mts` prints an explicit banner
 about skipping integration specs with the command to run them) · **21** · **26** · **31** · **33**
 (`not.toBeNull()` + a written explanation of why the previous form could not fail) ·
-**34** · **35**.
+**34** · **35** · **47** (`describeLimits` was deleted outright by #544 — `grep describeLimits` over
+`apps/` and `packages/` returns nothing; the same closes the prose entry 33 below).
 
 ### Rule derived from this reconciliation
 
@@ -177,7 +179,7 @@ anywhere and lives only on the owner's machine. 59 findings rest on a single dis
 
 ## Hygiene
 
-6. **Docs drift** (BA zone): `docs/business/modules/auth.md:30` and `docs/business/user-flows.md:27`
+6. **Docs drift** (BA zone): `docs/business/modules/auth.md` and `docs/business/user-flows.md`
    describe the removed `GET /api/auth/logout`.
 7. **`dotenv@17.4.2` prints advertising lines to stdout**, including a link to a third-party service.
    Baked into the package itself, not a compromise. Take into account when updating dependencies; check as
@@ -282,7 +284,7 @@ anywhere and lives only on the owner's machine. 59 findings rest on a single dis
 
 14. **Test files are excluded from type checking** (`apps/api/tsconfig.json`). Consequence: a spec
     constructing a service without a required dependency is NOT caught by the compiler — discovered
-    in review of #455, where `teams.archive.spec.ts:159` creates a service without the audit dependency.
+    in review of #455, where `teams.archive.spec.ts` creates a service without the audit dependency.
     The test is "green" but checks not the configuration that runs in prod. Evaluate
     including specs in type checking: how many places would need fixing and whether it's worth doing once.
 15. **The money-operations log is write-only.** Across the whole API there is not a single read
@@ -328,7 +330,7 @@ update workflow .github/workflows/ci.yml without workflows permission`. Two PRs 
    message so it does not look like a check failure.
    **CLOSED.** The second path was chosen. Verified on PR #498 (2026-08-07): the automation detects
    such PRs, leaves a comment in the PR with an explanation («это НЕ сбой проверок, нужен ручной
-   мерж») and finishes successfully rather than silently. The `workflow` permission is intentionally not granted to auto-merge:
+   мерж») and finishes successfully rather than silently. The `workflow`permission is intentionally not granted to auto-merge:
    it is GitHub's built-in protection against uncontrolled pipeline changes by automation, and a bypass
    for convenience would be a security downgrade. Manually merging such PRs is an ordinary `gh pr merge --squash`, without `--admin`.
 10. **A deploy failure does not raise an alert.** The deploy failed 2026-07-27 21:22 and stayed red for
@@ -336,7 +338,7 @@ update workflow .github/workflows/ci.yml without workflows permission`. Two PRs 
     main branch (#441/#446), but not on `Deploy → failure`. Set it up.
 11. **The structured-data check is enabled only when vacancies exist.** While there were
     zero, the build passed and pages went to prod without markup for search engines. This is already
-    the second case of this class in the same file (see the comment `prerender.mjs:481-484`).
+    the second case of this class in the same file (see the comment `prerender.mjs`).
     A CI build run against a non-empty set of vacancies is needed, otherwise the class will reproduce a third time.
 
 12. **ESLint does not run in `packages/shared` and `apps/e2e` — neither locally nor in CI.**
@@ -361,7 +363,7 @@ update workflow .github/workflows/ci.yml without workflows permission`. Two PRs 
     its identifier. Check where the shared path `scratchpad/rev<PR>` comes from —
     probably from a template in the prompt or from a skill.
 
-14. **The prod-migration wiring guard is satisfied by a comment.** `check-prod-ddl-wiring.py:103`:
+14. **The prod-migration wiring guard is satisfied by a comment.** `check-prod-ddl-wiring.py`:
     `wired = {f for f in all_files if f in deploy_yml_content}` — a substring search over the whole
     content of `deploy.yml`. It proves that the file name is mentioned somewhere, not that the migration
     is copied to the server and applied. A comment or a step name containing that name is enough.
@@ -401,9 +403,9 @@ update workflow .github/workflows/ci.yml without workflows permission`. Two PRs 
     went through a relative path, while the stubs in the specs listened on an absolute one and did not intercept.
     With correct setup: 1 failed, 1 skipped, 10 passed.
     What turned out to be real:
-    - `:203` dies on a **positive** assertion (strict mode, 2 matches — the viewer
+    - dies on a **positive** assertion (strict mode, 2 matches — the viewer
       is itself "Senior Dev"), so its "junior is hidden" checks are never executed;
-    - `:249` **was never executed**: both preconditions are under `if (isVisible)`, and the needed
+    - **was never executed**: both preconditions are under `if (isVisible)`, and the needed
       card is not rendered in this flow. It now honestly reports a skip.
     - **MAIN POINT, needs a task:** the hiding lives on the server (`ProjectsService.mapProject`:
       `viewerRole === 'SENIOR' && isJuniorMember` → empty `displayName`, `userId: '[redacted]'`)
@@ -416,14 +418,14 @@ update workflow .github/workflows/ci.yml without workflows permission`. Two PRs 
 
 19. **`projects.spec.ts`: the selectors never matched anything — a test defect, not a product one.**
     Triaged 2026-08-08. The create dialog **renders** all six metadata fields
-    (`index.tsx:775` — a loop over the key list), there is no product defect. But the fields render without
+    (`index.tsx` — a loop over the key list), there is no product defect. But the fields render without
     a `name` attribute, while the spec looks them up via `getByPlaceholder(/стек технологий/i)` and
     `input[name*="tech"]` — these selectors never matched. This was hidden by two conditions:
     `if (isVisible)` on the fill and `if (body.techStack)` on the check. The fix requires tying the label to the field
     or adding `data-testid` — that is a product edit, which is why it is raised here.
 
 20. **A check that cannot fail in the payouts spec.**
-    `apps/e2e/tests/drop-confirm-payout-rbac.spec.ts:155` —
+    `apps/e2e/tests/drop-confirm-payout-rbac.spec.ts` —
     `expect(confirmed?.recipientId ?? MAKSYM_ID).toBe(MAKSYM_ID)`. When `confirmed` is `null`
     (the comment one line above itself allows this), the expression reduces to comparing a value with
     itself. Found by the code-reviewer on #500. The degradation versus `main` is not in behavior but in
@@ -547,10 +549,11 @@ update workflow .github/workflows/ci.yml without workflows permission`. Two PRs 
     Found on #511 (2026-08-11). The function has **zero callers in the whole repository**, yet
     its docstring promises "so that a test can check the limits without the platform check" —
     there is no such test. The limit itself is live: `RENDER_ADDRESS_SPACE_KB` goes into the arguments directly
-    (`resume-typst.service.ts:411`).
+    (`resume-typst.service.ts`).
     **The task is not "write a test", but first to decide whether the accessor is needed.** Writing a test just to call
     a function nobody calls means pinning dead code as live — the same class as
     the rest of this list.
+    **Closed by #544** — the accessor was deleted rather than tested; the symbol no longer exists in the repo.
 
 34. **A limiter that receives a corrupted value must become stricter, not weaker.**
     Surfaced on #511. The `cpuSeconds` seam with `NaN`, `Infinity`, `-1` and **`1e21`** left the process
@@ -604,7 +607,7 @@ update workflow .github/workflows/ci.yml without workflows permission`. Two PRs 
     `JobSourceProvider`: either the provider itself reports how many requests it used, or pagination
     within a single unit is forbidden for it. Decide **before** connecting paid sources.
 
-38. **The `/collect` throttler counts per address, not per user** (`app.module.ts:116-119`).
+38. **The `/collect` throttler counts per address, not per user** (`app.module.ts`).
     From the same review (LOW). Acceptable, because the real protection is the counter in the DB and the throttler
     is a second line. Recorded so that when expensive sources appear this is reconsidered deliberately,
     not discovered.
@@ -711,7 +714,7 @@ update workflow .github/workflows/ci.yml without workflows permission`. Two PRs 
     Worked around by a manual mutation, which does not scale and leaves no trace in CI.
 
 48. **`chargeBudget` names the wrong cause: budget exhaustion instead of contention.** Found by
-    code-review on #532 (2026-08-16), `apps/api/src/job-sourcing/job-sourcing.service.ts:867-871`.
+    code-review on #532 (2026-08-16), `apps/api/src/job-sourcing/job-sourcing.service.ts`.
     When the CAS is lost `CHARGE_BUDGET_MAX_ATTEMPTS` times in a row, the tail branch unconditionally throws
     `JobSourceBudgetExhaustedError` — without re-reading whether the budget is really exhausted. The outcome is
     conservative (we will not spend extra), so it costs no money; but the operator is told
@@ -763,7 +766,7 @@ update workflow .github/workflows/ci.yml without workflows permission`. Two PRs 
     the rollout — decide at the same time whether it is alive or dead weight. DevOps zone, a separate small PR.
 
 52. **An old crutch for the same frame bug, and its comment has become wrong.** Found by
-    code-review on #540 (2026-08-17). `apps/web/app/styles/globals.css:197-212` —
+    code-review on #540 (2026-08-17). `apps/web/app/styles/globals.css` —
     `.nav-active-accent[data-status='active'] { border-left-color: var(--primary) !important; }`
     from PR #287: a point workaround for exactly the defect that #540 closed at the root.
     No regression (the semantics of `!important` in layers were verified by the reviewer), but the accompanying
@@ -798,7 +801,7 @@ update workflow .github/workflows/ci.yml without workflows permission`. Two PRs 
 55. **Two junior masking surfaces are built oppositely — and this is deliberate.**
     Recorded by security-review on #541 (2026-08-17), so that nobody later "brings them to
     uniformity" by reverting one of the sides.
-    - **The project surface** (`projects.service.ts:613-615`): member rows are
+    - **The project surface** (`projects.service.ts`): member rows are
       KEPT, fields are blanked. The code states directly that the cardinality of the set
       is preserved deliberately — the senior sees that a member exists but does not see who.
     - **The «Команда» tab** (`getTeamMembersForUser`): rows are REMOVED entirely, the count is lost.
@@ -836,7 +839,7 @@ infrastructure and dependency chain. Run via the `codebase-audit` skill (read-on
     narrow its check in the same patch, `RAISE EXCEPTION` will crash the migration step **in prod**.
     Narrowing the source and narrowing the check must be one patch.
 
-71. **"0 surviving mutants" says nothing about the uncovered ones.** `check-mutation-tally.mjs:101-110`
+71. **"0 surviving mutants" says nothing about the uncovered ones.** `check-mutation-tally.mjs`
     goes red only on `Survived > 0`; `NoCoverage` passes silently. Claimed coverage must be
     checked against the facts, not against the gate's verdict. Separately: Stryker has **no
     mutator for operators inside template strings**, so SQL fragments are structurally unprovable
@@ -870,7 +873,7 @@ infrastructure and dependency chain. Run via the `codebase-audit` skill (read-on
 
 77. **A date-without-time is rendered in the operator's local time zone but sorted in UTC.** Found
     by the reviewer on #601 (MED, not a blocker). `dayOf()` in `finance/sort.ts` truncates to **UTC** days,
-    while the "Date" column goes through `fmtDate()` (`finance/constants.ts:243`) — `toLocaleDateString`
+    while the "Date" column goes through `fmtDate()` (`finance/constants.ts`) — `toLocaleDateString`
     **without** `timeZone: 'UTC'`, i.e. in the browser's zone. The rationale for the round 2 fix
     was "truncate to the day the column shows" — when the zones diverge, this rationale
     stops being true.
@@ -879,7 +882,7 @@ infrastructure and dependency chain. Run via the `codebase-audit` skill (read-on
     for any operator west of UTC, `fmtDate` will show a date-without-time as the **previous day**.
     The fix belongs in `fmtDate`, not `dayOf`: dates-without-time need an explicit `timeZone: 'UTC'`.
     **Not provable by tests:** the project environment is pinned to `TZ=UTC` (see the comment in
-    `SettleSeniorPayoutDialog.tsx:462`), so the divergence physically cannot be reproduced
+    `SettleSeniorPayoutDialog.tsx`), so the divergence physically cannot be reproduced
     in unit, E2E, or the mutation gate.
 
 78. **A signed payout act and its own QR verification name different amounts in different currencies.**
@@ -901,7 +904,7 @@ infrastructure and dependency chain. Run via the `codebase-audit` skill (read-on
     DB queries to it must be tightly bounded by the row set.
 
 81. **A flake in the unit run triggers on a FAST machine, not a slow one.**
-    `resume-render-responsiveness.spec.ts:183` — `Math.max(...samples)`. `samples` is filled by
+    `resume-render-responsiveness.spec.ts` — `Math.max(...samples)`. `samples` is filled by
     a probe loop for the whole duration of the render: the faster the runner, the more probes get through, the
     likelier it is to hit the call-argument limit and get a stack overflow. That is,
     the usual intuition "flake = slow runner" points the opposite way here.
@@ -931,7 +934,7 @@ infrastructure and dependency chain. Run via the `codebase-audit` skill (read-on
 
 84. **Mixed currencies in a batch are an intentional configuration, not an edge case.** Important to remember on any
     change to this path: the previous hard guard was removed **as a bug** —
-    `transactions.service.ts:4208-4214`, "the previous hard guard blocked legitimate mixed-currency
+    `transactions.service.ts`, "the previous hard guard blocked legitimate mixed-currency
     batches". Any decision to "just forbid mixed currencies" would be a reintroduction of the same
     bug.
 
@@ -974,7 +977,7 @@ infrastructure and dependency chain. Run via the `codebase-audit` skill (read-on
 90. **Manual cleanup of `payout_requests` will break act signing.** Noted on #600 round 6.
     Currently unreachable (neither code nor manual migrations delete `payout_requests`), but the schema **itself**
     calls "future cleanup of payout_requests" realistic — `dropCascadeOrigin` was introduced in #443
-    for that. With such a cleanup, the FK `ON DELETE SET NULL` (`schema.ts:706-708`) will null out
+    for that. With such a cleanup, the FK `ON DELETE SET NULL` (`schema.ts`) will null out
     `payoutRequestId`, and `signInvoice` will start failing with 409. If the cleanup is ever done —
     look here first.
 
@@ -987,7 +990,7 @@ infrastructure and dependency chain. Run via the `codebase-audit` skill (read-on
     up and is that part of the plan for the upcoming work". In a multi-task cascade, an invariant
     propping up someone else's code is an obligation both sides must know about.
     **An asymmetry worth remembering:** on the write side in this same codebase
-    (`pending-settlement.service.ts:806`) they refuse **loudly** on an invariant that is unreachable today.
+    (`pending-settlement.service.ts`) they refuse **loudly** on an invariant that is unreachable today.
     The write side chose a loud refusal, the read side a silent assumption. Align to the write side.
 
 92. **A "will go red when the literal changes" test is almost always self-deception.** A continuation of item 91: such
@@ -2629,7 +2632,7 @@ On a large diff (integrator of #667: the first run died on the budget, a full on
 
 ## 185. `notifications-popup-overflow.spec.ts` (mocked-auth) does not pass against the dev proxy on non-standard ports
 
-On the integrator's stand `notifications-bell-trigger` was not found even on `origin/main` (isolation by file substitution). The spec is tied to the default `localhost:3000/3001`; agents bring stands up on 30xx. Behavior: the spec reads addresses from `baseURL`/env, like its neighbors. Check: the spec is green with `API_PORT=3084`/web 3085.
+On the integrator's stand `notifications-bell-trigger` was not found even on `origin/main` (isolation by file substitution). The spec is tied to the default `localhost/3001`; agents bring stands up on 30xx. Behavior: the spec reads addresses from `baseURL`/env, like its neighbors. Check: the spec is green with `API_PORT=3084`/web 3085.
 
 ## 186. The legacy producer of `INVOICE_SIGNED` can give a 500 on an already-signed invoice (security r3 on #664, outside the diff)
 
@@ -2671,7 +2674,7 @@ Safe today (React text, `line-clamp-2`), will become significant if `detail` is 
 
 (coders of #667 r3 and #664 r2/r5, DevOps #668 — four independent observations on pushes under load): fails on different cases (CP-7; CP-28+CP-29), in isolation 41/41, the full web suite separately — green; in the DOM snapshot `data-scroll-locked` on `<body>` — a leaked Radix overlay of a neighboring test. Behavior: the test is isolated from its neighbors (cleanup of the overlay/`scroll-lock` in `afterEach`, or `test.sequential`/a separate file), green with `--threads` under load. Check: three full `@crm/web` runs in a row at LA > 30 without failures of this file.
 
-## 196. `pnpm test` from the root pulls the full E2E on `localhost:3000/3001`
+## 196. `pnpm test` from the root pulls the full E2E on `localhost/3001`
 
 (coder of #664 r5 ran it accidentally: hundreds of `ECONNREFUSED`, and with a live stack on the default ports it would have hit it): the root script must not include `@crm/e2e` by default — E2E is run explicitly (`pnpm --filter @crm/e2e test`). Check: `pnpm test` in the root does not bring up Playwright.
 
@@ -2820,3 +2823,1343 @@ screen, the action row fully in frame.
 ## 226. Remainder of the gardener sweep of 2026-10-05 — tail (non-giant) + giants human-planned
 
 (codebase-gardener; detailed list from the previous session, verified by fact — the audit systematically overstated volumes, check with grep/du before dispatch). Merged: #1 scope of rules/common (#776), #2 CONTEXT.md (#773), #3 dead root docs (#772), #5/#6 CI (#780), #8 dead-code e2e (#778), #10 dedup (#779), #11 dead exports (#778), #18 prod-any (#781); + efficiency axis in code-reviewer (#777), PM removal (#775), runbook (#782); #7/#9 deps = PR #783. **Remainder (non-giant):** #16 de-flake E2E misc — **the premise "flakes steadily" is NOT confirmed by the 2026-10-05 records** (recent misc failures = a real regression of #783 resume-paste/CodeMirror, not a flake); evidence is needed before de-flaking (intermittent pass/fail on one commit). #17 compressing agent docs (`coder.md` 418 / `code-reviewer.md` 358 / `skills-invocation.md` 169 lines) via writing-for-agents — Architect zone, token ROI; **deferred: reforming live agent docs mid-loop of vacancies is risky** (these agents are actively running Phase 2). #12 composite CI action (6 workflows duplicate node-setup) — low ROI + workflows-scope merge risk. #19 cleanup of `.claude/worktrees` (git list ~50) + `.claude/tasks` (**592K, not 2.4MB**) — removing a worktree from main is blocked by the agent-isolation hook → owner's prerogative with literal paths. #20 stale references/comments — mostly done by #778/#779, the remainder is pointwise. **Giants — HUMAN-PLANNED, NOT auto:** #13 split `schema.ts` (~3.6k), #14 split `transactions.service.ts` (~9.4k), #15 split `users.service`/`projects.service`/`$projectId.tsx`/`UserDialog.tsx`. The weekly `codebase-gardener-weekly` (Mon 06:01) reopens the audit by itself — it will pick up the tail #12/#16/#17/#19/#20. New findings of this session: [[224]] xmldom CVE, [[225]] resume-glyphs O(n).
+
+## 227. The worktree-ownership ledger records before the command runs — a PostToolUse companion would close the residual (from PR #1025, 2026-10-18)
+
+(orchestrator + code-reviewer delta on PR #1025; severity LOW, disclosed by the author rather than found). `pre:bash:cross-agent-blast` now decides whether an agent may remove a scratchpad checkout from a ledger it writes itself: it appends the calling `agent_id` against the literal path when it watches `git worktree add`, and `remove` permits only what is recorded against that same id. Because the hook runs **before** the command, a `git worktree add` that then fails for an unrelated reason (a bad commit-ish) still leaves a line for a path that was never created; a sibling agent later choosing the **same literal absolute path** could have that tree removed. The recording rule already narrows this hard — the target must be literal, absolute, strictly below the scratchpad root by at least one component, and must not already exist — so a live sibling checkout is never recordable, and the damage is bounded to one scratchpad directory. **Why it is a note and not a blocker:** it needs two agents to independently choose one name, and the isolation rule now asks each agent for a name of its own instead of the shared `$SCRATCH/checkout`. **The closing shape:** a PostToolUse companion that records only after git reports success, which removes the "recorded but never created" state entirely. **Check on closing:** a hook copy whose `add` is made to fail must leave no ledger line, proven by a case that goes red without the companion.
+
+## 228. Agents cannot remove their own scratchpad checkouts until #1025 merges — three in one day, and they accumulate (2026-10-18)
+
+(orchestrator, observed by fact; severity LOW, self-closing). Three review agents in one session reported that `git worktree remove` on their **own** checkout was refused by `pre:bash:cross-agent-blast`, so each left a registered worktree behind. This is the defect PR #1025 fixes, observed in the wild rather than in a test: before that PR the hook recognised only an agent's primary worktree, so a reviewer's legitimate cleanup of a checkout it created itself was indistinguishable from an attempt on a sibling's tree. Agents correctly declined to force it. **Consequence while it lasts:** registered-but-unused worktrees pile up in the session scratchpad, which is the same accumulation already recorded in [[226]] item #19, and the sweep is the owner's prerogative because removing a worktree from the main checkout is itself refused by the isolation hook. **Partly closed by #1025, and the remainder is measured, not assumed.** After that merge an agent's own recorded checkout is removable, because the ledger keys ownership on the `agent_id` the harness supplies. The **orchestrator's** own checkouts are not: the main thread has no `agent_id`, so nothing is ever recorded for it, and removing a checkout it created itself is refused with `WORKTREE-REMOVE` — "not your worktree" — rather than with the unrecorded-path refusal. Verified by running it on the merged hook. So the sweep stays owner-only for orchestrator checkouts. **The closing shape** is whatever makes a main-thread checkout attributable; the PostToolUse companion in [[227]] is the natural place, since it would record after git reports success and could key on the session rather than the agent. **Check on closing:** the orchestrator creates a checkout in its own scratchpad and removes it in the same session without a refusal.
+
+## 229. The "Label PR on CI failure" step fails on PRs that touch `.github/workflows/**` (2026-10-18)
+
+(orchestrator, observed by fact; severity LOW). On a PR whose diff includes workflow files, the aggregating `Typecheck · Lint · Unit Tests` job showed two failed steps: `Aggregate leg results`, which is the honest reflection of another red leg, and `Label PR on CI failure`, which is the labelling step itself erroring. On a sibling PR with no workflow files in the diff the `ci-failed` label was applied normally. The likely cause is the same `GITHUB_TOKEN` restriction that already prevents auto-merge on workflow-touching PRs, surfacing here as a failed label write rather than as a skipped one. **Why it matters beyond noise:** a failing labelling step adds a second red entry that does not correspond to a defect, which trains readers to discount red checks — and the `ci-failed` label is what the orchestrator uses to tell a real failure from a stale one. **The closing shape:** let the step fail soft, or skip it when the token cannot label, so the only red is the leg that actually failed. **Check on closing:** a PR touching a workflow file reaches exactly one red check for one real failure, and the aggregator reports no step error of its own.
+
+## 230. Input and button outlines fail the non-text contrast criterion across the CRM (from the Task 0.1 design, 2026-10-18)
+
+(ui-ux-designer, found while specifying the vacancy-queue screen; severity MED — accessibility, CRM-wide, inherited).
+The outline of form inputs and outlined buttons measures **1.17:1** against the card background in the dark theme.
+WCAG 2.2 success criterion 1.4.11 (non-text contrast) asks for **3:1** for the boundary of a component a user must
+identify in order to operate it — an input whose edge cannot be seen is an input a low-vision user cannot find.
+**Why it is a backlog item and not a fix inside that PR:** it is not introduced by the queue screen; it comes from the
+shared shadcn/ui components and the border token in `globals.css`, so a local override on one screen would make the
+CRM inconsistent rather than accessible. The fix belongs at the token level, where it reaches every form at once.
+A related pairing the same design forbade locally: `muted-foreground` text on a `secondary` surface measures
+**4.23:1**, below the 4.5:1 for body text. **Check on closing:** the border token used by inputs and outlined buttons
+reaches 3:1 against every surface it sits on, measured from the token values, and `muted-foreground` on `secondary`
+either reaches 4.5:1 or the pairing is banned in the design-system notes.
+
+## 231. The deploy-freshness guard has never fired in the wild, and the one outage that should have tested it closed first (2026-10-19)
+
+(orchestrator, observed by fact; severity MED — an alerting guard whose working state is unverified). The guard exists
+because a deploy was once red for sixteen consecutive runs and nobody noticed. It is scheduled `23 */3 * * *` and
+fails when the newest deploy run is a failure streak older than two hours. On the night of 2026-10-18/19 the deploy
+failed twice in a row and `main` was undeployable for **three hours and sixteen minutes** — exactly the condition it
+is built for. **It never fired.** Its 23:23Z run saw a failure only 1h08m old and correctly passed; the next
+scheduled run was 02:23Z, and the fix merged at 01:30Z, so the streak was green again before the guard looked. The
+guard is therefore still **unproven against a real outage**, and a three-hour production-blocking window produced no
+alert — it was noticed only because the orchestrator was reading deploy runs by hand.
+
+**The closing shape.** Two parts, the second mattering more:
+
+1. **Prove it deliberately** instead of waiting for the next outage: drive it by `workflow_dispatch` against a history
+   whose newest deploy run is an old failure, and confirm it reports. A guard whose alerting path has never executed
+   is a guard in name only — the standard this repo already applies to hooks, each of which must have a negative case.
+2. **Reconsider the two-hour threshold against the three-hour window it just missed.** Either shorten it, or treat
+   "the newest run is a failure" as reportable immediately at a lower severity and keep two hours for escalation. As
+   set, it cannot see an outage repaired inside its own sampling gap, which is most of them.
+
+**Check on closing:** a deliberately synthesised old-failure history makes the guard report, demonstrated by a run;
+and a failure repaired within three hours still produces one notification.
+
+## 232. `db:seed` is refused on any development database that has run the append-only spec (2026-10-19)
+
+(orchestrator, from the 1.3b fix round; severity MED — it blocks a routine developer action, and the
+obvious fix would weaken an audit guard). The seed truncates `users … CASCADE`; the cascade reaches
+`job_queue_actions`; the append-only trigger refuses it with SQLSTATE `23001` and the message
+"job_queue_actions is append-only: TRUNCATE refused". Measured both ways: with the triggers installed the
+seed fails, with them dropped it completes. **The guard is doing exactly its job.** CI is unaffected
+because it seeds before any spec installs the triggers, and production is unaffected because production
+never seeds. What it hits is every developer and QA database that has run the 1.3b integration spec and
+is then re-seeded.
+
+**The reason this is a backlog entry rather than a commit in that fix round:** giving the seed path the
+ability to disarm an append-only audit guard is a security-relevant change to a tool that runs with owner
+privileges. It wants its own PR and a security review, not a tail-end commit. The sanctioned shape
+already exists in the 1.3b spec's own teardown — disable the two action triggers as the owner, truncate,
+re-enable in a `finally` — so the work is to lift that into the seed deliberately, with the review that
+deserves.
+
+**Check on closing:** `db:seed` completes on a database that has the triggers installed, and a test
+proves the triggers are re-enabled afterwards even when the seed fails midway.
+
+## 233. The integration suite's verdict depends on Cloudflare being reachable (2026-10-19)
+
+(orchestrator, from a CI failure on an unrelated PR; severity MED — a third party can turn the suite red).
+`TurnstileService.verify()` makes a live HTTPS call to Cloudflare's siteverify endpoint on every
+application submit, and converts **any** failure — network error, timeout, non-2xx, `success: false` —
+into `false`, which the caller turns into a 400. The integration specs have no stub and no bypass: even
+the "always passes" test secret needs the round trip to succeed.
+
+Observed: one apply out of ten in a single CI run failed with `APPLICATION_TURNSTILE_FAILED` while the
+other nine passed, including `contact.integration.spec.ts`'s deliberately-live siteverify test two
+minutes later. That distribution is what rules out an environment or configuration cause — those would
+have failed all ten.
+
+**Closing shape:** stop calling Cloudflare from the integration suite — stub `TurnstileService`, or gate
+the live call behind an explicit opt-in flag and keep **one** deliberately-live test if that path is
+worth covering. Do not instead pin a sequencer order or resize a spec file: that restores the
+concealment rather than removing the dependency.
+
+**Check on closing:** the suite passes with outbound network to Cloudflare blocked.
+
+## 234. The isolation hook cannot record a checkout created through an unexpanded variable, and four briefs have not fixed it (2026-10-19)
+
+(orchestrator, observed four times in one day; severity MED — it leaks worktrees and the mitigation is
+discipline, which measurably does not hold). The hook records `<agent_id> <path>` only when it sees a
+`git worktree add` whose path is a literal absolute path below the scratchpad root. An agent that writes
+`git worktree add "$S/co-pr1026-sec"` creates a tree the hook has no record of, and the later
+`git worktree remove` is refused (`WORKTREE-REMOVE` / `WORKTREE-UNRECORDED`). **The refusals are correct** —
+an unrecorded path in a shared scratchpad is one the hook cannot prove is free — and every agent
+respected them rather than working around it.
+
+What does not work is the instruction. Four reviewer and coder agents left orphans this way, including
+one whose brief spelled the correct pattern out verbatim ("expand the variable once with `echo`, then use
+the literal for both `add` and `remove`"). Four for four. **An instruction ignored four times is not an
+instruction problem.**
+
+**Candidates, in order of preference:** have the hook record the _resolved_ path — it sees the expanded
+argv, so the variable is already gone by the time it runs, which makes this look feasible and removes the
+failure mode entirely; or give agents a wrapper to call instead of raw `git worktree add`. Do not add a
+fifth paragraph to the briefs.
+
+**Check on closing:** an agent that creates a checkout through a variable can still remove its own, and a
+sibling's tree is still refused.
+
+## 235. The health endpoint reports healthy throughout a database outage (2026-10-19)
+
+(from the pool-error-listener task; severity LOW-MED — it misreports during exactly the incident it would
+be consulted in). `HealthController.check()` does not touch the database and always returns
+`status: 'ok'`. So while Postgres is down or refusing the API's credentials, the endpoint says the service
+is healthy.
+
+This did not matter much while the API crashed on a database restart, because the crash was itself the
+signal. Now that the pool logs idle-client errors and survives (entry: the listener landed 2026-10-19),
+the process stays up through an outage and the endpoint is the only thing a human or a monitor would ask —
+and it answers wrongly.
+
+Deliberately **not** widened into the listener's PR: changing what readiness means can change deploy
+behaviour, and the ADR's deploy ordering relies on `docker compose up -d` rather than a health gate, so
+this needs its own reasoning about who consumes the endpoint before its semantics move.
+
+**Check on closing:** with the database stopped, the endpoint reports unhealthy; and the deploy's own
+ordering is shown to still behave as the ADR describes.
+
+## 236. The telemetry exception filter stores bound query parameter values (2026-10-19)
+
+(raised by code review on PR #1042, confirmed by security review; severity MED — data minimisation, not
+disclosure). `TelemetryExceptionFilter` stores `exception.message` and `exception.stack` of every 5xx.
+For a Drizzle query error **both carry the bound parameter values**, and `sanitizeAndTruncate` redacts
+only Bearer tokens, cookie headers and passwords. So values a request supplied are written to
+`telemetry_errors` and forwarded into the issues the digest files.
+
+**Calibrate the severity correctly, because the first report of this got it wrong.** The digest files
+issues in a **private** repository — every `gh` call in `telemetry-digest.yml` targets `PRIVATE_REPO`, and
+the header carries an explicit "NEVER point this workflow at the public". The first report claimed a
+public issue because a **comment in the filter said "public GitHub issue pipeline"**, which was untrue;
+PR #1042 corrects that wording in three places. So this is "more stored than needed, in a channel
+designed for it", and the cost is what a later leak, a stale retention window or an over-broad token
+would expose.
+
+**The reusable pieces already exist** (with PR #1042): `findPgError`, `describeDbError` and
+`safeErrorStack`. The filter receives the thrown `DrizzleQueryError`, so `safeErrorStack(exception)` gives
+a frames-only stack and `describeDbError(exception) ?? exception.message` a value-free message.
+
+**Two decisions the task must make, both named by the author:** grouping shifts once, because
+`fingerprint.ts` hashes the normalised message plus top frames and the replacement uses statement
+placeholders; and a non-database error whose own message embeds a value is **not** covered by these
+helpers, so that needs its own rule.
+
+**Check on closing:** a 5xx caused by a Drizzle error stores no parameter value, proven with a
+recognisable marker; and the digest still groups errors usefully after the fingerprint input changes.
+
+## 237. `integration-db-guard.ts` shares the socket-URL bypass (2026-10-19)
+
+(found by code review on PR #1043; severity MED — the primary guard, not a second lock). For a socket-form
+URL that carries the database in a `db` query parameter, `pg` takes the database from the parameter and
+**ignores the path**. The guard reads only the path, so it allows the URL while `pg` connects to the live
+database.
+
+This is the **primary** guard — it runs on every integration invocation — so the reassuring sentence
+written during PR #1043 ("the live database was never reachable through this, because the primary guard
+decodes") is **not true**. The primary guard closes the percent-encoding route and shares this one.
+
+**The fix is known and already proven in the sibling:** PR #1043's `assertNotLiveDb` refuses if either
+`extractDbName` **or** `new Client({ connectionString }).database` says live — `pg`'s own parse, so the
+guard follows what would actually connect instead of reimplementing its rules. It also refuses a URL `pg`
+cannot parse at all, which was a separate design gap found by hand mutation.
+
+**Do not delete the path check as redundant.** Measured during #1043: a fuzz of 71,400 URL shapes found
+**1,974** where the path says live and `pg`'s parse does not, and `pg` parsed 1,414 of those fine — for
+instance a socket URL with three slashes, where `pg` resolves the OS user. Both signals are load-bearing.
+
+**Check on closing:** all four socket forms are refused by the primary guard, and a URL `pg` cannot parse
+is refused rather than allowed.
+
+## 238. The mutation gate cannot see `apps/api/src/test/**`, and one file there now deserves it (2026-10-19)
+
+(raised by the author of PR #1043 against its own evidence, endorsed by its reviewer; severity MED — a
+guard whose green is not evidence). `src/test/**` is in the `@crm/api` exclude list in
+`scripts/devops/mutation-gate.mjs`, so the gate exits 0 on a diff confined to that directory **because it
+found nothing to mutate**. On PR #1043 that produced a green gate on a change to a live-database guard,
+and the author said so in its own PR body rather than letting the green stand as proof.
+
+**Do not drop the exclusion wholesale.** The reviewer's reasoning: that directory also holds the
+integration `globalSetup` guard, which a unit-suite gate cannot kill, plus fixtures and mocks — all of
+which would report as survivors or no-coverage noise.
+
+**The shape to implement:** a **narrow, named re-include** for `assert-not-live-db.ts`, pinned by a test
+so the re-include cannot be dropped silently — the schema-exclude test is the model. It is **two places**,
+not one: the pattern list and the changed-file filter.
+
+**Why it earns the work:** both PRs that touched that file had to substitute hand mutation for the gate,
+and in both cases the hand pass left survivors the tool would have caught — three on #1043's second pass,
+one of which was a design gap rather than a test gap.
+
+**Check on closing:** a deliberate mutation of `assert-not-live-db.ts` makes the gate red, and a change
+confined to fixtures still does not.
+
+## 239. Twelve agents were cut by the stream watchdog in one evening (2026-10-19)
+
+(orchestrator, counted; severity MED — process, and the instruction demonstrably is not the fix). On the
+1.3 chain, twelve agent runs ended with "no progress for 600s". The common factor every time was a long
+**quiet** stretch, never a long step: a mechanical sweep across many fixtures, a full suite run, a
+large-output command, and — twice — an agent that had correctly backgrounded a command and then waited
+with nothing printed between probes.
+
+`.claude/rules/common/stream-watchdog.md` already prescribes the four moves, and the orchestrator
+restated them in **every** resume message. That is the point of this entry: **the instruction was given
+twelve times and the outcome did not change.** An instruction repeated and ignored is a mechanism problem.
+
+**What the cuts cost** was small each time, and only because of the `wip:` cadence — the work survived on
+`origin` in most cases. Where nothing had been pushed, a whole stretch was lost, three times.
+
+**Candidates, roughly cheapest first:** a wrapper that prints a heartbeat while a long command runs, so
+waiting is never silent; a sentence in the rule saying that **backgrounding is not enough** — the wait
+itself is the silence, which the current wording does not say; and a dispatch-time default that puts the
+first `wip:` push before any long step rather than after the first cluster.
+
+**Check on closing:** a run that spends ten minutes on one command is not cut, and the mechanism that
+prevents it does not depend on the agent remembering to print.
+
+## 240. The live-db hook cannot see a `PGDATABASE` inherited from the session (2026-10-19)
+
+(stated by the author of PR #1044 at the code, deliberately rather than as an oversight; severity LOW-MED
+— a known blind spot in a guard's coverage). `pre:bash:live-db-guard` now checks an **inline**
+`PGDATABASE` assignment through the same name rules as the URL, because an inline assignment in front of
+a dev-server command is an idiom it would otherwise wave through. But a `PGDATABASE` exported earlier in
+the session is invisible to it: the hook sees only the command line.
+
+So the guard watches two of the three doors into the same room — the URL path and an inline environment
+assignment — and the third, an inherited environment, is open by construction. An AutoTest agent measured
+the equivalent on the application side: a path-less database URL with that variable exported really does
+land in the live database.
+
+**What a fix would need:** the hook would have to read the invoking shell's environment, which a
+`PreToolUse` hook does not receive. So this may be closed not in the hook but by the thing it guards —
+for example a dev-server preflight that prints `current_database()` and refuses on the live name, which
+is the same device `live-db-access.md` already requires of agents by hand.
+
+**A false positive of the same hook, found while writing this entry.** Appending this text with a shell
+heredoc was **refused**: the hook read an example command inside the document as a launch in command
+position. Its own refusal message claims that reading about a launch no longer trips it, so that
+boundary does not hold for heredoc content. Harmless here — the entry was written with a different tool
+and nothing was bypassed — but it is evidence for the same conclusion as the blind spot above: this hook
+decides from the command text alone, which is both why it misses an inherited variable and why it
+mistakes documentation for an action.
+
+**Check on closing:** exporting the variable and then starting a dev server is refused or fails loudly
+before it connects; and writing a document that quotes such a command is not refused.
+
+## 241. `cmdscan` decides whether a heredoc body is code, and gets it wrong in both directions (2026-10-19)
+
+(two findings of one cause, from security reviews on PR #1044; severity MED, raised to near-term by how
+often it fires). `lib/cmdscan.py` is shared by the command-inspecting hooks. It answers one question —
+when does the text inside a heredoc or a here-string count as a command — and it answers it wrongly in
+both directions.
+
+**The bypass.** A shell fed from a heredoc or a here-string is **not re-read**, so the whole guard is
+skipped with no encoding trick at all. The live-db guard, including every check added on PR #1044, does
+not see a launch written that way. Confirmed identical at the merge-base, so it predates that PR.
+
+**The false positive.** A heredoc body with a **quoted** delimiter containing a backticked or `$( )`
+launch **is** refused, although the shell expands nothing there. Bare launch lines, apostrophes,
+single-quoted `echo` and `git commit -m` all pass, so the trigger is narrow and specific.
+
+**Why near-term rather than someday: it fired four times in one evening**, on four different actors —
+the orchestrator writing a backlog entry that quoted an example command, an architect's `sed` script
+text, and a security reviewer's own heredoc **twice while writing the review that reported it**. Each
+time the refusal was respected rather than bypassed, which is the system working; but the refusal text
+then recommends prefixing a database URL, which trains exactly the reflex the hook's own header warns
+against. A guard that obstructs correct work teaches people to disable it, and that costs more than the
+bypass it is guarding.
+
+**They are one task, not two.** Fixing the bypass alone makes the false positive worse, because both
+follow from the same decision about heredoc bodies. A regression test for either half, written before
+that decision is made, would pin the wrong behaviour — so do not add one first.
+
+**What the fix has to decide, stated as behaviour:** a heredoc body is code when the shell will expand
+or execute it, and data when it will not. An unquoted delimiter expands; a quoted delimiter does not. A
+shell reading its script from a heredoc executes it. Those three facts are the whole rule.
+
+**Check on closing:** a launch written through `bash <<'EOF'` or a here-string is refused; a document
+quoting a launch inside a quoted-delimiter heredoc is not; and both directions have a test.
+
+**Update 2026-10-21 — the deferral is now backed by five measured divergences, not by principle.**
+PR #1067 narrowed the launcher gates over six rounds, and in each round closing a divergence in one
+place opened one somewhere else: a comment-hidden opener, a quote-state difference between the two
+readings, a substitution-depth counter that miscounted nested and case-pattern parens and ignored
+`$(` inside double quotes, a physical-line check walked past by a backslash-newline continuation, and
+a hand-rolled word boundary wider than bash's (`isspace()` accepting `\r`/`\v`/`\f`). Each was a
+fail-open found by an automated review of the fix before it.
+
+That is what two independent readings of one text do under local patching, and it is the argument for
+unification: the final form only converged once the opener-line test was **inverted from a denylist to
+an allowlist**, which fails closed on constructs nobody enumerated. The adjacent `PKG_QUERY_SPEC`
+grant, an allowlist from the start, converged in a single round. Whoever picks this up should read the
+six-round history in #1067's body first — it is the cheapest available argument for doing the rewrite
+rather than a seventh patch. Note also that the interpreter-consumed-heredoc hole is **not** this
+entry: see [[266]], different cause.
+
+## 242. The alert pattern crosses a language boundary as ERE and is consumed as a JavaScript regex (2026-10-19)
+
+(named by the author of PR #1042 as a latent risk, not a defect today; severity LOW-MED — a silent
+divergence mode in a contract that two PRs now depend on). `check-api-permission-denied.sh` publishes its
+patterns through `--print-contract-pattern` and `--print-pattern`, and #1042's test helper consumes them
+with `new RegExp(output, 'i')`. The published text is **ERE**, written for `grep -E`.
+
+For the current patterns the two dialects agree exactly — `\[`, `.*`, a group and an alternation mean the
+same thing in both — and a syntax error would be caught by the constructor, which a test exercises. What
+neither catches is **ERE-only syntax that JavaScript reads differently**: a POSIX class such as
+`[[:alpha:]]`, or `\<`. Those would parse on both sides and mean different things, so the test would stay
+green while the two sides stopped agreeing.
+
+**Why it is worth recording rather than fixing now.** The published interface is otherwise sound and was
+measured: each flag prints exactly one non-empty newline-terminated line, byte-identical across
+invocations, and both outputs are accepted by the constructor. The risk only materialises if the shell
+side's patterns grow beyond the shared subset — which is plausible, since they have changed in every one
+of four fix rounds.
+
+**The closing shape, from the same author:** pin with **golden sample lines** checked by both the shell
+tests and the TypeScript tests, rather than by sharing the pattern text. Then the two sides agree about
+inputs and outputs instead of about syntax, and a dialect divergence fails a test.
+
+**Check on closing:** a pattern using a POSIX class is either rejected at publication or proven to mean
+the same thing on both sides.
+
+## 243. `zone-of-write.md` does not anticipate a corpus data file that expresses a hook's semantics (2026-10-19)
+
+(orchestrator, from a judgement call on PR #1044; severity LOW — a rule gap, not a violation). The rule
+grants the architect, inside `scripts/devops/`, only `check-guard-tests-exist.sh` and
+`tests/test-pre-*.sh`. `tests/lib/command-corpus.txt` is neither, yet it **encodes the expected behaviour
+of the hooks the architect owns**: a deliberate change to a hook's refusal necessarily changes a row in
+that corpus.
+
+On PR #1044 the architect hit exactly this, raised it rather than quietly editing, put the one changed row
+in its own commit and flagged it in the PR body. I accepted it, because refusing to touch the corpus
+would mean shipping a hook whose own corpus contradicts it — worse than the boundary the rule protects.
+
+**What to decide:** whether the corpus counts as part of the hook (architect's, which is what the
+behaviour implies) or as DevOps test data (which is what the paths imply). Either answer is fine; the
+present state, where the honest action requires stepping outside the stated zone, is not.
+
+**Check on closing:** the rule names the corpus explicitly, one way or the other, and the reasoning says
+why.
+
+## 244. The local prettier push gate fails open when it cannot resolve the diff base (2026-10-19)
+
+(orchestrator, from reading the hook after a CI failure it had passed; severity MED — a guard whose green
+is not evidence). `pre:bash:prettier-gate` exists to mirror the CI formatting gate before a push. Its own
+comments state the behaviour plainly: when `origin/main` is unresolvable it **allows** the push, "rather
+than block on infrastructure we lack".
+
+In a fresh agent worktree that base is often unresolvable, so the gate passes without checking anything —
+which is how an unformatted file reached CI on PR #1041 after a local push the gate had allowed. Note the
+asymmetry: if **prettier itself** is unreachable the gate fails loud and blocks, which is the right
+direction. Only the diff-base resolution fails open.
+
+**Why it matters beyond the one file:** a local gate that passes what CI then fails teaches people to stop
+running it, and this one is advertised as a mirror. Either it is a mirror, in which case an unresolvable
+base must block or fetch, or it is best-effort, in which case it should say so where the reader sees it —
+and the agent brief should stop treating its green as evidence.
+
+**This is the fourth guard this evening whose silence meant "could not check" rather than "clean"** — the
+others being the isolation ledger inversion (entry 234's cousin), the deploy-freshness guard (231), and
+the mutation gate on an excluded directory (238). The shared remedy is the same in each: refuse, or
+report loudly, when the check could not run.
+
+**Check on closing:** with `origin/main` unresolvable, a push carrying an unformatted file is refused or
+the base is fetched first; and the hook's header states which of the two it is.
+
+## 245. The privilege-denied signal needs to leave the log stream — the journal channel (2026-10-20)
+
+(decided by the orchestrator on the DevOps agent's recommendation, after four security rounds on the log
+channel; severity MED as work, HIGH as a design conclusion). The `42501` watch and the chokepoint that
+feeds it are both on production and working: detection is in place and the line it matches is now
+deployed. What is **not** in place is a channel a stranger cannot forge.
+
+**Why the log stream cannot be the channel.** Four rounds established it by measurement, each time a new
+spelling of one fact — **the log mixes attacker-influenced text with trusted text**. An anonymous request
+forged the contract line through a decoded path parameter; Docker's 16 KiB chunking plus `--timestamps`
+made a record unparseable so the filter kept it verbatim; and the anchor added to stop the first route
+needed only `%20` and `%5B` to satisfy. Each fix was right and none converged.
+
+**Why a nonce was rejected.** `deploy-stack-on-vps.sh` prints `docker compose logs --tail=50 api` into a
+**public** Actions log on a health-check failure, GitHub masks only registered secrets, and one published
+bearer line makes the scheme forgeable by replay. A MAC over the fields survives that, but still ties the
+guarantee to a secret.
+
+**The decided shape: unforgeable by construction, not by secret.** The chokepoint appends one validated
+JSON line to a journal file inside the container; the scanner reads it with a fixed
+`docker compose exec -T api cat`. A request cannot write files, the table name is already restricted to a
+safe character class, there is no secret to leak or rotate, and it survives the 10 MB × 5 log rotation
+that the grep never did.
+
+**Two costs accepted, both to be written down in the runbook rather than discovered:** the journal is lost
+when the container is recreated, which the deploy's own scan covers; and the scanner key gains `exec`
+where it had only `logs`. That second one is a real widening — `exec` runs arbitrary commands — so the
+planned dedicated key must pin the **exact** `cat` invocation through `restrict,command=`. That is a
+precondition of the journal, not a later nicety.
+
+**Brief it as one task across both sides.** The write side is the chokepoint, the read side is the
+scanner. Every cross-side detail negotiated between two PRs this round went wrong at least once — the
+`table=-` versus `table=unknown` spelling, a copied regex that was already stale against the pattern it
+copied, and a contract that neither side's comments described the same way. One task, one author, both
+sides.
+
+**Check on closing:** a forged contract line in the log stream produces no hit; a genuine one in the
+journal does; and the deploy gate can fail on a genuine privilege error again, which it currently cannot.
+
+## 246. Three agent prompts each carry their own copy of the scratch-stack launch (2026-10-20)
+
+(from the architect's own refusal to refactor during PR #1044, which was the right call in that PR;
+severity LOW-MED — a maintenance multiplier with a measured history). `coder.md`, `manual-qa.md` and
+`ui-ux-designer.md` each spell out how to start a scratch dev stack. That one command needed **five**
+corrections in a single evening:
+
+- the bare form, which both the live-db guard and the TTL gate refuse;
+- the `dev-ttl.sh` argument order — an assignment after `--` becomes a command word and exits 127, and
+  that broken form was in the live-db hook's own refusal message, where no gate could ever catch it;
+- an unbounded `until … sleep` wait, which the unbounded-wait hook refuses;
+- `lsof -ti:<port> | xargs kill -9`, which killed the owner's live servers;
+- a shared example port pair, which would have had two concurrent agents killing each other's stack —
+  and whose first fix re-introduced the kill problem at a different scope.
+
+Each correction had to be made in up to three files, and the sixth will too.
+
+**The shape the architect proposed and I accepted as the right one:** a script, for example
+`scripts/devops/start-scratch-stack.sh`, that picks a free port pair, applies the scratch-database and
+wrapper rules in one place, and prints the ports it chose. Each prompt then shrinks to one line, and the
+port collision stops being a matter of instruction.
+
+**The verification method that found all five, and should be the standard:** extract every executable
+line from a prompt **as written** and run each through the `pre:bash` gates. A prompt that carries a
+command is code, and it had never been tested as code.
+
+**Check on closing:** the launch exists in exactly one place, and every executable line in the three
+prompts passes the gates.
+
+## 247. P1 — the live-database check moves into the API's own boot; the hook becomes advisory (2026-10-20)
+
+(the orchestrator's stated stopping rule, fired by the fifth security round on PR #1044; severity HIGH as
+a design conclusion, P1 as work). Five rounds hardened `pre:bash:live-db-guard` and each one closed real
+routes to the live database — percent-encoding, a `#` fragment, the `dbname` query key, libpq's user-name
+fallback, shell expansion before the hook reads the value, and an argument decoy that disabled a check.
+Every fix was correct. None converged.
+
+**The fifth round named why, and it is structural.** Inside a launch the hook recognises, the fail-closed
+model now holds: no spelling of `env`, no computed command word and no unmodelled wrapper gets a
+recognised launch past it. But **the answer to "is this a launch" still defaults to allow.** The hook is
+fail-closed about _how_ a launch is written and fail-open about _whether_ a command is one. All five
+remaining HIGHs live in that gap:
+
+- only the **first** launch in a command is judged, so a second one after `&`, `;` or `&&` is unexamined;
+- package scripts that boot the API are not launches — and the repository's **own CI** boots it that way,
+  so an agent mirroring CI locally gets no pin and no port check;
+- the repository's own TTL wrapper, run through an interpreter, passes with no pin at all — which is the
+  shape of the 2026-08-05 incident;
+- **the literal command word is not necessarily the program that runs**: a function or alias named like
+  the launcher, a `PATH` shim, `NODE_OPTIONS=--require` and `BASH_ENV` all pass with a safe-looking pin;
+- an interpreter with an unlisted value-taking flag is not recognised.
+
+The fourth of those is the divergence the stopping rule was written for: **a hook can never be bash.** It
+reads text; bash resolves functions, aliases, `PATH`, and startup files. No amount of text analysis closes
+that, and five rounds of evidence is enough.
+
+**The decision.** The authoritative check moves to where the connection is actually made — the API's own
+boot, and the dev server's. At startup it reads the database it has genuinely connected to
+(`SELECT current_database()`), refuses to continue on the live name unless an explicit, inline escape
+hatch is present, and says so loudly. That check cannot be fooled by how the command was written, because
+it runs after every layer of shell, wrapper, script and flag has had its say. The hook stays as a fast,
+early, **advisory** refusal — valuable because it fails before anything starts, not because it is
+complete.
+
+**What this does not mean.** PR #1044 is still a strict improvement on what preceded it and should land:
+it closes six real routes. Holding it for a problem it cannot solve would leave the more permissive
+version in place. Its remaining HIGHs are recorded as superseded by this entry rather than fixed, and the
+two that **are** closable in its layer — judging every launch rather than the first, and the recognition
+list for package scripts and interpreted wrappers — belong to it.
+
+**Check on closing:** with the API started by any route — a package script, an interpreted wrapper, a
+shell function named like the launcher, a `PATH` shim — a connection to the live database refuses at boot
+with a message naming the database; and the hook's header says it is advisory.
+
+## 248. P1 — a change to a shared parser needs a blocked-to-allowed differential, not a green suite (2026-10-20)
+
+**The measurement that makes this P1.** On `lib/cmdscan.py`, **three of the last four defects were
+introduced by a fix**, not found in the original code. Each arrived with the suites green, because each
+fix was verified against the finding it closed rather than against the invariant it touched.
+
+- A fix to the comment stripper, built for the two launcher hooks, removed a refusal from the third
+  consumer. The fail-closed second reading it added lived inside the launch-question entry point, so the
+  hook that asks a different question inherited nothing.
+- The first repair of that took a payload-carrying interpreter flag and its payload out of the scan
+  entirely: the string the shell would actually execute stopped being read at all.
+- The second repair guarded one token position, and the same payload moved one position over.
+
+**Why a green suite cannot see this.** A hook's suite asserts the verdicts it knows to ask about. A
+refusal that disappears from a _different_ consumer, or a payload that stops being scanned, is not a
+failing assertion — it is an assertion nobody wrote. The verdict moved; no test moved with it.
+
+**The check.** A change to a parser shared by several guards arrives with a differential: replay a fixed
+adversarial command corpus through **every** consumer at the base commit and at the new one, and fail on
+any `(command, consumer)` pair whose verdict moves **blocked → allowed** unless that pair is explicitly
+listed as intended. The reverse direction is reported as a false-positive risk, not a failure. This is
+mechanical, so it belongs in the guard runner rather than in a reviewer's attention.
+
+**And the instrument needs two payload families.** A sweep run with a database-client payload found zero
+holes and was wrong: a text reading of a mis-parsed segment matches the client's name anyway, so that
+payload cannot distinguish a parsed refusal from a textual one. The same sweep with a filesystem-
+destructive payload found holes at seven placements per interpreter. A differential whose payload is
+caught by the fallback text layer measures the fallback, not the parse.
+
+**Check on closing:** a shared-parser change cannot reach main without the differential having run over
+every consumer of that parser, and a `blocked → allowed` pair fails the run rather than appearing in a
+report nobody reads.
+
+## 249. Three narrow gaps left open in the live-db guard, deliberately (2026-10-20)
+
+All three were measured and placed below the bar during the round-5 review, and are recorded so they are
+not rediscovered as new. The guard is **advisory** by the decision in entry 247, which is why none of
+them blocks.
+
+- **Degraded mode recognises fewer launch spellings than the analyzer.** When the shared library is
+  unavailable the guard falls back to a pattern, and that pattern misses a package-script launch with a
+  directory-selecting flag, the long form of the script-running subcommand, and one alternative package
+  runner. The analyzer recognises all three.
+- **A comment that contains an operator and a launch is refused.** The fail-closed comment-free reading
+  splits such a line, so a line whose launch exists only inside a comment is treated as a launch. This is
+  a false positive by construction and the cheap price of failing closed.
+- **The owner-session case is the one launch-shaped assertion still pinned only as allowed**, rather than
+  also asserting it is recognised as a launch. It sits outside the gated context by design.
+
+**Check on closing:** degraded mode recognises the same spellings as the analyzer, or the header states
+which it does not; and the comment-free reading distinguishes a launch after a comment from one inside
+it.
+
+## 250. Residuals the pre-merge differential surfaced on the live-db guard (2026-10-20)
+
+The differential described in entry 248 was run by hand before merging the guard's sixth round: 561
+command shapes across five interpreters and three payload families, times three consumer hooks — 1683
+pairs, compared at the merge base, at the then-current main and at the head, with no pair dropped. It
+answered its question (nothing structurally refused became allowed; the only loosening was textual
+false positives, proven so by the payload-family split). It also left three residuals, all of which
+refuse **more** than before rather than less, which is why none blocked the merge.
+
+- **An inconsistency between option operands.** A payload in the operand of the two single-letter
+  option flags and of the init-file flag is now allowed when the TTL wrapper follows it, while the same
+  payload in the run-commands-file flag's operand stays refused for both payload families. Both
+  verdicts are defensible — none of those positions is code — but they disagree with each other, and a
+  guard whose answer depends on which operand-taking flag was used is a guard whose rule nobody can
+  state.
+- **Roughly seventy newly refused package-script launches**, including wrapped forms. This is the
+  recognition list widening, which is the intended direction, but some of those forms may be refusals
+  of commands that were always safe. Nobody has looked at them one by one.
+- **Three coverage gaps in the differential itself**, recorded so the next run does not believe it
+  covered them: the launcher hooks were exercised with a fabricated agent-worktree working directory,
+  so the outside-a-worktree gating was never entered; payload text was placed only in operand and code
+  positions, with no quoting or escaping variants inside the payload; and the two less common
+  interpreter names are textual to the hooks, so their real shell semantics were never compared.
+
+**Check on closing:** the operand-flag families give the same verdict as each other or the header states
+why they differ; a sample of the newly refused launch spellings has been judged safe-or-not by a human
+reading; and a differential run records which of the three gaps it closed.
+
+## 251. The local prettier gate runs whatever prettier is installed, so its green says nothing about CI (2026-10-20)
+
+The local pre-push gate exists to be a mirror of the CI format check — catch it before the push so the
+PR never goes red. It resolves the formatter from the local install, and the local install is whatever
+a past `install` happened to put there. The declared range and the version CI resolves from the
+lockfile can therefore both differ from it, silently.
+
+**Observed.** A backlog-only PR went red on the format check with the local gate green. The local
+install was two minors behind the declared range; the newer formatter indents the continuation lines of
+an ordered list item differently. The affected lines were in an entry written months earlier — latent
+all along, surfaced because the check reads every changed **file**, not only the changed lines.
+
+**And the two gates can be mutually unsatisfiable.** Formatting the file with the version CI runs made
+the local gate refuse the push; satisfying the local gate would have made CI refuse the merge. There is
+no file content that passes both while the installs disagree, so the only repair is to the environment,
+and nothing told the author that — the gate reported a formatting problem, which is not what it had.
+
+**Why this is the same defect as the rest of this section.** A gate whose silence or approval means
+"the thing I happened to load is satisfied" is not a gate on the property anyone cares about. The fix
+is for the gate to assert the version it is mirroring — compare the resolved formatter against the
+version the lockfile pins and fail loudly on a mismatch, naming both — rather than to report a
+formatting verdict computed with the wrong tool.
+
+**Check on closing:** with a deliberately stale local install, the pre-push gate refuses with a message
+naming the installed and the expected version, and does not report a formatting verdict at all.
+set, it cannot see an outage repaired inside its own sampling gap, which is most of them.
+
+**Check on closing:** a deliberately synthesised old-failure history makes the guard report, demonstrated by a run;
+and a failure repaired within three hours still produces one notification.
+
+## 252. Two stale `api-errors.ts` coordinates the gardener could not fix in its own zone (2026-10-20)
+
+(codebase-gardener; severity LOW — a dead coordinate an agent follows). The i18n stage-4 wave replaced
+`packages/shared/src/schemas/api-errors.ts` with the directory `api-errors/` and deleted the file. Six live
+code comments still pointed at the dead path; they are fixed by this run's PR. Two references remain, each
+outside the Coder zone:
+
+- `.claude/rules/common/russian-language.md` — the always-on language rule tells every agent that the error
+  codes "live in `packages/shared/src/schemas/api-errors.ts`". Architect zone (`.claude/rules/**`), and it is
+  the worst of the two: it is loaded into every session, so every agent reads a coordinate that resolves to
+  nothing. The live coordinate is the directory `packages/shared/src/schemas/api-errors/` (barrel `index.ts`).
+- `docs/superpowers/plans/2026-10-04-vacancy-sourcing-plan.md` — instructs the vacancy epic to "check before
+  writing" whether an error code already exists, at the dead path. Left alone deliberately: the plan file is
+  appended to by the running epic (#1030, #1032), and a one-line path fix inside it is a merge conflict for no
+  functional gain. Fix it when the epic next touches that file.
+
+The historical plans under `docs/superpowers/plans/2026-09-20-*` that _describe_ the deletion are correct as
+history and must not be "fixed" (`doc-durability.md`). **Check on closing:**
+`git grep -n 'schemas/api-errors\.ts' -- .claude docs/superpowers/plans/2026-10-04-vacancy-sourcing-plan.md`
+is empty.
+
+## 253. The Phase 4-B comment block in `payout.ts` documents a service deleted in #262 (2026-10-20)
+
+(codebase-gardener; severity LOW-MED — a comment that misdescribes the live design, not a coordinate typo).
+`packages/shared/src/schemas/finance/payout.ts` carries a block headed "Phase 4-B — Payment Channels
+(crypto / bank / cash)" whose first sentence names `PaymentChannelService`
+(`apps/api/src/finance/payment-channel.service.ts`) as "the entry point for drop-projects that need to settle
+a validated `DROP_INCOME` with the company". That file was **removed** by #262 ("drop payout settles to
+company account + senior PENDING obligation; remove legacy payment-channel"), so the paragraph describes an
+entry point that no longer exists, while the schemas underneath it (the crypto-channel recipient shape and the
+spec-aligned $3500 arithmetic) may well still be live.
+
+**Why the gardener did not touch it.** Deciding what the block should now say requires knowing which of the
+three channels survived #262 and which of the schemas below are still consumed — a finance-domain judgment,
+on the surface where this repo requires a security-reviewer. Rewriting it blind would replace a comment that
+is wrong about one coordinate with a comment that is wrong about the design. Needs a reader who can answer
+"does the crypto channel still exist, and who consumes `pendingObligationSchema`'s neighbours".
+**Check on closing:** the block either names the live settlement entry point, or the dead paragraph is gone
+and the surviving schemas keep only the invariants that are still true.
+
+## 254. The 225 unreferenced exports in `packages/shared` are forward contracts, not dead code (2026-10-20)
+
+(codebase-gardener; severity INFO — recorded so the next run does not re-discover it as a sweep). A
+whole-repo scan finds 225 exported symbols in `packages/shared/src/**` with **zero** references outside their
+defining file. The number invites a dead-code PR. It should not get one: the distribution says what it is —
+**79 of them are in `schemas/job-sourcing.ts`**, 17 in `resume.ts`, 7 in `vacancies.ts`, i.e. roughly half sit
+in the contract surface of the vacancy-sourcing epic that is still being built (open PR #1026, r5 Task 1.3b).
+Those exports are contracts written ahead of their consumers on purpose.
+
+The remainder spreads thinly over mature modules (`teams` 13, `projects` 12, `telemetry` 11, `contracts` 9,
+`users` 8, `pending` 8) and is mostly `z.infer` type aliases for endpoints whose API side uses the schema and
+not the alias — individually harmless, collectively a contract-documentation style this repo has chosen.
+**Re-measure after the vacancy epic ships**; a sweep before then would delete the epic's own interface.
+**Check on closing:** the scan is re-run post-epic and the residual (non-epic) count is triaged module by
+module, not in bulk.
+
+## 255. Gardener run of 2026-10-20 — what was found, what was deliberately left (2026-10-20)
+
+(codebase-gardener, weekly). The base is converging as the runbook predicted: the two large wins of the
+2026-10-05 trawl and the always-on rules trim (#1014, 143 KB → 95 KB) hold, and this run found little to do.
+
+**Opened this run (merge gated on green CI + clean reviewers):** the `undici` CVE chain closed by a bounded `pnpm.overrides` entry (22 of the 23
+advisories, all through `apps/web > jsdom > undici`); and six stale `api-errors.ts` coordinates re-pointed.
+
+**Measured and found clean:** `TODO`/`FIXME` across `apps/**` + `packages/**` = **2**, both dated deferrals
+with a reason; `.find()` inside a `map()` in `apps/api/src` = **0**; CI wall-clock on `main` = **7–10 min**;
+prod `any` = 42, flat; giants > 800 lines = **6**, and every one of them is either the resume/autosubmit
+cluster the owner deferred until after rollout or the brand-new privilege generator from #1027 — nothing
+newly grown.
+
+**Deliberately not done, with the reason** (so the next run does not re-litigate it): a second trimming pass
+over `.claude/rules/common/**` — #1014 stopped at 95 KB on the stated ground that the residual is mechanism
+whose removal would drop a gate, and a week is not evidence that it was wrong; compressing the live agent
+docs (`coder.md`, `code-reviewer.md`) — same deferral as item [[226]], these agents are running the vacancy
+epic right now; the two unfixable advisories `braces` (via `@lingui/cli`) and `sprintf-js` (via `mammoth`,
+see [[224]]) — both report `patched: <0.0.0`, no release exists to move to; `.claude/tasks` has grown to
+**2.3 MB** but is not loaded into any session, so the ROI is in archiving it, not in a PR.
+
+## 256. A control that cannot fail proves nothing — pair every pin with a negative control (2026-10-20)
+
+**CLOSED the same day it was written, by doing it.** Recorded because the method generalises, not because the item is open.
+
+Host-key pinning was added to every deploy step that reaches the VPS, and the deploy went green. That
+green was close to worthless for most of those steps: **a successful step cannot distinguish "the
+pinned value matched" from "the action silently ignored an input it does not declare."** Fifty of the
+fifty-five steps ran on two action versions whose support for the input had been established by reading
+their source — twice, independently — and never by running anything.
+
+**The method that settled it.** A manually triggered workflow runs a **pair** of controls per version
+against the real host: a deliberately wrong value, which must FAIL, and the correct value on the same
+target, which must SUCCEED. A separate step then checks that the positive control's file **landed** and
+the negative control's file is **absent**, which proves not merely that the step failed but that no data
+crossed on a mismatch. An assertion step turns the outcomes into one readable verdict and names any
+control that misbehaved.
+
+**The positive half is the one people skip, and it carries the argument.** A step that fails because of
+a typo'd path, a missing secret or a wrong user looks exactly like a step that fails because the pin
+caught a mismatch. Without the positive control, a negative control proves only that something is
+broken.
+
+**Two traps worth carrying forward.** A negative-control step needs `continue-on-error`, so its
+_conclusion_ reads `success` while its _outcome_ is `failure` — judge such a run by the assertion step,
+never by eye over the step list. And a canary carrying a deliberately wrong literal trips any guard that
+requires every step to agree on the value, so the exemption must be enumerated and tested, never silent.
+
+**Check on closing:** any security control added to CI or deploy whose success path looks identical to
+its absent path ships with a negative control, or the PR says why one is impossible.
+
+## 257. Reviews that run find things; reviews that read confirm what the author already believed (2026-10-20)
+
+Across one feature in one day, every finding of consequence came from executing something, and reading
+produced confident wrong answers at the same rate — including the orchestrator's own.
+
+- A handshake against the real host found that the pinned key was the wrong algorithm: the client
+  negotiates one type while the pinned value named another. The value was genuine, the YAML valid, the
+  guards green, and the pin would have failed every deploy.
+- Mutating a guard eight ways found three weakenings its own tests did not kill; the tests had looked
+  comprehensive.
+- Replaying a command corpus through three consumers at two commits found that a batch of apparent
+  regressions were false positives being removed — a distinction no amount of reading the diff would
+  have produced.
+- Forcing a process id across a digit boundary turned a latent random failure into a reproducible test.
+- Read-only claims that proved wrong the same day: a call-site count given from memory, a variable
+  declared unused when a second workflow read it, and the expected format of a value.
+
+**What follows for dispatch.** A review brief should say what the reviewer is expected to **run**, and a
+review that reports only what it read should be treated as a partial pass, not a clean one. Where
+running is genuinely impossible, the report says so, and that sentence is the finding.
+
+**Check on closing:** review briefs on security-surface changes name an expected measurement, and a
+report without one is returned rather than accepted.
+
+## 258. Third-party deploy actions are pinned by mutable tag, which also undermines the host-key guard (2026-10-20)
+
+Every `appleboy` ssh/scp step in the repository — roughly sixty across the deploy, the canary and two
+smaller workflows — references its action by **tag**, not by commit SHA. A tag is mutable: whoever
+controls the repository can move it, and the next run of our deploy would execute different code with
+the production SSH key in its environment.
+
+Raised twice on 2026-10-20: by the security review of the rollout as a low-confidence item, and by the
+automated commit review against the canary file. **The automated report named only the canary**, which
+is the misleading part — the canary is six steps and the deploy is fifty-one. Pinning the flagged file
+alone would leave the real exposure untouched while making the warning disappear.
+
+**The part neither report mentioned, and the reason this is more than hygiene.** The host-key guard
+(`check-ssh-action-host-key-pinned.py`) classifies each action **by tag name** to decide whether that
+version supports fingerprint pinning, and the canary proved enforcement **for those tags**. If a tag
+moves, both the classification and the proof silently describe code that is no longer what runs. The
+guard would keep passing. So SHA pinning is not an independent improvement — it is what keeps the
+host-key work true over time.
+
+**What closing it involves**, so nobody underestimates it: resolve each tag to its SHA, keep the tag in
+a trailing comment for readability, and teach the guard to key its version table by SHA with the
+comment as the human label. A plain find-and-replace would leave the guard unable to classify anything
+and, with discovery now failing closed, would turn the whole deploy red.
+
+**Check on closing:** no workflow references a third-party action by a mutable ref; the host-key
+guard's table is keyed by SHA and fails loudly on an unknown one; and the canary is re-run so the
+enforcement proof is attached to the SHAs that actually run.
+
+## 259. The `pre:bash:*` refusal texts are Russian, and no gate covers the hooks at all (2026-10-21)
+
+The refusal paragraphs of `pre-bash-devserver-ttl-gate.sh`, `pre-bash-live-db-guard.sh` and
+`pre-bash-safety.sh` are written in Russian, against the repository's English policy
+(`.claude/rules/common/russian-language.md`). PR #1067 added more of it, consistent with the
+surrounding block, and declared the deviation in its body rather than shipping it silently.
+
+**Why it cannot be converted a hook at a time.** `ДЕГРАДИРОВАННЫЙ РЕЖИМ` is a cross-hook contract
+token: `test-hook-command-corpus.sh` asserts it generically for every `narrowed` row across all three
+hooks. Convert two hooks and that assertion breaks for them. `cmdscan.py` is not a usable
+language-neutral substitute, because it appears in ordinary refusal text too, not only in the degraded
+path. So the conversion is one atomic change over all three hooks, their coupled `--contains`
+assertions and the `why` strings that `cmdscan.py` embeds in every hook's labels.
+
+**The finding underneath the finding, and the more important half.** `check-no-russian-letters.mjs`
+scans only `apps/api/src`. It exists to keep Russian out of the **product**, so `.claude/hooks/**` is
+outside its scan entirely — nothing would have reported this, and nothing will report the next line
+added. The conversion therefore holds only until somebody edits a refusal message, unless that scan is
+widened to the hooks in the same change.
+
+Test-case **labels** in the hook test files are deliberately out of scope: nothing asserts against
+them, so there is no coupling argument, and translating them would bury a guard change under
+translation noise.
+
+**Check on closing:** no Russian remains in any `pre:bash:*` refusal text or in the `why` strings;
+the corpus assertion keyed on the degraded-mode token still passes for all three hooks; and
+`check-no-russian-letters.mjs` covers `.claude/hooks/**`, proven by a case that goes red when a Russian
+line is added to a hook.
+
+**Update 2026-10-21 — the count rose again and the branch is named.** The follow-up is
+`architect/pre-bash-refusal-text-english`, and its scope table lives in PR #1067's body —
+**re-derive the figures from there rather than from this entry**, because round six of that PR added
+two more Russian refusal lines after the first measurement. The structure of the work is unchanged:
+one atomic change across all three hooks, their coupled `--contains` assertions and the `why` strings,
+plus widening `check-no-russian-letters.mjs` to `.claude/hooks/**` — without that last part the
+conversion holds only until somebody edits a refusal message, since nothing scans the hooks today.
+
+## 260. The senior-share override spec is flaky at 320px, proven rather than suspected (2026-10-21)
+
+`projects-senior-share-override.spec.ts` asserts that the share row does not overflow its own box at
+320px. On PR #1063 that assertion **failed and then passed on the identical head**, which is what makes
+this a flake rather than a regression: two CI runs, one commit, different verdicts.
+
+Worth recording how it was _not_ diagnosed, because the wrong method was tempting. A local run on a
+scratch stack reproduced neither the failure nor a clean pass — 48 passed and 6 failed, different
+tests, one of them on a Ukrainian catalog string — so that stack was not CI-equivalent and the agent
+holding it correctly declined to call the CI failure a flake from it. The evidence is the CI-versus-CI
+comparison on one SHA, not a local re-run.
+
+The project's rule is zero tolerance for flaky E2E, so the answer is a diagnosis, not a re-run badge.
+
+**Check on closing:** the overflow assertion either becomes deterministic or is replaced by one that
+is, and the reason for the original non-determinism is written down rather than inferred.
+
+## 261. The three external-URL guards are kept in step by hand (2026-10-21)
+
+`externalHttpsUrlSchema` (shared), `isSafeExternalUrl` (web, the last barrier before `window.open`)
+and `HTTPS_URL_PATTERN` (the CHECK on every stored navigation URL) must agree on one property: https
+scheme, non-empty authority, no embedded credentials. Nothing tests that they agree. Each names the
+others in its comment and asks the next editor to change all three together.
+
+That this is a real risk rather than a theoretical one is already on the record: the guards diverged
+once — the shared schema accepted `https://user:pw@evil.test/a` while the column refused it — and a
+comment describing the schema by its old pattern outlived the fix by a whole review round.
+
+The mechanism that would close it was built and deliberately removed: one corpus of inputs with an
+absolute expected verdict **per guard**, consumed by the shared spec, the web test and the DDL
+integration spec. Absolute per-guard verdicts rather than an agreement assertion, because an agreement
+assertion stays green when a change makes both guards wrong in the same direction. It came out of
+PR #1063 because keeping the corpus out of mutated source needed build configuration — a rename plus a
+`tsconfig.build.json` — which is not a coder-zone edit and did not belong inside a fix round. The work
+is preserved as an ancestor of that branch and the follow-up starts from it.
+
+Closing it needs the architect, because the honest form of the change is "test data must not be
+mutated source", which is a statement about the mutation gate's exclusion predicate rather than about
+code.
+
+**Check on closing:** one corpus, imported by all three test surfaces, carrying a per-guard expected
+verdict for each input; a new input is added in one place; and the corpus is not a public export of
+`@crm/shared`.
+
+## 262. The auto-merge workflow dispatches post-merge CI without a retry (2026-10-21)
+
+`auto-merge-on-label.yml` squash-merges and then dispatches CI on `main`, because a `GITHUB_TOKEN`
+squash raises no push event and would otherwise leave `main` untested. On the #1063 merge that dispatch
+returned **HTTP 500** from GitHub and the job went red after the merge had already succeeded.
+
+Nothing was lost that time — CI and Deploy both ran on the merged SHA anyway — but the shape of the
+failure is what matters: a transient server error on an unretried call turns a successful merge into a
+red workflow, and with slightly worse timing into a `main` whose post-merge CI never ran. That is the
+safety net that catches a semantic conflict between two PRs each of which was green alone, so losing it
+silently is the expensive outcome.
+
+A red run that nonetheless merged is also the hardest signal to read correctly: the natural reading is
+"the merge failed", which is wrong, and the second-natural reading is "ignore it", which is worse.
+
+**Check on closing:** the dispatch retries a transient failure and fails loudly only when the
+post-merge run genuinely did not start; and the job's conclusion distinguishes "merge failed" from
+"merge succeeded, dispatch did not".
+
+## 263. `job_queue_actions.created_at` is writer-settable, and the purge now makes that load-bearing (2026-10-21)
+
+The column is `defaultNow()` with no CHECK, and the only `BEFORE INSERT` guard in the queue DDL is on
+`job_queue_generation_entries`. PR #1062 turned the end-of-retention purge on, which converts a
+backdated audit row into evidence that **deletes itself within twenty-four hours**.
+
+The append-only trigger cannot compensate, and this is the part worth reading twice: its two-year shape
+bound reads that same untrusted column. So the assurance in the DDL header that misuse "cannot delete a
+row that is not yet due" holds exactly as far as `created_at` is trustworthy, and no further.
+
+It is deferrable only because no code path writes that table yet. The remedy is a `BEFORE INSERT`
+trigger forcing `now()`, needing no schema change; it belongs with r5 Task 1.4b, and it **must land
+before the first writer to `job_queue_actions` ships** rather than before any particular merge. The day
+a writer ships without it, this stops being MED.
+
+**Check on closing:** a supplied `created_at` cannot survive an insert into that table, proven by a
+test that inserts a backdated row and finds `now()`; and the DDL header's claim is restated to rest on
+the trigger rather than on the writer's good behaviour.
+
+## 264. Two standing root overrides exist that `version-pins.md` does not record (2026-10-21)
+
+PR #1066 added `pnpm.overrides` for `follow-redirects` and `vite` to close a gating advisory pair.
+`.claude/rules/common/version-pins.md` is the single source of truth for versions and overrides — it
+documents the Fastify override by name and reason and carries a forbidden-overrides section — so two
+live overrides that exist only in `package.json` make that file quietly incomplete.
+
+Each entry needs its advisory ids, the reason it exists, and a **checkable** drop condition. The
+original wording offered was "when the dependency tree no longer resolves below the patched version",
+which is true by definition and gives a reader nothing to verify; the concrete conditions are that
+`follow-redirects` goes when the lockfile's own `axios` requires the patched range, and the other goes
+when the two app specifiers are bumped.
+
+Which is the second half: `vite` is a **direct** dependency of `apps/web` and `apps/landing`, so
+bumping those two specifiers would have closed the advisory without a standing root override at all.
+That was declined deliberately — the PR was unblocking the advisory gate for every open PR in the
+repository, and swapping an override for specifier bumps changes what two apps resolve — but the
+override is the less honest shape, because a root override hides from whoever reads an app manifest.
+
+**Check on closing:** `version-pins.md` records both overrides with ids, reason and a condition
+somebody can check; and either the direct specifiers are bumped and the `vite` override dropped, or the
+reason for keeping it is written where the pins live.
+
+## 265. The retention cron is missing from the repo-wide swallow-and-log registry (2026-10-21)
+
+`swallowing-handlers-db-error-log.spec.ts` lists every cron that catches a database error, logs it and
+does not rethrow, and asserts the shared contract on each: the SQLSTATE reaches the log through the
+driver error on `.cause`, and no parameter values go with it.
+`JobQueueActionRetentionCronService`, added by PR #1062, honours that contract and has an equivalent
+assertion in its own spec, but is absent from the registry — the implementing agent made the local
+assertion rather than reaching across zones, which was right.
+
+The registry is the thing that catches the _next_ cron written without the contract, so a member that
+is compliant but unlisted weakens it as a census even while the behaviour is correct.
+
+**Check on closing:** the registry's case list includes the retention cron, and the duplicated local
+assertion is either removed or marked as deliberately redundant.
+
+## 266. A heredoc body handed to an interpreter bypasses both launcher gates (2026-10-21)
+
+Measured with a marker script on `PATH`, so execution is a fact rather than a reading. Four shapes
+**execute** while **both** launcher gates allow them — the TTL gate and the live-db guard, on the
+pre-PR revision and on the post-PR one alike:
+
+```
+sh <<'EOF' … EOF          executes · allowed by both gates
+bash <<'EOF' … EOF        executes · allowed by both gates
+zsh <<'EOF' … EOF         executes · allowed by both gates
+cat <<'EOF' | sh          executes · allowed by both gates
+the same launch, plainly  refused by both gates   (control)
+```
+
+**Root cause, and it is not a parser disagreement.** A heredoc body becomes the segment's `payload`,
+while `CODE_CAPABLE` re-reads a segment's **arguments** — so the body never reaches the code path and
+**no consuming command is ever consulted**. An unquoted delimiter leaks identically, which is how we
+know the literal-span exemption is not what carries it. This is explicitly a different hole from the
+two-tokenizer differential in [[241]], with a different cause; neither entry should absorb the other.
+
+**Why it went unseen for so long is the part worth keeping.** The module docstring asserted that _"the
+consuming command is what decides, not the text"_ — false for `sh`, `bash` and `zsh`. The file said the
+case was handled, so nobody looked. That sentence is now corrected in two places and the gap is listed
+in the module's canonical **STATED GAPS**, marked **not accepted**, unlike the three gaps beside it —
+so a reader looking for "what this scanner does not do" finds it where they look rather than where it
+bites them. The same shape as every other defect found on PR #1067: the claim was true of an intention
+and false of the code, and only a check that ran the code could tell.
+
+**Not a regression, and that is why PR #1067 was merged over it:** the hole is equally open before that
+PR, which also closed two real leaks that the previous revision allowed. Holding a false-positive fix
+hostage to a pre-existing hole would have cost the measured false positives — including one that
+refused a reviewer's own harness-authoring heredoc with 37 bogus "launches" — and closed nothing.
+
+**Check on closing:** the four shapes above are refused by both gates while the plain-launch control
+stays refused; a body consumed by an interpreter reaches the same code path as an argument would; and
+the entry moves out of the STATED GAPS list rather than being re-described as accepted.
+
+## 267. The hook refusal texts are a third converted, and the honest measure is the guard, not a number (2026-10-21)
+
+PR #1073 converted the three launcher hooks' refusal text and `cmdscan.py`'s `why` strings to English,
+with their coupled `--contains` assertions. **Four of twelve files are done — 85 of 257 refusal-text
+lines** — and the rest sit behind `AGENT_EXCEPTIONS` in `check-no-russian-letters.mjs`.
+
+**Do not trust the counts in this entry.** They were accurate when written and will drift with every
+conversion, which is the defect this backlog keeps recording. The stable check is to run the guard:
+`node scripts/devops/check-no-russian-letters.mjs` prints the live tally in its success line (files
+scanned, hooks still excepted). A command that recomputes beats a number that decays — the same device
+as the `Findings: … (N)` control line, and the reason this entry names the command rather than
+restating the figure. Note also that "a third" describes **files**, not volume: the remaining eight are
+smaller on average.
+
+**Why the exception list is a ratchet rather than a carve-out**, and worth understanding before editing
+it: a new hook is not on the list, so it is covered from its first line; and an excepted file that has
+become clean **fails** the guard, so an entry cannot outlive its reason. Its review round found the
+ratchet weaker than its own description in two ways — an excepted file could still _grow_, and a
+removed entry was not detected though the message claimed it was — both closed in that PR. If you
+extend the list, preserve both directions.
+
+**Check on closing:** the guard's success line reports zero hooks excepted, `AGENT_EXCEPTIONS` is
+empty or gone, and no `.claude/hooks` file contains Cyrillic.
+
+## 268. Who owns a guard whose subject is another zone (2026-10-21)
+
+`scripts/devops/check-no-russian-letters.mjs` is **DevOps-owned by location** and was extended by the
+Architect in PR #1073 to scan `.claude/hooks/**` — which is **Architect territory by subject**. The
+edit stands on an explicit Master instruction, the documented exception, and the architect flagged the
+boundary rather than crossing it quietly.
+
+The question is left deliberately open rather than answered by adding a glob: does ownership follow the
+**file** or its **subject**? Both readings are defensible, and the comparable case decided differently
+for a good reason — `scripts/devops/tests/lib/command-corpus.txt` _was_ added to the Architect zone in
+#1067, because it is test data for tests the Architect already owns, so listing it described a boundary
+that was already true. This is not that: it is a DevOps-owned guard being extended. Settling it inside
+a translation PR is how two zone descriptions drift apart, which is the failure `zone-of-write.md`
+already warns about in its own text.
+
+**Check on closing:** `zone-of-write.md` and `.claude/agents/architect.md` say the same thing about
+guards whose subject is `.claude/**`, and the rule states which of the two readings was chosen and why.
+
+## 269. The Cyrillic scan is enforced in CI by wiring, not by a structural pin (2026-10-21)
+
+`check-no-russian-letters.mjs` runs in CI only because it happens to sit in the `guard-test` runner.
+Nothing ties it there the way `check-guard-tests-exist.sh` ties each hook to a negative test case: that
+meta-guard reads the hook list from `.claude/settings.json` and **fails** when a hook has no test, so a
+missing test cannot pass silently. The Cyrillic scan has no equivalent — change the runner's wiring and
+the scan goes quiet **without failing**, leaving a guard that reports nothing and looks healthy.
+
+Raised by the architect against their own work, which is the reason it is here rather than discovered
+later. It is the same shape as the defect PR #1073 exists to prevent: a check whose absence is
+indistinguishable from a pass. One more instance of the pattern that ran through this whole epic — a
+guarantee that holds because of a fact nobody re-reads.
+
+Adjacent and worth deciding together: a PR changing only `.md` files under `.claude/hooks` currently
+gets `code=false` and skips the step entirely, caught only by the post-merge push run.
+
+**Check on closing:** removing the scan from the runner makes a test go red, and a documentation-only
+change under `.claude/hooks` is still scanned in the PR run rather than only after merge.
+
+## 270. A claim contradicted by the author's own evidence, because the false sentence was the better sentence (2026-10-20)
+
+A dependency review measured a parser's full option surface, identified two options as
+entity-bearing, wrote a section naming them "load-bearing" and requiring they be pinned — and then
+opened the same document with the headline claim that the parser had **no option** that could
+resolve an entity. Both statements were in one file, by one author, in one sitting. The
+contradiction was free to notice and went unnoticed for the length of the review.
+
+The mechanism is not haste and not missing evidence. The false sentence was **stronger**: an
+absolute reads as more authoritative than a qualified one, and the qualified version ("two options
+bear on entities, but neither grants the library a capability it lacks") takes three clauses to
+say. The author had already paid for the evidence, then discarded it at the summarising step
+because the summary sounded better without it. That is the opposite of the failure in 256 and 257:
+there, the gap was between what was measured and what was assumed; here the measurement was
+correct and the **prose** contradicted it.
+
+**Why review does not reliably catch it.** A reviewer who reads an absolute headline and its
+supporting section together tends to **harmonise** them — reading the strong claim as a shorthand
+for the careful one — rather than noticing they disagree. The two statements are far apart in the
+document and each is locally plausible. It took a reviewer deliberately trying to **falsify** the
+headline, treating it as a claim rather than a summary, to surface it.
+
+Two further consequences showed up in the same document once the habit was looked for: a
+competitor rejected as "slowest, lax" turned out to hold the worst advisory record on the
+shortlist, and another rejected by characterising a third party's CVE history when the package's
+own record was both measurable and sharper. In each case a measured fact was available and a
+characterisation was shipped instead.
+
+**What follows.** A claim stated as an absolute ("no option can", "it is impossible to", "nothing
+in X does Y") is a **falsifiable assertion, not a summary**, and the cheapest guard is to attempt
+the falsification before writing it — the attempt is usually one command against an already-
+installed package. Where the honest claim is narrower, prefer the argument that survives an option
+flip (a capability the dependency does not have) over one that rests on a current default. And
+where a number or a measured fact exists, it belongs in the sentence instead of an adjective: a
+characterisation cannot be re-derived by the next reader, and a count with a stated basis can.
+
+**Check on closing:** in a long-lived decision document, every absolute claim either carries the
+command that failed to falsify it, or is rewritten as the narrower claim that is true; and
+rejections cite measured figures rather than adjectives where a figure was obtainable.
+
+## 271. `apps/api` never typechecks its spec files, so a spec can assert against values that do not exist (2026-10-21)
+
+Established by command, not by reading: `tsc -p apps/api/tsconfig.json --showConfig` resolves
+`exclude` to `['node_modules', 'dist', '**/*.spec.ts', '**/*.test.ts']`, and **zero** of the 384
+files in the program are specs.
+
+**What it already cost.** Two specs in the `ApiJsonProvider` work used the literal `'DOU'`, which is
+not a member of `JobSourceType` — the member is `'DOU_RSS'`. Nothing caught it but a runtime test,
+because the compiler never looked at the file. This holds for every spec in the package.
+
+**Why it belongs in this family of entries.** `pnpm typecheck` reads as covering the package, and its
+green is indistinguishable from a green that checked the specs too. A spec asserting conformance to a
+domain value that does not exist is the strongest form of a check that cannot fail: it is not merely
+weak, it is about nothing.
+
+**Closing it is not free, which is why it is an entry and not a fix.** Putting specs in the program
+surfaces an unknown number of pre-existing errors across the package at once. Options, cheapest
+first: a second tsconfig that includes specs, run as its own CI step, leaving the build config alone;
+or include them in the main program and fix the fallout; or decide to leave it, recorded, so nobody
+relies on spec-side types.
+
+**Check on closing:** introduce a deliberate type error in any `*.spec.ts` under `apps/api` and
+confirm the typecheck step fails. If it passes, the gap is still open — and that probe is its own
+negative control, because a green from the current configuration proves only that it looked nowhere.
+
+## 272. A guard test that asserts a timing property will be retried rather than fixed (2026-10-21)
+
+The CI job `Guard Tests` failed one file of 46 — `[script] SIGTERM to the parent is forwarded to the
+child` — on a branch that touches **only** `apps/api/src/job-sourcing/providers/`, with `Guard Tests`
+green on main's four preceding runs and the separate guard-over-guards workflow green at the same
+commit. A provider-only diff cannot affect signal forwarding in a devops script, so this is the test.
+
+**Why it needs a fix rather than a retry.** The assertion is about **timing**: the parent must still
+be alive, have installed its handler, and forward before the harness looks. Under CI load those
+orderings drift. "The forwarding is broken" and "the test looked too early" are indistinguishable
+from outside, and that ambiguity is what guarantees a retry next time somebody meets it.
+
+The repair is to wait on an **observable fact** — the child recording receipt, with a bounded wait —
+rather than on elapsed time. Whoever takes it should check whether the sibling cases in that file
+share the shape.
+
+**Check on closing:** run the file 50 consecutive times under artificial load. A single green run
+proves nothing here, because a flake's green and a fix's green are the same green.
+
+## 273. The meta-guard over hooks cannot require a test for a `post:` hook (2026-10-21)
+
+`check-guard-tests-exist.sh` reads the registered hook list and requires, from every hook that can
+refuse, a negative case in a test file. It locates that file by a **naming convention that encodes
+the `pre:` family only** — so a `post:`-phase hook satisfies the meta-guard by having no required
+test path at all, rather than by having a test. The zone-of-write rule has the same shape: the paths
+it grants the architect for hook tests are named for the `pre:` family, so a test for a `post:` hook
+would have no owner path either.
+
+**Why it is a gap and not a style point.** The meta-guard exists because a hook without a negative
+test is indistinguishable from a hook that never refuses. For the `pre:` family that reasoning is
+enforced; for the `post:` family the same reasoning is stated and not enforced, and the difference is
+invisible from a green run. Two `post:`-phase hooks are registered today, so this is not hypothetical.
+
+**Closing it** means deciding whether the convention should be widened (one glob covering both
+phases, plus the matching zone-of-write grant) or whether `post:` hooks are deliberately exempt
+because they cannot block — and if the latter, saying so in the meta-guard itself, where the next
+reader will be standing.
+
+**Check on closing:** register a `post:`-phase hook that can refuse and give it no test. The
+meta-guard must fail. If it passes, the gap is still open.
+
+## 274. The swallowed-failure hook reads a command's position, and an option that takes a value shifts it (2026-10-21)
+
+The advisory hook added for the swallowed-failure class decides by **argument position** — which
+token is the command, which is its subcommand — and it recognises a fixed set of commands whose exit
+code is worth warning about. An option that takes a separate value (the directory form of a version
+control invocation is the common one) inserts a token before the subcommand, so position-based
+reading can identify the wrong token and the hook stays silent.
+
+**Why this is the predictable failure of the design rather than a bug in one line.** A reader keyed on
+position is correct exactly while the shapes it meets match the shapes it was written against. The
+only durable fix is to consume options-with-values explicitly, the way the shared command analyser
+already does for the patterns it knows, instead of assuming the subcommand sits at a fixed offset.
+
+**Scope note.** This is the hook, not the rule: the always-on rule covers the class, and the hook is
+advisory, so a miss costs a missing warning rather than a wrong refusal. That is why it is an entry
+and not a fix.
+
+**Check on closing:** issue the same swallowing command twice, once plain and once with an
+option-that-takes-a-value before the subcommand, and confirm both produce the warning. A silent
+second form is the open gap.
+
+## 275. The swallowed-failure class has a second half that no command-phase hook can see (2026-10-21)
+
+A command-phase hook sees what is launched. It does **not** see the interior of a committed shell or
+Node script, so the same swallowed-failure shape written inside a repository script is invisible to
+it — and scripts are where the shape does the most damage, because a script's exit code is what a CI
+step reports as a pass.
+
+**Why it belongs with the rule rather than with the hook.** The rule names the class: an instrument
+that reports a negative or a success when it did not look. The hook catches the half that passes
+through the command line. The other half needs a **static scan over script interiors**, run in CI,
+and that is a different instrument with a different false-positive profile — a deliberate suppression
+of a known-harmless swallow is legitimate and must have a way to be written down, or the scan will be
+switched off within a week.
+
+**The sequencing matters.** The scan should be built only after the advisory hook has run long enough
+to show what it warns about in practice, because its warning log is the cheapest available estimate
+of the scan's false-positive rate.
+
+**Check on closing:** commit a script whose interior swallows a failing exit code, with no
+suppression note. CI must fail. A green CI means the second half is still unguarded.
+
+## 276. A read-only reviewer is exempted from isolation, and therefore inherits the orchestrator's live workspace (2026-10-21)
+
+The isolation rule deliberately does not force a worktree on a read-only agent: a reviewer reads the
+diff through the forge, not through a local tree, so paying for a worktree would buy nothing. That
+reasoning is sound and the exemption should stay. What the rule does not say is **where a reviewer
+without a worktree actually stands** — and the answer is the dispatcher's own directory, which for
+an orchestrator is a live write workspace with a branch checked out and, often, uncommitted work.
+
+**Observed, not theorised.** A security reviewer dispatched during this cycle reported its worktree
+as the orchestrator's own path, sitting on a branch the orchestrator had just created for unrelated
+work. It did no harm — it read every reviewed file at the PR head through the object store rather
+than trusting the tree it was standing in, and said so — but nothing in the rule required that. A
+less careful reviewer reads the local tree, believes it is reading the PR, and reports on the wrong
+content with no way for anyone to tell from the report.
+
+**The sharper version of the same hazard.** The rule already forbids issuing a reviewer a path built
+from the PR number, because that path is shared by construction between all reviewers of one PR. The
+exemption reintroduces sharing by a different route: not between siblings, but between the reviewer
+and its dispatcher. The second is worse, because the dispatcher is the one party that is certainly
+writing.
+
+**What closing it does not mean.** Not "give reviewers worktrees" — that spends the cost the
+exemption exists to avoid. The candidates are to have the reviewer read at an explicit commit rather
+than from whatever tree it inherits (which the careful one here did unprompted), or to make the
+inherited directory's identity part of the report so a mismatch is visible, the way the existing
+`Worktree:` line makes a lost worktree visible.
+
+**Check on closing:** dispatch a read-only reviewer for a PR whose head differs from the dispatcher's
+checked-out branch, and have it state which content it reviewed. If its report cannot distinguish
+the PR head from the tree it was standing in, the gap is still open.
+
+## 277. A reviewer's checkout can be removed by nobody, and the documented escape route does not exist (2026-10-22)
+
+A reviewer that needs to run something makes its own checkout in the shared session scratchpad. The
+cross-agent guard permits removing only a worktree it recorded as yours, and it records one only when
+the path given to `git worktree add` was a **literal**. A reviewer that creates its tree through a
+shell variable — the natural thing to do, and what the skill's own example suggests — is then refused
+when it tries to remove it, correctly, because the guard cannot expand the variable and so cannot
+establish whose tree it is.
+
+The rule answers that case by saying: a tree you cannot remove is reported to the orchestrator, who
+sees all agents while the reviewer sees none. **That route does not exist.** The orchestrator is
+refused too, by the predicate that a tree outside its own worktree is not its to remove — and that
+refusal is right as a rule and total in effect. Measured today: two reviewers asked the orchestrator
+to remove their checkouts, the orchestrator was refused on the first, and the scratchpad now holds
+**18** such trees, most of them marked prunable, from reviews closed days ago.
+
+**Why this is worth fixing rather than sweeping.** The accumulation itself is cheap — disk, and a
+noisy `worktree list`. What is not cheap is that the rule tells agents to do something that silently
+does not work, so every reviewer that follows it believes the tree will be cleaned and it never is.
+A rule whose remedy is unavailable trains the reader to stop reporting.
+
+**What closing it does not mean.** Not loosening the guard: refusing to remove a path whose owner
+cannot be established is exactly right, and the incidents behind it were three worktrees of live
+agents destroyed by a sweep that looked safe from inside. The candidates are to make the recorded
+form the easy one (so a reviewer's natural invocation is the one that gets recorded), or to give the
+owner a documented sweep that the guard recognises as theirs, or to have the trees carry their own
+expiry the way the dev-server launcher already does.
+
+**Check on closing:** have a reviewer create a checkout the way the skill's example shows, finish,
+and attempt removal. If neither the reviewer nor the orchestrator can remove it, the gap is still
+open — and count the scratchpad's trees afterwards, because the symptom is accumulation rather than
+any single refusal.
+
+## 278. The resume-render responsiveness spec asserts a wall-clock ratio and fails on a slow runner (2026-10-22)
+
+The API unit spec for resume rendering (`AC3 — API responsiveness during a resume render`, in the
+resumes module's `resume-render-responsiveness` spec) measures the worst event-loop stall with PDF
+extraction in-process and again in the sandbox, and asserts that the in-process figure exceeds the
+sandboxed one by a factor of five. On a shared CI runner the ratio is a property of the runner's load,
+not of the code: measured once, in-process `197 ms` against a threshold of `211 ms` (sandboxed
+`42 ms` × 5), on a PR that touched no file under `apps/`. A re-run of the same commit passed.
+
+**Why this matters.** The project's position is zero tolerance for flaky tests, and the newer Flow
+Gate makes "all checks fire at 100 %" an explicit goal — a check that fails on unrelated PRs teaches
+people to re-run red until it is green, which is the habit every other gate depends on people not
+having.
+
+**What closing it does not mean.** Not deleting the guarantee: off-thread parsing being kinder to the
+event loop is the point of the sandbox. Candidates: assert an absolute ceiling on the sandboxed stall
+alone, compare medians over several samples instead of single worst cases, or move the ratio check to
+a nightly job where a single miss is a signal rather than a blocked PR.
+
+**Check on closing:** run the spec repeatedly under synthetic CPU load (e.g. several parallel
+`yes > /dev/null` processes) and confirm it does not fail; then confirm it still fails if the
+extraction is forced back onto the main thread.
+
+## 279. Retroactive review of the five unreviewed collaborator PRs — finding map (2026-10-22)
+
+PRs #795, #809, #865, #866 and #867 reached `main` with zero reviews (the gap Flow Gate now closes).
+A retroactive code-reviewer + security-reviewer pass produced **75** numbered findings, each checked
+against `main` of 2026-10-22. Every identifier is accounted for here; the per-task files carry the
+full text. Open PRs #868/#869 were deliberately not counted as fixes.
+
+| Destination                                   | Identifiers                                                                                                                        | n   |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | --- |
+| task `retro-mr-matcher-access`                | SR-865-H-1, CR-865-H-1, SR-865-M-2, CR-865-H-3                                                                                     | 4   |
+| task `retro-mr-webhook-ingest`                | SR-865-M-1, CR-865-H-4, SR-865-L-1, SR-865-L-2, CR-865-M-5, SR-865-L-5, CR-865-M-7, CR-865-L-12                                    | 8   |
+| task `retro-mr-en-catalog`                    | CR-865-H-2                                                                                                                         | 1   |
+| task `retro-salary-ledger-integrity`          | SR-795-M-1, SR-795-M-2, SR-795-M-3, SR-795-M-4, SR-795-L-2, SR-795-L-3, CR-795-M-7, CR-795-L-2                                     | 8   |
+| task `retro-salary-form-defaults`             | CR-795-M-2, CR-867-M-2, CR-795-M-4, CR-795-L-3, CR-795-M-3                                                                         | 5   |
+| task `retro-manual-ddl-coverage`              | CR-795-H-1, CR-795-M-6, SR-866-M-1, CR-866-M-1, CR-866-L-1, SR-866-L-1                                                             | 6   |
+| task `retro-txdate-policy`                    | SR-809-H-1, CR-809-M-3, SR-809-M-1, CR-809-M-1, SR-809-M-2, CR-809-H-1, SR-809-M-3, CR-809-L-3, SR-809-L-2, SR-809-L-3, CR-809-M-5 | 11  |
+| task `retro-txdate-reporting`                 | CR-809-H-2, CR-809-M-6                                                                                                             | 2   |
+| task `retro-business-day-clock`               | SR-809-L-1, CR-809-M-2, CR-867-L-3, CR-867-M-1, CR-867-L-1, CR-867-M-3, CR-867-M-4                                                 | 7   |
+| backlog 280                                   | SR-865-L-3, CR-865-M-6                                                                                                             | 2   |
+| backlog 281                                   | SR-865-L-4, CR-865-M-8, CR-865-M-9, CR-865-M-11                                                                                    | 4   |
+| backlog 282                                   | CR-795-M-1, CR-795-M-5, CR-795-M-8, CR-795-M-9, CR-795-L-1, CR-795-L-4, CR-795-L-5, SR-795-L-1                                     | 8   |
+| backlog 283                                   | CR-809-M-4, CR-809-M-7, CR-809-L-2, CR-809-L-4                                                                                     | 4   |
+| closed — fixed on main (#866 / service split) | SR-795-H-1, CR-809-L-1                                                                                                             | 2   |
+| closed — process, now enforced by Flow Gate   | CR-865-M-10, CR-866-L-2, CR-867-L-2                                                                                                | 3   |
+
+Sum: 4+8+1+8+5+6+11+2+7+2+4+8+4+2+3 = **75**.
+
+**Check on closing:** every task and backlog entry above is closed or carries a recorded decision.
+
+## 280. Meeting-recorder transcripts are kept forever and outlive their interview (2026-10-22)
+
+`MeetingRecorderRetentionCronService` purges only webhook receipts. `interview_recordings.snapshot`
+(transcript, notes, analysis — candidate personal data) is never deleted; deleting an interview sets
+`interview_id` to NULL, which moves the transcript to the ADMIN unmatched queue instead of removing it.
+The audit actions `recording-purged` / `media-purged` exist but nothing emits them; the unmatched list
+has no pagination. (SR-865-L-3, CR-865-M-6.)
+
+**Needs a decision before code:** a retention period (Legal) and whether deleting an interview deletes
+its recordings. Candidates: an ADMIN purge endpoint that emits `recording-purged`, a snapshot retention
+cron, cursor pagination on the unmatched list.
+
+**Check on closing:** create and delete an interview with a linked recording on a scratch DB; the
+transcript must be gone (or scheduled for deletion) by the agreed policy.
+
+## 281. Meeting-recorder minor hardening (2026-10-22)
+
+- SR-865-L-4 — `Aes256GcmHkdf.decrypt` does not pin `authTagLength: 16` (now shared by the credentials
+  crypto v2 as well).
+- CR-865-M-8 — admin connection dialogs and `LinkRecordingDialog` hold form state in `useState`
+  instead of TanStack Form.
+- CR-865-M-9 — `RelaxableThrottle` semantics changed for all callers (`Math.max(globalLimit, prodLimit)`
+  with the relaxed TTL) with no test.
+- CR-865-M-11 — `InterviewsService` defaults `new InterviewAccessPolicyService(db)` in its constructor,
+  bypassing DI.
+
+**Check on closing:** a short-tag ciphertext is rejected; `RelaxableThrottle` has a spec for both modes.
+
+## 282. Multipart salary follow-ups (2026-10-22)
+
+- CR-795-M-1 — `mySalaryState` / `mySalaryAggregateState` are computed per senior-summary request and
+  read by no web code. Decide: wire a dashboard reader or delete the fields.
+- CR-795-M-5 — salary unit specs pin Drizzle call shapes; behavioural coverage lives only in
+  DB-skipping integration specs.
+- CR-795-M-8 — `createAutomaticSalary` does three round trips and one transaction per employee; two
+  set-based statements suffice.
+- CR-795-M-9 — no E2E for "Add salary part"; the mocked funding-source E2E does not assert that
+  `idempotencyKey` is sent.
+- CR-795-L-1 — unreachable `BadRequestException` guard in `createSalary`; orphaned
+  `FINANCE_SALARY_ALREADY_CREATED_FOR_MONTH` error code.
+- CR-795-L-4 — the multipart invariant (marker table, prepare/activate deploy) is not in
+  project-state or the finance module doc.
+- CR-795-L-5 — mandatory `idempotencyKey` breaks tabs open during a deploy with a plain Zod 400; a
+  stable error code would let the client say "reload".
+- SR-795-L-1 — between PREPARE and ACTIVATE a second manual part hits the legacy unique index → raw 500.
+
+**Check on closing:** each bullet closed or explicitly declined in this entry.
+
+## 283. Custom transaction date follow-ups (2026-10-22)
+
+- CR-809-M-4 — `PaySalaryDialog` prefills the expected amount from today's rate even when the payment
+  is backdated.
+- CR-809-M-7 — no E2E for the eight dialogs that gained a date picker; no TZ matrix for date tests.
+- CR-809-L-2 — the business-day idiom and the dialog clamp are copy-pasted (about eight and four
+  places); one shared helper and one hook.
+- CR-809-L-4 — the same "minimum date" hint has two msgids; unify.
+
+**Check on closing:** one Playwright spec covers a date picker's min/max; the hint has one msgid.

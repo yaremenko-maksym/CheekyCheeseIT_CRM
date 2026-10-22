@@ -92,6 +92,40 @@ The cost is false positives on unknown commands that carry launcher-looking or
 rm-looking arguments. That is the deliberate trade: a false positive costs a
 minute, a miss costs the owner's database.
 
+ROUND 4 (2026-10-21): WHERE IT LOOKS, NOT WHAT IT MATCHES
+---------------------------------------------------------
+Four refusals in one day, none of them a launch: `pnpm why vite`, a markdown note
+whose prose spelled `pnpm dev` in backticks, a PR description, and a python
+heredoc's string literals. The predicates were right; the analyzer was reading
+text that is DATA being written or passed, not a command. Two causes, each fixed
+by narrowing where it looks:
+
+  * stage 1 (substitution extraction) ran BEFORE stage 2 decided where the
+    heredoc bodies were, so every `$(…)` and backtick inside a body had already
+    been lifted out and scanned as code — including bodies with a QUOTED
+    delimiter, where bash performs no expansion whatsoever. See
+    _heredoc_literal_spans, and note that it is a SECOND reading of the same
+    text: two of its three devices exist only to make a disagreement with the
+    segmenter fail closed, after two such disagreements were reproduced as leaks.
+    One relation is proven (the terminator rule is one-sided, so cmdscan's body
+    is a prefix of bash's); the rest of the bound is EMPIRICAL — 53
+    genuinely-executing shapes, all refused on both revisions, bash itself as the
+    oracle. An earlier edition of that note claimed a monotonicity that a
+    150k-shape fuzz disproved. Stated honestly there, because a mechanism
+    described as a proof is the very defect this round is about.
+  * a package runner was UNCERTAIN for lack of an UNDERSTOOD entry, so
+    readings() re-read its arguments from every position and `vite` was one of
+    them. Fixed WITHOUT adding the runners to UNDERSTOOD (that would set
+    confident=True and short-circuit readings() wholesale — the round-3 mistake
+    under a new name) and without handing over their exec surface. Instead a
+    single narrow grant: see PKG_QUERY_SPEC, decided from the complete argument
+    vector, refusing the first token it does not recognise.
+
+The direction of "fail closed" differs between the two and the distinction is
+worth keeping straight: for a false positive it means REFUSING, for a parser
+disagreement it means NOT EXEMPTING. One invariant covers both — when uncertain,
+inspect rather than exempt.
+
 WHAT IT STILL DOES NOT DO — it does not evaluate the shell.
 
 STATED GAPS (accepted, same line pre-bash-cross-agent-blast.sh draws):
@@ -99,6 +133,16 @@ STATED GAPS (accepted, same line pre-bash-cross-agent-blast.sh draws):
   - a launcher inside a script file this scanner cannot read: `./boot.sh`;
   - indirection through a variable: `C="pnpm dev"; $C` (the value is not
     tracked across segments).
+  - A HEREDOC BODY CONSUMED BY AN INTERPRETER: `sh <<'EOF' … EOF`,
+    `cat <<'EOF' | sh`, `bash <<EOF`. A body becomes the segment's `payload`,
+    while CODE_CAPABLE re-reads a segment's ARGUMENTS, so the body never reaches
+    the code path and no consuming command is ever consulted. Measured with a
+    marker on PATH: bash executes it and both launcher gates allow it, on an
+    unquoted delimiter as well as a quoted one. Unlike the three gaps above this
+    one is NOT accepted — it has its own high-priority backlog entry and task,
+    and its root cause is `payload` versus `arguments`, not any of the parser
+    disagreements discussed below. Until it is closed, neither launcher gate is
+    sound against this shape.
 `eval "<code>"` is NOT in that list — its argument is parsed as code, because
 trying to fool the first version of this scanner showed `eval 'pnpm dev'` and
 `eval 'rm -rf /etc'` slipping through while the old substring rule had caught
@@ -246,6 +290,31 @@ WRAPPER_SPEC = {
 
 INTERPRETERS = {"sh", "bash", "zsh", "dash", "ksh", "ash"}
 
+
+def _is_code_flag(tok):
+    # Deliberately BROAD: any dash-led token containing "c" (-c, -ec, -xc, --command, and
+    # also --rcfile). Over-matching only hands one more operand to nested scanning, which is
+    # the safe direction; the list that would be exact is a taxonomy of every interpreter
+    # option, and a known-incomplete list that never hides a payload beats a complete-looking
+    # one that does.
+    return tok.startswith("-") and "c" in tok[1:]
+
+
+def _interpreter_code_payloads(tokens):
+    """EVERY payload an interpreter's code flags introduce, wherever the flags sit.
+
+    SR-H-24 is a family, not an instance: the payload of `-c` has to reach nested-code
+    scanning independently of (a) where the flag is relative to anything else, (b) whether
+    the segment is later unwrapped, reclassified or its tokens rewritten. The first attempt
+    discarded the payload with the tokens in front of a wrapper, the second guarded ONE
+    position (a code flag before the wrapper token) and so still lost
+    `bash --rcfile dev-ttl.sh -c <payload>`. Decided by position, the invariant had a hole
+    per placement; so it is now a sweep over the whole token list, and no later step gets to
+    decide whether it applies.
+    """
+    return [tokens[i + 1] for i, t in enumerate(tokens)
+            if _is_code_flag(t) and i + 1 < len(tokens)]
+
 # Commands this module claims to understand well enough to judge by NAME ALONE.
 # Membership means one of exactly two things and nothing else:
 #
@@ -363,6 +432,10 @@ UNDERSTOOD = set(INTERPRETERS) | {
 
 ASSIGN_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$", re.S)
 HEREDOC_RE = re.compile(r"^<<(-?)\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\2")
+# `<<\EOF` quotes the delimiter exactly as `<<'EOF'` does — bash treats a
+# backslash-escaped delimiter as quoted and performs NO expansion in the body.
+# HEREDOC_RE never matched this form, so such a body was read as ordinary code.
+HEREDOC_ESC_RE = re.compile(r"^<<(-?)\s*\\([A-Za-z_][A-Za-z0-9_]*)")
 OPERATORS = ("||", "&&", ";;", ";", "|", "&", "\n")
 SUBST_MARKER = "$__CMDSCAN_SUBST__"
 
@@ -376,6 +449,27 @@ SHELL_KEYWORDS = {
 
 # A command name, as opposed to punctuation, a number, or a fragment of syntax.
 COMMAND_WORD_RE = re.compile(r"^[A-Za-z0-9_@.+:^%~/-][A-Za-z0-9_@.+:^%~/,-]*$")
+
+
+def _positionals(argv, value_flags=()):
+    """argv minus flags and the values consumed by `value_flags`.
+
+    Module level because _build_segment needs it on raw tokens, before a Segment
+    exists — and the package-runner exec surface must be found with the SAME
+    flag grammar the launcher predicate later judges the subcommand by.
+    """
+    out = []
+    skip = False
+    for tok in argv:
+        if skip:
+            skip = False
+            continue
+        if tok.startswith("-") and tok != "-":
+            if tok in value_flags:
+                skip = True
+            continue
+        out.append(tok)
+    return out
 
 
 def _plausible_command_word(name):
@@ -409,18 +503,7 @@ class Segment:
 
     def positionals(self, value_flags=()):
         """argv minus flags and the values consumed by `value_flags`."""
-        out = []
-        skip = False
-        for tok in self.argv:
-            if skip:
-                skip = False
-                continue
-            if tok.startswith("-") and tok != "-":
-                if tok in value_flags:
-                    skip = True
-                continue
-            out.append(tok)
-        return out
+        return _positionals(self.argv, value_flags)
 
     def text(self):
         """Everything the segment carries as data, joined — for phrase lookups."""
@@ -433,9 +516,14 @@ class Segment:
 
 
 class Scan:
-    __slots__ = ("segments", "assigns", "code_view", "degraded", "truncated")
+    __slots__ = ("segments", "assigns", "code_view", "degraded", "truncated", "alt_only")
 
     def __init__(self, segments, assigns, code_view, degraded, truncated=False):
+        # Segments that ONLY the comment-free reading produced (top-level scan only);
+        # they are already merged into `segments`. Kept separately so a test can ask
+        # "did the comment stripper get this right on its own?" - a union that masks the
+        # stripper would otherwise make its word-boundary rule unobservable.
+        self.alt_only = []
         self.segments = segments
         self.assigns = assigns
         self.code_view = code_view
@@ -451,13 +539,335 @@ class Scan:
 # $( ... ) and ` ... ` RUN commands, so their contents are parsed as commands of
 # their own. In command position they leave a marker, so the segment's command
 # word reads as unresolvable (dynamic) rather than as the literal "$(".
-def _extract_substitutions(text):
+def _heredoc_opener(text, i):
+    """(length, delimiter, strip_tabs, literal) if a heredoc opens at text[i].
+
+    `literal` is bash's own distinction and the one that matters here: a QUOTED
+    delimiter (`<<'EOF'`, `<<"EOF"`, `<<\\EOF`) suppresses EVERY expansion in the
+    body, so the body is data and nothing else. An unquoted `<<EOF` body really
+    is expanded by the shell, so a substitution written in one really does run
+    and must keep being read as code.
+    """
+    if not text.startswith("<<", i) or text.startswith("<<<", i):
+        return None
+    rest = text[i:]
+    m = HEREDOC_RE.match(rest)
+    if m:
+        return m.end(), m.group(3), m.group(1) == "-", bool(m.group(2))
+    m = HEREDOC_ESC_RE.match(rest)
+    if m:
+        return m.end(), m.group(2), m.group(1) == "-", True
+    return None
+
+
+# Everything that MAY stand on a heredoc opener's line after the opener without
+# costing the body its literal protection: whitespace, redirection and pipe
+# punctuation, file-descriptor digits, and plain word characters for a redirect
+# target. Deliberately excludes `$`, backtick, `(`, `)`, `;`, quotes and `\` —
+# but it is the ALLOWLIST that matters, not that list: anything absent here
+# drops the exemption, including a construct nobody has thought of.
+# `[ \t]`, NOT `\s`: python's `\s` also matches `\r`, `\v` and `\f`, which bash
+# does not treat as whitespace, so `\s` would let the allowlist pass a character
+# bash would act on. Same class of defect as the comment boundary below — this
+# file's own definitions drifting wider than the shell's.
+_OPENER_TAIL_SAFE = re.compile(r"^[ \t|<>&0-9A-Za-z_./@+:,%^~=-]*$")
+
+
+def _opener_tail_is_inert(text, i):
+    """True when the rest of the opener's LOGICAL line is safe to ignore.
+
+    An ALLOWLIST, and that is the whole design — see the note in
+    _heredoc_literal_spans. The four previous forms of this check scanned for
+    DANGEROUS characters, and a denylist over shell syntax is always missing one:
+    five review rounds found five, the last two being a backslash-newline
+    continuation that moves the `$(` onto the next physical line, and `${…}` /
+    a bare `$`, which carry no character the denylist was watching for.
+    """
+    eol = text.find("\n", i)
+    tail = text[i:] if eol < 0 else text[i:eol]
+    # A line continuation moves the rest of the LOGICAL line beyond the reach of
+    # any check on the physical one, so its mere presence drops protection
+    # instead of being followed.
+    if tail.rstrip().endswith("\\"):
+        return False
+    # A word-initial "#" starts a comment; its text is inert whatever it holds.
+    #
+    # THROUGH `_starts_word`, NOT A SECOND BOUNDARY TEST. The first version asked
+    # `tail[k - 1].isspace()`, and python's `isspace()` accepts `\n`, `\r`, `\v`
+    # and `\f` — so a character bash does not treat as a word boundary made this
+    # see a comment where bash sees none, truncate the tail, and let the
+    # allowlist pass something bash would execute. It was also wrong the other
+    # way: bash DOES begin a word after `|`, `;`, `&`, so `<<'EOF' |#x` is a
+    # comment and `isspace()` missed it. Every differential on this change came
+    # from one rule having two implementations; this was that pattern at the
+    # level of what counts as whitespace. One predicate, shared with the main
+    # loop, and both directions follow from it.
+    #
+    # DELIBERATELY NOT gated on `_STRIP_COMMENTS`. Gating it — so the
+    # comment-free second reading could SEE a disagreement instead of having it
+    # normalised away — was tried and measured: `scan()` MERGES that pass's
+    # segments into the result (`alt_only`), so "seeing" a disagreement here is
+    # indistinguishable from refusing it, and three cases went red at once,
+    # including the `cat <<'EOF' # note` false positive this change exists to
+    # remove. Observability that can only express itself as a refusal is not
+    # observability on this path.
+    for k, ch in enumerate(tail):
+        if ch == "#" and _starts_word(text, i + k):
+            tail = tail[:k]
+            break
+    return bool(_OPENER_TAIL_SAFE.match(tail))
+
+
+def _heredoc_literal_spans(text):
+    """Byte spans of heredoc bodies whose delimiter was QUOTED.
+
+    WHY THIS EXISTS (2026-10-21). Stage 2 below is emphatic that a heredoc body
+    is data, never code — and stage 1 ran FIRST and had already mined it. The
+    substitution extractor walked the whole line before anyone had decided where
+    the heredoc bodies were, so every `$(…)` and backtick inside a body was
+    lifted out and recursively scanned as a command. Three of the four false
+    positives reported on 2026-10-21 were exactly that, and all three used a
+    QUOTED delimiter, i.e. the one case where bash itself guarantees the body is
+    inert:
+
+        cat > note.md <<'EOF' … `pnpm dev` boots the web app … EOF   -> 3 "launches"
+        gh pr create --body "$(cat <<'EOF' … `pnpm why vite` … EOF)" -> 1 "launch"
+        python3 - <<'PYEOF' … print("- `vite` …") … PYEOF            -> 2 "launches"
+
+    A markdown bullet and a Python string literal are not command position, and
+    a guard that reads them is reading the wrong text — which is the whole
+    disease this module was written to cure, surviving in the one stage that ran
+    before segmentation.
+
+    Nothing is relaxed for the body an unquoted `<<EOF` introduces: the shell
+    expands it, so it stays code.
+
+    THIS SCANNER IS A SECOND READING OF THE SAME TEXT, and that is a hazard in
+    itself: `_split_segments` is the tokenizer of record, and wherever the two
+    disagree about where a body lies, a span would exempt text the segmenter
+    still reads as code. Two such disagreements were reproduced the day this was
+    written, both fail-OPEN (a launch hidden from the gate):
+
+        # cat > note.md <<'EOF'      <- the segmenter drops the line as a comment,
+        `vite --port 3010`              this scanner saw an opener and exempted
+        EOF                             the body that is really live code
+
+        cat > note.md <<'EOF'        <- no terminator line: both run the body to
+        $(pnpm --filter @crm/api dev)   end of input, but the SEGMENTER is the one
+                                        whose reading of that is already a known
+                                        open defect (backlog 241 / P1 of #1052)
+
+    So three devices, and all three resolve the same way — when the two readings
+    disagree, INSPECT rather than exempt:
+
+      1. the comment rule is SHARED (`_STRIP_COMMENTS` + `_starts_word`), so an
+         opener the segmenter drops as a comment is not seen here either;
+      2. a span is granted only if the terminator was actually FOUND — an
+         unterminated heredoc is an uncertainty, and uncertainty does not earn
+         an exemption;
+      3. every granted span is confirmed against the bodies the segmenter really
+         captured, and an unconfirmed one is harvested after all (see scan()).
+
+    WHAT MAKES THIS SAFE IS NOT DEVICE 3 (corrected after review, SR-M-2). The
+    first version of this comment claimed device 3 confirms "that span"; it does
+    not. It confirms the span's TEXT by set membership against the top-level
+    captured bodies, so an identical body elsewhere satisfies it and a body
+    captured inside a nested scan is not in the set at all. It is a cheap
+    backstop, not a proof, and describing it as a proof is the same defect this
+    whole change is about — a guard documenting a property it does not have.
+
+    ONE RELATION IS PROVEN, THE REST OF THE BOUND IS EMPIRICAL. Said plainly,
+    because an earlier edition of this comment claimed a monotonicity that does
+    not hold, and an unsupported invariant in a guard is worse than none — the
+    next reader reasons from it.
+
+      * PROVEN, by reading: THE TERMINATOR RELATION IS ONE-SIDED. bash ends a
+        body on a line matching the delimiter exactly; this scanner compares
+        `cand.strip() == delim`, which is strictly more permissive, so it ends
+        the body no LATER than bash does. cmdscan's body is therefore always a
+        prefix of bash's, and a span can never reach text that bash leaves
+        outside the body and executes.
+
+      * NOT PROVEN, and withdrawn: "substitution extraction only removes text,
+        so this scanner grants monotonically fewer spans than the segmenter
+        captures." A 150k-shape fuzz in code review found TEN granted spans the
+        top-level segmenter does not capture, and in at least one of them
+        DEVICE 3 IS WHAT STOPS THE EXEMPTION. So device 3 is load-bearing in at
+        least one shape, and the claim that no device is load-bearing was wrong.
+        (Those ten were not shown to leak — bash was not run on them — so this is
+        a correction to the CLAIM, not a known hole.)
+
+    What the bound rests on instead is measurement, which goes stale loudly where
+    an invariant goes stale silently: a security review used bash itself as the
+    oracle (marker scripts on PATH, so "did bash execute this?" was measured, not
+    argued) over 35 hand-built and 220 randomised shapes on both revisions — 53
+    genuinely-executing shapes, all 53 refused on base AND on this branch, zero
+    cases where bash executed and this branch allowed. Every base→branch flip it
+    found was a shape bash leaves inert.
+
+    So: devices 1 and 2 remove the two divergences that were reproduced as leaks,
+    device 3 catches an unforeseen third and is load-bearing somewhere, and the
+    reason to trust the whole is the 53 refusals rather than a proof.
+
+    Note the direction of "fail closed" here: for the false positives this change
+    is about it means REFUSING; for a parser disagreement it means NOT granting
+    protection. One invariant covers both — when uncertain, inspect.
+    """
+    spans = []
+    pending = []
+    quote = None
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if quote is not None:
+            if ch == "\\" and quote == '"' and i + 1 < n:
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+            i += 1
+            continue
+        if ch in ("'", '"'):
+            quote = ch
+            i += 1
+            continue
+        if ch == "\\" and i + 1 < n:
+            i += 2
+            continue
+        # Device 1: the segmenter's own comment rule, same predicate, same flag —
+        # and then ONE COARSE QUESTION about whether the two readings can be
+        # trusted to agree on this line at all.
+        #
+        # `pending` is NOT cleared here: that converges with _split_segments,
+        # which does not clear it either, and bash agrees — a trailing comment
+        # does not cancel a heredoc the same line already opened. The uncertainty
+        # is handled at the OPENER instead, by the coarse rule above.
+        #
+        # THAT RULE IS DELIBERATELY COARSE, AND THAT IS THE POINT. It over-refuses
+        # whenever a quoted heredoc's opener line carries anything beyond
+        # whitespace, a comment and redirection, which is bounded and rare. The
+        # reason is not elegance, it is a record of five attempts:
+        #
+        #   1. clear `pending` unconditionally -> `cat <<'EOF' # note` refused
+        #      while the identical command without the comment was allowed
+        #      (CR-M-3), a false positive of the exact kind this change removes;
+        #   2. keep it unconditionally -> FAIL-OPEN on five shapes of
+        #      `cat <<'EOF' $(true #)`, where the "#" swallows the ")" so one
+        #      reading leaves `$(` unclosed and the other does not, and the span
+        #      then exempted a body that really executes;
+        #   3. keep it only outside an unclosed substitution, inferred with a
+        #      depth counter -> three more fail-opens, because the counter is a
+        #      THIRD independent reading of the same text and reproduces the
+        #      defect class of the first two: `$( (true) #)` miscounts a nested
+        #      unquoted paren, `$(`/backtick inside double quotes is not tracked
+        #      at all, and a bare `)` from a case pattern (`$(case x in x) true #)`)
+        #      closes a substitution that is still open.
+        #
+        #   4. scan the opener's line for `(` or a backtick -> still a DENYLIST,
+        #      and a denylist over shell syntax is always missing one: a
+        #      backslash-newline continuation moves the `$(` onto the next
+        #      physical line and walks past the check, and `${…}` or a bare `$`
+        #      carry none of the watched characters at all.
+        #
+        # 5. SO THE TEST IS INVERTED. Protection survives only if the rest of the
+        # opener's LOGICAL line is on an ALLOWLIST — whitespace, a plain comment,
+        # redirection and pipe tokens, a plain redirect target. Everything else
+        # drops it. That cannot be bypassed by a construct nobody thought of,
+        # because an unrecognised construct is not on the list and so fails closed
+        # BY DEFINITION; there is nothing deeper to discover, which is exactly
+        # what the four denylist forms could not promise. A continuation is not
+        # followed either — its presence alone drops protection, so the line
+        # boundary cannot be moved under the check.
+        #
+        # THIS IS THE SAME MOVE PKG_QUERY_SPEC ALREADY MAKES, and the contrast is
+        # the lesson of the whole change: that grant admits only recognised tokens
+        # and refuses the first unrecognised one — an allowlist — and it converged
+        # in one round. This exemption was a denylist and took five. Both
+        # decisions in this file now fail closed on the unknown, and that, not
+        # the particular characters, is why.
+        #
+        # A retry costs a retry; a missed launch cost two minutes against the live
+        # database once already (#485). One shape is worth recording because it
+        # shows the rule over-refusing rather than catching anything:
+        # `cat <<'EOF' "$(true #)"` is a bash SYNTAX ERROR ("bad substitution: no
+        # closing `)'", measured — nothing executes). It is refused anyway, which
+        # is the right side to be wrong on and cheaper than reasoning about quote
+        # state to find out.
+        #
+        # Unlike every invariant attempted on this change, this comment cannot go
+        # stale: it describes a DECISION, not a property of the code.
+        #
+        # The strictly better repair — make both readings agree, by teaching
+        # `_extract_substitutions` to honour word-initial comments as bash does —
+        # is not taken here: that function tracks no double-quote state either, so
+        # fixing it properly is the stage-order unification (backlog 241), not a
+        # local patch.
+        if ch == "#" and _STRIP_COMMENTS and _starts_word(text, i):
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+            continue
+        opener = _heredoc_opener(text, i)
+        if opener is not None:
+            length, delim, strip_tabs, literal = opener
+            i += length
+            # THE COARSE RULE (see the long note at the comment branch below).
+            # Literal protection survives only if the rest of this opener's
+            # LOGICAL line is on the allowlist — whitespace, a comment, and
+            # redirection/pipe tokens. Anything else, known or unknown, drops it.
+            if literal and not _opener_tail_is_inert(text, i):
+                literal = False
+            pending.append((delim, strip_tabs, literal))
+            continue
+        if ch == "\n" and pending:
+            i += 1
+            for delim, strip_tabs, literal in pending:
+                start = i
+                body_end = i
+                closed = False
+                while i < n:
+                    j = text.find("\n", i)
+                    line = text[i:] if j < 0 else text[i:j]
+                    nxt = n if j < 0 else j + 1
+                    cand = line.lstrip("\t") if strip_tabs else line
+                    i = nxt
+                    if cand.strip() == delim:
+                        closed = True
+                        break
+                    body_end = i
+                # Device 2: no terminator -> no exemption.
+                if literal and closed and body_end > start:
+                    spans.append((start, body_end))
+            pending = []
+            continue
+        i += 1
+    return spans
+
+
+def _span_end(i, spans):
+    """End offset of the protected span containing `i`, or None."""
+    for start, end in spans:
+        if start <= i < end:
+            return end
+    return None
+
+
+def _extract_substitutions(text, protected=()):
     out = []
     inners = []
     i = 0
     n = len(text)
     while i < n:
         ch = text[i]
+        if protected:
+            # Emitted verbatim, so the segmenter still sees the body and still
+            # attaches it as this segment's PAYLOAD — the data surface that
+            # `psql <<'EOF' … EOF` is judged on. Only the harvesting stops.
+            end = _span_end(i, protected)
+            if end is not None:
+                out.append(text[i:end])
+                i = end
+                continue
         if ch == "'":  # single quotes suppress substitution entirely
             j = text.find("'", i + 1)
             j = n - 1 if j < 0 else j
@@ -497,7 +907,33 @@ def _extract_substitutions(text):
 # A heredoc body is DATA, never code: `cat > pr-body.md <<EOF ... EOF` must not
 # be read as running whatever the body happens to spell. It is attached to the
 # segment that opened it, so `psql <<EOF ... EOF` still exposes the SQL as that
-# segment's payload — the consuming command is what decides, not the text.
+# segment's payload, which is the surface a payload predicate can then judge.
+#
+# ── OPEN HOLE, STATED HERE BECAUSE THIS COMMENT USED TO DENY IT (SR-M-1) ──────
+# The sentence that stood here said "the consuming command is what decides, not
+# the text". THAT IS FALSE FOR AN INTERPRETER, and the falsehood is why the hole
+# went unlooked-at for so long: the file said the case was handled.
+#
+# What is actually true: a heredoc body becomes the segment's `payload`, while
+# the mechanism that re-reads code in another language (CODE_CAPABLE via
+# `readings(..., code=True)`) re-reads a segment's ARGUMENTS. A body is not an
+# argument, so it never reaches that path at all — no consuming command is
+# consulted, because nothing routes the body to one. The interpreter decides
+# what to run and the gate does not see it:
+#
+#     sh <<'EOF'                 -> ALLOW on both launcher gates, bash EXECUTES
+#     <launch>                      (measured with a marker on PATH; same for
+#     EOF                            bash, zsh, and `cat <<'EOF' | sh`)
+#
+# Seventeen shapes in that family, all ALLOW on the launcher gates AND on the
+# live-db guard. It is PRE-EXISTING and equally open before this change, and the
+# quoted-delimiter exemption is not what carries it — an unquoted `<<EOF` leaks
+# identically. So it is not a parser-disagreement defect and must not be filed
+# under one; its root cause is `payload` versus `arguments`.
+#
+# Tracked as its own high-priority backlog entry and task. Until it is closed,
+# NEITHER launcher gate is sound against an interpreter-consumed heredoc, and
+# nothing in this file should be read as claiming otherwise.
 #
 # Grouping is a separator too (review HIGH-2): `( … )` starts a subshell and a
 # standalone `{` / `}` starts a group, so `(pnpm dev)` and `{ rm -rf /etc ; }`
@@ -514,6 +950,31 @@ def _brace_stands_alone(text, i):
     left = i == 0 or before.isspace() or before in ";&|"
     right = i + 1 == len(text) or after.isspace() or after in ";&|)"
     return left and right
+
+
+# Whether a "#" begins a comment is a question about WORD BOUNDARIES, and bash answers it
+# precisely: "#" starts a comment only at the start of a word, and an ESCAPED space or
+# newline does not end a word. `echo a\ # && pnpm dev` is the single word `a #` followed by
+# a launch, not a comment. Reading `cur[-1]` could not tell the two apart (an escaped
+# space leaves a space there), so a launch hidden after one was dropped as a comment - for
+# every hook that consumes this library (live-db-guard, devserver-ttl-gate, safety).
+# The decision is made from the text itself: count the run of backslashes before the
+# previous character; an odd run means that character is escaped.
+_STRIP_COMMENTS = True
+
+
+def _starts_word(text, i):
+    if i == 0:
+        return True
+    prev = text[i - 1]
+    k = i - 2
+    backslashes = 0
+    while k >= 0 and text[k] == "\\":
+        backslashes += 1
+        k -= 1
+    if backslashes % 2 == 1:
+        return False  # prev is escaped: an escaped space / newline / operator is not a boundary
+    return prev in " \t\n;&|()"
 
 
 def _split_segments(text):
@@ -560,14 +1021,16 @@ def _split_segments(text):
             i += 2
             continue
 
-        if text.startswith("<<", i) and not text.startswith("<<<", i):
-            m = HEREDOC_RE.match(text[i:])
-            if m:
-                pending.append((m.group(3), m.group(1) == "-"))
-                cur.append(m.group(0))
-                code.append(m.group(0))
-                i += m.end()
-                continue
+        # Through the SAME helper _heredoc_literal_spans uses, so the two cannot
+        # disagree about what opens a heredoc or where its body ends.
+        opener = _heredoc_opener(text, i)
+        if opener is not None:
+            length, delim, strip_tabs, _literal = opener
+            pending.append((delim, strip_tabs))
+            cur.append(text[i:i + length])
+            code.append(text[i:i + length])
+            i += length
+            continue
 
         if ch == "\n" and pending:
             i += 1
@@ -610,6 +1073,17 @@ def _split_segments(text):
             flush()
             code.append(" %s " % op)
             i += len(op)
+            continue
+
+        # A "#" that starts a WORD begins a comment that runs to the end of the line
+        # (bash and zsh, non-interactive). Without this a line such as `# pnpm dev`
+        # was a segment whose command word was `#`, and the words after it were judged
+        # as a launch - a full refusal for a comment (SR-M-18). The newline itself is
+        # kept, so the next line is still a separate statement. `a#b`, `$#` and
+        # `${#x}` do not start a word with "#" and are untouched.
+        if ch == "#" and _STRIP_COMMENTS and _starts_word(text, i):
+            j = text.find("\n", i)
+            i = n if j < 0 else j
             continue
 
         cur.append(ch)
@@ -672,6 +1146,38 @@ def _unwrap(tokens, assigns):
         if not tokens:
             break
         base = os.path.basename(tokens[0])
+        # `bash scripts/devops/dev-ttl.sh -- pnpm dev` is our own wrapper run THROUGH an
+        # interpreter: the interpreter executes the script file, which then runs the
+        # command after `--`. Unwrapped here the segment was `bash`, never a launch,
+        # so it got no pin at all while the same command without `bash` was refused
+        # (SR-H-15, the 2026-08-05 shape). The interpreter is recorded as a wrapper, so
+        # a caller that models only env and dev-ttl.sh refuses it by name.
+        if base in ("bash", "sh", "zsh", "dash", "ksh") and len(tokens) > 1:
+            # Scan FORWARD for the wrapper token instead of enumerating the interpreter
+            # flags that may precede it (-o pipefail, --norc, --, +x, -O extglob,
+            # --rcfile F ...). A taxonomy of shell flags is the same re-implementation
+            # trap that produced every hole in this area (SR-M-21), and a flag form this
+            # list forgot was the PR #485 shape: the launch got no pin at all.
+            #
+            # The command-carrying flag is NOT handled here, and must not be: whether the
+            # payload of `-c` reaches nested scanning cannot depend on where the flag sits
+            # relative to the token this loop finds (SR-H-24 took three attempts for exactly
+            # that reason - discard, then guard one position, then make it position-independent).
+            # It is swept below over the WHOLE token list, so this loop only has to find the
+            # wrapper and does not need to know that -c exists. An earlier rule here
+            # ("a code flag before the token cancels the unwrap") was removed because the sweep
+            # subsumes it: reverting it turned no test red, and a rule nothing tests alone is
+            # the trap this file keeps describing.
+            j = next((k for k in range(1, len(tokens))
+                      if os.path.basename(tokens[k]) == "dev-ttl.sh"), None)
+            if j is not None:
+                # Whatever this unwrap throws away (or reclassifies as an argument of
+                # dev-ttl.sh), no code flag's payload goes with it: sweep the WHOLE
+                # interpreter token list first, before and after the token alike.
+                nested_code.extend(_interpreter_code_payloads(tokens[1:]))
+                wrappers.append(base)
+                tokens = tokens[j:]
+                continue
         spec = WRAPPER_SPEC.get(base)
         if spec is None:
             break
@@ -992,6 +1498,68 @@ PSQL_PIPE_RE = re.compile(
 )
 
 
+def _pkg_readonly_query(name, argv):
+    """True when a package runner is provably doing a read-only QUERY.
+
+    The only grant of confidence to a package runner, and the whole reason the
+    runners can stay out of UNDERSTOOD — see PKG_QUERY_SPEC for the criterion a
+    subcommand must meet and for the two findings that forced the decision onto
+    the WHOLE argument vector rather than the subcommand name.
+
+    It fails closed in every direction. No subcommand, a subcommand outside the
+    spec, an operand the spec does not admit, or a single flag outside the
+    grammar — any of them returns False, which leaves the segment UNCERTAIN and
+    therefore re-read by readings() exactly as before the fix. A grant that
+    stopped at the first positional would keep producing one finding per
+    subcommand (`audit fix`, `version patch`, and whatever the next release
+    adds); this one refuses the token it has never seen.
+    """
+    # PKG_QUERY_RUNNERS, not PKG_RUNNERS — see the note there (SR-M-1).
+    if name not in PKG_QUERY_RUNNERS:
+        return False
+    value_flags = pkg_value_flags(name)   # the one accessor (CR-M-4)
+    subcmd = None
+    operands = []
+    skip = False
+    for tok in argv:
+        if skip:
+            skip = False
+            continue
+        if tok.startswith("-") and tok != "-":
+            if tok in value_flags:
+                skip = True
+                continue
+            if tok in PKG_BOOL_FLAGS:
+                continue
+            # `--filter=@crm/api` glues the value on, so the token is recognised
+            # by its name half — but only if that half is in the grammar.
+            head = tok.split("=", 1)[0]
+            if "=" in tok and (head in value_flags or head in PKG_BOOL_FLAGS):
+                continue
+            return False            # a flag this grammar does not know
+        if subcmd is None:
+            subcmd = tok
+            continue
+        operands.append(tok)
+
+    spec = PKG_QUERY_SPEC.get(subcmd)
+    if spec is None:
+        return False
+    if not operands:
+        return True
+    if spec == "none":
+        return False
+    if spec == "pkgs":
+        # Inert selectors only. A `/`-rooted path or a `..` would be a file the
+        # runner might read; neither is needed to query a dependency, and
+        # refusing them costs a retry.
+        return all(
+            tok and not tok.startswith(("-", "/", "."))
+            for tok in operands
+        )
+    return all(tok in spec for tok in operands)
+
+
 def _psql_exec_commands(payload):
     out = []
     for chunk in payload:
@@ -1043,10 +1611,7 @@ def _build_segment(raw, tokens, heredocs, running_env, depth, degraded):
 
     # `sh -c "<script>"` — the script is code, not an argument. Parse it.
     if name in INTERPRETERS:
-        for idx, tok in enumerate(argv):
-            if tok.startswith("-") and "c" in tok[1:] and idx + 1 < len(argv):
-                nested.append(argv[idx + 1])
-                break
+        nested.extend(_interpreter_code_payloads(argv))
 
     if name == "find":
         nested.extend(_find_exec_commands(argv))
@@ -1074,15 +1639,15 @@ def _build_segment(raw, tokens, heredocs, running_env, depth, degraded):
     # ── the confidence verdict ────────────────────────────────────────────────
     why = None
     if degraded:
-        why = "строка не разобралась (незакрытые кавычки)"
+        why = "the line did not parse (unbalanced quotes)"
     elif dynamic:
-        why = "командное слово вычисляется (подстановка или переменная)"
+        why = "the command word is computed (a substitution or a variable)"
     elif inexact:
-        why = "обёртка `%s` не имеет однозначной грамматики аргументов" % inexact
+        why = "wrapper `%s` has no unambiguous argument grammar" % inexact
     elif not _plausible_command_word(name):
-        why = "командное слово `%s` не похоже на имя команды" % name
-    elif name not in UNDERSTOOD:
-        why = "команда `%s` не входит в список разбираемых" % name
+        why = "command word `%s` does not look like a command name" % name
+    elif name not in UNDERSTOOD and not _pkg_readonly_query(name, argv):
+        why = "command `%s` is not in the understood list" % name
 
     seg = Segment(name, argv, payload, wrappers, dynamic, raw, depth, env,
                   why is None, why)
@@ -1231,8 +1796,30 @@ def candidates(seg, code=False):
 
 
 def scan(command_line, depth=0, env=None):
-    text, inners = _extract_substitutions(command_line or "")
+    global _STRIP_COMMENTS
+    command_line = command_line or ""
+    spans = _heredoc_literal_spans(command_line)
+    text, inners = _extract_substitutions(command_line, spans)
     raw_segments, code_view = _split_segments(text)
+
+    # DEVICE 3 of _heredoc_literal_spans: a cheap backstop, NOT a proof. It
+    # compares the span's TEXT against the top-level captured bodies, so an
+    # identical body elsewhere satisfies it and a body captured inside a nested
+    # scan is not in the set — read the SR-M-2 note in _heredoc_literal_spans for
+    # what actually bounds the exemption (substitution extraction only removes
+    # text, so spans are granted monotonically; and `strip()` against bash's
+    # exact match makes this scanner's body a prefix of bash's). The value here is
+    # that it needs no prediction of HOW the readings diverge, which matters
+    # because the divergence that was reproduced — an opener hidden in a comment —
+    # was not predicted either.
+    if spans:
+        captured = set()
+        for _raw, _heredocs in raw_segments:
+            captured.update(_heredocs)
+        for start, end in spans:
+            if command_line[start:end].strip("\n") not in captured:
+                _unused, extra = _extract_substitutions(command_line[start:end])
+                inners.extend(extra)
 
     segments = []
     assigns = {}
@@ -1276,7 +1863,33 @@ def scan(command_line, depth=0, env=None):
     elif inners:
         truncated = True
 
-    return Scan(segments, assigns, code_view, degraded, truncated)
+    result = Scan(segments, assigns, code_view, degraded, truncated)
+    if depth == 0 and _STRIP_COMMENTS and "#" in command_line:
+        # FAIL CLOSED ON THE COMMENT STRIPPER, AS A PROPERTY OF scan(). The stripper is a
+        # parser of its own (it decides where a "#" starts a comment), it is shared by every
+        # consumer, and a slip in it hides a command from all of them. Round 5 kept the
+        # comment-free reading inside launches(), which covered the two launcher hooks and
+        # left pre-bash-safety.sh - which walks scan.segments directly - covered by nothing:
+        # `echo ${x:- #}; <destructive>` and `cat <(true)# ; <destructive>` ran in bash and zsh
+        # and were allowed. So the second reading is merged here: whoever iterates
+        # scan.segments or reads scan.code_view gets it without opting in.
+        # A segment that merely BEGINS with "#" is the comment itself and is not merged;
+        # the cost is that a comment's text can now be judged (refusal, never silence).
+        _STRIP_COMMENTS = False
+        try:
+            alt = scan(command_line, 0, env)
+        finally:
+            _STRIP_COMMENTS = True
+        have = set(sg.raw for sg in result.segments)
+        extra = [sg for sg in alt.segments
+                 if sg.raw not in have and not sg.raw.lstrip().startswith("#")]
+        result.alt_only = extra
+        result.segments = list(result.segments) + extra
+        if alt.code_view != result.code_view:
+            result.code_view = result.code_view + "\n" + alt.code_view
+        result.degraded = result.degraded or alt.degraded
+        result.truncated = result.truncated or alt.truncated
+    return result
 
 
 # ── the shared "is this a dev-server launch" predicate ────────────────────────
@@ -1291,8 +1904,172 @@ PKG_NON_RUN = {
     "licenses", "outdated", "pack", "prune", "rebuild", "root", "setup", "test",
     "build", "lint", "typecheck", "format",
 }
-PKG_VALUE_FLAGS = {"--filter", "-F", "-C", "--dir", "--workspace", "-r"}
-DEV_SCRIPT_RE = re.compile(r"^dev(:[A-Za-z0-9_.-]+)?$")
+# ...and it is consulted ONLY for PKG_QUERY_RUNNERS. For `turbo` the operand of
+# any subcommand is itself a TASK NAME — measured on turbo 2.11.7,
+# `turbo why dev` runs the `why` task AND the `dev` task — so "the first
+# positional is a subcommand, the rest are inert selectors" is simply false for
+# it, and `yarn` 1.22.22 falls through to `yarn run <script>` for most of these
+# names. See PKG_QUERY_RUNNERS.
+PKG_QUERY_RUNNERS = {"pnpm", "npm"}
+
+# ── the ONE narrow grant of confidence to a package runner (2026-10-21) ───────
+# WHY A SEPARATE, SMALLER TABLE THAN PKG_NON_RUN. `pnpm why vite` was refused
+# (four times on 2026-10-21, in four shapes), and the refusal text claimed the
+# hook "only looks at the command in launcher position". It did not: `pnpm` is
+# absent from UNDERSTOOD, so the segment is UNCERTAIN, so readings() re-reads it
+# from every position and one of those readings is `vite`. PKG_NON_RUN — which
+# has held `why`, `ls`, `audit`, `outdated` all along — was never consulted,
+# because confidence is decided BEFORE the launcher predicate runs.
+#
+# THE ROUTE NOT TAKEN, and why. The obvious repair is to put pnpm/npm/yarn into
+# UNDERSTOOD. That is the round-3 mistake with a new name: membership there is
+# not a hint, it sets confident=True and short-circuits readings() ENTIRELY, and
+# the list leaked once already for promising "does not execute its argument"
+# while holding `tar`, `rsync`, `ssh`, `nc`, `psql`, `git`. A package runner
+# executes its argument too (`exec`, `dlx`, `x`, and `run <script>` where the
+# script launches), so blanket confidence would make the guard only as good as
+# an enumeration of every route from a runner to a launcher — and a gap there is
+# a false negative, which costs the owner's database (PR #485, 2026-08-05: an
+# API on :3000 against the live DB for two minutes).
+#
+# So the grant is decided from the COMPLETE argument vector and fails closed on
+# the first token it does not recognise. Not from the subcommand name: a name is
+# not a behaviour, and two findings proved it in one review round —
+#
+#   `npm version` / `pnpm version` sounds like a query and is not one. It
+#   rewrites package.json, commits, tags, and RUNS the project's `preversion`,
+#   `version` and `postversion` scripts — the exec surface this design exists to
+#   refuse, reached through a door marked "tell me the version".
+#
+#   `pnpm audit` IS a query; `npm audit fix` and `pnpm audit --fix` rewrite the
+#   lockfile and can trigger an install. Same subcommand name, both behaviours.
+#
+# THE CRITERION, so that adding a subcommand is a test rather than an intuition.
+# A subcommand earns a place here only if ALL FOUR hold, each checked against
+# that subcommand's own `--help`, not against what its name suggests:
+#   1. it cannot run project-defined code (no lifecycle script, no `exec`-alike);
+#   2. it does not write package.json, the lockfile, or node_modules;
+#   3. it cannot trigger an install or a fetch of anything that then runs;
+#   4. its operands are inert selectors (package names / search terms), not
+#      verbs that change what it does.
+# `version` fails 1 and 2. `audit` passes all four only with an empty operand
+# list, which is why its entry below admits no operands and no extra flags.
+#
+# The grant also requires the whole option region, before AND after the
+# subcommand, to be inside the grammar below. ONE unrecognised token — a flag
+# like `--fix` or `-c`, a verb like `fix`, anything a future release adds — and
+# the segment stays UNCERTAIN and goes through readings() exactly as before.
+#
+# AND THE GRANT IS KEYED ON PKG_QUERY_RUNNERS, NOT PKG_RUNNERS (SR-M-1). The
+# criterion below was checked against pnpm and npm; it was keyed on all five
+# runners, which asserted of `turbo`, `yarn` and `bun` something nobody had
+# verified — and for two of them it is false. Measured: `turbo why dev` runs the
+# `why` task and the `dev` task (turbo 2.11.7), so for turbo criteria 1 and 4
+# fail outright; `yarn` 1.22.22 falls through to `yarn run <script>` for 7 of the
+# 15 names. Sixteen `turbo|yarn <granted> dev` shapes flipped BLOCK -> ALLOW.
+#
+# They were inert only because turbo.json happens to define none of the fifteen
+# and no manifest script collides — i.e. the gate was CORRECT ONLY BECAUSE OF
+# FACTS IT DOES NOT READ. Add a turbo task named `info`, or a script named `ls`,
+# and the guard goes quiet with nothing to notice; and since the grant sets
+# confident=True, readings() is disabled on that segment too, so the fallback is
+# gone as well. turbo/yarn/bun therefore stay UNCERTAIN and are re-read.
+#
+# Operand policy per subcommand: "pkgs" = inert selectors are allowed;
+# "none" = the bare form only; a frozenset = exactly those literal words.
+PKG_QUERY_SPEC = {
+    "why": "pkgs",
+    "ls": "pkgs",
+    "list": "pkgs",
+    "info": "pkgs",
+    "view": "pkgs",
+    "search": "pkgs",
+    "outdated": "pkgs",
+    "help": "pkgs",
+    "licenses": frozenset({"list"}),   # `pnpm licenses list`
+    "audit": "none",                   # bare only: `fix` / `--fix` write
+    "whoami": "none",
+    "ping": "none",
+    "doctor": "none",
+    "root": "none",
+    "bin": "none",
+}
+PKG_READONLY_SUBCMDS = frozenset(PKG_QUERY_SPEC)
+# WHY BOTH TABLES EXIST, since they overlap on 7 of 15 names and the launcher
+# predicate consults them with `or`. They answer different questions and only one
+# of them gates confidence:
+#   PKG_NON_RUN       — "this subcommand does not run a package script". Older,
+#                       wider, used ONLY by is_dev_server_launch, and NOT
+#                       sufficient for a grant: `version` and `audit fix` are
+#                       non-run in that loose sense and still execute things.
+#   PKG_QUERY_SPEC    — "this subcommand is a vetted print-and-exit query, with
+#                       its operand policy". The ONLY table that grants
+#                       confidence, and the only one with a stated criterion.
+# The overlap is therefore not duplication to be collapsed: shrinking PKG_NON_RUN
+# to the query set would make the predicate refuse `pnpm install`, and widening
+# the query set to PKG_NON_RUN is the hole SR-M-1 and CR-H-1 were about.
+# The grant and the launcher predicate must be keyed on the SAME runner set, or a
+# segment could be trusted by one and judged by the other.
+assert PKG_QUERY_RUNNERS <= PKG_RUNNERS, "a query runner must be a known runner"
+assert not ({"turbo", "yarn", "bun"} & PKG_QUERY_RUNNERS), (
+    "turbo/yarn operands are task or script names, not inert selectors")
+# Flags of the runners themselves, as a COMPLETE grammar for the option region
+# in front of the subcommand. Unknown flag -> no grant (see above).
+PKG_BOOL_FLAGS = {
+    "-r", "--recursive", "--silent", "-s", "--prod", "-P", "--dev", "-D",
+    "--no-color", "--json", "--long", "--parseable", "--global", "-g",
+    "--offline", "--prefer-offline", "--frozen-lockfile",
+    "--workspace-root", "--stream", "--aggregate-output", "--help", "-h",
+    "--version", "-v", "--depth", "--workspaces", "-ws",
+}
+# `--depth` is BOOLEAN here on purpose, although `pnpm list --depth 2` really
+# does take a value AFTER the subcommand. Its grammar is position-dependent, and
+# of the two readings only this one fails closed: as a boolean, a `--depth 2`
+# written BEFORE the subcommand leaves `2` in subcommand position, which is in no
+# query table, so the grant is refused. As a value flag it would swallow the next
+# token — `pnpm --depth vite ls` would read as a granted `ls`. Fail closed on the
+# ambiguous position; `pnpm ls --depth 2 <pkg>` still grants, because there the
+# flag follows the subcommand and `2` is just another inert operand.
+# NOT "-r": for pnpm it is --recursive and takes no value, so listing it made the script name
+# after it (`pnpm -r dev`) vanish as its "value" (SR-H-14). `-r` as node --require is
+# NODE_VALUE_FLAGS below, which is a different table on purpose.
+PKG_VALUE_FLAGS = {"--filter", "-F", "-C", "--dir", "--workspace"}
+
+# ── ONE value-flag grammar per runner, for BOTH consumers (CR-H-1, CR-M-4) ────
+# `-w` is the finding that forced this. It is BOOLEAN for pnpm (`--workspace-root`)
+# and VALUE-TAKING for npm (`--workspace <name>`) — the same token, two grammars,
+# which is exactly the shape of the round-2 lesson about one global VALUE_FLAGS
+# set turning `env -i pnpm dev` into "run `dev`". Measured: `npm -w info start`
+# was refused on base and allowed on head, and real npm 10.7.0 ran the `start`
+# script in a workspace named `info`. Reachable only when a workspace is named
+# like a granted subcommand — i.e. correct only because of a fact the guard does
+# not read, which is the same reasoning that narrowed turbo and yarn out.
+#
+# AND THERE WAS A SECOND TABLE. The grant read `PKG_VALUE_FLAGS |
+# PKG_QUERY_VALUE_FLAGS` while the launcher predicate read `PKG_VALUE_FLAGS`, so
+# two readings answered one question and the stricter one happened to cover the
+# gap. Two grammars for one question is how the next `-w` arrives, so there is
+# now ONE accessor and both consumers call it.
+_PKG_VALUE_FLAGS_BY_RUNNER = {
+    "npm": PKG_VALUE_FLAGS | {"-w", "--prefix", "--loglevel", "--registry",
+                              "--omit", "--include"},
+    "pnpm": PKG_VALUE_FLAGS | {"--loglevel", "--registry", "--reporter"},
+}
+
+
+def pkg_value_flags(name):
+    """The authoritative value-flag set for a package runner.
+
+    Runners with no entry (turbo, yarn, bun) keep the shared base: they never
+    receive the query grant anyway, so widening their grammar would only change
+    the launcher predicate's reading for no gain.
+    """
+    return _PKG_VALUE_FLAGS_BY_RUNNER.get(name, PKG_VALUE_FLAGS)
+# Scripts that boot a server. `start` is `node dist/main` for the api and `vite preview`
+# for the web app - both listen on the owner live default ports - and ci.yml, e2e.yml
+# and sw-smoke.spec.ts all boot the api that way, so an agent mirroring CI would otherwise
+# get no pin at all (SR-H-14).
+DEV_SCRIPT_RE = re.compile(r"^(dev|start|preview)(:[A-Za-z0-9_.-]+)?$")
 NODE_VALUE_FLAGS = {
     "-e", "--eval", "-p", "--print", "-r", "--require", "--import",
     "--experimental-loader", "--loader", "--conditions", "--max-old-space-size",
@@ -1320,10 +2097,10 @@ def is_dev_server_launch(seg):
         # a dev script / the built API". Strictly wider than the pre-narrowing
         # behaviour, so a dynamic launcher cannot become an allow.
         if LEGACY_LAUNCHER_RE.search(seg.raw):
-            return "динамическая команда"
+            return "dynamic command"
         for tok in seg.positionals():
             if DEV_SCRIPT_RE.match(tok) or DIST_MAIN_RE.search(tok):
-                return "динамическая команда (%s)" % tok
+                return "dynamic command (%s)" % tok
         return None
 
     if name == "vite":
@@ -1336,16 +2113,22 @@ def is_dev_server_launch(seg):
         return None
 
     if name in PKG_RUNNERS:
-        pos = seg.positionals(PKG_VALUE_FLAGS)
+        pos = seg.positionals(pkg_value_flags(name))   # same accessor (CR-M-4)
         if not pos:
             return None
-        if pos[0] in ("exec", "dlx", "x", "run-script"):
+        if pos[0] in ("exec", "dlx", "x"):  # NOT run-script: it is an alias of run
             # `pnpm exec vite` — the real command follows.
             inner = pos[1:]
             if inner and os.path.basename(inner[0]) == "vite":
                 return "%s exec vite" % name
             return None
-        if pos[0] in PKG_NON_RUN:
+        # "The first positional is a subcommand and the rest are inert" holds
+        # only for PKG_QUERY_RUNNERS. For turbo every operand is a task name
+        # (`turbo why dev` runs BOTH tasks, measured on 2.11.7) and yarn falls
+        # through to `yarn run <script>`, so for them nothing is skipped and the
+        # dev-script sweep below sees the whole positional list (SR-M-1).
+        if name in PKG_QUERY_RUNNERS and (
+                pos[0] in PKG_NON_RUN or pos[0] in PKG_READONLY_SUBCMDS):
             return None
         for tok in pos:
             if DEV_SCRIPT_RE.match(tok):
@@ -1373,12 +2156,15 @@ def launches(scan_result):
     LAUNCHING segment gets).
     """
     out = []
+    alt_raws = set(sg.raw for sg in getattr(scan_result, "alt_only", ()))
     for seg in scan_result.segments:
         for cand in candidates(seg):
             label = is_dev_server_launch(cand)
             if label:
                 if not seg.confident:
                     label = "%s — %s" % (label, seg.why)
+                if seg.raw in alt_raws:
+                    label = "%s [comment-free reading]" % label
                 out.append((cand, label))
                 break
     return out

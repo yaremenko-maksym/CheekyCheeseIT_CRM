@@ -36,7 +36,7 @@
  * without follow-up requests.
  */
 import { forwardRef, HttpStatus, Inject, Injectable, Logger } from '@nestjs/common'
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import {
   COMPANY_ACCOUNT_LABEL,
   MAX_TRANSACTION_AMOUNT,
@@ -54,44 +54,34 @@ import { zodErrorBadRequest } from '../common/zod-error-exception'
 import { DatabaseService } from '../database/database.service'
 import {
   pendingObligations,
-  projects,
-  transactions,
   transactionAuditLog,
   users,
   type Transaction,
 } from '../database/schema'
 import { InvoicesService } from '../invoices/invoices.service'
-import {
-  COMPANY_ACCOUNT_FUNDING_SOURCE,
-  computeCompanyAccountBalanceFromLedger,
-  lockCompanyAccount,
-} from './company-account-balance'
+import { COMPANY_ACCOUNT_FUNDING_SOURCE } from './company-account-balance'
+import { settleObligationInTx } from './pending-settlement-tx.util'
 import { assertReceiptDocumentBindable } from './receipt.util'
 import { NbuCurrencyService } from './nbu-currency.service'
-import { convertToBase, type BalanceCurrency } from './balance.service'
-import {
-  isStorableExchangeRate,
-  settledAmountError,
-  throwSettledAmountError,
-} from './exchange-rate.util'
+import type { BalanceCurrency } from './balance.service'
+import { settledAmountError, throwSettledAmountError } from './exchange-rate.util'
 import { parseTransactionBusinessDate } from './transaction-date.util'
-
-/**
- * security-review PR #521 round 3, LOW — mirrors the EXACT peg predicate
- * `convertToBase` (balance.service.ts) short-circuits on internally, so the
- * "nothing to convert, skip the NBU round-trip" fast path below covers a
- * DROP obligation settled USDT→USD (and not just the exact-string-match
- * USDT→USDT case it covered before). Kept local rather than exported from
- * `balance.service.ts` to avoid widening that shared file's surface for a
- * one-line predicate only this call site needs pre-rate-fetch — `
- * convertToBase` itself still applies the identical short-circuit
- * independently if this fast path is ever bypassed, so the two can never
- * disagree about what counts as a no-op pair.
- */
-function isUsdPegPair(a: BalanceCurrency, b: BalanceCurrency): boolean {
-  const pegged = (c: BalanceCurrency) => c === 'USD' || c === 'USDT'
-  return pegged(a) && pegged(b)
-}
+import { toObligationDto, toTransactionDto } from './pending-settlement-mapper.util'
+import {
+  denormalise,
+  loadObligation as loadObligationRead,
+  resolveSource,
+} from './pending-settlement-read.util'
+import { assertSettleCurrencyAllowed, isUsdPegPair } from './settle-currency.util'
+import {
+  assertDropCurrencyInvariants,
+  convertDropPayoutAmount,
+  finalizeDropPayout,
+  isFundingSourceMismatch,
+  remainingOwed,
+  resolveCompanyDebit,
+  resolveSettleCurrency,
+} from './pending-settlement-arithmetic.util'
 
 /**
  * task-senior-settle-owner: the pay-time funding selection for a senior IOU
@@ -136,47 +126,6 @@ export type SettleFunding = {
   receiptExternalUrl?: string | null | undefined
 }
 
-/**
- * BIZ-03 (HIGH) — canonical whitelist of currencies a SENIOR IOU may be
- * settled in. Every IOU is booked in USDT (see `bookCompanyObligations` /
- * `createIous` in transactions.service.ts); the downstream balance readers
- * (getSeniorBalance / getTotalEarned / getSummary) convert the RESOLVED
- * currency LABEL via `convertToBase`, which is only value-preserving for
- * USD/USDT (1:1 short-circuit) — UAH/EUR triangulate through NBU rates and
- * would silently UNDER-count the payout by ~40× IF the row's `amount` were
- * merely relabeled rather than actually converted (which is exactly what this
- * function existed to prevent — see the two call sites below).
- *
- * task-drop-payout-currency (2026-08): a DROP settle is EXEMPT from this
- * whitelist (both call sites below skip it when `isDropObligation`). That is
- * safe, not a relaxation of the underlying rule: the exemption only applies
- * together with the amount-conversion block in `settleByCompany`, which
- * writes the row's `amount` as the ACTUAL converted figure (via the same
- * `convertToBase` downstream readers use) rather than a relabeled one — the
- * exact precondition BIZ-03's own root-cause note says would make UAH/EUR
- * safe ("if multi-currency settlement is ever needed the amount must be
- * converted to USDT before recording" — now it is). `computeDropAggregate`
- * (the drop-side balance reader) was ALREADY currency-aware before this task,
- * so once the amount is real, its conversion is correct for any of the four
- * currencies. SENIOR settlements keep the exact pre-existing restriction —
- * this task never touches the salary/senior flow.
- *
- * SINGLE SOURCE OF TRUTH — reused by BOTH the explicit-currency
- * re-validation (an `ADMIN_PERSONAL` caller that still supplies `currency`)
- * AND the defense-in-depth assert on the fully-resolved currency
- * (security-review PR #381, task-remove-settle-currency) below, so the two
- * checks can never drift into two different lists.
- */
-const SETTLE_ALLOWED_CURRENCIES: ReadonlySet<string> = new Set(['USDT', 'USD'])
-
-function assertSettleCurrencyAllowed(currency: string): void {
-  if (!SETTLE_ALLOWED_CURRENCIES.has(currency)) {
-    throw apiError('FINANCE_USDT_OBLIGATION_CLOSE_CURRENCY_UNSUPPORTED', HttpStatus.BAD_REQUEST, {
-      currency,
-    })
-  }
-}
-
 @Injectable()
 export class PendingSettlementService {
   private readonly logger = new Logger(PendingSettlementService.name)
@@ -213,7 +162,7 @@ export class PendingSettlementService {
       where: and(...conjuncts, inArray(pendingObligations.debtorType, ['COMPANY', 'DROP'])),
       orderBy: (table, { desc }) => [desc(table.createdAt)],
     })
-    return this.denormalise(rows)
+    return denormalise(this.db.db, rows)
   }
 
   /**
@@ -232,7 +181,7 @@ export class PendingSettlementService {
       ),
       orderBy: (table, { desc }) => [desc(table.createdAt)],
     })
-    return this.denormalise(rows)
+    return denormalise(this.db.db, rows)
   }
 
   // ── Settle endpoints ──────────────────────────────────────────────────────
@@ -319,24 +268,12 @@ export class PendingSettlementService {
       sourceSenderLabel,
       sourceTxDate,
       sourceCreatedAt,
-    } = await this.resolveSource(obligation.sourceTransactionId)
+    } = await resolveSource(this.db.db, obligation.sourceTransactionId)
 
-    // task-cascade-apply (task 3, AC10 / addendum §1.11) — how much of this
-    // obligation is STILL owed.
-    //
-    // Before task 3 a row could settle at most once, so "owed" and "the
-    // obligation's amount" were the same number. A cascade revert reopens the
-    // obligation carrying the NEW FULL share while part of it has already been
-    // paid, and paying the full figure again would drive the accumulator to
-    // roughly twice the row's `amount` — breaking the invariant ledger term 9
-    // rests on (addendum §1.2) and paying the senior twice.
-    //
-    // ONE description, two call sites (the pre-transaction computation just
-    // below and the money gate inside the transaction, which keys off the
-    // CLAIMED amount for its own TOCTOU reasons).
+    // `remainingOwed` (pure, pending-settlement-arithmetic.util.ts) is the one
+    // description of "still owed", called from BOTH the pre-transaction
+    // computation and the money gate inside the transaction.
     const priorSettledAmount = Number(sourceSettledAmount ?? 0)
-    const remainingOwed = (obligationAmount: string): number =>
-      Number((parseFloat(obligationAmount) - priorSettledAmount).toFixed(6))
 
     // task-drop-share-override-and-receiver (D5). Branch by the source IOU type:
     //   - DROP_PENDING_PAYOUT → settle by flipping the SOURCE row in place to
@@ -371,81 +308,15 @@ export class PendingSettlementService {
     // `owedNow === obligation.amount` and `cumulativePaid === paidAmount`, so
     // every formula below reduces to the one that was there before.
 
-    // task-senior-settle-owner: the senior IOU is now paid via the SAME funding
-    // selection as a SALARY — the ADMIN/ACCOUNTANT picks AT PAY TIME whether the
-    // money leaves the shared company account (COMPANY_ACCOUNT) or an admin
-    // partner's personal account (ADMIN_PERSONAL). Mirrors paySalary exactly.
-    //
-    // Default (no funding arg → legacy obligation-id `settle-company` route and
-    // pre-existing callers): COMPANY_ACCOUNT for a COMPANY debt, or "no company
-    // marker" for a legacy DROP debt (the money came from the drop, not the
-    // company). This preserves the previous behaviour byte-for-byte.
-    const isCompanyDebt = obligation.debtorType === 'COMPANY'
-    // Resolve the funding choice → sender + currency + the SENIOR_INCOME marker.
-    // A legacy DROP debt is never company-funded regardless of the passed source.
-    const useCompanyAccount = funding ? funding.fundingSource === 'COMPANY_ACCOUNT' : isCompanyDebt
-    // Does this settlement debit the shared company account (advisory lock + gate
-    // + COMPANY_ACCOUNT marker)? Only when funded by the company AND it is a
-    // COMPANY debt (legacy DROP debts never touch the company balance).
-    const debitsCompanyAccount = useCompanyAccount && isCompanyDebt
-
-    // SECURITY (HIGH-1, security-review PR #443): a cascade-originated drop
-    // obligation (applyPayoutPaidCascade → bookCompanyObligations, `drop`
-    // param) must NEVER settle from COMPANY_ACCOUNT — in BOTH branches that
-    // can drive `debitsCompanyAccount` true (an explicit
-    // funding.fundingSource='COMPANY_ACCOUNT', AND the legacy no-funding
-    // default, which resolves useCompanyAccount=isCompanyDebt=true for any
-    // COMPANY debt). The drop's slice paid by the cascade NEVER touched the
-    // company pool — the PAYOUT row backing this payout_request only credited
-    // `payable = income*(1-dropShare%)` (the company never receives the
-    // drop's own cut; the drop keeps it before the on-chain transfer).
-    // Debiting the company account here would subtract money the company
-    // never held, silently understating the balance by exactly the drop's
-    // share on every such settle (and, over time, falsely tripping the
-    // "insufficient funds" gate below for otherwise-legitimate payouts).
-    // The admin-declared USDT path (declareUsdtProjectIncome) is NOT
-    // affected by this guard — `dropCascadeOrigin=false` there is a
-    // cascade-vs-declaration discriminator, not a "money is in the pool"
-    // guarantee (declareUsdtProjectIncome can also route to a SPECIFIC
-    // admin's personal wallet, toCompanyPool=false — see the column comment
-    // in schema.ts, corrected round 5). Which pot actually pays a
-    // `false`-marked obligation is decided by the ADMIN/ACCOUNTANT's
-    // funding-source choice below, same as it already is for the analogous
-    // senior obligation — unchanged by this PR.
-    //
-    // SECURITY (MED-B, security-review PR #443 round 2, fail-safe hardening):
-    // the discriminator is `dropCascadeOrigin` — a POSITIVE marker stamped
-    // ONCE at INSERT time (see bookCompanyObligations, transactions.service.ts,
-    // and the column comment in schema.ts) — NOT `payoutRequestId IS NOT
-    // NULL`. That FK is `ON DELETE SET NULL`: a future cleanup of an
-    // unrelated `payout_requests` row would silently null it, and a
-    // condition keyed on it would fail OPEN (a cascade-originated row would
-    // become indistinguishable from an admin-declared one and wrongly allow
-    // a COMPANY_ACCOUNT settle). `dropCascadeOrigin` is never derived from
-    // `payoutRequestId` after the fact, so it survives that entirely.
-    // Backfilled historical rows (task-drop-share-pending-parity) get the
-    // SAME marker stamped by the backfill script, for the identical reason.
-    //
-    // `!== false` (not a truthy check) — security-review PR #443 round 3,
-    // LOW: the column is nullable with NO default (see schema.ts), so `null`
-    // means "nobody ever stamped an origin for this row" (a future insert
-    // path that forgets to set it, or any pre-marker-column legacy row this
-    // backfill never touched). Treating that as BLOCK — same as an explicit
-    // `true` — means an unknown origin fails SAFE; only an EXPLICIT `false`
-    // (admin-declared path) is treated as "known safe to debit the company
-    // account".
-    if (isDropObligation && sourceDropCascadeOrigin !== false && debitsCompanyAccount) {
-      throw apiError('FINANCE_DROP_SHARE_NOT_VIA_COMPANY_ACCOUNT', HttpStatus.BAD_REQUEST)
-    }
+    const { debitsCompanyAccount } = resolveCompanyDebit({
+      debtorType: obligation.debtorType,
+      funding,
+      isDropObligation,
+      sourceDropCascadeOrigin,
+    })
 
     let senderId: string | null = null
     let senderLabel: string = COMPANY_ACCOUNT_LABEL
-    // task-remove-settle-currency: default is the OBLIGATION's own currency
-    // (always USDT for a senior/drop IOU — see transactions.service.ts
-    // createIous). The settle dialog no longer sends a currency at all; this
-    // is the value that ends up on the flipped row for both funding sources
-    // unless a caller explicitly overrides it below (defensive/legacy path).
-    let currency = obligation.currency
     if (funding && funding.fundingSource === 'ADMIN_PERSONAL') {
       // ADMIN_PERSONAL: paid from an admin partner's personal account. The payer
       // defaults to the calling (ADMIN/ACCOUNTANT) user only when they are an
@@ -460,43 +331,13 @@ export class PendingSettlementService {
       }
       senderId = payer.id
       senderLabel = payer.displayName
-      // BIZ-03 (HIGH), kept as a safety net for a SENIOR settlement
-      // (task-remove-settle-currency): a senior settle dialog never sends a
-      // currency, so `funding.currency` is normally undefined here and
-      // `currency` stays `obligation.currency` (USDT) from the declaration
-      // above. IF a caller still supplies one explicitly (legacy/defensive),
-      // re-validate it — the SENIOR_INCOME row carries the chosen currency,
-      // and downstream (getSeniorBalance / getTotalEarned / summary) converts
-      // it via convertToBase using the currency LABEL. That reader trusts the
-      // row's `amount` to already BE in that currency — true for USD/USDT
-      // (1:1) but, for a SENIOR settle, this branch has never actually
-      // converted the figure (a pure relabel), so UAH/EUR would silently
-      // misrepresent the payout.
-      //
-      // task-drop-payout-currency: a DROP settle is exempt — see the
-      // extended comment on `assertSettleCurrencyAllowed` above. Its `amount`
-      // IS converted below (the amount-conversion block), which is exactly
-      // what removes the risk this guard exists to catch.
-      if (funding.currency !== undefined) {
-        // mutation-gate: provably equivalent to removing this line — `currency`
-        // is assigned `funding.currency` UNCHANGED on the very next line and
-        // nothing between here and the defense-in-depth re-assert below
-        // (`if (!isDropObligation) assertSettleCurrencyAllowed(currency)`)
-        // can alter it, so that second check throws on the IDENTICAL value
-        // whenever this one would have. No test can observe this line firing
-        // vs not: the outcome (throw or not) is decided by the unconditional
-        // re-assert either way. Real defense-in-depth (a second, independent
-        // gate is worth keeping for a future refactor that inserts logic
-        // between the two), not dead code — see the SECURITY comment there.
-        // Stryker disable next-line ConditionalExpression: backstopped by the unconditional re-assert 20 lines below on the same final `currency` value
-        if (!isDropObligation) assertSettleCurrencyAllowed(funding.currency)
-        currency = funding.currency
-      }
-    } else if (debitsCompanyAccount) {
-      // COMPANY_ACCOUNT: USDT-only account (the schema refine + this force keep
-      // the currency label consistent with the ledger).
-      currency = 'USDT'
     }
+    const currency = resolveSettleCurrency({
+      obligationCurrency: obligation.currency,
+      funding,
+      isDropObligation,
+      debitsCompanyAccount,
+    })
 
     // security-review round 2 (MED-1 finding, same shape as `paySalary` —
     // security-reviewer's own linkage): friendly 400 BEFORE the DB CHECK
@@ -587,61 +428,11 @@ export class PendingSettlementService {
       //
       // On a first settle the accumulator is NULL, so `owedNow` IS
       // `obligationAmount` and every line below behaves exactly as before.
-      const owedNow = remainingOwed(obligation.amount)
+      const owedNow = remainingOwed(obligation.amount, priorSettledAmount)
       const obligationCurrency = obligation.currency as BalanceCurrency
       const targetCurrency = currency as BalanceCurrency
 
-      // SECURITY (MED-1, security-review PR #521 round 1): every write path
-      // that books a DROP obligation (`bookCompanyObligations` in
-      // transactions.service.ts) hardcodes USDT — normal data can never
-      // reach here with a different currency. But the BIZ-03 whitelist
-      // exemption a few lines up is justified SPECIFICALLY by "the amount is
-      // genuinely converted, not relabeled" (see the extended comment on
-      // `assertSettleCurrencyAllowed`), and that justification is silent
-      // exactly when NO conversion happens (`targetCurrency ===
-      // obligationCurrency` below) — a corrupted/legacy obligation whose
-      // `currency` is not USDT would then take a copy of `amount` verbatim
-      // under a wrong label, the exact "clean rename" BIZ-03 exists to
-      // prevent. Assert the invariant explicitly rather than trust it
-      // silently — a SENIOR settle already gets the equivalent protection
-      // from `assertSettleCurrencyAllowed`, which still runs for it.
-      if (obligationCurrency !== 'USDT') {
-        throw apiError('FINANCE_DROP_OBLIGATION_CORRUPTED_CURRENCY', HttpStatus.BAD_REQUEST)
-      }
-
-      // task-drop-topup (task 3b, AC8 / addendum 3b, 1.3 + 2.6) — the ONE
-      // premise the triplet's arithmetic rests on, asserted where the triplet
-      // is stamped.
-      //
-      // `exchange_rate` below is written as `cumulativePaid / obligationAmount`
-      // — the ratio of EVERY payment on this row to the obligation. That is a
-      // truthful "effective applied rate" only while all those payments were
-      // made in one currency; mix two and the column records an AVERAGE that
-      // no single transfer was ever made at, and nothing downstream would ever
-      // notice (nothing computes money from the triplet — that is a decision,
-      // recorded in addendum 3b, Ответ 0, not an accident).
-      //
-      // Why this is NOT a duplicate of the five refusals that already make the
-      // mixed case unreachable — `obligationCurrency !== 'USDT'` just above,
-      // `OBLIGATION_CURRENCY_MISMATCH` and `NON_USDT_CURRENCY` in the cascade,
-      // `sourceSettledCurrency !== currency` further down, and BIZ-03's
-      // whitelist: every one of them defends a DIFFERENT statement (the
-      // obligation's own currency, the unit of the accumulator, the unit of
-      // the figure written into `pending_obligations`). Not one of them is
-      // phrased about the rate. Delete any of them and this one starts
-      // refusing loudly on live data instead of writing an average — which is
-      // the whole point of expressing a dependency as a check at the point of
-      // reliance (addendum §3.1).
-      //
-      // Scoped to `priorSettledAmount > 0` deliberately: on a FIRST settle
-      // there is no earlier rate to average with, and paying a drop obligation
-      // out in another currency is an existing, working feature
-      // (task-drop-payout-currency).
-      if (priorSettledAmount > 0 && targetCurrency !== obligationCurrency) {
-        throw apiError('FINANCE_SETTLEMENT_CURRENCY_MISMATCH_MANUAL_ONLY', HttpStatus.BAD_REQUEST, {
-          obligationCurrency,
-        })
-      }
+      assertDropCurrencyInvariants(obligationCurrency, targetCurrency, priorSettledAmount)
 
       // task-drop-payout-currency (owner addendum): the date-of-record is
       // validated before currency logic. The shared date schema rejects
@@ -677,165 +468,17 @@ export class PendingSettlementService {
         // today — byte-for-byte the pre-existing behaviour for every caller
         // that never sends a date).
         const rates = await this.nbuCurrency.getRates(selectedDateStr?.replace(/-/g, ''))
-        // SECURITY (MED-2, security-review PR #521 round 1) — refined by the
-        // owner addendum (round 3): `getRates()` NEVER throws — on an NBU
-        // gap it falls back to either (a) a real, dated rate from the
-        // nearest prior business day (`rates.rateDate` set — a holiday with
-        // no same-day publication, the SAME mechanism the round-2 reviewer
-        // verified already covers ordinary weekends without ever needing
-        // this fallback at all) or (b) a genuinely unknown cached/hardcoded
-        // value (`rates.rateDate` undefined — the live feed AND the
-        // requested-day-adjacent data are both unavailable). Only (b) is a
-        // reason to refuse: a historical date's rate, once actually
-        // obtained from a real NBU publication, is exact and final — it is
-        // not "stale" in the sense this gate exists to catch, and refusing
-        // it would make a past date permanently unsettleable whenever it
-        // happens to land on a bank holiday.
-        //
-        // CORRECTED (task-finance-fix-wave1, D-3): this comment used to claim
-        // that every OTHER `getRates` consumer only feeds a stale rate into a
-        // DISPLAY value that self-corrects on the next read, and that this
-        // settle path was the first to bake one into a permanent figure. That
-        // was FALSE, and the false claim cost real time — an audit read it as
-        // evidence that no other path needed the gate, and only a second look
-        // found the counter-example: `createPayoutRequest`
-        // (transactions.service.ts) converts EUR/UAH incomes to USDT and writes
-        // the result into `payout_requests.incomeAmount/payableAmount` by an
-        // irreversible INSERT, and `payPayoutRequest` then requires the on-chain
-        // transfer to match `payableAmount` EXACTLY. It has the same gate now.
-        // The honest statement is narrower: the rate-consuming paths that write
-        // a PERMANENT amount are this one and `createPayoutRequest`, and both
-        // refuse case (b); the remaining consumers (balances, summary cards)
-        // are display-only. Before adding a consumer, check which group it is
-        // in — do not assume this comment still enumerates them all.
-        //
-        // Refuse case (b) rather than silently commit a possibly
-        // wrong amount to money that cannot be un-paid. The ADMIN/ACCOUNTANT
-        // can retry once NBU recovers, or settle in the obligation's own
-        // currency (USDT) right now, which never needs a rate at all.
-        if (rates.stale && rates.rateDate === undefined) {
-          throw apiError('FINANCE_NBU_RATE_UNAVAILABLE', HttpStatus.BAD_REQUEST)
-        }
-        const rawPaidAmount = convertToBase(owedNow, obligationCurrency, targetCurrency, rates)
-        // LOW (security-review PR #521 round 1): round to the money
-        // precision actually payable — `AmountCurrencyInput` DISPLAYS
-        // `.toFixed(2)`, but the raw division can carry many more decimals
-        // (e.g. 41512.345679 UAH), a "fact of payment" nobody could
-        // actually transfer. Round BEFORE recording so the written amount
-        // matches the displayed one exactly (AC3) and stays a real payable
-        // figure, not just an average close enough for a 2-decimal test.
-        paidAmount = Math.round(rawPaidAmount * 100) / 100
-      }
-
-      // LOW (security-review PR #521 round 1) / MED-A (round 3): the
-      // server-computed figure is exempt from Zod's boundary validation
-      // (there is no client `amount` field to validate) but can still
-      // exceed the project's own ceiling once multiplied by a currency rate
-      // — e.g. a near-MAX_TRANSACTION_AMOUNT USDT obligation × ~41 for UAH.
-      // Re-apply the SAME finiteness/ceiling rule every client-supplied
-      // amount already goes through (also closes the `Number.isFinite` gap:
-      // a NaN/Infinity paid amount must never reach `numeric` — Postgres
-      // accepts the literal string `'NaN'`).
-      //
-      // `settledAmountError`, NOT `@crm/shared`'s `transactionAmountError`:
-      // a DROP obligation can be legitimately booked at exactly 0 (a 0%
-      // share override — see the extended comment on `settledAmountError`
-      // in exchange-rate.util.ts), and `transactionAmountError` rejects
-      // `value <= 0` unconditionally. Reusing it here (round 1's original
-      // fix) permanently stranded every zero-amount drop obligation in
-      // "Ожидает выплаты" — negative/NaN/Infinity/over-ceiling still
-      // rejected, only the floor moved from "> 0" to ">= 0".
-      const paidAmountError = settledAmountError(paidAmount, MAX_TRANSACTION_AMOUNT)
-      if (paidAmountError) throwSettledAmountError(paidAmountError)
-
-      // LOW (security-review PR #521 round 3): the 2dp rounding above can
-      // legitimately round a genuinely NON-zero obligation down to exactly
-      // 0.00 in the target currency ("dust" — a fractional obligation
-      // converted through a rate/currency pair that collapses it below a
-      // hundredth of the target unit). `settledAmountError`'s own floor
-      // (`>= 0`, MED-A) cannot tell that apart from a REAL 0%-share
-      // obligation (`obligationAmount === 0`), where zero IS correct and
-      // must be allowed through. Distinguish them explicitly: dust is
-      // refused — a "0.00" record would misrepresent a debt that
-      // demonstrably still exists — while a genuine zero-obligation settle
-      // proceeds untouched.
-      // task-drop-topup (task 3b, AC6): compared against `owedNow`, not the
-      // obligation's full figure. `owedNow === 0` is a LEGAL idempotent close
-      // — "exactly as much has been paid as the obligation is worth" — and it
-      // is reachable by editing an income up and then back down (the cascade
-      // floors both copies at the accumulator, so the next settle finds nothing
-      // left to pay). Refusing it here would recreate the dead end AC15 exists
-      // to prevent: a reopened obligation with nothing that can close it.
-      if (paidAmount === 0 && owedNow > 0) {
-        throw apiError('FINANCE_ROUNDED_PAYOUT_AMOUNT_ZERO', HttpStatus.BAD_REQUEST)
+        paidAmount = convertDropPayoutAmount(owedNow, obligationCurrency, targetCurrency, rates)
       }
 
       originalAmount = obligation.amount
       originalCurrency = obligationCurrency
-      // task-drop-topup (task 3b, AC5 / addendum 3b, 1.4 + 2.3): the numerator
-      // is EVERYTHING paid on this row, not just this payment.
-      //
-      // The triplet describes the row's CLOSED FORM, not one transfer:
-      // `original_amount` is the obligation as it finally stood, `amount` is
-      // the sum of the payments that closed it, and `exchange_rate` is their
-      // ratio — which keeps `amount = original_amount × exchange_rate` true on
-      // a row closed twice. Using this payment alone would record 30/130 for a
-      // USDT→USDT top-up that converted nothing (Л2 of the addendum).
-      //
-      // On a first settle `priorSettledAmount` is 0, so this IS `paidAmount`
-      // and the formula is the pre-existing one, unchanged.
-      //
-      // Rounded to the same 6 places as every other money figure here, for the
-      // same reason `remainingOwed` is: a raw float sum carries a tail
-      // (100.1 + 30.2 = 130.30000000000001) that would surface in the rate.
-      const cumulativePaid = Number((priorSettledAmount + paidAmount).toFixed(6))
-      // Effective applied rate = everything paid / the obligation (units of the
-      // paid currency per 1 unit of the obligation) — same NULL-on-
-      // unrepresentable fallback as paySalary. Stamped on EVERY drop settle
-      // (not only when the currency changed), so a reader never has to guess
-      // whether a NULL original_amount means "unchanged" or "settled before
-      // this flow existed" (the latter — see the schema.ts column comment).
-      //
-      // `obligationAmount > 0` reads as a real branch (MED-A, round 3: a
-      // 0%-share drop obligation legitimately has `obligationAmount === 0`,
-      // for which the ratio is 0/0 — deliberately left NULL rather than
-      // computed, same as any other unrepresentable ratio) — but is PROVABLY
-      // unobservable by any test.
-      //
-      // REWRITTEN by task 3b, because the previous justification stopped being
-      // true: it argued that `settledAmountError` above validates `paidAmount`,
-      // "which IS `obligationAmount` on the same-currency path", and after AC3
-      // `paidAmount` is derived from `owedNow` instead. The conclusion survives
-      // with one more link in the chain: `owedNow = obligationAmount −
-      // priorSettledAmount`, and a subtraction propagates NaN, ±Infinity and
-      // negativity rather than absorbing them (`priorSettledAmount` is itself
-      // finite and ≥ 0, or `owedNow` is NaN and refused). So a
-      // negative/NaN/Infinite `obligationAmount` still reaches
-      // `settledAmountError` through `paidAmount` — on the peg path as
-      // `owedNow` itself, on the NBU path as `owedNow × <a positive finite
-      // rate>` — and is still rejected before this line. `obligationAmount` is
-      // therefore still either exactly 0 or a finite positive number here.
-      // Note that `obligationAmount === 0` also forces `priorSettledAmount ===
-      // 0` (any positive accumulator would make `owedNow` negative and be
-      // refused above), so `cumulativePaid` is 0 there too and the ratio is
-      // still exactly 0/0.
-      //
-      // Force ANY of this condition's operators to always-true (`true`, `||`,
-      // `>=`) and the ONLY behaviour change is that the `obligationAmount ===
-      // 0` case computes `0 / 0 = NaN` instead of skipping straight to `null` —
-      // but `isStorableExchangeRate` immediately below rejects NaN via its own
-      // `Number.isFinite` check, producing the IDENTICAL `exchangeRate = null`.
-      // No test can observe the difference through this function's output.
-      const rawExchangeRate =
-        // Stryker disable next-line ConditionalExpression,LogicalOperator,EqualityOperator: see the comment above — every mutant here (force true/false, && → ||, > → >=) is downstream-caught by isStorableExchangeRate's own Number.isFinite(NaN)===false check, producing the identical exchangeRate=null either way
-        Number.isFinite(obligationAmount) && obligationAmount > 0
-          ? cumulativePaid / obligationAmount
-          : null
-      exchangeRate =
-        // Stryker disable next-line ConditionalExpression: `!== null` is a TS narrowing guard for `.toFixed` below; at runtime it is ALSO behaviorally redundant — isStorableExchangeRate(null) already returns false via its own Number.isFinite(null) check, so removing this guard cannot change the outcome
-        rawExchangeRate !== null && isStorableExchangeRate(rawExchangeRate)
-          ? rawExchangeRate.toFixed(8)
-          : null
+      exchangeRate = finalizeDropPayout({
+        obligationAmount,
+        owedNow,
+        paidAmount,
+        priorSettledAmount,
+      })
     }
 
     // task-receipts-backend (#10): a settle from the user-facing dialog supplies
@@ -873,7 +516,7 @@ export class PendingSettlementService {
     // byte-for-byte what it was.
     const settledAmountThisSettle = isDropObligation
       ? paidAmount!
-      : remainingOwed(obligation.amount)
+      : remainingOwed(obligation.amount, priorSettledAmount)
 
     // task-cascade-apply (task 3, AC10 as revised by AC15 / addendum §1.14).
     //
@@ -932,74 +575,15 @@ export class PendingSettlementService {
       })
     }
 
-    // task-cascade-apply (task 3, AC14 / addendum §1.13, security-review
-    // SR-H-2). Same shape as the currency guard directly above, same argument,
-    // for the other column the accumulator has no snapshot of.
-    //
-    // INVARIANT: every settle of one row comes from the SAME PAYER, and the
-    // pair `(funding_source, sender_id)` is the record of who that was.
-    //
-    // `funding_source` answers "which pot". Ledger terms 7, 8 and 9 all key on
-    // that LIVE column, so a second settle from a different pot does not
-    // "split" the row between two terms — it drops it out of BOTH. Concretely:
-    // a company-funded settle of 260, a cascade revert (term 9 holds the 260),
-    // then a top-up from an admin's personal account ⇒ `funding_source` becomes
-    // null and the status is no longer PENDING_PAYMENT, so 260 USDT that really
-    // left the company account vanish from the ledger. The whole scenario is in
-    // USDT, so the currency guard above stays silent.
-    //
-    // `sender_id` answers "which PERSON", and it is not a refinement of the
-    // first question but a second one the first cannot reach (SR-M-5, owner's
-    // decision, security-review round 3). Inside `ADMIN_PERSONAL` every admin
-    // shares one pot value (NULL), so the pot comparison waves a different
-    // partner straight through — and the flip then OVERWRITES `sender_id`
-    // while `adminBalances.sent` sums the row's whole `amount` under whoever
-    // holds it. Admin A pays 260, the cascade reopens the row, admin B tops it
-    // up, and the entire figure lands on B: A looks like they never paid. Two
-    // partners on 50/50 shares, and nothing anywhere says so out loud.
-    //
-    // For a company-funded settle both sides are `(COMPANY_ACCOUNT, null)`, so
-    // widening the comparison changes nothing there — it only starts
-    // distinguishing `(null, A)` from `(null, B)`.
-    //
-    // Holders of the invariant: the flip writes both columns, the cascade
-    // revert preserves both (AC6), and this refusal stops the pair becoming
-    // multi-valued.
-    //
-    // Unconditional — NOT restricted to the senior branch. A drop top-up is
-    // refused elsewhere today (AC10), but this guard must not depend on that
-    // staying true when task 3b lands.
-    //
-    // The escape hatch, if mixing is ever actually wanted, is a snapshot
-    // column per axis — and the two axes cost DIFFERENT things, which the
-    // previous version of this comment got wrong by re-using round 2's
-    // wording for both (SPEC-M-1, review round 4):
-    //
-    //   - `funding_source`: a `settled_funding_source` snapshot would force
-    //     terms 7 and 8 to read it instead of the live column, and this task
-    //     commits to leaving them untouched (addendum §1.10). That is the
-    //     expensive one.
-    //   - `sender_id`: NO ledger term reads it. Verified, not assumed —
-    //     `grep -n 'senderId\|sender_id' company-account-balance.ts` returns a
-    //     single hit, and it is a comment. The cost sits somewhere else
-    //     entirely: the `adminBalances` array built in
-    //     `TransactionsService.getSummary()` (transactions.service.ts)
-    //     attributes a row's whole `amount` to whoever holds `sender_id`, so
-    //     splitting one row between two payers needs a per-settle record
-    //     there, not a column here.
-    //
-    //     NOT `balance.service.ts` — round 4's version of this comment said
-    //     so and was wrong twice over. That file holds `getAdminBalance`, a
-    //     different and narrower metric whose own docstring states it "does
-    //     NOT replicate `getSummary`'s full HOLDING model". Sending the next
-    //     reader there sends them to code that does not do this.
-    //
-    // Saying "terms 7 and 8" for the second axis pointed the next reader at
-    // code that has nothing to do with it.
     const settleFundingSource = debitsCompanyAccount ? COMPANY_ACCOUNT_FUNDING_SOURCE : null
     if (
-      priorSettledAmount > 0 &&
-      (settleFundingSource !== sourceFundingSource || senderId !== sourceSenderId)
+      isFundingSourceMismatch({
+        priorSettledAmount,
+        settleFundingSource,
+        sourceFundingSource,
+        senderId,
+        sourceSenderId,
+      })
     ) {
       const describe = (value: string | null) => value ?? 'особистий рахунок адміністратора'
       // The person, when there was one. `senderLabel` is written by the same
@@ -1020,288 +604,30 @@ export class PendingSettlementService {
       throw apiError('FINANCE_SETTLEMENT_FUNDING_SOURCE_MUST_MATCH', HttpStatus.BAD_REQUEST)
     }
 
-    const created: Transaction[] = []
-    await this.db.db.transaction(async (dbtx) => {
-      // SECURITY (TOCTOU, MED — PR #262): the PENDING→PAID transition is the
-      // money gate and MUST be atomic + idempotent, else two concurrent / repeated
-      // settle calls (e.g. a double-clicked ADMIN/ACCOUNTANT button) both pass the
-      // out-of-transaction status read above, both insert a SENIOR_INCOME and both
-      // debit the company account → DOUBLE payout to the senior. There is no
-      // unique/partial-index backstop on pending_obligations (unlike the payout
-      // path's uq_payout_requests_txhash_paid), so we serialize at the row level
-      // with a CONDITIONAL UPDATE: flip to PAID only WHERE the row is still
-      // PENDING, and RETURN the affected rows. The UPDATE takes a row lock and
-      // re-evaluates `status='PENDING'` against the committed row, so exactly one
-      // caller wins. If zero rows come back the obligation was already settled by a
-      // concurrent winner → throw, which rolls back THIS transaction (no
-      // SENIOR_INCOME row, no company-account debit). Doing the conditional UPDATE
-      // FIRST means the loser bails out before any money write happens.
-      const claimed = await dbtx
-        .update(pendingObligations)
-        .set({
-          status: 'PAID',
-          updatedAt: new Date(),
-        })
-        .where(
-          and(eq(pendingObligations.id, obligation.id), eq(pendingObligations.status, 'PENDING')),
-        )
-        .returning({ id: pendingObligations.id, amount: pendingObligations.amount })
-      if (claimed.length === 0) {
-        // Idempotent: a concurrent / repeated call already closed this obligation.
-        throw apiError('FINANCE_OBLIGATION_ALREADY_CLOSED', HttpStatus.BAD_REQUEST)
-      }
-
-      // SECURITY (TOCTOU, task-fix-obligation-amount-divergence follow-up,
-      // MED-1). `obligation` above was read BEFORE this transaction opened.
-      // Every value derived from `obligation.amount` since then — the DROP
-      // currency-conversion block above (paidAmount / originalAmount /
-      // exchangeRate, all computed from `parseFloat(obligation.amount)`) and
-      // the balance-sufficiency check right below — was, until
-      // task-fix-obligation-amount-divergence, provably safe to read stale:
-      // `pending_obligations.amount` had NO write path at all once booked.
-      // `adminUpdateTransaction` gave it one (keeping it in sync with the
-      // source IOU's `transactions.amount`, scoped to `status='PENDING'`).
-      // The conditional claim above re-evaluates only `status`, not
-      // `amount` — so an edit that commits in the window between the read
-      // above and this claim now sails through undetected: the gate would
-      // check the OLD sum while the flip below books the NEW one (SENIOR —
-      // its `amount` is left untouched by the flip, i.e. whatever is
-      // currently committed) or, for DROP, the OPPOSITE: `paidAmount` was
-      // already computed from the STALE amount above and gets written
-      // verbatim, discarding the edit on a row that is about to become
-      // CLOSED — an L4-shaped, unrecoverable divergence (the flip has no
-      // percent snapshot to recompute from afterwards).
-      //
-      // The claim's own `.returning()` is the ONE read in this whole method
-      // that observes the row AS COMMITTED at claim time — comparing it
-      // against the pre-transaction snapshot turns an otherwise-silent race
-      // into an explicit refusal (nothing money-mutating below this point
-      // has run yet) rather than a wrong debit either direction.
-      const claimedAmount = claimed[0]!.amount
-      if (Number(claimedAmount).toFixed(6) !== Number(obligation.amount).toFixed(6)) {
-        throw apiError('FINANCE_OBLIGATION_AMOUNT_CHANGED', HttpStatus.BAD_REQUEST)
-      }
-
-      // SECURITY (TOCTOU): a company-account DEBIT must serialize against every
-      // other company-account debit (salary / expense / other settlements) via
-      // the SHARED advisory lock, then re-read the balance and refuse to drive
-      // the account negative. Mirrors createSalary / createExpense. Only runs for
-      // a COMPANY-funded settlement — an ADMIN_PERSONAL payout never touches the
-      // shared account so it needs neither lock nor gate.
-      if (debitsCompanyAccount) {
-        await lockCompanyAccount(dbtx)
-        const balance = await computeCompanyAccountBalanceFromLedger(dbtx)
-        // Gate by the CLAIMED amount (read inside the transaction, above),
-        // not the pre-transaction `obligation` snapshot — see the TOCTOU
-        // note above. The two are asserted equal just above (a race throws
-        // before reaching here), so this is a no-op today; keeping the gate
-        // keyed on `claimedAmount` rather than `obligation.amount` is what
-        // makes that assertion load-bearing rather than decorative — a
-        // later change that loosens it still gates correctly on its own.
-        //
-        // task-cascade-apply (task 3, AC10): what leaves the account is the
-        // REMAINDER, so that is what the balance must cover. Gating on the
-        // obligation's full figure after a partial payment would refuse a
-        // top-up the company can actually afford. Same single description of
-        // "still owed" as the pre-transaction computation above.
-        //
-        // task-drop-topup (task 3b, AC7): ONE description for both branches now
-        // — the `isDropObligation ? parseFloat(claimedAmount) : …` ternary is
-        // gone. A company-funded drop settle is forced to USDT
-        // (`debitsCompanyAccount ⇒ currency = 'USDT'`) and its obligation is
-        // USDT too, so no conversion happens and `paidAmount === owedNow`
-        // exactly; on a first settle both halves were already
-        // `parseFloat(claimedAmount)`. Fewer branches, fewer mutants that no
-        // test can tell apart, and "how much is still owed" said once.
-        const amount = remainingOwed(claimedAmount)
-        if (amount > balance) {
-          throw apiError('FINANCE_COMPANY_ACCOUNT_INSUFFICIENT_FUNDS', HttpStatus.BAD_REQUEST)
-        }
-      }
-
-      // task-settle-in-place (ADR 2026-07-14). The obligation transitions
-      // PENDING_PAYMENT → PAID **in place**: instead of inserting a SECOND
-      // transaction (the phantom bug — a lingering `*_PENDING_PAYOUT` row plus a
-      // separate settle row), we UPDATE the SOURCE IOU row itself. It flips type
-      // to its final form and stamps the same funding fields the old "second row"
-      // carried, becoming byte-for-byte equivalent to yesterday's settle row —
-      // only reusing the IOU's id instead of allocating a new one. Every ledger /
-      // drop-aggregate / invoice / C4 consumer keys on that FINAL form
-      // (type + status=PAID + funding markers), so none of them change:
-      //   - senior IOU → type=SENIOR_INCOME (status=PAID): InvoicesService
-      //     .autoCreateForSeniorPayout picks it up (gate `tx.type==='SENIOR_INCOME'`).
-      //   - drop IOU → type=PAYOUT_DROP (status=PAID): credits the drop's balance
-      //     via computeDropAggregate (receiverId=drop, senderId≠drop so NOT
-      //     double-counted as `sent` — C6); no invoice (Q6).
-      // The flip runs AFTER the winning conditional claim above, so it executes
-      // exactly once. Defense-in-depth: scope the UPDATE to the still-PENDING_PAYMENT
-      // source row so a corrupted / already-flipped state can never be re-settled.
-      // CR-M-1 (code-review, task 3b) — ONE symbol, two columns.
-      //
-      // `amount` and `settled_amount` on a drop settle must be the same figure
-      // (addendum §1.2 — the invariant ledger term 9 rests on). Writing the
-      // expression out twice made that a property of two identical STRINGS,
-      // and a rule written down twice is a rule that can be half-edited: the
-      // only thing standing between them was a test comparing their compiled
-      // form. Referencing one `SQL` object from both keys makes divergence
-      // impossible to express rather than merely wrong (backlog 85).
-      //
-      // Still DB-native, and for the original reason (MED-3, #599): the sum is
-      // computed against whatever `settled_amount` the row ACTUALLY holds at
-      // write time, so correctness does not depend on "nothing else wrote this
-      // row between the read and the UPDATE". `coalesce(..., 0)` makes a
-      // first-ever settle read as `0 + delta` — the pre-existing value, byte
-      // for byte. Both columns are `numeric(18, 6)`, so one expression cannot
-      // round differently into the two of them.
-      const accumulatedAmount = sql`coalesce(${transactions.settledAmount}, 0) + ${settledAmountThisSettle}`
-
-      const [paidRow] = await dbtx
-        .update(transactions)
-        .set({
-          type: isDropObligation ? 'PAYOUT_DROP' : 'SENIOR_INCOME',
-          status: 'PAID',
-          // task-senior-settle-owner: currency follows the funding choice
-          // (COMPANY_ACCOUNT → USDT; ADMIN_PERSONAL → chosen; legacy default →
-          // obligation currency). The IOU was booked USDT; this may re-stamp it.
-          currency,
-          // task-drop-payout-currency: the FACT of the drop payout (converted
-          // server-side above) plus the OBLIGATION snapshot it settled —
-          // stamped on EVERY drop settle, mirroring paySalary's paidSet
-          // byte-for-byte. Empty object for a SENIOR settle (`paidAmount` stays
-          // `undefined`) — `amount` is left completely untouched, exactly the
-          // pre-existing behaviour.
-          ...(isDropObligation
-            ? {
-                // task-drop-topup (task 3b, AC4): literally the same object as
-                // `settledAmount` below — see `accumulatedAmount` above for why
-                // `amount` accumulates at all and why it must not be a second
-                // copy of the expression.
-                amount: accumulatedAmount,
-                originalAmount,
-                originalCurrency,
-                exchangeRate,
-              }
-            : {}),
-          // task-drop-payout-currency (owner addendum, 2026-08): the
-          // operator-selected date, when one was sent (see the extended
-          // comment on `SettleFunding.txDate`). Omitted entirely — not set
-          // to `new Date()` — when absent, so the column keeps whatever it
-          // already held (the obligation's booking date, which is exactly
-          // the client-side DEFAULT the date-picker shows, so a caller that
-          // never touches the picker gets the identical recorded value
-          // either way).
-          ...(txDateToWrite ? { txDate: txDateToWrite } : {}),
-          // ADMIN_PERSONAL → the paying partner is the sender; COMPANY_ACCOUNT /
-          // legacy → no personal sender, label 'COMPANY' (the IOU's booked label).
-          senderId,
-          senderLabel,
-          // Company-account debit marker — counted by the ledger SSOT (the C7
-          // PAYOUT_DROP(COMPANY_ACCOUNT) term for a drop settle, the existing
-          // SENIOR_INCOME(COMPANY_ACCOUNT) term for a senior settle). Only set for
-          // a company-funded settlement; an ADMIN_PERSONAL payout carries no
-          // marker (the shared balance must not move).
-          fundingSource: debitsCompanyAccount ? COMPANY_ACCOUNT_FUNDING_SOURCE : null,
-          // task-receipts-backend (#10): stamp the settle proof (only the
-          // user-facing funding-carrying flow supplies one; legacy → null).
-          receiptDocumentId: funding?.receiptDocumentId ?? null,
-          receiptExternalUrl: funding?.receiptExternalUrl ?? null,
-          // CRITICAL (ADR): a cascade-sourced IOU (applyPayoutPaidCascade) carries
-          // `payoutRequestId`. Keeping it on a flipped SENIOR_INCOME would bleed the
-          // row into autoCreateForPayout's payoutRequestId aggregation AND the
-          // findOne SENIOR_INCOME-by-payoutRequestId enrichment. Yesterday's settle
-          // SENIOR_INCOME had payoutRequestId=null; reset preserves byte-identity.
-          // Audit link is retained via pending_obligations + notes + projectId.
-          payoutRequestId: null,
-          // CRITICAL (money, beyond ADR's consumer table): the IOU was booked with
-          // `amount` = the ALREADY-NET share (income × share%) AND a non-null
-          // seniorSharePercent/dropSharePercent snapshot. But getSeniorBalance /
-          // getTotalEarned / getSeniorSummary use seniorSharePercent as a GROSS↔NET
-          // discriminator on SENIOR_INCOME: non-null ⇒ treat amount as GROSS and
-          // multiply by share% (→ NET × 26% = a ~26× UNDER-count of the senior).
-          // Yesterday's settle-INSERTED SENIOR_INCOME left these null, so the amount
-          // was used as-is (NET). We MUST null them to stay byte-identical and avoid
-          // the double-application. (The drop side is safe today — computeDropAggregate
-          // reads PAYOUT_DROP.amount directly — but we null it too for parity, since
-          // yesterday's settle PAYOUT_DROP carried no share snapshot either.)
-          seniorSharePercent: null,
-          seniorSharePercentSource: null,
-          dropSharePercent: null,
-          dropSharePercentSource: null,
-          // task-settled-amount-snapshot (AC5 + AC4, architecture doc §AC3
-          // "Где хранится «сколько уже выплачено»"). Snapshot what was JUST
-          // nulled two lines up into its OWN column instead of losing it — a
-          // later cascade needs the percent that was in effect at THIS
-          // settle to recompute a share once the row returns to PENDING.
-          // Written fresh on EVERY settle (not accumulated — only the latest
-          // percent is meaningful, unlike settledAmount right below it).
-          settledSharePercent: isDropObligation ? sourceDropSharePercent : sourceSeniorSharePercent,
-          // MONOTONIC accumulator — MED-3 (security-review round 1, PR #599),
-          // DB-native increment. The expression itself, and why it is shared
-          // with `amount` on the drop branch, is at `accumulatedAmount` above.
-          settledAmount: accumulatedAmount,
-          settledCurrency: currency,
-          notes: isDropObligation
-            ? `Закриття зобов’язання дропа (${obligation.id})`
-            : `Закриття зобов’язання сеньйора (${obligation.id})`,
-          updatedAt: new Date(),
-          // Income rows carry validation provenance; a PAYOUT_DROP is a payout,
-          // not a validated income, so it leaves these untouched (mirrors the
-          // cascade PAYOUT_DROP shape). `createdBy` intentionally stays the
-          // booking author — the settler is captured in `validatedBy` (senior) and
-          // the notes (per ADR §Consequences: minor audit delta, deliberate).
-          //
-          // security-review PR #456 round 2 (MED-3): under impersonation this
-          // used to record the IMPERSONATED target as the settler, while the
-          // audit-log insert 20 lines below (in the same transaction, same
-          // action) already correctly attributed the REAL operator via
-          // `actor.impersonatorId ?? actor.id` — two provenance columns for one
-          // action, disagreeing under the exact condition provenance exists to
-          // catch. Same resolution, same field, now homogeneous.
-          ...(isDropObligation
-            ? {}
-            : { validatedBy: actor.impersonatorId ?? actor.id, validatedAt: new Date() }),
-        })
-        .where(
-          and(
-            eq(transactions.id, obligation.sourceTransactionId),
-            eq(transactions.status, 'PENDING_PAYMENT'),
-            // task-cascade-apply (task 3, AC10) — TOCTOU on the ACCUMULATOR.
-            //
-            // `settledAmountThisSettle` was computed from `settled_amount` as
-            // read BEFORE this transaction opened. If another settle of the
-            // same row committed in between, that delta is computed against a
-            // figure that is no longer true and would over-pay. Re-asserting
-            // the value here costs no extra lock: a mismatch simply matches
-            // zero rows, and the existing `if (!paidRow) throw` below already
-            // turns that into a clean abort of the whole transaction.
-            //
-            // `IS NOT DISTINCT FROM` rather than `=` because the value is NULL
-            // on a first-ever settle, and `NULL = NULL` is NULL, which would
-            // match nothing and break every first settle in the system.
-            sql`${transactions.settledAmount} IS NOT DISTINCT FROM ${sourceSettledAmount}::numeric`,
-          ),
-        )
-        .returning()
-      if (!paidRow) {
-        // The claim already won (obligation was PENDING) so the source IOU MUST
-        // have been PENDING_PAYMENT. Zero rows here means a corrupted invariant
-        // (source flipped / deleted out of band) — abort so we never leave the
-        // obligation PAID with no closing row (rolls back the claim too).
-        throw apiError('FINANCE_OBLIGATION_CLOSE_SOURCE_NOT_PENDING', HttpStatus.BAD_REQUEST)
-      }
-      created.push(paidRow)
-      // Point closingTransactionId at the SAME row we just flipped (self-
-      // reference). This keeps the C4 discriminator working: the flipped
-      // SENIOR_INCOME id ∈ settlementTxIds so it is excluded from totalIncome
-      // (its gross was already counted as the ADMIN_INCOME / DROP_INCOME).
-      await dbtx
-        .update(pendingObligations)
-        .set({
-          closingTransactionId: obligation.sourceTransactionId,
-          updatedAt: new Date(),
-        })
-        .where(eq(pendingObligations.id, obligation.id))
-    })
+    // ONE transaction; the in-tx sequence (claim → amount re-check → lock+gate →
+    // flip → closing link) lives in settleObligationInTx. Post-commit steps below.
+    const paidRow = await this.db.db.transaction((dbtx) =>
+      settleObligationInTx(dbtx, {
+        obligation,
+        actor,
+        funding,
+        isDropObligation,
+        debitsCompanyAccount,
+        currency,
+        senderId,
+        senderLabel,
+        priorSettledAmount,
+        settledAmountThisSettle,
+        sourceSettledAmount,
+        sourceSeniorSharePercent,
+        sourceDropSharePercent,
+        originalAmount,
+        originalCurrency,
+        exchangeRate,
+        txDateToWrite,
+      }),
+    )
+    const created: Transaction[] = [paidRow]
 
     // Fire-and-forget invoice trigger — outside the DB transaction so a
     // failing PDF/S3 step does not roll back the settlement.
@@ -1348,8 +674,8 @@ export class PendingSettlementService {
       where: eq(pendingObligations.id, obligation.id),
     })
     return {
-      obligation: this.toObligationDto(refreshed ?? { ...obligation, status: 'PAID' as const }),
-      created: created.map((c) => this.toTransactionDto(c)),
+      obligation: toObligationDto(refreshed ?? { ...obligation, status: 'PAID' as const }),
+      created: created.map((c) => toTransactionDto(c)),
     }
   }
 
@@ -1400,266 +726,10 @@ export class PendingSettlementService {
 
   // ── Internals ─────────────────────────────────────────────────────────────
 
+  // Thin delegate kept: obligation-amount-divergence.integration.spec.ts
+  // overrides `loadObligation` on the instance to simulate a stale
+  // pre-transaction read (TOCTOU). Call site stays OUTSIDE the transaction.
   private async loadObligation(obligationId: string) {
-    const row = await this.db.db.query.pendingObligations.findFirst({
-      where: eq(pendingObligations.id, obligationId),
-    })
-    if (!row) throw apiError('FINANCE_OBLIGATION_NOT_FOUND', HttpStatus.NOT_FOUND)
-    return row
-  }
-
-  /**
-   * Walk source transaction → projectId so the SENIOR_INCOME row keeps the
-   * project pointer for audit. Failures are non-fatal: a missing source or
-   * missing project just yields `null`.
-   *
-   * security-review PR #443 (HIGH-1 / MED-B): also returns the source row's
-   * `dropCascadeOrigin` — the deterministic, FK-independent cascade-vs-
-   * declaration discriminator `settleByCompany` uses below to refuse a
-   * COMPANY_ACCOUNT-funded settle on a cascade-originated drop obligation
-   * (see the HIGH-1 guard for why, and the MED-B note on why this reads the
-   * dedicated marker column rather than `payoutRequestId`).
-   */
-  private async resolveSource(sourceTransactionId: string): Promise<{
-    project: { id: string; name: string } | null
-    sourceType: string | null
-    // Nullable — `null` means "unstamped" and the HIGH-1/MED-B guard above
-    // treats that as unknown-origin (BLOCK), same as `true`. Only an
-    // explicit `false` means "verified non-cascade, safe".
-    sourceDropCascadeOrigin: boolean | null
-    // task-settled-amount-snapshot: the row's CURRENT share-percent snapshot,
-    // read BEFORE settleByCompany nulls it on the flip (see the
-    // `settledSharePercent` write below and the column comment on
-    // `transactions.settledSharePercent` in schema.ts). A row is either a
-    // senior or a drop IOU, never both — exactly one of the two is non-null.
-    sourceSeniorSharePercent: number | null
-    sourceDropSharePercent: number | null
-    // task-settled-amount-snapshot (MED-1, security-review round 1, PR #599):
-    // the row's CURRENT settled_currency, read so the flip below can refuse
-    // a settle whose currency does not match what is ALREADY accumulated —
-    // summing FACT amounts recorded in different currencies under one column
-    // would silently misrepresent the total.
-    sourceSettledCurrency: string | null
-    /**
-     * task-cascade-apply (task 3, AC10): the row's CURRENT accumulator.
-     *
-     * PR #599 deliberately stopped reading it, because the increment is
-     * DB-native (`coalesce(current, 0) + delta`) and needed no pre-transaction
-     * value. Task 3 needs it again for a different question — not "what to add"
-     * but "how much is STILL owed" (`obligation.amount − already paid`), which
-     * only a cascade revert can make non-trivial. The DB-native increment is
-     * UNCHANGED; the value read here is used for the remainder arithmetic and
-     * re-asserted in the flip's WHERE, so a concurrent settle in between
-     * matches zero rows instead of over-paying.
-     */
-    sourceSettledAmount: string | null
-    /**
-     * task-cascade-apply (task 3, AC14 / addendum §1.13, security-review
-     * SR-H-2): the row's CURRENT `funding_source`, read so a top-up can be
-     * refused when it would come out of a different pot than the payment
-     * already recorded on this row.
-     */
-    sourceFundingSource: string | null
-    /**
-     * task-cascade-apply (task 3, AC14 / security-review SR-M-5): WHO paid.
-     *
-     * `funding_source` alone answers "which pot", and inside `ADMIN_PERSONAL`
-     * that is the same NULL for every partner — so the pot comparison cannot
-     * tell two admins apart. The flip overwrites `sender_id`, and
-     * `adminBalances.sent` sums the row's whole `amount` under whoever holds
-     * it, so a top-up by a different partner silently moves the first
-     * partner's payment onto the second. The label rides along so the refusal
-     * can NAME them rather than say "someone else".
-     */
-    sourceSenderId: string | null
-    sourceSenderLabel: string | null
-    sourceTxDate: Date | null
-    sourceCreatedAt: Date | null
-  }> {
-    const source = await this.db.db.query.transactions.findFirst({
-      where: eq(transactions.id, sourceTransactionId),
-    })
-    if (!source)
-      // Stryker disable next-line ObjectLiteral: `sourceTransactionId` is a
-      // NOT NULL FK with ON DELETE RESTRICT (schema.ts, pendingObligations
-      // .sourceTransactionId) — this branch is unreachable through any real
-      // write path; kept purely as defense-in-depth. Every field this object
-      // returns is immediately destructured and treated identically whether
-      // it is explicit `null` or JS's own `undefined` (the mutant's `{}`):
-      // `sourceType === 'DROP_PENDING_PAYOUT'`, `!== false` checks, `? :`
-      // ternaries and the `sourceSettledCurrency && sourceSettledCurrency !==
-      // currency` guard above all give the SAME result for `undefined` as
-      // for `null`. No assertion on the shape of THIS unreachable branch's
-      // return value can be anything but tautological — the settle-aborts-
-      // safely behaviour it feeds into is already pinned by 'defense-in-
-      // depth: source transaction row missing entirely aborts the settle
-      // safely' in pending-settlement.spec.ts.
-      return {
-        project: null,
-        sourceType: null,
-        sourceDropCascadeOrigin: null,
-        sourceSeniorSharePercent: null,
-        sourceDropSharePercent: null,
-        sourceSettledCurrency: null,
-        sourceSettledAmount: null,
-        sourceFundingSource: null,
-        sourceSenderId: null,
-        sourceSenderLabel: null,
-        sourceTxDate: null,
-        sourceCreatedAt: null,
-      }
-    const project = source.projectId
-      ? await this.db.db.query.projects.findFirst({ where: eq(projects.id, source.projectId) })
-      : null
-    return {
-      project: project ? { id: project.id, name: project.name } : null,
-      sourceType: source.type,
-      sourceDropCascadeOrigin: source.dropCascadeOrigin,
-      sourceSeniorSharePercent: source.seniorSharePercent,
-      sourceDropSharePercent: source.dropSharePercent,
-      sourceSettledCurrency: source.settledCurrency,
-      sourceSettledAmount: source.settledAmount,
-      sourceFundingSource: source.fundingSource,
-      sourceSenderId: source.senderId,
-      sourceSenderLabel: source.senderLabel,
-      sourceTxDate: source.txDate,
-      sourceCreatedAt: source.createdAt,
-    }
-  }
-
-  /**
-   * Denormalise obligation rows with creditor / debtor / project names so the
-   * UI cards render without follow-up requests.
-   */
-  private async denormalise(
-    rows: Array<{
-      id: string
-      creditorUserId: string
-      debtorType: 'DROP' | 'TOV' | 'ADMIN' | 'COMPANY'
-      debtorUserId: string | null
-      sourceTransactionId: string
-      amount: string
-      currency: string
-      createdAt: Date
-    }>,
-  ): Promise<PendingSettlementItemDto[]> {
-    const result: PendingSettlementItemDto[] = []
-    for (const row of rows) {
-      const [senior, debtor, source] = await Promise.all([
-        this.db.db.query.users.findFirst({ where: eq(users.id, row.creditorUserId) }),
-        row.debtorUserId
-          ? this.db.db.query.users.findFirst({ where: eq(users.id, row.debtorUserId) })
-          : Promise.resolve(undefined),
-        this.db.db.query.transactions.findFirst({
-          where: eq(transactions.id, row.sourceTransactionId),
-        }),
-      ])
-      const project = source?.projectId
-        ? await this.db.db.query.projects.findFirst({ where: eq(projects.id, source.projectId) })
-        : undefined
-
-      result.push({
-        obligationId: row.id,
-        sourceTransactionId: row.sourceTransactionId,
-        debtorType: row.debtorType,
-        debtorUserId: row.debtorUserId,
-        debtorName: debtor?.displayName ?? null,
-        seniorId: row.creditorUserId,
-        seniorName: senior?.displayName ?? '—',
-        projectId: project?.id ?? null,
-        projectName: project?.name ?? null,
-        amount: row.amount,
-        currency: row.currency as 'USDT' | 'USD' | 'EUR' | 'UAH',
-        createdAt: row.createdAt.toISOString(),
-      })
-    }
-    return result
-  }
-
-  private toObligationDto(row: {
-    id: string
-    creditorUserId: string
-    debtorType: 'DROP' | 'TOV' | 'ADMIN' | 'COMPANY'
-    debtorUserId: string | null
-    sourceTransactionId: string
-    closingTransactionId: string | null
-    amount: string
-    currency: string
-    status: 'PENDING' | 'PAID' | 'CANCELLED'
-    // task-settle-payout-link-lost: optional on the input shape so every
-    // pre-existing call site (all built the row from a real `pendingObligations`
-    // select and never carried this column before) keeps compiling untouched;
-    // `?? null` below normalises the omitted case to the DTO's required `null`.
-    payoutRequestId?: string | null
-    createdAt: Date | string
-    updatedAt: Date | string
-  }): PendingObligationDto {
-    const toIso = (v: Date | string) => (v instanceof Date ? v.toISOString() : v)
-    return {
-      id: row.id,
-      creditorUserId: row.creditorUserId,
-      debtorType: row.debtorType,
-      debtorUserId: row.debtorUserId,
-      sourceTransactionId: row.sourceTransactionId,
-      closingTransactionId: row.closingTransactionId,
-      amount: row.amount,
-      currency: row.currency as 'USDT' | 'USD' | 'EUR' | 'UAH',
-      status: row.status,
-      payoutRequestId: row.payoutRequestId ?? null,
-      createdAt: toIso(row.createdAt),
-      updatedAt: toIso(row.updatedAt),
-    }
-  }
-
-  private toTransactionDto(row: Transaction): TransactionDto {
-    const toIso = (v: Date | string | null | undefined): string | null => {
-      if (v === null || v === undefined) return null
-      if (v instanceof Date) return v.toISOString()
-      return typeof v === 'string' ? v : null
-    }
-    const nowIso = new Date().toISOString()
-    return {
-      id: row.id,
-      type: row.type,
-      status: row.status,
-      amount: row.amount,
-      currency: row.currency,
-      // task-drop-payout-currency: surfaces the obligation snapshot a DROP
-      // settle stamps (see the amount-conversion block in settleByCompany).
-      // `null` for every other row — mirrors mapTx in transactions.service.ts.
-      originalAmount: row.originalAmount ?? null,
-      originalCurrency: row.originalCurrency ?? null,
-      exchangeRate: row.exchangeRate ?? null,
-      senderId: row.senderId ?? null,
-      senderLabel: row.senderLabel ?? null,
-      senderName: null,
-      receiverId: row.receiverId ?? null,
-      receiverLabel: row.receiverLabel ?? null,
-      receiverName: null,
-      projectId: row.projectId ?? null,
-      projectName: null,
-      payoutRequestId: row.payoutRequestId ?? null,
-      seniorSharePercent: row.seniorSharePercent ?? null,
-      seniorSharePercentSource: null,
-      receiptDocumentId: row.receiptDocumentId ?? null,
-      receiptExternalUrl: row.receiptExternalUrl ?? null,
-      txHash: row.txHash ?? null,
-      // task-onchain-payment-integrity: the recorded on-chain sender is
-      // ADMIN/ACCOUNTANT-only audit data. This mapper serves the settlement
-      // endpoints (no viewer in scope) and the rows it returns are
-      // company-obligation settlements, not on-chain transfers — always null,
-      // matching the masking applied in `TransactionsService.mapTx`.
-      txFromAddress: null,
-      validatedBy: row.validatedBy ?? null,
-      validatedAt: toIso(row.validatedAt),
-      rejectionReason: row.rejectionReason ?? null,
-      notes: row.notes ?? null,
-      salaryMonth: row.salaryMonth ?? null,
-      txDate: toIso(row.txDate),
-      recipientId: row.recipientId ?? null,
-      createdBy: row.createdBy,
-      createdAt: toIso(row.createdAt) ?? nowIso,
-      updatedAt: toIso(row.updatedAt) ?? nowIso,
-    }
+    return loadObligationRead(this.db.db, obligationId)
   }
 }

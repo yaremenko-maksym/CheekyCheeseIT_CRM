@@ -347,6 +347,52 @@ export const createUserSchema = z
   })
 
 /**
+ * HR "create senior" payload (`POST /users` when the actor is HR).
+ *
+ * HR provisions a SENIOR WITHOUT payment requisites or a legal name: the
+ * controller has always forced every finance/PII field to its server default
+ * for an HR actor (security-audit authz-hardening), and the senior fills
+ * `paymentMethod` + wallet themselves afterwards via `PATCH /users/me/requisites`
+ * (an ADMIN sets `legalFullName` via the admin profile edit — the contract
+ * signing guard `LEGAL_NAME_REQUIRED` blocks signing until then).
+ *
+ * `createUserSchema` cannot validate that payload — it FORCES a SENIOR to
+ * carry `USDT_ERC20` + a wallet + `legalFullName` — so the HR dialog never
+ * produced a payload it accepted and HR could not create a senior at all.
+ * This schema carries ONLY the non-finance, non-PII fields HR may set; every
+ * field definition is borrowed from `createUserSchema.shape` so the two stay
+ * in lockstep. Unknown keys (wallet, bank, salary, legalFullName, …) are
+ * stripped, not rejected — the controller's server-side nulling stays as
+ * defense-in-depth.
+ */
+export const hrCreateSeniorSchema = z
+  .object({
+    email: createUserSchema.shape.email,
+    displayName: createUserSchema.shape.displayName,
+    role: z.literal('SENIOR'),
+    telegram: createUserSchema.shape.telegram,
+    phone: createUserSchema.shape.phone,
+    avatarUrl: createUserSchema.shape.avatarUrl,
+    techStack: createUserSchema.shape.techStack,
+    seniorSharePercent: createUserSchema.shape.seniorSharePercent,
+    hrIds: createUserSchema.shape.hrIds,
+    accountantId: createUserSchema.shape.accountantId,
+    projectId: createUserSchema.shape.projectId,
+    teamMode: createUserSchema.shape.teamMode,
+    dropTeamId: createUserSchema.shape.dropTeamId,
+    locale: createUserSchema.shape.locale,
+  })
+  .superRefine((data, ctx) => {
+    if (data.teamMode === 'JOIN_DROP_TEAM' && !data.dropTeamId) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'zod.DROP_TEAM_ID_REQUIRED',
+        path: ['dropTeamId'],
+      })
+    }
+  })
+
+/**
  * Create-drop payload. Mirrors `createUserSchema` for SENIOR but adds the
  * `dropSharePercent` (default 5) and locks the role to DROP. The drop is
  * always paired with its drop-team at creation time (spec §5.1). HR is
@@ -566,6 +612,7 @@ export const userWithPermissionsResponseSchema = z.object({
 export type UserProfileDto = z.infer<typeof userProfileSchema>
 export type UpdateProfileDto = z.infer<typeof updateProfileSchema>
 export type CreateUserDto = z.infer<typeof createUserSchema>
+export type HrCreateSeniorDto = z.infer<typeof hrCreateSeniorSchema>
 export type AdminUpdateUserDto = z.infer<typeof adminUpdateUserSchema>
 export type UserWithPermissionsResponse = z.infer<typeof userWithPermissionsResponseSchema>
 export type CreateDropDto = z.infer<typeof createDropSchema>

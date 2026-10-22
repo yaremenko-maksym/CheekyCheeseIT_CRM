@@ -32,12 +32,27 @@ bash scripts/check-lessons-cap.sh || true
 # to double-check a cross-package change before opening the PR):
 #   PREPUSH_FULL=1 git push
 #
+# ensure_node -- pin the gate to the project's Node 22 (.nvmrc + engines.node), or
+# refuse loudly -- lives in scripts/devops/lib/ensure-node.sh, shared with
+# scripts/devops/mutation-gate.mjs so the rule has ONE implementation (the incident,
+# the parse rules and the refusal contract are documented in that file's header).
+# $0-relative so it resolves under `sh -e .husky/pre-push`, `bash .husky/pre-push`
+# and husky's wrapper alike; a missing lib is a loud failure (POSIX `.` aborts a
+# non-interactive shell), never a silent skip of the pin.
+#
+# Called lazily (from run_full_suite and before the first scoped turbo call), not
+# at the top of the file, so a docs-only push -- which needs no node at all --
+# is never refused over a toolchain it does not use.
+. "$(dirname "$0")/../scripts/devops/lib/ensure-node.sh"
+
+
 # run_full_suite (code review 5112543557, CR-M-1): this body used to be
 # duplicated byte-for-byte at every call site below (PREPUSH_FULL=1,
 # merge-base unresolvable, and now the dependency/build-config case a diff
 # below adds) — one function, three callers, instead of three copies that
 # could drift out of sync with each other.
 run_full_suite() {
+  ensure_node
   pnpm typecheck
   # Run packages sequentially so each vitest worker gets full CPU budget.
   # Parallel fork-pools (shared + api + web) competed for CPU under load,
@@ -98,6 +113,10 @@ fi
 # shared+api+web+landing — running those four in parallel would reproduce
 # the exact timeout class #206 fixed, just scoped to fewer packages).
 #
+# Product code is in the diff, so turbo is about to run: pin the runtime first
+# (ensure_node, defined above -- switches to the project's Node 22 or refuses).
+ensure_node
+
 # Two separate invocations, not one `turbo run typecheck test`: @crm/e2e's
 # own "test" script is `playwright test` (apps/e2e/package.json) -- a real
 # browser E2E run that this hook has never driven and cannot: no app stack

@@ -707,6 +707,44 @@ describe('InvoicesService', () => {
       )
     })
 
+    // L5 facade wiring: the creation service reaches getAdminId / buildVerifyUrl through
+    // late-bound callbacks on the facade, so a spy installed on the facade AFTER construction
+    // must still intercept — this pins the callbacks (a `() => undefined` wiring would not).
+    it('routes getAdminId and buildVerifyUrl through the facade (late-bound spies are honoured)', async () => {
+      const h = buildHarness({
+        txs: [tx({ id: 'tx-1', type: 'SENIOR_INCOME', receiverId: SENIOR.id, projectId: 'p-1' })],
+        sigs: [],
+        users: [
+          { id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' },
+          { id: ADMIN.id, displayName: ADMIN.displayName, role: 'ADMIN' },
+        ],
+        projects: [{ id: 'p-1', name: 'Acme Corp' }],
+      })
+      h.ctrl.findTxId = 'tx-1'
+      h.ctrl.userFindFirstQueue = [SENIOR.id, ADMIN.id]
+      h.ctrl.lookupProjectId = 'p-1'
+      const facade = h.svc as unknown as {
+        getAdminId: () => Promise<string>
+        buildVerifyUrl: (id: string) => string
+      }
+      const adminSpy = vi.spyOn(facade, 'getAdminId').mockResolvedValue('admin-spy')
+      const verifySpy = vi
+        .spyOn(facade, 'buildVerifyUrl')
+        .mockReturnValue('https://spy.example/verify/tx-1')
+
+      await h.svc.autoCreateForSeniorPayout('tx-1')
+
+      expect(adminSpy).toHaveBeenCalledTimes(1)
+      expect(verifySpy).toHaveBeenCalledWith('tx-1')
+      expect(h.pdfService.generateSignableInvoicePdf).toHaveBeenCalledWith(
+        expect.objectContaining({ verifyUrl: 'https://spy.example/verify/tx-1' }),
+      )
+      expect(h.uploadInternal).toHaveBeenCalledWith(
+        expect.objectContaining({ uploadedById: 'admin-spy' }),
+      )
+      expect(h.state.sigs[0]!.signerId).toBe('admin-spy')
+    })
+
     // i18n stage 5: the PDF is rendered in the RECIPIENT's locale — the
     // counterparty's own `users.locale`, never the admin's and never a default.
     it.each([
@@ -2043,6 +2081,41 @@ describe('InvoicesService', () => {
       })
     })
 
+    it('returns 404 for a transaction type that is not an invoice anchor, even with a document and a counterparty signature', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-not-anchor',
+            type: 'DROP_INCOME',
+            receiverId: SENIOR.id,
+            invoiceDocumentId: 'doc-not-anchor',
+            amount: '800',
+          }),
+        ],
+        sigs: [
+          {
+            id: 's-counterparty',
+            transactionId: 'tx-not-anchor',
+            signerRole: 'COUNTERPARTY',
+            signerId: SENIOR.id,
+            pdfHash: 'c'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'MANUAL_CLICK',
+            signedAt: new Date('2026-05-26T11:00:00Z'),
+            amountSnapshot: '800.000000',
+            currencySnapshot: 'USD',
+          },
+        ],
+        users: [{ id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' }],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-not-anchor'
+      await expect(h.svc.verifyInvoice('tx-not-anchor')).rejects.toMatchObject({
+        response: { code: 'INVOICE_NOT_FOUND', statusCode: 404 },
+      })
+    })
+
     // ── SEC-05: COMPANY signature must not expose admin display name ───────────
     it('SEC-05: COMPANY signature signerName is brand name, not admin display name', async () => {
       const h = buildHarness({
@@ -2624,6 +2697,60 @@ describe('InvoicesService', () => {
 
       const result = await h.svc.getInvoice(ACCOUNTANT, 'tx-invoice-1')
       expect(result.transactionId).toBe('tx-invoice-1')
+    })
+
+    it('reports the joined counterparty user id for a SENIOR_INCOME row', async () => {
+      const h = buildHarness({
+        txs: [makeInvoiceTx()],
+        sigs: [],
+        users: [{ id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' }],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-invoice-1'
+
+      const result = await h.svc.getInvoice(ADMIN, 'tx-invoice-1')
+      expect(result.counterpartyId).toBe(SENIOR.id)
+    })
+
+    it('falls back to the PAYOUT sender id when the sender relation was not joined', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-payout-cp',
+            type: 'PAYOUT',
+            senderId: SENIOR.id,
+            receiverId: null,
+            invoiceDocumentId: 'doc-inv-1',
+          }),
+        ],
+        sigs: [],
+        users: [],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-payout-cp'
+
+      const result = await h.svc.getInvoice(ADMIN, 'tx-payout-cp')
+      expect(result.counterpartyId).toBe(SENIOR.id)
+    })
+
+    it('reports an empty counterparty id when the row has no counterparty at all', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-no-cp',
+            type: 'SENIOR_INCOME',
+            receiverId: null,
+            invoiceDocumentId: 'doc-inv-1',
+          }),
+        ],
+        sigs: [],
+        users: [],
+        projects: [],
+      })
+      h.ctrl.findTxId = 'tx-no-cp'
+
+      const result = await h.svc.getInvoice(ADMIN, 'tx-no-cp')
+      expect(result.counterpartyId).toBe('')
     })
 
     it('owner counterparty SENIOR sees their own invoice', async () => {

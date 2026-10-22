@@ -1,6 +1,6 @@
 ---
 name: dev-flow-resilience
-description: When Coder / Reviewer / Master work on a long-running operation where a watchdog cutoff, an MCP hang, a session boundary loss or a zone-of-write violation may occur. A CRM-specific resilience layer (D1-D4 fixes from the 2026-05-23 RCA) — NOT covered by ECC. Use before starting long-running work, on suspicion of silent termination, and on cross-session waits.
+description: 'Use when running long operations, an MCP call hangs >5s, a session boundary may drop state, a watchdog may cut the agent off, or a cross-session wait is needed (Coder/Reviewer/Master). CRM resilience layer: sentinel recovery, write-then-post.'
 when_to_use: "Use when an agent runs a long-running operation, an MCP call hangs > 5s, a session boundary may drop state, a watchdog may cut the agent off mid-task, or a cross-session wait is needed. Examples: 'the agent was cut off at the limit', 'MCP hung', 'need to wait for a review in an hour', 'completed but not done', 'sentinel recovery', 'write-then-post'."
 allowed-tools:
   - Read

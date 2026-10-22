@@ -4,7 +4,15 @@ import { AuthModule } from '../auth/auth.module'
 import { DatabaseModule } from '../database/database.module'
 import { NotificationsModule } from '../notifications/notifications.module'
 import { UsersModule } from '../users/users.module'
+import { ProjectAccessService } from './project-access.service'
+import { ProjectArchiveService } from './project-archive.service'
+import { ProjectInterviewSeedService } from './project-interview-seed.service'
+import { ProjectScopedReadService } from './project-scoped-read.service'
+import { ProjectShareChangeService } from './project-share-change.service'
 import { ProjectAuditLogService } from './project-audit-log.service'
+import { ProjectDraftService } from './project-draft.service'
+import { ProjectMembersService } from './project-members.service'
+import { ProjectReadService } from './project-read.service'
 import { ProjectsController } from './projects.controller'
 import { ProjectsService } from './projects.service'
 
@@ -20,7 +28,18 @@ import { ProjectsService } from './projects.service'
     forwardRef(() => UsersModule),
   ],
   controllers: [ProjectsController],
-  providers: [ProjectsService, ProjectAuditLogService],
+  providers: [
+    ProjectsService,
+    ProjectAuditLogService,
+    ProjectAccessService,
+    ProjectMembersService,
+    ProjectReadService,
+    ProjectDraftService,
+    ProjectArchiveService,
+    ProjectInterviewSeedService,
+    ProjectShareChangeService,
+    ProjectScopedReadService,
+  ],
   exports: [ProjectsService, ProjectAuditLogService],
 })
 export class ProjectsModule {}

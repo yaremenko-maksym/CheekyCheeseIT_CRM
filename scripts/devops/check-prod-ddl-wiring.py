@@ -245,9 +245,119 @@ KNOWN_NOT_WIRED = {
 }
 
 
+# A step that passes its body as `script_path:` instead of an inline `script:`.
+# `${{ github.workspace }}/` is the only expression this guard will resolve — a
+# computed path is refused rather than skipped (see expand_script_paths).
+# NB the value is NOT `\S+`: `${{ github.workspace }}` has spaces inside the
+# expression, and an anchored `\S+` silently failed to match the real line —
+# which made this whole expansion a no-op and the guard green with nothing to
+# check. Caught only because the guard was re-run and still refused.
+SCRIPT_PATH_RE = re.compile(r"^(\s*)script_path:\s*(.+?)\s*$")
+WORKSPACE_PREFIX = "${{ github.workspace }}/"
+
+# A step whose ENTIRE script is a dispatch to a file already on the VPS:
+#   script: bash /opt/crm/scripts/devops/deploy-stack-on-vps.sh
+# This is the shape the deploy step took after `script_path:` turned out to ship
+# the body as a command string too (see expand_script_paths). The path is a VPS
+# path; what must be opened is the REPOSITORY file that gets scp'd there, so the
+# `/opt/crm/` prefix is translated to REPO_ROOT. Deliberately anchored to a
+# whole-line match: a `bash /opt/crm/...` buried inside a larger script body is
+# NOT followed, because then the body itself is still in view and recursing adds
+# surface without adding visibility.
+VPS_DISPATCH_RE = re.compile(r"^(\s*)script:\s*bash\s+/opt/crm/(\S+)\s*$")
+
+
+def expand_script_paths(content):
+    """Inline every `script_path:` file back into the YAML text.
+
+    WHY (task-infra-deploy-arglist-too-long, 2026-10-19): the DDL apply steps
+    this whole module reasons about used to sit in deploy.yml as one 2358-line
+    inline `script:` block. That block hit Linux MAX_ARG_STRLEN — appleboy/
+    ssh-action passes `script:` as the single env string INPUT_SCRIPT, so
+    execve could no longer spawn bash and `main` stopped being deployable at
+    all. The body moved to scripts/devops/deploy-stack-on-vps.sh.
+
+    TWO delivery shapes are therefore followed, because the first attempt at
+    that move did not work: `script_path:` (PR #1035) is still read into the
+    same command string drone-ssh sends to ssh.Stream, so the remote /bin/bash
+    refused it in turn, and the step became `script: bash /opt/crm/<path>` with
+    the file delivered by scp. Both forms are expanded here — the one that
+    failed included, since nothing stops a future step from using it.
+
+    Had this function not been written in the same change, THIS GUARD WOULD
+    HAVE GONE GREEN WITH ZERO APPLY STEPS IN ITS FIELD OF VIEW — the precise
+    shape of the 2026-07-25 incident it exists to prevent, one file over, and
+    with every DDL file on prod silently unwatched. It is the same failure as
+    check-guard-tests-exist.sh's own blind spot: an inventory defined by where
+    something lives rather than by what it is.
+
+    So the deploy surface is defined as "deploy.yml plus whatever its steps
+    execute", and the expansion is textual and in-place: the referenced file is
+    spliced in under a synthetic `script: |` at the same indentation the inline
+    block had. Every analysis downstream (step parsing, comment stripping,
+    psql/ON_ERROR_STOP checks, apply ORDER) then sees text of exactly the shape
+    it saw before the split, and needed no changes whatsoever — which is the
+    point: this function is the only thing that knows about the split.
+    """
+    out = []
+    for raw in content.splitlines():
+        md = VPS_DISPATCH_RE.match(raw)
+        if md:
+            indent, rel = md.group(1), md.group(2)
+            path = os.path.join(REPO_ROOT, rel)
+            if not os.path.isfile(path):
+                raise SystemExit(
+                    "ERROR: {} dispatches the whole step to `bash /opt/crm/{}`, but this\n"
+                    "repository has no {}. The VPS copy comes from the repository via scp, so a\n"
+                    "path with no repository file behind it is a step whose contents this guard\n"
+                    "cannot audit — and an unauditable step is how prod DDL stops being\n"
+                    "watched. Fail loud rather than skip.".format(
+                        os.path.relpath(DEPLOY_YML, REPO_ROOT), rel, rel
+                    )
+                )
+            with open(path, "r") as f:
+                body = f.read().splitlines()
+            body_indent = indent + "  "
+            out.append("{}script: |".format(indent))
+            out.extend((body_indent + line) if line.strip() else "" for line in body)
+            continue
+
+        m = SCRIPT_PATH_RE.match(raw)
+        if not m:
+            out.append(raw)
+            continue
+        indent, ref = m.group(1), m.group(2)
+        if not ref.startswith(WORKSPACE_PREFIX):
+            raise SystemExit(
+                "ERROR: {} has `script_path: {}`, which this guard cannot resolve.\n"
+                "Only `{}<repo-relative path>` is understood. A path this guard cannot\n"
+                "read is a step whose contents it cannot audit, and silently skipping it\n"
+                "is how DDL stops being watched — so this is a hard failure. Use the\n"
+                "workspace-relative form, or teach expand_script_paths() about the new one.".format(
+                    os.path.relpath(DEPLOY_YML, REPO_ROOT), ref, WORKSPACE_PREFIX
+                )
+            )
+        rel = ref[len(WORKSPACE_PREFIX) :]
+        path = os.path.join(REPO_ROOT, rel)
+        if not os.path.isfile(path):
+            raise SystemExit(
+                "ERROR: {} points `script_path:` at {}, which does not exist.\n"
+                "That is a broken deploy, not a guard problem: the step would fail on the\n"
+                "runner before it ever reached the VPS.".format(
+                    os.path.relpath(DEPLOY_YML, REPO_ROOT), rel
+                )
+            )
+        with open(path, "r") as f:
+            body = f.read().splitlines()
+        body_indent = indent + "  "
+        out.append("{}script: |".format(indent))
+        out.extend((body_indent + line) if line.strip() else "" for line in body)
+    return "\n".join(out)
+
+
 def read_deploy_yml():
     with open(DEPLOY_YML, "r") as f:
-        return f.read()
+        return expand_script_paths(f.read())
 
 
 def collect_all_ddl_files(ddl_dir):
@@ -903,6 +1013,21 @@ IF_KEY_RE = re.compile(r"^\s*if:\s*\S")
 SCP_ACTION_USES_RE = re.compile(r"^\s*uses:\s*appleboy/scp-action@")
 
 
+# The step that pins a rollback run's checkout to the commit being redeployed.
+# Matched by what it DOES (`git checkout "$TARGET"`), not by its name, so a
+# renamed step does not silently widen the scope below.
+ROLLBACK_PIN_RE = re.compile(r"^\s*git checkout \"\$TARGET\"\s*$")
+
+
+def rollback_pinned_job_ids(steps):
+    """Job ids containing a step that pins the checkout to the rollback target."""
+    return {
+        step.job_id
+        for step in steps
+        if any(ROLLBACK_PIN_RE.match(line) for line in step.lines)
+    }
+
+
 def unconditional_scp_source_files(steps):
     """Every path named in the `source:` of an scp-action step that has NO
     `if:` key anywhere in its own body — i.e. a step this pipeline always
@@ -916,11 +1041,25 @@ def unconditional_scp_source_files(steps):
     copy-wiring check above would add real complexity for a case that does
     not occur.
     """
+    pinned_jobs = rollback_pinned_job_ids(steps)
     files = set()
     for step in steps:
         if not any(SCP_ACTION_USES_RE.match(line) for line in step.lines):
             continue
         if any(IF_KEY_RE.match(line) for line in step.lines):
+            continue
+        # SCOPE: only scp steps in a job whose checkout is PINNED to the rollback
+        # target. The whole hazard is "the rollback target predates this file, so
+        # the scp finds nothing" — which can only happen where the checkout is
+        # the rollback commit. A job that checks out the workflow's own ref
+        # (the `deploy` job, which scp's scripts/devops/deploy-stack-on-vps.sh)
+        # always has its files by construction, so requiring them in the
+        # rollback preflight would be false: it would make every rollback to a
+        # commit older than that file fail the preflight for no reason, which is
+        # a worse outcome than the one this check exists to prevent. If no pinned
+        # job can be identified the scope stays ALL jobs — over-reporting fails
+        # loud, under-reporting goes blind.
+        if pinned_jobs and step.job_id not in pinned_jobs:
             continue
         for value in source_values(step):
             for token in value.split(","):
@@ -952,6 +1091,151 @@ def check_preflight_covers_unconditional_scp(preflight_result, steps):
     if preflight_files is None or preflight_error:
         return []
     return sorted(unconditional_scp_source_files(steps) - set(preflight_files))
+
+
+# ---------------------------------------------------------------------------
+# APPLY-ORDER INVARIANTS (task-infra db-least-privilege-roles, PR #1027 fix
+# round, 2026-10-18)
+# ---------------------------------------------------------------------------
+# The privilege grants file names every relation explicitly, so it only covers
+# what already exists when it runs; the privileges check validates the state it
+# runs in. Two consequences, each of which once held only by position:
+#
+#   1. GRANTS-AFTER-CREATORS: no file applied AFTER the grants may create a
+#      table, view, materialized view or sequence. A relation created later
+#      ends the deploy ungranted. This was broken in the first wiring (the
+#      multipart-salary `prepare` file creates `salary_month_initializations`
+#      and sat after the grants); it was invisible on production because the
+#      table already existed there, and only a FRESH database would have shown
+#      it. The justification written next to the grants asserted the opposite
+#      and nothing checked it.
+#   2. CHECK-LAST: the privileges check must be the final file psql applies, so
+#      the state it validates is the end state of the deploy. A first run
+#      before the container swap is fine (it fails the deploy while the old API
+#      is still serving) as long as a run ALSO closes the sequence.
+#
+# BOTH are derived from deploy.yml itself, the way a human derives them: walk
+# the apply step in text order (execution order inside one script), resolving
+# `psql ... < "$VAR"` the same way the wiring check does, then read each file
+# applied after the grants and look for a relation-creating statement. There is
+# deliberately no hand-maintained list of creator files — that would be the
+# same fragility one level up. The only literals are the two ANCHOR files the
+# invariants are about.
+#
+# Gated on presence: with no grants file in the apply sequence (fixtures, or a
+# repo that has not adopted the roles work) invariant 1 is skipped; likewise
+# invariant 2 without the check file.
+#
+# KNOWN LIMITS, stated: text order is execution order only inside the single
+# job that applies the grants (steps of one job run sequentially; across jobs it
+# need not), so the sequence is taken from that job alone. Only files applied
+# through psql are seen; DDL issued any other way (an inline `psql -c`) is not.
+GRANTS_FILE = "2026-10-18_db_grants.sql"
+PRIVILEGES_CHECK_FILE = "2026-10-18_db_privileges_check.sql"
+
+RELATION_CREATING_RE = re.compile(
+    r"\bCREATE\s+(?:OR\s+REPLACE\s+)?"
+    r"(?:(?:GLOBAL\s+|LOCAL\s+)?(?:TEMP(?:ORARY)?|UNLOGGED|RECURSIVE|FOREIGN)\s+)*"
+    r"(?:TABLE|VIEW|MATERIALIZED\s+VIEW|SEQUENCE)\b"
+    # A serial / identity column creates an owned sequence, which the check's
+    # relkind 'S' pass covers as well.
+    r"|\b(?:BIG|SMALL)?SERIAL\b|\bAS\s+IDENTITY\b",
+    re.IGNORECASE,
+)
+SQL_BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
+SQL_LINE_COMMENT_RE = re.compile(r"--[^\n]*")
+
+
+def ordered_applied_files(steps, job_id):
+    """File names psql applies in the given job, in execution (text) order.
+
+    A file applied several times appears several times. Assignments are
+    resolved in sequence (not collected up front), so a re-used variable name
+    resolves to the file it held at that point.
+    """
+    var_files = {}
+    sequence = []
+    for step in steps:
+        if step.job_id != job_id:
+            continue
+        for cmd in join_logical_commands(step.lines):
+            cmd_lines = cmd.split("\n")
+            if len(cmd_lines) == 1:
+                m = VAR_ASSIGN_RE.match(cmd_lines[0])
+                if m:
+                    var_files[m.group(1)] = m.group(2) if m.group(2) is not None else m.group(3)
+                    continue
+            if not any(
+                PSQL_INVOCATION_RE.search(ln) and not ECHO_LINE_RE.match(ln) for ln in cmd_lines
+            ):
+                continue
+            found = []
+            for varname, path in var_files.items():
+                ref = re.search(r"\$\{?" + re.escape(varname) + r"\}?(?![A-Za-z0-9_])", cmd)
+                if ref:
+                    found.append((ref.start(), path))
+            for m in re.finditer(r"/opt/crm/\S+\.sql", cmd):
+                found.append((m.start(), m.group(0).rstrip("\"'),;")))
+            for _pos, path in sorted(found):
+                sequence.append(os.path.basename(path))
+    return sequence
+
+
+def creates_relation(ddl_dir, filename):
+    """True when the file, comments removed, contains a relation-creating statement."""
+    path = os.path.join(ddl_dir, filename)
+    if not os.path.isfile(path):
+        return False
+    with open(path, "r") as f:
+        sql = f.read()
+    sql = SQL_LINE_COMMENT_RE.sub("", SQL_BLOCK_COMMENT_RE.sub("", sql))
+    return RELATION_CREATING_RE.search(sql) is not None
+
+
+def check_apply_order(steps, ddl_dir):
+    """Return a list of (invariant, filename, message) violations."""
+    violations = []
+    for job_id in sorted({s.job_id for s in steps}):
+        sequence = ordered_applied_files(steps, job_id)
+        if GRANTS_FILE in sequence:
+            last_grants = len(sequence) - 1 - sequence[::-1].index(GRANTS_FILE)
+            seen = set()
+            for position, name in enumerate(sequence[last_grants + 1 :], start=last_grants + 2):
+                if name in seen or name == GRANTS_FILE:
+                    continue
+                # A file whose FIRST application is above the grants has already
+                # created its relations by then; a later re-run (deploy.yml
+                # re-applies the drop_cascade_origin marker as a post-cutover
+                # second pass) cannot create a new one. Judge by first application.
+                if sequence.index(name) <= last_grants:
+                    continue
+                seen.add(name)
+                if creates_relation(ddl_dir, name):
+                    violations.append(
+                        (
+                            "GRANTS-AFTER-CREATORS",
+                            name,
+                            "creates a table, view, materialized view or sequence but is applied "
+                            "AFTER {} (apply #{} of {} in its job, grants at #{}), so on a fresh "
+                            "database that relation ends the deploy ungranted".format(
+                                GRANTS_FILE, position, len(sequence), last_grants + 1
+                            ),
+                        )
+                    )
+        if PRIVILEGES_CHECK_FILE in sequence and sequence[-1] != PRIVILEGES_CHECK_FILE:
+            violations.append(
+                (
+                    "CHECK-LAST",
+                    sequence[-1],
+                    "is applied AFTER the last run of {} (the check is at #{} of {}), so the "
+                    "check validates a state that is not the end state of the deploy".format(
+                        PRIVILEGES_CHECK_FILE,
+                        len(sequence) - sequence[::-1].index(PRIVILEGES_CHECK_FILE),
+                        len(sequence),
+                    ),
+                )
+            )
+    return violations
 
 
 def main():
@@ -1011,6 +1295,8 @@ def main():
 
     missing_from_preflight = check_preflight_covers_unconditional_scp(preflight_result, steps)
 
+    order_violations = check_apply_order(steps, DDL_MANUAL_DIR)
+
     print("Prod DDL Wiring Guard")
     print("  Total manual DDL files:  {}".format(len(all_files)))
     print("  Copied AND applied:      {}".format(len(fully_wired)))
@@ -1022,6 +1308,7 @@ def main():
     print("  psql missing ON_ERROR_STOP: {}".format(len(flag_gaps)))
     print("  Hard-required list drift (preflight vs runbook): {}".format(mirror_drift))
     print("  Preflight missing unconditional scp files: {}".format(len(missing_from_preflight)))
+    print("  Apply-order violations (grants / privileges check): {}".format(len(order_violations)))
 
     if ghost_allowlist:
         print()
@@ -1165,8 +1452,25 @@ def main():
         print("reached the VPS. That is the SR-H-3 failure mode this preflight step exists")
         print("to prevent, reopened through the one file class the mirror check cannot see.")
 
+    if order_violations:
+        print()
+        print("FAIL: deploy.yml's DDL apply order breaks an invariant of the database")
+        print("privilege work. Order is taken from the apply step itself (text order inside")
+        print("one job script), not from a list.")
+        for invariant, filename, message in order_violations:
+            print()
+            print("  [{}] {}".format(invariant, filename))
+            print("    {}".format(message))
+        print()
+        print("Fix: GRANTS-AFTER-CREATORS - move the offending file's apply block ABOVE the")
+        print("`{}` block (or split the relation-creating part out of it).".format(GRANTS_FILE))
+        print("CHECK-LAST - make the final database step the `{}` run;".format(PRIVILEGES_CHECK_FILE))
+        print("an earlier run before the container swap may stay (it fails the deploy while")
+        print("the old API is still serving), but a run must also close the sequence.")
+
     if (
         broken
+        or order_violations
         or private_leaks
         or flag_gaps
         or mirror_error

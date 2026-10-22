@@ -150,6 +150,35 @@ An external feed from which `jobPostings` arrive; the filtered and scored ones b
 — a suggestion to the recruiter.
 _Avoid_: «парсер», «скрапер», «интеграция»
 
+**Job opportunity** (product term: «Зовнішня вакансія»; code `jobOpportunities`, `jobSourceRecords`):
+A job posted by a third-party employer, found by sourcing — NOT one of our own landing **Vacancy** records
+(«Вакансия», `vacancies`). It is the canonical, de-duplicated external job in the new vacancy-sourcing store.
+One opportunity is backed by one or more **source records** (the provider-native posting, identified by
+provider type + namespace + native key, each with immutable revisions) and is evaluated per senior
+(`jobOpportunityMatches`, outcome LEAD / TRIAGE / EXCLUDED). Surrounding recruiter-queue UI copy may say plain
+«вакансія» where the context is unambiguous, but the entity and the code name stay distinct from `vacancies`.
+It also replaces the legacy `jobPostings` concept in the new store.
+_Avoid_: `job_vacancies*` / «vacancy» in code (reserved for the studio's own landing postings), «пост», «объявление»
+
+**Submission** (product term: «Подача»; the record a recruiter makes with «Записати подачу»):
+The recorded fact that **one senior** was submitted to **one job opportunity**. It is per senior, not per vacancy:
+several of a team's seniors may each be submitted to the same opportunity, independently and in any order. The CRM
+**records** a submission; it does **not** send anything — the recruiter applies on the source site and then logs it.
+A submission is visible only inside the submitting team; no team can learn where another team submits. A recruiter
+cancels their own team's submission, an ADMIN any; the action log is append-only, so a cancellation is a recorded
+fact, not an erasure.
+_Avoid_: «взяти в роботу» / «вже взято» (they imply the vacancy becomes occupied, which a submission never does),
+«відправити» / «send» (nothing is sent), «заявка» (that is a `vacancyApplications` row — a candidate applying to one of
+the studio's own landing vacancies)
+
+**Stop-list** (product term: «Стоп-лист»; `job_exclusion_filters` with kind `COMPANY` and a non-null `senior_id`):
+A senior's own list of companies they should not be submitted to. It is **per senior, never global**. A stop-listed
+company removes that senior from the opportunity's matches — the opportunity stays for the team's other seniors, and
+leaves the queue only when no matching senior remains. Recruiters see **how many** of their team's seniors excluded an
+opportunity, not who; filtering the queue by one senior hides that senior's stop-listed opportunities, which is
+intended rather than a leak.
+_Avoid_: «чорний список» / «blacklist», «бан компанії» (both suggest a studio-wide rule, which this is not)
+
 ## Documents
 
 **Invoice** (product term: «Счёт»; `invoices`, `invoiceSignatures`):
@@ -167,6 +196,26 @@ A document between the company and an employee, which the employee signs during 
 `DRAFT → READY_TO_SIGN → SIGNED`, plus the terminal `CANCELLED`. A third entity alongside the
 «template / signed contract» pair, not their state: it has its own lifecycle and its own addressee.
 _Avoid_: «договор с сотрудником», «документ на подпись»
+
+## AI / Inference
+
+**Inference layer** (`@crm/inference`):
+A shared, framework-agnostic monorepo package that both the vacancy auto-sourcing feature and a colleague's
+feature call for model inference, through one `InferenceClient` exposing two ports. Design:
+`docs/superpowers/specs/2026-10-13-shared-inference-layer-design.md`.
+_Avoid_: «AI-сервис», «LLM-клиент», «обёртка над моделью»
+
+**Extraction (port)** (`ExtractionPort`):
+Turns untrusted text (e.g. a job posting) into schema-validated structured fields. Backends: a local
+OpenAI-compatible model or OpenRouter (the model is chosen reactively under cost/context guardrails).
+_Avoid_: «парсинг моделью», «structured output»
+
+**Decision (port)** (`DecisionPort`):
+Answers typed questions (choice / score / noul) against a bounded state and returns structured answers with
+confidence. Backend: TypeSafe **Jev** (System One). The vacancy↔senior **relevance** check is its first consumer.
+Using a model for relevance (not only extraction) is a deliberate owner amendment (2026-10-13) to the r4/r5
+"model use is extraction only" constraint — see the spec above.
+_Avoid_: «матчинг моделью», «скоринг через LLM»
 
 ---
 

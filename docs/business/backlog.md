@@ -2,7 +2,7 @@
 
 > A running backlog of ideas and features deferred by the owner "for later". Not a plan for immediate implementation —
 > an entry point for when we get to it. Each item: context, desired behavior, affected places in the code,
-> open questions. When taken into work → BA brief → PM → tasks (full pipeline).
+> open questions. When taken into work → a brief → Master → task files (full pipeline; the PM agent was removed 2026-10-05).
 
 ---
 

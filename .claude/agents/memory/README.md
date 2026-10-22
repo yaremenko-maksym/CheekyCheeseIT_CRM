@@ -11,7 +11,7 @@ Each agent has its own `lessons.md` — accumulated lessons from past tasks.
 ├── autotest/lessons.md
 ├── reviewer/lessons.md
 ├── devops/lessons.md
-└── pm/lessons.md       (active, ≤ 20 lines; NO archive files)
+└── pm/lessons.md       (orchestrator lessons; PM role merged into Master 2026-10-05; NO archive files)
 ```
 
 The `.md` archiving mechanism was removed (2026-06-29) — there is no more `lessons.archive.md`; stale lessons are deleted on consolidation, history is recoverable from git.

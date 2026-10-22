@@ -669,6 +669,20 @@ describe('meeting recorder schema boundaries', () => {
     expect(issues.some((issue) => issue.message === 'URL must use HTTPS')).toBe(true)
   })
 
+  it.each([
+    'javascript:alert(1)',
+    'data:text/html,<script>alert(1)</script>',
+    'vbscript:msgbox(1)',
+  ])('rejects non-http(s) meetingUrl %s at ingest', (meetingUrl) => {
+    const result = meetingRecorderRecordingInputSchema.safeParse({
+      ...BASE_RECORDING,
+      source: { ...BASE_RECORDING.source, meetingUrl },
+    })
+    expect(result.success).toBe(false)
+    const issues = result.success ? [] : result.error.issues
+    expect(issues.some((issue) => issue.message === 'URL must use HTTPS')).toBe(true)
+  })
+
   it('accepts each analysis status and artifact vocabulary member', () => {
     for (const status of ['analyzing', 'completed', 'failed', 'canceled', 'unsupported']) {
       expect(

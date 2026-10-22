@@ -347,7 +347,7 @@ describe('getApiErrorMessage — API error envelope (task-i18n-stage2-task5)', (
 
   // COPY-M-6 (PR #694 round 3) removed `role`, the only param any registered
   // code declared (`CONTRACT_TEMPLATE_MISSING`'s message no longer takes a
-  // `{role}` token — see `api-errors.ts`), together with `applyRoleLabel`
+  // `{role}` token — see `packages/shared/src/schemas/api-errors/base.ts`), together with `applyRoleLabel`
   // (its own describe block below is gone too). No code left declares
   // params, so there is nothing for `translateApiError` to interpolate
   // through the public surface right now; a synthetic descriptor would only

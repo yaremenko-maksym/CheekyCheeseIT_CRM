@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  THE CAPABILITY FIXTURE. R-1's reason for existing.
+
+  One internal general entity, declared in the internal subset, referenced in content.
+  No file, no URL, no recursion — nothing a <!DOCTYPE pre-reject, a network block or a
+  size cap could stop. The ONLY thing that decides the outcome is whether the parser
+  parses the internal subset:
+
+      an EXPANDING parser  -> <title> reads "AAA"
+      parse-xml            -> throws "Named entity isn't defined: &a;"
+
+  So this document is the one whose result DIFFERS between the two, which is what makes
+  an assertion on it falsifiable. The classic XXE fixtures do not have that property
+  behind the port's DOCTYPE gate — SR-H-1, the finding this whole criterion comes from:
+  the ADR's XXE assertion passed even for an expanding parser, because the gate answered
+  first. `parse-xml.adapter.capability.spec.ts` therefore runs THIS file against the
+  adapter directly, with the gate bypassed, and asserts both that it raises and that no
+  result anywhere contains "AAA".
+-->
+<!DOCTYPE r [
+  <!ENTITY a "AAA">
+]>
+<r><title>&a;</title></r>

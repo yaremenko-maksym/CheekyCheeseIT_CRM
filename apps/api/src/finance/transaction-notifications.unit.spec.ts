@@ -127,22 +127,30 @@ function makeHarness(tx: TxRow, projectName: string | null = 'Acme') {
  */
 function spyOnLoggerErrors(svc: TransactionsService): string[] {
   const messages: string[] = []
-  const logger = (svc as unknown as { logger: { error: (m: string, s?: string) => void } }).logger
+  const logger = (
+    svc as unknown as {
+      lifecycle: { logger: { error: (m: string, s?: string) => void } }
+    }
+  ).lifecycle.logger
   vi.spyOn(logger, 'error').mockImplementation((m: string) => {
     messages.push(String(m))
   })
   return messages
 }
 
-/** `afterTransactionCreated` — приватный шов, который зовут все пути создания. */
+/** `afterTransactionCreated` — шов в lifecycle-коллабораторе, который зовут все пути создания. */
 function created(svc: TransactionsService) {
-  return svc as unknown as {
-    afterTransactionCreated: (
-      txId: string,
-      created: { type: string; amount: string; currency: string },
-      user: SessionUser,
-    ) => Promise<void>
-  }
+  return (
+    svc as unknown as {
+      lifecycle: {
+        afterTransactionCreated: (
+          txId: string,
+          created: { type: string; amount: string; currency: string },
+          user: SessionUser | null,
+        ) => Promise<void>
+      }
+    }
+  ).lifecycle
 }
 
 describe('«транзакция добавлена»', () => {
@@ -523,7 +531,7 @@ describe('«транзакция добавлена» — системное с�
     h: ReturnType<typeof makeHarness>,
     opts: { insertReturns: { id: string }[]; juniors?: boolean },
   ) {
-    const internals = h.svc as unknown as {
+    const internals = (h.svc as unknown as { salaryService: object }).salaryService as unknown as {
       resolveHrAccountantSalaryReceivers: () => Promise<unknown[]>
       resolveJuniorSalaryReceivers: () => Promise<unknown[]>
     }

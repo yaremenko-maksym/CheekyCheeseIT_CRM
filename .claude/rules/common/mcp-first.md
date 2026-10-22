@@ -2,7 +2,6 @@
 
 **Status:** Always-on
 **Applies to:** All agents (Coder, AutoTest, Reviewer, DevOps, Legal, Architect, plus ECC-imported agents) + Master (orchestrator)
-**Source:** Project hard requirement (CLAUDE.md "MCP servers — USE FIRST") + Phase 2.5 activation of `eslint` MCP
 
 ---
 
@@ -47,9 +46,12 @@ Never use Bash where a suitable MCP exists.
 ## Concrete rules (mandatory)
 
 - Before writing any service / hook / component → `ast-grep find_code` to find an existing analog.
-- Before changing an existing exported symbol → `codegraph_callers <symbol>` / `codegraph_explore` for blast-radius (resolves cross-file references more precisely than grep). An architectural question "how does X work" → `codegraph_explore` BEFORE reading files.
+- Before changing an existing exported symbol → `codegraph_callers <symbol>` / `codegraph_explore` for
+  blast-radius (resolves cross-file references more precisely than grep). An architectural question
+  "how does X work" → `codegraph_explore` BEFORE reading files.
 - Before `pnpm --filter @crm/api db:generate` → `postgres query` to check the current schema.
-- After each Edit / Write on `.ts` / `.tsx` → `eslint lint-files` instead of waiting for the pre-commit hook. Details — `.claude/rules/common/eslint-mcp-first.md`.
+- After each Edit / Write on `.ts` / `.tsx` → `eslint lint-files` instead of waiting for the
+  pre-commit hook. Details — `.claude/rules/common/eslint-mcp-first.md`.
 - For any NestJS / TanStack / Zod / Drizzle API — `context7` first, do not guess.
 - Before writing `getByRole` / `getByText` (E2E) → `playwright browser_snapshot` to see the real DOM.
 - For seed data in tests (id, email, amounts) → `postgres query`, not hardcode.
@@ -61,6 +63,7 @@ Never use Bash where a suitable MCP exists.
 
 ## Sources
 
-- CLAUDE.md "MCP servers — USE FIRST"
-- Phase 2.5 deliverable: `docs/architecture/2026-06-03-phase2.5-deliverable.md`
-- ADR: `docs/architecture/2026-05-31-ecc-migration-design.md` §2.7 (MCP configs)
+CLAUDE.md "MCP servers — USE FIRST" · Phase 2.5 activation of the `eslint` MCP:
+`docs/architecture/2026-06-03-phase2.5-deliverable.md` · ADR
+`docs/architecture/2026-05-31-ecc-migration-design.md` §2.7 (MCP configs).
+_(This rule is catalog and mechanism throughout — it has no separate rationale file.)_

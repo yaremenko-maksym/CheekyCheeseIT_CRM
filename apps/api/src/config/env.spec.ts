@@ -704,4 +704,18 @@ describe('validateEnv — Google Indexing API env (Section G)', () => {
       expect(env.BUILD_TIME).toBeUndefined()
     })
   })
+
+  describe('LOCAL_MODEL_URL (SR-M-7)', () => {
+    it('rejects a remote plain-http base', () => {
+      expect(() => validateEnv({ ...BASE_DEV, LOCAL_MODEL_URL: 'http://evil.example' })).toThrow()
+    })
+    it.each([
+      'http://localhost:11434',
+      'http://127.0.0.1:11434',
+      'http://[::1]:11434',
+      'https://host.example',
+    ])('accepts %s', (url) => {
+      expect(validateEnv({ ...BASE_DEV, LOCAL_MODEL_URL: url }).LOCAL_MODEL_URL).toBe(url)
+    })
+  })
 })

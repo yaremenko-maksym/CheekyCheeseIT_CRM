@@ -1250,4 +1250,240 @@ assert_red "docs/runbooks/deployment.md has two lines matching the git log -1 ..
   --contains "expected at most one" \
   -- run_guard "$(make_mirror_case mirror-duplicate-runbook-anchor "$MIRROR_BASE_YML" "$MIRROR_DUPLICATE_RUNBOOK_ANCHOR_MD")"
 
+# ── apply-order invariants (PR #1027 fix round): grants after every relation
+# creator, privileges check last. Order is derived from deploy.yml's apply step,
+# relation creators from the SQL file contents — no list of file names.
+ORD_CREATOR="2099-01-01_order_creator.sql"
+ORD_PLAIN="2099-01-02_order_plain.sql"
+ORD_GRANTS="2026-10-18_db_grants.sql"
+ORD_CHECK="2026-10-18_db_privileges_check.sql"
+
+# $1 = case name, remaining args = file names in apply order (repeats allowed).
+make_order_case() {
+  local name="$1"; shift
+  local root="$WS/$name" dir f i=0
+  guard_test_fake_repo "$root" "$GUARD"
+  dir="$root/apps/api/drizzle/manual"
+  mkdir -p "$dir"
+  local uniq="" src=""
+  for f in "$@"; do
+    case " $uniq " in *" $f "*) ;; *) uniq="$uniq $f" ;; esac
+  done
+  for f in $uniq; do
+    case "$f" in
+      "$ORD_CREATOR") printf -- '-- creates a relation\nCREATE TABLE IF NOT EXISTS order_fixture (id int);\n' >"$dir/$f" ;;
+      "$ORD_PLAIN") printf 'ALTER TABLE order_fixture ADD COLUMN IF NOT EXISTS c text;\n' >"$dir/$f" ;;
+      "$ORD_GRANTS") printf 'GRANT SELECT ON order_fixture TO PUBLIC;\n' >"$dir/$f" ;;
+      *) printf 'SELECT 1;\n' >"$dir/$f" ;;
+    esac
+    src="${src:+$src,}apps/api/drizzle/manual/$f"
+  done
+  {
+    printf 'name: Deploy\non:\n  push:\n    branches: [main]\njobs:\n  copy-compose:\n    runs-on: ubuntu-latest\n    steps:\n'
+    printf '      - name: Copy DDL via SCP\n        uses: appleboy/scp-action@v0.1.7\n        with:\n          host: ${{ secrets.VPS_HOST }}\n'
+    printf "          source: '%s'\n" "$src"
+    printf "          target: '/opt/crm'\n  deploy:\n    runs-on: ubuntu-latest\n    steps:\n"
+    printf '      - name: Apply DDL on the VPS\n        uses: appleboy/ssh-action@v1.2.3\n        with:\n          script: |\n'
+    for f in "$@"; do
+      i=$((i + 1))
+      printf '            F%s="/opt/crm/apps/api/drizzle/manual/%s"\n' "$i" "$f"
+      printf '            docker compose exec -T postgres \\\n'
+      printf '              psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 < "$F%s"\n' "$i"
+    done
+  } >"$root/.github/workflows/deploy.yml"
+  printf '%s' "$root"
+}
+
+assert_green "apply order: creator, grants, plain, check last -> green" \
+  --contains "Apply-order violations (grants / privileges check): 0" \
+  -- run_guard "$(make_order_case order-ok "$ORD_CREATOR" "$ORD_GRANTS" "$ORD_PLAIN" "$ORD_CHECK")"
+
+assert_green "apply order: check before the swap AND last, creator re-run between them (first application is above the grants) -> green" \
+  --contains "Apply-order violations (grants / privileges check): 0" \
+  -- run_guard "$(make_order_case order-rerun-ok "$ORD_CREATOR" "$ORD_GRANTS" "$ORD_CHECK" "$ORD_CREATOR" "$ORD_CHECK")"
+
+assert_red "apply order: a CREATE TABLE file applied after the grants -> red, names the file and GRANTS-AFTER-CREATORS" \
+  --contains "[GRANTS-AFTER-CREATORS] $ORD_CREATOR" \
+  --contains "ends the deploy ungranted" \
+  -- run_guard "$(make_order_case order-creator-after-grants "$ORD_GRANTS" "$ORD_CREATOR" "$ORD_CHECK")"
+
+assert_red "apply order: a file applied after the last privileges check -> red, names the file and CHECK-LAST" \
+  --contains "[CHECK-LAST] $ORD_PLAIN" \
+  --contains "not the end state of the deploy" \
+  -- run_guard "$(make_order_case order-check-not-last "$ORD_CREATOR" "$ORD_GRANTS" "$ORD_CHECK" "$ORD_PLAIN")"
+
+assert_green "apply order: no grants file in the sequence -> invariants not applicable, still green" \
+  --contains "Apply-order violations (grants / privileges check): 0" \
+  -- run_guard "$(make_order_case order-no-grants "$ORD_PLAIN" "$ORD_CREATOR")"
+
+# ── script_path: expansion (task-infra-deploy-arglist-too-long, 2026-10-19) ────
+# The DDL apply steps used to sit in deploy.yml as one 2358-line inline
+# `script:`. That block crossed Linux MAX_ARG_STRLEN (appleboy/ssh-action passes
+# `script:` as the single env string INPUT_SCRIPT), the runner could no longer
+# spawn bash, and `main` became undeployable for every commit. The body moved to
+# scripts/devops/deploy-stack-on-vps.sh behind `script_path:`.
+#
+# The danger that move created is this guard, not the deploy: with the applies
+# out of deploy.yml, the guard's inventory would have gone to ZERO APPLY STEPS
+# and reported OK — the 2026-07-25 incident shape all over again, with every DDL
+# file on prod silently unwatched. expand_script_paths() is what prevents that,
+# so these cases hold it down from both directions: the expansion must find a
+# real apply, and must NOT invent one.
+
+# $1 = case name, $2 = deploy.yml content, $3 = content of the referenced script
+make_script_path_case() {
+  local name="$1" deploy_yml="$2" script="$3"
+  local root="$WS/$name"
+  guard_test_fake_repo "$root" "$GUARD"
+  mkdir -p "$root/apps/api/drizzle/manual" "$root/scripts/devops"
+  printf 'ALTER TABLE t ADD COLUMN IF NOT EXISTS c text;\n' >"$root/apps/api/drizzle/manual/$DDL"
+  printf '%s' "$deploy_yml" >"$root/.github/workflows/deploy.yml"
+  if [ "$script" != "absent" ]; then
+    printf '%s' "$script" >"$root/scripts/devops/deploy-stack-on-vps.sh"
+  fi
+  printf '%s' "$root"
+}
+
+read -r -d '' SCRIPT_PATH_YML <<YML || true
+name: Deploy
+on:
+  push:
+    branches: [main]
+jobs:
+  copy-compose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Copy DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: \${{ secrets.VPS_HOST }}
+          source: 'docker-compose.prod.yml,apps/api/drizzle/manual/$DDL'
+          target: '/opt/crm'
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pull, up, migrate, health-check via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          script_path: \${{ github.workspace }}/scripts/devops/deploy-stack-on-vps.sh
+YML
+
+# Same deploy.yml, but the path is a form the guard cannot resolve. It must
+# refuse rather than skip: a step it cannot read is a step it cannot audit.
+SCRIPT_PATH_UNRESOLVABLE_YML="${SCRIPT_PATH_YML//\$\{\{ github.workspace \}\}\/scripts/\$\{\{ runner.temp \}\}\/scripts}"
+
+read -r -d '' APPLY_SCRIPT <<SH || true
+#!/usr/bin/env bash
+# This header is a comment and must be stripped exactly as it was when the
+# same text lived inline — a filename mentioned here must still not count.
+set -euo pipefail
+FIXTURE_FILE="/opt/crm/apps/api/drizzle/manual/$DDL"
+if [ ! -f "\$FIXTURE_FILE" ]; then
+  echo "ERROR: DDL file not found at \$FIXTURE_FILE"
+  exit 1
+fi
+docker compose exec -T postgres \\
+  psql -U "\$PGUSER" -d "\$PGDB" -v ON_ERROR_STOP=1 < "\$FIXTURE_FILE"
+SH
+
+# The file exists and runs a deploy, but never applies the DDL. Expansion must
+# not turn "copied, never applied" into a pass.
+read -r -d '' NO_APPLY_SCRIPT <<SH || true
+set -euo pipefail
+# SOURCE: apps/api/drizzle/manual/$DDL — mentioned, never applied.
+docker compose up -d
+SH
+
+# The shape after `script_path:` also turned out to ship the body as a command
+# string (deploy of 3928ba00e, "/bin/bash: Argument list too long" on the VPS):
+# the file is scp'd and the step's whole script is a dispatch to the VPS path.
+# The guard must translate /opt/crm/<rel> back to the REPOSITORY file — the VPS
+# copy comes from the repo — or it goes blind on every apply again.
+read -r -d '' DISPATCH_YML <<YML || true
+name: Deploy
+on:
+  push:
+    branches: [main]
+jobs:
+  copy-compose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Copy DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: \${{ secrets.VPS_HOST }}
+          source: 'docker-compose.prod.yml,apps/api/drizzle/manual/$DDL'
+          target: '/opt/crm'
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Copy the deploy script to the VPS via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: \${{ secrets.VPS_HOST }}
+          source: 'scripts/devops/deploy-stack-on-vps.sh'
+          target: '/opt/crm'
+      - name: Pull, up, migrate, health-check via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          script: bash /opt/crm/scripts/devops/deploy-stack-on-vps.sh
+YML
+
+# Same dispatch, but to a path with no repository file behind it: unauditable, so
+# it must refuse rather than quietly contribute nothing.
+read -r -d '' DISPATCH_UNKNOWN_YML <<YML || true
+name: Deploy
+on:
+  push:
+    branches: [main]
+jobs:
+  copy-compose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Copy DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: \${{ secrets.VPS_HOST }}
+          source: 'docker-compose.prod.yml,apps/api/drizzle/manual/$DDL'
+          target: '/opt/crm'
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pull, up, migrate, health-check via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          script: bash /opt/crm/scripts/devops/not-in-this-repo.sh
+YML
+
+assert_green "dispatch via 'bash /opt/crm/<path>' is followed to the repo file -> counted as applied" \
+  --contains "Copied AND applied:      1" \
+  --contains "BROKEN WIRING:           0" \
+  -- run_guard "$(make_script_path_case disp-wired "$DISPATCH_YML" "$APPLY_SCRIPT")"
+
+assert_red "dispatch whose script never applies the DDL -> still red (no false green)" \
+  --contains "COPIED BUT NEVER APPLIED" \
+  -- run_guard "$(make_script_path_case disp-copy-only "$DISPATCH_YML" "$NO_APPLY_SCRIPT")"
+
+assert_red "dispatch to a /opt/crm path with no repository file -> red, not silently unaudited" \
+  --contains "no " \
+  -- run_guard "$(make_script_path_case disp-unknown "$DISPATCH_UNKNOWN_YML" "$APPLY_SCRIPT")"
+
+assert_green "the apply lives in the script_path: file (post-split real shape) -> counted as applied" \
+  --contains "Copied AND applied:      1" \
+  --contains "BROKEN WIRING:           0" \
+  -- run_guard "$(make_script_path_case sp-wired "$SCRIPT_PATH_YML" "$APPLY_SCRIPT")"
+
+assert_red "script_path: file exists but never applies the DDL -> still red (expansion invents nothing)" \
+  --contains "COPIED BUT NEVER APPLIED" \
+  --contains "$DDL" \
+  -- run_guard "$(make_script_path_case sp-copy-only "$SCRIPT_PATH_YML" "$NO_APPLY_SCRIPT")"
+
+assert_red "script_path: points at a file that does not exist -> red, not silently skipped" \
+  --contains "does not exist" \
+  -- run_guard "$(make_script_path_case sp-missing "$SCRIPT_PATH_YML" absent)"
+
+assert_red "script_path: in a form the guard cannot resolve -> red, not silently skipped" \
+  --contains "cannot resolve" \
+  -- run_guard "$(make_script_path_case sp-unresolvable "$SCRIPT_PATH_UNRESOLVABLE_YML" "$APPLY_SCRIPT")"
+
 guard_test_summary "test-check-prod-ddl-wiring.sh"

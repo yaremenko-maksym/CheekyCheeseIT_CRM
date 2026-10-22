@@ -758,7 +758,11 @@ describe('backfillSalaryMonth — re-invokes the idempotent cron insert, then re
       missingInsertedReceiverIds: ['hr-1'],
     })
     const loggerError = vi.spyOn(
-      (svc as unknown as { logger: { error: (...args: unknown[]) => void } }).logger,
+      (
+        svc as unknown as {
+          salaryPay: { logger: { error: (...args: unknown[]) => void } }
+        }
+      ).salaryPay.logger,
       'error',
     )
 
@@ -911,13 +915,17 @@ describe('backfillSalaryMonth — re-invokes the idempotent cron insert, then re
       admin: { id: 'cron-arbitrary-admin', role: 'ADMIN' },
     })
     const recordCreationAuditSpy = vi.spyOn(
-      svc as unknown as {
-        recordCreationAudit: (
-          txId: string,
-          created: { type: string; amount: string; currency: string },
-          currentUser: SessionUser,
-        ) => Promise<void>
-      },
+      (
+        svc as unknown as {
+          lifecycle: {
+            recordCreationAudit: (
+              txId: string,
+              created: { type: string; amount: string; currency: string },
+              currentUser: SessionUser,
+            ) => Promise<void>
+          }
+        }
+      ).lifecycle,
       'recordCreationAudit',
     )
     await svc.createMonthlySalaries(MONTH)

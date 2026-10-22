@@ -28,6 +28,23 @@
  * comments stay legal. .po catalogs are data, scanned line by line (comment
  * lines starting with `#` — source references — are skipped).
  *
+ * TWO SCANS, TWO DETECTORS (the second added 2026-10-21, backlog 259)
+ * ---------------------------------------------------------------------
+ *   1. the PRODUCT: apps/api/src string literals + the uk/en catalogs, matching
+ *      ы э ъ ё only — because the product legitimately ships Ukrainian.
+ *   2. `.claude/hooks/**`, matching ANY Cyrillic, comments included — because
+ *      everything an agent reads is English
+ *      (.claude/rules/common/russian-language.md).
+ *
+ * The second scan exists because nothing scanned the hooks at all, which is how
+ * Russian refusal text got there and stayed. The detector had to differ rather
+ * than the path list simply being widened: measured first, the product detector
+ * saw only 140 of the 258 Cyrillic lines there (54%), so reusing it would have
+ * reported OK while letting nearly half the Russian back in.
+ *
+ * AGENT_EXCEPTIONS below is a ratchet for the hooks not yet converted; it fails
+ * when an excepted file becomes clean, so it cannot outlive its reason.
+ *
  * EXCLUDED apps/api/src paths (unmigrated / data-by-design, handled separately)
  * -----------------------------------------------------------------------------
  * contracts/, contact/, resumes/, job-sourcing/, assets/, test/,
@@ -50,6 +67,27 @@ import { fileURLToPath } from 'node:url'
 
 const RUSSIAN_ONLY = /[ыэъёЫЭЪЁ]/u
 
+/**
+ * A SECOND SCAN WITH A DIFFERENT DETECTOR, AND THE DIFFERENCE IS THE POINT.
+ *
+ * The product scan above looks for ы э ъ ё only, because the product legitimately
+ * ships Ukrainian and full-Cyrillic matching would be a false positive on every
+ * "Київ". For `.claude/**` the policy is different and stricter: everything an
+ * agent reads or writes is English (.claude/rules/common/russian-language.md),
+ * so NO Cyrillic belongs there at all — including in comments, which the product
+ * scan deliberately permits.
+ *
+ * Measured before choosing: of the 258 Cyrillic lines under .claude/hooks, the
+ * product detector saw only 140 — 54%. Reusing it here would have let 46% of the
+ * Russian back in while reporting success, so the path list could not simply be
+ * widened; the rule had to be a second one.
+ */
+// U+0400–04FF is Cyrillic, U+0500–052F Cyrillic Supplement, U+2DE0–2DFF and
+// U+A640–A69F the two Extended-A/B blocks. The first version stopped at 04FF and
+// so missed the supplement — cheap to get right, and a detector that covers
+// "most" of an alphabet is the kind of near-miss this whole guard exists to catch.
+const ANY_CYRILLIC = /[Ѐ-ԯⷠ-ⷿꙀ-ꚟ]/u
+
 const SELF_DIR = dirname(fileURLToPath(import.meta.url))
 const args = process.argv.slice(2)
 const report = args.includes('--report')
@@ -65,6 +103,59 @@ const CATALOGS = ['uk', 'en'].map((l) =>
 )
 
 const EXCLUDED_DIRS = new Set(['contracts', 'contact', 'resumes', 'job-sourcing', 'assets', 'test'])
+
+const AGENT_ROOT = join(ROOT, '.claude', 'hooks')
+
+/**
+ * Hooks not yet converted to English: file -> the EXACT number of Cyrillic lines
+ * it is still allowed to have. A RATCHET, not a carve-out.
+ *
+ * Why the list exists: the conversion that widened this guard covered the three
+ * `pre:bash:*` launcher/safety hooks and `lib/cmdscan.py` (85 refusal-text lines).
+ * The other eight files hold 172 more, and converting all eleven in one PR would
+ * have buried a security-surface text change under three times its own volume.
+ * Without the list the guard could not be turned on at all, which is the state
+ * that let Russian in here in the first place — nothing scanned these files.
+ *
+ * WHY A COUNT AND NOT A NAME (CR-M-1). The first version was a Set, which
+ * constrained the LIST but not the CONTENTS: three Russian lines added to an
+ * already-excepted hook and the guard printed OK — most of the risk the list
+ * exists to bound. A number means a file on this list may only ever shrink.
+ *
+ * It ratchets in THREE directions, and the count is checked for EQUALITY so none
+ * of them can be silent:
+ *   - grew   -> red. The exemption is a ceiling, not a licence.
+ *   - shrank -> red, asking for the number to be lowered. Bookkeeping, yes, but
+ *               an un-lowered ceiling is an exemption nobody is using and nobody
+ *               notices, which is how the old Set rotted.
+ *   - gone   -> red (see `agentStrict`): a deleted or renamed file leaves its
+ *               entry standing, and a recreated file of the same name would
+ *               INHERIT the exemption.
+ * A NEW hook is not on the list at all, so it is covered from its first line.
+ *
+ * Closing condition: this map is empty and this comment goes with it.
+ */
+const AGENT_EXCEPTIONS = new Map([
+  ['pre-agent-dispatch-isolation.sh', 29],
+  ['pre-bash-coder-push-gate.sh', 12],
+  ['pre-bash-cross-agent-blast.sh', 62],
+  ['pre-bash-mutation-gate.sh', 2],
+  ['pre-bash-prettier-gate.sh', 18],
+  ['pre-bash-unbounded-wait.sh', 32],
+  ['pre-edit-write-zone-of-write.sh', 14],
+  ['tests/cross-agent-hooks-smoke.sh', 3],
+])
+
+/**
+ * Whether to report an AGENT_EXCEPTIONS entry whose file is absent.
+ *
+ * On by default, off under `--root`, because `--root` points at FABRICATED trees
+ * (that is how this guard is tested) where absence is normal and reporting it
+ * would make every test case red. `--agent-strict` forces it on so the check
+ * itself can be tested — without that, "gone -> red" would be another promise
+ * with no test behind it.
+ */
+const agentStrict = rootIdx === -1 || args.includes('--agent-strict')
 
 /** @param {string} relPath path relative to apps/api/src, '/'-separated */
 function isExcluded(relPath) {
@@ -87,6 +178,18 @@ function* walk(dir) {
     } else if (entry.isFile() && entry.name.endsWith('.ts') && !entry.name.endsWith('.d.ts')) {
       yield full
     }
+  }
+}
+
+/** Every file under .claude/hooks, whatever its extension — these are shell and
+ *  python, so there is no AST step and no comment exemption. */
+function* walkAll(dir) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === '__pycache__' || entry.name === 'node_modules') continue
+    const full = join(dir, entry.name)
+    if (entry.isDirectory()) yield* walkAll(full)
+    else if (entry.isFile() && !entry.name.endsWith('.pyc') && entry.name !== '.gitignore')
+      yield full
   }
 }
 
@@ -134,6 +237,64 @@ for (const po of CATALOGS) {
     })
 }
 
+// ── .claude/hooks: no Cyrillic at all, comments included ─────────────────────
+const agentViolations = []
+const staleExceptions = []
+let agentFiles = 0
+if (existsSync(AGENT_ROOT)) {
+  const seen = new Set()
+  for (const file of walkAll(AGENT_ROOT)) {
+    const rel = relative(AGENT_ROOT, file).split(sep).join('/')
+    const lines = readFileSync(file, 'utf8').split('\n')
+    const hits = []
+    lines.forEach((text, i) => {
+      if (ANY_CYRILLIC.test(text)) hits.push(`${relative(ROOT, file)}:${i + 1}: ${snippet(text)}`)
+    })
+    if (AGENT_EXCEPTIONS.has(rel)) {
+      seen.add(rel)
+      const allowed = AGENT_EXCEPTIONS.get(rel)
+      if (hits.length > allowed)
+        staleExceptions.push(
+          `${rel}: ${hits.length} Cyrillic lines, but only ${allowed} are allowed — an` +
+            ` excepted file may only SHRINK. Convert the new lines, do not raise the number.`,
+        )
+      else if (hits.length < allowed)
+        staleExceptions.push(
+          `${rel}: ${hits.length} Cyrillic lines, ceiling still ${allowed} — lower the` +
+            ` number in AGENT_EXCEPTIONS (0 means delete the entry).`,
+        )
+      continue
+    }
+    agentFiles += 1
+    agentViolations.push(...hits)
+  }
+  if (agentStrict)
+    for (const rel of AGENT_EXCEPTIONS.keys())
+      if (!seen.has(rel))
+        staleExceptions.push(
+          `${rel}: no such file — delete the entry. A recreated file of this name would` +
+            ` otherwise inherit the exemption.`,
+        )
+} else {
+  console.error(`WARN: ${AGENT_ROOT} not found - .claude/hooks not scanned`)
+}
+
+if (agentViolations.length > 0) {
+  console.error(`Cyrillic found in .claude/hooks in ${agentViolations.length} place(s):`)
+  for (const v of agentViolations) console.error(`  ${v}`)
+  console.error(
+    '\nFiles under .claude/hooks are English, comments included' +
+      ' (.claude/rules/common/russian-language.md). Russian lives only in the owner chat.' +
+      '\n(This scan covers .claude/hooks only — the rest of .claude/** is policy, not yet gated.)',
+  )
+}
+if (staleExceptions.length > 0) {
+  console.error(`AGENT_EXCEPTIONS is stale in ${staleExceptions.length} place(s):`)
+  for (const v of staleExceptions) console.error(`  ${v}`)
+  console.error('\nEach line says what to change. An exemption may only ever shrink.')
+}
+const agentFailed = agentViolations.length > 0 || staleExceptions.length > 0
+
 if (violations.length > 0) {
   console.error(`Russian-only letters (ы э ъ ё) found in ${violations.length} place(s):`)
   for (const v of violations) console.error(`  ${v}`)
@@ -142,8 +303,12 @@ if (violations.length > 0) {
   )
   if (!report) process.exit(1)
   console.error('(--report: not failing)')
+} else if (agentFailed) {
+  if (!report) process.exit(1)
+  console.error('(--report: not failing)')
 } else {
   console.log(
-    `OK, 0 Russian-letter literals (${tsFiles} api .ts files, ${catalogs} catalogs scanned)`,
+    `OK, 0 Russian-letter literals (${tsFiles} api .ts files, ${catalogs} catalogs,` +
+      ` ${agentFiles} .claude/hooks files scanned; ${AGENT_EXCEPTIONS.size} hooks still excepted)`,
   )
 }

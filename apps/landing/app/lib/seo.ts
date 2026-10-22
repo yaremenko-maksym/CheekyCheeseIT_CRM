@@ -80,6 +80,24 @@ export function buildHreflangAlternates(
   return alternates
 }
 
+/**
+ * Canonical URL of a vacancy-detail page. A locale the vacancy has no
+ * translation for (`excludeLocales`, the same set `buildHreflangAlternates`
+ * omits) serves the default-locale fallback content, so it canonicals to the
+ * default-locale URL — identical to the hreflang x-default href — instead of
+ * being a self-canonical duplicate (GSC "duplicate, Google chose different
+ * canonical"). Translated locales stay self-canonical.
+ */
+export function buildVacancyCanonical(
+  locale: Locale,
+  path: string,
+  excludeLocales: readonly Locale[] = [],
+): string {
+  return canonicalUrl(
+    localizedPath(excludeLocales.includes(locale) ? DEFAULT_LOCALE : locale, path),
+  )
+}
+
 export interface OrganizationJsonLd {
   '@context': 'https://schema.org'
   '@type': 'Organization'

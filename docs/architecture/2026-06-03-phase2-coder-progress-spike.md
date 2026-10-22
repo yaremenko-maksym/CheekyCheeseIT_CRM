@@ -11,7 +11,7 @@
 
 ECC v2.0.0-rc.1 ships a `pre:observe:continuous-learning` and
 `post:observe:continuous-learning` hook pair (matcher `*`, async,
-timeout 10s; see `hooks/hooks.json` lines 38–49 & 211–222) that captures
+timeout 10s; both registered in `hooks/hooks.json`) that captures
 every tool invocation for pattern extraction / skill discovery.
 
 **Does the ECC observer cover what our `coder-progress-marker.sh` does**,
@@ -104,7 +104,7 @@ Until then: keep `coder-progress-marker.sh`.
 ## Confidence
 
 **HIGH** — comparison is grounded in source-of-truth (ECC `hooks/hooks.json`
-lines 38–49 & 211–222 + ECC `hooks/README.md`) and our own dev-flow-rca
+the `continuous-learning` pair + ECC `hooks/README.md`) and our own dev-flow-rca
 C1 anchor. Risk of being wrong: low — even if ECC observer secretly does
 cover our needs, keeping our hook costs 63 LoC of bash; removing it without
 proof costs PM recovery breakage in the next silent-termination incident.

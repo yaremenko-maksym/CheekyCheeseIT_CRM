@@ -258,7 +258,7 @@ BROKEN="$(hook_with_broken_lib "$WS" pre-bash-safety.sh)"
 
 assert_red "СЛОМАННЫЙ анализатор + опасная команда: блок, помеченный ДЕГРАДИРОВАННЫМ" \
   --contains "INTERNAL ERROR" \
-  --contains "ДЕГРАДИРОВАННЫЙ РЕЖИМ" \
+  --contains "DEGRADED MODE" \
   -- hook_at "$BROKEN" "psql -c '$DROP'" "$WS"
 
 assert_red "СЛОМАННЫЙ анализатор + безобидная команда: НЕ вердикт (нет decision-контракта)" \
@@ -270,5 +270,128 @@ assert_red "ЛОВУШКА: хук со сломанным bash тоже даё�
   --contains "syntax error" \
   --not-contains "decision" \
   -- hook_at "$(hook_with_broken_bash "$WS")" "rm -rf /etc" "$WS"
+
+# ── SHARED LIBRARY: the comment stripper in lib/cmdscan.py ────────────────────
+# Three hooks consume that library (devserver-ttl-gate, live-db-guard and THIS one, the
+# broadest). The stripper decided a "#" starts a comment by reading the previous character;
+# an ESCAPED space leaves a space there without ending the word, so `echo a\ # && <cmd>` had
+# everything after the # dropped as a comment - a destructive command included. bash: "#"
+# begins a comment only at a word start, and an escaped space does not end a word. Each
+# consumer carries its own case. (This file exercises pre:bash:safety.)
+assert_red "safety: команда спрятана после экранированного пробела и #: echo a\\ # && psql ..." \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "echo a\\ # && psql -c '$DROP'"
+
+assert_red "safety: то же с ;" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "echo a\\ # ; psql -c '$DROP'"
+
+assert_red "safety: кавычка, затем экранированный пробел" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "echo 'x'\\ # && psql -c '$DROP'"
+
+assert_red "safety: экранированный перевод строки не заканчивает слово" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "echo a\\
+# && psql -c '$DROP'"
+
+assert_green "safety: настоящий комментарий с DROP внутри по-прежнему ничего не запускает" \
+  -- h "echo hi # psql -c '$DROP'"
+
+# ── SR-H-20: round 5 hid commands from THIS hook, and nothing here caught it ───
+# The fail-closed comment-free reading lived inside launches(); this hook walks
+# scan.segments directly and never calls it, so two shapes that RUN the second command in
+# both bash and zsh were allowed here while blocked before the comment stripper existed
+# (measured against 7964505a2): a parameter expansion whose default value holds a space
+# then # (bash and zsh both treat that # as plain text), and a process substitution
+# immediately followed by # (the # is part of the word). The second reading is now merged
+# into scan() itself, so every consumer gets it without opting in.
+NL=$'\n'
+assert_red "SR-H-20 форма 1: подстановка параметра с пробелом и # в значении по умолчанию" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "echo \${x:- #}; psql -c '$DROP'"
+
+assert_red "SR-H-20 форма 2: подстановка процесса, сразу за которой #" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "cat <(true)# ; psql -c '$DROP'"
+
+assert_red "SR-H-20 форма 1, разделитель &&" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "echo \${x:- #} && psql -c '$DROP'"
+
+assert_red "SR-H-20 форма 2, разделитель новая строка" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "cat <(true)#${NL}psql -c '$DROP'"
+
+# SR-M-22 - the word-boundary rule itself. The comment-free union (above) would mask a
+# regression in the stripper, so ask the stripper ALONE: for these cases it must produce
+# every segment on its own, i.e. nothing is left for the second reading to add.
+ALT_ONLY_PY='
+import importlib.util, os, sys
+spec = importlib.util.spec_from_file_location("cmdscan", os.environ["CMDSCAN"])
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+sys.exit(0 if not m.scan(os.environ["CMD"]).alt_only else 1)
+'
+stripper_alone_sees_all() { CMDSCAN="$REPO_ROOT/.claude/hooks/lib/cmdscan.py" CMD="$1" python3 -I -c "$ALT_ONLY_PY"; }
+stripper_needed_help() { ! stripper_alone_sees_all "$1"; }
+assert_green "SR-M-22: стриппер САМ видит команду после экранированного пробела и #" \
+  -- stripper_alone_sees_all "echo a\\ # && psql -c '$DROP'"
+assert_green "SR-M-22: то же с ;" \
+  -- stripper_alone_sees_all "echo a\\ # ; psql -c '$DROP'"
+assert_green "SR-M-22: кавычка, затем экранированный пробел" \
+  -- stripper_alone_sees_all "echo 'x'\\ # && psql -c '$DROP'"
+assert_green "SR-M-22: форма 1 стриппер сам НЕ видит — её держит второе чтение (и это задокументировано)" \
+  -- stripper_needed_help "echo \${x:- #}; psql -c '$DROP'"
+assert_green "SR-M-22: форма 2 стриппер сам НЕ видит — её держит второе чтение" \
+  -- stripper_needed_help "cat <(true)# ; psql -c '$DROP'"
+
+# ── SR-H-24: an interpreter flag scan must never step over the CODE flag ─────────
+# `bash -c '<payload>' dev-ttl.sh`: the payload is the command, dev-ttl.sh is $0. A forward
+# scan for the wrapper token (added for SR-M-21, so any interpreter flag may precede it)
+# jumped over -c AND its payload, so the string bash actually runs was never scanned - this
+# hook allowed a destructive command that it blocked before. A code flag before the token now
+# cancels the unwrap and the payload reaches nested-code scanning.
+assert_red "SR-H-24: bash -c <деструктив> dev-ttl.sh" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "bash -c \"psql -c '$DROP'\" dev-ttl.sh"
+
+assert_red "SR-H-24: sh -c <rm -rf /etc> x dev-ttl.sh" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "sh -c 'rm -rf /etc' x dev-ttl.sh"
+
+assert_red "SR-H-24: объединённая короткая группа -ec" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "bash -ec \"psql -c '$DROP'\" x dev-ttl.sh"
+
+assert_red "SR-H-24: -o pipefail -c <деструктив> dev-ttl.sh" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "bash -o pipefail -c \"psql -c '$DROP'\" dev-ttl.sh"
+
+assert_green "SR-H-24: настоящая обёртка (dev-ttl.sh — первый операнд) по-прежнему не трогает safety" \
+  -- h "bash -o pipefail scripts/devops/dev-ttl.sh -- ls -la"
+
+# ── SR-H-24, the FAMILY: a code flag's payload is never discarded, wherever the flag sits ──
+# Three attempts on this one: the first discarded the payload with the tokens in front of a
+# wrapper, the second guarded ONE position (a code flag before the wrapper token) and so still
+# lost `bash --rcfile dev-ttl.sh -c '<payload>'`, and only the third made it an invariant that
+# does not depend on position: every code flag's payload in the interpreter's whole token list
+# goes to nested-code scanning, whether or not any unwrap happens. So the test sweeps ONE
+# structural payload (rm -rf /etc - NOT a psql DROP, which a text reading of a mis-parsed
+# segment catches anyway and so cannot discriminate) across every placement in the option
+# region: before the wrapper token, after it, as an operand of --rcfile / --init-file / -o /
+# +o / -O / +O, in a combined short group, behind --, repeated. Every placement refused.
+for sh in bash sh dash zsh ksh; do
+  for t in "-c '@P@' @W@" "@W@ -c '@P@'" "--rcfile @W@ -c '@P@'" "--init-file @W@ -c '@P@'" \
+           "-o pipefail -c '@P@' @W@" "-o @W@ -c '@P@'" "-O extglob -c '@P@' @W@" "+O @W@ -c '@P@'" \
+           "+o @W@ -c '@P@'" "-ec '@P@' x @W@" "-xc '@P@' @W@" "-c '@P@' -- @W@" "@W@ -- -c '@P@'" \
+           "-x -e -c '@P@' @W@ -- ls" "@W@ -x -c '@P@'" "-c '@P@' -c '@P@' @W@" \
+           "-c 'ls' -c '@P@' @W@" "-c 'ls' -c '@P@'" "-c 'ls' x -ec '@P@'"; do
+    cmd="$sh ${t//@P@/rm -rf /etc}"; cmd="${cmd//@W@/dev-ttl.sh}"
+    assert_red "SR-H-24 (семейство): $cmd" \
+      --contains "[pre:bash:safety] BLOCK" \
+      -- h "$cmd"
+  done
+done
 
 guard_test_summary "test-pre-bash-safety.sh"

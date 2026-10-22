@@ -48,24 +48,31 @@
  *   - Public API generateSignableInvoicePdf unchanged (parameters + return).
  */
 import { Injectable, Logger } from '@nestjs/common'
-import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb, type Color } from 'pdf-lib'
+import { StandardFonts, rgb } from 'pdf-lib'
 
-import { sha256Hex, shortHash } from '../common/pdf/pdf.utils'
+import { sha256Hex } from '../common/pdf/pdf.utils'
 import { PDF_COLORS, PDF_LAYOUT } from '../common/pdf/pdf.constants'
 import { PdfGenerationService } from '../common/pdf/pdf-generation.service'
 import {
   INVOICE_PDF_MESSAGES,
-  INVOICE_PDF_MONTH_MESSAGES,
   createI18n,
   renderMessage,
   type InvoiceSignerRole,
   type InvoiceSignatureMethod,
   type Locale,
 } from '@crm/shared'
-import type { MessageDescriptor } from '@lingui/core'
-
-/** Renders one catalog descriptor in the recipient's locale (bound per render). */
-type Translate = (descriptor: MessageDescriptor, values?: Record<string, unknown>) => string
+import {
+  COMPANY_BRAND_NAME,
+  buildDescription,
+  drawCompanySignature,
+  drawCounterpartySignature,
+  drawLine,
+  drawSectionHeader,
+  drawVerifyBlock,
+  formatAmount,
+  formatDate,
+  type Translate,
+} from './invoice-pdf-render.util'
 
 // ---------------------------------------------------------------------------
 // Input types
@@ -168,15 +175,10 @@ export interface InvoiceSignatureInfo {
   ipLastOctet?: string | null
 }
 
-/**
- * Brand name used in PDF signatures + footer. Replaces former admin
- * personal name renderings.
- *
- * Re-exported constant for backward compatibility — callers that import
- * COMPANY_BRAND_NAME from this module continue to compile unchanged.
- * The canonical source is PDF_BRAND.companyName in common/pdf/pdf.constants.ts.
- */
-export const COMPANY_BRAND_NAME = 'CheekyCheeseIT'
+// Re-exported for backward compatibility — callers that import
+// COMPANY_BRAND_NAME from this module continue to compile unchanged.
+// The constant now lives in invoice-pdf-render.util.ts.
+export { COMPANY_BRAND_NAME }
 
 /**
  * UAH equivalent block, pre-computed by the caller (Round 3 will call
@@ -336,7 +338,7 @@ export class InvoicePdfService {
       size: 11,
       color: layout.colors.muted,
     })
-    const dateLabel = t(INVOICE_PDF_MESSAGES.date, { date: this.formatDate(transaction.txDate) })
+    const dateLabel = t(INVOICE_PDF_MESSAGES.date, { date: formatDate(transaction.txDate) })
     const dateWidth = fontRegular.widthOfTextAtSize(dateLabel, 11)
     this.pdfGen.drawText(page, dateLabel, {
       x: pageWidth - layout.margin - dateWidth,
@@ -360,8 +362,15 @@ export class InvoicePdfService {
     // email or other contact fields. The `company.address` value remains on
     // the InvoiceCompanyInfo struct for backward compatibility but is no
     // longer drawn anywhere on the PDF body.
-    y = this.drawSectionHeader(page, t(INVOICE_PDF_MESSAGES.sectionContractor), y, layout, fontBold)
-    y = this.drawLine(page, COMPANY_BRAND_NAME, y, layout, fontRegular)
+    y = drawSectionHeader(
+      this.pdfGen,
+      page,
+      t(INVOICE_PDF_MESSAGES.sectionContractor),
+      y,
+      layout,
+      fontBold,
+    )
+    y = drawLine(this.pdfGen, page, COMPANY_BRAND_NAME, y, layout, fontRegular)
     y -= 6
     y = this.pdfGen.drawSeparator(
       page,
@@ -372,10 +381,18 @@ export class InvoicePdfService {
     )
 
     // ----- Client block -----
-    y = this.drawSectionHeader(page, t(INVOICE_PDF_MESSAGES.sectionClient), y, layout, fontBold)
-    y = this.drawLine(page, counterparty.displayName, y, layout, fontRegular)
+    y = drawSectionHeader(
+      this.pdfGen,
+      page,
+      t(INVOICE_PDF_MESSAGES.sectionClient),
+      y,
+      layout,
+      fontBold,
+    )
+    y = drawLine(this.pdfGen, page, counterparty.displayName, y, layout, fontRegular)
     if (counterparty.paymentMethod === null) {
-      y = this.drawLine(
+      y = drawLine(
+        this.pdfGen,
         page,
         t(INVOICE_PDF_MESSAGES.requisitesMissing),
         y,
@@ -390,7 +407,8 @@ export class InvoicePdfService {
       // No "(no requisites)" hint is drawn — the absence of requisites lines
       // is itself the signal, and the muted hint was visual noise (round 2
       // user feedback on PR #81).
-      y = this.drawLine(
+      y = drawLine(
+        this.pdfGen,
         page,
         t(INVOICE_PDF_MESSAGES.methodLine, {
           method: t(INVOICE_PDF_MESSAGES.methodCash, { currency: transaction.currency }),
@@ -405,7 +423,8 @@ export class InvoicePdfService {
         counterparty.paymentMethod === 'USDT_ERC20'
           ? 'USDT ERC-20'
           : t(INVOICE_PDF_MESSAGES.methodBankUahFop)
-      y = this.drawLine(
+      y = drawLine(
+        this.pdfGen,
         page,
         t(INVOICE_PDF_MESSAGES.methodLine, { method: methodLabel }),
         y,
@@ -413,7 +432,7 @@ export class InvoicePdfService {
         fontRegular,
       )
       for (const detail of counterparty.paymentDetails) {
-        y = this.drawLine(page, detail, y, layout, fontRegular)
+        y = drawLine(this.pdfGen, page, detail, y, layout, fontRegular)
       }
     }
     y -= 6
@@ -426,16 +445,17 @@ export class InvoicePdfService {
     )
 
     // ----- Service description block -----
-    y = this.drawSectionHeader(
+    y = drawSectionHeader(
+      this.pdfGen,
       page,
       t(INVOICE_PDF_MESSAGES.sectionDescription),
       y,
       layout,
       fontBold,
     )
-    const description = this.buildDescription(transaction, t)
+    const description = buildDescription(transaction, t)
     for (const line of description) {
-      y = this.drawLine(page, line, y, layout, fontRegular)
+      y = drawLine(this.pdfGen, page, line, y, layout, fontRegular)
     }
     y -= 6
     y = this.pdfGen.drawSeparator(
@@ -460,12 +480,19 @@ export class InvoicePdfService {
     // visual gaps now read as ~20pt and the block scans as a single centred
     // unit. Below the UAH line we keep the standard 14pt drawLine return +
     // 6pt margin before the separator so the next section breathes correctly.
-    y = this.drawSectionHeader(page, t(INVOICE_PDF_MESSAGES.sectionAmount), y, layout, fontBold)
+    y = drawSectionHeader(
+      this.pdfGen,
+      page,
+      t(INVOICE_PDF_MESSAGES.sectionAmount),
+      y,
+      layout,
+      fontBold,
+    )
     // +4pt top-padding (over the drawSectionHeader's native 16pt) so the
     // distance from the section label baseline to the amount baseline (20pt)
     // matches the amount-to-UAH baseline distance below.
     y -= 4
-    const amountLine = `${this.formatAmount(transaction.amount)} ${transaction.currency}`
+    const amountLine = `${formatAmount(transaction.amount)} ${transaction.currency}`
     this.pdfGen.drawText(page, amountLine, {
       x: layout.margin,
       y,
@@ -481,7 +508,7 @@ export class InvoicePdfService {
         amount: uahEquivalent.formatted,
         rateDate: uahEquivalent.rateDate,
       })
-      y = this.drawLine(page, equivLine, y, layout, fontRegular, layout.colors.muted)
+      y = drawLine(this.pdfGen, page, equivLine, y, layout, fontRegular, layout.colors.muted)
     }
     y -= 6
     y = this.pdfGen.drawSeparator(
@@ -493,7 +520,14 @@ export class InvoicePdfService {
     )
 
     // ----- Signatures block -----
-    y = this.drawSectionHeader(page, t(INVOICE_PDF_MESSAGES.sectionSignatures), y, layout, fontBold)
+    y = drawSectionHeader(
+      this.pdfGen,
+      page,
+      t(INVOICE_PDF_MESSAGES.sectionSignatures),
+      y,
+      layout,
+      fontBold,
+    )
 
     const sortedSignatures = [...params.signatures].sort((a, b) =>
       a.role === 'COMPANY' ? -1 : b.role === 'COMPANY' ? 1 : 0,
@@ -501,9 +535,10 @@ export class InvoicePdfService {
     const companySig = sortedSignatures.find((s) => s.role === 'COMPANY')
     const counterpartySig = sortedSignatures.find((s) => s.role === 'COUNTERPARTY')
 
-    y = this.drawCompanySignature(page, y, layout, fontBold, fontRegular, companySig, t)
+    y = drawCompanySignature(this.pdfGen, page, y, layout, fontBold, fontRegular, companySig, t)
     y -= 4
-    y = this.drawCounterpartySignature(
+    y = drawCounterpartySignature(
+      this.pdfGen,
       page,
       y,
       layout,
@@ -523,7 +558,7 @@ export class InvoicePdfService {
     )
 
     // ----- QR + verify link -----
-    await this.drawVerifyBlock(page, doc, y, layout, fontRegular, verifyUrl, t)
+    await drawVerifyBlock(this.pdfGen, page, doc, y, layout, fontRegular, verifyUrl, t)
 
     // ----- Footer -----
     const year = transaction.txDate.getUTCFullYear()
@@ -559,352 +594,6 @@ export class InvoicePdfService {
     )
 
     return { pdfBuffer, sha256Hash: hash }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Drawing helpers (invoice-specific)
-  // ---------------------------------------------------------------------------
-
-  private drawSectionHeader(
-    page: PDFPage,
-    title: string,
-    y: number,
-    layout: { margin: number; colors: { muted: Color }; lineHeight: number },
-    fontBold: PDFFont,
-  ): number {
-    this.pdfGen.drawText(page, title, {
-      x: layout.margin,
-      y,
-      font: fontBold,
-      size: 9,
-      color: layout.colors.muted,
-    })
-    return y - layout.lineHeight - 2
-  }
-
-  private drawLine(
-    page: PDFPage,
-    text: string,
-    y: number,
-    layout: { margin: number; colors: { text: Color }; lineHeight: number },
-    fontRegular: PDFFont,
-    color?: Color,
-  ): number {
-    this.pdfGen.drawText(page, text, {
-      x: layout.margin,
-      y,
-      font: fontRegular,
-      size: 11,
-      color: color ?? layout.colors.text,
-    })
-    return y - layout.lineHeight
-  }
-
-  /**
-   * task-drop-company-debt-and-invoices. COMPANY signature renders the brand
-   * "CheekyCheeseIT" only — never the underlying admin's personal name. The
-   * `signerName` field on `sig` is intentionally ignored.
-   */
-  private drawCompanySignature(
-    page: PDFPage,
-    y: number,
-    layout: {
-      margin: number
-      colors: { text: Color; muted: Color }
-      lineHeight: number
-    },
-    fontBold: PDFFont,
-    fontRegular: PDFFont,
-    sig: InvoiceSignatureInfo | undefined,
-    t: Translate,
-  ): number {
-    this.pdfGen.drawText(page, t(INVOICE_PDF_MESSAGES.signatureContractor), {
-      x: layout.margin,
-      y,
-      font: fontBold,
-      size: 11,
-      color: layout.colors.text,
-    })
-    y -= layout.lineHeight + 2
-
-    if (!sig) {
-      this.pdfGen.drawText(page, `   ${t(INVOICE_PDF_MESSAGES.signaturePendingAuto)}`, {
-        x: layout.margin,
-        y,
-        font: fontRegular,
-        size: 11,
-        color: layout.colors.muted,
-      })
-      return y - layout.lineHeight
-    }
-
-    // Brand name only — admin personal names must never appear on the PDF.
-    this.pdfGen.drawText(page, `   ${COMPANY_BRAND_NAME}`, {
-      x: layout.margin,
-      y,
-      font: fontRegular,
-      size: 11,
-      color: layout.colors.text,
-    })
-    y -= layout.lineHeight
-    this.pdfGen.drawText(page, `   ${this.formatDateTime(sig.signedAt)}`, {
-      x: layout.margin,
-      y,
-      font: fontRegular,
-      size: 10,
-      color: layout.colors.muted,
-    })
-    y -= layout.lineHeight
-    this.pdfGen.drawText(page, `   ${this.signatureMethodLine(sig.method, t)}`, {
-      x: layout.margin,
-      y,
-      font: fontRegular,
-      size: 10,
-      color: layout.colors.muted,
-    })
-    return y - layout.lineHeight
-  }
-
-  private drawCounterpartySignature(
-    page: PDFPage,
-    y: number,
-    layout: {
-      margin: number
-      colors: { text: Color; muted: Color; warning: Color }
-      lineHeight: number
-    },
-    fontBold: PDFFont,
-    fontRegular: PDFFont,
-    sig: InvoiceSignatureInfo | undefined,
-    fallbackName: string,
-    t: Translate,
-  ): number {
-    this.pdfGen.drawText(page, t(INVOICE_PDF_MESSAGES.signatureClient), {
-      x: layout.margin,
-      y,
-      font: fontBold,
-      size: 11,
-      color: layout.colors.text,
-    })
-    y -= layout.lineHeight + 2
-
-    if (!sig) {
-      this.pdfGen.drawText(page, `   ${t(INVOICE_PDF_MESSAGES.signaturePending)}`, {
-        x: layout.margin,
-        y,
-        font: fontRegular,
-        size: 11,
-        color: layout.colors.warning,
-      })
-      this.pdfGen.drawText(page, `   (${fallbackName})`, {
-        x: layout.margin,
-        y: y - layout.lineHeight,
-        font: fontRegular,
-        size: 10,
-        color: layout.colors.muted,
-      })
-      return y - layout.lineHeight * 2
-    }
-
-    this.pdfGen.drawText(page, `   ${sig.signerName}`, {
-      x: layout.margin,
-      y,
-      font: fontRegular,
-      size: 11,
-      color: layout.colors.text,
-    })
-    y -= layout.lineHeight
-    this.pdfGen.drawText(page, `   ${this.formatDateTime(sig.signedAt)}`, {
-      x: layout.margin,
-      y,
-      font: fontRegular,
-      size: 10,
-      color: layout.colors.muted,
-    })
-    y -= layout.lineHeight
-
-    if (sig.pdfHashFull) {
-      const hashShort = shortHash(sig.pdfHashFull)
-      this.pdfGen.drawText(page, `   Hash: ${hashShort}`, {
-        x: layout.margin,
-        y,
-        font: fontRegular,
-        size: 10,
-        color: layout.colors.muted,
-      })
-      y -= layout.lineHeight
-    }
-
-    // task-fix-invoice-pdf-polish round 3 / AC1: the IP last-octet was
-    // previously rendered as "IP: ...42" below the hash line. User feedback
-    // (02.06.2026) flagged it as out of place in a customer-facing signature
-    // block — the IP remains persisted on `invoice_signatures` for audit
-    // purposes but is no longer drawn on the PDF. The `ipLastOctet` field
-    // stays on the input interface so existing callers compile without
-    // changes; the value is simply not rendered.
-
-    this.pdfGen.drawText(page, `   ${this.signatureMethodLine(sig.method, t)}`, {
-      x: layout.margin,
-      y,
-      font: fontRegular,
-      size: 10,
-      color: layout.colors.muted,
-    })
-    return y - layout.lineHeight
-  }
-
-  private async drawVerifyBlock(
-    page: PDFPage,
-    doc: PDFDocument,
-    y: number,
-    layout: {
-      margin: number
-      colors: { text: Color; muted: Color; accent: Color }
-      lineHeight: number
-    },
-    fontRegular: PDFFont,
-    verifyUrl: string,
-    t: Translate,
-  ): Promise<void> {
-    // Delegate QR PNG generation + embedding to PdfGenerationService.
-    const qrImage = await this.pdfGen.embedQrPng(doc, verifyUrl)
-    const qrSize = PDF_LAYOUT.qrSize
-    const qrX = layout.margin
-    const qrY = y - qrSize
-
-    page.drawImage(qrImage, { x: qrX, y: qrY, width: qrSize, height: qrSize })
-
-    const textX = qrX + qrSize + 14
-    const textY = y - 16
-    this.pdfGen.drawText(page, t(INVOICE_PDF_MESSAGES.verify), {
-      x: textX,
-      y: textY,
-      font: fontRegular,
-      size: 10,
-      color: layout.colors.muted,
-    })
-    this.pdfGen.drawText(page, verifyUrl, {
-      x: textX,
-      y: textY - layout.lineHeight,
-      font: fontRegular,
-      size: 9,
-      color: layout.colors.accent,
-    })
-  }
-
-  // ---------------------------------------------------------------------------
-  // Formatting helpers
-  // ---------------------------------------------------------------------------
-
-  /** "26.05.2026", DD.MM.YYYY in UTC to stay deterministic. */
-  private formatDate(d: Date): string {
-    const dd = String(d.getUTCDate()).padStart(2, '0')
-    const mm = String(d.getUTCMonth() + 1).padStart(2, '0')
-    const yyyy = d.getUTCFullYear()
-    return `${dd}.${mm}.${yyyy}`
-  }
-
-  /** "26.05.2026 14:00:00 UTC", UTC for determinism. */
-  private formatDateTime(d: Date): string {
-    const date = this.formatDate(d)
-    const hh = String(d.getUTCHours()).padStart(2, '0')
-    const mi = String(d.getUTCMinutes()).padStart(2, '0')
-    const ss = String(d.getUTCSeconds()).padStart(2, '0')
-    return `${date} ${hh}:${mi}:${ss} UTC`
-  }
-
-  /**
-   * Format the numeric amount preserving up to 6 decimals (matches DB
-   * `numeric(18,6)`). Trailing zeros are trimmed so "1234.567000" -> "1234.567"
-   * but "1234.500000" -> "1234.50" (always keep at least 2 decimals for
-   * readability).
-   */
-  private formatAmount(amount: string): string {
-    const num = Number(amount)
-    if (!Number.isFinite(num)) return amount
-    const fixed = num.toFixed(6)
-    // Trim trailing zeros but keep at least 2 decimals.
-    const trimmed = fixed.replace(/(\.\d{2})\d*?0+$/, '$1').replace(/(\.\d*?[1-9])0+$/, '$1')
-    // Thousand separators using a plain space.
-    const [intPart, decPart] = trimmed.split('.')
-    const withSep = (intPart ?? '0').replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
-    return decPart !== undefined ? `${withSep}.${decPart}` : withSep
-  }
-
-  /**
-   * "Method: <automatic electronic | electronic click signature>" — one message
-   * for the line, one per method label, so a locale never reorders fragments.
-   */
-  private signatureMethodLine(method: InvoiceSignatureMethod, t: Translate): string {
-    return t(INVOICE_PDF_MESSAGES.methodLine, {
-      method: t(
-        method === 'AUTO_COMPANY'
-          ? INVOICE_PDF_MESSAGES.signatureMethodAuto
-          : INVOICE_PDF_MESSAGES.signatureMethodClick,
-      ),
-    })
-  }
-
-  private buildDescription(tx: InvoiceTransactionInfo, t: Translate): string[] {
-    if (tx.type === 'SENIOR_INCOME') {
-      const lines: string[] = []
-      // task-aggregate-invoice-per-payout round 2: the description must contain
-      // ONLY the contract reference + (optional) period line. The list of
-      // projects was previously rendered as a secondary «Projects: A · B · C»
-      // line, but user feedback (round 2, 02.06.2026) flagged it as noise — a
-      // signed act covers the contractual scope, the per-project breakdown
-      // lives in the linked transactions / payout receipt rather than the act
-      // itself. We keep `projectNames` on the input interface for back-compat
-      // with the InvoicesService caller (which still passes it for audit /
-      // logging) but the PDF body never renders it.
-      if (tx.contractNumber) {
-        lines.push(
-          t(INVOICE_PDF_MESSAGES.descriptionContract, { contractNumber: tx.contractNumber }),
-        )
-      } else if (tx.projectName) {
-        // Legacy single-project per-tx invoices keep their original phrasing.
-        lines.push(t(INVOICE_PDF_MESSAGES.descriptionProject, { projectName: tx.projectName }))
-      } else {
-        // Aggregated PAYOUT with no signed contract on record — render em-dash
-        // so the PDF has a contract reference line rather than a generic label.
-        lines.push(t(INVOICE_PDF_MESSAGES.descriptionContract, { contractNumber: '—' }))
-      }
-      if (tx.salaryMonth) {
-        lines.push(
-          t(INVOICE_PDF_MESSAGES.descriptionPeriod, {
-            period: this.formatPeriod(tx.salaryMonth, t),
-          }),
-        )
-      }
-      return lines
-    }
-    // SALARY
-    const lines: string[] = []
-    if (tx.salaryMonth) {
-      lines.push(
-        t(INVOICE_PDF_MESSAGES.descriptionSalaryForPeriod, {
-          period: this.formatPeriod(tx.salaryMonth, t),
-        }),
-      )
-    } else {
-      lines.push(t(INVOICE_PDF_MESSAGES.descriptionSalary))
-    }
-    return lines
-  }
-
-  /**
-   * "2026-05" -> "травень 2026" / "May 2026" (month name from the catalog, the
-   * month-year order from the `period` message). Fallback to the raw string on
-   * parse failure or an out-of-range month — never "undefined 2026".
-   */
-  private formatPeriod(yyyymm: string, t: Translate): string {
-    const match = /^(\d{4})-(\d{2})$/.exec(yyyymm)
-    if (!match) return yyyymm
-    const monthKey = match[2] as string
-    if (!(monthKey in INVOICE_PDF_MONTH_MESSAGES)) return yyyymm
-    const descriptor =
-      INVOICE_PDF_MONTH_MESSAGES[monthKey as keyof typeof INVOICE_PDF_MONTH_MESSAGES]
-    return t(INVOICE_PDF_MESSAGES.period, { month: t(descriptor), year: match[1] })
   }
 
   // ---------------------------------------------------------------------------

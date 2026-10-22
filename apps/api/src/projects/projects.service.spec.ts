@@ -565,6 +565,16 @@ describe('ProjectsService.update — dropSharePercentOverride + paymentType fiel
 // ---------------------------------------------------------------------------
 
 describe('ProjectsService.update — DTO mapping', () => {
+  it('resolves team overrides for the re-read updated project', async () => {
+    const h = buildHarness()
+    const spy = vi.spyOn(
+      (h.service as unknown as { read: { loadTeamOverridesBySenior: () => unknown } }).read,
+      'loadTeamOverridesBySenior',
+    )
+    await h.service.update('proj-1', { rate: 7000 }, adminUser)
+    expect(spy).toHaveBeenCalledWith([expect.objectContaining({ id: 'proj-1' })])
+  })
+
   it('returns seniorSharePercentDefault = senior.seniorSharePercent', async () => {
     const h = buildHarness({
       senior: {

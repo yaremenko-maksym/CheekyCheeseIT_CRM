@@ -18,7 +18,8 @@
 // Область. Ссылки вида `<pack>:<skill>` (`superpowers:brainstorming`) НЕ
 // проверяются: у CI-раннера нет ~/.claude/plugins оператора, поэтому проверить
 // их машинно невозможно. Для них остаётся процедурная сверка, описанная в
-// skills-invocation.md §«Дрейф таблицы относительно установленных паков».
+// skills-invocation.md §«Reconcile this table on every plugin update»; история
+// инцидента 2026-07-28 — docs/architecture/rules-rationale/skills-invocation.md.
 //
 // Использование:
 //   node scripts/architect/check-skill-registry.mjs           # отчёт, exit 1 при расхождении

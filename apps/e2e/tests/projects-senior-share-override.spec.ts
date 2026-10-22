@@ -58,6 +58,160 @@ import {
 } from './fixtures'
 import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
+// Pin the BROWSER language. Without it Playwright's Chromium reports `en-US`
+// and `readPreLoginLocale()` (apps/web/app/lib/i18n.ts) activates **en** on
+// first paint; only after `/auth/me` resolves (the mock user is `locale: 'uk'`)
+// does `AuthProvider` load the uk catalog chunk and remount the tree through
+// `LocaleScopedApp`. Every assertion in this file is about Ukrainian copy or
+// the geometry of Ukrainian copy, and each one used to be racing that switch
+// (a one-shot `innerText` read caught `"Proposed 55%"` — 3 of 60 runs, 2026-10).
+// With `uk-UA` pre-login and session locale agree, so there is no switch and
+// no remount to race. The en -> uk switch itself keeps a deliberate test of
+// its own: see 'AA - a uk session in an en browser'. Same pin, same reason, as
+// `auth.spec.ts`'s `?error=` block.
+test.use({ locale: 'uk-UA' })
+
+/**
+ * Navigate and wait until the app has finished choosing its language.
+ * `<html lang>` is written by `activateLocale()` right after the catalog is
+ * loaded and activated, so it is the earliest observable "the uk catalog is in".
+ * It is necessary, not sufficient (React re-renders a tick later), which is why
+ * the readers below also demand a stable value rather than trusting this alone.
+ */
+async function gotoSettled(page: import('@playwright/test').Page, url: string) {
+  await page.goto(url)
+  await expect(page.locator('html')).toHaveAttribute('lang', 'uk')
+}
+
+/**
+ * Poll for STABILITY, not for success: call `read()` until two consecutive
+ * reads are deep-equal AND `complete()` accepts the value, then return it so
+ * the caller can assert ONCE.
+ *
+ * Why not "retry the assertion until it is green": that turns a guard into
+ * decoration. Here a genuinely too-wide row reads the same too-wide value on
+ * both reads, so it settles and the single assertion afterwards still fails;
+ * a row caught mid-render (a locale switch, a late font, a remount) differs
+ * between reads and is simply read again. `complete()` is the "all labels are
+ * there" half — it keeps an English/half-rendered snapshot from ever being
+ * accepted as settled just because it happened to repeat.
+ */
+async function readStable<T>(
+  read: () => Promise<T>,
+  complete: (value: T) => boolean,
+  what: string,
+): Promise<T> {
+  let previous: string | undefined
+  let latest: T | undefined
+  // The last two readings, kept for the failure message: when the poll times
+  // out, "never settled" alone cannot tell a flapping page from an incomplete
+  // one, and that is exactly the case this helper exists to diagnose.
+  const readings: string[] = []
+  try {
+    await expect
+      .poll(
+        async () => {
+          const value = await read()
+          const key = JSON.stringify(value)
+          const isComplete = complete(value)
+          const settled = isComplete && key === previous
+          readings.push(`${isComplete ? 'complete' : 'INCOMPLETE'} ${key}`)
+          if (readings.length > 2) readings.shift()
+          previous = key
+          latest = value
+          return settled
+        },
+        { intervals: [50, 100, 200] },
+      )
+      .toBe(true)
+  } catch (error) {
+    const [older, newer] = readings.length === 2 ? readings : [undefined, readings[0]]
+    const verdict = !newer?.startsWith('complete')
+      ? 'the last reading was INCOMPLETE (language/labels never arrived)'
+      : older !== undefined &&
+          older.slice(older.indexOf(' ') + 1) !== newer.slice(newer.indexOf(' ') + 1)
+        ? 'the readings DIFFERED (the page kept changing)'
+        : 'the readings were identical and complete (poll ended before it could confirm)'
+    throw new Error(
+      `${what}: never reached two identical, complete reads - ${verdict}.\n` +
+        `  second-to-last: ${older ?? '(none)'}\n  last:           ${newer ?? '(none)'}\n` +
+        `  poll error: ${(error as Error).message.split('\n')[0]}`,
+    )
+  }
+  return latest as T
+}
+
+/**
+ * Rendered text (`innerText`) of the whole page, read after webfonts are ready,
+ * once it is complete (contains `mustContain`) and unchanged between two reads.
+ * Every `innerText` / `not.toContain` check goes through here: a negative check
+ * on a page that has not finished switching language passes vacuously.
+ */
+async function pageText(page: import('@playwright/test').Page, mustContain: string) {
+  return readStable(
+    () =>
+      page.evaluate(async () => {
+        await document.fonts.ready
+        return (document.body as HTMLElement).innerText
+      }),
+    (text) => text.includes(mustContain),
+    `page text containing «${mustContain}»`,
+  )
+}
+
+/** Same, for one element's rendered text. */
+async function elementText(locator: import('@playwright/test').Locator, mustContain: string) {
+  return readStable(
+    () =>
+      locator.evaluate(async (el) => {
+        await document.fonts.ready
+        return (el as HTMLElement).innerText
+      }),
+    (text) => text.includes(mustContain),
+    `element text containing «${mustContain}»`,
+  )
+}
+
+/**
+ * `boundingBox()` of an element whose visible name is `label`, read once the
+ * box exists (a transient CDP `null` right after navigation is a known race —
+ * see the 2026-09-25 note on test R's touch-target check), the label is the
+ * complete uk one, and two consecutive reads agree.
+ */
+async function readButtonBox(locator: import('@playwright/test').Locator, label: string) {
+  const { box } = await readStable(
+    async () => {
+      const text = await locator.evaluate(async (el) => {
+        await document.fonts.ready
+        return (el as HTMLElement).innerText
+      })
+      return { box: await locator.boundingBox(), text }
+    },
+    (v) => v.box !== null && v.text.includes(label),
+    `bounding box of «${label}»`,
+  )
+  return box!
+}
+
+/** Document-level horizontal overflow, read after webfonts are ready. */
+async function readPageOverflow(page: import('@playwright/test').Page) {
+  return readStable(
+    () =>
+      page.evaluate(async () => {
+        await document.fonts.ready
+        return {
+          scrollWidth: document.documentElement.scrollWidth,
+          clientWidth: document.documentElement.clientWidth,
+          // Language anchor, like every sibling reader: English renders
+          // NARROWER, so a stable English read could pass an overflow guard.
+          hasUkrainianText: /[А-Яа-яІіЇїЄє]/.test((document.body as HTMLElement).innerText),
+        }
+      }),
+    (o) => o.clientWidth > 0 && o.scrollWidth > 0 && o.hasUkrainianText,
+    'page overflow',
+  )
+}
+
 // Helper — register a one-off override of the /api/projects/:id response so
 // each scenario can present the project in whatever override state it needs.
 function mockProjectDetail(
@@ -1042,7 +1196,7 @@ test.describe('R — ADMIN can withdraw a pending proposal', () => {
     const { cancelCalls, ready } = mockProjectWithPending(page)
     await ready
 
-    await page.goto(`/projects/${PROJECT_ID}`)
+    await gotoSettled(page, `/projects/${PROJECT_ID}`)
     await expect(page.getByTestId('project-senior-share-pending-badge')).toBeVisible()
 
     const cancelButton = page.getByTestId('cancel-pending-share-project').first()
@@ -1063,7 +1217,7 @@ test.describe('R — ADMIN can withdraw a pending proposal', () => {
     const { cancelCalls, ready } = mockProfileWithPending(page)
     await ready
 
-    await page.goto(`/profile/${USERS.senior.id}`)
+    await gotoSettled(page, `/profile/${USERS.senior.id}`)
     await expect(page.getByTestId('user-senior-share-pending-badge')).toBeVisible()
 
     const cancelButton = page.getByTestId('cancel-pending-share-user').first()
@@ -1081,7 +1235,7 @@ test.describe('R — ADMIN can withdraw a pending proposal', () => {
     await ready
     await page.setViewportSize({ width: 320, height: 720 })
 
-    await page.goto(`/projects/${PROJECT_ID}`)
+    await gotoSettled(page, `/projects/${PROJECT_ID}`)
     // task-flaky-projects-shard (2026-09-25) root cause: `boundingBox()`
     // is not an auto-retrying Playwright API — it is a single CDP call.
     // Diagnosed live (9/80 on a clean machine, `--repeat-each=80`): even
@@ -1094,15 +1248,9 @@ test.describe('R — ADMIN can withdraw a pending proposal', () => {
     // it stops racing, instead of gambling that one `toBeVisible()` await
     // was enough head start.
     const cancelButton = page.getByTestId('cancel-pending-share-project').first()
-    let box: Awaited<ReturnType<typeof cancelButton.boundingBox>> = null
-    await expect
-      .poll(async () => {
-        box = await cancelButton.boundingBox()
-        return box !== null
-      })
-      .toBe(true)
-    expect(box!.height).toBeGreaterThanOrEqual(44)
-    expect(box!.width).toBeGreaterThanOrEqual(44)
+    const box = await readButtonBox(cancelButton, 'Скасувати пропозицію')
+    expect(box.height).toBeGreaterThanOrEqual(44)
+    expect(box.width).toBeGreaterThanOrEqual(44)
   })
 })
 
@@ -1113,7 +1261,7 @@ test.describe('S — the approver is not offered the withdraw control', () => {
     const { ready } = mockProjectWithPending(page)
     await ready
 
-    await page.goto(`/projects/${PROJECT_ID}`)
+    await gotoSettled(page, `/projects/${PROJECT_ID}`)
     // The senior's own control is reject-with-a-reason, not a silent withdraw.
     await expect(page.getByTestId('pending-share-approve-button')).toBeVisible()
     await expect(page.getByTestId('cancel-pending-share-project')).toHaveCount(0)
@@ -1131,7 +1279,7 @@ test.describe('T — an edit dialog announces the live proposal', () => {
     const { cancelCalls, ready } = mockProjectWithPending(page)
     await ready
 
-    await page.goto(`/projects/${PROJECT_ID}`)
+    await gotoSettled(page, `/projects/${PROJECT_ID}`)
     await page.getByTestId('project-edit-button').click()
 
     const notice = page.getByTestId('pending-share-edit-notice-project')
@@ -1150,7 +1298,7 @@ test.describe('T — an edit dialog announces the live proposal', () => {
     const { cancelCalls, ready } = mockProfileWithPending(page)
     await ready
 
-    await page.goto(`/profile/${USERS.senior.id}`)
+    await gotoSettled(page, `/profile/${USERS.senior.id}`)
     // `AdminActionsMenu` has a test-id on its trigger; the individual items
     // carry one only where a spec already needed it, so «Редагувати» is
     // addressed by role+name (the menu is a Radix DropdownMenu).
@@ -1179,7 +1327,7 @@ test.describe('U — the pending badge reads correctly on screen', () => {
       await ready
       await page.setViewportSize({ width, height: 800 })
 
-      await page.goto(`/projects/${PROJECT_ID}`)
+      await gotoSettled(page, `/projects/${PROJECT_ID}`)
       const badge = page.getByTestId('project-senior-share-pending-badge')
       await expect(badge).toBeVisible()
 
@@ -1190,7 +1338,10 @@ test.describe('U — the pending badge reads correctly on screen', () => {
       // task-648-fix-round-3 (COPY-H-7 / COPY-M-15): the label is now
       // «Предложено N%» — shorter (it has to fit a 131px column at 320) and
       // one name for the fact across badge, toast and dialog notice.
-      const rendered = await badge.evaluate((el) => (el as HTMLElement).innerText)
+      // Read once the uk label is there and the text is unchanged between two
+      // reads, THEN assert the space once: a missing space reads «Запропоновано55%»
+      // on both reads and still fails; the English first paint is not accepted.
+      const rendered = await elementText(badge, 'Запропоновано')
       expect(rendered).toMatch(/Запропоновано \d+%/)
     })
   }
@@ -1201,16 +1352,25 @@ test.describe('U — the pending badge reads correctly on screen', () => {
       await ready
       await page.setViewportSize({ width, height: 800 })
 
-      await page.goto(`/projects/${PROJECT_ID}`)
+      await gotoSettled(page, `/projects/${PROJECT_ID}`)
       const badge = page.getByTestId('project-senior-share-pending-badge')
       await expect(badge).toBeVisible()
 
       // Round 1 measured 35px (two lines) vs 20px (one) at 320 — the number
       // broke away from its label as an independent flex item.
-      const { height, lineHeight } = await badge.evaluate((el) => ({
-        height: el.getBoundingClientRect().height,
-        lineHeight: parseFloat(getComputedStyle(el).lineHeight || '16'),
-      }))
+      const { height, lineHeight } = await readStable(
+        () =>
+          badge.evaluate(async (el) => {
+            await document.fonts.ready
+            return {
+              text: (el as HTMLElement).innerText,
+              height: el.getBoundingClientRect().height,
+              lineHeight: parseFloat(getComputedStyle(el).lineHeight || '16'),
+            }
+          }),
+        (v) => v.text.includes('Запропоновано') && v.height > 0,
+        'badge height',
+      )
       expect(height).toBeLessThan(lineHeight * 2)
     })
   }
@@ -1228,20 +1388,17 @@ test.describe('V — the approver name is readable without hover', () => {
     await ready
     await page.setViewportSize({ width: 320, height: 800 })
 
-    await page.goto(`/projects/${PROJECT_ID}`)
+    await gotoSettled(page, `/projects/${PROJECT_ID}`)
     const shareWidget = page.getByTestId('project-senior-share')
     await expect(shareWidget).toBeVisible()
 
-    const rendered = await shareWidget.evaluate((el) => (el as HTMLElement).innerText)
+    const rendered = await elementText(shareWidget, USERS.senior.displayName)
     expect(rendered).toContain(USERS.senior.displayName)
 
     // Radix ignores touch pointers for tooltips, so a tap opens nothing — the
     // point is that nothing it MIGHT open can push the page sideways either.
     await page.getByTestId('project-senior-share-pending-badge').click()
-    const overflow = await page.evaluate(() => ({
-      scrollWidth: document.documentElement.scrollWidth,
-      clientWidth: document.documentElement.clientWidth,
-    }))
+    const overflow = await readPageOverflow(page)
     expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth)
   })
 
@@ -1250,10 +1407,10 @@ test.describe('V — the approver name is readable without hover', () => {
     await ready
     await page.setViewportSize({ width: 320, height: 800 })
 
-    await page.goto(`/profile/${USERS.senior.id}`)
+    await gotoSettled(page, `/profile/${USERS.senior.id}`)
     await expect(page.getByTestId('user-senior-share-pending-badge')).toBeVisible()
 
-    const rendered = await page.evaluate(() => (document.body as HTMLElement).innerText)
+    const rendered = await pageText(page, `Чекає підтвердження від ${USERS.senior.displayName}`)
     expect(rendered).toContain(`Чекає підтвердження від ${USERS.senior.displayName}`)
   })
 })
@@ -1274,13 +1431,10 @@ test.describe('W - no horizontal overflow with a live proposal', () => {
       await ready
       await page.setViewportSize({ width, height: 800 })
 
-      await page.goto(`/projects/${PROJECT_ID}`)
+      await gotoSettled(page, `/projects/${PROJECT_ID}`)
       await expect(page.getByTestId('project-senior-share-pending-badge')).toBeVisible()
 
-      const overflow = await page.evaluate(() => ({
-        scrollWidth: document.documentElement.scrollWidth,
-        clientWidth: document.documentElement.clientWidth,
-      }))
+      const overflow = await readPageOverflow(page)
       expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth)
     })
 
@@ -1289,13 +1443,10 @@ test.describe('W - no horizontal overflow with a live proposal', () => {
       await ready
       await page.setViewportSize({ width, height: 800 })
 
-      await page.goto(`/profile/${USERS.senior.id}`)
+      await gotoSettled(page, `/profile/${USERS.senior.id}`)
       await expect(page.getByTestId('user-senior-share-pending-badge')).toBeVisible()
 
-      const overflow = await page.evaluate(() => ({
-        scrollWidth: document.documentElement.scrollWidth,
-        clientWidth: document.documentElement.clientWidth,
-      }))
+      const overflow = await readPageOverflow(page)
       expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth)
     })
   }
@@ -1305,7 +1456,7 @@ test.describe('W - no horizontal overflow with a live proposal', () => {
     await ready
     await page.setViewportSize({ width: 320, height: 800 })
 
-    await page.goto(`/projects/${PROJECT_ID}`)
+    await gotoSettled(page, `/projects/${PROJECT_ID}`)
     // task-flaky-projects-shard (2026-09-25) — root cause, diagnosed live:
     // `boundingBox()` is a single CDP call, not an auto-retrying Playwright
     // assertion. `toBeVisible()` awaited immediately before it was not
@@ -1319,18 +1470,12 @@ test.describe('W - no horizontal overflow with a live proposal', () => {
     // defect. `expect.poll` retries the CDP call itself until it stops
     // racing.
     const cancelButton = page.getByTestId('cancel-pending-share-project').first()
-    let box: Awaited<ReturnType<typeof cancelButton.boundingBox>> = null
-    await expect
-      .poll(async () => {
-        box = await cancelButton.boundingBox()
-        return box !== null
-      })
-      .toBe(true)
+    const box = await readButtonBox(cancelButton, 'Скасувати пропозицію')
     // Round 2 measured this ending at ~382 - the button was drawn past the
     // edge of the screen, which is how the overflow above became visible.
-    expect(box!.x + box!.width).toBeLessThanOrEqual(320)
+    expect(box.x + box.width).toBeLessThanOrEqual(320)
     // ...and it is still a 44px touch target after being restacked.
-    expect(box!.height).toBeGreaterThanOrEqual(44)
+    expect(box.height).toBeGreaterThanOrEqual(44)
   })
 
   // task-648-fix-round-3 (COPY-H-7 / COPY-M-14). Fitting inside the viewport
@@ -1346,13 +1491,22 @@ test.describe('W - no horizontal overflow with a live proposal', () => {
     await ready
     await page.setViewportSize({ width: 320, height: 800 })
 
-    await page.goto(`/projects/${PROJECT_ID}`)
+    await gotoSettled(page, `/projects/${PROJECT_ID}`)
     const btn = page.getByTestId('cancel-pending-share-project').first()
     await expect(btn).toBeVisible()
-    const fit = await btn.evaluate((el) => ({
-      scrollWidth: el.scrollWidth,
-      clientWidth: el.clientWidth,
-    }))
+    const fit = await readStable(
+      () =>
+        btn.evaluate(async (el) => {
+          await document.fonts.ready
+          return {
+            text: (el as HTMLElement).innerText,
+            scrollWidth: el.scrollWidth,
+            clientWidth: el.clientWidth,
+          }
+        }),
+      (v) => v.text.includes('Скасувати пропозицію') && v.clientWidth > 0,
+      'withdraw button fit',
+    )
     expect(fit.scrollWidth).toBeLessThanOrEqual(fit.clientWidth)
   })
 
@@ -1367,14 +1521,24 @@ test.describe('W - no horizontal overflow with a live proposal', () => {
     await ready
     await page.setViewportSize({ width: 320, height: 800 })
 
-    await page.goto(`/projects/${PROJECT_ID}`)
+    await gotoSettled(page, `/projects/${PROJECT_ID}`)
     const badge = page.getByTestId('project-senior-share-pending-badge')
     await expect(badge).toBeVisible()
-    const geo = await badge.evaluate((el) => {
-      const b = el.getBoundingClientRect()
-      const parent = el.closest('[data-testid="project-senior-share"]')!.getBoundingClientRect()
-      return { badgeRight: b.right, parentRight: parent.right }
-    })
+    const geo = await readStable(
+      () =>
+        badge.evaluate(async (el) => {
+          await document.fonts.ready
+          const b = el.getBoundingClientRect()
+          const parent = el.closest('[data-testid="project-senior-share"]')!.getBoundingClientRect()
+          return {
+            text: (el as HTMLElement).innerText,
+            badgeRight: b.right,
+            parentRight: parent.right,
+          }
+        }),
+      (v) => v.text.includes('Запропоновано') && v.parentRight > 0,
+      'badge column geometry',
+    )
     expect(geo.badgeRight).toBeLessThanOrEqual(geo.parentRight)
   })
 })
@@ -1398,14 +1562,27 @@ test.describe('Z - every InfoRow of the details card fits, not just the share ro
   // loops below into a pass over zero elements.
   const EXPECTED_ROWS = 7
 
+  // Fonts ready first (the face swaps from the fallback to Inter after first
+  // paint), then read until two consecutive reads agree AND every row carries
+  // its complete uk label (an English or half-rendered row is never accepted
+  // as settled). `label` is a slice for the failure message only; completeness
+  // is judged on the FULL text, so the 24-char slice cannot mask a truncation.
   const measureRows = (page: import('@playwright/test').Page) =>
-    page.getByTestId('project-info-row').evaluateAll((els) =>
-      els.map((el) => ({
-        label: (el.textContent ?? '').trim().slice(0, 24),
-        scrollWidth: el.scrollWidth,
-        clientWidth: el.clientWidth,
-        right: el.getBoundingClientRect().right,
-      })),
+    readStable(
+      () =>
+        page.getByTestId('project-info-row').evaluateAll(async (els) => {
+          await document.fonts.ready
+          return els.map((el) => ({
+            label: (el.textContent ?? '').trim().slice(0, 24),
+            full: (el as HTMLElement).innerText,
+            scrollWidth: el.scrollWidth,
+            clientWidth: el.clientWidth,
+            right: el.getBoundingClientRect().right,
+          }))
+        }),
+      (rows) =>
+        rows.length > 0 && rows.every((r) => r.clientWidth > 0 && /[А-Яа-яІіЇїЄє]/.test(r.full)),
+      'info rows',
     )
 
   for (const width of [320, 375]) {
@@ -1414,7 +1591,7 @@ test.describe('Z - every InfoRow of the details card fits, not just the share ro
       await ready
       await page.setViewportSize({ width, height: 900 })
 
-      await page.goto(`/projects/${PROJECT_ID}`)
+      await gotoSettled(page, `/projects/${PROJECT_ID}`)
       await expect(page.getByTestId('project-senior-share-pending-badge')).toBeVisible()
 
       const rows = await measureRows(page)
@@ -1434,7 +1611,7 @@ test.describe('Z - every InfoRow of the details card fits, not just the share ro
       await mockProjectDetail(page, { seniorSharePercentOverride: 30 })
       await page.setViewportSize({ width, height: 900 })
 
-      await page.goto(`/projects/${PROJECT_ID}`)
+      await gotoSettled(page, `/projects/${PROJECT_ID}`)
       await expect(page.getByTestId('project-senior-share')).toBeVisible()
 
       const rows = await measureRows(page)
@@ -1464,14 +1641,15 @@ test.describe('X - the pending share addresses the reader, not the route', () =>
     const { approveCalls, ready } = mockSeniorSelfProfileWithPending(page)
     await ready
 
-    await page.goto('/profile')
+    await gotoSettled(page, '/profile')
     const banner = page.getByTestId('pending-base-share-approval-banner')
     await expect(banner).toBeVisible()
     await expect(banner).toContainText('Вашу частку')
     await expect(page.getByTestId('pending-base-share-approve-button')).toBeVisible()
 
-    // Nothing on this screen talks ABOUT them, to them.
-    const rendered = await page.evaluate(() => (document.body as HTMLElement).innerText)
+    // Nothing on this screen talks ABOUT them, to them. Read only once the uk
+    // page is there: a negative check on an unrendered/English page passes vacuously.
+    const rendered = await pageText(page, 'Вашу частку')
     expect(rendered).not.toContain(`Чекає підтвердження від ${USERS.senior.displayName}`)
     // ...and the ADMIN-only withdraw control is not offered to the approver.
     await expect(page.getByTestId('cancel-pending-share-user')).toHaveCount(0)
@@ -1488,14 +1666,14 @@ test.describe('X - the pending share addresses the reader, not the route', () =>
     const { ready } = mockSeniorSelfProfileWithPending(page)
     await ready
 
-    await page.goto(`/profile/${USERS.senior.id}`)
+    await gotoSettled(page, `/profile/${USERS.senior.id}`)
     const banner = page.getByTestId('pending-base-share-approval-banner')
     await expect(banner).toBeVisible()
     await expect(banner).toContainText('Вашу частку')
     await expect(page.getByTestId('pending-base-share-approve-button')).toBeVisible()
     await expect(page.getByTestId('pending-base-share-reject-button')).toBeVisible()
 
-    const rendered = await page.evaluate(() => (document.body as HTMLElement).innerText)
+    const rendered = await pageText(page, 'Вашу частку')
     expect(rendered).not.toContain(`Чекає підтвердження від ${USERS.senior.displayName}`)
   })
 
@@ -1505,9 +1683,9 @@ test.describe('X - the pending share addresses the reader, not the route', () =>
     const { ready } = mockProfileWithPending(page)
     await ready
 
-    await page.goto(`/profile/${USERS.senior.id}`)
+    await gotoSettled(page, `/profile/${USERS.senior.id}`)
     await expect(page.getByTestId('user-senior-share-pending-badge')).toBeVisible()
-    const rendered = await page.evaluate(() => (document.body as HTMLElement).innerText)
+    const rendered = await pageText(page, `Чекає підтвердження від ${USERS.senior.displayName}`)
     expect(rendered).toContain(`Чекає підтвердження від ${USERS.senior.displayName}`)
     await expect(page.getByTestId('cancel-pending-share-user').first()).toBeVisible()
     // The actionable banner belongs to the approver, not to the admin.
@@ -1520,13 +1698,15 @@ test.describe('X - the pending share addresses the reader, not the route', () =>
     const { ready } = mockProjectWithPending(page)
     await ready
 
-    await page.goto(`/projects/${PROJECT_ID}`)
+    await gotoSettled(page, `/projects/${PROJECT_ID}`)
     await expect(page.getByTestId('pending-share-approval-banner')).toBeVisible()
-    const rendered = await page.evaluate(() => (document.body as HTMLElement).innerText)
+    const rendered = await pageText(page, 'Вашу частку по проєкту')
     expect(rendered).toContain('Вашу частку по проєкту')
-    // Project page's own (untouched, still Russian) text — see the
-    // matching comment near `project-senior-share` above.
-    expect(rendered).not.toContain(`Подтверждает ${USERS.senior.displayName}`)
+    // The third-person line an ADMIN reads («Підтверджує <name>», asserted
+    // positively in Scenario A) must not be shown to the approver about
+    // themselves. This used to negate the Russian «Подтверждает …», which the
+    // product no longer renders anywhere, so the check could not fail.
+    expect(rendered).not.toContain(`Підтверджує ${USERS.senior.displayName}`)
   })
 
   // task-648-fix-round-4 (COPY-M-18). Round 3 made «предложение» the one name
@@ -1544,7 +1724,7 @@ test.describe('X - the pending share addresses the reader, not the route', () =>
       r.fulfill({ status: 201, contentType: 'application/json', body: '{}' }),
     )
 
-    await page.goto(`/projects/${PROJECT_ID}`)
+    await gotoSettled(page, `/projects/${PROJECT_ID}`)
     await page.getByTestId('pending-share-reject-button').click()
 
     const dialog = page.getByRole('dialog')
@@ -1574,7 +1754,7 @@ test.describe('Y - withdrawing asks first', () => {
     const { cancelCalls, ready } = mockProjectWithPending(page)
     await ready
 
-    await page.goto(`/projects/${PROJECT_ID}`)
+    await gotoSettled(page, `/projects/${PROJECT_ID}`)
     await page.getByTestId('cancel-pending-share-project').first().click()
 
     const dialog = page.getByTestId('cancel-pending-share-confirm-project')
@@ -1587,5 +1767,52 @@ test.describe('Y - withdrawing asks first', () => {
     // The proposal is still there, and nothing was posted.
     await expect(page.getByTestId('project-senior-share-pending-badge')).toBeVisible()
     expect(cancelCalls).toHaveLength(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// AA - the en -> uk switch, on purpose
+//
+// This file pins `locale: 'uk-UA'` (top of file) because its subject is
+// Ukrainian copy and its geometry. That pin removed the accidental coverage of
+// the other path: a uk user whose BROWSER says en first paints in English
+// (pre-login locale = navigator.language) and is moved to uk when `/auth/me`
+// resolves. This test owns that path deliberately: whatever the first paint
+// was, the session locale must WIN and leave a remounted Ukrainian page - not
+// a page stuck in English. Asserted: the browser really is en-US, the badge and
+// withdraw button read Ukrainian, and four named English strings are gone.
+//
+// What it does NOT assert: that the English flash does not happen. That flash
+// is known product behaviour (reported, not fixed here), and pinning its
+// absence would test an implementation detail the owner may change.
+// ---------------------------------------------------------------------------
+
+test.describe('AA - a uk session in an en browser ends in Ukrainian', () => {
+  test.use({ locale: 'en-US' })
+
+  test('project page: badge, withdraw button and page text all switch to uk', async ({
+    asAdmin: page,
+  }) => {
+    const { ready } = mockProjectWithPending(page)
+    await ready
+
+    await page.goto(`/projects/${PROJECT_ID}`)
+    // Guard the premise: if the file-level pin ever leaks into this block (or
+    // the fixture starts setting a locale), this test would silently become a
+    // duplicate of the pinned ones and the en -> uk path would be uncovered.
+    expect(await page.evaluate(() => navigator.language)).toBe('en-US')
+    await expect(page.locator('html')).toHaveAttribute('lang', 'uk')
+    // Auto-retrying on purpose: here "wait for the switch to land" IS the
+    // behaviour under test.
+    await expect(page.getByTestId('project-senior-share-pending-badge')).toHaveText(/Запропоновано/)
+    await expect(page.getByTestId('cancel-pending-share-project').first()).toHaveText(
+      'Скасувати пропозицію',
+    )
+    const text = await pageText(page, 'Запропоновано')
+    // Named English catalog strings from the first paint must be gone. This is
+    // all the test claims: it does not prove the page has no other English.
+    for (const english of ['Proposed', 'Senior’s share', 'Tech stack', 'Benefits']) {
+      expect(text, `English «${english}» survived the switch`).not.toContain(english)
+    }
   })
 })

@@ -1246,3 +1246,59 @@ describe('отправщик — язык получателя', () => {
     expect(globalI18n.locale).toBe(before)
   })
 })
+
+describe('a database error inside the send path reaches the log with its SQLSTATE', () => {
+  // `markSent` sits inside the same try as the provider call, so a privilege error on
+  // the outbox table is caught as a "send failure". The stored reason is only the class
+  // name (`DrizzleQueryError`); the LOG line is where the SQLSTATE has to appear.
+  function deniedMarkSent(): Error {
+    const driver = Object.assign(new Error('permission denied for table notification_emails'), {
+      severity: 'ERROR',
+      code: '42501',
+    })
+    return Object.assign(
+      new Error('Failed query: update "notification_emails" set x = $1\nparams: SECRET-VALUE-123'),
+      {
+        query: 'update "notification_emails" set x = $1',
+        params: ['SECRET-VALUE-123'],
+        cause: driver,
+      },
+    )
+  }
+
+  it('a retry warning carries db_state=42501 and no parameter value', async () => {
+    const gw = makeGateway([claimed({ attempts: 2 })])
+    gw.markSent = async () => {
+      throw deniedMarkSent()
+    }
+    const { service } = makeService({ gateway: gw })
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+
+    await service.drainOnce()
+
+    // Selected by content: an earlier test in this file leaves its own warn spy installed.
+    const said = warn.mock.calls
+      .map((c) => String(c[0] ?? ''))
+      .find((m) => m.startsWith('Email not sent'))
+    expect(said).toContain('db_error db_state=42501')
+    expect(said).not.toContain('permission denied')
+    expect(said).not.toContain('SECRET-VALUE-123')
+    warn.mockRestore()
+  })
+
+  it('the give-up error carries db_state=42501 and no parameter value', async () => {
+    const gw = makeGateway([claimed({ attempts: MAX_EMAIL_ATTEMPTS })])
+    gw.markSent = async () => {
+      throw deniedMarkSent()
+    }
+    const { service } = makeService({ gateway: gw })
+    const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+
+    await service.drainOnce()
+
+    const said = String(error.mock.calls[0]?.[0] ?? '')
+    expect(said).toContain('db_error db_state=42501')
+    expect(said).not.toContain('SECRET-VALUE-123')
+    error.mockRestore()
+  })
+})

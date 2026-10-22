@@ -100,7 +100,8 @@ export class TelemetryExceptionFilter extends BaseExceptionFilter {
       // sec HIGH (review round 1): `request.url` on Fastify carries the FULL
       // query string (e.g. `/api/auth/google/callback?code=...&state=...`).
       // Stored verbatim this would leak an OAuth code/state — or any future
-      // token-in-URL — into the digest -> public GitHub issue pipeline.
+      // token-in-URL — into the digest, which files issues in a PRIVATE repository
+      // (telemetry-digest.yml, PRIVATE_REPO): still no place for a secret.
       // `toPathname` is the single shared strip helper (see `route.ts`),
       // reused at every telemetry route-write site.
       route: toPathname(url),

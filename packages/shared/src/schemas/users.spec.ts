@@ -4,6 +4,7 @@ import {
   adminUpdateUserSchema,
   createUserSchema,
   createDropSchema,
+  hrCreateSeniorSchema,
   changePersonalEmailSchema,
 } from './users'
 import { MIN_SALARY_AMOUNT } from './money'
@@ -905,5 +906,97 @@ describe('adminUpdateUserSchema — refineRequisitePresence (security-review bon
       bankUahRnokpp: '1'.repeat(10),
     })
     expect(result.success).toBe(true)
+  })
+})
+
+// ─── hrCreateSeniorSchema — HR provisions a SENIOR without requisites ─────────
+
+describe('hrCreateSeniorSchema', () => {
+  // Exactly what the HR "create senior" dialog sends: no payment method, no
+  // wallet, no legalFullName.
+  const dialogPayload = {
+    email: 'new.senior@example.com',
+    displayName: 'Іван Іваненко',
+    role: 'SENIOR' as const,
+    seniorSharePercent: 26,
+    hrIds: ['123e4567-e89b-42d3-a456-426614174000'],
+    accountantId: null,
+  }
+
+  it('accepts the dialog payload that createUserSchema rejects (the bug)', () => {
+    expect(createUserSchema.safeParse(dialogPayload).success).toBe(false)
+    const r = hrCreateSeniorSchema.safeParse(dialogPayload)
+    expect(r.success).toBe(true)
+    expect(r.success && r.data.seniorSharePercent).toBe(26)
+  })
+
+  it('rejects any role other than SENIOR', () => {
+    for (const role of ['ADMIN', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP']) {
+      expect(hrCreateSeniorSchema.safeParse({ ...dialogPayload, role }).success).toBe(false)
+    }
+  })
+
+  it('rejects a bad email and a too-short name', () => {
+    expect(hrCreateSeniorSchema.safeParse({ ...dialogPayload, email: 'nope' }).success).toBe(false)
+    expect(hrCreateSeniorSchema.safeParse({ ...dialogPayload, displayName: 'A' }).success).toBe(
+      false,
+    )
+  })
+
+  it('rejects seniorSharePercent outside 0..100', () => {
+    expect(
+      hrCreateSeniorSchema.safeParse({ ...dialogPayload, seniorSharePercent: 101 }).success,
+    ).toBe(false)
+    expect(
+      hrCreateSeniorSchema.safeParse({ ...dialogPayload, seniorSharePercent: -1 }).success,
+    ).toBe(false)
+  })
+
+  // SR-M-2 pin: HR sets the base share at creation, the whole 0..100 range.
+  it.each([0, 100])('accepts seniorSharePercent %i at creation', (pct) => {
+    expect(
+      hrCreateSeniorSchema.parse({ ...dialogPayload, seniorSharePercent: pct }).seniorSharePercent,
+    ).toBe(pct)
+  })
+
+  it('strips finance / PII keys instead of passing them through', () => {
+    const r = hrCreateSeniorSchema.parse({
+      ...dialogPayload,
+      paymentMethod: 'USDT_ERC20',
+      walletUsdtErc20: '0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+      bankUahIban: 'UA000000000000000000000000000',
+      monthlySalary: 499999,
+      legalFullName: 'Підроблений Іван Іванович',
+      personalEmail: 'x@example.com',
+    })
+    for (const k of [
+      'paymentMethod',
+      'walletUsdtErc20',
+      'bankUahIban',
+      'monthlySalary',
+      'legalFullName',
+      'personalEmail',
+    ]) {
+      expect(r).not.toHaveProperty(k)
+    }
+  })
+
+  it('requires dropTeamId when teamMode is JOIN_DROP_TEAM', () => {
+    const bad = hrCreateSeniorSchema.safeParse({ ...dialogPayload, teamMode: 'JOIN_DROP_TEAM' })
+    expect(bad.success).toBe(false)
+    const issue = !bad.success ? bad.error.issues[0] : undefined
+    expect(issue?.message).toBe('zod.DROP_TEAM_ID_REQUIRED')
+    expect(issue?.path).toEqual(['dropTeamId'])
+    expect(issue?.code).toBe('custom')
+    expect(
+      hrCreateSeniorSchema.safeParse({
+        ...dialogPayload,
+        teamMode: 'JOIN_DROP_TEAM',
+        dropTeamId: '123e4567-e89b-42d3-a456-426614174001',
+      }).success,
+    ).toBe(true)
+    expect(
+      hrCreateSeniorSchema.safeParse({ ...dialogPayload, teamMode: 'CREATE_NEW' }).success,
+    ).toBe(true)
   })
 })

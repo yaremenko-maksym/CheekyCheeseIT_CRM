@@ -129,7 +129,7 @@ function isGenericHttpReasonPhrase(message: string): boolean {
 /**
  * Parses `err.response.data` against `apiErrorEnvelopeSchema` — the shape
  * `apiError()` (`apps/api/src/common/api-error.ts`) builds for the eight
- * codes in the registry (`packages/shared/src/schemas/api-errors.ts`).
+ * codes in the registry (`packages/shared/src/schemas/api-errors/`).
  * `.safeParse` rather than `.parse`: an ordinary NestJS error body (no
  * `code` field, or a `code` outside the registry) is the EXPECTED shape for
  * every endpoint not yet migrated to `apiError()` — that is not a parse
@@ -168,7 +168,7 @@ export function getApiErrorCode(err: unknown): ApiErrorCode | null {
  * takes the extractor's other branch instead: `getTextFromExpression` on a
  * `MemberExpression` returns `undefined` (not a string/template literal),
  * so it skips the call cleanly. The `{ id: '' }.<CODE>` entries themselves
- * are still extracted — from `api-errors.ts`'s OWN `/* i18n *\/`-marked
+ * are still extracted — from `packages/shared/src/schemas/api-errors/`'s OWN `/* i18n *\/`-marked
  * object literals, which is where they belong; this call site only ever
  * looks one up by a code already in the registry, never defines a new one.
  */
