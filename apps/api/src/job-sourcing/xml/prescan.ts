@@ -1,0 +1,350 @@
+/**
+ * Structural pre-scan: element count and nesting depth, before the parser runs — Task 2.4a, R-2.
+ *
+ * WHY A PRE-SCAN AT ALL, GIVEN DEPTH AND COUNT ARE EXACT AFTER PARSING
+ * -------------------------------------------------------------------
+ * Because "after parsing" is after the cost has been paid. The element count is what parse time
+ * and resident memory track (measurements in `xml-limits.ts`), and the point of a bound is to
+ * refuse the work, not to describe it afterwards. Checking the count post-parse would be the same
+ * defect as the ADR's wall-clock deadline "checked around the call": a report, not a bound.
+ *
+ * THE RISK THIS FILE IS, AND HOW IT IS CLOSED
+ * -------------------------------------------
+ * R-2 names it precisely: a cheap scan over attacker-controlled input that disagrees with the real
+ * parser is a **parser-differential** surface. A regex counting `<` would be exactly that — `<`
+ * and `>` live quite legally inside attribute values, comments, CDATA sections and processing
+ * instructions, and a document can be shaped so the scan sees few elements where the parser builds
+ * many, which turns the bound off.
+ *
+ * So this is not a cheap scan. It is a small tokenizer that recognises the same five markup
+ * constructs the parser does, and the disagreement risk is closed by measurement rather than by
+ * care: `prescan.differential.spec.ts` parses every document in the corpus and asserts the
+ * scanner's `(maxDepth, elementCount)` equals the tree's, and `bounded-xml-port.ts` raises
+ * `PRESCAN_DIFFERENTIAL` at runtime if they ever differ. A divergence is therefore a red test or a
+ * loud error, never a silently disabled bound.
+ *
+ * WHY ONE UNTERMINATED CONSTRUCT IS REFUSED HERE AND THE OTHER FOUR ARE NOT
+ * ------------------------------------------------------------------------
+ * An unterminated PI, comment, CDATA section or markup declaration still ends the scan with
+ * `break`, under-counting whatever followed it — and that is deliberate, on a measurement rather
+ * than on a principle. Measured at 2 MiB on an M3, 2026-10-21: each of those shapes costs
+ * **1 ms** in `parseXml` before it comes back `MALFORMED`, because the parser refuses an
+ * unterminated construct as soon as it reaches the end of input without the terminator. There is
+ * no cost to bound, so bounding it would add a branch and a reason for nothing.
+ *
+ * An unterminated START TAG is the one exception, and it is refused at the point it is found: the
+ * same 2 MiB shape costs **147 ms**, and the attributes already inside the tag were being
+ * discarded by the `break` before they reached the item budget. The asymmetry is the measurement,
+ * not an oversight — if a future parser change makes any of the cheap four expensive, the fix is
+ * the same three lines, and the number above is what to re-measure.
+ *
+ * Otherwise it deliberately does NOT validate. A malformed document is the parser's verdict to give
+ * (`MALFORMED` = drift); this scan only has to avoid UNDER-counting one.
+ */
+
+export interface PrescanBudget {
+  readonly maxDepth: number
+  readonly maxElements: number
+  /**
+   * Cap on `elementCount + attributeCount` — the quantity the WALL-CLOCK budget converts into.
+   *
+   * ATTRIBUTES ARE COUNTED BECAUSE THEY WERE THE WAY AROUND THE TIME BOUND. The budget used to be
+   * spent as elements alone, so ~150 000 attributes on a SINGLE element was two elements and
+   * slipped it entirely. `xml-limits.ts` carries the measurements; the short version is that an
+   * attribute costs within the same order as an element, so a bound that counts one and not the
+   * other is not a bound on the work.
+   */
+  readonly maxItems: number
+}
+
+export interface StructureMeasurement {
+  /** Deepest element nesting seen, root element = 1. */
+  readonly maxDepth: number
+  readonly elementCount: number
+  /**
+   * Attributes on start tags, **`xmlns` declarations included**.
+   *
+   * Included because this figure is compared against the parsed tree (`PRESCAN_DIFFERENTIAL`), and
+   * the tree keeps declarations on `namespaceDeclarations` rather than `attributes` — so
+   * `measureTree` adds the two back together. A pre-scan count that excluded them would have to
+   * recognise `xmlns` here, which is namespace knowledge this tokenizer deliberately has none of.
+   */
+  readonly attributeCount: number
+}
+
+export type PrescanOutcome =
+  | ({ readonly ok: true } & StructureMeasurement)
+  /**
+   * A budget was exceeded. The measurement is the point at which the scan ABORTED, not the
+   * document's true size: the scan stops at the first breach, so a hostile document cannot make
+   * us walk all of it to find out we did not want it.
+   */
+  | ({
+      readonly ok: false
+      readonly exceeded: 'depth' | 'elements' | 'items'
+    } & StructureMeasurement)
+  /**
+   * Input ran out INSIDE a start tag, so there is no measurement to report and the document is
+   * not well-formed. A separate arm from `exceeded` because nothing was exceeded — the scan simply
+   * cannot answer, and conflating "too big" with "unmeasurable" is how the second one gets
+   * treated as the first one's happy path. Which is exactly what happened: see `prescanStructure`.
+   */
+  | ({ readonly ok: false; readonly unterminated: 'start-tag' } & StructureMeasurement)
+
+/**
+ * XML name start characters, restricted to what matters here: telling an element open tag from a
+ * stray `<` in text. The full production includes large Unicode ranges; a name this scan
+ * misclassifies as "not a name" is a `<` the parser will also refuse, so the error can only make
+ * the scan refuse-to-count, and the differential spec would catch that on any real document.
+ */
+function isNameStart(ch: string | undefined): boolean {
+  if (ch === undefined) return false
+  return /[A-Za-z_:À-�]/.test(ch)
+}
+
+/** Index just past `marker`, or `-1`. */
+function skipPast(text: string, from: number, marker: string): number {
+  const at = text.indexOf(marker, from)
+  return at === -1 ? -1 : at + marker.length
+}
+
+/**
+ * End of a markup declaration (`<!DOCTYPE …>`, `<!ELEMENT …>`), honouring quotes and the
+ * bracketed internal subset.
+ *
+ * The port rejects `<!DOCTYPE` outright before this scan ever sees it, so in the port's pipeline
+ * this branch is unreachable for a doctype. It is still correct here because the adapter can be
+ * driven directly — which is exactly what R-1's internal-entity test does — and because a scanner
+ * whose correctness depends on an earlier gate is a scanner that breaks when the gate moves.
+ */
+function endOfMarkupDeclaration(text: string, from: number): number {
+  let i = from
+  let quote: string | null = null
+  let inSubset = false
+  // `for (;;)` with an explicit end-of-input break, not `while (i < text.length)`.
+  //
+  // Two reasons, and neither is style. The comparison carried an unobservable `<=` mutant (one
+  // extra pass over `undefined`, which matches no branch and then exits), while the SAME mutator
+  // also produces an observable `>=` on that line — so a line-scoped suppression would have
+  // silenced a live mutant along with the dead one. And the old form needed `text[i] as string`,
+  // a cast asserting something `noUncheckedIndexedAccess` is right to doubt. Reading the
+  // character and testing it for `undefined` removes the cast and the comparison together.
+  for (;;) {
+    const ch = text[i]
+    if (ch === undefined) return -1
+    if (quote !== null) {
+      if (ch === quote) quote = null
+    } else if (ch === '"' || ch === "'") {
+      quote = ch
+    } else if (ch === '[') {
+      inSubset = true
+    } else if (ch === ']') {
+      inSubset = false
+    } else if (ch === '>' && !inSubset) {
+      // The index OF the `>`, as in `endOfStartTag` — the caller only uses it to resume an
+      // `indexOf('<', …)`, and `text[i]` is a `>`, so there is no arithmetic worth having here.
+      return i
+    }
+    i += 1
+  }
+}
+
+/**
+ * End of a start tag, whether it closed itself, and how many attributes it carries.
+ *
+ * Quote tracking is the whole job: `<a href="a > b"/>` ends at the LAST `>`, and a scan that took
+ * the first one would mis-nest everything after it.
+ *
+ * THE ATTRIBUTE COUNT IS THE COUNT OF `=` OUTSIDE QUOTES, and that is exact rather than
+ * approximate — which is the only reason it may feed a bound. `AttDef` is
+ * `Name Eq AttValue` with `AttValue` always quoted, so within a start tag every attribute
+ * contributes exactly one unquoted `=` and nothing else can: an `=` in a value is inside the
+ * quotes this loop is already tracking (`<i a="x=y"/>` → 1), whitespace around the `=` is
+ * irrelevant (`<i a = "1"/>` → 1), and an `=` cannot appear in a `Name`. Tags that are not start
+ * tags never reach here — the caller routes PIs, comments, CDATA and markup declarations away
+ * before this, so the `=` in `<?xml version="1.0"?>` is never seen, and an end tag cannot carry
+ * attributes at all.
+ */
+function endOfStartTag(
+  text: string,
+  from: number,
+): { resumeFrom: number; selfClosing: boolean; attributeCount: number } | null {
+  let i = from
+  let quote: string | null = null
+  let attributeCount = 0
+  // `for (;;)` + an undefined check, for the reasons given on `endOfMarkupDeclaration` above.
+  for (;;) {
+    const ch = text[i]
+    if (ch === undefined) {
+      // `null`, not `{ end: -1, selfClosing: false }`. The old shape carried a `selfClosing` the
+      // caller could never read — it tested `end === -1` and broke first — so the field was dead
+      // weight that read as a considered value, and two mutants on it were unobservable by
+      // construction. Deleting the construct beats explaining why it cannot be seen.
+      return null
+    }
+    if (quote !== null) {
+      if (ch === quote) quote = null
+    } else if (ch === '"' || ch === "'") {
+      quote = ch
+    } else if (ch === '=') {
+      attributeCount += 1
+    } else if (ch === '>') {
+      const selfClosing = text[i - 1] === '/'
+      // `resumeFrom: i` — the index OF the `>`, not past it, and the name says so.
+      //
+      // It was `end: i + 1`, which carried an unobservable `ArithmeticOperator` mutant: the value
+      // is consumed only as the start of `text.indexOf('<', …)`, and `text[i]` is a `>`, so
+      // searching from the `>` or from just after it reaches the same next `<`. Rather than
+      // suppress that mutant with an explanation, the arithmetic is gone — there is nothing left
+      // to mutate, and the field's name now states the weaker contract it actually has.
+      return { resumeFrom: i, selfClosing, attributeCount }
+    }
+    i += 1
+  }
+}
+
+/**
+ * Measure structure, stopping at the first breach of `budget`.
+ *
+ * Runs on the DECODED string, like the `<!DOCTYPE` check and for the same reason: a byte-level
+ * scan of a UTF-16 document finds no markup at all and would report an empty structure.
+ */
+export function prescanStructure(text: string, budget: PrescanBudget): PrescanOutcome {
+  let depth = 0
+  let maxDepth = 0
+  let elementCount = 0
+  let attributeCount = 0
+  let i = 0
+
+  // `for (;;)`: the `i < text.length` guard this replaced was REDUNDANT, not merely untestable.
+  // `indexOf` returns -1 for any start index past the end of the string, so the `lt === -1` break
+  // below already covers end-of-input — which is why the guard's `<=` mutant was unobservable.
+  for (;;) {
+    const lt = text.indexOf('<', i)
+    if (lt === -1) break
+    i = lt + 1
+    const marker = text[i]
+
+    /**
+     * WHERE EACH SKIP STARTS, AND WHY TWO OF THEM MATTER AND FOUR DO NOT.
+     *
+     * A terminator search that begins a few characters early usually finds the same index, so
+     * these offsets look interchangeable. For four of the six they genuinely are, and those pass
+     * plain `i` — no arithmetic to get wrong, nothing to suppress:
+     *
+     *   - `']]>'`  cannot occur inside `![CDATA[`, so the first match is the section's own end;
+     *   - `endOfMarkupDeclaration` would scan only `<` and `!` extra, and neither is a quote, a
+     *     bracket or a `>`, so its state machine is in the same state either way;
+     *   - the close-tag `'>'` search would scan only the `/`;
+     *   - `endOfStartTag` would scan only the element name's first character, which cannot be a
+     *     quote or a `>` (it passed `isNameStart`).
+     *
+     * The two below DO matter, and the `+ 1` / `+ 3` are load-bearing, because in a DEGENERATE
+     * construct the opener's own characters can form the terminator: `<?>` and `<!-->` are
+     * unterminated, yet a search starting at or before the `?` / the `--` matches a `?>` / `-->`
+     * that is really the opener being read as the closer. The scan would then resume and count
+     * the elements after an unterminated construct. Pinned by their own cases in
+     * `prescan.unit.spec.ts`; both mutants were verified to go red.
+     */
+    if (marker === '?') {
+      // Processing instruction, including the XML declaration. Its content is not markup.
+      const next = skipPast(text, i + 1, '?>')
+      if (next === -1) break
+      i = next
+      continue
+    }
+
+    if (marker === '!') {
+      if (text.startsWith('--', i + 1)) {
+        const next = skipPast(text, i + 3, '-->')
+        if (next === -1) break
+        i = next
+        continue
+      }
+      if (text.startsWith('[CDATA[', i + 1)) {
+        // CDATA content is literal text. `<item>` inside it is NOT an element, and counting it
+        // would be the differential this scan exists to avoid.
+        const next = skipPast(text, i, ']]>')
+        if (next === -1) break
+        i = next
+        continue
+      }
+      const next = endOfMarkupDeclaration(text, i)
+      if (next === -1) break
+      i = next
+      continue
+    }
+
+    if (marker === '/') {
+      // `Math.max(0, …)`: an unbalanced close tag must not drive the counter negative and so
+      // under-report the depth of what follows. The parser rejects such a document anyway.
+      depth = Math.max(0, depth - 1)
+      // No skip to the `>` at all. An end tag cannot contain attributes, so it cannot contain a
+      // `<` either — the next `indexOf('<', i)` therefore lands on the following tag whether we
+      // skipped this one's `>` or not, and `text[i]` is the `/`, so progress is guaranteed. The
+      // skip was a redundant call whose marker string and offset both carried unobservable
+      // mutants; deleting the call deletes them.
+      continue
+    }
+
+    if (!isNameStart(marker)) {
+      // A bare `<` in text. Not an element; keep scanning from just past it.
+      continue
+    }
+
+    elementCount += 1
+    depth += 1
+    // `Math.max`, not `if (depth > maxDepth) maxDepth = depth`. The comparison form carried an
+    // unobservable mutant — `>=` assigns a value `maxDepth` already holds, so no input can tell
+    // the two operators apart — and the honest fix is to remove the operator rather than to
+    // explain it away in a suppression. `Math.max` says "the running maximum" directly.
+    maxDepth = Math.max(maxDepth, depth)
+
+    if (depth > budget.maxDepth) {
+      return { ok: false, exceeded: 'depth', maxDepth, elementCount, attributeCount }
+    }
+    if (elementCount > budget.maxElements) {
+      return { ok: false, exceeded: 'elements', maxDepth, elementCount, attributeCount }
+    }
+
+    const tag = endOfStartTag(text, i)
+    if (tag === null) {
+      // AN UNTERMINATED START TAG IS REFUSED HERE, not handed on. It used to `break`, which looked
+      // harmless — the parser refuses such a document anyway, so the OUTCOME was already
+      // `MALFORMED` — and was not: `break` discarded the attributes already found inside the
+      // unterminated tag, so they never reached the `maxItems` check below, and the document went
+      // to the parser with a measurement of zero attributes. That is a path through the very bound
+      // this scan exists to enforce, in the quantity the bound was just extended to cover.
+      //
+      // MEASURED, M3, 2026-10-21: `<r><e a0="v" … a149999="v"` (1.6 MiB, 150 000 attributes, no
+      // `>`) scanned as `ok: true, attributeCount: 0`, then cost **147 ms** inside `parseXml`
+      // before coming back `MALFORMED`. The terminated form of the same document is refused by the
+      // budget in 9 ms. Both end in a refusal, so nothing wrong was ever ACCEPTED — what leaked
+      // was the cost, which is the only thing a pre-parse bound is for. 147 ms is inside the
+      // 250 ms budget on this machine; the two measurement tables in `xml-limits.ts` differ by
+      // ~9× on the same input, so it is not inside the budget on every machine.
+      //
+      // Counting the partial attributes and then testing `maxItems` would also work. Refusing is
+      // chosen because an unterminated start tag is MALFORMED by definition — no well-formed
+      // document reaches this line — so there is no behaviour to bound, and teaching a dead path
+      // to count is worse than deleting it. The reason code the caller sees is unchanged.
+      return { ok: false, unterminated: 'start-tag', maxDepth, elementCount, attributeCount }
+    }
+    attributeCount += tag.attributeCount
+
+    // The ITEM check is here, AFTER the tag has been walked, and that is not a hole worth closing.
+    // Walking one hostile start tag costs a pass over part of the decoded string, and the decoded
+    // string is already bounded by `maxBytes` — so the worst this ordering admits is one scan of
+    // 2 MiB, which measures single-digit ms. What it prevents is the PARSER being handed that tag,
+    // which is where the cost that matters lives. Checking per-character inside `endOfStartTag`
+    // would buy nothing and would put the budget inside the tokenizer.
+    if (elementCount + attributeCount > budget.maxItems) {
+      return { ok: false, exceeded: 'items', maxDepth, elementCount, attributeCount }
+    }
+
+    if (tag.selfClosing) depth -= 1
+    i = tag.resumeFrom
+  }
+
+  return { ok: true, maxDepth, elementCount, attributeCount }
+}

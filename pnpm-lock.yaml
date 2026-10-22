@@ -70,6 +70,7 @@ importers:
       '@nestjs/testing': ^11.2.7
       '@nestjs/throttler': ^6.7.1
       '@pdf-lib/fontkit': ^1.1.1
+      '@rgrove/parse-xml': 5.0.0
       '@types/heic-convert': 2.1.0
       '@types/node': ^20.19.43
       '@types/pdfkit': ^0.17.6
@@ -119,6 +120,7 @@ importers:
       '@nestjs/schedule': 6.1.3_audr6lhmka2coi5ahgrfawliri
       '@nestjs/throttler': 6.7.1_3maeuyjh3r7mdeu2f6gudzw2se
       '@pdf-lib/fontkit': 1.1.1
+      '@rgrove/parse-xml': 5.0.0
       drizzle-orm: 0.45.3_@types+pg@8.23.1+pg@8.23.1
       fastify: 5.12.5
       google-auth-library: 10.9.1
@@ -5184,6 +5186,11 @@ packages:
       redux: 5.0.1
       redux-thunk: 3.1.0_redux@5.0.1
       reselect: 5.2.0
+    dev: false
+
+  /@rgrove/parse-xml/5.0.0:
+    resolution: {integrity: sha512-SgHFyisNAkS2ZbM8SCriUm1N0bxLiz0POKvpDeAtrnLrXaYG1PawNwu1rSjmE/vcVHbZzYWNgVP6xkep6R4uXg==}
+    engines: {node: '>=22.12.0'}
     dev: false
 
   /@rolldown/pluginutils/1.0.0-beta.27:

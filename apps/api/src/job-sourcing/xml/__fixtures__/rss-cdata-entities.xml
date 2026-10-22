@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SYNTHETIC. RSS 2.0 shape. Covers: a guid with isPermaLink="false" (opaque identity),
+  a guid whose value disagrees with <link> (the GUID/URL mismatch case the plan names),
+  CDATA holding markup that must stay inert text, and the five predefined entities.
+
+  An unprefixed attribute such as isPermaLink is in NO namespace even when the document
+  declares other vocabularies — unlike an unprefixed element, which takes the default
+  namespace. That asymmetry is what `attributeValue`'s default pins.
+-->
+<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>Example &amp; Co jobs</title>
+    <link>https://example.com/jobs</link>
+    <item>
+      <title>Backend Dev &lt;Node&gt; &amp; Postgres</title>
+      <link>https://example.com/jobs/1?utm_source=feed</link>
+      <guid isPermaLink="false">opaque-id-001</guid>
+      <pubDate>Fri, 07 Aug 2026 11:48:38 +0300</pubDate>
+      <dc:creator>Acme</dc:creator>
+      <description><![CDATA[<p>Build <b>APIs</b></p>]]></description>
+    </item>
+    <item>
+      <title>Permalink guid item</title>
+      <link>https://example.com/jobs/2?utm_source=feed</link>
+      <guid isPermaLink="true">https://example.com/jobs/2</guid>
+      <description>Plain &quot;quoted&quot; text with an apostrophe&apos;s entity</description>
+    </item>
+  </channel>
+</rss>

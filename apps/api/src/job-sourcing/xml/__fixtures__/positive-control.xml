@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  THE POSITIVE CONTROL. Byte-for-byte `attack-undefined-entity-no-doctype.xml` with the
+  one undefined entity replaced by `&amp;`, which IS defined.
+
+  Why a whole fixture for this: mutation testing against seven wrapper variants showed a
+  wrapper whose `parseDocument` ALWAYS THREW passed every one of the ADR's three original
+  assertions (SR-H-1). A suite made only of "this input raises" cases cannot tell a
+  hardened port from a broken one. This file is the input that must SUCCEED, and it must
+  produce a specific value — "Backend & Dev", not merely "something" — so a wrapper that
+  returns an empty tree fails too.
+-->
+<rss version="2.0">
+  <channel>
+    <item><title>Backend &amp; Dev</title></item>
+  </channel>
+</rss>

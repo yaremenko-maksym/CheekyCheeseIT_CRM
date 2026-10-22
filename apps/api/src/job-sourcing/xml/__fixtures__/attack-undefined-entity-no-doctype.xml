@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  THE DRIFT-GATE FIXTURE. An undefined entity reference and NO doctype declaration at all,
+  so the port's doctype refusal cannot answer for it and the result is decided by
+  `ignoreUndefinedEntities` alone:
+
+  NOTE — this comment deliberately spells "doctype declaration" in words rather than
+  writing the markup. The port's refusal is a string match on the DECODED DOCUMENT, so the
+  literal appearing anywhere — including inside an XML comment, as it did in the first
+  version of this file — refuses the document. That cost this fixture a wrong verdict
+  (DOCTYPE_FORBIDDEN where MALFORMED was the point) until a red test said so, and the
+  conservative reach is pinned by a test of its own in decode.spec.ts.
+
+      ignoreUndefinedEntities: false (pinned)  -> raises, feed reported as drift
+      ignoreUndefinedEntities: true            -> parses "successfully", <title> reads
+                                                  the literal "&nbsp;", i.e. a malformed
+                                                  feed accepted as vacancy content
+
+  `&nbsp;` specifically, because it is the realistic case: it is not an XML entity, feeds
+  emit it constantly out of HTML habit, and "just let &nbsp; through" is exactly the
+  well-meant edit that would flip the option. It is also the case `fast-xml-parser`
+  accepts under EVERY configuration measured, which is why that candidate is a
+  candidate-of-record and not a drop-in.
+-->
+<rss version="2.0">
+  <channel>
+    <item><title>Backend&nbsp;Dev</title></item>
+  </channel>
+</rss>

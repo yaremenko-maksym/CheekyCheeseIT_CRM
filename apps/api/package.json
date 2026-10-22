@@ -35,6 +35,7 @@
     "@nestjs/schedule": "^6.1.3",
     "@nestjs/throttler": "^6.7.1",
     "@pdf-lib/fontkit": "^1.1.1",
+    "@rgrove/parse-xml": "5.0.0",
     "drizzle-orm": "^0.45.3",
     "fastify": "^5.12.5",
     "google-auth-library": "^10.9.1",
