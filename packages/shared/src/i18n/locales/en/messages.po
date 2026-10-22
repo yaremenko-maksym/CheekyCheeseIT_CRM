@@ -31,7 +31,7 @@ msgstr "On-chain check (unavailable in the test environment)"
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Відв'язування…"
-msgstr ""
+msgstr "Unlinking…"
 
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyFormFields.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyTranslationFields.tsx
@@ -111,7 +111,7 @@ msgstr "Delete vacancy"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Назва використовується лише для розрізнення підключень у CRM."
-msgstr ""
+msgstr "The name is only used to tell connections apart in the CRM."
 
 #: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
 msgid "Перемістити місце роботи {position} вгору"
@@ -287,7 +287,7 @@ msgstr "The only accountant in the system"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Увімкнути"
-msgstr ""
+msgstr "Enable"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "Вкажіть деталі ручного підтвердження"
@@ -519,7 +519,7 @@ msgstr "{0, plural, one {# project} other {# projects}}"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Signing secret оновлено"
-msgstr ""
+msgstr "Signing secret updated"
 
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
 msgid "Деталі рахунку"
@@ -703,7 +703,7 @@ msgstr "Publish"
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Не вдалося відв'язати запис"
-msgstr ""
+msgstr "Couldn't unlink the recording"
 
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 #: apps/web/app/components/user-profile/ProfileCredentialsSection.tsx
@@ -725,7 +725,7 @@ msgstr "Vacancy not found"
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Не передано"
-msgstr ""
+msgstr "Not provided"
 
 #. placeholder {0}: data.signatures.length
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
@@ -817,7 +817,7 @@ msgstr "Senior settlement"
 #. placeholder {0}: topic.spans.length
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Фрагментів: {0}"
-msgstr ""
+msgstr "Fragments: {0}"
 
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
@@ -830,7 +830,7 @@ msgstr "Last month"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Не вдалося оновити signing secret"
-msgstr ""
+msgstr "Couldn't update the signing secret"
 
 #. placeholder {0}: counts.PUBLISHED
 #: apps/web/app/routes/_authenticated/vacancies/index.tsx
@@ -846,7 +846,7 @@ msgstr "Log in as {0}"
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingSummarySection.tsx
 #: apps/web/app/routes/_authenticated/interviews/unmatched.tsx
 msgid "Транскрипт готовий"
-msgstr ""
+msgstr "Transcript ready"
 
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "Частка сеньйора за весь час"
@@ -866,7 +866,7 @@ msgstr "A Ukrainian sole-proprietor bank account will be used."
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Підключено"
-msgstr ""
+msgstr "Connected"
 
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 msgid "{label}, рядок {position}"
@@ -874,7 +874,7 @@ msgstr "{label}, row {position}"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Налаштувати signing secret"
-msgstr ""
+msgstr "Set up signing secret"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
@@ -883,7 +883,7 @@ msgstr "Rate (USD)"
 
 #: apps/web/app/routes/_authenticated/interviews/components/LinkRecordingDialog.tsx
 msgid "Не вдалося завантажити співбесіди."
-msgstr ""
+msgstr "Couldn't load interviews."
 
 #: apps/web/app/routes/_authenticated/finance/cascade-preview.ts
 msgid "Перегляд недоступний — помилка на нашому боці, спробуйте пізніше"
@@ -903,7 +903,7 @@ msgstr "General information"
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingSummarySection.tsx
 msgid "Записи"
-msgstr ""
+msgstr "Recordings"
 
 #. placeholder {0}: confirm?.user.displayName
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
@@ -1036,7 +1036,7 @@ msgstr "Checking…"
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Аналіз недоступний"
-msgstr ""
+msgstr "Analysis unavailable"
 
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 msgid "Великий"
@@ -1145,7 +1145,7 @@ msgstr "The request has been created"
 
 #: apps/web/app/routes/_authenticated/interviews/components/LinkRecordingDialog.tsx
 msgid "Запис прив'язано"
-msgstr ""
+msgstr "Recording linked"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/SettleSeniorPayoutDialog.tsx
 msgid "Розрахунок за частку сеньйора"
@@ -1277,7 +1277,7 @@ msgstr "Sum of all paid salaries to company employees, all time."
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Закріплену ідентичність рекордера буде очищено. Перед підключенням нового джерела потрібно буде налаштувати новий signing secret."
-msgstr ""
+msgstr "The pinned recorder identity will be cleared. You'll need to set up a new signing secret before connecting a new source."
 
 #. placeholder {0}: vacancy.applicationsCount
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
@@ -1322,7 +1322,7 @@ msgstr "Validated"
 
 #: apps/web/app/routes/_authenticated/interviews/components/LinkRecordingDialog.tsx
 msgid "Буде прив'язано до"
-msgstr ""
+msgstr "Will be linked to"
 
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 #: apps/web/app/components/user-profile/resume/ResumeSectionCard.tsx
@@ -1374,7 +1374,7 @@ msgstr "Change the email?"
 #. placeholder {0}: topic.importance
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Важливість: {0}"
-msgstr ""
+msgstr "Importance: {0}"
 
 #: apps/web/app/components/users/user-dialog/TeamSection.tsx
 #: apps/web/app/components/users/user-dialog/TeamSection.tsx
@@ -1452,7 +1452,7 @@ msgstr "Accepted: {0}"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Налаштувати секрет"
-msgstr ""
+msgstr "Set up secret"
 
 #: apps/web/app/components/users/user-dialog/TeamSection.tsx
 #: apps/web/app/components/users/user-dialog/TeamSection.tsx
@@ -1617,7 +1617,7 @@ msgstr "Type {mimeType} is not supported. You can upload PNG, JPEG or WebP"
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingSummarySection.tsx
 #: apps/web/app/routes/_authenticated/interviews/unmatched.tsx
 msgid "Транскрипт обробляється"
-msgstr ""
+msgstr "Transcript processing"
 
 #: apps/web/app/routes/_authenticated/projects/ProjectOverviewTab.tsx
 msgid "Деталі проєкту"
@@ -1699,7 +1699,7 @@ msgstr "Go to Finance"
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Скинути прив'язку"
-msgstr ""
+msgstr "Reset binding"
 
 #: apps/web/app/routes/_authenticated/stats.tsx
 msgid "Середній дохід / міс."
@@ -1724,7 +1724,7 @@ msgstr "Loading the image"
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Секрет має починатися з whsec_ і містити 24–64 байти Base64"
-msgstr ""
+msgstr "The secret must start with whsec_ and contain 24–64 bytes of Base64"
 
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Є незбережені зміни — якщо перейти, їх буде втрачено"
@@ -1747,7 +1747,7 @@ msgstr "Replace receipt"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Після збереження значення секрету більше не відображається в CRM."
-msgstr ""
+msgstr "Once saved, the secret value is no longer shown in the CRM."
 
 #: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
 msgid "Це скине підпис і онбординг співробітника (видалить прийняття Умов використання) — дію не можна скасувати"
@@ -3540,7 +3540,7 @@ msgstr "Edit account"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Створіть підключення та одразу задайте write-only signing secret."
-msgstr ""
+msgstr "Create a connection and set a write-only signing secret right away."
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
 msgid "Переведіть суму компанії та підтвердьте оплату."
@@ -3574,7 +3574,7 @@ msgstr "Achievements — one per line"
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Аналіз скасовано"
-msgstr ""
+msgstr "Analysis canceled"
 
 #. placeholder {0}: currentTos.version + 1
 #. placeholder {1}: currentTos.version
@@ -3632,7 +3632,7 @@ msgstr "project name"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Скопіювати Webhook URL"
-msgstr ""
+msgstr "Copy webhook URL"
 
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
 #: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
@@ -3742,7 +3742,7 @@ msgstr "Contract — preview.pdf"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Підключення увімкнено"
-msgstr ""
+msgstr "Connection enabled"
 
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
@@ -3875,7 +3875,7 @@ msgstr "Retry"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Не вдалося скинути прив'язку"
-msgstr ""
+msgstr "Couldn't reset the binding"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "Перевірте хеш і спробуйте знову, або скористайтеся ручним підтвердженням."
@@ -3884,7 +3884,7 @@ msgstr "Check the hash and try again, or use manual confirmation."
 #. placeholder {0}: formatDate(connection.signingSecretUpdatedAt)
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Оновлено: {0}"
-msgstr ""
+msgstr "Updated: {0}"
 
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancySheet.tsx
@@ -4288,7 +4288,7 @@ msgstr "The team has {0, plural, one {# HR/accountant} other {# HR/accountants}}
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingSummarySection.tsx
 #: apps/web/app/routes/_authenticated/interviews/unmatched.tsx
 msgid "Аналіз готовий"
-msgstr ""
+msgstr "Analysis ready"
 
 #: apps/web/app/routes/_authenticated/documents.tsx
 msgid "Документи вам не відкриті. Потрібен доступ — напишіть адміну"
@@ -4321,7 +4321,7 @@ msgstr "HR — interview pipeline"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Скинути прив'язку?"
-msgstr ""
+msgstr "Reset binding?"
 
 #: apps/web/app/components/user-profile/resume/ResumeSectionCard.tsx
 msgid "Спершу збережіть або скасуйте правки у відкритому розділі"
@@ -4384,7 +4384,7 @@ msgstr "Draft"
 
 #: apps/web/app/routes/_authenticated/interviews/unmatched.tsx
 msgid "До співбесід"
-msgstr ""
+msgstr "Back to interviews"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 msgid "Джерело"
@@ -4419,7 +4419,7 @@ msgstr "Fill in by hand"
 
 #: apps/web/app/routes/_authenticated/interviews/unmatched.tsx
 msgid "Можливий збіг"
-msgstr ""
+msgstr "Possible match"
 
 #: apps/web/app/components/user-profile/admin-actions/ArchiveUserDialog.tsx
 #: apps/web/app/components/users/ArchiveUserConfirmDialog.tsx
@@ -4434,11 +4434,11 @@ msgstr "No HR yet — ask an admin to add one"
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingSummarySection.tsx
 #: apps/web/app/routes/_authenticated/interviews/unmatched.tsx
 msgid "Доставка матеріалів триває"
-msgstr ""
+msgstr "Materials still being delivered"
 
 #: apps/web/app/routes/_authenticated/interviews/components/LinkRecordingDialog.tsx
 msgid "Компанія або стадія"
-msgstr ""
+msgstr "Company or stage"
 
 #: apps/web/app/components/documents/document-labels.ts
 #: apps/web/app/components/user-profile/resume/ResumePdfPreview.tsx
@@ -4691,7 +4691,7 @@ msgstr "Payout date"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Підключення створено, але секрет не вдалося зберегти"
-msgstr ""
+msgstr "Connection created, but the secret couldn't be saved"
 
 #: apps/web/app/components/users/user-dialog/WizardStep3.tsx
 msgid "Контракт не створено (немає активного шаблону для ролі). Його можна додати пізніше через профіль користувача."
@@ -4975,7 +4975,7 @@ msgstr "Category"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Замінити signing secret"
-msgstr ""
+msgstr "Replace signing secret"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Повторити спробу"
@@ -5003,7 +5003,7 @@ msgstr "Fill in the new project's details and add members."
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Запис співбесіди"
-msgstr ""
+msgstr "Interview recording"
 
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 msgid "Оплата послуги"
@@ -5099,7 +5099,7 @@ msgstr "Invoice"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Підключень Meeting Recorder поки немає"
-msgstr ""
+msgstr "No Meeting Recorder connections yet"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/receipt-panel.tsx
 msgid "Чек зберігається за зовнішнім посиланням — відкриється у новій вкладці"
@@ -5141,7 +5141,7 @@ msgstr "Receipt unavailable"
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Транскрипт, нотатки та аналіз, отримані від Meeting Recorder."
-msgstr ""
+msgstr "Transcript, notes and analysis received from Meeting Recorder."
 
 #: apps/web/app/components/users/user-dialog/PaymentRequisitesSection.tsx
 msgid "Використовуватиметься адреса гаманця в мережі Ethereum."
@@ -5150,7 +5150,7 @@ msgstr "A wallet address on the Ethereum network will be used."
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Введіть назву підключення"
-msgstr ""
+msgstr "Enter a connection name"
 
 #: apps/web/app/components/documents/document-card.tsx
 #: apps/web/app/components/documents/document-detail-dialog.tsx
@@ -5178,7 +5178,7 @@ msgstr "Rejected"
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Додати підключення"
-msgstr ""
+msgstr "Add connection"
 
 #: apps/web/app/routes/_authenticated/onboarding/index.tsx
 msgid "Підписання контракту"
@@ -5636,7 +5636,7 @@ msgstr "Still due: {0}"
 
 #: apps/web/app/routes/_authenticated/interviews/components/LinkRecordingDialog.tsx
 msgid "Співбесід не знайдено"
-msgstr ""
+msgstr "No interviews found"
 
 #: apps/web/app/components/user-profile/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/user-profile/admin-actions/ChangePersonalEmailDialog.tsx
@@ -6514,7 +6514,7 @@ msgstr "Awaiting {senior}"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Дії з підключенням"
-msgstr ""
+msgstr "Connection actions"
 
 #. placeholder {0}: counts.CLOSED
 #: apps/web/app/routes/_authenticated/vacancies/index.tsx
@@ -6600,7 +6600,7 @@ msgstr "No logos"
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Нотатки за часом"
-msgstr ""
+msgstr "Timestamped notes"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/DividendFields.tsx
 msgid "Отримувач (партнер)"
@@ -6636,7 +6636,7 @@ msgstr "Version {0} · last edited by {1}"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Очікує перевірки"
-msgstr ""
+msgstr "Awaiting verification"
 
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Команда з’являється автоматично, коли в систему додають сеньйора"
@@ -6682,7 +6682,7 @@ msgstr "Delete the interview?"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Новий signing secret"
-msgstr ""
+msgstr "New signing secret"
 
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "Немає доходів, що очікують валідації"
@@ -6881,7 +6881,7 @@ msgstr "Confirmation"
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Помилка аналізу"
-msgstr ""
+msgstr "Analysis failed"
 
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "Мої проєкти"
@@ -6905,7 +6905,7 @@ msgstr "Confirmed settlement"
 
 #: apps/web/app/routes/_authenticated/interviews/unmatched.tsx
 msgid "Збіг не знайдено"
-msgstr ""
+msgstr "No match found"
 
 #: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
 msgid "Скинути контракт до шаблону?"
@@ -7000,7 +7000,7 @@ msgstr "User created, the contract was saved as a draft"
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Транскрипт порожній"
-msgstr ""
+msgstr "Transcript is empty"
 
 #: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "— оберіть бухгалтера —"
@@ -7041,7 +7041,7 @@ msgstr "Actions"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Не вдалося змінити стан підключення"
-msgstr ""
+msgstr "Couldn't change the connection status"
 
 #: apps/web/app/routes/_authenticated/stats/components/CompanyAndPartnersCard.tsx
 msgid "Ніхто нікому не винен"
@@ -7066,7 +7066,7 @@ msgstr "Additional information…"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Перейменувати підключення"
-msgstr ""
+msgstr "Rename connection"
 
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
 #: apps/web/app/components/users/UserDialog.tsx
@@ -7120,7 +7120,7 @@ msgstr "Enter a positive number"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Секрет"
-msgstr ""
+msgstr "Secret"
 
 #. placeholder {0}: fmtUsdt(p.amount)
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ObligationPreviewBanner.tsx
@@ -7271,7 +7271,7 @@ msgstr "Restoring is possible — the profile comes back, but projects must be r
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Прив'язку скинуто. Налаштуйте новий секрет."
-msgstr ""
+msgstr "Binding reset. Set up a new secret."
 
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
@@ -7372,7 +7372,7 @@ msgstr "No applications yet"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Не вдалося скопіювати Webhook URL"
-msgstr ""
+msgstr "Couldn't copy the webhook URL"
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Сеньйора оновлено"
@@ -7504,7 +7504,7 @@ msgstr "Withdraw dividends from the company account balance"
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Не вдалося завантажити запис."
-msgstr ""
+msgstr "Couldn't load the recording."
 
 #: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
 msgid "Перегляд ЗП"
@@ -7882,7 +7882,7 @@ msgstr "You can attach one later in the Projects section"
 
 #: apps/web/app/routes/_authenticated/interviews/unmatched.tsx
 msgid "Неприв'язаних записів немає"
-msgstr ""
+msgstr "No unlinked recordings"
 
 #. placeholder {0}: impact.projectsCount ?? 0
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
@@ -7948,7 +7948,7 @@ msgstr "Could not mark the contract as ready to sign"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Не вдалося завантажити підключення Meeting Recorder."
-msgstr ""
+msgstr "Couldn't load Meeting Recorder connections."
 
 #: apps/web/app/components/documents/document-card.tsx
 msgid "Чек із Фінансів"
@@ -7990,7 +7990,7 @@ msgstr "The form contains errors"
 
 #: apps/web/app/routes/_authenticated/interviews/components/LinkRecordingDialog.tsx
 msgid "Прив'язати запис до співбесіди"
-msgstr ""
+msgstr "Link recording to an interview"
 
 #: apps/web/app/routes/login.tsx
 msgid "Особисту адресу підтверджено. Увійдіть через Google — виберіть цю адресу."
@@ -8336,7 +8336,7 @@ msgstr "Project with a drop"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Webhook URL"
-msgstr ""
+msgstr "Webhook URL"
 
 #: apps/web/app/routes/_authenticated/stats.tsx
 msgid "Інші розділи"
@@ -8686,7 +8686,7 @@ msgstr "Moved to “Hired”"
 #: apps/web/app/routes/_authenticated/admin/route.tsx
 #: apps/web/app/routes/_authenticated/admin/route.tsx
 msgid "Інтеграції"
-msgstr ""
+msgstr "Integrations"
 
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 msgid "Додати акаунт проєкту"
@@ -8694,7 +8694,7 @@ msgstr "Add a project account"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Підключення створено"
-msgstr ""
+msgstr "Connection created"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "У роботі"
@@ -8751,7 +8751,7 @@ msgstr "Prepare for signing"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Вимкнути"
-msgstr ""
+msgstr "Disable"
 
 #: apps/web/app/components/onboarding/AcceptTosStep.tsx
 msgid "Прийняти Умови використання"
@@ -8887,7 +8887,7 @@ msgstr "Text received, parsing the resume"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Секрет не налаштовано"
-msgstr ""
+msgstr "Secret not set up"
 
 #: apps/web/app/routes/_authenticated/vacancies/constants.ts
 msgid "Неприпустимий формат"
@@ -8950,7 +8950,7 @@ msgstr "CheekyCheeseIT’s share due"
 #: apps/web/app/routes/_authenticated/interviews/index.tsx
 #: apps/web/app/routes/_authenticated/interviews/unmatched.tsx
 msgid "Неприв'язані записи"
-msgstr ""
+msgstr "Unlinked recordings"
 
 #: apps/web/app/components/documents/document-labels.ts
 msgid "Договір"
@@ -8975,7 +8975,7 @@ msgstr "The new Terms of Service version has been published. Users will see a no
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Остання перевірка"
-msgstr ""
+msgstr "Last check"
 
 #: apps/web/app/components/users/user-dialog/TeamSection.tsx
 msgid "Немає команд дропа без активного сеньйора. Створіть дропа або оберіть «Створити свою команду»."
@@ -9013,7 +9013,7 @@ msgstr "Logging in…"
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingSummarySection.tsx
 msgid "Не вдалося завантажити записи."
-msgstr ""
+msgstr "Couldn't load recordings."
 
 #: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
 msgid "Посада"
@@ -9062,7 +9062,7 @@ msgstr "Sign the invoice?"
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Запис відв'язано"
-msgstr ""
+msgstr "Recording unlinked"
 
 #: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
 msgid "Значення за замовчуванням (необов’язково)"
@@ -9106,7 +9106,7 @@ msgstr "No results"
 
 #: apps/web/app/routes/_authenticated/interviews/components/LinkRecordingDialog.tsx
 msgid "Оберіть сеньйора, знайдіть потрібну співбесіду та підтвердьте прив'язування запису «{recordingTitle}»."
-msgstr ""
+msgstr "Select a senior, find the interview you need and confirm linking the recording “{recordingTitle}”."
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/useCreateTransactionValidator.ts
 msgid "Сума перевищує баланс рахунку компанії"
@@ -9150,11 +9150,11 @@ msgstr "This is a payout row — the amount is confirmed by an executed transfer
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingSummarySection.tsx
 #: apps/web/app/routes/_authenticated/interviews/unmatched.tsx
 msgid "{0} хв"
-msgstr ""
+msgstr "{0} min"
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Аналіз"
-msgstr ""
+msgstr "Analysis"
 
 #: apps/web/app/components/documents/document-card.tsx
 #: apps/web/app/components/documents/document-detail-dialog.tsx
@@ -9164,7 +9164,7 @@ msgstr "Archive"
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Нотатка рекордера"
-msgstr ""
+msgstr "Recorder note"
 
 #: apps/web/app/components/user-profile/contract/useEmployeeContract.ts
 msgid "Не вдалося позначити готовим"
@@ -9267,7 +9267,7 @@ msgstr "Project sections"
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Запис зникне з цієї співбесіди та повернеться до списку неприв'язаних записів."
-msgstr ""
+msgstr "The recording will be removed from this interview and returned to the list of unlinked recordings."
 
 #: apps/web/app/routes/_authenticated/finance/components/CompanySharePayoutStrip.tsx
 msgid "{projectsCount, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}"
@@ -9328,11 +9328,11 @@ msgstr "Degree / field"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Потрібен секрет"
-msgstr ""
+msgstr "Secret required"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Вимкнено"
-msgstr ""
+msgstr "Disabled"
 
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 msgid "Особисті дані"
@@ -9344,7 +9344,7 @@ msgstr "Used in the MSA contract instead of your first and last name — write i
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Секрет налаштовано"
-msgstr ""
+msgstr "Secret set up"
 
 #. placeholder {0}: user.displayName
 #: apps/web/app/components/layout/ImpersonationBanner.tsx
@@ -9373,7 +9373,7 @@ msgstr "An admin will see the reason and can propose a different share"
 
 #: apps/web/app/routes/_authenticated/interviews/components/LinkRecordingDialog.tsx
 msgid "Не вдалося прив'язати запис"
-msgstr ""
+msgstr "Couldn't link the recording"
 
 #: apps/web/app/routes/_authenticated/finance/cascade-preview.ts
 msgid "Дані змінилися з моменту перегляду — оновіть перегляд"
@@ -9432,7 +9432,7 @@ msgstr "Choose an admin's personal account for this settlement"
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Транскрипт"
-msgstr ""
+msgstr "Transcript"
 
 #: apps/web/app/components/user-profile/UserProfileHeader.tsx
 #: apps/web/app/components/user-profile/UserProfileHeader.tsx
@@ -9678,7 +9678,7 @@ msgstr "Signatures"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Замінити секрет"
-msgstr ""
+msgstr "Replace secret"
 
 #: apps/web/app/routes/_authenticated/index.tsx
 msgid "Активних проєктів"
@@ -9772,7 +9772,7 @@ msgstr "Rate: 1 {0} = {1} {2}"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Не вдалося перейменувати підключення"
-msgstr ""
+msgstr "Couldn't rename the connection"
 
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 msgid "Транзакцій поки немає"
@@ -9833,7 +9833,7 @@ msgstr "Change senior"
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Транскрипт не передано"
-msgstr ""
+msgstr "No transcript provided"
 
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
@@ -9865,7 +9865,7 @@ msgstr "Published: {0}"
 
 #: apps/web/app/routes/_authenticated/interviews/unmatched.tsx
 msgid "Не вдалося завантажити неприв'язані записи."
-msgstr ""
+msgstr "Couldn't load unlinked recordings."
 
 #: apps/web/app/routes/_authenticated/legend.tsx
 msgid "Що сталося? (наприклад: клієнт запитав про освіту, відповіли — місцевий університет)"
@@ -9975,7 +9975,7 @@ msgstr "+ Register"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Скидання…"
-msgstr ""
+msgstr "Resetting…"
 
 #: apps/web/app/components/users/user-dialog/TeamSection.tsx
 #: apps/web/app/components/users/user-dialog/TeamSection.tsx
@@ -9984,7 +9984,7 @@ msgstr "Team Telegram channel"
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Транскрипт ще обробляється."
-msgstr ""
+msgstr "The transcript is still being processed."
 
 #: apps/web/app/hooks/use-vacancies.ts
 msgid "Не вдалося створити вакансію. Спробуйте ще раз"
@@ -10004,7 +10004,7 @@ msgstr "Could not copy. Copy it manually."
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Переприв'язати"
-msgstr ""
+msgstr "Relink"
 
 #: apps/web/app/routes/_authenticated/stats.tsx
 msgid "за {count, plural, one {# місяць} few {# місяці} many {# місяців} other {# місяця}}"
@@ -10146,7 +10146,7 @@ msgstr "Invoice signed"
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Аналіз не передано"
-msgstr ""
+msgstr "No analysis provided"
 
 #: apps/web/app/components/users/user-dialog/TechStackSection.tsx
 msgid "Професія"
@@ -10199,7 +10199,7 @@ msgstr "The profile of <0>{entityName}</0> will be archived; it will be removed 
 
 #: apps/web/app/routes/_authenticated/interviews/components/LinkRecordingDialog.tsx
 msgid "Пошук співбесіди"
-msgstr ""
+msgstr "Search interviews"
 
 #. placeholder {0}: i18n._(CASCADE_PREVIEW_LEAD_IN_MESSAGE)
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx
@@ -10329,7 +10329,7 @@ msgstr "Hide the password"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Остання подія"
-msgstr ""
+msgstr "Last event"
 
 #. placeholder {0}: receiver.accruedCount
 #: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
@@ -10407,7 +10407,7 @@ msgstr "Statistics"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Не вдалося створити підключення"
-msgstr ""
+msgstr "Couldn't create the connection"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ExpenseCategoryField.tsx
@@ -10420,7 +10420,7 @@ msgstr "Entry added"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Підключення вимкнено"
-msgstr ""
+msgstr "Connection disabled"
 
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Найнято за місяць"
@@ -10432,11 +10432,11 @@ msgstr "Variable {{{key}}} deleted"
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Відв'язати запис?"
-msgstr ""
+msgstr "Unlink recording?"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Підключення перейменовано"
-msgstr ""
+msgstr "Connection renamed"
 
 #: apps/web/app/components/documents/document-detail-dialog.tsx
 msgid "Відкрити проєкт"
@@ -10603,7 +10603,7 @@ msgstr "Choose an accountant"
 
 #: apps/web/app/routes/_authenticated/interviews/components/LinkRecordingDialog.tsx
 msgid "Оберіть сеньйора"
-msgstr ""
+msgstr "Select a senior"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
 msgid "Підсумкова виплата буде в USDT — конвертація за курсом НБУ на момент створення"
@@ -10611,7 +10611,7 @@ msgstr "The final payout will be in USDT — converted at the NBU rate at the ti
 
 #: apps/web/app/routes/_authenticated/interviews/components/LinkRecordingDialog.tsx
 msgid "Прив'язування…"
-msgstr ""
+msgstr "Linking…"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AttachReceiptSheet.tsx
 msgid "Прикріпіть чек або вкажіть посилання на підтвердження"
@@ -10641,7 +10641,7 @@ msgstr "Type"
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingSummarySection.tsx
 #: apps/web/app/routes/_authenticated/interviews/unmatched.tsx
 msgid "Аналіз обробляється"
-msgstr ""
+msgstr "Analysis processing"
 
 #: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "Проєкти без зарахованого доходу"
@@ -10657,7 +10657,7 @@ msgstr "Avatar"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Signing secret"
-msgstr ""
+msgstr "Signing secret"
 
 #: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
@@ -10767,7 +10767,7 @@ msgstr "Name: A–Z"
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Аналіз ще обробляється."
-msgstr ""
+msgstr "The analysis is still being processed."
 
 #: apps/web/app/routes/_authenticated/index.tsx
 msgid "Активні транзакції"
@@ -10920,7 +10920,7 @@ msgstr "Enter at least 3 characters of the reason"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Перейменувати"
-msgstr ""
+msgstr "Rename"
 
 #: apps/web/app/routes/login.tsx
 msgid "Термін дії запрошення закінчився. Попросіть адміністратора надіслати його ще раз."
@@ -11094,7 +11094,7 @@ msgstr "Application status filter"
 #: apps/web/app/routes/_authenticated/interviews/components/LinkRecordingDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/unmatched.tsx
 msgid "Прив'язати"
-msgstr ""
+msgstr "Link"
 
 #: apps/web/app/components/contracts/VariablesPanel.tsx
 #: apps/web/app/components/contracts/VariablesPanel.tsx
@@ -11133,7 +11133,7 @@ msgstr "Translations (optional)"
 
 #: apps/web/app/routes/_authenticated/interviews/unmatched.tsx
 msgid "Записи Meeting Recorder, для яких співбесіду потрібно обрати вручну."
-msgstr ""
+msgstr "Meeting Recorder recordings that need an interview selected manually."
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
 msgid "Звичайна витрата"
@@ -11234,11 +11234,11 @@ msgstr "Dividend tax"
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Відв'язати"
-msgstr ""
+msgstr "Unlink"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Підключення приймають події Meeting Recorder та створюють записи для співбесід."
-msgstr ""
+msgstr "Connections receive Meeting Recorder events and create recordings for interviews."
 
 #: apps/web/app/components/documents/pdf-preview.tsx
 msgid "Браузер заблокував вбудований перегляд PDF"
@@ -11985,7 +11985,7 @@ msgstr "Reset"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Webhook URL скопійовано"
-msgstr ""
+msgstr "Webhook URL copied"
 
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
@@ -12003,7 +12003,7 @@ msgstr "Team and projects"
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingSummarySection.tsx
 msgid "Для цієї співбесіди записів немає"
-msgstr ""
+msgstr "No recordings for this interview"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "Не вдалося завантажити дані виплати. Спробуйте пізніше."
