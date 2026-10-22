@@ -226,6 +226,17 @@ describe('AC4 — a time-limited feed never claims FULL_INVENTORY', () => {
     expect(batch.coverage).toBe('WINDOW')
   })
 
+  it('collecting directly — without defineRssProvider — refuses an impossible window too', async () => {
+    const f = fakeCollectionContext({
+      now: NOW,
+      responses: [{ bodyText: fixtureText('rss-empty.xml') }],
+    })
+    expect(() =>
+      collectFeedPages(spec({ inventory: { kind: 'RECENT', windowMs: 0 } }), config(), f.ctx),
+    ).toThrow(/windowMs must be a positive, finite number of milliseconds, got 0/)
+    expect(f.sent).toEqual([])
+  })
+
   it('a one-millisecond window is a window', () => {
     expect(() =>
       defineRssProvider(spec({ inventory: { kind: 'RECENT', windowMs: 1 } })),
