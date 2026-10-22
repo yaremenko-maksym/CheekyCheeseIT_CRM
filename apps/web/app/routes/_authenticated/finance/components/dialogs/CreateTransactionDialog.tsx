@@ -174,7 +174,8 @@ export function CreateTransactionDialog({
     setType('SALARY')
     setReceiverId(salaryPrefill.receiverId)
     setSalaryMonth(salaryPrefill.salaryMonth)
-    if (salaryPrefill.currency) setCurrency(salaryPrefill.currency)
+    // Unresolvable prefill currency -> the default, never the previous open's.
+    setCurrency(salaryPrefill.currency ?? 'USD')
     setAmount('')
     setFieldErrors({})
   }, [open, salaryPrefill?.receiverId, salaryPrefill?.salaryMonth, salaryPrefill?.currency])
