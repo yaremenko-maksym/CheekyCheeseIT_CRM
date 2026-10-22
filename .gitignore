@@ -22,6 +22,10 @@ build/
 # via `codegraph init`). See docs/architecture/2026-06-12-codegraph-adoption.md.
 .codegraph/
 
+# graphify output (scripts/devops/build-graphify.sh): a per-machine, rebuildable
+# code-only graph of the SQL / shell / JSON that codegraph cannot see. Never committed.
+graphify-out/
+
 # StrykerJS scratch space + reports (task-mutation-gate). The sandbox dir is
 # created inside whichever package is being mutated and is normally cleaned up
 # by Stryker itself — it survives only when a run is killed (e.g. by the gate's
