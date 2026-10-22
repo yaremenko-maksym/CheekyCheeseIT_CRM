@@ -144,7 +144,11 @@ function assertInventory(inventory: FeedInventory): void {
  * in two places.
  */
 function assertConfigWindow(inventory: FeedInventory, config: SourceConfigFields): void {
-  if (inventory.kind === 'RECENT' && config.window !== null && config.window !== undefined) {
+  // `config.window` by truthiness, not `!== null && !== undefined`: the config schema defaults the
+  // field to `null`, so the `undefined` half of that pair was a branch no input could enter — the
+  // mutation gate reported it surviving, and it was right. A window is an object, so truthiness
+  // says exactly "a window was asked for", with both of its own branches reachable.
+  if (inventory.kind === 'RECENT' && config.window) {
     throw new Error(
       'a RECENT feed shows only its own window and cannot be asked for another: ' +
         'remove `window` from the source config, or declare the feed COMPLETE',

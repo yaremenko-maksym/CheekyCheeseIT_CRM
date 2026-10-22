@@ -121,8 +121,25 @@ interface Harness {
   cache: Map<string, CachedResponse>
 }
 
-/** The adapter's slot out of the loop's `[slot, digest]` cache key — see the harness's cache. */
-const slotOf = (key: string): string => z.tuple([z.string(), z.string()]).parse(JSON.parse(key))[0]
+/**
+ * The adapter's slot out of the loop's `[slot, digest]` cache key — see the harness's cache.
+ *
+ * A key that is not that shape is recorded VERBATIM rather than refused: the loop is the thing
+ * under test, so a harness that threw on an unexpected key would hide the call instead of
+ * reporting it — and `cache.put` degrades silently by design, so the throw would vanish entirely.
+ */
+const slotOf = (key: string): string => {
+  const parsed = z.tuple([z.string(), z.string()]).safeParse(
+    ((): unknown => {
+      try {
+        return JSON.parse(key)
+      } catch {
+        return null
+      }
+    })(),
+  )
+  return parsed.success ? parsed.data[0] : String(key)
+}
 
 function harness(opts: {
   pages: PageResponse[]

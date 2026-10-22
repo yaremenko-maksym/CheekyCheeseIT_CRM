@@ -242,6 +242,22 @@ describe('replacement characters in a body that does not declare UTF-8 are drift
     expect(batch.observations[0]?.originalFields.title.value).toBe('Dev \ufffd ops')
   })
 
+  it.each(['utf-8', 'UTF-8', 'utf8'])(
+    'treats %s as UTF-8, so a replacement character in it is content',
+    async (label) => {
+      // The declaration is compared CASE-FOLDED AND TRIMMED, and `UTF-8` is the canonical XML
+      // spelling — the Personio fixture's own. Without the folding, every document that spells it
+      // the normal way would be refused the moment it contained the character.
+      const f = fakeCollectionContext({
+        responses: [{ bodyText: declared(label, 'Dev \ufffd ops') }],
+      })
+      const batch = await collectXmlPages(personioSpec(), config(), f.ctx)
+
+      expect(batch.outcome).toBe('SUCCEEDED')
+      expect(batch.observations[0]?.originalFields.title.value).toBe('Dev \ufffd ops')
+    },
+  )
+
   it('accepts a replacement character in a document that declares nothing at all', async () => {
     // The other stated false negative: with no declaration XML's default is UTF-8, and only bytes
     // could tell a declaration-less cp1251 body from a UTF-8 one that contains the character.

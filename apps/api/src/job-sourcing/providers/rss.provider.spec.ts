@@ -284,9 +284,20 @@ describe('AC4 — a time-limited feed never claims FULL_INVENTORY', () => {
  * from the finding: not one millisecond wider.
  */
 describe('a RECENT feed reports its own window, restart or not', () => {
-  /** A stored checkpoint no schema accepts — `decideCheckpoint`'s RESTART_WITH_OVERLAP path. */
+  /**
+   * A checkpoint stored under a config version that no longer exists — `decideCheckpoint`'s
+   * RESTART_WITH_OVERLAP path, which is the one that widens. A well-formed checkpoint with a stale
+   * version rather than a junk object: the restart we are testing is the ordinary one an operator
+   * causes by editing a source's config, and it needs no cast to express.
+   */
   const withStaleCheckpoint = (f: ReturnType<typeof fakeCollectionContext>) => {
-    f.ctx.checkpoints.load = async () => ({ junk: true })
+    f.ctx.checkpoints.load = async () => ({
+      configVersion: 2,
+      policyVersion: 1,
+      adapterVersion: 'wwr-test-1',
+      position: { kind: 'CURSOR' as const, page: 4, cursor: 'from-the-old-config' },
+      completedAt: new Date('2026-10-19T10:00:00Z'),
+    })
     return f
   }
 
@@ -366,13 +377,19 @@ describe('a RECENT feed cannot be asked for a window', () => {
       now: NOW,
       responses: [{ bodyText: fixtureText('rss-empty.xml') }],
     })
-    expect(() =>
-      collectFeedPages(
-        spec({ inventory: { kind: 'RECENT', windowMs: 7 * DAY } }),
-        config({ window }),
-        f.ctx,
-      ),
-    ).toThrow(/a RECENT feed shows only its own window and cannot be asked for another/)
+    expect(
+      () =>
+        collectFeedPages(
+          spec({ inventory: { kind: 'RECENT', windowMs: 7 * DAY } }),
+          config({ window }),
+          f.ctx,
+        ),
+      // The WHOLE message, both of its halves: the second half is the part that tells an operator
+      // what to do about it, and an assertion on the first half alone cannot tell it is there.
+    ).toThrow(
+      'a RECENT feed shows only its own window and cannot be asked for another: ' +
+        'remove `window` from the source config, or declare the feed COMPLETE',
+    )
     expect(f.sent).toEqual([])
   })
 

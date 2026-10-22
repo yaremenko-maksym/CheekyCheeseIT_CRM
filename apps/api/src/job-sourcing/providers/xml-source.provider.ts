@@ -107,8 +107,21 @@ function classify(reason: XmlFailureReason): CollectionErrorCode {
   return 'PARSE_DRIFT'
 }
 
-/** `TextDecoder` labels for UTF-8, where a U+FFFD can be the document's own content. */
-const UTF8_LABELS: ReadonlySet<string> = new Set(['utf-8', 'utf8', 'unicode-1-1-utf-8'])
+/**
+ * The spellings of UTF-8 an XML declaration uses, where a U+FFFD can be the document's own
+ * content. Compared CASE-FOLDED, so `UTF-8` — the canonical spelling, and the one the Personio
+ * fixture uses — is one of these.
+ *
+ * NOT trimmed, deliberately. A `.trim()` was here and is gone: `encoding=" UTF-8 "` is not
+ * well-formed, so the port refuses such a document before this function ever sees it (measured —
+ * the test asserting it was accepted reported FAILED). The guard was unreachable, which the
+ * mutation gate showed by leaving its mutant alive.
+ *
+ * `unicode-1-1-utf-8` was here and is deleted: it is an HTTP charset alias no XML declaration
+ * writes, so nothing could observe its membership, and an unobservable member is better removed
+ * than excused with a suppression.
+ */
+const UTF8_LABELS: ReadonlySet<string> = new Set(['utf-8', 'utf8'])
 
 /** U+FFFD. Present in text only because a decode already failed, or because content holds it. */
 const REPLACEMENT_CHARACTER = '�'
@@ -144,7 +157,7 @@ const REPLACEMENT_CHARACTER = '�'
  */
 function mojibakeDrift(bodyText: string, declaredEncoding: string | null): string | null {
   if (declaredEncoding === null) return null
-  if (UTF8_LABELS.has(declaredEncoding.trim().toLowerCase())) return null
+  if (UTF8_LABELS.has(declaredEncoding.toLowerCase())) return null
   if (!bodyText.includes(REPLACEMENT_CHARACTER)) return null
   return (
     `the body declares ${JSON.stringify(declaredEncoding)} and arrived holding replacement ` +
