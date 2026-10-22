@@ -133,7 +133,7 @@ export function defaultSalaryMonth(now: Date = new Date()): string {
 // a blind cast; undefined = leave the form default.
 export function resolveSalaryPrefillCurrency(source: {
   currency: string
-  originalCurrency?: string | null
+  originalCurrency?: string | null | undefined
 }): Currency | undefined {
   const parsed = currencySchema.safeParse(source.originalCurrency ?? source.currency)
   return parsed.success ? parsed.data : undefined
