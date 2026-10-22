@@ -7,7 +7,10 @@ import type { NestFastifyApplication } from '@nestjs/platform-fastify'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { registerMeetingRecorderContentTypeParser } from './meeting-recorder-webhook-parser'
+import {
+  MEETING_RECORDER_WEBHOOK_ROUTE,
+  registerMeetingRecorderContentTypeParser,
+} from './meeting-recorder-webhook-parser'
 import {
   type MeetingRecorderWebhookHeaders,
   MeetingRecorderWebhookVerifier,
@@ -53,7 +56,7 @@ describe('meeting recorder extension contract fixtures', () => {
     const verifier = new MeetingRecorderWebhookVerifier()
     app = Fastify()
     registerMeetingRecorderContentTypeParser(asNestFastifyApplication(app))
-    app.post('/probe', async (request, reply) => {
+    app.post(MEETING_RECORDER_WEBHOOK_ROUTE, async (request, reply) => {
       const rawBody = request.body
       if (typeof rawBody !== 'string') return reply.code(415).send()
 
@@ -105,7 +108,7 @@ describe('meeting recorder extension contract fixtures', () => {
       const receiver = await buildReceiver()
       const response = await receiver.inject({
         method: 'POST',
-        url: '/probe',
+        url: '/api/integrations/meeting-recorder/11111111-1111-4111-8111-111111111111/webhook',
         headers: fixture.headers,
         payload: body,
       })
@@ -130,7 +133,7 @@ describe('meeting recorder extension contract fixtures', () => {
     const receiver = await buildReceiver()
     const response = await receiver.inject({
       method: 'POST',
-      url: '/probe',
+      url: '/api/integrations/meeting-recorder/11111111-1111-4111-8111-111111111111/webhook',
       headers: fixture.headers,
       payload: tamperedBody,
     })
