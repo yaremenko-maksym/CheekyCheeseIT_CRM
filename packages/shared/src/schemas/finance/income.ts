@@ -224,7 +224,11 @@ export type CreateExpenseDto = z.infer<typeof createExpenseSchema>
 // nominal of the reminder (default USD); it is overridden by the pay-time choice.
 // YYYY-MM with a real month (01-12): `2026-13` / `2026-00` are rejected.
 // Shared by createSalary and the admin transaction edit.
-export const salaryMonthSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Format YYYY-MM')
+// `salaryMonthField` is the single regex; callers whose error text is pinned
+// (gap query / report / backfill) pass their own message.
+export const salaryMonthField = (message: string) =>
+  z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, message)
+export const salaryMonthSchema = salaryMonthField('Format YYYY-MM')
 
 export const createSalarySchema = z.object({
   receiverId: z.string().uuid(),
@@ -428,10 +432,7 @@ export type PaySalaryDto = z.infer<typeof paySalarySchema>
 // different, legitimate question ("should the cron cover these roles too?")
 // this task does not decide.
 export const salaryMonthGapQuerySchema = z.object({
-  month: z
-    .string()
-    .regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'month must be YYYY-MM')
-    .optional(),
+  month: salaryMonthField('month must be YYYY-MM').optional(),
 })
 export type SalaryMonthGapQuery = z.infer<typeof salaryMonthGapQuerySchema>
 
@@ -460,7 +461,7 @@ export type SalaryMonthGapReceiverDto = z.infer<typeof salaryMonthGapReceiverSch
 // in this file use, so a month value can never be well-formed on the way in
 // and only loosely-shaped on the way out.
 export const salaryMonthGapReportSchema = z.object({
-  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Expected 'YYYY-MM' format"),
+  month: salaryMonthField("Expected 'YYYY-MM' format"),
   missing: z.array(salaryMonthGapReceiverSchema),
 })
 export type SalaryMonthGapReportDto = z.infer<typeof salaryMonthGapReportSchema>
@@ -473,6 +474,6 @@ export type SalaryMonthGapReportDto = z.infer<typeof salaryMonthGapReportSchema>
 // `ON CONFLICT DO NOTHING`), so running it twice — or running it for a month
 // the cron already fully covered — creates nothing extra.
 export const salaryMonthBackfillSchema = z.object({
-  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'month must be YYYY-MM'),
+  month: salaryMonthField('month must be YYYY-MM'),
 })
 export type SalaryMonthBackfillDto = z.infer<typeof salaryMonthBackfillSchema>

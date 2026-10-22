@@ -315,7 +315,12 @@ export function AdminEditTransactionDialog({
           receiptExternalUrl: nextReceiptExternalUrl,
         }),
         ...(tx?.type === 'EXPENSE' && { category }),
-        ...(tx?.type === 'SALARY' && salaryMonth && { salaryMonth }),
+        // Only when the operator changed it (SR-M-1): a legacy row may store a
+        // month the stricter schema rejects, and an untouched value must not
+        // 400 an edit of an unrelated field.
+        ...(tx?.type === 'SALARY' &&
+          salaryMonth &&
+          salaryMonth !== (tx.salaryMonth ?? '') && { salaryMonth }),
       })
     },
     onError: (err) => {
