@@ -423,6 +423,19 @@ export class AdminEditService {
         // before this transaction opened; re-assert `deleted_at IS NULL`
         // inside the write itself so a concurrent delete cannot land between
         // the pre-check and this UPDATE.
+        //
+        // SR-795-M-4 (PR #868): a salary-month correction also migrates
+        // cron-marker ownership below, decided from `tx.salaryMonth` /
+        // `tx.salaryOrigin` read before this transaction opened. Bind the exact
+        // source month and origin observed; NULL is meaningful for legacy
+        // automatic rows, hence IS NOT DISTINCT FROM rather than `=`.
+        const sourceMonthSnapshotPredicates =
+          salaryMonthChanged && tx.type === 'SALARY'
+            ? [
+                sql`${transactions.salaryMonth} IS NOT DISTINCT FROM ${tx.salaryMonth}`,
+                sql`${transactions.salaryOrigin} IS NOT DISTINCT FROM ${tx.salaryOrigin}`,
+              ]
+            : []
         const updated = await dbtx
           .update(transactions)
           .set({
@@ -501,6 +514,7 @@ export class AdminEditService {
               // edit. Same statement, same column, same reason as
               // `settleByCompany`'s flip (pending-settlement.service.ts).
               sql`${transactions.settledAmount} IS NOT DISTINCT FROM ${tx.settledAmount}::numeric`,
+              ...sourceMonthSnapshotPredicates,
             ),
           )
           .returning({ id: transactions.id })
@@ -518,15 +532,16 @@ export class AdminEditService {
         // an admin correction would leave a stale marker behind and cron would
         // silently skip the now-empty old month forever.
         //
-        // MANUAL parts never own a cron marker, so moving one must not disturb
-        // a marker that may belong to an automatic part in the same month.
+        // Only legacy (NULL) and CRON rows own automatic-month semantics.
+        // MANUAL parts and ADJUSTED rows never own a cron marker, so moving one
+        // must not disturb a marker that may belong to the automatic part.
         if (
           salaryMonthChanged &&
           tx.type === 'SALARY' &&
           tx.receiverId &&
           tx.salaryMonth &&
           data.salaryMonth &&
-          tx.salaryOrigin !== 'MANUAL'
+          (tx.salaryOrigin === null || tx.salaryOrigin === 'CRON')
         ) {
           const claimedTarget = await dbtx
             .insert(salaryMonthInitializations)
@@ -544,13 +559,16 @@ export class AdminEditService {
             .returning({ id: salaryMonthInitializations.id })
 
           // If the destination was already initialized, another automatic or
-          // legacy salary already owns that month. The moved row is now an
-          // explicit operator-created extra part; reclassifying it as MANUAL
-          // prevents two rows from claiming automatic origin semantics.
+          // legacy salary already owns that month. The moved row remains an
+          // operator correction of an automatic row but no longer owns the
+          // automatic slot. SR-795-M-3 (PR #868): ADJUSTED, not MANUAL — a
+          // MANUAL salary must carry an idempotency key
+          // (ck_transactions_manual_salary_idempotency_key) and a cron/legacy
+          // row has none, so MANUAL here was a CHECK violation (500).
           if (claimedTarget.length === 0) {
             await dbtx
               .update(transactions)
-              .set({ salaryOrigin: 'MANUAL' })
+              .set({ salaryOrigin: 'ADJUSTED' })
               .where(eq(transactions.id, id))
           }
 
