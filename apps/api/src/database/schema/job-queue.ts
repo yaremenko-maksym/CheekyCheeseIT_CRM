@@ -710,6 +710,17 @@ export const jobQueueActions = pgTable(
       'ck_job_queue_actions_reason_bounded',
       boundedTextOrNull(t.reason, JOB_SANITIZED_TEXT_MAX),
     ),
+    // SR-M-5 of PR #1075, landed with the writer in r5 Task 1.4b-iii. The evidence row
+    // carries NO free text: its `reason` would be a fifth unstructured write site in this
+    // log, and redacting it would recurse (the redaction of an evidence row would need its
+    // own evidence row). A narrowing constraint only — no existing row can be a
+    // `REASON_REDACTED` row with a reason, because nothing wrote that kind before this.
+    // Its own name rather than a fourth branch in `..._reason_bounded`: a new name is
+    // what the forward DDL can ADD without first dropping a guard that already works.
+    check(
+      'ck_job_queue_actions_redaction_reason_null',
+      sql`${t.kind} <> 'REASON_REDACTED' OR ${t.reason} IS NULL`,
+    ),
   ],
 )
 

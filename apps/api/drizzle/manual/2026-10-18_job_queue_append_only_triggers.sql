@@ -18,11 +18,13 @@
 --
 -- WHAT THIS FILE DELIVERS
 --   1. job_queue_actions        — append-only: UPDATE / DELETE / TRUNCATE refused,
---                                 except the two narrow R-B shapes in section 4; and
---                                 `created_at` forced to `now()` on INSERT, so the
---                                 column every retention decision reads is written by
---                                 the database and not by its writer. See "WHY
---                                 `created_at` IS FORCED" below.
+--                                 except the two narrow R-B shapes in section 4; a
+--                                 `REASON_REDACTED` evidence row admitted on INSERT only
+--                                 from the redaction path (r5 Task 1.4b-iii, SR-M-1 of
+--                                 PR #1075); and `created_at` forced to `now()` on
+--                                 INSERT, so the column every retention decision reads
+--                                 is written by the database and not by its writer. See
+--                                 "WHY `created_at` IS FORCED" below.
 --   2. job_queue_generation_entries
 --                               — immutable: UPDATE / TRUNCATE refused; DELETE refused
 --                                 unless it arrives through a parent cascade; INSERT
@@ -32,12 +34,11 @@
 --   4. The R-B retention path   — two SECURITY DEFINER functions owned by
 --                                 `crm_retention_owner`, the only sanctioned way a
 --                                 log row is ever deleted or its `reason` redacted.
---                                 CAVEAT, because item 4 overclaimed until fix round 2:
---                                 only the PURGE half is callable. The REDACTION half
---                                 ships UNCALLABLE — its first invocation raises
---                                 `42501` under the shipped grant set, and that is
---                                 deliberate, not an oversight. See "THE REDACTION
---                                 HALF SHIPS UNCALLABLE" below.
+--                                 Both halves are callable under the production grant
+--                                 set since r5 Task 1.4b-iii; until then the REDACTION
+--                                 half raised `42501`. See "THE REDACTION HALF —
+--                                 CALLABLE SINCE r5 TASK 1.4b-iii" below for what was
+--                                 measured and what is still open.
 --
 -- APPLY ORDER — THIS FILE DEPENDS ON ROLES IT DOES NOT CREATE
 --   `crm_retention_owner` and `crm_app` are created by r5 Task 1.3c
@@ -60,7 +61,13 @@
 --     from 'A' to 'O'. The companion catalog check asserts 'A', so a deploy that died
 --     between the two is caught rather than assumed away;
 --   - the grants are `REVOKE ALL ... FROM PUBLIC` + `GRANT EXECUTE ... TO crm_app`,
---     both convergent.
+--     both convergent;
+--   - the ONE exception to "every function is `CREATE OR REPLACE`": r5 Task 1.4b-iii
+--     changed the redaction function's ARGUMENT LIST, which `OR REPLACE` cannot do — it
+--     would create a second overload beside the old one and leave the old one callable.
+--     So the old signature is `DROP FUNCTION IF EXISTS`-ed first, inside the same
+--     transaction as the `CREATE` / `OWNER TO` / `REVOKE` / `GRANT` of the new one.
+--     A no-op on every apply after the first.
 --
 -- TWO WINDOWS, TWO DIFFERENT FIXES — AND EACH GETS THE CREDIT IT EARNED
 --   Both windows are closed. An earlier version of this comment credited the transaction
@@ -225,38 +232,46 @@
 --   numbers after a purge is impossible, so the decision belongs to the task that
 --   turns the purge on.
 --
--- THE REDACTION HALF SHIPS UNCALLABLE — AND NO GRANT SHOULD BE ADDED TO "FIX" IT
---   Stated here once so the next reader does not reopen a settled question. Two
---   different things are true of the two R-B functions and the word "inert" was doing
---   duty for both, which is why item 4 above used to overclaim:
---     - `crm_retention_purge_job_queue_actions` is CALLABLE and simply has no caller
---       yet (no schedule, no cron — r5 Task 1.4 wires it). See "THE RETENTION PATH
---       SHIPS INERT" below.
---     - `crm_retention_redact_action_reason` CANNOT RUN AT ALL. It needs
---       `UPDATE (reason)` on `job_queue_actions`; the role holds `SELECT, DELETE`; so
---       the first real invocation fails closed with `42501`. MEASURED, and pinned by
---       the integration suite ("is INERT under the PRODUCTION grant set").
+-- THE REDACTION HALF — CALLABLE SINCE r5 TASK 1.4b-iii (it shipped UNCALLABLE in 1.3b)
+--   History, kept because the reasoning still binds: 1.3b shipped
+--   `crm_retention_redact_action_reason` created, owned, pinned and granted, and unable to
+--   run — `42501`, because its owner held `SELECT, DELETE` and it needs `UPDATE (reason)`.
+--   No grant was added then, on purpose: the function could not yet append the
+--   `REASON_REDACTED` evidence row both authorities require (no enum value, two CHECKs
+--   refusing it), and a redaction nobody can prove happened is worse than one that
+--   refused. r5 Task 1.4b-ii (PR #1075) made the row recordable; 1.4b-iii makes the
+--   function write it, and grants what that takes and nothing more.
 --
---   WHY NOT JUST GRANT IT. Because the privilege is not the binding constraint. By
---   divergence 2 below, a redaction cannot append its required `REASON_REDACTED`
---   evidence row at all — the enum value and the two CHECK branches live in
---   `apps/api/src/database/schema/**`, which this task is scoped out of. A grant today
---   would therefore buy a path that RUNS and still fails to record the evidence, which
---   is the half of the obligation that matters legally: a redaction nobody can prove
---   happened is worse than one that refused. On top of that the minimum the function
---   needs is a COLUMN-level `UPDATE`, and part 3 of the privileges check rejects any
---   column-level privilege other than `SELECT` for these roles outright, with no
---   declaration escape hatch — so the current model cannot even express the right
---   grant. Table-level `UPDATE` would be wider than the function needs and is a worse
---   trade than staying closed.
---     The rule being followed: a grant in a least-privilege manifest is justified by a
---   failing RUN, not by a trigger covering for it. The follow-up that lands the enum
---   value and the two CHECK branches is the thing that creates a failing run worth
---   granting against; it is recorded in the PR body.
+--   WHAT CHANGED, AND WHAT EACH PIECE IS JUSTIFIED BY
+--     - the signature gains `p_actor_id uuid` (owner decision, 2026-10-22): the evidence
+--       row's `actor_id` is the person who triggered the erasure. `actor_id` stays NOT
+--       NULL with its RESTRICT FK, and no service principal exists in `users`;
+--     - the redaction UPDATE and the evidence INSERT run in ONE call: a failure of the
+--       INSERT (an unknown actor -> 23503, a key collision -> 23505, a CHECK -> 23514)
+--       aborts the call, and the redaction with it;
+--     - `crm_retention_owner` gains column-level `UPDATE (reason)` and table-level
+--       `INSERT` on `job_queue_actions`, each the answer to a FAILING RUN that is recorded
+--       with its statement and SQLSTATE in `privilege-classes.ts`
+--       (`RETENTION_OWNER_TABLE_PRIVILEGES`, `RETENTION_OWNER_REDACTION_COLUMN_GRANT`) —
+--       the file the grants and their check are generated from. The column-level grant is
+--       the ONE non-SELECT column privilege part 3 of the privileges check admits, bound to
+--       exactly this role, table and column (owner decision, 2026-10-22);
+--     - section 1 gates the INSERT side (SR-M-1 of PR #1075): a `REASON_REDACTED` row is
+--       admitted only when `current_user = 'crm_retention_owner'`, which is to say only
+--       from inside the definer function, and that role may insert nothing else. Until
+--       this task the CHECKs admitted the row shape from ANY writer, which was tolerable
+--       only while nothing wrote it.
 --
---   CONSEQUENCE, STATED AND NOT SOFTENED: the GDPR erasure obligation of legal memo
---   §8 item 3 is NOT DISCHARGED by this deploy. The purge half of retention works; the
---   erasure half does not, and will not until that follow-up lands.
+--   WHAT IS MEASURED, AND HOW FAR THE CLAIM GOES. The integration suite runs the redaction
+--   under the grant statements of the GENERATED GRANTS FILE — the bytes production applies
+--   — and not under a grant the suite invents for itself ("is CALLABLE under the
+--   PRODUCTION grant set"). That is a claim about this function and its grants. It is NOT
+--   a claim that any erasure request has been honoured: nothing in the application calls
+--   this function yet (checked 2026-10-22: no caller in `apps/api/src` outside specs).
+--   Whether the legal memo §8 item 3 obligation is discharged IN PRACTICE depends on that
+--   caller and the process around it, which is a later task's to ship and the owner's to
+--   judge. This file states only that the database side can now do what the obligation
+--   needs, and that this was measured rather than assumed.
 --
 -- A DEFERRED GAP: `job_queue_generations` HAS NO INSERT GUARD
 --   The three guards on this table and its entries all constrain what happens AFTER a
@@ -286,34 +301,23 @@
 --   the policy table returns and this comment is the record of why it was not built
 --   now. The two sites must agree; each names the other in its comment.
 --
--- KNOWN DIVERGENCE FROM THE ADR AND THE LEGAL MEMO (2 of 2) — THE REDACTION EVENT
+-- KNOWN DIVERGENCE FROM THE ADR AND THE LEGAL MEMO (2 of 2) — THE REDACTION EVENT — CLOSED
 --   Both authorities ask each redaction to APPEND a `REASON_REDACTED` event row to
---   `job_queue_actions` ("provably complete rather than unchangeable"). That row
---   cannot be written today, and not for want of trying: `job_queue_action_kind` has
---   no `REASON_REDACTED` value, and `ck_job_queue_actions_versions` /
---   `ck_job_queue_actions_target` would refuse such a row (the third version branch
---   demands a moving version pair, which a redaction has not got). Both the enum and
---   those CHECKs live in `apps/api/src/database/schema/**`, which r5 Task 1.3b is
---   explicitly scoped OUT of, and adding the value only here would drift against the
---   Drizzle schema that `db:push` reconciles — on the next push drizzle-kit would try
---   to reconcile a type it does not know, in every developer's database.
---   So, until the schema task lands the value and the two CHECK branches:
---     - the redaction function records who / when / which request with `RAISE LOG`,
---       into the PostgreSQL server log, which is outside the application's reach;
---     - the integration spec PINS the absence of the enum value, so the day it is
---       added the pin fails and points here (the device PR #1017 used for this same
---       class of honest gap);
---     - the PR body lists this as the follow-up that must land BEFORE the redaction
---       path is used in production.
---   Nothing is quietly weaker than the authorities describe: the function exists, the
---   trigger admits only its shape, and the evidence lands in the server log rather
---   than nowhere.
---   TWO BLOCKERS, NOT ONE — this note used to name only the missing enum value, which
---   made the follow-up look smaller than it is. The redaction path is blocked by the
---   missing `REASON_REDACTED` enum value AND by the missing `UPDATE (reason)`
---   privilege, which makes the function raise `42501` before it ever reaches the point
---   of needing the enum. Both must be resolved; see "THE REDACTION HALF SHIPS
---   UNCALLABLE" above for why the privilege must not be granted on its own.
+--   `job_queue_actions` ("provably complete rather than unchangeable"). Through r5 Task
+--   1.4b-ii that row could not be written, and the server log (`RAISE LOG`) was the only
+--   evidence channel. Since 1.4b-iii the function appends the row in the same call as the
+--   redaction: `kind = 'REASON_REDACTED'`, `subject_action_id` = the redacted row,
+--   `actor_id` = the caller-supplied actor, `reason` NULL (the evidence row carries no free
+--   text that could itself need redacting — SR-M-5 of PR #1075, enforced by
+--   `ck_job_queue_actions_redaction_reason_null`), and the request id carried in
+--   `idempotency_key` as `<request id>:<subject action id>`, so one request may redact
+--   several rows without colliding on the per-actor unique key. The `RAISE LOG` line stays,
+--   as a second channel outside the application's reach.
+--   STILL OPEN, and deliberately not decided here (owner decisions pending; PR #1075
+--   findings SR-M-3 and SR-M-6): which SCOPE the evidence row should carry — it copies the
+--   subject row's `scope_kind` / `team_id` only because `scope_kind` is NOT NULL and a value
+--   must be written, and copying keeps its visibility exactly that of the row it is about —
+--   and how a lawfully purged subject is told apart from one that never existed.
 -- =============================================================================
 
 
@@ -372,12 +376,58 @@ $precondition$;
 -- 'reason'` rather than a conjunction of per-column comparisons, deliberately: a
 -- column added to this table later is covered the day it is added, whereas a
 -- 14-term conjunction silently stops covering the table it guards.
+--
+-- THE INSERT SIDE (r5 Task 1.4b-iii, closing SR-M-1 of PR #1075). One function decides
+-- every write shape of the log, so the trigger fires on INSERT as well. Two rules, the
+-- mirror image of each other:
+--   - a `REASON_REDACTED` evidence row is admitted only from `crm_retention_owner`. That
+--     role is NOLOGIN, so the only code that runs as it is the body of a SECURITY
+--     DEFINER function it owns — in practice, the redaction function. Without this the
+--     CHECK branch #1075 added admits the row shape from ANY writer, and `crm_app` could
+--     fabricate evidence of a redaction that never happened;
+--   - `crm_retention_owner` inserts NOTHING ELSE. Its `INSERT` grant exists only for the
+--     evidence row, so the trigger narrows that grant to it by shape, the same way the
+--     DELETE and UPDATE branches narrow the role's other privileges.
+-- Every other INSERT passes untouched, which is the append-only log's normal write.
 CREATE OR REPLACE FUNCTION public.job_queue_actions_append_only()
 RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = pg_catalog, public, pg_temp
 AS $fn$
 BEGIN
+  IF TG_OP = 'INSERT' THEN
+    -- Compared as text, so the comparison cannot raise `invalid input value for enum`
+    -- on a database whose enum predates the value; there it is simply never true.
+    IF NEW.kind::text = 'REASON_REDACTED' THEN
+      IF current_user = 'crm_retention_owner' THEN
+        RETURN NEW;
+      END IF;
+
+      RAISE EXCEPTION
+        'job_queue_actions: a REASON_REDACTED evidence row is written only by the redaction path (row %)',
+        NEW.id
+        USING
+          ERRCODE = 'restrict_violation',
+          DETAIL  = 'Evidence of a redaction is appended by '
+                    'crm_retention_redact_action_reason(), in the same call as the '
+                    'redaction it records; current_user here is ' || current_user || '.',
+          HINT    = 'Call crm_retention_redact_action_reason(action_id, request_id, '
+                    'actor_id) instead of inserting the evidence row yourself.';
+    END IF;
+
+    IF current_user = 'crm_retention_owner' THEN
+      RAISE EXCEPTION
+        'job_queue_actions: crm_retention_owner may insert only REASON_REDACTED evidence rows (row %, kind %)',
+        NEW.id, NEW.kind
+        USING
+          ERRCODE = 'restrict_violation',
+          DETAIL  = 'The retention owner holds INSERT for the redaction evidence row and '
+                    'for nothing else.';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
   IF TG_OP = 'DELETE' THEN
     -- R-B shape 1: the end-of-retention purge. Two years, uniform (legal memo §6.2).
     -- The same interval is written in crm_retention_purge_job_queue_actions(); the
@@ -425,18 +475,14 @@ BEGIN
         ERRCODE = 'restrict_violation',
         DETAIL  = 'The only sanctioned update is the redaction of `reason` to the fixed '
                   'token, by crm_retention_owner, with every other column unchanged.',
-        HINT    = 'The redaction path is NOT YET CALLABLE: '
-                  'crm_retention_redact_action_reason(action_id, request_id) exists but '
-                  'raises 42501, because crm_retention_owner is granted SELECT and DELETE '
-                  'and the function also needs UPDATE (reason) — a column-level privilege '
-                  'the least-privilege model forbids (db-privileges check, part 3). Until '
-                  'that is decided, a reason cannot be redacted by any route. Do not add '
-                  'the grant to make this message go away.';
+        HINT    = 'Call crm_retention_redact_action_reason(action_id, request_id, '
+                  'actor_id): it redacts the reason and appends the REASON_REDACTED '
+                  'evidence row in one call. Do not rewrite the row directly.';
   END IF;
 
-  -- Unreachable: the trigger is created for UPDATE OR DELETE only. Raising rather
-  -- than returning keeps a future re-pointing of this function at another event from
-  -- silently passing the row through.
+  -- Unreachable: the trigger is created for INSERT OR UPDATE OR DELETE only. Raising
+  -- rather than returning keeps a future re-pointing of this function at another event
+  -- from silently passing the row through.
   RAISE EXCEPTION 'job_queue_actions_append_only() fired on an unexpected operation: %', TG_OP
     USING ERRCODE = 'restrict_violation';
 END
@@ -456,7 +502,7 @@ END
 $fn$;
 
 CREATE OR REPLACE TRIGGER trg_job_queue_actions_append_only
-  BEFORE UPDATE OR DELETE ON public.job_queue_actions
+  BEFORE INSERT OR UPDATE OR DELETE ON public.job_queue_actions
   FOR EACH ROW EXECUTE FUNCTION public.job_queue_actions_append_only();
 ALTER TABLE public.job_queue_actions
   ENABLE ALWAYS TRIGGER trg_job_queue_actions_append_only;
@@ -771,31 +817,31 @@ $fn$;
 
 -- The redaction backstop (legal memo §8 item 3): free text can always carry a name
 -- somebody typed. The text is replaced with a fixed token rather than NULL, so the
--- non-blank CHECK and the row's meaning both survive. See the header's divergence
--- note 2 for why the evidence goes to the server log today instead of into a
--- `REASON_REDACTED` row.
+-- non-blank CHECK and the row's meaning both survive, and the call APPENDS the
+-- `REASON_REDACTED` evidence row the memo and the ADR require (r5 Task 1.4b-iii).
 --
--- THIS FUNCTION IS INERT IN PRODUCTION AS DEPLOYED. It is created, owned, pinned and
--- granted — and it CANNOT RUN: measured `42501`. It needs `SELECT` plus `UPDATE (reason)`
--- on `job_queue_actions`, and `crm_retention_owner` is granted `SELECT, DELETE`. The
--- missing privilege cannot simply be added, which is why this is written down instead of
--- fixed: its true minimum is the column-level `UPDATE (reason)`, and part 3 of the
--- db-privileges check rejects ANY column-level privilege other than `SELECT` for these
--- roles, outright; while a table-level `UPDATE` is wider than the function needs — it
--- would let the role rewrite any column of the audit log, and although the trigger above
--- constrains the SHAPE of an admitted update, a grant in a least-privilege manifest is
--- supposed to be justified by a failing run, not by a trigger covering for it.
+-- CALLABLE UNDER THE PRODUCTION GRANT SET, measured: the integration suite runs it under
+-- the grant statements of the generated grants file (`is CALLABLE under the PRODUCTION
+-- grant set`). Until 1.4b-iii it raised `42501`; the header's "THE REDACTION HALF"
+-- section keeps that history and states what the measurement does NOT show — nothing in
+-- the application calls this function yet.
 --
--- So the redaction path is DECLARED but NOT YET CALLABLE, deliberately, pending an owner
--- decision on which of those two the model should accept. Consequences, stated plainly:
--- a `reason` cannot be redacted by any route today, and the legal memo §8 item 3
--- obligation is therefore NOT discharged by this deploy. The integration suite pins the
--- inert state ("is INERT under the PRODUCTION grant set"), and its three behavioural
--- redaction tests run with a grant the suite adds and revokes itself — they establish
--- this body's logic, never that production can call it.
+-- THE SIGNATURE CHANGED in 1.4b-iii: `p_actor_id uuid` was added. `CREATE OR REPLACE`
+-- cannot change an argument list — it would add an overload and leave the old
+-- two-argument function in place, owned, granted to `crm_app`, and (with the grants this
+-- task adds) able to redact WITHOUT writing evidence. So the old signature is dropped
+-- first, inside this file's transaction, and the six ADR §3 conditions are re-applied to
+-- the new one below before `COMMIT`: no other session ever sees the function with its
+-- default PUBLIC EXECUTE, nor the old one beside the new.
+--   The SAME body is created by `2026-10-22_job_queue_redaction_callable.sql`, the dated
+-- upgrade file the deploy applies BEFORE the grants file. The catalog check pins one md5
+-- for both, so the two copies cannot drift without failing the deploy.
+DROP FUNCTION IF EXISTS public.crm_retention_redact_action_reason(uuid, text);
+
 CREATE OR REPLACE FUNCTION public.crm_retention_redact_action_reason(
   p_action_id uuid,
-  p_request_id text
+  p_request_id text,
+  p_actor_id uuid
 )
 RETURNS boolean
 LANGUAGE plpgsql
@@ -803,18 +849,27 @@ SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
 AS $fn$
 DECLARE
-  redacted boolean;
+  subject_scope job_queue_actions.scope_kind%TYPE;
+  subject_team  job_queue_actions.team_id%TYPE;
 BEGIN
   IF p_action_id IS NULL THEN
     RAISE EXCEPTION 'crm_retention_redact_action_reason: action id is required'
       USING ERRCODE = 'invalid_parameter_value';
   END IF;
 
-  -- Bounded and non-blank, per ADR condition 3 — the only validation the arguments
-  -- need, because neither one ever reaches a statement as text.
-  IF p_request_id IS NULL OR p_request_id !~ '[^[:space:]]' OR length(p_request_id) > 200 THEN
+  -- The person who triggered the erasure (owner decision, 2026-10-22). Checked here so
+  -- the refusal names the argument rather than the NOT NULL column it would hit.
+  IF p_actor_id IS NULL THEN
+    RAISE EXCEPTION 'crm_retention_redact_action_reason: actor id is required'
+      USING ERRCODE = 'invalid_parameter_value';
+  END IF;
+
+  -- Bounded and non-blank, per ADR condition 3. 163 is the 200-character bound of
+  -- `idempotency_key` minus the 37 characters of ':' || <uuid> appended below, so a
+  -- request id that passes here can never make the evidence row fail its own CHECK.
+  IF p_request_id IS NULL OR p_request_id !~ '[^[:space:]]' OR length(p_request_id) > 163 THEN
     RAISE EXCEPTION
-      'crm_retention_redact_action_reason: request id must be non-blank and at most 200 characters'
+      'crm_retention_redact_action_reason: request id must be non-blank and at most 163 characters'
       USING ERRCODE = 'invalid_parameter_value';
   END IF;
 
@@ -822,29 +877,37 @@ BEGIN
      SET reason = '[REASON REDACTED]'
    WHERE id = p_action_id
      AND reason IS NOT NULL
-     AND reason <> '[REASON REDACTED]';
+     AND reason <> '[REASON REDACTED]'
+  RETURNING scope_kind, team_id INTO subject_scope, subject_team;
 
-  redacted := FOUND;
-
-  IF redacted THEN
-    -- The interim evidence channel (header, divergence 2): the server log is outside
-    -- the application's reach, and this is the ONLY record of a redaction until the
-    -- `REASON_REDACTED` event kind exists.
-    RAISE LOG 'crm_retention: redacted reason of job_queue_actions % (request %, session_user %)',
-      p_action_id, p_request_id, session_user;
+  IF NOT FOUND THEN
+    RETURN false;
   END IF;
 
-  RETURN redacted;
+  -- The evidence row, in the same call: if it cannot be written, the error aborts the
+  -- call and the UPDATE above with it — there is no redacted reason without evidence.
+  -- The scope is the SUBJECT's, copied (see the header: the right scope is an open owner
+  -- decision, SR-M-3). `reason` is left NULL, which the CHECK requires (SR-M-5).
+  INSERT INTO job_queue_actions
+    (kind, subject_action_id, actor_id, scope_kind, team_id, idempotency_key)
+  VALUES
+    ('REASON_REDACTED', p_action_id, p_actor_id, subject_scope, subject_team,
+     p_request_id || ':' || p_action_id::text);
+
+  RAISE LOG 'crm_retention: redacted reason of job_queue_actions % (request %, actor %, session_user %)',
+    p_action_id, p_request_id, p_actor_id, session_user;
+
+  RETURN true;
 END
 $fn$;
 
 ALTER FUNCTION public.crm_retention_purge_job_queue_actions() OWNER TO crm_retention_owner;
-ALTER FUNCTION public.crm_retention_redact_action_reason(uuid, text) OWNER TO crm_retention_owner;
+ALTER FUNCTION public.crm_retention_redact_action_reason(uuid, text, uuid) OWNER TO crm_retention_owner;
 
 REVOKE ALL ON FUNCTION public.crm_retention_purge_job_queue_actions() FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.crm_retention_redact_action_reason(uuid, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.crm_retention_redact_action_reason(uuid, text, uuid) FROM PUBLIC;
 
 GRANT EXECUTE ON FUNCTION public.crm_retention_purge_job_queue_actions() TO crm_app;
-GRANT EXECUTE ON FUNCTION public.crm_retention_redact_action_reason(uuid, text) TO crm_app;
+GRANT EXECUTE ON FUNCTION public.crm_retention_redact_action_reason(uuid, text, uuid) TO crm_app;
 
 COMMIT;
