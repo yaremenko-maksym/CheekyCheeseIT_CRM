@@ -67,15 +67,16 @@ export interface FeedDocument {
 }
 
 /**
- * The document is well-formed XML and is not a feed we can read. Drift, not an empty feed: a valid
- * feed with no items returns `entries: []` and never throws this.
+ * A feed, or the reason the document is not one.
+ *
+ * `ok: false` is DRIFT: well-formed XML that is not a feed we can read. It is never an empty feed —
+ * a valid feed with no items is `ok: true` with `entries: []`, and the two must stay distinguishable
+ * because one is a provider's format change and the other is a quiet day (Task 2.4).
+ *
+ * A result rather than a throw because the only caller turns it straight into the loop's
+ * `DecodedEnvelope`, and a catch there would carry a branch for errors this function cannot raise.
  */
-export class FeedDriftError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'FeedDriftError'
-  }
-}
+export type FeedReadResult = { ok: true; feed: FeedDocument } | { ok: false; reason: string }
 
 const NO_NAMESPACE: NamespaceSelector = null
 
@@ -211,47 +212,57 @@ function atomEntry(entry: XmlElementNode): FeedEntry {
 }
 
 /**
- * Read a parsed document as a feed, or throw `FeedDriftError`.
+ * Read a parsed document as a feed, or say why it is not one.
  *
  * The dialect is decided by the ROOT's expanded name — local name AND namespace — never by the
  * local name alone: `<feed>` outside the Atom namespace is not Atom, and an `<rss>` someone put in a
  * namespace is not RSS 2.0. Guessing there would turn a provider's format change into a silently
  * different reading of the same bytes.
  */
-export function readFeed(document: XmlDocument): FeedDocument {
+export function readFeed(document: XmlDocument): FeedReadResult {
   const root = document.root
 
   if (root.localName === 'rss' && root.namespaceUri === null) {
     const channel = findChild(root, 'channel', NO_NAMESPACE)
-    if (channel === undefined) throw new FeedDriftError('an <rss> document with no <channel>')
+    if (channel === undefined) return { ok: false, reason: 'an <rss> document with no <channel>' }
     return {
-      format: 'RSS_2',
-      title: textOf(findChild(channel, 'title', NO_NAMESPACE)),
-      entries: rss2Items(channel).map(rss2Entry),
+      ok: true,
+      feed: {
+        format: 'RSS_2',
+        title: textOf(findChild(channel, 'title', NO_NAMESPACE)),
+        entries: rss2Items(channel).map(rss2Entry),
+      },
     }
   }
 
   if (root.localName === 'feed' && root.namespaceUri === FEED_NAMESPACES.atom) {
     return {
-      format: 'ATOM',
-      title: textOf(findChild(root, 'title', FEED_NAMESPACES.atom)),
-      entries: findChildren(root, 'entry', FEED_NAMESPACES.atom).map(atomEntry),
+      ok: true,
+      feed: {
+        format: 'ATOM',
+        title: textOf(findChild(root, 'title', FEED_NAMESPACES.atom)),
+        entries: findChildren(root, 'entry', FEED_NAMESPACES.atom).map(atomEntry),
+      },
     }
   }
 
   if (root.localName === 'RDF' && root.namespaceUri === FEED_NAMESPACES.rdf) {
     const channel = findChild(root, 'channel', FEED_NAMESPACES.rss1)
     if (channel === undefined) {
-      throw new FeedDriftError('an rdf:RDF document with no RSS 1.0 <channel>')
+      return { ok: false, reason: 'an rdf:RDF document with no RSS 1.0 <channel>' }
     }
     return {
-      format: 'RSS_1',
-      title: textOf(findChild(channel, 'title', FEED_NAMESPACES.rss1)),
-      entries: findChildren(root, 'item', FEED_NAMESPACES.rss1).map(rss1Entry),
+      ok: true,
+      feed: {
+        format: 'RSS_1',
+        title: textOf(findChild(channel, 'title', FEED_NAMESPACES.rss1)),
+        entries: findChildren(root, 'item', FEED_NAMESPACES.rss1).map(rss1Entry),
+      },
     }
   }
 
-  throw new FeedDriftError(
-    `the document root {${root.namespaceUri ?? ''}}${root.localName} is not RSS 2.0, RSS 1.0 or Atom`,
-  )
+  return {
+    ok: false,
+    reason: `the document root {${root.namespaceUri ?? ''}}${root.localName} is not RSS 2.0, RSS 1.0 or Atom`,
+  }
 }

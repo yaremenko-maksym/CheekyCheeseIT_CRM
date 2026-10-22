@@ -1268,6 +1268,21 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
 export function defineApiJsonProvider<TConfig extends SourceConfigFields, TEnvelope, TItem>(
   spec: ApiJsonSourceSpec<TConfig, TEnvelope, TItem>,
 ): ReportingJobSourceProvider<Validated<TConfig>> {
+  return definePagedProvider(spec, (config, ctx) => collectJsonPages(spec, config, ctx))
+}
+
+/**
+ * The provider shell every binding of the loop shares: `parseConfig` validates and brands, and
+ * `collectReport` refuses a config `parseConfig` never saw before handing it to `collect`.
+ *
+ * Shared rather than written once per binding (JSON, XML, feed) because the refusal is the part
+ * that must not drift between them: a binding that forgot `assertValidatedConfig` would accept a
+ * hand-built config the schema never checked, and nothing about the other two would show it.
+ */
+export function definePagedProvider<TConfig extends SourceConfigFields>(
+  spec: { readonly type: JobSourceType; readonly configSchema: ZodType<TConfig> },
+  collect: (config: TConfig, ctx: CollectionContext) => Promise<CollectionBatch>,
+): ReportingJobSourceProvider<Validated<TConfig>> {
   return {
     type: spec.type,
     parseConfig(raw: unknown) {
@@ -1276,7 +1291,7 @@ export function defineApiJsonProvider<TConfig extends SourceConfigFields, TEnvel
     async collectReport(config, ctx) {
       // A config that `parseConfig` never saw has not been validated, whatever its shape.
       assertValidatedConfig(config)
-      return collectJsonPages(spec, config, ctx)
+      return collect(config, ctx)
     },
   }
 }

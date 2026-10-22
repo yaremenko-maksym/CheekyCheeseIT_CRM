@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { fixtureBytes, utf8 } from '../../test/xml-corpus'
 import { xmlPort } from '../xml'
-import { FeedDriftError, readFeed } from './read-feed'
+import { readFeed } from './read-feed'
 
 /**
  * Seam 2 — feed semantics over the neutral tree. Every expectation below is taken from the format
@@ -12,8 +12,12 @@ import { FeedDriftError, readFeed } from './read-feed'
  * not a feed is DRIFT, and a feed with no items is a valid empty feed, not drift.
  */
 
-const feedOf = (xml: string) => readFeed(xmlPort.parseDocument(utf8(xml)))
-const fixture = (name: string) => readFeed(xmlPort.parseDocument(fixtureBytes(name)))
+const unwrap = (result: ReturnType<typeof readFeed>) => {
+  if (!result.ok) throw new Error(`expected a feed, got drift: ${result.reason}`)
+  return result.feed
+}
+const feedOf = (xml: string) => unwrap(readFeed(xmlPort.parseDocument(utf8(xml))))
+const fixture = (name: string) => unwrap(readFeed(xmlPort.parseDocument(fixtureBytes(name))))
 
 describe('RSS 2.0', () => {
   it('reads every field of an item, entities decoded and CDATA unwrapped', () => {
@@ -216,6 +220,31 @@ describe('RSS 1.0 (RDF)', () => {
 })
 
 describe('a document that is XML but not a feed is drift', () => {
+  it('names the root it refused, by expanded name', () => {
+    expect(readFeed(xmlPort.parseDocument(utf8('<html xmlns="urn:h"/>')))).toEqual({
+      ok: false,
+      reason: 'the document root {urn:h}html is not RSS 2.0, RSS 1.0 or Atom',
+    })
+    expect(readFeed(xmlPort.parseDocument(utf8('<html/>')))).toEqual({
+      ok: false,
+      reason: 'the document root {}html is not RSS 2.0, RSS 1.0 or Atom',
+    })
+  })
+
+  it('names the missing channel', () => {
+    expect(readFeed(xmlPort.parseDocument(utf8('<rss/>')))).toEqual({
+      ok: false,
+      reason: 'an <rss> document with no <channel>',
+    })
+    expect(
+      readFeed(
+        xmlPort.parseDocument(
+          utf8('<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"/>'),
+        ),
+      ),
+    ).toEqual({ ok: false, reason: 'an rdf:RDF document with no RSS 1.0 <channel>' })
+  })
+
   it.each([
     ['an HTML page', '<html><body>Blocked</body></html>'],
     ['an RSS root with no channel', '<rss version="2.0"><item><guid>a</guid></item></rss>'],
@@ -227,6 +256,7 @@ describe('a document that is XML but not a feed is drift', () => {
     ],
     ['an RDF-named root outside the RDF namespace', '<RDF><channel/></RDF>'],
   ])('%s', (_label, xml) => {
-    expect(() => feedOf(xml)).toThrow(FeedDriftError)
+    const result = readFeed(xmlPort.parseDocument(utf8(xml)))
+    expect(result.ok).toBe(false)
   })
 })
