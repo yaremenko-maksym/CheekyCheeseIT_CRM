@@ -21,6 +21,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useLinkInterviewRecording } from '@/lib/meeting-recorder-api'
 import { STAGE_LABEL_MESSAGES } from '../constants'
 import { useBoardSeniors } from '../use-board-seniors'
+import { getApiErrorMessage } from '@/lib/axios-utils'
 
 type LinkRecordingDialogProps = {
   open: boolean
@@ -98,7 +99,7 @@ export function LinkRecordingDialog({
           onOpenChange(false)
         },
         onError: (error) => {
-          setMutationError(error instanceof Error ? error.message : t`Не вдалося прив'язати запис`)
+          setMutationError(getApiErrorMessage(error, t`Не вдалося прив'язати запис`))
         },
       },
     )

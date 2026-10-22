@@ -4,6 +4,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useInterviewRecordings } from '@/lib/meeting-recorder-api'
+import { RecordingDuration } from './RecordingDuration'
 
 type RecordingSummarySectionProps = {
   interviewId: string
@@ -79,7 +80,7 @@ export function RecordingSummarySection({
                   <time dateTime={recording.startedAt}>{startedAt}</time>
                   {recording.durationMs !== null && (
                     <span className="tabular-nums">
-                      <Trans>{Math.max(1, Math.round(recording.durationMs / 60_000))} хв</Trans>
+                      <RecordingDuration durationMs={recording.durationMs} />
                     </span>
                   )}
                   {recording.provider && <span>{recording.provider}</span>}
