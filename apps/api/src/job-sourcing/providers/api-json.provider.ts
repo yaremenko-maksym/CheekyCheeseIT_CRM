@@ -122,27 +122,50 @@ export interface PageRequest {
   cacheKey?: string
 }
 
+/** The two bounds the LOOP enforces, whatever the body format. Each binding resolves its own. */
+export type PageLimits = Pick<ApiJsonLimits, 'maxPages' | 'maxItemsPerPage'>
+
 /**
- * ONE adapter, as data.
+ * One body, turned into an envelope — or refused, with the code the refusal reports under.
  *
- * The three override seams the plan asks for are the three function fields: FETCH is
- * `pageRequest` (the adapter says what to ask for; the loop, never the adapter, does the asking,
- * so bounds and metering cannot be skipped), MAP is `mapItem`, SCHEMA is `envelopeSchema` +
- * `itemSchema`.
+ * The code is the binding's to choose because only the binding knows the difference between "this
+ * is not the format we asked for" (`PARSE_DRIFT`) and "this is the format, past a bound we set"
+ * (`PAYLOAD_TOO_LARGE`), and the two are actioned differently.
  */
-export interface ApiJsonSourceSpec<TConfig extends SourceConfigFields, TEnvelope, TItem> {
+export type DecodedEnvelope<TEnvelope> =
+  { ok: true; value: TEnvelope } | { ok: false; code: CollectionErrorCode; message: string }
+
+/**
+ * ONE adapter, as data — FORMAT-NEUTRAL. The loop's view of a source.
+ *
+ * WHY THIS EXISTS (Task 2.4): the RSS/Atom base and the Personio XML helper collect through THIS
+ * loop rather than one of their own. Body format was the only thing about the loop that was JSON —
+ * one call to `parseBoundedJson` and one envelope `safeParse` — and everything else (checkpoint
+ * validation, reserve -> reconcile, the conditional cache, outcome and coverage derivation,
+ * failure classification) is exactly what a second loop would have had to re-derive, with every
+ * failure mode 2.3's review rounds closed open again. So the format became one slot,
+ * `decodeEnvelope`, and the loop is shared. The JSON binding is `collectJsonPages`; the XML
+ * bindings are `xml-source.provider.ts` and `rss.provider.ts`.
+ *
+ * The three override seams the plan asks for are function fields: FETCH is `pageRequest` (the
+ * adapter says what to ask for; the loop, never the adapter, does the asking, so bounds and
+ * metering cannot be skipped), MAP is `mapItem`, SCHEMA is `decodeEnvelope` + `itemSchema`.
+ */
+export interface PagedSourceSpec<TConfig extends SourceConfigFields, TEnvelope, TItem> {
   readonly type: JobSourceType
   /** Bumped when the mapping changes. The loop stamps it on every observation and checkpoint, so
    * an adapter cannot disagree with itself about which version produced a row. */
   readonly adapterVersion: string
-  readonly configSchema: ZodType<TConfig>
   /**
-   * The page envelope. MUST treat the item array as OPAQUE (`z.array(z.unknown())`): the envelope
-   * is the subrequest's contract and a failure here is drift that fails the subrequest, while a
-   * bad ITEM must be isolated (AC3). An envelope schema that validated items inline would turn one
+   * The body -> the page envelope. The envelope MUST treat the items as OPAQUE: the envelope is
+   * the subrequest's contract and a failure here is drift that fails the subrequest, while a bad
+   * ITEM must be isolated (AC3). An envelope check that validated items inline would turn one
    * malformed posting into a failed page — precisely the behaviour the AC forbids.
+   *
+   * Returns a refusal rather than throwing. It is called on a 200 body and on a body replayed from
+   * the cache after a 304 alike, so a cached inventory is held to the same contract as a fresh one.
    */
-  readonly envelopeSchema: ZodType<TEnvelope>
+  decodeEnvelope(bodyText: string): DecodedEnvelope<TEnvelope>
   readonly itemSchema: ZodType<TItem>
   pageRequest(config: TConfig, at: PageTarget): PageRequest
   extractItems(envelope: TEnvelope, config: TConfig): readonly unknown[]
@@ -197,11 +220,32 @@ export interface ApiJsonSourceSpec<TConfig extends SourceConfigFields, TEnvelope
    *    reviewable — which is the whole difference from the omission it replaces.
    */
   nativeIdOf(item: TItem, config: TConfig): string | null
-  scopeOf(config: TConfig): SourceCoverageScope
-  readonly limits?: Partial<ApiJsonLimits>
+  /**
+   * What this attempt covers. `now` is the attempt's clock, for a scope whose window is relative
+   * to it — a feed that only ever shows the last N days covers `[now - N days, now]`, and saying
+   * so is what keeps it from claiming FULL_INVENTORY (Task 2.4).
+   */
+  scopeOf(config: TConfig, now: Date): SourceCoverageScope
+  /** Required here and resolved by each binding: a loop-level default would be one no binding used. */
+  readonly limits: PageLimits
   /** What one page costs. Reserved BEFORE any I/O, per the store's reservation ordering. */
   readonly meter?: { unit: JobMeterUnit; amountPerRequest: number }
   readonly overlapMs?: number
+}
+
+/** A JSON adapter: the format-neutral spec, with its body contract spelled as a Zod envelope. */
+export interface ApiJsonSourceSpec<
+  TConfig extends SourceConfigFields,
+  TEnvelope,
+  TItem,
+> extends Omit<PagedSourceSpec<TConfig, TEnvelope, TItem>, 'decodeEnvelope' | 'limits'> {
+  readonly configSchema: ZodType<TConfig>
+  /**
+   * The page envelope. MUST treat the item array as OPAQUE (`z.array(z.unknown())`), for the
+   * reason given on `PagedSourceSpec.decodeEnvelope`.
+   */
+  readonly envelopeSchema: ZodType<TEnvelope>
+  readonly limits?: Partial<ApiJsonLimits>
 }
 
 // ---------------------------------------------------------------------------
@@ -350,7 +394,7 @@ type PageAdvance =
  * fetch, with nothing in the batch to say why.
  */
 function buildPageRequest<TConfig extends SourceConfigFields, TEnvelope, TItem>(
-  spec: ApiJsonSourceSpec<TConfig, TEnvelope, TItem>,
+  spec: PagedSourceSpec<TConfig, TEnvelope, TItem>,
   config: TConfig,
   at: PageTarget,
 ): BuiltPageRequest {
@@ -406,12 +450,12 @@ interface PageAttemptFailure {
  * than each call's presence, because a loop that made both calls in the wrong order would satisfy
  * every per-call assertion.
  */
-export async function collectJsonPages<TConfig extends SourceConfigFields, TEnvelope, TItem>(
-  spec: ApiJsonSourceSpec<TConfig, TEnvelope, TItem>,
+export async function collectPages<TConfig extends SourceConfigFields, TEnvelope, TItem>(
+  spec: PagedSourceSpec<TConfig, TEnvelope, TItem>,
   config: TConfig,
   ctx: CollectionContext,
 ): Promise<CollectionBatch> {
-  const limits: ApiJsonLimits = { ...DEFAULT_API_JSON_LIMITS, ...spec.limits }
+  const limits = spec.limits
   const overlapMs = spec.overlapMs ?? DEFAULT_OVERLAP_MS
 
   const stored = await ctx.checkpoints.load()
@@ -421,7 +465,7 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
     adapterVersion: spec.adapterVersion,
   })
 
-  let scope = spec.scopeOf(config)
+  let scope = spec.scopeOf(config, ctx.now())
   let at: PageTarget = { page: 1, cursor: null, window: scope.window }
   let checkpoint: ValidatedCheckpoint | null = null
   const resumed = decision.kind === 'RESUME'
@@ -759,230 +803,213 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
     }
 
     if (failure === null) {
-      const parsed = parseBoundedJson(bodyText, limits)
-      if (!parsed.ok) {
-        failure = {
-          code: parsed.reason === 'NOT_JSON' ? 'PARSE_DRIFT' : 'PAYLOAD_TOO_LARGE',
-          message: `${parsed.reason}: ${parsed.detail}`,
-          status,
-        }
+      const envelope = spec.decodeEnvelope(bodyText)
+      if (!envelope.ok) {
+        failure = { code: envelope.code, message: envelope.message, status }
       } else {
-        const envelope = spec.envelopeSchema.safeParse(parsed.value)
-        if (!envelope.success) {
-          failure = {
-            code: 'PARSE_DRIFT',
-            // Stryker disable next-line OptionalChaining: a Zod result with `success: false`
-            // always carries at least one issue, so `issues[0]` is never undefined and the
-            // optional chain cannot be made to fire. The FALLBACK is asserted to be unused (the
-            // test requires the schema's own words), which is the half that can be observed.
-            message: `envelope: ${envelope.error.issues[0]?.message ?? 'did not match'}`,
-            status,
-          }
+        const pageResult = await observePage(
+          spec,
+          config,
+          ctx,
+          envelope.value,
+          at,
+          nativeIdByIdentityKey,
+          addSample,
+          limits,
+        )
+        if (!pageResult.ok) {
+          // The page's items were received and then thrown away with the page.
+          discardPageCounts(counts, pageResult.counts)
+          failure = { ...pageResult.failure, status }
         } else {
-          const pageResult = await observePage(
-            spec,
-            config,
-            ctx,
-            envelope.data,
-            at,
-            nativeIdByIdentityKey,
-            addSample,
-            limits,
-          )
-          if (!pageResult.ok) {
-            // The page's items were received and then thrown away with the page.
-            discardPageCounts(counts, pageResult.counts)
-            failure = { ...pageResult.failure, status }
-          } else {
-            /**
-             * THE CURSOR IS VERIFIED BEFORE IT IS PERSISTED.
-             *
-             * `savePage` used to store whatever `nextCursor` returned, and the loop then handed it
-             * to `spec.pageRequest` on the NEXT iteration. A cursor the adapter cannot build a
-             * request from therefore became permanent poison: measured with an adapter doing
-             * `new URL(cursor)`, every later run threw before any fetch and produced no batch at
-             * all (SR-H-3). So the next page's request is built HERE, on this side of the persist,
-             * and an unusable cursor is stored as a `RESTART` instead — observations land, the
-             * attempt ends with the drift reported, and the next attempt starts over rather than
-             * replaying a rejection.
-             */
-            /**
-             * ONE value answering "what happens after this page", as a union rather than three
-             * nullable locals. The nullable form forced two branches nothing could enter — a
-             * `nextTarget ?? {…}` fallback and a `nextRequest === null ? … : …` ternary, both
-             * unreachable because the guards above already settled them — and it spread
-             * `at.page + 1` over three sites, which is the arithmetic an off-by-one in would
-             * reproduce SR-H-1 (a resumed attempt reporting SUCCEEDED after zero fetches). Now it
-             * appears once, and every arm below is reachable and asserted.
-             */
-            const nextPage = at.page + 1
-            const advance: PageAdvance =
-              pageResult.nextCursor === null
-                ? { kind: 'EXHAUSTED' }
-                : ((): PageAdvance => {
-                    const cursor = pageResult.nextCursor
-                    /**
-                     * THE CURSOR IS PARSED BEFORE THE ADAPTER IS HANDED IT, against the very
-                     * schema the checkpoint will have to satisfy on the way back in.
-                     *
-                     * A cursor is the ONE value in this loop chosen entirely by the provider, and
-                     * it was stored unparsed: `ValidatedCheckpoint` was built as an object
-                     * literal, whose name is a claim and whose construction checks nothing.
-                     * Measured, a 1 MiB cursor was persisted verbatim (SR-M-2).
-                     *
-                     * Parsed FIRST, before `buildPageRequest`, for two reasons: handing a
-                     * megabyte of provider-chosen text to 25 adapters' URL builders is work
-                     * nobody asked for, and a cursor we cannot store is unusable whether or not
-                     * an adapter can build a request from it.
-                     *
-                     * The whole position is parsed rather than the cursor's length compared to
-                     * `MAX_CURSOR_CHARS` here: one guard, one bound, declared in one place. The
-                     * `RESTART` position below is deliberately NOT parsed — its only field is a
-                     * page the loop itself bounded, so the parse would be a branch no input can
-                     * enter.
-                     */
-                    const stored = cursorPositionSchema.safeParse({
-                      kind: 'CURSOR',
-                      page: at.page,
-                      cursor,
-                    })
-                    if (!stored.success) {
-                      return {
-                        kind: 'UNUSABLE_CURSOR',
-                        page: nextPage,
-                        // Stryker disable next-line OptionalChaining: a Zod result with
-                        // `success: false` always carries an issue, as elsewhere in this file;
-                        // the fallback's absence is what the test asserts.
-                        message: `it cannot be stored (${stored.error.issues[0]?.message ?? 'refused'})`,
-                      }
+          /**
+           * THE CURSOR IS VERIFIED BEFORE IT IS PERSISTED.
+           *
+           * `savePage` used to store whatever `nextCursor` returned, and the loop then handed it
+           * to `spec.pageRequest` on the NEXT iteration. A cursor the adapter cannot build a
+           * request from therefore became permanent poison: measured with an adapter doing
+           * `new URL(cursor)`, every later run threw before any fetch and produced no batch at
+           * all (SR-H-3). So the next page's request is built HERE, on this side of the persist,
+           * and an unusable cursor is stored as a `RESTART` instead — observations land, the
+           * attempt ends with the drift reported, and the next attempt starts over rather than
+           * replaying a rejection.
+           */
+          /**
+           * ONE value answering "what happens after this page", as a union rather than three
+           * nullable locals. The nullable form forced two branches nothing could enter — a
+           * `nextTarget ?? {…}` fallback and a `nextRequest === null ? … : …` ternary, both
+           * unreachable because the guards above already settled them — and it spread
+           * `at.page + 1` over three sites, which is the arithmetic an off-by-one in would
+           * reproduce SR-H-1 (a resumed attempt reporting SUCCEEDED after zero fetches). Now it
+           * appears once, and every arm below is reachable and asserted.
+           */
+          const nextPage = at.page + 1
+          const advance: PageAdvance =
+            pageResult.nextCursor === null
+              ? { kind: 'EXHAUSTED' }
+              : ((): PageAdvance => {
+                  const cursor = pageResult.nextCursor
+                  /**
+                   * THE CURSOR IS PARSED BEFORE THE ADAPTER IS HANDED IT, against the very
+                   * schema the checkpoint will have to satisfy on the way back in.
+                   *
+                   * A cursor is the ONE value in this loop chosen entirely by the provider, and
+                   * it was stored unparsed: `ValidatedCheckpoint` was built as an object
+                   * literal, whose name is a claim and whose construction checks nothing.
+                   * Measured, a 1 MiB cursor was persisted verbatim (SR-M-2).
+                   *
+                   * Parsed FIRST, before `buildPageRequest`, for two reasons: handing a
+                   * megabyte of provider-chosen text to 25 adapters' URL builders is work
+                   * nobody asked for, and a cursor we cannot store is unusable whether or not
+                   * an adapter can build a request from it.
+                   *
+                   * The whole position is parsed rather than the cursor's length compared to
+                   * `MAX_CURSOR_CHARS` here: one guard, one bound, declared in one place. The
+                   * `RESTART` position below is deliberately NOT parsed — its only field is a
+                   * page the loop itself bounded, so the parse would be a branch no input can
+                   * enter.
+                   */
+                  const stored = cursorPositionSchema.safeParse({
+                    kind: 'CURSOR',
+                    page: at.page,
+                    cursor,
+                  })
+                  if (!stored.success) {
+                    return {
+                      kind: 'UNUSABLE_CURSOR',
+                      page: nextPage,
+                      // Stryker disable next-line OptionalChaining: a Zod result with
+                      // `success: false` always carries an issue, as elsewhere in this file;
+                      // the fallback's absence is what the test asserts.
+                      message: `it cannot be stored (${stored.error.issues[0]?.message ?? 'refused'})`,
                     }
-                    const position = stored.data
-                    const target: PageTarget = { page: nextPage, cursor, window: at.window }
-                    const probe = buildPageRequest(spec, config, target)
-                    return probe.ok
-                      ? { kind: 'CONTINUE', cursor, target, request: probe.value, position }
-                      : { kind: 'UNUSABLE_CURSOR', page: nextPage, message: probe.message }
-                  })()
+                  }
+                  const position = stored.data
+                  const target: PageTarget = { page: nextPage, cursor, window: at.window }
+                  const probe = buildPageRequest(spec, config, target)
+                  return probe.ok
+                    ? { kind: 'CONTINUE', cursor, target, request: probe.value, position }
+                    : { kind: 'UNUSABLE_CURSOR', page: nextPage, message: probe.message }
+                })()
 
-            const position: ResumePosition =
-              // The PARSED position on the continuing arm — the one the schema accepted, rather
-              // than a second literal built from the same parts and checked by nothing.
-              advance.kind === 'CONTINUE' ? advance.position : { kind: 'RESTART', page: at.page }
+          const position: ResumePosition =
+            // The PARSED position on the continuing arm — the one the schema accepted, rather
+            // than a second literal built from the same parts and checked by nothing.
+            advance.kind === 'CONTINUE' ? advance.position : { kind: 'RESTART', page: at.page }
 
-            const next: ValidatedCheckpoint = {
-              configVersion: config.configVersion,
-              policyVersion: ctx.policyVersion,
-              adapterVersion: spec.adapterVersion,
-              position,
-              completedAt: ctx.now(),
+          const next: ValidatedCheckpoint = {
+            configVersion: config.configVersion,
+            policyVersion: ctx.policyVersion,
+            adapterVersion: spec.adapterVersion,
+            position,
+            completedAt: ctx.now(),
+          }
+          try {
+            // Observations AND checkpoint, together, before the loop may continue.
+            await ctx.checkpoints.savePage({
+              observations: pageResult.observations,
+              checkpoint: next,
+            })
+            observations.push(...pageResult.observations)
+            // AFTER the persist resolved, which is the only moment at which "kept" is true. A
+            // page whose `savePage` rejects is the SECOND instance of CR-M-5 — the reviewer
+            // named the observe-failure path, and this one has the same shape — and it is why
+            // the merge lives here rather than beside `observePage`.
+            keepPageCounts(counts, pageResult.counts)
+            checkpoint = next
+            pagesCompleted += 1
+          } catch (error) {
+            // OUR failure, not the provider's: it is PERSISTENCE and it never touches
+            // `counts.invalid` (AC3) — those items go to `discarded`, the bucket for "received,
+            // observed, then lost with the page". The page is not counted as completed, so the
+            // checkpoint still names the last page that really landed.
+            discardPageCounts(counts, pageResult.counts)
+            failure = {
+              code: 'PERSISTENCE',
+              message: error instanceof Error ? error.message : 'the page could not be persisted',
+              status,
             }
-            try {
-              // Observations AND checkpoint, together, before the loop may continue.
-              await ctx.checkpoints.savePage({
-                observations: pageResult.observations,
-                checkpoint: next,
-              })
-              observations.push(...pageResult.observations)
-              // AFTER the persist resolved, which is the only moment at which "kept" is true. A
-              // page whose `savePage` rejects is the SECOND instance of CR-M-5 — the reviewer
-              // named the observe-failure path, and this one has the same shape — and it is why
-              // the merge lives here rather than beside `observePage`.
-              keepPageCounts(counts, pageResult.counts)
-              checkpoint = next
-              pagesCompleted += 1
-            } catch (error) {
-              // OUR failure, not the provider's: it is PERSISTENCE and it never touches
-              // `counts.invalid` (AC3) — those items go to `discarded`, the bucket for "received,
-              // observed, then lost with the page". The page is not counted as completed, so the
-              // checkpoint still names the last page that really landed.
-              discardPageCounts(counts, pageResult.counts)
-              failure = {
-                code: 'PERSISTENCE',
-                message: error instanceof Error ? error.message : 'the page could not be persisted',
-                status,
-              }
-            }
+          }
 
-            // Inside the branch where `pageResult` is known to have succeeded: the cursor it
-            // carries only exists on that branch, and reading it from outside was what forced a
-            // redundant re-check of a condition no test could falsify.
-            if (failure === null) {
+          // Inside the branch where `pageResult` is known to have succeeded: the cursor it
+          // carries only exists on that branch, and reading it from outside was what forced a
+          // redundant re-check of a condition no test could falsify.
+          if (failure === null) {
+            requests.push(
+              buildRequestReport(
+                {
+                  attempt: 1,
+                  page: at.page,
+                  url: request.url,
+                  status,
+                  startedAt,
+                  endedAt: ctx.now(),
+                  cost,
+                  error: null,
+                },
+                ctx.secrets,
+              ),
+            )
+            if (advance.kind === 'EXHAUSTED') {
+              stop = 'EXHAUSTED'
+              break
+            }
+            if (advance.kind === 'UNUSABLE_CURSOR') {
+              // The page is persisted and its position is a `RESTART`, so nothing is poisoned.
+              // The attempt ends reporting WHY, which is the part that used to be missing.
+              stop = 'ERROR'
               requests.push(
                 buildRequestReport(
                   {
                     attempt: 1,
-                    page: at.page,
-                    url: request.url,
-                    status,
-                    startedAt,
+                    page: advance.page,
+                    url: UNBUILT_REQUEST_URL,
+                    status: null,
+                    startedAt: ctx.now(),
                     endedAt: ctx.now(),
-                    cost,
-                    error: null,
+                    cost: null,
+                    error: {
+                      code: 'PARSE_DRIFT',
+                      message: `the provider's next cursor is unusable: ${advance.message}`,
+                    },
                   },
                   ctx.secrets,
                 ),
               )
-              if (advance.kind === 'EXHAUSTED') {
-                stop = 'EXHAUSTED'
-                break
-              }
-              if (advance.kind === 'UNUSABLE_CURSOR') {
-                // The page is persisted and its position is a `RESTART`, so nothing is poisoned.
-                // The attempt ends reporting WHY, which is the part that used to be missing.
-                stop = 'ERROR'
-                requests.push(
-                  buildRequestReport(
-                    {
-                      attempt: 1,
-                      page: advance.page,
-                      url: UNBUILT_REQUEST_URL,
-                      status: null,
-                      startedAt: ctx.now(),
-                      endedAt: ctx.now(),
-                      cost: null,
-                      error: {
-                        code: 'PARSE_DRIFT',
-                        message: `the provider's next cursor is unusable: ${advance.message}`,
-                      },
-                    },
-                    ctx.secrets,
-                  ),
-                )
-                break
-              }
-              if (seenCursors.has(advance.cursor)) {
-                stop = 'CURSOR_CYCLE'
-                // `CURSOR_CYCLE` is in `COLLECTION_ERROR_CODES`, and the stop used to push no
-                // report carrying it — so a cycle was indistinguishable from a clean finish in
-                // everything except the coverage axis (SR-L-4).
-                requests.push(
-                  buildRequestReport(
-                    {
-                      attempt: 1,
-                      page: advance.target.page,
-                      // The request the cycle WOULD have sent — available by TYPE on this arm,
-                      // which is what removed a `nextRequest === null ? …` ternary whose null
-                      // branch no input could reach.
-                      url: advance.request.request.url,
-                      status: null,
-                      startedAt: ctx.now(),
-                      endedAt: ctx.now(),
-                      cost: null,
-                      error: {
-                        code: 'CURSOR_CYCLE',
-                        message: 'the provider handed back a cursor this attempt had already seen',
-                      },
-                    },
-                    ctx.secrets,
-                  ),
-                )
-                break
-              }
-              seenCursors.add(advance.cursor)
-              // The very target whose request was validated before the persist.
-              at = advance.target
-              continue
+              break
             }
+            if (seenCursors.has(advance.cursor)) {
+              stop = 'CURSOR_CYCLE'
+              // `CURSOR_CYCLE` is in `COLLECTION_ERROR_CODES`, and the stop used to push no
+              // report carrying it — so a cycle was indistinguishable from a clean finish in
+              // everything except the coverage axis (SR-L-4).
+              requests.push(
+                buildRequestReport(
+                  {
+                    attempt: 1,
+                    page: advance.target.page,
+                    // The request the cycle WOULD have sent — available by TYPE on this arm,
+                    // which is what removed a `nextRequest === null ? …` ternary whose null
+                    // branch no input could reach.
+                    url: advance.request.request.url,
+                    status: null,
+                    startedAt: ctx.now(),
+                    endedAt: ctx.now(),
+                    cost: null,
+                    error: {
+                      code: 'CURSOR_CYCLE',
+                      message: 'the provider handed back a cursor this attempt had already seen',
+                    },
+                  },
+                  ctx.secrets,
+                ),
+              )
+              break
+            }
+            seenCursors.add(advance.cursor)
+            // The very target whose request was validated before the persist.
+            at = advance.target
+            continue
           }
         }
       }
@@ -1018,6 +1045,57 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
 }
 
 /**
+ * The JSON binding of the loop: the body is bounded JSON, and the envelope is a Zod schema.
+ *
+ * Its signature and behaviour are what Task 2.3 shipped; only the body step moved behind
+ * `decodeEnvelope`, so every assertion in `api-json.provider.spec.ts` still runs against it.
+ */
+export async function collectJsonPages<TConfig extends SourceConfigFields, TEnvelope, TItem>(
+  spec: ApiJsonSourceSpec<TConfig, TEnvelope, TItem>,
+  config: TConfig,
+  ctx: CollectionContext,
+): Promise<CollectionBatch> {
+  const limits: ApiJsonLimits = { ...DEFAULT_API_JSON_LIMITS, ...spec.limits }
+  return collectPages(
+    {
+      ...spec,
+      limits,
+      decodeEnvelope: (bodyText) => decodeJsonEnvelope(bodyText, spec.envelopeSchema, limits),
+    },
+    config,
+    ctx,
+  )
+}
+
+function decodeJsonEnvelope<TEnvelope>(
+  bodyText: string,
+  envelopeSchema: ZodType<TEnvelope>,
+  limits: ApiJsonLimits,
+): DecodedEnvelope<TEnvelope> {
+  const parsed = parseBoundedJson(bodyText, limits)
+  if (!parsed.ok) {
+    return {
+      ok: false,
+      code: parsed.reason === 'NOT_JSON' ? 'PARSE_DRIFT' : 'PAYLOAD_TOO_LARGE',
+      message: `${parsed.reason}: ${parsed.detail}`,
+    }
+  }
+  const envelope = envelopeSchema.safeParse(parsed.value)
+  if (!envelope.success) {
+    return {
+      ok: false,
+      code: 'PARSE_DRIFT',
+      // Stryker disable next-line OptionalChaining: a Zod result with `success: false` always
+      // carries at least one issue, so `issues[0]` is never undefined and the optional chain
+      // cannot be made to fire. The FALLBACK is asserted to be unused (the test requires the
+      // schema's own words), which is the half that can be observed.
+      message: `envelope: ${envelope.error.issues[0]?.message ?? 'did not match'}`,
+    }
+  }
+  return { ok: true, value: envelope.data }
+}
+
+/**
  * A discriminated union rather than one record with a nullable `failure`. With the flat shape, the
  * failure returns had to carry `observations: []` and `nextCursor: null` — fields the caller never
  * reads on that branch, so no test could tell what they held. A shape that cannot express the
@@ -1044,14 +1122,14 @@ type PageResult =
  * decide. It mutates only the cross-page identity map, which is genuinely attempt-scoped.
  */
 async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>(
-  spec: ApiJsonSourceSpec<TConfig, TEnvelope, TItem>,
+  spec: PagedSourceSpec<TConfig, TEnvelope, TItem>,
   config: TConfig,
   ctx: CollectionContext,
   envelope: TEnvelope,
   at: PageTarget,
   nativeIdByIdentityKey: Map<string, string>,
   addSample: (page: number, reason: string, raw: unknown) => void,
-  limits: ApiJsonLimits,
+  limits: PageLimits,
 ): Promise<PageResult> {
   const counts: PageCounts = emptyPageCounts()
   let items: readonly unknown[]
