@@ -1,15 +1,14 @@
 import type { DateContract, DateSemantics } from '../normalize/date-policy'
 import {
   attributeValue,
+  childElements,
   collectText,
   FEED_NAMESPACES,
   findChild,
   findChildren,
-  isElement,
   type NamespaceSelector,
   type XmlDocument,
   type XmlElementNode,
-  type XmlNodeUnion,
 } from '../xml'
 
 /**
@@ -116,16 +115,17 @@ const contentEncoded = (item: XmlElementNode): string | null =>
  */
 function rss2Items(channel: XmlElementNode): XmlElementNode[] {
   const items: XmlElementNode[] = []
-  const stack: XmlElementNode[] = [...channel.children].filter(isElement).reverse()
+  // Pushed in reverse so the pops come out in document order.
+  const stack: XmlElementNode[] = [...childElements(channel)].reverse()
   while (stack.length > 0) {
     const node = stack.pop() as XmlElementNode
     if (node.localName === 'item' && node.namespaceUri === null) {
       items.push(node)
     } else {
-      for (let i = node.children.length - 1; i >= 0; i -= 1) {
-        const child = node.children[i] as XmlNodeUnion
-        if (isElement(child)) stack.push(child)
-      }
+      // A loop, not `push(...spread)`: a container may hold up to the port's element bound, and a
+      // spread of that many arguments can exceed the engine's call-argument limit.
+      const children = childElements(node)
+      for (let i = children.length - 1; i >= 0; i -= 1) stack.push(children[i] as XmlElementNode)
     }
   }
   return items

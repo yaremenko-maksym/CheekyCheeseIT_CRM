@@ -76,6 +76,7 @@ export interface XmlSourceSpec<TConfig extends SourceConfigFields, TItem> extend
  * to carry bytes, which is the binding of `fetchText` (Task 2.5), not this file.
  */
 const UTF8_BOM = Uint8Array.of(0xef, 0xbb, 0xbf)
+const UTF8_ENCODER = new TextEncoder()
 
 /** Bounds a provider overran: the format is right, the size is past what we set. */
 const BOUND_REASONS: ReadonlySet<XmlFailureReason> = new Set<XmlFailureReason>([
@@ -101,7 +102,7 @@ export function decodeXmlBody(
   limits: XmlLimits,
   port: XmlPort,
 ): DecodedEnvelope<XmlDocument> {
-  const body = new TextEncoder().encode(bodyText)
+  const body = UTF8_ENCODER.encode(bodyText)
   const bytes = new Uint8Array(UTF8_BOM.length + body.length)
   bytes.set(UTF8_BOM)
   bytes.set(body, UTF8_BOM.length)
@@ -142,11 +143,11 @@ export function honestRequest(request: FetchRequest): FetchRequest {
   const headers: Record<string, string> = {}
   for (const [name, value] of Object.entries(request.headers ?? {})) {
     const key = name.toLowerCase()
-    if (key === 'user-agent' || key.startsWith('sec-ch-ua') || key.startsWith('sec-fetch-')) {
-      continue
-    }
+    if (key.startsWith('sec-ch-ua') || key.startsWith('sec-fetch-')) continue
     headers[key] = value
   }
+  // Written AFTER the copy, so it replaces an adapter's `user-agent` in any letter case: the keys
+  // were lowercased above, so there is exactly one slot for it.
   headers['user-agent'] = DEFAULT_USER_AGENT
   return { ...request, headers }
 }

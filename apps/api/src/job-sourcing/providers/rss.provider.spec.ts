@@ -296,6 +296,20 @@ describe('AC5 — the GUID is opaque identity', () => {
     })
   })
 
+  it('two distinct guids too long to be native ids, sharing a link, are an invariant failure — not one posting', async () => {
+    // The identity seam refuses a native id over 256 characters and falls back to the URL, so
+    // both entries key on the SAME link. The provider issued two different ids, so collapsing them
+    // would silently merge two postings: the loop's collision check catches it, and it can only
+    // do so because the base reports the GUID as the provider's id.
+    const long = (tag: string) => `${tag}-${'x'.repeat(300)}`
+    const { batch } = await collect(
+      rss(item(long('a'), 'https://example.com/j/1') + item(long('b'), 'https://example.com/j/1')),
+    )
+    expect(batch.outcome).toBe('FAILED')
+    expect(batch.observations).toEqual([])
+    expect(batch.requests.at(-1)?.error?.code).toBe('ADAPTER_INVARIANT')
+  })
+
   it('two guids sharing one link are two postings', async () => {
     const { batch } = await collect(
       rss(item('g-1', 'https://example.com/j/1') + item('g-2', 'https://example.com/j/1')),

@@ -164,6 +164,20 @@ describe('Atom (RFC 4287)', () => {
     expect(feed.entries[0]?.link).toBe('https://example.com/j/1')
   })
 
+  it('trims rel and href, and skips an alternate with no usable href', () => {
+    const feed = feedOf(
+      '<feed xmlns="http://www.w3.org/2005/Atom"><entry><id>e</id><link rel="alternate"/><link rel="alternate" href="  "/><link rel=" alternate " href=" https://example.com/j/2 "/></entry></feed>',
+    )
+    expect(feed.entries[0]?.link).toBe('https://example.com/j/2')
+  })
+
+  it('a category with no term contributes nothing', () => {
+    const feed = feedOf(
+      '<feed xmlns="http://www.w3.org/2005/Atom"><entry><id>e</id><category/><category term="go"/></entry></feed>',
+    )
+    expect(feed.entries[0]?.categories).toEqual(['go'])
+  })
+
   it('has no link when the only links are not alternates', () => {
     const feed = feedOf(
       '<feed xmlns="http://www.w3.org/2005/Atom"><entry><id>e</id><link rel="related" href="https://example.com/c"/></entry></feed>',
@@ -195,6 +209,33 @@ describe('Atom (RFC 4287)', () => {
 })
 
 describe('RSS 1.0 (RDF)', () => {
+  const rdfWith = (item: string) =>
+    `<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel/>${item}</rdf:RDF>`
+
+  it('reads description, content:encoded, every dc:creator and dc:subject', () => {
+    const feed = feedOf(
+      rdfWith(
+        '<item rdf:about="a"><description>Short</description><content:encoded>Long</content:encoded><dc:creator>Acme</dc:creator><dc:creator>Beta</dc:creator><dc:subject>Rust</dc:subject></item>',
+      ),
+    )
+    expect(feed.entries[0]).toMatchObject({
+      summary: 'Short',
+      content: 'Long',
+      authors: ['Acme', 'Beta'],
+      categories: ['Rust'],
+    })
+  })
+
+  it('trims rdf:about, and has no guid when it is blank or absent', () => {
+    const feed = feedOf(
+      rdfWith(
+        '<item rdf:about="  a  "/><item rdf:about="  "/><item><title>No about</title></item><item about="unqualified"/>',
+      ),
+    )
+    // The last one: an UNPREFIXED `about` is in no namespace, so it is not `rdf:about`.
+    expect(feed.entries.map((entry) => entry.guid)).toEqual(['a', null, null, null])
+  })
+
   const rdf = `<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/" xmlns:dc="http://purl.org/dc/elements/1.1/">
     <channel rdf:about="https://example.com/"><title>RDF jobs</title></channel>
     <item rdf:about="https://example.com/j/1"><title>One</title><link>https://example.com/j/1?ref=rss</link><dc:date>2026-10-01T09:00:00Z</dc:date></item>
@@ -245,18 +286,59 @@ describe('a document that is XML but not a feed is drift', () => {
     ).toEqual({ ok: false, reason: 'an rdf:RDF document with no RSS 1.0 <channel>' })
   })
 
+  /*
+   * The dialect is the root's EXPANDED name, so each row below is a root that matches on ONE half
+   * only — the local name without the namespace, or the namespace without the local name — and
+   * the REASON is asserted, not just `ok: false`: a reader that matched on one half would still
+   * refuse most of these, but for the wrong reason.
+   */
   it.each([
-    ['an HTML page', '<html><body>Blocked</body></html>'],
-    ['an RSS root with no channel', '<rss version="2.0"><item><guid>a</guid></item></rss>'],
-    ['an RSS root in a namespace', '<rss xmlns="urn:not-rss"><channel/></rss>'],
-    ['a feed root outside the Atom namespace', '<feed><entry><id>a</id></entry></feed>'],
+    [
+      'an HTML page',
+      '<html><body>Blocked</body></html>',
+      `the document root {}html is not RSS 2.0, RSS 1.0 or Atom`,
+    ],
+    [
+      'an RSS root with no channel',
+      '<rss version="2.0"><item><guid>a</guid></item></rss>',
+      'an <rss> document with no <channel>',
+    ],
+    [
+      'an RSS root in a namespace',
+      '<rss xmlns="urn:not-rss"><channel/></rss>',
+      `the document root {urn:not-rss}rss is not RSS 2.0, RSS 1.0 or Atom`,
+    ],
+    [
+      'a bare <channel> root',
+      '<channel><item/></channel>',
+      `the document root {}channel is not RSS 2.0, RSS 1.0 or Atom`,
+    ],
+    [
+      'a feed root outside the Atom namespace',
+      '<feed><entry><id>a</id></entry></feed>',
+      `the document root {}feed is not RSS 2.0, RSS 1.0 or Atom`,
+    ],
+    [
+      'an Atom-namespaced root that is not <feed>',
+      '<entry xmlns="http://www.w3.org/2005/Atom"><id>a</id></entry>',
+      `the document root {http://www.w3.org/2005/Atom}entry is not RSS 2.0, RSS 1.0 or Atom`,
+    ],
     [
       'an RDF root with no RSS 1.0 channel',
       '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"/>',
+      'an rdf:RDF document with no RSS 1.0 <channel>',
     ],
-    ['an RDF-named root outside the RDF namespace', '<RDF><channel/></RDF>'],
-  ])('%s', (_label, xml) => {
-    const result = readFeed(xmlPort.parseDocument(utf8(xml)))
-    expect(result.ok).toBe(false)
+    [
+      'an RDF-named root outside the RDF namespace',
+      '<RDF xmlns="http://purl.org/rss/1.0/"><channel/></RDF>',
+      `the document root {http://purl.org/rss/1.0/}RDF is not RSS 2.0, RSS 1.0 or Atom`,
+    ],
+    [
+      'an RDF-namespaced root that is not RDF',
+      '<rdf:Description xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><channel xmlns="http://purl.org/rss/1.0/"/></rdf:Description>',
+      `the document root {http://www.w3.org/1999/02/22-rdf-syntax-ns#}Description is not RSS 2.0, RSS 1.0 or Atom`,
+    ],
+  ])('%s', (_label, xml, reason) => {
+    expect(readFeed(xmlPort.parseDocument(utf8(xml)))).toEqual({ ok: false, reason })
   })
 })
