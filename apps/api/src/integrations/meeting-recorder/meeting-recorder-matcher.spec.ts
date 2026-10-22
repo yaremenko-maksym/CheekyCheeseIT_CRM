@@ -18,6 +18,22 @@ import {
  * tell whether the SQL selects the right interview (CR-865-H-3).
  */
 
+/**
+ * A transaction stub that answers one lookup with `rows`, ignoring the predicate.
+ *
+ * It exists only so the mutation gate — which cannot execute an
+ * `*.integration.spec.ts` (see `.claude/rules/common/mutation-gate-integration-specs.md`)
+ * — can reach the branch where a match IS returned. It deliberately proves
+ * nothing about the WHERE clause: the window, stage, key-time and ambiguity
+ * predicates are verified against real Postgres in
+ * `meeting-recorder-matcher.integration.spec.ts`.
+ */
+function txAnswering(rows: Array<{ id: string; stage: 'TECH_INTERVIEW' }>): DrizzleTx {
+  return {
+    select: () => ({ from: () => ({ where: () => ({ limit: async () => rows }) }) }),
+  } as unknown as DrizzleTx
+}
+
 /** A transaction that fails the test if the matcher reaches the database. */
 const noQueryTx = new Proxy(
   {},
@@ -173,6 +189,31 @@ describe('MeetingRecorderMatcher', () => {
         ...recording({ kind: 'meeting', provider: 'google-meet', meetingId: 'abc-defg-hij' }),
         startedAt: 'not-a-date',
       }),
+    ).resolves.toBeNull()
+  })
+
+  it('returns the single candidate the lookup answered with, carrying its stage', async () => {
+    await expect(
+      new MeetingRecorderMatcher().findExactMatch(
+        txAnswering([{ id: 'interview-1', stage: 'TECH_INTERVIEW' }]),
+        recording({ kind: 'meeting', provider: 'google-meet', meetingId: 'abc-defg-hij' }),
+      ),
+    ).resolves.toEqual({
+      interviewId: 'interview-1',
+      stageAtLink: 'TECH_INTERVIEW',
+      matchedBy: 'meeting-id',
+    })
+  })
+
+  it('refuses an ambiguous answer of two candidates', async () => {
+    await expect(
+      new MeetingRecorderMatcher().findExactMatch(
+        txAnswering([
+          { id: 'interview-1', stage: 'TECH_INTERVIEW' },
+          { id: 'interview-2', stage: 'TECH_INTERVIEW' },
+        ]),
+        recording({ kind: 'meeting', provider: 'google-meet', meetingId: 'abc-defg-hij' }),
+      ),
     ).resolves.toBeNull()
   })
 })

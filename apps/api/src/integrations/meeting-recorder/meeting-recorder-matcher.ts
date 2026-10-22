@@ -53,6 +53,10 @@ export const MEETING_RECORDER_UNMATCHABLE_STAGES = [
   'ARCHIVED',
 ] as const satisfies readonly Interview['stage'][]
 
+/** The only columns the matcher needs from a candidate interview. */
+// Stryker disable next-line ObjectLiteral: emptying the projection is only observable through a real query — the unit stub in the sibling spec answers the lookup without reading it, and the gate cannot run the integration spec that does (.claude/rules/common/mutation-gate-integration-specs.md)
+const MATCH_CANDIDATE_COLUMNS = { id: interviews.id, stage: interviews.stage }
+
 /**
  * The Meet codes to look an interview up by, most trusted first, de-duplicated.
  *
@@ -97,21 +101,32 @@ export class MeetingRecorderMatcher {
     tx: DrizzleTx,
     recording: MeetingRecorderRecordingInput,
   ): Promise<MeetingRecorderAutomaticMatch | null> {
+    // No explicit "no keys" guard: an empty key list makes the loop below a no-op
+    // and falls through to `null` without touching the database.
     const keys = meetingRecorderMatchKeys(recording.source)
-    if (keys.length === 0) return null
-
     const startedAt = new Date(recording.startedAt).getTime()
     if (Number.isNaN(startedAt)) return null
 
     for (const { code, matchedBy } of keys) {
+      // The five predicates below are compiled into one SQL statement, so only a
+      // real Postgres can tell a mutated one from the original — the unit stub in
+      // meeting-recorder-matcher.spec.ts answers the lookup without reading the
+      // WHERE clause at all, and the mutation gate cannot execute an integration
+      // spec (.claude/rules/common/mutation-gate-integration-specs.md). Each is
+      // killed behaviourally in meeting-recorder-matcher.integration.spec.ts:
+      // the ±30 min window at both edges and one second beyond, the terminal and
+      // archived stages, and the match-key-before-start rule.
       const candidates = await tx
-        .select({ id: interviews.id, stage: interviews.stage })
+        .select(MATCH_CANDIDATE_COLUMNS)
         .from(interviews)
         .where(
           and(
             eq(interviews.callMeetCode, code),
+            // Stryker disable next-line ArithmeticOperator: window direction is SQL-only — asserted at both window edges in the integration spec
             gte(interviews.scheduledAt, new Date(startedAt - MEETING_RECORDER_MATCH_WINDOW_MS)),
+            // Stryker disable next-line ArithmeticOperator: window direction is SQL-only — asserted at both window edges in the integration spec
             lte(interviews.scheduledAt, new Date(startedAt + MEETING_RECORDER_MATCH_WINDOW_MS)),
+            // Stryker disable next-line ArrayDeclaration: an empty exclusion list is SQL-only — the integration spec proves HIRED/REJECTED/ARCHIVED never match
             notInArray(interviews.stage, [...MEETING_RECORDER_UNMATCHABLE_STAGES]),
             lt(interviews.matchKeyChangedAt, new Date(startedAt)),
           ),
