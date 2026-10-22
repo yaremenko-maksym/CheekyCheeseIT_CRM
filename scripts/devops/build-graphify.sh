@@ -96,8 +96,15 @@ run_tool() {
   # Refuse, here and now, an `extract` that could take the semantic path or read a live DB:
   # a careless edit fails where it happens, not later in CI.
   if [ "${1:-}" = "extract" ]; then
-    case " $* " in *" --code-only "*) ;; *) die "refusing to run 'graphify extract' without --code-only (semantic path)." ;; esac
-    case " $* " in *" --no-gitignore "* | *" --postgres "*) die "refusing to run 'graphify extract' with --no-gitignore or --postgres." ;; esac
+    local arg has_code_only=0
+    for arg in "$@"; do
+      case "$arg" in
+        --code-only) has_code_only=1 ;;
+        # the flag NAME, in either spelling (`--postgres DSN` and `--postgres=DSN`)
+        --postgres | --postgres=* | --no-gitignore | --no-gitignore=*) die "refusing to run 'graphify extract' with --no-gitignore or --postgres." ;;
+      esac
+    done
+    [ "$has_code_only" = 1 ] || die "refusing to run 'graphify extract' without --code-only (semantic path)."
   fi
   env -i PATH="$PATH" HOME="$STAGE/home" LANG=C "$BIN" "$@"
 }

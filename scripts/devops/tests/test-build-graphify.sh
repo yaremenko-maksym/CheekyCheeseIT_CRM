@@ -245,6 +245,16 @@ assert_red "an extract call with --no-gitignore is refused by the script itself"
 assert_red "an extract call with --postgres is refused by the script itself" \
   --contains "with --no-gitignore or --postgres" \
   -- bash -c "GRAPHIFY_BIN='$TMP/edited/bin/graphify' GRAPHIFY_REPO_ROOT='$TMP/edited/repo' bash '$TMP/edited/pg.sh' 2>&1"
+sed 's/run_tool extract \. --code-only --no-viz/run_tool extract . --code-only --postgres=postgresql:\/\/u@h\/db --no-viz/' "$BUILD" >"$TMP/edited/pgeq.sh"
+sed 's/run_tool extract \. --code-only --no-viz/run_tool extract . --code-only --no-gitignore=1 --no-viz/' "$BUILD" >"$TMP/edited/gieq.sh"
+assert_red "an extract call with --postgres=<dsn> (equals form) is refused by the script itself" \
+  --contains "with --no-gitignore or --postgres" \
+  -- bash -c "GRAPHIFY_BIN='$TMP/edited/bin/graphify' GRAPHIFY_REPO_ROOT='$TMP/edited/repo' bash '$TMP/edited/pgeq.sh' 2>&1"
+assert_red "an extract call with --no-gitignore=<v> (equals form) is refused by the script itself" \
+  --contains "with --no-gitignore or --postgres" \
+  -- bash -c "GRAPHIFY_BIN='$TMP/edited/bin/graphify' GRAPHIFY_REPO_ROOT='$TMP/edited/repo' bash '$TMP/edited/gieq.sh' 2>&1"
+assert_red "...and the tool was never invoked by any of the refused edits (no argv recorded)" \
+  -- test -e "$TMP/edited/bin/argv.log"
 assert_green "the unedited script still builds in the same fake repo" \
   --contains "build-graphify: OK" \
   -- bash -c "$(build edited)"
