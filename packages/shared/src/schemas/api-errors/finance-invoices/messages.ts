@@ -521,6 +521,11 @@ export const FINANCE_INVOICES_ERROR_MESSAGES: Record<FinanceInvoicesErrorCode, M
       id: 'api-error.FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION',
       message: 'Дата виплати не може бути раніше дати виникнення зобов’язання',
     },
+    FINANCE_SALARY_IDEMPOTENCY_CONFLICT: /* i18n */ {
+      id: 'api-error.FINANCE_SALARY_IDEMPOTENCY_CONFLICT',
+      message:
+        'Цю зарплату вже записано з іншими даними — відкрийте форму заново й надішліть її ще раз',
+    },
     FINANCE_ROUNDED_PAYOUT_AMOUNT_ZERO: /* i18n */ {
       id: 'api-error.FINANCE_ROUNDED_PAYOUT_AMOUNT_ZERO',
       message:
