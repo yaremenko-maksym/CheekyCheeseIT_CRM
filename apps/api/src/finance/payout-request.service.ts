@@ -8,7 +8,7 @@ import { DEFAULT_DROP_SHARE_PERCENT } from './drop-share-resolver'
 import { DEFAULT_SENIOR_SHARE_PERCENT } from './drop-distribution.util'
 import { NbuCurrencyService } from './nbu-currency.service'
 import { PayoutRequestReadService } from './payout-request-read.service'
-import { resolveTransactionDate } from './transaction-date.util'
+import { formatTransactionBusinessDate, resolveTransactionDate } from './transaction-date.util'
 import { convertToUsdtMinor } from './usdt-conversion.util'
 
 /**
@@ -42,6 +42,10 @@ export class PayoutRequestService {
     if (currentUser.role !== 'SENIOR' && currentUser.role !== 'DROP') {
       throw new ForbiddenException()
     }
+    // SR-809-M-1 (PR #868): the lower bound below is checked on the RESOLVED
+    // date, so omitting txDate ("now") cannot predate the income it settles.
+    const effectivePayoutTxDate = resolveTransactionDate(txDate, new Date())
+    const effectivePayoutBusinessDate = formatTransactionBusinessDate(effectivePayoutTxDate)
     const isDrop = currentUser.role === 'DROP'
     const incomeType = isDrop ? 'DROP_INCOME' : 'SENIOR_INCOME'
 
@@ -119,15 +123,11 @@ export class PayoutRequestService {
       // source rows carry timestamps. For a batch, the latest source date is
       // therefore the inclusive lower bound for the payout date.
       const latestSourceDate = lockedRows
-        .map((tx) => (tx.txDate ?? tx.createdAt).toISOString().slice(0, 10))
+        .map((tx) => formatTransactionBusinessDate(tx.txDate ?? tx.createdAt))
         .sort()
         .pop()
-      // Missing custom date means "do not enforce a lower bound". Use a
-      // lexicographically-high sentinel so the comparison remains one simple,
-      // mutation-testable expression without nullable branches.
-      const comparablePayoutDate = txDate ?? String.fromCharCode(0xffff)
-      const comparableLatestSourceDate = latestSourceDate ?? comparablePayoutDate
-      if (comparablePayoutDate < comparableLatestSourceDate) {
+      const comparableLatestSourceDate = latestSourceDate ?? effectivePayoutBusinessDate
+      if (effectivePayoutBusinessDate < comparableLatestSourceDate) {
         throw apiError('FINANCE_PAYOUT_DATE_BEFORE_INCOME', HttpStatus.BAD_REQUEST)
       }
 
@@ -292,7 +292,7 @@ export class PayoutRequestService {
         // Persist the operator-selected business date on the ledger row.
         // Omitting txDate stays backward-compatible at the API boundary and
         // resolves to "now", matching the old createdAt-based business day.
-        txDate: resolveTransactionDate(txDate),
+        txDate: effectivePayoutTxDate,
         createdBy: currentUser.id,
       })
 

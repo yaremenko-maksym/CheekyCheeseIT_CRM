@@ -1,5 +1,5 @@
 import { ForbiddenException, HttpStatus, Injectable, Logger } from '@nestjs/common'
-import { and, eq, isNull, or } from 'drizzle-orm'
+import { and, eq, isNull, or, sql } from 'drizzle-orm'
 import type { SalaryMonthGapReportDto, SessionUser } from '@crm/shared'
 import {
   COMPANY_ACCOUNT_LABEL,
@@ -23,7 +23,7 @@ import {
 import { isStorableExchangeRate } from './exchange-rate.util'
 import { assertReceiptDocumentBindable } from './receipt.util'
 import { SalaryService } from './salary.service'
-import { resolveTransactionDate } from './transaction-date.util'
+import { formatTransactionBusinessDate, resolveTransactionDate } from './transaction-date.util'
 import { TransactionLifecycleService } from './transaction-lifecycle.service'
 import { assertTransactionWritable } from './transaction-visibility.util'
 
@@ -82,11 +82,12 @@ export class SalaryPaymentService {
     // A salary payment can be entered later than it happened, but it cannot
     // predate the salary transaction itself. Keep the comparison at calendar-
     // day granularity because the UI submits a business date (YYYY-MM-DD).
-    if (data.txDate) {
-      const sourceDate = (tx.txDate ?? tx.createdAt).toISOString().slice(0, 10)
-      if (data.txDate < sourceDate) {
-        throw apiError('FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', HttpStatus.BAD_REQUEST)
-      }
+    // SR-809-M-1 (PR #868): resolve an omitted/null date to now and validate
+    // that effective day too, so omitting the field cannot bypass the bound.
+    const paymentTxDate = resolveTransactionDate(data.txDate, new Date())
+    const sourceDate = formatTransactionBusinessDate(tx.txDate ?? tx.createdAt)
+    if (formatTransactionBusinessDate(paymentTxDate) < sourceDate) {
+      throw apiError('FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', HttpStatus.BAD_REQUEST)
     }
 
     // task-finance-fix-wave1 (E-1): refuse to PAY a salary whose receiver has
@@ -282,8 +283,22 @@ export class SalaryPaymentService {
       receiptDocumentId: data.receiptDocumentId ?? null,
       receiptExternalUrl: data.receiptExternalUrl ?? null,
       notes: data.notes ?? tx.notes,
-      txDate: resolveTransactionDate(data.txDate),
+      txDate: paymentTxDate,
       updatedAt: new Date(),
+    }
+
+    // SR-795-M-4 (PR #868): several fields in `paidSet` derive from the
+    // pre-write salary snapshot. If an admin edits that PENDING salary between
+    // the read and this payment, paying the stale snapshot would record a
+    // different obligation than the one just changed. Bind every mutable source
+    // field that is copied or derived from. Notes need a predicate only when
+    // the request omits them (and so copies tx.notes).
+    const paymentSnapshotPredicates = [
+      eq(transactions.amount, tx.amount),
+      eq(transactions.currency, tx.currency),
+    ]
+    if (data.notes === undefined) {
+      paymentSnapshotPredicates.push(sql`${transactions.notes} IS NOT DISTINCT FROM ${tx.notes}`)
     }
 
     if (isCompanyFunded) {
@@ -336,6 +351,7 @@ export class SalaryPaymentService {
               // write itself so exactly one funding source can win.
               eq(transactions.status, 'PENDING'),
               isNull(transactions.deletedAt),
+              ...paymentSnapshotPredicates,
               // MED-3: archival re-asserted in the write, not only pre-read.
               this.salaryService.salaryReceiverNotArchivedFilter(),
             ),
@@ -369,6 +385,7 @@ export class SalaryPaymentService {
             eq(transactions.id, id),
             eq(transactions.status, 'PENDING'),
             isNull(transactions.deletedAt),
+            ...paymentSnapshotPredicates,
             // MED-3: same in-write archival re-assertion as the company path.
             this.salaryService.salaryReceiverNotArchivedFilter(),
           ),
