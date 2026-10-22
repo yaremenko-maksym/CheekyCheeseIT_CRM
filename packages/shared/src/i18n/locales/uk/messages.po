@@ -2569,6 +2569,11 @@ msgstr "Зарплату для цього співробітника за ви�
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
+msgid "api-error.FINANCE_SALARY_IDEMPOTENCY_CONFLICT"
+msgstr "Цю зарплату вже записано з іншими даними — відкрийте форму заново й надішліть її ще раз"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_SALARY_MONTH_BACKFILL_FORBIDDEN"
 msgstr "Заповнити пропущені місяці зарплати може лише адміністратор"
 

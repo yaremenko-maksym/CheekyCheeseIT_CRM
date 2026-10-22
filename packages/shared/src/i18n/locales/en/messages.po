@@ -2569,6 +2569,11 @@ msgstr "This employee's salary for the selected month already exists"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
+msgid "api-error.FINANCE_SALARY_IDEMPOTENCY_CONFLICT"
+msgstr "This idempotency key was already used for a different salary request"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_SALARY_MONTH_BACKFILL_FORBIDDEN"
 msgstr "Only an admin can fill in missed salary months"
 
