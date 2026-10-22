@@ -515,6 +515,122 @@ describe('AC6 — honest user agent, no browser impersonation', () => {
   })
 })
 
+/**
+ * ONE SPELLING OF AN ID ON BOTH PATHS (SR-M-3).
+ *
+ * Acceptance first, from the specification: the GUID is identity, and the identity seam spells an
+ * id NFC + trimmed — so two Unicode spellings of one id ARE one id, and one posting. Then the
+ * refusal the finding reproduced: that sameness must not read as a collision.
+ */
+describe('a GUID is one id however it is spelled', () => {
+  // 'José' precomposed (U+00E9) and decomposed (e + U+0301). One id, two spellings.
+  const PRECOMPOSED = 'jos\u00e9-1'
+  const DECOMPOSED = 'jose\u0301-1'
+
+  it('treats two spellings of one guid as one identity, not as a collision', async () => {
+    const { batch } = await collect(
+      rss(
+        item(PRECOMPOSED, 'https://example.com/j/1') + item(DECOMPOSED, 'https://example.com/j/2'),
+      ),
+    )
+
+    // Without the fix this was FAILED / ADAPTER_INVARIANT: the loop compared the raw guid against
+    // the normalised one already recorded against that identity key, and the whole page — both
+    // postings — was discarded.
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.requests.map((r) => r.error)).toEqual([null])
+    expect(batch.observations.map((o) => o.identity.nativeId)).toEqual([PRECOMPOSED, PRECOMPOSED])
+    expect(new Set(batch.observations.map((o) => o.identity.identityKey)).size).toBe(1)
+  })
+
+  it('still refuses two genuinely different ids that collapse to one identity key', async () => {
+    // THE REFUSAL SIDE, and it had to be reachable: normalising the comparison must not switch the
+    // AC5 guard off. Two entries whose guids are PAST the usable length both fall back to URL
+    // identity, so one shared link gives them one identity key — while `nativeIdOf` reports two
+    // different provider ids. That is the collapse AC5 exists for, and it is still reported.
+    const f = fakeCollectionContext({
+      now: NOW,
+      responses: [
+        {
+          bodyText: rss(
+            item('a'.repeat(257), 'https://example.com/one-and-only') +
+              item('b'.repeat(257), 'https://example.com/one-and-only'),
+          ),
+        },
+      ],
+    })
+    const batch = await collectFeedPages(spec(), config(), f.ctx)
+
+    expect(batch.outcome).toBe('FAILED')
+    expect(batch.requests.at(-1)?.error?.code).toBe('ADAPTER_INVARIANT')
+    // The reported message is bounded, so the assertion is on its head rather than its tail.
+    expect(batch.requests.at(-1)?.error?.message).toMatch(/^adapter invariant: native ids a{20}/)
+  })
+
+  it('an over-long guid falls back to URL identity, and a changed link splits the posting', async () => {
+    // The inverse the review found uncovered. A guid past MAX_NATIVE_ID_CHARS is unusable, so
+    // identity is the URL — and the URL is the provider's to change, so the SAME posting under a
+    // new link is a NEW record. That is the cost of the fallback, and it is a fact about the
+    // source rather than a defect: with no usable id there is nothing stable left to key on.
+    const huge = 'g'.repeat(257)
+    const first = await collect(rss(item(huge, 'https://example.com/j/old')))
+    const second = await collect(rss(item(huge, 'https://example.com/j/new')))
+
+    for (const batch of [first.batch, second.batch]) {
+      expect(batch.outcome).toBe('SUCCEEDED')
+      expect(batch.observations[0]?.identity.identityKind).toBe('URL_FALLBACK')
+      expect(batch.observations[0]?.identity.nativeId).toBeNull()
+    }
+    expect(first.batch.observations[0]?.identity.identityKey).not.toBe(
+      second.batch.observations[0]?.identity.identityKey,
+    )
+  })
+})
+
+/**
+ * The feed base shares the XML binding's header policy, so the allowlist holds here too — and
+ * feeds are where browser impersonation is tempting, which is why it is asserted on both bindings
+ * rather than once (SR-M-2 = CR-M-4).
+ */
+describe('AC6 — the feed base sends only the headers an adapter may send', () => {
+  it.each(['referer', 'cookie', 'origin', 'x-forwarded-for', 'x-device-user-agent'])(
+    'drops %s',
+    async (name) => {
+      const s = spec({
+        feedRequest: () => ({
+          url: 'https://weworkremotely.example/remote-jobs.rss',
+          headers: { [name]: 'something a browser would send' },
+        }),
+      })
+      const { f } = await collect(fixtureText('rss-empty.xml'), s)
+      expect(f.sent[0]?.headers).toEqual({ 'user-agent': DEFAULT_USER_AGENT })
+    },
+  )
+})
+
+/**
+ * The mojibake refusal reaches feeds through the same decode (SPEC-M-1 = SR-M-1): a feed is the
+ * binding where a windows-1251 body is actually likely.
+ */
+describe('a feed whose bytes were decoded as the wrong encoding is drift', () => {
+  it('refuses a windows-1251 feed that arrived full of replacement characters', async () => {
+    const body = `<?xml version="1.0" encoding="windows-1251"?><rss version="2.0"><channel><title>\ufffd\ufffd\ufffd</title>${item('g-1', 'https://example.com/j/1')}</channel></rss>`
+    const { batch } = await collect(body)
+
+    expect(batch.outcome).toBe('FAILED')
+    expect(batch.observations).toEqual([])
+    expect(batch.requests.at(-1)?.error?.code).toBe('PARSE_DRIFT')
+  })
+
+  it('accepts a windows-1251 feed the fetch decoded correctly', async () => {
+    const body = `<?xml version="1.0" encoding="windows-1251"?><rss version="2.0"><channel><title>Вакансії</title>${item('g-1', 'https://example.com/j/1')}</channel></rss>`
+    const { batch } = await collect(body)
+
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.observations.map((o) => o.identity.nativeId)).toEqual(['g-1'])
+  })
+})
+
 describe('pagination', () => {
   it('a feed paginates only when the adapter says how, and then through the shared loop', async () => {
     const s = spec({

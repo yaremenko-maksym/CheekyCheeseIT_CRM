@@ -189,6 +189,76 @@ describe('the body is handed to the port as the text it already is', () => {
   })
 })
 
+/**
+ * A BODY THE FETCH ALREADY DECODED WRONGLY (SPEC-M-1 = SR-M-1).
+ *
+ * Acceptance first, from the specification — the port decodes fatally and a document whose bytes
+ * are not valid in its encoding is drift — which is the contract this guard restores for a body
+ * that arrives as TEXT, where the port has no bytes left to be fatal about. Then the refusal the
+ * finding reproduced, and then the two cases the condition deliberately lets through.
+ */
+describe('replacement characters in a body that does not declare UTF-8 are drift', () => {
+  const declared = (encoding: string, title: string): string =>
+    `<?xml version="1.0" encoding="${encoding}"?><workzag-jobs><position><id>7</id><name>${title}</name></position></workzag-jobs>`
+
+  it('refuses a windows-1251 feed the fetch read as UTF-8, rather than storing its mojibake', async () => {
+    // What a cp1251 'Розробник' looks like after a UTF-8 read: every byte undecodable, so every
+    // character replaced. It parses as well-formed XML — which is why it used to be stored.
+    const f = fakeCollectionContext({
+      responses: [{ bodyText: declared('windows-1251', '\ufffd\ufffd\ufffd\ufffd\ufffd') }],
+    })
+    const batch = await collectXmlPages(personioSpec(), config(), f.ctx)
+
+    expect(batch.outcome).toBe('FAILED')
+    expect(batch.coverage).toBe('PARTIAL')
+    expect(batch.observations).toEqual([])
+    expect(batch.requests.at(-1)?.error?.code).toBe('PARSE_DRIFT')
+    expect(batch.requests.at(-1)?.error?.message).toMatch(
+      /declares "windows-1251" and arrived holding replacement characters/,
+    )
+  })
+
+  it('accepts the same feed when the fetch decoded it correctly', async () => {
+    // The acceptance side of the same declaration: the guard is about replacement characters, not
+    // about naming a single-byte encoding.
+    const f = fakeCollectionContext({
+      responses: [{ bodyText: declared('windows-1251', 'Розробник') }],
+    })
+    const batch = await collectXmlPages(personioSpec(), config(), f.ctx)
+
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.observations[0]?.originalFields.title.value).toBe('Розробник')
+  })
+
+  it('accepts a replacement character in a document that declares UTF-8 — it may be content', async () => {
+    // The stated false negative, pinned so it is a decision and not an accident: a UTF-8 document
+    // carrying U+FFFD is taken at its word, because refusing it would drop a healthy feed.
+    const f = fakeCollectionContext({
+      responses: [{ bodyText: declared('utf-8', 'Dev \ufffd ops') }],
+    })
+    const batch = await collectXmlPages(personioSpec(), config(), f.ctx)
+
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.observations[0]?.originalFields.title.value).toBe('Dev \ufffd ops')
+  })
+
+  it('accepts a replacement character in a document that declares nothing at all', async () => {
+    // The other stated false negative: with no declaration XML's default is UTF-8, and only bytes
+    // could tell a declaration-less cp1251 body from a UTF-8 one that contains the character.
+    const f = fakeCollectionContext({
+      responses: [
+        {
+          bodyText:
+            '<workzag-jobs><position><id>7</id><name>Dev \ufffd</name></position></workzag-jobs>',
+        },
+      ],
+    })
+    const batch = await collectXmlPages(personioSpec(), config(), f.ctx)
+
+    expect(batch.outcome).toBe('SUCCEEDED')
+  })
+})
+
 describe('every port refusal reports under the right code', () => {
   const BOUNDS: XmlFailureReason[] = [
     'TOO_MANY_BYTES',
@@ -272,6 +342,58 @@ describe('honest user agent, no browser impersonation', () => {
       accept: 'application/xml',
       'user-agent': DEFAULT_USER_AGENT,
     })
+  })
+
+  /**
+   * THE HEADER POLICY IS AN ALLOWLIST (SR-M-2 = CR-M-4).
+   *
+   * Acceptance first: the headers an adapter is allowed to set arrive as written. Then the
+   * refusals — one case per header the old denylist kept, because "everything else is kept" is
+   * exactly the claim that let them through.
+   */
+  it('passes the headers an adapter is allowed to set', async () => {
+    const spec = personioSpec({
+      pageRequest: () => ({
+        request: {
+          url: 'https://acme.jobs.personio.de/xml',
+          headers: {
+            accept: 'application/xml',
+            'accept-language': 'uk,en;q=0.9',
+            authorization: 'Bearer tenant-token',
+            from: 'cheeky@cheekycheese.tech',
+          },
+        },
+      }),
+    })
+    const f = fakeCollectionContext({ responses: [{ bodyText: PERSONIO }] })
+    await collectXmlPages(spec, config(), f.ctx)
+
+    expect(f.sent[0]?.headers).toEqual({
+      accept: 'application/xml',
+      'accept-language': 'uk,en;q=0.9',
+      authorization: 'Bearer tenant-token',
+      from: 'cheeky@cheekycheese.tech',
+      'user-agent': DEFAULT_USER_AGENT,
+    })
+  })
+
+  it.each([
+    ['referer', 'https://www.google.com/'],
+    ['origin', 'https://weworkremotely.com'],
+    ['cookie', 'session=abc123'],
+    ['x-forwarded-for', '203.0.113.7'],
+    ['x-device-user-agent', 'Mozilla/5.0 (iPhone) Safari/605'],
+    ['x-requested-with', 'XMLHttpRequest'],
+  ])('drops %s, which the old denylist let through', async (name, value) => {
+    const spec = personioSpec({
+      pageRequest: () => ({
+        request: { url: 'https://acme.jobs.personio.de/xml', headers: { [name]: value } },
+      }),
+    })
+    const f = fakeCollectionContext({ responses: [{ bodyText: PERSONIO }] })
+    await collectXmlPages(spec, config(), f.ctx)
+
+    expect(f.sent[0]?.headers).toEqual({ 'user-agent': DEFAULT_USER_AGENT })
   })
 
   it('sends the honest user agent when the adapter set no headers at all', async () => {
