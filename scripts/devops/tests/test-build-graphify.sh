@@ -225,10 +225,34 @@ assert_green "a refused build leaves the previous graphify-out untouched" \
   --contains "previous" \
   -- cat "$TMP/keep/repo/graphify-out/graph.json"
 
+# ── run-time refusal: a careless edit of the extract line fails where it happens ─────────────
+# Copies of the script with the extract line edited the way a careless change would.
+mk_case edited
+sed 's/run_tool extract \. --code-only --no-viz/run_tool extract . --no-viz/' "$BUILD" >"$TMP/edited/nocode.sh"
+sed 's/run_tool extract \. --code-only --no-viz/run_tool extract . --code-only --no-gitignore --no-viz/' "$BUILD" >"$TMP/edited/nogi.sh"
+sed 's/run_tool extract \. --code-only --no-viz/run_tool extract . --code-only --postgres x --no-viz/' "$BUILD" >"$TMP/edited/pg.sh"
+assert_green "the edited copies really differ from the script (the sed did something)" \
+  --not-contains "IDENTICAL" \
+  -- bash -c "for f in nocode nogi pg; do cmp -s '$BUILD' '$TMP/edited/'\$f.sh && echo IDENTICAL \$f; done; true"
+assert_red "an extract call without --code-only is refused by the script itself" \
+  --contains "refusing to run 'graphify extract' without --code-only" \
+  -- bash -c "GRAPHIFY_BIN='$TMP/edited/bin/graphify' GRAPHIFY_REPO_ROOT='$TMP/edited/repo' bash '$TMP/edited/nocode.sh' 2>&1"
+assert_red "...and the tool was never invoked (no argv recorded)" \
+  -- test -e "$TMP/edited/bin/argv.log"
+assert_red "an extract call with --no-gitignore is refused by the script itself" \
+  --contains "with --no-gitignore or --postgres" \
+  -- bash -c "GRAPHIFY_BIN='$TMP/edited/bin/graphify' GRAPHIFY_REPO_ROOT='$TMP/edited/repo' bash '$TMP/edited/nogi.sh' 2>&1"
+assert_red "an extract call with --postgres is refused by the script itself" \
+  --contains "with --no-gitignore or --postgres" \
+  -- bash -c "GRAPHIFY_BIN='$TMP/edited/bin/graphify' GRAPHIFY_REPO_ROOT='$TMP/edited/repo' bash '$TMP/edited/pg.sh' 2>&1"
+assert_green "the unedited script still builds in the same fake repo" \
+  --contains "build-graphify: OK" \
+  -- bash -c "$(build edited)"
+
 # The script text itself: the forbidden switches may appear in comments only.
 assert_green "no executable line of the script mentions --no-gitignore or --postgres" \
   --not-contains "--no-gitignore" --not-contains "--postgres" \
-  -- bash -c "grep -v '^[[:space:]]*#' '$BUILD' | grep -E -e '--no-gitignore|--postgres' || true"
+  -- bash -c "grep -v '^[[:space:]]*#' '$BUILD' | grep -v 'refusing' | grep -E -e '--no-gitignore|--postgres' || true"
 assert_green "the one extract invocation carries --code-only" \
   --contains "--code-only" \
   -- bash -c "grep -E 'run_tool extract' '$BUILD'"

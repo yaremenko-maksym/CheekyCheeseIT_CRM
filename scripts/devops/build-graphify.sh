@@ -21,8 +21,10 @@
 #   1. `--code-only`. The extract command exists ONCE below, with that flag. `graphify
 #      extract` WITHOUT it runs a semantic pass that sends file contents to a model backend
 #      (it would read .claude/**, ADRs and docs/legal/**). This script takes no arguments
-#      and passes none through, so a caller cannot drop the flag; tests/test-build-graphify.sh
-#      asserts the flag is in the argv the tool receives. THIS is the guarantee.
+#      and passes none through, so a caller cannot drop the flag; `run_tool` additionally
+#      refuses, at run time, any `extract` call lacking `--code-only` (or carrying
+#      `--no-gitignore` / `--postgres`), and tests/test-build-graphify.sh asserts both that
+#      refusal and the flag in the argv the tool receives. THIS is the guarantee.
 #   2. The audit (verify_graph), after the fact: every edge must be AST-origin, no
 #      hyperedges, no doc/paper/image/.env source. It detects a semantic run; it cannot
 #      recall content a model backend already received, which is why 1 is the real guard.
@@ -90,7 +92,15 @@ BIN="${GRAPHIFY_BIN:-$(command -v graphify || true)}"
 STAGE="$(mktemp -d "${TMPDIR:-/tmp}/graphify-stage.XXXXXX")"
 trap 'rm -rf "$STAGE"' EXIT
 mkdir -p "$STAGE/home"
-run_tool() { env -i PATH="$PATH" HOME="$STAGE/home" LANG=C "$BIN" "$@"; }
+run_tool() {
+  # Refuse, here and now, an `extract` that could take the semantic path or read a live DB:
+  # a careless edit fails where it happens, not later in CI.
+  if [ "${1:-}" = "extract" ]; then
+    case " $* " in *" --code-only "*) ;; *) die "refusing to run 'graphify extract' without --code-only (semantic path)." ;; esac
+    case " $* " in *" --no-gitignore "* | *" --postgres "*) die "refusing to run 'graphify extract' with --no-gitignore or --postgres." ;; esac
+  fi
+  env -i PATH="$PATH" HOME="$STAGE/home" LANG=C "$BIN" "$@"
+}
 
 # ── pins ────────────────────────────────────────────────────────────────────────
 got="$(run_tool --version 2>&1 | head -1)"

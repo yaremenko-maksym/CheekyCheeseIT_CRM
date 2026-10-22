@@ -50,11 +50,12 @@ graphify is an **addition**, not a replacement. It is built locally and code-onl
 nothing leaves the machine) by `scripts/devops/build-graphify.sh` (~45 s) into the gitignored
 `graphify-out/`.
 
-| File type                                   | Tool                                                                                                                     |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `.ts` / `.tsx` / `.js`, **and their specs** | **codegraph** (MCP, PRIMARY) — navigation, callers, blast radius, live-watched                                           |
-| `.sql`, `.sh`, `.json`                      | **graphify** (CLI) — codegraph indexes none of them                                                                      |
-| `.md`, `.yaml`                              | **neither.** graphify does not index markdown (that would need a model pass, declined) or yaml here; use `Read` / `Grep` |
+| File type                                   | Tool                                                                                                                                           |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.ts` / `.tsx` / `.js`, **and their specs** | **codegraph** (MCP, PRIMARY) — navigation, callers, blast radius, live-watched                                                                 |
+| `.sql`, `.sh`, `.json`                      | **graphify** (CLI) — codegraph indexes none of them                                                                                            |
+| `.yaml`                                     | **codegraph** — graphify does not cover yaml                                                                                                   |
+| `.md`                                       | **neither tool.** graphify does not index markdown (that would need a model pass, declined) and codegraph does not either; use `Read` / `Grep` |
 
 - Rebuild before relying on it: it does not watch files. `graph.json` records `built_at_commit`.
 - Not an MCP server on purpose: a second server adds its tool set to every agent's context for
