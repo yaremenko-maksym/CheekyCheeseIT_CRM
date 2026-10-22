@@ -1584,6 +1584,80 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
       expect(await runCheck(migration)).toBeNull()
     }, 60_000)
 
+    // r5 Task 1.4b-iii — THE ONE EXCEPTION, AND HOW NARROW IT IS (AC4).
+    // Part 3 now admits `UPDATE (reason)` on `job_queue_actions` for `crm_retention_owner`
+    // (owner decision, 2026-10-22). That this database passes the check WITH the grant in
+    // place is shown by every green `runCheck` in this file, since the grants file now
+    // issues it. The four tests below show the other half: change any one field of the
+    // admitted tuple, or remove the grant, and part 3 is red again.
+    it('1.4b-iii: part 3 still fails on the retention owner updating ANOTHER column of the log', async () => {
+      await migration.query(
+        `GRANT UPDATE (actor_id) ON TABLE job_queue_actions TO ${ROLES.retentionOwner}`,
+      )
+      try {
+        const failure = await runCheck(migration)
+        expect(failure).toMatch(/part 3 \(column privileges\)/)
+        expect(failure).toContain(
+          `${ROLES.retentionOwner} holds column UPDATE on job_queue_actions.actor_id`,
+        )
+        // ...and ONLY that: the admitted `reason` grant, present beside it, is not reported.
+        expect(failure).not.toContain('job_queue_actions.reason')
+      } finally {
+        await migration.query(
+          `REVOKE UPDATE (actor_id) ON TABLE job_queue_actions FROM ${ROLES.retentionOwner}`,
+        )
+      }
+      expect(await runCheck(migration)).toBeNull()
+    }, 60_000)
+
+    it('1.4b-iii: part 3 still fails on the SAME column grant to a different role', async () => {
+      await migration.query(`GRANT UPDATE (reason) ON TABLE job_queue_actions TO ${ROLES.app}`)
+      try {
+        const failure = await runCheck(migration)
+        expect(failure).toMatch(/part 3 \(column privileges\)/)
+        expect(failure).toContain(`${ROLES.app} holds column UPDATE on job_queue_actions.reason`)
+      } finally {
+        await migration.query(`REVOKE UPDATE (reason) ON TABLE job_queue_actions FROM ${ROLES.app}`)
+      }
+      expect(await runCheck(migration)).toBeNull()
+    }, 60_000)
+
+    it('1.4b-iii: part 3 still fails on a different privilege on the SAME column and role', async () => {
+      await migration.query(
+        `GRANT REFERENCES (reason) ON TABLE job_queue_actions TO ${ROLES.retentionOwner}`,
+      )
+      try {
+        const failure = await runCheck(migration)
+        expect(failure).toMatch(/part 3 \(column privileges\)/)
+        expect(failure).toContain(
+          `${ROLES.retentionOwner} holds column REFERENCES on job_queue_actions.reason`,
+        )
+      } finally {
+        await migration.query(
+          `REVOKE REFERENCES (reason) ON TABLE job_queue_actions FROM ${ROLES.retentionOwner}`,
+        )
+      }
+      expect(await runCheck(migration)).toBeNull()
+    }, 60_000)
+
+    it('1.4b-iii: part 3 fails when the declared UPDATE (reason) grant is MISSING', async () => {
+      // The outage direction: without it the redaction raises 42501 again — the INERT
+      // state this task ended — and nothing else in the check would say so.
+      await migration.query(
+        `REVOKE UPDATE (reason) ON TABLE job_queue_actions FROM ${ROLES.retentionOwner}`,
+      )
+      try {
+        const failure = await runCheck(migration)
+        expect(failure).toMatch(/part 3 \(column privileges\)/)
+        expect(failure).toContain(
+          `${ROLES.retentionOwner} lacks the declared column UPDATE on job_queue_actions.reason`,
+        )
+      } finally {
+        await applyFile(GRANTS_FILE)
+      }
+      expect(await runCheck(migration)).toBeNull()
+    }, 60_000)
+
     it('part 4 fails when crm_app is given UPDATE on a sequence — setval, the id-collision path', async () => {
       // ADR §2, "Sequences": UPDATE on a sequence is `setval`, i.e. the ability to rewind
       // it and collide primary keys. It is the one sequence privilege the model forbids,

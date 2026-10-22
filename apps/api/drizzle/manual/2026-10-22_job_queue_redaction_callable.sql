@@ -151,4 +151,19 @@ ALTER FUNCTION public.crm_retention_redact_action_reason(uuid, text, uuid) OWNER
 REVOKE ALL ON FUNCTION public.crm_retention_redact_action_reason(uuid, text, uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.crm_retention_redact_action_reason(uuid, text, uuid) TO crm_app;
 
+-- ---------------------------------------------------------------------------
+-- SR-M-5 of PR #1075: the evidence row carries no free text of its own.
+--
+-- The fresh-create file (2026-10-17_job_opportunities_store.sql) declares this CHECK
+-- inline in `CREATE TABLE IF NOT EXISTS`, which reaches a NEW database only: on one that
+-- already has the table, the whole statement is skipped. This is the ALTER that carries it
+-- to a deployed database. DROP IF EXISTS + ADD, so it converges on every apply; the
+-- predicate is narrower only for `REASON_REDACTED` rows, which nothing wrote before this
+-- task, so the validating scan cannot fail on an existing row. The table name is left
+-- unqualified, as in 2026-10-21_job_queue_reason_redacted.sql, so the equivalence spec can
+-- apply this file inside a scratch schema.
+-- ---------------------------------------------------------------------------
+ALTER TABLE "job_queue_actions" DROP CONSTRAINT IF EXISTS "ck_job_queue_actions_redaction_reason_null";
+ALTER TABLE "job_queue_actions" ADD CONSTRAINT "ck_job_queue_actions_redaction_reason_null" CHECK ("job_queue_actions"."kind" <> 'REASON_REDACTED' OR "job_queue_actions"."reason" IS NULL);
+
 COMMIT;

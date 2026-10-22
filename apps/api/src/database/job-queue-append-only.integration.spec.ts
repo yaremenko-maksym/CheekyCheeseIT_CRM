@@ -2752,6 +2752,116 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
   })
 
   // -------------------------------------------------------------------------
+  // r5 Task 1.4b-iii, AC6 — the two DDL paths leave ONE identical function
+  //
+  // The redaction's new signature reaches a database two ways: the triggers file (applied
+  // on every deploy; fresh databases get it only from here) and the dated upgrade file
+  // (applied BEFORE the grants file, so the old two-argument function is gone by the time
+  // the new privileges exist). Both bodies are byte-identical in the source, and the
+  // catalog check pins one md5 — this block is the run that shows the CATALOG they leave
+  // is identical too, from a database holding the old signature.
+  // -------------------------------------------------------------------------
+  describe('1.4b-iii — the dated upgrade file and the triggers file leave the same function', () => {
+    const UPGRADE_SQL = join(DDL_DIR, '2026-10-22_job_queue_redaction_callable.sql')
+
+    const redactionCatalog = async () =>
+      (
+        await q(
+          `SELECT pg_get_function_identity_arguments(p.oid) AS args, p.prosecdef,
+                  pg_get_userbyid(p.proowner) AS owner, p.proconfig, p.proacl::text AS acl,
+                  md5(pg_get_functiondef(p.oid)) AS body
+             FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+            WHERE n.nspname = 'public' AND p.proname = 'crm_retention_redact_action_reason'
+            ORDER BY 1`,
+        )
+      ).rows
+
+    /** The state 1.3b shipped and production holds until this task deploys. */
+    async function installOldSignatureOnly(): Promise<void> {
+      await q(`DROP FUNCTION IF EXISTS public.crm_retention_redact_action_reason(uuid, text, uuid)`)
+      await q(`
+        CREATE FUNCTION public.crm_retention_redact_action_reason(p_action_id uuid, p_request_id text)
+        RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER
+        SET search_path = pg_catalog, public, pg_temp
+        AS $fn$ BEGIN RETURN false; END $fn$`)
+      await q(
+        `ALTER FUNCTION public.crm_retention_redact_action_reason(uuid, text) OWNER TO crm_retention_owner`,
+      )
+      await q(
+        `REVOKE ALL ON FUNCTION public.crm_retention_redact_action_reason(uuid, text) FROM PUBLIC`,
+      )
+      await q(
+        `GRANT EXECUTE ON FUNCTION public.crm_retention_redact_action_reason(uuid, text) TO crm_app`,
+      )
+    }
+
+    it('upgrades a database holding the OLD signature to exactly the catalog the triggers file leaves', async () => {
+      await applyFile(TRIGGERS_SQL)
+      const fresh = await redactionCatalog()
+      expect(fresh).toHaveLength(1)
+      expect(fresh[0].args).toBe('p_action_id uuid, p_request_id text, p_actor_id uuid')
+
+      await installOldSignatureOnly()
+      try {
+        expect((await redactionCatalog()).map((r) => r.args)).toEqual([
+          'p_action_id uuid, p_request_id text',
+        ])
+        await applyFile(UPGRADE_SQL)
+        expect(await redactionCatalog()).toEqual(fresh)
+        // Idempotent: the second apply (every deploy re-applies it) moves nothing.
+        await applyFile(UPGRADE_SQL)
+        expect(await redactionCatalog()).toEqual(fresh)
+      } finally {
+        await q(`DROP FUNCTION IF EXISTS public.crm_retention_redact_action_reason(uuid, text)`)
+        await applyFile(TRIGGERS_SQL)
+      }
+      await applyFile(CHECK_SQL)
+    })
+
+    it('never shows another session the new function with PUBLIC EXECUTE, nor the old one beside it', async () => {
+      // The window the task names: `CREATE FUNCTION` defaults EXECUTE to PUBLIC, and a
+      // DROP + CREATE in separate commits would show the function missing, or both
+      // signatures at once. Applied statement by statement inside the file's own
+      // transaction while a SECOND session reads the catalog after every statement.
+      await installOldSignatureOnly()
+      const statements = splitSqlStatements(readFileSync(UPGRADE_SQL, 'utf8'))
+      const commitAt = statements.findIndex((s) => /^\s*COMMIT\s*;?\s*$/i.test(s))
+      expect(commitAt).toBeGreaterThan(0)
+
+      const visible = async () =>
+        (
+          await q(
+            `SELECT pg_get_function_identity_arguments(p.oid) AS args, p.proacl IS NULL AS public_default
+               FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+              WHERE n.nspname = 'public' AND p.proname = 'crm_retention_redact_action_reason'
+              ORDER BY 1`,
+          )
+        ).rows
+      const before = [{ args: 'p_action_id uuid, p_request_id text', public_default: false }]
+      expect(await visible()).toEqual(before)
+
+      const applying = await pool.connect()
+      try {
+        for (let i = 0; i < commitAt; i += 1) {
+          await applying.query(statements[i] as string)
+          // Every intermediate step: the second session still sees exactly the old state.
+          expect({ step: i, seen: await visible() }).toEqual({ step: i, seen: before })
+        }
+        await applying.query(statements[commitAt] as string)
+      } finally {
+        await applying.query('ROLLBACK').catch(() => undefined)
+        applying.release()
+      }
+
+      expect(await visible()).toEqual([
+        { args: 'p_action_id uuid, p_request_id text, p_actor_id uuid', public_default: false },
+      ])
+      await applyFile(TRIGGERS_SQL)
+      await applyFile(CHECK_SQL)
+    })
+  })
+
+  // -------------------------------------------------------------------------
   // OWNER-M-1 — the file is ONE TRANSACTION, proven from a second session
   //
   // The owner decided to wrap the DDL. The header now claims that the intermediate
