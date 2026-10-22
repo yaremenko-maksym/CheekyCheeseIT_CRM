@@ -39,6 +39,7 @@ import {
   PRIVILEGE_CLASSES,
   MANUAL_DDL_RELATIONS,
   RETENTION_OWNER_CLASSES,
+  RETENTION_OWNER_REDACTION_COLUMN_GRANT,
   RETENTION_OWNER_TABLE_PRIVILEGES,
   VIEW_CLASS,
   appendOnlyTriggers,
@@ -239,13 +240,26 @@ describe('privilege-class manifest', () => {
     expect(CLASS_PRIVILEGES.D.collector).toEqual([])
   })
 
-  it('gives the retention owner exactly the two privileges its purge measurably needs', () => {
-    // The inverted GAP PIN: this asserted `[]` until Task 1.3b, whose purge function was
-    // then measured to need both of these and nothing else (the manifest comment records
-    // the four runs). INSERT and UPDATE are the two that must stay OUT — INSERT because
-    // the function never inserts, UPDATE because the redaction function needs it only at
-    // COLUMN level, which part 3 of the check forbids outright.
-    expect(RETENTION_OWNER_TABLE_PRIVILEGES).toEqual(['SELECT', 'DELETE'])
+  it('gives the retention owner exactly the table privileges its two functions measurably need', () => {
+    // `[]` until Task 1.3b; `SELECT, DELETE` for the purge (four runs, recorded in the
+    // manifest); `INSERT` since r5 Task 1.4b-iii, for the redaction's evidence row (three
+    // runs, recorded beside it). UPDATE must stay OUT at table level: the redaction needs it
+    // on `reason` alone, which the column grant below carries.
+    expect(RETENTION_OWNER_TABLE_PRIVILEGES).toEqual(['SELECT', 'INSERT', 'DELETE'])
+    expect(RETENTION_OWNER_TABLE_PRIVILEGES).not.toContain('UPDATE')
+  })
+
+  it('declares exactly ONE non-SELECT column grant: UPDATE (reason) on the action log, for the retention owner', () => {
+    // Owner decision, 2026-10-22. Asserted whole, so widening any field — another column,
+    // another role, another table, another privilege — fails here before it reaches a
+    // generated file or a database.
+    expect(RETENTION_OWNER_REDACTION_COLUMN_GRANT).toEqual({
+      role: 'crm_retention_owner',
+      relation: 'job_queue_actions',
+      column: 'reason',
+      privilege: 'UPDATE',
+    })
+    expect(PRIVILEGE_CLASSES.B).toContain(RETENTION_OWNER_REDACTION_COLUMN_GRANT.relation)
   })
 
   it('confines the retention owner to class B, never to a class holding ordinary tables', () => {

@@ -326,7 +326,7 @@ BEGIN
     ('B', 'crm_collector', 'REFERENCES', false),
     ('B', 'crm_collector', 'TRIGGER', false),
     ('B', 'crm_retention_owner', 'SELECT', true),
-    ('B', 'crm_retention_owner', 'INSERT', false),
+    ('B', 'crm_retention_owner', 'INSERT', true),
     ('B', 'crm_retention_owner', 'UPDATE', false),
     ('B', 'crm_retention_owner', 'DELETE', true),
     ('B', 'crm_retention_owner', 'TRUNCATE', false),
@@ -442,7 +442,7 @@ BEGIN
 END
 $check$;
 
--- part 3 (column privileges): the column-level SELECT set of EVERY one of the three roles equals the manifest exactly
+-- part 3 (column privileges): the column-level SELECT set of EVERY one of the three roles equals the manifest exactly, and the one declared non-SELECT column grant is present and is the only one
 DO $check$
 DECLARE
   offenders text;
@@ -581,7 +581,10 @@ BEGIN
                           AND cp.privilege_type = 'SELECT'
                           AND cp.table_name = e.relation AND cp.column_name = e.column_name)
     UNION ALL
-    -- Any privilege other than SELECT, at column level, for any of the three roles.
+    -- Any privilege other than SELECT, at column level, for any of the three roles —
+    -- except the ONE declared tuple (RETENTION_OWNER_REDACTION_COLUMN_GRANT, owner
+    -- decision 2026-10-22). All four fields must match for the exemption to apply: the
+    -- same privilege on another column, or on this column for another role, is reported.
     SELECT format('%s holds column %s on %s.%s — only SELECT is ever granted at column level',
                   cp.grantee, cp.privilege_type, cp.table_name, cp.column_name)
       FROM information_schema.column_privileges cp
@@ -590,6 +593,23 @@ BEGIN
        AND cp.grantee IN ('crm_app', 'crm_collector', 'crm_retention_owner')
        AND cp.privilege_type <> 'SELECT'
        AND NOT has_table_privilege(cp.grantee, format('public.%I', cp.table_name), cp.privilege_type)
+       AND NOT (cp.grantee = 'crm_retention_owner'
+                AND cp.table_name = 'job_queue_actions'
+                AND cp.column_name = 'reason'
+                AND cp.privilege_type = 'UPDATE')
+    UNION ALL
+    -- ...and that one declared tuple must actually be there, wherever its relation exists.
+    -- Without this half, a deploy that lost the grant would pass the check and leave the
+    -- redaction raising 42501 — the INERT state this exception exists to end — unreported.
+    SELECT format('%s lacks the declared column %s on %s.%s',
+                  'crm_retention_owner', 'UPDATE', 'job_queue_actions', 'reason')
+     WHERE EXISTS (SELECT 1 FROM expected e WHERE e.relation = 'job_queue_actions')
+       AND NOT EXISTS (SELECT 1 FROM information_schema.column_privileges cp
+                        WHERE cp.table_schema = 'public'
+                          AND cp.grantee = 'crm_retention_owner'
+                          AND cp.table_name = 'job_queue_actions'
+                          AND cp.column_name = 'reason'
+                          AND cp.privilege_type = 'UPDATE')
   ) q;
   IF offenders IS NOT NULL THEN
     RAISE EXCEPTION 'db-privileges check FAILED — part 3 (column privileges): %', offenders

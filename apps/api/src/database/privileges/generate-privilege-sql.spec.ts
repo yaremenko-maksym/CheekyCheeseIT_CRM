@@ -123,20 +123,25 @@ describe('generated privilege SQL', () => {
     }
   })
 
-  it('grants the append-only table SELECT and INSERT to the API, and the purge pair to the retention owner', () => {
+  it('grants the append-only table SELECT and INSERT to the API, and the R-B set to the retention owner', () => {
     const [appendOnly] = PRIVILEGE_CLASSES.B
     expect(appendOnly).toBeDefined()
     const grants = splitSqlStatements(read(GRANTS_FILE)).filter(
       (s) => /^\s*GRANT /.test(s) && s.includes(`public.${appendOnly}`),
     )
-    // Two statements now, and the pair is the whole point of class B: the API may add
-    // rows and never rewrite them, and the one role that may remove a row is the owner of
-    // the R-B purge — which holds no INSERT, so it cannot forge the history it prunes.
-    expect(grants).toHaveLength(2)
+    // Three statements. The API may add rows and never rewrite them. The retention owner
+    // holds what its two definer functions measurably need (r5 Task 1.4b-iii): SELECT and
+    // DELETE for the purge, INSERT for the redaction's evidence row — and UPDATE on ONE
+    // column only, never at table level. Its INSERT is narrowed by the append-only trigger
+    // to the `REASON_REDACTED` kind, so it still cannot forge the history it prunes.
+    expect(grants).toHaveLength(3)
     expect(grants[0]).toMatch(/^GRANT SELECT, INSERT ON TABLE/)
     expect(grants[0]).toMatch(new RegExp(`TO ${ROLES.app}$`))
-    expect(grants[1]).toMatch(/^GRANT SELECT, DELETE ON TABLE/)
+    expect(grants[1]).toMatch(/^GRANT SELECT, INSERT, DELETE ON TABLE/)
     expect(grants[1]).toMatch(new RegExp(`TO ${ROLES.retentionOwner}$`))
+    expect(grants[2]).toBe(
+      `GRANT UPDATE (reason) ON TABLE public.${appendOnly} TO ${ROLES.retentionOwner}`,
+    )
   })
 
   it('grants a class E or collector-less class nothing at all', () => {
@@ -156,7 +161,9 @@ describe('generated privilege SQL', () => {
     const relationsGranted = retentionOwnerGrants.flatMap((s) =>
       [...s.matchAll(/public\.(\w+)/g)].map((m) => m[1]),
     )
-    expect(relationsGranted.sort()).toEqual([...PRIVILEGE_CLASSES.B].sort())
+    // Class B, twice: the table-level grant and the one column-level `UPDATE (reason)`.
+    expect([...new Set(relationsGranted)].sort()).toEqual([...PRIVILEGE_CLASSES.B].sort())
+    expect(relationsGranted).toHaveLength(2 * PRIVILEGE_CLASSES.B.length)
   })
 
   it('emits relations in sorted order whatever order the manifest lists them in', () => {
@@ -291,7 +298,7 @@ describe('privilege SQL for classes with no members yet', () => {
         // read by people during a deploy, and a section running into the next one is how a
         // statement gets attributed to the wrong block.
         expect(sql).toContain(
-          'GRANT SELECT (id, role) ON TABLE public.users TO crm_collector;\n\n-- 4. Sequences.',
+          'GRANT SELECT (id, role) ON TABLE public.users TO crm_collector;\n\n-- 3b. ',
         )
         // And the check must expect exactly those pairs — a grant the check does not
         // assert is a grant that can vanish unnoticed.

@@ -398,36 +398,68 @@ export const appendOnlyTriggers: Record<string, readonly { name: string; enabled
  * Table privileges `crm_retention_owner` holds — on the classes named by
  * `RETENTION_OWNER_CLASSES` below, and on no other relation.
  *
- * `SELECT, DELETE`, and both are LOAD-BEARING FOR THE PURGE, measured rather than reasoned
- * (PostgreSQL 16.15, scratch database, 2026-10-19). The function is `SECURITY DEFINER`, so
- * the privileges checked inside it are this role's:
+ * EVERY ENTRY IS THE ANSWER TO A FAILING RUN, not to an argument. Both R-B functions are
+ * `SECURITY DEFINER`, so the privileges checked inside them are this role's.
+ *
+ * `SELECT, DELETE` — the PURGE (PostgreSQL 16.15, scratch database, 2026-10-19):
  *   - granted neither          -> `42501 permission denied for table job_queue_actions`
  *   - `DELETE` alone           -> `42501` — the `WHERE created_at <= …` reads a column
  *   - `SELECT` alone           -> `42501`
  *   - `SELECT, DELETE`         -> returns the purged count
- * `INSERT` is NOT here: the function never inserts. The integration suite of 1.3b grants
- * itself `INSERT` as well, because it drives the trigger's admitted shapes directly with
- * `SET ROLE` — a test's need, not the purge path's, and it stays in the test.
  *
- * WHY `crm_retention_redact_action_reason` GETS NOTHING, THOUGH IT IS THE OTHER R-B FUNCTION
- * ------------------------------------------------------------------------------------------
- * It needs `SELECT` plus `UPDATE (reason)` — column-level — and this model forbids exactly
- * that: the check's part 3 reports ANY column privilege other than `SELECT`, for any of the
- * three roles, as "only SELECT is ever granted at column level". The two ways out are both
- * worse than waiting:
- *   - table-level `UPDATE` on an append-only audit log is strictly more than the function
- *     needs — it would let the role rewrite any column, and while the trigger constrains
- *     the SHAPE of an admitted update, the grant would not; a privilege nothing can justify
- *     by a failing run does not belong in a least-privilege manifest;
- *   - relaxing part 3's column policy is a change to a stated security invariant, and it
- *     cannot be justified by a function that nothing calls.
- * Nothing calls either function today (checked 2026-10-19: the only references in
- * `apps/api` are the two DDL files and 1.3b's integration spec), so the redaction grant
- * arrives with the caller that needs it — the same way classes C and D wait for the
- * collector. Until then the function exists, is owned, and is pinned by both checks; its
- * first real invocation fails closed with `42501` rather than silently redacting.
+ * `INSERT` — the REDACTION's evidence row (r5 Task 1.4b-iii; PostgreSQL 16.15, scratch
+ * database `crm_scratch_redact1022`, 2026-10-22), each step called as `crm_app` with
+ * `SELECT crm_retention_redact_action_reason(<action id>, 'dsr-failrun', <actor id>)`:
+ *   - `SELECT, DELETE` (the grant set before this task)
+ *       -> `42501 permission denied for table job_queue_actions`, raised at the
+ *          function's `UPDATE job_queue_actions SET reason = '[REASON REDACTED]' …`
+ *   - plus `UPDATE (reason)` (`RETENTION_OWNER_REDACTION_COLUMN_GRANT` below)
+ *       -> `42501 permission denied for table job_queue_actions`, now raised at the
+ *          function's `INSERT INTO job_queue_actions (kind, subject_action_id, …)` — and the
+ *          subject's `reason` read back UNCHANGED: the failed INSERT took the redaction
+ *          with it
+ *   - plus table-level `INSERT` -> returns `true`; the subject reads `[REASON REDACTED]` and
+ *     exactly one `REASON_REDACTED` row names it.
+ * Table-level rather than column-level `INSERT`, deliberately: a column list would be
+ * narrower, but the owner decision of 2026-10-22 gives this model exactly ONE non-SELECT
+ * column privilege and spends it on `UPDATE (reason)`. What narrows the `INSERT` instead
+ * is the append-only trigger, by shape: `crm_retention_owner` may insert a `REASON_REDACTED`
+ * row and nothing else, and no other role may insert that kind.
+ *
+ * `UPDATE` stays OUT at table level: the redaction needs it on one column only, which
+ * `RETENTION_OWNER_REDACTION_COLUMN_GRANT` grants and part 3 of the check admits by name.
  */
-export const RETENTION_OWNER_TABLE_PRIVILEGES: readonly TablePrivilege[] = ['SELECT', 'DELETE']
+export const RETENTION_OWNER_TABLE_PRIVILEGES: readonly TablePrivilege[] = [
+  'SELECT',
+  'INSERT',
+  'DELETE',
+]
+
+/**
+ * THE ONE NON-SELECT COLUMN-LEVEL PRIVILEGE THIS MODEL ADMITS — owner decision, 2026-10-22.
+ *
+ * `crm_retention_redact_action_reason` rewrites exactly one column, `reason`, and the least
+ * privilege that lets it is `UPDATE (reason)`. Table-level `UPDATE` would let the role
+ * rewrite every column of the audit log, kept off them only by the trigger's shape check;
+ * the column grant keeps it off `actor_id` without needing the trigger at all.
+ *
+ * Part 3 of the privileges check reports ANY column privilege other than `SELECT`, for any
+ * role, and still does. This is not a mechanism for column-level writes in general: it is
+ * ONE grant, bound to one role, one relation and one column, and the check admits exactly
+ * that tuple and nothing that merely resembles it — the same privilege on another column,
+ * or this column for another role, is still a failure. It is deliberately a single object
+ * rather than a list, so a second exception cannot be added by appending a line: it needs a
+ * change of type, which a reviewer sees.
+ *
+ * Justified by a failing run, like every grant here — the second step of the `INSERT`
+ * entry's measurement above is this privilege's.
+ */
+export const RETENTION_OWNER_REDACTION_COLUMN_GRANT = {
+  role: ROLES.retentionOwner,
+  relation: 'job_queue_actions',
+  column: 'reason',
+  privilege: 'UPDATE',
+} as const
 
 /**
  * The classes on which `crm_retention_owner` holds `RETENTION_OWNER_TABLE_PRIVILEGES`.
