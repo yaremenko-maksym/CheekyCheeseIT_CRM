@@ -25,6 +25,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { TransactionDto } from '@crm/shared'
+import { adminUpdateTransactionSchema } from '@crm/shared'
 
 vi.mock('@/lib/axios', () => ({
   api: {
@@ -207,5 +208,58 @@ describe('AdminEditTransactionDialog — expense category (fix-round FIX-UX-H-1)
     expect(screen.getByTestId('admin-edit-expense-category-suggestion-0')).not.toHaveClass(
       'border-primary',
     )
+  })
+})
+
+// SR-M-1 (PR #1093 round 1): `salaryMonthSchema` now rejects a month outside
+// 01-12. A legacy row can hold an odd stored month (e.g. `2026-13`); the form
+// pre-fills it, so resending it untouched would 400 an edit of an unrelated
+// field. The payload must carry `salaryMonth` ONLY when the operator changed it.
+const LEGACY_ODD_MONTH_SALARY_TX = {
+  id: 'tx-salary-odd-month',
+  type: 'SALARY',
+  status: 'PENDING',
+  amount: '500',
+  currency: 'USD',
+  receiptDocumentId: null,
+  receiptExternalUrl: null,
+  notes: null,
+  receiverLabel: null,
+  salaryMonth: '2026-13',
+  payoutRequestId: null,
+} as unknown as TransactionDto
+
+describe('AdminEditTransactionDialog — SR-M-1: salaryMonth is sent only when changed', () => {
+  beforeEach(() => {
+    adminUpdateTransactionMock.mockClear()
+  })
+
+  it('editing the amount of a row stored with month 2026-13 omits salaryMonth from the payload', async () => {
+    renderDialog(LEGACY_ODD_MONTH_SALARY_TX)
+    fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '600' } })
+    fireEvent.click(screen.getByTestId('admin-edit-save'))
+
+    await waitFor(() => expect(adminUpdateTransactionMock).toHaveBeenCalledTimes(1))
+    const [, payload] = adminUpdateTransactionMock.mock.calls[0] as [
+      string,
+      Record<string, unknown>,
+    ]
+    expect(payload.amount).toBe(600)
+    expect(payload).not.toHaveProperty('salaryMonth')
+    // the payload the server sees must pass the stricter schema
+    expect(adminUpdateTransactionSchema.safeParse(payload).success).toBe(true)
+  })
+
+  it('changing the month sends the new value', async () => {
+    renderDialog(LEGACY_ODD_MONTH_SALARY_TX)
+    fireEvent.change(screen.getByPlaceholderText('2025-03'), { target: { value: '2026-12' } })
+    fireEvent.click(screen.getByTestId('admin-edit-save'))
+
+    await waitFor(() => expect(adminUpdateTransactionMock).toHaveBeenCalledTimes(1))
+    const [, payload] = adminUpdateTransactionMock.mock.calls[0] as [
+      string,
+      Record<string, unknown>,
+    ]
+    expect(payload.salaryMonth).toBe('2026-12')
   })
 })

@@ -222,6 +222,14 @@ export type CreateExpenseDto = z.infer<typeof createExpenseSchema>
 // (company account vs admin personal) and the actual payment currency are chosen
 // later, at pay time, via paySalary (see paySalarySchema). `currency` here is the
 // nominal of the reminder (default USD); it is overridden by the pay-time choice.
+// YYYY-MM with a real month (01-12): `2026-13` / `2026-00` are rejected.
+// Shared by createSalary and the admin transaction edit.
+// `salaryMonthField` is the single regex; callers whose error text is pinned
+// (gap query / report / backfill) pass their own message.
+export const salaryMonthField = (message: string) =>
+  z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, message)
+export const salaryMonthSchema = salaryMonthField('Format YYYY-MM')
+
 export const createSalarySchema = z.object({
   receiverId: z.string().uuid(),
   // BIZ-13: reasonable ceiling. task-money-floor-and-lying-comments
@@ -231,7 +239,7 @@ export const createSalarySchema = z.object({
   // obligation created for zero. Floor added.
   amount: withMoneyFloor(z.number().positive().max(MAX_TRANSACTION_AMOUNT)),
   currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).default('USD'),
-  salaryMonth: z.string().regex(/^\d{4}-\d{2}$/, 'Format YYYY-MM'),
+  salaryMonth: salaryMonthSchema,
   // One UUID = one manual salary-part intent. Required so a stale/custom
   // client cannot create an unprotected financial write that is impossible to
   // distinguish from an intentional second, identical salary part.
@@ -295,10 +303,7 @@ export const adminUpdateTransactionSchema = z
     notes: z.string().max(1000).optional().nullable(),
     ...receiptFields,
     category: z.string().min(1).max(255).optional(),
-    salaryMonth: z
-      .string()
-      .regex(/^\d{4}-\d{2}$/, 'Format YYYY-MM')
-      .optional(),
+    salaryMonth: salaryMonthSchema.optional(),
     /**
      * task-cascade-apply (task 3) — the optimistic-locking token
      * `GET /transactions/:id/edit-preview` handed back
@@ -427,10 +432,7 @@ export type PaySalaryDto = z.infer<typeof paySalarySchema>
 // different, legitimate question ("should the cron cover these roles too?")
 // this task does not decide.
 export const salaryMonthGapQuerySchema = z.object({
-  month: z
-    .string()
-    .regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'month must be YYYY-MM')
-    .optional(),
+  month: salaryMonthField('month must be YYYY-MM').optional(),
 })
 export type SalaryMonthGapQuery = z.infer<typeof salaryMonthGapQuerySchema>
 
@@ -459,7 +461,7 @@ export type SalaryMonthGapReceiverDto = z.infer<typeof salaryMonthGapReceiverSch
 // in this file use, so a month value can never be well-formed on the way in
 // and only loosely-shaped on the way out.
 export const salaryMonthGapReportSchema = z.object({
-  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Expected 'YYYY-MM' format"),
+  month: salaryMonthField("Expected 'YYYY-MM' format"),
   missing: z.array(salaryMonthGapReceiverSchema),
 })
 export type SalaryMonthGapReportDto = z.infer<typeof salaryMonthGapReportSchema>
@@ -472,6 +474,6 @@ export type SalaryMonthGapReportDto = z.infer<typeof salaryMonthGapReportSchema>
 // `ON CONFLICT DO NOTHING`), so running it twice — or running it for a month
 // the cron already fully covered — creates nothing extra.
 export const salaryMonthBackfillSchema = z.object({
-  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'month must be YYYY-MM'),
+  month: salaryMonthField('month must be YYYY-MM'),
 })
 export type SalaryMonthBackfillDto = z.infer<typeof salaryMonthBackfillSchema>
