@@ -777,11 +777,19 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
     // alone cannot tell "contained the parse" from "never got as far as
     // parsing". The control: the SAME deadline lets a trivial document through
     // right now, so the worker demonstrably starts inside it on this run.
-    await expect(
-      service.extract(buildDocx(['резюме']), RESUME_DOCX_MIME, { timeoutMs: deadlineMs }),
+    // Outcome captured as a value, then asserted WITH the message: on a
+    // rejection `expect(promise, msg).resolves` reports only "promise rejected
+    // ... instead of resolving" and drops `msg` (observed in the negative
+    // control), which would hide exactly the pointer this check exists to give.
+    const control = await service
+      .extract(buildDocx(['резюме']), RESUME_DOCX_MIME, { timeoutMs: deadlineMs })
+      .then(() => 'resolved')
+      .catch((e: unknown) => (e as Error).message)
+    expect(
+      control,
       `The deadline (${deadlineMs} ms) is too short for a trivial document: the kill would land ` +
         `in process startup, not in the parse. Startup measured ${Math.round(calibration.startupMs)} ms.`,
-    ).resolves.toBeDefined()
+    ).toBe('resolved')
 
     const meter = startLagMeter()
     const outcome = await service
