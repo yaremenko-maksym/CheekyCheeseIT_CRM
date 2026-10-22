@@ -47,13 +47,14 @@ import {
  *
  *  - The AC1 invariant would be OVERRIDABLE. A subclass can override `collectReport`, and the one
  *    thing that must not be per-adapter is exactly the thing inheritance leaves open. Here outcome
- *    and coverage are derived inside `collectJsonPages` from facts the spec cannot reach, and a
+ *    and coverage are derived inside `collectPages` from facts the spec cannot reach, and a
  *    spec has no slot in which to claim either.
  *  - The loop could only be tested through a fake subclass — testing from behind the interface. As
  *    a function over ports it is tested through the same seam the adapters use.
  *
- * So: `collectJsonPages` is the deep module, `ApiJsonSourceSpec` is the seam, and the ~25 adapters
- * are adapters in the role sense — each occupies the slot, none of them owns the lifecycle.
+ * So: `collectPages` is the deep module, `PagedSourceSpec` is the seam, and the ~25 adapters are
+ * adapters in the role sense — each occupies the slot (through the JSON, XML or feed binding),
+ * none of them owns the lifecycle.
  */
 
 // ---------------------------------------------------------------------------
