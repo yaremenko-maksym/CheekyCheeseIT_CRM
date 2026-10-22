@@ -133,6 +133,8 @@ describe('salaryMonth is exactly YYYY-MM (createSalary + adminUpdateTransaction)
   for (const [name, field] of fields) {
     it(name, () => {
       expect(field.safeParse('2026-07').success).toBe(true)
+      expect(field.safeParse('2026-01').success).toBe(true)
+      expect(field.safeParse('2026-12').success).toBe(true)
       for (const bad of [
         'x2026-07',
         '2026-07x',
@@ -142,6 +144,9 @@ describe('salaryMonth is exactly YYYY-MM (createSalary + adminUpdateTransaction)
         'abcd-07',
         '2026-ab',
         '2026-0',
+        '2026-13',
+        '2026-00',
+        '2026-99',
       ]) {
         const r = field.safeParse(bad)
         expect(r.success).toBe(false)

@@ -222,6 +222,10 @@ export type CreateExpenseDto = z.infer<typeof createExpenseSchema>
 // (company account vs admin personal) and the actual payment currency are chosen
 // later, at pay time, via paySalary (see paySalarySchema). `currency` here is the
 // nominal of the reminder (default USD); it is overridden by the pay-time choice.
+// YYYY-MM with a real month (01-12): `2026-13` / `2026-00` are rejected.
+// Shared by createSalary and the admin transaction edit.
+export const salaryMonthSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Format YYYY-MM')
+
 export const createSalarySchema = z.object({
   receiverId: z.string().uuid(),
   // BIZ-13: reasonable ceiling. task-money-floor-and-lying-comments
@@ -231,7 +235,7 @@ export const createSalarySchema = z.object({
   // obligation created for zero. Floor added.
   amount: withMoneyFloor(z.number().positive().max(MAX_TRANSACTION_AMOUNT)),
   currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).default('USD'),
-  salaryMonth: z.string().regex(/^\d{4}-\d{2}$/, 'Format YYYY-MM'),
+  salaryMonth: salaryMonthSchema,
   // One UUID = one manual salary-part intent. Required so a stale/custom
   // client cannot create an unprotected financial write that is impossible to
   // distinguish from an intentional second, identical salary part.
@@ -295,10 +299,7 @@ export const adminUpdateTransactionSchema = z
     notes: z.string().max(1000).optional().nullable(),
     ...receiptFields,
     category: z.string().min(1).max(255).optional(),
-    salaryMonth: z
-      .string()
-      .regex(/^\d{4}-\d{2}$/, 'Format YYYY-MM')
-      .optional(),
+    salaryMonth: salaryMonthSchema.optional(),
     /**
      * task-cascade-apply (task 3) — the optimistic-locking token
      * `GET /transactions/:id/edit-preview` handed back

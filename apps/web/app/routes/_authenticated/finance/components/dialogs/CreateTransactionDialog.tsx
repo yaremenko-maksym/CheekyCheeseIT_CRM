@@ -174,7 +174,7 @@ export function CreateTransactionDialog({
     setType('SALARY')
     setReceiverId(salaryPrefill.receiverId)
     setSalaryMonth(salaryPrefill.salaryMonth)
-    setCurrency(salaryPrefill.currency)
+    if (salaryPrefill.currency) setCurrency(salaryPrefill.currency)
     setAmount('')
     setFieldErrors({})
   }, [open, salaryPrefill?.receiverId, salaryPrefill?.salaryMonth, salaryPrefill?.currency])

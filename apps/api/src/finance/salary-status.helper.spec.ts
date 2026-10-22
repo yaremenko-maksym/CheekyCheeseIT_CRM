@@ -242,4 +242,43 @@ describe('getOwnSalaryStatus', () => {
       })
     })
   })
+
+  describe('multipart totals are exact (numeric(18,6) strings, not IEEE floats)', () => {
+    it('sums 0.1 + 0.2 style parts to exactly 0.3', async () => {
+      const { aggregate } = await getOwnSalaryStates(
+        makeDb([row('0.1', 'PENDING', 'USD'), row('0.2', 'PENDING', 'USD')]),
+        USER_ID,
+        SALARY_MONTH,
+        AWAITING_CREATION,
+      )
+      if (aggregate.state !== 'EXISTS') throw new Error('expected EXISTS')
+      expect(aggregate.amount).toBe(0.3)
+      expect(aggregate.totals[0]).toMatchObject({
+        amount: 0.3,
+        pendingAmount: 0.3,
+        paidAmount: 0,
+        lockedAmount: 0,
+      })
+    })
+
+    it('does not ship 3000.3000000000004 for 1000.1 + 2000.2, per status bucket', async () => {
+      const { aggregate } = await getOwnSalaryStates(
+        makeDb([
+          row('1000.100000', 'PAID', 'USDT'),
+          row('2000.200000', 'PAID', 'USDT'),
+          row('0.1', 'LOCKED', 'USDT'),
+          row('0.2', 'LOCKED', 'USDT'),
+        ]),
+        USER_ID,
+        SALARY_MONTH,
+        AWAITING_CREATION,
+      )
+      if (aggregate.state !== 'EXISTS') throw new Error('expected EXISTS')
+      expect(aggregate.totals[0]).toMatchObject({
+        amount: 3000.6,
+        paidAmount: 3000.3,
+        lockedAmount: 0.3,
+      })
+    })
+  })
 })

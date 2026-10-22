@@ -20,6 +20,7 @@ import { financeApi } from './api'
 import { fmtAmount, STATUS_COLORS, STATUS_LABEL_MESSAGES, type ExchangeRates } from './constants'
 import { TransactionsTable } from './components/TransactionsTable'
 import { CreateTransactionDialog } from './components/dialogs/CreateTransactionDialog'
+import { resolveSalaryPrefillCurrency } from './components/dialogs/create-transaction/shared'
 import { ValidateDialog } from './components/dialogs/ValidateDialog'
 import { EditSeniorIncomeDialog } from './components/dialogs/EditSeniorIncomeDialog'
 import { PaySalaryDialog } from './components/dialogs/PaySalaryDialog'
@@ -553,7 +554,7 @@ function FinancePage() {
                   salaryPrefill: {
                     receiverId: salaryPartSource.receiverId,
                     salaryMonth: salaryPartSource.salaryMonth,
-                    currency: salaryPartSource.currency as 'USDT' | 'USD' | 'EUR' | 'UAH',
+                    currency: resolveSalaryPrefillCurrency(salaryPartSource),
                   },
                 }
               : {})}

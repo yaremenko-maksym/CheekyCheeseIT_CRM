@@ -3,7 +3,7 @@ import { ArrowLeftRight, Coins, TrendingUp, Wallet } from 'lucide-react'
 import { msg } from '@lingui/core/macro'
 import type { MessageDescriptor } from '@lingui/core'
 import type { TransactionType } from '@crm/shared'
-import { roundShareAmount } from '@crm/shared'
+import { currencySchema, roundShareAmount } from '@crm/shared'
 import { TYPE_LABEL_MESSAGES } from '../../../constants'
 
 // UI-level transaction kind for THIS dialog. `DIVIDEND` is a synthetic option —
@@ -73,7 +73,7 @@ export type Currency = 'USDT' | 'USD' | 'EUR' | 'UAH'
 export type SalaryPrefill = {
   receiverId: string
   salaryMonth: string
-  currency: Currency
+  currency?: Currency | undefined
 }
 
 export const TYPE_ICONS: Record<string, React.ReactNode> = {
@@ -119,10 +119,24 @@ export function getRate(currency: Currency, rates: ExchangeRate | undefined): nu
   return null
 }
 
-export function defaultSalaryMonth(): string {
-  const prev = new Date()
-  prev.setMonth(prev.getMonth() - 1)
+// Previous calendar month on the browser-local clock — the same basis as the
+// API's `previousSalaryMonthKey`. Anchored on day 1 so 29-31 never overflows
+// into the current month (`setMonth(getMonth() - 1)` on 31 Oct gave 2026-10).
+export function defaultSalaryMonth(now: Date = new Date()): string {
+  const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1)
   return `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`
+}
+
+// "Add salary part" prefill: the NOMINAL currency of the source row
+// (`originalCurrency`, e.g. USD) rather than the settled one (`currency`, USDT
+// after a company-funded payout). Validated against the shared enum instead of
+// a blind cast; undefined = leave the form default.
+export function resolveSalaryPrefillCurrency(source: {
+  currency: string
+  originalCurrency?: string | null
+}): Currency | undefined {
+  const parsed = currencySchema.safeParse(source.originalCurrency ?? source.currency)
+  return parsed.success ? parsed.data : undefined
 }
 
 // task-admin-income-unified (AC5/AC6). Pre-submit preview of the obligation(s)
