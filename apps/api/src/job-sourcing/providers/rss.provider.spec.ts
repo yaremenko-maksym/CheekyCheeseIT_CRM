@@ -133,7 +133,16 @@ describe('AC2 — malformed feed is drift; a valid empty feed is success', () =>
 describe('AC3 — validators are saved, and a 304 reuses the cached inventory', () => {
   const FEED = rss(item('g-1', 'https://example.com/j/1') + item('g-2', 'https://example.com/j/2'))
 
-  it('a 200 stores its body with both validators, under a key per source, version and page', async () => {
+  /**
+   * The slot the feed base names, read out of the loop's `[slot, request digest]` key (SR-H-1).
+   * Asserted as the SLOT and not as the whole key: the digest is a function of the request, so
+   * writing it out here would pin a hash rather than a behaviour. That two different requests
+   * sharing one slot cannot share an entry is pinned in `paged-response-cache.spec.ts`.
+   */
+  const slots = (cache: Map<string, unknown>): unknown[] =>
+    [...cache.keys()].map((key) => JSON.parse(key)[0])
+
+  it('a 200 stores its body with both validators, under a slot per source, version and page', async () => {
     const f = fakeCollectionContext({
       now: NOW,
       responses: [
@@ -146,25 +155,38 @@ describe('AC3 — validators are saved, and a 304 reuses the cached inventory', 
     })
     await collectFeedPages(spec(), config(), f.ctx)
 
-    expect([...f.cache.entries()]).toEqual([
-      [
-        '["WWR_RSS","board",3,1,null]',
-        { etag: '"abc"', lastModified: 'Tue, 20 Oct 2026 09:00:00 GMT', bodyText: FEED },
-      ],
+    expect(slots(f.cache)).toEqual(['["WWR_RSS","board",3,1,null]'])
+    expect([...f.cache.values()]).toEqual([
+      { etag: '"abc"', lastModified: 'Tue, 20 Oct 2026 09:00:00 GMT', bodyText: FEED },
     ])
   })
+
+  /**
+   * SEEDED BY A FIRST ATTEMPT rather than by a hand-written key, which is the only way to pin the
+   * two halves of this AC against each other: the entry a 200 wrote is the entry the next
+   * attempt's conditional request finds. A hand-written key tests our arithmetic against itself.
+   */
+  const storedByA200 = async (cfg = config()) => {
+    const first = fakeCollectionContext({
+      now: NOW,
+      responses: [
+        {
+          bodyText: FEED,
+          etag: '"abc"',
+          headers: { 'last-modified': 'Tue, 20 Oct 2026 09:00:00 GMT' },
+        },
+      ],
+    })
+    await collectFeedPages(spec(), cfg, first.ctx)
+    expect(first.cache.size).toBe(1)
+    return Object.fromEntries(first.cache)
+  }
 
   it('a 304 replays the cached feed: the same observations, not an empty feed', async () => {
     const f = fakeCollectionContext({
       now: NOW,
       responses: [{ status: 304 }],
-      cacheSeed: {
-        '["WWR_RSS","board",3,1,null]': {
-          etag: '"abc"',
-          lastModified: 'Tue, 20 Oct 2026 09:00:00 GMT',
-          bodyText: FEED,
-        },
-      },
+      cacheSeed: await storedByA200(),
     })
     const batch = await collectFeedPages(spec(), config(), f.ctx)
 
@@ -189,11 +211,12 @@ describe('AC3 — validators are saved, and a 304 reuses the cached inventory', 
     const f = fakeCollectionContext({
       now: NOW,
       responses: [{ bodyText: FEED, etag: '"v"' }],
-      cacheSeed: { '["WWR_RSS","board",3,1,null]': { etag: '"old"', bodyText: FEED } },
+      cacheSeed: await storedByA200(config()),
     })
     await collectFeedPages(spec(), config({ configVersion: 4 }), f.ctx)
     expect(f.sent[0]?.headers?.['if-none-match']).toBeUndefined()
-    expect(f.cache.has('["WWR_RSS","board",4,1,null]')).toBe(true)
+    // The old entry stands and a second one is written beside it, under the new version's slot.
+    expect(slots(f.cache)).toEqual(['["WWR_RSS","board",3,1,null]', '["WWR_RSS","board",4,1,null]'])
   })
 })
 
@@ -251,6 +274,129 @@ describe('AC4 — a time-limited feed never claims FULL_INVENTORY', () => {
       )
     },
   )
+})
+
+/**
+ * COVERAGE HONESTY ON A RESTART, and the one configured-window decision (CR-H-1, CR-M-2).
+ *
+ * Acceptance first, from the specification: a RECENT feed's scope IS `[now - windowMs, now]` —
+ * stated without exception, so it holds on a restart as much as on a fresh run. Then the refusal
+ * from the finding: not one millisecond wider.
+ */
+describe('a RECENT feed reports its own window, restart or not', () => {
+  /** A stored checkpoint no schema accepts — `decideCheckpoint`'s RESTART_WITH_OVERLAP path. */
+  const withStaleCheckpoint = (f: ReturnType<typeof fakeCollectionContext>) => {
+    f.ctx.checkpoints.load = async () => ({ junk: true })
+    return f
+  }
+
+  /**
+   * BOTH ARMS IN ONE TEST, because the RECENT arm alone would be vacuous: a RECENT feed's window
+   * is the same seven days whether or not a restart happened, so a test asserting only that cannot
+   * tell "the overlap was suppressed" from "the stale checkpoint never reached the restart path".
+   * The COMPLETE arm, through the identical harness, is the control that proves the path is live —
+   * it widens — and the RECENT arm then means something.
+   */
+  it('covers exactly [now - windowMs, now] when a stale checkpoint restarts the attempt', async () => {
+    const feed = { bodyText: fixtureText('rss-empty.xml') }
+    const recent = withStaleCheckpoint(fakeCollectionContext({ now: NOW, responses: [feed] }))
+    const complete = withStaleCheckpoint(fakeCollectionContext({ now: NOW, responses: [feed] }))
+
+    const recentBatch = await collectFeedPages(
+      spec({ inventory: { kind: 'RECENT', windowMs: 7 * DAY }, overlapMs: DAY }),
+      config(),
+      recent.ctx,
+    )
+    const completeBatch = await collectFeedPages(
+      spec({ overlapMs: DAY }),
+      config({ window: { from: '2026-10-13T10:00:00Z', to: '2026-10-20T10:00:00Z' } }),
+      complete.ctx,
+    )
+
+    // The control: the restart path IS live in this harness, and it widened by the day asked for.
+    expect(completeBatch.scope.window?.from).toEqual(new Date('2026-10-12T10:00:00Z'))
+    // The finding: the same restart, on a feed that cannot be asked for more, claims no extra day.
+    expect(recentBatch.coverage).toBe('WINDOW')
+    expect(recentBatch.scope.window).toEqual({ from: new Date('2026-10-13T10:00:00Z'), to: NOW })
+  })
+
+  it('does not report a day it cannot have read, whatever overlap the adapter asks for', async () => {
+    // The refusal side: an adapter setting its own overlap cannot widen a feed's claim either,
+    // because a feed cannot be asked for more history than it shows.
+    const s = spec({ inventory: { kind: 'RECENT', windowMs: 7 * DAY }, overlapMs: 3 * DAY })
+    const f = withStaleCheckpoint(
+      fakeCollectionContext({ now: NOW, responses: [{ bodyText: fixtureText('rss-empty.xml') }] }),
+    )
+    const batch = await collectFeedPages(s, config(), f.ctx)
+
+    expect(batch.scope.window?.from).toEqual(new Date('2026-10-13T10:00:00Z'))
+  })
+
+  it('a COMPLETE feed, which can be asked for more history, still widens on a restart', async () => {
+    // The acceptance side of the loop's overlap, kept: this is paginated history, not a window of
+    // whatever the feed happens to show, so re-reading across the old boundary is real coverage.
+    const window = { from: '2026-10-10T00:00:00Z', to: '2026-10-20T00:00:00Z' }
+    const f = withStaleCheckpoint(
+      fakeCollectionContext({ now: NOW, responses: [{ bodyText: fixtureText('rss-empty.xml') }] }),
+    )
+    const batch = await collectFeedPages(spec({ overlapMs: DAY }), config({ window }), f.ctx)
+
+    expect(batch.scope.window).toEqual({
+      from: new Date('2026-10-09T00:00:00Z'),
+      to: new Date(window.to),
+    })
+  })
+})
+
+/**
+ * THE CONFIGURED WINDOW ON A RECENT FEED IS REFUSED — both cases, for the reason in
+ * `assertConfigWindow`: whether it overlaps the feed's window is an accident of the clock, so a
+ * rule that treated the two differently would make the behaviour a function of when the run
+ * happens. Overlapping and disjoint are therefore the same test twice, deliberately.
+ */
+describe('a RECENT feed cannot be asked for a window', () => {
+  const overlapping = { from: '2026-10-15T00:00:00Z', to: '2026-10-25T00:00:00Z' }
+  const disjoint = { from: '2026-08-01T00:00:00Z', to: '2026-08-10T00:00:00Z' }
+
+  it.each([
+    ['overlapping the feed`s own window', overlapping],
+    ['disjoint from the feed`s own window', disjoint],
+  ])('refuses a configured window %s, before any request goes out', async (_name, window) => {
+    const f = fakeCollectionContext({
+      now: NOW,
+      responses: [{ bodyText: fixtureText('rss-empty.xml') }],
+    })
+    expect(() =>
+      collectFeedPages(
+        spec({ inventory: { kind: 'RECENT', windowMs: 7 * DAY } }),
+        config({ window }),
+        f.ctx,
+      ),
+    ).toThrow(/a RECENT feed shows only its own window and cannot be asked for another/)
+    expect(f.sent).toEqual([])
+  })
+
+  it('refuses it through the provider interface too', async () => {
+    const provider = defineRssProvider(spec({ inventory: { kind: 'RECENT', windowMs: 7 * DAY } }))
+    const f = fakeCollectionContext({
+      now: NOW,
+      responses: [{ bodyText: fixtureText('rss-empty.xml') }],
+    })
+    await expect(
+      provider.collectReport(
+        provider.parseConfig({ namespace: 'board', configVersion: 3, window: disjoint }),
+        f.ctx,
+      ),
+    ).rejects.toThrow(/a RECENT feed shows only its own window/)
+  })
+
+  it('a RECENT feed with no configured window collects, and reports its own', async () => {
+    // The acceptance side: the refusal is about a window that was ASKED for, not about every
+    // RECENT feed.
+    const s = spec({ inventory: { kind: 'RECENT', windowMs: 7 * DAY } })
+    const { batch } = await collect(fixtureText('rss-empty.xml'), s, config())
+    expect(batch.scope.window).toEqual({ from: new Date('2026-10-13T10:00:00Z'), to: NOW })
+  })
 })
 
 describe('AC5 — the GUID is opaque identity', () => {
@@ -396,8 +542,8 @@ describe('pagination', () => {
     ])
     expect(batch.outcome).toBe('SUCCEEDED')
     expect(batch.observations.map((o) => o.identity.nativeId)).toEqual(['g-1', 'g-2'])
-    // Each page under its own key, the cursor included, so the two never share a cached body.
-    expect([...f.cache.keys()]).toEqual([
+    // Each page under its own slot, the cursor included, so the two never share a cached body.
+    expect([...f.cache.keys()].map((key) => JSON.parse(key)[0])).toEqual([
       '["WWR_RSS","board",3,1,null]',
       '["WWR_RSS","board",3,2,"2"]',
     ])
