@@ -725,7 +725,7 @@ msgstr "Vacancy not found"
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Не передано"
-msgstr "Not provided"
+msgstr "Not received"
 
 #. placeholder {0}: data.signatures.length
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
@@ -1277,7 +1277,7 @@ msgstr "Sum of all paid salaries to company employees, all time."
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Закріплену ідентичність рекордера буде очищено. Перед підключенням нового джерела потрібно буде налаштувати новий signing secret."
-msgstr "The pinned recorder identity will be cleared. You'll need to set up a new signing secret before connecting a new source."
+msgstr "This clears the recorder the connection is pinned to. You'll need to set a new signing secret before connecting a new source."
 
 #. placeholder {0}: vacancy.applicationsCount
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
@@ -1617,7 +1617,7 @@ msgstr "Type {mimeType} is not supported. You can upload PNG, JPEG or WebP"
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingSummarySection.tsx
 #: apps/web/app/routes/_authenticated/interviews/unmatched.tsx
 msgid "Транскрипт обробляється"
-msgstr "Transcript processing"
+msgstr "Processing transcript"
 
 #: apps/web/app/routes/_authenticated/projects/ProjectOverviewTab.tsx
 msgid "Деталі проєкту"
@@ -3574,7 +3574,7 @@ msgstr "Achievements — one per line"
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Аналіз скасовано"
-msgstr "Analysis canceled"
+msgstr "Analysis cancelled"
 
 #. placeholder {0}: currentTos.version + 1
 #. placeholder {1}: currentTos.version
@@ -8887,7 +8887,7 @@ msgstr "Text received, parsing the resume"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Секрет не налаштовано"
-msgstr "Secret not set up"
+msgstr "Secret not set"
 
 #: apps/web/app/routes/_authenticated/vacancies/constants.ts
 msgid "Неприпустимий формат"
@@ -8975,7 +8975,7 @@ msgstr "The new Terms of Service version has been published. Users will see a no
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Остання перевірка"
-msgstr "Last check"
+msgstr "Last verified"
 
 #: apps/web/app/components/users/user-dialog/TeamSection.tsx
 msgid "Немає команд дропа без активного сеньйора. Створіть дропа або оберіть «Створити свою команду»."
@@ -9106,7 +9106,7 @@ msgstr "No results"
 
 #: apps/web/app/routes/_authenticated/interviews/components/LinkRecordingDialog.tsx
 msgid "Оберіть сеньйора, знайдіть потрібну співбесіду та підтвердьте прив'язування запису «{recordingTitle}»."
-msgstr "Select a senior, find the interview you need and confirm linking the recording “{recordingTitle}”."
+msgstr "Choose a senior, find the interview, then confirm to link “{recordingTitle}” to it."
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/useCreateTransactionValidator.ts
 msgid "Сума перевищує баланс рахунку компанії"
@@ -9344,7 +9344,7 @@ msgstr "Used in the MSA contract instead of your first and last name — write i
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Секрет налаштовано"
-msgstr "Secret set up"
+msgstr "Secret set"
 
 #. placeholder {0}: user.displayName
 #: apps/web/app/components/layout/ImpersonationBanner.tsx
@@ -9833,7 +9833,7 @@ msgstr "Change senior"
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Транскрипт не передано"
-msgstr "No transcript provided"
+msgstr "No transcript received"
 
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
@@ -10146,7 +10146,7 @@ msgstr "Invoice signed"
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Аналіз не передано"
-msgstr "No analysis provided"
+msgstr "No analysis received"
 
 #: apps/web/app/components/users/user-dialog/TechStackSection.tsx
 msgid "Професія"
@@ -10641,7 +10641,7 @@ msgstr "Type"
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingSummarySection.tsx
 #: apps/web/app/routes/_authenticated/interviews/unmatched.tsx
 msgid "Аналіз обробляється"
-msgstr "Analysis processing"
+msgstr "Processing analysis"
 
 #: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "Проєкти без зарахованого доходу"
