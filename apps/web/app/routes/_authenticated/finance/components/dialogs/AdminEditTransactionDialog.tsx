@@ -38,6 +38,7 @@ import {
   fmtAmount,
 } from '../../constants'
 import { CascadeImpactPanel } from './CascadeImpactPanel'
+import { changedSalaryMonth } from './changed-salary-month'
 import {
   ReceiptInput,
   receiptStateFromDocument,
@@ -296,6 +297,7 @@ export function AdminEditTransactionDialog({
       const receiptUnchanged =
         nextReceiptDocId === (tx?.receiptDocumentId ?? null) &&
         nextReceiptExternalUrl === (tx?.receiptExternalUrl ?? null)
+      const changedMonth = changedSalaryMonth(tx, salaryMonth)
       return financeApi.adminUpdateTransaction(tx!.id, {
         amount: amt,
         currency,
@@ -315,12 +317,8 @@ export function AdminEditTransactionDialog({
           receiptExternalUrl: nextReceiptExternalUrl,
         }),
         ...(tx?.type === 'EXPENSE' && { category }),
-        // Only when the operator changed it (SR-M-1): a legacy row may store a
-        // month the stricter schema rejects, and an untouched value must not
-        // 400 an edit of an unrelated field.
-        ...(tx?.type === 'SALARY' &&
-          salaryMonth &&
-          salaryMonth !== (tx.salaryMonth ?? '') && { salaryMonth }),
+        // Only when the operator changed it (SR-M-1) — see changedSalaryMonth.
+        ...(changedMonth !== undefined && { salaryMonth: changedMonth }),
       })
     },
     onError: (err) => {
