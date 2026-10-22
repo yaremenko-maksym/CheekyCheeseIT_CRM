@@ -1321,9 +1321,26 @@ export interface CollectionContext {
   }
   /** Conditional-request cache. A 304 reuses the stored body rather than refetching it. */
   cache: {
-    get(key: string): Promise<{ etag: string; bodyText: string } | null>
-    put(key: string, value: { etag: string; bodyText: string }): Promise<void>
+    get(key: string): Promise<CachedResponse | null>
+    put(key: string, value: CachedResponse): Promise<void>
   }
+}
+
+/**
+ * One stored response and the validators it can be revalidated with.
+ *
+ * TWO VALIDATORS, EITHER OF WHICH MAY BE ABSENT. It used to hold only a required `etag`, which is
+ * the JSON APIs' habit; feeds very often send `Last-Modified` and no `ETag` at all, and a cache
+ * that could only remember an ETag stored nothing for them, so every attempt refetched the whole
+ * feed (Task 2.4: "validators saved"). An entry is only ever written when at least one of the two
+ * arrived — an entry with neither could never be revalidated, and a 304 is only trusted for a
+ * request that carried a validator.
+ */
+export interface CachedResponse {
+  etag: string | null
+  /** The `Last-Modified` value, verbatim; absent when the response carried none. */
+  lastModified?: string | undefined
+  bodyText: string
 }
 
 export interface ReportingJobSourceProvider<

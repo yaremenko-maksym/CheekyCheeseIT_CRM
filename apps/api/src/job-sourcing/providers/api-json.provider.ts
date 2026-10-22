@@ -12,6 +12,7 @@ import {
   buildCollectionBatch,
   buildInvalidSample,
   buildRequestReport,
+  type CachedResponse,
   type CollectionBatch,
   type CollectionContext,
   type CollectionCounts,
@@ -363,6 +364,21 @@ function buildPageRequest<TConfig extends SourceConfigFields, TEnvelope, TItem>(
   }
 }
 
+/**
+ * The request headers that revalidate a cached response — one per validator the entry holds.
+ *
+ * A validator that is absent sends NO header rather than an empty one: `If-None-Match: ` with no
+ * value is a malformed precondition. The loop writes an entry only when a validator arrived, but
+ * the cache is a port and an entry with none can still come back from it; the caller treats an
+ * empty result as "nothing cached", so such an entry never licenses a 304.
+ */
+function conditionalHeaders(cached: CachedResponse): Record<string, string> {
+  const headers: Record<string, string> = {}
+  if (cached.etag !== null) headers['if-none-match'] = cached.etag
+  if (cached.lastModified !== undefined) headers['if-modified-since'] = cached.lastModified
+  return headers
+}
+
 /** HTTP status -> our typed code. Classified from the STATUS, never from the body text. */
 function classifyStatus(status: number): CollectionErrorCode | null {
   if (status >= 200 && status < 300) return null
@@ -630,12 +646,16 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
     let resolution: ReservationResolution = 'RELEASED'
 
     try {
-      const cached =
+      const stored =
         pageRequest.cacheKey === undefined ? null : await ctx.cache.get(pageRequest.cacheKey)
+      // An entry is only USABLE when it holds a validator to send: a 304 is an answer to a
+      // precondition, and without one there was no question for it to answer.
+      const validators = stored === null ? {} : conditionalHeaders(stored)
+      const cached = Object.keys(validators).length > 0 ? stored : null
       if (cached !== null) {
         request = {
           ...pageRequest.request,
-          headers: { ...pageRequest.request.headers, 'if-none-match': cached.etag },
+          headers: { ...pageRequest.request.headers, ...validators },
         }
       }
 
@@ -657,7 +677,11 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
         }
       } else {
         bodyText = response.bodyText
-        if (response.etag !== null && pageRequest.cacheKey !== undefined) {
+        const lastModified = response.headers['last-modified']
+        if (
+          (response.etag !== null || lastModified !== undefined) &&
+          pageRequest.cacheKey !== undefined
+        ) {
           /**
            * THE CACHE'S TWO FAILURES ARE NOT THE SAME FAILURE, AND DIRECTION IS WHAT DECIDES.
            *
@@ -674,7 +698,11 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
            * `finally`, which is why this does not reopen SR-M-1.
            */
           try {
-            await ctx.cache.put(pageRequest.cacheKey, { etag: response.etag, bodyText })
+            await ctx.cache.put(pageRequest.cacheKey, {
+              etag: response.etag,
+              lastModified,
+              bodyText,
+            })
           } catch {
             // Deliberately nothing: see above. There is no report slot for "the page is fine but
             // the cache is not", and inventing one would mean a request report describing a

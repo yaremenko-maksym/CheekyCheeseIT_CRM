@@ -11,6 +11,7 @@ import {
 } from './api-json.provider'
 import { DEFAULT_API_JSON_LIMITS } from './api-json.limits'
 import {
+  type CachedResponse,
   type CollectionContext,
   type FetchRequest,
   markValidated,
@@ -105,6 +106,8 @@ interface PageResponse {
   body?: unknown
   bodyText?: string
   etag?: string | null
+  /** Lowercased response headers — how a `last-modified` validator reaches the loop. */
+  headers?: Record<string, string>
   throws?: unknown
 }
 
@@ -115,7 +118,7 @@ interface Harness {
   saved: ValidatedCheckpoint[]
   /** Every outgoing request, so the conditional-request header can be asserted. */
   sent: FetchRequest[]
-  cache: Map<string, { etag: string; bodyText: string }>
+  cache: Map<string, CachedResponse>
 }
 
 function harness(opts: {
@@ -132,7 +135,7 @@ function harness(opts: {
   now?: Date
   deadline?: Date
   secrets?: string[]
-  cacheSeed?: Record<string, { etag: string; bodyText: string }>
+  cacheSeed?: Record<string, CachedResponse>
   policyVersion?: number
   /** The response cache is down. READ and WRITE are separate options because their consequences
    * are deliberately different — see the comment on `cache.put` in `api-json.provider.ts`. */
@@ -143,7 +146,7 @@ function harness(opts: {
   const sent: FetchRequest[] = []
   const reconciles: Array<{ id: string; resolution: ReservationResolution }> = []
   const saved: ValidatedCheckpoint[] = []
-  const cache = new Map(Object.entries(opts.cacheSeed ?? {}))
+  const cache = new Map<string, CachedResponse>(Object.entries(opts.cacheSeed ?? {}))
   const controller = new AbortController()
   if (opts.aborted === true) controller.abort()
   let fetches = 0
@@ -170,7 +173,7 @@ function harness(opts: {
       return {
         status: page.status ?? 200,
         bodyText: page.bodyText ?? JSON.stringify(page.body ?? { jobs: [], next: null }),
-        headers: {},
+        headers: page.headers ?? {},
         etag: page.etag ?? null,
       }
     },
@@ -1280,6 +1283,100 @@ describe('conditional-request plumbing', () => {
     await collectJsonPages(spec, config(), h.ctx)
 
     expect(h.sent[0]?.headers).toEqual({ accept: 'application/json', 'if-none-match': 'W/"v1"' })
+  })
+  /*
+   * LAST-MODIFIED IS THE SECOND VALIDATOR, and the one feeds send most often without an ETag.
+   * Acceptance first (a validator of either kind is stored and replayed), then the refusals (no
+   * header for a validator that is absent, and nothing stored when neither arrived).
+   */
+  it('stores a last-modified validator from a 200 that carried no etag', async () => {
+    const h = harness({
+      pages: [
+        {
+          headers: { 'last-modified': 'Wed, 21 Oct 2026 07:28:00 GMT' },
+          body: { jobs: [job('1')], next: null },
+        },
+      ],
+    })
+    await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(h.cache.get('p1')).toEqual({
+      etag: null,
+      lastModified: 'Wed, 21 Oct 2026 07:28:00 GMT',
+      bodyText: JSON.stringify({ jobs: [job('1')], next: null }),
+    })
+  })
+
+  it('stores both validators when the 200 carried both', async () => {
+    const h = harness({
+      pages: [
+        {
+          etag: 'W/"v4"',
+          headers: { 'last-modified': 'Wed, 21 Oct 2026 07:28:00 GMT' },
+          body: { jobs: [job('1')], next: null },
+        },
+      ],
+    })
+    await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(h.cache.get('p1')?.etag).toBe('W/"v4"')
+    expect(h.cache.get('p1')?.lastModified).toBe('Wed, 21 Oct 2026 07:28:00 GMT')
+  })
+
+  it('replays a cached last-modified as if-modified-since, and sends no if-none-match without an etag', async () => {
+    const h = harness({
+      pages: [{ status: 304 }],
+      cacheSeed: {
+        p1: {
+          etag: null,
+          lastModified: 'Wed, 21 Oct 2026 07:28:00 GMT',
+          bodyText: JSON.stringify({ jobs: [job('cached')], next: null }),
+        },
+      },
+    })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(h.sent[0]?.headers).toEqual({ 'if-modified-since': 'Wed, 21 Oct 2026 07:28:00 GMT' })
+    // The 304 reuses the stored inventory rather than reporting an empty page.
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.observations.map((o) => o.identity.nativeId)).toEqual(['cached'])
+  })
+
+  it('does not trust a 304 for a cached entry that holds no validator at all', async () => {
+    // Nothing was sent that a 304 could be an answer to, so the stored body is not reused: the
+    // refusal half of "a 304 reuses the cached inventory".
+    const h = harness({
+      pages: [{ status: 304 }],
+      cacheSeed: {
+        p1: { etag: null, bodyText: JSON.stringify({ jobs: [job('stale')], next: null }) },
+      },
+    })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    // The request went out exactly as the adapter built it: no precondition was attached.
+    expect(h.sent[0]?.headers).toBeUndefined()
+    expect(batch.outcome).toBe('FAILED')
+    expect(batch.observations).toEqual([])
+    expect(batch.requests.at(-1)?.error?.code).toBe('PARSE_DRIFT')
+  })
+
+  it('replays both validators when both are cached', async () => {
+    const h = harness({
+      pages: [{ status: 304 }],
+      cacheSeed: {
+        p1: {
+          etag: 'W/"v1"',
+          lastModified: 'Wed, 21 Oct 2026 07:28:00 GMT',
+          bodyText: JSON.stringify({ jobs: [], next: null }),
+        },
+      },
+    })
+    await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(h.sent[0]?.headers).toEqual({
+      'if-none-match': 'W/"v1"',
+      'if-modified-since': 'Wed, 21 Oct 2026 07:28:00 GMT',
+    })
   })
 })
 
