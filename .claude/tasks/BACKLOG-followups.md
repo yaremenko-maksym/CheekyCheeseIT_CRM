@@ -4075,3 +4075,91 @@ a nightly job where a single miss is a signal rather than a blocked PR.
 **Check on closing:** run the spec repeatedly under synthetic CPU load (e.g. several parallel
 `yes > /dev/null` processes) and confirm it does not fail; then confirm it still fails if the
 extraction is forced back onto the main thread.
+
+## 279. Retroactive review of the five unreviewed collaborator PRs — finding map (2026-10-22)
+
+PRs #795, #809, #865, #866 and #867 reached `main` with zero reviews (the gap Flow Gate now closes).
+A retroactive code-reviewer + security-reviewer pass produced **75** numbered findings, each checked
+against `main` of 2026-10-22. Every identifier is accounted for here; the per-task files carry the
+full text. Open PRs #868/#869 were deliberately not counted as fixes.
+
+| Destination                                   | Identifiers                                                                                                                        | n   |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | --- |
+| task `retro-mr-matcher-access`                | SR-865-H-1, CR-865-H-1, SR-865-M-2, CR-865-H-3                                                                                     | 4   |
+| task `retro-mr-webhook-ingest`                | SR-865-M-1, CR-865-H-4, SR-865-L-1, SR-865-L-2, CR-865-M-5, SR-865-L-5, CR-865-M-7, CR-865-L-12                                    | 8   |
+| task `retro-mr-en-catalog`                    | CR-865-H-2                                                                                                                         | 1   |
+| task `retro-salary-ledger-integrity`          | SR-795-M-1, SR-795-M-2, SR-795-M-3, SR-795-M-4, SR-795-L-2, SR-795-L-3, CR-795-M-7, CR-795-L-2                                     | 8   |
+| task `retro-salary-form-defaults`             | CR-795-M-2, CR-867-M-2, CR-795-M-4, CR-795-L-3, CR-795-M-3                                                                         | 5   |
+| task `retro-manual-ddl-coverage`              | CR-795-H-1, CR-795-M-6, SR-866-M-1, CR-866-M-1, CR-866-L-1, SR-866-L-1                                                             | 6   |
+| task `retro-txdate-policy`                    | SR-809-H-1, CR-809-M-3, SR-809-M-1, CR-809-M-1, SR-809-M-2, CR-809-H-1, SR-809-M-3, CR-809-L-3, SR-809-L-2, SR-809-L-3, CR-809-M-5 | 11  |
+| task `retro-txdate-reporting`                 | CR-809-H-2, CR-809-M-6                                                                                                             | 2   |
+| task `retro-business-day-clock`               | SR-809-L-1, CR-809-M-2, CR-867-L-3, CR-867-M-1, CR-867-L-1, CR-867-M-3, CR-867-M-4                                                 | 7   |
+| backlog 280                                   | SR-865-L-3, CR-865-M-6                                                                                                             | 2   |
+| backlog 281                                   | SR-865-L-4, CR-865-M-8, CR-865-M-9, CR-865-M-11                                                                                    | 4   |
+| backlog 282                                   | CR-795-M-1, CR-795-M-5, CR-795-M-8, CR-795-M-9, CR-795-L-1, CR-795-L-4, CR-795-L-5, SR-795-L-1                                     | 8   |
+| backlog 283                                   | CR-809-M-4, CR-809-M-7, CR-809-L-2, CR-809-L-4                                                                                     | 4   |
+| closed — fixed on main (#866 / service split) | SR-795-H-1, CR-809-L-1                                                                                                             | 2   |
+| closed — process, now enforced by Flow Gate   | CR-865-M-10, CR-866-L-2, CR-867-L-2                                                                                                | 3   |
+
+Sum: 4+8+1+8+5+6+11+2+7+2+4+8+4+2+3 = **75**.
+
+**Check on closing:** every task and backlog entry above is closed or carries a recorded decision.
+
+## 280. Meeting-recorder transcripts are kept forever and outlive their interview (2026-10-22)
+
+`MeetingRecorderRetentionCronService` purges only webhook receipts. `interview_recordings.snapshot`
+(transcript, notes, analysis — candidate personal data) is never deleted; deleting an interview sets
+`interview_id` to NULL, which moves the transcript to the ADMIN unmatched queue instead of removing it.
+The audit actions `recording-purged` / `media-purged` exist but nothing emits them; the unmatched list
+has no pagination. (SR-865-L-3, CR-865-M-6.)
+
+**Needs a decision before code:** a retention period (Legal) and whether deleting an interview deletes
+its recordings. Candidates: an ADMIN purge endpoint that emits `recording-purged`, a snapshot retention
+cron, cursor pagination on the unmatched list.
+
+**Check on closing:** create and delete an interview with a linked recording on a scratch DB; the
+transcript must be gone (or scheduled for deletion) by the agreed policy.
+
+## 281. Meeting-recorder minor hardening (2026-10-22)
+
+- SR-865-L-4 — `Aes256GcmHkdf.decrypt` does not pin `authTagLength: 16` (now shared by the credentials
+  crypto v2 as well).
+- CR-865-M-8 — admin connection dialogs and `LinkRecordingDialog` hold form state in `useState`
+  instead of TanStack Form.
+- CR-865-M-9 — `RelaxableThrottle` semantics changed for all callers (`Math.max(globalLimit, prodLimit)`
+  with the relaxed TTL) with no test.
+- CR-865-M-11 — `InterviewsService` defaults `new InterviewAccessPolicyService(db)` in its constructor,
+  bypassing DI.
+
+**Check on closing:** a short-tag ciphertext is rejected; `RelaxableThrottle` has a spec for both modes.
+
+## 282. Multipart salary follow-ups (2026-10-22)
+
+- CR-795-M-1 — `mySalaryState` / `mySalaryAggregateState` are computed per senior-summary request and
+  read by no web code. Decide: wire a dashboard reader or delete the fields.
+- CR-795-M-5 — salary unit specs pin Drizzle call shapes; behavioural coverage lives only in
+  DB-skipping integration specs.
+- CR-795-M-8 — `createAutomaticSalary` does three round trips and one transaction per employee; two
+  set-based statements suffice.
+- CR-795-M-9 — no E2E for "Add salary part"; the mocked funding-source E2E does not assert that
+  `idempotencyKey` is sent.
+- CR-795-L-1 — unreachable `BadRequestException` guard in `createSalary`; orphaned
+  `FINANCE_SALARY_ALREADY_CREATED_FOR_MONTH` error code.
+- CR-795-L-4 — the multipart invariant (marker table, prepare/activate deploy) is not in
+  project-state or the finance module doc.
+- CR-795-L-5 — mandatory `idempotencyKey` breaks tabs open during a deploy with a plain Zod 400; a
+  stable error code would let the client say "reload".
+- SR-795-L-1 — between PREPARE and ACTIVATE a second manual part hits the legacy unique index → raw 500.
+
+**Check on closing:** each bullet closed or explicitly declined in this entry.
+
+## 283. Custom transaction date follow-ups (2026-10-22)
+
+- CR-809-M-4 — `PaySalaryDialog` prefills the expected amount from today's rate even when the payment
+  is backdated.
+- CR-809-M-7 — no E2E for the eight dialogs that gained a date picker; no TZ matrix for date tests.
+- CR-809-L-2 — the business-day idiom and the dialog clamp are copy-pasted (about eight and four
+  places); one shared helper and one hook.
+- CR-809-L-4 — the same "minimum date" hint has two msgids; unify.
+
+**Check on closing:** one Playwright spec covers a date picker's min/max; the hint has one msgid.
