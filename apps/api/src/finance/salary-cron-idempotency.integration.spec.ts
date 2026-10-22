@@ -529,5 +529,35 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(await countSalaries(HR_EMP_ID)).toBe(1)
       expect(await countInitializations(HR_EMP_ID, MONTH)).toBe(1)
     }, 30_000)
+
+    // SR-795-M-3 (PR #868): moving an automatic salary into a month whose
+    // marker is ALREADY claimed used to reclassify it as MANUAL, which the
+    // keyless-MANUAL CHECK rejects — a 500 that made the correction impossible.
+    // A real marker on the destination month is what exercises that branch.
+    it('moving a cron salary into an already-initialized month succeeds and marks it ADJUSTED', async () => {
+      await svc.createMonthlySalaries(MOVE_MONTH)
+      expect(await countInitializations(HR_EMP_ID, MOVE_MONTH)).toBe(1)
+      await svc.createMonthlySalaries(MONTH)
+      const automatic = await dbSvc.db.query.transactions.findFirst({
+        where: and(
+          eq(transactions.type, 'SALARY'),
+          eq(transactions.receiverId, HR_EMP_ID),
+          eq(transactions.salaryMonth, MONTH),
+          eq(transactions.salaryOrigin, 'CRON'),
+        ),
+      })
+      expect(automatic).toBeDefined()
+
+      await svc.adminUpdateTransaction(automatic!.id, { salaryMonth: MOVE_MONTH }, ADMIN_ACTOR)
+
+      const moved = await dbSvc.db.query.transactions.findFirst({
+        where: eq(transactions.id, automatic!.id),
+      })
+      expect(moved).toMatchObject({ salaryMonth: MOVE_MONTH, salaryOrigin: 'ADJUSTED' })
+      expect(moved!.idempotencyKey).toBeNull()
+      // The destination keeps its single marker; the emptied source month is freed.
+      expect(await countInitializations(HR_EMP_ID, MOVE_MONTH)).toBe(1)
+      expect(await countInitializations(HR_EMP_ID, MONTH)).toBe(0)
+    }, 30_000)
   },
 )
