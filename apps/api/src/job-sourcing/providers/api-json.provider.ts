@@ -1,5 +1,7 @@
+import { createHash } from 'node:crypto'
 import type { JobMeterUnit, JobSourceType } from '@crm/shared'
 import { z, type ZodType } from 'zod'
+import { canonicalNativeId } from '../normalize/identity-key'
 import {
   buildSourceObservation,
   type RawObservationFields,
@@ -119,7 +121,12 @@ export interface PageTarget {
 
 export interface PageRequest {
   request: FetchRequest
-  /** Key for the conditional-request cache. Omit to skip caching for this page. */
+  /**
+   * The cache SLOT for this page — a readable label, NOT the whole key. Omit to skip caching for
+   * this page. The loop keys the entry on this slot plus a digest of the request itself (see
+   * `responseCacheKey`), so a slot an adapter reuses across two different requests cannot make
+   * one request's 304 replay the other's body.
+   */
   cacheKey?: string
 }
 
@@ -410,6 +417,31 @@ function buildPageRequest<TConfig extends SourceConfigFields, TEnvelope, TItem>(
 }
 
 /**
+ * Decode a body through the adapter's slot, and treat a throw as data — the same guard
+ * `buildPageRequest` gives `pageRequest`.
+ *
+ * `decodeEnvelope` is contracted to RETURN a refusal, and both shipped decoders are total, so this
+ * is latent today. But it was the only adapter slot left unguarded, and a throw from it rejected
+ * `collectPages` outright: no batch, and every page already persisted went unreported (CR-M-1). A
+ * decoder that throws has broken its own contract, so it is `ADAPTER_INVARIANT` — the code for
+ * "our adapter is wrong", not the provider's drift.
+ */
+function decodePage<TConfig extends SourceConfigFields, TEnvelope, TItem>(
+  spec: PagedSourceSpec<TConfig, TEnvelope, TItem>,
+  bodyText: string,
+): DecodedEnvelope<TEnvelope> {
+  try {
+    return spec.decodeEnvelope(bodyText)
+  } catch (error) {
+    return {
+      ok: false,
+      code: 'ADAPTER_INVARIANT',
+      message: `decodeEnvelope threw outside its contract: ${error instanceof Error ? error.message : 'a non-Error value'}`,
+    }
+  }
+}
+
+/**
  * The request headers that revalidate a cached response — one per validator the entry holds.
  *
  * A validator that is absent sends NO header rather than an empty one: `If-None-Match: ` with no
@@ -419,9 +451,65 @@ function buildPageRequest<TConfig extends SourceConfigFields, TEnvelope, TItem>(
  */
 function conditionalHeaders(cached: CachedResponse): Record<string, string> {
   const headers: Record<string, string> = {}
-  if (cached.etag !== null) headers['if-none-match'] = cached.etag
-  if (cached.lastModified !== undefined) headers['if-modified-since'] = cached.lastModified
+  if (isValidator(cached.etag)) headers['if-none-match'] = cached.etag
+  if (isValidator(cached.lastModified)) headers['if-modified-since'] = cached.lastModified
   return headers
+}
+
+/**
+ * A validator is a value that can be SENT. Absent and empty are the same answer: an empty
+ * `Last-Modified` used to be stored and replayed as `if-modified-since: ""` — exactly the malformed
+ * precondition the comment above promised never to send, because the check it relied on was
+ * `!== undefined` and an empty header is defined (CR-M-3). Whitespace-only counts as empty for the
+ * same reason. Used on BOTH sides — what is worth storing and what is sent — so the two cannot
+ * disagree about what a validator is.
+ */
+function isValidator(value: string | null | undefined): value is string {
+  return typeof value === 'string' && value.trim() !== ''
+}
+
+/**
+ * The key a page's response is cached under: the adapter's slot, and a digest of the REQUEST.
+ *
+ * WHY THE REQUEST AND NOT A LIST OF FIELDS (SR-H-1). The key used to be whatever the adapter named,
+ * and the feed base named `[type, board, config version, page, cursor]` — five true fields, and
+ * incomplete in exactly the dimension that mattered: two sources on one board under
+ * `query=python` and `query=java` shared a key, a 304 on the second replayed the first's body, and
+ * the batch reported SUCCEEDED with the wrong postings stored. Every enumeration of "what makes
+ * two requests different" is one request parameter away from that defect, so the key is built from
+ * what actually goes on the wire: method, URL (query and window live there), headers and body —
+ * plus the spec's `type` and `adapterVersion`, so a redeployed mapping never revalidates a body
+ * fetched for the old one. Two requests that differ in anything the provider can see cannot share
+ * an entry.
+ *
+ * It is the request BEFORE the loop adds its own validators; those are what a cached entry
+ * supplies, not what identifies it.
+ *
+ * A DIGEST, not the request verbatim: the request carries credentials (an `authorization` header,
+ * an API key in the URL), and a cache key is stored. The slot stays readable in front of it so an
+ * operator can still tell which page an entry belongs to.
+ *
+ * Two requests that are the same to the provider but spelled differently (header order, `GET` vs an
+ * omitted method) get two entries. That costs a refetch, never a wrong body.
+ */
+function responseCacheKey(
+  slot: string,
+  spec: { readonly type: JobSourceType; readonly adapterVersion: string },
+  request: FetchRequest,
+): string {
+  const digest = createHash('sha256')
+    .update(
+      JSON.stringify([
+        spec.type,
+        spec.adapterVersion,
+        request.method,
+        request.url,
+        request.headers,
+        request.body,
+      ]),
+    )
+    .digest('hex')
+  return JSON.stringify([slot, digest])
 }
 
 /** HTTP status -> our typed code. Classified from the STATUS, never from the body text. */
@@ -689,10 +777,13 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
      * All three are reachable and asserted, so the `finally` is not a guard without a failing test.
      */
     let resolution: ReservationResolution = 'RELEASED'
+    const cacheKey =
+      pageRequest.cacheKey === undefined
+        ? undefined
+        : responseCacheKey(pageRequest.cacheKey, spec, pageRequest.request)
 
     try {
-      const stored =
-        pageRequest.cacheKey === undefined ? null : await ctx.cache.get(pageRequest.cacheKey)
+      const stored = cacheKey === undefined ? null : await ctx.cache.get(cacheKey)
       // An entry is only USABLE when it holds a validator to send: a 304 is an answer to a
       // precondition, and without one there was no question for it to answer.
       const validators = stored === null ? {} : conditionalHeaders(stored)
@@ -723,10 +814,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
       } else {
         bodyText = response.bodyText
         const lastModified = response.headers['last-modified']
-        if (
-          (response.etag !== null || lastModified !== undefined) &&
-          pageRequest.cacheKey !== undefined
-        ) {
+        if ((isValidator(response.etag) || isValidator(lastModified)) && cacheKey !== undefined) {
           /**
            * THE CACHE'S TWO FAILURES ARE NOT THE SAME FAILURE, AND DIRECTION IS WHAT DECIDES.
            *
@@ -743,7 +831,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
            * `finally`, which is why this does not reopen SR-M-1.
            */
           try {
-            await ctx.cache.put(pageRequest.cacheKey, {
+            await ctx.cache.put(cacheKey, {
               etag: response.etag,
               lastModified,
               bodyText,
@@ -804,7 +892,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
     }
 
     if (failure === null) {
-      const envelope = spec.decodeEnvelope(bodyText)
+      const envelope = decodePage(spec, bodyText)
       if (!envelope.ok) {
         failure = { code: envelope.code, message: envelope.message, status }
       } else {
@@ -1203,7 +1291,12 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
     // No `?? raw.nativeId` fallback: the spec field is required, so there is nothing to fall back
     // from, and the fallback was the defect (SPEC-M-1). An adapter that returns `null` here has
     // said so deliberately.
-    const nativeId = spec.nativeIdOf(validated.data, config)
+    //
+    // Compared in the SAME spelling identity was keyed in (`canonicalNativeId`), never raw: two
+    // spellings of one id are one id to identity, so treating them as two here is a collision
+    // that never happened (SR-M-3).
+    const issued = spec.nativeIdOf(validated.data, config)
+    const nativeId = issued === null ? null : canonicalNativeId(issued)
     // The suppression that used to sit here claimed this guard was unobservable. It is not, and
     // the difference is a false ADAPTER_INVARIANT: with the guard removed, an item whose provider
     // id is unknown records `null` against its identity key, and the NEXT item on that same key —

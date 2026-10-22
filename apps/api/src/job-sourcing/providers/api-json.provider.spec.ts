@@ -121,6 +121,9 @@ interface Harness {
   cache: Map<string, CachedResponse>
 }
 
+/** The adapter's slot out of the loop's `[slot, digest]` cache key — see the harness's cache. */
+const slotOf = (key: string): string => z.tuple([z.string(), z.string()]).parse(JSON.parse(key))[0]
+
 function harness(opts: {
   pages: PageResponse[]
   stored?: ValidatedCheckpoint | null
@@ -221,16 +224,21 @@ function harness(opts: {
         saved.push(checkpoint)
       },
     },
+    // HARNESS PLUMBING: the loop keys an entry on `[slot, request digest]` (SR-H-1), and this
+    // harness addresses entries by the adapter's SLOT, so the 2.3 assertions below keep reading
+    // `p1`. Every request in this file is a function of its page alone, so one slot is one
+    // request here; that the digest separates DIFFERENT requests sharing a slot is pinned against
+    // the raw key in `paged-response-cache.spec.ts`.
     cache: {
       async get(key) {
-        calls.push(`cache.get:${String(key)}`)
+        calls.push(`cache.get:${slotOf(key)}`)
         if (opts.cacheGetThrows === true) throw new Error('the response cache is unreachable')
-        return cache.get(key) ?? null
+        return cache.get(slotOf(key)) ?? null
       },
       async put(key, value) {
-        calls.push(`cache.put:${String(key)}`)
+        calls.push(`cache.put:${slotOf(key)}`)
         if (opts.cachePutThrows === true) throw new Error('the response cache is unreachable')
-        cache.set(key, value)
+        cache.set(slotOf(key), value)
       },
     },
   }
