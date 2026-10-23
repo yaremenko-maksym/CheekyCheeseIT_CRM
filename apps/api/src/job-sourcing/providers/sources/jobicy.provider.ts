@@ -124,20 +124,20 @@ function traversalOf(at: PageTarget): { startedAtMs: number; providerCursor: str
 // Mapping
 // ---------------------------------------------------------------------------
 
-/** `Belgium,  Germany,  UK` -> `Belgium, Germany, UK`; nothing left -> null. */
-function geoText(raw: string | null): string | null {
-  if (raw === null) return null
-  const parts = raw
+/** `Belgium,  Germany,  UK` -> `Belgium, Germany, UK`. Nothing left is '', which the normalizer cleans to null. */
+function geoText(raw: string | null): string {
+  return (raw ?? '')
     .split(',')
     .map((p) => p.trim())
     .filter((p) => p.length > 0)
-  return parts.length === 0 ? null : parts.join(', ')
+    .join(', ')
 }
 
 /** The provider returns `Any` when no level is specified. */
 function levelHint(raw: string | null): string | null {
   const level = raw?.trim() ?? ''
-  return level === '' || level === 'Any' ? null : level
+  // An empty level is cleaned to null by the normalizer.
+  return level === 'Any' ? null : level
 }
 
 function scopeQuery(config: Config): string | null {
@@ -186,10 +186,8 @@ export const jobicySpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
       seniorityHint: levelHint(item.jobLevel),
       tags: item.jobIndustry,
       applicationUrl: item.url,
-      dates:
-        item.pubDate === null
-          ? []
-          : [{ raw: item.pubDate, contract: 'ISO_ZONED', semantics: 'PUBLISHED' }],
+      // A null raw date is skipped by the date policy, so no presence check is needed here.
+      dates: [{ raw: item.pubDate, contract: 'ISO_ZONED', semantics: 'PUBLISHED' }],
     }
   },
   scopeOf: (config, now) => ({

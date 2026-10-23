@@ -763,3 +763,20 @@ describe('identity, shapes and optional-field defaults', () => {
     expect(o?.normalized.tags).toEqual(['P1', 'P2', 'C1'])
   })
 })
+
+describe('timezone filter shape and explicit endpoint', () => {
+  const tz = (timezone: string) => () => cfg({ endpoint: 'search', search: { timezone } })
+  it.each(['UTC-5', 'UTC+05:30', '-5', '+5:30', '+0530', '3', '12'])('accepts %s', (v) => {
+    expect(tz(v)).not.toThrow()
+  })
+  it.each(['xUTC-5', 'UTC-5x', 'UTC-', 'UTC-12345', '5:3', 'Europe/Kyiv', ''])(
+    'refuses %j',
+    (v) => {
+      expect(tz(v)).toThrow()
+    },
+  )
+  it('accepts the endpoint named explicitly, for both values', () => {
+    expect(cfg({ endpoint: 'browse' }).endpoint).toBe('browse')
+    expect(cfg({ endpoint: 'search' }).endpoint).toBe('search')
+  })
+})

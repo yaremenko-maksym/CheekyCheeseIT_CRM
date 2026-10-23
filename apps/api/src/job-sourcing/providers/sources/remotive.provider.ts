@@ -113,10 +113,8 @@ export const remotiveSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
     remote: true,
     employmentType: item.job_type,
     tags: item.tags,
-    dates:
-      item.publication_date === null
-        ? []
-        : [{ raw: item.publication_date, contract: 'ISO_ZONED', semantics: 'PUBLISHED' }],
+    // A null raw date is skipped by the date policy, so no presence check is needed here.
+    dates: [{ raw: item.publication_date, contract: 'ISO_ZONED', semantics: 'PUBLISHED' }],
   }),
   scopeOf: (config) => ({
     namespace: config.namespace,

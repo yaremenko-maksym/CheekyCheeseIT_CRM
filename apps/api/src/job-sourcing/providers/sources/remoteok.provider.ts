@@ -63,7 +63,7 @@ type Envelope = z.infer<typeof envelopeSchema>
 
 /** The legal / metadata object: has a string `legal`, and no `id` (a job always has one). */
 export function isRemoteokLegalNotice(element: unknown): boolean {
-  if (typeof element !== 'object' || element === null || Array.isArray(element)) return false
+  if (typeof element !== 'object' || element === null) return false
   const record = element as Record<string, unknown>
   return typeof record['legal'] === 'string' && !('id' in record)
 }
@@ -93,8 +93,8 @@ export const remoteokSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
     remote: true,
     tags: item.tags,
     applicationUrl: item.apply_url,
-    dates:
-      item.date === null ? [] : [{ raw: item.date, contract: 'ISO_ZONED', semantics: 'PUBLISHED' }],
+    // A null raw date is skipped by the date policy, so no presence check is needed here.
+    dates: [{ raw: item.date, contract: 'ISO_ZONED', semantics: 'PUBLISHED' }],
   }),
   scopeOf: (config) => ({
     namespace: config.namespace,

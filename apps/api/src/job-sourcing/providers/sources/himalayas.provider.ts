@@ -121,16 +121,18 @@ type SearchFilters = z.infer<typeof searchFiltersSchema>
  */
 export function canonicalSearchQuery(search: SearchFilters | undefined): string {
   const f = search ?? {}
+  // `JSON.stringify` drops undefined values, so an absent filter needs no presence check; a boolean
+  // is on only when true.
   return JSON.stringify({
-    ...(f.q !== undefined && { q: f.q }),
-    ...(f.country !== undefined && { country: f.country }),
-    ...(f.worldwide === true && { worldwide: true }),
-    ...(f.excludeWorldwide === true && { excludeWorldwide: true }),
-    ...(f.seniority !== undefined && { seniority: f.seniority }),
-    ...(f.employmentType !== undefined && { employmentType: f.employmentType }),
-    ...(f.company !== undefined && { company: f.company }),
-    ...(f.timezone !== undefined && { timezone: f.timezone }),
-    ...(f.sort !== undefined && { sort: f.sort }),
+    q: f.q,
+    country: f.country,
+    worldwide: f.worldwide === true ? true : undefined,
+    excludeWorldwide: f.excludeWorldwide === true ? true : undefined,
+    seniority: f.seniority,
+    employmentType: f.employmentType,
+    company: f.company,
+    timezone: f.timezone,
+    sort: f.sort,
   })
 }
 
@@ -144,18 +146,16 @@ const configSchema = baseSourceConfigSchema
     search: searchFiltersSchema.optional(),
   })
   .strict()
-  .superRefine((c, ctx) => {
-    const issue = (message: string) => ctx.addIssue({ code: 'custom', message })
-    if (c.query !== null) issue('search text lives in search.q, not in query')
-    if (c.window !== null) issue('Himalayas has no date window')
-    if (c.endpoint === 'browse' && c.search !== undefined)
-      issue('search filters need endpoint "search"')
-    if (c.endpoint === 'search' && c.pageSize !== undefined) {
-      issue('the search endpoint has no page size')
-    }
-    if (c.endpoint === 'search' && canonicalSearchQuery(c.search).length > SCOPE_QUERY_MAX_CHARS) {
-      issue(`the filter set is longer than ${SCOPE_QUERY_MAX_CHARS} characters as a scope`)
-    }
+  .refine((c) => c.query === null, { message: 'search text lives in search.q, not in query' })
+  .refine((c) => c.window === null, { message: 'Himalayas has no date window' })
+  .refine((c) => !(c.endpoint === 'browse' && c.search !== undefined), {
+    message: 'search filters need endpoint "search"',
+  })
+  .refine((c) => !(c.endpoint === 'search' && c.pageSize !== undefined), {
+    message: 'the search endpoint has no page size',
+  })
+  .refine((c) => canonicalSearchQuery(c.search).length <= SCOPE_QUERY_MAX_CHARS, {
+    message: `the filter set is longer than ${SCOPE_QUERY_MAX_CHARS} characters as a scope`,
   })
 type Config = z.infer<typeof configSchema>
 
@@ -205,24 +205,14 @@ function mapItem(item: Item, config: Config) {
     description: item.description,
     remote: true,
     employmentType: item.employmentType,
-    seniorityHint: seniority.length === 0 ? null : seniority.join(', '),
+    // An empty join is cleaned to null by the normalizer.
+    seniorityHint: seniority.join(', '),
     tags: [...item.parentCategories, ...item.categories],
     applicationUrl: item.applicationLink,
+    // A null raw date is skipped by the date policy, so no presence check is needed here.
     dates: [
-      ...(item.pubDate === null
-        ? []
-        : [
-            { raw: item.pubDate, contract: 'UNIX_SECONDS' as const, semantics: 'UPDATED' as const },
-          ]),
-      ...(item.expiryDate === null
-        ? []
-        : [
-            {
-              raw: item.expiryDate,
-              contract: 'UNIX_SECONDS' as const,
-              semantics: 'EXPIRY' as const,
-            },
-          ]),
+      { raw: item.pubDate, contract: 'UNIX_SECONDS' as const, semantics: 'UPDATED' as const },
+      { raw: item.expiryDate, contract: 'UNIX_SECONDS' as const, semantics: 'EXPIRY' as const },
     ],
   }
 }

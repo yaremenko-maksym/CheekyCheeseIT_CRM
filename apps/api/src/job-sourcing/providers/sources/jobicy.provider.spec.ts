@@ -91,6 +91,12 @@ describe('mapping the authentic capture', () => {
     }
   })
 
+  it('empty and blank parts of a multi-region string are dropped', async () => {
+    const j = { ...page1().jobs[0], jobGeo: 'Poland,, ,  Spain ,' }
+    const r = await run([body({ jobs: [j], nextCursor: null })])
+    expect(r.batch.observations[0]?.normalized.location).toBe('Poland, Spain')
+  })
+
   it('a contract role keeps its type; several types are joined', async () => {
     const { batch } = await run([body({ ...page2(), nextCursor: null })])
     expect(byId(batch, '155656')?.normalized.employmentType).toBe('Contract')

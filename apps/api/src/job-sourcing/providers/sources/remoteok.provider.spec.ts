@@ -455,3 +455,35 @@ describe('optional-field defaults', () => {
     }
   })
 })
+
+describe('conditional-request cache', () => {
+  const body = () => JSON.stringify(feed())
+
+  it('stores the validator under the "feed" slot', async () => {
+    const f = fakeCollectionContext({ now: NOW, responses: [{ bodyText: body(), etag: '"v1"' }] })
+    await remoteokProvider.collectReport(cfg(), f.ctx)
+    const keys = [...f.cache.keys()].map((k) => JSON.parse(k) as [string, string])
+    expect(keys).toHaveLength(1)
+    expect(keys[0]?.[0]).toBe('feed')
+    expect(f.cache.get(JSON.stringify(keys[0]))?.etag).toBe('"v1"')
+  })
+
+  it('a 304 replays the cached body: same observations, no re-download', async () => {
+    const first = fakeCollectionContext({
+      now: NOW,
+      responses: [{ bodyText: body(), etag: '"v1"' }],
+    })
+    const a = await remoteokProvider.collectReport(cfg(), first.ctx)
+    const second = fakeCollectionContext({
+      now: NOW,
+      responses: [{ status: 304, bodyText: '' }],
+      cacheSeed: Object.fromEntries(first.cache),
+    })
+    const b = await remoteokProvider.collectReport(cfg(), second.ctx)
+    expect(second.sent[0]?.headers).toMatchObject({ 'if-none-match': '"v1"' })
+    expect(b.observations.map((o) => o.identity.identityKey)).toEqual(
+      a.observations.map((o) => o.identity.identityKey),
+    )
+    expect(b.outcome).toBe('SUCCEEDED')
+  })
+})
