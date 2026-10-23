@@ -1,14 +1,20 @@
 /**
- * CR-865-L-12 / LOW (fix round 1, review 5631787486): a failed link used to render the raw
- * `error.message` — an English axios string ("Request failed with status code 403") sitting next
- * to localized copy. It now goes through `getApiErrorMessage`, which translates an API error
- * envelope BY CODE through the active catalog and falls back to localized copy otherwise.
+ * CR-865-L-12 / LOW: a failed link used to render the raw `error.message` next to localized copy.
+ *
+ * COPY-M-1 (copy review 5632646634) corrected the fix twice over. `getApiErrorMessage` falls back
+ * to a localized string only when the error has NO `message` key at all, so a ZodError from the
+ * client-side `.parse` still rendered its raw message — and `new Error('')` produced an empty
+ * string, so the alert did not render and the dialog failed SILENTLY. It now uses
+ * `getUserFacingErrorMessage`, which always returns user-facing text. (Note: axios errors were
+ * already localized before this PR — `axios.ts` sets `error.message = getUserFacingErrorMessage`
+ * on every rejection — so the raw-English-axios framing never applied to them.)
  *
  * The mutation hook is mocked because the subject here is the dialog's error wiring, not the
  * network layer: the test drives the real `onError` callback the component passes to `mutate`.
  */
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { ZodError } from 'zod'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { LinkRecordingDialog } from '../LinkRecordingDialog'
@@ -72,6 +78,55 @@ describe('LinkRecordingDialog — a failed link shows localized copy, never a ra
     await user.click(screen.getByRole('button', { name: /Прив'язати|Link/i }))
     await waitFor(() => expect(mutate).toHaveBeenCalled())
   }
+
+  it('always renders something user-facing, even for an error with an empty message', async () => {
+    await loadCatalog('uk')
+    await submitAfterSelecting()
+
+    // The silent-failure case: an empty message used to render an empty alert — i.e. nothing.
+    await failWith(new Error(''))
+
+    expect(await screen.findByText('Сталася помилка. Спробуйте ще раз.')).toBeInTheDocument()
+  })
+
+  it('shows no raw message for a client-side validation error (ZodError)', async () => {
+    await loadCatalog('uk')
+    await submitAfterSelecting()
+
+    const zodError = new ZodError([
+      {
+        code: 'invalid_type',
+        expected: 'string',
+        path: ['companyName'],
+        message: 'Expected string, received null',
+      },
+    ] as never)
+    await failWith(zodError)
+
+    expect(screen.queryByText(/Expected string, received null/)).not.toBeInTheDocument()
+    expect(await screen.findByText('Сталася помилка. Спробуйте ще раз.')).toBeInTheDocument()
+  })
+
+  it('keeps the link-specific title alongside the reason', async () => {
+    await loadCatalog('uk')
+    await submitAfterSelecting()
+
+    await failWith({
+      isAxiosError: true,
+      message: 'Не вдалося виконати запит. Спробуйте ще раз.',
+      response: { status: 500, data: '' },
+    })
+
+    // COPY-M-2: a status-level reason never mentions linking, so the existing msgid becomes the
+    // alert TITLE and the reason is the description — both visible, no new msgid.
+    expect(await screen.findByText("Не вдалося прив'язати запис")).toBeInTheDocument()
+    // The reason for a 5xx is the status-level line — which, on its own, never mentions linking.
+    expect(
+      screen.getByText(
+        'Помилка на нашій стороні. Ми вже знаємо про проблему — спробуйте трохи пізніше.',
+      ),
+    ).toBeInTheDocument()
+  })
 
   it('translates an API error envelope by code instead of printing error.message', async () => {
     await loadCatalog('uk')

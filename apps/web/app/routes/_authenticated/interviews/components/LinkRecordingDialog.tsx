@@ -16,12 +16,12 @@ import {
 } from '@/components/ui/crm-dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useLinkInterviewRecording } from '@/lib/meeting-recorder-api'
 import { STAGE_LABEL_MESSAGES } from '../constants'
 import { useBoardSeniors } from '../use-board-seniors'
-import { getApiErrorMessage } from '@/lib/axios-utils'
+import { getUserFacingErrorMessage } from '@/lib/axios-utils'
 
 type LinkRecordingDialogProps = {
   open: boolean
@@ -99,7 +99,11 @@ export function LinkRecordingDialog({
           onOpenChange(false)
         },
         onError: (error) => {
-          setMutationError(getApiErrorMessage(error, t`Не вдалося прив'язати запис`))
+          // COPY-M-1: `getApiErrorMessage` falls back to its own argument only when the error
+          // has NO `message` key, so a ZodError rendered its raw message and `new Error('')`
+          // rendered nothing at all (a silent failure). `getUserFacingErrorMessage` always
+          // returns user-facing text, and axios rejections have already been through it.
+          setMutationError(getUserFacingErrorMessage(error))
         },
       },
     )
@@ -128,6 +132,11 @@ export function LinkRecordingDialog({
         <CrmDialogBody className="space-y-4 pb-4">
           {mutationError && (
             <Alert variant="destructive">
+              {/* COPY-M-2: the reason is often a status-level line that never mentions linking,
+                  so it is the DESCRIPTION and the link-specific copy is the title. */}
+              <AlertTitle>
+                <Trans>Не вдалося прив'язати запис</Trans>
+              </AlertTitle>
               <AlertDescription>{mutationError}</AlertDescription>
             </Alert>
           )}
