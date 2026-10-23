@@ -19,6 +19,8 @@ export interface FakeResponse {
   bodyText?: string
   etag?: string | null
   headers?: Record<string, string>
+  /** The fetch REJECTS with this instead of answering (a network failure). */
+  throws?: unknown
 }
 
 export interface FakeContext {
@@ -51,6 +53,7 @@ export function fakeCollectionContext(opts: {
       const response = opts.responses[fetches]
       fetches += 1
       if (response === undefined) throw new Error(`no fake response for fetch ${fetches}`)
+      if (response.throws !== undefined) throw response.throws
       return {
         status: response.status ?? 200,
         bodyText: response.bodyText ?? '',
