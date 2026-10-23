@@ -4617,3 +4617,30 @@ entry instead of a finding.
 
 **Check on closing:** a quadratic scan with a 64-character step is caught by something, and a failing
 `timing_specs` job reaches a human within a day without anybody thinking to look.
+
+## 307. A posting whose employer is withheld at the source has nowhere to live (2026-10-24)
+
+**Open.** Found while reviewing the RSS adapters of r5 Task 3.6; it is the reason two of the three
+sources yield nothing.
+
+An observation with no employer is quarantined `MISSING_COMPANY`, a rule introduced with the shared
+observation identity seam. That rule reads every empty employer as a defect. **Djinni's feed carries
+no employer field at all** — the site withholds it until a candidate applies — so a correct adapter
+over a healthy feed produces zero stored rows, and the source is worthless rather than partial.
+
+"Withheld at the source" is a third value, distinct from "present" and from "we failed to parse it",
+and the ingestion contract cannot express it. Settle, before writing code: what deduplication does
+when one of two sources naming the same posting discloses the employer; what a per-senior company
+exclusion means against an unknown employer, since an excluded company can arrive anonymously; and
+whether an anonymous posting is worth a SENIOR's attention at all. The last is the owner's call.
+
+**Second, separate requirement, same area:** the shared feed reader exposes only the common
+RSS/Atom fields, so a feed's namespaced extension elements are parsed but unreachable by an adapter.
+EU Remote Jobs' employer IS in its feed, as `job_listing:company`, and is lost to this; We Work
+Remotely's region, country, type, skills and expiry are lost to the same gap, which is why the
+enrichment item of that task shipped undone. An extension slot stays untrusted input: the port's
+existing bounds on element count, depth and value length apply to it unchanged.
+
+**Check on closing:** a Djinni-shaped item that is quarantined today produces a stored posting whose
+employer is explicitly unknown; an EU Remote Jobs item produces an employer read from its namespaced
+element; and no new bound ships with only a refusal-side test.
