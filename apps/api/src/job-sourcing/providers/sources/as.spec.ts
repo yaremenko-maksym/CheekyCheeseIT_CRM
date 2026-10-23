@@ -6,7 +6,9 @@ import {
   DATE_RAW_MAX_CHARS,
   dateRaw,
   optionalBoundedNumber,
+  optionalStringArray,
   optionalString,
+  slugString,
   optionalUrlString,
   positiveSafeInt,
   urlString,
@@ -92,7 +94,7 @@ describe('positiveSafeInt', () => {
     expect(positiveSafeInt().parse(1)).toBe(1)
     expect(positiveSafeInt().parse(9007199254740991)).toBe(9007199254740991)
   })
-  it('refuses 0, a fraction and 2^53', () => {
+  it('refuses 0, a fraction and 2^53 (the safe-integer ceiling is carried by .int(), not by a .max)', () => {
     expect(positiveSafeInt().safeParse(0).success).toBe(false)
     expect(positiveSafeInt().safeParse(1.5).success).toBe(false)
     expect(positiveSafeInt().safeParse(9007199254740992).success).toBe(false)
@@ -132,5 +134,54 @@ describe('boundedStringArray', () => {
   })
   it('refuses a non-string element', () => {
     expect(boundedStringArray(3, 4).safeParse(['a', 1]).success).toBe(false)
+  })
+})
+
+describe('slugString', () => {
+  it('accepts simple and hyphenated slugs', () => {
+    for (const ok of ['a', 'data-science', 'x1-y2', '9']) expect(slugString(50).parse(ok)).toBe(ok)
+  })
+  it('accepts exactly max chars and refuses one more', () => {
+    expect(slugString(5).parse('abcde')).toBe('abcde')
+    expect(slugString(5).safeParse('abcdef').success).toBe(false)
+  })
+  it.each([
+    [''],
+    ['A'],
+    ['a--b'],
+    ['-a'],
+    ['a-'],
+    ['a b'],
+    ['a&b=1'],
+    ['a,b'],
+    ['../x'],
+    ['a/b'],
+    ['a_b'],
+    ['\na'],
+    ['a\n'],
+    ['a.b'],
+  ])('refuses %j', (bad) => {
+    expect(slugString(50).safeParse(bad).success).toBe(false)
+  })
+  it('refuses a non-string', () => {
+    expect(slugString(50).safeParse(5).success).toBe(false)
+  })
+})
+
+describe('optionalStringArray', () => {
+  it('maps absent and null to an empty array', () => {
+    expect(optionalStringArray(2, 3).parse(undefined)).toEqual([])
+    expect(optionalStringArray(2, 3).parse(null)).toEqual([])
+  })
+  it('keeps a present array, at the item and char limits', () => {
+    expect(optionalStringArray(2, 3).parse(['abc', 'd'])).toEqual(['abc', 'd'])
+    expect(optionalStringArray(2, 3).parse([])).toEqual([])
+  })
+  it('refuses one item too many and one char too many', () => {
+    expect(optionalStringArray(2, 3).safeParse(['a', 'b', 'c']).success).toBe(false)
+    expect(optionalStringArray(2, 3).safeParse(['abcd']).success).toBe(false)
+  })
+  it('refuses a non-array', () => {
+    expect(optionalStringArray(2, 3).safeParse('abc').success).toBe(false)
   })
 })

@@ -9,10 +9,11 @@ import {
 } from '../api-json.provider'
 import {
   boundedString,
-  boundedStringArray,
+  optionalStringArray,
   dateRaw,
   optionalString,
   positiveSafeInt,
+  slugString,
   urlString,
 } from './as'
 
@@ -47,15 +48,14 @@ export const JOBICY_PUBLICATION_DELAY_MS = 3 * HOUR_MS
 export const JOBICY_CURSOR_TRUSTED_MS = 23 * HOUR_MS
 export const JOBICY_MAX_COUNT = 200
 export const JOBICY_MAX_PAGES_CEILING = 10
-const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 const configSchema = baseSourceConfigSchema
   .extend({
     namespace: z.literal(JOBICY_NAMESPACE).default(JOBICY_NAMESPACE),
     count: z.number().int().min(1).max(JOBICY_MAX_COUNT).default(100),
     maxPages: z.number().int().min(1).max(JOBICY_MAX_PAGES_CEILING).default(5),
-    industry: z.string().min(1).max(50).regex(SLUG).optional(),
-    geo: z.string().min(1).max(50).regex(SLUG).optional(),
+    industry: slugString(50).optional(),
+    geo: slugString(50).optional(),
     tag: z.string().min(1).max(100).optional(),
   })
   .strict()
@@ -69,12 +69,8 @@ const itemSchema = z.object({
   jobTitle: boundedString(ORIGINAL_LIMITS.title),
   /** Documented as possibly empty: an empty one is quarantined by the observation builder. */
   companyName: boundedString(ORIGINAL_LIMITS.companyName),
-  jobIndustry: boundedStringArray(ORIGINAL_LIMITS.tags, ORIGINAL_LIMITS.tag)
-    .nullish()
-    .transform((v) => v ?? []),
-  jobType: boundedStringArray(20, 50)
-    .nullish()
-    .transform((v) => v ?? []),
+  jobIndustry: optionalStringArray(ORIGINAL_LIMITS.tags, ORIGINAL_LIMITS.tag),
+  jobType: optionalStringArray(20, 50),
   jobGeo: optionalString(ORIGINAL_LIMITS.location),
   jobLevel: optionalString(100),
   jobDescription: optionalString(ORIGINAL_LIMITS.description),
@@ -105,13 +101,14 @@ function packCursor(startedAtMs: number, providerCursor: string): string {
 }
 
 function unpackCursor(cursor: string): { startedAtMs: number; providerCursor: string } | null {
-  const m = /^v1\.(\d{1,15})\.(.+)$/s.exec(cursor)
+  const m = /^v1\.(\d+)\.(.+)/s.exec(cursor)
   return m === null ? null : { startedAtMs: Number(m[1]), providerCursor: String(m[2]) }
 }
 
 /** The provider cursor to send (or none) and when this traversal started. */
 function traversalOf(at: PageTarget): { startedAtMs: number; providerCursor: string | null } {
   const clock = clockOf(at)
+  // Stryker disable next-line all: the null guard only narrows the type; unpackCursor of a null cursor (coerced to the text "null") never matches, so every mutant of this line is equivalent.
   const stored = at.cursor === null ? null : unpackCursor(at.cursor)
   if (
     stored !== null &&
@@ -175,7 +172,6 @@ export const jobicySpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
       : packCursor(traversalOf(at).startedAtMs, envelope.nextCursor),
   nativeIdOf: (item) => String(item.id),
   mapItem: (item, config) => {
-    const employmentType = item.jobType.join(', ')
     return {
       namespace: config.namespace,
       nativeId: String(item.id),
@@ -184,9 +180,9 @@ export const jobicySpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
       companyName: item.companyName,
       location: geoText(item.jobGeo),
       description: item.jobDescription,
-      descriptionKind: 'html',
       remote: true,
-      employmentType: employmentType === '' ? null : employmentType,
+      // An empty join is cleaned to null by the normalizer.
+      employmentType: item.jobType.join(', '),
       seniorityHint: levelHint(item.jobLevel),
       tags: item.jobIndustry,
       applicationUrl: item.url,

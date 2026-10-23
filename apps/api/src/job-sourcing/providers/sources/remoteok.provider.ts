@@ -7,7 +7,7 @@ import {
 } from '../api-json.provider'
 import {
   boundedString,
-  boundedStringArray,
+  optionalStringArray,
   dateRaw,
   optionalString,
   optionalUrlString,
@@ -53,9 +53,7 @@ const itemSchema = z.object({
   company: boundedString(ORIGINAL_LIMITS.companyName),
   location: optionalString(ORIGINAL_LIMITS.location),
   description: optionalString(ORIGINAL_LIMITS.description),
-  tags: boundedStringArray(ORIGINAL_LIMITS.tags, ORIGINAL_LIMITS.tag)
-    .nullish()
-    .transform((v) => v ?? []),
+  tags: optionalStringArray(ORIGINAL_LIMITS.tags, ORIGINAL_LIMITS.tag),
   date: dateRaw(),
 })
 type Item = z.infer<typeof itemSchema>
@@ -91,7 +89,6 @@ export const remoteokSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
     companyName: item.company,
     location: item.location,
     description: item.description,
-    descriptionKind: 'html',
     // A remote-only board: every posting is remote by the site's definition.
     remote: true,
     tags: item.tags,

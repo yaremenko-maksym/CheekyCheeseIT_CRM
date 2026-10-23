@@ -8,7 +8,8 @@ import {
 } from '../api-json.provider'
 import {
   boundedString,
-  boundedStringArray,
+  optionalStringArray,
+  slugString,
   dateRaw,
   optionalString,
   optionalUrlString,
@@ -83,7 +84,6 @@ const SORTS = [
   'nameZToA',
   'jobs',
 ] as const
-const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 /** `UTC-5`, `UTC+05:30`, `-5`, `+5:30`, `3`. */
 const TIMEZONE = /^(?:UTC)?[+-]?\d{1,2}(?::?\d{2})?$/
 
@@ -103,7 +103,7 @@ const searchFiltersSchema = z
       .min(1)
       .max(HIMALAYAS_EMPLOYMENT_TYPES.length)
       .optional(),
-    company: z.array(z.string().max(100).regex(SLUG)).min(1).max(10).optional(),
+    company: z.array(slugString(100)).min(1).max(10).optional(),
     timezone: z.string().max(20).regex(TIMEZONE).optional(),
     sort: z.enum(SORTS).optional(),
   })
@@ -163,17 +163,11 @@ const itemSchema = z.object({
   title: boundedString(ORIGINAL_LIMITS.title),
   companyName: boundedString(ORIGINAL_LIMITS.companyName),
   employmentType: optionalString(100),
-  seniority: boundedStringArray(20, 50)
-    .nullish()
-    .transform((v) => v ?? []),
+  seniority: optionalStringArray(20, 50),
   /** `undefined`/`null` = unknown geography; `[]` = open worldwide (documented). */
   locationRestrictions: z.array(locationEntrySchema).max(300).nullish(),
-  categories: boundedStringArray(ORIGINAL_LIMITS.tags, ORIGINAL_LIMITS.tag)
-    .nullish()
-    .transform((v) => v ?? []),
-  parentCategories: boundedStringArray(ORIGINAL_LIMITS.tags, ORIGINAL_LIMITS.tag)
-    .nullish()
-    .transform((v) => v ?? []),
+  categories: optionalStringArray(ORIGINAL_LIMITS.tags, ORIGINAL_LIMITS.tag),
+  parentCategories: optionalStringArray(ORIGINAL_LIMITS.tags, ORIGINAL_LIMITS.tag),
   description: optionalString(ORIGINAL_LIMITS.description),
   pubDate: dateRaw(),
   expiryDate: dateRaw(),
@@ -205,7 +199,6 @@ function mapItem(item: Item, config: Config) {
     companyName: item.companyName,
     location: locationText(item.locationRestrictions),
     description: item.description,
-    descriptionKind: 'html' as const,
     remote: true,
     employmentType: item.employmentType,
     seniorityHint: seniority.length === 0 ? null : seniority.join(', '),
@@ -294,10 +287,8 @@ export const himalayasProvider = definePagedProvider(himalayasBrowseSpec, (confi
       ...(config.endpoint === 'search' ? himalayasSearchSpec : himalayasBrowseSpec),
       limits: {
         maxPages: config.maxPages,
-        maxItemsPerPage:
-          config.endpoint === 'browse'
-            ? (config.pageSize ?? HIMALAYAS_MAX_PAGE_SIZE)
-            : HIMALAYAS_MAX_PAGE_SIZE,
+        // Search forbids `pageSize` in config, so this is 20 there and the chosen size on browse.
+        maxItemsPerPage: config.pageSize ?? HIMALAYAS_MAX_PAGE_SIZE,
       },
     },
     config,

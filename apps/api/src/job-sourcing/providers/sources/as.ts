@@ -35,7 +35,12 @@ export const optionalBoundedNumber = (min: number, max: number) =>
     .nullish()
     .transform((v) => v ?? null)
 
-export const positiveSafeInt = () => z.number().int().min(1).max(Number.MAX_SAFE_INTEGER)
+/**
+ * A provider-issued numeric id. The safe-integer ceiling is carried by `.int()` itself (Zod v4
+ * refuses integers past 2^53 - 1), so there is deliberately no `.max` here: it would be an
+ * unreachable bound whose test could not fail for the reason it names.
+ */
+export const positiveSafeInt = () => z.number().int().min(1)
 
 /** A date as the wire carries it; the date policy decides what it means. */
 export const dateRaw = () =>
@@ -46,3 +51,14 @@ export const dateRaw = () =>
 
 export const boundedStringArray = (maxItems: number, maxChars: number) =>
   z.array(z.string().max(maxChars)).max(maxItems)
+
+/** A lowercase URL/filter slug: `a`, `data-science`, `x1-y2`. No separators, escapes or edge hyphens. */
+export const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+
+export const slugString = (max: number) => z.string().min(1).max(max).regex(SLUG_PATTERN)
+
+/** Like `boundedStringArray`, but an absent or null array is an empty one. */
+export const optionalStringArray = (maxItems: number, maxChars: number) =>
+  boundedStringArray(maxItems, maxChars)
+    .nullish()
+    .transform((v) => v ?? [])

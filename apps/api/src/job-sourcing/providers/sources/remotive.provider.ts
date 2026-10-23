@@ -7,10 +7,11 @@ import {
 } from '../api-json.provider'
 import {
   boundedString,
-  boundedStringArray,
+  optionalStringArray,
   dateRaw,
   optionalString,
   positiveSafeInt,
+  slugString,
   urlString,
 } from './as'
 
@@ -39,11 +40,7 @@ export const REMOTIVE_CATEGORY_MAX_CHARS = 50
 const configSchema = baseSourceConfigSchema
   .extend({
     namespace: z.literal(REMOTIVE_NAMESPACE).default(REMOTIVE_NAMESPACE),
-    category: z
-      .string()
-      .min(1)
-      .max(REMOTIVE_CATEGORY_MAX_CHARS)
-      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'a lowercase slug'),
+    category: slugString(REMOTIVE_CATEGORY_MAX_CHARS),
   })
   .strict()
   .refine((c) => c.query === null, {
@@ -60,9 +57,7 @@ const itemSchema = z.object({
   job_type: optionalString(100),
   candidate_required_location: optionalString(ORIGINAL_LIMITS.location),
   description: optionalString(ORIGINAL_LIMITS.description),
-  tags: boundedStringArray(ORIGINAL_LIMITS.tags, ORIGINAL_LIMITS.tag)
-    .nullish()
-    .transform((v) => v ?? []),
+  tags: optionalStringArray(ORIGINAL_LIMITS.tags, ORIGINAL_LIMITS.tag),
   publication_date: dateRaw(),
 })
 type Item = z.infer<typeof itemSchema>
@@ -96,7 +91,6 @@ export const remotiveSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
     companyName: item.company_name,
     location: item.candidate_required_location,
     description: item.description,
-    descriptionKind: 'html',
     remote: true,
     employmentType: item.job_type,
     tags: item.tags,
@@ -111,7 +105,7 @@ export const remotiveSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
     configVersion: config.configVersion,
     window: null,
   }),
-  limits: { maxPages: 1 },
+  // No `limits`: one request, `nextCursor` is always null, so the default page bound is never reached.
 }
 
 export const remotiveProvider = defineApiJsonProvider(remotiveSpec)
