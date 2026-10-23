@@ -9,6 +9,7 @@ import { and, eq, inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
+import { salaryPartsResponseSchema } from '@crm/shared'
 
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { ROLES_KEY } from '../common/decorators/roles.decorator'
@@ -486,6 +487,63 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(res.statusCode).toBe(200)
     })
 
+    // ── GET /salary-parts (SR-795-M-1, owner decision D-3) ─────────────────
+    //
+    // The read the create dialog makes before an operator submits. Half of why
+    // the double-salary defect was reachable is that nothing told them a part
+    // for this person and month already existed.
+    it('RBAC parts: SENIOR → 403', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/finance/salary-parts?receiverId=${HR_COVERED.id}&month=${TARGET_MONTH}`,
+        cookies: { jwt: tokenFor(SENIOR) },
+      })
+      expect(res.statusCode).toBe(403)
+    })
+
+    it('RBAC parts: ACCOUNTANT → 200 (the pair that may create a salary may also look)', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/finance/salary-parts?receiverId=${HR_COVERED.id}&month=${TARGET_MONTH}`,
+        cookies: { jwt: tokenFor(ACCOUNTANT) },
+      })
+      expect(res.statusCode).toBe(200)
+    })
+
+    it('lists the live part for that receiver/month and hides a soft-deleted one', async () => {
+      const covered = await app.inject({
+        method: 'GET',
+        url: `/api/finance/salary-parts?receiverId=${HR_COVERED.id}&month=${TARGET_MONTH}`,
+        cookies: { jwt: tokenFor(ADMIN) },
+      })
+      expect(covered.statusCode).toBe(200)
+      const body = salaryPartsResponseSchema.parse(covered.json())
+      expect(body).toMatchObject({ receiverId: HR_COVERED.id, month: TARGET_MONTH })
+      expect(body.parts).toHaveLength(1)
+      expect(body.parts[0]).toMatchObject({ amount: 1600, currency: 'USD', status: 'PENDING' })
+      // The seeded row predates salary_origin, i.e. a legacy row: NULL, which
+      // the UI reads as automatic — the same way every server predicate does.
+      expect(body.parts[0]!.salaryOrigin).toBeNull()
+
+      // HR_SOFT_DELETED's part exists in the raw table and is deleted. A deleted
+      // part is not an obligation and must not be shown as one.
+      const deleted = await app.inject({
+        method: 'GET',
+        url: `/api/finance/salary-parts?receiverId=${HR_SOFT_DELETED.id}&month=${TARGET_MONTH}`,
+        cookies: { jwt: tokenFor(ADMIN) },
+      })
+      expect(salaryPartsResponseSchema.parse(deleted.json()).parts).toEqual([])
+    })
+
+    it('rejects a malformed month before reading anything', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/finance/salary-parts?receiverId=${HR_COVERED.id}&month=2026-13`,
+        cookies: { jwt: tokenFor(ADMIN) },
+      })
+      expect(res.statusCode).toBe(400)
+    })
+
     // ── RBAC: backfill (ADMIN only — narrower than the report) ─────────────
     it('RBAC backfill: ACCOUNTANT → 403 (can see the gap, cannot close it)', async () => {
       const res = await app.inject({
@@ -690,6 +748,14 @@ describe('salary-month-gap — SHIPPING route carries the RBAC gate (production 
     const roles = reflector.get<string[]>(
       ROLES_KEY,
       FinanceSummaryController.prototype.getSalaryMonthGap,
+    )
+    expect(roles).toEqual(['ADMIN', 'ACCOUNTANT'])
+  })
+
+  it('getSalaryParts handler ships @Roles(ADMIN, ACCOUNTANT) — SR-795-M-1', () => {
+    const roles = reflector.get<string[]>(
+      ROLES_KEY,
+      FinanceSummaryController.prototype.getSalaryParts,
     )
     expect(roles).toEqual(['ADMIN', 'ACCOUNTANT'])
   })

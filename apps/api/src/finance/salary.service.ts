@@ -1,16 +1,23 @@
 import { HttpStatus, Injectable } from '@nestjs/common'
-import { and, eq, inArray, isNotNull, isNull, notExists, or } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNotNull, isNull, notExists, or } from 'drizzle-orm'
 // QueryBuilder assembles SQL without a client — used by
 // `salaryReceiverNotArchivedFilter` to build a correlated sub-select that some
 // OTHER statement executes. See that method for why it must not go through `db`.
 import { QueryBuilder } from 'drizzle-orm/pg-core'
-import type { SessionUser, SalaryMonthGapReportDto, SalaryMonthGapReceiverDto } from '@crm/shared'
+import type {
+  SessionUser,
+  SalaryMonthGapReportDto,
+  SalaryMonthGapReceiverDto,
+  SalaryPartsQuery,
+  SalaryPartsResponseDto,
+} from '@crm/shared'
 import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
 import {
   projectFinanceSettings,
   projectMembers,
   projects,
+  nonDeletedTransactions,
   salaryMonthInitializations,
   transactions,
   users,
@@ -399,6 +406,73 @@ export class SalaryService {
     return {
       month,
       missing: expected.filter((r) => !existingReceiverIds.has(r.userId)),
+    }
+  }
+
+  /**
+   * GET /api/finance/salary-parts — ADMIN + ACCOUNTANT only (the pair that may
+   * create a salary). SR-795-M-1 / owner decision D-3, second half: the create
+   * dialog shows what is already on the ledger for this receiver and month
+   * BEFORE the operator submits.
+   *
+   * It is the answer to the thing the measured defect relied on: nothing in the
+   * UI or the API ever mentioned that another part for the same person and month
+   * existed, so an operator who hit the 409 and reopened the dialog — which
+   * mints a fresh idempotency key — produced a second and a third row without
+   * ever being shown the first.
+   *
+   * Reads the non-deleted view: a deleted part is not an obligation and must not
+   * be presented as one. Ordered oldest-first, the same order the legacy
+   * single-part projection uses (SR-795-L-3), so the list reads as a history.
+   */
+  async getSalaryParts(
+    currentUser: SessionUser,
+    query: SalaryPartsQuery,
+  ): Promise<SalaryPartsResponseDto> {
+    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
+      throw apiError('FINANCE_SALARY_MONTH_GAP_FORBIDDEN', HttpStatus.FORBIDDEN)
+    }
+
+    const rows = await this.db.db
+      .select({
+        id: nonDeletedTransactions.id,
+        amount: nonDeletedTransactions.amount,
+        currency: nonDeletedTransactions.currency,
+        status: nonDeletedTransactions.status,
+        salaryOrigin: nonDeletedTransactions.salaryOrigin,
+        txDate: nonDeletedTransactions.txDate,
+        notes: nonDeletedTransactions.notes,
+      })
+      .from(nonDeletedTransactions)
+      .where(
+        and(
+          eq(nonDeletedTransactions.type, 'SALARY'),
+          eq(nonDeletedTransactions.receiverId, query.receiverId),
+          eq(nonDeletedTransactions.salaryMonth, query.month),
+        ),
+      )
+      .orderBy(asc(nonDeletedTransactions.createdAt), asc(nonDeletedTransactions.id))
+
+    return {
+      receiverId: query.receiverId,
+      month: query.month,
+      parts: rows
+        // A SALARY row can also be CANCELLED/REJECTED; only the three states the
+        // DTO names are obligations an operator should weigh against a new part.
+        .filter(
+          (row) => row.status === 'PENDING' || row.status === 'PAID' || row.status === 'LOCKED',
+        )
+        .map((row) => ({
+          id: row.id,
+          amount: Number(row.amount),
+          currency: row.currency,
+          status: row.status as 'PENDING' | 'PAID' | 'LOCKED',
+          salaryOrigin: row.salaryOrigin ?? null,
+          // Same wire shape `mapTx` gives `txDate` everywhere else: an ISO
+          // string, never a Date instance.
+          txDate: row.txDate ? row.txDate.toISOString() : null,
+          notes: row.notes ?? null,
+        })),
     }
   }
 

@@ -75,6 +75,9 @@ export {
   salaryMonthGapReceiverSchema,
   salaryMonthGapReportSchema,
   salaryMonthBackfillSchema,
+  salaryPartsQuerySchema,
+  salaryPartSchema,
+  salaryPartsResponseSchema,
 } from './finance/income'
 export type {
   CreateAdminIncomeDto,
@@ -95,6 +98,9 @@ export type {
   SalaryMonthGapReceiverDto,
   SalaryMonthGapReportDto,
   SalaryMonthBackfillDto,
+  SalaryPartsQuery,
+  SalaryPartDto,
+  SalaryPartsResponseDto,
 } from './finance/income'
 export {
   createPayoutRequestSchema,

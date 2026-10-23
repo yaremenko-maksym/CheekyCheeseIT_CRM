@@ -11,6 +11,8 @@ import type {
   ManualPayoutMethod,
   TransactionAuditLogEntryDto,
   SalaryMonthGapReportDto,
+  SalaryPartsQuery,
+  SalaryPartsResponseDto,
   CascadeEditPreviewResponse,
 } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
@@ -674,6 +676,18 @@ export class TransactionsService {
     month?: string,
   ): Promise<SalaryMonthGapReportDto> {
     return this.salaryService.getSalaryMonthGapReport(currentUser, month)
+  }
+
+  /**
+   * GET /api/finance/salary-parts — thin delegate; the ADMIN + ACCOUNTANT RBAC
+   * guard lives WITH the body in `SalaryService.getSalaryParts` (SR-795-M-1,
+   * owner decision D-3).
+   */
+  getSalaryParts(
+    currentUser: SessionUser,
+    query: SalaryPartsQuery,
+  ): Promise<SalaryPartsResponseDto> {
+    return this.salaryService.getSalaryParts(currentUser, query)
   }
 
   /** POST /api/finance/salary-month-backfill — delegates to SalaryPaymentService. */
