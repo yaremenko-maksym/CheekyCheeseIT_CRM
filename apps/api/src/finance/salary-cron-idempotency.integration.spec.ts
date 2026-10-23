@@ -269,7 +269,7 @@ describe.skipIf(!hasDatabaseUrl())(
       await cleanup()
     })
 
-    it('manual createSalary allows multiple parts without claiming cron initialization', async () => {
+    it('manual createSalary allows multiple parts; the FIRST one claims the month (SR-795-M-1)', async () => {
       await svc.createSalary(
         {
           receiverId: HR_EMP_ID,
@@ -292,7 +292,10 @@ describe.skipIf(!hasDatabaseUrl())(
       )
 
       expect(await countSalaries(HR_EMP_ID)).toBe(2)
-      expect(await countInitializations(HR_EMP_ID)).toBe(0)
+      // Owner decision D-3: one marker for the month, claimed by the first
+      // part. The second part finds it taken and is recorded anyway — several
+      // parts per employee/month is the whole point of the feature.
+      expect(await countInitializations(HR_EMP_ID)).toBe(1)
     }, 30_000)
 
     it('manual createSalary replays the same idempotency key without creating a duplicate', async () => {
@@ -310,7 +313,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
       expect(replay.id).toBe(first.id)
       expect(await countSalaries(HR_EMP_ID)).toBe(1)
-      expect(await countInitializations(HR_EMP_ID)).toBe(0)
+      expect(await countInitializations(HR_EMP_ID)).toBe(1)
     }, 30_000)
 
     it('concurrent manual retries with one idempotency key create exactly one salary part', async () => {
@@ -347,7 +350,15 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(await countSalaries(HR_EMP_ID)).toBe(2)
     }, 30_000)
 
-    it('manual part first, then cron keeps it and adds exactly one automatic part', async () => {
+    // SR-795-M-1, the headline case, on a real database. This spec previously
+    // asserted the DEFECT as the contract: a manual part followed by cron left
+    // TWO payable salaries for one person and one month (111 EUR by hand plus
+    // 1500 USD from the cron), each payable on its own through paySalary, with
+    // nothing anywhere saying the other existed. Manual QA reproduced the
+    // double payment on a real stack. Owner decision D-3: the manual part owns
+    // the month, so cron skips it — the operator's own figure stands, and the
+    // ledger carries exactly what was intended.
+    it('manual part first → cron adds NOTHING for that month (SR-795-M-1)', async () => {
       await svc.createSalary(
         {
           receiverId: HR_EMP_ID,
@@ -360,6 +371,10 @@ describe.skipIf(!hasDatabaseUrl())(
       )
 
       await svc.createMonthlySalaries(MONTH)
+      // Backfill re-invokes the cron for the same month and is the other half of
+      // the measured defect: an ADMIN pressing it was enough to mint the second
+      // salary. It must be just as inert.
+      await svc.backfillSalaryMonth(ADMIN_ACTOR, MONTH)
 
       const rows = await dbSvc.db.query.transactions.findMany({
         where: and(
@@ -368,20 +383,91 @@ describe.skipIf(!hasDatabaseUrl())(
           eq(transactions.salaryMonth, MONTH),
         ),
       })
-      expect(rows).toHaveLength(2)
-      expect(
-        rows.some(
-          (row) =>
-            Number(row.amount) === 111 && row.currency === 'EUR' && row.salaryOrigin === 'MANUAL',
-        ),
-      ).toBe(true)
-      expect(
-        rows.some(
-          (row) =>
-            Number(row.amount) === 1500 && row.currency === 'USD' && row.salaryOrigin === 'CRON',
-        ),
-      ).toBe(true)
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toMatchObject({
+        salaryOrigin: 'MANUAL',
+        currency: 'EUR',
+        status: 'PENDING',
+      })
+      expect(Number(rows[0]!.amount)).toBe(111)
+      // Total payable for the month is the 111 EUR that was entered — not that
+      // plus an automatic 1500 USD nobody asked for.
+      expect(rows.reduce((sum, row) => sum + Number(row.amount), 0)).toBe(111)
       expect(await countInitializations(HR_EMP_ID)).toBe(1)
+    }, 30_000)
+
+    // The other direction is unchanged and stays legal: once cron owns the
+    // month, an operator may still record extra parts (that is the feature).
+    it('the gap report stops advertising a month a manual part already covers', async () => {
+      const before = await svc.getSalaryMonthGapReport(ADMIN_ACTOR, MONTH)
+      expect(before.missing.map((r) => r.userId)).toContain(HR_EMP_ID)
+
+      await svc.createSalary(
+        {
+          receiverId: HR_EMP_ID,
+          amount: 111,
+          currency: 'EUR',
+          salaryMonth: MONTH,
+          idempotencyKey: randomUUID(),
+        },
+        ADMIN_ACTOR,
+      )
+
+      const after = await svc.getSalaryMonthGapReport(ADMIN_ACTOR, MONTH)
+      expect(after.missing.map((r) => r.userId)).not.toContain(HR_EMP_ID)
+    }, 30_000)
+
+    // SR-795-L-2 on a real database: the idempotency index has no deleted_at
+    // term, so the key survives the delete. What must not survive is the
+    // wrong-success — a 200 naming a row every read path hides.
+    it('a replay whose part was deleted is refused, not answered with the deleted id', async () => {
+      const idempotencyKey = randomUUID()
+      const payload = {
+        receiverId: HR_EMP_ID,
+        amount: 500,
+        currency: 'USD' as const,
+        salaryMonth: MONTH,
+        idempotencyKey,
+      }
+      const created = await svc.createSalary(payload, ADMIN_ACTOR)
+      await dbSvc.db
+        .update(transactions)
+        .set({ deletedAt: new Date() })
+        .where(eq(transactions.id, created.id))
+
+      await expect(svc.createSalary(payload, ADMIN_ACTOR)).rejects.toMatchObject({
+        response: {
+          code: 'FINANCE_SALARY_IDEMPOTENCY_CONFLICT',
+          reason: 'DELETED_PART',
+          existingTransactionId: created.id,
+        },
+      })
+      // And nothing new was written behind the refusal: the deleted part is
+      // still the only row for that receiver/month (countSalaries reads the raw
+      // table, so it sees the soft-deleted row).
+      expect(await countSalaries(HR_EMP_ID)).toBe(1)
+    }, 30_000)
+
+    // SR-795-L-3 on a real database: the TS union is not what refuses this —
+    // the CHECK is. A typo stored here would fall out of BOTH the
+    // automatic-component and the month-accounting predicates at once.
+    it('DB refuses a salary_origin outside the shared domain', async () => {
+      await expect(
+        dbSvc.db.insert(transactions).values({
+          type: 'SALARY',
+          status: 'PENDING',
+          amount: '500',
+          currency: 'USD',
+          senderLabel: 'CheekyCheeseIT',
+          receiverId: HR_EMP_ID,
+          salaryMonth: MONTH,
+          salaryOrigin: 'Manual' as never,
+          idempotencyKey: randomUUID(),
+          createdBy: MAKSYM_ID,
+        }),
+      ).rejects.toMatchObject({
+        cause: { code: '23514', constraint: 'ck_transactions_salary_origin_domain' },
+      })
     }, 30_000)
 
     it('DB rejects a keyless MANUAL salary while legacy/CRON keyless rows remain valid', async () => {
@@ -464,7 +550,10 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(await countSalaries(ACCT_ID)).toBe(1)
     }, 30_000)
 
-    it('manual part plus concurrent cron runs still creates exactly one automatic part', async () => {
+    // D-3: the manual part owns the month, so however many cron runs race for
+    // it, none of them adds a row. The marker's unique claim is what serialises
+    // them, exactly as it does between two cron runs.
+    it('manual part plus concurrent cron runs leaves only the manual part', async () => {
       await svc.createSalary(
         {
           receiverId: HR_EMP_ID,
@@ -482,7 +571,7 @@ describe.skipIf(!hasDatabaseUrl())(
         svc.createMonthlySalaries(MONTH),
       ])
 
-      expect(await countSalaries(HR_EMP_ID)).toBe(2)
+      expect(await countSalaries(HR_EMP_ID)).toBe(1)
       expect(await countInitializations(HR_EMP_ID)).toBe(1)
     }, 30_000)
 
