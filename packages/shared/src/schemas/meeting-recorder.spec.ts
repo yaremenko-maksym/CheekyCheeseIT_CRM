@@ -758,6 +758,37 @@ describe('meeting recorder schema boundaries', () => {
     },
   )
 
+  /**
+   * Mutation gate: the boundary guard `code >= 0xd800 && code <= 0xdbff` had NO test on its
+   * range EDGES, so `>= -> >`, `<= -> <` and `<= -> true` all survived. These three cases pin
+   * each edge: the exact low end (U+10000 starts with 0xD800), the exact high end (U+10FFFF
+   * starts with 0xDBFF), and a boundary that IS a surrogate but a LOW one — where the pair is
+   * already intact and the guard must NOT step back.
+   */
+  it.each([
+    // [label, astral char, offset of its FIRST unit from the cut boundary, survives whole?]
+    ['the exact low edge 0xD800 (U+10000)', '\u{10000}', 0, false],
+    ['the exact high edge 0xDBFF (U+10FFFF)', '\u{10FFFF}', 0, false],
+    // The pair sits fully inside the kept region, so it must survive whole — a guard that
+    // decremented on a LOW surrogate would needlessly split an intact pair.
+    ['a LOW surrogate boundary — a complete pair just inside the cut', '\u{10000}', -1, true],
+  ] as const)('keeps truncation storable at %s', (_label, astral, offset, survivesWhole) => {
+    const max = MEETING_RECORDER_TITLE_MAX_CHARS
+    // The kept region is [0, max - 2]; `offset` slides the pair across that last index.
+    const lead = 'a'.repeat(max - 2 + offset)
+    const title = `${lead}${astral}${'b'.repeat(max)}`
+
+    const parsed = meetingRecorderRecordingInputSchema.safeParse({ ...BASE_RECORDING, title })
+
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) return
+    // Both properties together are the point: storable AND within the cap.
+    expect(LONE_SURROGATE.test(parsed.data.title)).toBe(false)
+    expect(parsed.data.title.length).toBeLessThanOrEqual(max)
+    expect(parsed.data.title.endsWith('…')).toBe(true)
+    expect(parsed.data.title.includes(astral)).toBe(survivesWhole)
+  })
+
   it('ingests a whole event whose title is cut mid-emoji', () => {
     const max = MEETING_RECORDER_TITLE_MAX_CHARS
     const parsed = meetingRecorderWebhookEventSchema.safeParse(

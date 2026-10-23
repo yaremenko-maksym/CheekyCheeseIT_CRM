@@ -134,9 +134,11 @@ function withoutDatabaseParameters(exception: unknown): unknown {
   // dropping just the FIRST line is not enough — when the top-level error is not itself a
   // pg/drizzle error but wraps one as `cause`, `safeErrorStack` returns its stack verbatim,
   // and a multi-line wrapper message would survive into the stack we store.
-  const frames = (safeErrorStack(exception) ?? '')
-    .split('\n')
-    .filter((line) => /^\s+at /.test(line))
+  // An explicit absence check rather than `?? ''`: a defaulted empty string is indistinguishable
+  // from any other non-frame text once the filter below runs, so the fallback was unkillable
+  // dead weight (mutation gate: `?? "Stryker was here!"` produced identical output).
+  const stack = safeErrorStack(exception)
+  const frames = stack === undefined ? [] : stack.split('\n').filter((line) => /^\s+at /.test(line))
   redacted.stack = [`${redacted.name}: ${redacted.message}`, ...frames].join('\n')
   return redacted
 }

@@ -318,7 +318,9 @@ describe('TelemetryExceptionFilter — database errors never record parameter va
 
     const recorded = recordError.mock.calls[0]![0] as { message: string; stack?: string }
     expect(recorded.message).toContain('db_state=22P05')
+    // Header only: no frames, and nothing stood in for the absent stack.
     expect(recorded.stack).toBe(`DrizzleQueryError: ${recorded.message}`)
+    expect(recorded.stack?.split('\n')).toHaveLength(1)
   })
 
   /**
