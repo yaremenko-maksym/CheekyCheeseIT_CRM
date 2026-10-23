@@ -177,31 +177,73 @@ describe('rollWindow', () => {
     })
 
     /**
-     * The documented residual. A 30th is NOT its month's end, so February clamps it onto
-     * month-end once and it sticks there afterwards. The stepped history then resets a day
-     * LATER than the skipped one for exactly one window, and they converge on Apr 30. Later
-     * under-admits; it is the direction that cannot overspend. Pinned so that a future change
-     * of direction has to change this test and say why.
+     * THE RESIDUAL, pinned as measured (R2-CR-M-1). A previous edition of this test asserted that
+     * a 29th/30th anchor diverges for "one window, then converges". It does not: February captures
+     * any 28th/29th/30th anchor onto month-end — Feb 28 IS month-end in a common year — and it
+     * stays there for as long as it keeps being stepped.
+     *
+     * Each row below is the stepped sequence for one January anchor in 2027, with the provider's
+     * own un-decaying schedule beside it, read off a calendar rather than produced by the helper.
+     * The 28th is the worst case and the one this round made worse: under plain clamping it
+     * tracked the provider exactly, and it is now up to three days late.
      */
-    it('a 29th/30th anchor diverges by one day for one window, late, then converges', () => {
-      expect(rollWindow('MONTH', at('2027-01-30T00:00:00Z'), at('2027-02-01T00:00:00Z'))).toEqual({
-        windowStartedAt: at('2027-01-30T00:00:00Z'),
-        resetsAt: at('2027-02-28T00:00:00Z'),
-      })
-      // Stepped: base Feb 28 is month-end, so the next reset is Mar 31.
-      const stepped = rollWindow('MONTH', at('2027-02-28T00:00:00Z'), at('2027-03-05T00:00:00Z'))
-      // Skipped: base Jan 30 is not month-end, so the next reset is Mar 30 — one day earlier.
-      const skipped = rollWindow('MONTH', at('2027-01-30T00:00:00Z'), at('2027-03-05T00:00:00Z'))
-      expect(stepped?.resetsAt).toEqual(at('2027-03-31T00:00:00Z'))
-      expect(skipped?.resetsAt).toEqual(at('2027-03-30T00:00:00Z'))
+    const steppedSchedules = [
+      {
+        anchorDay: 28,
+        // local reset, then the provider's reset for the same window
+        windows: [
+          ['2027-02-28', '2027-02-28'],
+          ['2027-03-31', '2027-03-28'],
+          ['2027-04-30', '2027-04-28'],
+          ['2027-05-31', '2027-05-28'],
+        ],
+      },
+      {
+        anchorDay: 30,
+        windows: [
+          ['2027-02-28', '2027-02-28'],
+          ['2027-03-31', '2027-03-30'],
+          ['2027-04-30', '2027-04-30'],
+          ['2027-05-31', '2027-05-30'],
+        ],
+      },
+      {
+        anchorDay: 31,
+        windows: [
+          ['2027-02-28', '2027-02-28'],
+          ['2027-03-31', '2027-03-31'],
+          ['2027-04-30', '2027-04-30'],
+          ['2027-05-31', '2027-05-31'],
+        ],
+      },
+    ]
 
-      // ... and the two agree again at the next reset.
-      expect(
-        rollWindow('MONTH', at('2027-03-31T00:00:00Z'), at('2027-04-01T00:00:00Z'))?.resetsAt,
-      ).toEqual(at('2027-04-30T00:00:00Z'))
-      expect(
-        rollWindow('MONTH', at('2027-03-30T00:00:00Z'), at('2027-04-01T00:00:00Z'))?.resetsAt,
-      ).toEqual(at('2027-04-30T00:00:00Z'))
+    it.each(steppedSchedules)(
+      'a Jan $anchorDay anchor, stepped, resets on month-end and NEVER before the provider',
+      ({ anchorDay, windows }) => {
+        let base = at(`2027-01-${anchorDay}T00:00:00Z`)
+        for (const [expectedLocal, providerReset] of windows) {
+          // An hour after the reset falls due — the first operation of the new window.
+          const rolled = rollWindow('MONTH', base, new Date(base.getTime() + 3_600_000))
+          expect(rolled?.resetsAt).toEqual(at(`${expectedLocal}T00:00:00Z`))
+          // The property that closes the finding: never EARLIER than the provider's own reset.
+          // An early local reset zeroes `used` while the provider still counts the old window.
+          expect(rolled!.resetsAt.getTime()).toBeGreaterThanOrEqual(
+            at(`${providerReset}T00:00:00Z`).getTime(),
+          )
+          base = rolled!.resetsAt
+        }
+      },
+    )
+
+    it('the 28th is up to three days late — the cost of closing the early 31st', () => {
+      // Jan 28 -> Feb 28 (month-end in a common year) -> Mar 31, where the provider says Mar 28.
+      const feb = rollWindow('MONTH', at('2027-01-28T00:00:00Z'), at('2027-01-28T01:00:00Z'))
+      expect(feb?.resetsAt).toEqual(at('2027-02-28T00:00:00Z'))
+      const mar = rollWindow('MONTH', at('2027-02-28T00:00:00Z'), at('2027-02-28T01:00:00Z'))
+      expect(mar?.resetsAt).toEqual(at('2027-03-31T00:00:00Z'))
+      const lateDays = (mar!.resetsAt.getTime() - at('2027-03-28T00:00:00Z').getTime()) / 86_400_000
+      expect(lateDays).toBe(3)
     })
   })
 })

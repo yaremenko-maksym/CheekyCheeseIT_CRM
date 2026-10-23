@@ -574,6 +574,53 @@ describe.skipIf(!hasDatabaseUrl())('account meter store (real Postgres)', () => 
       expect(await reservationRow(a.id)).toMatchObject({ status: 'USED', used_amount: 2 })
     })
 
+    /**
+     * R2-CR-M-3 — the ordinal must advance on the REUSE branch too, not only after a fresh
+     * reservation. Setting it to `ordinal` instead of `ordinal + 1` there survived every test:
+     * `repeated paid requests in ONE attempt get distinct reservations` starts from a fresh
+     * binding, so the reuse branch never runs before its second request.
+     *
+     * What the mutant costs: a retry binding reuses the reservation it inherited (correct), and
+     * then its SECOND paid request replays from the same ordinal, finds that same row still
+     * RESERVED, and is handed it again. Two paid requests against one hold — the SR-H-1 outcome
+     * reached by a different route, except that this one needs no second executor and is entirely
+     * inside this file.
+     */
+    it('after a reuse, the SAME binding second paid request still gets its own reservation', async () => {
+      const m = await newMeter({ limit: 10 })
+      const cycleId = await newCycle()
+      const attemptId = nextTag()
+
+      const first = await createAccountMeter(
+        db,
+        binding({ accountKey: m.accountKey, cycleId, attemptId }),
+      ).reserve('REQUEST', 2)
+      if (first === null) throw new Error('setup: reservation refused')
+
+      // The retry binding: it reuses what the first executor left behind ...
+      const retry = createAccountMeter(
+        db,
+        binding({ accountKey: m.accountKey, cycleId, attemptId }),
+      )
+      const reused = await retry.reserve('REQUEST', 2)
+      expect(reused).toEqual(first)
+      expect(await counters(m.id)).toEqual({ used: 0, reserved: 2, uncertain: 0 })
+      expect(await reservationCount(m.id)).toBe(1)
+
+      // ... and its NEXT paid request is a second charge, so it must hold its own cost.
+      const second = await retry.reserve('REQUEST', 2)
+      expect(second).not.toBeNull()
+      expect(second?.id).not.toBe(first.id)
+      expect(await counters(m.id)).toEqual({ used: 0, reserved: 4, uncertain: 0 })
+      expect(await reservationCount(m.id)).toBe(2)
+
+      // A third, to pin that the ordinal keeps advancing rather than alternating.
+      const third = await retry.reserve('REQUEST', 2)
+      expect(new Set([first.id, second?.id, third?.id]).size).toBe(3)
+      expect(await counters(m.id)).toEqual({ used: 0, reserved: 6, uncertain: 0 })
+      expect(await reservationCount(m.id)).toBe(3)
+    })
+
     it('the positive control: a still-RESERVED key IS reused and nothing moves', async () => {
       const m = await newMeter({ limit: 10 })
       const cycleId = await newCycle()
@@ -1120,6 +1167,89 @@ describe.skipIf(!hasDatabaseUrl())('account meter store (real Postgres)', () => 
       expect((await rejection(stranger.markSent(r))).code).toBe('FOREIGN_RESERVATION')
       expect((await reservationRow(r.id)).status).toBe('RESERVED')
       expect(await counters(m.id)).toEqual({ used: 0, reserved: 3, uncertain: 0 })
+    })
+
+    /**
+     * R2-CR-M-4 / R3-SR-M-1 — CROSS-ACCOUNT settlement. The shipped code is correct and
+     * `accountKey` in the meter lookup of `lockOwned` is the ONLY predicate that refuses this;
+     * drop it and both cases below pass. So this pins behaviour rather than changing it.
+     *
+     * Why the round-1 ownership proof missed it: `lockOwned` carries a SECOND ownership
+     * predicate, `starts_with(attempt_id, '<attemptId>#<unit>#')`. A naive cross-account probe is
+     * refused by THAT one and proves nothing about accounts, which is how seven crafted attempt
+     * ids could all be refused while this stayed untested. Two conditions are therefore
+     * load-bearing in the setup, and the case is worthless without either:
+     *
+     *   1. both accounts share ONE `attemptId`, same unit, same window — the schema permits it
+     *      (meters are unique on (account_key, unit, window_kind), reservations on
+     *      (meter_id, attempt_id)), and it is the only arrangement that leaves `accountKey` as
+     *      the deciding predicate;
+     *   2. the foreign reservation is still RESERVED — aim at a settled row and the refusal comes
+     *      from the exactly-once state guard as ILLEGAL_TRANSITION, not from ownership.
+     *
+     * And the thrown error is NOT the assertion: under the mutant the call SUCCEEDS, so what is
+     * read is the victim's three counters by value, before and after.
+     *
+     * Not hypothetical. The production trigger is ACCOUNT FAILOVER: retrying one attempt against
+     * a second credential for the same source puts one `attemptId` on two accounts. It is
+     * unreachable today only because `createAccountMeter` has no production caller, and it
+     * becomes load-bearing the moment a source has a second account.
+     */
+    it("refuses to settle ANOTHER ACCOUNT's reservation as USED, and charges nobody", async () => {
+      const cycleId = await newCycle()
+      const attemptId = nextTag() // ONE attempt id, deliberately shared by both accounts
+      const a = await newMeter({ limit: 10 })
+      const b = await newMeter({ limit: 10 })
+      expect(a.accountKey).not.toBe(b.accountKey)
+
+      const onA = createAccountMeter(db, binding({ accountKey: a.accountKey, cycleId, attemptId }))
+      const onB = createAccountMeter(db, binding({ accountKey: b.accountKey, cycleId, attemptId }))
+      const mine = await onA.reserve('REQUEST', 2)
+      const theirs = await onB.reserve('REQUEST', 7)
+      if (mine === null || theirs === null) throw new Error('setup: reservation refused')
+      expect(await counters(a.id)).toEqual({ used: 0, reserved: 2, uncertain: 0 })
+      expect(await counters(b.id)).toEqual({ used: 0, reserved: 7, uncertain: 0 })
+
+      // A, holding a reservation of its own under the same attempt id, aims at B's.
+      expect((await rejection(onA.reconcile(theirs, 'USED'))).code).toBe('FOREIGN_RESERVATION')
+
+      // Neither row moved. Under the mutant B reads { used: 7, reserved: 0, uncertain: 0 }.
+      expect(await counters(b.id)).toEqual({ used: 0, reserved: 7, uncertain: 0 })
+      expect(await counters(a.id)).toEqual({ used: 0, reserved: 2, uncertain: 0 })
+      expect(await reservationRow(theirs.id)).toMatchObject({ status: 'RESERVED', amount: 7 })
+    })
+
+    /**
+     * The RELEASED direction, which is the one with money in it: releasing another account's hold
+     * defeats the victim's capacity guard outright. Measured by the security reviewer with the
+     * filter removed — B, limit 10, holding 9 of its own, had its hold zeroed by A and could then
+     * reserve 9 again, so up to 18 units could be in flight against a limit of 10 on a paid
+     * third-party quota.
+     */
+    it("refuses to RELEASE another account's hold, so the victim capacity guard still holds", async () => {
+      const cycleId = await newCycle()
+      const attemptId = nextTag()
+      const a = await newMeter({ limit: 10 })
+      const b = await newMeter({ limit: 10 })
+
+      const onA = createAccountMeter(db, binding({ accountKey: a.accountKey, cycleId, attemptId }))
+      const onB = createAccountMeter(db, binding({ accountKey: b.accountKey, cycleId, attemptId }))
+      if ((await onA.reserve('REQUEST', 2)) === null) throw new Error('setup: refused')
+      const theirs = await onB.reserve('REQUEST', 9)
+      if (theirs === null) throw new Error('setup: reservation refused')
+      expect(await counters(b.id)).toEqual({ used: 0, reserved: 9, uncertain: 0 })
+
+      // B is at its limit: its own next request is a cost stop, not an error.
+      expect(await onB.reserve('REQUEST', 2)).toBeNull()
+
+      expect((await rejection(onA.reconcile(theirs, 'RELEASED'))).code).toBe('FOREIGN_RESERVATION')
+      expect(await counters(b.id)).toEqual({ used: 0, reserved: 9, uncertain: 0 })
+      expect(await counters(a.id)).toEqual({ used: 0, reserved: 2, uncertain: 0 })
+
+      // The guard is still a guard: with the hold intact, B's next request is refused again.
+      // Under the mutant B's counters are all zero here and this reserve of 9 is GRANTED.
+      expect(await onB.reserve('REQUEST', 9)).toBeNull()
+      expect(await counters(b.id)).toEqual({ used: 0, reserved: 9, uncertain: 0 })
     })
 
     it('refuses a reservation whose claimed unit is not its meter unit', async () => {

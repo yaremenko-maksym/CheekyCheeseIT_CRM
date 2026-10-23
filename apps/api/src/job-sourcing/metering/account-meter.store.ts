@@ -303,16 +303,29 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
        * Replay walk: reuse a still-RESERVED key, skip keys whose request already left.
        *
        * CR-M-4 — one SELECT per ordinal, inside the transaction that holds the account-wide
-       * meter row lock, so every worker on this account queues behind the walk. WHAT BOUNDS IT:
-       * the walk visits one row per paid request this attempt has ALREADY departed, and it runs
-       * at most once per binding — `nextOrdinal` makes every later `reserve` of the same binding
-       * start where this one stopped, so the cost is O(k) once and O(1) after. `k` is the paid
-       * requests of a single collection attempt, which the collection loop bounds by its page
-       * budget and its deadline (a run that cannot finish is cut by the deadline, not by the
-       * meter), so `k` is tens, not thousands. Deliberately left as a loop rather than one
-       * `starts_with` range query: the loop's per-ordinal `FOR UPDATE` is what serialises two
-       * bindings racing the same key, and a single ordered read would have to re-acquire those
-       * locks anyway. Revisit if a source ever bills per page over a long cursor walk.
+       * meter row lock, so every worker on this account queues behind the walk.
+       *
+       * WHAT BOUNDS IT: the walk visits one row per paid request of this attempt that has ALREADY
+       * departed, on this meter. That is `k`, the paid requests of a single collection attempt,
+       * which the collection loop bounds by its page budget and its deadline — a run that cannot
+       * finish is cut by the deadline, not by the meter — so `k` is tens, not thousands.
+       *
+       * HOW OFTEN IT RUNS (R2-CR-M-2, correcting an earlier edition of this comment that claimed
+       * "at most once per binding"): `nextOrdinal` advances only on a successful reservation or a
+       * reuse. The two refusal paths return or throw BEFORE it is set — a COST_STOP returns `null`
+       * when the capacity test refuses, and `AMOUNT_MISMATCH` throws — so after either, the next
+       * `reserve` on this binding re-walks from the same ordinal. The walk is therefore O(k) per
+       * reserve in the worst case and O(1) once a reservation has succeeded, not O(k) once.
+       * Re-walking after a COST_STOP is cheap in the case that matters, because a COST_STOP
+       * normally ends the attempt rather than being retried.
+       *
+       * It stays a loop because `k` is small and the round trips are the cheapest part of a
+       * transaction that already holds the meter row lock; a single ordered `starts_with` range
+       * query would be an optimisation, not a correctness fix. (An earlier edition justified the
+       * loop by its per-ordinal `FOR UPDATE` serialising racing bindings. That was decorative:
+       * the meter row lock taken above already serialises every binding on this meter for the
+       * whole transaction, so no two walks on one meter overlap.) Revisit if a source ever bills
+       * per page over a long cursor walk.
        */
       let ordinal = nextOrdinal.get(unit) ?? 1
       for (;;) {

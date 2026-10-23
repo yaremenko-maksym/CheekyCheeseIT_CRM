@@ -42,12 +42,29 @@ const isMonthEndUtc = (d: Date) =>
  * so Jan 31 -> Feb 28 -> Mar 31 -> Apr 30 whatever the traffic, and both histories above now agree
  * on Mar 31. A day that is NOT its month's end (the 15th) never clamps and is unaffected.
  *
- * The residual, bounded and in the safe direction: a 29th/30th anchor is not month-end, so its
- * first February still clamps it ONTO month-end (Jan 30 -> Feb 28), after which it sticks there.
- * A stepped history then resets one day later than a skipped one for a single window (Mar 31 vs
- * Mar 30) before the two converge on Apr 30. Later, not earlier, so it under-admits rather than
- * overspends. Removing it needs the original anchor persisted — a new column, and so an
- * owner-visible migration decision rather than something this task may invent.
+ * THE RESIDUAL, as measured rather than as first guessed (R2-CR-M-1). An earlier edition of this
+ * comment said the drift lasted "one window, then the two converge". That was wrong, and wrong in
+ * the direction of understating it. Simulated against the provider's own un-decaying schedule,
+ * stepped one window at a time from a January anchor in the common year 2027:
+ *
+ *   anchor Jan 28:  Feb 28 (+0)  Mar 31 (+3)  Apr 30 (+2)  May 31 (+3)  Jun 30 (+2)
+ *   anchor Jan 29:  Feb 28 (+0)  Mar 31 (+2)  Apr 30 (+1)  May 31 (+2)  Jun 30 (+1)
+ *   anchor Jan 30:  Feb 28 (+0)  Mar 31 (+1)  Apr 30 (+0)  May 31 (+1)  Jun 30 (+0)
+ *   anchor Jan 31:  Feb 28 (+0)  Mar 31 (+0)  Apr 30 (+0)  May 31 (+0)  Jun 30 (+0)
+ *
+ * A 28th/29th/30th anchor is captured by February — Feb 28 IS month-end in a common year — and
+ * then stays on month-end for as long as it keeps being stepped. It does NOT converge back.
+ *
+ * Two things follow, and both matter. First, THE DIRECTION HOLDS: every figure above is zero or
+ * positive, so the local reset is never EARLIER than the provider's, and the overspend the finding
+ * was about is closed — a late reset under-admits, which costs throughput and not money. Second,
+ * this round made the 28th WORSE than it was: under plain clamping a 28th anchor tracked the
+ * provider exactly (+0 forever), and it is now up to 3 days late. That is the price paid for
+ * closing the 31st, which was up to 3 days EARLY and is the direction that overspends.
+ *
+ * Both are consequences of the row storing no original anchor. Eliminating the residual needs the
+ * anchor persisted — a new column, and so an owner-visible migration decision rather than
+ * something this task may invent.
  */
 export function addMonthsUtc(anchor: Date, months: number): Date {
   const year = anchor.getUTCFullYear()
