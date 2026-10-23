@@ -493,22 +493,16 @@ jobs:
   # `--no-file-parallelism` so the spec files do not contend with each other either.
   # Thresholds are the original ones. The deterministic half of each guarantee stays in the
   # unit suite. NOT part of the `quality` aggregator, on purpose: one miss here is a signal to
-  # read, not a reason to block an unrelated push. Add `Timing specs` to branch protection by
-  # hand if it should gate merges.
+  # read, not a reason to block an unrelated push, so it is NOT a required context (that would
+  # reinstate the load-sensitivity the split removed). It IS a leg of `post_merge_alert`, so a red
+  # run on main raises an alert instead of staying red unnoticed (the nightly mutation run once
+  # stayed red for twenty days that way).
   timing_specs:
     name: Timing specs
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: read
-    env:
-      S3_ENDPOINT: http://localhost:9000
-      S3_FORCE_PATH_STYLE: 'true'
-      S3_REGION: us-east-1
-      S3_BUCKET: crm-documents
-      S3_USE_SSE: 'false'
-      AWS_ACCESS_KEY_ID: crmdevaccesskey
-      AWS_SECRET_ACCESS_KEY: crmdevsecretkey
     steps:
       - uses: actions/checkout@v4
         with:
@@ -1804,7 +1798,7 @@ jobs:
   post_merge_alert:
     name: Post-merge Alert
     runs-on: ubuntu-latest
-    needs: [quality, integration, e2e_summary, mutation_summary]
+    needs: [quality, integration, e2e_summary, mutation_summary, timing_specs]
     # `always()` so the job still runs when a leg failed. Guarded to main +
     # non-PR so PR runs and feature-branch dispatches never open alerts.
     #
@@ -1848,17 +1842,19 @@ jobs:
           INTEGRATION: ${{ needs.integration.result }}
           E2E: ${{ needs.e2e_summary.result }}
           MUTATION: ${{ needs.mutation_summary.result }}
+          TIMING: ${{ needs.timing_specs.result }}
         run: |
           FAILED=""
           [ "$QUALITY" = "failure" ] && FAILED="$FAILED quality"
           [ "$INTEGRATION" = "failure" ] && FAILED="$FAILED integration"
           [ "$E2E" = "failure" ] && FAILED="$FAILED e2e"
           [ "$MUTATION" = "failure" ] && FAILED="$FAILED mutation"
+          [ "$TIMING" = "failure" ] && FAILED="$FAILED timing"
           FAILED="${FAILED# }"
 
           if [ -n "$FAILED" ]; then
             RESULT=failure
-          elif [ "$QUALITY" = "success" ] && [ "$INTEGRATION" = "success" ] && [ "$E2E" = "success" ] && [ "$MUTATION" = "success" ]; then
+          elif [ "$QUALITY" = "success" ] && [ "$INTEGRATION" = "success" ] && [ "$E2E" = "success" ] && [ "$MUTATION" = "success" ] && [ "$TIMING" = "success" ]; then
             RESULT=success
           else
             RESULT=inconclusive
@@ -1869,7 +1865,7 @@ jobs:
             # containers` (был реальный прецедент). В этом случае main остался
             # НЕ провалидированным, и issue не откроется — поэтому хотя бы
             # ::warning, чтобы состояние не выглядело как «всё хорошо».
-            echo "::warning::Post-merge run inconclusive (quality=$QUALITY integration=$INTEGRATION e2e=$E2E mutation=$MUTATION) — main НЕ провалидирован. Если это не отмена по cancel-in-progress (следующий мерж), перезапустить: gh workflow run ci.yml --ref main"
+            echo "::warning::Post-merge run inconclusive (quality=$QUALITY integration=$INTEGRATION e2e=$E2E mutation=$MUTATION timing=$TIMING) — main НЕ провалидирован. Если это не отмена по cancel-in-progress (следующий мерж), перезапустить: gh workflow run ci.yml --ref main"
           fi
 
           echo "result=$RESULT" >> "$GITHUB_OUTPUT"
@@ -1883,6 +1879,7 @@ jobs:
             echo "| integration | \`$INTEGRATION\` |"
             echo "| e2e | \`$E2E\` |"
             echo "| mutation | \`$MUTATION\` |"
+            echo "| timing | \`$TIMING\` |"
           } >> "$GITHUB_STEP_SUMMARY"
 
       # Commit subject read from git rather than `github.event.head_commit.*`:
