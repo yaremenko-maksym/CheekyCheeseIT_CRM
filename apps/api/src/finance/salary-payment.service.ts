@@ -442,20 +442,6 @@ export class SalaryPaymentService {
   }
 
   /**
-   * @param actor security-review HIGH-1: OMITTED for the CRON caller
-   *   (`SalaryCronService`) — no human decided THIS specific run, so
-   *   `createdBy` falls back to an arbitrary admin (deliberate, pre-existing
-   *   choice — Audit 2026-06-28 #7) and NOTHING is written to
-   *   `transactionAuditLog`, matching `recordCreationAudit`'s own documented
-   *   scope ("system-derived side-effects... not a second independent
-   *   creation a human decided to make"). PASSED by `backfillSalaryMonth` —
-   *   an ADMIN clicking a button IS a human decision: every row THIS call
-   *   actually inserts (not a row that already existed — `ON CONFLICT DO
-   *   NOTHING` returns zero rows for those) is attributed to that real actor
-   *   and gets a `transactionAuditLog` CREATE entry, exactly like every other
-   *   user-facing creation entry point in this file (createSalary etc.).
-   */
-  /**
    * CR-M-1 (PR #868 fix round 1). The PENDING->PAID claim can match zero rows
    * for three different reasons, and calling them all
    * `FINANCE_TRANSACTION_NOT_PENDING` is a false statement for two of them: the
@@ -492,6 +478,20 @@ export class SalaryPaymentService {
     throw apiError('FINANCE_ROW_STATE_CHANGED_WHILE_EDITING', HttpStatus.BAD_REQUEST)
   }
 
+  /**
+   * @param actor security-review HIGH-1: OMITTED for the CRON caller
+   *   (`SalaryCronService`) — no human decided THIS specific run, so
+   *   `createdBy` falls back to an arbitrary admin (deliberate, pre-existing
+   *   choice — Audit 2026-06-28 #7) and NOTHING is written to
+   *   `transactionAuditLog`, matching `recordCreationAudit`'s own documented
+   *   scope ("system-derived side-effects... not a second independent
+   *   creation a human decided to make"). PASSED by `backfillSalaryMonth` —
+   *   an ADMIN clicking a button IS a human decision: every row THIS call
+   *   actually inserts (not a row that already existed — `ON CONFLICT DO
+   *   NOTHING` returns zero rows for those) is attributed to that real actor
+   *   and gets a `transactionAuditLog` CREATE entry, exactly like every other
+   *   user-facing creation entry point in this file (createSalary etc.).
+   */
   async createMonthlySalaries(month: string, actor?: SessionUser) {
     // Create PENDING salary for HR and ACCOUNTANT
     const hrAccountantReceivers = await this.salaryService.resolveHrAccountantSalaryReceivers()
