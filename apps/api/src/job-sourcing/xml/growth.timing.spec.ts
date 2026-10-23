@@ -134,7 +134,7 @@ describe('R-5: growth exponents (timing)', () => {
   // ~0.3 ms at 1 MB, where no fit means anything).
   const MEASURABLE_REJECTS = [
     // The ReDoS archetype and the worst of the group: 0.43 ms at 32 KB, 1.6 ms at 128 KB, 21 ms
-    // at 512 KB, 40 ms at 1 MB — exponent ~1.3, the same class the ADR measured at worst 1.36
+    // at 512 KB, 40 ms at 1 MB — exponent 1.38 - 1.72 over a 64x range (2026-10-24; ~1.3 on the older, narrower range, ADR worst 1.36)
     // and attributed to allocation and GC rather than backtracking. Bounded at roughly 80 ms by
     // the 2 MiB byte cap, which is a second reason that cap is load-bearing.
     'unterminated processing instruction',

@@ -40,6 +40,24 @@ const PINNED_TIMING_SPECS = [
   'resumes/resume-render-responsiveness.timing.spec.ts',
 ]
 
+/**
+ * The non-comment text of one top-level job in `ci.yml`: from its `  <name>:` line to the next
+ * job header. Comment lines are dropped so a name that survives only in a comment does not count,
+ * and the block is scoped so a string in a DIFFERENT job does not count either.
+ */
+function jobBody(ci: string, name: string): string {
+  const lines = ci.split('\n')
+  const start = lines.findIndex((line) => line === `  ${name}:`)
+  if (start === -1) throw new Error(`job ${name} not found in ${CI_YML}`)
+  const body: string[] = []
+  for (const line of lines.slice(start + 1)) {
+    const isComment = line.trimStart().startsWith('#')
+    if (/^ {2}\S/.test(line) && !isComment) break
+    if (!isComment) body.push(line)
+  }
+  return body.join('\n')
+}
+
 function findTimingSpecs(dir: string): string[] {
   const found: string[] = []
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -56,10 +74,22 @@ describe('timing spec registry', () => {
     expect(findTimingSpecs(SRC_ROOT).sort()).toEqual(PINNED_TIMING_SPECS)
   })
 
-  it('the Timing specs CI job still selects them (TIMING_SPECS=1) and gates post-merge', () => {
+  it('the Timing specs job really runs them, and the post-merge verdict really depends on it', () => {
     const ci = readFileSync(join(REPO_ROOT, CI_YML), 'utf8')
-    expect(ci).toContain('timing_specs:')
-    expect(ci).toContain("TIMING_SPECS: '1'")
-    expect(ci).toMatch(/needs: \[[^\]]*timing_specs[^\]]*\]/)
+    const timing = jobBody(ci, 'timing_specs')
+    const alert = jobBody(ci, 'post_merge_alert')
+
+    // The job selects the timing files and actually invokes vitest (not a comment, not another job).
+    expect(timing).toContain("TIMING_SPECS: '1'")
+    expect(timing).toMatch(/run: .*vitest run/)
+    expect(timing).not.toMatch(/^\s*if:\s*false\b/m)
+
+    // The alert job lists it in ITS OWN needs, reads its result, and the verdict uses that result:
+    // a failure raises the alert, and the closing success requires it. Dropping any one of the
+    // three would let the alert stop depending on the job while a bare string check stayed green.
+    expect(alert).toMatch(/^\s*needs: \[[^\]]*\btiming_specs\b[^\]]*\]/m)
+    expect(alert).toContain('TIMING: ${{ needs.timing_specs.result }}')
+    expect(alert).toContain('[ "$TIMING" = "failure" ] && FAILED=')
+    expect(alert).toMatch(/elif .*\[ "\$TIMING" = "success" \]/)
   })
 })

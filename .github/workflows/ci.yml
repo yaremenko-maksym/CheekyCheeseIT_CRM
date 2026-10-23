@@ -1830,7 +1830,7 @@ jobs:
           ref: main
           fetch-depth: 1
 
-      # Roll the four required legs into one verdict.
+      # Roll the five legs (quality, integration, e2e, mutation, timing) into one verdict.
       #   any failure            → failure (alert)
       #   all success            → success (close any open alert)
       #   anything else          → neither; a run cancelled by the next merge's
