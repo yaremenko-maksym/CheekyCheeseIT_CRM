@@ -1450,19 +1450,34 @@ describe('SR-H-1: the write re-asserts the state its decisions were made on', ()
     const svc = makeTransactionsService({ db })
     stubFindOne(svc)
 
+    // QA-MED-2: the message no longer names WHICH change happened. It cannot: this
+    // code now also answers a competing month edit (SR-795-M-4's snapshot
+    // predicates) and, on the pay path, an amount/currency edit of a row that is
+    // still PENDING — neither of which is "paid or deleted".
     await expect(svc.adminUpdateTransaction(SOURCE_ID, { amount: 300 }, ADMIN)).rejects.toThrow(
-      /paid or deleted while you were editing/,
+      /changed while you were working with it/,
     )
   })
 
-  it('the refusal names BOTH ways zero rows can happen, so the operator is not misled', async () => {
-    // Before the status predicate, zero rows could only mean "deleted", and
-    // the message said exactly that. Now it can also mean "someone settled it
-    // while you were typing" — a message that names only the first sends the
-    // operator to look for a deletion that never happened. task-i18n-stage4-
-    // task2 (COPY-M-1, fix-round 2): the refusal text dropped the generic
-    // "changed" wording in favour of naming the two concrete ways — paid, or
-    // deleted — so this test now pins on those two words instead.
+  it('the refusal names no specific cause, because the causes outgrew the message', async () => {
+    // HISTORY, so this is not "fixed" back a third time. Three rounds:
+    //   1. Zero rows could only mean "deleted", and the message said that.
+    //   2. The status predicate added "someone settled it while you were typing",
+    //      so naming only deletion sent the operator hunting a deletion that never
+    //      happened. COPY-M-1 (task-i18n-stage4-task2, fix-round 2) therefore
+    //      replaced the generic "changed" wording with the two CONCRETE causes,
+    //      and this test pinned those two words.
+    //   3. QA-MED-2 (PR #868): the set of causes outgrew two. This same code now
+    //      also answers a competing salary-month edit (SR-795-M-4's snapshot
+    //      predicates) and, on the PAY path, an amount/currency edit of a row that
+    //      is still PENDING and still un-deleted. There, "paid or deleted" is not
+    //      vague — it is FALSE, asserted by the very fix that exists to stop a
+    //      false answer.
+    // So the message is generic again, deliberately: enumerating causes is only
+    // better than a generic phrase while the enumeration stays complete, and this
+    // one cannot without the message knowing which call site it came from. The
+    // concrete cause is available to support in the audit log and in `reason`,
+    // not in a string shown to an accountant.
     const source = sourceRow({ type: 'SENIOR_PENDING_PAYOUT', status: 'PENDING_PAYMENT' })
     const { db } = makeDouble({ source, mainUpdateRows: [] })
     const svc = makeTransactionsService({ db })
@@ -1474,8 +1489,12 @@ describe('SR-H-1: the write re-asserts the state its decisions were made on', ()
       caught = e
     }
     const message = (caught as Error).message
-    expect(message).toMatch(/paid/)
-    expect(message).toMatch(/deleted/)
+    // States the fact (something changed) and the remedy (reload, retry) …
+    expect(message).toMatch(/changed while you were working with it/)
+    expect(message).toMatch(/reload the page and try again/)
+    // … and asserts no cause it cannot know.
+    expect(message).not.toMatch(/paid/)
+    expect(message).not.toMatch(/deleted/)
   })
 })
 

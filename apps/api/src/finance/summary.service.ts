@@ -497,6 +497,9 @@ export class SummaryService {
     // reused as the per-company arrival bucket so the progress bar and the salary
     // lookup share one definition of "this month".
     const lastMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1))
+    // PR #868: half-open [monthStart, nextMonthStart) — a future-dated income
+    // (txDate is user-chosen) must not leak into "this month".
+    const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1))
     const salaryMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
 
     // ── 1. Active own senior-projects + effective share % ──────────────────────
@@ -581,15 +584,16 @@ export class SummaryService {
       // Per-month bucket for the sparkline (keyed by the income's own date).
       const key = monthKeyOf(whenDate)
       perMonthShare.set(key, (perMonthShare.get(key) ?? 0) + share)
-      if (whenDate >= monthStart) {
+      if (whenDate >= lastMonthStart && whenDate < monthStart) {
+        incomeLastMonth += share
+      }
+      if (whenDate >= monthStart && whenDate < nextMonthStart) {
         incomeThisMonth += share
         // A project counts toward arrival-progress as soon as ONE of its incomes
         // lands this month. Self-scoped: receiverId is already === self.
         // A null project id lands as `null` in the set; the intersection below only
         // probes real active-project ids, so it never matches.
         companiesWithIncomeThisMonth.add(tx.projectId)
-      } else if (whenDate >= lastMonthStart) {
-        incomeLastMonth += share
       }
     }
 

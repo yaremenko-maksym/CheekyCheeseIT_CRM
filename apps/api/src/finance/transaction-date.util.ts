@@ -11,11 +11,22 @@
  */
 export function parseTransactionBusinessDate(rawTxDate: string): Date {
   const parsed = new Date(`${rawTxDate}T00:00:00.000Z`)
-  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== rawTxDate) {
+  if (Number.isNaN(parsed.getTime()) || formatTransactionBusinessDate(parsed) !== rawTxDate) {
     throw new RangeError(`Invalid transaction business date: ${rawTxDate}`)
   }
 
   return parsed
+}
+
+/**
+ * Stable business-day key for transaction timestamps.
+ *
+ * Transaction date-only values are encoded in UTC throughout the repository,
+ * so comparisons must use the same UTC calendar components instead of local
+ * timezone formatting.
+ */
+export function formatTransactionBusinessDate(date: Date): string {
+  return date.toISOString().slice(0, 10)
 }
 
 export function resolveTransactionDate(
@@ -26,5 +37,5 @@ export function resolveTransactionDate(
 
   const parsed = parseTransactionBusinessDate(rawTxDate)
 
-  return rawTxDate === now.toISOString().slice(0, 10) ? now : parsed
+  return rawTxDate === formatTransactionBusinessDate(now) ? now : parsed
 }

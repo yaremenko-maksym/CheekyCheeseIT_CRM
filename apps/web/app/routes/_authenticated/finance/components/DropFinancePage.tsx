@@ -176,23 +176,33 @@ function PaymentStatusBadge({ status }: { status: DropPaymentStatus }) {
 
 type Period = 'all' | 'current' | 'prev' | '3m'
 
+function localCalendarDateKey(date: Date): string {
+  // The filter is chosen in the browser's local calendar. Serialising local
+  // midnight with Date#toISOString can move the key to the previous UTC day
+  // in positive-offset timezones. Re-encode the same local Y/M/D components
+  // as UTC solely to obtain a stable YYYY-MM-DD key.
+  return new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
+    .toISOString()
+    .slice(0, 10)
+}
+
 function periodToDates(period: Period): { from?: string; to?: string } {
   const now = new Date()
   if (period === 'all') return {}
 
   if (period === 'current') {
     const from = new Date(now.getFullYear(), now.getMonth(), 1)
-    return { from: from.toISOString().slice(0, 10) }
+    return { from: localCalendarDateKey(from) }
   }
   if (period === 'prev') {
     const from = new Date(now.getFullYear(), now.getMonth() - 1, 1)
     const to = new Date(now.getFullYear(), now.getMonth(), 0)
-    return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) }
+    return { from: localCalendarDateKey(from), to: localCalendarDateKey(to) }
   }
   // 3m
   const from = new Date(now)
   from.setMonth(from.getMonth() - 3)
-  return { from: from.toISOString().slice(0, 10) }
+  return { from: localCalendarDateKey(from) }
 }
 
 // ── DropIncomesTable ───────────────────────────────────────────────────────────

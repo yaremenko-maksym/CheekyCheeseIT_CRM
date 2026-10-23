@@ -1903,6 +1903,30 @@ docker compose \
   < "$INTERVIEWS_CALL_MEET_CODE_FILE"
 echo "==> interviews auto-match key DDL applied successfully"
 
+# ── salary creation intent DDL (PR #868) ──
+# Backward-compatible: adds nullable replay metadata and its immutability
+# trigger before the updated API starts using it. Idempotent (IF NOT EXISTS,
+# CREATE OR REPLACE, DROP TRIGGER IF EXISTS). Applied BEFORE the privilege
+# grants below, like every other file that alters a relation.
+# Source: apps/api/drizzle/manual/2026-10-10_salary_creation_intent.sql
+SALARY_CREATION_INTENT_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-10_salary_creation_intent.sql"
+
+if [ ! -f "$SALARY_CREATION_INTENT_FILE" ]; then
+  echo "ERROR: DDL file not found at $SALARY_CREATION_INTENT_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying salary creation intent DDL — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+  < "$SALARY_CREATION_INTENT_FILE"
+echo "==> salary creation intent DDL applied successfully"
+
 # ── multipart salary: PREPARE while the previous API may still serve ──
 # Applied here, BEFORE the privilege grants below, so the relation it creates
 # (salary_month_initializations) is covered by them on a fresh database.

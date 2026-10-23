@@ -2564,12 +2564,17 @@ msgstr "One of the shares doesn't match what was already paid — the edit is bl
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_ROW_STATE_CHANGED_WHILE_EDITING"
-msgstr "The transaction was paid or deleted while you were editing it — refresh the page"
+msgstr "The record changed while you were working with it — reload the page and try again"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_SALARY_ALREADY_CREATED_FOR_MONTH"
 msgstr "This employee's salary for the selected month already exists"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
+msgid "api-error.FINANCE_SALARY_IDEMPOTENCY_CONFLICT"
+msgstr "This salary was not saved: a record with different details already exists for this employee and month. The existing record is unchanged."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
