@@ -56,15 +56,24 @@ interface MeterOpts {
   limit?: number | null
   used?: number
   uncertain?: number
+  /** SQL expressions for the window bounds, for the rollover cases that need a DUE reset. */
+  windowStartedAtSql?: string
+  resetsAtSql?: string
 }
 
 async function newMeter(opts: MeterOpts = {}): Promise<{ id: string; accountKey: string }> {
   const accountKey = opts.accountKey ?? nextAccount()
   const window = opts.window ?? 'DAY'
+  const lifetime = window === 'LIFETIME'
+  // The bounds are either the default "current window, not yet due" pair or caller SQL. Both are
+  // fixed strings from this file, never a value, so nothing interpolated here is input. They are
+  // evaluated by the DATABASE, which is the clock the store itself reads.
+  const startedAt = lifetime ? 'NULL' : (opts.windowStartedAtSql ?? "now() - interval '1 minute'")
+  const resetsAt = lifetime ? 'NULL' : (opts.resetsAtSql ?? "now() + interval '23 hours'")
   const { rows } = await q(
     `INSERT INTO job_account_meters
        (account_key, unit, window_kind, limit_amount, used, uncertain, window_started_at, resets_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+     VALUES ($1, $2, $3, $4, $5, $6, ${startedAt}, ${resetsAt}) RETURNING id`,
     [
       accountKey,
       opts.unit ?? 'REQUEST',
@@ -72,11 +81,15 @@ async function newMeter(opts: MeterOpts = {}): Promise<{ id: string; accountKey:
       opts.limit === undefined ? null : opts.limit,
       opts.used ?? 0,
       opts.uncertain ?? 0,
-      window === 'LIFETIME' ? null : new Date(Date.now() - 60_000),
-      window === 'LIFETIME' ? null : new Date(Date.now() + 23 * 3_600_000),
     ],
   )
   return { id: rows[0].id as string, accountKey }
+}
+
+interface Counters {
+  used: number
+  reserved: number
+  uncertain: number
 }
 
 /** The three counters, as numbers. The assertion every transition below is made with. */
@@ -124,6 +137,24 @@ function binding(over: Partial<AccountMeterBinding> & { accountKey: string; cycl
     ...over,
   } satisfies AccountMeterBinding
 }
+
+/**
+ * True when `d` is midnight UTC on the final day of its own month. Written from the calendar
+ * (day 0 of the next month is the last day of this one) rather than with the helper under test.
+ */
+function isUtcMonthEndMidnight(d: Date): boolean {
+  const lastDay = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate()
+  return (
+    d.getUTCDate() === lastDay &&
+    d.getUTCHours() === 0 &&
+    d.getUTCMinutes() === 0 &&
+    d.getUTCSeconds() === 0 &&
+    d.getUTCMilliseconds() === 0
+  )
+}
+
+const monthsBetweenUtc = (from: Date, to: Date) =>
+  (to.getUTCFullYear() - from.getUTCFullYear()) * 12 + (to.getUTCMonth() - from.getUTCMonth())
 
 /** Resolves to the error a call rejected with; fails the test when it did not reject. */
 async function rejection(p: Promise<unknown>): Promise<AccountMeterError> {
@@ -227,8 +258,45 @@ describe.skipIf(!hasDatabaseUrl())('account meter store (real Postgres)', () => 
         db,
         binding({ accountKey: m.accountKey, cycleId: await newCycle() }),
       )
-      expect(await meter.reserve('REQUEST', 1_000_000_000_000)).not.toBeNull()
-      expect(await counters(m.id)).toEqual({ used: 0, reserved: 1_000_000_000_000, uncertain: 0 })
+      // Far more than any real limit, and still accepted, because there is no limit to compare
+      // against. The amount stays under the per-unit sanity ceiling below, which is a separate
+      // guard: "no published limit" is not "no bound on a single cost estimate".
+      expect(await meter.reserve('REQUEST', 10_000)).not.toBeNull()
+      expect(await counters(m.id)).toEqual({ used: 0, reserved: 10_000, uncertain: 0 })
+    })
+
+    /**
+     * SR-M-2, as the security review measured it (ADV-6): against a NULL-limit meter the only
+     * amount validation was `Number.isSafeInteger && > 0`, so `Number.MAX_SAFE_INTEGER` was
+     * accepted and the row came to read `reserved = 9007199254740991`. On a USD_MICROS meter that
+     * is nine billion dollars of held spend from one bad cost estimate — silent, and unreachable
+     * for correction, since the counters are read back as JS numbers and a second such
+     * reservation leaves the representable range before the bigint column objects.
+     *
+     * This is the probe re-run end to end: it must now refuse, and the row must not move.
+     */
+    it('an unlimited meter still refuses MAX_SAFE_INTEGER, and the counters do not move', async () => {
+      const m = await newMeter({ limit: null, unit: 'USD_MICROS' })
+      const meter = createAccountMeter(
+        db,
+        binding({
+          accountKey: m.accountKey,
+          cycleId: await newCycle(),
+          windows: { USD_MICROS: 'DAY' },
+        }),
+      )
+      const error = await rejection(meter.reserve('USD_MICROS', Number.MAX_SAFE_INTEGER))
+      expect(error.code).toBe('INVALID_AMOUNT')
+      expect(await counters(m.id)).toEqual({ used: 0, reserved: 0, uncertain: 0 })
+      expect(await reservationCount(m.id)).toBe(0)
+
+      // The bound itself, on the same unlimited meter: at the ceiling accepted, one past refused.
+      expect(await meter.reserve('USD_MICROS', 1_000_000_000)).not.toBeNull()
+      expect(await counters(m.id)).toEqual({ used: 0, reserved: 1_000_000_000, uncertain: 0 })
+      expect((await rejection(meter.reserve('USD_MICROS', 1_000_000_001))).code).toBe(
+        'INVALID_AMOUNT',
+      )
+      expect(await counters(m.id)).toEqual({ used: 0, reserved: 1_000_000_000, uncertain: 0 })
     })
 
     it.each([0, -1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1])(
@@ -368,27 +436,162 @@ describe.skipIf(!hasDatabaseUrl())('account meter store (real Postgres)', () => 
       expect(await reservationCount(m.id)).toBe(3)
     })
 
-    it('a retry does NOT reuse a reservation whose request already left: it reserves anew', async () => {
+    /**
+     * CR-H-1 — the replay walk, pinned for EVERY first state rather than only for `USED`.
+     *
+     * The invariant in the module header is: a key whose request already left (SENT / UNCERTAIN /
+     * USED) or was released is SKIPPED, and only a still-RESERVED key is handed back. Before this
+     * block only the `USED` case was covered, so three mutations of the condition survived the
+     * whole suite — `status !== 'USED'`, and adding `SENT` or `UNCERTAIN` to the reuse branch.
+     * Each of those hands a retry a reservation whose request already left, so the retry sends a
+     * SECOND paid request against a single hold: one charge, two real requests.
+     *
+     * Every case asserts the post-state counter VALUES, not that the call succeeded: a retry that
+     * returned a fresh id while silently leaving the counters wrong would pass an id-only check.
+     */
+    interface DepartedCase {
+      state: 'SENT' | 'UNCERTAIN' | 'RELEASED' | 'USED'
+      settle: (
+        meter: ReturnType<typeof createAccountMeter>,
+        reservation: { id: string; unit: JobMeterUnit; amount: number },
+      ) => Promise<void>
+      /** Counters after the FIRST reservation reached that state. */
+      after: Counters
+      /** Counters after the retry — hand-written per state, not derived from `after`. */
+      afterRetry: Counters
+    }
+
+    const departed: DepartedCase[] = [
+      {
+        state: 'SENT',
+        // The hold stays in `reserved` (the request left but has not settled): 2 held + 2 new.
+        settle: (m, r) => m.markSent(r),
+        after: { used: 0, reserved: 2, uncertain: 0 },
+        afterRetry: { used: 0, reserved: 4, uncertain: 0 },
+      },
+      {
+        state: 'UNCERTAIN',
+        settle: (m, r) => m.reconcile(r, 'UNCERTAIN'),
+        after: { used: 0, reserved: 0, uncertain: 2 },
+        afterRetry: { used: 0, reserved: 2, uncertain: 2 },
+      },
+      {
+        state: 'RELEASED',
+        settle: (m, r) => m.reconcile(r, 'RELEASED'),
+        after: { used: 0, reserved: 0, uncertain: 0 },
+        afterRetry: { used: 0, reserved: 2, uncertain: 0 },
+      },
+      {
+        state: 'USED',
+        settle: (m, r) => m.reconcile(r, 'USED'),
+        after: { used: 2, reserved: 0, uncertain: 0 },
+        afterRetry: { used: 2, reserved: 2, uncertain: 0 },
+      },
+    ]
+
+    it.each(departed)(
+      'a retry does NOT reuse a reservation left in $state: it reserves anew',
+      async ({ state, settle, after, afterRetry }) => {
+        const m = await newMeter({ limit: 10 })
+        const cycleId = await newCycle()
+        const attemptId = nextTag()
+        const firstRun = createAccountMeter(
+          db,
+          binding({ accountKey: m.accountKey, cycleId, attemptId }),
+        )
+        const first = await firstRun.reserve('REQUEST', 2)
+        if (first === null) throw new Error('setup: reservation refused')
+        await settle(firstRun, first)
+        expect(await reservationRow(first.id)).toMatchObject({ status: state })
+        expect(await counters(m.id)).toEqual(after)
+
+        // A fresh binding of the SAME attempt — a retry with nothing in memory.
+        const retry = await createAccountMeter(
+          db,
+          binding({ accountKey: m.accountKey, cycleId, attemptId }),
+        ).reserve('REQUEST', 2)
+
+        expect(retry).not.toBeNull()
+        expect(retry?.id).not.toBe(first.id)
+        expect(await counters(m.id)).toEqual(afterRetry)
+        expect(await reservationCount(m.id)).toBe(2)
+        // The departed reservation is untouched by the retry — it keeps its own state and cost.
+        expect(await reservationRow(first.id)).toMatchObject({ status: state, amount: 2 })
+      },
+    )
+
+    /**
+     * SR-H-1 — A CHARACTERISATION TEST OF THE UNENFORCED PRECONDITION, not an endorsement of it.
+     *
+     * The store's reuse rule reads a RESERVED row as "the request never left". That is only true
+     * if the executor which took the row is gone, and the store has no evidence of that. This
+     * case reproduces the security review's ADV-3 probe: two LIVE bindings carrying one
+     * `attemptId` (separate objects = separate processes, so the per-process `nextOrdinal` map
+     * does not separate them) receive ONE reservation between them, and when both really send,
+     * the account pays twice and the meter records once.
+     *
+     * It is asserted rather than described because a comment stating a hazard is not a
+     * measurement: anyone who later makes the store distinguish two executors will see THIS test
+     * fail, which is the signal to delete it and assert the fix. Until then it is the honest
+     * statement of what the store does, and the reason the docblock carries the precondition "at
+     * most one live executor per attemptId" as a CALLER obligation.
+     *
+     * The repository cannot fix it inside this file today: the distinguishing fact would have to
+     * arrive through `CollectionContext.run`, which carries no owner token, and whose
+     * `fencingEpoch` is never written by any code here (schema default 1, lease recovery of plan
+     * Task 2.5 unimplemented) — so folding the epoch into the reservation key separates nothing.
+     * Owned by BACKLOG-followups 308.
+     */
+    it('TWO live executors of one attempt SHARE a reservation — the precondition, measured', async () => {
       const m = await newMeter({ limit: 10 })
       const cycleId = await newCycle()
       const attemptId = nextTag()
-      const firstRun = createAccountMeter(
+      const workerA = createAccountMeter(
         db,
         binding({ accountKey: m.accountKey, cycleId, attemptId }),
       )
-      const spent = await firstRun.reserve('REQUEST', 2)
-      if (spent === null) throw new Error('setup: reservation refused')
-      await firstRun.reconcile(spent, 'USED')
+      const workerB = createAccountMeter(
+        db,
+        binding({ accountKey: m.accountKey, cycleId, attemptId }),
+      )
+
+      const a = await workerA.reserve('REQUEST', 2)
+      const b = await workerB.reserve('REQUEST', 2)
+      if (a === null || b === null) throw new Error('setup: reservation refused')
+
+      // One hold between the two of them, for what will be two real requests.
+      expect(b.id).toBe(a.id)
+      expect(await counters(m.id)).toEqual({ used: 0, reserved: 2, uncertain: 0 })
+      expect(await reservationCount(m.id)).toBe(1)
+
+      // Both send for real and both settle. The second settle is a SILENT no-op, so worker B
+      // believes it was charged.
+      await workerA.reconcile(a, 'USED')
+      await workerB.reconcile(b, 'USED')
+
+      // 4 units left the account; 2 are on the meter. This is the overspend direction.
       expect(await counters(m.id)).toEqual({ used: 2, reserved: 0, uncertain: 0 })
+      expect(await reservationRow(a.id)).toMatchObject({ status: 'USED', used_amount: 2 })
+    })
+
+    it('the positive control: a still-RESERVED key IS reused and nothing moves', async () => {
+      const m = await newMeter({ limit: 10 })
+      const cycleId = await newCycle()
+      const attemptId = nextTag()
+      const first = await createAccountMeter(
+        db,
+        binding({ accountKey: m.accountKey, cycleId, attemptId }),
+      ).reserve('REQUEST', 2)
+      if (first === null) throw new Error('setup: reservation refused')
 
       const retry = await createAccountMeter(
         db,
         binding({ accountKey: m.accountKey, cycleId, attemptId }),
       ).reserve('REQUEST', 2)
 
-      expect(retry?.id).not.toBe(spent.id)
-      expect(await counters(m.id)).toEqual({ used: 2, reserved: 2, uncertain: 0 })
-      expect(await reservationCount(m.id)).toBe(2)
+      expect(retry).toEqual(first)
+      expect(await counters(m.id)).toEqual({ used: 0, reserved: 2, uncertain: 0 })
+      expect(await reservationCount(m.id)).toBe(1)
     })
 
     it('a retry that asks a different amount for the same request is refused, not merged', async () => {
@@ -605,6 +808,64 @@ describe.skipIf(!hasDatabaseUrl())('account meter store (real Postgres)', () => 
       expect(await counters(m.id)).toEqual({ used: 0, reserved: 0, uncertain: 0 })
     })
 
+    /**
+     * CR-M-3 — the meter key is (account, unit, WINDOW), and until this case every test had
+     * exactly one row per (account, unit), so dropping `eq(window)` from either lookup left the
+     * whole suite green. A daily-plus-monthly cap on one unit is the normal shape of a paid
+     * quota; with the predicate gone the store locks whichever row Postgres returns first and
+     * charges the wrong counter — the account's monthly spend lands on the daily cap or the
+     * reverse, and the cap that was not charged over-admits.
+     */
+    it('charges the bound window only: DAY, MONTH and LIFETIME rows of ONE unit do not mix', async () => {
+      const accountKey = nextAccount()
+      const day = await newMeter({ accountKey, unit: 'REQUEST', window: 'DAY', limit: 10 })
+      const month = await newMeter({ accountKey, unit: 'REQUEST', window: 'MONTH', limit: 100 })
+      const lifetime = await newMeter({
+        accountKey,
+        unit: 'REQUEST',
+        window: 'LIFETIME',
+        limit: 1_000,
+      })
+      expect(new Set([day.id, month.id, lifetime.id]).size).toBe(3)
+
+      const meter = createAccountMeter(
+        db,
+        binding({ accountKey, cycleId: await newCycle(), windows: { REQUEST: 'MONTH' } }),
+      )
+      const r = await meter.reserve('REQUEST', 7)
+      if (r === null) throw new Error('setup: reservation refused')
+
+      // Only the MONTH row moved, by the exact amount.
+      expect(await counters(month.id)).toEqual({ used: 0, reserved: 7, uncertain: 0 })
+      expect(await counters(day.id)).toEqual({ used: 0, reserved: 0, uncertain: 0 })
+      expect(await counters(lifetime.id)).toEqual({ used: 0, reserved: 0, uncertain: 0 })
+      expect(await reservationRow(r.id)).toMatchObject({ meter_id: month.id })
+
+      // Settlement follows the same key: the reservation converts on MONTH and nowhere else.
+      await meter.reconcile(r, 'USED')
+      expect(await counters(month.id)).toEqual({ used: 7, reserved: 0, uncertain: 0 })
+      expect(await counters(day.id)).toEqual({ used: 0, reserved: 0, uncertain: 0 })
+      expect(await counters(lifetime.id)).toEqual({ used: 0, reserved: 0, uncertain: 0 })
+    })
+
+    /**
+     * The other direction of the same key: the DAY cap of the same unit is the one that refuses
+     * when it is the bound one, even though the MONTH row has plenty of room.
+     */
+    it('a binding bound to DAY is refused by the DAY limit while MONTH still has room', async () => {
+      const accountKey = nextAccount()
+      const day = await newMeter({ accountKey, unit: 'REQUEST', window: 'DAY', limit: 3 })
+      const month = await newMeter({ accountKey, unit: 'REQUEST', window: 'MONTH', limit: 100 })
+      const meter = createAccountMeter(
+        db,
+        binding({ accountKey, cycleId: await newCycle(), windows: { REQUEST: 'DAY' } }),
+      )
+      expect(await meter.reserve('REQUEST', 3)).not.toBeNull()
+      expect(await meter.reserve('REQUEST', 1)).toBeNull()
+      expect(await counters(day.id)).toEqual({ used: 0, reserved: 3, uncertain: 0 })
+      expect(await counters(month.id)).toEqual({ used: 0, reserved: 0, uncertain: 0 })
+    })
+
     it('a bound unit whose meter row does not exist is refused (never auto-created as unlimited)', async () => {
       const meter = createAccountMeter(
         db,
@@ -714,6 +975,71 @@ describe.skipIf(!hasDatabaseUrl())('account meter store (real Postgres)', () => 
       await meter.reconcile(r, 'USED')
       // The reset zeroed W's 4; W's 2 was settled against W, so W+1 starts clean.
       expect(await counters(m.id)).toEqual({ used: 0, reserved: 0, uncertain: 0 })
+    })
+
+    /**
+     * CR-M-2 — a MONTH row through the database. Every rollover case above uses a DAY window, so
+     * the monthly arithmetic reached Postgres in no test at all: the `window_kind = 'MONTH'`
+     * branch of `rollWindow` was exercised only as a pure function.
+     *
+     * The meter is anchored on the last day of the PREVIOUS month, which is the anchor shape that
+     * cannot survive February as a day number, and the one CR-M-1 is about. Bounds are derived in
+     * SQL from the database clock, so the case is not pinned to a particular calendar date; what
+     * it asserts is the PROPERTY that used to break — the window the store lands on is a
+     * month-end window containing `now`, not a window that drifted earlier into the month.
+     */
+    it('a MONTH window rolls to the next month-end window, keeping outstanding holds', async () => {
+      const monthEndOfPreviousMonth =
+        "(date_trunc('month', now() AT TIME ZONE 'UTC') - interval '1 day') AT TIME ZONE 'UTC'"
+      const m = await newMeter({
+        unit: 'REQUEST',
+        window: 'MONTH',
+        limit: 100,
+        used: 40,
+        windowStartedAtSql: `(date_trunc('month', now() AT TIME ZONE 'UTC') - interval '1 month' - interval '1 day') AT TIME ZONE 'UTC'`,
+        resetsAtSql: monthEndOfPreviousMonth,
+      })
+      const meter = createAccountMeter(
+        db,
+        binding({
+          accountKey: m.accountKey,
+          cycleId: await newCycle(),
+          windows: { REQUEST: 'MONTH' },
+        }),
+      )
+
+      // A reservation taken BEFORE the roll would belong to the old window; the reset is due, so
+      // this very call rolls it. `used` from the old window goes, the new hold is the new one's.
+      const held = await meter.reserve('REQUEST', 6)
+      if (held === null) throw new Error('setup: reservation refused')
+      expect(await counters(m.id)).toEqual({ used: 0, reserved: 6, uncertain: 0 })
+
+      const { rows } = await q(
+        `SELECT window_started_at, resets_at, now() AS db_now FROM job_account_meters WHERE id = $1`,
+        [m.id],
+      )
+      const {
+        window_started_at: start,
+        resets_at: reset,
+        db_now: dbNow,
+      } = rows[0] as {
+        window_started_at: Date
+        resets_at: Date
+        db_now: Date
+      }
+
+      // The window contains now: it has started, and it has not expired.
+      expect(start.getTime()).toBeLessThanOrEqual(dbNow.getTime())
+      expect(reset.getTime()).toBeGreaterThan(dbNow.getTime())
+      // Both bounds are month ends at midnight UTC — the anchor was NOT lost to a 28th.
+      expect(isUtcMonthEndMidnight(start)).toBe(true)
+      expect(isUtcMonthEndMidnight(reset)).toBe(true)
+      // ... and they are one calendar month apart.
+      expect(monthsBetweenUtc(start, reset)).toBe(1)
+
+      // The hold taken in the new window settles into the new window's `used`.
+      await meter.reconcile(held, 'USED')
+      expect(await counters(m.id)).toEqual({ used: 6, reserved: 0, uncertain: 0 })
     })
 
     it('a LIFETIME meter never resets', async () => {

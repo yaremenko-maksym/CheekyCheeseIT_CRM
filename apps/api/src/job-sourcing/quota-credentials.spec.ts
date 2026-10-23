@@ -27,6 +27,19 @@ describe('readQuotaCredential', () => {
     })
   })
 
+  /**
+   * SPEC-L-1 — THE BLIND SPOT OF THE ASSERTION BELOW, stated beside it rather than left for a
+   * reader to discover. What is proven here is that `readQuotaCredential` RETURNS the key in its
+   * `secrets` list. What is NOT proven, and cannot be from this seam, is that the key reaches
+   * `CollectionContext.secrets` and so the redactor: nothing in the repository constructs a
+   * `CollectionContext` yet, so there is no context builder to assert against and no end-to-end
+   * path from this return value to a redacted report. The AC ("a configured key appears in
+   * `secrets`") is met on the reader's contract only.
+   *
+   * Consequence to carry forward: a caller that takes `apiKey` and ignores `secrets` would pass
+   * every test in this file and leak the key into reports. The task that builds the context owns
+   * closing that — Task 3.5b, tracked as BACKLOG-followups 308 alongside the port items.
+   */
   it.each([
     ['jooble', 'JOOBLE_API_KEY'],
     ['jsearch', 'RAPIDAPI_KEY'],

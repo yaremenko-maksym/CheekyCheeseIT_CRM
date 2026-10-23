@@ -4,6 +4,7 @@ import {
   AccountMeterError,
   createAccountMeter,
   MAX_METERED_ATTEMPT_ID,
+  MAX_RESERVATION_AMOUNT,
   type AccountMeterBinding,
   type MeterDb,
 } from './account-meter.store'
@@ -114,6 +115,62 @@ describe('reserve — refused before the database', () => {
     const meter = createAccountMeter(db, valid())
     await expect(meter.reserve('REQUEST', 1)).rejects.toThrow('the database was touched')
     expect(touched).toEqual(['transaction'])
+  })
+})
+
+/**
+ * SR-M-2 — the per-unit sanity ceiling. The ceilings are written out as literals here rather than
+ * read from `MAX_RESERVATION_AMOUNT`: a case that takes its expectation from the table under test
+ * passes whatever the table says, including after someone raises a bound by mistake. Each unit
+ * gets a case AT its ceiling (accepted — it reaches the database) and one PAST it (refused before
+ * any query), which is also what pins the bound as a bound rather than an approximation.
+ */
+describe('reserve — the per-unit sanity ceiling (SR-M-2)', () => {
+  const ceilings = [
+    ['REQUEST', 10_000],
+    ['RECORD', 100_000],
+    ['MODEL_CALL', 10_000],
+    ['USD_MICROS', 1_000_000_000],
+  ] as const
+
+  it('the ceilings in the table are the documented ones', () => {
+    expect(MAX_RESERVATION_AMOUNT).toEqual({
+      REQUEST: 10_000,
+      RECORD: 100_000,
+      MODEL_CALL: 10_000,
+      USD_MICROS: 1_000_000_000,
+    })
+  })
+
+  it.each(ceilings)('a %s amount exactly AT the ceiling (%i) is accepted', async (unit, max) => {
+    const { db, touched } = untouchableDb()
+    const meter = createAccountMeter(db, { ...valid(), windows: { [unit]: 'MONTH' } })
+    await expect(meter.reserve(unit, max)).rejects.toThrow('the database was touched')
+    expect(touched).toEqual(['transaction'])
+  })
+
+  it.each(ceilings)('a %s amount one past the ceiling (%i) is refused', async (unit, max) => {
+    const { db, touched } = untouchableDb()
+    const meter = createAccountMeter(db, { ...valid(), windows: { [unit]: 'MONTH' } })
+    const error = await callError(() => meter.reserve(unit, max + 1))
+    expect(error.code).toBe('INVALID_AMOUNT')
+    // Not a COST_STOP: a budget refusal is `null`, a cost estimate this size is a defect.
+    expect(error.message).toContain('sanity ceiling')
+    expect(touched).toEqual([])
+  })
+
+  /**
+   * The case the finding measured: an UNLIMITED meter (`limit_amount IS NULL`) used to accept
+   * `Number.MAX_SAFE_INTEGER`, writing nine billion dollars of held spend onto a USD_MICROS row.
+   * The ceiling does not consult the limit, so it refuses this before any query.
+   */
+  it.each(ceilings)('MAX_SAFE_INTEGER is refused for %s, whatever the limit', async (unit) => {
+    const { db, touched } = untouchableDb()
+    const meter = createAccountMeter(db, { ...valid(), windows: { [unit]: 'MONTH' } })
+    expect((await callError(() => meter.reserve(unit, Number.MAX_SAFE_INTEGER))).code).toBe(
+      'INVALID_AMOUNT',
+    )
+    expect(touched).toEqual([])
   })
 })
 

@@ -45,15 +45,59 @@ import {
  * - Idempotent attempt reservation, committed before I/O. The reservation key is
  *   `<attemptId>#<unit>#<n>`, where `n` counts this binding's paid requests of that unit. A retry
  *   of the same attempt (a fresh binding, nothing in memory) replays the same keys: a key still
- *   RESERVED — provably never sent — is RETURNED as-is (counters unchanged); a key whose request
- *   already left (SENT / UNCERTAIN / USED) or was released is skipped, and the retry's request
- *   reserves anew, because it really is a second paid request.
+ *   RESERVED is RETURNED as-is (counters unchanged); a key whose request already left (SENT /
+ *   UNCERTAIN / USED) or was released is skipped, and the retry's request reserves anew, because
+ *   it really is a second paid request.
+ *
+ *   **CALLER PRECONDITION, not a guarantee of this store (SR-H-1): at most ONE live executor per
+ *   `attemptId`.** The replay walk hands back a RESERVED row on the reading that RESERVED means
+ *   "the request never left". That reading is only sound when the executor which took the row is
+ *   gone. RESERVED is equally the state of a live worker one millisecond before it sends, and the
+ *   store holds no evidence either way. Measured, by the security review of PR #1103: six
+ *   concurrent bindings carrying one `attemptId` received ONE reservation between them; two of
+ *   them each sent a real request of cost 2 and the meter recorded `used = 2`. Four units left
+ *   the account, two were charged, and the second `reconcile` was a silent no-op — so the second
+ *   worker believes it was charged. N overlapping executors of one attempt cost N x amount and
+ *   charge once, which is the OVERSPEND direction.
+ *
+ *   Why the precondition is not enforced here, and what would enforce it. The distinguishing fact
+ *   would have to come from the caller, and the port cannot carry it today:
+ *   `CollectionContext.run` offers `{ sourceId, cycleId, attemptId, fencingEpoch }` and no owner
+ *   token. `fencingEpoch` looks like the answer and is NOT one yet — the schema calls it a
+ *   monotonic fencing epoch but immediately states the monotonicity is a WORKER OBLIGATION ("the
+ *   database stores and bounds the epoch; it cannot know whose turn it is"), and no code in this
+ *   repository ever writes it: `fencing_epoch` has `.default(1)` and a `> 0` CHECK, the lease
+ *   columns `owner_token` / `lease_expires_at` appear in no file but the schema, and the lease
+ *   recovery that would increment it (plan Task 2.5) is not implemented. Folding a constant 1
+ *   into the reservation key would therefore separate nothing — the probe above reproduces
+ *   unchanged — while making the file look fenced. That is the defect this comment exists to
+ *   stop, reintroduced one layer down.
+ *
+ *   So the exclusivity must be established by whoever claims the run under a lease, and asserted
+ *   where it is established. Tracked as BACKLOG-followups 308; until then, a caller that may run
+ *   two executors of one `attemptId` concurrently must not share an `attemptId` between them.
  * - Release only provably unsent cost. RELEASED is legal only from RESERVED. SENT and later can
  *   only become UNCERTAIN (held) or USED. Both of those are also legal straight from RESERVED,
  *   because the collection loop reports a request that threw mid-flight as UNCERTAIN without the
  *   transport having marked it SENT: the direction that errs is toward a hold, never a release.
+ *
+ *   THE ORDERING THIS RESTS ON, as a contract (SR-M-1 / SPEC-H-1): "provably unsent" is only
+ *   provable if `markSent` has COMMITTED before the request is written to the socket. Nothing in
+ *   this file can enforce that, and nothing calls `markSent` yet — `CollectionContext.meter`, the
+ *   port the collection loop actually sees, carries only `reserve` and `reconcile`, so in
+ *   production SENT is never recorded today. Measured consequence (security review of PR #1103):
+ *   a reservation whose request physically left, released because `markSent` never committed,
+ *   took the meter from `{reserved 4}` to all zeroes with 4 units really spent. What protects the
+ *   loop today is not this guard but `collectJsonPages`, which sets `resolution = 'UNCERTAIN'`
+ *   BEFORE calling `fetchText`. Wiring `markSent` into the transport, or formally retiring the
+ *   SENT bullet, is owned by Task 3.5b and tracked as BACKLOG-followups 308, item 1.
  * - Exactly-once conversion. A second USED is a no-op; every other move out of a settled state is
  *   refused (`ILLEGAL_TRANSITION`). The amount converted is the STORED one, never the caller's.
+ *   `used` is therefore an UPPER BOUND ON spend, not spend: the full reserved worst case is
+ *   converted, because `reconcile` carries no actual cost, and once written there is no path to
+ *   correct the row. Safe for overspend and wrong for accounting — nothing downstream may report
+ *   `used` to the owner as money actually billed. Widening the port to carry the incurred cost is
+ *   owned by Task 3.5b and tracked as BACKLOG-followups 308, item 2 (SR-M-3 / SPEC-M-3).
  * - Window rollover. A meter row is reset in place, lazily, under the same lock, by the first
  *   operation at or after `resets_at`: `used` returns to 0; outstanding `reserved` / `uncertain`
  *   stay, because they are holds of the window they were taken in. When such a reservation later
@@ -93,6 +137,32 @@ export class AccountMeterError extends Error {
  */
 const KEY_SUFFIX_ROOM = 32
 export const MAX_METERED_ATTEMPT_ID = JOB_HANDLE_MAX - KEY_SUFFIX_ROOM
+
+/**
+ * SR-M-2 — the per-unit SANITY ceiling on a single reservation amount.
+ *
+ * `limit_amount IS NULL` means "the provider published no limit", which is the schema's single
+ * meaning and must stay that way. It does NOT mean "no sanity bound": with no ceiling, one bad
+ * cost estimate against an unlimited meter wrote `reserved = 9007199254740991` — nine billion
+ * dollars of held spend on a `USD_MICROS` meter — and the counters are read back as JS numbers,
+ * so a second such reservation leaves the representable range before the bigint column objects.
+ *
+ * These are BUG bounds, not budget decisions, which is why crossing one is an `INVALID_AMOUNT`
+ * error and not a `null` COST_STOP: a COST_STOP tells the caller "no room, stop cleanly", and a
+ * cost estimate this size is not a budget condition, it is a defect to be seen. Each is orders of
+ * magnitude above any real single request, so a correct caller never meets one:
+ *
+ * - `REQUEST` / `MODEL_CALL`: one paid request, or the model calls one request fans out into.
+ * - `RECORD`: per-returned-record credits; the largest documented page of the sources in Task 3.5b
+ *   is 50 records (TheirStack's `limit` maximum), so 100k is four orders of magnitude of headroom.
+ * - `USD_MICROS`: 1e6 micros = USD 1, so this is USD 1,000 for ONE request.
+ */
+export const MAX_RESERVATION_AMOUNT: Readonly<Record<JobMeterUnit, number>> = {
+  REQUEST: 10_000,
+  RECORD: 100_000,
+  MODEL_CALL: 10_000,
+  USD_MICROS: 1_000_000_000,
+}
 
 const bindingSchema = z.object({
   accountKey: jobAccountKeySchema,
@@ -142,7 +212,20 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
     )
   }
   const binding = parsed.data
-  /** Next request ordinal per unit. In memory ONLY as an optimisation of the replay walk. */
+  /**
+   * Next request ordinal per unit.
+   *
+   * SR-H-1 — NOT an optimisation, whatever an earlier edition of this comment said. It is load
+   * bearing: it is what stops two concurrent paid requests OF THIS BINDING from computing the
+   * same ordinal and the second one "finding" the first's RESERVED row. Delete it and
+   * `concurrent paid requests on ONE binding never share a reservation` starts failing, with
+   * three requests sharing one hold.
+   *
+   * What it does NOT do, and cannot: it is per process. Two bindings in two processes carrying
+   * the same `attemptId` each start at ordinal 1 and do share a reservation — see the CALLER
+   * PRECONDITION in the file docblock. The map is the in-process half of an invariant whose
+   * cross-process half is the caller's to provide.
+   */
   const nextOrdinal = new Map<JobMeterUnit, number>()
 
   function windowOf(unit: JobMeterUnit): JobMeterWindow {
@@ -187,6 +270,16 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
     if (!Number.isSafeInteger(amount) || amount <= 0) {
       throw new AccountMeterError('INVALID_AMOUNT', 'a reservation amount is a positive integer')
     }
+    // SR-M-2: the bound applies whatever the meter's limit is, because an unlimited meter is
+    // exactly the case that had no ceiling at all. Checked before the unit is resolved to a
+    // window so that an absurd amount is refused identically for a bound and an unbound unit.
+    const ceiling = MAX_RESERVATION_AMOUNT[unit]
+    if (amount > ceiling) {
+      throw new AccountMeterError(
+        'INVALID_AMOUNT',
+        `a single ${unit} reservation of ${amount} exceeds the sanity ceiling of ${ceiling}`,
+      )
+    }
     const window = windowOf(unit)
 
     return db.transaction(async (tx) => {
@@ -199,7 +292,21 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
         ),
       )
 
-      // Replay walk: reuse a still-RESERVED key, skip keys whose request already left.
+      /**
+       * Replay walk: reuse a still-RESERVED key, skip keys whose request already left.
+       *
+       * CR-M-4 — one SELECT per ordinal, inside the transaction that holds the account-wide
+       * meter row lock, so every worker on this account queues behind the walk. WHAT BOUNDS IT:
+       * the walk visits one row per paid request this attempt has ALREADY departed, and it runs
+       * at most once per binding — `nextOrdinal` makes every later `reserve` of the same binding
+       * start where this one stopped, so the cost is O(k) once and O(1) after. `k` is the paid
+       * requests of a single collection attempt, which the collection loop bounds by its page
+       * budget and its deadline (a run that cannot finish is cut by the deadline, not by the
+       * meter), so `k` is tens, not thousands. Deliberately left as a loop rather than one
+       * `starts_with` range query: the loop's per-ordinal `FOR UPDATE` is what serialises two
+       * bindings racing the same key, and a single ordered read would have to re-acquire those
+       * locks anyway. Revisit if a source ever bills per page over a long cursor walk.
+       */
       let ordinal = nextOrdinal.get(unit) ?? 1
       for (;;) {
         const key = reservationKey(binding.attemptId, unit, ordinal)
