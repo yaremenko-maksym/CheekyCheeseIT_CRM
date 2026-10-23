@@ -371,6 +371,12 @@ describe('adminUpdateTransaction — multipart salary marker migration', () => {
     const sourceWhere = compileWhere(sourceUpdateWhere[0])
     expect(sourceWhere.sql).not.toContain('"salary_month" IS NOT DISTINCT FROM')
     expect(sourceWhere.sql).not.toContain('"salary_origin" IS NOT DISTINCT FROM')
+    // The guard must bind EXACTLY the three state predicates and nothing else.
+    // Asserting only the ABSENCE of the two patterns above leaves the
+    // empty-array fallback unobserved: any extra element spread into `and(...)`
+    // renders as a trailing unconstrained `and $n` (measured against the real
+    // dialect), which widens the WHERE without matching either pattern.
+    expect(sourceWhere.params).toEqual(['salary-cron-1', 'PENDING', null])
     expect(markerInsertValues).toHaveLength(0)
   })
 
