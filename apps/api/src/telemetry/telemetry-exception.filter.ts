@@ -129,9 +129,14 @@ function withoutDatabaseParameters(exception: unknown): unknown {
   if (suffix === '') return exception
   const redacted = new Error(suffix.trimStart())
   redacted.name = exception.name
-  // `safeErrorStack` keeps the name and the frames only; the header is rebuilt from the
-  // redacted message so a log line or telemetry row still says what failed.
-  const frames = (safeErrorStack(exception) ?? '').split('\n').slice(1)
+  // Keep ONLY lines shaped like a stack frame, and rebuild the header from the redacted
+  // message so a log line or telemetry row still says what failed. SR-M-1 (fix round 1):
+  // dropping just the FIRST line is not enough — when the top-level error is not itself a
+  // pg/drizzle error but wraps one as `cause`, `safeErrorStack` returns its stack verbatim,
+  // and a multi-line wrapper message would survive into the stack we store.
+  const frames = (safeErrorStack(exception) ?? '')
+    .split('\n')
+    .filter((line) => /^\s+at /.test(line))
   redacted.stack = [`${redacted.name}: ${redacted.message}`, ...frames].join('\n')
   return redacted
 }

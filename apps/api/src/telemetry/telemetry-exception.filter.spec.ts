@@ -252,6 +252,53 @@ describe('TelemetryExceptionFilter — database errors never record parameter va
     )
   })
 
+  /**
+   * SR-M-1 (fix round 1, review 5631787486): when the top-level error is NOT itself a
+   * pg/drizzle error but wraps one as `cause`, `safeErrorStack` returns its stack verbatim.
+   * Rebuilding from "every line after the first" then keeps the rest of a MULTI-LINE wrapper
+   * message — which can embed a parameter value — in what is stored as the stack.
+   */
+  it('keeps only stack frames when a wrapper error embeds a multi-line value in its message', async () => {
+    const recordError = vi.fn().mockResolvedValue(undefined)
+    const telemetryErrors = { recordError } as unknown as TelemetryErrorsService
+    const filter = withHttpAdapter(new TelemetryExceptionFilter(telemetryErrors))
+
+    const wrapper = new Error(
+      `ingest failed for recording\n${SECRET_VALUE}\nmore ${SECRET_VALUE}`,
+      { cause: drizzleFailure() },
+    )
+    wrapper.stack = `Error: ${wrapper.message}\n    at Real.frame (/real/file.ts:9:9)`
+
+    filter.catch(wrapper, makeHost('/api/interviews'))
+    await flushMicrotasks()
+
+    const recorded = recordError.mock.calls[0]![0] as { message: string; stack?: string }
+    expect(recorded.message).toContain('db_state=22P05')
+    expect(JSON.stringify(recorded)).not.toContain(SECRET_VALUE)
+    expect(recorded.stack).toBe(`Error: ${recorded.message}\n    at Real.frame (/real/file.ts:9:9)`)
+  })
+
+  /**
+   * The bound of the fix above, asserted so it is not mistaken for a leak later: a value that
+   * itself contains an indented `at …` line is indistinguishable from a frame. `pg-errors.ts`
+   * records this residual as an accepted decision (frames are what make a DB error
+   * diagnosable); this pins the actual behaviour rather than an aspiration.
+   */
+  it('cannot distinguish a frame-shaped line embedded in a message (documented residual)', async () => {
+    const recordError = vi.fn().mockResolvedValue(undefined)
+    const telemetryErrors = { recordError } as unknown as TelemetryErrorsService
+    const filter = withHttpAdapter(new TelemetryExceptionFilter(telemetryErrors))
+
+    const wrapper = new Error('wrapped', { cause: drizzleFailure() })
+    wrapper.stack = 'Error: wrapped\n    at looks.like.a.frame (/x/y.ts:1:1)'
+
+    filter.catch(wrapper, makeHost('/api/interviews'))
+    await flushMicrotasks()
+
+    const recorded = recordError.mock.calls[0]![0] as { stack?: string }
+    expect(recorded.stack).toContain('at looks.like.a.frame')
+  })
+
   it('keeps message and stack unchanged for an error with no database error in it', async () => {
     const recordError = vi.fn().mockResolvedValue(undefined)
     const telemetryErrors = { recordError } as unknown as TelemetryErrorsService
