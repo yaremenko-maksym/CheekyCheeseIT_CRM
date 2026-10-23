@@ -266,6 +266,23 @@ const ALLOWED_REQUEST_HEADERS: ReadonlySet<string> = new Set([
  */
 export function honestRequest(request: FetchRequest): FetchRequest {
   const headers: Record<string, string> = {}
+  // TWO SPELLINGS OF ONE HEADER: THE LAST ONE WINS, DELIBERATELY (LOW, round 2).
+  //
+  // `{ Accept: 'a', accept: 'b' }` folds to one slot, and the loop above takes them in insertion
+  // order, so `b` is sent. That was true before and is now a decision rather than a side effect.
+  //
+  // WHY LAST AND NOT A REFUSAL: HTTP has no notion of a header's letter case, so the two keys were
+  // never two headers — they are one header an adapter wrote twice, which is an adapter bug with
+  // no safe reading. Refusing the request would turn a cosmetic adapter mistake into a dead
+  // source, and refusing is also what this binding does NOT do with headers anywhere else: an
+  // unknown header is dropped, not fatal. Concatenating them (the comma-joined form HTTP allows
+  // for list headers) would invent a value neither spelling asked for, and would be wrong outright
+  // for a non-list header like `authorization`.
+  //
+  // Last-wins is also the only choice an adapter can PREDICT: it matches `Object.assign` and the
+  // object spread this file is full of, and the `Headers` of every fetch implementation. The
+  // alternative that reads more cautious — first-wins — would silently prefer whichever key the
+  // adapter happened to type first, which is not a property an author controls.
   for (const [name, value] of Object.entries(request.headers ?? {})) {
     const key = name.toLowerCase()
     if (!ALLOWED_REQUEST_HEADERS.has(key)) continue

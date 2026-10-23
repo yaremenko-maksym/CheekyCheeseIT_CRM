@@ -2610,6 +2610,105 @@ describe('the AC5 guard reads nativeIdOf and nothing else', () => {
 })
 
 /**
+ * THE AC5 GATE ASKS IDENTITY WHETHER AN ID WAS USED, AND NOT A SECOND NORMALISER (SR-M-1).
+ *
+ * `canonicalNativeId` is NFC + trim. Identity's own `normalizeNativeId` is that PLUS three
+ * refusals — empty, over `MAX_NATIVE_ID_CHARS`, any C0/DEL character — so asking "is there a
+ * usable id" with the first function answered differently from the function that decided. Measured
+ * on four inputs, the loop believed in an id identity had declined, and only the length condition
+ * was reasoned about or covered anywhere.
+ *
+ * WHAT THESE CASES PIN, and why each of the three shapes is here:
+ *  - identity declines the id, so the entry keys on its URL — the premise the other two rest on;
+ *  - two DISTINCT such ids on one URL are still refused. This is the case that fails if the two
+ *    sides are made to agree by aligning `canonicalNativeId` with `normalizeNativeId` — the fix
+ *    this round rejected — because the gate would then see no id and the collapse would be stored
+ *    silently. It also fails if the gate compares `identity.nativeId` on both sides, which was the
+ *    review's prescription: `identityKey` contains `nativeId` on the NATIVE_ID branch, so the
+ *    comparison can never fire there, and on this branch both sides are `null`;
+ *  - the same such id twice is ONE posting, so the refusal above is not simply "any declined id
+ *    fails the page".
+ *
+ * All three are at this layer rather than through a feed, because only two of the four conditions
+ * are reachable through XML at all: `readFeed`'s `textOf` trims and reports a blank as `null`, and
+ * XML 1.0 forbids C0 characters other than tab, CR and LF. The loop is where all four live.
+ */
+describe('the AC5 gate follows identity across the ids identity declines', () => {
+  const ONE_URL = 'https://jobs.example.com/the-only-link'
+
+  /** URL-keyed: `mapItem` supplies no native id, so identity must fall back to the URL. */
+  const urlKeyed = makeSpec({
+    mapItem: (item, cfg) => ({
+      namespace: cfg.namespace,
+      nativeId: null,
+      url: item.url,
+      title: item.title,
+      companyName: item.company,
+    }),
+    nativeIdOf: (item) => item.id,
+  })
+
+  const collectIds = async (ids: readonly string[]): Promise<CollectionBatch> => {
+    const h = harness({ pages: [onePage(ids.map((id) => job(id, { url: ONE_URL })))] })
+    return collectJsonPages(urlKeyed, config(), h.ctx)
+  }
+
+  /** `[name, one id, a different id of the same shape]`. */
+  const DECLINED: ReadonlyArray<readonly [string, string, string]> = [
+    ['an interior tab', 'ab\tcd', 'ef\tgh'],
+    ['an interior C0 control character', 'ab\u0001cd', 'ef\u0001gh'],
+    ['an id past the usable length', `a-${'x'.repeat(300)}`, `b-${'x'.repeat(300)}`],
+  ]
+
+  it.each(DECLINED)('identity declines %s, so the entry keys on its URL', async (_name, id) => {
+    const batch = await collectIds([id])
+
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.observations[0]?.identity).toMatchObject({
+      identityKind: 'URL_FALLBACK',
+      nativeId: null,
+    })
+  })
+
+  it.each(DECLINED)(
+    'two distinct ids with %s on one URL are still the collapse AC5 exists for',
+    async (_name, first, second) => {
+      const batch = await collectIds([first, second])
+
+      expect(batch.outcome).toBe('FAILED')
+      expect(batch.requests.at(-1)?.error?.code).toBe('ADAPTER_INVARIANT')
+      expect(batch.observations).toEqual([])
+    },
+  )
+
+  it.each(DECLINED)(
+    'the same id with %s twice on one URL is one posting, not a collapse',
+    async (_name, id) => {
+      const batch = await collectIds([id, id])
+
+      expect(batch.outcome).toBe('SUCCEEDED')
+      expect(batch.requests.map((r) => r.error?.code ?? null)).not.toContain('ADAPTER_INVARIANT')
+      expect(batch.observations).toHaveLength(2)
+    },
+  )
+
+  /**
+   * THE FOURTH CONDITION, AND THE ONE WHOSE ANSWER IS THE OPPOSITE. Whitespace-only is not an id
+   * identity declined — it is no id at all, and an absent id cannot disagree with anything. The
+   * gate therefore spells it as nothing rather than recording `''` against the key: without that,
+   * the empty string is remembered as this posting's id and the NEXT entry on the same key, with a
+   * real id, reads as a collapse. One entry of each shape, which is the pair that discriminates.
+   */
+  it('an id that canonicalises to nothing is no id, and so disagrees with nothing', async () => {
+    const batch = await collectIds(['   ', 'ab\tcd'])
+
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.requests.map((r) => r.error?.code ?? null)).not.toContain('ADAPTER_INVARIANT')
+    expect(batch.observations).toHaveLength(2)
+  })
+})
+
+/**
  * SPEC-M-2: this layer is SINGLE-NAMESPACE, and that is now a statement with a test behind it
  * rather than a comment claiming a multi-board behaviour the code does not have.
  *

@@ -418,6 +418,33 @@ describe('honest user agent, no browser impersonation', () => {
     expect(f.sent[0]?.headers).toEqual({ 'user-agent': DEFAULT_USER_AGENT })
   })
 
+  /**
+   * TWO SPELLINGS OF ONE HEADER, PINNED (LOW, round 2).
+   *
+   * HTTP has no header letter case, so `Accept` and `accept` were never two headers — they are one
+   * header an adapter wrote twice. The last spelling wins, which is what `Object.assign`, the
+   * object spread and every fetch `Headers` do, and the only outcome an adapter author can
+   * predict. It was already the behaviour and was untested, so it was indistinguishable from an
+   * accident; this is the case that makes a change to it fail rather than pass quietly.
+   */
+  it('lets the last spelling of a twice-written header win', async () => {
+    const spec = personioSpec({
+      pageRequest: () => ({
+        request: {
+          url: 'https://acme.jobs.personio.de/xml',
+          headers: { Accept: 'application/xml', accept: 'application/rss+xml' },
+        },
+      }),
+    })
+    const f = fakeCollectionContext({ responses: [{ bodyText: PERSONIO }] })
+    await collectXmlPages(spec, config(), f.ctx)
+
+    expect(f.sent[0]?.headers).toEqual({
+      accept: 'application/rss+xml',
+      'user-agent': DEFAULT_USER_AGENT,
+    })
+  })
+
   it('sends the honest user agent when the adapter set no headers at all', async () => {
     const f = fakeCollectionContext({ responses: [{ bodyText: PERSONIO }] })
     await collectXmlPages(personioSpec(), config(), f.ctx)

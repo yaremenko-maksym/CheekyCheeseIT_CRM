@@ -506,13 +506,21 @@ describe('AC5 — the GUID is opaque identity', () => {
     // both entries key on the SAME link. The provider issued two different ids, so collapsing them
     // would silently merge two postings: the loop's collision check catches it, and it can only
     // do so because the base reports the GUID as the provider's id.
-    const long = (tag: string) => `${tag}-${'x'.repeat(300)}`
+    //
+    // THE ONE CASE FOR THIS, merged (LOW, round 2). A near-identical case lived in the
+    // `a GUID is one id however it is spelled` block below — same two over-length guids, same one
+    // link, same verdict — differing only in the id length used and in also asserting the message.
+    // The message assertion is folded in here rather than dropped, so the merge loses nothing.
+    const long = (tag: string) => `${tag.repeat(300)}`
     const { batch } = await collect(
       rss(item(long('a'), 'https://example.com/j/1') + item(long('b'), 'https://example.com/j/1')),
     )
     expect(batch.outcome).toBe('FAILED')
     expect(batch.observations).toEqual([])
     expect(batch.requests.at(-1)?.error?.code).toBe('ADAPTER_INVARIANT')
+    // The reported message is bounded, so the assertion is on its head rather than its tail — and
+    // it names the colliding id, which is what makes the report actionable.
+    expect(batch.requests.at(-1)?.error?.message).toMatch(/^adapter invariant: native ids a{20}/)
   })
 
   it('two guids sharing one link are two postings', async () => {
@@ -540,6 +548,45 @@ describe('AC5 — the GUID is opaque identity', () => {
     expect(rust).toHaveLength(2)
     expect(rust[0]?.identity.identityKey).toBe(rust[1]?.identity.identityKey)
     expect(rust[0]?.contentHash).not.toBe(rust[1]?.contentHash)
+  })
+})
+
+/**
+ * THE ENTRY-COUNT BOUND, PROVEN ON THIS BINDING (SPEC-L-2).
+ *
+ * The 500/501 boundary was pinned only in `xml-source.provider.spec.ts`, through the Personio
+ * binding, while this file's Assumptions describe the consequence for FEEDS. Both bindings resolve
+ * their limits through the same `resolveXmlSourceLimits`, so the behaviour is "probably identical"
+ * — and `probably` is what a test is for. Proving a behaviour on a neighbouring binding is the
+ * same defect as the other three findings this round, one directory over.
+ *
+ * Both sides, at the boundary and one past it: a bound asserted only from the refusing side passes
+ * just as well when the bound is off by one in the direction that drops healthy entries.
+ */
+describe('the feed binding stops at the entry bound it shares with the XML binding', () => {
+  const entries = (count: number) =>
+    rss(
+      Array.from({ length: count }, (_, i) => item(`g-${i}`, `https://example.com/j/${i}`)).join(
+        '',
+      ),
+    )
+
+  it('collects 500 entries and refuses 501', async () => {
+    const at = await collect(entries(500))
+    const past = await collect(entries(501))
+
+    expect(at.batch.outcome).toBe('SUCCEEDED')
+    expect(at.batch.observations).toHaveLength(500)
+    expect(past.batch.outcome).toBe('FAILED')
+    expect(past.batch.requests.at(-1)?.error?.code).toBe('PAYLOAD_TOO_LARGE')
+  })
+
+  it('refuses through defineRssProvider too, which is how an adapter is actually used', async () => {
+    const provider = defineRssProvider(spec())
+    const f = fakeCollectionContext({ responses: [{ bodyText: entries(501) }], now: NOW })
+    const batch = await provider.collectReport(provider.parseConfig(config()), f.ctx)
+
+    expect(batch.requests.at(-1)?.error?.code).toBe('PAYLOAD_TOO_LARGE')
   })
 })
 
@@ -591,29 +638,18 @@ describe('a GUID is one id however it is spelled', () => {
     expect(new Set(batch.observations.map((o) => o.identity.identityKey)).size).toBe(1)
   })
 
-  it('still refuses two genuinely different ids that collapse to one identity key', async () => {
-    // THE REFUSAL SIDE, and it had to be reachable: normalising the comparison must not switch the
-    // AC5 guard off. Two entries whose guids are PAST the usable length both fall back to URL
-    // identity, so one shared link gives them one identity key — while `nativeIdOf` reports two
-    // different provider ids. That is the collapse AC5 exists for, and it is still reported.
-    const f = fakeCollectionContext({
-      now: NOW,
-      responses: [
-        {
-          bodyText: rss(
-            item('a'.repeat(257), 'https://example.com/one-and-only') +
-              item('b'.repeat(257), 'https://example.com/one-and-only'),
-          ),
-        },
-      ],
-    })
-    const batch = await collectFeedPages(spec(), config(), f.ctx)
-
-    expect(batch.outcome).toBe('FAILED')
-    expect(batch.requests.at(-1)?.error?.code).toBe('ADAPTER_INVARIANT')
-    // The reported message is bounded, so the assertion is on its head rather than its tail.
-    expect(batch.requests.at(-1)?.error?.message).toMatch(/^adapter invariant: native ids a{20}/)
-  })
+  /*
+   * THE REFUSAL SIDE — normalising the comparison must not switch the AC5 guard off — lives in
+   * ONE place now: `two distinct guids too long to be native ids, sharing a link, are an invariant
+   * failure` in the AC5 block above, which this case duplicated down to the verdict (LOW, round 2).
+   * Its message assertion moved there with it.
+   *
+   * The same refusal across every condition the identity seam declines — a tab and a C0 control as
+   * well as over-length — is pinned at the loop in `api-json.provider.spec.ts`, under
+   * `the AC5 gate follows identity across the ids identity declines`, which is the layer where all
+   * four are reachable: `textOf` trims a blank guid to `null`, and XML 1.0 admits no C0 character
+   * but tab, CR and LF.
+   */
 
   it('an over-long guid falls back to URL identity, and a changed link splits the posting', async () => {
     // The inverse the review found uncovered. A guid past MAX_NATIVE_ID_CHARS is unusable, so
