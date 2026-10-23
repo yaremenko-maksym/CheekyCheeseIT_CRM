@@ -3,7 +3,7 @@ import { fakeCollectionContext, type FakeResponse } from '../../../test/fake-col
 import { sourceFixture } from '../../../test/source-fixtures'
 import { PG_INT_MAX } from '../api-json.provider'
 import { UnvalidatedConfigError } from '../reporting-provider'
-import { jobicyProvider } from './jobicy.provider'
+import { jobicyProvider, jobicySpec } from './jobicy.provider'
 
 /**
  * Jobicy through its public provider. Expected values are hand-read from the two authentic
@@ -236,6 +236,16 @@ describe('cursor pagination', () => {
     })
     expect(batch.outcome).toBe('SUCCEEDED')
     expect(batch.requests.map((r) => r.page)).toEqual([1, 2])
+    expect(f.sent.map((r) => r.headers)).toEqual([
+      { accept: 'application/json' },
+      { accept: 'application/json' },
+    ])
+    // The stored cursor is ours: v1.<traversal start = now - 3h in ms>.<provider cursor>.
+    expect(f.saved[0]?.position).toEqual({
+      kind: 'CURSOR',
+      page: 1,
+      cursor: `v1.${NOW.getTime() - 3 * HOUR}.${cursor}`,
+    })
   })
 
   it('reserved characters in a cursor are encoded: no extra parameter, no host change', async () => {
@@ -482,5 +492,138 @@ describe('config is refused before any network call', () => {
       ),
     ).rejects.toBeInstanceOf(UnvalidatedConfigError)
     expect(f.sent).toHaveLength(0)
+  })
+})
+
+describe('the request carries each filter, and only the ones configured (CR-M-2)', () => {
+  const url = async (config: Record<string, unknown>) =>
+    (
+      await run(
+        [body({ jobs: [], nextCursor: null })],
+        jobicyProvider.parseConfig({ configVersion: 1, ...config }),
+      )
+    ).f.sent[0]?.url
+  it('no filters: count only', async () => {
+    expect(await url({})).toBe(`${API}?count=100`)
+  })
+  it('geo alone, industry alone, tag alone', async () => {
+    expect(await url({ geo: 'usa' })).toBe(`${API}?count=100&geo=usa`)
+    expect(await url({ industry: 'data-science' })).toBe(`${API}?count=100&industry=data-science`)
+    expect(await url({ tag: 'python' })).toBe(`${API}?count=100&tag=python`)
+  })
+  it('a tag with reserved characters is encoded as one parameter', async () => {
+    const u = (await url({ tag: 'c++ & rust=1' })) ?? ''
+    expect(new URL(u).searchParams.get('tag')).toBe('c++ & rust=1')
+    expect(new URL(u).searchParams.getAll('count')).toEqual(['100'])
+  })
+  it('all three together, count as configured', async () => {
+    expect(await url({ count: 7, geo: 'usa', industry: 'marketing', tag: 'seo' })).toBe(
+      `${API}?count=7&geo=usa&industry=marketing&tag=seo`,
+    )
+  })
+  it('every request asks for JSON', async () => {
+    const { f } = await run([body({ jobs: [], nextCursor: null })])
+    expect(f.sent[0]?.headers).toEqual({ accept: 'application/json' })
+  })
+})
+
+describe('a stored cursor must have exactly our shape (CR-M-2)', () => {
+  const trusted = NOW.getTime() - 3 * HOUR
+  it.each([
+    ['a prefix before v1', `zv1.${trusted}.abc`],
+    ['a non-numeric stamp', 'v1.abc.def'],
+    ['an empty stamp', 'v1..abc'],
+    ['an empty provider cursor', `v1.${trusted}.`],
+    ['a different version tag', `v2.${trusted}.abc`],
+    ['a bare provider cursor', 'AgAAAABq27zH'],
+  ])('%s is not forwarded', async (_l, cursor) => {
+    const first = await run([body(page1())], cfg({ maxPages: 1 }))
+    const cp = first.f.saved.at(-1)
+    if (cp === undefined) throw new Error('no checkpoint')
+    const f = fakeCollectionContext({
+      now: NOW,
+      responses: [body({ ...page2() })],
+      stored: { ...cp, position: { kind: 'CURSOR', page: 1, cursor } },
+    })
+    await jobicyProvider.collectReport(cfg({ maxPages: 1 }), f.ctx)
+    expect(f.sent[0]?.url).toBe(`${API}?count=100&geo=europe&industry=engineering`)
+  })
+
+  it('a well-formed cursor that CONTAINS dots in the provider part is forwarded whole', async () => {
+    const first = await run([body(page1())], cfg({ maxPages: 1 }))
+    const cp = first.f.saved.at(-1)
+    if (cp === undefined) throw new Error('no checkpoint')
+    const f = fakeCollectionContext({
+      now: NOW,
+      responses: [body({ ...page2() })],
+      stored: { ...cp, position: { kind: 'CURSOR', page: 1, cursor: `v1.${trusted}.a.b.c` } },
+    })
+    await jobicyProvider.collectReport(cfg({ maxPages: 1 }), f.ctx)
+    expect(new URL(f.sent[0]?.url ?? '').searchParams.get('cursor')).toBe('a.b.c')
+  })
+})
+
+describe('optional-field defaults and the window contract', () => {
+  const first = () => page1().jobs[0] as Record<string, unknown>
+  it('a job with no pubDate: no dates, no publishedAt, no evidence', async () => {
+    const { pubDate: _p, ...rest } = first()
+    for (const j of [rest, { ...rest, pubDate: null }]) {
+      const o = (await run([body({ jobs: [j], nextCursor: null })])).batch.observations[0]
+      expect(o?.normalized.dates).toEqual([])
+      expect(o?.normalized.publishedAt).toBeNull()
+      expect(o?.evidence).toEqual([])
+    }
+  })
+  it('a job with no industry, type, level or description gets the empty defaults', async () => {
+    const { jobIndustry: _i, jobType: _t, jobLevel: _l, jobDescription: _d, ...bare } = first()
+    for (const j of [
+      bare,
+      { ...bare, jobIndustry: null, jobType: null, jobLevel: null, jobDescription: null },
+    ]) {
+      const o = (await run([body({ jobs: [j], nextCursor: null })])).batch.observations[0]
+      expect(o?.normalized.tags).toEqual([])
+      expect(o?.normalized.employmentType).toBeNull()
+      expect(o?.normalized.seniorityHint).toBeNull()
+      expect(o?.normalized.descriptionMd).toBe('')
+    }
+  })
+  it.each([
+    ['', null],
+    ['   ', null],
+    ['Any', null],
+    [' Any ', null],
+    ['Senior', 'Senior'],
+    [' Senior ', 'Senior'],
+  ])('jobLevel %j -> hint %j', async (jobLevel, hint) => {
+    const o = (await run([body({ jobs: [{ ...first(), jobLevel }], nextCursor: null })])).batch
+      .observations[0]
+    expect(o?.normalized.seniorityHint).toBe(hint)
+  })
+  it('an empty jobType list gives no employment type, not an empty string', async () => {
+    const o = (await run([body({ jobs: [{ ...first(), jobType: [] }], nextCursor: null })])).batch
+      .observations[0]
+    expect(o?.normalized.employmentType).toBeNull()
+  })
+  it('a page target with no window is refused with a clear message (the loop always supplies one)', () => {
+    expect(() => jobicySpec.pageRequest(cfg(), { page: 1, cursor: null, window: null })).toThrow(
+      'Jobicy requires a window on every page target',
+    )
+  })
+})
+
+describe('refusal reasons are the intended ones', () => {
+  const reason = (extra: Record<string, unknown>) => {
+    try {
+      jobicyProvider.parseConfig({ configVersion: 1, ...extra })
+    } catch (e) {
+      return e instanceof Error ? e.message : String(e)
+    }
+    return ''
+  }
+  it('query and window are refused with their own wording', () => {
+    expect(reason({ query: 'x' })).toContain('Jobicy filters live in industry / geo / tag')
+    expect(reason({ window: { from: '2026-10-01', to: '2026-10-02' } })).toContain(
+      'Jobicy has no date parameters',
+    )
   })
 })

@@ -271,6 +271,14 @@ describe('browse pagination: cursor, termination, ceiling', () => {
     })
     expect(batch.outcome).toBe('SUCCEEDED')
     expect(batch.requests.map((r) => r.page)).toEqual([1, 2])
+    expect(f.sent.map((r) => r.headers)).toEqual([
+      { accept: 'application/json' },
+      { accept: 'application/json' },
+    ])
+    expect(f.saved.map((c) => c.position)).toEqual([
+      { kind: 'CURSOR', page: 1, cursor: 'MjAyNi0xMC0yM1QxODowNjo1Ny42Nzg1MzhafDI0NDQzODc' },
+      { kind: 'RESTART', page: 2 },
+    ])
   })
 
   it('a clean full walk still claims only WINDOW (a job updated mid-walk jumps ahead of the cursor)', async () => {
@@ -341,6 +349,13 @@ describe('search pagination: page numbers, empty-page termination', () => {
       `${SEARCH}?q=python&seniority=Senior&sort=recent&page=2`,
       `${SEARCH}?q=python&seniority=Senior&sort=recent&page=3`,
     ])
+    expect(f.sent.map((r) => r.headers)).toEqual([
+      { accept: 'application/json' },
+      { accept: 'application/json' },
+      { accept: 'application/json' },
+    ])
+    expect(f.saved[0]?.position).toEqual({ kind: 'CURSOR', page: 1, cursor: 'page:2' })
+    expect(f.saved[1]?.position).toEqual({ kind: 'CURSOR', page: 2, cursor: 'page:3' })
     expect(batch.counts.raw).toBe(8)
     expect(batch.outcome).toBe('SUCCEEDED')
     expect(batch.coverage).toBe('WINDOW')
@@ -566,5 +581,185 @@ describe('config is refused before any network call', () => {
       ),
     ).rejects.toBeInstanceOf(UnvalidatedConfigError)
     expect(f.sent).toHaveLength(0)
+  })
+})
+
+describe('canonical scope: one case per filter (CR-M-1)', () => {
+  const scopeOf = async (search?: Record<string, unknown>) =>
+    (
+      await run(
+        [body({ jobs: [] })],
+        cfg({ endpoint: 'search', ...(search === undefined ? {} : { search }) }),
+      )
+    ).batch.scope.query
+
+  it.each([
+    ['q', { q: 'react engineer' }, '{"q":"react engineer"}'],
+    ['country', { country: 'US' }, '{"country":"US"}'],
+    ['worldwide', { worldwide: true }, '{"worldwide":true}'],
+    ['excludeWorldwide', { excludeWorldwide: true }, '{"excludeWorldwide":true}'],
+    ['seniority', { seniority: ['Senior', 'Mid-level'] }, '{"seniority":["Senior","Mid-level"]}'],
+    [
+      'employmentType',
+      { employmentType: ['Full Time', 'Contractor'] },
+      '{"employmentType":["Full Time","Contractor"]}',
+    ],
+    ['company', { company: ['linear', 'stripe'] }, '{"company":["linear","stripe"]}'],
+    ['timezone', { timezone: 'UTC-5' }, '{"timezone":"UTC-5"}'],
+    ['sort', { sort: 'recent' }, '{"sort":"recent"}'],
+  ])('%s alone', async (_name, search, expected) => {
+    expect(await scopeOf(search)).toBe(expected)
+  })
+
+  it('worldwide:false and excludeWorldwide:false equal absent', async () => {
+    expect(await scopeOf({ worldwide: false })).toBe('{}')
+    expect(await scopeOf({ excludeWorldwide: false })).toBe('{}')
+    expect(await scopeOf({ worldwide: false, excludeWorldwide: false, q: 'x' })).toBe('{"q":"x"}')
+  })
+
+  it('no filters at all is the empty object, still a non-null scope (so WINDOW)', async () => {
+    expect(await scopeOf()).toBe('{}')
+    expect(await scopeOf({})).toBe('{}')
+    const { batch } = await run([body({ jobs: [] })], cfg({ endpoint: 'search' }))
+    expect(batch.coverage).toBe('WINDOW')
+  })
+
+  it('all nine together keep the fixed key order', async () => {
+    expect(
+      await scopeOf({
+        sort: 'recent',
+        timezone: 'UTC-5',
+        company: ['linear'],
+        employmentType: ['Intern'],
+        seniority: ['Senior'],
+        excludeWorldwide: true,
+        worldwide: true,
+        country: 'US',
+        q: 'x',
+      }),
+    ).toBe(
+      '{"q":"x","country":"US","worldwide":true,"excludeWorldwide":true,"seniority":["Senior"],"employmentType":["Intern"],"company":["linear"],"timezone":"UTC-5","sort":"recent"}',
+    )
+  })
+
+  it('each filter alone also reaches the wire under its own parameter name', async () => {
+    const url = async (search: Record<string, unknown>) =>
+      (await run([body({ jobs: [] })], cfg({ endpoint: 'search', search }))).f.sent[0]?.url
+    expect(await url({ country: 'US' })).toBe(`${SEARCH}?country=US&page=1`)
+    expect(await url({ worldwide: true })).toBe(`${SEARCH}?worldwide=true&page=1`)
+    expect(await url({ excludeWorldwide: true })).toBe(`${SEARCH}?exclude_worldwide=true&page=1`)
+    expect(await url({ employmentType: ['Intern'] })).toBe(
+      `${SEARCH}?employment_type=Intern&page=1`,
+    )
+    expect(await url({ company: ['linear'] })).toBe(`${SEARCH}?company=linear&page=1`)
+    expect(await url({ timezone: '+5:30' })).toBe(`${SEARCH}?timezone=%2B5%3A30&page=1`)
+    expect(await url({ sort: 'jobs' })).toBe(`${SEARCH}?sort=jobs&page=1`)
+    expect(await url({ q: 'x' })).toBe(`${SEARCH}?q=x&page=1`)
+    expect(await url({ seniority: ['Manager'] })).toBe(`${SEARCH}?seniority=Manager&page=1`)
+  })
+})
+
+describe('refusal reasons are the intended ones', () => {
+  const reason = (extra: Record<string, unknown>) => {
+    try {
+      himalayasProvider.parseConfig({ configVersion: 1, ...extra })
+    } catch (e) {
+      return e instanceof Error ? e.message : String(e)
+    }
+    return ''
+  }
+  it.each([
+    [{ query: 'x' }, 'search text lives in search.q'],
+    [{ window: { from: '2026-10-01', to: '2026-10-02' } }, 'Himalayas has no date window'],
+    [{ search: { q: 'x' } }, 'search filters need endpoint'],
+    [{ endpoint: 'search', pageSize: 5 }, 'the search endpoint has no page size'],
+    [
+      {
+        endpoint: 'search',
+        search: {
+          company: ['a'.repeat(95), 'b'.repeat(95), 'c'.repeat(95), 'd'.repeat(95), 'e'.repeat(94)],
+        },
+      },
+      'longer than 500 characters',
+    ],
+  ])('%j -> %s', (extra, fragment) => {
+    expect(reason(extra)).toContain(fragment)
+  })
+})
+
+describe('identity, shapes and optional-field defaults', () => {
+  const first = () => page1().jobs[0] as Record<string, unknown>
+  it('an empty guid is an invalid item, not an id-less observation', async () => {
+    const { batch } = await run([body({ jobs: [{ ...first(), guid: '' }] })])
+    expect(batch.counts).toEqual({
+      raw: 1,
+      normalized: 0,
+      invalid: 1,
+      quarantined: 0,
+      discarded: 0,
+    })
+  })
+  it.each([
+    ['an object without a name', [{ alpha2: 'PH' }]],
+    ['a number', [5]],
+    ['null', [null]],
+    ['a non-array', 'United States'],
+  ])('a third locationRestrictions shape (%s) is loud: one invalid item', async (_l, shape) => {
+    const { batch } = await run([body({ jobs: [{ ...first(), locationRestrictions: shape }] })])
+    expect(batch.counts.invalid).toBe(1)
+    expect(batch.coverage).toBe('PARTIAL')
+  })
+  it('an explicit null locationRestrictions is unknown geography', async () => {
+    const { batch } = await run([body({ jobs: [{ ...first(), locationRestrictions: null }] })])
+    expect(batch.observations[0]?.normalized.location).toBeNull()
+  })
+  it('a job with neither pubDate nor expiryDate has no dates, no publishedAt, no evidence', async () => {
+    const { pubDate: _p, expiryDate: _e, ...noDates } = first()
+    for (const j of [noDates, { ...noDates, pubDate: null, expiryDate: null }]) {
+      const o = (await run([body({ jobs: [j] })])).batch.observations[0]
+      expect(o?.normalized.dates).toEqual([])
+      expect(o?.normalized.publishedAt).toBeNull()
+      expect(o?.evidence).toEqual([])
+    }
+  })
+  it('pubDate and expiryDate each stand alone', async () => {
+    const { expiryDate: _e, ...onlyPub } = first()
+    const a = (await run([body({ jobs: [onlyPub] })])).batch.observations[0]
+    expect(a?.normalized.dates.map((d) => d.semantics)).toEqual(['UPDATED'])
+    const { pubDate: _p, ...onlyExpiry } = first()
+    const b = (await run([body({ jobs: [onlyExpiry] })])).batch.observations[0]
+    expect(b?.normalized.dates.map((d) => d.semantics)).toEqual(['EXPIRY'])
+  })
+  it('a job with no categories, seniority, employmentType or description gets the empty defaults', async () => {
+    const {
+      categories: _c,
+      parentCategories: _p,
+      seniority: _s,
+      employmentType: _t,
+      description: _d,
+      ...bare
+    } = first()
+    for (const j of [
+      bare,
+      {
+        ...bare,
+        categories: null,
+        parentCategories: null,
+        seniority: null,
+        employmentType: null,
+        description: null,
+      },
+    ]) {
+      const o = (await run([body({ jobs: [j] })])).batch.observations[0]
+      expect(o?.normalized.tags).toEqual([])
+      expect(o?.normalized.seniorityHint).toBeNull()
+      expect(o?.normalized.employmentType).toBeNull()
+      expect(o?.normalized.descriptionMd).toBe('')
+    }
+  })
+  it('parentCategories come first and categories follow in tags', async () => {
+    const j = { ...first(), parentCategories: ['P1', 'P2'], categories: ['C1'] }
+    const o = (await run([body({ jobs: [j] })])).batch.observations[0]
+    expect(o?.normalized.tags).toEqual(['P1', 'P2', 'C1'])
   })
 })

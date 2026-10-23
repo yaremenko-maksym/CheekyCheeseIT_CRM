@@ -40,6 +40,10 @@ import {
  * DATES: `pubDate` is when the job was last UPDATED (not published), `expiryDate` the latest the
  * job stays listed. Neither is PUBLISHED, so `publishedAt` stays null by design.
  *
+ * LIFECYCLE: the single-job check (`/jobs/api/companies/:company/jobs/:slug`: 200 open, 410 closed)
+ * is NOT called here. The named owner is Task 4.6 ("detail/status evidence per record",
+ * "status refreshes bounded/metered/resumable").
+ *
  * DRIFT absorbed on purpose (observed in the live capture, differing from the OpenAPI text):
  * `locationRestrictions` are plain strings, documented as `{alpha2,name,slug}` objects - both are
  * accepted. `timezoneRestrictions` are numbers, documented as strings - they are not mapped, so
