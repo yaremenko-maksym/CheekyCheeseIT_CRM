@@ -154,7 +154,7 @@ GRANT SELECT, INSERT ON TABLE
   public.job_queue_actions
   TO crm_app;
 --   crm_collector: nothing.
-GRANT SELECT, INSERT, DELETE ON TABLE
+GRANT SELECT, DELETE ON TABLE
   public.job_queue_actions
   TO crm_retention_owner;
 
@@ -181,21 +181,25 @@ GRANT SELECT ON TABLE
 --    carries no table-level SELECT and the columns are named one by one.
 --    No class D table is assigned yet (ADR §4 step 8).
 
--- 3b. The ONE non-SELECT column-level grant the model admits (owner decision, 2026-10-22):
---    the reason redaction rewrites one column and gets that column, not table-level UPDATE.
---    Part 3 of the check admits exactly this tuple and still reports every other
+-- 3b. The ONLY non-SELECT column-level grants the model admits (owner decisions 2 and 3,
+--    2026-10-22). The redaction rewrites ONE column of the subject row and writes SIX
+--    columns of its evidence row, and gets exactly those — never table-level UPDATE or
+--    INSERT. Part 3 of the check admits exactly these tuples and still reports every other
 --    column-level write.
---    The failing runs that justify this grant AND the retention owner's class B INSERT
---    above (r5 Task 1.4b-iii; PostgreSQL 16.15, scratch database, 2026-10-22), each run as
---    crm_app: SELECT crm_retention_redact_action_reason(<action id>, 'dsr-failrun', <actor id>)
---      with SELECT, DELETE                 -> SQLSTATE 42501 "permission denied for table
---                                             job_queue_actions" at the function's UPDATE
---      plus UPDATE (reason)                -> SQLSTATE 42501, same message, now at the
---                                             function's INSERT of the evidence row; the
---                                             redaction rolled back with it
---      plus INSERT                         -> true: reason redacted, one REASON_REDACTED row
---    Full record: privilege-classes.ts, RETENTION_OWNER_TABLE_PRIVILEGES.
+--    The failing runs that justify them (r5 Task 1.4b-iii; PostgreSQL 16.15, scratch
+--    database, 2026-10-22 and 2026-10-23), calling
+--    SELECT crm_retention_redact_action_reason(<action id>, 'dsr-failrun', <actor id>):
+--      with SELECT, DELETE only             -> SQLSTATE 42501 "permission denied for table
+--                                              job_queue_actions" at the function's UPDATE
+--      plus UPDATE (reason)                 -> SQLSTATE 42501, same message, now at the
+--                                              function's INSERT of the evidence row; the
+--                                              redaction rolled back with it
+--      plus INSERT on the six columns below -> true: reason redacted, one REASON_REDACTED row
+--      ...and each of the six removed singly -> SQLSTATE 42501 again, so all six are needed
+--    Full record, including the two columns proven NOT needed: privilege-classes.ts,
+--    RETENTION_OWNER_COLUMN_WRITE_GRANTS.
 GRANT UPDATE (reason) ON TABLE public.job_queue_actions TO crm_retention_owner;
+GRANT INSERT (kind, subject_action_id, actor_id, scope_kind, team_id, idempotency_key) ON TABLE public.job_queue_actions TO crm_retention_owner;
 
 -- 4. Sequences. crm_app calls nextval and reads currval; never UPDATE, which is
 --    setval — the ability to rewind a sequence and collide ids (ADR §2, "Sequences").

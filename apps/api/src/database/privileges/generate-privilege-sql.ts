@@ -29,7 +29,7 @@ import {
   CLASS_PRIVILEGES,
   CONNECTION_LIMITS,
   PRIVILEGE_CLASSES,
-  RETENTION_OWNER_REDACTION_COLUMN_GRANT,
+  RETENTION_OWNER_COLUMN_WRITE_GRANTS,
   ROLES,
   MANUAL_DDL_RELATIONS,
   appendOnlyTriggers,
@@ -331,25 +331,32 @@ $columns$;
     out.push('')
   }
 
-  const redaction = RETENTION_OWNER_REDACTION_COLUMN_GRANT
-  out.push(`-- 3b. The ONE non-SELECT column-level grant the model admits (owner decision, 2026-10-22):
---    the reason redaction rewrites one column and gets that column, not table-level UPDATE.
---    Part 3 of the check admits exactly this tuple and still reports every other
+  out.push(`-- 3b. The ONLY non-SELECT column-level grants the model admits (owner decisions 2 and 3,
+--    2026-10-22). The redaction rewrites ONE column of the subject row and writes SIX
+--    columns of its evidence row, and gets exactly those — never table-level UPDATE or
+--    INSERT. Part 3 of the check admits exactly these tuples and still reports every other
 --    column-level write.
---    The failing runs that justify this grant AND the retention owner's class B INSERT
---    above (r5 Task 1.4b-iii; PostgreSQL 16.15, scratch database, 2026-10-22), each run as
---    crm_app: SELECT crm_retention_redact_action_reason(<action id>, 'dsr-failrun', <actor id>)
---      with SELECT, DELETE                 -> SQLSTATE 42501 "permission denied for table
---                                             job_queue_actions" at the function's UPDATE
---      plus UPDATE (reason)                -> SQLSTATE 42501, same message, now at the
---                                             function's INSERT of the evidence row; the
---                                             redaction rolled back with it
---      plus INSERT                         -> true: reason redacted, one REASON_REDACTED row
---    Full record: privilege-classes.ts, RETENTION_OWNER_TABLE_PRIVILEGES.
-GRANT ${redaction.privilege} (${ident(redaction.column)}) ON TABLE public.${ident(
-    redaction.relation,
-  )} TO ${ident(redaction.role)};
-`)
+--    The failing runs that justify them (r5 Task 1.4b-iii; PostgreSQL 16.15, scratch
+--    database, 2026-10-22 and 2026-10-23), calling
+--    SELECT crm_retention_redact_action_reason(<action id>, 'dsr-failrun', <actor id>):
+--      with SELECT, DELETE only             -> SQLSTATE 42501 "permission denied for table
+--                                              job_queue_actions" at the function's UPDATE
+--      plus UPDATE (reason)                 -> SQLSTATE 42501, same message, now at the
+--                                              function's INSERT of the evidence row; the
+--                                              redaction rolled back with it
+--      plus INSERT on the six columns below -> true: reason redacted, one REASON_REDACTED row
+--      ...and each of the six removed singly -> SQLSTATE 42501 again, so all six are needed
+--    Full record, including the two columns proven NOT needed: privilege-classes.ts,
+--    RETENTION_OWNER_COLUMN_WRITE_GRANTS.`)
+  for (const grant of RETENTION_OWNER_COLUMN_WRITE_GRANTS) {
+    const columns = grant.columns.map(ident).join(', ')
+    out.push(
+      `GRANT ${grant.privilege} (${columns}) ON TABLE public.${ident(grant.relation)} TO ${ident(
+        grant.role,
+      )};`,
+    )
+  }
+  out.push('')
 
   out.push(`-- 4. Sequences. ${ROLES.app} calls nextval and reads currval; never UPDATE, which is
 --    setval — the ability to rewind a sequence and collide ids (ADR §2, "Sequences").
@@ -530,14 +537,23 @@ ${classPrivileges}
   )
 
   // 3 — column privileges (the view expands table grants, which is the trap).
-  const redactionRole = literal(ident(RETENTION_OWNER_REDACTION_COLUMN_GRANT.role))
-  const redactionRelation = literal(ident(RETENTION_OWNER_REDACTION_COLUMN_GRANT.relation))
-  const redactionColumn = literal(ident(RETENTION_OWNER_REDACTION_COLUMN_GRANT.column))
-  const redactionPrivilege = literal(RETENTION_OWNER_REDACTION_COLUMN_GRANT.privilege)
+  // The declared non-SELECT column grants, as `(role, relation, column, privilege)` rows.
+  // A CTE rather than four scalars: owner decision 3 made the exemption a PAIR, and a
+  // predicate written as four `AND`s admits exactly one tuple by construction — it cannot
+  // be extended without being rewritten, which is how a second declared grant would end up
+  // reported as drift while the deploy that applied it passed.
+  const columnWriteRows = RETENTION_OWNER_COLUMN_WRITE_GRANTS.flatMap((grant) =>
+    grant.columns.map(
+      (column) =>
+        `    (${literal(ident(grant.role))}, ${literal(ident(grant.relation))}, ${literal(
+          ident(column),
+        )}, ${literal(grant.privilege)})`,
+    ),
+  )
   parts.push(
     assertion(
       'part 3 (column privileges)',
-      'the column-level SELECT set of EVERY one of the three roles equals the manifest exactly, and the one declared non-SELECT column grant is present and is the only one',
+      'the column-level SELECT set of EVERY one of the three roles equals the manifest exactly, and the declared non-SELECT column grants are present and are the only ones',
       `${relationClasses},
   -- Declared column-level grants. Only the collector has any (class D is its mechanism),
   -- but the set is keyed BY ROLE, because the role is what the comparison below joins on
@@ -556,6 +572,15 @@ ${classPrivileges}
             ),
           )
           .join('\n    UNION ALL\n    ')
+  }),
+  -- The declared non-SELECT column grants (owner decisions 2 and 3, 2026-10-22):
+  -- UPDATE (reason) for the redaction's own write, and INSERT on six columns for its
+  -- evidence row. All four fields of a row must match for a column privilege to be
+  -- admitted below.
+  declared_column_writes(role_name, relation, column_name, privilege_type) AS (${
+    columnWriteRows.length === 0
+      ? 'SELECT NULL::text, NULL::text, NULL::text, NULL::text WHERE false'
+      : `VALUES\n${columnWriteRows.join(',\n')}`
   }),
   -- Which (role, class) pairs carry a table-level SELECT. information_schema.column_privileges
   -- expands a TABLE-level grant into one row per column, so the expected set is "every
@@ -593,9 +618,14 @@ ${classPrivileges}
                           AND cp.table_name = e.relation AND cp.column_name = e.column_name)
     UNION ALL
     -- Any privilege other than SELECT, at column level, for any of the three roles —
-    -- except the ONE declared tuple (RETENTION_OWNER_REDACTION_COLUMN_GRANT, owner
-    -- decision 2026-10-22). All four fields must match for the exemption to apply: the
-    -- same privilege on another column, or on this column for another role, is reported.
+    -- except a row of declared_column_writes. All four fields must match for the
+    -- exemption to apply: the same privilege on another column, or on a declared column
+    -- for another role, is reported.
+    --
+    -- The has_table_privilege test is what distinguishes a TRUE column grant from the
+    -- per-column expansion of a table-level grant. Measured on 16.15 (2026-10-23): with
+    -- INSERT held only on six named columns, has_table_privilege(..., 'INSERT') is false
+    -- and all six rows surface here — which is why the exemption has to name them.
     SELECT format('%s holds column %s on %s.%s — only SELECT is ever granted at column level',
                   cp.grantee, cp.privilege_type, cp.table_name, cp.column_name)
       FROM information_schema.column_privileges cp
@@ -604,23 +634,25 @@ ${classPrivileges}
        AND cp.grantee IN (${appRolesList})
        AND cp.privilege_type <> 'SELECT'
        AND NOT has_table_privilege(cp.grantee, format('public.%I', cp.table_name), cp.privilege_type)
-       AND NOT (cp.grantee = ${redactionRole}
-                AND cp.table_name = ${redactionRelation}
-                AND cp.column_name = ${redactionColumn}
-                AND cp.privilege_type = ${redactionPrivilege})
+       AND NOT EXISTS (SELECT 1 FROM declared_column_writes d
+                        WHERE d.role_name = cp.grantee
+                          AND d.relation = cp.table_name
+                          AND d.column_name = cp.column_name
+                          AND d.privilege_type = cp.privilege_type)
     UNION ALL
-    -- ...and that one declared tuple must actually be there, wherever its relation exists.
-    -- Without this half, a deploy that lost the grant would pass the check and leave the
-    -- redaction raising 42501 — the INERT state this exception exists to end — unreported.
+    -- ...and every declared tuple must actually be there, wherever its relation exists.
+    -- Without this half, a deploy that lost a grant would pass the check and leave the
+    -- redaction raising 42501 — the INERT state these exceptions exist to end — unreported.
     SELECT format('%s lacks the declared column %s on %s.%s',
-                  ${redactionRole}, ${redactionPrivilege}, ${redactionRelation}, ${redactionColumn})
-     WHERE EXISTS (SELECT 1 FROM expected e WHERE e.relation = ${redactionRelation})
+                  d.role_name, d.privilege_type, d.relation, d.column_name)
+      FROM declared_column_writes d
+     WHERE EXISTS (SELECT 1 FROM expected e WHERE e.relation = d.relation)
        AND NOT EXISTS (SELECT 1 FROM information_schema.column_privileges cp
                         WHERE cp.table_schema = 'public'
-                          AND cp.grantee = ${redactionRole}
-                          AND cp.table_name = ${redactionRelation}
-                          AND cp.column_name = ${redactionColumn}
-                          AND cp.privilege_type = ${redactionPrivilege})
+                          AND cp.grantee = d.role_name
+                          AND cp.table_name = d.relation
+                          AND cp.column_name = d.column_name
+                          AND cp.privilege_type = d.privilege_type)
   ) q;`,
     ),
   )

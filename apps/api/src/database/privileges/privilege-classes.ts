@@ -407,59 +407,101 @@ export const appendOnlyTriggers: Record<string, readonly { name: string; enabled
  *   - `SELECT` alone           -> `42501`
  *   - `SELECT, DELETE`         -> returns the purged count
  *
- * `INSERT` — the REDACTION's evidence row (r5 Task 1.4b-iii; PostgreSQL 16.15, scratch
- * database `crm_scratch_redact1022`, 2026-10-22), each step called as `crm_app` with
- * `SELECT crm_retention_redact_action_reason(<action id>, 'dsr-failrun', <actor id>)`:
- *   - `SELECT, DELETE` (the grant set before this task)
- *       -> `42501 permission denied for table job_queue_actions`, raised at the
- *          function's `UPDATE job_queue_actions SET reason = '[REASON REDACTED]' …`
- *   - plus `UPDATE (reason)` (`RETENTION_OWNER_REDACTION_COLUMN_GRANT` below)
- *       -> `42501 permission denied for table job_queue_actions`, now raised at the
- *          function's `INSERT INTO job_queue_actions (kind, subject_action_id, …)` — and the
- *          subject's `reason` read back UNCHANGED: the failed INSERT took the redaction
- *          with it
- *   - plus table-level `INSERT` -> returns `true`; the subject reads `[REASON REDACTED]` and
- *     exactly one `REASON_REDACTED` row names it.
- * Table-level rather than column-level `INSERT`, deliberately: a column list would be
- * narrower, but the owner decision of 2026-10-22 gives this model exactly ONE non-SELECT
- * column privilege and spends it on `UPDATE (reason)`. What narrows the `INSERT` instead
- * is the append-only trigger, by shape: `crm_retention_owner` may insert a `REASON_REDACTED`
- * row and nothing else, and no other role may insert that kind.
- *
- * `UPDATE` stays OUT at table level: the redaction needs it on one column only, which
- * `RETENTION_OWNER_REDACTION_COLUMN_GRANT` grants and part 3 of the check admits by name.
+ * NEITHER `INSERT` NOR `UPDATE` IS HELD AT TABLE LEVEL. The redaction writes one column of
+ * the subject row and six columns of its evidence row, and both are granted at COLUMN level
+ * — see `RETENTION_OWNER_COLUMN_WRITE_GRANTS` below for the owner decision and the runs.
+ * `has_table_privilege(crm_retention_owner, job_queue_actions, 'INSERT')` is therefore
+ * `false` (measured, 16.15, 2026-10-23), which is what part 2 asserts and what lets part 3
+ * tell a true column grant from a table grant's per-column expansion.
  */
-export const RETENTION_OWNER_TABLE_PRIVILEGES: readonly TablePrivilege[] = [
-  'SELECT',
-  'INSERT',
-  'DELETE',
-]
+export const RETENTION_OWNER_TABLE_PRIVILEGES: readonly TablePrivilege[] = ['SELECT', 'DELETE']
 
 /**
- * THE ONE NON-SELECT COLUMN-LEVEL PRIVILEGE THIS MODEL ADMITS — owner decision, 2026-10-22.
- *
- * `crm_retention_redact_action_reason` rewrites exactly one column, `reason`, and the least
- * privilege that lets it is `UPDATE (reason)`. Table-level `UPDATE` would let the role
- * rewrite every column of the audit log, kept off them only by the trigger's shape check;
- * the column grant keeps it off `actor_id` without needing the trigger at all.
- *
- * Part 3 of the privileges check reports ANY column privilege other than `SELECT`, for any
- * role, and still does. This is not a mechanism for column-level writes in general: it is
- * ONE grant, bound to one role, one relation and one column, and the check admits exactly
- * that tuple and nothing that merely resembles it — the same privilege on another column,
- * or this column for another role, is still a failure. It is deliberately a single object
- * rather than a list, so a second exception cannot be added by appending a line: it needs a
- * change of type, which a reviewer sees.
- *
- * Justified by a failing run, like every grant here — the second step of the `INSERT`
- * entry's measurement above is this privilege's.
+ * One exact-match column-level write exception: this role, this relation, this privilege,
+ * exactly these columns. Nothing that merely resembles the tuple is admitted.
  */
-export const RETENTION_OWNER_REDACTION_COLUMN_GRANT = {
+export type ColumnWriteGrant = {
+  readonly role: string
+  readonly relation: string
+  readonly privilege: 'INSERT' | 'UPDATE'
+  readonly columns: readonly string[]
+}
+
+/**
+ * The redaction's own write: one column of the SUBJECT row.
+ *
+ * Table-level `UPDATE` would let the role rewrite every column of the audit log, kept off
+ * them only by the trigger's shape check; the column grant keeps it off `actor_id` without
+ * needing the trigger at all.
+ */
+export const RETENTION_OWNER_REDACTION_COLUMN_GRANT: ColumnWriteGrant = {
   role: ROLES.retentionOwner,
   relation: 'job_queue_actions',
-  column: 'reason',
   privilege: 'UPDATE',
-} as const
+  columns: ['reason'],
+}
+
+/**
+ * The evidence row's write: exactly the columns the function's `INSERT` names, in that
+ * order (owner decision 3, 2026-10-22; fix round 1 of PR #1095).
+ *
+ * THE FIRST ROUND GRANTED TABLE-LEVEL `INSERT` and relied on the append-only trigger to
+ * restrict it to evidence rows. The owner replaced that with a column list, so the floor
+ * under the trigger is a privilege and not only a trigger.
+ *
+ * DERIVED FROM FAILING RUNS, not from the reviewer's working set — the reviewer's six
+ * columns turned out to be right, and are now right *measurably*. PostgreSQL 16.15, scratch
+ * database `crm_scratch_fix1023`, 2026-10-23; each case grants the listed columns and
+ * nothing else at table level, then calls the function. Note that the error never names the
+ * column, which is why necessity has to be established one revocation at a time:
+ *   - no INSERT at all                 -> `42501 permission denied for table job_queue_actions`
+ *   - these six                        -> `true` (sufficient)
+ *   - six minus `kind`                 -> `42501 permission denied for table job_queue_actions`
+ *   - six minus `subject_action_id`    -> `42501` (same message)
+ *   - six minus `actor_id`             -> `42501`
+ *   - six minus `scope_kind`           -> `42501`
+ *   - six minus `team_id`              -> `42501`
+ *   - six minus `idempotency_key`      -> `42501`
+ *   - six plus `created_at`            -> `true`, so `created_at` is NOT required even though
+ *                                        a BEFORE trigger assigns it: INSERT column privileges
+ *                                        are checked against the statement's target list
+ *   - six plus `id`                    -> `true`, likewise superfluous
+ * So all six are necessary, the six are sufficient, and nothing outside the statement's
+ * target list is needed. The first case also establishes empirically that these are the
+ * OWNER's privileges and not the caller's: it was run by a superuser and still got 42501,
+ * because the function is `SECURITY DEFINER`.
+ *
+ * The trigger stays, and must: no grant can restrict the VALUE of `kind`, so the privilege
+ * says which columns may be written and the trigger says which kind may be written.
+ */
+export const RETENTION_OWNER_EVIDENCE_COLUMN_GRANT: ColumnWriteGrant = {
+  role: ROLES.retentionOwner,
+  relation: 'job_queue_actions',
+  privilege: 'INSERT',
+  columns: ['kind', 'subject_action_id', 'actor_id', 'scope_kind', 'team_id', 'idempotency_key'],
+}
+
+/**
+ * THE ONLY NON-SELECT COLUMN-LEVEL PRIVILEGES THIS MODEL ADMITS — owner decisions 2 and 3
+ * of 2026-10-22. Exactly TWO, and the type says so.
+ *
+ * Part 3 of the privileges check reports ANY column privilege other than `SELECT`, for any
+ * role, and still does. This is not a mechanism for column-level writes in general: each
+ * entry is bound to one role, one relation, one privilege and a named column list, and the
+ * check admits exactly those tuples and nothing that merely resembles them — the same
+ * privilege on another column, or one of these columns for another role, is still a failure.
+ *
+ * THE FIXED-LENGTH TUPLE TYPE IS THE POINT. The previous revision was a single object, so
+ * that a second exception could not be added by appending a line: it would need a change of
+ * type, which a reviewer sees. That is exactly what happened — owner decision 3 arrived, the
+ * type changed from one object to a pair, and the diff is the review. A THIRD exception is
+ * still not an appended line: `readonly [ColumnWriteGrant, ColumnWriteGrant]` rejects a
+ * third element at compile time.
+ */
+export const RETENTION_OWNER_COLUMN_WRITE_GRANTS: readonly [ColumnWriteGrant, ColumnWriteGrant] = [
+  RETENTION_OWNER_REDACTION_COLUMN_GRANT,
+  RETENTION_OWNER_EVIDENCE_COLUMN_GRANT,
+]
 
 /**
  * The classes on which `crm_retention_owner` holds `RETENTION_OWNER_TABLE_PRIVILEGES`.
