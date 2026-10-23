@@ -43,7 +43,13 @@ import {
  *   is kept as the posting URL and no separate application URL exists.
  */
 
-/** Machine-readable twin of the BLOCKED note above, pinned against the provenance file by a spec. */
+/**
+ * Machine-readable twin of the BLOCKED note above, pinned against the provenance file by a spec.
+ * It guards nothing at runtime: the reconciliation that makes the manifest build fail when this and
+ * the provenance disagree is tracked in `.claude/tasks/BACKLOG-followups.md` under the entry titled
+ * "Readiness is stated in two places, and nothing reconciles them" (number 311 when written; the
+ * title is the address).
+ */
 export const REMOTIVE_SOURCE_STATUS = {
   blocked: true,
   permission: 'UNCLEAR',
