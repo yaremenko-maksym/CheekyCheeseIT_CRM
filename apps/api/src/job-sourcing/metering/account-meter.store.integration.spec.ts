@@ -390,5 +390,434 @@ describe.skipIf(!hasDatabaseUrl())('account meter store (real Postgres)', () => 
     })
   })
 
-  // CASES-BELOW
+  describe('SENT, timeout, UNCERTAIN, reconciliation (AC4)', () => {
+    it('SENT then timeout -> UNCERTAIN, held; reconciliation converts it exactly once', async () => {
+      const m = await newMeter({ limit: 10 })
+      const meter = createAccountMeter(
+        db,
+        binding({ accountKey: m.accountKey, cycleId: await newCycle() }),
+      )
+      const r = await meter.reserve('REQUEST', 3)
+      if (r === null) throw new Error('setup: reservation refused')
+
+      await meter.markSent(r)
+      const sent = await reservationRow(r.id)
+      expect(sent.status).toBe('SENT')
+      expect(sent.sent_at).toBeInstanceOf(Date)
+      expect(await counters(m.id)).toEqual({ used: 0, reserved: 3, uncertain: 0 })
+
+      // The request timed out after it left: it may have been billed.
+      await meter.reconcile(r, 'UNCERTAIN')
+      expect((await reservationRow(r.id)).status).toBe('UNCERTAIN')
+      expect(await counters(m.id)).toEqual({ used: 0, reserved: 0, uncertain: 3 })
+
+      // Not released: an uncertain hold cannot be freed as if unsent.
+      expect((await rejection(meter.reconcile(r, 'RELEASED'))).code).toBe('ILLEGAL_TRANSITION')
+      expect(await counters(m.id)).toEqual({ used: 0, reserved: 0, uncertain: 3 })
+
+      // The hold still blocks capacity: 10 - 3 = 7 left, so 8 is refused.
+      expect(await meter.reserve('REQUEST', 8)).toBeNull()
+
+      await meter.reconcile(r, 'USED')
+      const used = await reservationRow(r.id)
+      expect(used.status).toBe('USED')
+      expect(used.used_amount).toBe(3)
+      expect(used.settled_at).toBeInstanceOf(Date)
+      expect(await counters(m.id)).toEqual({ used: 3, reserved: 0, uncertain: 0 })
+
+      // Second reconcile: a no-op, proven by the counters staying exactly where they were.
+      await meter.reconcile(r, 'USED')
+      expect(await counters(m.id)).toEqual({ used: 3, reserved: 0, uncertain: 0 })
+      expect((await reservationRow(r.id)).used_amount).toBe(3)
+    })
+
+    it('a failure in flight with no SENT mark still holds as UNCERTAIN (the loop path)', async () => {
+      // The collection loop reconciles UNCERTAIN when fetch threw; the transport may never have
+      // recorded SENT. The conservative direction is a hold, never a release.
+      const m = await newMeter({ limit: 10 })
+      const meter = createAccountMeter(
+        db,
+        binding({ accountKey: m.accountKey, cycleId: await newCycle() }),
+      )
+      const r = await meter.reserve('REQUEST', 2)
+      if (r === null) throw new Error('setup: reservation refused')
+      await meter.reconcile(r, 'UNCERTAIN')
+      const row = await reservationRow(r.id)
+      expect(row.status).toBe('UNCERTAIN')
+      expect(row.sent_at).toBeInstanceOf(Date)
+      expect(await counters(m.id)).toEqual({ used: 0, reserved: 0, uncertain: 2 })
+    })
+
+    it('USED straight from RESERVED converts the reservation and stamps the send', async () => {
+      const m = await newMeter({ limit: 10 })
+      const meter = createAccountMeter(
+        db,
+        binding({ accountKey: m.accountKey, cycleId: await newCycle() }),
+      )
+      const r = await meter.reserve('REQUEST', 4)
+      if (r === null) throw new Error('setup: reservation refused')
+      await meter.reconcile(r, 'USED')
+      const row = await reservationRow(r.id)
+      expect(row).toMatchObject({ status: 'USED', used_amount: 4 })
+      expect(row.sent_at).toBeInstanceOf(Date)
+      expect(await counters(m.id)).toEqual({ used: 4, reserved: 0, uncertain: 0 })
+    })
+
+    it('markSent twice is a no-op; markSent after a release is refused', async () => {
+      const m = await newMeter({ limit: 10 })
+      const meter = createAccountMeter(
+        db,
+        binding({ accountKey: m.accountKey, cycleId: await newCycle() }),
+      )
+      const r = await meter.reserve('REQUEST', 1)
+      const released = await meter.reserve('REQUEST', 1)
+      if (r === null || released === null) throw new Error('setup: reservation refused')
+      await meter.markSent(r)
+      const firstSentAt = (await reservationRow(r.id)).sent_at
+      await meter.markSent(r)
+      expect((await reservationRow(r.id)).sent_at).toEqual(firstSentAt)
+
+      await meter.reconcile(released, 'RELEASED')
+      expect((await rejection(meter.markSent(released))).code).toBe('ILLEGAL_TRANSITION')
+      expect((await reservationRow(released.id)).sent_at).toBeNull()
+    })
+
+    it('a USED reservation cannot be downgraded or released afterwards', async () => {
+      const m = await newMeter({ limit: 10 })
+      const meter = createAccountMeter(
+        db,
+        binding({ accountKey: m.accountKey, cycleId: await newCycle() }),
+      )
+      const r = await meter.reserve('REQUEST', 2)
+      if (r === null) throw new Error('setup: reservation refused')
+      await meter.reconcile(r, 'USED')
+      expect((await rejection(meter.reconcile(r, 'UNCERTAIN'))).code).toBe('ILLEGAL_TRANSITION')
+      expect((await rejection(meter.reconcile(r, 'RELEASED'))).code).toBe('ILLEGAL_TRANSITION')
+      expect(await counters(m.id)).toEqual({ used: 2, reserved: 0, uncertain: 0 })
+    })
+  })
+
+  describe('release only provably unsent cost (AC5)', () => {
+    it('an unsent release frees exactly the reserved amount', async () => {
+      const m = await newMeter({ limit: 10 })
+      const meter = createAccountMeter(
+        db,
+        binding({ accountKey: m.accountKey, cycleId: await newCycle() }),
+      )
+      const kept = await meter.reserve('REQUEST', 2)
+      const freed = await meter.reserve('REQUEST', 5)
+      if (kept === null || freed === null) throw new Error('setup: reservation refused')
+      expect(await counters(m.id)).toEqual({ used: 0, reserved: 7, uncertain: 0 })
+
+      await meter.reconcile(freed, 'RELEASED')
+      expect(await counters(m.id)).toEqual({ used: 0, reserved: 2, uncertain: 0 })
+      const row = await reservationRow(freed.id)
+      expect(row).toMatchObject({ status: 'RELEASED', used_amount: 0, sent_at: null })
+      expect(row.settled_at).toBeInstanceOf(Date)
+
+      // Releasing again is a no-op: the 2 still held by `kept` are not touched.
+      await meter.reconcile(freed, 'RELEASED')
+      expect(await counters(m.id)).toEqual({ used: 0, reserved: 2, uncertain: 0 })
+      // A released reservation can never turn into spend.
+      expect((await rejection(meter.reconcile(freed, 'USED'))).code).toBe('ILLEGAL_TRANSITION')
+      expect(await counters(m.id)).toEqual({ used: 0, reserved: 2, uncertain: 0 })
+    })
+
+    it('a release after SENT is refused and the reservation stays held', async () => {
+      const m = await newMeter({ limit: 10 })
+      const meter = createAccountMeter(
+        db,
+        binding({ accountKey: m.accountKey, cycleId: await newCycle() }),
+      )
+      const r = await meter.reserve('REQUEST', 4)
+      if (r === null) throw new Error('setup: reservation refused')
+      await meter.markSent(r)
+
+      expect((await rejection(meter.reconcile(r, 'RELEASED'))).code).toBe('ILLEGAL_TRANSITION')
+      expect((await reservationRow(r.id)).status).toBe('SENT')
+      expect(await counters(m.id)).toEqual({ used: 0, reserved: 4, uncertain: 0 })
+    })
+  })
+
+  describe('units never share a counter (AC6)', () => {
+    it('a per-record unit and a per-request unit of one account are separate rows', async () => {
+      // TheirStack-like: billed per returned record, with a separate request ceiling.
+      const records = await newMeter({ unit: 'RECORD', window: 'MONTH', limit: 100 })
+      const requests = await newMeter({
+        accountKey: records.accountKey,
+        unit: 'REQUEST',
+        window: 'DAY',
+        limit: 10,
+      })
+      const meter = createAccountMeter(
+        db,
+        binding({
+          accountKey: records.accountKey,
+          cycleId: await newCycle(),
+          windows: { RECORD: 'MONTH', REQUEST: 'DAY' },
+        }),
+      )
+
+      const rec = await meter.reserve('RECORD', 25)
+      if (rec === null) throw new Error('setup: reservation refused')
+      expect(rec).toMatchObject({ unit: 'RECORD', amount: 25 })
+      expect(await counters(records.id)).toEqual({ used: 0, reserved: 25, uncertain: 0 })
+      expect(await counters(requests.id)).toEqual({ used: 0, reserved: 0, uncertain: 0 })
+
+      await meter.reconcile(rec, 'USED')
+      expect(await counters(records.id)).toEqual({ used: 25, reserved: 0, uncertain: 0 })
+      expect(await counters(requests.id)).toEqual({ used: 0, reserved: 0, uncertain: 0 })
+
+      const req = await meter.reserve('REQUEST', 1)
+      if (req === null) throw new Error('setup: reservation refused')
+      await meter.reconcile(req, 'USED')
+      expect(await counters(requests.id)).toEqual({ used: 1, reserved: 0, uncertain: 0 })
+      expect(await counters(records.id)).toEqual({ used: 25, reserved: 0, uncertain: 0 })
+    })
+
+    it('a unit the binding does not meter is refused, never charged to another unit', async () => {
+      const m = await newMeter({ limit: 10 })
+      const meter = createAccountMeter(
+        db,
+        binding({ accountKey: m.accountKey, cycleId: await newCycle() }),
+      )
+      expect((await rejection(meter.reserve('MODEL_CALL', 1))).code).toBe('UNIT_NOT_BOUND')
+      expect(await counters(m.id)).toEqual({ used: 0, reserved: 0, uncertain: 0 })
+    })
+
+    it('a bound unit whose meter row does not exist is refused (never auto-created as unlimited)', async () => {
+      const meter = createAccountMeter(
+        db,
+        binding({ accountKey: nextAccount(), cycleId: await newCycle() }),
+      )
+      expect((await rejection(meter.reserve('REQUEST', 1))).code).toBe('METER_NOT_FOUND')
+    })
+  })
+
+  describe('window rollover (AC7)', () => {
+    /**
+     * Ends the meter's current DAY window one millisecond after its newest reservation, so that
+     * everything reserved so far was taken in window W and the next operation runs in W+1. Done
+     * in SQL against the stored instants, so client/server clock skew cannot blur the boundary.
+     */
+    async function endWindowAfterNewestReservation(meterId: string) {
+      await q(
+        `UPDATE job_account_meters
+            SET resets_at = sub.t + interval '1 millisecond',
+                window_started_at = sub.t + interval '1 millisecond' - interval '1 day'
+           FROM (SELECT max(reserved_at) AS t FROM job_account_meter_reservations
+                  WHERE meter_id = $1) sub
+          WHERE id = $1`,
+        [meterId],
+      )
+      await new Promise((r) => setTimeout(r, 20))
+      const { rows } = await q(
+        `SELECT window_started_at, resets_at FROM job_account_meters WHERE id = $1`,
+        [meterId],
+      )
+      return rows[0] as { window_started_at: Date; resets_at: Date }
+    }
+
+    it('an outstanding reservation taken in W stays accounted to W after the reset', async () => {
+      const m = await newMeter({ limit: 10 })
+      const meter = createAccountMeter(
+        db,
+        binding({ accountKey: m.accountKey, cycleId: await newCycle() }),
+      )
+
+      const outstanding = await meter.reserve('REQUEST', 2)
+      const spentInW = await meter.reserve('REQUEST', 5)
+      if (outstanding === null || spentInW === null) throw new Error('setup: reservation refused')
+      await meter.reconcile(spentInW, 'USED')
+      expect(await counters(m.id)).toEqual({ used: 5, reserved: 2, uncertain: 0 })
+
+      const w = await endWindowAfterNewestReservation(m.id)
+
+      // The first operation in W+1 rolls the window: W's spend leaves `used`, but W's outstanding
+      // hold of 2 is still held (not dropped, not forgiven).
+      const inNext = await meter.reserve('REQUEST', 1)
+      if (inNext === null) throw new Error('setup: reservation refused')
+      expect(await counters(m.id)).toEqual({ used: 0, reserved: 3, uncertain: 0 })
+      const { rows } = await q(
+        `SELECT window_started_at, resets_at FROM job_account_meters WHERE id = $1`,
+        [m.id],
+      )
+      expect(rows[0].window_started_at).toEqual(w.resets_at)
+      expect((rows[0].resets_at as Date).getTime() - w.resets_at.getTime()).toBe(86_400_000)
+
+      // W's reservation settles AFTER the reset: its cost is W's, so it does NOT enter the new
+      // window's `used`. Its own row records the spend.
+      await meter.reconcile(outstanding, 'USED')
+      expect(await counters(m.id)).toEqual({ used: 0, reserved: 1, uncertain: 0 })
+      const settled = await reservationRow(outstanding.id)
+      expect(settled).toMatchObject({ status: 'USED', used_amount: 2 })
+      expect(settled.reserved_at.getTime()).toBeLessThan(w.resets_at.getTime())
+
+      // W+1's own reservation does charge W+1.
+      await meter.reconcile(inNext, 'USED')
+      expect(await counters(m.id)).toEqual({ used: 1, reserved: 0, uncertain: 0 })
+    })
+
+    it('an uncertain hold from W survives the reset and is reconciled against W', async () => {
+      const m = await newMeter({ limit: 10 })
+      const meter = createAccountMeter(
+        db,
+        binding({ accountKey: m.accountKey, cycleId: await newCycle() }),
+      )
+      const r = await meter.reserve('REQUEST', 3)
+      if (r === null) throw new Error('setup: reservation refused')
+      await meter.markSent(r)
+      await meter.reconcile(r, 'UNCERTAIN')
+      expect(await counters(m.id)).toEqual({ used: 0, reserved: 0, uncertain: 3 })
+
+      await endWindowAfterNewestReservation(m.id)
+
+      // Room in W+1 is limit - held uncertainty: 7 fits exactly, 8 does not.
+      expect(await meter.reserve('REQUEST', 8)).toBeNull()
+      expect(await counters(m.id)).toEqual({ used: 0, reserved: 0, uncertain: 3 })
+
+      await meter.reconcile(r, 'USED')
+      expect(await counters(m.id)).toEqual({ used: 0, reserved: 0, uncertain: 0 })
+      expect(await reservationRow(r.id)).toMatchObject({ status: 'USED', used_amount: 3 })
+    })
+
+    it('a reconcile can itself be the first operation of W+1 and still accounts to W', async () => {
+      const m = await newMeter({ limit: 10, used: 4 })
+      const meter = createAccountMeter(
+        db,
+        binding({ accountKey: m.accountKey, cycleId: await newCycle() }),
+      )
+      const r = await meter.reserve('REQUEST', 2)
+      if (r === null) throw new Error('setup: reservation refused')
+      await endWindowAfterNewestReservation(m.id)
+
+      await meter.reconcile(r, 'USED')
+      // The reset zeroed W's 4; W's 2 was settled against W, so W+1 starts clean.
+      expect(await counters(m.id)).toEqual({ used: 0, reserved: 0, uncertain: 0 })
+    })
+
+    it('a LIFETIME meter never resets', async () => {
+      const m = await newMeter({ window: 'LIFETIME', limit: 10, used: 4 })
+      const meter = createAccountMeter(
+        db,
+        binding({
+          accountKey: m.accountKey,
+          cycleId: await newCycle(),
+          windows: { REQUEST: 'LIFETIME' },
+        }),
+      )
+      const r = await meter.reserve('REQUEST', 6)
+      expect(r).not.toBeNull()
+      expect(await counters(m.id)).toEqual({ used: 4, reserved: 6, uncertain: 0 })
+    })
+  })
+
+  describe('a binding settles only its own reservations', () => {
+    it("refuses to reconcile or mark another attempt's reservation", async () => {
+      const m = await newMeter({ limit: 10 })
+      const cycleId = await newCycle()
+      const owner = createAccountMeter(db, binding({ accountKey: m.accountKey, cycleId }))
+      const stranger = createAccountMeter(db, binding({ accountKey: m.accountKey, cycleId }))
+      const r = await owner.reserve('REQUEST', 3)
+      if (r === null) throw new Error('setup: reservation refused')
+
+      expect((await rejection(stranger.reconcile(r, 'RELEASED'))).code).toBe('FOREIGN_RESERVATION')
+      expect((await rejection(stranger.markSent(r))).code).toBe('FOREIGN_RESERVATION')
+      expect((await reservationRow(r.id)).status).toBe('RESERVED')
+      expect(await counters(m.id)).toEqual({ used: 0, reserved: 3, uncertain: 0 })
+    })
+
+    it('refuses a reservation whose claimed unit is not its meter unit', async () => {
+      const m = await newMeter({ limit: 10 })
+      const meter = createAccountMeter(
+        db,
+        binding({
+          accountKey: m.accountKey,
+          cycleId: await newCycle(),
+          windows: { REQUEST: 'DAY', RECORD: 'DAY' },
+        }),
+      )
+      const r = await meter.reserve('REQUEST', 3)
+      if (r === null) throw new Error('setup: reservation refused')
+      const forged = { ...r, unit: 'RECORD' as const }
+      expect((await rejection(meter.reconcile(forged, 'USED'))).code).toBe('FOREIGN_RESERVATION')
+      expect(await counters(m.id)).toEqual({ used: 0, reserved: 3, uncertain: 0 })
+    })
+
+    it('refuses an unknown reservation id', async () => {
+      const m = await newMeter({ limit: 10 })
+      const meter = createAccountMeter(
+        db,
+        binding({ accountKey: m.accountKey, cycleId: await newCycle() }),
+      )
+      const ghost = { id: randomUUID(), unit: 'REQUEST' as const, amount: 1 }
+      expect((await rejection(meter.reconcile(ghost, 'USED'))).code).toBe('FOREIGN_RESERVATION')
+    })
+
+    it('the settled amount is the stored one, not the amount the caller claims', async () => {
+      const m = await newMeter({ limit: 10 })
+      const meter = createAccountMeter(
+        db,
+        binding({ accountKey: m.accountKey, cycleId: await newCycle() }),
+      )
+      const r = await meter.reserve('REQUEST', 3)
+      if (r === null) throw new Error('setup: reservation refused')
+      await meter.reconcile({ ...r, amount: 1 }, 'USED')
+      expect(await counters(m.id)).toEqual({ used: 3, reserved: 0, uncertain: 0 })
+    })
+  })
+
+  describe('binding validation', () => {
+    it.each([
+      [
+        'an account key with a credential-shaped run',
+        { accountKey: 'jsearch:abcdefghijklmnopqrstuvwxyz0123' },
+      ],
+      ['an uppercase account key', { accountKey: 'JSearch:main' }],
+      ['an empty attempt id', { attemptId: '' }],
+      ['an attempt id too long to carry the request suffix', { attemptId: 'a'.repeat(169) }],
+      ['a non-uuid cycle id', { cycleId: 'cycle-1' }],
+      ['no metered unit at all', { windows: {} }],
+    ])('refuses %s at construction', (_label, over) => {
+      expect(() =>
+        createAccountMeter(db, {
+          ...binding({ accountKey: 'jsearch:main', cycleId: randomUUID() }),
+          ...over,
+        }),
+      ).toThrow(AccountMeterError)
+    })
+
+    it('records the run and cycle on the reservation when bound to a run', async () => {
+      const cycleId = await newCycle()
+      const { rows: src } = await q(
+        `INSERT INTO job_sources (type, config, config_version)
+         VALUES ('DOU_RSS', jsonb_build_object('tag', $1::text), 1) RETURNING id`,
+        [nextTag()],
+      )
+      const attemptId = nextTag()
+      const { rows: run } = await q(
+        `INSERT INTO job_collection_runs
+           (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger,
+            owner_token, lease_expires_at)
+         VALUES ($1, $2, $3, 1, 'v1', 'SCHEDULED', $4, now() + interval '5 min') RETURNING id`,
+        [src[0].id, cycleId, attemptId, `owner-${nextTag()}`],
+      )
+      const m = await newMeter({ limit: 10 })
+      const meter = createAccountMeter(
+        db,
+        binding({ accountKey: m.accountKey, cycleId, attemptId, runId: run[0].id as string }),
+      )
+      const r = await meter.reserve('REQUEST', 1)
+      if (r === null) throw new Error('setup: reservation refused')
+      const { rows } = await q(
+        `SELECT run_id, cycle_id, attempt_id FROM job_account_meter_reservations WHERE id = $1`,
+        [r.id],
+      )
+      expect(rows[0]).toEqual({
+        run_id: run[0].id,
+        cycle_id: cycleId,
+        attempt_id: `${attemptId}#REQUEST#1`,
+      })
+    })
+  })
 })
