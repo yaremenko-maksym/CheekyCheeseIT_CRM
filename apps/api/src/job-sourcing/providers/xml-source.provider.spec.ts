@@ -245,9 +245,15 @@ describe('replacement characters in a body that does not declare UTF-8 are drift
   it.each(['utf-8', 'UTF-8', 'utf8'])(
     'treats %s as UTF-8, so a replacement character in it is content',
     async (label) => {
-      // The declaration is compared CASE-FOLDED AND TRIMMED, and `UTF-8` is the canonical XML
-      // spelling — the Personio fixture's own. Without the folding, every document that spells it
-      // the normal way would be refused the moment it contained the character.
+      // The declaration is compared CASE-FOLDED, and `UTF-8` is the canonical XML spelling — the
+      // Personio fixture's own. Without the folding, every document that spells it the normal way
+      // would be refused the moment it contained the character.
+      //
+      // NOT trimmed, and this comment used to say it was: round 1 deleted the `.trim()` because
+      // `encoding=" UTF-8 "` is not well-formed, so the port refuses such a document before the
+      // guard sees it. None of the labels in this `it.each` carries whitespace, so the claim was
+      // one no case here could have contradicted — which is why both review axes found it by
+      // reading rather than by a failure.
       const f = fakeCollectionContext({
         responses: [{ bodyText: declared(label, 'Dev \ufffd ops') }],
       })

@@ -81,13 +81,16 @@ describe('an empty validator is not a validator', () => {
   })
 
   it('sends no if-modified-since for a cached entry whose last-modified is empty', async () => {
-    // Reached by seeding the entry directly: this is what a cache written before the fix holds,
-    // and it must not produce `if-modified-since: ""` on the wire now.
-    const f = fakeCollectionContext({
-      now: NOW,
-      responses: [{ status: 304 }],
-      cacheSeed: { 'ignored-key': { etag: null, lastModified: '', bodyText: BODY } },
-    })
+    // Reached by answering the cache port directly: this is what a cache written before the fix
+    // holds, and it must not produce `if-modified-since: ""` on the wire now. The entry cannot be
+    // reached through `cacheSeed`, because a seed has to be filed under the request digest and the
+    // digest is not computable from here — which is why the port is overridden instead.
+    //
+    // A `cacheSeed: { 'ignored-key': … }` used to sit here as well and did nothing: the override
+    // below answers every key, so the seeded entry was never read, and its own name said so. The
+    // whitespace-etag case next door carries no seed and tests the same seam, which is the
+    // measurement that the seed was dead rather than subtle (LOW, round 2).
+    const f = fakeCollectionContext({ now: NOW, responses: [{ status: 304 }] })
     f.ctx.cache.get = async () => ({ etag: null, lastModified: '', bodyText: BODY })
     const batch = await collectPages(spec(), config(), f.ctx)
 

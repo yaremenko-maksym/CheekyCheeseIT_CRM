@@ -254,9 +254,38 @@ describe('AC4 — a time-limited feed never claims FULL_INVENTORY', () => {
       now: NOW,
       responses: [{ bodyText: fixtureText('rss-empty.xml') }],
     })
-    expect(() =>
+    // `rejects`, not `toThrow` (CR-M-3): the function's declared type is `Promise<CollectionBatch>`
+    // and it used to deliver this refusal by throwing before any promise existed. This assertion
+    // was the pin that made the mismatch look intended, so it is the assertion that had to change.
+    await expect(
       collectFeedPages(spec({ inventory: { kind: 'RECENT', windowMs: 0 } }), config(), f.ctx),
-    ).toThrow(/windowMs must be a positive, finite number of milliseconds, got 0/)
+    ).rejects.toThrow(/windowMs must be a positive, finite number of milliseconds, got 0/)
+    expect(f.sent).toEqual([])
+  })
+
+  /**
+   * THE REFUSAL ARRIVES BY THE CHANNEL THE SIGNATURE DECLARES (CR-M-3).
+   *
+   * Written as "calling it does not throw, and what it returns rejects", because that is the only
+   * shape that can tell the fix from its absence. Asserting `rejects` through `collectReport`
+   * CANNOT: `collectReport` is `async`, so it converts a synchronous throw from `collectFeedPages`
+   * into a rejection on its own, and the assertion passes either way. The direct call is where the
+   * two are distinguishable, so the direct call is where this is pinned — and the `collectReport`
+   * case below then asserts what the caller of the contract actually sees.
+   */
+  it('refuses by rejecting rather than by throwing, so the declared promise always exists', async () => {
+    const f = fakeCollectionContext({
+      now: NOW,
+      responses: [{ bodyText: fixtureText('rss-empty.xml') }],
+    })
+    const bad = spec({ inventory: { kind: 'RECENT', windowMs: 0 } })
+
+    let returned: unknown
+    expect(() => {
+      returned = collectFeedPages(bad, config(), f.ctx)
+    }).not.toThrow()
+    expect(returned).toBeInstanceOf(Promise)
+    await expect(returned).rejects.toThrow(/windowMs must be a positive, finite number/)
     expect(f.sent).toEqual([])
   })
 
@@ -377,16 +406,15 @@ describe('a RECENT feed cannot be asked for a window', () => {
       now: NOW,
       responses: [{ bodyText: fixtureText('rss-empty.xml') }],
     })
-    expect(
-      () =>
-        collectFeedPages(
-          spec({ inventory: { kind: 'RECENT', windowMs: 7 * DAY } }),
-          config({ window }),
-          f.ctx,
-        ),
+    await expect(
+      collectFeedPages(
+        spec({ inventory: { kind: 'RECENT', windowMs: 7 * DAY } }),
+        config({ window }),
+        f.ctx,
+      ),
       // The WHOLE message, both of its halves: the second half is the part that tells an operator
       // what to do about it, and an assertion on the first half alone cannot tell it is there.
-    ).toThrow(
+    ).rejects.toThrow(
       'a RECENT feed shows only its own window and cannot be asked for another: ' +
         'remove `window` from the source config, or declare the feed COMPLETE',
     )
@@ -405,6 +433,9 @@ describe('a RECENT feed cannot be asked for a window', () => {
         f.ctx,
       ),
     ).rejects.toThrow(/a RECENT feed shows only its own window/)
+    // No batch and no request: the contract reports this refusal as a rejection, so there is no
+    // half-collected attempt behind it (CR-M-3).
+    expect(f.sent).toEqual([])
   })
 
   it('a RECENT feed with no configured window collects, and reports its own', async () => {
