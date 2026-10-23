@@ -4552,6 +4552,15 @@ command that produced it (`git grep -l '"zod"' -- '**/package.json'`) rather tha
 "Be more careful" does not close any of the three; printing the instrument's own output closes all of
 them.
 
+**Instance 5 — a restoration verified against memory (2026-10-24).** After the collision in entry 307
+below, the agent that had overwritten another PR's body rebuilt it and declared it restored — having
+verified by grepping for two strings it remembered writing, finding them, and stopping there. Two
+lines added earlier by someone else were still missing and would have failed the Flow Gate again. The
+shape is this entry's exactly, applied to a recovery rather than a measurement: a sample (what I
+remember putting in) asserted as a census (the document is whole). The cure is the same substitution —
+verify a restoration against the artifact's required contents, not against recall; for a PR body, the
+Flow Gate's own step list is that contract and it is machine-readable.
+
 ## 302. Truncating a command's output hides what the command was run to find (2026-10-23)
 
 `pre:bash:swallowed-failure` catches a discarded stderr piped into a counter. It does not catch the
@@ -4650,3 +4659,30 @@ entry instead of a finding.
 
 **Check on closing:** a quadratic scan with a 64-character step is caught by something, and a failing
 `timing_specs` job reaches a human within a day without anybody thinking to look.
+
+## 307. The session scratchpad is one flat shared directory, so a plain filename is everybody's (2026-10-24)
+
+**Measured, in another session, 2026-10-24.** Two agents of the same session each wrote their PR
+description to `pr-body.md` in the shared session scratchpad. The second `gh pr edit --body-file` then
+published **one PR's description onto the other PR**. It was noticed and rebuilt, but the rebuild was
+itself incomplete (recorded as instance 5 of entry 301).
+
+**Why no existing rule covers it.** `agent-isolation.md` learned this exact lesson for _worktrees_ —
+the session scratchpad is shared by every agent of a session, so a scratch path proves nothing about
+whose it is, and the cure there was a path derived from the agent's own identifier plus a record of
+ownership. Nothing says the same for _files_. The hook enforces the worktree half; the file half is
+unwritten, and the orchestrator-written briefs in this repo routinely tell agents to "write the body
+to the scratchpad first" (the write-then-post pattern from `dev-flow-resilience`) without saying where.
+
+**Why it is worse than a lost file.** A clobbered scratch file is cheap; a clobbered _published_
+artifact is not. The failure surfaces as a PR whose description belongs to a different change — which
+a reviewer may read as the author's claim about the diff in front of them, and which the Flow Gate
+will judge on step lines that were never written for that PR.
+
+**Candidates.** Brief agents to derive scratch filenames from their own identifier (the convention
+`agent-isolation.md` already uses for trees), or have the write-then-post guidance in
+`dev-flow-resilience` name the file rather than the directory, or — cheapest and mechanical — have
+each agent write under a per-agent subdirectory so a plain basename is safe again.
+
+**Check on closing:** two agents of one session, each told to write a PR body "to the scratchpad",
+produce two files that cannot collide — verified by running it, not by reading the brief.
