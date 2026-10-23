@@ -123,49 +123,94 @@ describe('createAccountMeter — binding validation', () => {
  * future so no window roll is due and no UPDATE is attempted; an unexpected write throws rather
  * than passing silently.
  */
-function settledReservationDb(status: string, reservationId: string) {
+const FAKE_METER_ID = '99999999-8888-7777-6666-555544443333'
+const FAKE_RESERVATION_ID = '12341234-1234-4234-8234-123412341234'
+
+interface FakeOpts {
+  /** The reservation status the locked row comes back with. */
+  status?: string
+  /** `LIFETIME` makes `rollWindow` return null whatever the clock says. */
+  window?: 'DAY' | 'MONTH' | 'LIFETIME'
+  /** Rows returned by the reservation -> meter peek. `[]` = no such reservation. */
+  peek?: unknown[]
+  /** Rows returned by the locked-meter select. `[]` = no meter row. */
+  meterRows?: unknown[]
+  /** Rows returned by the locked-reservation select. `[]` = no such row on that meter. */
+  reservationRows?: unknown[]
+  /** Rows returned by `SELECT now()`. `[]` = a clock read that came back empty. */
+  clockRows?: unknown[]
+}
+
+/**
+ * A unit double of the Drizzle query layer. It records WRITES, which is what several of the
+ * branches below are distinguished by: a decision whose only consequence is "no statement was
+ * issued" cannot be caught by looking at the return value.
+ *
+ * It replays the reads `reconcile` performs, in order — the reservation's meter id, the locked
+ * meter row, the database clock, then the locked reservation row.
+ */
+function fakeMeterDb(opts: FakeOpts = {}) {
+  const window = opts.window ?? 'MONTH'
   const meter = {
-    id: '99999999-8888-7777-6666-555544443333',
-    window: 'MONTH',
-    windowStartedAt: new Date('2026-01-01T00:00:00Z'),
-    resetsAt: new Date('2099-01-01T00:00:00Z'),
+    id: FAKE_METER_ID,
+    window,
+    windowStartedAt: window === 'LIFETIME' ? null : new Date('2026-01-01T00:00:00Z'),
+    // Far in the future, so no window roll is due and `rollWindow` returns null.
+    resetsAt: window === 'LIFETIME' ? null : new Date('2099-01-01T00:00:00Z'),
   }
   const reservation = {
-    id: reservationId,
-    meterId: meter.id,
-    status,
+    id: FAKE_RESERVATION_ID,
+    meterId: FAKE_METER_ID,
+    status: opts.status ?? 'RESERVED',
     amount: 2,
     reservedAt: new Date('2026-06-01T00:00:00Z'),
     sentAt: null,
     settledAt: null,
   }
-  const reads: unknown[][] = [[{ meterId: meter.id }], [meter], [reservation]]
+  const reads: unknown[][] = [
+    opts.peek ?? [{ meterId: FAKE_METER_ID }],
+    opts.meterRows ?? [meter],
+    opts.reservationRows ?? [reservation],
+  ]
+  const writes: string[] = []
 
-  const resultOf = (rows: unknown[]) => {
-    const settled = Promise.resolve(rows) as Promise<unknown[]> & {
-      for: () => Promise<unknown[]>
-    }
-    settled.for = () => Promise.resolve(rows)
-    return settled
+  const readable = (rows: unknown[]) => {
+    const p = Promise.resolve(rows) as Promise<unknown[]> & { for: () => Promise<unknown[]> }
+    p.for = () => Promise.resolve(rows)
+    return p
   }
-  const select = () => {
-    const node = {
-      from: () => node,
-      where: () => resultOf(reads.shift() ?? []),
+  const writable = (rows: unknown[]) => {
+    const p = Promise.resolve(rows) as Promise<unknown[]> & {
+      returning: () => Promise<unknown[]>
     }
-    return node
+    p.returning = () => Promise.resolve(rows)
+    return p
   }
   const tx = {
-    select,
-    execute: () => Promise.resolve({ rows: [{ now: new Date('2026-06-02T00:00:00Z') }] }),
+    select: () => {
+      const node = { from: () => node, where: () => readable(reads.shift() ?? []) }
+      return node
+    },
+    execute: () =>
+      Promise.resolve({
+        rows: opts.clockRows ?? [{ now: new Date('2026-06-02T00:00:00Z') }],
+      }),
     update: () => {
-      throw new Error('the refused-transition path must not write')
+      writes.push('update')
+      return { set: () => ({ where: () => writable([meter]) }) }
     },
   }
-  return {
+  const db = {
     transaction: (run: (t: typeof tx) => Promise<unknown>) => run(tx),
   } as unknown as MeterDb
+  return { db, writes }
 }
+
+const claimOf = (unit: 'REQUEST' | 'RECORD' = 'REQUEST') => ({
+  id: FAKE_RESERVATION_ID,
+  unit,
+  amount: 2,
+})
 
 describe('error messages carry what their reader must act on', () => {
   /**
@@ -177,21 +222,22 @@ describe('error messages carry what their reader must act on', () => {
     ['UNCERTAIN', 'a USED reservation cannot become UNCERTAIN'] as const,
     ['RELEASED', 'a USED reservation cannot become RELEASED'] as const,
   ])('a refused USED -> %s names both states', async (to, expected) => {
-    const id = '12341234-1234-4234-8234-123412341234'
-    const meter = createAccountMeter(settledReservationDb('USED', id), valid())
-    const error = await callError(() =>
-      meter.reconcile({ id, unit: 'REQUEST', amount: 2 }, to as 'UNCERTAIN' | 'RELEASED'),
-    )
+    const { db, writes } = fakeMeterDb({ status: 'USED' })
+    const meter = createAccountMeter(db, valid())
+    const error = await callError(() => meter.reconcile(claimOf(), to))
     expect(error.code).toBe('ILLEGAL_TRANSITION')
     expect(error.message).toBe(expected)
+    // A refused transition settles nothing.
+    expect(writes).toEqual([])
   })
 
   it('an unmetered unit is named in the refusal', async () => {
-    const { db } = untouchableDb()
+    const { db, touched } = untouchableDb()
     const meter = createAccountMeter(db, valid())
     expect((await callError(() => meter.reserve('RECORD', 1))).message).toBe(
       'this binding does not meter RECORD',
     )
+    expect(touched).toEqual([])
   })
 
   it('an invalid amount says what a valid one is', async () => {
@@ -355,6 +401,85 @@ describe('reconcile / markSent — a claim this binding cannot own is refused be
     await expect(meter.reconcile(claim, 'USED')).rejects.toThrow('the database was touched')
     await expect(meter.markSent(claim)).rejects.toThrow('the database was touched')
     expect(touched).toEqual(['transaction', 'transaction'])
+  })
+})
+
+/**
+ * The decisions inside `reconcile` that a mocked Drizzle call CAN distinguish. All of these were
+ * reported `Survived` — not `NoCoverage` — meaning the unit suite already executed the line and
+ * its assertions did not tell the mutant apart. The ones that matter here are the branches whose
+ * only consequence is that **no statement is issued**: a return value alone cannot see them, so
+ * each case reads the double's write log.
+ */
+describe('reconcile — the branches a unit double can see', () => {
+  it('a reservation that does not exist at all is FOREIGN_RESERVATION, not a crash', async () => {
+    // The reservation -> meter peek comes back empty.
+    const { db, writes } = fakeMeterDb({ peek: [] })
+    const error = await callError(() =>
+      createAccountMeter(db, valid()).reconcile(claimOf(), 'USED'),
+    )
+    expect(error.code).toBe('FOREIGN_RESERVATION')
+    expect(writes).toEqual([])
+  })
+
+  it('a reservation whose meter row is gone is refused as foreign', async () => {
+    // The locked-meter select comes back empty: METER_NOT_FOUND, which `lockOwned` converts.
+    const { db, writes } = fakeMeterDb({ meterRows: [] })
+    const error = await callError(() =>
+      createAccountMeter(db, valid()).reconcile(claimOf(), 'USED'),
+    )
+    expect(error.code).toBe('FOREIGN_RESERVATION')
+    expect(writes).toEqual([])
+  })
+
+  it('a reservation that is not on that meter under this attempt is refused as foreign', async () => {
+    // Peek and meter resolve, but the ownership-filtered reservation select matches nothing.
+    const { db, writes } = fakeMeterDb({ reservationRows: [] })
+    const error = await callError(() =>
+      createAccountMeter(db, valid()).reconcile(claimOf(), 'USED'),
+    )
+    expect(error.code).toBe('FOREIGN_RESERVATION')
+    expect(writes).toEqual([])
+  })
+
+  /**
+   * The no-op leg of the state machine, and the only assertion that can see it: settling a row
+   * into the state it is already in must issue NO statement. Checking that the call merely
+   * resolves is not enough — a mutant that stops returning early also resolves, having written.
+   * This case also pins the no-roll path, because a window that is not due must not update the
+   * meter row either: both mutants show up as a non-empty write log.
+   */
+  it('settling a row into the state it already holds writes nothing at all', async () => {
+    const { db, writes } = fakeMeterDb({ status: 'USED' })
+    await expect(
+      createAccountMeter(db, valid()).reconcile(claimOf(), 'USED'),
+    ).resolves.toBeUndefined()
+    expect(writes).toEqual([])
+  })
+
+  /** The contrast case: a real settlement DOES write, to both the meter and the reservation. */
+  it('a real settlement writes to the meter and to the reservation', async () => {
+    const { db, writes } = fakeMeterDb({ status: 'RESERVED' })
+    await expect(
+      createAccountMeter(db, valid()).reconcile(claimOf(), 'USED'),
+    ).resolves.toBeUndefined()
+    expect(writes).toEqual(['update', 'update'])
+  })
+
+  /**
+   * The clock read is defensive: `rows[0]?.now`. Drop the optional chaining and an empty result
+   * set throws a TypeError out of the middle of a transaction instead of being tolerated. A
+   * LIFETIME meter is used so the window arithmetic never consults the clock, which isolates the
+   * read itself — on a windowed meter an unreadable clock has its own consequences.
+   */
+  it('a clock read that returns no row does not crash the transaction', async () => {
+    const { db, writes } = fakeMeterDb({ window: 'LIFETIME', status: 'USED', clockRows: [] })
+    const meter = createAccountMeter(db, {
+      ...valid(),
+      windows: { REQUEST: 'LIFETIME' },
+    })
+    await expect(meter.reconcile(claimOf(), 'USED')).resolves.toBeUndefined()
+    expect(writes).toEqual([])
   })
 })
 
