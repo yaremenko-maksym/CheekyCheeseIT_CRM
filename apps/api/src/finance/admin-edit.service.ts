@@ -519,9 +519,21 @@ export class AdminEditService {
           )
           .returning({ id: transactions.id })
         if (updated.length === 0) {
-          // Two ways to get here now, and the message names both: a message
-          // that says only "удалена" sends the operator looking for a deletion
-          // that never happened.
+          // Zero rows means the snapshot this edit was computed against is no
+          // longer the row's state — and the message deliberately does NOT say
+          // which part moved. It cannot: the ways to get here outgrew any
+          // enumeration (deleted, settled mid-window, A->B->A on the
+          // accumulator, and the salary month/origin predicates just above),
+          // and on the pay path the same code answers a row that is still
+          // PENDING and still un-deleted. So it states the fact and the remedy
+          // (reload, retry) and asserts no cause. The concrete cause belongs to
+          // the audit log, not to a string shown to an accountant.
+          //
+          // The full reasoning, and the three rounds of wording that led here,
+          // are recorded in cascade-apply.unit.spec.ts, test "the refusal names
+          // no specific cause, because the causes outgrew the message" — which
+          // also pins it, so this comment and the string cannot drift apart
+          // silently.
           throw apiError('FINANCE_ROW_STATE_CHANGED_WHILE_EDITING', HttpStatus.BAD_REQUEST)
         }
 
