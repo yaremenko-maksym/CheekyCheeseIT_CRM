@@ -6,11 +6,7 @@
   "lastUpdate": "2026-10-23T13:48:16+00:00",
   "nextCursor": "AgAAAABq27zHAAAAAGrUcpMAAAAAAAJgKYgS2pwz6gLi5UB-GPnTxlf8B6ga0w2ZxGqltgs5ptZYzJlqeFwmlWLswu-ku07f-JNYeG9JNuX2-X9rZGVVQ18",
   "hasMore": true,
-  "appliedFilters": {
-    "count": 100,
-    "geo": "europe",
-    "industry": "engineering"
-  },
+  "appliedFilters": { "count": 100, "geo": "europe", "industry": "engineering" },
   "jobs": [
     {
       "id": 156602,

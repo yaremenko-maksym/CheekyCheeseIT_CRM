@@ -3,7 +3,7 @@
   "fetchedAt": "2026-10-23T19:58:03.000Z",
   "httpStatus": 200,
   "rawSha256": "5d2528fa393cb7a7ad701ad356574aa41a341db86489073f36edc91d3518762e",
-  "fileSha256": "1b221608b07da57c826517ff22a683afdce8686557a64a97db0fa5587dcb0ee1",
+  "fileSha256": "ccc5a130e8553ffd94e77914b308ef8e4176cc43b6675722c75841828b373a8e",
   "trimmedBy": "node trim-captures.mjs (JSON.parse, whole-record selection by id (legal object kept verbatim as element 0), regex redaction of e-mail addresses and separator-bearing phone numbers inside string values, JSON.stringify); never a byte cut",
   "termsUrl": "https://remoteok.com/api",
   "termsCheckedAt": "2026-10-23T20:10:00.000Z",

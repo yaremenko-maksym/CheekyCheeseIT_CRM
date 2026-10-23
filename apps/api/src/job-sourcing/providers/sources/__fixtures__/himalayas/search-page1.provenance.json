@@ -3,7 +3,7 @@
   "fetchedAt": "2026-10-23T19:59:01.000Z",
   "httpStatus": 200,
   "rawSha256": "d448dba8151b4d1329142ee8a5801351f40e19004923471d9c06c2ff45be9f8a",
-  "fileSha256": "cee76a87bfc86f66d4d20992e5442c39a27b266b7ed9237ddd2d150232da6318",
+  "fileSha256": "5411e7aa079ddf8997e44ff846375311e0bda7f73715dbdd02210ccf3ed1cff5",
   "trimmedBy": "node trim-captures.mjs (JSON.parse, whole-record selection by position in the page, regex redaction of e-mail addresses and separator-bearing phone numbers inside string values, JSON.stringify); never a byte cut",
   "termsUrl": "https://himalayas.app/terms#api",
   "termsCheckedAt": "2026-10-23T20:10:00.000Z",

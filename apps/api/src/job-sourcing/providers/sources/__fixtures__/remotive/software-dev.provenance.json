@@ -3,7 +3,7 @@
   "fetchedAt": "2026-10-23T20:01:38.000Z",
   "httpStatus": 200,
   "rawSha256": "53bfb5ff0cf4ef32f2486686209bf3ee17ef1ae673b94158c903902d15794921",
-  "fileSha256": "66ac3533aa2470e0f2b8ac0131d9e5256a131a0bc233803196d9bac2782b8517",
+  "fileSha256": "070de16f01fd49e4fdaf68644d20aef6ea131c3adc4e3388538b92d9d4b1d4b0",
   "trimmedBy": "node trim-captures.mjs (JSON.parse, whole-record selection by id, regex redaction of e-mail addresses and separator-bearing phone numbers inside string values, JSON.stringify); never a byte cut",
   "termsUrl": "https://remotive.com/api-documentation",
   "termsCheckedAt": "2026-10-23T20:10:00.000Z",

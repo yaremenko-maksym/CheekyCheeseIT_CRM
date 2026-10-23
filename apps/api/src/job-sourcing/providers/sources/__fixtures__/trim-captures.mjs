@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import * as prettier from 'prettier'
 
 const [rawDir, termsCheckedAt] = process.argv.slice(2)
 const here = dirname(fileURLToPath(import.meta.url))
@@ -33,11 +34,21 @@ const dateHeader = (hdrFile) => {
   return new Date(line.slice(5).trim()).toISOString()
 }
 
-function emit(provider, name, rawFile, hdrFile, url, produce, meta) {
+// The repo's pre-commit hook runs prettier over committed JSON, so the bytes hashed as
+// `fileSha256` must already be prettier-stable or the hash would describe a file that is never committed.
+async function format(text, filepath) {
+  const options = (await prettier.resolveConfig(filepath)) ?? {}
+  return prettier.format(text, { ...options, filepath })
+}
+
+async function emit(provider, name, rawFile, hdrFile, url, produce, meta) {
   const rawBytes = readFileSync(join(rawDir, rawFile))
-  const out = JSON.stringify(redact(produce(JSON.parse(rawBytes.toString('utf8')))), null, 2) + '\n'
   const dir = join(here, provider)
   mkdirSync(dir, { recursive: true })
+  const out = await format(
+    JSON.stringify(redact(produce(JSON.parse(rawBytes.toString('utf8'))))),
+    join(dir, `${name}.json`),
+  )
   writeFileSync(join(dir, `${name}.json`), out)
   const prov = {
     url,
@@ -51,7 +62,10 @@ function emit(provider, name, rawFile, hdrFile, url, produce, meta) {
     permission: meta.permission,
     notes: meta.notes,
   }
-  writeFileSync(join(dir, `${name}.provenance.json`), JSON.stringify(prov, null, 2) + '\n')
+  writeFileSync(
+    join(dir, `${name}.provenance.json`),
+    await format(JSON.stringify(prov), join(dir, `${name}.provenance.json`)),
+  )
 }
 
 const byIds = (ids, key) => (arr) => ids.map((id) => arr.find((x) => String(x[key]) === String(id)))
@@ -59,7 +73,7 @@ const REDACTION =
   'E-mail addresses and phone numbers inside string values were replaced by a parser; personal NAMES in free-text descriptions cannot be found by a parser and were not redacted (records were chosen with short descriptions to limit exposure).'
 
 // ---- RemoteOK ----
-emit(
+await emit(
   'remoteok',
   'feed',
   'remoteok.json',
@@ -75,7 +89,7 @@ emit(
 )
 
 // ---- Remotive ----
-emit(
+await emit(
   'remotive',
   'software-dev',
   'remotive-b.json',
@@ -94,7 +108,7 @@ emit(
 const HIM_TERMS = 'https://himalayas.app/terms#api'
 const himNotes = (extra) =>
   `${extra} Terms (API Users clause): every Apply must use applicationLink; show a visible Himalayas credit/link; show jobs only on sites you operate (no passing to other boards/aggregators); cache; remove expired jobs. Clause 30A exempts use of the public API in line with its documentation and rate limits. robots.txt allows /jobs/api (only ?page= HTML listings are disallowed). Data is cached server-side and refreshed every 24 h. Observed drift from the documented schema: locationRestrictions are plain strings (documented as {alpha2,name,slug} objects) and timezoneRestrictions are numbers (documented as strings). ${REDACTION}`
-emit(
+await emit(
   'himalayas',
   'browse-page1',
   'him-browse1.json',
@@ -108,7 +122,7 @@ emit(
     notes: himNotes('Browse endpoint, first page: 20 jobs captured, 6 kept; nextCursor retained as received.'),
   },
 )
-emit(
+await emit(
   'himalayas',
   'browse-page2',
   'him-browse2.json',
@@ -122,7 +136,7 @@ emit(
     notes: himNotes('Browse endpoint, second page (cursor taken from page 1 unchanged): 20 jobs captured, 3 kept; nextCursor retained as received.'),
   },
 )
-emit(
+await emit(
   'himalayas',
   'search-page1',
   'him-search1.json',
@@ -141,7 +155,7 @@ emit(
 const JOB_TERMS = 'https://jobicy.com/jobs-rss-feed'
 const jobNotes = (extra) =>
   `${extra} Terms (Fair use section): free for commercial use without approval; clearly credit Jobicy as the source with a direct link; application buttons must go to the listing url from the feed; do not present listings as your own postings. robots.txt (User-agent *) does not disallow /api/jobs. Public feed covers the last 7 days with a 3-hour publication delay. ${REDACTION}`
-emit(
+await emit(
   'jobicy',
   'seeded-page1',
   'jobicy-seeded.json',
@@ -155,7 +169,7 @@ emit(
     notes: jobNotes('The seeded config query (count=100, industry=engineering, geo=europe) returned HTTP 200: 100 jobs, hasMore true, a 119-character nextCursor.'),
   },
 )
-emit(
+await emit(
   'jobicy',
   'seeded-page2',
   'jobicy-p2.json',

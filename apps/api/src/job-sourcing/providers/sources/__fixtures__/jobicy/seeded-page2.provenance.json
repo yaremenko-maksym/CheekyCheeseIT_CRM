@@ -3,7 +3,7 @@
   "fetchedAt": "2026-10-23T20:00:18.000Z",
   "httpStatus": 200,
   "rawSha256": "4abbc980adb1da68472424c2e9e8a65bcc5706ceb8eb6b3998183d775dbf0f03",
-  "fileSha256": "f862f3888b03248ac87c62af5aefb47d055f6f2ee0c569d78e515c0249dbb89d",
+  "fileSha256": "5cc875000cc9b7e440543a268256e46908e41b3017b23ae98256b2c6f26b4d22",
   "trimmedBy": "node trim-captures.mjs (JSON.parse, whole-record selection by id (jobCount rewritten from 17 to the kept 3), regex redaction of e-mail addresses and separator-bearing phone numbers inside string values, JSON.stringify); never a byte cut",
   "termsUrl": "https://jobicy.com/jobs-rss-feed",
   "termsCheckedAt": "2026-10-23T20:10:00.000Z",
