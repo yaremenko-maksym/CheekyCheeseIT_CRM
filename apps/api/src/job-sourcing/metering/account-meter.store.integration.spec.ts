@@ -609,6 +609,10 @@ describe.skipIf(!hasDatabaseUrl())('account meter store (real Postgres)', () => 
         ),
       )
       expect(error.code).toBe('AMOUNT_MISMATCH')
+      // Both amounts, in the message: this refusal crashes a retry whose cost estimate changed
+      // (a varying page size will do it), and the only way to tell WHICH two numbers disagreed
+      // is this sentence. Written out rather than built from the inputs.
+      expect(error.message).toBe('a retry asked 3 for a request reserved at 2')
       expect(await counters(m.id)).toEqual({ used: 0, reserved: 2, uncertain: 0 })
     })
   })
@@ -912,7 +916,11 @@ describe.skipIf(!hasDatabaseUrl())('account meter store (real Postgres)', () => 
         db,
         binding({ accountKey: nextAccount(), cycleId: await newCycle() }),
       )
-      expect((await rejection(meter.reserve('REQUEST', 1))).code).toBe('METER_NOT_FOUND')
+      const error = await rejection(meter.reserve('REQUEST', 1))
+      expect(error.code).toBe('METER_NOT_FOUND')
+      // The message names all three parts of the meter key, because a missing row is a
+      // CONFIGURATION error and the reader has to know which of the three to go and create.
+      expect(error.message).toBe('no meter row exists for this account, unit and window')
     })
   })
 
