@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus } from '@nestjs/common'
+import { HttpException, HttpStatus, Logger } from '@nestjs/common'
 import type { FastifyRequest } from 'fastify'
 import { MEETING_RECORDER_TEST_EVENT_TYPE, type SessionUser } from '@crm/shared'
 import { describe, expect, it, vi } from 'vitest'
@@ -233,6 +233,63 @@ describe('MeetingRecorderWebhookController', () => {
       SECRET,
     )
     expect(service.ingestWebhookEvent).toHaveBeenCalledWith(CONNECTION_ID, event, 'v1:encrypted')
+  })
+
+  // CR-M-2: the 503 carries no detail, so the requestId it mints must correlate
+  // with a server-side line or a prod ingestion failure is unexplainable. The
+  // line goes through the #1042 redaction helpers, so it carries the SQLSTATE
+  // and frames but none of the bound parameter values.
+  it('logs the redacted failure under the same requestId, with no transcript in the line', async () => {
+    const { controller, service } = mocks()
+    const transcript = 'PRIVATE_TRANSCRIPT_CANARY'
+    // Shaped like a real drizzle error, which is what makes this a test of the
+    // redaction and not of a stub: `query` plus a `params` ARRAY holding the bound
+    // values (where the transcript actually lives), and a pg `cause` carrying the
+    // SQLSTATE and `severity` — the two fields `pg-errors` keys its detectors on.
+    const driverError = Object.assign(
+      new Error(`Failed query: insert into "interview_recordings" ... params: ${transcript}`),
+      {
+        query: 'insert into "interview_recordings" (snapshot) values ($1)',
+        params: [transcript],
+        cause: Object.assign(new Error('null value in column violates not-null constraint'), {
+          code: '23502',
+          severity: 'ERROR',
+          table: 'interview_recordings',
+        }),
+      },
+    )
+    service.ingestWebhookEvent.mockRejectedValue(driverError)
+
+    const logged: Array<unknown[]> = []
+    const spy = vi
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation((...args: unknown[]) => void logged.push(args))
+
+    try {
+      const error = await controller
+        .receiveWebhook(CONNECTION_ID, JSON.stringify(event), request())
+        .then(
+          () => null,
+          (reason: unknown) => reason,
+        )
+
+      const response = (error as HttpException).getResponse() as Record<string, unknown>
+      const requestId = response['requestId'] as string
+      expect(requestId).toMatch(/^[0-9a-f-]{36}$/)
+
+      expect(logged).toHaveLength(1)
+      const line = logged[0]!.map((part) => String(part)).join(' ')
+      // Correlates with what the caller was handed …
+      expect(line).toContain(requestId)
+      expect(line).toContain(CONNECTION_ID)
+      // … carries a usable diagnostic …
+      expect(line).toContain('23502')
+      // … and none of the bound values.
+      expect(line).not.toContain(transcript)
+      expect(line).not.toContain('params:')
+    } finally {
+      spy.mockRestore()
+    }
   })
 
   it('normalizes unexpected ingestion failures before telemetry can see private recorder content', async () => {

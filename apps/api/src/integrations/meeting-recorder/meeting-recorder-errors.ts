@@ -1,6 +1,12 @@
 import { randomUUID } from 'node:crypto'
-import { HttpException, HttpStatus, type HttpStatus as HttpStatusCode } from '@nestjs/common'
+import {
+  HttpException,
+  HttpStatus,
+  Logger,
+  type HttpStatus as HttpStatusCode,
+} from '@nestjs/common'
 import type { MeetingRecorderErrorCode } from '@crm/shared'
+import { dbErrorLogSuffix, safeErrorStack } from '../../database/pg-errors'
 
 type WebhookErrorCode = Extract<
   MeetingRecorderErrorCode,
@@ -18,6 +24,8 @@ export function meetingRecorderWebhookError(
 ): HttpException {
   return new HttpException({ code }, status)
 }
+
+const logger = new Logger('MeetingRecorderWebhook')
 
 const EXPECTED_WEBHOOK_ERROR_CODES = new Set<WebhookErrorCode>([
   'MEETING_RECORDER_WEBHOOK_UNAUTHORIZED',
@@ -52,6 +60,15 @@ export function normalizeMeetingRecorderWebhookIngestionError(
   const operation = 'meeting-recorder-webhook-ingest'
   const diagnosticCode = 'UNEXPECTED_INGESTION_FAILURE'
   const message = `${operation} failed; requestId=${requestId}; connectionId=${connectionId}; diagnosticCode=${diagnosticCode}`
+
+  // CR-M-2: the 503 deliberately carries no detail, so without this line the
+  // requestId it mints would correlate with nothing and a prod ingestion
+  // failure would be unexplainable. The finding was about EGRESS of SQL
+  // parameters, not about having no diagnostic — so log through the #1042
+  // helpers, which drop drizzle's parameter values and a pg message that could
+  // carry them while keeping the SQLSTATE, the table and the frames. Keyed by
+  // the SAME requestId the caller receives.
+  logger.error(`${message}${dbErrorLogSuffix(error)}`, safeErrorStack(error))
 
   return new HttpException(
     {
