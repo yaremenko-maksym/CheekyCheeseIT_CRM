@@ -67,7 +67,7 @@ export const MEETING_RECORDER_UNMATCHABLE_STAGES = [
  * (retro review of PR #865 — SR-M-1 / SPEC-M-1).
  */
 export function meetingRecorderAutoMatchEnabled(): boolean {
-  return (process.env['MEETING_RECORDER_AUTO_MATCH_ENABLED'] ?? '').toLowerCase() === 'true'
+  return process.env['MEETING_RECORDER_AUTO_MATCH_ENABLED']?.toLowerCase() === 'true'
 }
 
 /** The only columns the matcher needs from a candidate interview. */
