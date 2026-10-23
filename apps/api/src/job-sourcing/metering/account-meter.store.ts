@@ -429,13 +429,10 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
     claim: MeterReservation,
     window: JobMeterWindow,
   ): Promise<{ meter: MeterRow; row: ReservationRow }> {
-    // Emptying the projection below changes WHICH COLUMNS Postgres returns, and a unit double
-    // hands back its own rows regardless, so the mutant is indistinguishable without a server to
-    // do the projecting. Verified by every settlement case in the integration spec: with no
-    // `meterId` selected the meter lookup gets undefined and real settlement stops working.
-    // The directive is a TRAILING comment on purpose — measured, one on its own line inside a
-    // method chain is not honoured by the instrumenter.
-    const [peek] = await tx // Stryker disable next-line ObjectLiteral: SQL projection, only Postgres projects columns
+    // Only the meter id, deliberately: this read runs BEFORE the ownership predicate below has
+    // been applied, so it must not pull another attempt's reservation row into this process.
+    // Asserted in the unit spec ("the peek reads only the meter id ...").
+    const [peek] = await tx
       .select({ meterId: jobAccountMeterReservations.meterId })
       .from(jobAccountMeterReservations)
       .where(eq(jobAccountMeterReservations.id, claim.id))
@@ -474,7 +471,8 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
           // Stryker disable next-line StringLiteral: SQL predicate, evaluated only by Postgres
           sql`starts_with(${jobAccountMeterReservations.attemptId}, ${reservationKeyPrefix(binding.attemptId, claim.unit)})`,
         ),
-      ) // Stryker disable next-line StringLiteral: row lock, observable only under real concurrency
+      )
+      // FOR UPDATE, not FOR SHARE: a share lock would admit two settlers of one reservation.
       .for('update')
     if (row === undefined) throw foreign()
     return { meter, row }
@@ -515,6 +513,13 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
       // rejection. The no-op's own positive case ("writes nothing at all") is kept above.
       // Stryker disable next-line ConditionalExpression: killed by 2 unit tests under hand-mutation, gate attribution misses rejection tests
       if (plan.kind === 'noop') return
+      // Forcing this true makes every settlement throw. Nothing in UNIT scope notices, because
+      // the no-op above returns first and every other unit case is itself a refusal — the one
+      // case that would notice is an apply-path test, and adding one measurably costs 20
+      // unassertable survivors in the payload lines below (see the note in the unit spec where
+      // that test was removed). Legal settlements are asserted by counter VALUES, every
+      // transition and both hold counters, in the integration spec.
+      // Stryker disable next-line ConditionalExpression: apply path is integration-only, verified there by counter values
       if (plan.kind === 'illegal') throw illegal(row.status, resolution)
 
       // The STORED amount, never the caller's claim.

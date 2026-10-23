@@ -186,9 +186,16 @@ function fakeMeterDb(opts: FakeOpts = {}) {
         ]
   const writes: string[] = []
 
+  const lockModes: string[] = []
+  const projections: unknown[] = []
   const readable = (rows: unknown[]) => {
-    const p = Promise.resolve(rows) as Promise<unknown[]> & { for: () => Promise<unknown[]> }
-    p.for = () => Promise.resolve(rows)
+    const p = Promise.resolve(rows) as Promise<unknown[]> & {
+      for: (mode: string) => Promise<unknown[]>
+    }
+    p.for = (mode: string) => {
+      lockModes.push(mode)
+      return Promise.resolve(rows)
+    }
     return p
   }
   const writable = (rows: unknown[]) => {
@@ -199,7 +206,8 @@ function fakeMeterDb(opts: FakeOpts = {}) {
     return p
   }
   const tx = {
-    select: () => {
+    select: (projection?: unknown) => {
+      projections.push(projection)
       const node = { from: () => node, where: () => readable(reads.shift() ?? []) }
       return node
     },
@@ -217,7 +225,7 @@ function fakeMeterDb(opts: FakeOpts = {}) {
   const db = {
     transaction: (run: (t: typeof tx) => Promise<unknown>) => run(tx),
   } as unknown as MeterDb
-  return { db, writes }
+  return { db, writes, lockModes, projections }
 }
 
 const claimOf = (unit: 'REQUEST' | 'RECORD' = 'REQUEST') => ({
@@ -500,6 +508,33 @@ describe('reconcile — the branches a unit double can see', () => {
    * integration-only behaviour is the correct and expected report. The no-op case above is kept
    * because its assertion is real: "no statement at all" is observable from here.
    */
+
+  /**
+   * Two SQL-shaped facts that a double CAN see, because it can record what it was asked for, and
+   * that are worth stating as behaviour rather than suppressing:
+   *
+   * - **Both row locks are FOR UPDATE, not FOR SHARE.** A share lock would admit two settlers of
+   *   one reservation, which is the whole defence the spend guard rests on.
+   * - **The first read asks only for the meter id.** It runs BEFORE the ownership predicate has
+   *   been applied, so a `SELECT *` there would pull another attempt's reservation row into this
+   *   process; `{}` — select everything — is exactly the mutant.
+   *
+   * These replace two suppressions that the instrumenter would not honour anyway: measured twice,
+   * a `Stryker disable next-line` inside a method chain is ignored both on its own line and as a
+   * trailing comment, so a suppression there would have been a comment with no effect.
+   */
+  it('the peek reads only the meter id, and both row locks are FOR UPDATE', async () => {
+    const { db, lockModes, projections } = fakeMeterDb({ status: 'USED' })
+    await expect(
+      createAccountMeter(db, valid()).reconcile(claimOf(), 'USED'),
+    ).resolves.toBeUndefined()
+
+    // The meter row and then the reservation row, each locked for update.
+    expect(lockModes).toEqual(['update', 'update'])
+    // Three selects: the peek (projected), the meter, the reservation (both unprojected).
+    expect(projections).toEqual([{ meterId: expect.anything() }, undefined, undefined])
+    expect(Object.keys(projections[0] as object)).toEqual(['meterId'])
+  })
 
   it('an error that merely LOOKS like METER_NOT_FOUND is not turned into a foreign refusal', async () => {
     // The meter lock fails with a plain Error that happens to carry the same `code`. Only an
