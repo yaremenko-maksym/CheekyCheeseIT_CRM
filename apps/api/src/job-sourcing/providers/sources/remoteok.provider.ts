@@ -63,9 +63,14 @@ type Envelope = z.infer<typeof envelopeSchema>
 
 /** The legal / metadata object: has a string `legal`, and no `id` (a job always has one). */
 export function isRemoteokLegalNotice(element: unknown): boolean {
-  if (typeof element !== 'object' || element === null) return false
-  const record = element as Record<string, unknown>
-  return typeof record['legal'] === 'string' && !('id' in record)
+  // `in` throws on a primitive, so the object guard is load-bearing (and testable) rather than decorative.
+  return (
+    typeof element === 'object' &&
+    element !== null &&
+    'legal' in element &&
+    typeof element.legal === 'string' &&
+    !('id' in element)
+  )
 }
 
 export const remoteokSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
