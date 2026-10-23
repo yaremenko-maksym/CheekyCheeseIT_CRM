@@ -7852,6 +7852,10 @@ msgstr "Увійти як"
 msgid "Сума всіх виплат за весь час"
 msgstr "Сума всіх виплат за весь час"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ExistingSalaryParts.tsx
+msgid "Цей місяць уже має 1 частину зарплати"
+msgstr "Цей місяць уже має 1 частину зарплати"
+
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 msgid "Стандартно"
 msgstr "Стандартно"
@@ -8750,6 +8754,11 @@ msgstr "Посилання не працює. Відкрийте посилан�
 msgid "Почніть вводити технологію…"
 msgstr "Почніть вводити технологію…"
 
+#. placeholder {0}: parts.length
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ExistingSalaryParts.tsx
+msgid "Цей місяць уже має {0} частини зарплати"
+msgstr "Цей місяць уже має {0} частини зарплати"
+
 #: apps/web/app/components/user-profile/ProfileCredentialsSection.tsx
 msgid "Не вдалося скопіювати — скопіюйте вручну"
 msgstr "Не вдалося скопіювати — скопіюйте вручну"
@@ -9555,6 +9564,10 @@ msgstr "Нова команда — оберіть HR і бухгалтера н
 msgid "Для ролі «{roleLabel}» доступні лише виплати в USDT ERC-20."
 msgstr "Для ролі «{roleLabel}» доступні лише виплати в USDT ERC-20."
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ExistingSalaryParts.tsx
+msgid "автоматично"
+msgstr "автоматично"
+
 #: apps/web/app/components/documents/document-labels.ts
 msgid "Скан"
 msgstr "Скан"
@@ -9977,6 +9990,10 @@ msgstr "+ Зареєструвати"
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Скидання…"
 msgstr "Скидання…"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ExistingSalaryParts.tsx
+msgid "вручну"
+msgstr "вручну"
 
 #: apps/web/app/components/users/user-dialog/TeamSection.tsx
 #: apps/web/app/components/users/user-dialog/TeamSection.tsx
