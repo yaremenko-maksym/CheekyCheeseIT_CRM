@@ -4219,6 +4219,29 @@ cache key **from the request** rather than from a list of fields someone must ke
 the coverage floors are derived from `git ls-files` instead of a typed number. A claim that cannot
 drift out of step needs no reader to re-check it.
 
+### The same shape in this file's own numbering (2026-10-24)
+
+**Measured.** Three unmerged branches each appended after the then-highest entry, 306, and **two
+different findings were both numbered 307** — one on `docs/backlog-301-instances`, one on
+`feature/r5-3.6-rss-adapters` — because two sessions read "the highest is 306" at the same moment. A
+third branch's 308 avoided it only by accident: that agent had been told 307 was taken by information
+the other session could not have had.
+
+**The hazard is the resolution, not the collision.** Both appends land at the end of the same file, so
+git conflicts — and the tempting resolution, keeping both sides, yields a file with two entries
+numbered 307 and **no conflict markers left to notice**. One of the two branches carries seven
+in-code `[[307]]`-style pointers, so a silent concatenation would leave some of them citing the other
+session's entry. Whoever hits that conflict renumbers; they do not concatenate.
+
+**Why it belongs in this entry rather than its own.** A hand-assigned sequential number in an
+append-only file shared by concurrent writers is an enumeration maintained by care, which cannot be
+re-derived and drifts the moment two people hold it — this entry's case exactly. The construction cure
+would be an identifier that cannot collide: a date-plus-slug heading
+(`2026-10-24-scratchpad-flat-directory`) makes a simultaneous append a textual conflict in two
+different places rather than a number race, and survives renumbering, which the in-code pointers
+currently do not. Changing the file's convention is a larger decision than any one PR and is not taken
+here; it is recorded so the next person does not re-derive the problem from scratch.
+
 **Check on closing:** a sentence in a long-lived document that enumerates fields, versions or
 behaviours is either generated from the source, or carries the command that re-derives it. An
 enumeration maintained by hand is a future true-but-incomplete claim.
@@ -4552,8 +4575,8 @@ command that produced it (`git grep -l '"zod"' -- '**/package.json'`) rather tha
 "Be more careful" does not close any of the three; printing the instrument's own output closes all of
 them.
 
-**Instance 5 — a restoration verified against memory (2026-10-24).** After the collision in entry 307
-below, the agent that had overwritten another PR's body rebuilt it and declared it restored — having
+**Instance 5 — a restoration verified against memory (2026-10-24).** After the scratchpad-filename collision recorded
+in this file (the entry headed "The session scratchpad is one flat shared directory"), the agent that had overwritten another PR's body rebuilt it and declared it restored — having
 verified by grepping for two strings it remembered writing, finding them, and stopping there. Two
 lines added earlier by someone else were still missing and would have failed the Flow Gate again. The
 shape is this entry's exactly, applied to a recovery rather than a measurement: a sample (what I
