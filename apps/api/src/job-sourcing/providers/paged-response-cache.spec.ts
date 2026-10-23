@@ -7,7 +7,7 @@ import {
   type DecodedEnvelope,
   type PagedSourceSpec,
 } from './api-json.provider'
-import type { CachedResponse, CollectionBatch } from './reporting-provider'
+import type { CachedResponse, CollectionBatch, FetchRequest } from './reporting-provider'
 
 /**
  * THE RESPONSE CACHE KEY, pinned at the one seam every binding shares (`collectPages`).
@@ -198,7 +198,11 @@ describe('a request that differs in any dimension cannot revalidate another requ
     expectNoReplay(batch, sentValidators)
   })
 
-  it('differs in the method and body of a POST-shaped search', async () => {
+  // Titled for what it varies. It was `differs in the method and body`, and it varied only the
+  // body: both sides were POST, so `request.method` could leave the digest with every test in this
+  // file still green — its passing and its subject's absence were indistinguishable (CR-M-2). The
+  // method now has its own case below.
+  it('differs in the body of a POST-shaped search', async () => {
     const cacheSeed = await storeBody({
       spec: spec({
         pageRequest: (cfg, at) => ({
@@ -215,6 +219,53 @@ describe('a request that differs in any dimension cannot revalidate another requ
         }),
       }),
     })
+    expectNoReplay(batch, sentValidators)
+  })
+
+  /**
+   * ONLY the method differs — one URL, no body, no headers (CR-M-2).
+   *
+   * This is the case that fails if `request.method` leaves the digest, and the only one: every
+   * other case in this file varies a second dimension that would carry the key on its own. A
+   * provider for which `GET /search` and `POST /search` are different operations is ordinary, and
+   * replaying one's body for the other is the SR-H-1 harm with the verb as the parameter.
+   */
+  it('differs only in the method, GET versus POST on one URL', async () => {
+    const at = (method: 'GET' | 'POST') =>
+      spec({
+        pageRequest: (cfg, page) => ({
+          ...spec().pageRequest(cfg, page),
+          request: { url: 'https://api.example.com/search', method },
+        }),
+      })
+    const cacheSeed = await storeBody({ spec: at('GET') })
+    const { batch, sentValidators } = await revalidate(cacheSeed, { spec: at('POST') })
+    expectNoReplay(batch, sentValidators)
+  })
+
+  /**
+   * A FIELD THE DIGEST NEVER NAMED (CR-M-1 = SR-M-2).
+   *
+   * `responseCacheKey` hashes the whole `request` object, so a dimension added to `FetchRequest`
+   * later joins the key by construction. This case is what keeps that true: it sends a request
+   * carrying a field outside today's interface — standing in for the per-source timeout or
+   * redirect policy a future task adds — and asserts the two requests do not share an entry. Go
+   * back to hashing a list of fields and only this case fails.
+   *
+   * The cast is the point rather than a shortcut: the field cannot be declared, because if it
+   * could it would already be in the interface and the case would prove nothing about fields that
+   * are not.
+   */
+  it('keys on a request field the digest never enumerated', async () => {
+    const withExtra = (value: string) =>
+      spec({
+        pageRequest: (cfg, page) => ({
+          ...spec().pageRequest(cfg, page),
+          request: { url: 'https://api.example.com/jobs', redirect: value } as FetchRequest,
+        }),
+      })
+    const cacheSeed = await storeBody({ spec: withExtra('follow') })
+    const { batch, sentValidators } = await revalidate(cacheSeed, { spec: withExtra('error') })
     expectNoReplay(batch, sentValidators)
   })
 

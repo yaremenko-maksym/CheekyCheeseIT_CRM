@@ -138,10 +138,18 @@ function assertInventory(inventory: FeedInventory): void {
  * A `COMPLETE` feed keeps its configured window: it is paginated history, so a window is a
  * meaningful thing to have covered.
  *
- * Checked HERE rather than in the config schema because `inventory` belongs to the spec and the
- * window to the config, and this is the one function that sees both. It therefore fires on the
- * first collection, not at module load like `assertInventory` — the cost of the two facts living
- * in two places.
+ * CHECKED AT COLLECT TIME, AND THAT IS A CHOICE RATHER THAN THE ONLY OPTION (CR-M-3). The comment
+ * here used to say this was "the one function that sees both" facts, which was false:
+ * `defineRssProvider` has `spec.inventory` and `spec.configSchema` in hand, so the refusal could
+ * live in `parseConfig` and fire when a source config is SAVED — earlier, and better, for the
+ * provider path.
+ *
+ * It stays here because `collectFeedPages` is also called directly, so a `parseConfig` check would
+ * not cover that path and the check would have to exist in BOTH places — two functions that must
+ * agree about one rule, which is the defect SR-M-1 was in this same round. One owner, at the
+ * latest point every caller passes through. The cost is honest and paid here: an impossible
+ * window is refused on the first collection rather than at save time, where `assertInventory` —
+ * which needs no config and so has no second path — is refused at module load.
  */
 function assertConfigWindow(inventory: FeedInventory, config: SourceConfigFields): void {
   // `config.window` by truthiness, not `!== null && !== undefined`: the config schema defaults the
@@ -233,7 +241,17 @@ function feedPagedSpec<TConfig extends SourceConfigFields>(
   }
 }
 
-export function collectFeedPages<TConfig extends SourceConfigFields>(
+/**
+ * `async`, SO THE TWO REFUSALS ABOVE REJECT INSTEAD OF THROWING SYNCHRONOUSLY (CR-M-3).
+ *
+ * The signature said `Promise<CollectionBatch>` while `assertInventory` and `assertConfigWindow`
+ * threw before any promise existed, so the refusal arrived by a channel the declared type does not
+ * have: a caller holding `collectFeedPages(...)` and expecting to `.catch()` it got an exception
+ * instead, and the spec pinned exactly that with `expect(() => …).toThrow`. One `async` keyword
+ * makes both refusals a rejection, which is the one shape every caller of this type already
+ * handles — `collectReport` included, where it is the rejection the provider contract reports.
+ */
+export async function collectFeedPages<TConfig extends SourceConfigFields>(
   spec: RssSourceSpec<TConfig>,
   config: TConfig,
   ctx: CollectionContext,

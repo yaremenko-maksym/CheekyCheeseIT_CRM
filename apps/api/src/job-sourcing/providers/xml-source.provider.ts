@@ -149,11 +149,28 @@ const REPLACEMENT_CHARACTER = '�'
  *    U+FFFD. Mojibake with no replacement character in it is indistinguishable from content here.
  *  - FALSE POSITIVE — a document that declares a non-UTF-8 encoding, was decoded CORRECTLY from
  *    its `Content-Type` charset, and legitimately contains U+FFFD. Refused, though it is fine.
+ *  - FALSE POSITIVE, AND THE U+FFFD HALF IS THIRD-PARTY CONTENT, WHICH MAKES IT A PER-ENTRY KILL
+ *    SWITCH (SR-M-3). On a board whose feed declares `windows-1251` — ordinary among this phase's
+ *    cp1251-era Ukrainian and Russian targets — ONE employer pasting ONE replacement character
+ *    into ONE title refuses the WHOLE feed as `PARSE_DRIFT`, on every run, until that posting
+ *    rolls off. A feed is one document, so one entry costs the entire source. The availability
+ *    cost of this guard is therefore not "imperfect": it is reachable by anyone who can get text
+ *    into the feed, and it is written down here because a guard whose availability cost is
+ *    unstated gets read as free.
+ *  - REFUSED ABSOLUTELY, NOT OCCASIONALLY: A FEED DECLARING `encoding="utf-16"` CAN NEVER COLLECT
+ *    THROUGH THIS BINDING (SR-M-3). Not a nuance — a whole encoding class that does not work.
+ *    `decodeXmlBody` below always prefixes a UTF-8 BOM, `decodeXml` resolves the BOM before the
+ *    declaration, and its conflict check fires precisely across the UTF-16 boundary
+ *    (`sniffedIsUtf16 !== declaredIsUtf16` in `xml/decode.ts`) — so the document raises
+ *    `ENCODING_CONFLICT` -> `PARSE_DRIFT` whatever the fetch did with its bytes, and whether or not
+ *    the body is in fact well-formed UTF-16. There is no input on which such a feed succeeds.
  *
- * All three go away the same way: the fetch port carrying BYTES, so the port's own fatal decode
- * decides. That is TASK 2.2 — the fetch helper owns content type and charset (plan §Task 2.2:
- * "content type/charset") — NOT 2.5, which has no bytes or charset item at all. The deferral used
- * to point at 2.5, which is how a requirement deferred to a task that does not own it disappears.
+ * All of these go away the same way: the fetch port carrying BYTES, so the port's own fatal decode
+ * decides and no BOM has to be injected to get a decoded string parsed. That is TASK 2.2 — the
+ * fetch helper owns content type and charset (plan §Task 2.2: "content type/charset") — NOT 2.5,
+ * which has no bytes or charset item at all. The deferral used to point at 2.5, which is how a
+ * requirement deferred to a task that does not own it disappears. The deferral is settled; what is
+ * new above is only the statement of what is being deferred.
  */
 function mojibakeDrift(bodyText: string, declaredEncoding: string | null): string | null {
   if (declaredEncoding === null) return null
