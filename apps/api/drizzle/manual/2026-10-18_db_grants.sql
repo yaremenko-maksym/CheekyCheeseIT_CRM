@@ -112,6 +112,8 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   public.project_finance_settings,
   public.project_members,
   public.projects,
+  public.recording_media_artifacts,
+  public.recording_media_uploads,
   public.salary_month_initializations,
   public.senior_resumes,
   public.signed_contracts,

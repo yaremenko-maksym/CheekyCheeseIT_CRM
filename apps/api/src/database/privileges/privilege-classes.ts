@@ -224,6 +224,8 @@ export const PRIVILEGE_CLASSES: Record<PrivilegeClass, readonly string[]> = {
     'project_finance_settings',
     'project_members',
     'projects',
+    'recording_media_artifacts',
+    'recording_media_uploads',
     'salary_month_initializations',
     'senior_resumes',
     'signed_contracts',

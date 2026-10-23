@@ -96,6 +96,8 @@ BEGIN
     ('project_finance_settings', 'A', false),
     ('project_members', 'A', false),
     ('projects', 'A', false),
+    ('recording_media_artifacts', 'A', false),
+    ('recording_media_uploads', 'A', false),
     ('salary_month_initializations', 'A', false),
     ('senior_resumes', 'A', false),
     ('signed_contracts', 'A', false),
@@ -210,6 +212,8 @@ BEGIN
     ('project_finance_settings', 'A', false),
     ('project_members', 'A', false),
     ('projects', 'A', false),
+    ('recording_media_artifacts', 'A', false),
+    ('recording_media_uploads', 'A', false),
     ('salary_month_initializations', 'A', false),
     ('senior_resumes', 'A', false),
     ('signed_contracts', 'A', false),
@@ -493,6 +497,8 @@ BEGIN
     ('project_finance_settings', 'A', false),
     ('project_members', 'A', false),
     ('projects', 'A', false),
+    ('recording_media_artifacts', 'A', false),
+    ('recording_media_uploads', 'A', false),
     ('salary_month_initializations', 'A', false),
     ('senior_resumes', 'A', false),
     ('signed_contracts', 'A', false),
@@ -688,6 +694,8 @@ BEGIN
     ('project_finance_settings', 'A', false),
     ('project_members', 'A', false),
     ('projects', 'A', false),
+    ('recording_media_artifacts', 'A', false),
+    ('recording_media_uploads', 'A', false),
     ('salary_month_initializations', 'A', false),
     ('senior_resumes', 'A', false),
     ('signed_contracts', 'A', false),
@@ -1075,7 +1083,7 @@ $check$;
 DO $ok$
 BEGIN
   RAISE NOTICE 'db-privileges check passed: % relations classified, roles %, %, %',
-    74, 'crm_app', 'crm_collector', 'crm_retention_owner';
+    76, 'crm_app', 'crm_collector', 'crm_retention_owner';
 END
 $ok$;
 
