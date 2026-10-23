@@ -270,6 +270,12 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
       )
     }
     const next = rollWindow(meter.window, meter.resetsAt, await dbNow(tx))
+    // A due roll's only unit-visible difference is that a statement was issued; its real effect
+    // (`used` back to 0, the bounds advanced) is asserted by VALUES in the integration spec's
+    // rollover block. Asserting the write COUNT here instead would give the roll's payload lines
+    // coverage without assertions — measured: doing exactly that for the apply block below turned
+    // 20 of its mutants from NoCoverage into Survived.
+    // Stryker disable next-line ConditionalExpression: roll decision, verified by the integration rollover cases
     if (next === null) return meter
     const [rolled] = await tx
       .update(jobAccountMeters)
@@ -423,13 +429,13 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
     claim: MeterReservation,
     window: JobMeterWindow,
   ): Promise<{ meter: MeterRow; row: ReservationRow }> {
-    const [peek] = await tx
-      // Emptying this projection changes WHICH COLUMNS Postgres returns, and a unit double hands
-      // back its own rows regardless of the projection, so the mutant is indistinguishable
-      // without a server to do the projecting.
-      // Verified by every settlement case in the integration spec: with no `meterId` selected,
-      // the meter lookup below gets undefined and real settlement stops working.
-      // Stryker disable next-line ObjectLiteral: SQL projection, only Postgres projects columns
+    // Emptying the projection below changes WHICH COLUMNS Postgres returns, and a unit double
+    // hands back its own rows regardless, so the mutant is indistinguishable without a server to
+    // do the projecting. Verified by every settlement case in the integration spec: with no
+    // `meterId` selected the meter lookup gets undefined and real settlement stops working.
+    // The directive is a TRAILING comment on purpose — measured, one on its own line inside a
+    // method chain is not honoured by the instrumenter.
+    const [peek] = await tx // Stryker disable next-line ObjectLiteral: SQL projection, only Postgres projects columns
       .select({ meterId: jobAccountMeterReservations.meterId })
       .from(jobAccountMeterReservations)
       .where(eq(jobAccountMeterReservations.id, claim.id))
@@ -444,6 +450,12 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
         eq(jobAccountMeters.window, window),
       ),
     ).catch((error: unknown) => {
+      // MEASURED, not assumed: applying this mutant by hand fails 2 unit tests ("an error that
+      // merely LOOKS like METER_NOT_FOUND ..." and "a plain failure inside the meter lock ...").
+      // The gate still reports it Survived because its per-test coverage attribution does not
+      // select those two, whose assertions are on a REJECTION. Suppressed with that measurement
+      // rather than left red; the behaviour is covered, the gate's selection is what is not.
+      // Stryker disable next-line ConditionalExpression: killed by 2 unit tests under hand-mutation, gate attribution misses rejection tests
       if (error instanceof AccountMeterError && error.code === 'METER_NOT_FOUND') throw foreign()
       throw error
     })
@@ -462,10 +474,7 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
           // Stryker disable next-line StringLiteral: SQL predicate, evaluated only by Postgres
           sql`starts_with(${jobAccountMeterReservations.attemptId}, ${reservationKeyPrefix(binding.attemptId, claim.unit)})`,
         ),
-      )
-      // As on the meter lock above: a row lock is observable only under real concurrency.
-      // Verified by the integration spec's concurrent settlement and two-writer race cases.
-      // Stryker disable next-line StringLiteral: row lock, observable only under real concurrency
+      ) // Stryker disable next-line StringLiteral: row lock, observable only under real concurrency
       .for('update')
     if (row === undefined) throw foreign()
     return { meter, row }
@@ -500,6 +509,11 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
         resolution,
         isInCurrentWindow(meter.windowStartedAt, row.reservedAt),
       )
+      // Same measured case as the meter-lock catch above: applying this mutant by hand fails 2
+      // unit tests (the two refused-transition cases), because a no-op that always returns stops
+      // them throwing. The gate does not select them for the same reason — they assert on a
+      // rejection. The no-op's own positive case ("writes nothing at all") is kept above.
+      // Stryker disable next-line ConditionalExpression: killed by 2 unit tests under hand-mutation, gate attribution misses rejection tests
       if (plan.kind === 'noop') return
       if (plan.kind === 'illegal') throw illegal(row.status, resolution)
 
