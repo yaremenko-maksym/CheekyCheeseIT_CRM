@@ -207,9 +207,13 @@ DECLARE
      '5e5e897925c16d6bd1ca2881f5a25f99'],
     -- r5 Task 1.4b-iii: the third argument (the actor) and the evidence-row INSERT. The
     -- same md5 is produced by the triggers file and by 2026-10-22_job_queue_redaction_
-    -- callable.sql, which carry byte-identical bodies (measured on 16.15, 2026-10-22).
+    -- callable.sql, which carry byte-identical bodies. Re-measured on 16.15, 2026-10-23,
+    -- by applying each file in turn and reading md5(pg_get_functiondef(oid)) after each:
+    -- both yielded this value. It changed in fix round 1 of PR #1095, when the body gained
+    -- the printable-character check on p_request_id (FIX-3) — which is the pin working as
+    -- intended: a body edit is a finding until it is reviewed and re-pinned here.
     ['crm_retention_redact_action_reason',    'p_action_id uuid, p_request_id text, p_actor_id uuid',
-     '44be58f3210a15ba62f6029fd6de8420']
+     'b3fe5e9a92e2e9f7960fad590bef0430']
   ];
   -- The TRIGGER functions, pinned the same way. ADR §3 condition 6 asks only for the
   -- two R-B functions, and that is not enough on its own: condition 5 puts the shape

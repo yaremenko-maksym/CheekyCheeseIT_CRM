@@ -873,6 +873,25 @@ BEGIN
       USING ERRCODE = 'invalid_parameter_value';
   END IF;
 
+  -- PRINTABLE ONLY, because this value reaches the SERVER LOG through the RAISE LOG at
+  -- the end of this function, and that log line is the evidence channel for a redaction
+  -- (legal memo section 8 item 3). A newline in the request id does not merely add noise:
+  -- it appends attacker-chosen LINES to the channel, each of which can be shaped like a
+  -- genuine log entry, so the record of what was erased becomes forgeable by the caller
+  -- who asked for the erasure. Rejected here rather than by a CHECK on `idempotency_key`
+  -- for three reasons: the refusal names the ARGUMENT (a column CHECK would raise 23514
+  -- naming a constraint, from a column `crm_app` also writes for ordinary queue actions);
+  -- a new CHECK on that shared column would validate against every existing row and take
+  -- ACCESS EXCLUSIVE on a table r5 is about to make busy; and the log is written from
+  -- here, so the guard belongs where the sink is. Measured on 16.15 (2026-10-23):
+  -- `[^[:print:]]` matches newline, carriage return, tab and ESC, and does not match an
+  -- ordinary id, an id containing a space, or a printable non-ASCII character.
+  IF p_request_id ~ '[^[:print:]]' THEN
+    RAISE EXCEPTION
+      'crm_retention_redact_action_reason: request id must contain only printable characters'
+      USING ERRCODE = 'invalid_parameter_value';
+  END IF;
+
   UPDATE job_queue_actions
      SET reason = '[REASON REDACTED]'
    WHERE id = p_action_id
