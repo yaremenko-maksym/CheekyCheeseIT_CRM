@@ -350,6 +350,24 @@ describe.skipIf(!hasDatabaseUrl())('account meter store (real Postgres)', () => 
       expect(await reservationCount(m.id)).toBe(2)
     })
 
+    it('concurrent paid requests on ONE binding never share a reservation', async () => {
+      // Two in-flight requests of one attempt are two charges. If both computed the same request
+      // ordinal, the second would "find" the first's RESERVED row and send unaccounted.
+      const m = await newMeter({ limit: 10 })
+      const meter = createAccountMeter(
+        db,
+        binding({ accountKey: m.accountKey, cycleId: await newCycle() }),
+      )
+      const [a, b, c] = await Promise.all([
+        meter.reserve('REQUEST', 2),
+        meter.reserve('REQUEST', 2),
+        meter.reserve('REQUEST', 2),
+      ])
+      expect(new Set([a?.id, b?.id, c?.id]).size).toBe(3)
+      expect(await counters(m.id)).toEqual({ used: 0, reserved: 6, uncertain: 0 })
+      expect(await reservationCount(m.id)).toBe(3)
+    })
+
     it('a retry does NOT reuse a reservation whose request already left: it reserves anew', async () => {
       const m = await newMeter({ limit: 10 })
       const cycleId = await newCycle()
