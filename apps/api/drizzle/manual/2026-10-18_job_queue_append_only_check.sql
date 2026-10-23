@@ -173,8 +173,10 @@ DECLARE
   -- audit row's actor was rewritten. Column 6 (17e7ce53… against the manifest's 193803…) is
   -- the only assertion that sees it. `AC5 — the catalog check` pins this.
   expected_triggers CONSTANT text[][] := ARRAY[
+    -- r5 Task 1.4b-iii: tgtype 27 -> 31 (INSERT added — the SR-M-1 gate on the
+    -- `REASON_REDACTED` evidence row) and column 6 refreshed with it, on 16.15 only.
     ['trg_job_queue_actions_append_only',                 'job_queue_actions',
-     'A', '27',  'job_queue_actions_append_only',                '193803613d7cb921896de671ebb96fef'],
+     'A', '31',  'job_queue_actions_append_only',                '974b02decc3c2b60025c6fe230ee1656'],
     ['trg_job_queue_actions_no_truncate',                 'job_queue_actions',
      'A', '34',  'job_queue_actions_no_truncate',                '1cf9b6eb4daec2c6c69b2eda056076bd'],
     ['trg_job_queue_generation_entries_immutable',        'job_queue_generation_entries',
@@ -203,8 +205,15 @@ DECLARE
   expected_functions CONSTANT text[][] := ARRAY[
     ['crm_retention_purge_job_queue_actions', '',
      '5e5e897925c16d6bd1ca2881f5a25f99'],
-    ['crm_retention_redact_action_reason',    'p_action_id uuid, p_request_id text',
-     '8fcec30143ba762bc613728a0d088d79']
+    -- r5 Task 1.4b-iii: the third argument (the actor) and the evidence-row INSERT. The
+    -- same md5 is produced by the triggers file and by 2026-10-22_job_queue_redaction_
+    -- callable.sql, which carry byte-identical bodies. Re-measured on 16.15, 2026-10-23,
+    -- by applying each file in turn and reading md5(pg_get_functiondef(oid)) after each:
+    -- both yielded this value. It changed in fix round 1 of PR #1095, when the body gained
+    -- the printable-character check on p_request_id (FIX-3) — which is the pin working as
+    -- intended: a body edit is a finding until it is reviewed and re-pinned here.
+    ['crm_retention_redact_action_reason',    'p_action_id uuid, p_request_id text, p_actor_id uuid',
+     'b3fe5e9a92e2e9f7960fad590bef0430']
   ];
   -- The TRIGGER functions, pinned the same way. ADR §3 condition 6 asks only for the
   -- two R-B functions, and that is not enough on its own: condition 5 puts the shape
@@ -215,7 +224,7 @@ DECLARE
   -- deliberately NOT asserted for these: they belong to whoever applied the DDL,
   -- which is the migration role and differs between environments.
   expected_trigger_functions CONSTANT text[][] := ARRAY[
-    ['job_queue_actions_append_only',                  '5b559777a63649c3c3d0e4d63456be87'],
+    ['job_queue_actions_append_only',                  '6fe6eb4e52c0d61eaf5abc1a3b91d2fe'],
     ['job_queue_actions_no_truncate',                  '632615a6d6f46aa229582f5de8a95099'],
     ['job_queue_generation_entries_immutable',         '0df34c2b4af8d3628fe3b77885d5e3f0'],
     ['job_queue_generation_entries_no_truncate',       '0f2845e1a6add373ea5756a9f538baf6'],
@@ -239,6 +248,7 @@ DECLARE
   fn_md5 text;
   rec record;
   found_count int;
+  overloads text;
 BEGIN
   -- PIN THE `search_path` THIS CHECK COMPUTES UNDER, because column 6 depends on it.
   -- `pg_get_triggerdef` SCHEMA-QUALIFIES the executed function only when `public` is not
@@ -541,6 +551,29 @@ BEGIN
     fn_name := expected_functions[i][1];
     fn_args := expected_functions[i][2];
     fn_md5  := expected_functions[i][3];
+
+    -- AN OVERLOAD OF AN R-B NAME IS A FINDING (r5 Task 1.4b-iii). Matching on name AND
+    -- identity arguments, as the SELECT below does, sees only the declared signature; a
+    -- second function under the same name passed this part green. That stopped being a
+    -- tidiness question when the redaction's signature changed: the OLD two-argument
+    -- function, left behind by a `CREATE OR REPLACE` that cannot change an argument list,
+    -- is owned by `crm_retention_owner`, granted to `crm_app`, and — under the grants
+    -- 1.4b-iii adds — redacts WITHOUT writing evidence. Placed BEFORE the lookup below on
+    -- purpose: that lookup's `IF NOT FOUND` reads the FOUND of the last SELECT INTO, and a
+    -- count(*) always finds its one row — after it, a missing function would read as found.
+    SELECT count(*)::int, string_agg(pg_catalog.pg_get_function_identity_arguments(p.oid), '; ')
+      INTO found_count, overloads
+      FROM pg_catalog.pg_proc p
+      JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public'
+       AND p.proname = fn_name
+       AND pg_catalog.pg_get_function_identity_arguments(p.oid) <> fn_args;
+    IF found_count > 0 THEN
+      problems := problems || format(
+        'function public.%s has %s unexpected overload(s) (%s) — only (%s) is reviewed; a '
+        'leftover signature is an unpinned definer function',
+        fn_name, found_count, overloads, fn_args);
+    END IF;
 
     SELECT p.oid,
            p.prosecdef,

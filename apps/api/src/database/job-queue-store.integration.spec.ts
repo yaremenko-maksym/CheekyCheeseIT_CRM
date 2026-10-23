@@ -5,9 +5,11 @@ import { assertRealDbSchema, hasDatabaseUrl } from '../test/require-real-db'
 import {
   APPEND_ONLY_TRIGGERS_DDL,
   applyDeployDdlFile,
+  applyProductionRetentionOwnerGrants,
   dropRolesCreated,
   existingDeployRoles,
   installDeployRoles,
+  revokeRetentionOwnerActionLogPrivileges,
 } from './__test-helpers__/deploy-ddl-preconditions'
 
 /**
@@ -100,6 +102,108 @@ async function rejectedOn(client: PoolClient, text: string, params: unknown[] = 
   throw new Error(`expected the database to reject: ${text}`)
 }
 
+/**
+ * Run one statement as `crm_retention_owner`, in its own transaction.
+ *
+ * WHY (r5 Task 1.4b-iii, SR-M-1 of PR #1075). The append-only trigger now admits a
+ * `REASON_REDACTED` row ONLY from `crm_retention_owner` — the identity the redaction
+ * function runs under — so the CHECK tests below must write the evidence row as that role
+ * to reach the CHECKs at all; as the table owner they would meet the trigger first and
+ * prove nothing about the constraint they name. The role holds its PRODUCTION grant set
+ * (`applyProductionRetentionOwnerGrants`), not a privilege this suite invents.
+ * `SET LOCAL`, so the role cannot outlive the statement on a pooled connection.
+ */
+async function asRetentionOwner(text: string, params: unknown[] = []) {
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    await client.query('SET LOCAL ROLE crm_retention_owner')
+    const result = await client.query(text, params)
+    await client.query('COMMIT')
+    return result
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => undefined)
+    throw error
+  } finally {
+    client.release()
+  }
+}
+
+/**
+ * The columns of `job_queue_actions` that `crm_retention_owner` does NOT hold `INSERT` on
+ * in production — everything outside the six the redaction function's own `INSERT` names
+ * (owner decision 3, 2026-10-22; fix round 1 of PR #1095).
+ *
+ * WHY THIS LIST EXISTS AND WHY IT IS NOT A HOLE IN THE EVIDENCE
+ * ------------------------------------------------------------
+ * The CHECK tests below drive the evidence row through `insertAction`, which names ALL
+ * fourteen columns so that one helper can build every shape the CHECKs are about. INSERT
+ * privilege is checked against the statement's TARGET LIST and not against the values, so
+ * once the production grant became column-level, a fourteen-column statement is refused
+ * with `42501` before any CHECK is evaluated — measured, and the reason those tests went
+ * red in this round.
+ *
+ * There were two ways out, and the choice matters. Narrowing the helper to six columns
+ * would have made the CHECKs unreachable from the only writer the trigger admits, so eight
+ * CHECK branches would have lost their behavioural coverage and kept only a passing test
+ * that proved a privilege error. Instead the privilege is lifted FOR THE STATEMENT, and the
+ * two guards are proven separately, each by the test that is actually about it:
+ *   - the CHECK layer, here, behind the privilege — which is legitimate because the subject
+ *     of these tests is the constraint, and they say so;
+ *   - the PRIVILEGE layer, in `job-queue-append-only.integration.spec.ts`, under the
+ *     production grant set read from the generated grants file, where a statement naming a
+ *     seventh column is asserted to raise `42501`.
+ * What is NOT done is the thing r5 Task 1.4b-iii removed: no test here claims anything
+ * about PRODUCTION from this fixture.
+ */
+const NON_PRODUCTION_INSERT_COLUMNS = [
+  // `id` is here because the SR-M-2 test must give the row its own id so that
+  // `subject_action_id = id`; production never names it, the default supplies it.
+  'id',
+  'opportunity_id',
+  'source_record_id',
+  'subscription_id',
+  'subject_team_id',
+  'subject_user_id',
+  'before_version',
+  'after_version',
+  'reason',
+] as const
+
+/**
+ * `asRetentionOwner`, with the columns above granted for the duration of the statement and
+ * revoked afterwards — so the CHECK, not the privilege, is what answers.
+ *
+ * The revoke is in `finally`: a column grant left behind would make part 3 of the
+ * privileges check red in whichever sibling suite runs next, which is a long way from here.
+ */
+async function asRetentionOwnerProbingChecks(text: string, params: unknown[] = []) {
+  const columns = NON_PRODUCTION_INSERT_COLUMNS.join(', ')
+  await pool.query(`GRANT INSERT (${columns}) ON TABLE job_queue_actions TO crm_retention_owner`)
+  try {
+    return await asRetentionOwner(text, params)
+  } finally {
+    await pool.query(
+      `REVOKE INSERT (${columns}) ON TABLE job_queue_actions FROM crm_retention_owner`,
+    )
+  }
+}
+
+/**
+ * `rejected`, as `crm_retention_owner`, with the non-production columns granted for the
+ * statement — its one call site names `id`, which production does not grant, so without
+ * this the CHECK it is about would never be reached.
+ */
+async function rejectedAsRetentionOwner(text: string, params: unknown[] = []) {
+  try {
+    await asRetentionOwnerProbingChecks(text, params)
+  } catch (e) {
+    const err = e as { code?: string; constraint?: string }
+    return { code: err.code, constraint: err.constraint }
+  }
+  throw new Error(`expected the database to reject: ${text}`)
+}
+
 const CHECK_VIOLATION = '23514'
 const UNIQUE_VIOLATION = '23505'
 const FK_VIOLATION = '23503'
@@ -163,6 +267,9 @@ let rolesCreatedHere: readonly string[] = []
 async function installAppendOnlyGuards(): Promise<void> {
   rolesCreatedHere = await installDeployRoles(pool)
   await applyDeployDdlFile(pool, APPEND_ONLY_TRIGGERS_DDL)
+  // The evidence-row tests write as `crm_retention_owner` (see `asRetentionOwner`); give
+  // it exactly what production gives it, read from the generated grants file.
+  await applyProductionRetentionOwnerGrants(pool)
 }
 
 const NEW_TABLES = [
@@ -318,6 +425,9 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
       // (and, with it, the two R-B functions the role owns) into the cluster.
       let leaked: string[] = []
       try {
+        // Give back the privileges `installAppendOnlyGuards` granted, so a later reader
+        // of this cluster does not find the role holding them outside a deploy.
+        await revokeRetentionOwnerActionLogPrivileges(pool)
         await dropRolesCreated(pool, rolesCreatedHere)
         if (rolesCreatedHere.length > 0) leaked = await existingDeployRoles(pool)
       } finally {
@@ -827,8 +937,14 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
       sub = await newSubscription(teamA, admin)
     })
 
+    // A `REASON_REDACTED` row goes in as `crm_retention_owner`, the only writer the
+    // append-only trigger admits for that kind (r5 Task 1.4b-iii); every other kind goes in
+    // as the table owner, exactly as before. Since fix round 1 of PR #1095 that role's
+    // production `INSERT` is column-level, and this statement names all fourteen columns —
+    // so the probing variant lifts the privilege for the statement and lets the CHECK
+    // answer. See `NON_PRODUCTION_INSERT_COLUMNS` for why that is not a hole.
     const insertAction = (a: Action) =>
-      q(
+      (a.kind === 'REASON_REDACTED' ? asRetentionOwnerProbingChecks : q)(
         `INSERT INTO job_queue_actions
            (kind, opportunity_id, source_record_id, subscription_id, actor_id, scope_kind, team_id,
             subject_team_id, subject_user_id, subject_action_id, before_version, after_version,
@@ -945,7 +1061,7 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
         // widening that helper for one case: the row must be born with its own
         // id already in `subject_action_id`.
         const self = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
-        const err = await rejected(
+        const err = await rejectedAsRetentionOwner(
           `INSERT INTO job_queue_actions
              (id, kind, actor_id, scope_kind, team_id, subject_action_id, idempotency_key)
            VALUES ($1, 'REASON_REDACTED', $2, 'TEAM', $3, $1, $4)`,
@@ -1000,6 +1116,22 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
           code: CHECK_VIOLATION,
           constraint: 'ck_job_queue_actions_subject_user',
         })
+      })
+
+      it('REFUSES a redaction carrying a reason of its own, and only a redaction (SR-M-5)', async () => {
+        // r5 Task 1.4b-iii. The evidence row carries no free text: a reason on it would be
+        // one more unstructured write site, and redacting it would need evidence of its
+        // own. Driven as the retention owner, so it is the CHECK that refuses — the
+        // trigger admits this writer.
+        expect(
+          await actionRefused({ ...redactionOf(subject), reason: 'requested by the subject' }),
+        ).toEqual({
+          code: CHECK_VIOLATION,
+          constraint: 'ck_job_queue_actions_redaction_reason_null',
+        })
+        // The narrowing is the redaction's alone: any other kind keeps its optional reason.
+        const { rows } = await insertAction({ kind: 'TAKEN', reason: 'still allowed here' })
+        expect(rows[0].reason).toBe('still allowed here')
       })
 
       it('STILL REFUSES every other kind carrying a subject action', async () => {

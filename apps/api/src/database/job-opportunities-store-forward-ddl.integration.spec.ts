@@ -65,6 +65,11 @@ import { Pool, type PoolClient } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { splitSqlStatements } from './manual-sql-statements'
 import { assertRealDbSchema, hasDatabaseUrl } from '../test/require-real-db'
+import {
+  dropRolesCreated,
+  existingDeployRoles,
+  installDeployRoles,
+} from './__test-helpers__/deploy-ddl-preconditions'
 
 const MANUAL_DIR = join(__dirname, '..', '..', 'drizzle', 'manual')
 const SCHEMA_DIR = join(__dirname, 'schema')
@@ -81,6 +86,16 @@ const PART_2 = '2026-10-17_job_opportunities_store_indexes.sql'
  * a divergence to report.
  */
 const PART_3_MIGRATION = '2026-10-21_job_queue_reason_redacted.sql'
+/**
+ * r5 Task 1.4b-iii. The upgrade file for the redaction becoming callable. The part of it
+ * this spec can see is the table half: `ck_job_queue_actions_redaction_reason_null`
+ * (SR-M-5 of PR #1075), which part 1 declares inline in `CREATE TABLE IF NOT EXISTS` and
+ * which therefore reaches a deployed database ONLY through this file. Its function half
+ * (the redaction's new signature) is pinned against the triggers file in
+ * `job-queue-append-only.integration.spec.ts`.
+ */
+const PART_4_MIGRATION = '2026-10-22_job_queue_redaction_callable.sql'
+const REDACTION_REASON_NULL = 'ck_job_queue_actions_redaction_reason_null'
 const SCHEMA = 'ddl_job_opportunities_store'
 /** Its own schema, so the migration path cannot disturb the fresh-path comparison. */
 const MIGRATION_SCHEMA = 'ddl_job_queue_reason_redacted_alter'
@@ -1028,18 +1043,49 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
    */
   describe('the ALTER path agrees with the fresh path (SR-M-4)', () => {
     let beforeMigration: Catalog
+    let withoutRedactionReasonNull: Catalog
     let afterMigration: Catalog
+    let rolesCreatedHere: readonly string[] = []
 
     beforeAll(async () => {
       await buildPreStoreStub(client, MIGRATION_SCHEMA)
       await applyParts(client, [PART_1, PART_2])
       beforeMigration = await readCatalog(client, MIGRATION_SCHEMA)
       await applyParts(client, [PART_3_MIGRATION])
+      // r5 Task 1.4b-iii — the ONE pre-change state this spec can rebuild without git
+      // history: the store exactly as deployed before SR-M-5, i.e. without that CHECK.
+      // Unlike the rest of this block, that makes the 1.4b-iii file's table half a REAL
+      // upgrade here, not only a re-application to a store that already has it.
+      await client.query(`ALTER TABLE job_queue_actions DROP CONSTRAINT ${REDACTION_REASON_NULL}`)
+      withoutRedactionReasonNull = await readCatalog(client, MIGRATION_SCHEMA)
+      // The 1.4b-iii file's own precondition: the roles its function half owns/grants to.
+      rolesCreatedHere = await installDeployRoles(pool)
+      await applyParts(client, [PART_4_MIGRATION])
       afterMigration = await readCatalog(client, MIGRATION_SCHEMA)
       // `buildPreStoreStub` repoints `search_path`; put it back, because the sibling
       // describes below share this connection and read the fresh schema through it.
       await client.query(`SET search_path TO ${SCHEMA}`)
     }, 180_000)
+
+    afterAll(async () => {
+      await dropRolesCreated(pool, rolesCreatedHere)
+      const leaked = rolesCreatedHere.length > 0 ? await existingDeployRoles(pool) : []
+      if (leaked.length > 0) {
+        throw new Error(`teardown left role(s) behind in the cluster: ${leaked.join(', ')}`)
+      }
+    })
+
+    it('1.4b-iii: the upgrade file ADDS the redaction-reason CHECK to a store that lacks it', () => {
+      const names = (c: Catalog) => c.constraints.map((r) => r['name'])
+      // The pre-change state really lacks it (so the comparison below is not two copies of
+      // the fresh path), and the upgrade puts back exactly the reference's definition.
+      expect(names(withoutRedactionReasonNull)).not.toContain(REDACTION_REASON_NULL)
+      const expected = reference.constraints.filter((r) => r['name'] === REDACTION_REASON_NULL)
+      expect(expected).toHaveLength(1)
+      expect(afterMigration.constraints.filter((r) => r['name'] === REDACTION_REASON_NULL)).toEqual(
+        expected,
+      )
+    })
 
     it('is idempotent on a store that already carries the change — nothing moves', () => {
       // Sizes first, so a comparison of two empty catalogs cannot pass quietly.

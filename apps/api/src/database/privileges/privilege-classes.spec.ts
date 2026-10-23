@@ -39,6 +39,9 @@ import {
   PRIVILEGE_CLASSES,
   MANUAL_DDL_RELATIONS,
   RETENTION_OWNER_CLASSES,
+  RETENTION_OWNER_COLUMN_WRITE_GRANTS,
+  RETENTION_OWNER_EVIDENCE_COLUMN_GRANT,
+  RETENTION_OWNER_REDACTION_COLUMN_GRANT,
   RETENTION_OWNER_TABLE_PRIVILEGES,
   VIEW_CLASS,
   appendOnlyTriggers,
@@ -239,13 +242,56 @@ describe('privilege-class manifest', () => {
     expect(CLASS_PRIVILEGES.D.collector).toEqual([])
   })
 
-  it('gives the retention owner exactly the two privileges its purge measurably needs', () => {
-    // The inverted GAP PIN: this asserted `[]` until Task 1.3b, whose purge function was
-    // then measured to need both of these and nothing else (the manifest comment records
-    // the four runs). INSERT and UPDATE are the two that must stay OUT — INSERT because
-    // the function never inserts, UPDATE because the redaction function needs it only at
-    // COLUMN level, which part 3 of the check forbids outright.
+  it('gives the retention owner exactly the table privileges its two functions measurably need', () => {
+    // `[]` until Task 1.3b; `SELECT, DELETE` for the purge (four runs, recorded in the
+    // manifest). NEITHER write privilege is held at table level: owner decisions 2 and 3 of
+    // 2026-10-22 put the redaction's `UPDATE` and the evidence row's `INSERT` at COLUMN
+    // level, each on a named list. A table-level entry for either would hand this role the
+    // whole audit log and is what the next assertion exists to forbid.
     expect(RETENTION_OWNER_TABLE_PRIVILEGES).toEqual(['SELECT', 'DELETE'])
+    expect(RETENTION_OWNER_TABLE_PRIVILEGES).not.toContain('UPDATE')
+    expect(RETENTION_OWNER_TABLE_PRIVILEGES).not.toContain('INSERT')
+  })
+
+  it('declares exactly TWO non-SELECT column grants, both on the action log, both for the retention owner', () => {
+    // Owner decisions 2 and 3, 2026-10-22. Asserted whole, so widening any field — another
+    // column, another role, another table, another privilege — fails here before it reaches
+    // a generated file or a database.
+    expect(RETENTION_OWNER_COLUMN_WRITE_GRANTS).toEqual([
+      {
+        role: 'crm_retention_owner',
+        relation: 'job_queue_actions',
+        privilege: 'UPDATE',
+        columns: ['reason'],
+      },
+      {
+        role: 'crm_retention_owner',
+        relation: 'job_queue_actions',
+        privilege: 'INSERT',
+        // Exactly the columns the function's INSERT names, and the order it names them in.
+        // Each one was proven necessary by a revocation that produced 42501; `created_at`
+        // and `id` were proven NOT necessary. See the manifest for the full run record.
+        columns: [
+          'kind',
+          'subject_action_id',
+          'actor_id',
+          'scope_kind',
+          'team_id',
+          'idempotency_key',
+        ],
+      },
+    ])
+    // Exactly two, so a third exception cannot arrive unnoticed. The tuple TYPE already
+    // rejects a third at compile time; this is the same statement at runtime, for the
+    // reader who is not running tsc.
+    expect(RETENTION_OWNER_COLUMN_WRITE_GRANTS).toHaveLength(2)
+    for (const grant of RETENTION_OWNER_COLUMN_WRITE_GRANTS) {
+      expect(PRIVILEGE_CLASSES.B).toContain(grant.relation)
+    }
+    // The named export the generator and the check both read stays the first entry, so a
+    // reordering that silently swapped which privilege is "the redaction's" fails here.
+    expect(RETENTION_OWNER_COLUMN_WRITE_GRANTS[0]).toBe(RETENTION_OWNER_REDACTION_COLUMN_GRANT)
+    expect(RETENTION_OWNER_COLUMN_WRITE_GRANTS[1]).toBe(RETENTION_OWNER_EVIDENCE_COLUMN_GRANT)
   })
 
   it('confines the retention owner to class B, never to a class holding ordinary tables', () => {

@@ -28,6 +28,7 @@ import {
 import {
   CLASS_PRIVILEGES,
   PRIVILEGE_CLASSES,
+  RETENTION_OWNER_COLUMN_WRITE_GRANTS,
   RETENTION_OWNER_TABLE_PRIVILEGES,
   ROLES,
   appendOnlyTriggers,
@@ -123,20 +124,38 @@ describe('generated privilege SQL', () => {
     }
   })
 
-  it('grants the append-only table SELECT and INSERT to the API, and the purge pair to the retention owner', () => {
+  it('grants the append-only table SELECT and INSERT to the API, and the R-B set to the retention owner', () => {
     const [appendOnly] = PRIVILEGE_CLASSES.B
     expect(appendOnly).toBeDefined()
     const grants = splitSqlStatements(read(GRANTS_FILE)).filter(
       (s) => /^\s*GRANT /.test(s) && s.includes(`public.${appendOnly}`),
     )
-    // Two statements now, and the pair is the whole point of class B: the API may add
-    // rows and never rewrite them, and the one role that may remove a row is the owner of
-    // the R-B purge — which holds no INSERT, so it cannot forge the history it prunes.
-    expect(grants).toHaveLength(2)
+    // Four statements. The API may add rows and never rewrite them. The retention owner
+    // holds what its two definer functions measurably need (r5 Task 1.4b-iii): SELECT and
+    // DELETE at TABLE level for the purge, and both of its writes at COLUMN level only —
+    // `UPDATE (reason)` for the redaction and `INSERT` on the six columns the evidence row
+    // names (owner decisions 2 and 3, 2026-10-22). Neither write appears at table level,
+    // which is the assertion: a table-level INSERT here is what fix round 1 removed.
+    // The column list still cannot restrict the VALUE of `kind`, so the append-only trigger
+    // remains what confines the role to the `REASON_REDACTED` kind.
+    expect(grants).toHaveLength(4)
     expect(grants[0]).toMatch(/^GRANT SELECT, INSERT ON TABLE/)
     expect(grants[0]).toMatch(new RegExp(`TO ${ROLES.app}$`))
-    expect(grants[1]).toMatch(/^GRANT SELECT, DELETE ON TABLE/)
-    expect(grants[1]).toMatch(new RegExp(`TO ${ROLES.retentionOwner}$`))
+    expect(grants[1]).toBe(
+      `GRANT SELECT, DELETE ON TABLE\n  public.${appendOnly}\n  TO ${ROLES.retentionOwner}`,
+    )
+    expect(grants[2]).toBe(
+      `GRANT UPDATE (reason) ON TABLE public.${appendOnly} TO ${ROLES.retentionOwner}`,
+    )
+    expect(grants[3]).toBe(
+      `GRANT INSERT (kind, subject_action_id, actor_id, scope_kind, team_id, idempotency_key) ` +
+        `ON TABLE public.${appendOnly} TO ${ROLES.retentionOwner}`,
+    )
+    // Stated as its own assertion rather than left implicit in the three above: no
+    // statement grants this role a table-level write on the append-only log.
+    for (const statement of grants.filter((s) => s.includes(`TO ${ROLES.retentionOwner}`))) {
+      expect(statement).not.toMatch(/^GRANT [A-Z, ]*\b(INSERT|UPDATE)\b[A-Z, ]* ON TABLE/)
+    }
   })
 
   it('grants a class E or collector-less class nothing at all', () => {
@@ -156,7 +175,10 @@ describe('generated privilege SQL', () => {
     const relationsGranted = retentionOwnerGrants.flatMap((s) =>
       [...s.matchAll(/public\.(\w+)/g)].map((m) => m[1]),
     )
-    expect(relationsGranted.sort()).toEqual([...PRIVILEGE_CLASSES.B].sort())
+    // Class B, three times: the table-level `SELECT, DELETE` and the two column-level write
+    // grants (`UPDATE (reason)` and the evidence row's `INSERT`).
+    expect([...new Set(relationsGranted)].sort()).toEqual([...PRIVILEGE_CLASSES.B].sort())
+    expect(relationsGranted).toHaveLength(3 * PRIVILEGE_CLASSES.B.length)
   })
 
   it('emits relations in sorted order whatever order the manifest lists them in', () => {
@@ -291,7 +313,7 @@ describe('privilege SQL for classes with no members yet', () => {
         // read by people during a deploy, and a section running into the next one is how a
         // statement gets attributed to the wrong block.
         expect(sql).toContain(
-          'GRANT SELECT (id, role) ON TABLE public.users TO crm_collector;\n\n-- 4. Sequences.',
+          'GRANT SELECT (id, role) ON TABLE public.users TO crm_collector;\n\n-- 3b. ',
         )
         // And the check must expect exactly those pairs — a grant the check does not
         // assert is a grant that can vanish unnoticed.
@@ -476,6 +498,30 @@ describe('privilege SQL for classes with no members yet', () => {
         )
       },
     )
+  })
+
+  it('emits a WHERE-false row set, never an empty VALUES, when no column write is declared', () => {
+    // Same hazard as `role_table_select` above and the same shape of answer: `VALUES` with
+    // nothing after it is a SYNTAX ERROR, so the whole check file would fail to parse on
+    // every deploy. The real manifest always declares two column writes, so only an
+    // emptied manifest reaches this branch — which is exactly why the mutation gate
+    // reported the condition SURVIVED until this test existed.
+    const grants = RETENTION_OWNER_COLUMN_WRITE_GRANTS as unknown as { columns: string[] }[]
+    const original = grants.map((g) => [...g.columns])
+    try {
+      for (const grant of grants) grant.columns = []
+      const check = buildCheckSql()
+      expect(check).toContain(
+        'declared_column_writes(role_name, relation, column_name, privilege_type) AS (SELECT NULL::text, NULL::text, NULL::text, NULL::text WHERE false)',
+      )
+      expect(check).not.toContain(
+        'declared_column_writes(role_name, relation, column_name, privilege_type) AS (VALUES\n)',
+      )
+    } finally {
+      grants.forEach((grant, i) => {
+        grant.columns = original[i] as string[]
+      })
+    }
   })
 
   it('expects the retention owner to hold whatever privileges the manifest declares', () => {

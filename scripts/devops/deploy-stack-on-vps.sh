@@ -1982,6 +1982,38 @@ docker compose \
   < "$JOB_QUEUE_REASON_REDACTED_FILE"
 echo "==> job queue REASON_REDACTED forward DDL applied successfully"
 
+# ── job_queue_actions: the reason redaction becomes callable (r5 Task 1.4b-iii) ──
+# ORDER IS PART OF THE SAFETY PROPERTY, not housekeeping. MUST run after the
+# REASON_REDACTED file above (the enum value and CHECK branches the evidence row needs)
+# and BEFORE the grants block below. This file drops the old two-argument redaction
+# function (which redacts WITHOUT writing an evidence row) and creates the three-argument
+# one that writes it, in one transaction. The grants block is what gives
+# crm_retention_owner `UPDATE (reason)` and `INSERT`; applied before this file, the OLD
+# function could use them to redact with no audit trace. Under `set -euo pipefail` a
+# failure here stops the script before the grants block, so the grant cannot land in a
+# deploy where this file did not. Also carries ck_job_queue_actions_redaction_reason_null
+# (SR-M-5), which store part 1's CREATE TABLE IF NOT EXISTS cannot add to a deployed table.
+# The file has its own BEGIN/COMMIT; idempotent; re-applied on every deploy.
+
+# Source: apps/api/drizzle/manual/2026-10-22_job_queue_redaction_callable.sql
+JOB_QUEUE_REDACTION_CALLABLE_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-22_job_queue_redaction_callable.sql"
+
+if [ ! -f "$JOB_QUEUE_REDACTION_CALLABLE_FILE" ]; then
+  echo "ERROR: DDL file not found at $JOB_QUEUE_REDACTION_CALLABLE_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying job queue redaction-callable upgrade DDL (idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+  < "$JOB_QUEUE_REDACTION_CALLABLE_FILE"
+echo "==> job queue redaction-callable upgrade DDL applied successfully"
+
 # ── database privilege grants (r5 Task 1.3c) ──
 # INVARIANT: every file in this script that creates a table, view or sequence is applied
 # BEFORE this one. The multipart-salary PREPARE file (the last relation-creating file

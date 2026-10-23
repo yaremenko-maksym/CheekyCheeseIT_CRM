@@ -682,7 +682,8 @@ CREATE TABLE IF NOT EXISTS "job_queue_actions" (
           OR ("job_queue_actions"."kind" = 'REASON_REDACTED' AND "job_queue_actions"."before_version" IS NULL AND "job_queue_actions"."after_version" IS NULL)
           OR ("job_queue_actions"."kind" NOT IN ('OPENED', 'DEAD_LINK', 'SPAM') AND "job_queue_actions"."kind" <> 'REASON_REDACTED' AND "job_queue_actions"."before_version" IS NOT NULL AND "job_queue_actions"."after_version" IS NOT NULL AND "job_queue_actions"."before_version" >= 0 AND "job_queue_actions"."after_version" > "job_queue_actions"."before_version")),
 	CONSTRAINT "ck_job_queue_actions_idempotency_key_bounded" CHECK ("job_queue_actions"."idempotency_key" ~ '[^[:space:]]' AND length("job_queue_actions"."idempotency_key") <= 200),
-	CONSTRAINT "ck_job_queue_actions_reason_bounded" CHECK ("job_queue_actions"."reason" IS NULL OR ("job_queue_actions"."reason" ~ '[^[:space:]]' AND length("job_queue_actions"."reason") <= 500))
+	CONSTRAINT "ck_job_queue_actions_reason_bounded" CHECK ("job_queue_actions"."reason" IS NULL OR ("job_queue_actions"."reason" ~ '[^[:space:]]' AND length("job_queue_actions"."reason") <= 500)),
+	CONSTRAINT "ck_job_queue_actions_redaction_reason_null" CHECK ("job_queue_actions"."kind" <> 'REASON_REDACTED' OR "job_queue_actions"."reason" IS NULL)
 );
 
 CREATE TABLE IF NOT EXISTS "job_queue_generations" (

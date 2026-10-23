@@ -138,3 +138,85 @@ export async function existingDeployRoles(pool: Pool): Promise<string[]> {
   )
   return rows.map((row) => String(row['rolname']))
 }
+
+/** The GENERATED grants file — the bytes the deploy applies on every run. */
+export const GRANTS_DDL = join(MANUAL_DIR, '2026-10-18_db_grants.sql')
+
+const RETENTION_OWNER = 'crm_retention_owner'
+
+/**
+ * The statements of the generated grants file that grant to `crm_retention_owner` — that
+ * role's PRODUCTION grant set, byte for byte, rather than a copy a suite keeps of it.
+ *
+ * WHY THIS EXISTS (r5 Task 1.4b-iii). Until that task the redaction suites ran under a grant
+ * they invented and revoked themselves, because production's grant set could not run the
+ * function at all; three green tests then read like evidence about production when they
+ * were evidence about a fixture. A claim about production has to be measured under
+ * production's grants, and the only way to keep those identical is to read them from the
+ * file that ships them. Read at call time, so a regenerated grants file is what the next
+ * run exercises.
+ *
+ * Refuses an empty result: a parse that found nothing would otherwise leave the role with
+ * no privileges and every test that depends on them failing for a reason nobody looks at.
+ *
+ * `file` is a parameter with the shipped default, for ONE reason: so that refusal can be
+ * watched to fire. With the path hard-coded, the `length === 0` branch was unreachable from
+ * any test and the mutation gate reported it SURVIVED — a guard whose failure path nobody
+ * has seen, which this repository has been bitten by three times. The spec now points it at
+ * fixtures; production callers pass nothing and get the shipped file.
+ *
+ * `^GRANT ` IS ANCHORED ON PURPOSE, and the spec pins why: PostgreSQL's
+ * `ALTER DEFAULT PRIVILEGES ... GRANT SELECT ON TABLES TO crm_retention_owner;` both
+ * contains `GRANT ` and ends in the role name, and it is NOT a grant to re-apply to a
+ * table — it sets a default privilege for objects created later. Dropping the anchor would
+ * silently pull it into this role's "production grant set".
+ *
+ * No `.trim()` on the operands: `splitSqlStatements` pushes `current.trim()` for every
+ * statement it emits, so its output is trimmed by construction and a second trim here was
+ * dead code the gate correctly flagged as unobservable.
+ */
+export function productionRetentionOwnerGrants(file: string = GRANTS_DDL): string[] {
+  const statements = splitSqlStatements(readFileSync(file, 'utf8')).filter(
+    (s) => /^GRANT /.test(s) && new RegExp(`\\bTO ${RETENTION_OWNER};?$`).test(s),
+  )
+  if (statements.length === 0) {
+    throw new Error(`no GRANT ... TO ${RETENTION_OWNER} found in ${file}`)
+  }
+  return statements
+}
+
+/**
+ * Take every table- AND column-level privilege `crm_retention_owner` holds on
+ * `job_queue_actions` away. Column privileges are swept one by one, as the grants file's own
+ * reset does, so the result does not depend on whether a table-level REVOKE reached them.
+ */
+export async function revokeRetentionOwnerActionLogPrivileges(pool: Pool): Promise<void> {
+  await pool.query(
+    `REVOKE ALL PRIVILEGES ON TABLE public.job_queue_actions FROM ${RETENTION_OWNER}`,
+  )
+  const { rows } = await pool.query(
+    `SELECT DISTINCT privilege_type, column_name
+       FROM information_schema.column_privileges
+      WHERE table_schema = 'public' AND table_name = 'job_queue_actions' AND grantee = $1`,
+    [RETENTION_OWNER],
+  )
+  for (const row of rows as { privilege_type: string; column_name: string }[]) {
+    if (!/^[A-Z]+$/.test(row.privilege_type) || !/^[a-z_]+$/.test(row.column_name)) {
+      throw new Error(`unexpected column privilege row: ${JSON.stringify(row)}`)
+    }
+    await pool.query(
+      `REVOKE ${row.privilege_type} (${row.column_name}) ON TABLE public.job_queue_actions FROM ${RETENTION_OWNER}`,
+    )
+  }
+}
+
+/**
+ * Leave `crm_retention_owner` holding exactly its production grant set on the action log:
+ * everything revoked first, then the generated file's own statements for that role.
+ */
+export async function applyProductionRetentionOwnerGrants(pool: Pool): Promise<void> {
+  await revokeRetentionOwnerActionLogPrivileges(pool)
+  for (const statement of productionRetentionOwnerGrants()) {
+    await pool.query(statement)
+  }
+}

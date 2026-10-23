@@ -67,13 +67,14 @@ export const JOB_QUEUE_ACTION_PURGE_FAILURE_MARKER = 'crm_retention_purge_failed
  * other retention jobs down with it.
  *
  * WHAT THIS SERVICE DOES NOT DO, so a later reader does not look for it:
- *   - it does not touch `crm_retention_redact_action_reason`. That half CANNOT RUN
- *     (`42501` under the shipped grant set) and must not be granted, because a
- *     redaction cannot append its legally required `REASON_REDACTED` evidence row
- *     until the enum value and the two CHECK branches land in
- *     `apps/api/src/database/schema/**`. The reasoning is written out in full in the
- *     header of `apps/api/drizzle/manual/2026-10-18_job_queue_append_only_triggers.sql`
- *     ("THE REDACTION HALF SHIPS UNCALLABLE") and is a settled question;
+ *   - it does not touch `crm_retention_redact_action_reason`, and must not. A
+ *     redaction is triggered by a PERSON — the function takes that person's id as
+ *     `p_actor_id` and writes it into the `REASON_REDACTED` evidence row (r5 Task
+ *     1.4b-iii, owner decision 2026-10-22) — so a scheduled job with no human behind
+ *     it has no actor to pass and is out of scope by that decision. The function is
+ *     callable under the production grant set since 1.4b-iii; see the header of
+ *     `apps/api/drizzle/manual/2026-10-18_job_queue_append_only_triggers.sql`
+ *     ("THE REDACTION HALF — CALLABLE SINCE r5 TASK 1.4b-iii");
  *   - it keeps NO pre-purge counters. Owner decision, 2026-10-20 — see this PR's
  *     Assumptions. Deletion destroys aggregate counts by construction, so if a report
  *     ever needs per-month dismissal figures reaching back beyond two years, that

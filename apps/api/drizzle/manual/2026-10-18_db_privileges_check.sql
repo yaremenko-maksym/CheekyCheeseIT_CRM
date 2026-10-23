@@ -442,7 +442,7 @@ BEGIN
 END
 $check$;
 
--- part 3 (column privileges): the column-level SELECT set of EVERY one of the three roles equals the manifest exactly
+-- part 3 (column privileges): the column-level SELECT set of EVERY one of the three roles equals the manifest exactly, and the declared non-SELECT column grants are present and are the only ones
 DO $check$
 DECLARE
   offenders text;
@@ -537,6 +537,18 @@ BEGIN
   -- part, and the next deploy's reset (its column sweep covers all three roles) then
   -- removed it with nothing reported anywhere.
   declared(role_name, relation, column_name) AS (SELECT NULL::text, NULL::text, NULL::text WHERE false),
+  -- The declared non-SELECT column grants (owner decisions 2 and 3, 2026-10-22):
+  -- UPDATE (reason) for the redaction's own write, and INSERT on six columns for its
+  -- evidence row. All four fields of a row must match for a column privilege to be
+  -- admitted below.
+  declared_column_writes(role_name, relation, column_name, privilege_type) AS (VALUES
+    ('crm_retention_owner', 'job_queue_actions', 'reason', 'UPDATE'),
+    ('crm_retention_owner', 'job_queue_actions', 'kind', 'INSERT'),
+    ('crm_retention_owner', 'job_queue_actions', 'subject_action_id', 'INSERT'),
+    ('crm_retention_owner', 'job_queue_actions', 'actor_id', 'INSERT'),
+    ('crm_retention_owner', 'job_queue_actions', 'scope_kind', 'INSERT'),
+    ('crm_retention_owner', 'job_queue_actions', 'team_id', 'INSERT'),
+    ('crm_retention_owner', 'job_queue_actions', 'idempotency_key', 'INSERT')),
   -- Which (role, class) pairs carry a table-level SELECT. information_schema.column_privileges
   -- expands a TABLE-level grant into one row per column, so the expected set is "every
   -- column of a relation whose class grants table-level SELECT to THAT role" plus the
@@ -581,7 +593,15 @@ BEGIN
                           AND cp.privilege_type = 'SELECT'
                           AND cp.table_name = e.relation AND cp.column_name = e.column_name)
     UNION ALL
-    -- Any privilege other than SELECT, at column level, for any of the three roles.
+    -- Any privilege other than SELECT, at column level, for any of the three roles —
+    -- except a row of declared_column_writes. All four fields must match for the
+    -- exemption to apply: the same privilege on another column, or on a declared column
+    -- for another role, is reported.
+    --
+    -- The has_table_privilege test is what distinguishes a TRUE column grant from the
+    -- per-column expansion of a table-level grant. Measured on 16.15 (2026-10-23): with
+    -- INSERT held only on six named columns, has_table_privilege(..., 'INSERT') is false
+    -- and all six rows surface here — which is why the exemption has to name them.
     SELECT format('%s holds column %s on %s.%s — only SELECT is ever granted at column level',
                   cp.grantee, cp.privilege_type, cp.table_name, cp.column_name)
       FROM information_schema.column_privileges cp
@@ -590,6 +610,25 @@ BEGIN
        AND cp.grantee IN ('crm_app', 'crm_collector', 'crm_retention_owner')
        AND cp.privilege_type <> 'SELECT'
        AND NOT has_table_privilege(cp.grantee, format('public.%I', cp.table_name), cp.privilege_type)
+       AND NOT EXISTS (SELECT 1 FROM declared_column_writes d
+                        WHERE d.role_name = cp.grantee
+                          AND d.relation = cp.table_name
+                          AND d.column_name = cp.column_name
+                          AND d.privilege_type = cp.privilege_type)
+    UNION ALL
+    -- ...and every declared tuple must actually be there, wherever its relation exists.
+    -- Without this half, a deploy that lost a grant would pass the check and leave the
+    -- redaction raising 42501 — the INERT state these exceptions exist to end — unreported.
+    SELECT format('%s lacks the declared column %s on %s.%s',
+                  d.role_name, d.privilege_type, d.relation, d.column_name)
+      FROM declared_column_writes d
+     WHERE EXISTS (SELECT 1 FROM expected e WHERE e.relation = d.relation)
+       AND NOT EXISTS (SELECT 1 FROM information_schema.column_privileges cp
+                        WHERE cp.table_schema = 'public'
+                          AND cp.grantee = d.role_name
+                          AND cp.table_name = d.relation
+                          AND cp.column_name = d.column_name
+                          AND cp.privilege_type = d.privilege_type)
   ) q;
   IF offenders IS NOT NULL THEN
     RAISE EXCEPTION 'db-privileges check FAILED — part 3 (column privileges): %', offenders

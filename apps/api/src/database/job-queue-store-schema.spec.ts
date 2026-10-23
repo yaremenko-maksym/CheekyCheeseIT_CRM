@@ -557,6 +557,7 @@ describe('job_queue_actions (AC4)', () => {
       'ck_job_queue_actions_versions',
       'ck_job_queue_actions_idempotency_key_bounded',
       'ck_job_queue_actions_reason_bounded',
+      'ck_job_queue_actions_redaction_reason_null',
     ])
     expectScopeShape(t, 'ck_job_queue_actions_scope_shape')
   })
@@ -604,6 +605,15 @@ describe('job_queue_actions (AC4)', () => {
     )
     expect(checkSql(t, 'ck_job_queue_actions_reason_bounded')).toBe(
       `"reason" IS NULL OR ("reason" ~ '[^[:space:]]' AND length("reason") <= 500)`,
+    )
+  })
+
+  it('leaves the redaction evidence row without free text (SR-M-5 of PR #1075)', () => {
+    // r5 Task 1.4b-iii. The evidence row's own `reason` would be one more unstructured
+    // write site, and redacting it would need evidence of its own — a recursion. Every
+    // other kind keeps its bounded, optional reason untouched by this constraint.
+    expect(checkSql(t, 'ck_job_queue_actions_redaction_reason_null')).toBe(
+      `"kind" <> 'REASON_REDACTED' OR "reason" IS NULL`,
     )
   })
 })
