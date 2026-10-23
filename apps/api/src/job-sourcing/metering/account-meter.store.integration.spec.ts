@@ -686,6 +686,36 @@ describe.skipIf(!hasDatabaseUrl())('account meter store (real Postgres)', () => 
       expect(await counters(m.id)).toEqual({ used: 4, reserved: 0, uncertain: 0 })
     })
 
+    /**
+     * M11, reported as a surviving mutant by the code review and not covered by any case:
+     * settling writes `sent_at` as `row.sentAt ?? now()`, and replacing that with a plain `now()`
+     * left every suite green. The instant a request LEFT is provenance — it is what a later
+     * reconciliation against a provider's own log is matched on — so a settle must not overwrite
+     * it with the settle time. Asserted by the VALUE of the timestamp, not by its presence, since
+     * presence is exactly what the mutant preserves.
+     */
+    it('settling preserves the original send instant, it does not restamp it', async () => {
+      const m = await newMeter({ limit: 10 })
+      const meter = createAccountMeter(
+        db,
+        binding({ accountKey: m.accountKey, cycleId: await newCycle() }),
+      )
+      const r = await meter.reserve('REQUEST', 4)
+      if (r === null) throw new Error('setup: reservation refused')
+      await meter.markSent(r)
+      const sentAt = (await reservationRow(r.id)).sent_at
+      expect(sentAt).toBeInstanceOf(Date)
+
+      // A measurable gap, so "preserved" and "restamped" cannot be the same instant.
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      await meter.reconcile(r, 'USED')
+
+      const settled = await reservationRow(r.id)
+      expect(settled.sent_at).toEqual(sentAt)
+      expect(settled.settled_at).toBeInstanceOf(Date)
+      expect(settled.settled_at!.getTime()).toBeGreaterThan(sentAt!.getTime())
+    })
+
     it('markSent twice is a no-op; markSent after a release is refused', async () => {
       const m = await newMeter({ limit: 10 })
       const meter = createAccountMeter(
@@ -714,8 +744,19 @@ describe.skipIf(!hasDatabaseUrl())('account meter store (real Postgres)', () => 
       const r = await meter.reserve('REQUEST', 2)
       if (r === null) throw new Error('setup: reservation refused')
       await meter.reconcile(r, 'USED')
-      expect((await rejection(meter.reconcile(r, 'UNCERTAIN'))).code).toBe('ILLEGAL_TRANSITION')
-      expect((await rejection(meter.reconcile(r, 'RELEASED'))).code).toBe('ILLEGAL_TRANSITION')
+      const toUncertain = await rejection(meter.reconcile(r, 'UNCERTAIN'))
+      const toReleased = await rejection(meter.reconcile(r, 'RELEASED'))
+      expect(toUncertain.code).toBe('ILLEGAL_TRANSITION')
+      expect(toReleased.code).toBe('ILLEGAL_TRANSITION')
+      /**
+       * The MESSAGE, not only the code. This is the refusal an operator meets while money is
+       * stuck on a reservation that will not settle, and the only thing that tells them which
+       * transition was refused is this sentence — so both states have to be in it. The literal
+       * survived the mutation gate because no case read it. Written out here rather than built
+       * from the inputs, so a message that stops naming the states fails.
+       */
+      expect(toUncertain.message).toBe('a USED reservation cannot become UNCERTAIN')
+      expect(toReleased.message).toBe('a USED reservation cannot become RELEASED')
       expect(await counters(m.id)).toEqual({ used: 2, reserved: 0, uncertain: 0 })
     })
   })

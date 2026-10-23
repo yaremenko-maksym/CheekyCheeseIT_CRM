@@ -13,6 +13,23 @@ describe('rollWindow', () => {
     expect(rollWindow('LIFETIME', null, at('2030-01-01T00:00:00Z'))).toBeNull()
   })
 
+  /**
+   * The LIFETIME clause pinned on its OWN, with a reset instant that is both non-null and long
+   * past. The case above passes a NULL `resetsAt`, so the second clause of the guard carries it
+   * and the LIFETIME test is never the reason the function returns null — which is why removing
+   * the LIFETIME clause entirely left the whole suite green (mutation gate, two survivors on that
+   * one line). A LIFETIME row with a stale `resetsAt` is reachable: the schema forbids the
+   * combination, but `rollWindow` is a pure function that does not see the schema, and a meter
+   * whose window kind is changed from DAY to LIFETIME carries its old instants until something
+   * clears them. Rolling it would zero a lifetime quota's `used` — spend the provider never
+   * forgives.
+   */
+  it('never rolls a LIFETIME meter even when its reset instant is non-null and long past', () => {
+    expect(
+      rollWindow('LIFETIME', at('2020-01-01T00:00:00Z'), at('2030-06-15T12:00:00Z')),
+    ).toBeNull()
+  })
+
   it('never rolls a windowed meter whose reset instant is unknown (NULL)', () => {
     expect(rollWindow('DAY', null, at('2030-01-01T00:00:00Z'))).toBeNull()
   })
@@ -41,6 +58,57 @@ describe('rollWindow', () => {
       windowStartedAt: at('2026-10-15T08:00:00Z'),
       resetsAt: at('2026-11-15T08:00:00Z'),
     })
+  })
+
+  /**
+   * The month count across a YEAR boundary, with a span big enough to tell `* 12` from `/ 12`.
+   * Every other month case spans less than a year, so the year term is zero and the multiplication
+   * is unexercised (mutation gate: `(nowYear - resetYear) * 12` -> `/ 12` survived). 14 months is
+   * past the first year, and the 15th is not a month end, so nothing clamps and the expected
+   * instants are plain calendar arithmetic: the window containing 2027-03-20 is the one that began
+   * on 2027-03-15.
+   */
+  it('counts whole months across a year boundary (a span of 14 months)', () => {
+    expect(rollWindow('MONTH', at('2026-01-15T00:00:00Z'), at('2027-03-20T00:00:00Z'))).toEqual({
+      windowStartedAt: at('2027-03-15T00:00:00Z'),
+      resetsAt: at('2027-04-15T00:00:00Z'),
+    })
+  })
+
+  /**
+   * THE AT-LIMIT CASE of the "not past now" correction, and the one past it on either side
+   * (backlog 284: every bound gets a case AT it and one PAST it).
+   *
+   * The specification the expectation comes from, not the function's output: a reset is due AT
+   * `resetsAt`, INCLUSIVE, and the returned window always CONTAINS `now`. So at the exact instant
+   * a window's reset falls due, the window that contains `now` is the one that STARTS there.
+   * Shifting the comparison to `>=` returns the previous window instead, whose `resetsAt` equals
+   * `now` — a window already due at the moment it is handed back, which contradicts both halves of
+   * the specification. That mutant survived the suite before these three cases.
+   */
+  it('at the exact instant a month window falls due, the new window STARTS at now', () => {
+    expect(rollWindow('MONTH', at('2026-01-15T00:00:00Z'), at('2026-03-15T00:00:00Z'))).toEqual({
+      windowStartedAt: at('2026-03-15T00:00:00Z'),
+      resetsAt: at('2026-04-15T00:00:00Z'),
+    })
+  })
+
+  it('one millisecond after that instant gives the same window', () => {
+    expect(rollWindow('MONTH', at('2026-01-15T00:00:00Z'), at('2026-03-15T00:00:00.001Z'))).toEqual(
+      {
+        windowStartedAt: at('2026-03-15T00:00:00Z'),
+        resetsAt: at('2026-04-15T00:00:00Z'),
+      },
+    )
+  })
+
+  it('one millisecond before it, the window is still the previous one', () => {
+    expect(rollWindow('MONTH', at('2026-01-15T00:00:00Z'), at('2026-03-14T23:59:59.999Z'))).toEqual(
+      {
+        windowStartedAt: at('2026-02-15T00:00:00Z'),
+        resetsAt: at('2026-03-15T00:00:00Z'),
+      },
+    )
   })
 
   it('skips whole MONTH windows, and does not roll one past now', () => {

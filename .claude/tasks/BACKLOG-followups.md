@@ -4617,3 +4617,56 @@ entry instead of a finding.
 
 **Check on closing:** a quadratic scan with a 64-character step is caught by something, and a failing
 `timing_specs` job reaches a human within a day without anybody thinking to look.
+
+## 308. The account meter's spend record depends on four things no code does yet (2026-10-24)
+
+Four findings from the three review axes on the shared account-meter reservation store. None could be
+closed inside the store: each needs either the port the collection loop sees, or a worker that claims a
+run under a lease — and neither exists. They are one entry because they share that cause, and because
+closing any one of them alone still leaves the meter's `used` unable to mean what a reader assumes.
+
+- **A reservation can be handed to two live executors of one attempt, and the second charge is
+  silently dropped.** The store reuses a reservation that is still in the RESERVED state, reading that
+  state as "the request never left". RESERVED is equally the state of a live worker about to send, and
+  the store holds no evidence of which. Measured: six concurrent executors of one attempt received one
+  reservation between them; two of them each sent a real request of cost 2 and the meter recorded 2.
+  The second settlement was a no-op, so the second worker believed it had been charged. N overlapping
+  executors cost N times the amount and are charged once — the overspend direction. The store now
+  carries this as a stated CALLER precondition (at most one live executor per attempt identity) with a
+  characterisation test, because it cannot be enforced from inside: the distinguishing fact would have
+  to arrive through the collection context, which carries no owner token, and whose fencing epoch is
+  written by no code in the repository — the column defaults to 1 and the lease recovery that would
+  advance it is unimplemented. So folding the epoch into the reservation key would separate nothing
+  while making the file look fenced. **Whoever claims a run under a lease owns establishing the
+  exclusivity and asserting it there.**
+
+- **Nothing can record that a request left, so "release only provably unsent cost" has no caller that
+  can honour it.** The store exposes a way to mark a reservation sent; the port the collection loop
+  actually sees exposes only reserve and reconcile, and nothing in the repository builds that context
+  yet. So in production the sent state is never recorded. Measured: a reservation whose request
+  physically left, released because the send was never recorded, took the meter from a hold of 4 to all
+  zeroes with 4 units really spent. What protects the loop today is that the JSON page collector marks
+  the outcome uncertain _before_ it fetches — not the store's guard. Either the transport calls the
+  mark at the moment the request leaves, with its transaction committed first, or the sent state is
+  formally retired with a reason. Deciding it by silence is the one option not available.
+
+- **Settlement charges the full reserved worst case, with no path to correct the row.** Reconciliation
+  carries no actual cost, so a source billed per returned record is charged its whole page every time:
+  a call returning 3 records against a worst case of 50 burns 50 credits in the ledger. Safe for
+  overspend and wrong for accounting — on a money-denominated monthly meter the drift is permanent and
+  compounding, because a second settlement is a no-op and the used amount is already written. Until the
+  port can carry the incurred cost, `used` is an upper bound on spend rather than spend, and nothing
+  downstream may report it to the owner as money actually billed. The store's docblock says so now.
+
+- **A crashed worker strands a reservation that nobody can classify or settle.** The plan's lease
+  recovery is the named owner, but its text speaks only of uncertain reservations, and a crash mostly
+  strands a RESERVED one: the settlement runs in a `finally` that a crash never reaches. With no record
+  of the send, a stranded RESERVED row whose request was already in flight cannot be told from one that
+  never left — so the safe reading (hold as uncertain unless provably unsent) is the only sound one,
+  and it is not what "reschedule uncertain reservations" describes. The store also exposes no way to
+  enumerate or settle a dead attempt's rows, so the recovery has no entry point to call.
+
+**Check on closing:** two concurrent executors of one attempt each sending a real request are charged
+twice, not once; a worker killed between sending and settling leaves cost held rather than released;
+a per-record source that returns 3 records against a worst case of 50 is charged 3; and a recovery
+process can name and settle the reservations of an attempt whose worker died.

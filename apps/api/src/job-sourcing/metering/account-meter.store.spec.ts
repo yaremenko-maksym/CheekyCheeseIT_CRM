@@ -92,6 +92,65 @@ describe('createAccountMeter — binding validation', () => {
   })
 })
 
+/**
+ * THE MESSAGE TEXT, asserted rather than suppressed — nine string literals survived the mutation
+ * gate because no case read any of them. The choice is per message, and here it came out the same
+ * way for all nine: every one of these names the thing its reader has to act on, so replacing the
+ * text with anything else loses information a person needs.
+ *
+ * The two that decide it are the refusals an operator meets while money is stuck: a reservation
+ * that will not settle says WHICH transition was refused (both states), and a claim refused for
+ * ownership says the binding does not own it rather than that the reservation is missing — those
+ * two readings lead to different actions. The rest name the unit, the field or the rule that
+ * failed, which is what turns a rejected binding into a fixable one. Nothing here is decorative,
+ * so nothing here is suppressed.
+ *
+ * The expected substrings are written out, not taken from the source, so a message that silently
+ * changes meaning fails rather than following along.
+ */
+describe('error messages carry what their reader must act on', () => {
+  // The refused-transition wording needs a real settled row to re-settle, so it is asserted in
+  // the integration spec ("a USED reservation cannot be downgraded or released afterwards").
+
+  it('an unmetered unit is named in the refusal', async () => {
+    const { db } = untouchableDb()
+    const meter = createAccountMeter(db, valid())
+    expect((await callError(() => meter.reserve('RECORD', 1))).message).toBe(
+      'this binding does not meter RECORD',
+    )
+  })
+
+  it('an invalid amount says what a valid one is', async () => {
+    const { db } = untouchableDb()
+    const meter = createAccountMeter(db, valid())
+    expect((await callError(() => meter.reserve('REQUEST', 0))).message).toBe(
+      'a reservation amount is a positive integer',
+    )
+  })
+
+  it('a foreign reservation says the binding does not OWN it, not that it is missing', async () => {
+    const { db } = untouchableDb()
+    const meter = createAccountMeter(db, valid())
+    const error = await callError(() =>
+      meter.reconcile({ id: 'not-a-uuid', unit: 'REQUEST', amount: 1 }, 'USED'),
+    )
+    expect(error.code).toBe('FOREIGN_RESERVATION')
+    expect(error.message).toBe('this binding does not own that reservation')
+  })
+
+  it('an invalid binding is prefixed and carries the failing rule', () => {
+    expect(constructionError({ cycleId: 'nope' }).message).toContain('the meter binding is invalid')
+  })
+
+  it.each([
+    [{ windows: {} }, 'at least one unit must be metered'],
+    [{ attemptId: '   ' }, 'attempt id must not be blank'],
+    [{ attemptId: 'a#b' }, 'attempt id must not contain #'],
+  ] as const)('the binding rule that failed is quoted: %o', (over, rule) => {
+    expect(constructionError(over as Partial<AccountMeterBinding>).message).toContain(rule)
+  })
+})
+
 describe('reserve — refused before the database', () => {
   it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1])(
     'an amount of %s is INVALID_AMOUNT',
