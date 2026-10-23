@@ -130,7 +130,7 @@ describe('assertSalaryCreationIntent', () => {
         reason: 'LEGACY_INTENT_UNKNOWN',
         existingTransactionId: 'tx-legacy',
         message:
-          'This idempotency key belongs to a legacy salary whose original request cannot be verified',
+          'This salary was not saved: a matching earlier salary is on record but its details cannot be verified. Check the saved salary first.',
       },
     })
   })

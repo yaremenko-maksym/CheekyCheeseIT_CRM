@@ -2570,7 +2570,7 @@ msgstr "Зарплату для цього співробітника за ви�
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_SALARY_IDEMPOTENCY_CONFLICT"
-msgstr "Цю зарплату вже записано з іншими даними — відкрийте форму заново й надішліть її ще раз"
+msgstr "Зарплату не збережено: така вже є в обліку, але з іншими даними. Перевірте наявний запис, перш ніж вносити нову."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts

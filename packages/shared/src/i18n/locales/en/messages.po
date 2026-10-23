@@ -2570,7 +2570,7 @@ msgstr "This employee's salary for the selected month already exists"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_SALARY_IDEMPOTENCY_CONFLICT"
-msgstr "This idempotency key was already used for a different salary request"
+msgstr "This salary is already on record with different details, so this one was not saved. Check the saved salary first."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts

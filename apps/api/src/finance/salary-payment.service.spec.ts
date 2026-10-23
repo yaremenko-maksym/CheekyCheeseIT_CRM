@@ -106,6 +106,12 @@ function make(
     flipRows?: Array<{ id: string }>
     /** status seen by the in-lock re-read (company path) */
     freshStatus?: string | null
+    /**
+     * Row seen by the post-claim re-read that names WHY the flip matched zero
+     * rows (CR-M-1). `null` = the row is gone. Default: still PENDING, i.e. a
+     * snapshot predicate is what rejected the write.
+     */
+    postClaimRow?: { status: string; deletedAt: Date | null } | null
     auditError?: Error
     /** claim INSERT results, one per createAutomaticSalary call */
     claims?: Array<Array<{ id: string }>>
@@ -144,6 +150,13 @@ function make(
     },
   })
 
+  // The post-claim re-read (CR-M-1) is the only one that projects `deletedAt`,
+  // which is what tells the two reads apart here.
+  const isPostClaimRead = (arg: unknown) =>
+    typeof arg === 'object' && arg !== null && 'deletedAt' in arg
+  const postClaimRows = () =>
+    opts.postClaimRow === null ? [] : [opts.postClaimRow ?? { status: 'PENDING', deletedAt: null }]
+
   const dbtx = {
     select: (arg: unknown) => {
       selectArgs.push(arg)
@@ -151,6 +164,7 @@ function make(
         from: () => ({
           where: async (w: unknown) => {
             freshSelectWheres.push(w)
+            if (isPostClaimRead(arg)) return postClaimRows()
             return opts.freshStatus === null ? [] : [{ status: opts.freshStatus ?? 'PENDING' }]
           },
         }),
@@ -192,6 +206,17 @@ function make(
   const dbInner = {
     transaction,
     update: updateChain,
+    select: (arg: unknown) => {
+      selectArgs.push(arg)
+      return {
+        from: () => ({
+          where: async (w: unknown) => {
+            freshSelectWheres.push(w)
+            return postClaimRows()
+          },
+        }),
+      }
+    },
     insert: () => ({
       values: async (row: Record<string, unknown>) => {
         if (opts.auditError) throw opts.auditError
@@ -574,7 +599,13 @@ describe('SalaryPaymentService.paySalary — ADMIN_PERSONAL flip', () => {
   })
 
   it('refuses when a concurrent flip won the race (zero rows), after naming an archive cause first', async () => {
-    const h = make({ payer, flipRows: [] })
+    // "a concurrent flip won" means the row is no longer PENDING by the time we
+    // look, which is what makes NOT_PENDING the true cause here (CR-M-1).
+    const h = make({
+      payer,
+      flipRows: [],
+      postClaimRow: { status: 'PAID', deletedAt: null },
+    })
     await expect(
       h.svc.paySalary(SALARY_ID, { ...personal, payerAdminId: 'payer-1' }, ADMIN),
     ).rejects.toMatchObject({ response: { code: 'FINANCE_TRANSACTION_NOT_PENDING' } })
@@ -583,8 +614,48 @@ describe('SalaryPaymentService.paySalary — ADMIN_PERSONAL flip', () => {
     expect(h.auditRows).toHaveLength(0)
   })
 
+  // CR-M-1: a pay racing an AMOUNT EDIT must not claim the row is not pending —
+  // it is pending, its snapshot moved. Same code AdminEditService uses.
+  it('names a moved snapshot, not a status change, when the row is still PENDING', async () => {
+    const h = make({
+      payer,
+      flipRows: [],
+      postClaimRow: { status: 'PENDING', deletedAt: null },
+    })
+    await expect(
+      h.svc.paySalary(SALARY_ID, { ...personal, payerAdminId: 'payer-1' }, ADMIN),
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_ROW_STATE_CHANGED_WHILE_EDITING' },
+    })
+    expect(h.lifecycle.safeAutoCreateInvoice).not.toHaveBeenCalled()
+  })
+
+  it('names a deleted row as not-pending rather than a moved snapshot', async () => {
+    const h = make({
+      payer,
+      flipRows: [],
+      postClaimRow: { status: 'PENDING', deletedAt: new Date('2026-10-01T00:00:00.000Z') },
+    })
+    await expect(
+      h.svc.paySalary(SALARY_ID, { ...personal, payerAdminId: 'payer-1' }, ADMIN),
+    ).rejects.toMatchObject({ response: { code: 'FINANCE_TRANSACTION_NOT_PENDING' } })
+  })
+
+  it('names a vanished row as not-pending', async () => {
+    const h = make({ payer, flipRows: [], postClaimRow: null })
+    await expect(
+      h.svc.paySalary(SALARY_ID, { ...personal, payerAdminId: 'payer-1' }, ADMIN),
+    ).rejects.toMatchObject({ response: { code: 'FINANCE_TRANSACTION_NOT_PENDING' } })
+  })
+
   it('refuses when more than one row would be flipped', async () => {
-    const h = make({ payer, flipRows: [{ id: 'a' }, { id: 'b' }] })
+    // More than one row flipped means the write DID land, so the row reads back
+    // PAID and NOT_PENDING stays the true cause (CR-M-1).
+    const h = make({
+      payer,
+      flipRows: [{ id: 'a' }, { id: 'b' }],
+      postClaimRow: { status: 'PAID', deletedAt: null },
+    })
     await expect(
       h.svc.paySalary(SALARY_ID, { ...personal, payerAdminId: 'payer-1' }, ADMIN),
     ).rejects.toMatchObject({ response: { code: 'FINANCE_TRANSACTION_NOT_PENDING' } })
@@ -707,10 +778,13 @@ describe('SalaryPaymentService.paySalary — COMPANY_ACCOUNT flip', () => {
     })
   })
 
-  it('names an archive as the cause when the guarded write matches zero rows', async () => {
+  it('consults the archive assertion first when the guarded write matches zero rows', async () => {
+    // The archival assertion is CALLED first (that is this test's subject); the
+    // stub lets it pass, so the row is re-read and — still PENDING — the refusal
+    // names the moved snapshot rather than a status change (CR-M-1).
     const h = make({ flipRows: [] })
     await expect(h.svc.paySalary(SALARY_ID, company, ADMIN)).rejects.toMatchObject({
-      response: { code: 'FINANCE_TRANSACTION_NOT_PENDING' },
+      response: { code: 'FINANCE_ROW_STATE_CHANGED_WHILE_EDITING' },
     })
     expect(h.salary.assertSalaryReceiverNotArchived).toHaveBeenCalledTimes(2)
     expect(h.salary.assertSalaryReceiverNotArchived).toHaveBeenLastCalledWith(h.dbtx, 'emp-1')

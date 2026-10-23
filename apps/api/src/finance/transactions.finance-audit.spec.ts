@@ -746,6 +746,14 @@ describe('paySalary — #11: ADMIN_PERSONAL atomic flip (no duplicate invoice)',
         update: () => ({
           set: setSpy,
         }),
+        // CR-M-1: the post-claim re-read that names WHY the flip matched zero
+        // rows. This describe's zero-row case is the documented "already PAID"
+        // race, so that is what the row reads back as.
+        select: () => ({
+          from: () => ({
+            where: () => Promise.resolve([{ status: 'PAID', deletedAt: null }]),
+          }),
+        }),
       },
     }
     const svc = makeTransactionsService({ db: dbStub as never })

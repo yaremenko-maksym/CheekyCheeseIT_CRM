@@ -433,7 +433,8 @@ describe('createSalary — AC2: an archived receiver is refused', () => {
       status: 409,
       response: {
         code: 'FINANCE_SALARY_IDEMPOTENCY_CONFLICT',
-        message: 'This idempotency key was already used for a different salary request',
+        message:
+          'This salary is already on record with different details, so this one was not saved. Check the saved salary first.',
         reason: 'INTENT_MISMATCH',
         existingTransactionId: existing.id,
       },
@@ -457,7 +458,7 @@ describe('createSalary — AC2: an archived receiver is refused', () => {
       response: {
         code: 'FINANCE_SALARY_IDEMPOTENCY_CONFLICT',
         message:
-          'This idempotency key belongs to a legacy salary whose original request cannot be verified',
+          'This salary was not saved: a matching earlier salary is on record but its details cannot be verified. Check the saved salary first.',
         reason: 'LEGACY_INTENT_UNKNOWN',
         existingTransactionId: existing.id,
       },
@@ -511,7 +512,8 @@ describe('createSalary — AC2: an archived receiver is refused', () => {
       status: 409,
       response: {
         code: 'FINANCE_SALARY_IDEMPOTENCY_CONFLICT',
-        message: 'This idempotency key was already used for a different salary request',
+        message:
+          'This salary is already on record with different details, so this one was not saved. Check the saved salary first.',
         reason: 'INTENT_MISMATCH',
         existingTransactionId: winner.id,
       },
@@ -758,7 +760,15 @@ describe('paySalary — MED-3: archival is re-asserted in the write, not only pr
    * call 2 = the payer admin, call 3 = the receiver again (the post-write
    * disambiguation). That order IS the race window under test.
    */
-  function makePayService(receiverReads: unknown[], flippedRows: unknown[]) {
+  function makePayService(
+    receiverReads: unknown[],
+    flippedRows: unknown[],
+    // CR-M-1: what the post-claim re-read sees. Default: the row is still
+    // PENDING, i.e. a snapshot predicate is what rejected the write.
+    postClaimRows: Array<{ status: string; deletedAt: Date | null }> = [
+      { status: 'PENDING', deletedAt: null },
+    ],
+  ) {
     let call = 0
     const usersFindFirst = vi.fn().mockImplementation(() => {
       call += 1
@@ -780,7 +790,15 @@ describe('paySalary — MED-3: archival is re-asserted in the write, not only pr
           transactions: { findFirst: vi.fn().mockResolvedValue(SALARY_ROW) },
           users: { findFirst: usersFindFirst },
         },
-        // No `select` stub on purpose: the archival predicate is assembled by
+        // CR-M-1: the post-claim re-read that names WHY the flip matched zero
+        // rows. A plain read by id, so it does not touch the archival predicate
+        // described below (that one never goes through `db.select`).
+        select: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockResolvedValue(postClaimRows),
+          }),
+        }),
+        // No `select` stub for the ARCHIVAL predicate on purpose: it is assembled by
         // the service through Drizzle's client-less `QueryBuilder`, so the SQL
         // the assertions below read is the REAL production SQL, not something a
         // test double shaped. (An earlier iteration built it via `db.select`;
@@ -803,11 +821,13 @@ describe('paySalary — MED-3: archival is re-asserted in the write, not only pr
 
   it('carries the archival term in the UPDATE statement itself', async () => {
     // Receiver active throughout, but the write reports zero rows so the flow
-    // stops before the invoice side-effects; what matters here is the SQL.
+    // stops before the invoice side-effects; what matters here is the SQL. The
+    // refusal code is incidental to this test: with an active receiver and a
+    // still-PENDING row it is the moved-snapshot one (CR-M-1).
     const { svc, updateWhere } = makePayService([ACTIVE_HR, ACTIVE_HR], [])
 
     await expect(svc.paySalary('sal-1', payData, ADMIN_USER)).rejects.toMatchObject({
-      response: { code: 'FINANCE_TRANSACTION_NOT_PENDING', statusCode: 400 },
+      response: { code: 'FINANCE_ROW_STATE_CHANGED_WHILE_EDITING', statusCode: 400 },
     })
 
     const whereArg: unknown = updateWhere.mock.calls[0]![0]
@@ -842,13 +862,29 @@ describe('paySalary — MED-3: archival is re-asserted in the write, not only pr
   })
 
   it('still reports «not PENDING» when the miss was NOT about archival', async () => {
-    // Same zero-row write, receiver active both times → the other cause (a
-    // racing delete or a concurrent pay). The archival message must not be
-    // borrowed to explain it.
-    const { svc } = makePayService([ACTIVE_HR, ACTIVE_HR], [])
+    // Same zero-row write, receiver active both times → the other cause. Here
+    // the row is no longer PENDING (a racing delete or a concurrent pay), which
+    // is what makes «not pending» the TRUE statement. The archival message must
+    // not be borrowed to explain it.
+    const { svc } = makePayService(
+      [ACTIVE_HR, ACTIVE_HR],
+      [],
+      [{ status: 'PAID', deletedAt: null }],
+    )
 
     await expect(svc.paySalary('sal-1', payData, ADMIN_USER)).rejects.toThrow(
       "The transaction isn't pending",
     )
+  })
+
+  it('reports a moved snapshot, not «not PENDING», when the row is still pending', async () => {
+    // CR-M-1: receiver active and the row still PENDING, so the only remaining
+    // cause is a snapshot predicate (amount / currency / copied notes). Saying
+    // «not pending» here would be a false statement about the row.
+    const { svc } = makePayService([ACTIVE_HR, ACTIVE_HR], [])
+
+    await expect(svc.paySalary('sal-1', payData, ADMIN_USER)).rejects.toMatchObject({
+      response: { code: 'FINANCE_ROW_STATE_CHANGED_WHILE_EDITING' },
+    })
   })
 })

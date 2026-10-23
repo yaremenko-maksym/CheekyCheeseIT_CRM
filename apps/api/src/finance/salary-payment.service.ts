@@ -10,6 +10,7 @@ import {
 import { apiError } from '../common/api-error'
 import { zodErrorBadRequest } from '../common/zod-error-exception'
 import { DatabaseService } from '../database/database.service'
+import type { DrizzleTx } from '../database/types'
 import {
   salaryMonthInitializations,
   transactionAuditLog,
@@ -358,12 +359,12 @@ export class SalaryPaymentService {
           )
           .returning({ id: transactions.id })
         if (updated.length === 0) {
-          // Zero rows now has two possible causes (a racing delete/pay, or a
-          // racing archive). Name the real one instead of guessing. Read through
-          // `dbtx` — the transaction still owns a connection here, and going via
-          // `this.db.db` would check out a second one (round 3, LOW).
-          await this.salaryService.assertSalaryReceiverNotArchived(dbtx, tx.receiverId)
-          throw apiError('FINANCE_TRANSACTION_NOT_PENDING', HttpStatus.BAD_REQUEST)
+          // Zero rows has three possible causes (a racing delete/pay, a racing
+          // archive, or a snapshot predicate that no longer matches). Name the
+          // real one instead of guessing. Read through `dbtx` — the transaction
+          // still owns a connection here, and going via `this.db.db` would check
+          // out a second one (round 3, LOW).
+          await this.throwPayClaimFailure(dbtx, id, tx.receiverId)
         }
       })
     } else {
@@ -392,11 +393,11 @@ export class SalaryPaymentService {
         )
         .returning({ id: transactions.id })
       if (flipped.length !== 1) {
-        // A concurrent paySalary already flipped this row — or a concurrent
-        // archive of the receiver made the guard above reject it. This path runs
-        // in no transaction, so the base connection is correct here.
-        await this.salaryService.assertSalaryReceiverNotArchived(this.db.db, tx.receiverId)
-        throw apiError('FINANCE_TRANSACTION_NOT_PENDING', HttpStatus.BAD_REQUEST)
+        // A concurrent paySalary already flipped this row, a concurrent archive
+        // of the receiver made the guard reject it, or an edit moved the
+        // snapshot this payment was derived from. This path runs in no
+        // transaction, so the base connection is correct here.
+        await this.throwPayClaimFailure(this.db.db, id, tx.receiverId)
       }
     }
 
@@ -454,6 +455,43 @@ export class SalaryPaymentService {
    *   and gets a `transactionAuditLog` CREATE entry, exactly like every other
    *   user-facing creation entry point in this file (createSalary etc.).
    */
+  /**
+   * CR-M-1 (PR #868 fix round 1). The PENDING->PAID claim can match zero rows
+   * for three different reasons, and calling them all
+   * `FINANCE_TRANSACTION_NOT_PENDING` is a false statement for two of them: the
+   * row IS pending, it is the snapshot that moved under us.
+   *
+   *   archived receiver            -> the archival assertion throws its own error
+   *   gone / deleted / not PENDING -> FINANCE_TRANSACTION_NOT_PENDING
+   *   still PENDING                -> by elimination only a snapshot predicate
+   *                                   (amount / currency / copied notes,
+   *                                   SR-795-M-4) can have rejected the write, so
+   *                                   FINANCE_ROW_STATE_CHANGED_WHILE_EDITING —
+   *                                   the code `AdminEditService` already uses
+   *                                   for exactly this cause.
+   *
+   * Returns `never`: every branch throws.
+   */
+  private async throwPayClaimFailure(
+    db: DatabaseService['db'] | DrizzleTx,
+    id: string,
+    receiverId: string | null,
+  ): Promise<never> {
+    // Unchanged behaviour: a racing archive is named first, by the assertion's
+    // own error, rather than being folded into either code below.
+    await this.salaryService.assertSalaryReceiverNotArchived(db, receiverId)
+
+    const [fresh] = await db
+      .select({ status: transactions.status, deletedAt: transactions.deletedAt })
+      .from(transactions)
+      .where(eq(transactions.id, id))
+
+    if (!fresh || fresh.deletedAt !== null || fresh.status !== 'PENDING') {
+      throw apiError('FINANCE_TRANSACTION_NOT_PENDING', HttpStatus.BAD_REQUEST)
+    }
+    throw apiError('FINANCE_ROW_STATE_CHANGED_WHILE_EDITING', HttpStatus.BAD_REQUEST)
+  }
+
   async createMonthlySalaries(month: string, actor?: SessionUser) {
     // Create PENDING salary for HR and ACCOUNTANT
     const hrAccountantReceivers = await this.salaryService.resolveHrAccountantSalaryReceivers()

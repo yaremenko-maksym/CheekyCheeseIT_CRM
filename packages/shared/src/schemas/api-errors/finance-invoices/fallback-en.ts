@@ -184,7 +184,7 @@ export const FINANCE_INVOICES_ERROR_FALLBACK_EN: Record<FinanceInvoicesErrorCode
   FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION:
     "The payout date can't be earlier than the obligation's creation date",
   FINANCE_SALARY_IDEMPOTENCY_CONFLICT:
-    'This idempotency key was already used for a different salary request',
+    'This salary is already on record with different details, so this one was not saved. Check the saved salary first.',
   FINANCE_ROUNDED_PAYOUT_AMOUNT_ZERO:
     "After rounding, the payout amount became zero even though the obligation isn't zero — choose a different payout currency",
   FINANCE_OBLIGATION_OVERPAID:

@@ -57,7 +57,7 @@ export function assertSalaryCreationIntent(
       ...(legacy
         ? {
             message:
-              'This idempotency key belongs to a legacy salary whose original request cannot be verified',
+              'This salary was not saved: a matching earlier salary is on record but its details cannot be verified. Check the saved salary first.',
           }
         : {}),
       reason: legacy ? 'LEGACY_INTENT_UNKNOWN' : 'INTENT_MISMATCH',
