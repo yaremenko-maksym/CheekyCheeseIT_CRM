@@ -33,7 +33,7 @@ import {
 import type { DrizzleTx } from '../../database/types'
 import { InterviewAccessPolicyService } from '../../interviews/interview-access-policy.service'
 import { meetingRecorderWebhookError } from './meeting-recorder-errors'
-import { MeetingRecorderMatcher } from './meeting-recorder-matcher'
+import { meetingRecorderAutoMatchEnabled, MeetingRecorderMatcher } from './meeting-recorder-matcher'
 import { MeetingRecorderSecretCryptoService } from './meeting-recorder-secret-crypto.service'
 
 const recordingSummaryColumns = {
@@ -470,7 +470,12 @@ export class MeetingRecorderService {
     // a later revision never re-matches, so a callUrl set after the meeting cannot
     // pull the recording in, and the lookup does not repeat under the connection lock.
     // An unmatched recording is linked by an ADMIN from the unmatched queue.
-    if (!existing) {
+    //
+    // The flag is OFF by default and the whole feature is dormant until the
+    // interview UI writes `scheduledAt` (SR-M-1 / SPEC-M-1 — see env.ts). With it
+    // off the fall-through values below already mean "unmatched", which is exactly
+    // where an unlinked recording belongs.
+    if (!existing && meetingRecorderAutoMatchEnabled()) {
       const match = await this.matcher.findExactMatch(tx, recording)
       interviewId = match?.interviewId ?? null
       stageAtLink = match?.stageAtLink ?? null

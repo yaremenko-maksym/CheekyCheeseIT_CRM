@@ -326,7 +326,15 @@ describe.skipIf(!hasDatabaseUrl())(
       await pool.query('DELETE FROM users WHERE id = ANY($1)', [ALL_USERS.map((u) => u.id)])
     }
 
+    const AUTO_MATCH_KEY = 'MEETING_RECORDER_AUTO_MATCH_ENABLED'
+    const autoMatchOriginal = process.env[AUTO_MATCH_KEY]
+
     beforeAll(async () => {
+      // Auto-match ships OFF (SR-M-1). The SR-865-H-1 attack cases below assert
+      // that a *running* matcher refuses to link a foreign recording, so they must
+      // run with it ON — otherwise they would pass for the trivial reason that
+      // nothing matches at all, and would stop guarding the predicates.
+      process.env[AUTO_MATCH_KEY] = 'true'
       pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
       try {
         await pool.query('SELECT 1')
@@ -409,6 +417,8 @@ describe.skipIf(!hasDatabaseUrl())(
     }, 30_000)
 
     afterAll(async () => {
+      if (autoMatchOriginal === undefined) delete process.env[AUTO_MATCH_KEY]
+      else process.env[AUTO_MATCH_KEY] = autoMatchOriginal
       if (!pool) return
       await cleanup()
       await app?.close()

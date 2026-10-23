@@ -1,10 +1,11 @@
 import type { MeetingRecorderRecordingInput } from '@crm/shared'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
 import type { DrizzleTx } from '../../database/types'
 import {
   canonicalizeGoogleMeetUrl,
   googleMeetCodeFromUrl,
+  meetingRecorderAutoMatchEnabled,
   MEETING_RECORDER_MATCH_WINDOW_MS,
   MEETING_RECORDER_UNMATCHABLE_STAGES,
   meetingRecorderMatchKeys,
@@ -107,6 +108,35 @@ describe('MeetingRecorderMatcher', () => {
     await expect(
       matcher.findExactMatch(noQueryTx, recording({ kind: 'meeting', provider: 'google-meet' })),
     ).resolves.toBeNull()
+  })
+
+  describe('meetingRecorderAutoMatchEnabled', () => {
+    const KEY = 'MEETING_RECORDER_AUTO_MATCH_ENABLED'
+    const original = process.env[KEY]
+
+    afterEach(() => {
+      if (original === undefined) delete process.env[KEY]
+      else process.env[KEY] = original
+    })
+
+    it('is off when unset — the production default while no UI writes scheduledAt', () => {
+      delete process.env[KEY]
+      expect(meetingRecorderAutoMatchEnabled()).toBe(false)
+    })
+
+    it('is on only for the string "true", case-insensitively', () => {
+      for (const value of ['true', 'TRUE', 'True']) {
+        process.env[KEY] = value
+        expect(meetingRecorderAutoMatchEnabled()).toBe(true)
+      }
+    })
+
+    it('is off for anything else, including values that merely look truthy', () => {
+      for (const value of ['false', '1', 'yes', 'on', '', ' true']) {
+        process.env[KEY] = value
+        expect(meetingRecorderAutoMatchEnabled()).toBe(false)
+      }
+    })
   })
 
   // Owner decision D-1: ±30 minutes. The expected value is hand-computed

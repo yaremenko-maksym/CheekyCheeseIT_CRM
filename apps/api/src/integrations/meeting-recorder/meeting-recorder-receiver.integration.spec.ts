@@ -67,8 +67,15 @@ async function cleanup(): Promise<void> {
   await pool.query('DELETE FROM users WHERE id = $1', [USER_ID])
 }
 
+const AUTO_MATCH_KEY = 'MEETING_RECORDER_AUTO_MATCH_ENABLED'
+const autoMatchOriginal = process.env[AUTO_MATCH_KEY]
+
 describe.skipIf(!hasDatabaseUrl())('Meeting Recorder receiver semantics — real Postgres', () => {
   beforeAll(async () => {
+    // Auto-match ships OFF (SR-M-1); the match assertions here describe the
+    // enabled behaviour, so switch it on for this suite. The disabled default is
+    // covered by its own case at the end of the file.
+    process.env[AUTO_MATCH_KEY] = 'true'
     await assertRealDbSchema([
       { table: 'meeting_recorder_connections', column: 'expected_source' },
       { table: 'meeting_recorder_webhook_receipts', column: 'webhook_id' },
@@ -117,6 +124,8 @@ describe.skipIf(!hasDatabaseUrl())('Meeting Recorder receiver semantics — real
   }, 20_000)
 
   afterAll(async () => {
+    if (autoMatchOriginal === undefined) delete process.env[AUTO_MATCH_KEY]
+    else process.env[AUTO_MATCH_KEY] = autoMatchOriginal
     if (!pool) return
     await cleanup()
     await pool.end()
@@ -301,5 +310,32 @@ describe.skipIf(!hasDatabaseUrl())('Meeting Recorder receiver semantics — real
     expect(boundaryRow.rows).toEqual([
       { external_recording_id: boundaryId, meeting_id: boundaryMeetingId },
     ])
+  }, 20_000)
+
+  it('stores the recording unmatched when auto-match is disabled — the shipped default', async () => {
+    // Same interview, same code, same window as the matching case above: the ONLY
+    // difference is the flag, so this isolates what it gates (SR-M-1 / SPEC-M-1).
+    process.env[AUTO_MATCH_KEY] = 'false'
+    const externalId = 'recording_flag_disabled_v1'
+    try {
+      const event = structuredClone(READY_FIXTURE)
+      event.id = 'event_flag_disabled_v1'
+      event.subject = `recording/${externalId}`
+      event.data.recording.id = externalId
+      await service.ingestWebhookEvent(CONNECTION_ID, event, CIPHERTEXT)
+
+      const row = await pool.query<{ interview_id: string | null; matched_by: string }>(
+        `SELECT interview_id, matched_by FROM interview_recordings
+         WHERE connection_id = $1 AND external_recording_id = $2`,
+        [CONNECTION_ID, externalId],
+      )
+      expect(row.rows).toEqual([{ interview_id: null, matched_by: 'unmatched' }])
+    } finally {
+      process.env[AUTO_MATCH_KEY] = 'true'
+      await pool.query(
+        'DELETE FROM interview_recordings WHERE connection_id = $1 AND external_recording_id = $2',
+        [CONNECTION_ID, externalId],
+      )
+    }
   }, 20_000)
 })

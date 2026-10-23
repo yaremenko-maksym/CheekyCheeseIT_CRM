@@ -53,6 +53,23 @@ export const MEETING_RECORDER_UNMATCHABLE_STAGES = [
   'ARCHIVED',
 ] as const satisfies readonly Interview['stage'][]
 
+/**
+ * Is automatic linking of a recording to an interview switched on?
+ *
+ * **Default false.** Declared, documented and boot-validated as
+ * `MEETING_RECORDER_AUTO_MATCH_ENABLED` in `config/env.ts` — read here from the
+ * environment directly so that gating costs `MeetingRecorderService` no new
+ * constructor dependency (its collaborators are assembled by hand in several
+ * specs). Parsing matches env.ts: the string "true", case-insensitive, and
+ * nothing else.
+ *
+ * Why it exists and what turning it on requires: see the env.ts entry
+ * (retro review of PR #865 — SR-M-1 / SPEC-M-1).
+ */
+export function meetingRecorderAutoMatchEnabled(): boolean {
+  return (process.env['MEETING_RECORDER_AUTO_MATCH_ENABLED'] ?? '').toLowerCase() === 'true'
+}
+
 /** The only columns the matcher needs from a candidate interview. */
 // Stryker disable next-line ObjectLiteral: emptying the projection is only observable through a real query — the unit stub in the sibling spec answers the lookup without reading it, and the gate cannot run the integration spec that does (.claude/rules/common/mutation-gate-integration-specs.md)
 const MATCH_CANDIDATE_COLUMNS = { id: interviews.id, stage: interviews.stage }
