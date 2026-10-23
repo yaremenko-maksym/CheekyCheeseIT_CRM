@@ -13,6 +13,13 @@ const SALARY_CREATION_INTENT_DDL = readFileSync(
   join(import.meta.dirname, '../../drizzle/manual/2026-10-10_salary_creation_intent.sql'),
   'utf8',
 )
+const MULTIPART_SALARY_PREPARE_DDL = readFileSync(
+  join(
+    import.meta.dirname,
+    '../../drizzle/manual/2026-10-04_multiple_salary_transactions_prepare.sql',
+  ),
+  'utf8',
+)
 
 function normalize(sql: string): string {
   return sql
@@ -115,6 +122,48 @@ describe('multipart salary — Drizzle schema contract', () => {
     expect(normalize(new PgDialect().sqlToQuery(check!.value).sql)).toBe(
       "type <> 'salary' or salary_origin is distinct from 'manual' or idempotency_key is not null",
     )
+  })
+
+  // SR-795-L-3 (task-retro-salary-ledger-integrity). `varchar(8)` accepted any
+  // 8-character string: a stored 'Manual' or 'cron' would fall out of the
+  // automatic-component predicate AND out of the month-accounting one, making
+  // the row invisible to cron idempotency and to the gap report at once, with
+  // no error anywhere. The CHECK is the only layer that can refuse it — `.$type`
+  // constrains TypeScript, not Postgres.
+  it('confines salary_origin to the shared SalaryOrigin domain, in the schema and in the replayed DDL', () => {
+    const check = getTableConfig(transactions).checks.find(
+      (c) => c.name === 'ck_transactions_salary_origin_domain',
+    )
+    expect(check).toBeDefined()
+    expect(normalize(new PgDialect().sqlToQuery(check!.value).sql)).toBe(
+      "salary_origin is null or salary_origin in ('manual', 'cron', 'adjusted')",
+    )
+
+    // Same constraint, same name, in the migration the deploy actually applies —
+    // and added through a name-guarded DO block, because this file is replayed
+    // on every deploy (see its header).
+    expect(MULTIPART_SALARY_PREPARE_DDL).toContain('ck_transactions_salary_origin_domain')
+    expect(MULTIPART_SALARY_PREPARE_DDL).toMatch(
+      /CHECK \(\s*salary_origin IS NULL\s+OR salary_origin IN \('MANUAL', 'CRON', 'ADJUSTED'\)\s*\)/,
+    )
+  })
+
+  // SR-795-M-1 / owner decision D-3. The marker backfill originally adopted only
+  // legacy/CRON rows, on the reasoning that a manual part must never claim the
+  // cron marker. D-3 reverses that: the first manual part of a receiver/month
+  // claims it. Without this half of the change, every manual part created before
+  // the fix keeps its month markerless, and the next cron run or Backfill press
+  // still mints the second payable salary the finding is about.
+  it('adopts every existing salary month as initialized, manual parts included', () => {
+    const backfill = MULTIPART_SALARY_PREPARE_DDL.slice(
+      MULTIPART_SALARY_PREPARE_DDL.indexOf('INSERT INTO salary_month_initializations'),
+    )
+    expect(backfill).toContain("WHERE type = 'SALARY'")
+    expect(backfill).not.toMatch(/AND \(salary_origin IS NULL OR salary_origin = 'CRON'\)/)
+    // An ADJUSTED row accounts for no month (it was reclassified because another
+    // row already held one), so it must not be able to claim a marker on replay.
+    expect(backfill).toMatch(/salary_origin IS DISTINCT FROM 'ADJUSTED'/)
+    expect(backfill).toContain('ON CONFLICT (receiver_id, salary_month) DO NOTHING')
   })
 
   it('declares the durable cron-initialization table exactly', () => {
