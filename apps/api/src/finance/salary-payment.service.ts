@@ -23,6 +23,7 @@ import {
 } from './company-account-balance'
 import { isStorableExchangeRate } from './exchange-rate.util'
 import { assertReceiptDocumentBindable } from './receipt.util'
+import { isAutomaticSalaryComponent } from './salary-origin'
 import { SalaryService } from './salary.service'
 import { formatTransactionBusinessDate, resolveTransactionDate } from './transaction-date.util'
 import { TransactionLifecycleService } from './transaction-lifecycle.service'
@@ -554,7 +555,8 @@ export class SalaryPaymentService {
             eq(transactions.type, 'SALARY'),
             eq(transactions.receiverId, values.receiverId),
             eq(transactions.salaryMonth, month),
-            or(isNull(transactions.salaryOrigin), eq(transactions.salaryOrigin, 'CRON')),
+            // CR-795-M-7: one shared fragment — see salary-origin.ts.
+            isAutomaticSalaryComponent(),
           ),
           columns: { id: true },
         })

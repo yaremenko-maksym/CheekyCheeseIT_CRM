@@ -10,9 +10,11 @@ import { and, eq, isNull, or, sql } from 'drizzle-orm'
 import type { CascadePlan, SessionUser } from '@crm/shared'
 import {
   PAID_ROW_LOCKED_FIELD_ERROR_CODES,
+  accountsForSalaryMonth,
   amountsDiffer,
   computeCascadeVersion,
   floorAmountAtAccumulator,
+  isAutomaticSalaryOrigin,
   isCascadeAmountEdit,
   resolveEditCascade,
 } from '@crm/shared'
@@ -30,6 +32,7 @@ import { isRegistryConflict } from './finance-predicates.util'
 import { consumeTxHash } from './onchain-tx'
 import { OnChainClaimService } from './onchain-claim.service'
 import { assertReceiptDocumentBindable } from './receipt.util'
+import { accountsForSalaryMonthSql } from './salary-origin'
 import { assertTransactionWritable } from './transaction-visibility.util'
 
 /**
@@ -544,16 +547,20 @@ export class AdminEditService {
         // an admin correction would leave a stale marker behind and cron would
         // silently skip the now-empty old month forever.
         //
-        // Only legacy (NULL) and CRON rows own automatic-month semantics.
-        // MANUAL parts and ADJUSTED rows never own a cron marker, so moving one
-        // must not disturb a marker that may belong to the automatic part.
+        // SR-795-M-1 / owner decision D-3: a MANUAL part is now ALSO a marker
+        // owner — the first part recorded for a receiver/month claims the slot
+        // so cron skips that month (see `createSalary`). So a manual part moved
+        // to another month has to carry its marker with it, exactly like a
+        // legacy/CRON row, or the old month stays claimed with no salary in it
+        // and cron skips it forever. Only ADJUSTED rows own nothing: one became
+        // ADJUSTED precisely because another row already held that month.
         if (
           salaryMonthChanged &&
           tx.type === 'SALARY' &&
           tx.receiverId &&
           tx.salaryMonth &&
           data.salaryMonth &&
-          (tx.salaryOrigin === null || tx.salaryOrigin === 'CRON')
+          accountsForSalaryMonth(tx.salaryOrigin)
         ) {
           const claimedTarget = await dbtx
             .insert(salaryMonthInitializations)
@@ -577,19 +584,32 @@ export class AdminEditService {
           // MANUAL salary must carry an idempotency key
           // (ck_transactions_manual_salary_idempotency_key) and a cron/legacy
           // row has none, so MANUAL here was a CHECK violation (500).
-          if (claimedTarget.length === 0) {
+          //
+          // Only an AUTOMATIC row is reclassified. A MANUAL part keeps its
+          // origin: it carries an idempotency key and a persisted creation
+          // intent (`salary_creation_intent`), and both describe a manual
+          // request that an admin moving its month does not retract. It simply
+          // arrives at the destination without the marker, which is the same
+          // position as any second manual part of an already-claimed month.
+          if (claimedTarget.length === 0 && isAutomaticSalaryOrigin(tx.salaryOrigin)) {
             await dbtx
               .update(transactions)
               .set({ salaryOrigin: 'ADJUSTED' })
               .where(eq(transactions.id, id))
           }
 
-          // Keep the old marker only when another raw legacy/CRON row still
-          // proves that month was initialized. Deliberately include
-          // soft-deleted rows: deleting an automatic salary is an audit event,
-          // not permission for cron to resurrect it (same invariant as
-          // createMonthlySalaries).
-          const [oldAutomaticEvidence] = await dbtx
+          // Keep the old marker only when another raw row still accounts for
+          // that month. Deliberately include soft-deleted rows: deleting a
+          // salary is an audit event, not permission for cron to resurrect it
+          // (same invariant as createMonthlySalaries).
+          //
+          // CR-795-M-7 / D-3: the predicate is the shared "accounts for the
+          // month" fragment, which — unlike the automatic-component one this
+          // query used before — also counts a MANUAL part. It has to: since the
+          // first manual part of a month claims the marker, a sibling manual
+          // part left behind in the old month is exactly the evidence that the
+          // old month is still accounted for.
+          const [oldMonthEvidence] = await dbtx
             .select({ id: transactions.id })
             .from(transactions)
             .where(
@@ -597,12 +617,12 @@ export class AdminEditService {
                 eq(transactions.type, 'SALARY'),
                 eq(transactions.receiverId, tx.receiverId),
                 eq(transactions.salaryMonth, tx.salaryMonth),
-                or(isNull(transactions.salaryOrigin), eq(transactions.salaryOrigin, 'CRON')),
+                accountsForSalaryMonthSql(),
               ),
             )
             .limit(1)
 
-          if (!oldAutomaticEvidence) {
+          if (!oldMonthEvidence) {
             await dbtx
               .delete(salaryMonthInitializations)
               .where(

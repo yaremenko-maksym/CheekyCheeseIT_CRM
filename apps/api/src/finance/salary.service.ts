@@ -17,6 +17,7 @@ import {
 } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
 import { previousSalaryMonthKey } from './salary-month.util'
+import { isAutomaticSalaryComponent } from './salary-origin'
 
 /**
  * Salary logic that depends on the database ONLY (no shared TransactionsService
@@ -385,7 +386,8 @@ export class SalaryService {
             eq(transactions.type, 'SALARY'),
             eq(transactions.salaryMonth, month),
             inArray(transactions.receiverId, receiverIds),
-            or(isNull(transactions.salaryOrigin), eq(transactions.salaryOrigin, 'CRON')),
+            // CR-795-M-7: one shared fragment — see salary-origin.ts.
+            isAutomaticSalaryComponent(),
           ),
         ),
     ])
