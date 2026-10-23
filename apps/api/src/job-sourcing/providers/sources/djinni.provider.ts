@@ -21,8 +21,9 @@ import { defineRssProvider, type RssSourceSpec } from '../rss.provider'
  * company named inside a description is prose, not a field. This adapter does not read a company out of
  * the title or the description, so `companyName` is `null` and the observation builder quarantines every
  * Djinni item as MISSING_COMPANY. That is the honest outcome under today's contract and it makes the
- * source unusable until the contract can represent "employer not disclosed" (plan A1e: unverifiable
- * employer -> triage) - reported, not worked around by writing "Djinni" or a guess into the field.
+ * source unusable until the contract can represent "employer not disclosed" (withheld at the source, by
+ * the site's design). Owner: `.claude/tasks/task-3.8-undisclosed-employer-and-feed-reader-extension.md`
+ * (requirement 1) - reported, not worked around by writing "Djinni" or a guess into the field.
  *
  * INVENTORY: RECENT, 1 hour. The feed is the newest 100 postings of the filter, not a time window and
  * not the whole board: the unfiltered feed returned exactly 100 items spanning 6.9 hours (busiest hour:
@@ -212,7 +213,14 @@ export const DJINNI_EXP_LEVELS = [
 ] as const
 
 const FEED_URL = 'https://djinni.co/jobs/rss/'
-const RECENT_WINDOW_MS = 60 * 60 * 1000
+/** The feed cap (items) and the busiest measured hour (items/hour); their quotient is the bound. */
+export const DJINNI_FEED_CAP = 100
+export const DJINNI_PEAK_ITEMS_PER_HOUR = 32
+/** 100 / 32 = 3.125 h: past this age "everything posted in the last N hours is in the feed" is unknown. */
+export const DJINNI_MEASURED_COVERAGE_BOUND_MS =
+  (DJINNI_FEED_CAP / DJINNI_PEAK_ITEMS_PER_HOUR) * 60 * 60 * 1000
+/** Declared window: a conservative floor under `DJINNI_MEASURED_COVERAGE_BOUND_MS`. */
+export const DJINNI_RECENT_WINDOW_MS = 60 * 60 * 1000
 
 /** The query string for a filter. It is also the scope's `query`, so each filter has its own scope. */
 function filterQuery(filter: {
@@ -243,7 +251,7 @@ export const djinniSpec: RssSourceSpec<DjinniConfig> = {
   type: 'DJINNI_RSS',
   adapterVersion: 'djinni-1',
   configSchema,
-  inventory: { kind: 'RECENT', windowMs: RECENT_WINDOW_MS },
+  inventory: { kind: 'RECENT', windowMs: DJINNI_RECENT_WINDOW_MS },
   feedRequest: (config) => ({ url: `${FEED_URL}?${config.query}` }),
   mapEntry: (entry, config) => ({
     namespace: config.namespace,

@@ -98,7 +98,9 @@ describe('the request', () => {
 })
 
 describe('the real capture of the seeded endpoint', () => {
-  it('is a valid feed with zero items, and is reported as exactly that', async () => {
+  // PRECONDITION: this is the WRONG feed (WordPress comments) reported as an empty success. It is safe only
+  // while the source is disabled in the seed and unregistered; see the header of euremotejobs.provider.ts.
+  it('the seeded comments feed is a valid feed with zero items, reported as an empty success', async () => {
     const { batch, mapped } = await collect(fixture('jobs-feed.comments-feed.xml'))
     expect(batch.outcome).toBe('SUCCEEDED')
     expect(batch.counts).toEqual({
@@ -118,6 +120,27 @@ describe('the real capture of the seeded endpoint', () => {
     expect(batch.coverage).toBe('PARTIAL')
     expect(batch.requests.at(-1)?.error?.code).toBe('PARSE_DRIFT')
     expect(batch.requests.at(-1)?.error?.message).toMatch(/^MALFORMED: /)
+  })
+})
+
+describe('description source (synthetic)', () => {
+  const feedWith = (inner: string) =>
+    `<?xml version="1.0"?><rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>t</title><item>` +
+    `<title>Engineer</title><link>https://euremotejobs.com/job/x</link><guid>https://euremotejobs.com/job/x</guid>` +
+    `<pubDate>Fri, 23 Oct 2026 16:55:36 +0000</pubDate>${inner}</item></channel></rss>`
+
+  it('prefers the full content:encoded body over the short description when both arrive', async () => {
+    const { mapped } = await collect(
+      feedWith(
+        '<description>short summary</description><content:encoded>full body</content:encoded>',
+      ),
+    )
+    expect(mapped[0]?.description).toBe('full body')
+  })
+
+  it('falls back to the description when there is no content:encoded', async () => {
+    const { mapped } = await collect(feedWith('<description>short summary</description>'))
+    expect(mapped[0]?.description).toBe('short summary')
   })
 })
 

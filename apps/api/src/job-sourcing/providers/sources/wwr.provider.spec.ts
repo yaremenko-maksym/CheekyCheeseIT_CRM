@@ -4,7 +4,13 @@ import { describe, expect, it } from 'vitest'
 import { fakeCollectionContext } from '../../../test/fake-collection-context'
 import { collectFeedPages } from '../rss.provider'
 import { UnvalidatedConfigError } from '../reporting-provider'
-import { parseWwrTitle, WWR_CATEGORIES, wwrProvider, wwrSpec } from './wwr.provider'
+import {
+  parseWwrTitle,
+  WWR_CATEGORIES,
+  WWR_MEASURED_SATURATION_GAP_MS,
+  wwrProvider,
+  wwrSpec,
+} from './wwr.provider'
 
 /**
  * We Work Remotely, through the base's public collect path with a stubbed fetch.
@@ -104,10 +110,24 @@ describe('parseWwrTitle - "Company: Position"', () => {
     },
   )
 
-  it('splits at the FIRST colon: a colon inside a company name would be mis-split (known limit)', () => {
-    // None of the 179 distinct real titles fetched had a colon inside the company name, so the rule is
-    // pinned on what the data shows. A synthetic "A: B: C" cannot say which colon is the boundary.
-    expect(parseWwrTitle('A: B: C')).toEqual({ companyName: 'A', title: 'B: C' })
+  it('a colon with no space after it still splits (synthetic): the decision is pinned, not inferred', () => {
+    // Real titles always carry ": ". Splitting on the bare colon is the chosen rule (a split on ": "
+    // would hand "Acme:Backend" back whole); this case fixes the outcome either way.
+    expect(parseWwrTitle('Acme:Backend Engineer')).toEqual({
+      companyName: 'Acme',
+      title: 'Backend Engineer',
+    })
+  })
+
+  // KNOWN LIMITATION, NOT CORRECT BEHAVIOUR. No real title (0 of 179) has a colon inside the company
+  // name, so AC6's "colon inside the company name" clause has no real case. For a company that did
+  // contain one ("Acme: Inc: Backend Engineer" meaning company "Acme: Inc"), the first-colon split
+  // returns the WRONG company "Acme"; the feed gives no signal to resolve it. This test pins today's
+  // wrong answer so that a change to it is a conscious one; it does not assert the answer is right.
+  it('KNOWN LIMITATION: a colon inside a company name is mis-split at the first colon (synthetic)', () => {
+    const parsed = parseWwrTitle('Acme: Inc: Backend Engineer')
+    expect(parsed.companyName).not.toBe('Acme: Inc') // the answer a human would give
+    expect(parsed).toEqual({ companyName: 'Acme', title: 'Inc: Backend Engineer' })
   })
 })
 
@@ -303,9 +323,40 @@ describe('company uncertainty', () => {
   })
 })
 
+describe('description source', () => {
+  const feedWith = (inner: string) =>
+    `<?xml version="1.0"?><rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>t</title><item>` +
+    `<title>Acme: Engineer</title><link>https://weworkremotely.com/remote-jobs/x</link>` +
+    `<guid>https://weworkremotely.com/remote-jobs/x</guid>` +
+    `<pubDate>Fri, 23 Oct 2026 16:55:36 +0000</pubDate>${inner}</item></channel></rss>`
+
+  it('prefers the full content:encoded body over the short description when both arrive (synthetic)', async () => {
+    const { mapped } = await collect({
+      bodyText: feedWith(
+        '<description>short summary</description><content:encoded>full body</content:encoded>',
+      ),
+    })
+    expect(mapped[0]?.description).toBe('full body')
+  })
+
+  it('falls back to the description when there is no content:encoded (as in every real capture)', async () => {
+    const { mapped } = await collect({
+      bodyText: feedWith('<description>short summary</description>'),
+    })
+    expect(mapped[0]?.description).toBe('short summary')
+  })
+})
+
 describe('window semantics', () => {
   it('declares a 24 hour recent window, under the 57.4 h measured for the busiest category', () => {
     expect(wwrSpec.inventory).toEqual({ kind: 'RECENT', windowMs: DAY })
+  })
+
+  it('keeps the declared window below the measured saturation gap, so widening past the evidence fails', () => {
+    // 57.4 h written out independently of the constant.
+    expect(WWR_MEASURED_SATURATION_GAP_MS).toBe(206_640_000)
+    const windowMs = wwrSpec.inventory.kind === 'RECENT' ? wwrSpec.inventory.windowMs : Infinity
+    expect(windowMs).toBeLessThan(WWR_MEASURED_SATURATION_GAP_MS)
   })
 
   it('reports WINDOW coverage and a [now - 24h, now] scope for a complete run', async () => {
@@ -323,9 +374,7 @@ describe('window semantics', () => {
 
 describe('envelopes', () => {
   it('a valid feed with no items succeeds with zero entries', async () => {
-    const empty =
-      '<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>We Work Remotely: DevOps and Sysadmin Jobs</title><ttl>60</ttl></channel></rss>'
-    const { batch } = await collect({ bodyText: empty })
+    const { batch } = await collect({ bodyText: fixture('category-devops.empty.xml') })
     expect(batch.outcome).toBe('SUCCEEDED')
     expect(batch.counts).toEqual({
       raw: 0,

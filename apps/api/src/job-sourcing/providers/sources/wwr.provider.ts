@@ -28,11 +28,14 @@ import { defineRssProvider, type RssSourceSpec } from '../rss.provider'
  * company that contains one would be mis-split; there is no signal in the feed to tell the two apart
  * (the link slug is derived from the whole title, so it cannot arbitrate).
  *
- * WHAT THE SHARED READER DOES NOT EXPOSE. `region`, `country`, `state`, `type`, `skills` and `expires_at`
- * are plain child elements of every item that `FeedEntry` has no slot for, so location, employment type
- * and expiry are not mapped. Adding them is a change to the feed reader, which this task does not own.
- * `remote` is not set either: the board is remote-only by its name, but that is the board's claim about
- * itself and not a field of the item.
+ * WHAT THE SHARED READER DOES NOT EXPOSE - AND IS THEREFORE UNDONE. `region`, `country`, `state`, `type`,
+ * `skills` and `expires_at` are plain child elements of every item that `FeedEntry` has no slot for, so
+ * location, employment type, skills and expiry are NOT mapped. The plan's Task 3.6 checklist lists
+ * enrichment; it shipped undone because it needs a change to the shared feed reader, which this task does
+ * not own. That is a gap in this task's deliverable, not a design choice. Owner:
+ * `.claude/tasks/task-3.8-undisclosed-employer-and-feed-reader-extension.md` (requirement 2, which names
+ * these fields). `remote` is not set either: the board is remote-only by its name, but that is the
+ * board's claim about itself and not a field of the item.
  *
  * INVENTORY: RECENT, 24 hours. The all-jobs feed is not the board and not a time window: it is the 10
  * newest items of each of 10 categories (95 items because Back-End has 7 and Front-End 8). Hence
@@ -46,6 +49,13 @@ import { defineRssProvider, type RssSourceSpec } from '../rss.provider'
  * still the date the feed publishes, and is mapped as PUBLISHED.
  */
 
+/**
+ * The measured bound the declared window must stay under: the 10th-newest item of the busiest saturated
+ * category ("All Other Remote") was 57.4 h older than the all-jobs feed's newest item. Above this age
+ * "everything published in the last N hours is in the feed" is no longer known to hold.
+ */
+export const WWR_MEASURED_SATURATION_GAP_MS = 57.4 * 60 * 60 * 1000
+
 export const WWR_CATEGORIES = [
   'remote-back-end-programming-jobs',
   'remote-front-end-programming-jobs',
@@ -55,7 +65,8 @@ export const WWR_CATEGORIES = [
 
 const ALL_JOBS_URL = 'https://weworkremotely.com/remote-jobs.rss'
 const categoryUrl = (slug: string): string => `https://weworkremotely.com/categories/${slug}.rss`
-const RECENT_WINDOW_MS = 24 * 60 * 60 * 1000
+/** Declared window: under half of `WWR_MEASURED_SATURATION_GAP_MS`. */
+export const WWR_RECENT_WINDOW_MS = 24 * 60 * 60 * 1000
 
 /**
  * Split `Company: Position` at the first colon. Anything that does not yield a non-empty company AND a
@@ -83,7 +94,7 @@ export const wwrSpec: RssSourceSpec<WwrConfig> = {
   type: 'WWR_RSS',
   adapterVersion: 'wwr-1',
   configSchema,
-  inventory: { kind: 'RECENT', windowMs: RECENT_WINDOW_MS },
+  inventory: { kind: 'RECENT', windowMs: WWR_RECENT_WINDOW_MS },
   feedRequest: (config) => ({
     url: config.category === undefined ? ALL_JOBS_URL : categoryUrl(config.category),
   }),

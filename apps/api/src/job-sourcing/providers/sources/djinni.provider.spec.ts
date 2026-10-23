@@ -7,6 +7,7 @@ import { collectFeedPages } from '../rss.provider'
 import { UnvalidatedConfigError } from '../reporting-provider'
 import {
   DJINNI_EXP_LEVELS,
+  DJINNI_MEASURED_COVERAGE_BOUND_MS,
   DJINNI_PRIMARY_KEYWORDS,
   djinniProvider,
   djinniSpec,
@@ -222,9 +223,39 @@ describe('the employer is never invented', () => {
   })
 })
 
+describe('description source (synthetic)', () => {
+  const feedWith = (inner: string) =>
+    `<?xml version="1.0"?><rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>t</title><item>` +
+    `<title>Engineer</title><link>https://djinni.co/jobs/x</link><guid>https://djinni.co/jobs/x</guid>` +
+    `<pubDate>Fri, 23 Oct 2026 16:55:36 +0000</pubDate>${inner}</item></channel></rss>`
+
+  it('prefers the full content:encoded body over the short description when both arrive', async () => {
+    const { mapped } = await collect(
+      feedWith(
+        '<description>short summary</description><content:encoded>full body</content:encoded>',
+      ),
+    )
+    expect(mapped[0]?.description).toBe('full body')
+  })
+
+  it('falls back to the description when there is no content:encoded', async () => {
+    const { mapped } = await collect(feedWith('<description>short summary</description>'))
+    expect(mapped[0]?.description).toBe('short summary')
+  })
+})
+
 describe('window semantics', () => {
   it('declares a 1 hour recent window, from the measured 6.9 h span and 32/hour peak', () => {
     expect(djinniSpec.inventory).toEqual({ kind: 'RECENT', windowMs: HOUR })
+  })
+
+  it('keeps the declared window under the measured bound: 100 items at a 32/hour peak = 3.125 h', () => {
+    // 3.125 h written out independently of the constant (100 / 32 hours).
+    expect(DJINNI_MEASURED_COVERAGE_BOUND_MS).toBe(11_250_000)
+    expect(djinniSpec.inventory.kind).toBe('RECENT')
+    const windowMs =
+      djinniSpec.inventory.kind === 'RECENT' ? djinniSpec.inventory.windowMs : Infinity
+    expect(windowMs).toBeLessThan(DJINNI_MEASURED_COVERAGE_BOUND_MS)
   })
 
   it('reports WINDOW coverage and a [now - 1h, now] scope for a complete run', async () => {
