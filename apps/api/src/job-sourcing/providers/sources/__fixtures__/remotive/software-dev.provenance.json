@@ -1,0 +1,12 @@
+{
+  "url": "https://remotive.com/api/remote-jobs?category=software-dev",
+  "fetchedAt": "2026-10-23T20:01:38.000Z",
+  "httpStatus": 200,
+  "rawSha256": "53bfb5ff0cf4ef32f2486686209bf3ee17ef1ae673b94158c903902d15794921",
+  "fileSha256": "66ac3533aa2470e0f2b8ac0131d9e5256a131a0bc233803196d9bac2782b8517",
+  "trimmedBy": "node trim-captures.mjs (JSON.parse, whole-record selection by id, regex redaction of e-mail addresses and separator-bearing phone numbers inside string values, JSON.stringify); never a byte cut",
+  "termsUrl": "https://remotive.com/api-documentation",
+  "termsCheckedAt": "2026-10-23T20:10:00.000Z",
+  "permission": "UNCLEAR",
+  "notes": "Capture had 9 jobs (\"job-count\"/\"total-job-count\" 9 retained as received); kept 6. UNCLEAR because the documented API (README + the 0-legal-notice field) grants developer access, but robots.txt (User-agent *) says \"Disallow: /api/*\" and \"Disallow: /*category=\" - the two contradict each other and the owner must decide. Terms: link back to the Remotive URL AND mention Remotive as a source or access is terminated; do not submit Remotive jobs to third-party job sites; jobs are delayed by 24 hours; at most ~4 requests/day advised, >2/minute blocked. Observed: the category=software-dev response held jobs of other categories (Marketing, Sales, Writing, IT) and the optional limit=5 parameter was ignored, so the category filter is not a reliable partition of the inventory. publication_date has NO zone designator. E-mail addresses and phone numbers inside string values were replaced by a parser; personal NAMES in free-text descriptions cannot be found by a parser and were not redacted (records were chosen with short descriptions to limit exposure)."
+}

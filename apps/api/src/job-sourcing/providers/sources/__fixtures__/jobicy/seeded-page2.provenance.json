@@ -1,0 +1,12 @@
+{
+  "url": "https://jobicy.com/api/jobs?count=100&industry=engineering&geo=europe&cursor=<nextCursor of seeded-page1>",
+  "fetchedAt": "2026-10-23T20:00:18.000Z",
+  "httpStatus": 200,
+  "rawSha256": "4abbc980adb1da68472424c2e9e8a65bcc5706ceb8eb6b3998183d775dbf0f03",
+  "fileSha256": "f862f3888b03248ac87c62af5aefb47d055f6f2ee0c569d78e515c0249dbb89d",
+  "trimmedBy": "node trim-captures.mjs (JSON.parse, whole-record selection by id (jobCount rewritten from 17 to the kept 3), regex redaction of e-mail addresses and separator-bearing phone numbers inside string values, JSON.stringify); never a byte cut",
+  "termsUrl": "https://jobicy.com/jobs-rss-feed",
+  "termsCheckedAt": "2026-10-23T20:10:00.000Z",
+  "permission": "PUBLIC_API_DOCUMENTED",
+  "notes": "Final page: 17 jobs captured, 3 kept; hasMore false, nextCursor null, appliedFilters echoes the incoming cursor. The batch status endpoint (/api/jobs/status) answers {id,status} with active|closed|unknown and is NOT used by this adapter (lifecycle belongs to Task 4.6). Terms (Fair use section): free for commercial use without approval; clearly credit Jobicy as the source with a direct link; application buttons must go to the listing url from the feed; do not present listings as your own postings. robots.txt (User-agent *) does not disallow /api/jobs. Public feed covers the last 7 days with a 3-hour publication delay. E-mail addresses and phone numbers inside string values were replaced by a parser; personal NAMES in free-text descriptions cannot be found by a parser and were not redacted (records were chosen with short descriptions to limit exposure)."
+}

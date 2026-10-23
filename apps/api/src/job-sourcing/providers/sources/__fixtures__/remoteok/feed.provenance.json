@@ -1,0 +1,12 @@
+{
+  "url": "https://remoteok.com/api",
+  "fetchedAt": "2026-10-23T19:58:03.000Z",
+  "httpStatus": 200,
+  "rawSha256": "5d2528fa393cb7a7ad701ad356574aa41a341db86489073f36edc91d3518762e",
+  "fileSha256": "1b221608b07da57c826517ff22a683afdce8686557a64a97db0fa5587dcb0ee1",
+  "trimmedBy": "node trim-captures.mjs (JSON.parse, whole-record selection by id (legal object kept verbatim as element 0), regex redaction of e-mail addresses and separator-bearing phone numbers inside string values, JSON.stringify); never a byte cut",
+  "termsUrl": "https://remoteok.com/api",
+  "termsCheckedAt": "2026-10-23T20:10:00.000Z",
+  "permission": "PUBLIC_API_DOCUMENTED",
+  "notes": "Capture had 100 elements (1 legal object + 99 jobs); kept the legal object + 6 jobs. robots.txt (User-agent *) allows / and sets Crawl-delay: 1; it does not disallow /api. The legal object's own text is the terms: link back to the Remote OK URL \"with follow, and without nofollow\" and mention Remote OK as the source, else API access is suspended; do not use the logo. No pagination: one request returns the latest ~100 jobs. E-mail addresses and phone numbers inside string values were replaced by a parser; personal NAMES in free-text descriptions cannot be found by a parser and were not redacted (records were chosen with short descriptions to limit exposure)."
+}
