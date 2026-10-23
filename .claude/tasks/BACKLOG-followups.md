@@ -4519,6 +4519,39 @@ compare full shas (`git rev-parse HEAD` against `git ls-remote origin <branch> |
 **Check on closing:** take a report carrying a `Pushed:` line and run `git cat-file -t <sha>` on the
 exact string it published. It resolves, or the line was never checkable.
 
+### Two further instances, both within hours of the entry being written (2026-10-24)
+
+The entry above was written from an agent's report. Both people who then read it committed the same
+class — which is the argument for the mechanical cure rather than the attentive one.
+
+**Instance 2 — the orchestrator, against another session's branch.** Printed a head sha truncated to
+nine characters for a status line, then typed a full forty-character sha into
+`gh pr merge --match-head-commit`. GitHub refused: _"Head branch was modified."_ Measured afterwards —
+real head `a0a1d3410216dcd6d6044b12a2ed4f7047239dd1`, asserted
+`a0a1d3410b65ba54eb4cd59f26ad7e0ee1ea2b1b`; nine characters shared, the rest invented. Nothing about
+the branch had moved. The branch's own session first explained the refusal as a race with a PR-body
+edit (a body edit does re-trigger Flow Gate), and then **withdrew that explanation**: it had a true
+fact that fitted the symptom and offered the fit as the finding, without asking the one question that
+settles it — _what sha did you pass?_
+
+**Instance 3 — a sample asserted as a census.** A session briefed a devops agent that `zod` was
+declared in **three** manifests (`apps/api`, `apps/web`, `packages/shared`), stated as a measured fact.
+It is **five**: `apps/landing` and `packages/inference` also resolved the vulnerable entry. Three
+places had been looked at; the look was reported as the count. The agent exceeded its brief and found
+the other two, which is the only reason the advisory fix was not a _failed_ fix — a bump touching only
+the obvious three leaves the gate red and looks like a bad patch rather than an incomplete search.
+
+**What the three have in common, and the precision the cure needs.** Not carelessness: in each case a
+real observation was made and then restated at a width it did not cover — twelve characters published
+as forty, nine as forty, three manifests as "three manifests". Procedural rules in this repo are
+observable only through an assertion a reader can re-run, and in instance 2 the published claim had no
+re-runnable assertion beside it: the forty characters came from fingers, the nine from a command. So
+the repair is a **substitution, not a discipline** — pass the thing the command printed
+(`--match-head-commit "$(git ls-remote origin <branch> | cut -f1)"`), and for a count, publish the
+command that produced it (`git grep -l '"zod"' -- '**/package.json'`) rather than the number alone.
+"Be more careful" does not close any of the three; printing the instrument's own output closes all of
+them.
+
 ## 302. Truncating a command's output hides what the command was run to find (2026-10-23)
 
 `pre:bash:swallowed-failure` catches a discarded stderr piped into a counter. It does not catch the
