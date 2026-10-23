@@ -323,6 +323,41 @@ describe('company uncertainty', () => {
   })
 })
 
+describe('item fields the real captures do not exercise (synthetic)', () => {
+  const item = (inner: string) =>
+    `<?xml version="1.0"?><rss version="2.0"><channel><title>t</title><item>${inner}` +
+    `<link>https://weworkremotely.com/remote-jobs/x</link><guid>https://weworkremotely.com/remote-jobs/x</guid>` +
+    `<pubDate>Fri, 23 Oct 2026 16:55:36 +0000</pubDate></item></channel></rss>`
+
+  it('an item with no <title> maps to an empty title and no employer, and is quarantined', async () => {
+    const { mapped, batch } = await collect({ bodyText: item('') })
+    expect(mapped).toHaveLength(1)
+    expect(mapped[0]?.title).toBe('')
+    expect(mapped[0]?.companyName).toBeNull()
+    expect(batch.observations).toEqual([])
+    expect(batch.counts).toEqual({
+      raw: 1,
+      normalized: 0,
+      invalid: 0,
+      quarantined: 1,
+      discarded: 0,
+    })
+  })
+
+  it('keeps EVERY <category> of an item as a tag, in document order', async () => {
+    const { mapped } = await collect({
+      bodyText: item(
+        '<title>Acme: Engineer</title><category>DevOps and Sysadmin</category><category>Full-Stack Programming</category><category>Back-End Programming</category>',
+      ),
+    })
+    expect(mapped[0]?.tags).toEqual([
+      'DevOps and Sysadmin',
+      'Full-Stack Programming',
+      'Back-End Programming',
+    ])
+  })
+})
+
 describe('description source', () => {
   const feedWith = (inner: string) =>
     `<?xml version="1.0"?><rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>t</title><item>` +
@@ -344,6 +379,12 @@ describe('description source', () => {
       bodyText: feedWith('<description>short summary</description>'),
     })
     expect(mapped[0]?.description).toBe('short summary')
+  })
+})
+
+describe('adapter version', () => {
+  it('is wwr-1: the field that invalidates checkpoints, changed only on purpose', () => {
+    expect(wwrSpec.adapterVersion).toBe('wwr-1')
   })
 })
 

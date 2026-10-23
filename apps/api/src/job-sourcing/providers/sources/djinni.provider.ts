@@ -215,7 +215,15 @@ export const DJINNI_EXP_LEVELS = [
 ] as const
 
 const FEED_URL = 'https://djinni.co/jobs/rss/'
-/** The feed cap (items) and the busiest measured hour (items/hour); their quotient is the bound. */
+/**
+ * The feed cap (items) and the busiest measured hour (items/hour); their quotient is the bound.
+ *
+ * DERIVATION (2026-10-23). Inputs: the UNFILTERED feed returned exactly 100 items per response (the
+ * cap), spanning 6.9 hours, and its busiest single hour held 32 postings. Operation: 100 / 32 = 3.125 h,
+ * x 3 600 000 ms/h = 11 250 000 ms. LIMIT: the unfiltered capture is NOT in the repository (the
+ * committed `primary-keyword-rust.xml` is a filtered 8-item response), so the 100, the 6.9 h and the 32
+ * are recorded figures, not re-derivable here. Only the division is checkable.
+ */
 export const DJINNI_FEED_CAP = 100
 export const DJINNI_PEAK_ITEMS_PER_HOUR = 32
 /** 100 / 32 = 3.125 h: past this age "everything posted in the last N hours is in the feed" is unknown. */

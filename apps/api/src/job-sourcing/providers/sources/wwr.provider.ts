@@ -54,6 +54,14 @@ import { defineRssProvider, type RssSourceSpec } from '../rss.provider'
  * The measured bound the declared window must stay under: the 10th-newest item of the busiest saturated
  * category ("All Other Remote") was 57.4 h older than the all-jobs feed's newest item. Above this age
  * "everything published in the last N hours is in the feed" is no longer known to hold.
+ *
+ * DERIVATION, AND ITS LIMIT (2026-10-23). The only input is that single recorded figure, 57.4 h, read
+ * off one capture of the all-jobs feed (95 items) taken on 2026-10-23 at about 19:58 UTC; the operation
+ * is unit conversion only, 57.4 h x 3 600 000 ms/h = 206 640 000 ms. The underlying timestamps (the
+ * newest all-jobs pubDate and the 10th-newest pubDate of that category) are NOT in the repository: the
+ * raw capture was not retained, and the committed `all-jobs.trimmed.xml` holds 6 of the 95 items. So
+ * this number cannot be re-derived from the repository; it is a recorded claim about a measurement.
+ * Re-measure from a fresh all-jobs capture (and keep it) before relying on it or widening the window.
  */
 export const WWR_MEASURED_SATURATION_GAP_MS = 57.4 * 60 * 60 * 1000
 

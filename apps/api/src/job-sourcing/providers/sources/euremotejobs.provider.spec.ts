@@ -123,6 +123,18 @@ describe('the real capture of the seeded endpoint', () => {
   })
 })
 
+describe('categories (synthetic, WP Job Manager shape)', () => {
+  it('keeps EVERY <category> of an item as a tag, in document order', async () => {
+    const { mapped } = await collect(
+      DOCUMENTED_ITEM.replace(
+        '<dc:creator>admin</dc:creator>',
+        '<dc:creator>admin</dc:creator>\n  <category>Engineering</category>\n  <category>Remote EU</category>',
+      ),
+    )
+    expect(mapped[0]?.tags).toEqual(['Engineering', 'Remote EU'])
+  })
+})
+
 describe('description source (synthetic)', () => {
   const feedWith = (inner: string) =>
     `<?xml version="1.0"?><rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>t</title><item>` +
@@ -141,6 +153,12 @@ describe('description source (synthetic)', () => {
   it('falls back to the description when there is no content:encoded', async () => {
     const { mapped } = await collect(feedWith('<description>short summary</description>'))
     expect(mapped[0]?.description).toBe('short summary')
+  })
+})
+
+describe('adapter version', () => {
+  it('is euremotejobs-1: the field that invalidates checkpoints, changed only on purpose', () => {
+    expect(euRemoteJobsSpec.adapterVersion).toBe('euremotejobs-1')
   })
 })
 

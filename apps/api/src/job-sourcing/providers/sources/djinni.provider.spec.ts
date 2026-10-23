@@ -244,6 +244,12 @@ describe('description source (synthetic)', () => {
   })
 })
 
+describe('adapter version', () => {
+  it('is djinni-1: the field that invalidates checkpoints, changed only on purpose', () => {
+    expect(djinniSpec.adapterVersion).toBe('djinni-1')
+  })
+})
+
 describe('window semantics', () => {
   it('declares a 1 hour recent window, from the measured 6.9 h span and 32/hour peak', () => {
     expect(djinniSpec.inventory).toEqual({ kind: 'RECENT', windowMs: HOUR })
