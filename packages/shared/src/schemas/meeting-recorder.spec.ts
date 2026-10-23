@@ -11,6 +11,7 @@ import {
   meetingRecorderArtifactInputSchema,
   meetingRecorderArtifactStoredSchema,
   meetingRecorderConnectionSchema,
+  meetingRecorderInboundReadinessSchema,
   meetingRecorderIntegrationTestEventSchema,
   meetingRecorderReadyEventSchema,
   meetingRecorderReadinessSchema,
@@ -27,6 +28,9 @@ import {
   meetingRecorderWebhookEventSchema,
   sanitizeMeetingRecorderRecording,
 } from './meeting-recorder'
+
+/** An unpaired UTF-16 surrogate — what Postgres refuses in jsonb. */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
 
 const BASE_RECORDING = {
   id: 'recording_123',
@@ -361,6 +365,35 @@ describe('meeting recorder webhook contract', () => {
     }
   })
 
+  /**
+   * SPEC-L-2 (fix round 1): the new limits also apply when a snapshot stored BEFORE them is read
+   * back, and prod cannot be queried to prove no such row exists. So the read path is made
+   * resilient rather than audited: an over-length stored value truncates on read like any other,
+   * and the recording still serves — it must never become a 500 on a detail page.
+   */
+  it('reads back a stored snapshot that exceeds the limits, instead of failing', () => {
+    const oversized = {
+      ...BASE_RECORDING,
+      title: 'T'.repeat(MEETING_RECORDER_TITLE_MAX_CHARS + 5_000),
+      note: 'N'.repeat(MEETING_RECORDER_NOTE_MAX_CHARS + 5_000),
+      transcript: {
+        source: 'stt',
+        segments: [
+          {
+            tStartMs: 0,
+            tEndMs: 1,
+            text: 'S'.repeat(MEETING_RECORDER_SEGMENT_TEXT_MAX_CHARS + 99),
+          },
+        ],
+      },
+    }
+
+    const stored = meetingRecorderRecordingStoredSchema.safeParse(oversized)
+    expect(stored.success).toBe(true)
+    if (!stored.success) return
+    expect(stored.data.title).toHaveLength(MEETING_RECORDER_TITLE_MAX_CHARS)
+  })
+
   it('keeps the stored snapshot strict: an unknown key can never be persisted or served', () => {
     expect(
       meetingRecorderRecordingStoredSchema.safeParse({ ...BASE_RECORDING, unexpected: true })
@@ -677,6 +710,65 @@ describe('meeting recorder schema boundaries', () => {
     updatedAt: '2026-10-07T12:43:00.000Z',
   }
 
+  // SPEC-L-2, at the DTO level: the served detail of a row stored before the limits still parses.
+  it('serves the detail DTO of a stored snapshot that exceeds the limits', () => {
+    const detail = meetingRecorderRecordingDetailSchema.safeParse({
+      ...validSummary,
+      snapshot: {
+        ...BASE_RECORDING,
+        title: 'T'.repeat(MEETING_RECORDER_TITLE_MAX_CHARS + 5_000),
+      },
+    })
+
+    expect(detail.success).toBe(true)
+    if (!detail.success) return
+    expect(detail.data.snapshot.title).toHaveLength(MEETING_RECORDER_TITLE_MAX_CHARS)
+  })
+
+  it('keeps the served summary readiness strict, so no unknown key can be served', () => {
+    expect(
+      meetingRecorderRecordingSummarySchema.safeParse({
+        ...validSummary,
+        readiness: { ...validSummary.readiness, unexpected: true },
+      }).success,
+    ).toBe(false)
+  })
+
+  /**
+   * Found by review of the truncation fix itself: `truncateProviderText` slices at a code-unit
+   * index, so an astral character straddling the cut would emit a LONE SURROGATE — precisely
+   * what `storable` rejects, except the check had already run. Postgres would then refuse the
+   * write and the provider would retry forever: the original defect, reintroduced by its fix.
+   */
+  it.each([-1, 0, 1])(
+    'truncates storably when an astral character straddles the cut boundary (offset %i)',
+    (offset) => {
+      const max = MEETING_RECORDER_TITLE_MAX_CHARS
+      // '😀' is two code units; place it so the cut lands inside it, and on either side.
+      const cut = max - 1 + offset
+      const title = `${'a'.repeat(cut)}😀${'b'.repeat(max)}`
+
+      const parsed = meetingRecorderRecordingInputSchema.safeParse({ ...BASE_RECORDING, title })
+
+      expect(parsed.success).toBe(true)
+      if (!parsed.success) return
+      expect(parsed.data.title.length).toBeLessThanOrEqual(max)
+      // No unpaired surrogate survived the cut.
+      expect(LONE_SURROGATE.test(parsed.data.title)).toBe(false)
+    },
+  )
+
+  it('ingests a whole event whose title is cut mid-emoji', () => {
+    const max = MEETING_RECORDER_TITLE_MAX_CHARS
+    const parsed = meetingRecorderWebhookEventSchema.safeParse(
+      snapshotEvent({ ...BASE_RECORDING, title: `${'a'.repeat(max - 1)}😀 tail` }),
+    )
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) return
+    if (parsed.data.type === 'io.github.kstroevsky.meeting-recorder.integration.test.v1') return
+    expect(LONE_SURROGATE.test(parsed.data.data.recording.title)).toBe(false)
+  })
+
   it('preserves every supported optional recording field', () => {
     expect(meetingRecorderRecordingInputSchema.parse(richRecording)).toEqual(richRecording)
   })
@@ -861,14 +953,25 @@ describe('meeting recorder schema boundaries', () => {
         pending: ['media'],
       }).success,
     ).toBe(false)
+    // SPEC-L-1 (fix round 1): the INBOUND readiness strips an unknown key (forward
+    // compatibility with the extension) ...
     expect(
-      meetingRecorderReadinessSchema.parse({
+      meetingRecorderInboundReadinessSchema.parse({
         complete: false,
         release: 'manual',
         pending: [],
         unexpected: true,
       }),
     ).toEqual({ complete: false, release: 'manual', pending: [] })
+    // ... while the SERVED readiness stays strict, like every other CRM-owned DTO.
+    expect(
+      meetingRecorderReadinessSchema.safeParse({
+        complete: false,
+        release: 'manual',
+        pending: [],
+        unexpected: true,
+      }).success,
+    ).toBe(false)
 
     expect(
       meetingRecorderReadinessSchema.parse({

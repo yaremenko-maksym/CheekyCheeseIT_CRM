@@ -54,11 +54,24 @@ const TRUNCATION_MARK = '…'
 
 export function truncateProviderText(value: string, maxChars: number): string {
   if (value.length <= maxChars) return value
-  return `${value.slice(0, maxChars - TRUNCATION_MARK.length)}${TRUNCATION_MARK}`
+  let cut = maxChars - TRUNCATION_MARK.length
+  // Slicing at a code-unit index can split a surrogate PAIR and emit a lone surrogate — which
+  // is exactly what `storable` refuses, and would fail in Postgres after validation had already
+  // passed (the permanent-retry defect, reintroduced by its own fix). Step back one unit when
+  // the boundary lands on a high surrogate, so the pair is dropped whole.
+  const boundary = value.charCodeAt(cut - 1)
+  if (boundary >= 0xd800 && boundary <= 0xdbff) cut -= 1
+  return `${value.slice(0, cut)}${TRUNCATION_MARK}`
 }
 
 function providerText(maxChars: number) {
-  return storable(z.string()).transform((value) => truncateProviderText(value, maxChars))
+  return (
+    storable(z.string())
+      .transform((value) => truncateProviderText(value, maxChars))
+      // Re-validate what the transform BUILT: the value is constructed here, so the
+      // storable/length guarantee has to hold on the output, not only on the input.
+      .pipe(storable(z.string().max(maxChars)))
+  )
 }
 
 const isoDateTimeSchema = z.string().datetime({ offset: true })
@@ -167,15 +180,24 @@ export function sanitizeMeetingRecorderRecording(
   return meetingRecorderRecordingStoredSchema.parse(sanitized)
 }
 
-export const meetingRecorderReadinessSchema = z.object({
+const readinessShape = {
   complete: z.boolean(),
   release: z.enum(['complete', 'timeout', 'manual']),
   pending: z.array(z.enum(['transcript', 'analysis', 'artifact-delivery'])),
-})
+}
+
+/**
+ * SPEC-L-1 (fix round 1): readiness travels in BOTH directions, and the two directions want
+ * opposite things. Inbound it is provider-controlled, so an unknown key is stripped rather than
+ * refused; served it is a CRM DTO, so it stays `.strict()` like every other one.
+ */
+export const meetingRecorderInboundReadinessSchema = z.object(readinessShape)
+
+export const meetingRecorderReadinessSchema = z.object(readinessShape).strict()
 
 export const meetingRecorderSnapshotDataSchema = z.object({
   revision: z.number().int().positive(),
-  readiness: meetingRecorderReadinessSchema,
+  readiness: meetingRecorderInboundReadinessSchema,
   recording: meetingRecorderRecordingInputSchema,
 })
 
