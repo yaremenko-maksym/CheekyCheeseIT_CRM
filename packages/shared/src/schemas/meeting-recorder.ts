@@ -8,7 +8,13 @@ export const MEETING_RECORDER_READY_EVENT_TYPE =
 export const MEETING_RECORDER_UPDATED_EVENT_TYPE =
   `${MEETING_RECORDER_EVENT_NAMESPACE}.recording.updated.v1` as const
 export const MEETING_RECORDER_INDEXED_IDENTIFIER_MAX_CHARS = 512
-/** CR-865-M-7: limits on provider text the CRM displays (title, note, transcript, labels). */
+/**
+ * CR-865-M-7: limits on provider text the CRM displays (title, note, transcript, labels).
+ *
+ * These are TRUNCATION points, not rejection points (CR-M-1, fix round 1): the provider owns
+ * this text, so a cap that refuses would recreate the permanent-422 retry loop this task
+ * exists to remove. Identifiers and the matching URL keep rejecting — see `storable` below.
+ */
 export const MEETING_RECORDER_TITLE_MAX_CHARS = 1_000
 export const MEETING_RECORDER_NOTE_MAX_CHARS = 100_000
 export const MEETING_RECORDER_SEGMENT_TEXT_MAX_CHARS = 20_000
@@ -38,8 +44,21 @@ function storable<T extends z.ZodString>(schema: T): T {
   ) as T
 }
 
+/**
+ * A provider-owned free-text field: refuse what Postgres cannot store at all, then TRUNCATE to
+ * the limit rather than refuse (CR-M-1). The mark keeps the result self-describing and the
+ * output is never longer than `maxChars`, so re-parsing an already-truncated value is a no-op
+ * — which matters because the stored-snapshot schema re-parses on read.
+ */
+const TRUNCATION_MARK = '…'
+
+export function truncateProviderText(value: string, maxChars: number): string {
+  if (value.length <= maxChars) return value
+  return `${value.slice(0, maxChars - TRUNCATION_MARK.length)}${TRUNCATION_MARK}`
+}
+
 function providerText(maxChars: number) {
-  return storable(z.string().max(maxChars))
+  return storable(z.string()).transform((value) => truncateProviderText(value, maxChars))
 }
 
 const isoDateTimeSchema = z.string().datetime({ offset: true })
@@ -57,7 +76,9 @@ const providerSourceSchema = storable(
 const recordingSourceSchema = z.object({
   kind: z.enum(['meeting', 'tab']),
   provider: providerText(MEETING_RECORDER_LABEL_MAX_CHARS).optional(),
-  meetingId: providerText(MEETING_RECORDER_INDEXED_IDENTIFIER_MAX_CHARS).optional(),
+  // An identifier the matcher compares, not display text: truncating it would silently match
+  // the wrong interview, so this one REJECTS above the bound (CR-M-1).
+  meetingId: storable(z.string().max(MEETING_RECORDER_INDEXED_IDENTIFIER_MAX_CHARS)).optional(),
   meetingUrl: providerHttpsUrlSchema.optional(),
 })
 

@@ -153,11 +153,133 @@ describe('meeting recorder webhook contract', () => {
         analysis: { status: 'completed', topics: [{ keywords: [v], importance: 1, spans: [] }] },
       }),
     ],
-  ])('bounds the displayed %s at its limit', (_label, max, build) => {
-    expect(meetingRecorderRecordingInputSchema.safeParse(build('x'.repeat(max))).success).toBe(true)
-    expect(meetingRecorderRecordingInputSchema.safeParse(build('x'.repeat(max + 1))).success).toBe(
-      false,
+  ])(
+    'bounds the displayed %s at its limit by truncating, never by refusing',
+    (_label, max, build) => {
+      // At the limit: accepted verbatim.
+      expect(meetingRecorderRecordingInputSchema.safeParse(build('x'.repeat(max))).success).toBe(
+        true,
+      )
+      // Over the limit: accepted and truncated TO the limit (CR-M-1 — never a 422 the provider
+      // would retry forever). Asserted on the serialized payload, so one case covers every
+      // field in the table without a per-field reader.
+      const overLimit = meetingRecorderRecordingInputSchema.safeParse(build('x'.repeat(max + 1)))
+      expect(overLimit.success).toBe(true)
+      if (!overLimit.success) return
+      expect(JSON.stringify(overLimit.data)).toContain('…')
+      expect(JSON.stringify(overLimit.data)).not.toContain('x'.repeat(max + 1))
+    },
+  )
+
+  /**
+   * CR-M-1 (fix round 1, review 5631787486): a cap that REJECTS on a provider-controlled
+   * free-text field recreates the very failure this task removed — a payload the provider
+   * keeps retrying and the CRM keeps 422-ing. Free text is truncated instead; only
+   * identifiers and the matching URL still reject, because truncating those changes identity.
+   */
+  it.each([
+    [
+      'analysis error',
+      (v: string) => ({ ...BASE_RECORDING, analysis: { status: 'failed', error: v } }),
+      MEETING_RECORDER_TITLE_MAX_CHARS,
+      (r: MeetingRecorderRecordingInput) => r.analysis?.error,
+    ],
+    [
+      'title',
+      (v: string) => ({ ...BASE_RECORDING, title: v }),
+      MEETING_RECORDER_TITLE_MAX_CHARS,
+      (r: MeetingRecorderRecordingInput) => r.title,
+    ],
+    [
+      'note',
+      (v: string) => ({ ...BASE_RECORDING, note: v }),
+      MEETING_RECORDER_NOTE_MAX_CHARS,
+      (r: MeetingRecorderRecordingInput) => r.note,
+    ],
+    [
+      'transcript text',
+      (v: string) => ({
+        ...BASE_RECORDING,
+        transcript: { source: 'stt', segments: [{ tStartMs: 0, tEndMs: 1, text: v }] },
+      }),
+      MEETING_RECORDER_SEGMENT_TEXT_MAX_CHARS,
+      (r: MeetingRecorderRecordingInput) => r.transcript?.segments[0]?.text,
+    ],
+    [
+      'speaker',
+      (v: string) => ({
+        ...BASE_RECORDING,
+        transcript: {
+          source: 'stt',
+          segments: [{ tStartMs: 0, tEndMs: 1, speaker: v, text: 'x' }],
+        },
+      }),
+      MEETING_RECORDER_LABEL_MAX_CHARS,
+      (r: MeetingRecorderRecordingInput) => r.transcript?.segments[0]?.speaker,
+    ],
+    [
+      'notation text',
+      (v: string) => ({ ...BASE_RECORDING, notations: [{ tStartMs: 0, text: v }] }),
+      MEETING_RECORDER_SEGMENT_TEXT_MAX_CHARS,
+      (r: MeetingRecorderRecordingInput) => r.notations?.[0]?.text,
+    ],
+  ])('truncates an over-length provider %s instead of rejecting it', (_label, build, max, read) => {
+    const parsed = meetingRecorderRecordingInputSchema.safeParse(build('x'.repeat(max + 5_000)))
+
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) return
+    const value = read(parsed.data)
+    expect(value).toHaveLength(max)
+    expect(value?.endsWith('…')).toBe(true)
+  })
+
+  it('ingests an over-length analysis error through the whole event, with no 422', () => {
+    const parsed = meetingRecorderWebhookEventSchema.safeParse(
+      snapshotEvent({
+        ...BASE_RECORDING,
+        analysis: { status: 'failed', error: 'E'.repeat(50_000) },
+      }),
     )
+
+    expect(parsed.success).toBe(true)
+  })
+
+  it('leaves text at or below the limit untouched, and truncation is idempotent', () => {
+    const exact = 'y'.repeat(MEETING_RECORDER_TITLE_MAX_CHARS)
+    const once = meetingRecorderRecordingInputSchema.parse({ ...BASE_RECORDING, title: exact })
+    expect(once.title).toBe(exact)
+
+    const truncated = meetingRecorderRecordingInputSchema.parse({
+      ...BASE_RECORDING,
+      title: 'z'.repeat(MEETING_RECORDER_TITLE_MAX_CHARS + 1),
+    }).title
+    const twice = meetingRecorderRecordingInputSchema.parse({
+      ...BASE_RECORDING,
+      title: truncated,
+    }).title
+    expect(twice).toBe(truncated)
+  })
+
+  it('still REJECTS an over-length identifier or matching URL — truncating those changes identity', () => {
+    const over = 'x'.repeat(MEETING_RECORDER_INDEXED_IDENTIFIER_MAX_CHARS + 1)
+    expect(
+      meetingRecorderRecordingInputSchema.safeParse({ ...BASE_RECORDING, id: over }).success,
+    ).toBe(false)
+    expect(
+      meetingRecorderRecordingInputSchema.safeParse({
+        ...BASE_RECORDING,
+        source: { ...BASE_RECORDING.source, meetingId: over },
+      }).success,
+    ).toBe(false)
+    expect(
+      meetingRecorderRecordingInputSchema.safeParse({
+        ...BASE_RECORDING,
+        source: {
+          ...BASE_RECORDING.source,
+          meetingUrl: `https://meet.google.com/${'u'.repeat(2_048)}`,
+        },
+      }).success,
+    ).toBe(false)
   })
 
   it('pins the displayed-field limits', () => {

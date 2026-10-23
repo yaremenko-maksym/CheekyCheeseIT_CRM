@@ -120,6 +120,8 @@ describe('meeting recorder backend V1 contract boundary', () => {
   })
 
   // CR-865-M-7: displayed sender strings carry their own bound, not only the 2 MiB envelope.
+  // CR-M-1 (fix round 1): that bound TRUNCATES free text instead of refusing it — a refusal on
+  // provider-chosen text is a 422 the provider retries forever, the failure this task removed.
   it.each([
     ['title', { title: 'x'.repeat(MEETING_RECORDER_TITLE_MAX_CHARS + 1) }],
     [
@@ -131,19 +133,29 @@ describe('meeting recorder backend V1 contract boundary', () => {
         },
       },
     ],
-    [
-      'meetingUrl',
-      {
-        source: {
-          ...BASE_RECORDING.source,
-          meetingUrl: `https://example.test/${'x'.repeat(2_048)}`,
-        },
-      },
-    ],
-  ])('rejects a displayed sender %s above its bound', (_label, override) => {
+  ])('truncates an over-length displayed sender %s rather than refusing it', (_label, override) => {
+    const parsed = meetingRecorderWebhookEventSchema.safeParse(
+      snapshotEvent({ ...BASE_RECORDING, ...override }),
+    )
+
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) return
+    expect(JSON.stringify(parsed.data)).toContain('…')
+  })
+
+  // The matching URL is NOT display text: a truncated URL would match the wrong interview (or
+  // nothing), so this one still refuses.
+  it('still refuses a meetingUrl above its bound, because the matcher compares it', () => {
     expect(
-      meetingRecorderWebhookEventSchema.safeParse(snapshotEvent({ ...BASE_RECORDING, ...override }))
-        .success,
+      meetingRecorderWebhookEventSchema.safeParse(
+        snapshotEvent({
+          ...BASE_RECORDING,
+          source: {
+            ...BASE_RECORDING.source,
+            meetingUrl: `https://example.test/${'x'.repeat(2_048)}`,
+          },
+        }),
+      ).success,
     ).toBe(false)
   })
 
