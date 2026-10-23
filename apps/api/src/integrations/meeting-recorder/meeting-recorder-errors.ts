@@ -6,7 +6,7 @@ import {
   type HttpStatus as HttpStatusCode,
 } from '@nestjs/common'
 import type { MeetingRecorderErrorCode } from '@crm/shared'
-import { dbErrorLogSuffix, safeErrorStack } from '../../database/pg-errors'
+import { dbErrorLogSuffix, strictErrorStack } from '../../database/pg-errors'
 
 type WebhookErrorCode = Extract<
   MeetingRecorderErrorCode,
@@ -68,7 +68,10 @@ export function normalizeMeetingRecorderWebhookIngestionError(
   // helpers, which drop drizzle's parameter values and a pg message that could
   // carry them while keeping the SQLSTATE, the table and the frames. Keyed by
   // the SAME requestId the caller receives.
-  logger.error(`${message}${dbErrorLogSuffix(error)}`, safeErrorStack(error))
+  // SR-M-2: `strictErrorStack`, not `safeErrorStack` — on a path whose body is
+  // candidate transcript, the message of an ARBITRARY error is untrusted, not just
+  // that of a pg/drizzle node.
+  logger.error(`${message}${dbErrorLogSuffix(error)}`, strictErrorStack(error))
 
   return new HttpException(
     {

@@ -524,7 +524,7 @@ export const FINANCE_INVOICES_ERROR_MESSAGES: Record<FinanceInvoicesErrorCode, M
     FINANCE_SALARY_IDEMPOTENCY_CONFLICT: /* i18n */ {
       id: 'api-error.FINANCE_SALARY_IDEMPOTENCY_CONFLICT',
       message:
-        'Зарплату не збережено: така вже є в обліку, але з іншими даними. Перевірте наявний запис, перш ніж вносити нову.',
+        'Зарплату не збережено: для цього співробітника й місяця вже є запис з іншими даними. Наявний запис в обліку залишається без змін.',
     },
     FINANCE_ROUNDED_PAYOUT_AMOUNT_ZERO: /* i18n */ {
       id: 'api-error.FINANCE_ROUNDED_PAYOUT_AMOUNT_ZERO',

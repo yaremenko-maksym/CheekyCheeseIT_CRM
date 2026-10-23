@@ -434,7 +434,7 @@ describe('createSalary — AC2: an archived receiver is refused', () => {
       response: {
         code: 'FINANCE_SALARY_IDEMPOTENCY_CONFLICT',
         message:
-          'This salary is already on record with different details, so this one was not saved. Check the saved salary first.',
+          'This salary was not saved: a record with different details already exists for this employee and month. The existing record is unchanged.',
         reason: 'INTENT_MISMATCH',
         existingTransactionId: existing.id,
       },
@@ -458,7 +458,7 @@ describe('createSalary — AC2: an archived receiver is refused', () => {
       response: {
         code: 'FINANCE_SALARY_IDEMPOTENCY_CONFLICT',
         message:
-          'This salary was not saved: a matching earlier salary is on record but its details cannot be verified. Check the saved salary first.',
+          'This salary was not saved: an earlier salary with this key is on record, but its details cannot be verified. The existing record is unchanged.',
         reason: 'LEGACY_INTENT_UNKNOWN',
         existingTransactionId: existing.id,
       },
@@ -513,7 +513,7 @@ describe('createSalary — AC2: an archived receiver is refused', () => {
       response: {
         code: 'FINANCE_SALARY_IDEMPOTENCY_CONFLICT',
         message:
-          'This salary is already on record with different details, so this one was not saved. Check the saved salary first.',
+          'This salary was not saved: a record with different details already exists for this employee and month. The existing record is unchanged.',
         reason: 'INTENT_MISMATCH',
         existingTransactionId: winner.id,
       },

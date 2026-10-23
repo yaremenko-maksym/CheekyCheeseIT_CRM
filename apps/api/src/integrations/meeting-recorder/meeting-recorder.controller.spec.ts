@@ -284,9 +284,73 @@ describe('MeetingRecorderWebhookController', () => {
       expect(line).toContain(CONNECTION_ID)
       // … carries a usable diagnostic …
       expect(line).toContain('23502')
-      // … and none of the bound values.
+      // … and none of the bound values OF THIS SHAPE. This proves the drizzle
+      // case only — a drizzle error whose `params` array holds the value. The
+      // plain-`Error` shape is a different redaction path, covered by the case
+      // above it (SR-M-2).
       expect(line).not.toContain(transcript)
       expect(line).not.toContain('params:')
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  // SR-M-2: the shape that is latent today and the one the sibling tests in this
+  // very file already build — a plain `Error` whose MESSAGE carries the transcript,
+  // as any wrapper rethrowing with `${e.message}` would produce. `safeErrorStack`
+  // would have logged that message verbatim, because it redacts only pg/drizzle
+  // nodes; `strictErrorStack` logs the name and frames and never the message.
+  it('logs no message for a plain Error whose message carries a transcript', async () => {
+    const { controller, service } = mocks()
+    const transcript = 'PRIVATE_TRANSCRIPT_CANARY'
+    service.ingestWebhookEvent.mockRejectedValue(
+      new Error(`wrapper failed while ingesting: ${transcript}`),
+    )
+
+    const logged: Array<unknown[]> = []
+    const spy = vi
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation((...args: unknown[]) => void logged.push(args))
+
+    try {
+      const error = await controller
+        .receiveWebhook(CONNECTION_ID, JSON.stringify(event), request())
+        .then(
+          () => null,
+          (reason: unknown) => reason,
+        )
+
+      const response = (error as HttpException).getResponse() as Record<string, unknown>
+      const requestId = response['requestId'] as string
+
+      expect(logged).toHaveLength(1)
+      const line = logged[0]!.map((part) => String(part)).join(' ')
+      expect(line).toContain(requestId)
+      expect(line).not.toContain(transcript)
+      // The name survives, so the line is still worth having.
+      expect(line).toContain('Error')
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('reports a non-Error throw by type alone, never by its value', async () => {
+    const { controller, service } = mocks()
+    // `String(err)` on a thrown string IS the value — exactly what must not be logged.
+    service.ingestWebhookEvent.mockRejectedValue('PRIVATE_TRANSCRIPT_CANARY')
+
+    const logged: Array<unknown[]> = []
+    const spy = vi
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation((...args: unknown[]) => void logged.push(args))
+
+    try {
+      await controller
+        .receiveWebhook(CONNECTION_ID, JSON.stringify(event), request())
+        .catch(() => undefined)
+      const line = logged[0]!.map((part) => String(part)).join(' ')
+      expect(line).not.toContain('PRIVATE_TRANSCRIPT_CANARY')
+      expect(line).toContain('NonError(string)')
     } finally {
       spy.mockRestore()
     }

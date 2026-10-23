@@ -57,7 +57,7 @@ export function assertSalaryCreationIntent(
       ...(legacy
         ? {
             message:
-              'This salary was not saved: a matching earlier salary is on record but its details cannot be verified. Check the saved salary first.',
+              'This salary was not saved: an earlier salary with this key is on record, but its details cannot be verified. The existing record is unchanged.',
           }
         : {}),
       reason: legacy ? 'LEGACY_INTENT_UNKNOWN' : 'INTENT_MISMATCH',
