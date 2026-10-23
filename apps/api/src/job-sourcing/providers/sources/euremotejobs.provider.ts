@@ -21,7 +21,7 @@ import { defineRssProvider, type RssSourceSpec } from '../rss.provider'
  * in the feed; it is unreachable only because the shared `FeedEntry` reader has no slot for namespaced
  * extension elements. This is NOT Djinni's case (there the feed has no employer field at all). Fixing it
  * is a change to the shared reader, which this task does not own; owner:
- * the backlog entry "A posting whose employer is withheld at the source has nowhere to live" in `.claude/tasks/BACKLOG-followups.md` (numbered 307 when written; the title is the address; second requirement: the shared feed reader
+ * the backlog entry "A posting whose employer is withheld at the source has nowhere to live" in `.claude/tasks/BACKLOG-followups.md` (numbered 309 when written; the title is the address; second requirement: the shared feed reader
  * exposes no namespaced extension elements; working draft: the untracked task-3.8 file). Until then
  * `companyName` is `null` (not taken from the title; `dc:creator` is the account that posted, not the
  * employer) and the observation builder quarantines the item rather than guessing.

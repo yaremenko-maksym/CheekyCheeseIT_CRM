@@ -33,7 +33,7 @@ import { defineRssProvider, type RssSourceSpec } from '../rss.provider'
  * location, employment type, skills and expiry are NOT mapped. The plan's Task 3.6 checklist lists
  * enrichment; it shipped undone because it needs a change to the shared feed reader, which this task does
  * not own. That is a gap in this task's deliverable, not a design choice. Owner:
- * the backlog entry "A posting whose employer is withheld at the source has nowhere to live" in `.claude/tasks/BACKLOG-followups.md` (numbered 307 when written; the title is the address; second requirement: the shared feed reader
+ * the backlog entry "A posting whose employer is withheld at the source has nowhere to live" in `.claude/tasks/BACKLOG-followups.md` (numbered 309 when written; the title is the address; second requirement: the shared feed reader
  * exposes no namespaced extension elements; working draft: the untracked task-3.8 file); the entry names
  * these fields. `remote` is not set either: the board is remote-only by its name, but that is the
  * board's claim about itself and not a field of the item.
