@@ -33,6 +33,7 @@
  */
 
 import { and, eq } from 'drizzle-orm'
+import { MONEY_SCALE } from '@crm/shared'
 import type {
   MultipartSalaryStatus,
   MySalaryAggregateStateDto,
@@ -117,14 +118,25 @@ export async function getOwnSalaryStates(
       pendingAmount: 0,
       lockedAmount: 0,
     }
-    const amount = Number(row.amount)
+    // Accumulate in integer minor units (numeric(18,6) -> 1e6 scale) so the
+    // sum is exact; convert back once below.
+    const amount = Math.round(Number(row.amount) * MONEY_SCALE)
     current.amount += amount
     if (row.status === 'PAID') current.paidAmount += amount
     else if (row.status === 'LOCKED') current.lockedAmount += amount
     else current.pendingAmount += amount
     byCurrency.set(currency, current)
   }
-  const totals = [...byCurrency.values()].sort((a, b) => a.currency.localeCompare(b.currency))
+  const fromMinor = (minor: number): number => Number((minor / MONEY_SCALE).toFixed(6))
+  const totals = [...byCurrency.values()]
+    .map((total) => ({
+      currency: total.currency,
+      amount: fromMinor(total.amount),
+      paidAmount: fromMinor(total.paidAmount),
+      pendingAmount: fromMinor(total.pendingAmount),
+      lockedAmount: fromMinor(total.lockedAmount),
+    }))
+    .sort((a, b) => a.currency.localeCompare(b.currency))
 
   const paidCount = validRows.filter((row) => row.status === 'PAID').length
   const allPaid = paidCount === validRows.length

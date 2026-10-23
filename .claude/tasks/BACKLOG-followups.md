@@ -4163,3 +4163,138 @@ transcript must be gone (or scheduled for deletion) by the agreed policy.
 - CR-809-L-4 — the same "minimum date" hint has two msgids; unify.
 
 **Check on closing:** one Playwright spec covers a date picker's min/max; the hint has one msgid.
+
+## 284. A test derived from a defect inherits the defect's one-sidedness (2026-10-22)
+
+**CLOSED as a lesson, not an open item** — recorded because it explains five separate defects in one
+phase and the fix is a habit, not a change.
+
+A finding says "X leaked" or "X was unbounded". The test written from it therefore asserts the
+**refusal**: the secret is absent, the over-long input is dropped, the cap fires. The **acceptance**
+side has no finding to prompt it, so nobody writes it — and a bound is exactly the place where only
+the pair distinguishes `>` from `>=`.
+
+Vacancy-sourcing phase 2 produced this five times: at the identity-key length cap, at the bounded
+JSON depth bound, twice at the redaction caps, and at the redaction input budget. Each time the fix
+was correct and its test was single-sided, so the next mutation round found it again in a new place.
+
+The sibling variant: asserting that a value **changed** rather than **what it changed to**. A
+redaction test passed on `changed === true` while the first 44 characters of a username sat in the
+output.
+
+**The rule:** the expected value comes from the **specification**, not from the bug report. Write the
+acceptance-side assertion first, then the refusal side.
+
+**Check on closing:** in a fix round's diff, every new bound has a case at the limit **and** one past
+it. A diff with only refusal cases is the defect, whatever the finding said.
+
+## 285. A true-but-incomplete claim survives the careful reader who would catch a false one (2026-10-22)
+
+A false claim is caught by the first person who checks it against the code. A claim that is accurate
+as far as it goes is **confirmed** by that person, and the part nobody thought to check stays wrong.
+
+The clean example: a PR body stated that the response cache key included "source type, board, config
+version, page and cursor". Every one of those five was true. It omitted `query` — so two sources on
+one board, one searching `python` and one `java`, shared a cache entry; a `304` on the second
+returned the first's body, and the batch reported `SUCCEEDED` with the wrong posting stored.
+
+Same family, same phase: an exception file asserting that a dependency bump "would break" a spec,
+true when written and false after the bump happened; a comment quoting a predicate that a later
+commit had already replaced; and a decision record whose headline claim ("no option can resolve an
+entity") contradicted its own supporting section two screens below.
+
+**The repair is construction, not care.** Derive the claim from the thing it describes — build the
+cache key **from the request** rather than from a list of fields someone must keep in sync, the way
+the coverage floors are derived from `git ls-files` instead of a typed number. A claim that cannot
+drift out of step needs no reader to re-check it.
+
+**Check on closing:** a sentence in a long-lived document that enumerates fields, versions or
+behaviours is either generated from the source, or carries the command that re-derives it. An
+enumeration maintained by hand is a future true-but-incomplete claim.
+
+## 286. A fresh worktree cannot commit, and only the expensive fix is written down (2026-10-22)
+
+A fresh agent worktree has no `node_modules`, so husky's `pre-commit` fails `ENOENT: lint-staged` and
+**nothing can be committed** — including a branch whose whole diff is two markdown files.
+
+The obstacle is documented, and so is the heavy fix (a full `pnpm install`, plus a web build for the
+generated route tree). The **cheap** fix is not: put the main checkout's `node_modules/.bin` on
+`PATH` for the commit, so the real `lint-staged` and `prettier --write` run against the worktree's
+staged files.
+
+That gap has already cost a policy violation. One coder, blocked by it, reflexively ran
+`git commit --no-verify` — forbidden with zero tolerance — then caught itself, reset, and recommitted
+through the hooks, disclosing the lapse. A second agent hit the same wall the same day and found the
+`PATH` route on its own. The undocumented cheap path is where an agent under time pressure reaches
+for the forbidden one.
+
+**Check on closing:** cut a worktree with no `node_modules`, stage a markdown change, commit. If it
+succeeds with hooks running and without an install, the cheap path is available. If the only
+documented routes remain a full install or `--no-verify`, the gap is open.
+
+## 287. `xml/growth.spec.ts` gates on a timing exponent and fails under load (2026-10-22)
+
+The ReDoS/quadratic-growth gate for the XML port asserts a growth **exponent**. Measured during
+phase 2: at one PR's base commit, with the change absent, the full `job-sourcing` suite failed **4 of
+4** runs, a different exponent assertion each time; on the branch, 2 of 3; in another agent's run it
+failed once at 2.02 against a 2.0 bound and then passed twice.
+
+The gate is worth having — it is the only standing check on the class that dominates real XML parser
+advisories — which is why the fix is **not** to raise the threshold. Raising it quietly removes the
+protection R-5 exists to provide. The likely repair is warm-up plus best-of-N, or expressing the
+assertion as a ratio against a same-run baseline rather than an absolute exponent, which is what the
+port's own R-5 assertions already do after absolute ceilings proved unusable under the gate's own
+4-way concurrency.
+
+**Check on closing:** 50 consecutive runs under artificial load, green. One green run proves nothing:
+a flake's green and a fix's green are the same green.
+
+## 288. A stale justification keeps a dead audit exception alive (2026-10-22)
+
+`scripts/devops/pnpm-audit-exceptions.json` held an `@xmldom/xmldom` group covering ten GHSA ids.
+Its text justified the exception by asserting that bumping to the patched version **would break**
+`resume-text-extraction.service.spec.ts`. That bump had since happened, the spec had been rebuilt for
+it, and it passes — so the justification had been false for some time, and `pnpm audit` no longer
+reported any of the ten ids. The gate's own stale-exception warning named them; nothing acted on it.
+
+This is worse than a stale comment. A comment misleads a reader; a stale **justification** is a
+standing licence to ignore a real advisory, because the next person who finds the group reads a
+reason and moves on. An exception file is the one place where "true when written" is not good enough.
+
+**Check on closing:** every group in that file carries the date its reachability claim was verified
+and the command that verified it (`pnpm why <pkg> -r`), and the gate's stale-exception warning is
+treated as a failure to triage rather than noise.
+
+## 289. Auto-merge cannot merge a draft, and says so only in the job log (2026-10-22)
+
+A PR was labelled `merge-approved` with every required check green and did not merge. The
+auto-merge workflow failed with `GraphQL: Pull Request is still a draft (mergePullRequest)`. The PR
+then carried a red `Squash merge if CI green` check and a `ci-failed` label, so its `mergeStateStatus`
+read `UNSTABLE` — which looks like a code problem and is not one.
+
+Cost: one cycle, and a misleading signal while it lasted. The fix is trivial once known
+(`gh pr ready <n>`, then re-apply the label to re-trigger), and the workflow did behave correctly —
+it refused and named the cause.
+
+**Check on closing:** either the auto-merge job states "draft" in its own check summary rather than
+only in the log, or agents open PRs ready-for-review by default. The second is cheaper and is now in
+the dispatch briefs.
+
+## 290. A requirement deferred to a task that does not own it belongs to nobody (2026-10-22)
+
+Task 2.4b found that the fetch port hands the collection loop an already-decoded **string**, so the
+XML port's byte-level decoding never runs on a fetched feed: a mis-decoded feed arrives full of
+U+FFFD and was parsed as a **successful** feed with corrupted titles. The PR deferred byte-faithful
+decoding to Task 2.5.
+
+But the plan puts charset in **Task 2.2**, and Task 2.5 has no bytes or charset item at all. So the
+deferral pointed at a task that would never pick it up, nothing in the repository tracked it, and
+2.2's extension was outside the phase's approved scope — the requirement would have fallen between
+the two and stopped being anyone's.
+
+A deferral names a **destination**, and an unchecked destination is indistinguishable from a decision
+not to do the work. This is the planning-level form of entry 285: "deferred to 2.5" was a claim that
+read as complete.
+
+**Check on closing:** a PR that defers a requirement names the task that owns it **and** that task's
+own description contains a matching item. If it does not, the deferral is a drop.
