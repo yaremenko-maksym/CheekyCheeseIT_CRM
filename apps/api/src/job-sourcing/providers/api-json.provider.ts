@@ -1,5 +1,7 @@
+import { createHash } from 'node:crypto'
 import type { JobMeterUnit, JobSourceType } from '@crm/shared'
 import { z, type ZodType } from 'zod'
+import { canonicalNativeId } from '../normalize/identity-key'
 import {
   buildSourceObservation,
   type RawObservationFields,
@@ -12,6 +14,7 @@ import {
   buildCollectionBatch,
   buildInvalidSample,
   buildRequestReport,
+  type CachedResponse,
   type CollectionBatch,
   type CollectionContext,
   type CollectionCounts,
@@ -46,13 +49,14 @@ import {
  *
  *  - The AC1 invariant would be OVERRIDABLE. A subclass can override `collectReport`, and the one
  *    thing that must not be per-adapter is exactly the thing inheritance leaves open. Here outcome
- *    and coverage are derived inside `collectJsonPages` from facts the spec cannot reach, and a
+ *    and coverage are derived inside `collectPages` from facts the spec cannot reach, and a
  *    spec has no slot in which to claim either.
  *  - The loop could only be tested through a fake subclass — testing from behind the interface. As
  *    a function over ports it is tested through the same seam the adapters use.
  *
- * So: `collectJsonPages` is the deep module, `ApiJsonSourceSpec` is the seam, and the ~25 adapters
- * are adapters in the role sense — each occupies the slot, none of them owns the lifecycle.
+ * So: `collectPages` is the deep module, `PagedSourceSpec` is the seam, and the ~25 adapters are
+ * adapters in the role sense — each occupies the slot (through the JSON, XML or feed binding),
+ * none of them owns the lifecycle.
  */
 
 // ---------------------------------------------------------------------------
@@ -117,31 +121,59 @@ export interface PageTarget {
 
 export interface PageRequest {
   request: FetchRequest
-  /** Key for the conditional-request cache. Omit to skip caching for this page. */
+  /**
+   * The cache SLOT for this page — a readable label, NOT the whole key. Omit to skip caching for
+   * this page. The loop keys the entry on this slot plus a digest of the request itself (see
+   * `responseCacheKey`), so a slot an adapter reuses across two different requests cannot make
+   * one request's 304 replay the other's body.
+   */
   cacheKey?: string
 }
 
+/** The two bounds the LOOP enforces, whatever the body format. Each binding resolves its own. */
+export type PageLimits = Pick<ApiJsonLimits, 'maxPages' | 'maxItemsPerPage'>
+
 /**
- * ONE adapter, as data.
+ * One body, turned into an envelope — or refused, with the code the refusal reports under.
  *
- * The three override seams the plan asks for are the three function fields: FETCH is
- * `pageRequest` (the adapter says what to ask for; the loop, never the adapter, does the asking,
- * so bounds and metering cannot be skipped), MAP is `mapItem`, SCHEMA is `envelopeSchema` +
- * `itemSchema`.
+ * The code is the binding's to choose because only the binding knows the difference between "this
+ * is not the format we asked for" (`PARSE_DRIFT`) and "this is the format, past a bound we set"
+ * (`PAYLOAD_TOO_LARGE`), and the two are actioned differently.
  */
-export interface ApiJsonSourceSpec<TConfig extends SourceConfigFields, TEnvelope, TItem> {
+export type DecodedEnvelope<TEnvelope> =
+  { ok: true; value: TEnvelope } | { ok: false; code: CollectionErrorCode; message: string }
+
+/**
+ * ONE adapter, as data — FORMAT-NEUTRAL. The loop's view of a source.
+ *
+ * WHY THIS EXISTS (Task 2.4): the RSS/Atom base and the Personio XML helper collect through THIS
+ * loop rather than one of their own. Body format was the only thing about the loop that was JSON —
+ * one call to `parseBoundedJson` and one envelope `safeParse` — and everything else (checkpoint
+ * validation, reserve -> reconcile, the conditional cache, outcome and coverage derivation,
+ * failure classification) is exactly what a second loop would have had to re-derive, with every
+ * failure mode 2.3's review rounds closed open again. So the format became one slot,
+ * `decodeEnvelope`, and the loop is shared. The JSON binding is `collectJsonPages`; the XML
+ * bindings are `xml-source.provider.ts` and `rss.provider.ts`.
+ *
+ * The three override seams the plan asks for are function fields: FETCH is `pageRequest` (the
+ * adapter says what to ask for; the loop, never the adapter, does the asking, so bounds and
+ * metering cannot be skipped), MAP is `mapItem`, SCHEMA is `decodeEnvelope` + `itemSchema`.
+ */
+export interface PagedSourceSpec<TConfig extends SourceConfigFields, TEnvelope, TItem> {
   readonly type: JobSourceType
   /** Bumped when the mapping changes. The loop stamps it on every observation and checkpoint, so
    * an adapter cannot disagree with itself about which version produced a row. */
   readonly adapterVersion: string
-  readonly configSchema: ZodType<TConfig>
   /**
-   * The page envelope. MUST treat the item array as OPAQUE (`z.array(z.unknown())`): the envelope
-   * is the subrequest's contract and a failure here is drift that fails the subrequest, while a
-   * bad ITEM must be isolated (AC3). An envelope schema that validated items inline would turn one
+   * The body -> the page envelope. The envelope MUST treat the items as OPAQUE: the envelope is
+   * the subrequest's contract and a failure here is drift that fails the subrequest, while a bad
+   * ITEM must be isolated (AC3). An envelope check that validated items inline would turn one
    * malformed posting into a failed page — precisely the behaviour the AC forbids.
+   *
+   * Returns a refusal rather than throwing. It is called on a 200 body and on a body replayed from
+   * the cache after a 304 alike, so a cached inventory is held to the same contract as a fresh one.
    */
-  readonly envelopeSchema: ZodType<TEnvelope>
+  decodeEnvelope(bodyText: string): DecodedEnvelope<TEnvelope>
   readonly itemSchema: ZodType<TItem>
   pageRequest(config: TConfig, at: PageTarget): PageRequest
   extractItems(envelope: TEnvelope, config: TConfig): readonly unknown[]
@@ -188,6 +220,20 @@ export interface ApiJsonSourceSpec<TConfig extends SourceConfigFields, TEnvelope
    * switched off (SPEC-M-1). All 25 of phase 3's adapters write this field, which is the cost of
    * the field being impossible to forget rather than merely documented.
    *
+   * WHAT AN ADAPTER PROMISES by implementing this, and what the loop can catch if it breaks the
+   * promise (SR-M-4). The promise: the value returned is the provider's own id for the item, and it
+   * varies exactly when the provider's postings differ. The loop checks it ONLY when identity fell
+   * back to the canonical URL (`identity.nativeId === null`), and compares this value across items
+   * that landed on one identity key. So it catches an adapter whose URL is coarser than the
+   * provider's ids. It does NOT catch the other direction: a `mapItem` that sets `raw.nativeId` to
+   * an id coarser than what this method reports (a constant, a shared slug) makes identity key on
+   * that id, `identity.nativeId` is non-null, the check is skipped, and two distinct postings
+   * collapse onto one key stored as `SUCCEEDED`, silently. "The adapter said so" holds for the
+   * adapter's choice of FIELD, not for the feed's VALUES in it; this method does not make `mapItem`'s
+   * identity id honest. Latent today: the RSS binding reads `entry.guid` on both sides and its
+   * `mapEntry` is `Omit<…, 'nativeId'>`, so it cannot diverge, and the JSON binding has no adapters
+   * yet. An adapter author must keep `mapItem`'s native id and this return value the same field.
+   *
    * There are exactly two honest implementations:
    *  - `(item) => item.id` (or wherever the provider's id lives), including for a URL-keyed
    *    adapter — ESPECIALLY for one, since that is the configuration AC5 guards;
@@ -196,11 +242,32 @@ export interface ApiJsonSourceSpec<TConfig extends SourceConfigFields, TEnvelope
    *    reviewable — which is the whole difference from the omission it replaces.
    */
   nativeIdOf(item: TItem, config: TConfig): string | null
-  scopeOf(config: TConfig): SourceCoverageScope
-  readonly limits?: Partial<ApiJsonLimits>
+  /**
+   * What this attempt covers. `now` is the attempt's clock, for a scope whose window is relative
+   * to it — a feed that only ever shows the last N days covers `[now - N days, now]`, and saying
+   * so is what keeps it from claiming FULL_INVENTORY (Task 2.4).
+   */
+  scopeOf(config: TConfig, now: Date): SourceCoverageScope
+  /** Required here and resolved by each binding: a loop-level default would be one no binding used. */
+  readonly limits: PageLimits
   /** What one page costs. Reserved BEFORE any I/O, per the store's reservation ordering. */
   readonly meter?: { unit: JobMeterUnit; amountPerRequest: number }
   readonly overlapMs?: number
+}
+
+/** A JSON adapter: the format-neutral spec, with its body contract spelled as a Zod envelope. */
+export interface ApiJsonSourceSpec<
+  TConfig extends SourceConfigFields,
+  TEnvelope,
+  TItem,
+> extends Omit<PagedSourceSpec<TConfig, TEnvelope, TItem>, 'decodeEnvelope' | 'limits'> {
+  readonly configSchema: ZodType<TConfig>
+  /**
+   * The page envelope. MUST treat the item array as OPAQUE (`z.array(z.unknown())`), for the
+   * reason given on `PagedSourceSpec.decodeEnvelope`.
+   */
+  readonly envelopeSchema: ZodType<TEnvelope>
+  readonly limits?: Partial<ApiJsonLimits>
 }
 
 // ---------------------------------------------------------------------------
@@ -349,7 +416,7 @@ type PageAdvance =
  * fetch, with nothing in the batch to say why.
  */
 function buildPageRequest<TConfig extends SourceConfigFields, TEnvelope, TItem>(
-  spec: ApiJsonSourceSpec<TConfig, TEnvelope, TItem>,
+  spec: PagedSourceSpec<TConfig, TEnvelope, TItem>,
   config: TConfig,
   at: PageTarget,
 ): BuiltPageRequest {
@@ -361,6 +428,121 @@ function buildPageRequest<TConfig extends SourceConfigFields, TEnvelope, TItem>(
       message: error instanceof Error ? error.message : 'the page request could not be built',
     }
   }
+}
+
+/**
+ * Decode a body through the adapter's slot, and treat a throw as data — the same guard
+ * `buildPageRequest` gives `pageRequest`.
+ *
+ * `decodeEnvelope` is contracted to RETURN a refusal, and both shipped decoders are total, so this
+ * is latent today. But it was the only adapter slot left unguarded, and a throw from it rejected
+ * `collectPages` outright: no batch, and every page already persisted went unreported (CR-M-1). A
+ * decoder that throws has broken its own contract, so it is `ADAPTER_INVARIANT` — the code for
+ * "our adapter is wrong", not the provider's drift.
+ */
+function decodePage<TConfig extends SourceConfigFields, TEnvelope, TItem>(
+  spec: PagedSourceSpec<TConfig, TEnvelope, TItem>,
+  bodyText: string,
+): DecodedEnvelope<TEnvelope> {
+  try {
+    return spec.decodeEnvelope(bodyText)
+  } catch (error) {
+    return {
+      ok: false,
+      code: 'ADAPTER_INVARIANT',
+      message: `decodeEnvelope threw outside its contract: ${error instanceof Error ? error.message : 'a non-Error value'}`,
+    }
+  }
+}
+
+/**
+ * The request headers that revalidate a cached response — one per validator the entry holds.
+ *
+ * A validator that is absent sends NO header rather than an empty one: `If-None-Match: ` with no
+ * value is a malformed precondition. The loop writes an entry only when a validator arrived, but
+ * the cache is a port and an entry with none can still come back from it; the caller treats an
+ * empty result as "nothing cached", so such an entry never licenses a 304.
+ */
+function conditionalHeaders(cached: CachedResponse): Record<string, string> {
+  const headers: Record<string, string> = {}
+  if (isValidator(cached.etag)) headers['if-none-match'] = cached.etag
+  if (isValidator(cached.lastModified)) headers['if-modified-since'] = cached.lastModified
+  return headers
+}
+
+/**
+ * A validator is a value that can be SENT. Absent and empty are the same answer: an empty
+ * `Last-Modified` used to be stored and replayed as `if-modified-since: ""` — exactly the malformed
+ * precondition the comment above promised never to send, because the check it relied on was
+ * `!== undefined` and an empty header is defined (CR-M-3). Whitespace-only counts as empty for the
+ * same reason. Used on BOTH sides — what is worth storing and what is sent — so the two cannot
+ * disagree about what a validator is.
+ */
+function isValidator(value: string | null | undefined): value is string {
+  return typeof value === 'string' && value.trim() !== ''
+}
+
+/**
+ * The key a page's response is cached under: the adapter's slot, and a digest of the REQUEST.
+ *
+ * WHY THE REQUEST AND NOT A LIST OF FIELDS (SR-H-1). The key used to be whatever the adapter named,
+ * and the feed base named `[type, board, config version, page, cursor]` — five true fields, and
+ * incomplete in exactly the dimension that mattered: two sources on one board under
+ * `query=python` and `query=java` shared a key, a 304 on the second replayed the first's body, and
+ * the batch reported SUCCEEDED with the wrong postings stored. Every enumeration of "what makes
+ * two requests different" is one request parameter away from that defect, so the key is built from
+ * what actually goes on the wire: method, URL (query and window live there), headers and body —
+ * plus the spec's `type` and `adapterVersion`, so a redeployed mapping never revalidates a body
+ * fetched for the old one. Two requests that differ in anything the provider can see cannot share
+ * an entry.
+ *
+ * It is the request BEFORE the loop adds its own validators; those are what a cached entry
+ * supplies, not what identifies it.
+ *
+ * A DIGEST, not the request verbatim: the request carries credentials (an `authorization` header,
+ * an API key in the URL), and a cache key is stored. The slot stays readable in front of it so an
+ * operator can still tell which page an entry belongs to.
+ *
+ * Two requests that are the same to the provider but spelled differently (header order, `GET` vs an
+ * omitted method) get two entries. That costs a refetch, never a wrong body.
+ *
+ * THE WHOLE REQUEST OBJECT IS HASHED, NOT A LIST OF ITS FIELDS (CR-M-1 = SR-M-2). It used to be
+ * `[type, adapterVersion, method, url, headers, body]` — an enumeration of the four fields
+ * `FetchRequest` happens to have today, which is the very thing the paragraph above says is one
+ * parameter away from SR-H-1. A fifth field (a per-source timeout, a redirect policy — anything the
+ * provider can see) would have stayed out of the key with nothing failing.
+ *
+ * WHICH MECHANISM KEEPS IT CLOSED, and why it cannot silently pass: NEITHER a typecheck nor review
+ * attentiveness, but CONSTRUCTION — a new field is part of `request`, so it enters the digest
+ * whether or not anyone remembers it. There is no enumeration left to keep in sync, so there is no
+ * exhaustiveness probe here either: under whole-object hashing such a probe would assert something
+ * that cannot be false, which is the decoration this round is about. What a reader could still undo
+ * is the whole-object hash itself, so THAT is what has a test —
+ * `keys on a request field the digest never enumerated` sends a request carrying a field outside
+ * `FetchRequest` and asserts the key changes; it fails the moment the body goes back to a field
+ * list.
+ *
+ * WHAT THE DIGEST DOES NOT COVER, and the consequence (CR-M-4 = SR-M-5). It is `JSON.stringify`
+ * of the request, so a future field that does not serialise faithfully is NOT a safe failure. A
+ * KEY COLLISION means two different requests share one cache entry, and a 304 on that entry replays
+ * the OTHER request's body — the SR-H-1 harm this digest exists to prevent, not a refetch. It is
+ * reachable for any field that affects the response: a stream body or a redirect-policy object
+ * renders identically for two different values, so two requests that should fetch different bodies
+ * get one key. A BigInt or a cycle does not collide, it THROWS, so the failure for a non-plain field
+ * is a throw or a wrong body, never a benign extra fetch. Nothing exercises this today: every
+ * `FetchRequest` field is a plain string. The exposure is the next field someone adds, so a field
+ * that is not plain JSON must be given an explicit, faithful serialisation here before it is added
+ * to `FetchRequest`.
+ */
+function responseCacheKey(
+  slot: string,
+  spec: { readonly type: JobSourceType; readonly adapterVersion: string },
+  request: FetchRequest,
+): string {
+  const digest = createHash('sha256')
+    .update(JSON.stringify([spec.type, spec.adapterVersion, request]))
+    .digest('hex')
+  return JSON.stringify([slot, digest])
 }
 
 /** HTTP status -> our typed code. Classified from the STATUS, never from the body text. */
@@ -390,12 +572,12 @@ interface PageAttemptFailure {
  * than each call's presence, because a loop that made both calls in the wrong order would satisfy
  * every per-call assertion.
  */
-export async function collectJsonPages<TConfig extends SourceConfigFields, TEnvelope, TItem>(
-  spec: ApiJsonSourceSpec<TConfig, TEnvelope, TItem>,
+export async function collectPages<TConfig extends SourceConfigFields, TEnvelope, TItem>(
+  spec: PagedSourceSpec<TConfig, TEnvelope, TItem>,
   config: TConfig,
   ctx: CollectionContext,
 ): Promise<CollectionBatch> {
-  const limits: ApiJsonLimits = { ...DEFAULT_API_JSON_LIMITS, ...spec.limits }
+  const limits = spec.limits
   const overlapMs = spec.overlapMs ?? DEFAULT_OVERLAP_MS
 
   const stored = await ctx.checkpoints.load()
@@ -405,7 +587,7 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
     adapterVersion: spec.adapterVersion,
   })
 
-  let scope = spec.scopeOf(config)
+  let scope = spec.scopeOf(config, ctx.now())
   let at: PageTarget = { page: 1, cursor: null, window: scope.window }
   let checkpoint: ValidatedCheckpoint | null = null
   const resumed = decision.kind === 'RESUME'
@@ -628,14 +810,21 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
      * All three are reachable and asserted, so the `finally` is not a guard without a failing test.
      */
     let resolution: ReservationResolution = 'RELEASED'
+    const cacheKey =
+      pageRequest.cacheKey === undefined
+        ? undefined
+        : responseCacheKey(pageRequest.cacheKey, spec, pageRequest.request)
 
     try {
-      const cached =
-        pageRequest.cacheKey === undefined ? null : await ctx.cache.get(pageRequest.cacheKey)
+      const stored = cacheKey === undefined ? null : await ctx.cache.get(cacheKey)
+      // An entry is only USABLE when it holds a validator to send: a 304 is an answer to a
+      // precondition, and without one there was no question for it to answer.
+      const validators = stored === null ? {} : conditionalHeaders(stored)
+      const cached = Object.keys(validators).length > 0 ? stored : null
       if (cached !== null) {
         request = {
           ...pageRequest.request,
-          headers: { ...pageRequest.request.headers, 'if-none-match': cached.etag },
+          headers: { ...pageRequest.request.headers, ...validators },
         }
       }
 
@@ -657,7 +846,8 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
         }
       } else {
         bodyText = response.bodyText
-        if (response.etag !== null && pageRequest.cacheKey !== undefined) {
+        const lastModified = response.headers['last-modified']
+        if ((isValidator(response.etag) || isValidator(lastModified)) && cacheKey !== undefined) {
           /**
            * THE CACHE'S TWO FAILURES ARE NOT THE SAME FAILURE, AND DIRECTION IS WHAT DECIDES.
            *
@@ -674,7 +864,11 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
            * `finally`, which is why this does not reopen SR-M-1.
            */
           try {
-            await ctx.cache.put(pageRequest.cacheKey, { etag: response.etag, bodyText })
+            await ctx.cache.put(cacheKey, {
+              etag: response.etag,
+              lastModified,
+              bodyText,
+            })
           } catch {
             // Deliberately nothing: see above. There is no report slot for "the page is fine but
             // the cache is not", and inventing one would mean a request report describing a
@@ -731,230 +925,213 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
     }
 
     if (failure === null) {
-      const parsed = parseBoundedJson(bodyText, limits)
-      if (!parsed.ok) {
-        failure = {
-          code: parsed.reason === 'NOT_JSON' ? 'PARSE_DRIFT' : 'PAYLOAD_TOO_LARGE',
-          message: `${parsed.reason}: ${parsed.detail}`,
-          status,
-        }
+      const envelope = decodePage(spec, bodyText)
+      if (!envelope.ok) {
+        failure = { code: envelope.code, message: envelope.message, status }
       } else {
-        const envelope = spec.envelopeSchema.safeParse(parsed.value)
-        if (!envelope.success) {
-          failure = {
-            code: 'PARSE_DRIFT',
-            // Stryker disable next-line OptionalChaining: a Zod result with `success: false`
-            // always carries at least one issue, so `issues[0]` is never undefined and the
-            // optional chain cannot be made to fire. The FALLBACK is asserted to be unused (the
-            // test requires the schema's own words), which is the half that can be observed.
-            message: `envelope: ${envelope.error.issues[0]?.message ?? 'did not match'}`,
-            status,
-          }
+        const pageResult = await observePage(
+          spec,
+          config,
+          ctx,
+          envelope.value,
+          at,
+          nativeIdByIdentityKey,
+          addSample,
+          limits,
+        )
+        if (!pageResult.ok) {
+          // The page's items were received and then thrown away with the page.
+          discardPageCounts(counts, pageResult.counts)
+          failure = { ...pageResult.failure, status }
         } else {
-          const pageResult = await observePage(
-            spec,
-            config,
-            ctx,
-            envelope.data,
-            at,
-            nativeIdByIdentityKey,
-            addSample,
-            limits,
-          )
-          if (!pageResult.ok) {
-            // The page's items were received and then thrown away with the page.
-            discardPageCounts(counts, pageResult.counts)
-            failure = { ...pageResult.failure, status }
-          } else {
-            /**
-             * THE CURSOR IS VERIFIED BEFORE IT IS PERSISTED.
-             *
-             * `savePage` used to store whatever `nextCursor` returned, and the loop then handed it
-             * to `spec.pageRequest` on the NEXT iteration. A cursor the adapter cannot build a
-             * request from therefore became permanent poison: measured with an adapter doing
-             * `new URL(cursor)`, every later run threw before any fetch and produced no batch at
-             * all (SR-H-3). So the next page's request is built HERE, on this side of the persist,
-             * and an unusable cursor is stored as a `RESTART` instead — observations land, the
-             * attempt ends with the drift reported, and the next attempt starts over rather than
-             * replaying a rejection.
-             */
-            /**
-             * ONE value answering "what happens after this page", as a union rather than three
-             * nullable locals. The nullable form forced two branches nothing could enter — a
-             * `nextTarget ?? {…}` fallback and a `nextRequest === null ? … : …` ternary, both
-             * unreachable because the guards above already settled them — and it spread
-             * `at.page + 1` over three sites, which is the arithmetic an off-by-one in would
-             * reproduce SR-H-1 (a resumed attempt reporting SUCCEEDED after zero fetches). Now it
-             * appears once, and every arm below is reachable and asserted.
-             */
-            const nextPage = at.page + 1
-            const advance: PageAdvance =
-              pageResult.nextCursor === null
-                ? { kind: 'EXHAUSTED' }
-                : ((): PageAdvance => {
-                    const cursor = pageResult.nextCursor
-                    /**
-                     * THE CURSOR IS PARSED BEFORE THE ADAPTER IS HANDED IT, against the very
-                     * schema the checkpoint will have to satisfy on the way back in.
-                     *
-                     * A cursor is the ONE value in this loop chosen entirely by the provider, and
-                     * it was stored unparsed: `ValidatedCheckpoint` was built as an object
-                     * literal, whose name is a claim and whose construction checks nothing.
-                     * Measured, a 1 MiB cursor was persisted verbatim (SR-M-2).
-                     *
-                     * Parsed FIRST, before `buildPageRequest`, for two reasons: handing a
-                     * megabyte of provider-chosen text to 25 adapters' URL builders is work
-                     * nobody asked for, and a cursor we cannot store is unusable whether or not
-                     * an adapter can build a request from it.
-                     *
-                     * The whole position is parsed rather than the cursor's length compared to
-                     * `MAX_CURSOR_CHARS` here: one guard, one bound, declared in one place. The
-                     * `RESTART` position below is deliberately NOT parsed — its only field is a
-                     * page the loop itself bounded, so the parse would be a branch no input can
-                     * enter.
-                     */
-                    const stored = cursorPositionSchema.safeParse({
-                      kind: 'CURSOR',
-                      page: at.page,
-                      cursor,
-                    })
-                    if (!stored.success) {
-                      return {
-                        kind: 'UNUSABLE_CURSOR',
-                        page: nextPage,
-                        // Stryker disable next-line OptionalChaining: a Zod result with
-                        // `success: false` always carries an issue, as elsewhere in this file;
-                        // the fallback's absence is what the test asserts.
-                        message: `it cannot be stored (${stored.error.issues[0]?.message ?? 'refused'})`,
-                      }
+          /**
+           * THE CURSOR IS VERIFIED BEFORE IT IS PERSISTED.
+           *
+           * `savePage` used to store whatever `nextCursor` returned, and the loop then handed it
+           * to `spec.pageRequest` on the NEXT iteration. A cursor the adapter cannot build a
+           * request from therefore became permanent poison: measured with an adapter doing
+           * `new URL(cursor)`, every later run threw before any fetch and produced no batch at
+           * all (SR-H-3). So the next page's request is built HERE, on this side of the persist,
+           * and an unusable cursor is stored as a `RESTART` instead — observations land, the
+           * attempt ends with the drift reported, and the next attempt starts over rather than
+           * replaying a rejection.
+           */
+          /**
+           * ONE value answering "what happens after this page", as a union rather than three
+           * nullable locals. The nullable form forced two branches nothing could enter — a
+           * `nextTarget ?? {…}` fallback and a `nextRequest === null ? … : …` ternary, both
+           * unreachable because the guards above already settled them — and it spread
+           * `at.page + 1` over three sites, which is the arithmetic an off-by-one in would
+           * reproduce SR-H-1 (a resumed attempt reporting SUCCEEDED after zero fetches). Now it
+           * appears once, and every arm below is reachable and asserted.
+           */
+          const nextPage = at.page + 1
+          const advance: PageAdvance =
+            pageResult.nextCursor === null
+              ? { kind: 'EXHAUSTED' }
+              : ((): PageAdvance => {
+                  const cursor = pageResult.nextCursor
+                  /**
+                   * THE CURSOR IS PARSED BEFORE THE ADAPTER IS HANDED IT, against the very
+                   * schema the checkpoint will have to satisfy on the way back in.
+                   *
+                   * A cursor is the ONE value in this loop chosen entirely by the provider, and
+                   * it was stored unparsed: `ValidatedCheckpoint` was built as an object
+                   * literal, whose name is a claim and whose construction checks nothing.
+                   * Measured, a 1 MiB cursor was persisted verbatim (SR-M-2).
+                   *
+                   * Parsed FIRST, before `buildPageRequest`, for two reasons: handing a
+                   * megabyte of provider-chosen text to 25 adapters' URL builders is work
+                   * nobody asked for, and a cursor we cannot store is unusable whether or not
+                   * an adapter can build a request from it.
+                   *
+                   * The whole position is parsed rather than the cursor's length compared to
+                   * `MAX_CURSOR_CHARS` here: one guard, one bound, declared in one place. The
+                   * `RESTART` position below is deliberately NOT parsed — its only field is a
+                   * page the loop itself bounded, so the parse would be a branch no input can
+                   * enter.
+                   */
+                  const stored = cursorPositionSchema.safeParse({
+                    kind: 'CURSOR',
+                    page: at.page,
+                    cursor,
+                  })
+                  if (!stored.success) {
+                    return {
+                      kind: 'UNUSABLE_CURSOR',
+                      page: nextPage,
+                      // Stryker disable next-line OptionalChaining: a Zod result with
+                      // `success: false` always carries an issue, as elsewhere in this file;
+                      // the fallback's absence is what the test asserts.
+                      message: `it cannot be stored (${stored.error.issues[0]?.message ?? 'refused'})`,
                     }
-                    const position = stored.data
-                    const target: PageTarget = { page: nextPage, cursor, window: at.window }
-                    const probe = buildPageRequest(spec, config, target)
-                    return probe.ok
-                      ? { kind: 'CONTINUE', cursor, target, request: probe.value, position }
-                      : { kind: 'UNUSABLE_CURSOR', page: nextPage, message: probe.message }
-                  })()
+                  }
+                  const position = stored.data
+                  const target: PageTarget = { page: nextPage, cursor, window: at.window }
+                  const probe = buildPageRequest(spec, config, target)
+                  return probe.ok
+                    ? { kind: 'CONTINUE', cursor, target, request: probe.value, position }
+                    : { kind: 'UNUSABLE_CURSOR', page: nextPage, message: probe.message }
+                })()
 
-            const position: ResumePosition =
-              // The PARSED position on the continuing arm — the one the schema accepted, rather
-              // than a second literal built from the same parts and checked by nothing.
-              advance.kind === 'CONTINUE' ? advance.position : { kind: 'RESTART', page: at.page }
+          const position: ResumePosition =
+            // The PARSED position on the continuing arm — the one the schema accepted, rather
+            // than a second literal built from the same parts and checked by nothing.
+            advance.kind === 'CONTINUE' ? advance.position : { kind: 'RESTART', page: at.page }
 
-            const next: ValidatedCheckpoint = {
-              configVersion: config.configVersion,
-              policyVersion: ctx.policyVersion,
-              adapterVersion: spec.adapterVersion,
-              position,
-              completedAt: ctx.now(),
+          const next: ValidatedCheckpoint = {
+            configVersion: config.configVersion,
+            policyVersion: ctx.policyVersion,
+            adapterVersion: spec.adapterVersion,
+            position,
+            completedAt: ctx.now(),
+          }
+          try {
+            // Observations AND checkpoint, together, before the loop may continue.
+            await ctx.checkpoints.savePage({
+              observations: pageResult.observations,
+              checkpoint: next,
+            })
+            observations.push(...pageResult.observations)
+            // AFTER the persist resolved, which is the only moment at which "kept" is true. A
+            // page whose `savePage` rejects is the SECOND instance of CR-M-5 — the reviewer
+            // named the observe-failure path, and this one has the same shape — and it is why
+            // the merge lives here rather than beside `observePage`.
+            keepPageCounts(counts, pageResult.counts)
+            checkpoint = next
+            pagesCompleted += 1
+          } catch (error) {
+            // OUR failure, not the provider's: it is PERSISTENCE and it never touches
+            // `counts.invalid` (AC3) — those items go to `discarded`, the bucket for "received,
+            // observed, then lost with the page". The page is not counted as completed, so the
+            // checkpoint still names the last page that really landed.
+            discardPageCounts(counts, pageResult.counts)
+            failure = {
+              code: 'PERSISTENCE',
+              message: error instanceof Error ? error.message : 'the page could not be persisted',
+              status,
             }
-            try {
-              // Observations AND checkpoint, together, before the loop may continue.
-              await ctx.checkpoints.savePage({
-                observations: pageResult.observations,
-                checkpoint: next,
-              })
-              observations.push(...pageResult.observations)
-              // AFTER the persist resolved, which is the only moment at which "kept" is true. A
-              // page whose `savePage` rejects is the SECOND instance of CR-M-5 — the reviewer
-              // named the observe-failure path, and this one has the same shape — and it is why
-              // the merge lives here rather than beside `observePage`.
-              keepPageCounts(counts, pageResult.counts)
-              checkpoint = next
-              pagesCompleted += 1
-            } catch (error) {
-              // OUR failure, not the provider's: it is PERSISTENCE and it never touches
-              // `counts.invalid` (AC3) — those items go to `discarded`, the bucket for "received,
-              // observed, then lost with the page". The page is not counted as completed, so the
-              // checkpoint still names the last page that really landed.
-              discardPageCounts(counts, pageResult.counts)
-              failure = {
-                code: 'PERSISTENCE',
-                message: error instanceof Error ? error.message : 'the page could not be persisted',
-                status,
-              }
-            }
+          }
 
-            // Inside the branch where `pageResult` is known to have succeeded: the cursor it
-            // carries only exists on that branch, and reading it from outside was what forced a
-            // redundant re-check of a condition no test could falsify.
-            if (failure === null) {
+          // Inside the branch where `pageResult` is known to have succeeded: the cursor it
+          // carries only exists on that branch, and reading it from outside was what forced a
+          // redundant re-check of a condition no test could falsify.
+          if (failure === null) {
+            requests.push(
+              buildRequestReport(
+                {
+                  attempt: 1,
+                  page: at.page,
+                  url: request.url,
+                  status,
+                  startedAt,
+                  endedAt: ctx.now(),
+                  cost,
+                  error: null,
+                },
+                ctx.secrets,
+              ),
+            )
+            if (advance.kind === 'EXHAUSTED') {
+              stop = 'EXHAUSTED'
+              break
+            }
+            if (advance.kind === 'UNUSABLE_CURSOR') {
+              // The page is persisted and its position is a `RESTART`, so nothing is poisoned.
+              // The attempt ends reporting WHY, which is the part that used to be missing.
+              stop = 'ERROR'
               requests.push(
                 buildRequestReport(
                   {
                     attempt: 1,
-                    page: at.page,
-                    url: request.url,
-                    status,
-                    startedAt,
+                    page: advance.page,
+                    url: UNBUILT_REQUEST_URL,
+                    status: null,
+                    startedAt: ctx.now(),
                     endedAt: ctx.now(),
-                    cost,
-                    error: null,
+                    cost: null,
+                    error: {
+                      code: 'PARSE_DRIFT',
+                      message: `the provider's next cursor is unusable: ${advance.message}`,
+                    },
                   },
                   ctx.secrets,
                 ),
               )
-              if (advance.kind === 'EXHAUSTED') {
-                stop = 'EXHAUSTED'
-                break
-              }
-              if (advance.kind === 'UNUSABLE_CURSOR') {
-                // The page is persisted and its position is a `RESTART`, so nothing is poisoned.
-                // The attempt ends reporting WHY, which is the part that used to be missing.
-                stop = 'ERROR'
-                requests.push(
-                  buildRequestReport(
-                    {
-                      attempt: 1,
-                      page: advance.page,
-                      url: UNBUILT_REQUEST_URL,
-                      status: null,
-                      startedAt: ctx.now(),
-                      endedAt: ctx.now(),
-                      cost: null,
-                      error: {
-                        code: 'PARSE_DRIFT',
-                        message: `the provider's next cursor is unusable: ${advance.message}`,
-                      },
-                    },
-                    ctx.secrets,
-                  ),
-                )
-                break
-              }
-              if (seenCursors.has(advance.cursor)) {
-                stop = 'CURSOR_CYCLE'
-                // `CURSOR_CYCLE` is in `COLLECTION_ERROR_CODES`, and the stop used to push no
-                // report carrying it — so a cycle was indistinguishable from a clean finish in
-                // everything except the coverage axis (SR-L-4).
-                requests.push(
-                  buildRequestReport(
-                    {
-                      attempt: 1,
-                      page: advance.target.page,
-                      // The request the cycle WOULD have sent — available by TYPE on this arm,
-                      // which is what removed a `nextRequest === null ? …` ternary whose null
-                      // branch no input could reach.
-                      url: advance.request.request.url,
-                      status: null,
-                      startedAt: ctx.now(),
-                      endedAt: ctx.now(),
-                      cost: null,
-                      error: {
-                        code: 'CURSOR_CYCLE',
-                        message: 'the provider handed back a cursor this attempt had already seen',
-                      },
-                    },
-                    ctx.secrets,
-                  ),
-                )
-                break
-              }
-              seenCursors.add(advance.cursor)
-              // The very target whose request was validated before the persist.
-              at = advance.target
-              continue
+              break
             }
+            if (seenCursors.has(advance.cursor)) {
+              stop = 'CURSOR_CYCLE'
+              // `CURSOR_CYCLE` is in `COLLECTION_ERROR_CODES`, and the stop used to push no
+              // report carrying it — so a cycle was indistinguishable from a clean finish in
+              // everything except the coverage axis (SR-L-4).
+              requests.push(
+                buildRequestReport(
+                  {
+                    attempt: 1,
+                    page: advance.target.page,
+                    // The request the cycle WOULD have sent — available by TYPE on this arm,
+                    // which is what removed a `nextRequest === null ? …` ternary whose null
+                    // branch no input could reach.
+                    url: advance.request.request.url,
+                    status: null,
+                    startedAt: ctx.now(),
+                    endedAt: ctx.now(),
+                    cost: null,
+                    error: {
+                      code: 'CURSOR_CYCLE',
+                      message: 'the provider handed back a cursor this attempt had already seen',
+                    },
+                  },
+                  ctx.secrets,
+                ),
+              )
+              break
+            }
+            seenCursors.add(advance.cursor)
+            // The very target whose request was validated before the persist.
+            at = advance.target
+            continue
           }
         }
       }
@@ -990,6 +1167,57 @@ export async function collectJsonPages<TConfig extends SourceConfigFields, TEnve
 }
 
 /**
+ * The JSON binding of the loop: the body is bounded JSON, and the envelope is a Zod schema.
+ *
+ * Its signature and behaviour are what Task 2.3 shipped; only the body step moved behind
+ * `decodeEnvelope`, so every assertion in `api-json.provider.spec.ts` still runs against it.
+ */
+export async function collectJsonPages<TConfig extends SourceConfigFields, TEnvelope, TItem>(
+  spec: ApiJsonSourceSpec<TConfig, TEnvelope, TItem>,
+  config: TConfig,
+  ctx: CollectionContext,
+): Promise<CollectionBatch> {
+  const limits: ApiJsonLimits = { ...DEFAULT_API_JSON_LIMITS, ...spec.limits }
+  return collectPages(
+    {
+      ...spec,
+      limits,
+      decodeEnvelope: (bodyText) => decodeJsonEnvelope(bodyText, spec.envelopeSchema, limits),
+    },
+    config,
+    ctx,
+  )
+}
+
+function decodeJsonEnvelope<TEnvelope>(
+  bodyText: string,
+  envelopeSchema: ZodType<TEnvelope>,
+  limits: ApiJsonLimits,
+): DecodedEnvelope<TEnvelope> {
+  const parsed = parseBoundedJson(bodyText, limits)
+  if (!parsed.ok) {
+    return {
+      ok: false,
+      code: parsed.reason === 'NOT_JSON' ? 'PARSE_DRIFT' : 'PAYLOAD_TOO_LARGE',
+      message: `${parsed.reason}: ${parsed.detail}`,
+    }
+  }
+  const envelope = envelopeSchema.safeParse(parsed.value)
+  if (!envelope.success) {
+    return {
+      ok: false,
+      code: 'PARSE_DRIFT',
+      // Stryker disable next-line OptionalChaining: a Zod result with `success: false` always
+      // carries at least one issue, so `issues[0]` is never undefined and the optional chain
+      // cannot be made to fire. The FALLBACK is asserted to be unused (the test requires the
+      // schema's own words), which is the half that can be observed.
+      message: `envelope: ${envelope.error.issues[0]?.message ?? 'did not match'}`,
+    }
+  }
+  return { ok: true, value: envelope.data }
+}
+
+/**
  * A discriminated union rather than one record with a nullable `failure`. With the flat shape, the
  * failure returns had to carry `observations: []` and `nextCursor: null` — fields the caller never
  * reads on that branch, so no test could tell what they held. A shape that cannot express the
@@ -1016,14 +1244,14 @@ type PageResult =
  * decide. It mutates only the cross-page identity map, which is genuinely attempt-scoped.
  */
 async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>(
-  spec: ApiJsonSourceSpec<TConfig, TEnvelope, TItem>,
+  spec: PagedSourceSpec<TConfig, TEnvelope, TItem>,
   config: TConfig,
   ctx: CollectionContext,
   envelope: TEnvelope,
   at: PageTarget,
   nativeIdByIdentityKey: Map<string, string>,
   addSample: (page: number, reason: string, raw: unknown) => void,
-  limits: ApiJsonLimits,
+  limits: PageLimits,
 ): Promise<PageResult> {
   const counts: PageCounts = emptyPageCounts()
   let items: readonly unknown[]
@@ -1092,35 +1320,62 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
       continue
     }
 
-    const { identityKey } = result.observation.identity
+    const { identityKey, nativeId: keyedOn } = result.observation.identity
     // No `?? raw.nativeId` fallback: the spec field is required, so there is nothing to fall back
     // from, and the fallback was the defect (SPEC-M-1). An adapter that returns `null` here has
-    // said so deliberately.
-    const nativeId = spec.nativeIdOf(validated.data, config)
-    // The suppression that used to sit here claimed this guard was unobservable. It is not, and
-    // the difference is a false ADAPTER_INVARIANT: with the guard removed, an item whose provider
-    // id is unknown records `null` against its identity key, and the NEXT item on that same key —
-    // with a perfectly good id — compares `null !== 'that id'` and is reported as a collapse. A
-    // success becomes FAILED. `records a null native id without inventing a collision` is the test
-    // that kills it (CR-M-2).
-    if (nativeId !== null) {
-      const seen = nativeIdByIdentityKey.get(identityKey)
-      if (seen !== undefined && seen !== nativeId) {
-        // The offending item was already counted in `raw`, so it needs a disposition or the
-        // balance invariant refuses the whole batch — and an adapter invariant failure would then
-        // surface as an unhandled throw instead of the FAILED batch the ACs ask for. It is
-        // `invalid`: we could not observe it as a distinct record.
-        counts.invalid += 1
-        return {
-          ok: false,
-          counts,
-          failure: {
-            code: 'ADAPTER_INVARIANT',
-            message: new AdapterIdentityCollisionError(identityKey, seen, nativeId).message,
-          },
+    // said so deliberately. Asked for EVERY item, before the gate below, because "report the
+    // provider's id for this item" is the spec's contract and must not become conditional on how
+    // identity happened to resolve (`is asked for every item, with the validated item and the
+    // config` is the test that pins it).
+    const issued = spec.nativeIdOf(validated.data, config)
+
+    // WHETHER IDENTITY USED A NATIVE ID IS IDENTITY'S OWN ANSWER, NOT A SECOND NORMALISER'S
+    // (SR-M-1). `identity.nativeId` is `null` exactly when identity fell back to the URL.
+    //
+    // The gate used to be `canonicalNativeId(issued) !== null`, which asked "is there a usable id"
+    // with a function that answers it DIFFERENTLY from the one identity asks: identity's
+    // `normalizeNativeId` is `canonicalNativeId` PLUS three refusals (empty, over
+    // `MAX_NATIVE_ID_CHARS`, any C0/DEL character). Measured, the two disagreed on four inputs —
+    // `"ab\tcd"`, `"ef\u0001gh"`, `"x".repeat(300)`, `"   "` — where the loop believed in an id
+    // identity had declined, and only the length condition was reasoned about or covered. Two
+    // functions that must agree is the defect; reading the one that decided is the fix, and a
+    // FIFTH refusal added to the identity seam now moves those ids to the right branch by itself.
+    if (keyedOn === null) {
+      // IDENTITY COULD NOT TELL THESE POSTINGS APART, so the adapter's own id is the only evidence
+      // left that they ARE different postings — which is the whole of what AC5 detects. Spelled
+      // through `canonicalNativeId` so two spellings of one id are not read as a collapse (SR-M-3),
+      // and an id that canonicalises to empty is NO id: an absent id cannot disagree with anything.
+      //
+      // DELIBERATELY NOT `identity.nativeId` ON BOTH SIDES, which is what the review prescribed.
+      // Measured: `identityKey` CONTAINS `nativeId` on the NATIVE_ID branch, so equal keys imply
+      // equal ids there and the comparison can never fire; on this branch both sides are `null`.
+      // The guard becomes unreachable in every configuration — applied literally, both AC5
+      // collapse-refusal tests flipped FAILED -> SUCCEEDED and every mutant of it would survive.
+      const canonical = issued === null ? '' : canonicalNativeId(issued)
+      // The suppression that used to sit here claimed this guard was unobservable. It is not, and
+      // the difference is a false ADAPTER_INVARIANT: with the guard removed, an item whose provider
+      // id is unknown records `''` against its identity key, and the NEXT item on that same key —
+      // with a good id — compares `'' !== 'that id'` and is reported as a collapse. A success
+      // becomes FAILED. `records a null native id without inventing a collision` kills it (CR-M-2).
+      if (canonical !== '') {
+        const seen = nativeIdByIdentityKey.get(identityKey)
+        if (seen !== undefined && seen !== canonical) {
+          // The offending item was already counted in `raw`, so it needs a disposition or the
+          // balance invariant refuses the whole batch — and an adapter invariant failure would then
+          // surface as an unhandled throw instead of the FAILED batch the ACs ask for. It is
+          // `invalid`: we could not observe it as a distinct record.
+          counts.invalid += 1
+          return {
+            ok: false,
+            counts,
+            failure: {
+              code: 'ADAPTER_INVARIANT',
+              message: new AdapterIdentityCollisionError(identityKey, seen, canonical).message,
+            },
+          }
         }
+        nativeIdByIdentityKey.set(identityKey, canonical)
       }
-      nativeIdByIdentityKey.set(identityKey, nativeId)
     }
 
     // No de-duplication here on purpose. The store HAS a `duplicates` disposition and the
@@ -1162,6 +1417,21 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
 export function defineApiJsonProvider<TConfig extends SourceConfigFields, TEnvelope, TItem>(
   spec: ApiJsonSourceSpec<TConfig, TEnvelope, TItem>,
 ): ReportingJobSourceProvider<Validated<TConfig>> {
+  return definePagedProvider(spec, (config, ctx) => collectJsonPages(spec, config, ctx))
+}
+
+/**
+ * The provider shell every binding of the loop shares: `parseConfig` validates and brands, and
+ * `collectReport` refuses a config `parseConfig` never saw before handing it to `collect`.
+ *
+ * Shared rather than written once per binding (JSON, XML, feed) because the refusal is the part
+ * that must not drift between them: a binding that forgot `assertValidatedConfig` would accept a
+ * hand-built config the schema never checked, and nothing about the other two would show it.
+ */
+export function definePagedProvider<TConfig extends SourceConfigFields>(
+  spec: { readonly type: JobSourceType; readonly configSchema: ZodType<TConfig> },
+  collect: (config: TConfig, ctx: CollectionContext) => Promise<CollectionBatch>,
+): ReportingJobSourceProvider<Validated<TConfig>> {
   return {
     type: spec.type,
     parseConfig(raw: unknown) {
@@ -1170,7 +1440,7 @@ export function defineApiJsonProvider<TConfig extends SourceConfigFields, TEnvel
     async collectReport(config, ctx) {
       // A config that `parseConfig` never saw has not been validated, whatever its shape.
       assertValidatedConfig(config)
-      return collectJsonPages(spec, config, ctx)
+      return collect(config, ctx)
     },
   }
 }

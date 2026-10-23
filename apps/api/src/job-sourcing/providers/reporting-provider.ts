@@ -790,7 +790,7 @@ export const PG_INT_MAX = 2_147_483_647
  * ~10 MiB of checkpoint per attempt — and the row would then be refused on the way back in,
  * making the source restart forever with no report saying why (SR-M-2).
  *
- * `collectJsonPages` therefore parses the position it is about to store, and a cursor this schema
+ * The page loop (`collectPages`) therefore parses the position it is about to store, and a cursor this schema
  * refuses is treated as an unusable cursor: the page lands, the position stored is `RESTART`, and
  * the attempt ends reporting the drift.
  */
@@ -1047,7 +1047,7 @@ export interface DerivationFacts {
  * WAS. The sentence read "...which is also what 'one board failing' means for a multi-board
  * attempt (AC1)" — an assertion about a layer that does not exist yet, in a comment, with no test
  * behind it and no code it could describe (SPEC-M-2). A `CollectionBatch` covers ONE
- * `SourceCoverageScope`, whose `namespace` is one board; `collectJsonPages` is called once per
+ * `SourceCoverageScope`, whose `namespace` is one board; `collectPages` is called once per
  * source and iterates pages, never namespaces. There is no input to this function in which two
  * boards appear, so there is nothing here to test either.
  *
@@ -1321,9 +1321,26 @@ export interface CollectionContext {
   }
   /** Conditional-request cache. A 304 reuses the stored body rather than refetching it. */
   cache: {
-    get(key: string): Promise<{ etag: string; bodyText: string } | null>
-    put(key: string, value: { etag: string; bodyText: string }): Promise<void>
+    get(key: string): Promise<CachedResponse | null>
+    put(key: string, value: CachedResponse): Promise<void>
   }
+}
+
+/**
+ * One stored response and the validators it can be revalidated with.
+ *
+ * TWO VALIDATORS, EITHER OF WHICH MAY BE ABSENT. It used to hold only a required `etag`, which is
+ * the JSON APIs' habit; feeds very often send `Last-Modified` and no `ETag` at all, and a cache
+ * that could only remember an ETag stored nothing for them, so every attempt refetched the whole
+ * feed (Task 2.4: "validators saved"). An entry is only ever written when at least one of the two
+ * arrived — an entry with neither could never be revalidated, and a 304 is only trusted for a
+ * request that carried a validator.
+ */
+export interface CachedResponse {
+  etag: string | null
+  /** The `Last-Modified` value, verbatim; absent when the response carried none. */
+  lastModified?: string | undefined
+  bodyText: string
 }
 
 export interface ReportingJobSourceProvider<

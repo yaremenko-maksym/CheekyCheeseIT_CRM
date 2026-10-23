@@ -68,10 +68,24 @@ function normalizeNamespace(raw: string): string | null {
   return ns.length > 0 && ns.length <= MAX_NAMESPACE_CHARS ? ns : null
 }
 
+/**
+ * The ONE spelling of a provider-issued id: NFC + trim, case kept (ids may be case-sensitive).
+ *
+ * Exported because identity is not the only place ids are compared. The collection loop's
+ * collision check (AC5) compares the ids an adapter reports against the identity they produced,
+ * and it compared them RAW while identity compared them normalised — so a precomposed `é` and
+ * `e` + U+0301, which identity correctly treats as one id, read as two ids on one key and raised a
+ * false ADAPTER_INVARIANT that discarded the whole page (SR-M-3). Both sides now spell an id with
+ * this function, so they cannot disagree about what "the same id" means.
+ */
+export function canonicalNativeId(raw: string): string {
+  return raw.normalize('NFC').trim()
+}
+
 /** Case-sensitive (ids may be); unusable ids fall through to the URL fallback rather than throw. */
 function normalizeNativeId(raw: string | null | undefined): string | null {
   if (typeof raw !== 'string') return null
-  const id = raw.normalize('NFC').trim()
+  const id = canonicalNativeId(raw)
   if (id.length === 0 || id.length > MAX_NATIVE_ID_CHARS || /[\u0000-\u001f\u007f]/.test(id)) {
     return null
   }

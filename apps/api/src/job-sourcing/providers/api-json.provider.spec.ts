@@ -11,6 +11,7 @@ import {
 } from './api-json.provider'
 import { DEFAULT_API_JSON_LIMITS } from './api-json.limits'
 import {
+  type CachedResponse,
   type CollectionContext,
   type FetchRequest,
   markValidated,
@@ -105,6 +106,8 @@ interface PageResponse {
   body?: unknown
   bodyText?: string
   etag?: string | null
+  /** Lowercased response headers — how a `last-modified` validator reaches the loop. */
+  headers?: Record<string, string>
   throws?: unknown
 }
 
@@ -115,7 +118,27 @@ interface Harness {
   saved: ValidatedCheckpoint[]
   /** Every outgoing request, so the conditional-request header can be asserted. */
   sent: FetchRequest[]
-  cache: Map<string, { etag: string; bodyText: string }>
+  cache: Map<string, CachedResponse>
+}
+
+/**
+ * The adapter's slot out of the loop's `[slot, digest]` cache key — see the harness's cache.
+ *
+ * A key that is not that shape is recorded VERBATIM rather than refused: the loop is the thing
+ * under test, so a harness that threw on an unexpected key would hide the call instead of
+ * reporting it — and `cache.put` degrades silently by design, so the throw would vanish entirely.
+ */
+const slotOf = (key: string): string => {
+  const parsed = z.tuple([z.string(), z.string()]).safeParse(
+    ((): unknown => {
+      try {
+        return JSON.parse(key)
+      } catch {
+        return null
+      }
+    })(),
+  )
+  return parsed.success ? parsed.data[0] : String(key)
 }
 
 function harness(opts: {
@@ -132,7 +155,7 @@ function harness(opts: {
   now?: Date
   deadline?: Date
   secrets?: string[]
-  cacheSeed?: Record<string, { etag: string; bodyText: string }>
+  cacheSeed?: Record<string, CachedResponse>
   policyVersion?: number
   /** The response cache is down. READ and WRITE are separate options because their consequences
    * are deliberately different — see the comment on `cache.put` in `api-json.provider.ts`. */
@@ -143,7 +166,7 @@ function harness(opts: {
   const sent: FetchRequest[] = []
   const reconciles: Array<{ id: string; resolution: ReservationResolution }> = []
   const saved: ValidatedCheckpoint[] = []
-  const cache = new Map(Object.entries(opts.cacheSeed ?? {}))
+  const cache = new Map<string, CachedResponse>(Object.entries(opts.cacheSeed ?? {}))
   const controller = new AbortController()
   if (opts.aborted === true) controller.abort()
   let fetches = 0
@@ -170,7 +193,7 @@ function harness(opts: {
       return {
         status: page.status ?? 200,
         bodyText: page.bodyText ?? JSON.stringify(page.body ?? { jobs: [], next: null }),
-        headers: {},
+        headers: page.headers ?? {},
         etag: page.etag ?? null,
       }
     },
@@ -218,16 +241,21 @@ function harness(opts: {
         saved.push(checkpoint)
       },
     },
+    // HARNESS PLUMBING: the loop keys an entry on `[slot, request digest]` (SR-H-1), and this
+    // harness addresses entries by the adapter's SLOT, so the 2.3 assertions below keep reading
+    // `p1`. Every request in this file is a function of its page alone, so one slot is one
+    // request here; that the digest separates DIFFERENT requests sharing a slot is pinned against
+    // the raw key in `paged-response-cache.spec.ts`.
     cache: {
       async get(key) {
-        calls.push(`cache.get:${String(key)}`)
+        calls.push(`cache.get:${slotOf(key)}`)
         if (opts.cacheGetThrows === true) throw new Error('the response cache is unreachable')
-        return cache.get(key) ?? null
+        return cache.get(slotOf(key)) ?? null
       },
       async put(key, value) {
-        calls.push(`cache.put:${String(key)}`)
+        calls.push(`cache.put:${slotOf(key)}`)
         if (opts.cachePutThrows === true) throw new Error('the response cache is unreachable')
-        cache.set(key, value)
+        cache.set(slotOf(key), value)
       },
     },
   }
@@ -1280,6 +1308,100 @@ describe('conditional-request plumbing', () => {
     await collectJsonPages(spec, config(), h.ctx)
 
     expect(h.sent[0]?.headers).toEqual({ accept: 'application/json', 'if-none-match': 'W/"v1"' })
+  })
+  /*
+   * LAST-MODIFIED IS THE SECOND VALIDATOR, and the one feeds send most often without an ETag.
+   * Acceptance first (a validator of either kind is stored and replayed), then the refusals (no
+   * header for a validator that is absent, and nothing stored when neither arrived).
+   */
+  it('stores a last-modified validator from a 200 that carried no etag', async () => {
+    const h = harness({
+      pages: [
+        {
+          headers: { 'last-modified': 'Wed, 21 Oct 2026 07:28:00 GMT' },
+          body: { jobs: [job('1')], next: null },
+        },
+      ],
+    })
+    await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(h.cache.get('p1')).toEqual({
+      etag: null,
+      lastModified: 'Wed, 21 Oct 2026 07:28:00 GMT',
+      bodyText: JSON.stringify({ jobs: [job('1')], next: null }),
+    })
+  })
+
+  it('stores both validators when the 200 carried both', async () => {
+    const h = harness({
+      pages: [
+        {
+          etag: 'W/"v4"',
+          headers: { 'last-modified': 'Wed, 21 Oct 2026 07:28:00 GMT' },
+          body: { jobs: [job('1')], next: null },
+        },
+      ],
+    })
+    await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(h.cache.get('p1')?.etag).toBe('W/"v4"')
+    expect(h.cache.get('p1')?.lastModified).toBe('Wed, 21 Oct 2026 07:28:00 GMT')
+  })
+
+  it('replays a cached last-modified as if-modified-since, and sends no if-none-match without an etag', async () => {
+    const h = harness({
+      pages: [{ status: 304 }],
+      cacheSeed: {
+        p1: {
+          etag: null,
+          lastModified: 'Wed, 21 Oct 2026 07:28:00 GMT',
+          bodyText: JSON.stringify({ jobs: [job('cached')], next: null }),
+        },
+      },
+    })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(h.sent[0]?.headers).toEqual({ 'if-modified-since': 'Wed, 21 Oct 2026 07:28:00 GMT' })
+    // The 304 reuses the stored inventory rather than reporting an empty page.
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.observations.map((o) => o.identity.nativeId)).toEqual(['cached'])
+  })
+
+  it('does not trust a 304 for a cached entry that holds no validator at all', async () => {
+    // Nothing was sent that a 304 could be an answer to, so the stored body is not reused: the
+    // refusal half of "a 304 reuses the cached inventory".
+    const h = harness({
+      pages: [{ status: 304 }],
+      cacheSeed: {
+        p1: { etag: null, bodyText: JSON.stringify({ jobs: [job('stale')], next: null }) },
+      },
+    })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    // The request went out exactly as the adapter built it: no precondition was attached.
+    expect(h.sent[0]?.headers).toBeUndefined()
+    expect(batch.outcome).toBe('FAILED')
+    expect(batch.observations).toEqual([])
+    expect(batch.requests.at(-1)?.error?.code).toBe('PARSE_DRIFT')
+  })
+
+  it('replays both validators when both are cached', async () => {
+    const h = harness({
+      pages: [{ status: 304 }],
+      cacheSeed: {
+        p1: {
+          etag: 'W/"v1"',
+          lastModified: 'Wed, 21 Oct 2026 07:28:00 GMT',
+          bodyText: JSON.stringify({ jobs: [], next: null }),
+        },
+      },
+    })
+    await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(h.sent[0]?.headers).toEqual({
+      'if-none-match': 'W/"v1"',
+      'if-modified-since': 'Wed, 21 Oct 2026 07:28:00 GMT',
+    })
   })
 })
 
@@ -2483,6 +2605,156 @@ describe('the AC5 guard reads nativeIdOf and nothing else', () => {
     expect(asked).toEqual([
       ['1', 'board'],
       ['2', 'board'],
+    ])
+  })
+})
+
+/**
+ * THE AC5 GATE ASKS IDENTITY WHETHER AN ID WAS USED, AND NOT A SECOND NORMALISER (SR-M-1).
+ *
+ * `canonicalNativeId` is NFC + trim. Identity's own `normalizeNativeId` is that PLUS three
+ * refusals — empty, over `MAX_NATIVE_ID_CHARS`, any C0/DEL character — so asking "is there a
+ * usable id" with the first function answered differently from the function that decided. Measured
+ * on four inputs, the loop believed in an id identity had declined, and only the length condition
+ * was reasoned about or covered anywhere.
+ *
+ * WHAT THESE CASES PIN, and why each of the three shapes is here:
+ *  - identity declines the id, so the entry keys on its URL — the premise the other two rest on;
+ *  - two DISTINCT such ids on one URL are still refused. This is the case that fails if the two
+ *    sides are made to agree by aligning `canonicalNativeId` with `normalizeNativeId` — the fix
+ *    this round rejected — because the gate would then see no id and the collapse would be stored
+ *    silently. It also fails if the gate compares `identity.nativeId` on both sides, which was the
+ *    review's prescription: `identityKey` contains `nativeId` on the NATIVE_ID branch, so the
+ *    comparison can never fire there, and on this branch both sides are `null`;
+ *  - the same such id twice is ONE posting, so the refusal above is not simply "any declined id
+ *    fails the page".
+ *
+ * All three are at this layer rather than through a feed, because only two of the four conditions
+ * are reachable through XML at all: `readFeed`'s `textOf` trims and reports a blank as `null`, and
+ * XML 1.0 forbids C0 characters other than tab, CR and LF. The loop is where all four live.
+ */
+describe('the AC5 gate follows identity across the ids identity declines', () => {
+  const ONE_URL = 'https://jobs.example.com/the-only-link'
+
+  /** URL-keyed: `mapItem` supplies no native id, so identity must fall back to the URL. */
+  const urlKeyed = makeSpec({
+    mapItem: (item, cfg) => ({
+      namespace: cfg.namespace,
+      nativeId: null,
+      url: item.url,
+      title: item.title,
+      companyName: item.company,
+    }),
+    nativeIdOf: (item) => item.id,
+  })
+
+  const collectIds = async (ids: readonly string[]): Promise<CollectionBatch> => {
+    const h = harness({ pages: [onePage(ids.map((id) => job(id, { url: ONE_URL })))] })
+    return collectJsonPages(urlKeyed, config(), h.ctx)
+  }
+
+  /** `[name, one id, a different id of the same shape]`. */
+  const DECLINED: ReadonlyArray<readonly [string, string, string]> = [
+    ['an interior tab', 'ab\tcd', 'ef\tgh'],
+    ['an interior C0 control character', 'ab\u0001cd', 'ef\u0001gh'],
+    ['an id past the usable length', `a-${'x'.repeat(300)}`, `b-${'x'.repeat(300)}`],
+  ]
+
+  it.each(DECLINED)('identity declines %s, so the entry keys on its URL', async (_name, id) => {
+    const batch = await collectIds([id])
+
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.observations[0]?.identity).toMatchObject({
+      identityKind: 'URL_FALLBACK',
+      nativeId: null,
+    })
+  })
+
+  it.each(DECLINED)(
+    'two distinct ids with %s on one URL are still the collapse AC5 exists for',
+    async (_name, first, second) => {
+      const batch = await collectIds([first, second])
+
+      expect(batch.outcome).toBe('FAILED')
+      expect(batch.requests.at(-1)?.error?.code).toBe('ADAPTER_INVARIANT')
+      expect(batch.observations).toEqual([])
+    },
+  )
+
+  it.each(DECLINED)(
+    'the same id with %s twice on one URL is one posting, not a collapse',
+    async (_name, id) => {
+      const batch = await collectIds([id, id])
+
+      expect(batch.outcome).toBe('SUCCEEDED')
+      expect(batch.requests.map((r) => r.error?.code ?? null)).not.toContain('ADAPTER_INVARIANT')
+      expect(batch.observations).toHaveLength(2)
+    },
+  )
+
+  /**
+   * THE FOURTH CONDITION, AND THE ONE WHOSE ANSWER IS THE OPPOSITE. Whitespace-only is not an id
+   * identity declined — it is no id at all, and an absent id cannot disagree with anything. The
+   * gate therefore spells it as nothing rather than recording `''` against the key: without that,
+   * the empty string is remembered as this posting's id and the NEXT entry on the same key, with a
+   * real id, reads as a collapse. One entry of each shape, which is the pair that discriminates.
+   */
+  it('an id that canonicalises to nothing is no id, and so disagrees with nothing', async () => {
+    const batch = await collectIds(['   ', 'ab\tcd'])
+
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.requests.map((r) => r.error?.code ?? null)).not.toContain('ADAPTER_INVARIANT')
+    expect(batch.observations).toHaveLength(2)
+  })
+
+  /**
+   * THE GATE ITSELF, WHERE IT IS OBSERVABLE — the case that kills the mutant replacing
+   * `keyedOn === null` with `true`.
+   *
+   * The mutation gate found that condition surviving, and it was right: every other case here keys
+   * on a URL, so the condition is true throughout and dropping it changes nothing. It is reachable
+   * only where identity DID key on a native id while `nativeIdOf` reports something else — an
+   * adapter whose `mapItem` pins ONE id for every item (so two items share an identity key through
+   * the NATIVE_ID branch) while `nativeIdOf` answers per item.
+   *
+   * SUCCEEDED is the right answer, and that is why this is a test and not a suppression. Identity
+   * keyed on an id the adapter supplied, so the two items were merged because the adapter SAID so
+   * in `mapItem` — not because identity could not tell them apart. Refusing here would report
+   * `ADAPTER_INVARIANT` for a merge the adapter asked for, which is a false refusal of the same
+   * class as SR-M-1. Without the gate this page FAILS.
+   */
+  it('does not refuse an adapter whose mapItem merges postings its nativeIdOf tells apart', async () => {
+    const h = harness({
+      pages: [
+        onePage([
+          job('x', { url: 'https://jobs.example.com/x' }),
+          job('y', { url: 'https://jobs.example.com/y' }),
+        ]),
+      ],
+    })
+    const batch = await collectJsonPages(
+      makeSpec({
+        mapItem: (item, cfg) => ({
+          namespace: cfg.namespace,
+          nativeId: 'one-and-the-same',
+          url: item.url,
+          title: item.title,
+          companyName: item.company,
+        }),
+        nativeIdOf: (item) => item.id,
+      }),
+      config(),
+      h.ctx,
+    )
+
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.requests.map((r) => r.error?.code ?? null)).not.toContain('ADAPTER_INVARIANT')
+    // One identity key for both, through the NATIVE_ID branch — the premise that makes the gate
+    // reachable at all. Asserted, so the case cannot pass by the two items keying separately.
+    expect(new Set(batch.observations.map((o) => o.identity.identityKey)).size).toBe(1)
+    expect(batch.observations.map((o) => o.identity.identityKind)).toEqual([
+      'NATIVE_ID',
+      'NATIVE_ID',
     ])
   })
 })
