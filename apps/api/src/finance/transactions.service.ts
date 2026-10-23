@@ -324,13 +324,34 @@ export class TransactionsService {
       // month. Same expression as `admin-summary.service`'s active-tx feed, so
       // the two lists agree on what "newest" means.
       //
-      // Index note: `idx_transactions_active_created_at (created_at) WHERE
-      // deleted_at IS NULL` cannot serve a `coalesce(...)` sort key, so this
-      // ordering is a Sort node rather than an ordered index scan. That costs
-      // nothing here: this query has no LIMIT — it deliberately loads the whole
-      // non-deleted set and then filters by role in JS — so the rows were
-      // already all being read and materialised before anything was ordered.
-      // If this path ever gains real pagination, the matching index is
+      // Index note (corrected — CR-L-1). This DOES cost something, and the
+      // first version of this comment argued from a false premise: that because
+      // the query materialises every row anyway, the ordering is free.
+      // Materialising is not sorting. `idx_transactions_active_created_at
+      // (created_at) WHERE deleted_at IS NULL` could previously satisfy
+      // `ORDER BY created_at DESC` as an ordered index scan with no sort at all;
+      // a btree on a bare column cannot serve `coalesce(...)`, so Postgres now
+      // adds a real Sort node over the whole non-deleted set.
+      //
+      // Accepted anyway, for two reasons that do not pretend the cost away:
+      //   - an index scan in the WRONG order is not an optimisation. The
+      //     business date is what the client sorts and renders by, so
+      //     `created_at` order was answering the wrong question cheaply.
+      //   - the sort is small beside what this path already does. There is no
+      //     LIMIT: the whole non-deleted set is fetched, shipped to Node,
+      //     filtered by role and mapped row by row. An in-database O(n log n)
+      //     sort over that same n is not the dominant term.
+      // Measured, so the claim is not left as an assertion either way: on a
+      // seeded scratch DB `EXPLAIN` gives the IDENTICAL plan for both orderings
+      // (Seq Scan + Sort), and still a Sort even with `enable_seqscan = off`
+      // (the planner takes a Bitmap Heap Scan, which does not preserve order).
+      // So the sort-free ordered index scan is available in principle but is
+      // not what this table gets today — the regression is real at scale and
+      // nil at current volume.
+      //
+      // If this path ever gains real pagination the calculus flips — a LIMIT
+      // lets an ordered index scan stop early, which a Sort node cannot — and
+      // the index to add then is
       // `((coalesce(tx_date, created_at)) DESC) WHERE deleted_at IS NULL`.
       orderBy: [desc(sql`coalesce(${transactions.txDate}, ${transactions.createdAt})`)],
       with: {

@@ -187,16 +187,25 @@ export class DropSelfService {
     // JS; `drop-self.service.spec.ts` asserts the compiled predicate and the
     // bound values, and the real-DB spec asserts the inclusive edges.
     //
-    // Index note: no index serves this. The only date index on `transactions`
-    // is `idx_transactions_active_created_at (created_at) WHERE deleted_at IS
-    // NULL`, and a btree on a bare column cannot answer a `coalesce(...)`
-    // range. The predicate is still strictly better than before — Postgres now
-    // discards the out-of-window rows during the scan instead of shipping them
-    // all to Node — but it is a filtered scan, not an index range scan. The
-    // index that would serve it is
-    // `((coalesce(tx_date, created_at))) WHERE deleted_at IS NULL`; it is not
-    // added here because the scan is already bounded to ONE drop's rows by the
-    // `receiver_id` equality in the same predicate.
+    // Index note (CR-L-1). Unlike `findAll`'s ORDER BY, nothing is lost here —
+    // and for a reason worth stating precisely rather than assuming.
+    //
+    // There is no index on `receiver_id`, and the only date index is
+    // `idx_transactions_active_created_at (created_at) WHERE deleted_at IS
+    // NULL`, which a btree on a bare column cannot extend to a `coalesce(...)`
+    // range. So this query was a filtered sequential scan plus a sort BEFORE
+    // this change (the `receiver_id` equality could not be served either) and
+    // it still is. The window moving into SQL strictly improves it: Postgres
+    // discards out-of-window rows during that scan instead of shipping every
+    // one of the caller's rows to Node to be filtered there.
+    //
+    // The index that WOULD serve the window is
+    // `((coalesce(tx_date, created_at))) WHERE deleted_at IS NULL`, and a
+    // `receiver_id` index would help more. Neither is added here: a single
+    // drop's row count is small, and this is a read path with no LIMIT whose
+    // cost is dominated by the scan the missing `receiver_id` index already
+    // implies — which is a pre-existing property, not something this change
+    // introduced.
     const fromBound = query.from ? new Date(Date.parse(query.from)) : undefined
     const toBound = query.to ? new Date(Date.parse(query.to) + 86_399_999) : undefined
 

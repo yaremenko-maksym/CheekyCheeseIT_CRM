@@ -144,8 +144,23 @@ export const dropIncomesQuerySchema = z.object({
   // compatibility, now accurately describing the three types the feed can
   // actually return instead of only the oldest one.
   type: z.enum(['DROP_INCOME', 'DROP_PENDING_PAYOUT', 'PAYOUT_DROP']).optional(),
-  from: z.string().optional(),
-  to: z.string().optional(),
+  // SR-M-1 (security review of CR-809-M-6): `.date()`, not a bare string.
+  //
+  // These were unvalidated while the window was a JS filter, and a malformed
+  // value was harmless there: `Date.parse('oops')` is NaN, every NaN
+  // comparison is false, so the row simply fell through and the endpoint
+  // answered 200. Pushing the window into SQL changes the failure mode —
+  // `new Date(NaN)` becomes a bound parameter, `pg` serializes it to
+  // "0NaN-NaN-NaNTNaN:NaN:NaN.NaN+NaN:NaN", and Postgres rejects the statement,
+  // so the caller gets a 500 where they used to get a 200. Rejecting at the
+  // boundary keeps that a 400 with a validation message.
+  //
+  // `z.string().date()` is exactly the YYYY-MM-DD shape both bounds already
+  // assume (`Date.parse` of that string is the day's midnight UTC, and the `to`
+  // bound extends it by 86_399_999 ms) — so this narrows the contract to what
+  // the code always meant, rather than adding a new one.
+  from: z.string().date().optional(),
+  to: z.string().date().optional(),
   page: z.coerce.number().int().positive().optional().default(1),
   limit: z.coerce.number().int().positive().max(100).optional().default(20),
 })

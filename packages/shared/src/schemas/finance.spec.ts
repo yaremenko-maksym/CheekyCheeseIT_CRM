@@ -543,6 +543,36 @@ describe('dropIncomesQuerySchema', () => {
     expect(() => dropIncomesQuerySchema.parse({ limit: '500' })).toThrow()
   })
 
+  // SR-M-1 — from/to are calendar dates, rejected at the boundary.
+  //
+  // While the window was a JS filter a malformed bound was inert: `Date.parse`
+  // gave NaN, every NaN comparison was false, and the endpoint answered 200.
+  // Now the bound reaches `pg` as a parameter and an Invalid Date serializes to
+  // a string Postgres refuses, turning that 200 into a 500. These cases are the
+  // boundary that keeps it a 400.
+  it.each(['oops', '2026-13-01', '01-06-2026', '2026-06-01T10:00:00Z', ''])(
+    'rejects a malformed `from` (%s)',
+    (from) => {
+      expect(() => dropIncomesQuerySchema.parse({ from })).toThrow()
+    },
+  )
+
+  it.each(['oops', '2026-06-31', ''])('rejects a malformed `to` (%s)', (to) => {
+    expect(() => dropIncomesQuerySchema.parse({ to })).toThrow()
+  })
+
+  it('accepts a well-formed YYYY-MM-DD window', () => {
+    const r = dropIncomesQuerySchema.parse({ from: '2026-06-01', to: '2026-06-30' })
+    expect(r.from).toBe('2026-06-01')
+    expect(r.to).toBe('2026-06-30')
+  })
+
+  it('still allows both bounds to be absent', () => {
+    const r = dropIncomesQuerySchema.parse({})
+    expect(r.from).toBeUndefined()
+    expect(r.to).toBeUndefined()
+  })
+
   // task-drop-sees-own-obligations (security-review PR #523 round 1, LOW):
   // widened from a single DROP_INCOME literal to the three types the feed
   // can now actually return (declared + both obligation-lifecycle types).
