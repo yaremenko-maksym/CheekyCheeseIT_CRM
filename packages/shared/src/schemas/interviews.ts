@@ -29,8 +29,14 @@ export const interviewSchema = z.object({
   companyName: z.string(),
   vacancyUrl: z.string().nullable(),
   callUrl: z.string().nullable(),
-  /** When the call is scheduled to start (ISO-8601); gates meeting-recorder auto-match. */
-  scheduledAt: z.string().datetime().nullable(),
+  /**
+   * When the call is scheduled to start (ISO-8601); gates meeting-recorder auto-match.
+   *
+   * `.nullish()`, not `.nullable()`: during a deploy window a new web bundle can
+   * talk to an API that predates this field, and `LinkRecordingDialog` parses this
+   * schema — a missing key must not blank the dialog's interview list.
+   */
+  scheduledAt: z.string().datetime().nullish(),
   stage: interviewStageSchema,
   notesDomain: itDomainSchema.nullable(),
   notesTechStack: z.string().nullable(),

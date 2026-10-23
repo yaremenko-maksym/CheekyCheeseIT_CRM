@@ -10,6 +10,7 @@ import {
 import { describe, expect, it } from 'vitest'
 
 import {
+  INTERVIEW_CALL_MEET_CODE_EXPRESSION,
   interviewRecordings,
   interviewRecordingsRelations,
   interviews,
@@ -327,5 +328,37 @@ describe('meeting recorder database foundation', () => {
     expect(migration).toMatch(/revision\s+bigint NOT NULL/i)
     expect(migration).toMatch(/duration_ms\s+double precision/i)
     expect(migration).not.toMatch(/CREATE (?:UNIQUE )?INDEX (?!IF NOT EXISTS)/i)
+  })
+
+  /**
+   * CR-M-1: CI builds its database with `db:push`, i.e. from the Drizzle schema,
+   * so every other assertion here only ever checks the TypeScript side. Production
+   * gets its columns from the manual DDL instead, and nothing tied the two
+   * together — the generated expression could drift and both CI and the parity
+   * spec would stay green while prod normalized Meet codes differently.
+   *
+   * `INTERVIEW_CALL_MEET_CODE_EXPRESSION` is the one string the Drizzle column is
+   * built from, so asserting the DDL file contains it verbatim fails on a change
+   * to either side alone.
+   */
+  it('keeps the interviews auto-match DDL byte-identical to the Drizzle declaration', () => {
+    expect(migration).toContain(INTERVIEW_CALL_MEET_CODE_EXPRESSION)
+    expect(migration).toMatch(
+      /ADD COLUMN IF NOT EXISTS call_meet_code text\s+GENERATED ALWAYS AS \(/i,
+    )
+    expect(migration).toMatch(/\)\) STORED;/i)
+
+    const config = getTableConfig(interviews)
+    const generated = config.columns.find((column) => column.name === 'call_meet_code')
+    expect(generated?.generated?.type).toBe('always')
+
+    for (const column of ['scheduled_at', 'match_key_changed_at']) {
+      expect(config.columns.map((item) => item.name)).toContain(column)
+      expect(migration).toContain(`ADD COLUMN IF NOT EXISTS ${column}`)
+    }
+    expect(migration).toContain('idx_interviews_call_meet_code_scheduled_at')
+    expect(config.indexes.map((item) => item.config.name)).toContain(
+      'idx_interviews_call_meet_code_scheduled_at',
+    )
   })
 })

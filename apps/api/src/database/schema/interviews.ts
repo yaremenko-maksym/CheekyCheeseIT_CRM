@@ -33,9 +33,10 @@ import { users } from './users'
  * generated column. Keep it byte-identical to the manual prod DDL
  * (`drizzle/manual/2026-10-22_interviews_call_meet_code.sql`).
  */
-export const INTERVIEW_CALL_MEET_CODE_SQL = sql.raw(
-  `lower(substring(call_url from '(?i)^https://meet\\.google\\.com(?::443)?/(?:[^?#]*/)?([^/?#]+)/*(?:[?#].*)?$'))`,
-)
+export const INTERVIEW_CALL_MEET_CODE_EXPRESSION =
+  `lower(substring(call_url from '(?i)^https://meet\\.google\\.com(?::443)?/(?:[^?#]*/)?([^/?#]+)/*(?:[?#].*)?$'))` as const
+
+export const INTERVIEW_CALL_MEET_CODE_SQL = sql.raw(INTERVIEW_CALL_MEET_CODE_EXPRESSION)
 
 export const interviews = pgTable(
   'interviews',
@@ -193,6 +194,22 @@ export const interviewRecordings = pgTable(
       .$type<InterviewRecordingMatchedBy>()
       .notNull()
       .default('unmatched'),
+    /**
+     * Set when an ADMIN linked or unlinked this recording by hand.
+     *
+     * **Deliberately NOT a matching precondition** (retro review of PR #865, LOW).
+     * It was one: `ingestSnapshot` used to retry matching on every revision of an
+     * unmatched, unsuppressed recording — which is the mechanism SR-865-H-1
+     * exploited, because a `callUrl` set AFTER a meeting could still capture it.
+     * Matching now runs only on a recording's first arrival, and a first arrival
+     * has no previous row, so this flag cannot be true at that moment: consulting
+     * it again would be dead code at best and a reopened hole at worst.
+     *
+     * Kept rather than dropped because it is the only record distinguishing
+     * "never matched" from "an ADMIN unlinked this on purpose" — forensics the
+     * unmatched queue can surface later (noted as a follow-up, not done here;
+     * dropping a live column is a destructive migration with no functional gain).
+     */
     autoMatchSuppressed: boolean('auto_match_suppressed').notNull().default(false),
     readiness: jsonb('readiness').notNull(),
     snapshot: jsonb('snapshot').notNull(),
