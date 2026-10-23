@@ -139,6 +139,13 @@ interface FakeOpts {
   reservationRows?: unknown[]
   /** Rows returned by `SELECT now()`. `[]` = a clock read that came back empty. */
   clockRows?: unknown[]
+  /** Make the clock read REJECT, to exercise failures raised inside the meter lock. */
+  clockRejection?: unknown
+  /**
+   * Which entry point is under test, because the two read the rows in DIFFERENT orders:
+   * `reconcile` peeks at the reservation's meter id first, while `reserve` locks the meter first.
+   */
+  mode?: 'reconcile' | 'reserve'
 }
 
 /**
@@ -167,11 +174,16 @@ function fakeMeterDb(opts: FakeOpts = {}) {
     sentAt: null,
     settledAt: null,
   }
-  const reads: unknown[][] = [
-    opts.peek ?? [{ meterId: FAKE_METER_ID }],
-    opts.meterRows ?? [meter],
-    opts.reservationRows ?? [reservation],
-  ]
+  const reads: unknown[][] =
+    opts.mode === 'reserve'
+      ? // `reserve`: the meter lock comes first, then the replay walk's per-ordinal lookups.
+        [opts.meterRows ?? [meter], opts.reservationRows ?? []]
+      : // `reconcile`: the reservation -> meter peek, then the locked meter, then the locked row.
+        [
+          opts.peek ?? [{ meterId: FAKE_METER_ID }],
+          opts.meterRows ?? [meter],
+          opts.reservationRows ?? [reservation],
+        ]
   const writes: string[] = []
 
   const readable = (rows: unknown[]) => {
@@ -192,9 +204,11 @@ function fakeMeterDb(opts: FakeOpts = {}) {
       return node
     },
     execute: () =>
-      Promise.resolve({
-        rows: opts.clockRows ?? [{ now: new Date('2026-06-02T00:00:00Z') }],
-      }),
+      opts.clockRejection !== undefined
+        ? Promise.reject(opts.clockRejection)
+        : Promise.resolve({
+            rows: opts.clockRows ?? [{ now: new Date('2026-06-02T00:00:00Z') }],
+          }),
     update: () => {
       writes.push('update')
       return { set: () => ({ where: () => writable([meter]) }) }
@@ -422,6 +436,21 @@ describe('reconcile — the branches a unit double can see', () => {
     expect(writes).toEqual([])
   })
 
+  /**
+   * `reserve` is the one entry point where a missing meter row surfaces as itself: `lockOwned`
+   * converts METER_NOT_FOUND to FOREIGN_RESERVATION (correctly — a settler must not learn that
+   * someone else's meter exists), so this message is unreadable from the settlement paths.
+   * A missing row is a CONFIGURATION error and the message has to name which of the three key
+   * parts to go and create.
+   */
+  it('reserve reports a missing meter row as METER_NOT_FOUND, naming the key', async () => {
+    const { db, writes } = fakeMeterDb({ mode: 'reserve', meterRows: [] })
+    const error = await callError(() => createAccountMeter(db, valid()).reserve('REQUEST', 1))
+    expect(error.code).toBe('METER_NOT_FOUND')
+    expect(error.message).toBe('no meter row exists for this account, unit and window')
+    expect(writes).toEqual([])
+  })
+
   it('a reservation whose meter row is gone is refused as foreign', async () => {
     // The locked-meter select comes back empty: METER_NOT_FOUND, which `lockOwned` converts.
     const { db, writes } = fakeMeterDb({ meterRows: [] })
@@ -457,13 +486,39 @@ describe('reconcile — the branches a unit double can see', () => {
     expect(writes).toEqual([])
   })
 
-  /** The contrast case: a real settlement DOES write, to both the meter and the reservation. */
-  it('a real settlement writes to the meter and to the reservation', async () => {
-    const { db, writes } = fakeMeterDb({ status: 'RESERVED' })
-    await expect(
-      createAccountMeter(db, valid()).reconcile(claimOf(), 'USED'),
-    ).resolves.toBeUndefined()
-    expect(writes).toEqual(['update', 'update'])
+  /**
+   * DELIBERATELY NOT HERE: a contrast case asserting that a real settlement issues two updates.
+   * It existed for one gate run and was removed because of what it measured. The settlement
+   * payloads are Drizzle `sql` fragments (`reserved - amount`, `used + amount`), so a double can
+   * see THAT two statements were issued and nothing about what they say — and giving the apply
+   * block unit coverage on that basis turned twenty of its payload mutants from `NoCoverage` into
+   * `Survived`: a test whose green was identical to its absence for every line it newly covered.
+   *
+   * Those lines need a server to evaluate the arithmetic, which is the integration spec's job and
+   * where they are asserted by counter VALUES — every transition, both windows, both hold
+   * counters. Per `.claude/rules/common/mutation-gate-integration-specs.md`, `NoCoverage` on
+   * integration-only behaviour is the correct and expected report. The no-op case above is kept
+   * because its assertion is real: "no statement at all" is observable from here.
+   */
+
+  it('an error that merely LOOKS like METER_NOT_FOUND is not turned into a foreign refusal', async () => {
+    // The meter lock fails with a plain Error that happens to carry the same `code`. Only an
+    // AccountMeterError may be converted; anything else must propagate untouched, or a real fault
+    // inside the transaction reaches the caller as "not your reservation" and the attempt is
+    // written off instead of retried.
+    const { db } = fakeMeterDb({
+      clockRejection: Object.assign(new Error('connection reset'), { code: 'METER_NOT_FOUND' }),
+    })
+    await expect(createAccountMeter(db, valid()).reconcile(claimOf(), 'USED')).rejects.toThrow(
+      'connection reset',
+    )
+  })
+
+  it('a plain failure inside the meter lock propagates, it does not become FOREIGN_RESERVATION', async () => {
+    const { db } = fakeMeterDb({ clockRejection: new Error('deadlock detected') })
+    await expect(createAccountMeter(db, valid()).reconcile(claimOf(), 'USED')).rejects.toThrow(
+      'deadlock detected',
+    )
   })
 
   /**

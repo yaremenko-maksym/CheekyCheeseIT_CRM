@@ -244,11 +244,11 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
   }
 
   async function dbNow(tx: DrizzleTx): Promise<Date> {
-    // Stryker disable next-line StringLiteral: this is the SQL text itself — any other string is
-    // either a syntax error Postgres rejects or a different clock, and a unit double supplies the
-    // rows whatever the text says, so no unit test can distinguish it. What verifies it is the
-    // window-rollover block of account-meter.store.integration.spec.ts, which rolls a real meter
-    // against the real server clock.
+    // This is the SQL text itself — any other string is either a syntax error Postgres rejects or
+    // a different clock, and a unit double supplies the rows whatever the text says, so no unit
+    // test can distinguish it.
+    // Stryker disable next-line StringLiteral: SQL text, verified by the window-rollover block of
+    // account-meter.store.integration.spec.ts rolling a real meter against the real server clock
     const { rows } = await tx.execute<{ now: Date }>(sql`SELECT now() AS now`)
     const now = rows[0]?.now
     return now instanceof Date ? now : new Date(String(now))
@@ -256,10 +256,10 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
 
   /** Lock the meter row, then apply a due window reset in place. Returns the current row. */
   async function lockMeter(tx: DrizzleTx, where: SQL | undefined): Promise<MeterRow> {
-    // Stryker disable next-line StringLiteral: row locking is observable only under real
-    // concurrency — a mocked query returns its rows with or without FOR UPDATE. What verifies it
-    // is the multi-worker exhaustion case in the integration spec (N concurrent reservers against
-    // room for K, exactly K succeed), which fails outright if this lock is not taken.
+    // Row locking is observable only under real concurrency — a mocked query returns its rows
+    // with or without FOR UPDATE.
+    // Stryker disable next-line StringLiteral: row lock, verified by the multi-worker exhaustion
+    // case in the integration spec (N concurrent reservers, room for K, exactly K succeed)
     const [meter] = await tx.select().from(jobAccountMeters).where(where).for('update')
     if (meter === undefined) {
       throw new AccountMeterError(
@@ -422,11 +422,11 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
     window: JobMeterWindow,
   ): Promise<{ meter: MeterRow; row: ReservationRow }> {
     const [peek] = await tx
-      // Stryker disable next-line ObjectLiteral: emptying this projection changes WHICH COLUMNS
-      // Postgres returns, and a unit double hands back its own rows regardless of the projection
-      // — so the mutant is indistinguishable without a server to do the projecting. What verifies
-      // it is every settlement case in the integration spec: with no `meterId` selected, the
-      // meter lookup below gets undefined and real settlement stops working.
+      // Emptying this projection changes WHICH COLUMNS Postgres returns, and a unit double hands
+      // back its own rows regardless of the projection, so the mutant is indistinguishable
+      // without a server to do the projecting.
+      // Stryker disable next-line ObjectLiteral: SQL projection, verified by every settlement
+      // case in the integration spec — with no `meterId` selected the meter lookup gets undefined
       .select({ meterId: jobAccountMeterReservations.meterId })
       .from(jobAccountMeterReservations)
       .where(eq(jobAccountMeterReservations.id, claim.id))
@@ -451,18 +451,17 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
         and(
           eq(jobAccountMeterReservations.id, claim.id),
           eq(jobAccountMeterReservations.meterId, meter.id),
-          // Stryker disable next-line StringLiteral: this is SQL evaluated by Postgres, and a
-          // mocked query applies no predicate at all, so the mutant returns the same rows as the
-          // original. What verifies it is the ownership block of the integration spec — the seven
-          // crafted attempt ids (prefix neighbours longer and shorter, `%`, `_`, trailing space)
-          // all refused, and the security reviewer's two-account probe, which needs the companion
-          // `accountKey` predicate above to be the deciding one.
+          // SQL evaluated by Postgres; a mocked query applies no predicate at all, so the mutant
+          // returns the same rows as the original.
+          // Stryker disable next-line StringLiteral: SQL predicate, verified by the ownership
+          // block of the integration spec (seven crafted attempt ids, all refused) and by the
+          // two-account cases, where the companion `accountKey` predicate is the deciding one
           sql`starts_with(${jobAccountMeterReservations.attemptId}, ${reservationKeyPrefix(binding.attemptId, claim.unit)})`,
         ),
       )
-      // Stryker disable next-line StringLiteral: as on the meter lock above — a row lock is
-      // observable only under real concurrency. Verified by the integration spec's concurrent
-      // settlement and two-writer race cases, not by any mock.
+      // As on the meter lock above: a row lock is observable only under real concurrency.
+      // Stryker disable next-line StringLiteral: row lock, verified by the integration spec's
+      // concurrent settlement and two-writer race cases, not by any mock
       .for('update')
     if (row === undefined) throw foreign()
     return { meter, row }
