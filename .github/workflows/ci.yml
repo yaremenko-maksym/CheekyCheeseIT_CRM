@@ -484,6 +484,92 @@ jobs:
         if: steps.scope.outputs.code != 'true'
         run: echo "Docs-only PR — skipping guard tests, satisfying required status."
 
+  # Timing specs — assertions that compare measured wall-clock times
+  # (`apps/api/**/*.timing.spec.ts`; backlog 278). They are excluded from the shared unit
+  # run (`quality_core`, the mutation gate, pre-push) because a ratio of two stopwatch readings
+  # cancels machine speed but not machine contention: they failed PRs that did not touch the code
+  # they test (growth exponent 2.2 at load ~100; a 5x stall ratio at 197 vs 211). Here they run
+  # ALONE: their own job (own runner), no matrix, no sibling work on that runner, and
+  # `--no-file-parallelism` so the spec files do not contend with each other either.
+  # Thresholds are the original ones. The deterministic half of each guarantee stays in the
+  # unit suite. NOT part of the `quality` aggregator, on purpose: one miss here is a signal to
+  # read, not a reason to block an unrelated push, so it is NOT a required context (that would
+  # reinstate the load-sensitivity the split removed). It IS a leg of `post_merge_alert`, so a red
+  # run on main raises an alert instead of staying red unnoticed (the nightly mutation run once
+  # stayed red for twenty days that way).
+  timing_specs:
+    name: Timing specs
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - name: Detect API / shared changes
+        id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            api:
+              - 'apps/api/**'
+              - 'packages/shared/**'
+              - 'pnpm-lock.yaml'
+              - '.github/workflows/ci.yml'
+
+      - name: Resolve run scope
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_API: ${{ steps.filter.outputs.api }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then RUN="$PR_API"; else RUN=true; fi
+          echo "run=$RUN" >> "$GITHUB_OUTPUT"
+          echo "Timing specs scope: event=$EVENT run=$RUN"
+
+      - uses: pnpm/action-setup@v4
+        if: steps.scope.outputs.run == 'true'
+        with:
+          version: 7.32.4
+
+      - uses: actions/setup-node@v4
+        if: steps.scope.outputs.run == 'true'
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      # Same Typst pin + cache key as `quality_core` (the render timing spec needs the real binary).
+      - uses: actions/cache@v4
+        id: typst-cache
+        if: steps.scope.outputs.run == 'true'
+        with:
+          path: ~/.cache/crm-typst-bin
+          key: typst-${{ runner.os }}-${{ hashFiles('apps/api/Dockerfile') }}
+
+      - name: Install Typst (version + checksum parsed from apps/api/Dockerfile)
+        if: steps.scope.outputs.run == 'true' && steps.typst-cache.outputs.cache-hit != 'true'
+        run: scripts/devops/install-typst-from-dockerfile.sh "$HOME/.cache/crm-typst-bin"
+
+      - name: Add Typst to PATH
+        if: steps.scope.outputs.run == 'true'
+        run: echo "$HOME/.cache/crm-typst-bin" >> "$GITHUB_PATH"
+
+      - if: steps.scope.outputs.run == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Run timing specs (alone)
+        if: steps.scope.outputs.run == 'true'
+        env:
+          TIMING_SPECS: '1'
+        run: pnpm --filter @crm/api exec vitest run --no-file-parallelism
+
+      - name: Skipped (no API / shared changes)
+        if: steps.scope.outputs.run != 'true'
+        run: echo "No apps/api or packages/shared change — timing specs skipped."
+
   # REQUIRED CONTEXT: `Typecheck · Lint · Unit Tests`. Aggregator over the two
   # parallel legs; green <=> both legs green. `if: always()` so it still
   # reports (red) when a leg fails instead of being skipped — a skipped
@@ -781,7 +867,7 @@ jobs:
   # `apps/web`'s real vitest suite per mutant, so it needs the same build
   # `quality` needs before ITS unit-test step, for the same reason. Same for
   # the Typst binary: `apps/api`'s résumé specs
-  # (resume-typst.service.spec.ts, resume-render-responsiveness.spec.ts) are
+  # (resume-typst.service.spec.ts; the render timing spec now runs in `timing_specs`) are
   # UNIT specs that assert loudly rather than skip when Typst is missing
   # (apps/api/src/test/typst-availability.ts) — the gate runs those too, so
   # it needs the exact install `quality` already does (version + checksum
@@ -1712,7 +1798,7 @@ jobs:
   post_merge_alert:
     name: Post-merge Alert
     runs-on: ubuntu-latest
-    needs: [quality, integration, e2e_summary, mutation_summary]
+    needs: [quality, integration, e2e_summary, mutation_summary, timing_specs]
     # `always()` so the job still runs when a leg failed. Guarded to main +
     # non-PR so PR runs and feature-branch dispatches never open alerts.
     #
@@ -1744,7 +1830,7 @@ jobs:
           ref: main
           fetch-depth: 1
 
-      # Roll the four required legs into one verdict.
+      # Roll the five legs (quality, integration, e2e, mutation, timing) into one verdict.
       #   any failure            → failure (alert)
       #   all success            → success (close any open alert)
       #   anything else          → neither; a run cancelled by the next merge's
@@ -1756,17 +1842,19 @@ jobs:
           INTEGRATION: ${{ needs.integration.result }}
           E2E: ${{ needs.e2e_summary.result }}
           MUTATION: ${{ needs.mutation_summary.result }}
+          TIMING: ${{ needs.timing_specs.result }}
         run: |
           FAILED=""
           [ "$QUALITY" = "failure" ] && FAILED="$FAILED quality"
           [ "$INTEGRATION" = "failure" ] && FAILED="$FAILED integration"
           [ "$E2E" = "failure" ] && FAILED="$FAILED e2e"
           [ "$MUTATION" = "failure" ] && FAILED="$FAILED mutation"
+          [ "$TIMING" = "failure" ] && FAILED="$FAILED timing"
           FAILED="${FAILED# }"
 
           if [ -n "$FAILED" ]; then
             RESULT=failure
-          elif [ "$QUALITY" = "success" ] && [ "$INTEGRATION" = "success" ] && [ "$E2E" = "success" ] && [ "$MUTATION" = "success" ]; then
+          elif [ "$QUALITY" = "success" ] && [ "$INTEGRATION" = "success" ] && [ "$E2E" = "success" ] && [ "$MUTATION" = "success" ] && [ "$TIMING" = "success" ]; then
             RESULT=success
           else
             RESULT=inconclusive
@@ -1777,7 +1865,7 @@ jobs:
             # containers` (был реальный прецедент). В этом случае main остался
             # НЕ провалидированным, и issue не откроется — поэтому хотя бы
             # ::warning, чтобы состояние не выглядело как «всё хорошо».
-            echo "::warning::Post-merge run inconclusive (quality=$QUALITY integration=$INTEGRATION e2e=$E2E mutation=$MUTATION) — main НЕ провалидирован. Если это не отмена по cancel-in-progress (следующий мерж), перезапустить: gh workflow run ci.yml --ref main"
+            echo "::warning::Post-merge run inconclusive (quality=$QUALITY integration=$INTEGRATION e2e=$E2E mutation=$MUTATION timing=$TIMING) — main НЕ провалидирован. Если это не отмена по cancel-in-progress (следующий мерж), перезапустить: gh workflow run ci.yml --ref main"
           fi
 
           echo "result=$RESULT" >> "$GITHUB_OUTPUT"
@@ -1791,6 +1879,7 @@ jobs:
             echo "| integration | \`$INTEGRATION\` |"
             echo "| e2e | \`$E2E\` |"
             echo "| mutation | \`$MUTATION\` |"
+            echo "| timing | \`$TIMING\` |"
           } >> "$GITHUB_STEP_SUMMARY"
 
       # Commit subject read from git rather than `github.event.head_commit.*`:

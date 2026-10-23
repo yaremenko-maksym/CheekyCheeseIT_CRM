@@ -207,6 +207,16 @@ if (!isIntegrationRun) {
   )
 }
 
+// ── Timing specs (`*.timing.spec.ts`) ──────────────────────────────────────
+// Specs whose assertion is a RATIO or fit of measured wall-clock times. They are excluded from the
+// default run (unit, mutation gate, pre-push) because a ratio cancels machine speed but not machine
+// CONTENTION, so under load they fail on code they do not test (backlog 278; growth.spec R-5 at
+// load ~100). `TIMING_SPECS=1` flips the selection: ONLY these files run, in the dedicated
+// `Timing specs` CI job where nothing else shares the runner. Thresholds were not widened.
+const TIMING_SPEC_GLOB = '**/*.timing.spec.ts'
+const isTimingRun = process.env['TIMING_SPECS'] === '1'
+const timingExclude = isTimingRun ? [] : [TIMING_SPEC_GLOB]
+
 export default defineConfig({
   // '@crm/shared' is aliased straight to TypeScript SOURCE unconditionally —
   // in the main repo as well as in a worktree (previously this lived inside
@@ -232,15 +242,17 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['src/**/*.{spec,test}.ts'],
+    // `TIMING_SPECS=1` selects ONLY the stopwatch specs (`*.timing.spec.ts`); a normal run never
+    // sees them. See the block above `defineConfig`.
+    include: isTimingRun ? ['src/**/*.timing.spec.ts'] : ['src/**/*.{spec,test}.ts'],
     // Non-integration runs: exclude every DB-backed integration spec file from
     // discovery entirely (see the "Non-integration-run structural skip" comment
     // above) — this is what makes the guard unconditional, independent of
     // DATABASE_URL. Integration runs keep vitest's plain default exclude; the
     // CLI's positional `integration.spec` filter narrows execution from there.
     exclude: isIntegrationRun
-      ? configDefaults.exclude
-      : [...configDefaults.exclude, INTEGRATION_SPEC_EXCLUDE_GLOB],
+      ? [...configDefaults.exclude, ...timingExclude]
+      : [...configDefaults.exclude, INTEGRATION_SPEC_EXCLUDE_GLOB, ...timingExclude],
     // Generous per-test budget for CPU-bound tests (contract-pdf ~5s, compression ~60s
     // under load). Pre-push hook now runs packages sequentially so each test worker
     // gets the full CPU, but we keep a 90 s ceiling to catch genuine hangs.
