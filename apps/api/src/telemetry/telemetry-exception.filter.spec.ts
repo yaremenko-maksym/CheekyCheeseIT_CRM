@@ -279,6 +279,49 @@ describe('TelemetryExceptionFilter — database errors never record parameter va
   })
 
   /**
+   * Mutation gate: dropping the `^` anchor from the frame filter (`/^\s+at /` -> `/\s+at /`)
+   * survived. The anchor IS the security property — without it ANY line merely CONTAINING
+   * " at " is kept as a "frame", and a parameter value routinely reads
+   * "... created at 2026-01-01 ...". This case fails under that mutant, and under a plain
+   * `includes('at ')` too.
+   */
+  it('drops a message line that contains " at " mid-line — only a real frame is a frame', async () => {
+    const recordError = vi.fn().mockResolvedValue(undefined)
+    const telemetryErrors = { recordError } as unknown as TelemetryErrorsService
+    const filter = withHttpAdapter(new TelemetryExceptionFilter(telemetryErrors))
+
+    const midLineAt = `candidate joined at 10:00 and said ${SECRET_VALUE}`
+    const wrapper = new Error('ingest failed', { cause: drizzleFailure() })
+    wrapper.stack = `Error: ingest failed\n${midLineAt}\n    at Real.frame (/real/file.ts:9:9)`
+
+    filter.catch(wrapper, makeHost('/api/interviews'))
+    await flushMicrotasks()
+
+    const recorded = recordError.mock.calls[0]![0] as { stack?: string }
+    expect(recorded.stack).not.toContain('candidate joined at 10:00')
+    expect(recorded.stack).not.toContain(SECRET_VALUE)
+    expect(recorded.stack).toContain('at Real.frame (/real/file.ts:9:9)')
+  })
+
+  it('records a row with no frames when the error carries no stack at all', async () => {
+    const recordError = vi.fn().mockResolvedValue(undefined)
+    const telemetryErrors = { recordError } as unknown as TelemetryErrorsService
+    const filter = withHttpAdapter(new TelemetryExceptionFilter(telemetryErrors))
+
+    // A drizzle error whose `.stack` is absent: `safeErrorStack` returns undefined, so the
+    // `?? ''` fallback is what builds the (frame-less) stack instead of throwing.
+    const stackless = drizzleFailure()
+    stackless.stack = undefined
+
+    filter.catch(stackless, makeHost('/api/interviews'))
+    await flushMicrotasks()
+
+    const recorded = recordError.mock.calls[0]![0] as { message: string; stack?: string }
+    expect(recorded.message).toContain('db_state=22P05')
+    expect(recorded.stack).toBe(`DrizzleQueryError: ${recorded.message}`)
+  })
+
+  /**
    * The bound of the fix above, asserted so it is not mistaken for a leak later: a value that
    * itself contains an indented `at …` line is indistinguishable from a frame. `pg-errors.ts`
    * records this residual as an accepted decision (frames are what make a DB error
