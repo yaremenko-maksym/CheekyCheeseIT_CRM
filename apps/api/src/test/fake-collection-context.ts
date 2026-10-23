@@ -34,6 +34,8 @@ export function fakeCollectionContext(opts: {
   responses: FakeResponse[]
   now?: Date
   cacheSeed?: Record<string, CachedResponse>
+  /** The checkpoint a previous attempt left behind (default: none). */
+  stored?: ValidatedCheckpoint | null
 }): FakeContext {
   const sent: FetchRequest[] = []
   const saved: ValidatedCheckpoint[] = []
@@ -69,7 +71,7 @@ export function fakeCollectionContext(opts: {
     },
     checkpoints: {
       async load() {
-        return null
+        return opts.stored ?? null
       },
       async savePage({ checkpoint }) {
         saved.push(checkpoint)
