@@ -14,6 +14,10 @@ export {
   salaryFundingSourceSchema,
   COMPANY_ACCOUNT_RECEIVER,
   manualPayoutMethodSchema,
+  salaryOriginSchema,
+  AUTOMATIC_SALARY_ORIGINS,
+  isAutomaticSalaryOrigin,
+  accountsForSalaryMonth,
 } from './finance/enums'
 export type {
   TransactionType,
@@ -23,6 +27,7 @@ export type {
   DropSharePercentSource,
   SalaryFundingSource,
   ManualPayoutMethod,
+  SalaryOrigin,
 } from './finance/enums'
 export {
   MAX_TRANSACTION_AMOUNT,
