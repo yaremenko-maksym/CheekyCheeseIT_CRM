@@ -4235,12 +4235,20 @@ session's entry. Whoever hits that conflict renumbers; they do not concatenate.
 
 **Why it belongs in this entry rather than its own.** A hand-assigned sequential number in an
 append-only file shared by concurrent writers is an enumeration maintained by care, which cannot be
-re-derived and drifts the moment two people hold it — this entry's case exactly. The construction cure
-would be an identifier that cannot collide: a date-plus-slug heading
-(`2026-10-24-scratchpad-flat-directory`) makes a simultaneous append a textual conflict in two
-different places rather than a number race, and survives renumbering, which the in-code pointers
-currently do not. Changing the file's convention is a larger decision than any one PR and is not taken
-here; it is recorded so the next person does not re-derive the problem from scratch.
+re-derived and drifts the moment two people hold it — this entry's case exactly.
+
+**What actually closed it, and what only looked like a cure.** The obvious candidate is a
+collision-proof identifier: a date-plus-slug heading (`2026-10-24-scratchpad-flat-directory`) turns a
+simultaneous append into a textual conflict in two places rather than a number race. That is a
+**trade, not a cure**, and this entry is the wrong place to overstate it: it moves the collision to
+two sessions choosing the same slug on the same day — less likely, not impossible — and it costs the
+ability to order entries by eye. What genuinely closed the hazard in the measured case was something
+else: **both sides removed their pointers' dependency on the identifier**, citing each entry by its
+title instead of its number. After that a renumber costs one heading per side and the merge order
+stops mattering for correctness, whatever the identifier scheme is. That is `doc-durability.md`'s own
+rule — a symbol rather than a coordinate — applied one layer up, to the address of a record rather
+than to a line in a file. Changing the file's heading convention remains a larger decision than any
+one PR and is not taken here.
 
 **Check on closing:** a sentence in a long-lived document that enumerates fields, versions or
 behaviours is either generated from the source, or carries the command that re-derives it. An
