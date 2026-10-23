@@ -108,9 +108,83 @@ describe('createAccountMeter — binding validation', () => {
  * The expected substrings are written out, not taken from the source, so a message that silently
  * changes meaning fails rather than following along.
  */
+/**
+ * A unit double of the Drizzle query layer, for the one reason
+ * `.claude/rules/common/mutation-gate-integration-specs.md` gives: **the mutation gate runs the
+ * unit suite only and cannot execute an `*.integration.spec.ts`.** The refused-transition path is
+ * reachable solely through `reconcile`, which needs a database, so it was proven only in the
+ * integration spec — and the gate therefore saw nothing there and reported the whole
+ * `ILLEGAL_TRANSITION` constructor as a live mutant at the previous head. Per that rule this
+ * double is a requirement of the tool, not duplication: the integration spec keeps verifying the
+ * real transition against real Postgres, and this makes the same line visible to the gate.
+ *
+ * It replays exactly the reads `reconcile` performs, in order — the reservation's meter id, the
+ * locked meter row, the database clock, then the locked reservation row. `resetsAt` is far in the
+ * future so no window roll is due and no UPDATE is attempted; an unexpected write throws rather
+ * than passing silently.
+ */
+function settledReservationDb(status: string, reservationId: string) {
+  const meter = {
+    id: '99999999-8888-7777-6666-555544443333',
+    window: 'MONTH',
+    windowStartedAt: new Date('2026-01-01T00:00:00Z'),
+    resetsAt: new Date('2099-01-01T00:00:00Z'),
+  }
+  const reservation = {
+    id: reservationId,
+    meterId: meter.id,
+    status,
+    amount: 2,
+    reservedAt: new Date('2026-06-01T00:00:00Z'),
+    sentAt: null,
+    settledAt: null,
+  }
+  const reads: unknown[][] = [[{ meterId: meter.id }], [meter], [reservation]]
+
+  const resultOf = (rows: unknown[]) => {
+    const settled = Promise.resolve(rows) as Promise<unknown[]> & {
+      for: () => Promise<unknown[]>
+    }
+    settled.for = () => Promise.resolve(rows)
+    return settled
+  }
+  const select = () => {
+    const node = {
+      from: () => node,
+      where: () => resultOf(reads.shift() ?? []),
+    }
+    return node
+  }
+  const tx = {
+    select,
+    execute: () => Promise.resolve({ rows: [{ now: new Date('2026-06-02T00:00:00Z') }] }),
+    update: () => {
+      throw new Error('the refused-transition path must not write')
+    },
+  }
+  return {
+    transaction: (run: (t: typeof tx) => Promise<unknown>) => run(tx),
+  } as unknown as MeterDb
+}
+
 describe('error messages carry what their reader must act on', () => {
-  // The refused-transition wording needs a real settled row to re-settle, so it is asserted in
-  // the integration spec ("a USED reservation cannot be downgraded or released afterwards").
+  /**
+   * The refusal an operator meets while money is stuck on a reservation that will not settle. Both
+   * states have to be in the sentence: "which transition was refused" is the whole question, and
+   * the answer decides whether they go looking at the worker or at the ledger.
+   */
+  it.each([
+    ['UNCERTAIN', 'a USED reservation cannot become UNCERTAIN'] as const,
+    ['RELEASED', 'a USED reservation cannot become RELEASED'] as const,
+  ])('a refused USED -> %s names both states', async (to, expected) => {
+    const id = '12341234-1234-4234-8234-123412341234'
+    const meter = createAccountMeter(settledReservationDb('USED', id), valid())
+    const error = await callError(() =>
+      meter.reconcile({ id, unit: 'REQUEST', amount: 2 }, to as 'UNCERTAIN' | 'RELEASED'),
+    )
+    expect(error.code).toBe('ILLEGAL_TRANSITION')
+    expect(error.message).toBe(expected)
+  })
 
   it('an unmetered unit is named in the refusal', async () => {
     const { db } = untouchableDb()
@@ -140,6 +214,35 @@ describe('error messages carry what their reader must act on', () => {
 
   it('an invalid binding is prefixed and carries the failing rule', () => {
     expect(constructionError({ cycleId: 'nope' }).message).toContain('the meter binding is invalid')
+  })
+
+  /**
+   * THE COMPOSED binding message, asserted whole. The ten messages asserted elsewhere in this file
+   * are string CONSTANTS; this one is assembled — the zod issue path joined with `.`, the issues
+   * joined with `; ` — and the two separators are invisible to every assertion above, which is
+   * why both survived the mutation gate at the previous head. Neither shows up in a one-issue,
+   * one-segment error: `['cycleId'].join('.')` and `.join('')` are the same string, and a single
+   * issue never reaches the `; `. So the case needs TWO invalid fields, one of them nested.
+   *
+   * `windows.REQUEST` is the nested path (a bad window value under a valid unit key) and `cycleId`
+   * is the second issue. The zod wordings inside are an EXTERNAL fact, measured once against the
+   * pinned zod v4 — what this assertion is for is the composition around them, so the second
+   * assertion states each separator's role on its own and will say which of the two broke.
+   */
+  it('composes several issues into one message: paths joined by ".", issues by "; "', () => {
+    const message = constructionError({
+      windows: { REQUEST: 'WEEK' } as never,
+      cycleId: 'nope',
+    }).message
+
+    expect(message).toBe(
+      'the meter binding is invalid: windows.REQUEST Invalid option: expected one of ' +
+        '"DAY"|"MONTH"|"LIFETIME"; cycleId Invalid UUID',
+    )
+
+    // The composition alone, independent of zod's wording: the nested path keeps its dot, and the
+    // two issues stay separated. A separator mutated to the empty string fails here too.
+    expect(message).toMatch(/windows\.REQUEST .+; cycleId /)
   })
 
   it.each([

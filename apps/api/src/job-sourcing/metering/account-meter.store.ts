@@ -41,7 +41,14 @@ import {
  *   the reservation row. The capacity test is a single conditional `UPDATE` —
  *   `used + reserved + uncertain + cost <= limit` evaluated by Postgres on the locked row — and
  *   the table's own CHECK is the backstop. NULL limit = unlimited, the schema's single meaning.
- *   A refusal is `null` (COST_STOP), never an error.
+ *
+ *   `reserve` HAS TWO REFUSAL SHAPES, and a caller must handle both (R2-SR-M-1). A refusal by the
+ *   CAPACITY test above is `null` — a COST_STOP, never an error, because "the budget is spent" is
+ *   a normal outcome the collection loop stops cleanly on. A refusal by the per-unit sanity
+ *   ceiling (`MAX_RESERVATION_AMOUNT`) THROWS `INVALID_AMOUNT`, because an amount that large is a
+ *   defect in the cost estimate rather than a budget condition, and must be seen rather than
+ *   quietly treated as "no room". The ceiling is checked BEFORE the capacity test, so an amount
+ *   within the ceiling but over the limit still returns `null` rather than throwing.
  * - Idempotent attempt reservation, committed before I/O. The reservation key is
  *   `<attemptId>#<unit>#<n>`, where `n` counts this binding's paid requests of that unit. A retry
  *   of the same attempt (a fresh binding, nothing in memory) replays the same keys: a key still
