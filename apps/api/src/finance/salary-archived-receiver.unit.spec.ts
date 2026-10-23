@@ -328,8 +328,21 @@ describe('createSalary — AC2: an archived receiver is refused', () => {
     idempotencyKey: 'a1111111-1111-4111-8111-111111111111',
   }
 
+  const salaryCreationIntent = {
+    version: 1 as const,
+    operation: 'MANUAL_SALARY_CREATE' as const,
+    receiverId: ACTIVE_HR.id.toLowerCase(),
+    amount: '1500.000000',
+    currency: 'USD' as const,
+    salaryMonth: payload.salaryMonth,
+    notes: null,
+    txDate: 'AUTO' as const,
+  }
+
   function makeIdempotencySalaryService(opts: {
-    replayRows?: Array<{ id: string } | undefined>
+    replayRows?: Array<
+      { id: string; salaryCreationIntent: typeof salaryCreationIntent | null } | undefined
+    >
     insertError?: unknown
     insertRow?: Record<string, unknown>
   }) {
@@ -387,13 +400,13 @@ describe('createSalary — AC2: an archived receiver is refused', () => {
   })
 
   it('replays an existing manual salary by the exact (SALARY, idempotencyKey) lookup before receiver validation', async () => {
-    const existing = { id: 'salary-existing' }
+    const existing = { id: 'salary-existing', salaryCreationIntent }
     const { svc, transactionsFindFirst, usersFindFirst, insert, findOne } =
       makeIdempotencySalaryService({ replayRows: [existing] })
 
     await expect(
       svc.createSalary({ ...payload, receiverId: ACTIVE_HR.id }, ADMIN_USER),
-    ).resolves.toEqual(existing)
+    ).resolves.toEqual({ id: existing.id })
 
     expect(transactionsFindFirst).toHaveBeenCalledTimes(1)
     const { sql, params } = compileWhere(transactionsFindFirst.mock.calls[0]![0].where)
@@ -405,12 +418,63 @@ describe('createSalary — AC2: an archived receiver is refused', () => {
     expect(findOne).toHaveBeenCalledWith(existing.id, ADMIN_USER)
   })
 
+  it('rejects replay when the same idempotency key is reused for a different salary intent', async () => {
+    const existing = {
+      id: 'salary-existing',
+      salaryCreationIntent: { ...salaryCreationIntent, amount: '1499.000000' },
+    }
+    const { svc, usersFindFirst, insert, findOne } = makeIdempotencySalaryService({
+      replayRows: [existing],
+    })
+
+    await expect(
+      svc.createSalary({ ...payload, receiverId: ACTIVE_HR.id }, ADMIN_USER),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: {
+        code: 'FINANCE_SALARY_IDEMPOTENCY_CONFLICT',
+        message:
+          'This salary was not saved: a record with different details already exists for this employee and month. The existing record is unchanged.',
+        reason: 'INTENT_MISMATCH',
+        existingTransactionId: existing.id,
+      },
+    })
+
+    expect(usersFindFirst).not.toHaveBeenCalled()
+    expect(insert).not.toHaveBeenCalled()
+    expect(findOne).not.toHaveBeenCalled()
+  })
+
+  it('fails closed for a legacy replay whose original salary intent was never stored', async () => {
+    const existing = { id: 'salary-legacy', salaryCreationIntent: null }
+    const { svc, usersFindFirst, insert, findOne } = makeIdempotencySalaryService({
+      replayRows: [existing],
+    })
+
+    await expect(
+      svc.createSalary({ ...payload, receiverId: ACTIVE_HR.id }, ADMIN_USER),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: {
+        code: 'FINANCE_SALARY_IDEMPOTENCY_CONFLICT',
+        message:
+          'This salary was not saved: an earlier salary with this key is on record, but its details cannot be verified. The existing record is unchanged.',
+        reason: 'LEGACY_INTENT_UNKNOWN',
+        existingTransactionId: existing.id,
+      },
+    })
+
+    expect(usersFindFirst).not.toHaveBeenCalled()
+    expect(insert).not.toHaveBeenCalled()
+    expect(findOne).not.toHaveBeenCalled()
+  })
+
   it('recovers a concurrent duplicate only for the salary idempotency unique index and re-reads the winner by the same key', async () => {
     const uniqueError = {
       code: '23505',
       constraint: 'uq_transactions_salary_idempotency_key',
     }
-    const winner = { id: 'salary-winner' }
+    const winner = { id: 'salary-winner', salaryCreationIntent }
     const { svc, transactionsFindFirst, findOne } = makeIdempotencySalaryService({
       replayRows: [undefined, winner],
       insertError: uniqueError,
@@ -418,7 +482,7 @@ describe('createSalary — AC2: an archived receiver is refused', () => {
 
     await expect(
       svc.createSalary({ ...payload, receiverId: ACTIVE_HR.id }, ADMIN_USER),
-    ).resolves.toEqual(winner)
+    ).resolves.toEqual({ id: winner.id })
 
     expect(transactionsFindFirst).toHaveBeenCalledTimes(2)
     for (const [args] of transactionsFindFirst.mock.calls) {
@@ -426,6 +490,37 @@ describe('createSalary — AC2: an archived receiver is refused', () => {
       expect(params).toEqual(['SALARY', payload.idempotencyKey])
     }
     expect(findOne).toHaveBeenCalledWith(winner.id, ADMIN_USER)
+  })
+
+  it('rejects a concurrent duplicate when the unique-index winner has a different salary intent', async () => {
+    const uniqueError = {
+      code: '23505',
+      constraint: 'uq_transactions_salary_idempotency_key',
+    }
+    const winner = {
+      id: 'salary-winner',
+      salaryCreationIntent: { ...salaryCreationIntent, notes: 'different' },
+    }
+    const { svc, transactionsFindFirst, findOne } = makeIdempotencySalaryService({
+      replayRows: [undefined, winner],
+      insertError: uniqueError,
+    })
+
+    await expect(
+      svc.createSalary({ ...payload, receiverId: ACTIVE_HR.id }, ADMIN_USER),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: {
+        code: 'FINANCE_SALARY_IDEMPOTENCY_CONFLICT',
+        message:
+          'This salary was not saved: a record with different details already exists for this employee and month. The existing record is unchanged.',
+        reason: 'INTENT_MISMATCH',
+        existingTransactionId: winner.id,
+      },
+    })
+
+    expect(transactionsFindFirst).toHaveBeenCalledTimes(2)
+    expect(findOne).not.toHaveBeenCalled()
   })
 
   it('rethrows an unrelated unique violation instead of treating it as a salary idempotency replay', async () => {
@@ -482,6 +577,7 @@ describe('createSalary — AC2: an archived receiver is refused', () => {
       receiverId: ACTIVE_HR.id,
       salaryMonth: payload.salaryMonth,
       salaryOrigin: 'MANUAL',
+      salaryCreationIntent,
       idempotencyKey: payload.idempotencyKey,
     })
     expect(afterTransactionCreated).toHaveBeenCalledWith(created.id, created, ADMIN_USER)
@@ -664,7 +760,15 @@ describe('paySalary — MED-3: archival is re-asserted in the write, not only pr
    * call 2 = the payer admin, call 3 = the receiver again (the post-write
    * disambiguation). That order IS the race window under test.
    */
-  function makePayService(receiverReads: unknown[], flippedRows: unknown[]) {
+  function makePayService(
+    receiverReads: unknown[],
+    flippedRows: unknown[],
+    // CR-M-1: what the post-claim re-read sees. Default: the row is still
+    // PENDING, i.e. a snapshot predicate is what rejected the write.
+    postClaimRows: Array<{ status: string; deletedAt: Date | null }> = [
+      { status: 'PENDING', deletedAt: null },
+    ],
+  ) {
     let call = 0
     const usersFindFirst = vi.fn().mockImplementation(() => {
       call += 1
@@ -686,7 +790,15 @@ describe('paySalary — MED-3: archival is re-asserted in the write, not only pr
           transactions: { findFirst: vi.fn().mockResolvedValue(SALARY_ROW) },
           users: { findFirst: usersFindFirst },
         },
-        // No `select` stub on purpose: the archival predicate is assembled by
+        // CR-M-1: the post-claim re-read that names WHY the flip matched zero
+        // rows. A plain read by id, so it does not touch the archival predicate
+        // described below (that one never goes through `db.select`).
+        select: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockResolvedValue(postClaimRows),
+          }),
+        }),
+        // No `select` stub for the ARCHIVAL predicate on purpose: it is assembled by
         // the service through Drizzle's client-less `QueryBuilder`, so the SQL
         // the assertions below read is the REAL production SQL, not something a
         // test double shaped. (An earlier iteration built it via `db.select`;
@@ -709,11 +821,13 @@ describe('paySalary — MED-3: archival is re-asserted in the write, not only pr
 
   it('carries the archival term in the UPDATE statement itself', async () => {
     // Receiver active throughout, but the write reports zero rows so the flow
-    // stops before the invoice side-effects; what matters here is the SQL.
+    // stops before the invoice side-effects; what matters here is the SQL. The
+    // refusal code is incidental to this test: with an active receiver and a
+    // still-PENDING row it is the moved-snapshot one (CR-M-1).
     const { svc, updateWhere } = makePayService([ACTIVE_HR, ACTIVE_HR], [])
 
     await expect(svc.paySalary('sal-1', payData, ADMIN_USER)).rejects.toMatchObject({
-      response: { code: 'FINANCE_TRANSACTION_NOT_PENDING', statusCode: 400 },
+      response: { code: 'FINANCE_ROW_STATE_CHANGED_WHILE_EDITING', statusCode: 400 },
     })
 
     const whereArg: unknown = updateWhere.mock.calls[0]![0]
@@ -748,13 +862,29 @@ describe('paySalary — MED-3: archival is re-asserted in the write, not only pr
   })
 
   it('still reports «not PENDING» when the miss was NOT about archival', async () => {
-    // Same zero-row write, receiver active both times → the other cause (a
-    // racing delete or a concurrent pay). The archival message must not be
-    // borrowed to explain it.
-    const { svc } = makePayService([ACTIVE_HR, ACTIVE_HR], [])
+    // Same zero-row write, receiver active both times → the other cause. Here
+    // the row is no longer PENDING (a racing delete or a concurrent pay), which
+    // is what makes «not pending» the TRUE statement. The archival message must
+    // not be borrowed to explain it.
+    const { svc } = makePayService(
+      [ACTIVE_HR, ACTIVE_HR],
+      [],
+      [{ status: 'PAID', deletedAt: null }],
+    )
 
     await expect(svc.paySalary('sal-1', payData, ADMIN_USER)).rejects.toThrow(
       "The transaction isn't pending",
     )
+  })
+
+  it('reports a moved snapshot, not «not PENDING», when the row is still pending', async () => {
+    // CR-M-1: receiver active and the row still PENDING, so the only remaining
+    // cause is a snapshot predicate (amount / currency / copied notes). Saying
+    // «not pending» here would be a false statement about the row.
+    const { svc } = makePayService([ACTIVE_HR, ACTIVE_HR], [])
+
+    await expect(svc.paySalary('sal-1', payData, ADMIN_USER)).rejects.toMatchObject({
+      response: { code: 'FINANCE_ROW_STATE_CHANGED_WHILE_EDITING' },
+    })
   })
 })

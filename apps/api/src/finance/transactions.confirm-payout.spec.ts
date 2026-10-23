@@ -435,6 +435,27 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
         '2026-05-04',
       )
       expect((state.inserts[0]!['txDate'] as Date).toISOString().slice(0, 10)).toBe('2026-05-04')
+      expect(state.updates[0]!.set['txDate']).toBe(state.inserts[0]!['txDate'])
+    })
+
+    it('rejects an omitted confirmation date when today is before the PAYOUT business date', async () => {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-05-02T12:00:00.000Z'))
+      try {
+        const { svc, state } = makeService({
+          payoutRow: makePayoutRow({ txDate: new Date('2026-05-03T00:00:00.000Z') }),
+        })
+
+        await expect(
+          svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' }),
+        ).rejects.toMatchObject({
+          response: { code: 'FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', statusCode: 400 },
+        })
+        expect(state.updates).toHaveLength(0)
+        expect(state.inserts).toHaveLength(0)
+      } finally {
+        vi.useRealTimers()
+      }
     })
 
     it('rejects a selected date before the PAYOUT business date', async () => {

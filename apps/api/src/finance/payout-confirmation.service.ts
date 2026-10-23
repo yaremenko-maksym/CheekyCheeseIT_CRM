@@ -7,7 +7,7 @@ import { zodErrorBadRequest } from '../common/zod-error-exception'
 import { DatabaseService } from '../database/database.service'
 import { payoutRequests, transactionAuditLog, transactions, users } from '../database/schema'
 import { TransactionLifecycleService } from './transaction-lifecycle.service'
-import { resolveTransactionDate } from './transaction-date.util'
+import { formatTransactionBusinessDate, resolveTransactionDate } from './transaction-date.util'
 import { assertTransactionWritable } from './transaction-visibility.util'
 
 /**
@@ -222,8 +222,13 @@ export class PayoutConfirmationService {
     if (payoutTx.status !== 'PENDING_PAYMENT') {
       throw apiError('FINANCE_PAYOUT_NOT_PENDING_PAYMENT', HttpStatus.BAD_REQUEST)
     }
-    const payoutSourceDate = (payoutTx.txDate ?? payoutTx.createdAt).toISOString().slice(0, 10)
-    if ((options.txDate ?? payoutSourceDate) < payoutSourceDate) {
+    // SR-809-M-1 (PR #868): resolve once so validation and persistence use
+    // the same instant. Omitting the date means "now", and that effective
+    // date is still subject to the source lower bound.
+    const now = new Date()
+    const confirmationTxDate = resolveTransactionDate(options.txDate, now)
+    const payoutSourceDate = formatTransactionBusinessDate(payoutTx.txDate ?? payoutTx.createdAt)
+    if (formatTransactionBusinessDate(confirmationTxDate) < payoutSourceDate) {
       throw apiError('FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', HttpStatus.BAD_REQUEST)
     }
 
@@ -255,8 +260,6 @@ export class PayoutConfirmationService {
     // (pending-settlement.service.ts's `settleByCompany` was the first).
     const effectiveActorId = currentUser.impersonatorId ?? currentUser.id
 
-    const now = new Date()
-    const confirmationTxDate = resolveTransactionDate(options.txDate)
     const confirmationNote = `Manual payout confirmation by ${effectiveActorId} at ${now.toISOString()} (method=${method})`
 
     await this.db.db.transaction(async (dbtx) => {

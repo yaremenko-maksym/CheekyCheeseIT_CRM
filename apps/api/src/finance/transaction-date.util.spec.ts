@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { parseTransactionBusinessDate, resolveTransactionDate } from './transaction-date.util'
+import {
+  formatTransactionBusinessDate,
+  parseTransactionBusinessDate,
+  resolveTransactionDate,
+} from './transaction-date.util'
+
+describe('formatTransactionBusinessDate', () => {
+  it('uses the UTC calendar date consistently', () => {
+    expect(formatTransactionBusinessDate(new Date('2026-07-14T23:30:00.000Z'))).toBe('2026-07-14')
+  })
+})
 
 describe('resolveTransactionDate', () => {
   it('keeps the exact current instant when no custom date is supplied', () => {

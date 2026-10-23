@@ -287,8 +287,18 @@ describe('PayoutRequestService.createPayoutRequest', () => {
     expect(ok.insert).toHaveBeenCalled()
   })
 
-  it('without a payout date there is no lower bound and the row is stamped now', async () => {
+  // SR-809-M-1 (PR #868): an omitted date resolves to "now", and "now" is still
+  // bound by the latest source date — omission is not a way around the check.
+  it('without a payout date the effective date (now) is still bound by the source date', async () => {
     const s = setup({ rows: [income({ txDate: new Date('2999-01-01T00:00:00.000Z') })] })
+    expect(await codeOf(s.svc.createPayoutRequest(['tx-1'], user('SENIOR')))).toBe(
+      'FINANCE_PAYOUT_DATE_BEFORE_INCOME',
+    )
+    expect(s.payoutValues).not.toHaveBeenCalled()
+  })
+
+  it('without a payout date and a past source, the row is stamped now', async () => {
+    const s = setup({ rows: [income({ txDate: new Date('2020-01-01T00:00:00.000Z') })] })
     const before = Date.now()
     await s.svc.createPayoutRequest(['tx-1'], user('SENIOR'))
     const call = s.payoutValues.mock.calls[0] as unknown as [{ txDate: Date }]
