@@ -220,6 +220,20 @@ export interface PagedSourceSpec<TConfig extends SourceConfigFields, TEnvelope, 
    * switched off (SPEC-M-1). All 25 of phase 3's adapters write this field, which is the cost of
    * the field being impossible to forget rather than merely documented.
    *
+   * WHAT AN ADAPTER PROMISES by implementing this, and what the loop can catch if it breaks the
+   * promise (SR-M-4). The promise: the value returned is the provider's own id for the item, and it
+   * varies exactly when the provider's postings differ. The loop checks it ONLY when identity fell
+   * back to the canonical URL (`identity.nativeId === null`), and compares this value across items
+   * that landed on one identity key. So it catches an adapter whose URL is coarser than the
+   * provider's ids. It does NOT catch the other direction: a `mapItem` that sets `raw.nativeId` to
+   * an id coarser than what this method reports (a constant, a shared slug) makes identity key on
+   * that id, `identity.nativeId` is non-null, the check is skipped, and two distinct postings
+   * collapse onto one key stored as `SUCCEEDED`, silently. "The adapter said so" holds for the
+   * adapter's choice of FIELD, not for the feed's VALUES in it; this method does not make `mapItem`'s
+   * identity id honest. Latent today: the RSS binding reads `entry.guid` on both sides and its
+   * `mapEntry` is `Omit<…, 'nativeId'>`, so it cannot diverge, and the JSON binding has no adapters
+   * yet. An adapter author must keep `mapItem`'s native id and this return value the same field.
+   *
    * There are exactly two honest implementations:
    *  - `(item) => item.id` (or wherever the provider's id lives), including for a URL-keyed
    *    adapter — ESPECIALLY for one, since that is the configuration AC5 guards;
@@ -506,9 +520,19 @@ function isValidator(value: string | null | undefined): value is string {
  * is the whole-object hash itself, so THAT is what has a test —
  * `keys on a request field the digest never enumerated` sends a request carrying a field outside
  * `FetchRequest` and asserts the key changes; it fails the moment the body goes back to a field
- * list. An unserialisable future field (a signal, a stream) stringifies to `{}` and so collides with
- * its own siblings — a refetch, never a wrong body, which is the same direction every other trade
- * here is made in.
+ * list.
+ *
+ * WHAT THE DIGEST DOES NOT COVER, and the consequence (CR-M-4 = SR-M-5). It is `JSON.stringify`
+ * of the request, so a future field that does not serialise faithfully is NOT a safe failure. A
+ * KEY COLLISION means two different requests share one cache entry, and a 304 on that entry replays
+ * the OTHER request's body — the SR-H-1 harm this digest exists to prevent, not a refetch. It is
+ * reachable for any field that affects the response: a stream body or a redirect-policy object
+ * renders identically for two different values, so two requests that should fetch different bodies
+ * get one key. A BigInt or a cycle does not collide, it THROWS, so the failure for a non-plain field
+ * is a throw or a wrong body, never a benign extra fetch. Nothing exercises this today: every
+ * `FetchRequest` field is a plain string. The exposure is the next field someone adds, so a field
+ * that is not plain JSON must be given an explicit, faithful serialisation here before it is added
+ * to `FetchRequest`.
  */
 function responseCacheKey(
   slot: string,
