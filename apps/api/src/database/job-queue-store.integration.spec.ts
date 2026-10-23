@@ -129,10 +129,74 @@ async function asRetentionOwner(text: string, params: unknown[] = []) {
   }
 }
 
-/** `rejected`, as `crm_retention_owner`. */
+/**
+ * The columns of `job_queue_actions` that `crm_retention_owner` does NOT hold `INSERT` on
+ * in production — everything outside the six the redaction function's own `INSERT` names
+ * (owner decision 3, 2026-10-22; fix round 1 of PR #1095).
+ *
+ * WHY THIS LIST EXISTS AND WHY IT IS NOT A HOLE IN THE EVIDENCE
+ * ------------------------------------------------------------
+ * The CHECK tests below drive the evidence row through `insertAction`, which names ALL
+ * fourteen columns so that one helper can build every shape the CHECKs are about. INSERT
+ * privilege is checked against the statement's TARGET LIST and not against the values, so
+ * once the production grant became column-level, a fourteen-column statement is refused
+ * with `42501` before any CHECK is evaluated — measured, and the reason those tests went
+ * red in this round.
+ *
+ * There were two ways out, and the choice matters. Narrowing the helper to six columns
+ * would have made the CHECKs unreachable from the only writer the trigger admits, so eight
+ * CHECK branches would have lost their behavioural coverage and kept only a passing test
+ * that proved a privilege error. Instead the privilege is lifted FOR THE STATEMENT, and the
+ * two guards are proven separately, each by the test that is actually about it:
+ *   - the CHECK layer, here, behind the privilege — which is legitimate because the subject
+ *     of these tests is the constraint, and they say so;
+ *   - the PRIVILEGE layer, in `job-queue-append-only.integration.spec.ts`, under the
+ *     production grant set read from the generated grants file, where a statement naming a
+ *     seventh column is asserted to raise `42501`.
+ * What is NOT done is the thing r5 Task 1.4b-iii removed: no test here claims anything
+ * about PRODUCTION from this fixture.
+ */
+const NON_PRODUCTION_INSERT_COLUMNS = [
+  // `id` is here because the SR-M-2 test must give the row its own id so that
+  // `subject_action_id = id`; production never names it, the default supplies it.
+  'id',
+  'opportunity_id',
+  'source_record_id',
+  'subscription_id',
+  'subject_team_id',
+  'subject_user_id',
+  'before_version',
+  'after_version',
+  'reason',
+] as const
+
+/**
+ * `asRetentionOwner`, with the columns above granted for the duration of the statement and
+ * revoked afterwards — so the CHECK, not the privilege, is what answers.
+ *
+ * The revoke is in `finally`: a column grant left behind would make part 3 of the
+ * privileges check red in whichever sibling suite runs next, which is a long way from here.
+ */
+async function asRetentionOwnerProbingChecks(text: string, params: unknown[] = []) {
+  const columns = NON_PRODUCTION_INSERT_COLUMNS.join(', ')
+  await pool.query(`GRANT INSERT (${columns}) ON TABLE job_queue_actions TO crm_retention_owner`)
+  try {
+    return await asRetentionOwner(text, params)
+  } finally {
+    await pool.query(
+      `REVOKE INSERT (${columns}) ON TABLE job_queue_actions FROM crm_retention_owner`,
+    )
+  }
+}
+
+/**
+ * `rejected`, as `crm_retention_owner`, with the non-production columns granted for the
+ * statement — its one call site names `id`, which production does not grant, so without
+ * this the CHECK it is about would never be reached.
+ */
 async function rejectedAsRetentionOwner(text: string, params: unknown[] = []) {
   try {
-    await asRetentionOwner(text, params)
+    await asRetentionOwnerProbingChecks(text, params)
   } catch (e) {
     const err = e as { code?: string; constraint?: string }
     return { code: err.code, constraint: err.constraint }
@@ -875,9 +939,12 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
 
     // A `REASON_REDACTED` row goes in as `crm_retention_owner`, the only writer the
     // append-only trigger admits for that kind (r5 Task 1.4b-iii); every other kind goes in
-    // as the table owner, exactly as before.
+    // as the table owner, exactly as before. Since fix round 1 of PR #1095 that role's
+    // production `INSERT` is column-level, and this statement names all fourteen columns —
+    // so the probing variant lifts the privilege for the statement and lets the CHECK
+    // answer. See `NON_PRODUCTION_INSERT_COLUMNS` for why that is not a hole.
     const insertAction = (a: Action) =>
-      (a.kind === 'REASON_REDACTED' ? asRetentionOwner : q)(
+      (a.kind === 'REASON_REDACTED' ? asRetentionOwnerProbingChecks : q)(
         `INSERT INTO job_queue_actions
            (kind, opportunity_id, source_record_id, subscription_id, actor_id, scope_kind, team_id,
             subject_team_id, subject_user_id, subject_action_id, before_version, after_version,

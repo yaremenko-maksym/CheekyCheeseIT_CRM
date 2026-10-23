@@ -1418,18 +1418,59 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
     })
 
     it('refuses the retention owner inserting anything but the evidence row', async () => {
-      // Its INSERT grant exists for the evidence row alone; the trigger narrows it to that.
+      // TWO guards refuse this row, in the order the database applies them, and the test
+      // asserts both because they answer different questions.
+      //
+      // Since fix round 1 of PR #1095 the production `INSERT` is COLUMN-level on exactly
+      // the six columns the redaction function names, so a statement naming
+      // `opportunity_id`, `before_version` and `after_version` never reaches the trigger —
+      // the PRIVILEGE refuses it. This half is the one that speaks about production, and
+      // the grant set under which it runs came from the generated grants file in
+      // `beforeAll`, not from anything this suite invented.
+      const statement = `INSERT INTO job_queue_actions
+             (kind, opportunity_id, actor_id, scope_kind, before_version, after_version, idempotency_key)
+           VALUES ('DISMISSED', $1, $2, 'STUDIO', 0, 1, $3)`
+      const params = [opportunity, actor, nextTag()]
+      const byPrivilege = await asRetentionOwner((c) => rejectedOn(c, statement, [...params]))
+      expect(byPrivilege.code).toBe('42501')
+      expect(byPrivilege.message).toContain('permission denied for table job_queue_actions')
+
+      // And BEHIND the privilege the trigger still refuses the same row. That half is not
+      // redundant: no grant can restrict the VALUE of `kind`, so the column list says which
+      // COLUMNS may be written and only the trigger says which KIND may be written. If the
+      // grant were ever widened, this is the guarantee that would still hold — and with the
+      // privilege in place it would otherwise be untested, which is how a guard rots.
+      const lifted = 'opportunity_id, before_version, after_version'
+      await q(`GRANT INSERT (${lifted}) ON TABLE job_queue_actions TO crm_retention_owner`)
+      try {
+        const byTrigger = await asRetentionOwner((c) => rejectedOn(c, statement, [...params]))
+        expect(byTrigger.code).toBe(RESTRICT_VIOLATION)
+        expect(byTrigger.message).toContain('may insert only REASON_REDACTED evidence rows')
+      } finally {
+        await q(`REVOKE INSERT (${lifted}) ON TABLE job_queue_actions FROM crm_retention_owner`)
+      }
+    })
+
+    it('refuses the retention owner an evidence row that names a SEVENTH column', async () => {
+      // The privilege layer on its own, and the assertion the store suite's CHECK tests
+      // point at when they lift the privilege to reach a constraint: under the production
+      // grant set, an otherwise perfectly well-formed evidence row that also names a column
+      // outside the declared six is refused — by the privilege, before any CHECK.
+      // `reason` is the column chosen deliberately: SR-M-5 requires it to stay NULL on an
+      // evidence row, and this is the guard that makes it unwritable rather than merely
+      // constrained.
+      const subject = await newAction({ actorId: actor, opportunityId: opportunity })
       const err = await asRetentionOwner((c) =>
         rejectedOn(
           c,
           `INSERT INTO job_queue_actions
-             (kind, opportunity_id, actor_id, scope_kind, before_version, after_version, idempotency_key)
-           VALUES ('DISMISSED', $1, $2, 'STUDIO', 0, 1, $3)`,
-          [opportunity, actor, nextTag()],
+             (kind, subject_action_id, actor_id, scope_kind, team_id, idempotency_key, reason)
+           VALUES ('REASON_REDACTED', $1, $2, 'STUDIO', NULL, $3, 'a reason of its own')`,
+          [subject, actor, nextTag()],
         ),
       )
-      expect(err.code).toBe(RESTRICT_VIOLATION)
-      expect(err.message).toContain('may insert only REASON_REDACTED evidence rows')
+      expect(err.code).toBe('42501')
+      expect(err.message).toContain('permission denied for table job_queue_actions')
     })
 
     it('admits the evidence row from the retention owner (the redaction path’s identity)', async () => {
