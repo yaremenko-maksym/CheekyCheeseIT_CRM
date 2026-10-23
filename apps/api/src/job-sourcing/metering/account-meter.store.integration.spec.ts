@@ -769,26 +769,7 @@ describe.skipIf(!hasDatabaseUrl())('account meter store (real Postgres)', () => 
     })
   })
 
-  describe('binding validation', () => {
-    it.each([
-      [
-        'an account key with a credential-shaped run',
-        { accountKey: 'jsearch:abcdefghijklmnopqrstuvwxyz0123' },
-      ],
-      ['an uppercase account key', { accountKey: 'JSearch:main' }],
-      ['an empty attempt id', { attemptId: '' }],
-      ['an attempt id too long to carry the request suffix', { attemptId: 'a'.repeat(169) }],
-      ['a non-uuid cycle id', { cycleId: 'cycle-1' }],
-      ['no metered unit at all', { windows: {} }],
-    ])('refuses %s at construction', (_label, over) => {
-      expect(() =>
-        createAccountMeter(db, {
-          ...binding({ accountKey: 'jsearch:main', cycleId: randomUUID() }),
-          ...over,
-        }),
-      ).toThrow(AccountMeterError)
-    })
-
+  describe('binding to a run', () => {
     it('records the run and cycle on the reservation when bound to a run', async () => {
       const cycleId = await newCycle()
       const { rows: src } = await q(

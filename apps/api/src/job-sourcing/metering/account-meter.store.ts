@@ -18,6 +18,13 @@ import type {
   ReservationResolution,
 } from '../providers/reporting-provider'
 import { rollWindow } from './meter-window'
+import {
+  isInCurrentWindow,
+  planMarkSent,
+  planSettlement,
+  reservationKey,
+  reservationKeyPrefix,
+} from './meter-transitions'
 
 /**
  * The Postgres-backed shared account meter (r5 Task 3.5a): the implementation of
@@ -92,7 +99,13 @@ const bindingSchema = z.object({
   windows: z
     .partialRecord(jobMeterUnitSchema, jobMeterWindowSchema)
     .refine((w) => Object.keys(w).length > 0, 'at least one unit must be metered'),
-  attemptId: z.string().max(MAX_METERED_ATTEMPT_ID).regex(/[^\s]/, 'attempt id must not be blank'),
+  attemptId: z
+    .string()
+    .max(MAX_METERED_ATTEMPT_ID)
+    .regex(/[^\s]/, 'attempt id must not be blank')
+    // `#` separates the attempt from the request suffix in a reservation key; an attempt id that
+    // contained one could prefix-match ANOTHER attempt's keys and settle its reservations.
+    .refine((id) => !id.includes('#'), 'attempt id must not contain #'),
   cycleId: z.uuid(),
   runId: z.uuid().nullable(),
 })
@@ -119,8 +132,6 @@ export type MeterDb = NodePgDatabase<typeof schema>
 
 type MeterRow = typeof jobAccountMeters.$inferSelect
 type ReservationRow = typeof jobAccountMeterReservations.$inferSelect
-
-const keyPrefix = (attemptId: string, unit: JobMeterUnit) => `${attemptId}#${unit}#`
 
 export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding): AccountMeter {
   const parsed = bindingSchema.safeParse(rawBinding)
@@ -172,10 +183,6 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
     return rolled ?? meter
   }
 
-  /** True when the reservation was taken in the meter's CURRENT window. */
-  const inCurrentWindow = (meter: MeterRow, r: ReservationRow) =>
-    meter.windowStartedAt === null || r.reservedAt.getTime() >= meter.windowStartedAt.getTime()
-
   async function reserve(unit: JobMeterUnit, amount: number): Promise<MeterReservation | null> {
     if (!Number.isSafeInteger(amount) || amount <= 0) {
       throw new AccountMeterError('INVALID_AMOUNT', 'a reservation amount is a positive integer')
@@ -195,7 +202,7 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
       // Replay walk: reuse a still-RESERVED key, skip keys whose request already left.
       let ordinal = nextOrdinal.get(unit) ?? 1
       for (;;) {
-        const key = `${keyPrefix(binding.attemptId, unit)}${ordinal}`
+        const key = reservationKey(binding.attemptId, unit, ordinal)
         const [existing] = await tx
           .select()
           .from(jobAccountMeterReservations)
@@ -243,7 +250,7 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
         .insert(jobAccountMeterReservations)
         .values({
           meterId: meter.id,
-          attemptId: `${keyPrefix(binding.attemptId, unit)}${ordinal}`,
+          attemptId: reservationKey(binding.attemptId, unit, ordinal),
           runId: binding.runId,
           cycleId: binding.cycleId,
           amount,
@@ -255,6 +262,19 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
     })
   }
 
+  const foreign = () =>
+    new AccountMeterError('FOREIGN_RESERVATION', 'this binding does not own that reservation')
+
+  /**
+   * The checks a claim must pass before any query: a reservation id is a uuid, and its unit is one
+   * this binding meters. Returns the window of that unit's meter row.
+   */
+  function claimedWindow(claim: MeterReservation): JobMeterWindow {
+    const window = binding.windows[claim.unit]
+    if (window === undefined || !z.uuid().safeParse(claim.id).success) throw foreign()
+    return window
+  }
+
   /**
    * Lock (meter, then reservation) for a reservation this binding owns. The meter is found
    * through the reservation, but the lock ORDER is still meter-first, the same order `reserve`
@@ -263,11 +283,8 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
   async function lockOwned(
     tx: DrizzleTx,
     claim: MeterReservation,
+    window: JobMeterWindow,
   ): Promise<{ meter: MeterRow; row: ReservationRow }> {
-    const foreign = () =>
-      new AccountMeterError('FOREIGN_RESERVATION', 'this binding does not own that reservation')
-    const window = binding.windows[claim.unit]
-    if (window === undefined) throw foreign()
     const [peek] = await tx
       .select({ meterId: jobAccountMeterReservations.meterId })
       .from(jobAccountMeterReservations)
@@ -293,7 +310,7 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
         and(
           eq(jobAccountMeterReservations.id, claim.id),
           eq(jobAccountMeterReservations.meterId, meter.id),
-          sql`starts_with(${jobAccountMeterReservations.attemptId}, ${keyPrefix(binding.attemptId, claim.unit)})`,
+          sql`starts_with(${jobAccountMeterReservations.attemptId}, ${reservationKeyPrefix(binding.attemptId, claim.unit)})`,
         ),
       )
       .for('update')
@@ -305,10 +322,12 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
     new AccountMeterError('ILLEGAL_TRANSITION', `a ${from} reservation cannot become ${to}`)
 
   async function markSent(claim: MeterReservation): Promise<void> {
+    const window = claimedWindow(claim)
     await db.transaction(async (tx) => {
-      const { row } = await lockOwned(tx, claim)
-      if (row.status === 'SENT') return
-      if (row.status !== 'RESERVED') throw illegal(row.status, 'SENT')
+      const { row } = await lockOwned(tx, claim, window)
+      const plan = planMarkSent(row.status)
+      if (plan === 'noop') return
+      if (plan === 'illegal') throw illegal(row.status, 'SENT')
       await tx
         .update(jobAccountMeterReservations)
         .set({ status: 'SENT', sentAt: sql`now()` })
@@ -320,31 +339,30 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
     claim: MeterReservation,
     resolution: ReservationResolution,
   ): Promise<void> {
+    const window = claimedWindow(claim)
     await db.transaction(async (tx) => {
-      const { meter, row } = await lockOwned(tx, claim)
-      const from = row.status
-      // Exactly once: a reservation already where it was asked to go is left alone.
-      if (from === resolution) return
-      const legal =
-        from === 'RESERVED' ||
-        (from === 'SENT' && resolution !== 'RELEASED') ||
-        (from === 'UNCERTAIN' && resolution === 'USED')
-      if (!legal) throw illegal(from, resolution)
+      const { meter, row } = await lockOwned(tx, claim, window)
+      const plan = planSettlement(
+        row.status,
+        resolution,
+        isInCurrentWindow(meter.windowStartedAt, row.reservedAt),
+      )
+      if (plan.kind === 'noop') return
+      if (plan.kind === 'illegal') throw illegal(row.status, resolution)
 
+      // The STORED amount, never the caller's claim.
       const amount = row.amount
-      const holdColumn =
-        from === 'UNCERTAIN' ? jobAccountMeters.uncertain : jobAccountMeters.reserved
-      const holdKey = from === 'UNCERTAIN' ? 'uncertain' : 'reserved'
-      const spendHere = resolution === 'USED' && inCurrentWindow(meter, row)
+      const hold =
+        plan.releaseFrom === 'uncertain' ? jobAccountMeters.uncertain : jobAccountMeters.reserved
 
       await tx
         .update(jobAccountMeters)
         .set({
-          [holdKey]: sql`${holdColumn} - ${amount}`,
-          ...(resolution === 'UNCERTAIN'
+          [plan.releaseFrom]: sql`${hold} - ${amount}`,
+          ...(plan.addUncertain
             ? { uncertain: sql`${jobAccountMeters.uncertain} + ${amount}` }
             : {}),
-          ...(spendHere ? { used: sql`${jobAccountMeters.used} + ${amount}` } : {}),
+          ...(plan.addUsed ? { used: sql`${jobAccountMeters.used} + ${amount}` } : {}),
           updatedAt: sql`now()`,
         })
         .where(eq(jobAccountMeters.id, meter.id))
@@ -353,9 +371,9 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
         .update(jobAccountMeterReservations)
         .set({
           status: resolution,
-          ...(resolution === 'RELEASED' ? {} : { sentAt: row.sentAt ?? sql`now()` }),
-          ...(resolution === 'UNCERTAIN' ? {} : { settledAt: sql`now()` }),
-          ...(resolution === 'USED' ? { usedAmount: amount } : {}),
+          ...(plan.stampSent ? { sentAt: row.sentAt ?? sql`now()` } : {}),
+          ...(plan.stampSettled ? { settledAt: sql`now()` } : {}),
+          ...(plan.recordUsed ? { usedAmount: amount } : {}),
         })
         .where(eq(jobAccountMeterReservations.id, row.id))
     })
