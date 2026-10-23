@@ -1279,8 +1279,9 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       // catalog: the claim is about exactly these privileges and no others.
       await applyProductionRetentionOwnerGrants(pool)
       expect(productionRetentionOwnerGrants()).toEqual([
-        `GRANT SELECT, INSERT, DELETE ON TABLE\n  public.job_queue_actions\n  TO crm_retention_owner`,
+        `GRANT SELECT, DELETE ON TABLE\n  public.job_queue_actions\n  TO crm_retention_owner`,
         `GRANT UPDATE (reason) ON TABLE public.job_queue_actions TO crm_retention_owner`,
+        `GRANT INSERT (kind, subject_action_id, actor_id, scope_kind, team_id, idempotency_key) ON TABLE public.job_queue_actions TO crm_retention_owner`,
       ])
       const { rows: table } = await q(
         `SELECT privilege_type FROM information_schema.table_privileges
@@ -1288,14 +1289,28 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
             AND table_name = 'job_queue_actions'
           ORDER BY 1`,
       )
-      expect(table.map((r) => r.privilege_type)).toEqual(['DELETE', 'INSERT', 'SELECT'])
+      // NO table-level INSERT (fix round 1, owner decision 3): the evidence row's write is
+      // column-level, so this is the grant set under which the call below has to succeed.
+      expect(table.map((r) => r.privilege_type)).toEqual(['DELETE', 'SELECT'])
       const { rows: columns } = await q(
         `SELECT privilege_type, column_name FROM information_schema.column_privileges
           WHERE grantee = 'crm_retention_owner' AND table_schema = 'public'
             AND table_name = 'job_queue_actions'
-            AND NOT has_table_privilege('crm_retention_owner', 'public.job_queue_actions', privilege_type)`,
+            AND NOT has_table_privilege('crm_retention_owner', 'public.job_queue_actions', privilege_type)
+          ORDER BY privilege_type, column_name`,
       )
-      expect(columns).toEqual([{ privilege_type: 'UPDATE', column_name: 'reason' }])
+      // Measured on 16.15 (2026-10-23): with INSERT held only on named columns,
+      // `has_table_privilege(…, 'INSERT')` is false, so all seven true column grants
+      // surface here and this list is the whole of the role's column-level write surface.
+      expect(columns).toEqual([
+        { privilege_type: 'INSERT', column_name: 'actor_id' },
+        { privilege_type: 'INSERT', column_name: 'idempotency_key' },
+        { privilege_type: 'INSERT', column_name: 'kind' },
+        { privilege_type: 'INSERT', column_name: 'scope_kind' },
+        { privilege_type: 'INSERT', column_name: 'subject_action_id' },
+        { privilege_type: 'INSERT', column_name: 'team_id' },
+        { privilege_type: 'UPDATE', column_name: 'reason' },
+      ])
 
       const id = await newAction({
         actorId: actor,

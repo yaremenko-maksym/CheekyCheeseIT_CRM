@@ -1584,12 +1584,14 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
       expect(await runCheck(migration)).toBeNull()
     }, 60_000)
 
-    // r5 Task 1.4b-iii — THE ONE EXCEPTION, AND HOW NARROW IT IS (AC4).
-    // Part 3 now admits `UPDATE (reason)` on `job_queue_actions` for `crm_retention_owner`
-    // (owner decision, 2026-10-22). That this database passes the check WITH the grant in
-    // place is shown by every green `runCheck` in this file, since the grants file now
-    // issues it. The four tests below show the other half: change any one field of the
-    // admitted tuple, or remove the grant, and part 3 is red again.
+    // r5 Task 1.4b-iii — THE TWO EXCEPTIONS, AND HOW NARROW THEY ARE (AC4).
+    // Part 3 now admits exactly two tuples on `job_queue_actions` for `crm_retention_owner`:
+    // `UPDATE (reason)` for the redaction's own write (owner decision 2, 2026-10-22) and
+    // `INSERT` on the six columns the evidence row names (owner decision 3, added in fix
+    // round 1 of PR #1095). That this database passes the check WITH both in place is shown
+    // by every green `runCheck` in this file, since the grants file now issues both. The six
+    // tests below show the other half: change any one field of an admitted tuple, or remove
+    // a grant, and part 3 is red again.
     it('1.4b-iii: part 3 still fails on the retention owner updating ANOTHER column of the log', async () => {
       await migration.query(
         `GRANT UPDATE (actor_id) ON TABLE job_queue_actions TO ${ROLES.retentionOwner}`,
@@ -1651,6 +1653,61 @@ describe.skipIf(!hasDatabaseUrl())('database privilege model (ADR 2026-10-17)', 
         expect(failure).toMatch(/part 3 \(column privileges\)/)
         expect(failure).toContain(
           `${ROLES.retentionOwner} lacks the declared column UPDATE on job_queue_actions.reason`,
+        )
+      } finally {
+        await applyFile(GRANTS_FILE)
+      }
+      expect(await runCheck(migration)).toBeNull()
+    }, 60_000)
+
+    it('1.4b-iii: part 3 still fails on the retention owner INSERTING a column outside the declared six', async () => {
+      // The widening this exception is most exposed to: `INSERT` is now admitted on six
+      // columns of this very table for this very role, so the only thing standing between
+      // the model and `INSERT (reason)` — the evidence row's own free-text column, which
+      // SR-M-5 requires to stay NULL — is that the exemption matches the column NAME.
+      await migration.query(
+        `GRANT INSERT (reason) ON TABLE job_queue_actions TO ${ROLES.retentionOwner}`,
+      )
+      try {
+        const failure = await runCheck(migration)
+        expect(failure).toMatch(/part 3 \(column privileges\)/)
+        expect(failure).toContain(
+          `${ROLES.retentionOwner} holds column INSERT on job_queue_actions.reason`,
+        )
+        // ...and ONLY that: the six admitted INSERT columns, present beside it, are not
+        // reported, so the exemption is not simply "any INSERT on this table".
+        for (const column of [
+          'kind',
+          'subject_action_id',
+          'actor_id',
+          'scope_kind',
+          'team_id',
+          'idempotency_key',
+        ]) {
+          expect(failure).not.toContain(`holds column INSERT on job_queue_actions.${column}`)
+        }
+      } finally {
+        await migration.query(
+          `REVOKE INSERT (reason) ON TABLE job_queue_actions FROM ${ROLES.retentionOwner}`,
+        )
+      }
+      expect(await runCheck(migration)).toBeNull()
+    }, 60_000)
+
+    it('1.4b-iii: part 3 fails when one of the declared INSERT columns is MISSING', async () => {
+      // The outage direction for the evidence row, and it is per-column: a grants file that
+      // lost ONE of the six leaves the redaction raising 42501 at its INSERT (measured:
+      // removing any single column of the six produces
+      // `42501 permission denied for table job_queue_actions`), and the error never names
+      // the column, so nothing but this branch would say which.
+      await migration.query(
+        `REVOKE INSERT (team_id) ON TABLE job_queue_actions FROM ${ROLES.retentionOwner}`,
+      )
+      try {
+        const failure = await runCheck(migration)
+        expect(failure).toMatch(/part 3 \(column privileges\)/)
+        expect(failure).toContain(
+          `${ROLES.retentionOwner} lacks the declared column INSERT on job_queue_actions.team_id`,
         )
       } finally {
         await applyFile(GRANTS_FILE)

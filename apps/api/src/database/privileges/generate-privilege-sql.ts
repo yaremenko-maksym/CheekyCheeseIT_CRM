@@ -347,16 +347,14 @@ $columns$;
 --      plus INSERT on the six columns below -> true: reason redacted, one REASON_REDACTED row
 --      ...and each of the six removed singly -> SQLSTATE 42501 again, so all six are needed
 --    Full record, including the two columns proven NOT needed: privilege-classes.ts,
---    RETENTION_OWNER_COLUMN_WRITE_GRANTS.`)
-  for (const grant of RETENTION_OWNER_COLUMN_WRITE_GRANTS) {
-    const columns = grant.columns.map(ident).join(', ')
-    out.push(
-      `GRANT ${grant.privilege} (${columns}) ON TABLE public.${ident(grant.relation)} TO ${ident(
-        grant.role,
-      )};`,
-    )
-  }
-  out.push('')
+--    RETENTION_OWNER_COLUMN_WRITE_GRANTS.
+${RETENTION_OWNER_COLUMN_WRITE_GRANTS.map(
+  (grant) =>
+    `GRANT ${grant.privilege} (${grant.columns.map(ident).join(', ')}) ON TABLE public.${ident(
+      grant.relation,
+    )} TO ${ident(grant.role)};`,
+).join('\n')}
+`)
 
   out.push(`-- 4. Sequences. ${ROLES.app} calls nextval and reads currval; never UPDATE, which is
 --    setval — the ability to rewind a sequence and collide ids (ADR §2, "Sequences").
@@ -380,10 +378,18 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${ident(ROLES.app)};
   // `ON TABLE` specifically, not any GRANT: the sequence grant is emitted unconditionally,
   // so a manifest that classified nothing would still produce a file with a GRANT in it —
   // and an API with access to every sequence and not one table.
-  // Only a TABLE grant starts a chunk with `GRANT `: the sequence grant is emitted
+  // Only a CLASS TABLE grant starts a chunk with `GRANT `: the sequence grant is emitted
   // unconditionally but its chunk opens with the `-- 4. Sequences.` comment, so a manifest
   // that classified nothing would otherwise produce a file granting every sequence and not
   // one table.
+  //
+  // THAT MAKES THE CHUNK SHAPE OF EVERY UNCONDITIONAL BLOCK LOAD-BEARING, which is not
+  // obvious and was broken once: fix round 1 of PR #1095 first emitted the two section-3b
+  // column grants as chunks of their own, and since those are also unconditional, this
+  // guard stopped firing on an empty manifest — caught by "refuses a manifest with no
+  // grants at all" rather than by review. Section 3b is therefore ONE chunk opening with
+  // its `-- 3b.` comment, like section 4. A new unconditional block must do the same, or
+  // this guard must stop inferring "a class grant exists" from a chunk's first word.
   if (!out.some((chunk) => chunk.startsWith('GRANT '))) {
     throw new Error('privilege manifest: no grants emitted — the manifest is empty')
   }

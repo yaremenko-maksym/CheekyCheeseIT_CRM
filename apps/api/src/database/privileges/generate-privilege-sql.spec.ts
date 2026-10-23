@@ -129,19 +129,32 @@ describe('generated privilege SQL', () => {
     const grants = splitSqlStatements(read(GRANTS_FILE)).filter(
       (s) => /^\s*GRANT /.test(s) && s.includes(`public.${appendOnly}`),
     )
-    // Three statements. The API may add rows and never rewrite them. The retention owner
+    // Four statements. The API may add rows and never rewrite them. The retention owner
     // holds what its two definer functions measurably need (r5 Task 1.4b-iii): SELECT and
-    // DELETE for the purge, INSERT for the redaction's evidence row — and UPDATE on ONE
-    // column only, never at table level. Its INSERT is narrowed by the append-only trigger
-    // to the `REASON_REDACTED` kind, so it still cannot forge the history it prunes.
-    expect(grants).toHaveLength(3)
+    // DELETE at TABLE level for the purge, and both of its writes at COLUMN level only —
+    // `UPDATE (reason)` for the redaction and `INSERT` on the six columns the evidence row
+    // names (owner decisions 2 and 3, 2026-10-22). Neither write appears at table level,
+    // which is the assertion: a table-level INSERT here is what fix round 1 removed.
+    // The column list still cannot restrict the VALUE of `kind`, so the append-only trigger
+    // remains what confines the role to the `REASON_REDACTED` kind.
+    expect(grants).toHaveLength(4)
     expect(grants[0]).toMatch(/^GRANT SELECT, INSERT ON TABLE/)
     expect(grants[0]).toMatch(new RegExp(`TO ${ROLES.app}$`))
-    expect(grants[1]).toMatch(/^GRANT SELECT, INSERT, DELETE ON TABLE/)
-    expect(grants[1]).toMatch(new RegExp(`TO ${ROLES.retentionOwner}$`))
+    expect(grants[1]).toBe(
+      `GRANT SELECT, DELETE ON TABLE\n  public.${appendOnly}\n  TO ${ROLES.retentionOwner}`,
+    )
     expect(grants[2]).toBe(
       `GRANT UPDATE (reason) ON TABLE public.${appendOnly} TO ${ROLES.retentionOwner}`,
     )
+    expect(grants[3]).toBe(
+      `GRANT INSERT (kind, subject_action_id, actor_id, scope_kind, team_id, idempotency_key) ` +
+        `ON TABLE public.${appendOnly} TO ${ROLES.retentionOwner}`,
+    )
+    // Stated as its own assertion rather than left implicit in the three above: no
+    // statement grants this role a table-level write on the append-only log.
+    for (const statement of grants.filter((s) => s.includes(`TO ${ROLES.retentionOwner}`))) {
+      expect(statement).not.toMatch(/^GRANT [A-Z, ]*\b(INSERT|UPDATE)\b[A-Z, ]* ON TABLE/)
+    }
   })
 
   it('grants a class E or collector-less class nothing at all', () => {
@@ -161,9 +174,10 @@ describe('generated privilege SQL', () => {
     const relationsGranted = retentionOwnerGrants.flatMap((s) =>
       [...s.matchAll(/public\.(\w+)/g)].map((m) => m[1]),
     )
-    // Class B, twice: the table-level grant and the one column-level `UPDATE (reason)`.
+    // Class B, three times: the table-level `SELECT, DELETE` and the two column-level write
+    // grants (`UPDATE (reason)` and the evidence row's `INSERT`).
     expect([...new Set(relationsGranted)].sort()).toEqual([...PRIVILEGE_CLASSES.B].sort())
-    expect(relationsGranted).toHaveLength(2 * PRIVILEGE_CLASSES.B.length)
+    expect(relationsGranted).toHaveLength(3 * PRIVILEGE_CLASSES.B.length)
   })
 
   it('emits relations in sorted order whatever order the manifest lists them in', () => {
