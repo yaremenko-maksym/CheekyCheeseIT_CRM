@@ -1,0 +1,12 @@
+{
+  "url": "https://djinni.co/jobs/rss/?primary_keyword=ASIC+%2F+Chip+Design",
+  "fetchedAt": "2026-10-23T20:06:39Z",
+  "httpStatus": 200,
+  "rawSha256": "d2bb5e08310d564d2185b22548acc72664be65bd132d4a8cebccf4e4c17a8ea8",
+  "fileSha256": "d2bb5e08310d564d2185b22548acc72664be65bd132d4a8cebccf4e4c17a8ea8",
+  "trimmedBy": "none: the complete response, byte for byte (0 items)",
+  "termsUrl": "https://guide.djinni.co/terms-of-use",
+  "termsCheckedAt": "2026-10-23",
+  "permission": "PUBLIC_FEED",
+  "notes": "A real valid feed with zero items: a known keyword that has no active vacancy returns the full channel header (including the 170-entry taxonomy) and no <item>. Permission: robots.txt (fetched 2026-10-23) disallows /jobs2, /q, /developers, /free-jobs, /set_lang and not /jobs/rss/, which the public /jobs/ page itself links as its RSS feed. The only terms text reachable by an honest client is the commercial guide at the termsUrl (success-fee pricing); it says nothing about automated access, and the binding legal Terms of Use were not located. So: PUBLIC_FEED on the strength of robots.txt plus the site advertising the feed, with the legal text UNREAD - the owner should confirm before the source is enabled."
+}

@@ -1,0 +1,12 @@
+{
+  "url": "https://weworkremotely.com/categories/remote-full-stack-programming-jobs.rss",
+  "fetchedAt": "2026-10-23T20:03:12Z",
+  "httpStatus": 200,
+  "rawSha256": "83fee4a89fcd4564cc489be983d149164b56e3a9bed11462bc2ac6b9e3216abe",
+  "fileSha256": "b11804eec7662ca4acca07bf79087135eb14d692a0f2f70ab0a9b9405c84afee",
+  "trimmedBy": "python3 -I apps/api/src/job-sourcing/providers/sources/__fixtures__/trim-rss-items.py <raw capture> wwr/category-full-stack.trimmed.xml <3 guids>: kept 3 of 80 items (askable..., zoominfo-technologies-llc-director-applied-ai, yooli-full-time...-1) by expat byte offsets, verbatim",
+  "termsUrl": "https://weworkremotely.com/remote-job-rss-feed",
+  "termsCheckedAt": "2026-10-23",
+  "permission": "PUBLIC_FEED",
+  "notes": "Items carry title (\"Company: Position\"), media:content logo (some), region, country, state, skills, category, type, description (entity-escaped HTML), pubDate (RFC 2822, +0000), expires_at (pubDate + 30 days), guid == link (permalink, no isPermaLink attribute). No CDATA. region/country/state/type/skills/expires_at are not exposed by the shared FeedEntry reader. Recruiter names/emails/phones: none in the kept items (company names and company URLs only); nothing redacted. The real title shapes the parser is tested on: a trailing space in the raw title (Askable), a second colon inside the POSITION (\"Yooli: FULL TIME: Software Engineer Position - React and Rest\"), a comma. Across 179 distinct titles of the four feeds fetched, none had a colon inside the company name and none lacked a colon. Permission: robots.txt (fetched 2026-10-23) allows / and disallows only account/admin paths. The official feed page and the /terms page both answered 403 with a Cloudflare \"Just a moment\" challenge to this client and were NOT bypassed, so neither was read directly. A search-engine excerpt of the official feed page states \"Anyone can use the feed, all we ask is that you attribute the links back to We Work Remotely\" and lists the all-jobs feed plus one feed per category. Recorded as PUBLIC_FEED with the attribution obligation; the full Terms of Use were not read, and a third-party summary says they limit use to alerts/research/internal tools rather than aggregators - the owner should confirm before enabling."
+}

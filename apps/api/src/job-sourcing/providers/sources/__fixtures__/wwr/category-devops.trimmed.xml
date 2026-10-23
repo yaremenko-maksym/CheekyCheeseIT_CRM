@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:media="http://search.yahoo.com/mrss">
+  <channel>
+    <title>We Work Remotely: DevOps and Sysadmin Jobs</title>
+    <link>https://weworkremotely.com/categories/remote-devops-sysadmin-jobs.rss</link>
+    <description>We Work Remotely: DevOps and Sysadmin Jobs</description>
+    <language>en-US</language>
+    <ttl>60</ttl>
+    <item>
+      <title>ZoomInfo Technologies LLC: Principal Infrastructure Architect: Data Platform</title>
+      <region>Anywhere in the World</region>
+      <country></country>
+      <state></state>
+      <skills></skills>
+      <category>DevOps and Sysadmin</category>
+      <type>Full-Time</type>
+      <description>
+
+&lt;p&gt;
+  &lt;strong&gt;Headquarters:&lt;/strong&gt; Remote
+&lt;/p&gt;
+
+&lt;div class="content-intro"&gt;&lt;p&gt;ZoomInfo is where careers accelerate. We move fast, think boldly, and empower you to do the best work of your life. You’ll be surrounded by teammates who care deeply, challenge each other, and celebrate wins. With tools that amplify your impact and a culture that backs your ambition, you won’t just contribute. You’ll make things happen–fast.&lt;/p&gt;&lt;/div&gt;&lt;p&gt;&amp;nbsp;&lt;/p&gt;
+&lt;p&gt;As a Principal Infrastructure Architect on our Infrastructure Architecture team, you will be the architecture team's partner to ZoomInfo's data engineering organization. Data engineering owns the platforms and the products built on them. You bring the infrastructure patterns, evaluation rigor, and cross-team alignment that help them build and run those platforms well on GCP.&lt;/p&gt;
+&lt;p&gt;This is a cloud architect seat with a data specialty. You bring the same cloud, Kubernetes, networking, and infrastructure-as-code foundation as the rest of the architecture team, plus enough hands-on depth in data systems to be credible with the engineers who run them.&lt;/p&gt;
+&lt;p&gt;The work breaks down four ways:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Patterns.&lt;/strong&gt; You establish and maintain the paved-road patterns data teams build on: infrastructure as code, CI/CD for data jobs and pipelines, monitoring and alerting, performance, and cost. You keep them easy to consume and self-service.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Enablement and alignment.&lt;/strong&gt; You help data teams adopt those patterns, review their designs, and work through hard infrastructure trade-offs with them.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Evaluation.&lt;/strong&gt; You run POCs of new data technologies and vendor offerings as part of the procurement and technology-lifecycle process, and you write recommendations engineering leaders can act on.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Shared stewardship.&lt;/strong&gt; You take a full share of the architecture team's general work: weekly architecture reviews across all domains, standards and ADRs, and infrastructure consulting for any team that needs it.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;The data estate is broad. We don't expect deep experience across all of it. We expect real depth in some areas and the ability to build depth in others as the work demands. Patterns get adopted here through leadership and communication rather than positional authority. You'll write reference implementations, open the first PRs, and stay hands-on through enablement when a critical initiative calls for it.&lt;/p&gt;
+&lt;h2&gt;What You'll Do&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Establish infrastructure patterns for data workloads.&lt;/strong&gt; Design and maintain reference patterns for provisioning and operating the data platforms ZoomInfo runs: streaming and messaging (Kafka/Confluent, Pub/Sub), operational databases (PostgreSQL/Cloud SQL, MongoDB), analytical stores (BigQuery, Snowflake), search (Elasticsearch/Solr), pipeline orchestration and processing (Apache Airflow/Cloud Composer, Dataflow/Apache Beam), and open table formats (Apache Iceberg). Ship them as Terraform modules, GitOps workflows, and documented standards that data teams can adopt without reinventing them.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Build the data paved road.&lt;/strong&gt; Today's delivery tooling is application-centric. Define CI/CD and GitOps patterns for data jobs and pipelines, and partner with platform engineering and data engineering to make data delivery as safe and automated as application delivery.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Establish performance, cost, and observability patterns.&lt;/strong&gt; Give data teams the patterns and guidance to run stores and pipelines efficiently (query and storage optimization, partitioning and clustering, tiering and retention, workload isolation, right-sizing) and the monitoring, alerting, and SLO practices that make performance and cost visible. Set the baseline patterns for backup, restore, and disaster recovery of data stores, including RTO/RPO targets. Partner with FinOps on data-layer spend. Review workloads with teams against these patterns and help them align.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Evaluate new technologies.&lt;/strong&gt; Run structured POCs of emerging data technologies and vendor offerings as part of the procurement and technology-lifecycle process. Recent examples include graph and distributed SQL databases, stream processing (Apache Flink, Confluent Flink), and schema management and cataloging. Weigh self-hosted against vendor-managed, map migration and exit paths, model cost, and write up a recommendation.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Bring managed data services inside the perimeter.&lt;/strong&gt; Define the patterns for connecting vendor-managed data planes (Confluent Cloud, Snowflake, MongoDB Atlas, and similar) to our GCP environment: private connectivity (Private Service Connect, PrivateLink, VPC peering), VPC Service Controls, identity and encryption across the boundary (workload identity, CMEK, in-transit), and the DNS and routing that go with them. Model egress and cross-region cost, and set the exfiltration controls that keep those services inside the compliance perimeter.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Support data consolidation and governance efforts.&lt;/strong&gt; Contribute infrastructure guidance to data engineering's work on consolidating where data lives and is accessed (BigQuery, Snowflake, object storage) and on data classification, residency, and access policy.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Prototype and hand off.&lt;/strong&gt; Build the reference implementation, write the ADR, and partner with the owning teams to roll the pattern out. Stay hands-on through POC and initial enablement.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Participate in architecture review.&lt;/strong&gt; Bring a consistent, documented rubric to weekly architecture reviews across all domains, including designs that have nothing to do with data. Expand the standards library and ADR catalog. Take a share of the team's general consulting and support load.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Enable teams.&lt;/strong&gt; Host design reviews and workshops. Serve as the infrastructure consultant to data teams making complex choices.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2&gt;What We're Looking For&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Influence and communication.&lt;/strong&gt; You can present a recommendation, show its value, and back it with prototypes, benchmarks, and documented rationale. You've gotten patterns adopted across engineering organizations you don't manage by working with the teams involved.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Cloud infrastructure foundation.&lt;/strong&gt; Production experience architecting on GCP and/or AWS beyond the data services: compute and Kubernetes (GKE or equivalent) as the runtime for data workloads, VPC networking and private connectivity to managed services, IAM and workload identity, and cost and reliability trade-offs. Strong Terraform and GitOps skills, including designing and reviewing modules other teams depend on. You can review a service-mesh or network design in architecture review with credibility.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Hands-on data infrastructure experience at scale.&lt;/strong&gt; You've built and operated the infrastructure under data platforms at multi-terabyte to petabyte scale, with high throughput, high concurrency, and latency-sensitive workloads, and you know what breaks in production.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Depth in at least two data domains, fluency across the rest.&lt;/strong&gt; Deep production experience in at least two of: streaming and stream processing (Kafka/Confluent, Flink); relational operational databases (PostgreSQL); NoSQL (MongoDB); columnar analytics and lakehouse (BigQuery, Snowflake, Iceberg); search (Elasticsearch/Solr); pipeline orchestration and processing (Airflow, Dataflow/Beam). Enough fluency in the others to evaluate, review, and learn them quickly.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Performance and cost engineering.&lt;/strong&gt; You've diagnosed and fixed expensive or slow data workloads (query plans, storage layout, pipeline design, warehouse spend) and turned the fixes into reusable patterns and monitoring that other teams picked up.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Development and operational depth.&lt;/strong&gt; You can dive into code to prove out a pattern and test behavior under load, and you'd rather ship a working prototype than a diagram.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Technology evaluation.&lt;/strong&gt; You've run rigorous evaluations that separate vendor pitch from architectural fit, and your recommendations have been used by engineering leaders and procurement.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2&gt;Bonus Points&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;Supported a lakehouse or data mesh migration from the infrastructure side.&lt;/li&gt;
+&lt;li&gt;Implemented data classification, residency, or privacy/compliance (GDPR/CCPA) controls at the infrastructure layer.&lt;/li&gt;
+&lt;li&gt;Run graph or distributed SQL databases in production.&lt;/li&gt;
+&lt;li&gt;Know the infrastructure demands of AI/ML data workloads (feature stores, vector databases, embedding pipelines).&lt;/li&gt;
+&lt;li&gt;Built or applied AI-augmented developer or architecture workflows (agent-driven pipeline provisioning, MCP servers, LLM-based rubric evaluation).&lt;/li&gt;
+&lt;li&gt;Run or participated in an Architecture Review Council or equivalent governance body.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2&gt;Education and Experience&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;Bachelor's degree in Computer Science, related technical field, or equivalent practical experience.&lt;/li&gt;
+&lt;li&gt;10–15+ years of cloud infrastructure, platform, or data infrastructure engineering experience, including several years establishing patterns and standards that multiple teams depend on.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;#LI- RA1&lt;/p&gt;
+&lt;p&gt;#LI-Remote&lt;/p&gt;&lt;div class="content-pay-transparency"&gt;&lt;div class="pay-input"&gt;&lt;div class="description"&gt;&lt;p&gt;Actual compensation offered will be based on factors such as the candidate’s work location, qualifications, skills, experience and/or training. Your recruiter can share more information about the specific salary range for your desired work location during the hiring process. We want our employees and their families to thrive.&lt;/p&gt;
+&lt;p&gt;In addition to comprehensive benefits we offer holistic mind, body and lifestyle programs designed for overall well-being. Learn more about ZoomInfo benefits &lt;a class="c-link" href="https://www.zoominfo.com/careers#benefits"&gt;here&lt;/a&gt;.&lt;/p&gt;&lt;/div&gt;&lt;div class="title"&gt;Below is the US base salary for this position. Additional compensation such as Bonus, Commission, Equity and other benefits may also apply.&lt;/div&gt;&lt;div class="pay-range"&gt;&lt;span&gt;$157,500&lt;/span&gt;&lt;span class="divider"&gt;—&lt;/span&gt;&lt;span&gt;$247,500 USD&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class="content-conclusion"&gt;&lt;p&gt;&lt;strong&gt;About us:&lt;/strong&gt;&amp;nbsp;&lt;/p&gt;
+&lt;p&gt;ZoomInfo (NASDAQ: GTM) is the Go-To-Market Intelligence Platform that empowers businesses to grow faster with AI-ready insights, trusted data, and advanced automation. Its solutions provide more than 35,000 companies worldwide with a complete view of their customers, making every seller their best seller.&lt;/p&gt;
+&lt;p&gt;ZoomInfo is committed to protecting your privacy when you apply for jobs with us. Please review our Job Applicant &lt;a href="https://drive.google.com/file/d/1yiG-k0YX_sW10PiJk_xliDc3W-veJCrK/view?usp=drive_link"&gt;Privacy Notice&lt;/a&gt; for more details on how we handle your personal information.&lt;/p&gt;
+&lt;p&gt;ZoomInfo may use a software-based assessment as part of the recruitment process. More information about this tool, including the results of the most recent bias audit, is available &lt;a href="https://www.zoominfo.com/legal/nyc-local-law-144-notice"&gt;here&lt;/a&gt;.&lt;/p&gt;
+&lt;p&gt;ZoomInfo is proud to be an equal opportunity employer, hiring based on qualifications, merit, and business needs, and does not discriminate based on protected status. We welcome all applicants and are committed to providing equal employment opportunities regardless of sex, race, age, color, national origin, sexual orientation, gender identity, marital status, disability status, religion, protected military or veteran status, medical condition, or any other characteristic protected by applicable law. We also consider qualified candidates with criminal histories in accordance with legal requirements.&lt;/p&gt;
+&lt;p&gt;For Massachusetts Applicants: It is unlawful in Massachusetts to require or administer a lie detector test as a condition of employment or continued employment. An employer who violates this law shall be subject to criminal penalties and civil liability. ZoomInfo does not administer lie detector tests to applicants in any location.&lt;/p&gt;&lt;/div&gt;
+
+&lt;p&gt;&lt;strong&gt;To apply:&lt;/strong&gt; &lt;a href="https://weworkremotely.com/remote-jobs/zoominfo-technologies-llc-principal-infrastructure-architect-data-platform"&gt;https://weworkremotely.com/remote-jobs/zoominfo-technologies-llc-principal-infrastructure-architect-data-platform&lt;/a&gt;&lt;/p&gt;
+</description>
+      <pubDate>Tue, 29 Sep 2026 07:30:41 +0000</pubDate>
+      <expires_at>Thu, 29 Oct 2026 07:30:41 +0000</expires_at>
+      <guid>https://weworkremotely.com/remote-jobs/zoominfo-technologies-llc-principal-infrastructure-architect-data-platform</guid>
+      <link>https://weworkremotely.com/remote-jobs/zoominfo-technologies-llc-principal-infrastructure-architect-data-platform</link>
+    </item>
+  </channel>
+</rss>

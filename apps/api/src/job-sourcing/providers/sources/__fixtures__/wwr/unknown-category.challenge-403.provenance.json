@@ -1,0 +1,12 @@
+{
+  "url": "https://weworkremotely.com/categories/remote-data-science-jobs.rss",
+  "fetchedAt": "2026-10-23T20:07:43Z",
+  "httpStatus": 403,
+  "rawSha256": "16d771ca6f5f34de9351a8f3100b05e586d68ffb0c5fb3b1edab4d4ee7b40dab",
+  "fileSha256": "16d771ca6f5f34de9351a8f3100b05e586d68ffb0c5fb3b1edab4d4ee7b40dab",
+  "trimmedBy": "none: the complete response, byte for byte",
+  "termsUrl": "https://weworkremotely.com/remote-job-rss-feed",
+  "termsCheckedAt": "2026-10-23",
+  "permission": "PUBLIC_FEED",
+  "notes": "The real answer to a feed path that does not exist (remote-data-science-jobs.rss; categories/no-such-category.rss answered identically): HTTP 403, text/html, a Cloudflare \"Just a moment...\" interstitial. The honest client does not solve it, retry around it or change identity: the adapter treats it as a block. This is why the category is a closed enum of verified feeds - a guessed slug costs a challenge, not a 404. Permission: robots.txt (fetched 2026-10-23) allows / and disallows only account/admin paths. The official feed page and the /terms page both answered 403 with a Cloudflare \"Just a moment\" challenge to this client and were NOT bypassed, so neither was read directly. A search-engine excerpt of the official feed page states \"Anyone can use the feed, all we ask is that you attribute the links back to We Work Remotely\" and lists the all-jobs feed plus one feed per category. Recorded as PUBLIC_FEED with the attribution obligation; the full Terms of Use were not read, and a third-party summary says they limit use to alerts/research/internal tools rather than aggregators - the owner should confirm before enabling."
+}
