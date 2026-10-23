@@ -18,6 +18,17 @@ import {
 /**
  * Remotive (`https://remotive.com/api/remote-jobs?category=<slug>`), one request per category.
  *
+ * BLOCKED - NOT TO BE REGISTERED OR ENABLED (permission `UNCLEAR`; see `REMOTIVE_SOURCE_STATUS`).
+ * The documented API grants developer access, but robots.txt (User-agent *) says
+ * `Disallow: /api/*` and `Disallow: /*category=`, and this adapter requests exactly
+ * `/api/remote-jobs?category=`. The two contradict each other, so an OWNER decision is required
+ * before Task 3.7 registers it or any seeded row is switched on. The adapter and its fixture stay
+ * until that decision. (The fixture itself was captured with two GETs to that path.)
+ *
+ * UNVERIFIED, inherited by whoever lifts the block: the capture held 9 jobs (105 KB). Whether a
+ * full category can exceed the 2 MiB JSON byte cap (`PAYLOAD_TOO_LARGE`) was not measured, and the
+ * cap was not raised.
+ *
  * - NAMESPACE is the constant `remotive`, not the category: a category is a filter, not a board,
  *   so one posting listed under two categories keeps ONE identity.
  * - GEOGRAPHY (`candidate_required_location`) is the observation's `location`; `remote` is set
@@ -28,9 +39,17 @@ import {
  * - DATES: `publication_date` carries no zone designator and the docs name none. The date policy
  *   reports MISSING_ZONE (raw kept, no instant) rather than guess one.
  * - Terms (provenance notes): link back and name Remotive as the source; jobs are delayed 24 h;
- *   a few requests a day suffice. A source URL is therefore kept as the posting URL and no
- *   separate application URL exists.
+ *   the provider advises at most ~4 requests a day and blocks more than 2 a minute. A source URL
+ *   is kept as the posting URL and no separate application URL exists.
  */
+
+/** Machine-readable twin of the BLOCKED note above, pinned against the provenance file by a spec. */
+export const REMOTIVE_SOURCE_STATUS = {
+  blocked: true,
+  permission: 'UNCLEAR',
+  reason:
+    'robots.txt Disallow: /api/* and /*category= contradicts the documented API; owner decision required before registration',
+} as const
 
 export const REMOTIVE_ADAPTER_VERSION = 'remotive-1'
 export const REMOTIVE_NAMESPACE = 'remotive'

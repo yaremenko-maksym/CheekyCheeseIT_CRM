@@ -271,7 +271,7 @@ describe('request and failure reporting', () => {
     const { batch, f } = await run(feed())
     expect(f.sent).toHaveLength(1)
     expect(f.sent[0]?.url).toBe('https://remoteok.com/api')
-    expect(f.sent[0]?.headers).toMatchObject({ accept: 'application/json' })
+    expect(f.sent[0]?.headers).toEqual({ accept: 'application/json' })
     expect(batch.requests).toHaveLength(1)
     expect(batch.requests[0]).toMatchObject({
       attempt: 1,
@@ -350,5 +350,108 @@ describe('config is refused before any network call', () => {
       ),
     ).rejects.toBeInstanceOf(UnvalidatedConfigError)
     expect(f.sent).toHaveLength(0)
+  })
+})
+
+describe('refusal reasons are the intended ones', () => {
+  const reason = (extra: Record<string, unknown>) => {
+    try {
+      remoteokProvider.parseConfig({ configVersion: 1, ...extra })
+    } catch (e) {
+      return e instanceof Error ? e.message : String(e)
+    }
+    return ''
+  }
+  it('a search query is refused for having no search parameter', () => {
+    expect(reason({ query: 'rust' })).toContain('RemoteOK has no search parameter')
+  })
+  it('a window is refused for having no date window', () => {
+    expect(reason({ window: { from: '2026-10-01', to: '2026-10-02' } })).toContain(
+      'RemoteOK has no date window',
+    )
+  })
+})
+
+describe('feed-shape guards (a bad element is one invalid item, never a failed page)', () => {
+  it.each([
+    ['null', null],
+    ['a number', 5],
+    ['a string', 'x'],
+    ['a boolean', true],
+    ['an array', [1]],
+  ])('%s among the jobs: the other 6 survive and it counts as 1 invalid', async (_l, junk) => {
+    const { batch } = await run([legal(), junk, ...jobs()])
+    expect(batch.counts).toEqual({
+      raw: 7,
+      normalized: 6,
+      invalid: 1,
+      quarantined: 0,
+      discarded: 0,
+    })
+    expect(batch.outcome).toBe('SUCCEEDED')
+  })
+
+  it('an object whose legal field is not a string is not the legal notice', async () => {
+    const { batch } = await run([{ legal: 5 }, ...jobs()])
+    expect(batch.counts.invalid).toBe(1)
+  })
+})
+
+describe('identity and link fields', () => {
+  it('an empty id is an invalid item, not an id-less observation', async () => {
+    const { batch } = await run([{ ...jobs()[0], id: '' }])
+    expect(batch.counts).toEqual({
+      raw: 1,
+      normalized: 0,
+      invalid: 1,
+      quarantined: 0,
+      discarded: 0,
+    })
+  })
+  it('a missing id is an invalid item', async () => {
+    const { id: _id, ...noId } = jobs()[0] as Record<string, unknown>
+    expect((await run([noId])).batch.counts.invalid).toBe(1)
+  })
+  it('an id of 100 chars is valid, 101 is invalid', async () => {
+    expect((await run([{ ...jobs()[0], id: 'i'.repeat(100) }])).batch.counts.invalid).toBe(0)
+    expect((await run([{ ...jobs()[0], id: 'i'.repeat(101) }])).batch.counts.invalid).toBe(1)
+  })
+  it('url is the posting URL and apply_url is the application URL when they differ', async () => {
+    const j = { ...jobs()[0], apply_url: 'https://employer.example/apply?job=7' }
+    const { batch } = await run([j])
+    expect(batch.observations[0]?.sourcePostingUrl).toBe(
+      'https://remoteok.com/remote-jobs/remote-senior-devops-engineer-lemon-io-1137557',
+    )
+    expect(batch.observations[0]?.applicationUrl).toBe('https://employer.example/apply?job=7')
+  })
+  it('an absent apply_url leaves no application URL', async () => {
+    const { apply_url: _a, ...rest } = jobs()[0] as Record<string, unknown>
+    expect((await run([rest])).batch.observations[0]?.applicationUrl).toBeNull()
+  })
+})
+
+describe('optional-field defaults', () => {
+  it('a job with no date: no dates, no publishedAt and no date evidence', async () => {
+    const { date: _d, ...noDate } = jobs()[0] as Record<string, unknown>
+    for (const j of [noDate, { ...noDate, date: null }]) {
+      const o = (await run([j])).batch.observations[0]
+      expect(o?.normalized.dates).toEqual([])
+      expect(o?.normalized.publishedAt).toBeNull()
+      expect(o?.evidence).toEqual([])
+    }
+  })
+  it('a job with no tags, location or description: empty tags, null location, empty description', async () => {
+    const {
+      tags: _t,
+      location: _l,
+      description: _d,
+      ...bare
+    } = jobs()[0] as Record<string, unknown>
+    for (const j of [bare, { ...bare, tags: null, location: null, description: null }]) {
+      const o = (await run([j])).batch.observations[0]
+      expect(o?.normalized.tags).toEqual([])
+      expect(o?.normalized.location).toBeNull()
+      expect(o?.normalized.descriptionMd).toBe('')
+    }
   })
 })

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { fakeCollectionContext } from '../../../test/fake-collection-context'
-import { sourceFixture } from '../../../test/source-fixtures'
+import { sourceFixture, sourceProvenance } from '../../../test/source-fixtures'
 import { PG_INT_MAX } from '../api-json.provider'
 import { UnvalidatedConfigError } from '../reporting-provider'
-import { remotiveProvider } from './remotive.provider'
+import { remotiveProvider, REMOTIVE_SOURCE_STATUS } from './remotive.provider'
 
 /**
  * Remotive through its public provider. Expected values are hand-read from
@@ -249,6 +249,7 @@ describe('coverage, requests and failures', () => {
     const { batch, f } = await run(envelope())
     expect(f.sent).toHaveLength(1)
     expect(f.sent[0]?.url).toBe('https://remotive.com/api/remote-jobs?category=software-dev')
+    expect(f.sent[0]?.headers).toEqual({ accept: 'application/json' })
     expect(batch.requests).toHaveLength(1)
     expect(batch.requests[0]).toMatchObject({
       page: 1,
@@ -327,5 +328,78 @@ describe('config is refused before any network call', () => {
       ),
     ).rejects.toBeInstanceOf(UnvalidatedConfigError)
     expect(f.sent).toHaveLength(0)
+  })
+})
+
+describe('the BLOCKED state (SPEC-M-1)', () => {
+  it('the provider declares itself blocked, UNCLEAR, with the robots.txt reason - and the provenance agrees', () => {
+    expect(REMOTIVE_SOURCE_STATUS.blocked).toBe(true)
+    expect(REMOTIVE_SOURCE_STATUS.permission).toBe('UNCLEAR')
+    expect(REMOTIVE_SOURCE_STATUS.reason).toContain('robots.txt Disallow: /api/*')
+    expect(REMOTIVE_SOURCE_STATUS.reason).toContain('owner decision')
+    expect(
+      (sourceProvenance('remotive', 'software-dev') as { permission: string }).permission,
+    ).toBe(REMOTIVE_SOURCE_STATUS.permission)
+  })
+  it('the provenance notes carry the unverified byte-cap risk and the robots conflict', () => {
+    const notes = (sourceProvenance('remotive', 'software-dev') as { notes: string }).notes
+    expect(notes).toContain('2 MiB')
+    expect(notes).toContain('Disallow: /api/*')
+  })
+})
+
+describe('refusal reasons are the intended ones', () => {
+  const reason = (extra: Record<string, unknown>) => {
+    try {
+      remotiveProvider.parseConfig({ configVersion: 1, category: 'software-dev', ...extra })
+    } catch (e) {
+      return e instanceof Error ? e.message : String(e)
+    }
+    return ''
+  }
+  it('query and window are refused with their own wording', () => {
+    expect(reason({ query: 'x' })).toContain('the category is the scope')
+    expect(reason({ window: { from: '2026-10-01', to: '2026-10-02' } })).toContain(
+      'Remotive has no date window',
+    )
+  })
+})
+
+describe('identity, links and optional-field defaults', () => {
+  const first = () => jobs()[0] as Record<string, unknown>
+  it('an empty or absent url is an invalid item or quarantined, never mapped', async () => {
+    const { url: _u, ...noUrl } = first()
+    expect((await run(withJobs([noUrl]))).batch.counts.invalid).toBe(1)
+    const empty = await run(withJobs([{ ...first(), url: '' }]))
+    expect(empty.batch.counts.normalized).toBe(0)
+  })
+  it('an absent id is an invalid item', async () => {
+    const { id: _i, ...noId } = first()
+    expect((await run(withJobs([noId]))).batch.counts.invalid).toBe(1)
+  })
+  it('a job with no date: no dates, no publishedAt, no date evidence', async () => {
+    const { publication_date: _p, ...noDate } = first()
+    for (const j of [noDate, { ...noDate, publication_date: null }]) {
+      const o = (await run(withJobs([j]))).batch.observations[0]
+      expect(o?.normalized.dates).toEqual([])
+      expect(o?.normalized.publishedAt).toBeNull()
+      expect(o?.evidence).toEqual([])
+    }
+  })
+  it('a job with no tags, job_type, geography or description gets the empty defaults', async () => {
+    const {
+      tags: _t,
+      job_type: _j,
+      candidate_required_location: _c,
+      description: _d,
+      ...bare
+    } = first()
+    for (const j of [bare, { ...bare, tags: null, job_type: null, description: null }]) {
+      const o = (await run(withJobs([j]))).batch.observations[0]
+      expect(o?.normalized.tags).toEqual([])
+      expect(o?.normalized.employmentType).toBeNull()
+      expect(o?.normalized.location).toBeNull()
+      expect(o?.normalized.descriptionMd).toBe('')
+    }
   })
 })
