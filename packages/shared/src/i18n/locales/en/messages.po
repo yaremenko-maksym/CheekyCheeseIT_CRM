@@ -2560,7 +2560,7 @@ msgstr "One of the shares doesn't match what was already paid — the edit is bl
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_ROW_STATE_CHANGED_WHILE_EDITING"
-msgstr "The transaction was paid or deleted while you were editing it — refresh the page"
+msgstr "The record changed while you were working with it — reload the page and try again"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts

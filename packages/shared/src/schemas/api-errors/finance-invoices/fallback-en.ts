@@ -14,7 +14,7 @@ export const FINANCE_INVOICES_ERROR_FALLBACK_EN: Record<FinanceInvoicesErrorCode
   FINANCE_ROW_AMOUNT_MISMATCH:
     "One of the shares doesn't match what was already paid — the edit is blocked until a manual reconciliation",
   FINANCE_ROW_STATE_CHANGED_WHILE_EDITING:
-    'The transaction was paid or deleted while you were editing it — refresh the page',
+    'The record changed while you were working with it — reload the page and try again',
   FINANCE_PAID_ROW_AMOUNT_EDIT_NEEDS_PREVIEW:
     "Changing a paid transaction's amount recalculates shares and obligations — open the preview first",
   FINANCE_PAYMENT_FACT_AMOUNT_LOCKED:

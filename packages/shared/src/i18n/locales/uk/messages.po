@@ -2560,7 +2560,7 @@ msgstr "Сума однієї з часток не збігається з уж�
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_ROW_STATE_CHANGED_WHILE_EDITING"
-msgstr "Транзакцію оплатили або видалили, поки ви її редагували — оновіть сторінку"
+msgstr "Запис змінився, поки ви з ним працювали — оновіть сторінку та спробуйте ще раз"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts

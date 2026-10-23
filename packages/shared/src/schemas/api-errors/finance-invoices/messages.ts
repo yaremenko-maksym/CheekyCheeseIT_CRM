@@ -42,7 +42,7 @@ export const FINANCE_INVOICES_ERROR_MESSAGES: Record<FinanceInvoicesErrorCode, M
     },
     FINANCE_ROW_STATE_CHANGED_WHILE_EDITING: /* i18n */ {
       id: 'api-error.FINANCE_ROW_STATE_CHANGED_WHILE_EDITING',
-      message: 'Транзакцію оплатили або видалили, поки ви її редагували — оновіть сторінку',
+      message: 'Запис змінився, поки ви з ним працювали — оновіть сторінку та спробуйте ще раз',
     },
     FINANCE_PAID_ROW_AMOUNT_EDIT_NEEDS_PREVIEW: /* i18n */ {
       id: 'api-error.FINANCE_PAID_ROW_AMOUNT_EDIT_NEEDS_PREVIEW',

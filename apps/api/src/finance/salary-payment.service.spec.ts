@@ -622,11 +622,16 @@ describe('SalaryPaymentService.paySalary — ADMIN_PERSONAL flip', () => {
       flipRows: [],
       postClaimRow: { status: 'PENDING', deletedAt: null },
     })
-    await expect(
-      h.svc.paySalary(SALARY_ID, { ...personal, payerAdminId: 'payer-1' }, ADMIN),
-    ).rejects.toMatchObject({
-      response: { code: 'FINANCE_ROW_STATE_CHANGED_WHILE_EDITING' },
-    })
+    const error = (await h.svc
+      .paySalary(SALARY_ID, { ...personal, payerAdminId: 'payer-1' }, ADMIN)
+      .catch((reason: unknown) => reason)) as { response: { code: string; message: string } }
+    expect(error.response.code).toBe('FINANCE_ROW_STATE_CHANGED_WHILE_EDITING')
+    // QA-MED-2: the right code is not enough — its MESSAGE must also be true here.
+    // In this race the row was neither paid nor deleted: it is still PENDING and was
+    // merely edited, so a message claiming "paid or deleted" would be a false
+    // statement delivered by the very fix that exists to stop one.
+    expect(error.response.message).toMatch(/changed while you were working with it/)
+    expect(error.response.message).not.toMatch(/paid or deleted/)
     expect(h.lifecycle.safeAutoCreateInvoice).not.toHaveBeenCalled()
   })
 
