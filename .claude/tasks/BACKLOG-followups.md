@@ -4053,7 +4053,18 @@ and attempt removal. If neither the reviewer nor the orchestrator can remove it,
 open — and count the scratchpad's trees afterwards, because the symptom is accumulation rather than
 any single refusal.
 
-## 278. The resume-render responsiveness spec asserts a wall-clock ratio and fails on a slow runner (2026-10-22)
+## 278. CLOSED (2026-10-23) — wall-clock ratio specs, superseded by the timing-job split
+
+**Closed by the `test/wall-clock-ratio-tests` work.** Both wall-clock ratio assertions (this one and
+`growth.spec.ts`'s R-5 exponent) moved into a dedicated `timing_specs` CI job that runs alone, and each
+guarantee kept a DETERMINISTIC check in the unit suite — for this spec, a count of event-loop turns
+(an `execFileSync` runner reads 0) plus a module-mock assertion that extraction never runs in-process,
+neither of which depends on machine load. No threshold was changed and no `.skip` was added. Two
+residuals are recorded as entry 306 rather than left inside a closed entry.
+
+### Original entry, kept for provenance
+
+## 278-orig. The resume-render responsiveness spec asserts a wall-clock ratio and fails on a slow runner (2026-10-22)
 
 The API unit spec for resume rendering (`AC3 — API responsiveness during a resume render`, in the
 resumes module's `resume-render-responsiveness` spec) measures the worst event-loop stall with PDF
@@ -4583,3 +4594,26 @@ Not a defect today — the definitions agree — which is precisely why it will 
 they stop agreeing.
 
 **Check on closing:** alter the view in ONE of the newer DDL files only, and the guard fails.
+
+## 306. Two residuals from the timing-job split (2026-10-23)
+
+Both were disclosed by the author of the split rather than found afterwards, which is why they are an
+entry instead of a finding.
+
+- **The quadratic-scan guarantee is no longer a merge gate.** The `timing_specs` job sits outside the
+  `quality` aggregator by design — that is what makes a single miss a signal rather than a blocked PR —
+  and it runs only when `apps/api`, `packages/shared`, the lockfile or `ci.yml` change. So nothing
+  blocks a merge on it. **This repo has already been burned by the adjacent arrangement:** a nightly
+  mutation run stayed red for twenty days because "the nightly checks it" is not the same as anyone
+  reading it. So the open question is not "required or not" — making it required reinstates exactly the
+  load-sensitivity the split removed — but **who notices a failure**. Candidates: fold its conclusion
+  into the telemetry digest that already reaches a human, or alert on it the way `deploy-alert.yml`
+  alerts, or accept it as advisory and say so in the job's own header.
+- **The 2.0 exponent threshold has a false-negative range.** Measured during the split: a quadratic
+  PI scan with a 64-character step fits BELOW 2.0 and the assertion stays green. So the original spec
+  did not only fail under load — it also passed on a real regression. The split did not create this and
+  did not fix it. A deterministic operation count would, but none was reachable without instrumenting
+  the parser (product code, outside the test author's zone), so the seam has to be added deliberately.
+
+**Check on closing:** a quadratic scan with a 64-character step is caught by something, and a failing
+`timing_specs` job reaches a human within a day without anybody thinking to look.
