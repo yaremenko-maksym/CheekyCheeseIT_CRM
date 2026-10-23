@@ -82,7 +82,7 @@ async function newMeter(opts: MeterOpts = {}): Promise<{ id: string; accountKey:
 /** The three counters, as numbers. The assertion every transition below is made with. */
 async function counters(meterId: string) {
   const { rows } = await q(
-    `SELECT used::int AS used, reserved::int AS reserved, uncertain::int AS uncertain
+    `SELECT used::float8 AS used, reserved::float8 AS reserved, uncertain::float8 AS uncertain
        FROM job_account_meters WHERE id = $1`,
     [meterId],
   )
@@ -268,11 +268,13 @@ describe.skipIf(!hasDatabaseUrl())('account meter store (real Postgres)', () => 
           ),
         )
 
+        // Probed on a SEPARATE autocommit connection: inside the blocker transaction
+        // pg_stat_activity is a snapshot taken once, and would read 0 forever.
         // Bounded wait (5 s) until all N are blocked on a lock in this database.
         const deadline = Date.now() + 5_000
         let waiting = 0
         while (Date.now() < deadline) {
-          const { rows } = await blocker.query(
+          const { rows } = await q(
             `SELECT count(*)::int AS n FROM pg_stat_activity
               WHERE datname = current_database() AND wait_event_type = 'Lock'
                 AND query ILIKE '%job_account_meters%'`,
