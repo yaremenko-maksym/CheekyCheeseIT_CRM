@@ -293,6 +293,18 @@ export function safeErrorStack(err: unknown): string | undefined {
   if (!(err instanceof Error)) return String(err)
   if (!isPgNode(err as unknown as Dict) && !isDrizzleNode(err as unknown as Dict)) return err.stack
   if (err.stack === undefined) return undefined
+  return nameAndFrames(err)
+}
+
+/**
+ * The message-dropping half of `safeErrorStack`, extracted so there is ONE
+ * implementation of it (`strictErrorStack` below needs the same logic for a
+ * wider set of inputs). Behaviour is unchanged for `safeErrorStack`'s callers:
+ * it is reached only on the same branch as before, with `.stack` defined.
+ */
+function nameAndFrames(err: Error): string {
+  // Only `strictErrorStack` can arrive without a stack: `safeErrorStack` returns before calling here.
+  if (err.stack === undefined) return err.name
   const header = `${err.name}: ${err.message}`
   const rest = err.stack.slice(header.length)
   // V8 builds the header lazily: if `.stack` was read and `.message` shortened afterwards,
@@ -303,4 +315,28 @@ export function safeErrorStack(err: unknown): string | undefined {
   if (!err.stack.startsWith(header) || !rest.startsWith('\n    at ')) return err.name
   const frames = rest.split('\n').filter((line) => /^\s+at /.test(line))
   return [err.name, ...frames].join('\n')
+}
+
+/**
+ * SR-M-2 (PR #868 delta review). `safeErrorStack` drops the message only when the
+ * TOP-LEVEL error is itself a pg or drizzle node; every other shape — a plain
+ * `Error`, an `HttpException` — keeps its message, which is the right trade for the
+ * swallow-and-log handlers it was written for (see its doc comment: the frames and
+ * the message are what make those diagnosable, and the values they log are their
+ * own static text).
+ *
+ * It is the WRONG trade on a path whose request body is candidate transcript. There
+ * the message of an arbitrary error is untrusted by default: the moment any wrapper
+ * rethrows with `e.message` interpolated — the shape the webhook controller's own
+ * sibling tests already exercise with transcript canaries — the message carries
+ * whatever the first error carried. Latent rather than live today, and cheap to
+ * close now rather than after someone adds that wrapper.
+ *
+ * So: name plus frames, for EVERY shape, never the message. A non-`Error` throw is
+ * reported by its type alone — `String(err)` on a thrown string IS the value, which
+ * is exactly what must not be logged.
+ */
+export function strictErrorStack(err: unknown): string {
+  if (!(err instanceof Error)) return `NonError(${typeof err})`
+  return nameAndFrames(err)
 }

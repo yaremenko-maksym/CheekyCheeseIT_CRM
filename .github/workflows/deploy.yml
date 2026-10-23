@@ -653,6 +653,7 @@ jobs:
             apps/api/drizzle/manual/2026-10-05_vacancy_sourcing_schema.sql \
             apps/api/drizzle/manual/2026-10-05_vacancy_sources_seed.sql \
             apps/api/drizzle/manual/2026-10-07_meeting_recorder_integration.sql \
+            apps/api/drizzle/manual/2026-10-10_salary_creation_intent.sql \
             apps/api/drizzle/manual/2026-10-17_job_opportunities_store.sql \
             apps/api/drizzle/manual/2026-10-17_job_opportunities_store_indexes.sql \
             apps/api/drizzle/manual/2026-10-18_job_queue_append_only_triggers.sql \
@@ -2423,6 +2424,19 @@ jobs:
           target: '/opt/crm'
           # apps/api/drizzle/manual/2026-10-22_interviews_call_meet_code.sql
           #   → /opt/crm/apps/api/drizzle/manual/2026-10-22_interviews_call_meet_code.sql
+
+      - name: Copy salary creation intent DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-10-10_salary_creation_intent.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-10-10_salary_creation_intent.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-10-10_salary_creation_intent.sql
 
       # ── least-privileged database roles (r5 Task 1.3c, ADR 2026-10-17-db-least-privilege-roles) ──
       # Three files, three apply positions in the deploy job (roles FIRST, grants after the store

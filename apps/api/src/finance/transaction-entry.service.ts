@@ -17,6 +17,7 @@ import {
   lockCompanyAccount,
 } from './company-account-balance'
 import { assertReceiptDocumentBindable } from './receipt.util'
+import { assertSalaryCreationIntent, buildSalaryCreationIntent } from './salary-creation-intent'
 import { resolveTransactionDate } from './transaction-date.util'
 import { TransactionLifecycleService } from './transaction-lifecycle.service'
 
@@ -160,6 +161,8 @@ export class TransactionEntryService {
       throw new BadRequestException('idempotencyKey is required for manual salary creation')
     }
 
+    const creationIntent = buildSalaryCreationIntent(data)
+
     // One key represents one manual salary-part intent. The public schema
     // requires it, and the DB CHECK below rejects any MANUAL SALARY write that
     // bypasses the controller without one. This read handles sequential replay;
@@ -170,7 +173,11 @@ export class TransactionEntryService {
         eq(transactions.idempotencyKey, data.idempotencyKey),
       ),
     })
-    if (replay) return { id: replay.id }
+    if (replay) {
+      // SR-795-M-2 (PR #868): a replay is honoured only for the same request.
+      assertSalaryCreationIntent(replay, creationIntent)
+      return { id: replay.id }
+    }
 
     const receiver = await this.db.db.query.users.findFirst({
       where: eq(users.id, data.receiverId),
@@ -259,6 +266,7 @@ export class TransactionEntryService {
           receiverId: data.receiverId,
           salaryMonth: data.salaryMonth,
           salaryOrigin: 'MANUAL',
+          salaryCreationIntent: creationIntent,
           idempotencyKey: data.idempotencyKey,
           notes: data.notes ?? null,
           fundingSource: null,
@@ -275,7 +283,10 @@ export class TransactionEntryService {
             eq(transactions.idempotencyKey, data.idempotencyKey),
           ),
         })
-        if (committed) return { id: committed.id }
+        if (committed) {
+          assertSalaryCreationIntent(committed, creationIntent)
+          return { id: committed.id }
+        }
       }
       throw err
     }

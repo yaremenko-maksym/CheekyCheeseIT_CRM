@@ -1,5 +1,5 @@
 import { ForbiddenException, HttpStatus, Injectable, Logger } from '@nestjs/common'
-import { and, eq, isNull, or } from 'drizzle-orm'
+import { and, eq, isNull, or, sql } from 'drizzle-orm'
 import type { SalaryMonthGapReportDto, SessionUser } from '@crm/shared'
 import {
   COMPANY_ACCOUNT_LABEL,
@@ -10,6 +10,7 @@ import {
 import { apiError } from '../common/api-error'
 import { zodErrorBadRequest } from '../common/zod-error-exception'
 import { DatabaseService } from '../database/database.service'
+import type { DrizzleTx } from '../database/types'
 import {
   salaryMonthInitializations,
   transactionAuditLog,
@@ -23,7 +24,7 @@ import {
 import { isStorableExchangeRate } from './exchange-rate.util'
 import { assertReceiptDocumentBindable } from './receipt.util'
 import { SalaryService } from './salary.service'
-import { resolveTransactionDate } from './transaction-date.util'
+import { formatTransactionBusinessDate, resolveTransactionDate } from './transaction-date.util'
 import { TransactionLifecycleService } from './transaction-lifecycle.service'
 import { assertTransactionWritable } from './transaction-visibility.util'
 
@@ -82,11 +83,12 @@ export class SalaryPaymentService {
     // A salary payment can be entered later than it happened, but it cannot
     // predate the salary transaction itself. Keep the comparison at calendar-
     // day granularity because the UI submits a business date (YYYY-MM-DD).
-    if (data.txDate) {
-      const sourceDate = (tx.txDate ?? tx.createdAt).toISOString().slice(0, 10)
-      if (data.txDate < sourceDate) {
-        throw apiError('FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', HttpStatus.BAD_REQUEST)
-      }
+    // SR-809-M-1 (PR #868): resolve an omitted/null date to now and validate
+    // that effective day too, so omitting the field cannot bypass the bound.
+    const paymentTxDate = resolveTransactionDate(data.txDate, new Date())
+    const sourceDate = formatTransactionBusinessDate(tx.txDate ?? tx.createdAt)
+    if (formatTransactionBusinessDate(paymentTxDate) < sourceDate) {
+      throw apiError('FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', HttpStatus.BAD_REQUEST)
     }
 
     // task-finance-fix-wave1 (E-1): refuse to PAY a salary whose receiver has
@@ -282,8 +284,22 @@ export class SalaryPaymentService {
       receiptDocumentId: data.receiptDocumentId ?? null,
       receiptExternalUrl: data.receiptExternalUrl ?? null,
       notes: data.notes ?? tx.notes,
-      txDate: resolveTransactionDate(data.txDate),
+      txDate: paymentTxDate,
       updatedAt: new Date(),
+    }
+
+    // SR-795-M-4 (PR #868): several fields in `paidSet` derive from the
+    // pre-write salary snapshot. If an admin edits that PENDING salary between
+    // the read and this payment, paying the stale snapshot would record a
+    // different obligation than the one just changed. Bind every mutable source
+    // field that is copied or derived from. Notes need a predicate only when
+    // the request omits them (and so copies tx.notes).
+    const paymentSnapshotPredicates = [
+      eq(transactions.amount, tx.amount),
+      eq(transactions.currency, tx.currency),
+    ]
+    if (data.notes === undefined) {
+      paymentSnapshotPredicates.push(sql`${transactions.notes} IS NOT DISTINCT FROM ${tx.notes}`)
     }
 
     if (isCompanyFunded) {
@@ -336,18 +352,19 @@ export class SalaryPaymentService {
               // write itself so exactly one funding source can win.
               eq(transactions.status, 'PENDING'),
               isNull(transactions.deletedAt),
+              ...paymentSnapshotPredicates,
               // MED-3: archival re-asserted in the write, not only pre-read.
               this.salaryService.salaryReceiverNotArchivedFilter(),
             ),
           )
           .returning({ id: transactions.id })
         if (updated.length === 0) {
-          // Zero rows now has two possible causes (a racing delete/pay, or a
-          // racing archive). Name the real one instead of guessing. Read through
-          // `dbtx` — the transaction still owns a connection here, and going via
-          // `this.db.db` would check out a second one (round 3, LOW).
-          await this.salaryService.assertSalaryReceiverNotArchived(dbtx, tx.receiverId)
-          throw apiError('FINANCE_TRANSACTION_NOT_PENDING', HttpStatus.BAD_REQUEST)
+          // Zero rows has three possible causes (a racing delete/pay, a racing
+          // archive, or a snapshot predicate that no longer matches). Name the
+          // real one instead of guessing. Read through `dbtx` — the transaction
+          // still owns a connection here, and going via `this.db.db` would check
+          // out a second one (round 3, LOW).
+          await this.throwPayClaimFailure(dbtx, id, tx.receiverId)
         }
       })
     } else {
@@ -369,17 +386,18 @@ export class SalaryPaymentService {
             eq(transactions.id, id),
             eq(transactions.status, 'PENDING'),
             isNull(transactions.deletedAt),
+            ...paymentSnapshotPredicates,
             // MED-3: same in-write archival re-assertion as the company path.
             this.salaryService.salaryReceiverNotArchivedFilter(),
           ),
         )
         .returning({ id: transactions.id })
       if (flipped.length !== 1) {
-        // A concurrent paySalary already flipped this row — or a concurrent
-        // archive of the receiver made the guard above reject it. This path runs
-        // in no transaction, so the base connection is correct here.
-        await this.salaryService.assertSalaryReceiverNotArchived(this.db.db, tx.receiverId)
-        throw apiError('FINANCE_TRANSACTION_NOT_PENDING', HttpStatus.BAD_REQUEST)
+        // A concurrent paySalary already flipped this row, a concurrent archive
+        // of the receiver made the guard reject it, or an edit moved the
+        // snapshot this payment was derived from. This path runs in no
+        // transaction, so the base connection is correct here.
+        await this.throwPayClaimFailure(this.db.db, id, tx.receiverId)
       }
     }
 
@@ -421,6 +439,43 @@ export class SalaryPaymentService {
     }
 
     return { id }
+  }
+
+  /**
+   * CR-M-1 (PR #868 fix round 1). The PENDING->PAID claim can match zero rows
+   * for three different reasons, and calling them all
+   * `FINANCE_TRANSACTION_NOT_PENDING` is a false statement for two of them: the
+   * row IS pending, it is the snapshot that moved under us.
+   *
+   *   archived receiver            -> the archival assertion throws its own error
+   *   gone / deleted / not PENDING -> FINANCE_TRANSACTION_NOT_PENDING
+   *   still PENDING                -> by elimination only a snapshot predicate
+   *                                   (amount / currency / copied notes,
+   *                                   SR-795-M-4) can have rejected the write, so
+   *                                   FINANCE_ROW_STATE_CHANGED_WHILE_EDITING —
+   *                                   the code `AdminEditService` already uses
+   *                                   for exactly this cause.
+   *
+   * Returns `never`: every branch throws.
+   */
+  private async throwPayClaimFailure(
+    db: DatabaseService['db'] | DrizzleTx,
+    id: string,
+    receiverId: string | null,
+  ): Promise<never> {
+    // Unchanged behaviour: a racing archive is named first, by the assertion's
+    // own error, rather than being folded into either code below.
+    await this.salaryService.assertSalaryReceiverNotArchived(db, receiverId)
+
+    const [fresh] = await db
+      .select({ status: transactions.status, deletedAt: transactions.deletedAt })
+      .from(transactions)
+      .where(eq(transactions.id, id))
+
+    if (!fresh || fresh.deletedAt !== null || fresh.status !== 'PENDING') {
+      throw apiError('FINANCE_TRANSACTION_NOT_PENDING', HttpStatus.BAD_REQUEST)
+    }
+    throw apiError('FINANCE_ROW_STATE_CHANGED_WHILE_EDITING', HttpStatus.BAD_REQUEST)
   }
 
   /**

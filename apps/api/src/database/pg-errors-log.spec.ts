@@ -10,7 +10,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { alertPattern } from './__test-helpers__/alert-patterns'
-import { dbErrorLogSuffix, describeDbError, safeErrorStack } from './pg-errors'
+import { dbErrorLogSuffix, describeDbError, safeErrorStack, strictErrorStack } from './pg-errors'
 
 /** What `pg` throws: a DatabaseError — `code`, `severity`, and the identifier fields. */
 function pgError(
@@ -452,5 +452,45 @@ describe('safeErrorStack', () => {
     const err = drizzleError(DENIED, 'select 1', [])
     err.stack = undefined
     expect(safeErrorStack(err)).toBeUndefined()
+  })
+})
+
+describe('strictErrorStack', () => {
+  // `nameAndFrames` guards `err.stack === undefined`, but that guard is UNREACHABLE from
+  // `safeErrorStack`: it returns `err.stack` (a plain Error) or `undefined` (a pg/drizzle
+  // node) BEFORE calling it. Only `strictErrorStack` can reach it, so it is pinned here.
+  const stackless = (message: string): Error => {
+    const e = new Error(message)
+    Object.defineProperty(e, 'stack', { value: undefined })
+    return e
+  }
+
+  it('gives a real Error its name and frames, never its message (not the NonError branch)', () => {
+    const err = new Error('SECRET-VALUE-123')
+    err.stack = 'Error: SECRET-VALUE-123\n    at Handler.run (/x/handler.ts:1:1)'
+    expect(strictErrorStack(err)).toBe('Error\n    at Handler.run (/x/handler.ts:1:1)')
+    expect(strictErrorStack(err)).not.toContain('SECRET-VALUE-123')
+    expect(strictErrorStack(err)).not.toContain('NonError')
+  })
+
+  it('returns just the name for an Error whose stack is undefined, without the message', () => {
+    expect(strictErrorStack(stackless('SECRET-VALUE-123'))).toBe('Error')
+  })
+
+  it('returns just the name for a stackless Error even when its message looks like a frame', () => {
+    // With no stack there is nothing to slice: the result must be the bare name.
+    expect(strictErrorStack(stackless('\n    at LEAK (f:1:1)'))).toBe('Error')
+  })
+
+  it('reports a non-Error by its type alone', () => {
+    expect(strictErrorStack('SECRET-VALUE-123')).toBe('NonError(string)')
+    expect(strictErrorStack({ message: 'x' })).toBe('NonError(object)')
+  })
+
+  it('safeErrorStack agrees: a stackless pg/drizzle node is undefined, never reaching the guard', () => {
+    const err = drizzleError(DENIED, 'select 1', [])
+    Object.defineProperty(err, 'stack', { value: undefined })
+    expect(safeErrorStack(err)).toBeUndefined()
+    expect(strictErrorStack(err)).toBe('DrizzleQueryError')
   })
 })

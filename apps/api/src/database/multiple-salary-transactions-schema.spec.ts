@@ -9,6 +9,10 @@ const LEGACY_AUDIT_DDL = readFileSync(
   join(import.meta.dirname, '../../drizzle/manual/2026-07-04_audit_hardening_constraints.sql'),
   'utf8',
 )
+const SALARY_CREATION_INTENT_DDL = readFileSync(
+  join(import.meta.dirname, '../../drizzle/manual/2026-10-10_salary_creation_intent.sql'),
+  'utf8',
+)
 
 function normalize(sql: string): string {
   return sql
@@ -48,6 +52,30 @@ describe('multipart salary — Drizzle schema contract', () => {
     expect(column).toBeDefined()
     expect(column!.getSQLType()).toBe('varchar(8)')
     expect(column!.notNull).toBe(false)
+  })
+
+  it('declares salary_creation_intent as nullable jsonb for durable manual retry semantics', () => {
+    const column = getTableConfig(transactions).columns.find(
+      (c) => c.name === 'salary_creation_intent',
+    )
+    expect(column).toBeDefined()
+    expect(column!.getSQLType()).toBe('jsonb')
+    expect(column!.notNull).toBe(false)
+  })
+
+  it('adds the salary intent column append-only, refreshes the public view, and makes the intent immutable', () => {
+    expect(SALARY_CREATION_INTENT_DDL).toMatch(
+      /ALTER TABLE transactions\s+ADD COLUMN IF NOT EXISTS salary_creation_intent jsonb;/,
+    )
+    expect(SALARY_CREATION_INTENT_DDL).toMatch(
+      /CREATE OR REPLACE VIEW non_deleted_transactions AS\s+SELECT \* FROM transactions WHERE deleted_at IS NULL;/,
+    )
+    expect(SALARY_CREATION_INTENT_DDL).toMatch(
+      /IF OLD\.salary_creation_intent IS DISTINCT FROM NEW\.salary_creation_intent THEN[\s\S]*?RAISE EXCEPTION 'salary_creation_intent is immutable'/,
+    )
+    expect(SALARY_CREATION_INTENT_DDL).toMatch(
+      /CREATE TRIGGER trg_transactions_salary_creation_intent_immutable\s+BEFORE UPDATE OF salary_creation_intent ON transactions[\s\S]*?EXECUTE FUNCTION reject_salary_creation_intent_update\(\);/,
+    )
   })
 
   it('keeps receiver/month lookup non-unique and scoped to salary rows', () => {

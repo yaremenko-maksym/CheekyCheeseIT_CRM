@@ -42,7 +42,7 @@ export const FINANCE_INVOICES_ERROR_MESSAGES: Record<FinanceInvoicesErrorCode, M
     },
     FINANCE_ROW_STATE_CHANGED_WHILE_EDITING: /* i18n */ {
       id: 'api-error.FINANCE_ROW_STATE_CHANGED_WHILE_EDITING',
-      message: 'Транзакцію оплатили або видалили, поки ви її редагували — оновіть сторінку',
+      message: 'Запис змінився, поки ви з ним працювали — оновіть сторінку та спробуйте ще раз',
     },
     FINANCE_PAID_ROW_AMOUNT_EDIT_NEEDS_PREVIEW: /* i18n */ {
       id: 'api-error.FINANCE_PAID_ROW_AMOUNT_EDIT_NEEDS_PREVIEW',
@@ -520,6 +520,11 @@ export const FINANCE_INVOICES_ERROR_MESSAGES: Record<FinanceInvoicesErrorCode, M
     FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION: /* i18n */ {
       id: 'api-error.FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION',
       message: 'Дата виплати не може бути раніше дати виникнення зобов’язання',
+    },
+    FINANCE_SALARY_IDEMPOTENCY_CONFLICT: /* i18n */ {
+      id: 'api-error.FINANCE_SALARY_IDEMPOTENCY_CONFLICT',
+      message:
+        'Зарплату не збережено: для цього співробітника й місяця вже є запис з іншими даними. Наявний запис в обліку залишається без змін.',
     },
     FINANCE_ROUNDED_PAYOUT_AMOUNT_ZERO: /* i18n */ {
       id: 'api-error.FINANCE_ROUNDED_PAYOUT_AMOUNT_ZERO',
