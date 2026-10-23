@@ -58,6 +58,7 @@ describe('KanbanColumn — vacancy/call URL scheme allow-list (SR-M-1)', () => {
     companyName: 'Acme',
     vacancyUrl,
     callUrl,
+    scheduledAt: null,
     stage: 'HR_SCREEN',
     notesDomain: null,
     notesTechStack: null,

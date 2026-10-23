@@ -129,6 +129,25 @@ Responsive: 320/768/1440 via `browser_resize`. Dark + light — screenshot both.
 - **Functional / backend bug** — report to Master (or `add_issue_comment` in the PR) with severity + repro + screenshot. Do NOT fix the backend.
 - **Major UX issue** — report to Master with a suggestion.
 
+### 6. Post the verdict to the PR (MANDATORY — Flow Gate evidence)
+
+When the PR touches UI code under `apps/web/` or `apps/landing/`, the `Flow Gate` check requires the
+`QA` step (`contracts.md` §4.1). Your verdict is its evidence, so it must be **on the PR**, not
+only in your report to Master. Post a PR comment via `mcp__github__add_issue_comment`, with the
+**first line**:
+
+```
+QA Verdict: PASS | FAIL
+```
+
+- `PASS` — no open finding of severity ≥ MED. POLISH items you fixed yourself are fine.
+- `FAIL` — at least one open HIGH/MED finding, or a page with `FAIL-UX`.
+
+Put the report below that line, with findings numbered `QA-<SEV>-<N>` per
+`review-findings-transfer.md`. A later `FAIL` overrides an earlier `PASS`. After a fix round, post
+a new comment rather than editing the old one. Write the comment to a file first, then post it
+(write-then-post).
+
 ---
 
 ## Report format (for Master)

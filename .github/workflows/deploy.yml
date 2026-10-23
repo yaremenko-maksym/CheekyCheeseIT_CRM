@@ -662,6 +662,7 @@ jobs:
             apps/api/drizzle/manual/2026-10-18_db_privileges_check.sql \
             apps/api/drizzle/manual/2026-10-21_job_queue_reason_redacted.sql \
             apps/api/drizzle/manual/2026-10-22_job_queue_redaction_callable.sql \
+            apps/api/drizzle/manual/2026-10-22_interviews_call_meet_code.sql \
             scripts/devops/check-security-headers.sh \
             scripts/devops/check-nginx-perimeter.sh \
             scripts/devops/pg-backup.sh \
@@ -2409,6 +2410,19 @@ jobs:
           target: '/opt/crm'
           # apps/api/drizzle/manual/2026-10-07_meeting_recorder_integration.sql
           #   → /opt/crm/apps/api/drizzle/manual/2026-10-07_meeting_recorder_integration.sql
+
+      - name: Copy interviews auto-match key DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-10-22_interviews_call_meet_code.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-10-22_interviews_call_meet_code.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-10-22_interviews_call_meet_code.sql
 
       # ── least-privileged database roles (r5 Task 1.3c, ADR 2026-10-17-db-least-privilege-roles) ──
       # Three files, three apply positions in the deploy job (roles FIRST, grants after the store

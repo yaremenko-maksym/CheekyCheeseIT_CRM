@@ -196,6 +196,37 @@ describe('CreateTransactionDialog — SALARY no longer has a funding selector', 
       expect(screen.getByTestId('amount-currency-amount-input')).toHaveValue('')
     })
   })
+
+  // CR-M-2 (PR #1093 round 1): when the prefill currency cannot be resolved
+  // (undefined), the form must fall back to the default currency instead of
+  // keeping the one left over from the previous add-part open.
+  it('an add-part prefill with no resolvable currency resets to the default USD, not the previous EUR', async () => {
+    const { rerender } = render(
+      <CreateTransactionDialog
+        open
+        onClose={() => {}}
+        salaryPrefill={{ receiverId: 'junior-1', salaryMonth: '2026-04', currency: 'EUR' }}
+      />,
+      { wrapper: I18nTestProvider },
+    )
+    const currencyTexts = () =>
+      screen.getAllByRole('combobox').map((el) => el.textContent?.trim() ?? '')
+    await waitFor(() => expect(currencyTexts()).toContain('EUR'))
+
+    rerender(
+      <CreateTransactionDialog
+        open
+        onClose={() => {}}
+        salaryPrefill={{ receiverId: 'admin-1', salaryMonth: '2026-05', currency: undefined }}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('create-transaction-salary-month')).toHaveValue('2026-05')
+      expect(currencyTexts()).toContain('USD')
+      expect(currencyTexts()).not.toContain('EUR')
+    })
+  })
 })
 
 describe('CreateTransactionDialog — funding source: EXPENSE (kept)', () => {

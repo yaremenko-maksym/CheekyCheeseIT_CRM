@@ -1003,6 +1003,7 @@ CORRESPONDS to the requested image tag. The practical consequence:
     apps/api/drizzle/manual/2026-10-18_db_privileges_check.sql \
     apps/api/drizzle/manual/2026-10-21_job_queue_reason_redacted.sql \
     apps/api/drizzle/manual/2026-10-22_job_queue_redaction_callable.sql \
+    apps/api/drizzle/manual/2026-10-22_interviews_call_meet_code.sql \
     scripts/devops/check-security-headers.sh \
     scripts/devops/check-nginx-perimeter.sh \
     scripts/devops/pg-backup.sh \

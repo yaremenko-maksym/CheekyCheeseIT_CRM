@@ -67,8 +67,15 @@ async function cleanup(): Promise<void> {
   await pool.query('DELETE FROM users WHERE id = $1', [USER_ID])
 }
 
+const AUTO_MATCH_KEY = 'MEETING_RECORDER_AUTO_MATCH_ENABLED'
+const autoMatchOriginal = process.env[AUTO_MATCH_KEY]
+
 describe.skipIf(!hasDatabaseUrl())('Meeting Recorder receiver semantics — real Postgres', () => {
   beforeAll(async () => {
+    // Auto-match ships OFF (SR-M-1); the match assertions here describe the
+    // enabled behaviour, so switch it on for this suite. The disabled default is
+    // covered by its own case at the end of the file.
+    process.env[AUTO_MATCH_KEY] = 'true'
     await assertRealDbSchema([
       { table: 'meeting_recorder_connections', column: 'expected_source' },
       { table: 'meeting_recorder_webhook_receipts', column: 'webhook_id' },
@@ -85,10 +92,13 @@ describe.skipIf(!hasDatabaseUrl())('Meeting Recorder receiver semantics — real
       [USER_ID, ADMIN.email, ADMIN.displayName],
     )
     await pool.query(
-      `INSERT INTO interviews (id, senior_id, company_name, call_url, stage)
+      // Auto-match needs the recording (startedAt 11:15 in the fixture) within
+      // ±30 min of scheduled_at (D-1), and the match key set before the call began.
+      `INSERT INTO interviews
+         (id, senior_id, company_name, call_url, stage, scheduled_at, match_key_changed_at)
        VALUES
-         ($1, $3, 'Integration Test Ltd', 'https://meet.google.com/abc-defg-hij', 'TECH_INTERVIEW'),
-         ($2, $3, 'Manual Link Ltd', 'https://meet.google.com/manual-room', 'FINAL_INTERVIEW')`,
+         ($1, $3, 'Integration Test Ltd', 'https://meet.google.com/abc-defg-hij', 'TECH_INTERVIEW', '2026-10-07T11:00:00Z', '2026-10-01T00:00:00Z'),
+         ($2, $3, 'Manual Link Ltd', 'https://meet.google.com/manual-room', 'FINAL_INTERVIEW', NULL, '2026-10-01T00:00:00Z')`,
       [MATCH_INTERVIEW_ID, MANUAL_INTERVIEW_ID, USER_ID],
     )
     await pool.query(
@@ -114,6 +124,8 @@ describe.skipIf(!hasDatabaseUrl())('Meeting Recorder receiver semantics — real
   }, 20_000)
 
   afterAll(async () => {
+    if (autoMatchOriginal === undefined) delete process.env[AUTO_MATCH_KEY]
+    else process.env[AUTO_MATCH_KEY] = autoMatchOriginal
     if (!pool) return
     await cleanup()
     await pool.end()
@@ -298,5 +310,32 @@ describe.skipIf(!hasDatabaseUrl())('Meeting Recorder receiver semantics — real
     expect(boundaryRow.rows).toEqual([
       { external_recording_id: boundaryId, meeting_id: boundaryMeetingId },
     ])
+  }, 20_000)
+
+  it('stores the recording unmatched when auto-match is disabled — the shipped default', async () => {
+    // Same interview, same code, same window as the matching case above: the ONLY
+    // difference is the flag, so this isolates what it gates (SR-M-1 / SPEC-M-1).
+    process.env[AUTO_MATCH_KEY] = 'false'
+    const externalId = 'recording_flag_disabled_v1'
+    try {
+      const event = structuredClone(READY_FIXTURE)
+      event.id = 'event_flag_disabled_v1'
+      event.subject = `recording/${externalId}`
+      event.data.recording.id = externalId
+      await service.ingestWebhookEvent(CONNECTION_ID, event, CIPHERTEXT)
+
+      const row = await pool.query<{ interview_id: string | null; matched_by: string }>(
+        `SELECT interview_id, matched_by FROM interview_recordings
+         WHERE connection_id = $1 AND external_recording_id = $2`,
+        [CONNECTION_ID, externalId],
+      )
+      expect(row.rows).toEqual([{ interview_id: null, matched_by: 'unmatched' }])
+    } finally {
+      process.env[AUTO_MATCH_KEY] = 'true'
+      await pool.query(
+        'DELETE FROM interview_recordings WHERE connection_id = $1 AND external_recording_id = $2',
+        [CONNECTION_ID, externalId],
+      )
+    }
   }, 20_000)
 })

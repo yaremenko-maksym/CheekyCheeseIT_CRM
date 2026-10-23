@@ -4052,3 +4052,249 @@ expiry the way the dev-server launcher already does.
 and attempt removal. If neither the reviewer nor the orchestrator can remove it, the gap is still
 open — and count the scratchpad's trees afterwards, because the symptom is accumulation rather than
 any single refusal.
+
+## 278. The resume-render responsiveness spec asserts a wall-clock ratio and fails on a slow runner (2026-10-22)
+
+The API unit spec for resume rendering (`AC3 — API responsiveness during a resume render`, in the
+resumes module's `resume-render-responsiveness` spec) measures the worst event-loop stall with PDF
+extraction in-process and again in the sandbox, and asserts that the in-process figure exceeds the
+sandboxed one by a factor of five. On a shared CI runner the ratio is a property of the runner's load,
+not of the code: measured once, in-process `197 ms` against a threshold of `211 ms` (sandboxed
+`42 ms` × 5), on a PR that touched no file under `apps/`. A re-run of the same commit passed.
+
+**Why this matters.** The project's position is zero tolerance for flaky tests, and the newer Flow
+Gate makes "all checks fire at 100 %" an explicit goal — a check that fails on unrelated PRs teaches
+people to re-run red until it is green, which is the habit every other gate depends on people not
+having.
+
+**What closing it does not mean.** Not deleting the guarantee: off-thread parsing being kinder to the
+event loop is the point of the sandbox. Candidates: assert an absolute ceiling on the sandboxed stall
+alone, compare medians over several samples instead of single worst cases, or move the ratio check to
+a nightly job where a single miss is a signal rather than a blocked PR.
+
+**Check on closing:** run the spec repeatedly under synthetic CPU load (e.g. several parallel
+`yes > /dev/null` processes) and confirm it does not fail; then confirm it still fails if the
+extraction is forced back onto the main thread.
+
+## 279. Retroactive review of the five unreviewed collaborator PRs — finding map (2026-10-22)
+
+PRs #795, #809, #865, #866 and #867 reached `main` with zero reviews (the gap Flow Gate now closes).
+A retroactive code-reviewer + security-reviewer pass produced **75** numbered findings, each checked
+against `main` of 2026-10-22. Every identifier is accounted for here; the per-task files carry the
+full text. Open PRs #868/#869 were deliberately not counted as fixes.
+
+| Destination                                   | Identifiers                                                                                                                        | n   |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | --- |
+| task `retro-mr-matcher-access`                | SR-865-H-1, CR-865-H-1, SR-865-M-2, CR-865-H-3                                                                                     | 4   |
+| task `retro-mr-webhook-ingest`                | SR-865-M-1, CR-865-H-4, SR-865-L-1, SR-865-L-2, CR-865-M-5, SR-865-L-5, CR-865-M-7, CR-865-L-12                                    | 8   |
+| task `retro-mr-en-catalog`                    | CR-865-H-2                                                                                                                         | 1   |
+| task `retro-salary-ledger-integrity`          | SR-795-M-1, SR-795-M-2, SR-795-M-3, SR-795-M-4, SR-795-L-2, SR-795-L-3, CR-795-M-7, CR-795-L-2                                     | 8   |
+| task `retro-salary-form-defaults`             | CR-795-M-2, CR-867-M-2, CR-795-M-4, CR-795-L-3, CR-795-M-3                                                                         | 5   |
+| task `retro-manual-ddl-coverage`              | CR-795-H-1, CR-795-M-6, SR-866-M-1, CR-866-M-1, CR-866-L-1, SR-866-L-1                                                             | 6   |
+| task `retro-txdate-policy`                    | SR-809-H-1, CR-809-M-3, SR-809-M-1, CR-809-M-1, SR-809-M-2, CR-809-H-1, SR-809-M-3, CR-809-L-3, SR-809-L-2, SR-809-L-3, CR-809-M-5 | 11  |
+| task `retro-txdate-reporting`                 | CR-809-H-2, CR-809-M-6                                                                                                             | 2   |
+| task `retro-business-day-clock`               | SR-809-L-1, CR-809-M-2, CR-867-L-3, CR-867-M-1, CR-867-L-1, CR-867-M-3, CR-867-M-4                                                 | 7   |
+| backlog 280                                   | SR-865-L-3, CR-865-M-6                                                                                                             | 2   |
+| backlog 281                                   | SR-865-L-4, CR-865-M-8, CR-865-M-9, CR-865-M-11                                                                                    | 4   |
+| backlog 282                                   | CR-795-M-1, CR-795-M-5, CR-795-M-8, CR-795-M-9, CR-795-L-1, CR-795-L-4, CR-795-L-5, SR-795-L-1                                     | 8   |
+| backlog 283                                   | CR-809-M-4, CR-809-M-7, CR-809-L-2, CR-809-L-4                                                                                     | 4   |
+| closed — fixed on main (#866 / service split) | SR-795-H-1, CR-809-L-1                                                                                                             | 2   |
+| closed — process, now enforced by Flow Gate   | CR-865-M-10, CR-866-L-2, CR-867-L-2                                                                                                | 3   |
+
+Sum: 4+8+1+8+5+6+11+2+7+2+4+8+4+2+3 = **75**.
+
+**Check on closing:** every task and backlog entry above is closed or carries a recorded decision.
+
+## 280. Meeting-recorder transcripts are kept forever and outlive their interview (2026-10-22)
+
+`MeetingRecorderRetentionCronService` purges only webhook receipts. `interview_recordings.snapshot`
+(transcript, notes, analysis — candidate personal data) is never deleted; deleting an interview sets
+`interview_id` to NULL, which moves the transcript to the ADMIN unmatched queue instead of removing it.
+The audit actions `recording-purged` / `media-purged` exist but nothing emits them; the unmatched list
+has no pagination. (SR-865-L-3, CR-865-M-6.)
+
+**Needs a decision before code:** a retention period (Legal) and whether deleting an interview deletes
+its recordings. Candidates: an ADMIN purge endpoint that emits `recording-purged`, a snapshot retention
+cron, cursor pagination on the unmatched list.
+
+**Check on closing:** create and delete an interview with a linked recording on a scratch DB; the
+transcript must be gone (or scheduled for deletion) by the agreed policy.
+
+## 281. Meeting-recorder minor hardening (2026-10-22)
+
+- SR-865-L-4 — `Aes256GcmHkdf.decrypt` does not pin `authTagLength: 16` (now shared by the credentials
+  crypto v2 as well).
+- CR-865-M-8 — admin connection dialogs and `LinkRecordingDialog` hold form state in `useState`
+  instead of TanStack Form.
+- CR-865-M-9 — `RelaxableThrottle` semantics changed for all callers (`Math.max(globalLimit, prodLimit)`
+  with the relaxed TTL) with no test.
+- CR-865-M-11 — `InterviewsService` defaults `new InterviewAccessPolicyService(db)` in its constructor,
+  bypassing DI.
+
+**Check on closing:** a short-tag ciphertext is rejected; `RelaxableThrottle` has a spec for both modes.
+
+## 282. Multipart salary follow-ups (2026-10-22)
+
+- CR-795-M-1 — `mySalaryState` / `mySalaryAggregateState` are computed per senior-summary request and
+  read by no web code. Decide: wire a dashboard reader or delete the fields.
+- CR-795-M-5 — salary unit specs pin Drizzle call shapes; behavioural coverage lives only in
+  DB-skipping integration specs.
+- CR-795-M-8 — `createAutomaticSalary` does three round trips and one transaction per employee; two
+  set-based statements suffice.
+- CR-795-M-9 — no E2E for "Add salary part"; the mocked funding-source E2E does not assert that
+  `idempotencyKey` is sent.
+- CR-795-L-1 — unreachable `BadRequestException` guard in `createSalary`; orphaned
+  `FINANCE_SALARY_ALREADY_CREATED_FOR_MONTH` error code.
+- CR-795-L-4 — the multipart invariant (marker table, prepare/activate deploy) is not in
+  project-state or the finance module doc.
+- CR-795-L-5 — mandatory `idempotencyKey` breaks tabs open during a deploy with a plain Zod 400; a
+  stable error code would let the client say "reload".
+- SR-795-L-1 — between PREPARE and ACTIVATE a second manual part hits the legacy unique index → raw 500.
+
+**Check on closing:** each bullet closed or explicitly declined in this entry.
+
+## 283. Custom transaction date follow-ups (2026-10-22)
+
+- CR-809-M-4 — `PaySalaryDialog` prefills the expected amount from today's rate even when the payment
+  is backdated.
+- CR-809-M-7 — no E2E for the eight dialogs that gained a date picker; no TZ matrix for date tests.
+- CR-809-L-2 — the business-day idiom and the dialog clamp are copy-pasted (about eight and four
+  places); one shared helper and one hook.
+- CR-809-L-4 — the same "minimum date" hint has two msgids; unify.
+
+**Check on closing:** one Playwright spec covers a date picker's min/max; the hint has one msgid.
+
+## 284. A test derived from a defect inherits the defect's one-sidedness (2026-10-22)
+
+**CLOSED as a lesson, not an open item** — recorded because it explains five separate defects in one
+phase and the fix is a habit, not a change.
+
+A finding says "X leaked" or "X was unbounded". The test written from it therefore asserts the
+**refusal**: the secret is absent, the over-long input is dropped, the cap fires. The **acceptance**
+side has no finding to prompt it, so nobody writes it — and a bound is exactly the place where only
+the pair distinguishes `>` from `>=`.
+
+Vacancy-sourcing phase 2 produced this five times: at the identity-key length cap, at the bounded
+JSON depth bound, twice at the redaction caps, and at the redaction input budget. Each time the fix
+was correct and its test was single-sided, so the next mutation round found it again in a new place.
+
+The sibling variant: asserting that a value **changed** rather than **what it changed to**. A
+redaction test passed on `changed === true` while the first 44 characters of a username sat in the
+output.
+
+**The rule:** the expected value comes from the **specification**, not from the bug report. Write the
+acceptance-side assertion first, then the refusal side.
+
+**Check on closing:** in a fix round's diff, every new bound has a case at the limit **and** one past
+it. A diff with only refusal cases is the defect, whatever the finding said.
+
+## 285. A true-but-incomplete claim survives the careful reader who would catch a false one (2026-10-22)
+
+A false claim is caught by the first person who checks it against the code. A claim that is accurate
+as far as it goes is **confirmed** by that person, and the part nobody thought to check stays wrong.
+
+The clean example: a PR body stated that the response cache key included "source type, board, config
+version, page and cursor". Every one of those five was true. It omitted `query` — so two sources on
+one board, one searching `python` and one `java`, shared a cache entry; a `304` on the second
+returned the first's body, and the batch reported `SUCCEEDED` with the wrong posting stored.
+
+Same family, same phase: an exception file asserting that a dependency bump "would break" a spec,
+true when written and false after the bump happened; a comment quoting a predicate that a later
+commit had already replaced; and a decision record whose headline claim ("no option can resolve an
+entity") contradicted its own supporting section two screens below.
+
+**The repair is construction, not care.** Derive the claim from the thing it describes — build the
+cache key **from the request** rather than from a list of fields someone must keep in sync, the way
+the coverage floors are derived from `git ls-files` instead of a typed number. A claim that cannot
+drift out of step needs no reader to re-check it.
+
+**Check on closing:** a sentence in a long-lived document that enumerates fields, versions or
+behaviours is either generated from the source, or carries the command that re-derives it. An
+enumeration maintained by hand is a future true-but-incomplete claim.
+
+## 286. A fresh worktree cannot commit, and only the expensive fix is written down (2026-10-22)
+
+A fresh agent worktree has no `node_modules`, so husky's `pre-commit` fails `ENOENT: lint-staged` and
+**nothing can be committed** — including a branch whose whole diff is two markdown files.
+
+The obstacle is documented, and so is the heavy fix (a full `pnpm install`, plus a web build for the
+generated route tree). The **cheap** fix is not: put the main checkout's `node_modules/.bin` on
+`PATH` for the commit, so the real `lint-staged` and `prettier --write` run against the worktree's
+staged files.
+
+That gap has already cost a policy violation. One coder, blocked by it, reflexively ran
+`git commit --no-verify` — forbidden with zero tolerance — then caught itself, reset, and recommitted
+through the hooks, disclosing the lapse. A second agent hit the same wall the same day and found the
+`PATH` route on its own. The undocumented cheap path is where an agent under time pressure reaches
+for the forbidden one.
+
+**Check on closing:** cut a worktree with no `node_modules`, stage a markdown change, commit. If it
+succeeds with hooks running and without an install, the cheap path is available. If the only
+documented routes remain a full install or `--no-verify`, the gap is open.
+
+## 287. `xml/growth.spec.ts` gates on a timing exponent and fails under load (2026-10-22)
+
+The ReDoS/quadratic-growth gate for the XML port asserts a growth **exponent**. Measured during
+phase 2: at one PR's base commit, with the change absent, the full `job-sourcing` suite failed **4 of
+4** runs, a different exponent assertion each time; on the branch, 2 of 3; in another agent's run it
+failed once at 2.02 against a 2.0 bound and then passed twice.
+
+The gate is worth having — it is the only standing check on the class that dominates real XML parser
+advisories — which is why the fix is **not** to raise the threshold. Raising it quietly removes the
+protection R-5 exists to provide. The likely repair is warm-up plus best-of-N, or expressing the
+assertion as a ratio against a same-run baseline rather than an absolute exponent, which is what the
+port's own R-5 assertions already do after absolute ceilings proved unusable under the gate's own
+4-way concurrency.
+
+**Check on closing:** 50 consecutive runs under artificial load, green. One green run proves nothing:
+a flake's green and a fix's green are the same green.
+
+## 288. A stale justification keeps a dead audit exception alive (2026-10-22)
+
+`scripts/devops/pnpm-audit-exceptions.json` held an `@xmldom/xmldom` group covering ten GHSA ids.
+Its text justified the exception by asserting that bumping to the patched version **would break**
+`resume-text-extraction.service.spec.ts`. That bump had since happened, the spec had been rebuilt for
+it, and it passes — so the justification had been false for some time, and `pnpm audit` no longer
+reported any of the ten ids. The gate's own stale-exception warning named them; nothing acted on it.
+
+This is worse than a stale comment. A comment misleads a reader; a stale **justification** is a
+standing licence to ignore a real advisory, because the next person who finds the group reads a
+reason and moves on. An exception file is the one place where "true when written" is not good enough.
+
+**Check on closing:** every group in that file carries the date its reachability claim was verified
+and the command that verified it (`pnpm why <pkg> -r`), and the gate's stale-exception warning is
+treated as a failure to triage rather than noise.
+
+## 289. Auto-merge cannot merge a draft, and says so only in the job log (2026-10-22)
+
+A PR was labelled `merge-approved` with every required check green and did not merge. The
+auto-merge workflow failed with `GraphQL: Pull Request is still a draft (mergePullRequest)`. The PR
+then carried a red `Squash merge if CI green` check and a `ci-failed` label, so its `mergeStateStatus`
+read `UNSTABLE` — which looks like a code problem and is not one.
+
+Cost: one cycle, and a misleading signal while it lasted. The fix is trivial once known
+(`gh pr ready <n>`, then re-apply the label to re-trigger), and the workflow did behave correctly —
+it refused and named the cause.
+
+**Check on closing:** either the auto-merge job states "draft" in its own check summary rather than
+only in the log, or agents open PRs ready-for-review by default. The second is cheaper and is now in
+the dispatch briefs.
+
+## 290. A requirement deferred to a task that does not own it belongs to nobody (2026-10-22)
+
+Task 2.4b found that the fetch port hands the collection loop an already-decoded **string**, so the
+XML port's byte-level decoding never runs on a fetched feed: a mis-decoded feed arrives full of
+U+FFFD and was parsed as a **successful** feed with corrupted titles. The PR deferred byte-faithful
+decoding to Task 2.5.
+
+But the plan puts charset in **Task 2.2**, and Task 2.5 has no bytes or charset item at all. So the
+deferral pointed at a task that would never pick it up, nothing in the repository tracked it, and
+2.2's extension was outside the phase's approved scope — the requirement would have fallen between
+the two and stopped being anyone's.
+
+A deferral names a **destination**, and an unchecked destination is indistinguishable from a decision
+not to do the work. This is the planning-level form of entry 285: "deferred to 2.5" was a claim that
+read as complete.
+
+**Check on closing:** a PR that defers a requirement names the task that owns it **and** that task's
+own description contains a matching item. If it does not, the deferral is a drop.
