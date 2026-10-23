@@ -12,7 +12,7 @@
  * reasons that have nothing to do with the diff, and teaches people to re-run red until green.
  *
  * So the stopwatch moved, and the guarantee did not. This file keeps EVERY threshold it had
- * (2.0 for the exponents, 25x for the attribute ratio): nothing was widened. It is excluded from
+ * (25x for the attribute ratio) except the exponent ceiling, which was RE-DERIVED (see below). It is excluded from
  * the default `vitest run` (see `TIMING_SPECS` in `apps/api/vitest.config.mts`) and runs in the
  * dedicated `Timing specs` CI job, alone on its runner, where a single miss is a signal.
  *
@@ -52,6 +52,27 @@ function bestMs(run: () => void, attempts = 3): number {
 }
 
 /**
+ * Ceiling for a fitted exponent, DERIVED from measurement (2026-10-24, Node v22.23.1, load 25-32).
+ *
+ * The old ceiling was 2.0 over a 4x size range. That could not discriminate: a pure quadratic fits
+ * at most 2.0 and any linear component pulls the fit BELOW it, so the assertion failed only on
+ * noise (correct code read 2.2 under load) and would have missed a mild quadratic. The fit now
+ * spans a 64x range, where noise averages out and a quadratic term dominates:
+ *
+ *   correct code, 64x range, 6 runs per shape: 0.72 - 1.72 across all 12 shapes
+ *                                              (worst: unterminated PI 1.72, cdata-dense 1.58,
+ *                                              sibling elements 1.55; PI min 1.38)
+ *   correct code, old 4x range:                0.28 - 2.78 (PI 2.78, cdata-dense 2.30)
+ *   PI scan made quadratic (search every 8 chars, 3 runs): 4x: 1.33-2.27, 16x: 2.13-2.48,
+ *                                              64x: 1.93-2.06
+ *
+ * 1.8 sits 0.08 above the worst correct reading and 0.13 below the best mutant reading at 64x.
+ * A quadratic with a larger linear share (e.g. a search every 64 chars) still fits under it; this
+ * detects a clearly quadratic scan, which is the advisory class, not every super-linear drift.
+ */
+const EXPONENT_CEILING = 1.8
+
+/**
  * The smallest large-size timing from which an exponent means anything.
  *
  * Below this, the measurement is dominated by fixed cost — allocating the input string, setting up
@@ -78,7 +99,7 @@ function growthExponent(
   // Sizes are a parameter because the right range depends on the shape's cost: the well-formed
   // shapes are measurable at 8 000 units, while a rejection refused on the construct itself needs
   // 8x that before it clears the floor at all.
-  { small, large }: { small: number; large: number } = { small: 8_000, large: 32_000 },
+  { small, large }: { small: number; large: number } = { small: 500, large: 32_000 },
 ): number {
   const t1 = bestMs(() => run(build(small)))
   const t2 = bestMs(() => run(build(large)))
@@ -106,7 +127,7 @@ describe('R-5: growth exponents (timing)', () => {
     const exponent = growthExponent(build, (xml) => {
       port.parseDocument(utf8(xml), UNBOUNDED)
     })
-    expect(exponent).toBeLessThan(2.0)
+    expect(exponent).toBeLessThan(EXPONENT_CEILING)
   })
 
   // The two unterminated shapes whose refusal cost is measurable (the others are refused in
@@ -132,9 +153,9 @@ describe('R-5: growth exponents (timing)', () => {
           /* the refusal is the point; its COST is what is measured */
         }
       },
-      { small: 65_536, large: ONE_MEGABYTE_UNITS },
+      { small: 4_096, large: ONE_MEGABYTE_UNITS },
     )
-    expect(exponent).toBeLessThan(2.0)
+    expect(exponent).toBeLessThan(EXPONENT_CEILING)
   })
 
   it.each(LATE_REJECT)(
@@ -150,7 +171,7 @@ describe('R-5: growth exponents (timing)', () => {
           /* measured */
         }
       })
-      expect(exponent).toBeLessThan(2.0)
+      expect(exponent).toBeLessThan(EXPONENT_CEILING)
     },
   )
 
