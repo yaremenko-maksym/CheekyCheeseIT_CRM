@@ -176,6 +176,52 @@ describe('validateEnv — Throttler env-config (Section D)', () => {
 })
 
 // ---------------------------------------------------------------------------
+// MEETING_RECORDER_AUTO_MATCH_ENABLED — the auto-match master switch.
+//
+// The default is the security property, not a convenience: auto-match keys on
+// `interviews.scheduled_at`, which `PATCH /interviews/:id` lets a SENIOR/HR set
+// directly, and until the UI writes real times the "exactly one candidate"
+// defence cannot fire. Shipping with this ON would be the interim hole
+// (retro review of PR #865 — SR-M-1 / SPEC-M-1).
+describe('validateEnv — MEETING_RECORDER_AUTO_MATCH_ENABLED', () => {
+  it('defaults to false when omitted — auto-match ships OFF', () => {
+    const env = validateEnv({ ...BASE_DEV })
+    expect(env.MEETING_RECORDER_AUTO_MATCH_ENABLED).toBe(false)
+  })
+
+  it("parses string 'true' as boolean true (the deliberate opt-in)", () => {
+    const env = validateEnv({ ...BASE_DEV, MEETING_RECORDER_AUTO_MATCH_ENABLED: 'true' })
+    expect(env.MEETING_RECORDER_AUTO_MATCH_ENABLED).toBe(true)
+  })
+
+  // `validateEnv` takes Record<string, unknown>, and the preprocess deliberately
+  // passes a non-string through untouched. Without that branch a real boolean
+  // would reach `.toLowerCase()` and throw, so this pins it rather than the shape
+  // of the ternary.
+  it('accepts an actual boolean unchanged (the non-string preprocess branch)', () => {
+    expect(
+      validateEnv({ ...BASE_DEV, MEETING_RECORDER_AUTO_MATCH_ENABLED: true })
+        .MEETING_RECORDER_AUTO_MATCH_ENABLED,
+    ).toBe(true)
+    expect(
+      validateEnv({ ...BASE_DEV, MEETING_RECORDER_AUTO_MATCH_ENABLED: false })
+        .MEETING_RECORDER_AUTO_MATCH_ENABLED,
+    ).toBe(false)
+  })
+
+  it("parses string 'false' and mixed case", () => {
+    expect(
+      validateEnv({ ...BASE_DEV, MEETING_RECORDER_AUTO_MATCH_ENABLED: 'false' })
+        .MEETING_RECORDER_AUTO_MATCH_ENABLED,
+    ).toBe(false)
+    expect(
+      validateEnv({ ...BASE_DEV, MEETING_RECORDER_AUTO_MATCH_ENABLED: 'TRUE' })
+        .MEETING_RECORDER_AUTO_MATCH_ENABLED,
+    ).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Section E — S3_USE_SSE + Cloudflare R2 compatibility
 //   18. S3_USE_SSE omitted → defaults to false (R2-safe)
 //   19. S3_USE_SSE='false' string → boolean false (R2 prod path)
