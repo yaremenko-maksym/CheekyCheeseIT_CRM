@@ -119,6 +119,67 @@ describe('DropSelfService.getDropSelfIncomes — business-date window (CR-809-M-
     expect(text).not.toContain('coalesce')
   })
 
+  /**
+   * The omitted-bound arms, asserted on the WHOLE compiled predicate.
+   *
+   * `...(fromBound ? [gte(...)] : [])` has an empty-array arm that no
+   * "does it contain X" assertion can see: a mutant replacing `[]` with
+   * `['Stryker was here']` adds a junk conjunct while every `toContain` /
+   * `not.toContain` check above still holds. Both arms survived the mutation
+   * gate for exactly that reason. Comparing the ENTIRE predicate — so the
+   * absence of a term is asserted as rigorously as its presence — is what
+   * kills them, and it is the honest assertion anyway: the claim being made is
+   * "this request produces exactly this WHERE", not "it mentions coalesce".
+   *
+   * This matters beyond the gate. The window is the half of the feed the
+   * push-down newly owns, and an unbounded side that silently acquires a bound
+   * (or a bounded side that loses one) is precisely how a feed starts hiding a
+   * drop's own rows without erroring.
+   */
+  // The three type literals and the caller id are BOUND ($1-$4), not inlined,
+  // so the window's placeholders start at $5.
+  const SELF_SCOPE =
+    '"transactions"."type" in ($1, $2, $3) and "transactions"."receiver_id" = $4 and "transactions"."deleted_at" is null'
+  const COALESCE = 'coalesce("transactions"."tx_date", "transactions"."created_at")'
+  const TYPES = ['DROP_INCOME', 'DROP_PENDING_PAYOUT', 'PAYOUT_DROP']
+
+  it('produces EXACTLY the self-scope and no window when both bounds are absent', async () => {
+    const { svc, findMany } = makeService([])
+    await svc.getDropSelfIncomes(dropUser, q())
+    const { sql: text, params } = compileWhere(lastArgs(findMany).where)
+    expect(text).toBe(`(${SELF_SCOPE})`)
+    expect(params).toEqual([...TYPES, DROP_ID])
+  })
+
+  it('produces EXACTLY the self-scope plus a lower bound for `from` only', async () => {
+    const { svc, findMany } = makeService([])
+    await svc.getDropSelfIncomes(dropUser, q({ from: '2026-06-01' }))
+    const { sql: text, params } = compileWhere(lastArgs(findMany).where)
+    expect(text).toBe(`(${SELF_SCOPE} and ${COALESCE} >= $5)`)
+    expect(params).toEqual([...TYPES, DROP_ID, new Date('2026-06-01T00:00:00.000Z')])
+  })
+
+  it('produces EXACTLY the self-scope plus an upper bound for `to` only', async () => {
+    const { svc, findMany } = makeService([])
+    await svc.getDropSelfIncomes(dropUser, q({ to: '2026-06-30' }))
+    const { sql: text, params } = compileWhere(lastArgs(findMany).where)
+    expect(text).toBe(`(${SELF_SCOPE} and ${COALESCE} <= $5)`)
+    expect(params).toEqual([...TYPES, DROP_ID, new Date('2026-06-30T23:59:59.999Z')])
+  })
+
+  it('produces EXACTLY both bounds, in order, when both are given', async () => {
+    const { svc, findMany } = makeService([])
+    await svc.getDropSelfIncomes(dropUser, q({ from: '2026-06-01', to: '2026-06-30' }))
+    const { sql: text, params } = compileWhere(lastArgs(findMany).where)
+    expect(text).toBe(`(${SELF_SCOPE} and ${COALESCE} >= $5 and ${COALESCE} <= $6)`)
+    expect(params).toEqual([
+      ...TYPES,
+      DROP_ID,
+      new Date('2026-06-01T00:00:00.000Z'),
+      new Date('2026-06-30T23:59:59.999Z'),
+    ])
+  })
+
   it('windows on coalesce(tx_date, created_at), never on created_at alone', async () => {
     const { svc, findMany } = makeService([])
     await svc.getDropSelfIncomes(dropUser, q({ from: '2026-06-01', to: '2026-06-15' }))
