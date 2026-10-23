@@ -28,6 +28,7 @@ import {
 import {
   CLASS_PRIVILEGES,
   PRIVILEGE_CLASSES,
+  RETENTION_OWNER_COLUMN_WRITE_GRANTS,
   RETENTION_OWNER_TABLE_PRIVILEGES,
   ROLES,
   appendOnlyTriggers,
@@ -497,6 +498,30 @@ describe('privilege SQL for classes with no members yet', () => {
         )
       },
     )
+  })
+
+  it('emits a WHERE-false row set, never an empty VALUES, when no column write is declared', () => {
+    // Same hazard as `role_table_select` above and the same shape of answer: `VALUES` with
+    // nothing after it is a SYNTAX ERROR, so the whole check file would fail to parse on
+    // every deploy. The real manifest always declares two column writes, so only an
+    // emptied manifest reaches this branch — which is exactly why the mutation gate
+    // reported the condition SURVIVED until this test existed.
+    const grants = RETENTION_OWNER_COLUMN_WRITE_GRANTS as unknown as { columns: string[] }[]
+    const original = grants.map((g) => [...g.columns])
+    try {
+      for (const grant of grants) grant.columns = []
+      const check = buildCheckSql()
+      expect(check).toContain(
+        'declared_column_writes(role_name, relation, column_name, privilege_type) AS (SELECT NULL::text, NULL::text, NULL::text, NULL::text WHERE false)',
+      )
+      expect(check).not.toContain(
+        'declared_column_writes(role_name, relation, column_name, privilege_type) AS (VALUES\n)',
+      )
+    } finally {
+      grants.forEach((grant, i) => {
+        grant.columns = original[i] as string[]
+      })
+    }
   })
 
   it('expects the retention owner to hold whatever privileges the manifest declares', () => {

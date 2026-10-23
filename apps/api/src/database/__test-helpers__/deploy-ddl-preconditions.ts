@@ -158,13 +158,29 @@ const RETENTION_OWNER = 'crm_retention_owner'
  *
  * Refuses an empty result: a parse that found nothing would otherwise leave the role with
  * no privileges and every test that depends on them failing for a reason nobody looks at.
+ *
+ * `file` is a parameter with the shipped default, for ONE reason: so that refusal can be
+ * watched to fire. With the path hard-coded, the `length === 0` branch was unreachable from
+ * any test and the mutation gate reported it SURVIVED — a guard whose failure path nobody
+ * has seen, which this repository has been bitten by three times. The spec now points it at
+ * fixtures; production callers pass nothing and get the shipped file.
+ *
+ * `^GRANT ` IS ANCHORED ON PURPOSE, and the spec pins why: PostgreSQL's
+ * `ALTER DEFAULT PRIVILEGES ... GRANT SELECT ON TABLES TO crm_retention_owner;` both
+ * contains `GRANT ` and ends in the role name, and it is NOT a grant to re-apply to a
+ * table — it sets a default privilege for objects created later. Dropping the anchor would
+ * silently pull it into this role's "production grant set".
+ *
+ * No `.trim()` on the operands: `splitSqlStatements` pushes `current.trim()` for every
+ * statement it emits, so its output is trimmed by construction and a second trim here was
+ * dead code the gate correctly flagged as unobservable.
  */
-export function productionRetentionOwnerGrants(): string[] {
-  const statements = splitSqlStatements(readFileSync(GRANTS_DDL, 'utf8')).filter(
-    (s) => /^GRANT /.test(s.trim()) && new RegExp(`\\bTO ${RETENTION_OWNER};?$`).test(s.trim()),
+export function productionRetentionOwnerGrants(file: string = GRANTS_DDL): string[] {
+  const statements = splitSqlStatements(readFileSync(file, 'utf8')).filter(
+    (s) => /^GRANT /.test(s) && new RegExp(`\\bTO ${RETENTION_OWNER};?$`).test(s),
   )
   if (statements.length === 0) {
-    throw new Error(`no GRANT ... TO ${RETENTION_OWNER} found in ${GRANTS_DDL}`)
+    throw new Error(`no GRANT ... TO ${RETENTION_OWNER} found in ${file}`)
   }
   return statements
 }

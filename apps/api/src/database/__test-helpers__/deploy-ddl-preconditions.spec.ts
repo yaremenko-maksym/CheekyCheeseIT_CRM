@@ -1,5 +1,6 @@
-import { existsSync, readFileSync } from 'node:fs'
-import { basename } from 'node:path'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { basename, join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
@@ -77,6 +78,38 @@ describe("productionRetentionOwnerGrants — the retention owner's shipped grant
       expect(statement).toMatch(/^GRANT /)
       expect(statement).toMatch(/\bTO crm_retention_owner;?$/)
     }
+  })
+
+  it('refuses a file that grants that role nothing, instead of returning an empty set', () => {
+    // The guard's failure path, watched firing. Until the file path became a parameter this
+    // branch was unreachable and the mutation gate reported it SURVIVED: an empty result
+    // would have left the role with no privileges and failed every dependent test somewhere
+    // far away, for a reason nobody would look at here.
+    const file = join(mkdtempSync(join(tmpdir(), 'grants-none-')), 'db_grants.sql')
+    writeFileSync(file, 'GRANT SELECT ON TABLE public.t TO crm_app;\n')
+    expect(() => productionRetentionOwnerGrants(file)).toThrow(
+      /no GRANT \.\.\. TO crm_retention_owner found in/,
+    )
+  })
+
+  it('does NOT mistake ALTER DEFAULT PRIVILEGES ... GRANT ... for a grant to that role', () => {
+    // Why `^GRANT ` is anchored. This statement contains `GRANT ` and ends in the role name,
+    // so an unanchored test matches it — and it is not a table grant at all: it sets a
+    // DEFAULT privilege for objects created later, which `applyProductionRetentionOwnerGrants`
+    // would then replay as though it were the role's grant set.
+    const file = join(mkdtempSync(join(tmpdir(), 'grants-altdef-')), 'db_grants.sql')
+    writeFileSync(
+      file,
+      [
+        'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO crm_retention_owner;',
+        'GRANT SELECT, DELETE ON TABLE public.job_queue_actions TO crm_retention_owner;',
+      ].join('\n'),
+    )
+    // No trailing semicolon: `splitSqlStatements` strips the terminator, which is also why
+    // the filter's `;?` is optional rather than required.
+    expect(productionRetentionOwnerGrants(file)).toEqual([
+      'GRANT SELECT, DELETE ON TABLE public.job_queue_actions TO crm_retention_owner',
+    ])
   })
 
   it('covers every grant the shipped file makes to that role — no statement left behind', () => {
