@@ -161,9 +161,23 @@ export const meetingRecorderRecordingInputSchema = z.object({
   artifacts: z.array(meetingRecorderArtifactInputSchema).optional(),
 })
 
+/**
+ * What the CRM stores and serves. Differs from the inbound schema in exactly two ways:
+ *
+ * - `artifacts` lose `viewUrl` (it must never be persisted or served), and the shape is
+ *   `.strict()`, so an unknown key can reach neither the database nor a client; and
+ * - `meetingUrl` carries NO length refusal (SPEC-L-3). Inbound it is capped and REFUSED above
+ *   the cap — it is a matching key, so truncating it would match the wrong interview — but a row
+ *   written before that cap existed must still read back. A rejecting cap on already-persisted
+ *   data is the defect SPEC-L-2 is about, and this is the one field that cannot truncate its way
+ *   out of it, so the read side stays lenient instead.
+ */
 export const meetingRecorderRecordingStoredSchema = meetingRecorderRecordingInputSchema
   .extend({
     artifacts: z.array(meetingRecorderArtifactStoredSchema).optional(),
+    source: recordingSourceSchema.extend({
+      meetingUrl: storable(httpsUrlSchema).optional(),
+    }),
   })
   .strict()
 

@@ -394,6 +394,34 @@ describe('meeting recorder webhook contract', () => {
     expect(stored.data.title).toHaveLength(MEETING_RECORDER_TITLE_MAX_CHARS)
   })
 
+  /**
+   * SPEC-L-3 (delta review 5632606395): `meetingUrl` gained a NEW 2,048-char cap that REFUSES,
+   * and main had no cap on that field at all. It must keep refusing INBOUND — it is a matching
+   * key, so truncating it would match the wrong interview — but a row stored before this PR with
+   * a longer URL must still be READ BACK, or the detail page 500s on already-persisted data.
+   * Same principle as SPEC-L-2, applied to the one field that cannot truncate.
+   */
+  it('reads back a stored meetingUrl longer than the inbound cap, but still refuses it inbound', () => {
+    const longUrl = `https://meet.google.com/${'u'.repeat(3_000)}`
+
+    // Inbound: refused, because truncating a matching key changes identity.
+    expect(
+      meetingRecorderRecordingInputSchema.safeParse({
+        ...BASE_RECORDING,
+        source: { ...BASE_RECORDING.source, meetingUrl: longUrl },
+      }).success,
+    ).toBe(false)
+
+    // Stored/served: parses, verbatim — no refusal and no truncation of an identity value.
+    const stored = meetingRecorderRecordingStoredSchema.safeParse({
+      ...BASE_RECORDING,
+      source: { ...BASE_RECORDING.source, meetingUrl: longUrl },
+    })
+    expect(stored.success).toBe(true)
+    if (!stored.success) return
+    expect(stored.data.source.meetingUrl).toBe(longUrl)
+  })
+
   it('keeps the stored snapshot strict: an unknown key can never be persisted or served', () => {
     expect(
       meetingRecorderRecordingStoredSchema.safeParse({ ...BASE_RECORDING, unexpected: true })
@@ -723,6 +751,20 @@ describe('meeting recorder schema boundaries', () => {
     expect(detail.success).toBe(true)
     if (!detail.success) return
     expect(detail.data.snapshot.title).toHaveLength(MEETING_RECORDER_TITLE_MAX_CHARS)
+  })
+
+  // SPEC-L-3 at the DTO level: the field that cannot truncate must not refuse on read either.
+  it('serves the detail DTO of a stored snapshot whose meetingUrl exceeds the inbound cap', () => {
+    const longUrl = `https://meet.google.com/${'u'.repeat(3_000)}`
+    const detail = meetingRecorderRecordingDetailSchema.safeParse({
+      ...validSummary,
+      meetingUrl: longUrl,
+      snapshot: { ...BASE_RECORDING, source: { ...BASE_RECORDING.source, meetingUrl: longUrl } },
+    })
+
+    expect(detail.success).toBe(true)
+    if (!detail.success) return
+    expect(detail.data.snapshot.source.meetingUrl).toBe(longUrl)
   })
 
   it('keeps the served summary readiness strict, so no unknown key can be served', () => {
