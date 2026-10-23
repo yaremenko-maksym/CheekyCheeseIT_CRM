@@ -22,9 +22,8 @@ import { defineRssProvider, type RssSourceSpec } from '../rss.provider'
  * the title or the description, so `companyName` is `null` and the observation builder quarantines every
  * Djinni item as MISSING_COMPANY. That is the honest outcome under today's contract and it makes the
  * source unusable until the contract can represent "employer not disclosed" (withheld at the source, by
- * the site's design). Owner: backlog entry 307
- * (`.claude/tasks/BACKLOG-followups.md`, "A posting whose employer is withheld at the source has
- * nowhere to live"; working draft: the untracked task-3.8 file) - reported, not worked
+ * the site's design). Owner: the backlog entry "A posting whose employer is withheld at the source has nowhere to live"
+ * in `.claude/tasks/BACKLOG-followups.md` (numbered 307 when written; the title is the address; working draft: the untracked task-3.8 file) - reported, not worked
  * around by writing "Djinni" or a guess into the field.
  *
  * INVENTORY: RECENT, 1 hour. The feed is the newest 100 postings of the filter, not a time window and
