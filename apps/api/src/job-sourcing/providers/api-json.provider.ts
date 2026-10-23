@@ -491,6 +491,24 @@ function isValidator(value: string | null | undefined): value is string {
  *
  * Two requests that are the same to the provider but spelled differently (header order, `GET` vs an
  * omitted method) get two entries. That costs a refetch, never a wrong body.
+ *
+ * THE WHOLE REQUEST OBJECT IS HASHED, NOT A LIST OF ITS FIELDS (CR-M-1 = SR-M-2). It used to be
+ * `[type, adapterVersion, method, url, headers, body]` — an enumeration of the four fields
+ * `FetchRequest` happens to have today, which is the very thing the paragraph above says is one
+ * parameter away from SR-H-1. A fifth field (a per-source timeout, a redirect policy — anything the
+ * provider can see) would have stayed out of the key with nothing failing.
+ *
+ * WHICH MECHANISM KEEPS IT CLOSED, and why it cannot silently pass: NEITHER a typecheck nor review
+ * attentiveness, but CONSTRUCTION — a new field is part of `request`, so it enters the digest
+ * whether or not anyone remembers it. There is no enumeration left to keep in sync, so there is no
+ * exhaustiveness probe here either: under whole-object hashing such a probe would assert something
+ * that cannot be false, which is the decoration this round is about. What a reader could still undo
+ * is the whole-object hash itself, so THAT is what has a test —
+ * `keys on a request field the digest never enumerated` sends a request carrying a field outside
+ * `FetchRequest` and asserts the key changes; it fails the moment the body goes back to a field
+ * list. An unserialisable future field (a signal, a stream) stringifies to `{}` and so collides with
+ * its own siblings — a refetch, never a wrong body, which is the same direction every other trade
+ * here is made in.
  */
 function responseCacheKey(
   slot: string,
@@ -498,16 +516,7 @@ function responseCacheKey(
   request: FetchRequest,
 ): string {
   const digest = createHash('sha256')
-    .update(
-      JSON.stringify([
-        spec.type,
-        spec.adapterVersion,
-        request.method,
-        request.url,
-        request.headers,
-        request.body,
-      ]),
-    )
+    .update(JSON.stringify([spec.type, spec.adapterVersion, request]))
     .digest('hex')
   return JSON.stringify([slot, digest])
 }
@@ -1287,40 +1296,62 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
       continue
     }
 
-    const { identityKey } = result.observation.identity
+    const { identityKey, nativeId: keyedOn } = result.observation.identity
     // No `?? raw.nativeId` fallback: the spec field is required, so there is nothing to fall back
     // from, and the fallback was the defect (SPEC-M-1). An adapter that returns `null` here has
-    // said so deliberately.
-    //
-    // Compared in the SAME spelling identity was keyed in (`canonicalNativeId`), never raw: two
-    // spellings of one id are one id to identity, so treating them as two here is a collision
-    // that never happened (SR-M-3).
+    // said so deliberately. Asked for EVERY item, before the gate below, because "report the
+    // provider's id for this item" is the spec's contract and must not become conditional on how
+    // identity happened to resolve (`is asked for every item, with the validated item and the
+    // config` is the test that pins it).
     const issued = spec.nativeIdOf(validated.data, config)
-    const nativeId = issued === null ? null : canonicalNativeId(issued)
-    // The suppression that used to sit here claimed this guard was unobservable. It is not, and
-    // the difference is a false ADAPTER_INVARIANT: with the guard removed, an item whose provider
-    // id is unknown records `null` against its identity key, and the NEXT item on that same key —
-    // with a perfectly good id — compares `null !== 'that id'` and is reported as a collapse. A
-    // success becomes FAILED. `records a null native id without inventing a collision` is the test
-    // that kills it (CR-M-2).
-    if (nativeId !== null) {
-      const seen = nativeIdByIdentityKey.get(identityKey)
-      if (seen !== undefined && seen !== nativeId) {
-        // The offending item was already counted in `raw`, so it needs a disposition or the
-        // balance invariant refuses the whole batch — and an adapter invariant failure would then
-        // surface as an unhandled throw instead of the FAILED batch the ACs ask for. It is
-        // `invalid`: we could not observe it as a distinct record.
-        counts.invalid += 1
-        return {
-          ok: false,
-          counts,
-          failure: {
-            code: 'ADAPTER_INVARIANT',
-            message: new AdapterIdentityCollisionError(identityKey, seen, nativeId).message,
-          },
+
+    // WHETHER IDENTITY USED A NATIVE ID IS IDENTITY'S OWN ANSWER, NOT A SECOND NORMALISER'S
+    // (SR-M-1). `identity.nativeId` is `null` exactly when identity fell back to the URL.
+    //
+    // The gate used to be `canonicalNativeId(issued) !== null`, which asked "is there a usable id"
+    // with a function that answers it DIFFERENTLY from the one identity asks: identity's
+    // `normalizeNativeId` is `canonicalNativeId` PLUS three refusals (empty, over
+    // `MAX_NATIVE_ID_CHARS`, any C0/DEL character). Measured, the two disagreed on four inputs —
+    // `"ab\tcd"`, `"ef\u0001gh"`, `"x".repeat(300)`, `"   "` — where the loop believed in an id
+    // identity had declined, and only the length condition was reasoned about or covered. Two
+    // functions that must agree is the defect; reading the one that decided is the fix, and a
+    // FIFTH refusal added to the identity seam now moves those ids to the right branch by itself.
+    if (keyedOn === null) {
+      // IDENTITY COULD NOT TELL THESE POSTINGS APART, so the adapter's own id is the only evidence
+      // left that they ARE different postings — which is the whole of what AC5 detects. Spelled
+      // through `canonicalNativeId` so two spellings of one id are not read as a collapse (SR-M-3),
+      // and an id that canonicalises to empty is NO id: an absent id cannot disagree with anything.
+      //
+      // DELIBERATELY NOT `identity.nativeId` ON BOTH SIDES, which is what the review prescribed.
+      // Measured: `identityKey` CONTAINS `nativeId` on the NATIVE_ID branch, so equal keys imply
+      // equal ids there and the comparison can never fire; on this branch both sides are `null`.
+      // The guard becomes unreachable in every configuration — applied literally, both AC5
+      // collapse-refusal tests flipped FAILED -> SUCCEEDED and every mutant of it would survive.
+      const canonical = issued === null ? '' : canonicalNativeId(issued)
+      // The suppression that used to sit here claimed this guard was unobservable. It is not, and
+      // the difference is a false ADAPTER_INVARIANT: with the guard removed, an item whose provider
+      // id is unknown records `''` against its identity key, and the NEXT item on that same key —
+      // with a good id — compares `'' !== 'that id'` and is reported as a collapse. A success
+      // becomes FAILED. `records a null native id without inventing a collision` kills it (CR-M-2).
+      if (canonical !== '') {
+        const seen = nativeIdByIdentityKey.get(identityKey)
+        if (seen !== undefined && seen !== canonical) {
+          // The offending item was already counted in `raw`, so it needs a disposition or the
+          // balance invariant refuses the whole batch — and an adapter invariant failure would then
+          // surface as an unhandled throw instead of the FAILED batch the ACs ask for. It is
+          // `invalid`: we could not observe it as a distinct record.
+          counts.invalid += 1
+          return {
+            ok: false,
+            counts,
+            failure: {
+              code: 'ADAPTER_INVARIANT',
+              message: new AdapterIdentityCollisionError(identityKey, seen, canonical).message,
+            },
+          }
         }
+        nativeIdByIdentityKey.set(identityKey, canonical)
       }
-      nativeIdByIdentityKey.set(identityKey, nativeId)
     }
 
     // No de-duplication here on purpose. The store HAS a `duplicates` disposition and the
