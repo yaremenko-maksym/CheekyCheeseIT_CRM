@@ -83,6 +83,21 @@ function relationShape(relation: Relation) {
 }
 
 describe('meeting recorder database foundation', () => {
+  it('stores media lifecycle timestamps as timezone-aware instants for expiry and recovery', () => {
+    const timestamps = [
+      meetingRecorderConnections.mediaTokenUpdatedAt,
+      recordingMediaArtifacts.createdAt,
+      recordingMediaArtifacts.completedAt,
+      recordingMediaUploads.expiresAt,
+      recordingMediaUploads.createdAt,
+      recordingMediaUploads.updatedAt,
+    ]
+
+    for (const column of timestamps) {
+      expect(column.getSQLType(), column.name).toBe('timestamp with time zone')
+    }
+  })
+
   it('keeps connection pairing fields nullable and created_by audit ownership nullable/set-null', () => {
     const config = getTableConfig(meetingRecorderConnections)
     const column = (name: string) => config.columns.find((item) => item.name === name)!
