@@ -4053,7 +4053,18 @@ and attempt removal. If neither the reviewer nor the orchestrator can remove it,
 open — and count the scratchpad's trees afterwards, because the symptom is accumulation rather than
 any single refusal.
 
-## 278. The resume-render responsiveness spec asserts a wall-clock ratio and fails on a slow runner (2026-10-22)
+## 278. CLOSED (2026-10-23) — wall-clock ratio specs, superseded by the timing-job split
+
+**Closed by the `test/wall-clock-ratio-tests` work.** Both wall-clock ratio assertions (this one and
+`growth.spec.ts`'s R-5 exponent) moved into a dedicated `timing_specs` CI job that runs alone, and each
+guarantee kept a DETERMINISTIC check in the unit suite — for this spec, a count of event-loop turns
+(an `execFileSync` runner reads 0) plus a module-mock assertion that extraction never runs in-process,
+neither of which depends on machine load. No threshold was changed and no `.skip` was added. Two
+residuals are recorded as entry 306 rather than left inside a closed entry.
+
+### Original entry, kept for provenance
+
+## 278-orig. The resume-render responsiveness spec asserts a wall-clock ratio and fails on a slow runner (2026-10-22)
 
 The API unit spec for resume rendering (`AC3 — API responsiveness during a resume render`, in the
 resumes module's `resume-render-responsiveness` spec) measures the worst event-loop stall with PDF
@@ -4246,6 +4257,12 @@ assertion as a ratio against a same-run baseline rather than an absolute exponen
 port's own R-5 assertions already do after absolute ceilings proved unusable under the gate's own
 4-way concurrency.
 
+**Update 2026-10-23 — it is not a local-load artefact.** The same single assertion failed on a **CI
+runner**, on a diff of two docstrings whose import closure is byte-identical to `main`: 1 failed of
+9827, exponent 2.026 against the 2.0 bound. It also blocked one agent's pre-push gate six times in a
+row before passing on the seventh with unchanged code. So the gate now costs merges as well as agent
+time, and "under load from sibling agents" is no longer a sufficient description of when it fires.
+
 **Check on closing:** 50 consecutive runs under artificial load, green. One green run proves nothing:
 a flake's green and a fix's green are the same green.
 
@@ -4376,3 +4393,227 @@ the script's dependency list rather than one package.
 
 **Check on closing:** provision a worktree, run that typecheck with no manual builds, and confirm it
 passes or names the exact build it needs.
+
+## 295. Byte-faithful decoding has an owner and no tracked item (2026-10-23)
+
+Phase 2's feed ingestion receives **text** from the fetch seam, not bytes. So the XML port's decoder
+never runs on a fetched feed, and a feed the fetch already decoded wrongly is caught only by a
+heuristic: a body holding U+FFFD whose declaration is not UTF-8 is refused as drift. The deferral is
+deliberate and now points at the task that owns content type and charset — but owning it in a plan
+section is not the same as being tracked, and the carryover note states this extension sits outside
+the owner-approved phase-2 scope. A requirement whose owner is a task nobody has started is a
+requirement with no date.
+
+Two consequences are already written into the code and the merged PR body, and they are what makes
+this more than tidiness: a board declaring a legacy single-byte encoding refuses its **whole feed**
+when one employer pastes one replacement character, and a feed declaring `utf-16` can **never**
+collect, because the injected BOM and the declaration disagree by construction.
+
+**Check on closing:** the fetch seam hands bytes plus a declared charset to the XML port, no BOM is
+injected, and a `utf-16`-declaring feed collects.
+
+## 296. The response cache stores a third party's validators unbounded and replays them as headers (2026-10-23)
+
+The conditional-request cache keeps the `ETag` and `Last-Modified` a source returned and sends them
+back as `If-None-Match` / `If-Modified-Since` on the next request. Neither is bounded or validated on
+the way in, and both are attacker-controlled: a source can return a megabyte of header, or bytes that
+are illegal in a request header, and the next request carries them.
+
+This is the shape already documented for cursors — a value a third party chose, persisted and then
+replayed into our own request — so the answer should be the same one: a length bound and a character
+whitelist at the point of storage, in the store binding rather than at each call site.
+
+**Check on closing:** an oversized or illegal validator is refused at storage, the next request omits
+it rather than sending it, and a test asserts the refusal on both the store and the send side.
+
+## 297. A readable cache slot is free-form, so an adapter can put a credential in it (2026-10-23)
+
+Each cache entry is addressed by a one-way digest plus a human-readable **slot**, which exists so a
+person reading the cache can tell what an entry is. The slot is supplied by the adapter as free text
+and is stored as given. Nothing stops an adapter author from interpolating a query string, a token or
+a signed URL into it, and unlike the digest the slot is not one-way.
+
+No adapter does this today; the exposure is the next one written, which is why it belongs with the
+other "the next author" items rather than as a defect.
+
+**Check on closing:** the slot's type or its construction prevents free interpolation — a closed set
+of labels, or a constructor that rejects anything but a short literal — and a test pins the refusal.
+
+## 298. One hostile entry discards a whole page, and a feed is one document (2026-10-23)
+
+Two independent refusals in feed ingestion are page-wide rather than entry-wide: a body holding
+U+FFFD under a non-UTF-8 declaration, and a genuine identity collapse where two entries carry distinct
+provider ids on one link. Both refusals are **correct as refusals** — this is not a false positive —
+but a feed arrives as a single document, so the cost of either is the entire source for that run, and
+it repeats every run until the offending posting rolls off.
+
+The open question is availability, and it has two defensible answers: quarantine the offending entry
+and collect the rest, or keep refusing the page because a document that cannot be trusted in part
+cannot be trusted in whole. That is a product decision about whether partial coverage beats none, so
+it was deliberately not settled inside a fix round.
+
+**Check on closing:** the chosen answer is written down with its reason, and a test asserts the
+behaviour for both shapes — not only for the one that was easier to reproduce.
+
+## 299. The collapse gate is blind in one direction, and only the blind direction is undocumented behaviour (2026-10-23)
+
+The loop's identity-collapse check runs **only** when identity fell back to the canonical URL. It
+therefore catches an adapter whose URL is coarser than the provider's ids, and misses the reverse: an
+adapter that pins a coarser native id than it reports makes identity key on that id, the check is
+skipped, and two distinct postings collapse onto one key stored as a success, silently.
+
+The justification "the adapter declared it" holds for the adapter's choice of **field**, never for the
+feed's **values** in that field. The contract is now stated in the hook's own docstring, which is the
+minimum; what is not decided is whether the loop should detect the second direction at all, since
+doing so means comparing values the adapter told us to trust.
+
+Latent today, verified against the tree rather than inferred: the only feed binding reads one field on
+both sides and its mapper cannot set the id, and no adapter exists on the JSON binding. It becomes
+live with the first phase-3 adapter that derives the two from different fields.
+
+**Check on closing:** either the second direction is detected with a test that fails without the
+check, or a written decision says it is the adapter's responsibility and the docstring is the whole
+answer.
+
+## 300. The cross-agent hook records worktree ownership only for an unchained `add`, so no reviewer can clean up after itself (2026-10-23)
+
+The isolation hook permits removing a worktree only when a record ties that path to the agent, and it
+writes that record when it sees the `add`. It does not write one when the `add` arrives as a chained
+segment after a `cd`, or when the harness has since changed the agent's working directory — and in
+both cases the later `remove` is refused as unverifiable, **even for a literal absolute path the agent
+created itself**.
+
+The refusal is the correct default: ownership that cannot be verified must not be assumed, and three
+incidents are why. But the effect is that honest cleanup is impossible for a whole class of correct
+usage, so scratch checkouts accumulate until the owner removes them by hand. Four were orphaned in one
+day by four different reviewers, and the orchestrator is refused as well, so there is no in-session
+escalation path.
+
+**Check on closing:** an agent that creates a worktree at a literal path can remove that same path in a
+later call regardless of how the `add` was composed or whether its working directory changed, while a
+sibling's path stays refused — both arms asserted by the hook's own tests.
+
+## 301. A verification can be real but less precise than the claim it supports (2026-10-23)
+
+`verification-integrity.md` distinguishes "did not look" from "looked and found nothing". The retro-PR
+wave produced a third shape it does not cover: **looked at less than was then asserted.**
+
+Measured. An agent reported `Pushed: <branch> @ cd23a486173f3b42c3d3e2a3e0c0ec2a4a1dbd3d`, with the
+evidence "`git ls-remote` returns `cd23a486173f`, identical to local HEAD". The comparison was
+genuine — and true, for the twelve characters it covered. The full forty-character sha printed beside
+it does not exist in the repository; the real parent is `cd23a486173fb5957d3968c5b6a2e17b54f299a0`,
+which shares exactly that twelve-character prefix. The orchestrator then passed the published sha into
+a reviewer's dispatch, where the compare API answered 404 and the reviewer had to find the real parent
+itself.
+
+Nothing was lost, because the branch was genuinely pushed — but the artifact the project treats as the
+checkable assertion (`stream-watchdog.md`'s `Pushed:` line, whose whole purpose is that a reader can
+re-run it in one command) was not re-runnable. A reader who pastes it gets "object does not exist" and
+cannot tell a mistyped sha from a lost push.
+
+**Why this is worth a rule rather than a reminder.** Short-prefix comparison is the normal, correct way
+to eyeball git output; the defect is only in stating the long form afterwards. So the cure is not "be
+careful" but a form: compare and state the SAME object. Either print what the command printed, or
+compare full shas (`git rev-parse HEAD` against `git ls-remote origin <branch> | cut -f1`).
+
+**Check on closing:** take a report carrying a `Pushed:` line and run `git cat-file -t <sha>` on the
+exact string it published. It resolves, or the line was never checkable.
+
+## 302. Truncating a command's output hides what the command was run to find (2026-10-23)
+
+`pre:bash:swallowed-failure` catches a discarded stderr piped into a counter. It does not catch the
+adjacent move: reading a command's output through `tail -N` / `head -N` and acting on what survived.
+
+Measured, same wave: an agent ran a merge, read the result with `tail -6`, and so did not see that
+`deploy.yml` had ALSO conflicted — it noticed only because a wiring guard failed afterwards and
+`git status` showed `UU`. Its own write-up names the lesson: truncating a command's output is
+precisely how a second conflict hides. A merge reports one conflict per file; a window onto the end of
+that report is a window onto some of the files.
+
+Same family as form 1 in `verification-integrity.md` — the information that would have corrected the
+reader went somewhere the reader did not look — but the channel here is truncation rather than
+redirection, so neither the rule's text nor its hook mentions it.
+
+**Candidates:** state in the rule that a command whose output is EVIDENCE is read whole (or filtered
+by a predicate that cannot drop a case, e.g. `grep -c '^CONFLICT'` for the count and then the list);
+extend the advisory hook to flag `tail`/`head` applied to `git merge` / `git rebase` / `git cherry-pick`
+output. The hook half is optional; the rule half is the point.
+
+**Check on closing:** a merge with conflicts in two files, read the way the rule prescribes, reports
+both.
+
+## 303. User-facing error text left over from the retro-PR wave (2026-10-23)
+
+Five findings from reviews and QA that were deliberately not fixed in their PRs, because each touches a
+shared string or a path outside the diff that produced it. Grouped because they are one sweep.
+
+- `INTERVIEW_NOT_FOUND` («Співбесіду не знайдено») states the failure and no next step.
+- The uk catalog mixes the ASCII apostrophe with the typographic one (78 msgids typographic against
+  21 ASCII at the time of measurement). A catalog-wide sweep, not a per-PR fix.
+- A 4xx with no canned status line falls back to «Не вдалося виконати запит…», which repeats «Не
+  вдалося» directly under a title that already begins with it ("Couldn't" twice in en).
+- An uncoded Nest 403 (`Forbidden resource`) is absent from the generic reason phrases, so it renders
+  raw and in English beneath a localised title. Not reachable on the link endpoint today, whose guards
+  return a coded 403 — reachable the moment an endpoint does not.
+- Uncoded errors with a non-generic server message pass through verbatim (`connect ECONNREFUSED …`,
+  `interviewId: Invalid UUID`). Not observed on a real path.
+- The admin edit dialog surfaces a raw English `salaryMonth: Format YYYY-MM` for an invalid month; it
+  needs a coded API error, not a cosmetic patch.
+
+**Check on closing:** no user-facing surface renders an uncoded server message verbatim, and the uk
+catalog uses one apostrophe.
+
+## 304. Small UI and data defects observed during retro-PR QA (2026-10-23)
+
+Each was seen on a real stack, none belongs to the PR that surfaced it.
+
+- The salary Month input renders its value in English («September 2026») under a uk locale and clips
+  slightly at 375px.
+- A senior's own salary aggregate is computed for the CURRENT month while the create form defaults to
+  the PREVIOUS one, so a part created with the default does not appear in the aggregate until the next
+  month. Predates the multipart-salary work.
+- The shared `Alert` separates title from reason only by font weight and a 4px gap, so a two-part
+  message reads as one block.
+- DROP balance figures render as `1 250,50 USD` where a spec expects `$1,250.50` — a locale-formatting
+  change that an E2E spec still asserts the old way (surfaced as an unexplained E2E failure during an
+  A/B run, in a component absent from the diff under test).
+- Seeded `interviews.notes_domain` values fail `interviewSchema`, so the link-recording dialog shows
+  its error state against a freshly seeded scratch database until the column is nulled. Either the seed
+  or the schema is wrong; QA runs currently work around it.
+
+**Check on closing:** each bullet fixed or explicitly declined in this entry.
+
+## 305. `non_deleted_transactions` now has a third production definition site; the drift guard reads one (2026-10-23)
+
+The view is re-created by more than one manual DDL file, and the consistency spec that exists to catch
+drift between the schema and production reads only the 2026-08-03 file. The multipart-salary prepare
+DDL already had this shape before the salary-creation-intent DDL added a third. So a change applied
+through either of the newer files is invisible to the guard that exists for exactly that risk.
+
+Not a defect today — the definitions agree — which is precisely why it will not announce itself when
+they stop agreeing.
+
+**Check on closing:** alter the view in ONE of the newer DDL files only, and the guard fails.
+
+## 306. Two residuals from the timing-job split (2026-10-23)
+
+Both were disclosed by the author of the split rather than found afterwards, which is why they are an
+entry instead of a finding.
+
+- **The quadratic-scan guarantee is no longer a merge gate.** The `timing_specs` job sits outside the
+  `quality` aggregator by design — that is what makes a single miss a signal rather than a blocked PR —
+  and it runs only when `apps/api`, `packages/shared`, the lockfile or `ci.yml` change. So nothing
+  blocks a merge on it. **This repo has already been burned by the adjacent arrangement:** a nightly
+  mutation run stayed red for twenty days because "the nightly checks it" is not the same as anyone
+  reading it. So the open question is not "required or not" — making it required reinstates exactly the
+  load-sensitivity the split removed — but **who notices a failure**. Candidates: fold its conclusion
+  into the telemetry digest that already reaches a human, or alert on it the way `deploy-alert.yml`
+  alerts, or accept it as advisory and say so in the job's own header.
+- **The 2.0 exponent threshold has a false-negative range.** Measured during the split: a quadratic
+  PI scan with a 64-character step fits BELOW 2.0 and the assertion stays green. So the original spec
+  did not only fail under load — it also passed on a real regression. The split did not create this and
+  did not fix it. A deterministic operation count would, but none was reachable without instrumenting
+  the parser (product code, outside the test author's zone), so the seam has to be added deliberately.
+
+**Check on closing:** a quadratic scan with a 64-character step is caught by something, and a failing
+`timing_specs` job reaches a human within a day without anybody thinking to look.

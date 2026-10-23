@@ -26,7 +26,10 @@ vi.mock('./company-account-balance', () => ({
   lockCompanyAccount: lockMock,
   computeCompanyAccountBalanceFromLedger: balanceMock,
 }))
-vi.mock('./transaction-date.util', () => ({ resolveTransactionDate: txDateMock }))
+vi.mock('./transaction-date.util', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./transaction-date.util')>()),
+  resolveTransactionDate: txDateMock,
+}))
 
 const dialect = new PgDialect()
 /** Renders a drizzle `where` to its bound parameters (independent of the code under test). */
@@ -318,6 +321,17 @@ describe('TransactionEntryService.createExpense', () => {
 describe('TransactionEntryService.createSalary', () => {
   const base = { receiverId: 'recv-1', amount: 100, salaryMonth: '2026-09', idempotencyKey: KEY }
   const employee = { id: 'recv-1', role: 'JUNIOR', archivedAt: null }
+  // The persisted meaning of `base` (PR #868, SR-795-M-2), written out by hand.
+  const BASE_INTENT = {
+    version: 1,
+    operation: 'MANUAL_SALARY_CREATE',
+    receiverId: 'recv-1',
+    amount: '100.000000',
+    currency: 'USD',
+    salaryMonth: '2026-09',
+    notes: null,
+    txDate: 'AUTO',
+  }
 
   it('rejects any role other than ADMIN / ACCOUNTANT before touching the db', async () => {
     const h = make()
@@ -335,7 +349,7 @@ describe('TransactionEntryService.createSalary', () => {
   })
 
   it('replays a prior SALARY with the same key: returns its id, writes nothing', async () => {
-    const h = make({ txLookups: [{ id: 'old-salary' }] })
+    const h = make({ txLookups: [{ id: 'old-salary', salaryCreationIntent: BASE_INTENT }] })
     const res = await h.svc.createSalary(base, ADMIN)
     expect(res).toEqual({ id: 'old-salary' })
     const [args] = h.txFindFirst.mock.calls[0] as unknown as [{ where: unknown }]
@@ -405,6 +419,7 @@ describe('TransactionEntryService.createSalary', () => {
       receiverId: 'recv-1',
       salaryMonth: '2026-09',
       salaryOrigin: 'MANUAL',
+      salaryCreationIntent: { ...BASE_INTENT, notes: 'part 1', txDate: '2026-10-01' },
       idempotencyKey: KEY,
       notes: 'part 1',
       fundingSource: null,
@@ -434,7 +449,7 @@ describe('TransactionEntryService.createSalary', () => {
     it('returns the id of the row that won the race', async () => {
       const h = make({
         users: [employee],
-        txLookups: [undefined, { id: 'winner' }],
+        txLookups: [undefined, { id: 'winner', salaryCreationIntent: BASE_INTENT }],
         insertError: race,
       })
       await expect(h.svc.createSalary(base, ADMIN)).resolves.toEqual({ id: 'winner' })
