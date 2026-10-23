@@ -1,5 +1,5 @@
 import { HttpStatus, Injectable } from '@nestjs/common'
-import { and, desc, eq, inArray, isNull, or } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm'
 import type {
   SessionUser,
   DropIncomeDto,
@@ -18,6 +18,29 @@ import {
   mapDropPaymentStatus,
 } from './drop-status.util'
 import { computeDropAggregate } from './drop-distribution.util'
+
+/**
+ * CR-809-M-6: the business date of a transaction — the operator-chosen
+ * `tx_date` when there is one, else the row's `created_at`. Since #809 shipped
+ * custom dates the two are no longer interchangeable, and every place that
+ * answers "when did this money happen" has to key on this one expression.
+ *
+ * Declared once, as a function rather than a constant, because a Drizzle `SQL`
+ * fragment is consumed when it is embedded in a query — sharing a single
+ * instance across the order-by and both window bounds of the same query is not
+ * safe. Mirrors the same expression in `admin-summary.service` (active-tx feed),
+ * `transactions.service.findAll` and `summary.service`'s paid-this-month tile.
+ */
+const businessDate = () => sql`coalesce(${transactions.txDate}, ${transactions.createdAt})`
+
+/**
+ * A timestamp column as an ISO string. `node-postgres` hands back a `Date` for
+ * `timestamptz`, but the stubbed-executor unit specs hand back whatever the
+ * fixture holds, so both shapes are accepted — the previous inline ternary did
+ * the same thing in three places and is collapsed here.
+ */
+const toIso = (v: Date | string): string =>
+  v instanceof Date ? v.toISOString() : new Date(v).toISOString()
 
 /**
  * Self-only DROP read path: summary, incomes feed and outgoing-payments feed
@@ -145,6 +168,38 @@ export class DropSelfService {
       throw apiError('FINANCE_DROP_INCOMES_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
+    // CR-809-M-6: the from/to window is a BUSINESS-date window and it is applied
+    // in SQL, not in JS over a full table read.
+    //
+    // Both halves of that matter. Keyed on `created_at`, a row the drop
+    // backdated (or that an admin booked for last month) fell into the bucket
+    // for the month it was ENTERED, so the period filter disagreed with the
+    // date the same row shows in the finance tables. And the filter ran after
+    // `findMany` had already fetched every one of the drop's rows, so the
+    // window did no work for the database at all.
+    //
+    // Boundary semantics are carried over unchanged, deliberately: `from` is a
+    // YYYY-MM-DD string whose `Date.parse` is that day's midnight UTC
+    // (inclusive), and `to` is extended by 86_399_999 ms (= 23:59:59.999) so a
+    // row anywhere inside the last requested day is included rather than only
+    // one landing exactly at 00:00:00 UTC (MED review finding code-review-2).
+    // Those two bounds are now bound as query parameters instead of compared in
+    // JS; `drop-self.service.spec.ts` asserts the compiled predicate and the
+    // bound values, and the real-DB spec asserts the inclusive edges.
+    //
+    // Index note: no index serves this. The only date index on `transactions`
+    // is `idx_transactions_active_created_at (created_at) WHERE deleted_at IS
+    // NULL`, and a btree on a bare column cannot answer a `coalesce(...)`
+    // range. The predicate is still strictly better than before — Postgres now
+    // discards the out-of-window rows during the scan instead of shipping them
+    // all to Node — but it is a filtered scan, not an index range scan. The
+    // index that would serve it is
+    // `((coalesce(tx_date, created_at))) WHERE deleted_at IS NULL`; it is not
+    // added here because the scan is already bounded to ONE drop's rows by the
+    // `receiver_id` equality in the same predicate.
+    const fromBound = query.from ? new Date(Date.parse(query.from)) : undefined
+    const toBound = query.to ? new Date(Date.parse(query.to) + 86_399_999) : undefined
+
     // Self-scope at the DB level: only this drop's rows across BOTH income
     // models (see docstring). AC2: DROP is non-privileged — a deleted own
     // income must not resurface here.
@@ -153,36 +208,24 @@ export class DropSelfService {
         inArray(transactions.type, ['DROP_INCOME', 'DROP_PENDING_PAYOUT', 'PAYOUT_DROP']),
         eq(transactions.receiverId, currentUser.id),
         isNull(transactions.deletedAt),
+        ...(fromBound ? [gte(businessDate(), fromBound)] : []),
+        ...(toBound ? [lte(businessDate(), toBound)] : []),
       ),
-      orderBy: [desc(transactions.createdAt)],
+      orderBy: [desc(businessDate())],
       with: { project: { columns: { companyName: true } } },
     })
 
-    // In-memory status + date-window filters (the feed per drop is small;
-    // pushing these to SQL would not change correctness and keeps the status
-    // mapping in one place). The status filter compares the MAPPED status so
-    // the FE contract (pending|validated|paid|rejected) is honoured, for
-    // EITHER model.
-    const fromTs = query.from ? Date.parse(query.from) : -Infinity
-    // `to` is a YYYY-MM-DD date string: Date.parse gives midnight UTC (start of
-    // that day). Add 86_399_999 ms (= 23:59:59.999) so that incomes created
-    // anywhere during the last requested day are included — not just those at
-    // exactly 00:00:00 UTC. Fix: MED review finding code-review-2.
-    const toTs = query.to ? Date.parse(query.to) + 86_399_999 : Infinity
-
+    // The status filter stays in memory: it compares the MAPPED status so the
+    // FE contract (pending|validated|paid|rejected) is honoured for EITHER
+    // income model, and that mapping lives in `drop-status.util`. Pushing it to
+    // SQL would mean duplicating the DB-status → FE-status table in a CASE
+    // expression, i.e. two places to keep in step for no correctness gain.
     const mappedStatusOf = (tx: { type: string; status: string }): DropIncomeStatus =>
       tx.type === 'DROP_INCOME'
         ? mapDropIncomeStatus(tx.status)
         : mapDropObligationStatus(tx.status)
 
-    const filtered = rows.filter((tx) => {
-      if (query.status && mappedStatusOf(tx) !== query.status) return false
-      const created =
-        tx.createdAt instanceof Date ? tx.createdAt.getTime() : Date.parse(String(tx.createdAt))
-      if (created < fromTs) return false
-      if (created > toTs) return false
-      return true
-    })
+    const filtered = query.status ? rows.filter((tx) => mappedStatusOf(tx) === query.status) : rows
 
     const total = filtered.length
     const start = (query.page - 1) * query.limit
@@ -196,10 +239,15 @@ export class DropSelfService {
           : (tx.companyNameSnapshot ?? tx.project?.companyName ?? ''),
       amount: parseFloat(tx.amount),
       currency: tx.currency,
-      createdAt:
-        tx.createdAt instanceof Date
-          ? tx.createdAt.toISOString()
-          : new Date(tx.createdAt).toISOString(),
+      createdAt: toIso(tx.createdAt),
+      // CR-809-M-6: the date the row is ORDERED and WINDOWED by is now the
+      // business date, so the caller has to be able to read it — a list sorted
+      // and bucketed by a key the client cannot see is the defect, not the fix.
+      // The mapper stays an explicit allow-list (no row spread): this adds one
+      // field of the viewer's OWN row, and `createdAt` of that same row is
+      // already returned, so no new information class is exposed. NULL for
+      // every row that predates #809.
+      txDate: tx.txDate ? toIso(tx.txDate) : null,
       status: mappedStatusOf(tx),
       model: tx.type === 'DROP_INCOME' ? 'declared' : 'obligation',
     }))
@@ -224,7 +272,11 @@ export class DropSelfService {
 
     const rows = await this.db.db.query.transactions.findMany({
       where: and(eq(transactions.type, 'PAYOUT'), eq(transactions.senderId, currentUser.id)),
-      orderBy: [desc(transactions.createdAt)],
+      // CR-809-M-6 lists `both drop-self.service queries` — this is the second.
+      // A payout the drop made can carry an operator-chosen date too, so the
+      // same ordering key applies, and for the same reason: this feed renders
+      // the business date, so it must be sorted by it.
+      orderBy: [desc(businessDate())],
     })
 
     return rows.map((tx) => ({
@@ -233,10 +285,10 @@ export class DropSelfService {
       currency: tx.currency,
       ...(tx.txHash ? { txHash: tx.txHash } : {}),
       status: mapDropPaymentStatus(tx.status),
-      createdAt:
-        tx.createdAt instanceof Date
-          ? tx.createdAt.toISOString()
-          : new Date(tx.createdAt).toISOString(),
+      createdAt: toIso(tx.createdAt),
+      // Same reasoning as the incomes feed above: ordered by the business date,
+      // so the business date is readable. Self-scoped (`senderId = self.id`).
+      txDate: tx.txDate ? toIso(tx.txDate) : null,
     }))
   }
 }

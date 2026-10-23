@@ -458,6 +458,7 @@ describe('dropIncomeDtoSchema', () => {
     amount: 1500,
     currency: 'USDT',
     createdAt: '2026-06-12T10:00:00.000Z',
+    txDate: null,
     status: 'validated',
     model: 'declared',
   }
@@ -503,6 +504,7 @@ describe('paginatedDropIncomesSchema', () => {
           amount: 800,
           currency: 'USDT',
           createdAt: '2026-06-10T10:00:00.000Z',
+          txDate: null,
           status: 'pending',
           model: 'obligation',
         },
@@ -589,6 +591,7 @@ describe('dropPaymentDtoSchema', () => {
     currency: 'USDT',
     status: 'pending',
     createdAt: '2026-06-12T10:00:00.000Z',
+    txDate: null,
   }
 
   it('parses a payment without txHash (txHash optional)', () => {
@@ -609,6 +612,59 @@ describe('dropPaymentDtoSchema', () => {
 
   it('rejects an income-style status on a payment', () => {
     expect(() => dropPaymentDtoSchema.parse({ ...base, status: 'validated' })).toThrow()
+  })
+})
+
+/**
+ * CR-809-M-6 — `txDate` on the two DROP self-feed DTOs.
+ *
+ * It is a REQUIRED, nullable key rather than an optional one, deliberately: the
+ * feeds are ordered and windowed on the business date, so a producer that
+ * silently omits it would hand the client a list sorted by a date the client
+ * cannot see — which is the defect being fixed. `null` is the honest value for
+ * every row predating #809; omission is not.
+ */
+describe('CR-809-M-6 — txDate on the DROP feed DTOs', () => {
+  const income = {
+    id: 'a0000000-0000-4000-8000-000000000014',
+    companyName: 'TechCorp',
+    amount: 1500,
+    currency: 'USDT',
+    createdAt: '2026-10-06T10:00:00.000Z',
+    txDate: '2026-09-30T00:00:00.000Z',
+    status: 'paid',
+    model: 'declared',
+  }
+  const payment = {
+    id: 'a0000000-0000-4000-8000-000000000015',
+    amount: 950,
+    currency: 'USDT',
+    status: 'confirmed',
+    createdAt: '2026-10-06T10:00:00.000Z',
+    txDate: '2026-09-30T00:00:00.000Z',
+  }
+
+  it('carries a business date distinct from the creation date on an income', () => {
+    const r = dropIncomeDtoSchema.parse(income)
+    expect(r.txDate).toBe('2026-09-30T00:00:00.000Z')
+    // The pair the finding describes: entered 6 Oct, dated 30 Sep.
+    expect(r.createdAt).toBe('2026-10-06T10:00:00.000Z')
+  })
+
+  it('carries a business date distinct from the creation date on a payment', () => {
+    expect(dropPaymentDtoSchema.parse(payment).txDate).toBe('2026-09-30T00:00:00.000Z')
+  })
+
+  it('accepts null for a row that predates custom dates', () => {
+    expect(dropIncomeDtoSchema.parse({ ...income, txDate: null }).txDate).toBeNull()
+    expect(dropPaymentDtoSchema.parse({ ...payment, txDate: null }).txDate).toBeNull()
+  })
+
+  it('rejects an OMITTED txDate on both — the key is required, not optional', () => {
+    const { txDate: _incomeDate, ...incomeNoDate } = income
+    const { txDate: _paymentDate, ...paymentNoDate } = payment
+    expect(() => dropIncomeDtoSchema.parse(incomeNoDate)).toThrow()
+    expect(() => dropPaymentDtoSchema.parse(paymentNoDate)).toThrow()
   })
 })
 

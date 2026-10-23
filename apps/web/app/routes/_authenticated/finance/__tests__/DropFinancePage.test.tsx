@@ -75,6 +75,8 @@ function makeIncome(overrides: Partial<DropIncomeDto>): DropIncomeDto {
     amount: 1000,
     currency: 'USDT',
     createdAt: '2026-08-01T00:00:00.000Z',
+    // CR-809-M-6: NULL by default — the shape of a row that predates #809.
+    txDate: null,
     status: 'pending',
     model: 'declared',
     ...overrides,
@@ -473,5 +475,74 @@ describe('DropFinancePage — labels with no prior assertion (mutation-gate cove
     })
     renderPage()
     expect(screen.getByText('Переказів ще не було')).toBeInTheDocument()
+  })
+})
+
+/**
+ * CR-809-M-6 — the DROP tables must show the BUSINESS date.
+ *
+ * The server now orders both feeds by `coalesce(tx_date, created_at)` and
+ * windows the incomes feed's from/to on it. Rendering `createdAt` while sorting
+ * and bucketing by `txDate` is the same disagreement the finding describes, one
+ * layer up: the row would sit in the September page under an October date.
+ *
+ * Dates are asserted as exact rendered strings, matching this file's existing
+ * convention (a mutation to the 'shortYY' style key then fails). The two are
+ * months apart so no timezone offset can make them collide — 'shortYY' is
+ * deliberately NOT pinned to UTC, see packages/shared/src/i18n/format.spec.ts.
+ * The discriminating half of each case is the second assertion: the creation
+ * date must be ABSENT, which is what a `?? ` the wrong way round would fail.
+ */
+describe('DropFinancePage — tables render the business date (CR-809-M-6)', () => {
+  const ENTERED = '2026-08-01T00:00:00.000Z' // when the row was created → 01.08.26
+  const DATED = '2026-05-30T00:00:00.000Z' // the operator-chosen date → 30.05.26
+
+  it('an income with a txDate shows the txDate, not the creation date', () => {
+    useDropIncomesMock.mockReturnValue({
+      data: {
+        items: [makeIncome({ id: 'backdated-1', createdAt: ENTERED, txDate: DATED })],
+        total: 1,
+        page: 1,
+        limit: 20,
+      },
+      isLoading: false,
+    })
+    renderPage()
+    const row = screen.getByTestId('drop-income-row-backdated-1')
+    expect(row).toHaveTextContent('30.05.26')
+    expect(row).not.toHaveTextContent('01.08.26')
+  })
+
+  it('an income with a null txDate falls back to the creation date', () => {
+    useDropIncomesMock.mockReturnValue({
+      data: {
+        items: [makeIncome({ id: 'legacy-1', createdAt: ENTERED, txDate: null })],
+        total: 1,
+        page: 1,
+        limit: 20,
+      },
+      isLoading: false,
+    })
+    renderPage()
+    // Rows that predate #809 carry no business date; the fallback is what keeps
+    // them rendering a real date instead of "Invalid Date".
+    expect(screen.getByTestId('drop-income-row-legacy-1')).toHaveTextContent('01.08.26')
+  })
+
+  it('a payment with a txDate shows the txDate, not the creation date', () => {
+    useDropIncomesMock.mockReturnValue({
+      data: { items: [], total: 0, page: 1, limit: 20 },
+      isLoading: false,
+    })
+    useDropPaymentsMock.mockReturnValue({
+      data: [
+        { id: 'p1', createdAt: ENTERED, txDate: DATED, amount: 100, status: 'pending' as const },
+      ],
+      isLoading: false,
+    })
+    renderPage()
+    const row = screen.getByTestId('drop-payment-row-p1')
+    expect(row).toHaveTextContent('30.05.26')
+    expect(row).not.toHaveTextContent('01.08.26')
   })
 })

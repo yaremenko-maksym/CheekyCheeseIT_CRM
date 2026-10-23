@@ -1,6 +1,6 @@
 import { Injectable, forwardRef, Inject, Optional } from '@nestjs/common'
 
-import { desc, isNull } from 'drizzle-orm'
+import { desc, isNull, sql } from 'drizzle-orm'
 import type {
   SessionUser,
   DropIncomesQuery,
@@ -315,7 +315,24 @@ export class TransactionsService {
 
     const allTxs = (await this.db.db.query.transactions.findMany({
       ...(showDeleted ? {} : { where: isNull(transactions.deletedAt) }),
-      orderBy: [desc(transactions.createdAt)],
+      // CR-809-M-6: order by the BUSINESS date, falling back to `created_at`
+      // for the rows that predate #809 (and for any type that never carries a
+      // `tx_date`). The list renders `txDate ?? createdAt` as "the date" and
+      // the client sorts on that, so ordering the server page on `created_at`
+      // made the page order disagree with the column the user is reading —
+      // a backdated row appeared in the wrong place rather than the wrong
+      // month. Same expression as `admin-summary.service`'s active-tx feed, so
+      // the two lists agree on what "newest" means.
+      //
+      // Index note: `idx_transactions_active_created_at (created_at) WHERE
+      // deleted_at IS NULL` cannot serve a `coalesce(...)` sort key, so this
+      // ordering is a Sort node rather than an ordered index scan. That costs
+      // nothing here: this query has no LIMIT — it deliberately loads the whole
+      // non-deleted set and then filters by role in JS — so the rows were
+      // already all being read and materialised before anything was ordered.
+      // If this path ever gains real pagination, the matching index is
+      // `((coalesce(tx_date, created_at)) DESC) WHERE deleted_at IS NULL`.
+      orderBy: [desc(sql`coalesce(${transactions.txDate}, ${transactions.createdAt})`)],
       with: {
         // task-counterparty-role-masking: `role` drives ADMIN-party masking in mapTx.
         sender: { columns: { displayName: true, role: true } },

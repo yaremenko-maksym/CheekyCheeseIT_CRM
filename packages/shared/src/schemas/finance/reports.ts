@@ -90,7 +90,25 @@ export const dropIncomeDtoSchema = z.object({
   companyName: z.string(),
   amount: z.number(),
   currency: z.string(),
-  createdAt: z.string(), // ISO date
+  createdAt: z.string(), // ISO date — when the row was ENTERED
+  /**
+   * CR-809-M-6. The operator-chosen BUSINESS date of the income, `null` for a
+   * row that predates #809 (or whose author did not pick one). Since #809 this
+   * — not `createdAt` — is the date the row belongs to: the feed is ordered by
+   * `coalesce(tx_date, created_at)` and the from/to window filters on it, so
+   * without this field the client would be sorting and bucketing by a key it
+   * cannot read, and a backdated row would show a date that contradicts the
+   * period it was returned for. Render `txDate ?? createdAt`.
+   *
+   * Masking: this feed is self-scoped — `GET /finance/drop/me/incomes` is
+   * DROP-only and the query binds `receiverId = <caller>` — so the field is a
+   * property of the viewer's OWN row. `createdAt` of the same row is already
+   * returned here and is strictly more precise (a full timestamp, versus UTC
+   * midnight for a chosen date), so exposing this adds no information class
+   * the drop could not already see. The service mapper remains an explicit
+   * allow-list rather than a row spread.
+   */
+  txDate: z.string().nullable(),
   status: dropIncomeStatusSchema,
   model: z.enum(['declared', 'obligation']),
 })
@@ -108,8 +126,11 @@ export const paginatedDropIncomesSchema = z.object({
 export type PaginatedDropIncomes = z.infer<typeof paginatedDropIncomesSchema>
 
 // Query filters for GET /api/finance/drop/me/incomes. All optional; status/type
-// narrow the feed, from/to bound the createdAt window (ISO date strings), and
-// page/limit drive pagination (defaults 1 / 20).
+// narrow the feed, from/to bound the BUSINESS-date window — `coalesce(tx_date,
+// created_at)`, not `created_at` (CR-809-M-6: a backdated row used to land in
+// the bucket for the month it was entered) — as ISO date strings, and
+// page/limit drive pagination (defaults 1 / 20). `from` is inclusive from that
+// day's 00:00:00 UTC, `to` inclusive through its 23:59:59.999.
 export const dropIncomesQuerySchema = z.object({
   status: dropIncomeStatusSchema.optional(),
   // task-drop-sees-own-obligations (security-review PR #523 round 1, LOW):
@@ -160,7 +181,15 @@ export const dropPaymentDtoSchema = z.object({
   currency: z.string(),
   txHash: z.string().optional(),
   status: dropPaymentStatusSchema,
-  createdAt: z.string(), // ISO date
+  createdAt: z.string(), // ISO date — when the row was ENTERED
+  /**
+   * CR-809-M-6, same contract and same masking argument as
+   * `dropIncomeDtoSchema.txDate` above (this feed is scoped to
+   * `senderId = <caller>`). Present because the payments feed is ordered by
+   * `coalesce(tx_date, created_at)` as well, and a list must not be sorted by
+   * a date its reader cannot see. Render `txDate ?? createdAt`.
+   */
+  txDate: z.string().nullable(),
 })
 export type DropPaymentDto = z.infer<typeof dropPaymentDtoSchema>
 

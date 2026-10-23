@@ -17,10 +17,8 @@
  *       the COALESCE-to-zero path, AC4).
  */
 import { describe, expect, it } from 'vitest'
-import type { SQL } from 'drizzle-orm'
 import type { SessionUser } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
-import { compileWhere } from './__test-helpers__/drizzle-where-introspection'
 
 function user(role: SessionUser['role'], id = `${role.toLowerCase()}-1`): SessionUser {
   return {
@@ -134,74 +132,13 @@ describe('getAccountantSummary — RBAC guard (AC3)', () => {
 })
 
 /**
- * CR-809-H-2 — the `paidThisMonth` window must key on the BUSINESS date
- * (`coalesce(tx_date, created_at)`), not on `created_at`.
+ * CR-809-H-2 (the `paidThisMonth` business-date window) is NOT asserted here.
  *
- * Why this lives here as well as in the integration spec: Stryker excludes
- * every `*.integration.spec.ts` from discovery (see `vitest.config.mts`
- * `isIntegrationRun`), so a real-DB test — however honest — cannot kill a
- * mutant that swaps the window column back to `created_at`. The aggregate is
- * built as a real Drizzle SQL fragment even against a stubbed executor, so
- * compiling it reads the predicate the production query would send.
+ * `summary.service.spec.ts` already pins the EXACT compiled SQL of all six
+ * aggregate fragments plus their bound params under a frozen clock — a stronger
+ * assertion than anything this file could add, in the spec that owns the
+ * service. It is also what caught this change: the fragment expectation went red
+ * the moment the window column moved, which is the blast-radius check working
+ * rather than a test that had to be written for it. Duplicating it here would
+ * have meant two places to update for one fact.
  */
-describe('getAccountantSummary — paidThisMonth windows on the business date (CR-809-H-2)', () => {
-  /** Capture the `.select()` field map the production query builds. */
-  function captureSelect() {
-    let fields: Record<string, SQL> | undefined
-    const dbStub = {
-      db: {
-        select: (f: Record<string, SQL>) => {
-          fields = f
-          return {
-            from: () => ({
-              where: () =>
-                Promise.resolve([
-                  {
-                    pendingCount: 0,
-                    pendingAmount: 0,
-                    validatedCount: 0,
-                    validatedAmount: 0,
-                    paidAmount: 0,
-                    recipientCount: 0,
-                  },
-                ]),
-            }),
-          }
-        },
-      },
-    }
-    const svc = makeTransactionsService({ db: dbStub as never })
-    return { svc, getFields: () => fields! }
-  }
-
-  it('filters the PAID sum on coalesce(tx_date, created_at), never on created_at alone', async () => {
-    const { svc, getFields } = captureSelect()
-    await svc.getAccountantSummary(user('ACCOUNTANT'))
-    const { sql: text } = compileWhere(getFields().paidAmount)
-
-    // The window term, read off the predicate Postgres would receive.
-    expect(text).toContain('coalesce("transactions"."tx_date", "transactions"."created_at") >= $1')
-    // And the pre-fix shape is gone. Post-fix `created_at` occurs ONLY inside
-    // the coalesce, where it is followed by `)` — never by a comparison. This
-    // assertion is what discriminates: it HELD before the fix too if written as
-    // a lookbehind, so it is spelled as the literal pre-fix term instead.
-    expect(text).not.toContain('"transactions"."created_at" >=')
-  })
-
-  it('binds exactly one month boundary into the PAID window', async () => {
-    const { svc, getFields } = captureSelect()
-    await svc.getAccountantSummary(user('ACCOUNTANT'))
-    const { params } = compileWhere(getFields().paidAmount)
-    const now = new Date()
-    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
-    expect(params).toEqual([monthStart])
-  })
-
-  it('still keys validatedThisMonth on validatedAt — the business date must NOT leak there', async () => {
-    const { svc, getFields } = captureSelect()
-    await svc.getAccountantSummary(user('ACCOUNTANT'))
-    const { sql: text } = compileWhere(getFields().validatedAmount)
-    expect(text).toMatch(/"validated_at"\s*>=/i)
-    expect(text).not.toMatch(/tx_date/i)
-  })
-})
