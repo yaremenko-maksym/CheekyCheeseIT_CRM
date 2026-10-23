@@ -1,6 +1,8 @@
 import {
   MEETING_RECORDER_INDEXED_IDENTIFIER_MAX_CHARS,
+  MEETING_RECORDER_LABEL_MAX_CHARS,
   MEETING_RECORDER_READY_EVENT_TYPE,
+  MEETING_RECORDER_TITLE_MAX_CHARS,
   meetingRecorderSigningSecretSchema,
   meetingRecorderWebhookEventSchema,
   sanitizeMeetingRecorderRecording,
@@ -74,16 +76,16 @@ describe('meeting recorder backend V1 contract boundary', () => {
     expect(stored.artifacts?.[0]).not.toHaveProperty('viewUrl')
   })
 
-  it('rejects an unknown field at nested V1 object levels', () => {
-    const invalid = snapshotEvent({
+  // CR-865-M-7: a field the extension adds later is dropped, not a permanent 422.
+  it('drops an unknown field at nested V1 object levels instead of rejecting the event', () => {
+    const extended = snapshotEvent({
       ...BASE_RECORDING,
       source: { ...BASE_RECORDING.source, receiverOnlyField: true },
     })
 
-    const result = meetingRecorderWebhookEventSchema.safeParse(invalid)
-    expect(result.success).toBe(false)
-    if (result.success) throw new Error('expected strict V1 schema rejection')
-    expect(result.error.issues.some((issue) => issue.code === 'unrecognized_keys')).toBe(true)
+    const result = meetingRecorderWebhookEventSchema.safeParse(extended)
+    expect(result.success).toBe(true)
+    expect(JSON.stringify(result.data)).not.toContain('receiverOnlyField')
   })
 
   it('rejects unsupported event types rather than prefix-matching them', () => {
@@ -117,21 +119,44 @@ describe('meeting recorder backend V1 contract boundary', () => {
     }
   })
 
-  it('keeps non-indexed sender strings bounded only by the transport envelope', () => {
-    const longValue = 'x'.repeat(128 * 1024)
-    const event = snapshotEvent({
-      ...BASE_RECORDING,
-      title: longValue,
-      source: {
-        kind: 'meeting',
-        provider: longValue,
-        meetingId: 'abc-defg-hij',
-        meetingUrl: `https://example.test/${longValue}`,
+  // CR-865-M-7: displayed sender strings carry their own bound, not only the 2 MiB envelope.
+  // CR-M-1 (fix round 1): that bound TRUNCATES free text instead of refusing it — a refusal on
+  // provider-chosen text is a 422 the provider retries forever, the failure this task removed.
+  it.each([
+    ['title', { title: 'x'.repeat(MEETING_RECORDER_TITLE_MAX_CHARS + 1) }],
+    [
+      'provider',
+      {
+        source: {
+          ...BASE_RECORDING.source,
+          provider: 'x'.repeat(MEETING_RECORDER_LABEL_MAX_CHARS + 1),
+        },
       },
-    })
+    ],
+  ])('truncates an over-length displayed sender %s rather than refusing it', (_label, override) => {
+    const parsed = meetingRecorderWebhookEventSchema.safeParse(
+      snapshotEvent({ ...BASE_RECORDING, ...override }),
+    )
 
-    expect(meetingRecorderWebhookEventSchema.safeParse(event).success).toBe(true)
-    expect(Buffer.byteLength(JSON.stringify(event), 'utf8')).toBeLessThan(2 * 1024 * 1024)
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) return
+    expect(JSON.stringify(parsed.data)).toContain('…')
+  })
+
+  // The matching URL is NOT display text: a truncated URL would match the wrong interview (or
+  // nothing), so this one still refuses.
+  it('still refuses a meetingUrl above its bound, because the matcher compares it', () => {
+    expect(
+      meetingRecorderWebhookEventSchema.safeParse(
+        snapshotEvent({
+          ...BASE_RECORDING,
+          source: {
+            ...BASE_RECORDING.source,
+            meetingUrl: `https://example.test/${'x'.repeat(2_048)}`,
+          },
+        }),
+      ).success,
+    ).toBe(false)
   })
 
   it('rejects indexed identifiers above the published V1 bound', () => {

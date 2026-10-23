@@ -8,105 +8,178 @@ export const MEETING_RECORDER_READY_EVENT_TYPE =
 export const MEETING_RECORDER_UPDATED_EVENT_TYPE =
   `${MEETING_RECORDER_EVENT_NAMESPACE}.recording.updated.v1` as const
 export const MEETING_RECORDER_INDEXED_IDENTIFIER_MAX_CHARS = 512
+/**
+ * CR-865-M-7: limits on provider text the CRM displays (title, note, transcript, labels).
+ *
+ * These are TRUNCATION points, not rejection points (CR-M-1, fix round 1): the provider owns
+ * this text, so a cap that refuses would recreate the permanent-422 retry loop this task
+ * exists to remove. Identifiers and the matching URL keep rejecting — see `storable` below.
+ */
+export const MEETING_RECORDER_TITLE_MAX_CHARS = 1_000
+export const MEETING_RECORDER_NOTE_MAX_CHARS = 100_000
+export const MEETING_RECORDER_SEGMENT_TEXT_MAX_CHARS = 20_000
+export const MEETING_RECORDER_LABEL_MAX_CHARS = 256
+const MEETING_RECORDER_URL_MAX_CHARS = 2_048
+
+/*
+ * Provider payloads (everything the extension sends) use Zod's default unknown-key
+ * handling — strip — rather than `.strict()` (CR-865-M-7): the extension and the CRM ship
+ * independently, and one new optional field must not turn every event into a permanent
+ * 422. Unknown keys are dropped here, so they are never stored. The CRM's own DTOs further
+ * down stay `.strict()`.
+ */
+
+/*
+ * SR-865-M-1: Postgres cannot store a NUL character (text: 22021, jsonb: 22P05) or an
+ * unpaired UTF-16 surrogate (jsonb). Such a value used to pass this schema and then fail in
+ * the database on every provider retry. Every provider string is refused here instead.
+ */
+const UNSTORABLE_TEXT =
+  /\u0000|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
+
+function storable<T extends z.ZodString>(schema: T): T {
+  return schema.refine(
+    (value) => !UNSTORABLE_TEXT.test(value),
+    'Text contains a character that cannot be stored',
+  ) as T
+}
+
+/**
+ * A provider-owned free-text field: refuse what Postgres cannot store at all, then TRUNCATE to
+ * the limit rather than refuse (CR-M-1). The mark keeps the result self-describing and the
+ * output is never longer than `maxChars`, so re-parsing an already-truncated value is a no-op
+ * — which matters because the stored-snapshot schema re-parses on read.
+ */
+const TRUNCATION_MARK = '…'
+
+export function truncateProviderText(value: string, maxChars: number): string {
+  if (value.length <= maxChars) return value
+  let cut = maxChars - TRUNCATION_MARK.length
+  // Slicing at a code-unit index can split a surrogate PAIR and emit a lone surrogate — which
+  // is exactly what `storable` refuses, and would fail in Postgres after validation had already
+  // passed (the permanent-retry defect, reintroduced by its own fix). Step back one unit when
+  // the boundary lands on a high surrogate, so the pair is dropped whole.
+  const boundary = value.charCodeAt(cut - 1)
+  if (boundary >= 0xd800 && boundary <= 0xdbff) cut -= 1
+  return `${value.slice(0, cut)}${TRUNCATION_MARK}`
+}
+
+function providerText(maxChars: number) {
+  return (
+    storable(z.string())
+      .transform((value) => truncateProviderText(value, maxChars))
+      // Re-validate what the transform BUILT: the value is constructed here, so the
+      // storable/length guarantee has to hold on the output, not only on the input.
+      .pipe(storable(z.string().max(maxChars)))
+  )
+}
 
 const isoDateTimeSchema = z.string().datetime({ offset: true })
 const httpsUrlSchema = z
   .string()
   .url()
   .refine((value) => /^https:\/\//i.test(value), 'URL must use HTTPS')
+const providerHttpsUrlSchema = storable(httpsUrlSchema.max(MEETING_RECORDER_URL_MAX_CHARS))
 
 const meetingRecorderSourceSchema = z.string().startsWith('urn:meeting-recorder:destination:')
+const providerSourceSchema = storable(
+  meetingRecorderSourceSchema.max(MEETING_RECORDER_INDEXED_IDENTIFIER_MAX_CHARS),
+)
 
-const recordingSourceSchema = z
-  .object({
-    kind: z.enum(['meeting', 'tab']),
-    provider: z.string().optional(),
-    meetingId: z.string().max(MEETING_RECORDER_INDEXED_IDENTIFIER_MAX_CHARS).optional(),
-    meetingUrl: httpsUrlSchema.optional(),
-  })
-  .strict()
+const recordingSourceSchema = z.object({
+  kind: z.enum(['meeting', 'tab']),
+  provider: providerText(MEETING_RECORDER_LABEL_MAX_CHARS).optional(),
+  // An identifier the matcher compares, not display text: truncating it would silently match
+  // the wrong interview, so this one REJECTS above the bound (CR-M-1).
+  meetingId: storable(z.string().max(MEETING_RECORDER_INDEXED_IDENTIFIER_MAX_CHARS)).optional(),
+  meetingUrl: providerHttpsUrlSchema.optional(),
+})
 
-const notationSchema = z
-  .object({
-    tStartMs: z.number().min(0),
-    tEndMs: z.number().min(0).optional(),
-    text: z.string(),
-  })
-  .strict()
+const notationSchema = z.object({
+  tStartMs: z.number().min(0),
+  tEndMs: z.number().min(0).optional(),
+  text: providerText(MEETING_RECORDER_SEGMENT_TEXT_MAX_CHARS),
+})
 
-const transcriptSegmentSchema = z
-  .object({
-    tStartMs: z.number().min(0),
-    tEndMs: z.number().min(0),
-    speaker: z.string().optional(),
-    text: z.string(),
-  })
-  .strict()
+const transcriptSegmentSchema = z.object({
+  tStartMs: z.number().min(0),
+  tEndMs: z.number().min(0),
+  speaker: providerText(MEETING_RECORDER_LABEL_MAX_CHARS).optional(),
+  text: providerText(MEETING_RECORDER_SEGMENT_TEXT_MAX_CHARS),
+})
 
-const transcriptSchema = z
-  .object({
-    source: z.enum(['meet-captions', 'stt']),
-    segments: z.array(transcriptSegmentSchema),
-  })
-  .strict()
+const transcriptSchema = z.object({
+  source: z.enum(['meet-captions', 'stt']),
+  segments: z.array(transcriptSegmentSchema),
+})
 
-const analysisSpanSchema = z
-  .object({
-    tStartMs: z.number().min(0),
-    tEndMs: z.number().min(0),
-  })
-  .strict()
+const analysisSpanSchema = z.object({
+  tStartMs: z.number().min(0),
+  tEndMs: z.number().min(0),
+})
 
-const analysisTopicSchema = z
-  .object({
-    keywords: z.array(z.string()),
-    importance: z.number(),
-    spans: z.array(analysisSpanSchema),
-  })
-  .strict()
+const analysisTopicSchema = z.object({
+  keywords: z.array(providerText(MEETING_RECORDER_LABEL_MAX_CHARS)),
+  importance: z.number(),
+  spans: z.array(analysisSpanSchema),
+})
 
-const analysisSchema = z
-  .object({
-    status: z.enum(['analyzing', 'completed', 'failed', 'canceled', 'unsupported']),
-    error: z.string().optional(),
-    topics: z.array(analysisTopicSchema).optional(),
-  })
-  .strict()
+const analysisSchema = z.object({
+  status: z.enum(['analyzing', 'completed', 'failed', 'canceled', 'unsupported']),
+  error: providerText(MEETING_RECORDER_TITLE_MAX_CHARS).optional(),
+  topics: z.array(analysisTopicSchema).optional(),
+})
 
 export const meetingRecorderArtifactInputSchema = z
   // Stryker disable next-line ObjectLiteral: this Zod shape is constructed once at module import, so the Vitest per-test mutator reports this construction-time mutant with coveredBy=[] and cannot activate it inside a test. The schema-boundary tests directly require valid artifact fields/vocabulary and reject malformed artifacts; replacing the shape with {} would therefore be a module-load/static-mutant tool blind spot, not equivalent behavior.
   .object({
     type: z.enum(['tab-recording', 'microphone-recording', 'self-video', 'notes', 'transcript']),
-    mimeType: z.string(),
+    mimeType: providerText(MEETING_RECORDER_LABEL_MAX_CHARS),
     bytes: z.number().min(0).optional(),
     delivery: z.enum(['pending', 'downloaded', 'uploaded', 'local-fallback', 'failed']),
     viewUrl: z.string().url().optional(),
   })
-  .strict()
 
-export const meetingRecorderArtifactStoredSchema = meetingRecorderArtifactInputSchema.omit({
-  viewUrl: true,
-})
-
-export const meetingRecorderRecordingInputSchema = z
-  .object({
-    id: z.string().min(1).max(MEETING_RECORDER_INDEXED_IDENTIFIER_MAX_CHARS),
-    title: z.string(),
-    startedAt: isoDateTimeSchema,
-    endedAt: isoDateTimeSchema.optional(),
-    durationMs: z.number().min(0).optional(),
-    source: recordingSourceSchema,
-    note: z.string().optional(),
-    notations: z.array(notationSchema).optional(),
-    transcript: transcriptSchema.optional(),
-    analysis: analysisSchema.optional(),
-    artifacts: z.array(meetingRecorderArtifactInputSchema).optional(),
+/** What the CRM stores and returns: strict, so a `viewUrl` can never be persisted or served. */
+export const meetingRecorderArtifactStoredSchema = meetingRecorderArtifactInputSchema
+  .omit({
+    viewUrl: true,
   })
   .strict()
 
-export const meetingRecorderRecordingStoredSchema = meetingRecorderRecordingInputSchema.extend({
-  artifacts: z.array(meetingRecorderArtifactStoredSchema).optional(),
+export const meetingRecorderRecordingInputSchema = z.object({
+  id: storable(z.string().min(1).max(MEETING_RECORDER_INDEXED_IDENTIFIER_MAX_CHARS)),
+  title: providerText(MEETING_RECORDER_TITLE_MAX_CHARS),
+  startedAt: isoDateTimeSchema,
+  endedAt: isoDateTimeSchema.optional(),
+  durationMs: z.number().min(0).optional(),
+  source: recordingSourceSchema,
+  note: providerText(MEETING_RECORDER_NOTE_MAX_CHARS).optional(),
+  notations: z.array(notationSchema).optional(),
+  transcript: transcriptSchema.optional(),
+  analysis: analysisSchema.optional(),
+  artifacts: z.array(meetingRecorderArtifactInputSchema).optional(),
 })
+
+/**
+ * What the CRM stores and serves. Differs from the inbound schema in exactly two ways:
+ *
+ * - `artifacts` lose `viewUrl` (it must never be persisted or served), and the shape is
+ *   `.strict()`, so an unknown key can reach neither the database nor a client; and
+ * - `meetingUrl` carries NO length refusal (SPEC-L-3). Inbound it is capped and REFUSED above
+ *   the cap — it is a matching key, so truncating it would match the wrong interview — but a row
+ *   written before that cap existed must still read back. A rejecting cap on already-persisted
+ *   data is the defect SPEC-L-2 is about, and this is the one field that cannot truncate its way
+ *   out of it, so the read side stays lenient instead.
+ */
+export const meetingRecorderRecordingStoredSchema = meetingRecorderRecordingInputSchema
+  .extend({
+    artifacts: z.array(meetingRecorderArtifactStoredSchema).optional(),
+    source: recordingSourceSchema.extend({
+      meetingUrl: storable(httpsUrlSchema).optional(),
+    }),
+  })
+  .strict()
 
 export type MeetingRecorderRecordingInput = z.infer<typeof meetingRecorderRecordingInputSchema>
 export type MeetingRecorderRecordingStored = z.infer<typeof meetingRecorderRecordingStoredSchema>
@@ -121,26 +194,31 @@ export function sanitizeMeetingRecorderRecording(
   return meetingRecorderRecordingStoredSchema.parse(sanitized)
 }
 
-export const meetingRecorderReadinessSchema = z
-  .object({
-    complete: z.boolean(),
-    release: z.enum(['complete', 'timeout', 'manual']),
-    pending: z.array(z.enum(['transcript', 'analysis', 'artifact-delivery'])),
-  })
-  .strict()
+const readinessShape = {
+  complete: z.boolean(),
+  release: z.enum(['complete', 'timeout', 'manual']),
+  pending: z.array(z.enum(['transcript', 'analysis', 'artifact-delivery'])),
+}
 
-export const meetingRecorderSnapshotDataSchema = z
-  .object({
-    revision: z.number().int().positive(),
-    readiness: meetingRecorderReadinessSchema,
-    recording: meetingRecorderRecordingInputSchema,
-  })
-  .strict()
+/**
+ * SPEC-L-1 (fix round 1): readiness travels in BOTH directions, and the two directions want
+ * opposite things. Inbound it is provider-controlled, so an unknown key is stripped rather than
+ * refused; served it is a CRM DTO, so it stays `.strict()` like every other one.
+ */
+export const meetingRecorderInboundReadinessSchema = z.object(readinessShape)
+
+export const meetingRecorderReadinessSchema = z.object(readinessShape).strict()
+
+export const meetingRecorderSnapshotDataSchema = z.object({
+  revision: z.number().int().positive(),
+  readiness: meetingRecorderInboundReadinessSchema,
+  recording: meetingRecorderRecordingInputSchema,
+})
 
 const commonCloudEventShape = {
   specversion: z.literal('1.0'),
-  id: z.string().min(1).max(MEETING_RECORDER_INDEXED_IDENTIFIER_MAX_CHARS),
-  source: meetingRecorderSourceSchema,
+  id: storable(z.string().min(1).max(MEETING_RECORDER_INDEXED_IDENTIFIER_MAX_CHARS)),
+  source: providerSourceSchema,
   time: isoDateTimeSchema,
   datacontenttype: z.literal('application/json'),
 }
@@ -152,7 +230,6 @@ export const meetingRecorderReadyEventSchema = z
     subject: z.string(),
     data: meetingRecorderSnapshotDataSchema,
   })
-  .strict()
   .superRefine((event, ctx) => {
     if (event.subject !== `recording/${event.data.recording.id}`) {
       ctx.addIssue({
@@ -170,7 +247,6 @@ export const meetingRecorderUpdatedEventSchema = z
     subject: z.string(),
     data: meetingRecorderSnapshotDataSchema,
   })
-  .strict()
   .superRefine((event, ctx) => {
     if (event.subject !== `recording/${event.data.recording.id}`) {
       ctx.addIssue({
@@ -181,14 +257,12 @@ export const meetingRecorderUpdatedEventSchema = z
     }
   })
 
-export const meetingRecorderIntegrationTestEventSchema = z
-  .object({
-    ...commonCloudEventShape,
-    type: z.literal(MEETING_RECORDER_TEST_EVENT_TYPE),
-    subject: z.literal('integration/test'),
-    data: z.object({ test: z.literal(true) }).strict(),
-  })
-  .strict()
+export const meetingRecorderIntegrationTestEventSchema = z.object({
+  ...commonCloudEventShape,
+  type: z.literal(MEETING_RECORDER_TEST_EVENT_TYPE),
+  subject: z.literal('integration/test'),
+  data: z.object({ test: z.literal(true) }),
+})
 
 export const meetingRecorderWebhookEventSchema = z.union([
   meetingRecorderReadyEventSchema,

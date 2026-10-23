@@ -104,10 +104,9 @@ export function isDeadlock(err: unknown): boolean {
  * `err.stack` therefore (1) never writes the SQLSTATE, so an alert on `42501` is
  * silent exactly where it is needed, and (2) writes the parameter values, which can
  * be personal data. This is where the swallowing handlers' logging reads the chain and
- * decides what may be written down. It is NOT the only place a drizzle error's message and
- * stack are persisted: `TelemetryExceptionFilter` stores `exception.message` and
- * `exception.stack` of any 5xx, and for a drizzle error both carry the bound parameters.
- * That path does not use this module yet (tracked separately).
+ * decides what may be written down. The request path uses it too: `TelemetryExceptionFilter`
+ * replaces a database error with this fragment and `safeErrorStack`'s frames before the
+ * telemetry row or Nest's own error log line is written (SR-865-M-1).
  *
  * THE ALERT'S CONTRACT IS NOT THIS FRAGMENT. For a privilege error (42501) the contract is
  * the canonical `db_privilege_denied …` line emitted once at the pool by

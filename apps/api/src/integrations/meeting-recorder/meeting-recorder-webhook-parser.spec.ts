@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   isMeetingRecorderCloudEventsContentType,
   MEETING_RECORDER_WEBHOOK_BODY_LIMIT_BYTES,
+  MEETING_RECORDER_WEBHOOK_ROUTE,
   registerMeetingRecorderContentTypeParser,
 } from './meeting-recorder-webhook-parser'
 
@@ -25,13 +26,54 @@ describe('meeting recorder raw-body content-type parser', () => {
   async function buildApp(): Promise<FastifyInstance> {
     app = Fastify()
     registerMeetingRecorderContentTypeParser(asNestFastifyApplication(app))
-    app.post('/probe', async (request) => ({
+    app.post(MEETING_RECORDER_WEBHOOK_ROUTE, async (request) => ({
       body: request.body,
       utf8Bytes: Buffer.byteLength(request.body as string, 'utf8'),
     }))
+    app.post('/api/other/:id', async (request) => ({ body: request.body }))
     await app.ready()
     return app
   }
+
+  const WEBHOOK_URL =
+    '/api/integrations/meeting-recorder/11111111-1111-4111-8111-111111111111/webhook'
+
+  it('pins the webhook route template the parser is scoped to', () => {
+    expect(MEETING_RECORDER_WEBHOOK_ROUTE).toBe(
+      '/api/integrations/meeting-recorder/:connectionId/webhook',
+    )
+  })
+
+  // SR-865-L-5: the parser (and its 2 MiB limit) used to apply to every route on the root
+  // instance. Every other route now answers this content type exactly as Fastify does
+  // without the parser — 415 — before reading the body.
+  it('answers the CloudEvents content type on any other route with Fastify’s own 415', async () => {
+    const server = await buildApp()
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/api/other/1',
+      headers: { 'content-type': 'application/cloudevents+json' },
+      payload: 'x'.repeat(1024 * 1024 + 1),
+    })
+
+    expect(response.statusCode).toBe(415)
+    expect(response.json()).toMatchObject({ code: 'FST_ERR_CTP_INVALID_MEDIA_TYPE' })
+  })
+
+  it('leaves other content types on other routes to Fastify’s defaults', async () => {
+    const server = await buildApp()
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/api/other/1',
+      headers: { 'content-type': 'application/json' },
+      payload: '{"a":1}',
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toEqual({ body: { a: 1 } })
+  })
 
   it('pins the sender-compatible inclusive 2 MiB UTF-8 byte limit', () => {
     expect(MEETING_RECORDER_WEBHOOK_BODY_LIMIT_BYTES).toBe(2 * 1024 * 1024)
@@ -62,7 +104,7 @@ describe('meeting recorder raw-body content-type parser', () => {
 
     const response = await server.inject({
       method: 'POST',
-      url: '/probe',
+      url: WEBHOOK_URL,
       headers: { 'content-type': 'application/cloudevents+json' },
       payload: body,
     })
@@ -80,7 +122,7 @@ describe('meeting recorder raw-body content-type parser', () => {
 
     const response = await server.inject({
       method: 'POST',
-      url: '/probe',
+      url: WEBHOOK_URL,
       headers: { 'content-type': 'application/cloudevents+json' },
       payload: body,
     })
@@ -98,7 +140,7 @@ describe('meeting recorder raw-body content-type parser', () => {
 
     const response = await server.inject({
       method: 'POST',
-      url: '/probe',
+      url: WEBHOOK_URL,
       headers: { 'content-type': 'application/cloudevents+json; charset=utf-8' },
       payload: body,
     })
@@ -116,7 +158,7 @@ describe('meeting recorder raw-body content-type parser', () => {
 
     const response = await server.inject({
       method: 'POST',
-      url: '/probe',
+      url: WEBHOOK_URL,
       headers: { 'content-type': 'Application/CloudEvents+Json ; charset=utf-8' },
       payload: body,
     })
@@ -130,7 +172,7 @@ describe('meeting recorder raw-body content-type parser', () => {
 
     const response = await server.inject({
       method: 'POST',
-      url: '/probe',
+      url: WEBHOOK_URL,
       headers: { 'content-type': 'application/octet-stream' },
       payload: 'raw bytes',
     })

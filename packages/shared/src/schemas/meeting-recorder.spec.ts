@@ -4,14 +4,20 @@ import {
   createMeetingRecorderConnectionSchema,
   linkMeetingRecorderRecordingSchema,
   MEETING_RECORDER_INDEXED_IDENTIFIER_MAX_CHARS,
+  MEETING_RECORDER_LABEL_MAX_CHARS,
+  MEETING_RECORDER_NOTE_MAX_CHARS,
+  MEETING_RECORDER_SEGMENT_TEXT_MAX_CHARS,
+  MEETING_RECORDER_TITLE_MAX_CHARS,
   meetingRecorderArtifactInputSchema,
   meetingRecorderArtifactStoredSchema,
   meetingRecorderConnectionSchema,
+  meetingRecorderInboundReadinessSchema,
   meetingRecorderIntegrationTestEventSchema,
   meetingRecorderReadyEventSchema,
   meetingRecorderReadinessSchema,
   meetingRecorderRecordingDetailSchema,
   meetingRecorderRecordingInputSchema,
+  meetingRecorderRecordingStoredSchema,
   meetingRecorderRecordingSummarySchema,
   meetingRecorderSigningSecretSchema,
   meetingRecorderSnapshotDataSchema,
@@ -22,6 +28,9 @@ import {
   meetingRecorderWebhookEventSchema,
   sanitizeMeetingRecorderRecording,
 } from './meeting-recorder'
+
+/** An unpaired UTF-16 surrogate — what Postgres refuses in jsonb. */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
 
 const BASE_RECORDING = {
   id: 'recording_123',
@@ -76,56 +85,357 @@ describe('meeting recorder webhook contract', () => {
     expect(parsed.type).toBe('io.github.kstroevsky.meeting-recorder.recording.ready.v1')
   })
 
-  it('rejects unknown keys recursively', () => {
-    expect(() =>
-      meetingRecorderWebhookEventSchema.parse({
-        ...snapshotEvent(),
-        unexpected: true,
+  // CR-865-M-7: the extension and the CRM ship independently. A new optional field from
+  // the provider must not turn every event into a permanent 422, so provider payloads
+  // drop unknown keys instead of rejecting them. CRM-owned DTOs stay strict (below).
+  it('strips unknown provider keys recursively instead of rejecting the event', () => {
+    const parsed = meetingRecorderWebhookEventSchema.parse({
+      ...snapshotEvent({
+        ...BASE_RECORDING,
+        futureField: 'x',
+        source: { ...BASE_RECORDING.source, unexpected: true },
+        artifacts: [
+          {
+            type: 'notes',
+            mimeType: 'text/plain',
+            delivery: 'downloaded',
+            unexpected: true,
+          },
+        ],
       }),
-    ).toThrow()
+      traceparent: '00-abc-def-01',
+    })
 
-    expect(() =>
-      meetingRecorderWebhookEventSchema.parse(
-        snapshotEvent({
-          ...BASE_RECORDING,
-          source: { ...BASE_RECORDING.source, unexpected: true },
-        }),
-      ),
-    ).toThrow()
-
-    expect(() =>
-      meetingRecorderWebhookEventSchema.parse(
-        snapshotEvent({
-          ...BASE_RECORDING,
-          artifacts: [
-            {
-              type: 'notes',
-              mimeType: 'text/plain',
-              delivery: 'downloaded',
-              unexpected: true,
-            },
-          ],
-        }),
-      ),
-    ).toThrow()
+    expect(parsed).not.toHaveProperty('traceparent')
+    if (parsed.type === 'io.github.kstroevsky.meeting-recorder.integration.test.v1') {
+      throw new Error('expected a snapshot event')
+    }
+    expect(parsed.data.recording).not.toHaveProperty('futureField')
+    expect(parsed.data.recording.source).toEqual(BASE_RECORDING.source)
+    expect(parsed.data.recording.artifacts).toEqual([
+      { type: 'notes', mimeType: 'text/plain', delivery: 'downloaded' },
+    ])
   })
 
-  it('keeps free-form sender fields envelope-bounded rather than schema-bounded', () => {
-    const longValue = 'x'.repeat(10_000)
-    expect(() =>
-      meetingRecorderWebhookEventSchema.parse(
+  it.each([
+    ['title', MEETING_RECORDER_TITLE_MAX_CHARS, (v: string) => ({ ...BASE_RECORDING, title: v })],
+    ['note', MEETING_RECORDER_NOTE_MAX_CHARS, (v: string) => ({ ...BASE_RECORDING, note: v })],
+    [
+      'transcript text',
+      MEETING_RECORDER_SEGMENT_TEXT_MAX_CHARS,
+      (v: string) => ({
+        ...BASE_RECORDING,
+        transcript: { source: 'stt', segments: [{ tStartMs: 0, tEndMs: 1, text: v }] },
+      }),
+    ],
+    [
+      'transcript speaker',
+      MEETING_RECORDER_LABEL_MAX_CHARS,
+      (v: string) => ({
+        ...BASE_RECORDING,
+        transcript: {
+          source: 'stt',
+          segments: [{ tStartMs: 0, tEndMs: 1, speaker: v, text: 'x' }],
+        },
+      }),
+    ],
+    [
+      'notation text',
+      MEETING_RECORDER_SEGMENT_TEXT_MAX_CHARS,
+      (v: string) => ({ ...BASE_RECORDING, notations: [{ tStartMs: 0, text: v }] }),
+    ],
+    [
+      'provider',
+      MEETING_RECORDER_LABEL_MAX_CHARS,
+      (v: string) => ({ ...BASE_RECORDING, source: { kind: 'meeting', provider: v } }),
+    ],
+    [
+      'topic keyword',
+      MEETING_RECORDER_LABEL_MAX_CHARS,
+      (v: string) => ({
+        ...BASE_RECORDING,
+        analysis: { status: 'completed', topics: [{ keywords: [v], importance: 1, spans: [] }] },
+      }),
+    ],
+  ])(
+    'bounds the displayed %s at its limit by truncating, never by refusing',
+    (_label, max, build) => {
+      // At the limit: accepted verbatim.
+      expect(meetingRecorderRecordingInputSchema.safeParse(build('x'.repeat(max))).success).toBe(
+        true,
+      )
+      // Over the limit: accepted and truncated TO the limit (CR-M-1 — never a 422 the provider
+      // would retry forever). Asserted on the serialized payload, so one case covers every
+      // field in the table without a per-field reader.
+      const overLimit = meetingRecorderRecordingInputSchema.safeParse(build('x'.repeat(max + 1)))
+      expect(overLimit.success).toBe(true)
+      if (!overLimit.success) return
+      expect(JSON.stringify(overLimit.data)).toContain('…')
+      expect(JSON.stringify(overLimit.data)).not.toContain('x'.repeat(max + 1))
+    },
+  )
+
+  /**
+   * CR-M-1 (fix round 1, review 5631787486): a cap that REJECTS on a provider-controlled
+   * free-text field recreates the very failure this task removed — a payload the provider
+   * keeps retrying and the CRM keeps 422-ing. Free text is truncated instead; only
+   * identifiers and the matching URL still reject, because truncating those changes identity.
+   */
+  it.each([
+    [
+      'analysis error',
+      (v: string) => ({ ...BASE_RECORDING, analysis: { status: 'failed', error: v } }),
+      MEETING_RECORDER_TITLE_MAX_CHARS,
+      (r: MeetingRecorderRecordingInput) => r.analysis?.error,
+    ],
+    [
+      'title',
+      (v: string) => ({ ...BASE_RECORDING, title: v }),
+      MEETING_RECORDER_TITLE_MAX_CHARS,
+      (r: MeetingRecorderRecordingInput) => r.title,
+    ],
+    [
+      'note',
+      (v: string) => ({ ...BASE_RECORDING, note: v }),
+      MEETING_RECORDER_NOTE_MAX_CHARS,
+      (r: MeetingRecorderRecordingInput) => r.note,
+    ],
+    [
+      'transcript text',
+      (v: string) => ({
+        ...BASE_RECORDING,
+        transcript: { source: 'stt', segments: [{ tStartMs: 0, tEndMs: 1, text: v }] },
+      }),
+      MEETING_RECORDER_SEGMENT_TEXT_MAX_CHARS,
+      (r: MeetingRecorderRecordingInput) => r.transcript?.segments[0]?.text,
+    ],
+    [
+      'speaker',
+      (v: string) => ({
+        ...BASE_RECORDING,
+        transcript: {
+          source: 'stt',
+          segments: [{ tStartMs: 0, tEndMs: 1, speaker: v, text: 'x' }],
+        },
+      }),
+      MEETING_RECORDER_LABEL_MAX_CHARS,
+      (r: MeetingRecorderRecordingInput) => r.transcript?.segments[0]?.speaker,
+    ],
+    [
+      'notation text',
+      (v: string) => ({ ...BASE_RECORDING, notations: [{ tStartMs: 0, text: v }] }),
+      MEETING_RECORDER_SEGMENT_TEXT_MAX_CHARS,
+      (r: MeetingRecorderRecordingInput) => r.notations?.[0]?.text,
+    ],
+  ])('truncates an over-length provider %s instead of rejecting it', (_label, build, max, read) => {
+    const parsed = meetingRecorderRecordingInputSchema.safeParse(build('x'.repeat(max + 5_000)))
+
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) return
+    const value = read(parsed.data)
+    expect(value).toHaveLength(max)
+    expect(value?.endsWith('…')).toBe(true)
+  })
+
+  it('ingests an over-length analysis error through the whole event, with no 422', () => {
+    const parsed = meetingRecorderWebhookEventSchema.safeParse(
+      snapshotEvent({
+        ...BASE_RECORDING,
+        analysis: { status: 'failed', error: 'E'.repeat(50_000) },
+      }),
+    )
+
+    expect(parsed.success).toBe(true)
+  })
+
+  it('leaves text at or below the limit untouched, and truncation is idempotent', () => {
+    const exact = 'y'.repeat(MEETING_RECORDER_TITLE_MAX_CHARS)
+    const once = meetingRecorderRecordingInputSchema.parse({ ...BASE_RECORDING, title: exact })
+    expect(once.title).toBe(exact)
+
+    const truncated = meetingRecorderRecordingInputSchema.parse({
+      ...BASE_RECORDING,
+      title: 'z'.repeat(MEETING_RECORDER_TITLE_MAX_CHARS + 1),
+    }).title
+    const twice = meetingRecorderRecordingInputSchema.parse({
+      ...BASE_RECORDING,
+      title: truncated,
+    }).title
+    expect(twice).toBe(truncated)
+  })
+
+  it('still REJECTS an over-length identifier or matching URL — truncating those changes identity', () => {
+    const over = 'x'.repeat(MEETING_RECORDER_INDEXED_IDENTIFIER_MAX_CHARS + 1)
+    expect(
+      meetingRecorderRecordingInputSchema.safeParse({ ...BASE_RECORDING, id: over }).success,
+    ).toBe(false)
+    expect(
+      meetingRecorderRecordingInputSchema.safeParse({
+        ...BASE_RECORDING,
+        source: { ...BASE_RECORDING.source, meetingId: over },
+      }).success,
+    ).toBe(false)
+    expect(
+      meetingRecorderRecordingInputSchema.safeParse({
+        ...BASE_RECORDING,
+        source: {
+          ...BASE_RECORDING.source,
+          meetingUrl: `https://meet.google.com/${'u'.repeat(2_048)}`,
+        },
+      }).success,
+    ).toBe(false)
+  })
+
+  it('pins the displayed-field limits', () => {
+    expect(MEETING_RECORDER_TITLE_MAX_CHARS).toBe(1_000)
+    expect(MEETING_RECORDER_NOTE_MAX_CHARS).toBe(100_000)
+    expect(MEETING_RECORDER_SEGMENT_TEXT_MAX_CHARS).toBe(20_000)
+    expect(MEETING_RECORDER_LABEL_MAX_CHARS).toBe(256)
+  })
+
+  // SR-865-M-1: Postgres refuses a NUL character in text (22021) and in jsonb (22P05), and
+  // refuses an unpaired UTF-16 surrogate in jsonb. Such a value passed the schema, then
+  // failed in the database on every retry — and the failure carried the transcript into
+  // logs. It is refused here instead, as a 422 the provider does not retry.
+  it.each([
+    ['NUL', 'before\u0000after'],
+    ['lone high surrogate', 'before\ud800after'],
+    ['lone low surrogate', 'before\udc00after'],
+  ])('refuses a %s in every provider string field', (_label, bad) => {
+    const cases: Array<[string, unknown]> = [
+      ['event id', { ...snapshotEvent(), id: bad }],
+      ['source', { ...snapshotEvent(), source: `urn:meeting-recorder:destination:${bad}` }],
+      [
+        'recording id',
+        { ...snapshotEvent({ ...BASE_RECORDING, id: bad }), subject: `recording/${bad}` },
+      ],
+      ['title', snapshotEvent({ ...BASE_RECORDING, title: bad })],
+      ['note', snapshotEvent({ ...BASE_RECORDING, note: bad })],
+      ['provider', snapshotEvent({ ...BASE_RECORDING, source: { kind: 'tab', provider: bad } })],
+      ['meetingId', snapshotEvent({ ...BASE_RECORDING, source: { kind: 'tab', meetingId: bad } })],
+      [
+        'meetingUrl',
         snapshotEvent({
           ...BASE_RECORDING,
-          title: longValue,
-          source: {
-            kind: 'meeting',
-            provider: longValue,
-            meetingId: 'abc-defg-hij',
-            meetingUrl: `https://example.test/${longValue}`,
+          source: { kind: 'tab', meetingUrl: `https://meet.google.com/${bad}` },
+        }),
+      ],
+      ['notation', snapshotEvent({ ...BASE_RECORDING, notations: [{ tStartMs: 0, text: bad }] })],
+      [
+        'segment text',
+        snapshotEvent({
+          ...BASE_RECORDING,
+          transcript: { source: 'stt', segments: [{ tStartMs: 0, tEndMs: 1, text: bad }] },
+        }),
+      ],
+      [
+        'segment speaker',
+        snapshotEvent({
+          ...BASE_RECORDING,
+          transcript: {
+            source: 'stt',
+            segments: [{ tStartMs: 0, tEndMs: 1, speaker: bad, text: 'x' }],
           },
         }),
-      ),
-    ).not.toThrow()
+      ],
+      [
+        'analysis error',
+        snapshotEvent({ ...BASE_RECORDING, analysis: { status: 'failed', error: bad } }),
+      ],
+      [
+        'keyword',
+        snapshotEvent({
+          ...BASE_RECORDING,
+          analysis: {
+            status: 'completed',
+            topics: [{ keywords: [bad], importance: 1, spans: [] }],
+          },
+        }),
+      ],
+      [
+        'artifact mimeType',
+        snapshotEvent({
+          ...BASE_RECORDING,
+          artifacts: [{ type: 'notes', mimeType: bad, delivery: 'uploaded' }],
+        }),
+      ],
+    ]
+    for (const [field, event] of cases) {
+      expect(meetingRecorderWebhookEventSchema.safeParse(event).success, field).toBe(false)
+    }
+  })
+
+  /**
+   * SPEC-L-2 (fix round 1): the new limits also apply when a snapshot stored BEFORE them is read
+   * back, and prod cannot be queried to prove no such row exists. So the read path is made
+   * resilient rather than audited: an over-length stored value truncates on read like any other,
+   * and the recording still serves — it must never become a 500 on a detail page.
+   */
+  it('reads back a stored snapshot that exceeds the limits, instead of failing', () => {
+    const oversized = {
+      ...BASE_RECORDING,
+      title: 'T'.repeat(MEETING_RECORDER_TITLE_MAX_CHARS + 5_000),
+      note: 'N'.repeat(MEETING_RECORDER_NOTE_MAX_CHARS + 5_000),
+      transcript: {
+        source: 'stt',
+        segments: [
+          {
+            tStartMs: 0,
+            tEndMs: 1,
+            text: 'S'.repeat(MEETING_RECORDER_SEGMENT_TEXT_MAX_CHARS + 99),
+          },
+        ],
+      },
+    }
+
+    const stored = meetingRecorderRecordingStoredSchema.safeParse(oversized)
+    expect(stored.success).toBe(true)
+    if (!stored.success) return
+    expect(stored.data.title).toHaveLength(MEETING_RECORDER_TITLE_MAX_CHARS)
+  })
+
+  /**
+   * SPEC-L-3 (delta review 5632606395): `meetingUrl` gained a NEW 2,048-char cap that REFUSES,
+   * and main had no cap on that field at all. It must keep refusing INBOUND — it is a matching
+   * key, so truncating it would match the wrong interview — but a row stored before this PR with
+   * a longer URL must still be READ BACK, or the detail page 500s on already-persisted data.
+   * Same principle as SPEC-L-2, applied to the one field that cannot truncate.
+   */
+  it('reads back a stored meetingUrl longer than the inbound cap, but still refuses it inbound', () => {
+    const longUrl = `https://meet.google.com/${'u'.repeat(3_000)}`
+
+    // Inbound: refused, because truncating a matching key changes identity.
+    expect(
+      meetingRecorderRecordingInputSchema.safeParse({
+        ...BASE_RECORDING,
+        source: { ...BASE_RECORDING.source, meetingUrl: longUrl },
+      }).success,
+    ).toBe(false)
+
+    // Stored/served: parses, verbatim — no refusal and no truncation of an identity value.
+    const stored = meetingRecorderRecordingStoredSchema.safeParse({
+      ...BASE_RECORDING,
+      source: { ...BASE_RECORDING.source, meetingUrl: longUrl },
+    })
+    expect(stored.success).toBe(true)
+    if (!stored.success) return
+    expect(stored.data.source.meetingUrl).toBe(longUrl)
+  })
+
+  it('keeps the stored snapshot strict: an unknown key can never be persisted or served', () => {
+    expect(
+      meetingRecorderRecordingStoredSchema.safeParse({ ...BASE_RECORDING, unexpected: true })
+        .success,
+    ).toBe(false)
+    expect(meetingRecorderRecordingStoredSchema.safeParse(BASE_RECORDING).success).toBe(true)
+  })
+
+  it('accepts a correctly paired surrogate (an emoji) in transcript text', () => {
+    const parsed = meetingRecorderRecordingInputSchema.safeParse({
+      ...BASE_RECORDING,
+      title: 'Interview \u{1F600}',
+    })
+    expect(parsed.success).toBe(true)
   })
 
   it('bounds identifiers that are persisted in PostgreSQL B-tree indexes', () => {
@@ -190,12 +500,12 @@ describe('meeting recorder webhook contract', () => {
     }
     expect(() => meetingRecorderIntegrationTestEventSchema.parse(event)).not.toThrow()
     expect(() => meetingRecorderWebhookEventSchema.parse(event)).not.toThrow()
-    expect(() =>
+    expect(
       meetingRecorderWebhookEventSchema.parse({
         ...event,
         data: { test: true, unexpected: true },
-      }),
-    ).toThrow()
+      }).data,
+    ).toEqual({ test: true })
   })
 
   it('exports exact ready and updated V1 event schemas', () => {
@@ -428,6 +738,110 @@ describe('meeting recorder schema boundaries', () => {
     updatedAt: '2026-10-07T12:43:00.000Z',
   }
 
+  // SPEC-L-2, at the DTO level: the served detail of a row stored before the limits still parses.
+  it('serves the detail DTO of a stored snapshot that exceeds the limits', () => {
+    const detail = meetingRecorderRecordingDetailSchema.safeParse({
+      ...validSummary,
+      snapshot: {
+        ...BASE_RECORDING,
+        title: 'T'.repeat(MEETING_RECORDER_TITLE_MAX_CHARS + 5_000),
+      },
+    })
+
+    expect(detail.success).toBe(true)
+    if (!detail.success) return
+    expect(detail.data.snapshot.title).toHaveLength(MEETING_RECORDER_TITLE_MAX_CHARS)
+  })
+
+  // SPEC-L-3 at the DTO level: the field that cannot truncate must not refuse on read either.
+  it('serves the detail DTO of a stored snapshot whose meetingUrl exceeds the inbound cap', () => {
+    const longUrl = `https://meet.google.com/${'u'.repeat(3_000)}`
+    const detail = meetingRecorderRecordingDetailSchema.safeParse({
+      ...validSummary,
+      meetingUrl: longUrl,
+      snapshot: { ...BASE_RECORDING, source: { ...BASE_RECORDING.source, meetingUrl: longUrl } },
+    })
+
+    expect(detail.success).toBe(true)
+    if (!detail.success) return
+    expect(detail.data.snapshot.source.meetingUrl).toBe(longUrl)
+  })
+
+  it('keeps the served summary readiness strict, so no unknown key can be served', () => {
+    expect(
+      meetingRecorderRecordingSummarySchema.safeParse({
+        ...validSummary,
+        readiness: { ...validSummary.readiness, unexpected: true },
+      }).success,
+    ).toBe(false)
+  })
+
+  /**
+   * Found by review of the truncation fix itself: `truncateProviderText` slices at a code-unit
+   * index, so an astral character straddling the cut would emit a LONE SURROGATE — precisely
+   * what `storable` rejects, except the check had already run. Postgres would then refuse the
+   * write and the provider would retry forever: the original defect, reintroduced by its fix.
+   */
+  it.each([-1, 0, 1])(
+    'truncates storably when an astral character straddles the cut boundary (offset %i)',
+    (offset) => {
+      const max = MEETING_RECORDER_TITLE_MAX_CHARS
+      // '😀' is two code units; place it so the cut lands inside it, and on either side.
+      const cut = max - 1 + offset
+      const title = `${'a'.repeat(cut)}😀${'b'.repeat(max)}`
+
+      const parsed = meetingRecorderRecordingInputSchema.safeParse({ ...BASE_RECORDING, title })
+
+      expect(parsed.success).toBe(true)
+      if (!parsed.success) return
+      expect(parsed.data.title.length).toBeLessThanOrEqual(max)
+      // No unpaired surrogate survived the cut.
+      expect(LONE_SURROGATE.test(parsed.data.title)).toBe(false)
+    },
+  )
+
+  /**
+   * Mutation gate: the boundary guard `code >= 0xd800 && code <= 0xdbff` had NO test on its
+   * range EDGES, so `>= -> >`, `<= -> <` and `<= -> true` all survived. These three cases pin
+   * each edge: the exact low end (U+10000 starts with 0xD800), the exact high end (U+10FFFF
+   * starts with 0xDBFF), and a boundary that IS a surrogate but a LOW one — where the pair is
+   * already intact and the guard must NOT step back.
+   */
+  it.each([
+    // [label, astral char, offset of its FIRST unit from the cut boundary, survives whole?]
+    ['the exact low edge 0xD800 (U+10000)', '\u{10000}', 0, false],
+    ['the exact high edge 0xDBFF (U+10FFFF)', '\u{10FFFF}', 0, false],
+    // The pair sits fully inside the kept region, so it must survive whole — a guard that
+    // decremented on a LOW surrogate would needlessly split an intact pair.
+    ['a LOW surrogate boundary — a complete pair just inside the cut', '\u{10000}', -1, true],
+  ] as const)('keeps truncation storable at %s', (_label, astral, offset, survivesWhole) => {
+    const max = MEETING_RECORDER_TITLE_MAX_CHARS
+    // The kept region is [0, max - 2]; `offset` slides the pair across that last index.
+    const lead = 'a'.repeat(max - 2 + offset)
+    const title = `${lead}${astral}${'b'.repeat(max)}`
+
+    const parsed = meetingRecorderRecordingInputSchema.safeParse({ ...BASE_RECORDING, title })
+
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) return
+    // Both properties together are the point: storable AND within the cap.
+    expect(LONE_SURROGATE.test(parsed.data.title)).toBe(false)
+    expect(parsed.data.title.length).toBeLessThanOrEqual(max)
+    expect(parsed.data.title.endsWith('…')).toBe(true)
+    expect(parsed.data.title.includes(astral)).toBe(survivesWhole)
+  })
+
+  it('ingests a whole event whose title is cut mid-emoji', () => {
+    const max = MEETING_RECORDER_TITLE_MAX_CHARS
+    const parsed = meetingRecorderWebhookEventSchema.safeParse(
+      snapshotEvent({ ...BASE_RECORDING, title: `${'a'.repeat(max - 1)}😀 tail` }),
+    )
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) return
+    if (parsed.data.type === 'io.github.kstroevsky.meeting-recorder.integration.test.v1') return
+    expect(LONE_SURROGATE.test(parsed.data.data.recording.title)).toBe(false)
+  })
+
   it('preserves every supported optional recording field', () => {
     expect(meetingRecorderRecordingInputSchema.parse(richRecording)).toEqual(richRecording)
   })
@@ -579,8 +993,10 @@ describe('meeting recorder schema boundaries', () => {
         },
       },
     ],
-  ])('keeps the nested %s object strict', (_label, recording) => {
-    expect(meetingRecorderRecordingInputSchema.safeParse(recording).success).toBe(false)
+  ])('strips unknown keys from the nested %s object', (_label, recording) => {
+    const parsed = meetingRecorderRecordingInputSchema.safeParse(recording)
+    expect(parsed.success).toBe(true)
+    expect(JSON.stringify(parsed.data)).not.toContain('unexpected')
   })
 
   it('requires a positive integer revision and exact readiness vocabulary', () => {
@@ -610,6 +1026,17 @@ describe('meeting recorder schema boundaries', () => {
         pending: ['media'],
       }).success,
     ).toBe(false)
+    // SPEC-L-1 (fix round 1): the INBOUND readiness strips an unknown key (forward
+    // compatibility with the extension) ...
+    expect(
+      meetingRecorderInboundReadinessSchema.parse({
+        complete: false,
+        release: 'manual',
+        pending: [],
+        unexpected: true,
+      }),
+    ).toEqual({ complete: false, release: 'manual', pending: [] })
+    // ... while the SERVED readiness stays strict, like every other CRM-owned DTO.
     expect(
       meetingRecorderReadinessSchema.safeParse({
         complete: false,
@@ -644,7 +1071,6 @@ describe('meeting recorder schema boundaries', () => {
       { ...valid, datacontenttype: 'application/cloudevents+json' },
       { ...valid, type: 'io.github.kstroevsky.meeting-recorder.recording.deleted.v1' },
       { ...valid, subject: 'recording/' },
-      { ...valid, data: { ...valid.data, unexpected: true } },
     ]) {
       expect(meetingRecorderReadyEventSchema.safeParse(invalid).success).toBe(false)
     }

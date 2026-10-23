@@ -951,6 +951,10 @@ msgstr "Interview board"
 msgid "Нічого не знайдено — скиньте фільтри"
 msgstr "No matches — clear the filters"
 
+#: apps/web/app/routes/_authenticated/interviews/components/RecordingDuration.tsx
+msgid "{minutes} хв"
+msgstr "{minutes} min"
+
 #: apps/web/app/components/users/user-dialog/ContractDataSection.tsx
 msgid "Ця адреса підставляється в текст контракту"
 msgstr "This address is inserted into the contract text"
@@ -9143,14 +9147,6 @@ msgstr "default"
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 msgid "Це рядок виплати — сума підтверджена виконаним переказом, вона не редагується, виправляйте сторнувальною транзакцією"
 msgstr "This is a payout row — the amount is confirmed by an executed transfer and is not editable, fix it with a reversing transaction"
-
-#. placeholder {0}: Math.max(1, Math.round(detail.durationMs / 60_000))
-#. placeholder {0}: Math.max(1, Math.round(recording.durationMs / 60_000))
-#: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
-#: apps/web/app/routes/_authenticated/interviews/components/RecordingSummarySection.tsx
-#: apps/web/app/routes/_authenticated/interviews/unmatched.tsx
-msgid "{0} хв"
-msgstr "{0} min"
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Аналіз"

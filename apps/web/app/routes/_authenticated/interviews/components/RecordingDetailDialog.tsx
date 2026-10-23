@@ -25,6 +25,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { useInterviewRecording, useLinkInterviewRecording } from '@/lib/meeting-recorder-api'
 import { LinkRecordingDialog } from './LinkRecordingDialog'
+import { RecordingDuration } from './RecordingDuration'
 
 type RecordingDetailDialogProps = {
   recordingId: string | null
@@ -154,7 +155,7 @@ export function RecordingDetailDialog({
                   <time dateTime={detail.startedAt}>{startedAtLabel}</time>
                   {detail.durationMs !== null && (
                     <span className="tabular-nums">
-                      <Trans>{Math.max(1, Math.round(detail.durationMs / 60_000))} хв</Trans>
+                      <RecordingDuration durationMs={detail.durationMs} />
                     </span>
                   )}
                   {detail.provider && <span>{detail.provider}</span>}

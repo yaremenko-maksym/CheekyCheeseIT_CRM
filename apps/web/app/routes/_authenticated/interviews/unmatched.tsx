@@ -10,6 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import { useUnmatchedInterviewRecordings } from '@/lib/meeting-recorder-api'
 import { LinkRecordingDialog } from './components/LinkRecordingDialog'
+import { RecordingDuration } from './components/RecordingDuration'
 
 export const Route = createFileRoute('/_authenticated/interviews/unmatched')({
   component: UnmatchedInterviewRecordingsPage,
@@ -109,7 +110,7 @@ function UnmatchedInterviewRecordingsPage() {
                       <time dateTime={recording.startedAt}>{startedAt}</time>
                       {recording.durationMs !== null && (
                         <span className="tabular-nums">
-                          <Trans>{Math.max(1, Math.round(recording.durationMs / 60_000))} хв</Trans>
+                          <RecordingDuration durationMs={recording.durationMs} />
                         </span>
                       )}
                       {recording.provider && <span>{recording.provider}</span>}
