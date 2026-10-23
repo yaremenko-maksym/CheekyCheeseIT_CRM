@@ -1,5 +1,5 @@
 import { HttpException } from '@nestjs/common'
-import { describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
   MEETING_RECORDER_TEST_EVENT_TYPE,
   MEETING_RECORDER_UPDATED_EVENT_TYPE,
@@ -535,6 +535,19 @@ describe('MeetingRecorderService manual linking lock order', () => {
 })
 
 describe('MeetingRecorderService snapshot revision semantics', () => {
+  // Auto-match ships OFF (SR-M-1 / SPEC-M-1, see config/env.ts). The cases below
+  // describe what the matcher does when it runs, so switch it on for this block;
+  // the disabled default has its own cases in the matcher and receiver specs.
+  const AUTO_MATCH_KEY = 'MEETING_RECORDER_AUTO_MATCH_ENABLED'
+  const autoMatchOriginal = process.env[AUTO_MATCH_KEY]
+  beforeAll(() => {
+    process.env[AUTO_MATCH_KEY] = 'true'
+  })
+  afterAll(() => {
+    if (autoMatchOriginal === undefined) delete process.env[AUTO_MATCH_KEY]
+    else process.env[AUTO_MATCH_KEY] = autoMatchOriginal
+  })
+
   it('ignores an older revision before matching or writing recording state', async () => {
     const matcher = { findExactMatch: vi.fn() } as unknown as MeetingRecorderMatcher
     const service = new MeetingRecorderService(
@@ -651,7 +664,7 @@ describe('MeetingRecorderService snapshot revision semantics', () => {
     )
   })
 
-  it('retries exact matching for an unmatched recording that was not manually suppressed', async () => {
+  it('does not re-run matching for a later revision of an unmatched recording (SR-865-H-1)', async () => {
     const matcher = {
       findExactMatch: vi.fn().mockResolvedValue({
         interviewId: '22222222-2222-4222-8222-222222222222',
@@ -685,13 +698,13 @@ describe('MeetingRecorderService snapshot revision semantics', () => {
       ),
     ).resolves.toBeUndefined()
 
-    expect(matcher.findExactMatch).toHaveBeenCalledOnce()
+    expect(matcher.findExactMatch).not.toHaveBeenCalled()
     expect(ctx.insertValues).toHaveBeenCalledWith(
       expect.objectContaining({
         revision: 2,
-        interviewId: '22222222-2222-4222-8222-222222222222',
-        stageAtLink: 'TECH_INTERVIEW',
-        matchedBy: 'meeting-id',
+        interviewId: null,
+        stageAtLink: null,
+        matchedBy: 'unmatched',
         autoMatchSuppressed: false,
       }),
     )

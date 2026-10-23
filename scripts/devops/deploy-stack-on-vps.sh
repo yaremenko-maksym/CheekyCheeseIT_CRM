@@ -1877,6 +1877,32 @@ docker compose \
   < "$MEETING_RECORDER_INTEGRATION_FILE"
 echo "==> meeting recorder integration DDL applied successfully"
 
+# ── interviews: meeting-recorder auto-match key (retro review of PR #865) ──
+# MUST run after the meeting recorder integration DDL above (it widens the audit-log
+# CHECK and adds a column to the table that file creates) and BEFORE the API swap:
+# the new API reads interviews.call_meet_code / scheduled_at / match_key_changed_at.
+# Backward-compatible with the running API (new columns are generated or defaulted;
+# the CHECK only widens). Idempotent: columns/index are IF NOT EXISTS, the CHECK is
+# dropped and re-added every run so it converges on the file's definition.
+# Source: apps/api/drizzle/manual/2026-10-22_interviews_call_meet_code.sql
+INTERVIEWS_CALL_MEET_CODE_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-22_interviews_call_meet_code.sql"
+
+if [ ! -f "$INTERVIEWS_CALL_MEET_CODE_FILE" ]; then
+  echo "ERROR: DDL file not found at $INTERVIEWS_CALL_MEET_CODE_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying interviews auto-match key DDL (idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+  < "$INTERVIEWS_CALL_MEET_CODE_FILE"
+echo "==> interviews auto-match key DDL applied successfully"
+
 # ── salary creation intent DDL (PR #868) ──
 # Backward-compatible: adds nullable replay metadata and its immutability
 # trigger before the updated API starts using it. Idempotent (IF NOT EXISTS,

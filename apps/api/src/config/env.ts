@@ -126,6 +126,27 @@ const envSchema = z
     //   NODE_ENV === "production" — ThrottlerConfigService enforces this.
     //   Prod operators cannot accidentally weaken rate limits via this flag.
     //   Default = false (strict per-endpoint limits active everywhere).
+    // MEETING_RECORDER_AUTO_MATCH_ENABLED: master switch for linking an incoming
+    //   recording to an interview automatically. **Default false — deliberately
+    //   OFF in production today** (retro review of PR #865, SR-M-1 / SPEC-M-1).
+    //
+    //   Auto-match keys on `interviews.scheduled_at`, and no UI writes that field
+    //   yet, so nothing legitimate can match: every recording goes to the ADMIN
+    //   unmatched queue either way, i.e. flipping this off costs no behaviour.
+    //   What it DOES close is the interim hole: `updateInterviewSchema` already
+    //   accepts `scheduledAt`, so a SENIOR/HR calling `PATCH /interviews/:id`
+    //   directly could set code + time, and because no real interview carries a
+    //   time, the "exactly one candidate" (`LIMIT 2`) defence would never fire
+    //   against them.
+    //
+    //   TO TURN IT ON: ship the interview date-time field so real interviews carry
+    //   `scheduled_at` — only then does the ambiguity defence become effective —
+    //   then set this to "true". Read once per ingest in
+    //   `MeetingRecorderService.ingestSnapshot`.
+    MEETING_RECORDER_AUTO_MATCH_ENABLED: z
+      .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
+      .default(false),
+
     THROTTLER_TTL_MS: z.coerce.number().int().min(1_000).default(60_000),
     THROTTLER_LIMIT: z.coerce.number().int().min(1).default(100),
     THROTTLE_RELAXED: z

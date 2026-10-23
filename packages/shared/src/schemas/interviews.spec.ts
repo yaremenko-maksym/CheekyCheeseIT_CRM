@@ -17,6 +17,7 @@ import { describe, expect, it } from 'vitest'
 import {
   boardSeniorSchema,
   createInterviewSchema,
+  interviewSchema,
   updateInterviewSchema,
   mySalaryAggregateStateSchema,
   mySalaryStateSchema,
@@ -241,6 +242,63 @@ describe('boardSeniorSchema', () => {
     const result = boardSeniorSchema.parse({ ...VALID, email: 'leak@test.spec', techStack: ['x'] })
     expect(result).not.toHaveProperty('email')
     expect(result).not.toHaveProperty('techStack')
+  })
+})
+
+describe('interview scheduledAt — the meeting-recorder auto-match window key', () => {
+  const base = { seniorId: '11111111-1111-4111-8111-111111111111', companyName: 'Acme' }
+
+  it('accepts a UTC instant and an explicit numeric offset', () => {
+    // The numeric-offset case is why the schema passes `{ offset: true }`:
+    // without it a `+02:00` instant — what a browser in Kyiv sends — is rejected.
+    for (const value of ['2026-10-07T12:00:00.000Z', '2026-10-07T14:00:00+02:00']) {
+      expect(createInterviewSchema.safeParse({ ...base, scheduledAt: value }).success).toBe(true)
+      expect(updateInterviewSchema.safeParse({ scheduledAt: value }).success).toBe(true)
+    }
+  })
+
+  it('rejects an instant with no time zone at all, and a bare date', () => {
+    for (const value of ['2026-10-07T12:00:00', '2026-10-07', 'tomorrow']) {
+      expect(updateInterviewSchema.safeParse({ scheduledAt: value }).success).toBe(false)
+    }
+  })
+
+  it('accepts null and omitted (NULL means "never auto-matched")', () => {
+    expect(updateInterviewSchema.safeParse({ scheduledAt: null }).success).toBe(true)
+    expect(createInterviewSchema.safeParse({ ...base, scheduledAt: null }).success).toBe(true)
+    expect(createInterviewSchema.safeParse(base).success).toBe(true)
+  })
+
+  it('parses a response that omits scheduledAt entirely (old API, new web)', () => {
+    // `.nullish()` on the response schema: LinkRecordingDialog parses interviewSchema,
+    // so during a deploy window an API without this field must not blank its list.
+    const response = {
+      id: '11111111-1111-4111-8111-111111111111',
+      seniorId: '22222222-2222-4222-8222-222222222222',
+      seniorName: 'Sen Ior',
+      hrId: null,
+      hrName: null,
+      companyName: 'Acme',
+      vacancyUrl: null,
+      callUrl: null,
+      stage: 'HR_SCREEN' as const,
+      notesDomain: null,
+      notesTechStack: null,
+      notesTeamSize: null,
+      notesBenefits: null,
+      notesPaymentType: null,
+      notesSalaryReview: null,
+      notesCorpTech: null,
+      notesGeneral: null,
+      position: 0,
+      createdAt: '2026-10-07T12:00:00.000Z',
+      updatedAt: '2026-10-07T12:00:00.000Z',
+    }
+    expect(interviewSchema.safeParse(response).success).toBe(true)
+    expect(interviewSchema.safeParse({ ...response, scheduledAt: null }).success).toBe(true)
+    expect(
+      interviewSchema.safeParse({ ...response, scheduledAt: '2026-10-07T12:00:00.000Z' }).success,
+    ).toBe(true)
   })
 })
 

@@ -13,8 +13,39 @@ import type {
 import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
 import { ProjectsService } from '../projects/projects.service'
-import { interviews, users, visibleProjects, type Interview, type User } from '../database/schema'
+import {
+  interviews,
+  meetingRecorderAuditLog,
+  users,
+  visibleProjects,
+  type Interview,
+  type User,
+} from '../database/schema'
+import type { DrizzleTx } from '../database/types'
 import { InterviewAccessPolicyService } from './interview-access-policy.service'
+
+/**
+ * Does this interview carry a meeting-recorder auto-match key at all?
+ *
+ * Pure and exported so both branches are unit-testable: in `create` the decision
+ * is only observable as the presence of an audit row, which needs real Postgres.
+ */
+export type InterviewCallKey = { callUrl: string | null; scheduledAt: Date | null }
+
+export function interviewCallKeyIsSet(row: InterviewCallKey): boolean {
+  return row.callUrl !== null || row.scheduledAt !== null
+}
+
+/** The audit-log shape of an auto-match key: a plain, JSON-safe pair. */
+export function serializeCallKey(key: InterviewCallKey): {
+  callUrl: string | null
+  scheduledAt: string | null
+} {
+  return {
+    callUrl: key.callUrl,
+    scheduledAt: key.scheduledAt === null ? null : key.scheduledAt.toISOString(),
+  }
+}
 
 type InterviewWithRelations = Interview & {
   senior: User | null
@@ -39,6 +70,7 @@ export class InterviewsService {
       companyName: i.companyName,
       vacancyUrl: i.vacancyUrl ?? null,
       callUrl: i.callUrl ?? null,
+      scheduledAt: i.scheduledAt ? i.scheduledAt.toISOString() : null,
       stage: i.stage,
       notesDomain: (i.notesDomain ?? null) as ItDomain | null,
       notesTechStack: i.notesTechStack ?? null,
@@ -122,21 +154,38 @@ export class InterviewsService {
 
     const hrId = currentUser.role === 'HR' ? currentUser.id : null
 
-    const [created] = await this.db.db
-      .insert(interviews)
-      .values({
-        seniorId,
-        hrId,
-        companyName: dto.companyName,
-        vacancyUrl: dto.vacancyUrl ?? null,
-        callUrl: dto.callUrl ?? null,
-        stage: 'HR_SCREEN',
-        position: positionCount,
-      })
-      .returning()
+    const created = await this.db.db.transaction(async (tx) => {
+      const [row] = await tx
+        .insert(interviews)
+        .values({
+          seniorId,
+          hrId,
+          companyName: dto.companyName,
+          vacancyUrl: dto.vacancyUrl ?? null,
+          callUrl: dto.callUrl ?? null,
+          scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : null,
+          stage: 'HR_SCREEN',
+          position: positionCount,
+          matchKeyChangedAt: new Date(),
+        })
+        .returning()
+      // A single-row insert with .returning() always yields exactly one row; the
+      // assertion matches the pre-existing style on this call site.
+      const createdRow = row!
+      if (interviewCallKeyIsSet(createdRow)) {
+        await this.auditCallChange(
+          tx,
+          createdRow.id,
+          currentUser,
+          { callUrl: null, scheduledAt: null },
+          createdRow,
+        )
+      }
+      return createdRow
+    })
 
     const row = (await this.db.db.query.interviews.findFirst({
-      where: eq(interviews.id, created!.id),
+      where: eq(interviews.id, created.id),
       with: { senior: true, hr: true },
     })) as InterviewWithRelations
 
@@ -164,6 +213,9 @@ export class InterviewsService {
     if (dto.companyName !== undefined) updateData.companyName = dto.companyName
     if (dto.vacancyUrl !== undefined) updateData.vacancyUrl = dto.vacancyUrl ?? null
     if (dto.callUrl !== undefined) updateData.callUrl = dto.callUrl ?? null
+    if (dto.scheduledAt !== undefined) {
+      updateData.scheduledAt = dto.scheduledAt ? new Date(dto.scheduledAt) : null
+    }
     // Audit (HIGH): stage is NEVER written here — `updateInterviewSchema` no
     // longer carries `stage`, and stage transitions are owned exclusively by
     // `move()` (which holds transition rules + the HIRED side-effect). Any stray
@@ -179,7 +231,23 @@ export class InterviewsService {
     if (dto.notesCorpTech !== undefined) updateData.notesCorpTech = dto.notesCorpTech ?? null
     if (dto.notesGeneral !== undefined) updateData.notesGeneral = dto.notesGeneral ?? null
 
-    await this.db.db.update(interviews).set(updateData).where(eq(interviews.id, id))
+    const callChanged =
+      (updateData.callUrl !== undefined && updateData.callUrl !== interview.callUrl) ||
+      (updateData.scheduledAt !== undefined &&
+        updateData.scheduledAt?.getTime() !== interview.scheduledAt?.getTime())
+
+    if (callChanged) updateData.matchKeyChangedAt = new Date()
+
+    await this.db.db.transaction(async (tx) => {
+      await tx.update(interviews).set(updateData).where(eq(interviews.id, id))
+      if (callChanged) {
+        await this.auditCallChange(tx, id, currentUser, interview, {
+          callUrl: updateData.callUrl === undefined ? interview.callUrl : updateData.callUrl,
+          scheduledAt:
+            updateData.scheduledAt === undefined ? interview.scheduledAt : updateData.scheduledAt,
+        })
+      }
+    })
 
     const updated = (await this.db.db.query.interviews.findFirst({
       where: eq(interviews.id, id),
@@ -187,6 +255,30 @@ export class InterviewsService {
     })) as InterviewWithRelations
 
     return this.mapInterview(updated)
+  }
+
+  /**
+   * SR-865-H-1: `callUrl` / `scheduledAt` are the meeting-recorder auto-match key
+   * and are user-editable, so every change (including at create) is recorded in the
+   * meeting-recorder audit log against the interview.
+   *
+   * SR-M-2 / SPEC-L-1: the values are recorded before and after, because
+   * `interviews.call_url` is overwritten in place — otherwise the log would say
+   * that the key changed but not what it changed from.
+   */
+  private async auditCallChange(
+    tx: DrizzleTx,
+    interviewId: string,
+    actor: SessionUser,
+    before: InterviewCallKey,
+    after: InterviewCallKey,
+  ): Promise<void> {
+    await tx.insert(meetingRecorderAuditLog).values({
+      action: 'interview-call-changed',
+      actorUserId: actor.id,
+      interviewId,
+      metadata: { before: serializeCallKey(before), after: serializeCallKey(after) },
+    })
   }
 
   async move(id: string, dto: MoveInterviewDto, currentUser: SessionUser): Promise<InterviewDto> {
