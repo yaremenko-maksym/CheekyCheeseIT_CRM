@@ -691,8 +691,12 @@ describe.skipIf(!hasDatabaseUrl())(
       it('audits every callUrl / scheduledAt change, and only those', async () => {
         const auditRows = async () =>
           (
-            await pool.query<{ action: string; actor_user_id: string }>(
-              `SELECT action, actor_user_id FROM meeting_recorder_audit_log
+            await pool.query<{
+              action: string
+              actor_user_id: string
+              metadata: { before: unknown; after: unknown } | null
+            }>(
+              `SELECT action, actor_user_id, metadata FROM meeting_recorder_audit_log
                WHERE interview_id = $1 ORDER BY created_at`,
               [INTERVIEW_B_ID],
             )
@@ -715,9 +719,29 @@ describe.skipIf(!hasDatabaseUrl())(
           scheduledAt: '2026-11-01T10:00:00.000Z',
         })
 
+        // SR-M-2 / SPEC-L-1: each row carries the key before and after the write,
+        // so a reviewer can see what the auto-match key changed FROM — call_url is
+        // overwritten in place and is otherwise unrecoverable.
         expect((await auditRows()).slice(before)).toEqual([
-          { action: 'interview-call-changed', actor_user_id: SENIOR_B.id },
-          { action: 'interview-call-changed', actor_user_id: ADMIN.id },
+          {
+            action: 'interview-call-changed',
+            actor_user_id: SENIOR_B.id,
+            metadata: {
+              before: { callUrl: null, scheduledAt: null },
+              after: { callUrl: 'https://meet.google.com/bbbb-bbbb-bbb', scheduledAt: null },
+            },
+          },
+          {
+            action: 'interview-call-changed',
+            actor_user_id: ADMIN.id,
+            metadata: {
+              before: { callUrl: 'https://meet.google.com/bbbb-bbbb-bbb', scheduledAt: null },
+              after: {
+                callUrl: 'https://meet.google.com/bbbb-bbbb-bbb',
+                scheduledAt: '2026-11-01T10:00:00.000Z',
+              },
+            },
+          },
         ])
       })
 

@@ -51,6 +51,11 @@ ALTER TABLE meeting_recorder_audit_log
 CREATE INDEX IF NOT EXISTS idx_meeting_recorder_audit_log_interview
   ON meeting_recorder_audit_log (interview_id);
 
+-- Action-specific detail. For 'interview-call-changed' it holds the auto-match key
+-- before and after the write, because call_url is overwritten in place and the log
+-- would otherwise record that the key changed but not from what (SR-M-2 / SPEC-L-1).
+ALTER TABLE meeting_recorder_audit_log ADD COLUMN IF NOT EXISTS metadata jsonb;
+
 ALTER TABLE meeting_recorder_audit_log
   DROP CONSTRAINT IF EXISTS ck_meeting_recorder_audit_log_action;
 

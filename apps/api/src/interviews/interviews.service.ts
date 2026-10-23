@@ -30,11 +30,21 @@ import { InterviewAccessPolicyService } from './interview-access-policy.service'
  * Pure and exported so both branches are unit-testable: in `create` the decision
  * is only observable as the presence of an audit row, which needs real Postgres.
  */
-export function interviewCallKeyIsSet(row: {
-  callUrl: string | null
-  scheduledAt: Date | null
-}): boolean {
+export type InterviewCallKey = { callUrl: string | null; scheduledAt: Date | null }
+
+export function interviewCallKeyIsSet(row: InterviewCallKey): boolean {
   return row.callUrl !== null || row.scheduledAt !== null
+}
+
+/** The audit-log shape of an auto-match key: a plain, JSON-safe pair. */
+export function serializeCallKey(key: InterviewCallKey): {
+  callUrl: string | null
+  scheduledAt: string | null
+} {
+  return {
+    callUrl: key.callUrl,
+    scheduledAt: key.scheduledAt === null ? null : key.scheduledAt.toISOString(),
+  }
 }
 
 type InterviewWithRelations = Interview & {
@@ -163,7 +173,13 @@ export class InterviewsService {
       // assertion matches the pre-existing style on this call site.
       const createdRow = row!
       if (interviewCallKeyIsSet(createdRow)) {
-        await this.auditCallChange(tx, createdRow.id, currentUser)
+        await this.auditCallChange(
+          tx,
+          createdRow.id,
+          currentUser,
+          { callUrl: null, scheduledAt: null },
+          createdRow,
+        )
       }
       return createdRow
     })
@@ -224,7 +240,13 @@ export class InterviewsService {
 
     await this.db.db.transaction(async (tx) => {
       await tx.update(interviews).set(updateData).where(eq(interviews.id, id))
-      if (callChanged) await this.auditCallChange(tx, id, currentUser)
+      if (callChanged) {
+        await this.auditCallChange(tx, id, currentUser, interview, {
+          callUrl: updateData.callUrl === undefined ? interview.callUrl : updateData.callUrl,
+          scheduledAt:
+            updateData.scheduledAt === undefined ? interview.scheduledAt : updateData.scheduledAt,
+        })
+      }
     })
 
     const updated = (await this.db.db.query.interviews.findFirst({
@@ -236,19 +258,26 @@ export class InterviewsService {
   }
 
   /**
-   * SR-865-H-1: `callUrl` / `scheduledAt` are the meeting-recorder auto-match key and
-   * are user-editable, so every change (including at create) is recorded in the
+   * SR-865-H-1: `callUrl` / `scheduledAt` are the meeting-recorder auto-match key
+   * and are user-editable, so every change (including at create) is recorded in the
    * meeting-recorder audit log against the interview.
+   *
+   * SR-M-2 / SPEC-L-1: the values are recorded before and after, because
+   * `interviews.call_url` is overwritten in place — otherwise the log would say
+   * that the key changed but not what it changed from.
    */
   private async auditCallChange(
     tx: DrizzleTx,
     interviewId: string,
     actor: SessionUser,
+    before: InterviewCallKey,
+    after: InterviewCallKey,
   ): Promise<void> {
     await tx.insert(meetingRecorderAuditLog).values({
       action: 'interview-call-changed',
       actorUserId: actor.id,
       interviewId,
+      metadata: { before: serializeCallKey(before), after: serializeCallKey(after) },
     })
   }
 

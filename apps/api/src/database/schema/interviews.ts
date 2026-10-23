@@ -238,6 +238,14 @@ export const meetingRecorderAuditLog = pgTable(
     }),
     /** The interview an `interview-call-changed` entry is about. */
     interviewId: uuid('interview_id').references(() => interviews.id, { onDelete: 'set null' }),
+    /**
+     * Action-specific detail. For `interview-call-changed` it carries the auto-match
+     * key before and after the write — `{ before: { callUrl, scheduledAt }, after: … }`
+     * — because `interviews.call_url` is overwritten in place, so without this the
+     * log would say that the key changed but never what it changed from (SR-M-2 /
+     * SPEC-L-1). Contains no transcript or candidate content.
+     */
+    metadata: jsonb('metadata'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [

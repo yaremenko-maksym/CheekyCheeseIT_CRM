@@ -169,6 +169,7 @@ describe('meeting recorder database foundation', () => {
       'connection_id',
       'interview_recording_id',
       'interview_id',
+      'metadata',
       'created_at',
     ])
     expect(fkFor(meetingRecorderAuditLog, 'actor_user_id')?.onDelete).toBe('set null')
