@@ -261,9 +261,14 @@ describe('MeetingRecorderWebhookController', () => {
     service.ingestWebhookEvent.mockRejectedValue(driverError)
 
     const logged: Array<unknown[]> = []
-    const spy = vi
-      .spyOn(Logger.prototype, 'error')
-      .mockImplementation((...args: unknown[]) => void logged.push(args))
+    const contexts: Array<string | undefined> = []
+    const spy = vi.spyOn(Logger.prototype, 'error').mockImplementation(function (
+      this: Logger,
+      ...args: unknown[]
+    ) {
+      contexts.push((this as unknown as { context?: string }).context)
+      logged.push(args)
+    })
 
     try {
       const error = await controller
@@ -278,6 +283,8 @@ describe('MeetingRecorderWebhookController', () => {
       expect(requestId).toMatch(/^[0-9a-f-]{36}$/)
 
       expect(logged).toHaveLength(1)
+      // The context is what an on-call greps for to find this line among the others.
+      expect(contexts).toEqual(['MeetingRecorderWebhook'])
       const line = logged[0]!.map((part) => String(part)).join(' ')
       // Correlates with what the caller was handed …
       expect(line).toContain(requestId)

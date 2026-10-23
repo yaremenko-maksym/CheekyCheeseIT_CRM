@@ -304,16 +304,16 @@ export function safeErrorStack(err: unknown): string | undefined {
  * it is reached only on the same branch as before, with `.stack` defined.
  */
 function nameAndFrames(err: Error): string {
+  // Only `strictErrorStack` can arrive without a stack: `safeErrorStack` returns before calling here.
+  if (err.stack === undefined) return err.name
   const header = `${err.name}: ${err.message}`
-  const rest = err.stack === undefined ? '' : err.stack.slice(header.length)
+  const rest = err.stack.slice(header.length)
   // V8 builds the header lazily: if `.stack` was read and `.message` shortened afterwards,
   // the shortened header is a PREFIX of the frozen stack and `startsWith` alone passes while
   // the parameters sit in the remainder (SR-M-1). So the remainder must be empty or begin
   // with a frame. Nothing in apps/api assigns `.message`, so this is unreachable today.
   // (An empty remainder fails this test too and yields the same bare name: no frames.)
-  if (err.stack === undefined || !err.stack.startsWith(header) || !rest.startsWith('\n    at ')) {
-    return err.name
-  }
+  if (!err.stack.startsWith(header) || !rest.startsWith('\n    at ')) return err.name
   const frames = rest.split('\n').filter((line) => /^\s+at /.test(line))
   return [err.name, ...frames].join('\n')
 }
