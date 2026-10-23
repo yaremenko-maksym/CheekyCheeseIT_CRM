@@ -312,6 +312,12 @@ describe('a stored cursor is only good for 24 hours (documented); we stop trusti
     expect(f.sent[0]?.url).toBe(`${API}?count=100&geo=europe&industry=engineering`)
   })
 
+  it('a cursor that claims to start in the future (clock moved back) is not forwarded', async () => {
+    const cp = await capped()
+    const { f } = await resume(cp, -HOUR)
+    expect(f.sent[0]?.url).toBe(`${API}?count=100&geo=europe&industry=engineering`)
+  })
+
   it('a checkpoint cursor this adapter did not write is not forwarded', async () => {
     const cp = await capped()
     const foreign = {
