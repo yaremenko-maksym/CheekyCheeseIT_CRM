@@ -2706,6 +2706,57 @@ describe('the AC5 gate follows identity across the ids identity declines', () =>
     expect(batch.requests.map((r) => r.error?.code ?? null)).not.toContain('ADAPTER_INVARIANT')
     expect(batch.observations).toHaveLength(2)
   })
+
+  /**
+   * THE GATE ITSELF, WHERE IT IS OBSERVABLE — the case that kills the mutant replacing
+   * `keyedOn === null` with `true`.
+   *
+   * The mutation gate found that condition surviving, and it was right: every other case here keys
+   * on a URL, so the condition is true throughout and dropping it changes nothing. It is reachable
+   * only where identity DID key on a native id while `nativeIdOf` reports something else — an
+   * adapter whose `mapItem` pins ONE id for every item (so two items share an identity key through
+   * the NATIVE_ID branch) while `nativeIdOf` answers per item.
+   *
+   * SUCCEEDED is the right answer, and that is why this is a test and not a suppression. Identity
+   * keyed on an id the adapter supplied, so the two items were merged because the adapter SAID so
+   * in `mapItem` — not because identity could not tell them apart. Refusing here would report
+   * `ADAPTER_INVARIANT` for a merge the adapter asked for, which is a false refusal of the same
+   * class as SR-M-1. Without the gate this page FAILS.
+   */
+  it('does not refuse an adapter whose mapItem merges postings its nativeIdOf tells apart', async () => {
+    const h = harness({
+      pages: [
+        onePage([
+          job('x', { url: 'https://jobs.example.com/x' }),
+          job('y', { url: 'https://jobs.example.com/y' }),
+        ]),
+      ],
+    })
+    const batch = await collectJsonPages(
+      makeSpec({
+        mapItem: (item, cfg) => ({
+          namespace: cfg.namespace,
+          nativeId: 'one-and-the-same',
+          url: item.url,
+          title: item.title,
+          companyName: item.company,
+        }),
+        nativeIdOf: (item) => item.id,
+      }),
+      config(),
+      h.ctx,
+    )
+
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.requests.map((r) => r.error?.code ?? null)).not.toContain('ADAPTER_INVARIANT')
+    // One identity key for both, through the NATIVE_ID branch — the premise that makes the gate
+    // reachable at all. Asserted, so the case cannot pass by the two items keying separately.
+    expect(new Set(batch.observations.map((o) => o.identity.identityKey)).size).toBe(1)
+    expect(batch.observations.map((o) => o.identity.identityKind)).toEqual([
+      'NATIVE_ID',
+      'NATIVE_ID',
+    ])
+  })
 })
 
 /**
