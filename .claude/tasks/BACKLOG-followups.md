@@ -4481,3 +4481,105 @@ escalation path.
 **Check on closing:** an agent that creates a worktree at a literal path can remove that same path in a
 later call regardless of how the `add` was composed or whether its working directory changed, while a
 sibling's path stays refused — both arms asserted by the hook's own tests.
+
+## 301. A verification can be real but less precise than the claim it supports (2026-10-23)
+
+`verification-integrity.md` distinguishes "did not look" from "looked and found nothing". The retro-PR
+wave produced a third shape it does not cover: **looked at less than was then asserted.**
+
+Measured. An agent reported `Pushed: <branch> @ cd23a486173f3b42c3d3e2a3e0c0ec2a4a1dbd3d`, with the
+evidence "`git ls-remote` returns `cd23a486173f`, identical to local HEAD". The comparison was
+genuine — and true, for the twelve characters it covered. The full forty-character sha printed beside
+it does not exist in the repository; the real parent is `cd23a486173fb5957d3968c5b6a2e17b54f299a0`,
+which shares exactly that twelve-character prefix. The orchestrator then passed the published sha into
+a reviewer's dispatch, where the compare API answered 404 and the reviewer had to find the real parent
+itself.
+
+Nothing was lost, because the branch was genuinely pushed — but the artifact the project treats as the
+checkable assertion (`stream-watchdog.md`'s `Pushed:` line, whose whole purpose is that a reader can
+re-run it in one command) was not re-runnable. A reader who pastes it gets "object does not exist" and
+cannot tell a mistyped sha from a lost push.
+
+**Why this is worth a rule rather than a reminder.** Short-prefix comparison is the normal, correct way
+to eyeball git output; the defect is only in stating the long form afterwards. So the cure is not "be
+careful" but a form: compare and state the SAME object. Either print what the command printed, or
+compare full shas (`git rev-parse HEAD` against `git ls-remote origin <branch> | cut -f1`).
+
+**Check on closing:** take a report carrying a `Pushed:` line and run `git cat-file -t <sha>` on the
+exact string it published. It resolves, or the line was never checkable.
+
+## 302. Truncating a command's output hides what the command was run to find (2026-10-23)
+
+`pre:bash:swallowed-failure` catches a discarded stderr piped into a counter. It does not catch the
+adjacent move: reading a command's output through `tail -N` / `head -N` and acting on what survived.
+
+Measured, same wave: an agent ran a merge, read the result with `tail -6`, and so did not see that
+`deploy.yml` had ALSO conflicted — it noticed only because a wiring guard failed afterwards and
+`git status` showed `UU`. Its own write-up names the lesson: truncating a command's output is
+precisely how a second conflict hides. A merge reports one conflict per file; a window onto the end of
+that report is a window onto some of the files.
+
+Same family as form 1 in `verification-integrity.md` — the information that would have corrected the
+reader went somewhere the reader did not look — but the channel here is truncation rather than
+redirection, so neither the rule's text nor its hook mentions it.
+
+**Candidates:** state in the rule that a command whose output is EVIDENCE is read whole (or filtered
+by a predicate that cannot drop a case, e.g. `grep -c '^CONFLICT'` for the count and then the list);
+extend the advisory hook to flag `tail`/`head` applied to `git merge` / `git rebase` / `git cherry-pick`
+output. The hook half is optional; the rule half is the point.
+
+**Check on closing:** a merge with conflicts in two files, read the way the rule prescribes, reports
+both.
+
+## 303. User-facing error text left over from the retro-PR wave (2026-10-23)
+
+Five findings from reviews and QA that were deliberately not fixed in their PRs, because each touches a
+shared string or a path outside the diff that produced it. Grouped because they are one sweep.
+
+- `INTERVIEW_NOT_FOUND` («Співбесіду не знайдено») states the failure and no next step.
+- The uk catalog mixes the ASCII apostrophe with the typographic one (78 msgids typographic against
+  21 ASCII at the time of measurement). A catalog-wide sweep, not a per-PR fix.
+- A 4xx with no canned status line falls back to «Не вдалося виконати запит…», which repeats «Не
+  вдалося» directly under a title that already begins with it ("Couldn't" twice in en).
+- An uncoded Nest 403 (`Forbidden resource`) is absent from the generic reason phrases, so it renders
+  raw and in English beneath a localised title. Not reachable on the link endpoint today, whose guards
+  return a coded 403 — reachable the moment an endpoint does not.
+- Uncoded errors with a non-generic server message pass through verbatim (`connect ECONNREFUSED …`,
+  `interviewId: Invalid UUID`). Not observed on a real path.
+- The admin edit dialog surfaces a raw English `salaryMonth: Format YYYY-MM` for an invalid month; it
+  needs a coded API error, not a cosmetic patch.
+
+**Check on closing:** no user-facing surface renders an uncoded server message verbatim, and the uk
+catalog uses one apostrophe.
+
+## 304. Small UI and data defects observed during retro-PR QA (2026-10-23)
+
+Each was seen on a real stack, none belongs to the PR that surfaced it.
+
+- The salary Month input renders its value in English («September 2026») under a uk locale and clips
+  slightly at 375px.
+- A senior's own salary aggregate is computed for the CURRENT month while the create form defaults to
+  the PREVIOUS one, so a part created with the default does not appear in the aggregate until the next
+  month. Predates the multipart-salary work.
+- The shared `Alert` separates title from reason only by font weight and a 4px gap, so a two-part
+  message reads as one block.
+- DROP balance figures render as `1 250,50 USD` where a spec expects `$1,250.50` — a locale-formatting
+  change that an E2E spec still asserts the old way (surfaced as an unexplained E2E failure during an
+  A/B run, in a component absent from the diff under test).
+- Seeded `interviews.notes_domain` values fail `interviewSchema`, so the link-recording dialog shows
+  its error state against a freshly seeded scratch database until the column is nulled. Either the seed
+  or the schema is wrong; QA runs currently work around it.
+
+**Check on closing:** each bullet fixed or explicitly declined in this entry.
+
+## 305. `non_deleted_transactions` now has a third production definition site; the drift guard reads one (2026-10-23)
+
+The view is re-created by more than one manual DDL file, and the consistency spec that exists to catch
+drift between the schema and production reads only the 2026-08-03 file. The multipart-salary prepare
+DDL already had this shape before the salary-creation-intent DDL added a third. So a change applied
+through either of the newer files is invisible to the guard that exists for exactly that risk.
+
+Not a defect today — the definitions agree — which is precisely why it will not announce itself when
+they stop agreeing.
+
+**Check on closing:** alter the view in ONE of the newer DDL files only, and the guard fails.
