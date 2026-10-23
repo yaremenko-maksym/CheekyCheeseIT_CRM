@@ -4717,3 +4717,40 @@ each agent write under a per-agent subdirectory so a plain basename is safe agai
 
 **Check on closing:** two agents of one session, each told to write a PR body "to the scratchpad",
 produce two files that cannot collide — verified by running it, not by reading the brief.
+
+## 310. Understating certainty leaves the reader with a false model, and sounds careful while doing it (2026-10-24)
+
+Entries 285 and 301 both describe a claim **stronger** than its evidence. This is the same defect with
+the sign reversed: a claim **weaker** than the evidence, or — worse — a correctly hedged conclusion
+attached to a wrong account of _why_ it is uncertain.
+
+**Measured instance (2026-10-24, two sessions working the same advisory wave).** One orchestrator told
+the other that its agent "was stopped before it reached an install, so neither of us has a measurement
+of whether the happy-dom bump is clean." The conclusion was right — nobody had measured — and the
+reason was false: the agent's own final line reported errors found and fixed on the affected files, so
+the install had happened and the bump was **not** a pure version change. The second orchestrator
+forwarded the caveat to its own agent, which was briefed to expect a routine bump and would have read
+a red typecheck as its own error. A false "I don't know" propagates exactly like a false "I know", and
+it propagates further, because a hedge invites no checking.
+
+**Why it is harder to catch:** an overclaim is falsified by the first reader who checks it, while an
+underclaim **matches** a careful reader's prior and is confirmed by them. The modest register is the
+camouflage.
+
+**The repair** is the same substitution the other two entries name, applied to the uncertainty rather
+than the claim: state **what you looked at** rather than how sure you feel. "I did not re-read the
+agent's final report" is checkable; "my agent never got that far" is a claim about the world that
+needs the same evidence as any other. Before publishing a hedge, ask what record would settle it —
+and read that record, since a hedge is usually published precisely because nobody expects it to be
+checked.
+
+**How it was actually caught, which the cure depends on.** Not by the author being careful. The
+session that made the claim went back to its own record only because a _peer_ had corrected it on an
+unrelated point an hour earlier (the fabricated sha in entry 301) and it had come to expect the error
+in itself. The instance belongs to one session and the catch to the other. So the mechanism that
+worked here is **a second reader re-reading a live exchange**, not individual diligence — which is
+worth knowing before anyone proposes a checklist as the fix.
+
+**Check on closing:** a report's uncertainty statements cite the thing not looked at, not a belief
+about what happened. A sentence of the form "X never happened, so we cannot know" is a measurement
+claim and carries the same burden as "X happened".
