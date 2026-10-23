@@ -1109,6 +1109,72 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       expect(key[0].n).toBe(200)
     })
 
+    // FIX-3 of fix round 1 (SPEC-M-1). The request id is written into the `RAISE LOG`
+    // line at the end of the function, and that line is the evidence channel for a
+    // redaction (legal memo section 8 item 3). A newline does not merely add noise: it
+    // appends attacker-chosen LINES to the channel, each shapeable like a genuine entry,
+    // so the record of what was erased becomes forgeable by whoever asked for the erasure.
+    //
+    // This guard was watched firing ONCE, by hand, when it was written. That is what this
+    // test exists to replace: a guard nobody can see fire again is on its way to becoming
+    // decoration.
+    it('refuses a request id carrying a control character — the log-injection guard (FIX-3)', async () => {
+      const id = await newAction({ actorId: actor, opportunityId: opportunity })
+      // Each one is a real injection shape, not a random control byte: a newline and a CR
+      // both START A LINE, a tab forges column alignment inside one, and ESC opens an ANSI
+      // sequence that can erase what a reader already saw.
+      const refusals: [string, string][] = [
+        ['newline', 'dsr-ok\nLOG:  crm_retention: redacted reason of job_queue_actions deadbeef'],
+        ['carriage return', 'dsr-ok\rforged'],
+        ['tab', 'dsr-ok\tforged'],
+        ['ANSI escape', 'dsr-ok\u001b[2Kforged'],
+      ]
+      for (const [label, requestId] of refusals) {
+        const err = await rejected(REDACT, [id, requestId, actor])
+        expect({ label, code: err.code }).toEqual({ label, code: INVALID_PARAMETER })
+        // The MESSAGE, not only the code: the pre-existing blank/length guard raises the
+        // same SQLSTATE, so a test that checked the code alone would still pass if this
+        // branch were deleted and the blank guard happened to catch the value.
+        expect({ label, message: err.message }).toEqual({
+          label,
+          message:
+            'crm_retention_redact_action_reason: request id must contain only printable characters',
+        })
+      }
+      // Nothing moved on any refusal.
+      const { rows } = await q(`SELECT reason FROM job_queue_actions WHERE id=$1`, [id])
+      expect(rows[0].reason).toBe(`${TAG} reason`)
+
+      // And the guard is not simply "reject anything unusual". A space is printable and an
+      // id containing one is accepted, which is also what keeps this distinct from the
+      // blank guard: blank is about having no non-space character, not about having a space.
+      const { rows: spaced } = await q(REDACT, [id, 'dsr 2026 10 23', actor])
+      expect(spaced[0].redacted).toBe(true)
+      const second = await newAction({ actorId: actor, opportunityId: opportunity })
+      const { rows: plain } = await q(REDACT, [second, 'dsr-2026-10-23-plain', actor])
+      expect(plain[0].redacted).toBe(true)
+    })
+
+    it('still refuses a blank or over-long request id with its OWN message, not the printable one', async () => {
+      // The two guards are separate branches raising one SQLSTATE, and the thing worth
+      // pinning is that each still names its own reason: a refusal that said "printable"
+      // for a blank id would send a caller looking for a control character that is not
+      // there. Asserted here rather than folded into the condition-3 test above, because
+      // that test deliberately checks only the code across four argument shapes.
+      const id = await newAction({ actorId: actor, opportunityId: opportunity })
+      for (const [label, requestId] of [
+        ['blank', '   '],
+        ['164 characters', 'x'.repeat(164)],
+      ] as [string, string][]) {
+        const err = await rejected(REDACT, [id, requestId, actor])
+        expect({ label, message: err.message }).toEqual({
+          label,
+          message:
+            'crm_retention_redact_action_reason: request id must be non-blank and at most 163 characters',
+        })
+      }
+    })
+
     // AC2 of r5 Task 1.4b-iii: the INSERT and the UPDATE are one unit. Two independent
     // ways to make the INSERT fail AFTER the UPDATE has run, so neither the argument
     // validation nor the UPDATE's own WHERE clause can be what refuses.
@@ -2914,6 +2980,129 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       ])
       await applyFile(TRIGGERS_SQL)
       await applyFile(CHECK_SQL)
+    })
+
+    // -----------------------------------------------------------------------
+    // FIX-4 of fix round 1 (SPEC-L-1) — the CONDITIONAL CHECK
+    //
+    // The file used to DROP and re-ADD this constraint on every deploy, taking ACCESS
+    // EXCLUSIVE and re-scanning the table forever. It is now conditional, and the
+    // header makes two claims about that: the steady-state deploy takes no relation
+    // lock, and convergence is preserved because the comparison is on the DEFINITION
+    // rather than on the name. Both lived only in a comment, which is the shape this
+    // feature has been burned by repeatedly.
+    //
+    // A RE-ADD IS OBSERVED BY `oid`, not by parsing a NOTICE: `ADD CONSTRAINT` creates a
+    // new `pg_constraint` row, so an unchanged oid IS the skip and a changed oid IS the
+    // re-add. That is a fact about the catalog rather than about log formatting, and it
+    // cannot pass for the wrong reason.
+    // -----------------------------------------------------------------------
+    describe('FIX-4 — the CHECK is re-added only when its definition differs', () => {
+      const CONSTRAINT = 'ck_job_queue_actions_redaction_reason_null'
+      const PREDICATE = `("job_queue_actions"."kind" <> 'REASON_REDACTED' OR "job_queue_actions"."reason" IS NULL)`
+
+      const state = async () =>
+        (
+          await q(
+            `SELECT con.oid::text AS oid, pg_get_constraintdef(con.oid) AS def,
+                    con.convalidated AS validated
+               FROM pg_constraint con
+              WHERE con.conrelid = 'public.job_queue_actions'::regclass AND con.conname = $1`,
+            [CONSTRAINT],
+          )
+        ).rows[0] as { oid: string; def: string; validated: boolean } | undefined
+
+      /** Leave the constraint exactly as the shipped file leaves it. */
+      const restore = async () => {
+        await q(`ALTER TABLE job_queue_actions DROP CONSTRAINT IF EXISTS ${CONSTRAINT}`)
+        await applyFile(UPGRADE_SQL)
+      }
+
+      it('pins the predicate the file compares against to what PostgreSQL actually renders', async () => {
+        // THE PRECONDITION OF THE WHOLE GUARD, and the one thing that can rot silently.
+        // If the pinned text ever stops being byte-equal to `pg_get_constraintdef`, the
+        // guard still works but its skip path becomes UNREACHABLE: every deploy takes
+        // ACCESS EXCLUSIVE again and nothing says so. Read out of the shipped file rather
+        // than copied here, so the two cannot agree by construction.
+        await restore()
+        const file = readFileSync(UPGRADE_SQL, 'utf8')
+        const pinned = /wanted CONSTANT text :=\s*'((?:[^']|'')*)'/.exec(file)
+        expect(pinned).not.toBeNull()
+        const wanted = (pinned?.[1] as string).split("''").join("'")
+        expect((await state())?.def).toBe(wanted)
+      })
+
+      it('takes the skip path when the definition already matches: the constraint row is NOT replaced', async () => {
+        await restore()
+        const before = await state()
+        expect(before?.validated).toBe(true)
+        // The deploy, again — every deploy re-applies every manual file.
+        await applyFile(UPGRADE_SQL)
+        const after = await state()
+        // Same oid: no DROP, no ADD, so no ACCESS EXCLUSIVE and no scan. This is the
+        // lock claim, reduced to something the catalog can answer.
+        expect(after).toEqual(before)
+      })
+
+      it('re-adds and RE-VALIDATES a NOT VALID clone of the same predicate', async () => {
+        // The case that matters most, and the one the header could only assert: a
+        // constraint that EXISTS, carries the right predicate, and ENFORCES NOTHING for
+        // pre-existing rows. `pg_get_constraintdef` renders it with a trailing
+        // ` NOT VALID`, so it does not compare equal and the guard repairs it — which is
+        // what makes `convalidated` true a measured property of this path rather than an
+        // inference from "a fresh ADD validates".
+        await restore()
+        const original = await state()
+        await q(`ALTER TABLE job_queue_actions DROP CONSTRAINT ${CONSTRAINT}`)
+        await q(
+          `ALTER TABLE job_queue_actions ADD CONSTRAINT ${CONSTRAINT} CHECK ${PREDICATE} NOT VALID`,
+        )
+        const broken = await state()
+        expect(broken?.validated).toBe(false)
+        expect(broken?.def.endsWith(' NOT VALID')).toBe(true)
+
+        await applyFile(UPGRADE_SQL)
+        const repaired = await state()
+        expect(repaired?.validated).toBe(true)
+        expect(repaired?.def).toBe(original?.def)
+        expect(repaired?.oid).not.toBe(broken?.oid)
+        await applyFile(CHECK_SQL)
+      })
+
+      it.each([
+        ['a constraint that enforces nothing', `CHECK (true)`],
+        // Logically equivalent, rendered differently — so the comparison is on the TEXT
+        // PostgreSQL produces, and a reordered predicate is repaired rather than kept.
+        [
+          'a reordered but equivalent predicate',
+          `CHECK ("job_queue_actions"."reason" IS NULL OR "job_queue_actions"."kind" <> 'REASON_REDACTED')`,
+        ],
+      ])('re-adds over %s', async (_label, wrong) => {
+        await restore()
+        const original = await state()
+        await q(`ALTER TABLE job_queue_actions DROP CONSTRAINT ${CONSTRAINT}`)
+        await q(`ALTER TABLE job_queue_actions ADD CONSTRAINT ${CONSTRAINT} ${wrong}`)
+        expect((await state())?.def).not.toBe(original?.def)
+
+        await applyFile(UPGRADE_SQL)
+        const repaired = await state()
+        expect(repaired?.def).toBe(original?.def)
+        expect(repaired?.validated).toBe(true)
+        await applyFile(CHECK_SQL)
+      })
+
+      it('adds the constraint when it is absent altogether', async () => {
+        await restore()
+        const original = await state()
+        await q(`ALTER TABLE job_queue_actions DROP CONSTRAINT ${CONSTRAINT}`)
+        expect(await state()).toBeUndefined()
+
+        await applyFile(UPGRADE_SQL)
+        const added = await state()
+        expect(added?.def).toBe(original?.def)
+        expect(added?.validated).toBe(true)
+        await applyFile(CHECK_SQL)
+      })
     })
   })
 
