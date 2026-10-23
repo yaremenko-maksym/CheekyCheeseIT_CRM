@@ -4298,3 +4298,81 @@ read as complete.
 
 **Check on closing:** a PR that defers a requirement names the task that owns it **and** that task's
 own description contains a matching item. If it does not, the deferral is a drop.
+
+## 291. The meeting-recorder auto-match decides a safety question by comparing two different clocks (2026-10-23)
+
+`matchMeetingRecording` admits an interview as an auto-match only when its match key changed **before**
+the call started — the guard that stops a transcript being attached across candidates after somebody
+edited a call URL. The two sides of that comparison come from **different clocks**:
+`interviews.matchKeyChangedAt` is written from the application clock (`new Date()` at the two places in
+`InterviewsService` that change the key), while the call's start time is the **provider's** reported
+value, taken from the recording payload.
+
+**Why that is a defect rather than a nicety.** The predicate asserts an ordering of events, and an
+ordering is only meaningful inside one clock domain. If the provider's reported start runs ahead of our
+server clock — ordinary skew, no adversary needed — a key changed _after_ the call still compares as
+earlier, and the auto-match proceeds on exactly the state the guard exists to refuse. The failure is
+silent: an auto-match that should have been declined looks like a successful one.
+
+**Not trivially exploitable, and that is why it is an entry rather than an incident.** The payload
+arrives over a signed webhook, so the start time is not freely attacker-chosen. The reachable case is
+clock skew between our host and the provider.
+
+**What a fix has to decide** (the shape, not the line): which clock is trusted, and how the other is
+brought into it — comparing against the server's receipt time of the first event minus the reported
+duration, or keeping the provider's value but requiring a margin, or writing `matchKeyChangedAt` from
+the database's `now()` so at least our half has one source. A margin alone moves the boundary without
+removing the differential, so whichever is chosen should say what it does about the other half.
+
+**Found by** the automated security review on a merge commit, attributed to the already-merged work that
+introduced the column, not to the PR that merged it.
+
+**Check on closing:** set the host clock behind the provider's reported start by more than the intended
+margin, edit a call URL after the call began, and confirm the auto-match is refused. A test that only
+exercises the ordering within one clock cannot see this.
+
+## 292. The grant tuple bounds how many exceptions exist, not which columns they name (2026-10-23)
+
+The privileges manifest's column-write exceptions are typed as a fixed-length pair, so adding a **third**
+exception requires a type change a reviewer will see. That property holds and is what the prose claims.
+What it does **not** bound is the column list inside each exception: appending a seventh column to the
+evidence-row INSERT grant is the likelier widening, and it is gated only by exact-value tests rather
+than by the type.
+
+**Why it is worth an entry.** The type was chosen precisely so a widening cannot arrive as an appended
+line. That reasoning applies with equal force one level down, where it is not enforced. Three tests
+currently catch it, which is why this is a follow-up and not a finding — tests are a weaker gate than a
+compile error, not an absent one.
+
+**Check on closing:** append a column to the evidence grant's column list and confirm the build fails,
+not merely a test.
+
+## 293. `[:print:]` admits invisible and direction-overriding characters (2026-10-23)
+
+The redaction function refuses a request id containing a non-printable character, because that id is
+written into the server log that serves as the evidence channel for redactions. Measured during review:
+the class rejects the line separators and the C0 controls — so a forged **line** is impossible, which is
+the threat the guard was sized for — but admits zero-width space and the right-to-left override.
+
+**The residual is a reader problem, not a log-integrity one.** Those characters cannot break a log line;
+they can mislead a human reading one in a terminal. Narrowing the id to a strict character set would
+close it.
+
+**Locale note, because it changes the direction of any drift:** `[:print:]` semantics for non-ASCII
+depend on the database's ctype. The databases measured are UTF-8; on a `C`-locale cluster the guard
+becomes **stricter**, never looser.
+
+**Check on closing:** pass an id containing a zero-width space and confirm it is refused.
+
+## 294. `apps/api`'s typecheck builds only one of the two workspace packages it depends on (2026-10-23)
+
+In a fresh worktree `pnpm --filter @crm/api typecheck` fails on unresolved types from `@crm/inference`,
+because the script builds `@crm/shared` and not `@crm/inference`. The failure is unrelated to whatever
+is being changed, which is the expensive part: every agent that provisions a new worktree meets a red
+typecheck that points at files it did not touch, and has to discover the missing build step.
+
+**The same shape with a different package** is already documented for the web route tree, so the gap is
+the script's dependency list rather than one package.
+
+**Check on closing:** provision a worktree, run that typecheck with no manual builds, and confirm it
+passes or names the exact build it needs.
