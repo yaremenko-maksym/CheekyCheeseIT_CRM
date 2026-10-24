@@ -102,6 +102,12 @@ export function decodeEscapedOnce(value: string): string {
     .replace(/&amp;/g, '&')
 }
 
+/** The payload's own employer name when it says one (a blank one says nothing), else the verified config's, else none. */
+function employerOf(item: Item, config: Config): string | null {
+  const fromPayload = item.company_name?.trim() ?? ''
+  return fromPayload === '' ? (config.employer?.name ?? null) : fromPayload
+}
+
 export const greenhouseSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
   type: 'GREENHOUSE_ATS',
   adapterVersion: GREENHOUSE_ADAPTER_VERSION,
@@ -125,7 +131,7 @@ export const greenhouseSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
     url: item.absolute_url,
     identityParams: ['gh_jid'],
     title: item.title,
-    companyName: item.company_name ?? config.employer?.name ?? null,
+    companyName: employerOf(item, config),
     location: item.location?.name ?? null,
     description: item.content === null ? null : decodeEscapedOnce(item.content),
     descriptionKind: 'html',

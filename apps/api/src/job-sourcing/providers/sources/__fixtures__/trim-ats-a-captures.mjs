@@ -180,7 +180,7 @@ for (const p of [
       '9fd98cde-6a1b-419c-a27a-daae7a7483f0',
       '1f56d4be-4e54-441a-ad05-946b9efcc391',
     ],
-    'Second page of the spotify site (skip=50): 40 postings captured, 3 kept; a SHORT page, which is how the end of the board is recognised.',
+    'Second page of the spotify site (skip=50): 40 postings captured, 3 kept; a SHORT page, which is how the end of the board is recognised. OWNERSHIP: the same site as spotify-page1 (hostedUrl jobs.lever.co/spotify/<uuid>), verified there.',
   ),
   lvPage(
     'spotify-page3-empty',
