@@ -244,23 +244,26 @@ replay or `UNCERTAIN`). It does not evaluate readiness through `readinessAt`, co
 our writes, and it does not keep `job_sources` state (last success versus last non-empty). All of
 that is hand-written under either option.
 
-**Bounded review of the new dependency.** pg-boss's dependency tree has nine names: `pg`,
-`cron-parser`, `luxon`, `rrule-temporal`, `temporal-spec`, `serialize-error`, `non-error`,
-`type-fest` and the peer `@opentelemetry/api`. Counted against `pnpm-lock.yaml` on `origin/main`,
-**7 packages are new**: `pg-boss`, `cron-parser`, `rrule-temporal`, `temporal-spec`,
-`serialize-error`, `non-error` and `type-fest` 5. `type-fest` 5 would sit beside the already-locked
-`0.16.0`. Two names are not new:
+**Bounded review of the new dependency.** Besides `pg-boss` itself, its dependency tree has ten
+names: `pg`, `cron-parser`, `luxon`, `rrule-temporal`, `temporal-spec`, `serialize-error`,
+`non-error`, `type-fest` (major 5), `tagged-tag`, and the peer `@opentelemetry/api`. Counted against
+`pnpm-lock.yaml` on `origin/main`, **8 packages are new**: `pg-boss`, `cron-parser`,
+`rrule-temporal`, `temporal-spec`, `serialize-error`, `non-error`, `type-fest` 5 and `tagged-tag`.
+`type-fest` 5 would sit beside the already-locked `0.16.0`.
 
-- `pg` and `luxon` 3.7.2 are already locked.
-- The peer `@opentelemetry/api` is not installed automatically. The lockfile is version 5.4
+- **Not new:** `pg` and `luxon` 3.7.2 are already locked.
+- **The peer:** `@opentelemetry/api` is not installed automatically. The lockfile is version 5.4
   (pnpm 7), there is no `.npmrc` turning on `auto-install-peers`, and the peer has no
-  `peerDependenciesMeta` marking it optional. So it would be an **eighth** explicit addition, or a
+  `peerDependenciesMeta` marking it optional. So it would be a **ninth** explicit addition, or a
   standing peer warning.
 
-To re-derive this, run
-`git show origin/main:pnpm-lock.yaml | grep -n -E '^  /(luxon|type-fest|@opentelemetry/api|pg-boss|cron-parser|rrule-temporal|temporal-spec|serialize-error|non-error)/'`.
-On `d0f876f33` it prints only `/luxon/3.7.2` and `/type-fest/0.16.0`. All the packages are MIT,
-and the `pg-boss` tarball has no install hook (research file). Release cadence is high (14 releases between 2026-09-17 and 2026-10-13) and there is one
+The round-1 fact-check counted 7. It stopped at `type-fest` and did not follow it to `tagged-tag`;
+`type-fest` 5.x depends on `tagged-tag ^1.0.0` (research file). To re-derive the count, run
+`git show origin/main:pnpm-lock.yaml | grep -n -E '^  /(luxon|type-fest|tagged-tag|@opentelemetry/api|pg-boss|cron-parser|rrule-temporal|temporal-spec|serialize-error|non-error)/'`.
+On `d0f876f33` it prints only `/luxon/3.7.2` and `/type-fest/0.16.0`.
+
+**Licences are not uniform.** Most packages are MIT, but `temporal-spec` is **Apache-2.0** and
+`type-fest` is `(MIT OR CC0-1.0)`. The `pg-boss` tarball has no install hook (research file). Release cadence is high (14 releases between 2026-09-17 and 2026-10-13) and there is one
 maintainer. That makes the upgrade policy an exact pin, a Renovate ignore, and a reviewed bump with
 its migration file. The package would need its own row in `version-pins.md`.
 
