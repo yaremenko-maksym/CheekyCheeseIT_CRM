@@ -212,6 +212,8 @@ const extractWorkplace: Extractor<WorkplaceSignal> = (sentence) => {
     out.push({ value: 'HYBRID', code: 'HYBRID_KEYWORD' })
   }
   for (const h of hits(sentence, ONSITE_RE)) {
+    // "2 days in the office" is one hybrid phrase: its "in the office" is not an onsite signal.
+    if (hybrid.some((p) => h.index >= p.index && h.index < p.index + p.text.length)) continue
     if (isNegated(sentence, h.index) || isSoftened(sentence, h.index)) continue
     out.push({ value: 'ONSITE', code: 'ONSITE_KEYWORD' })
   }
@@ -337,7 +339,7 @@ const B2B_RE = /\bb\s?-?2\s?-?b\b|(?<!\p{L})фоп(?!\p{L})|\bjdg\b|\bsole propr
 const CONTRACTOR_RE =
   /\bcontractor\b|\bfreelanc\w*|\bself[- ]employed\b|\b1099\b|договір підряду|\bcontract\b/giu
 const EMPLOYEE_RE =
-  /\bemployment contract\b|\bcontract of employment\b|\bpermanent employ\w*|\bemployee\b|\bw-?2\b|трудов\p{L}* договір|\bumowa o pracę\b|\barbeitsvertrag\b/giu
+  /\bemployment contract\b|\bcontract of employment\b|\bpermanent employ\w*|\bemployee\b|\bw-?2\b|трудов\p{L}* договір|\bumowa o pracę(?!\p{L})|\barbeitsvertrag\b/giu
 
 const extractBasis: Extractor<BasisSignal> = (sentence) => {
   const out: Array<{ value: BasisSignal; code: string }> = []
@@ -410,7 +412,7 @@ function classifyDuration(input: Layer1Input): Dimension<Duration> {
 }
 
 const NO_AGENCY_RE =
-  /\b(?:no|not|without)\s+(?:\w+\s+){0,2}(?:agenc(?:y|ies)|recruiters|vendors)\b|\bagenc(?:y|ies)\s+(?:need not|should not|do not|don't|please do not|not)\b|\bno third[- ]party\b|без (?:посередників|агенцій|рекрутинг\p{L}*)|без посредников/giu
+  /\b(?:no|not|without)\s+(?:\w+\s+){0,3}(?:agenc(?:y|ies)|recruiters|vendors)\b|\bagenc(?:y|ies)\s+(?:need not|should not|do not|don't|please do not|not)\b|\bno third[- ]party\b|без (?:посередників|агенцій|рекрутинг\p{L}*)|без посредников/giu
 const AGENCY_OK_RE =
   /\b(?:agenc(?:y|ies)|recruiters|vendors)\s+(?:are\s+)?(?:welcome|accepted|encouraged)\b|\bopen to (?:recruitment\s+)?agenc(?:y|ies)\b|\bwe (?:work|partner) with (?:recruitment |staffing )?agenc(?:y|ies)\b/giu
 
@@ -563,8 +565,8 @@ function classifySeniority(input: Layer1Input): Dimension<Seniority> {
 /** A body-derived junior reading is a hint, not a strong explicit contradiction: it only warns. */
 function levelVerdict(level: Seniority, fromBody: boolean): Verdict {
   if (level === 'INTERN' || level === 'JUNIOR') return fromBody ? 'WARN_UNKNOWN' : 'REJECT'
-  if (level === 'EXECUTIVE' || level === 'UNKNOWN') return 'WARN_UNKNOWN'
-  return 'PASS'
+  // Above the studio's middle-teamlead range is not a stated rejection: it only warns.
+  return level === 'EXECUTIVE' ? 'WARN_UNKNOWN' : 'PASS'
 }
 
 const LEADS_RE =
@@ -617,7 +619,7 @@ function classifyLeadership(input: Layer1Input): Dimension<Leadership> {
 
 const REGION_NAMES: ReadonlyArray<readonly [string, string]> = [
   ['EUROPE', 'europe|eu|emea|європ\\p{L}*|европ\\p{L}*'],
-  ['US', 'us|usa|u\\.s\\.|united states|сша'],
+  ['US', 'us|usa|u\\.s\\.?|united states|сша'],
   ['UK', 'uk|united kingdom'],
   ['CANADA', 'canada'],
   ['LATAM', 'latam|latin america'],
@@ -630,7 +632,7 @@ const REGION_LIMIT_RE = new RegExp(
   'giu',
 )
 const WORK_AUTH_RE =
-  /\b(?:authori[sz]ed|eligible|legally entitled|legal right) to work in (?:the )?(us|u\.s\.|united states|uk|canada|eu)\b|\b(us|u\.s\.) work authori[sz]ation\b|\b(us|u\.s\.) citizen\w*\b|дозвіл на роботу в (сша)|разрешение на работу в (сша)|arbeitserlaubnis/giu
+  /\b(?:authori[sz]ed|eligible|legally entitled|legal right) to work in (?:the )?(us|u\.s\.?|united states|uk|canada|eu)(?!\p{L})|\b(us|u\.s\.?) work authori[sz]ation\b|\b(us|u\.s\.?) citizen\w*\b|дозвіл на роботу в (сша)|разрешение на работу в (сша)|arbeitserlaubnis/giu
 
 function regionCode(word: string): string {
   const w = word.toLowerCase()
@@ -702,8 +704,8 @@ function classifySalary(input: Layer1Input): {
   flag: Layer1Flag | null
 } {
   const salary = input.salary
-  const top = salary ? (salary.max ?? salary.min) : null
-  if (!salary || top === null || !Number.isFinite(top) || top <= 0)
+  const top = salary?.max ?? salary?.min ?? 0
+  if (!salary || !(top > 0 && Number.isFinite(top)))
     return {
       dimension: dim<SalaryValue>({ state: 'UNKNOWN', monthlyUsd: null }, 'PASS', [
         policyNote('SALARY_UNKNOWN'),
