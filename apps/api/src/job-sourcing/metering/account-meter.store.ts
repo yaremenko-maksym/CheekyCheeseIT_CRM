@@ -288,7 +288,7 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
     // killable arm too, which is lost signal, so it was removed.
     if (next === null) return meter
     // Hoisted out of the `.set({ ... })` below rather than written inline, which is the workaround
-    // backlog 312 names: a `Stryker disable` is not honoured inside a method chain, so a line that
+    // backlog 315 names: a `Stryker disable` is not honoured inside a method chain, so a line that
     // genuinely needs one has to be a statement. The clock text itself is SQL — only Postgres
     // evaluates it, and a database double is handed the object whatever it says.
     // Stryker disable next-line StringLiteral: SQL text, only Postgres evaluates it

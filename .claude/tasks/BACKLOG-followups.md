@@ -4885,11 +4885,12 @@ read `SKIPPED (no Task declared)` rather than `n/a`, or require its own skip lin
 vitest setup file does not report `Tests: MISSING`; and a `Skip-Task:` PR shows Spec-Review as skipped
 with a reason rather than as not applicable.
 
-## 312. A Stryker directive inside a method chain is silently not honoured (2026-10-24)
+## 315. A Stryker directive inside a method chain is silently not honoured (2026-10-24)
 
 **Open** — a tooling fact with no mechanism behind it, so it will be rediscovered unless it is written
-down. Number 312 because 308 is the entry above, and 309 through 311 were taken by branches and
-sessions in flight on the same day.
+down. Renumbered from 312 to 315 before merge: another session's entry 312 reached `main` first, and
+by the cross-session protocol the second to merge renumbers. 313 is the entry below, and 314 is
+claimed by a branch in flight.
 
 A `// Stryker disable next-line <mutator>` comment suppresses the mutants of the statement below it.
 Placed inside a multi-line method chain — above a chained call, or trailing the line before it — it
@@ -4913,9 +4914,9 @@ moves. If the count is unchanged, the directive is decoration and the line is st
 
 ## 313. The mutation gate reads a mutant killed only by rejection tests as surviving (2026-10-24)
 
-**Open** — a tool fact with no mechanism behind it, measured independently twice. Number 313 because
-312 is the entry above; `origin/main`'s highest was 307, and 309 through 311 were taken by branches
-and sessions in flight on the same day.
+**Open** — a tool fact with no mechanism behind it, measured independently twice. 313 was free when
+taken and nothing has claimed it since; its sibling entry on the chain-directive quirk had to be
+renumbered to 315, so the two no longer sit next to each other in the file.
 
 Stryker's per-test attribution does not select a test whose assertion is on a **rejection** — that
 the call under test throws, or that a promise rejects. A mutant whose only killers are such tests is
@@ -4933,7 +4934,7 @@ running the unit suite:
 - the no-op arm of the settlement state machine, forced always-true: **2 unit tests fail**, the two
   refused-transition cases, which assert on a rejection for the same reason.
 
-Why it costs more than the chain-directive quirk of entry 312: that one fails toward a red gate and
+Why it costs more than the chain-directive quirk of entry 315: that one fails toward a red gate and
 merely wastes time, while this one invites the wrong repair. The natural response to a survivor you
 cannot explain is a suppression, and a suppression here hides a line the tests were already
 guarding — so the gate stops watching a line that was never unwatched, and the file now tells the
