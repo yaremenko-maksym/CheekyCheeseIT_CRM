@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { kyivDayOf, kyivToday } from './kyiv-day'
+import { kyivDayOf, kyivToday, latestSettleBusinessDay } from './kyiv-day'
 
 /**
  * `kyivDayOf` — the same Kyiv calendar day, for an instant the CALLER supplies
@@ -29,6 +29,52 @@ describe('kyivDayOf', () => {
 
   it('agrees with kyivToday for the current instant — one definition, two entry points', () => {
     expect(kyivDayOf(new Date())).toBe(kyivToday())
+  })
+})
+
+/**
+ * `latestSettleBusinessDay` — CR-M-4. The settle upper bound, defined once and
+ * called by both the server (`PendingSettlementService`) and the picker
+ * (`SettleSeniorPayoutDialog`), where it used to be hand-written twice.
+ *
+ * The clock is frozen for every case: the bound is relative to "today", so a
+ * test that computed its fixtures from the real clock would be asserting
+ * against a moving target.
+ */
+describe('latestSettleBusinessDay', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    // Kyiv 2026-06-15 15:00 EEST = UTC 12:00 — mid-day, so UTC and Kyiv agree
+    // on the day and these cases isolate the max() from the calendar question.
+    vi.setSystemTime(new Date('2026-06-15T12:00:00.000Z'))
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('returns TODAY when the source row is in the past', () => {
+    expect(latestSettleBusinessDay('2026-06-01')).toBe('2026-06-15')
+  })
+
+  it('returns the SOURCE day when it is in the future — the lock-out case', () => {
+    // A flat "not after today" would give 2026-06-15 here, which is BELOW the
+    // lower bound (the source day), leaving no selectable day at all.
+    expect(latestSettleBusinessDay('2026-06-25')).toBe('2026-06-25')
+  })
+
+  it('returns today when the source row IS today — both branches agree', () => {
+    expect(latestSettleBusinessDay('2026-06-15')).toBe('2026-06-15')
+  })
+
+  // The bound is the KYIV day, not the UTC day. Between Kyiv midnight and UTC
+  // midnight the two disagree, and a UTC-based bound would be a day behind —
+  // refusing a date the operator's own picker had just offered. This case fails
+  // if `kyivToday()` is swapped for a UTC "today".
+  it('uses the KYIV day, not the UTC day, in the window where they differ', () => {
+    // UTC 2026-07-14T21:30Z is already 2026-07-15 in Kyiv (EEST, +3).
+    vi.setSystemTime(new Date('2026-07-14T21:30:00.000Z'))
+    expect(latestSettleBusinessDay('2026-07-01')).toBe('2026-07-15')
   })
 })
 

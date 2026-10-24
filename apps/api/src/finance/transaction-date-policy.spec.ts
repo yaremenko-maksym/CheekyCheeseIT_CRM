@@ -193,6 +193,66 @@ describe('resolveTransactionDateWithPolicy — future dates', () => {
   })
 })
 
+/**
+ * CR-M-2 — the policy's "today" is the KYIV day, and these cases fail if it is
+ * swapped for the UTC day.
+ *
+ * Between Kyiv midnight and UTC midnight (two hours in winter, three in summer)
+ * the two calendars disagree. Every other test in this file would pass under
+ * either definition, because they use instants where the two agree — so without
+ * these two the choice of calendar is unpinned, and a UTC-day policy would
+ * silently refuse a date the operator's own Kyiv-based picker had just offered.
+ *
+ * The instant is injected rather than faked globally, which is the whole reason
+ * `kyivDayOf` exists as a separate entry point from `kyivToday`.
+ */
+describe('resolveTransactionDateWithPolicy — the business day is the Kyiv day', () => {
+  // UTC 2026-07-14T21:30Z is already 2026-07-15 in Kyiv (EEST, UTC+3).
+  const INSIDE_THE_WINDOW = new Date('2026-07-14T21:30:00.000Z')
+
+  it('accepts the KYIV today for an executed flow, which the UTC day would refuse as future', () => {
+    expect(() =>
+      resolveTransactionDateWithPolicy('2026-07-15', {
+        role: 'SENIOR',
+        flow: 'EXECUTED',
+        now: INSIDE_THE_WINDOW,
+      }),
+    ).not.toThrow()
+  })
+
+  it('still refuses the day after the Kyiv today', () => {
+    const err = thrownFrom(() =>
+      resolveTransactionDateWithPolicy('2026-07-16', {
+        role: 'SENIOR',
+        flow: 'EXECUTED',
+        now: INSIDE_THE_WINDOW,
+      }),
+    )
+    expect((err.getResponse() as { code: string }).code).toBe('FINANCE_TX_DATE_IN_FUTURE')
+  })
+
+  it('measures the backdating window from the Kyiv day too', () => {
+    // Kyiv today is 2026-07-15, so the oldest day in a 31-day window is
+    // 2026-06-14. Under a UTC "today" of 2026-07-14 it would be 2026-06-13, and
+    // 2026-06-14 would be a day further inside the window than it really is.
+    expect(() =>
+      resolveTransactionDateWithPolicy('2026-06-14', {
+        role: 'SENIOR',
+        flow: 'EXECUTED',
+        now: INSIDE_THE_WINDOW,
+      }),
+    ).not.toThrow()
+    const err = thrownFrom(() =>
+      resolveTransactionDateWithPolicy('2026-06-13', {
+        role: 'SENIOR',
+        flow: 'EXECUTED',
+        now: INSIDE_THE_WINDOW,
+      }),
+    )
+    expect((err.getResponse() as { code: string }).code).toBe('FINANCE_TX_DATE_TOO_OLD')
+  })
+})
+
 describe('resolveTransactionDateWithPolicy — delegation to the timestamp resolver', () => {
   it('stores an accepted past day at UTC midnight', () => {
     const now = new Date('2026-10-05T18:12:34.567Z')

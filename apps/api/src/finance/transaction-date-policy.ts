@@ -17,14 +17,19 @@ import { resolveTransactionDate } from './transaction-date.util'
  * stamps onto the invoice — a legal document — with no check against the
  * on-chain transfer time the flow had already verified.
  *
- * Owner decision D-2 (RESOLVED 2026-10-22), implemented here verbatim:
- *   - future dates only for PENDING/planned rows;
- *   - SENIOR/DROP may backdate at most 31 days;
+ * Owner decision D-2 (RESOLVED 2026-10-22). Three of its four clauses are
+ * implemented here; the fourth is NOT implemented anywhere yet:
+ *   - future dates only for PENDING/planned rows — implemented;
+ *   - SENIOR/DROP may backdate at most 31 days — implemented;
  *   - ADMIN/ACCOUNTANT may go beyond 31 days only with a mandatory reason,
- *     which is written to the audit log;
- *   - on-chain-verified flows take the date from the block timestamp (that one
- *     is enforced at those call sites, which have the verification in hand —
- *     they pass no client date here at all).
+ *     which is written to the audit log — implemented;
+ *   - on-chain-verified flows take the date from the block timestamp —
+ *     **NOT implemented**. `submitDeposit` and the payout cascade both pass the
+ *     CLIENT's date to this function and persist what it returns. They are
+ *     bounded by the rules above, which is strictly better than the unbounded
+ *     value #809 shipped, but a bounded client value is still a client value:
+ *     on a verified transfer it can misstate the real on-chain settlement day,
+ *     and that day is printed on an invoice. See the on-chain section below.
  *
  * ── WHY HERE AND NOT IN THE ZOD SCHEMA ──────────────────────────────────────
  * Two of the three rules depend on the CALLER (which role) and on the FLOW
@@ -67,6 +72,25 @@ import { resolveTransactionDate } from './transaction-date.util'
  * `createAdminIncome`, `declareUsdtProjectIncome`, `createPayoutRequest`,
  * `confirmPayout`, `applyPayoutPaidCascade` (both `payPayoutRequest` and
  * `manualConfirmPayout`), `submitDeposit`, `createDividend`.
+ *
+ * ── THE ONE WRITER THAT DELIBERATELY DOES NOT CALL THIS (CR-M-4) ────────────
+ * `PendingSettlementService.settleByCompany` is a 14th writer of
+ * `transactions.tx_date` and does NOT route through this function, because its
+ * rule is a different rule: a settlement is bounded RELATIVE TO THE ROW IT
+ * SETTLES (`sourceDate <= selected <= max(kyivToday(), sourceDate)`), which
+ * needs the source row this function never sees. Collapsing the two would mean
+ * passing row context into a role/flow policy, or losing the row-relative lower
+ * bound — so it keeps its own bound, deliberately.
+ *
+ * What it does NOT keep is its own copy of the arithmetic: the upper bound is
+ * `latestSettleBusinessDay` in `@crm/shared`, called by both the service and the
+ * picker's `maxDate`. It was hand-written in both until CR-M-4, which is the
+ * duplicated-predicate defect (CR-795-M-7) reappearing inside the change meant
+ * to end it.
+ *
+ * Its residual gap is narrower than the four above: it has no backdating window
+ * and no audit reason, so an ADMIN/ACCOUNTANT can date a settlement anywhere
+ * between the source day and today without stating why.
  *
  * ── THE ON-CHAIN CLAUSE OF D-2 IS NOT MET ───────────────────────────────────
  * D-2 says an on-chain-verified flow should take its date FROM the verified

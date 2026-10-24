@@ -82,3 +82,29 @@ export function kyivDayOf(at: Date): string {
 export function kyivToday(): string {
   return kyivDayOf(new Date())
 }
+
+/**
+ * The latest business day a settlement may be recorded as of, given the business
+ * day of the row it settles: `max(kyivToday(), sourceBusinessDay)`.
+ *
+ * ONE definition, called by both enforcement points — `PendingSettlementService`
+ * (the server bound) and `SettleSeniorPayoutDialog` (the picker's `maxDate`).
+ * CR-M-4: it used to be hand-written in both, which is `CR-795-M-7`'s
+ * duplicated-predicate defect reappearing inside the very change meant to end
+ * it, and it carried two separate Stryker equivalence proofs for one rule.
+ *
+ * Why the bound is a MAX rather than simply "today" (SR-809-M-2 / CR-809-H-1):
+ * a settlement never predates the row it settles, so the lower bound is that
+ * row's own day. If that day is itself in the future, a flat "not after today"
+ * upper bound sits BELOW the lower one — `min > max`, an empty date picker, and
+ * an obligation nobody can settle. Taking the later of the two keeps the range
+ * non-empty in exactly that case and changes nothing otherwise.
+ *
+ * Both arguments and the result are `YYYY-MM-DD`, where string ordering IS
+ * calendar ordering, so no timezone arithmetic happens here.
+ */
+export function latestSettleBusinessDay(sourceBusinessDay: string): string {
+  const today = kyivToday()
+  // Stryker disable next-line EqualityOperator: PROVABLY equivalent mutant (`>` to `>=`), not an untested bound. The two differ in which BRANCH is taken only when the operands are equal, and then both branches return the same string. Verified exhaustively over the three orderings (source after / equal to / before today): the returned value is identical for all three, so no test can distinguish the mutant. WHICH of the two values is returned is tested both ways in kyiv-day.spec.ts.
+  return sourceBusinessDay > today ? sourceBusinessDay : today
+}

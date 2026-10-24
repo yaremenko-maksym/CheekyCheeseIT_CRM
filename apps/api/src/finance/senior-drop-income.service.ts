@@ -51,11 +51,6 @@ export class SeniorDropIncomeService {
       receiptExternalUrl?: string | null | undefined
       notes?: string | null | undefined
       txDate?: string | null | undefined
-      // SR-809-H-1 / D-2: travels with txDate (see transactionBusinessDateFields
-      // in @crm/shared). Only an ADMIN/ACCOUNTANT backdating beyond the 31-day
-      // window can consume it; for the self-service roles this endpoint serves,
-      // the policy refuses such a date outright and the field is inert.
-      backdateReason?: string | null | undefined
     },
     currentUser: SessionUser,
   ) {
@@ -190,10 +185,15 @@ export class SeniorDropIncomeService {
           // but never moved into the future. Scenario 1 of the finding is a
           // SENIOR declaring a missed month late: that is now refused past the
           // window instead of silently restating a reported month.
+          // No `backdateReason` is passed ON PURPOSE (security-review LOW): this
+          // endpoint is self-service, so the actor is SENIOR or DROP, and neither
+          // is exempt from the backdating window under D-2 — a reason could never
+          // be consumed here. Same reasoning as `submitDeposit` and
+          // `createPayoutRequest`: a parameter that cannot change any outcome
+          // lies about what the code does.
           txDate: resolveTransactionDateWithPolicy(data.txDate, {
             role: currentUser.role,
             flow: 'EXECUTED',
-            backdateReason: data.backdateReason,
           }).txDate,
           createdBy: currentUser.id,
         })
@@ -245,11 +245,6 @@ export class SeniorDropIncomeService {
       receiptExternalUrl?: string | null | undefined
       notes?: string | null | undefined
       txDate?: string | null | undefined
-      // SR-809-H-1 / D-2: travels with txDate (see transactionBusinessDateFields
-      // in @crm/shared). Only an ADMIN/ACCOUNTANT backdating beyond the 31-day
-      // window can consume it; for the self-service roles this endpoint serves,
-      // the policy refuses such a date outright and the field is inert.
-      backdateReason?: string | null | undefined
     },
     currentUser: SessionUser,
   ) {
@@ -356,10 +351,15 @@ export class SeniorDropIncomeService {
           // but never moved into the future. Scenario 1 of the finding is a
           // SENIOR declaring a missed month late: that is now refused past the
           // window instead of silently restating a reported month.
+          // No `backdateReason` is passed ON PURPOSE (security-review LOW): this
+          // endpoint is self-service, so the actor is SENIOR or DROP, and neither
+          // is exempt from the backdating window under D-2 — a reason could never
+          // be consumed here. Same reasoning as `submitDeposit` and
+          // `createPayoutRequest`: a parameter that cannot change any outcome
+          // lies about what the code does.
           txDate: resolveTransactionDateWithPolicy(data.txDate, {
             role: currentUser.role,
             flow: 'EXECUTED',
-            backdateReason: data.backdateReason,
           }).txDate,
           createdBy: currentUser.id,
         })

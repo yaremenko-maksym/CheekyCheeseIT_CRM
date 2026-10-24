@@ -318,8 +318,26 @@ describe('AdminIncomeService.createAdminIncome', () => {
       currency: 'EUR' as const,
       receiptExternalUrl: 'https://x.io/r',
     }
+    // CR-M-3: the clock is PINNED, and the offsets are derived from the pinned
+    // instant rather than from `Date.now()`. These cases compared a UTC-derived
+    // day against a KYIV-day policy, so for the two-to-three hours a day the two
+    // calendars disagree, `dayOffset(1)` was Kyiv-TODAY rather than tomorrow and
+    // "refuses a future date" failed — a test that passes depending on when it
+    // runs, which teaches people to re-run red until green. Noon UTC is chosen
+    // because Kyiv and UTC agree on the day there, so the arithmetic below means
+    // exactly what it reads as.
+    const PINNED_NOW = new Date('2026-06-15T12:00:00.000Z')
     const dayOffset = (days: number) =>
-      new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10)
+      new Date(PINNED_NOW.getTime() + days * 86_400_000).toISOString().slice(0, 10)
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(PINNED_NOW)
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
 
     it('refuses a future date — an income records money already received', async () => {
       const h = make()
@@ -689,6 +707,20 @@ describe('AdminIncomeService.declareUsdtProjectIncome', () => {
   })
 
   describe('obligation parties', () => {
+    // CR-M-3: same pinning as the `createAdminIncome` policy block above — two
+    // cases below derive a day from the clock and compare it against a Kyiv-day
+    // policy, which is only unambiguous when the two calendars agree.
+    const PINNED_NOW = new Date('2026-06-15T12:00:00.000Z')
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(PINNED_NOW)
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
     const senior = { id: 'sen-1', role: 'SENIOR', seniorSharePercent: 40 }
     const dropUser = { id: 'drop-1', role: 'DROP', dropSharePercent: 7 }
     const withParties = () =>
@@ -757,7 +789,7 @@ describe('AdminIncomeService.declareUsdtProjectIncome', () => {
 
     it('writes no audit row for an in-window date — there was no exemption to justify', async () => {
       const h = withParties()
-      const recent = new Date(Date.now() - 3 * 86_400_000).toISOString().slice(0, 10)
+      const recent = new Date(PINNED_NOW.getTime() - 3 * 86_400_000).toISOString().slice(0, 10)
       await h.svc.declareUsdtProjectIncome({ ...base, txDate: recent }, ADMIN)
       expect(h.auditInserts).toEqual([])
     })
@@ -774,7 +806,7 @@ describe('AdminIncomeService.declareUsdtProjectIncome', () => {
 
     it('refuses a future income date outright — a reason does not make money arrive tomorrow', async () => {
       const h = withParties()
-      const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)
+      const tomorrow = new Date(PINNED_NOW.getTime() + 86_400_000).toISOString().slice(0, 10)
       await expect(
         h.svc.declareUsdtProjectIncome(
           { ...base, txDate: tomorrow, backdateReason: 'anything' },
