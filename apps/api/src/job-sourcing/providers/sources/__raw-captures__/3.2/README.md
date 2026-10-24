@@ -1,11 +1,14 @@
 # Raw captures kept for Task 3.2
 
-Only captures that a spec or a provenance hash depends on are kept, and only if they carry no other
-people's personal data. Anything carrying comments or other user-submitted text is not committed:
-the Hacker News threads and the two Arbeitnow job pages were removed (see the Privacy record).
-Whether a kept capture holds an e-mail address is established by the scan in `fixture-provenance.spec.ts`
-(every `@`-equivalent token is reported and allow-listed by reason), not by this sentence; the scan reads
-addresses, not names, and not LinkedIn links or phone numbers.
+A raw capture is kept only if a spec reads it or a provenance note cites it as evidence, and only if it
+carries no other people's personal data. Anything carrying comments or other user-submitted text is not
+committed: the Hacker News threads and the two Arbeitnow job pages were removed (see the Privacy record).
+Two instruments, in `fixture-provenance.spec.ts`, establish what is true of the kept files (this prose
+does not): a scan that reports every `@`-equivalent token and allow-lists each hit by reason (addresses,
+not names, not phone numbers), and a zero-tolerance test for personal `linkedin.com/in/` profile links in
+both scanned roots (decode-first, no allow-list; `/pub/` paths and `lnkd.in` are out of its scope).
+`an-terms.html` is NOT the bytes received: one personal profile slug on Arbeitnow's own terms page was
+replaced by a same-length run of x characters by hand (the terms text is unchanged).
 
 | File                                               | What it proves                                                                                                                                 |
 | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -31,24 +34,34 @@ addresses, not names, and not LinkedIn links or phone numbers.
   to delete both files, as for Hacker News. `arbeitnow/page-1` keeps the hash of the bytes as RECEIVED
   and the measured sizes (4209793 and 2311796 bytes) in its provenance; `arbeitnow.provider.spec.ts`
   generates bodies of exactly those sizes.
-- **Residual, a decision and not a pending action (owner, 2026-10-24):** the Hacker News blobs, the
-  pre-redaction `an-p1`, the redacted `an-p1` and `an-p2` all remain reachable by sha and by commit path
-  from this branch's history. Deleting the branch after merge does not purge them; a squash merge keeps
-  them out of `main` without deleting them. The owner decided NOT to ask GitHub to purge the history and
-  judged that acceptable for this content. Two review bodies on this PR that quoted two of the addresses
-  were redacted; their edit history stays, by the same decision.
-- The guard is `fixture-provenance.spec.ts`: it walks the whole `__fixtures__` tree and the whole `__raw-captures__` directory and fails on
-  any hit not on its per-file allow-list, and on a committed `hn-*` or `an-p1`/`an-p2` raw.
+- **Residual, a decision and not a pending action (owner, 2026-10-24):** the following all remain
+  reachable by sha and by commit path from this branch's history: the Hacker News raw captures; the
+  pre-redaction and redacted `an-p1` and `an-p2`; and the pre-redaction LinkedIn profile slugs (three
+  named people, one a full-name slug) in earlier commits of `an-terms.html` (first committed in
+  `81aba17f6`, moved in `09eb1eb61`, redacted in `435be6415`) and of the two hn-hiring fixtures
+  `thread-2026-10.json` and `thread-2019-05.json` (first committed in `4adb81b61`, redacted in
+  `435be6415`). Deleting the branch after merge does not purge them; a squash merge keeps them out of
+  `main` without deleting them. The owner decided NOT to ask GitHub to purge the history and judged that
+  acceptable for this content. Two review bodies on this PR that quoted two of the addresses were
+  redacted; their edit history stays, by the same decision. History is not rewritten.
+
+- The guards are in `fixture-provenance.spec.ts` (see the top of this file): the token scan with its
+  per-file allow-list, the profile-link test, and a test that fails if an `hn-*` or `an-p1`/`an-p2` raw is
+  committed again.
+- Three hn-hiring fixtures and `an-terms.html` also had personal LinkedIn slugs replaced by hand (same-length
+  x runs, `fileSha256` and notes updated for the two HN fixtures); see the residual bullet for where the
+  originals live.
 - HN author handles are kept verbatim in the trimmed fixtures: they are public pseudonyms and the
   adapter uses them as the posting account (`HN @<handle>`).
 - `termsCheckedAt` is one value across every provenance file: the date (2026-10-24) is when the
   terms were read, the time of day is a single stand-in.
-- Re-derivability: only the four Jobgether provenance files are proven against `trim-captures-3.2.mjs`
-  by a run (their raw captures are committed, and re-running the script leaves them byte for byte
-  unchanged). The four HN notes, the Working Nomads note and the Arbeitnow `page-1` note are produced
-  by the script only when their raw captures are present, which they are not, so none of those six was
-  regenerated by a run. The HN and Working Nomads notes were patched by hand to match the script's text;
-  the `page-1` note additionally carries a RAW REMOVED sentence the script does not write. Script and JSON
-  agree by reading, not by a run, and `page-1` does not agree on that sentence.
+- Re-derivability: five provenance files are proven against `trim-captures-3.2.mjs` by a run, because
+  their raw captures are committed and re-running the script leaves them byte for byte unchanged: the four
+  Jobgether files and `arbeitnow/empty-page`. The other six (four HN notes, the Working Nomads note,
+  `arbeitnow/page-1`) are produced by the script only when their raw captures are present, which they are
+  not, so none was regenerated by a run. The HN and Working Nomads notes were patched by hand to match the
+  script's text; `page-1` additionally carries a RAW REMOVED sentence the script does not write, and two HN
+  notes carry a LATER HAND REDACTION sentence. Script and JSON agree by reading, not by a run, except on
+  those sentences.
 - Who read the third-party terms: an AI coding agent (the Working Nomads page also by a reviewing
   agent). This is not legal advice, and no review by a lawyer or the owner is recorded here.

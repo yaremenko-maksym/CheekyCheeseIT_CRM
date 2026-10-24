@@ -179,10 +179,15 @@ describe('fixture provenance', () => {
  * beside an allow-listed role mailbox (e.g. the managing director in an Impressum block) is personal
  * data this instrument never looks for.
  *
- * PROFILE LINKS have their own zero-tolerance test below (no allow-list). PHONE NUMBERS are NOT
+ * PROFILE LINKS have their own zero-tolerance test below (no allow-list), decode-first rather than a
+ * list of slash spellings. It looks for `linkedin.com/in/` only: a `/pub/` profile path and the
+ * `lnkd.in` short domain are OUT OF SCOPE (none in the corpus), as is any other social network. PHONE NUMBERS are NOT
  * scanned: none exist in the remaining files, a phone pattern is far noisier than a profile path, and a
  * guard with no subject is decoration; the four mobile numbers found earlier left with the deleted
  * Arbeitnow page captures.
+ *
+ * ALSO NOT LOOKED FOR: first names that sit beside a redacted link (a poster signing off with a first
+ * name), and the role address in the HN fixture, which is allow-listed above, not absent.
  *
  * NOT COVERED (a scan that reads nothing passes like one that finds nothing, so the limits are stated):
  * the spelled-out form `x at y dot z` (none exists in the tree today); any compression but `.gz` (a
@@ -203,13 +208,12 @@ const LABEL = String.raw`[A-Za-z0-9-]+`
 const TOKEN_HIT = String.raw`[A-Za-z0-9._%+-]*${TOKEN}[A-Za-z0-9.-]*`
 const OBFUSCATED_HIT = String.raw`[A-Za-z0-9._%+-]+${AT}${LABEL}(?:${DOT}${LABEL})*`
 const HIT = new RegExp(`${TOKEN_HIT}|${OBFUSCATED_HIT}`, 'gi')
-// The WHOLE placeholder, local part included: `redacted@example.invalid` (the parser's), or the
-// same-length `x...x%40example.invalid` of the Safelinks redaction, which the hit grammar reaches with
-// its `%7C` URL separators attached. A real local part on the reserved domain is NOT a placeholder:
-// `Jane.Tan%40example.invalid` is the defect this scan exists to catch.
-const isPlaceholder = (hit: string) =>
-  /^redacted@example\.invalid$/i.test(hit) ||
-  /^(?:[A-Za-z0-9._%+-]*%7C)?x+%40example\.invalid$/i.test(hit)
+// The WHOLE placeholder, local part included: only the parser's `redacted@example.invalid`. A real
+// local part on the reserved domain is NOT a placeholder: `Jane.Tan%40example.invalid` is the defect
+// this scan exists to catch. (A second form, a run of x characters before `%40example.invalid`, was the
+// Safelinks redaction in the deleted Arbeitnow capture; no committed file has it, so it is not accepted:
+// a guard branch with no subject only widens what the scan lets through.)
+const isPlaceholder = (hit: string) => /^redacted@example\.invalid$/i.test(hit)
 
 const ALLOWED_HITS: Array<{ file: string; reason: string; hits: string[] }> = [
   {
@@ -347,15 +351,33 @@ function hitsIn(path: string): string[] {
   return hitsOf(textIn(path))
 }
 
-// A personal LinkedIn profile link: `linkedin.com/in/<slug>` with the slashes as they occur in the
-// corpus: literal, JSON-escaped (`\/`), or HTML-entity (`&#x2F;`, `&#47;`) as the HN API writes them, or
-// percent-encoded. A literal-slash-only pattern returned ZERO on captures that held 12 (JSON escapes the
-// slash), which is why the controls below exist. A slug that is only x characters is the redaction.
-const SLASH = String.raw`(?:\\?/|&#x2F;|&#47;|%2F)`
-const PROFILE_LINK = new RegExp(
-  String.raw`linkedin\.com${SLASH}in${SLASH}(?!x+(?![A-Za-z0-9_%-]))[A-Za-z0-9_%-]+`,
-  'gi',
-)
+// A personal LinkedIn profile link: `linkedin.com/in/<slug>` AFTER the delimiters are decoded. The
+// earlier misses (`%40` for the at-sign, `&#x2F;` for the slash) were always an ENCODING of a delimiter,
+// so this does not list slash spellings: it decodes entities (numeric with any padding, with or without
+// the semicolon, and the named ones), percent-escapes, `\uXXXX`, `\xXX` and JSON's `\/`, repeatedly
+// (double-escaping occurs in this corpus), and then matches the plain text. A slug that is only x
+// characters is the redaction.
+const NAMED_ENTITIES: Record<string, string> = { sol: '/', period: '.', commat: '@', amp: '&' }
+const fromCode = (code: number, original: string) =>
+  Number.isInteger(code) && code >= 0 && code <= 0x10ffff ? String.fromCodePoint(code) : original
+function decodeDelimiters(input: string): string {
+  let text = input
+  for (let round = 0; round < 4; round += 1) {
+    const next = text
+      .replace(/&#x([0-9a-f]+);?/gi, (m, h: string) => fromCode(parseInt(h, 16), m))
+      .replace(/&#(\d+);?/g, (m, d: string) => fromCode(parseInt(d, 10), m))
+      .replace(/&([a-z]+);/gi, (m, n: string) => NAMED_ENTITIES[n.toLowerCase()] ?? m)
+      .replace(/%([0-9a-f]{2})/gi, (_m, h: string) => String.fromCharCode(parseInt(h, 16)))
+      .replace(/\\u([0-9a-f]{4})/gi, (_m, h: string) => String.fromCharCode(parseInt(h, 16)))
+      .replace(/\\x([0-9a-f]{2})/gi, (_m, h: string) => String.fromCharCode(parseInt(h, 16)))
+      .replace(/\\\//g, '/')
+    if (next === text) break
+    text = next
+  }
+  return text
+}
+const PROFILE_LINK = /linkedin\.com\/in\/(?!x+(?![\w%-]))[\w%-]+/gi
+const profileLinksIn = (text: string) => decodeDelimiters(text).match(PROFILE_LINK) ?? []
 
 describe('every @-equivalent token in the two scanned roots is the placeholder or allow-listed by reason', () => {
   const files = [...walk(ROOT), ...walk(RAW_ROOT)]
@@ -408,14 +430,12 @@ describe('every @-equivalent token in the two scanned roots is the placeholder o
 
   it.each([
     ['redacted@example.invalid', true],
-    ['05%7C01%7Cxxxxxxxx%40example.invalid', true],
-    ['xxxx%40example.invalid', true],
     ['Jane.Tan%40example.invalid', false],
     ['05%7C02%7CJane.Tan%40example.invalid', false],
-    ['xxxxJane%40example.invalid', false],
+    ['xxxx%40example.invalid', false],
     ['jane@example.invalid', false],
-    ['xxxx@example.invalid', false],
-    ['xxxx%40example.com', false],
+    ['redacted@example.com', false],
+    ['xredacted@example.invalid', false],
   ])('placeholder %s: %s', (hit, expected) => {
     expect(isPlaceholder(hit)).toBe(expected)
   })
@@ -456,25 +476,33 @@ describe('every @-equivalent token in the two scanned roots is the placeholder o
 
   it.each([
     ['literal', 'see https://www.linkedin.com/in/jane-doe/ now'],
-    ['JSON-escaped', 'see https:\\/\\/www.linkedin.com\\/in\\/jane-doe\\/ now'],
-    ['HTML entity', 'see https:&#x2F;&#x2F;www.linkedin.com&#x2F;in&#x2F;jane-doe now'],
+    ['JSON-escaped slash', 'see https:\\/\\/www.linkedin.com\\/in\\/jane-doe\\/ now'],
+    ['hex entity', 'see https:&#x2F;&#x2F;www.linkedin.com&#x2F;in&#x2F;jane-doe now'],
+    ['padded hex entity', 'see linkedin.com&#x02F;in&#x02F;jane-doe now'],
     ['decimal entity', 'see linkedin.com&#47;in&#47;jane-doe now'],
-    ['percent-encoded', 'see linkedin.com%2Fin%2Fjane-doe now'],
-  ])('the profile-link pattern finds a planted %s link (control)', (_form, text) => {
-    expect(text.match(PROFILE_LINK)).toHaveLength(1)
+    ['padded decimal entity without semicolon', 'see linkedin.com&#047in&#047jane-doe now'],
+    ['named entity', 'see linkedin.com&sol;in&sol;jane-doe now'],
+    ['percent-encoded slash', 'see linkedin.com%2Fin%2Fjane-doe now'],
+    ['double percent-encoded slash', 'see linkedin.com%252Fin%252Fjane-doe now'],
+    ['encoded dot', 'see linkedin%2Ecom/in/jane-doe now'],
+    ['named-entity dot', 'see linkedin&period;com/in/jane-doe now'],
+    ['unicode escape', 'see linkedin.com\\u002fin\\u002fjane-doe now'],
+    ['double-escaped entity', 'see linkedin.com&amp;#x2F;in&amp;#x2F;jane-doe now'],
+  ])('the profile-link check finds a planted %s link (control)', (_form, text) => {
+    expect(profileLinksIn(text)).toHaveLength(1)
   })
 
   it.each([
     'see linkedin.com/in/xxxxxxxxxx/ now',
     'see linkedin.com&#x2F;in&#x2F;xxxxxxxxxx now',
     'see linkedin.com/company/arbeitnow now',
-  ])('the profile-link pattern ignores a redacted or company link (%s)', (text) => {
-    expect(text.match(PROFILE_LINK)).toBeNull()
+  ])('the profile-link check ignores a redacted or company link (%s)', (text) => {
+    expect(profileLinksIn(text)).toEqual([])
   })
 
   it('no personal LinkedIn profile link in either scanned root (no allow-list)', () => {
     const offenders = files.flatMap((file) =>
-      (textIn(file).match(PROFILE_LINK) ?? []).map((m) => `${labelOf(file)}: ${m}`),
+      profileLinksIn(textIn(file)).map((m) => `${labelOf(file)}: ${m}`),
     )
     expect(offenders).toEqual([])
   })

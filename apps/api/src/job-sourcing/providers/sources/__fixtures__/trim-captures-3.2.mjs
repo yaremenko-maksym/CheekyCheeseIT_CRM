@@ -8,8 +8,11 @@
 // A section whose raw capture is not in __raw-captures__/3.2/ is SKIPPED, not failed: only the Jobgether,
 // Arbeitnow empty-page and terms/robots captures are kept; the Hacker News, Working Nomads and Arbeitnow page ones are not.
 // The Arbeitnow page 1/2 captures (an-p1, an-p2) are NOT committed any more: they held recruiters' personal
-// data. The `arbeitnow/page-1` provenance note therefore carries a RAW REMOVED sentence this script does
-// not write; if the raw is ever captured again locally, run this script and restore that sentence.
+// data. IF YOU CAPTURE ANY OF THESE AGAIN LOCALLY AND RUN THIS SCRIPT, it regenerates files that were later
+// edited by hand, and the new profile-link test will catch only part of it. Restore afterwards: (1) the RAW
+// REMOVED sentence in arbeitnow/page-1.provenance.json; (2) the x-slug redactions of personal LinkedIn links
+// in hn-hiring/thread-2026-10.json and thread-2019-05.json, with their fileSha256 and LATER HAND REDACTION
+// notes; (3) the x-slug in __raw-captures__/3.2/an-terms.html. `git diff` after the run shows all of it.
 // `rawSha256` is the sha256 of the bytes as RECEIVED (the decompressed capture).
 //
 // RAW CAPTURES THAT CARRY COMMENT OR OTHER USER-SUBMITTED TEXT ARE NEVER COMMITTED (task 3.1's
