@@ -439,25 +439,42 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(provider.fetchCalls).toBe(2)
     })
 
-    it('trigger mode over real rows: a SCHEDULED-only source is skipped by a MANUAL collectAll and runs under a SCHEDULED one', async () => {
+    it('trigger mode over real rows: a SCHEDULED-only source is skipped by a MANUAL collectAll and runs under a SCHEDULED one, even beside another enabled BOTH-mode DOU source', async () => {
       await dbSvc.db
         .update(jobSources)
         .set({ triggerMode: 'SCHEDULED', enabled: true, budgetLimit: 5, budgetWindow: 'MONTH' })
         .where(eq(jobSources.id, SOURCE_ID))
+      // A neighbour that every collectAll below WILL run (BOTH, enabled, same provider and feed).
+      // It can win the unique fingerprints before this spec's source, which is why nothing below
+      // asserts on posting counts of the scheduled run: only on this source's own row state.
+      const [neighbour] = await dbSvc.db
+        .insert(jobSources)
+        .values({ type: 'DOU_RSS', config: { category: 'Python' }, triggerMode: 'BOTH' })
+        .returning()
       const only = { onlyTypes: ['DOU_RSS' as const] }
 
-      await service.collectAll('MANUAL', only)
-      // Assert on this spec's own row only: other DOU rows may exist in a shared database.
-      const skipped = await sourceRow()
-      expect(skipped.budgetUsed).toBe(0)
-      expect(skipped.lastCollectedAt).toBeNull()
-      expect(await myPostings()).toHaveLength(0)
+      try {
+        const manualRun = await service.collectAll('MANUAL', only)
+        expect(manualRun.failures).toEqual([])
+        // The neighbour proves the run happened; our SCHEDULED-only row was not touched by it.
+        const neighbourAfter = (
+          await dbSvc.db.select().from(jobSources).where(eq(jobSources.id, neighbour!.id))
+        )[0]
+        expect(neighbourAfter?.lastCollectedAt).toBeInstanceOf(Date)
+        const skipped = await sourceRow()
+        expect(skipped.budgetUsed).toBe(0)
+        expect(skipped.lastCollectedAt).toBeNull()
+        expect(await myPostings()).toHaveLength(0)
 
-      await service.collectAll('SCHEDULED', only)
-      const ran = await sourceRow()
-      expect(ran.budgetUsed).toBe(1)
-      expect(ran.lastCollectedAt).toBeInstanceOf(Date)
-      expect(await myPostings()).toHaveLength(8)
+        await service.collectAll('SCHEDULED', only)
+        const ran = await sourceRow()
+        expect(ran.budgetUsed).toBe(1)
+        expect(ran.lastCollectedAt).toBeInstanceOf(Date)
+      } finally {
+        await dbSvc.db.delete(jobSuggestions).where(inArray(jobSuggestions.seniorId, SENIOR_IDS))
+        await dbSvc.db.delete(jobPostings).where(eq(jobPostings.sourceId, neighbour!.id))
+        await dbSvc.db.delete(jobSources).where(eq(jobSources.id, neighbour!.id))
+      }
     })
 
     it.todo('flag-on variant: add when the queue flag is wired (Task 4.6d)')

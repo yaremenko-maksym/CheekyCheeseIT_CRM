@@ -21,7 +21,7 @@ import { JobSourcingService, type BudgetedSource } from './job-sourcing.service'
  *
  * QUEUE FLAG: no queue flag exists in product code at the time of writing (checked: no env key and
  * no service branch named for one). This suite therefore proves the legacy path only; the flag-on
- * variant is NOT exercised and is recorded as an `it.todo` below. Adding it later needs the flag to
+ * variant is NOT exercised and is recorded as an `it.todo` in compat-barrier.integration.spec.ts. Adding it later needs the flag to
  * be wired first (Task 4.6d); it is not a parameter flip.
  */
 
