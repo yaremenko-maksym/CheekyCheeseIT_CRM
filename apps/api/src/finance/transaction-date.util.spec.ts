@@ -1,9 +1,24 @@
+import { HttpException, HttpStatus } from '@nestjs/common'
 import { describe, expect, it } from 'vitest'
 import {
   formatTransactionBusinessDate,
   parseTransactionBusinessDate,
   resolveTransactionDate,
 } from './transaction-date.util'
+
+/**
+ * Returns what `act` threw, or `undefined` when it returned normally — so the
+ * assertions stay unconditional (`vitest/no-conditional-expect`) while still
+ * inspecting the thrown value's status and code.
+ */
+function captureThrown(act: () => unknown): unknown {
+  try {
+    act()
+    return undefined
+  } catch (err) {
+    return err
+  }
+}
 
 describe('formatTransactionBusinessDate', () => {
   it('uses the UTC calendar date consistently', () => {
@@ -43,14 +58,31 @@ describe('resolveTransactionDate', () => {
     )
   })
 
-  it('fails loudly for a non-existent calendar date instead of silently recording now', () => {
+  // SR-809-L-2: this used to throw a bare `RangeError`, which Nest renders as a
+  // 500. A malformed date is the caller's mistake, so it must surface as a 400
+  // with a translatable code like every other finance rejection. The throw is
+  // defense-in-depth — the Zod boundary normally rejects first — so the code is
+  // only observable to a caller that bypassed validation.
+  it('rejects a non-existent calendar date as a 400, not a 500, instead of silently recording now', () => {
     const now = new Date('2026-10-05T18:12:34.567Z')
-    expect(() => resolveTransactionDate('2026-02-31', now)).toThrow(
-      'Invalid transaction business date: 2026-02-31',
-    )
-    expect(() => parseTransactionBusinessDate('2026-02-31')).toThrow(
-      'Invalid transaction business date: 2026-02-31',
-    )
+    const thrown = [
+      () => resolveTransactionDate('2026-02-31', now),
+      () => parseTransactionBusinessDate('2026-02-31'),
+    ].map(captureThrown)
+
+    expect(thrown.map((err) => err instanceof HttpException)).toEqual([true, true])
+    expect(thrown.map((err) => (err as HttpException).getStatus())).toEqual([
+      HttpStatus.BAD_REQUEST,
+      HttpStatus.BAD_REQUEST,
+    ])
+    expect(
+      thrown.map((err) => ((err as HttpException).getResponse() as { code: string }).code),
+    ).toEqual(['FINANCE_TX_DATE_INVALID', 'FINANCE_TX_DATE_INVALID'])
+  })
+
+  it('rejects a year outside the storable window as a 400', () => {
+    expect(() => parseTransactionBusinessDate('0000-01-01')).toThrow(HttpException)
+    expect(() => parseTransactionBusinessDate('9999-12-31')).toThrow(HttpException)
   })
 
   it('keeps future-date policy outside the timestamp resolver', () => {

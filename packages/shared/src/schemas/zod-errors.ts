@@ -58,6 +58,7 @@ export const ZOD_ERROR_CODES = [
   'TX_HASH_FORMAT_OR_EMPTY',
   'DATE_FORMAT_YYYYMMDD',
   'DATE_NOT_IN_FUTURE',
+  'DATE_YEAR_OUT_OF_RANGE',
   'REQUISITES_TOO_LONG',
   // shared across finance.ts / users.ts / payment-requisites.ts
   'USDT_ADDRESS_FORMAT',
@@ -254,6 +255,10 @@ export const ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor> = {
   DATE_NOT_IN_FUTURE: /* i18n */ {
     id: 'zod-error.DATE_NOT_IN_FUTURE',
     message: 'Дата транзакції не може бути в майбутньому',
+  },
+  DATE_YEAR_OUT_OF_RANGE: /* i18n */ {
+    id: 'zod-error.DATE_YEAR_OUT_OF_RANGE',
+    message: 'Рік дати транзакції поза допустимим діапазоном',
   },
   REQUISITES_TOO_LONG: /* i18n */ {
     id: 'zod-error.REQUISITES_TOO_LONG',
@@ -503,6 +508,7 @@ export const ZOD_ERROR_FALLBACK_EN: Record<ZodErrorCode, string> = {
   TX_HASH_FORMAT_OR_EMPTY: 'Transaction hash: 0x + 64 hex — or an Etherscan link',
   DATE_FORMAT_YYYYMMDD: 'The date must be in YYYY-MM-DD format',
   DATE_NOT_IN_FUTURE: 'The transaction date cannot be in the future',
+  DATE_YEAR_OUT_OF_RANGE: 'The transaction date year is outside the allowed range',
   REQUISITES_TOO_LONG: 'Company details must not exceed 10,000 characters',
   USDT_ADDRESS_FORMAT: 'The USDT ERC-20 address must start with 0x and be 42 characters long',
   TELEGRAM_FORMAT: 'Telegram handle: 5–32 characters — Latin letters, digits or _',
