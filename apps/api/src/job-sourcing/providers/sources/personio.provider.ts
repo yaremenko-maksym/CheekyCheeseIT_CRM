@@ -172,7 +172,6 @@ export const personioSpec: XmlSourceSpec<Config, Item> = {
   adapterVersion: PERSONIO_ADAPTER_VERSION,
   configSchema,
   itemSchema,
-  limits: { maxPages: 1 },
   pageRequest: (config) => ({
     request: {
       url: `https://${config.board}.jobs.personio.${config.tld}/xml?language=${config.language}`,

@@ -103,6 +103,7 @@ const itemSchema = z.object({
     .array(locationSchema)
     .max(100)
     .nullish()
+    // Stryker disable next-line ArrayDeclaration: `locationOf` reads `locations` only when there are MORE THAN ONE, so a placeholder element standing in for an absent array (length 1) is indistinguishable from none.
     .transform((v) => v ?? []),
   tags: z
     .array(z.unknown())
@@ -126,8 +127,7 @@ const WIRE_INSTANT = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) UTC$/
  * back unchanged, so the date policy still judges (and flags) what it cannot read.
  */
 export function recruiteeInstant(raw: string | number | null): string | number | null {
-  if (typeof raw !== 'string') return raw
-  const m = WIRE_INSTANT.exec(raw)
+  const m = WIRE_INSTANT.exec(String(raw))
   return m === null ? raw : `${m[1]}T${m[2]}Z`
 }
 
@@ -218,6 +218,7 @@ function refuseWithoutToken(config: Config, ctx: CollectionContext): CollectionB
       pagesCompleted: 0,
       counts: { raw: 0, normalized: 0, invalid: 0, quarantined: 0, discarded: 0 },
       scope: recruiteeSpec.scopeOf(config, at),
+      // Stryker disable next-line BooleanLiteral: this batch is FAILED, and a non-SUCCEEDED attempt has PARTIAL coverage whatever `resumed` says (`deriveCoverage`), so the flag cannot be seen in the result.
       resumed: false,
     },
     requests: [

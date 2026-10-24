@@ -18,7 +18,6 @@ import {
   decideCheckpoint,
   type FetchRequest,
   type InvalidSample,
-  MAX_SAMPLES,
   type MeterReservation,
   type RequestReport,
   type ReservationResolution,
@@ -182,14 +181,11 @@ const escapeHtml = (text: string) =>
   text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
 function bodyHtml(detail: Detail | null): string | null {
-  const sections = detail?.jobAd?.sections
-  if (sections === null || sections === undefined) return null
   const parts = SECTION_ORDER.flatMap((name) => {
-    const s = sections[name]
-    if (s === null || s === undefined || nonBlank(s.text) === null) return []
-    return [
-      `${s.title === null || s.title === undefined ? '' : `<h3>${escapeHtml(s.title)}</h3>`}${s.text ?? ''}`,
-    ]
+    const section = detail?.jobAd?.sections?.[name]
+    if (nonBlank(section?.text) === null) return []
+    const title = nonBlank(section?.title)
+    return [`${title === null ? '' : `<h3>${escapeHtml(title)}</h3>`}${section?.text ?? ''}`]
   })
   return parts.length === 0 ? null : parts.join('')
 }
@@ -223,20 +219,19 @@ const detailCacheKey = (namespace: string, id: string) =>
   JSON.stringify(['smartrecruiters-detail', namespace, id])
 
 function remoteOf(item: ListItem): boolean | null {
-  const location = item.location
-  if (location === null || location === undefined) return null
-  if (location.remote === true) return true
-  if (location.hybrid === true || location.remote === false) return false
+  const remote = item.location?.remote
+  if (remote === true) return true
+  if (item.location?.hybrid === true || remote === false) return false
   return null
 }
 
+/** A visibility the posting states and that is not PUBLIC; none stated says nothing. */
+const isNotPublic = (visibility: string | null | undefined) =>
+  visibility !== null && visibility !== undefined && visibility !== 'PUBLIC'
+
 export function mapPosting(item: ListItem, detail: Detail | null, config: Config) {
   const closed =
-    detail?.active === false ||
-    (item.visibility !== null && item.visibility !== 'PUBLIC') ||
-    (detail?.visibility !== null &&
-      detail?.visibility !== undefined &&
-      detail.visibility !== 'PUBLIC')
+    detail?.active === false || isNotPublic(item.visibility) || isNotPublic(detail?.visibility)
   return {
     namespace: config.namespace,
     nativeId: item.id,
@@ -325,8 +320,10 @@ async function collectSmartRecruiters(
   let requestsMade = 0
   let stop: StopReason = 'EXHAUSTED'
 
+  // Unbounded here on purpose: a page is at most `pageSize` postings and the attempt at most
+  // `maxListPages` pages, and `buildCollectionBatch` keeps the first `MAX_SAMPLES` of them.
   const addSample = (at: number, reason: string, raw: unknown) => {
-    if (samples.length < MAX_SAMPLES) samples.push(buildInvalidSample(at, reason, raw, ctx.secrets))
+    samples.push(buildInvalidSample(at, reason, raw, ctx.secrets))
   }
   const report = (
     at: number,
@@ -403,35 +400,40 @@ async function collectSmartRecruiters(
     }
     const cost = { unit: reservation.unit, amount: reservation.amount }
     requestsMade += 1
-    let resolution: ReservationResolution = 'RELEASED'
-    let failure: Failure | null = null
-    let response: { status: number; bodyText: string } | null = null
+    // From here the request may have left the process, so a failure cannot claim it was unused.
+    let resolution: ReservationResolution = 'UNCERTAIN'
+    let answer: { response: { status: number; bodyText: string } } | { failure: Failure }
     try {
-      resolution = 'UNCERTAIN'
       const fetched = await ctx.fetchText(request)
       resolution = 'USED'
-      response = { status: fetched.status, bodyText: fetched.bodyText }
+      answer = { response: { status: fetched.status, bodyText: fetched.bodyText } }
     } catch (error) {
-      failure = {
-        code: ctx.signal.aborted ? 'CANCELLED' : 'TRANSIENT_NETWORK',
-        message: error instanceof Error ? error.message : 'the request failed',
-        status: null,
-      }
-    } finally {
-      try {
-        await ctx.meter.reconcile(reservation, resolution)
-      } catch (error) {
-        failure ??= {
-          code: 'PERSISTENCE',
-          message: `the reservation could not be reconciled: ${error instanceof Error ? error.message : 'the meter failed'}`,
+      answer = {
+        failure: {
+          code: ctx.signal.aborted ? 'CANCELLED' : 'TRANSIENT_NETWORK',
+          message: error instanceof Error ? error.message : 'the request failed',
           status: null,
-        }
+        },
       }
     }
-    if (failure !== null) {
-      return refuse(failure, failure.code === 'CANCELLED' ? 'CANCELLED' : 'ERROR', cost)
+    // Every path out of the try above reaches this line, so the reservation is always resolved.
+    const unreconciled: Failure | null = await ctx.meter.reconcile(reservation, resolution).then(
+      () => null,
+      (error: unknown) => ({
+        code: 'PERSISTENCE' as const,
+        message: `the reservation could not be reconciled: ${error instanceof Error ? error.message : 'the meter failed'}`,
+        status: null,
+      }),
+    )
+    if ('failure' in answer) {
+      return refuse(
+        answer.failure,
+        answer.failure.code === 'CANCELLED' ? 'CANCELLED' : 'ERROR',
+        cost,
+      )
     }
-    if (response === null) throw new Error('unreachable: a response or a failure')
+    if (unreconciled !== null) return refuse(unreconciled, 'ERROR', cost)
+    const { response } = answer
     const code = classify(response.status)
     if (code !== null && !(notFoundIsAnAnswer && response.status === 404)) {
       return refuse(
@@ -443,16 +445,12 @@ async function collectSmartRecruiters(
     return { ok: true, status: response.status, bodyText: response.bodyText, startedAt, cost }
   }
 
-  const jsonOf = (bodyText: string) =>
-    parseBoundedJson(bodyText, {
-      maxBytes: DEFAULT_API_JSON_LIMITS.maxBytes,
-      maxDepth: DEFAULT_API_JSON_LIMITS.maxDepth,
-      maxNodes: DEFAULT_API_JSON_LIMITS.maxNodes,
-    })
+  const jsonOf = (bodyText: string) => parseBoundedJson(bodyText, DEFAULT_API_JSON_LIMITS)
 
   /** A cached or fetched detail body, judged: the posting's own detail, or nothing. */
   const detailOf = (bodyText: string, id: string): Detail | null => {
     const parsed = jsonOf(bodyText)
+    // Stryker disable next-line ConditionalExpression: a body that is not JSON carries no `value`, so without this line `safeParse(undefined)` fails and returns null by the next line; the guard documents the order and cannot change a result.
     if (!parsed.ok) return null
     const detail = detailSchema.safeParse(parsed.value)
     return detail.success && detail.data.id === id ? detail.data : null
@@ -526,7 +524,7 @@ async function collectSmartRecruiters(
       const parsed = listItemSchema.safeParse(raw)
       if (!parsed.success) {
         pageCounts.invalid += 1
-        addSample(page, `ITEM_SCHEMA: ${parsed.error.issues[0]?.message ?? 'invalid'}`, raw)
+        addSample(page, 'ITEM_SCHEMA', raw)
       } else {
         valid.push(parsed.data)
       }

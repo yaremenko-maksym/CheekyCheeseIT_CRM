@@ -91,6 +91,7 @@ function world(opts: {
   stored?: ValidatedCheckpoint | null
   signal?: AbortSignal
   now?: Date
+  deadline?: Date
   failSave?: boolean
 }): World {
   const sent: FetchRequest[] = []
@@ -103,7 +104,7 @@ function world(opts: {
     run: { sourceId: 's', cycleId: 'c', attemptId: 'a', fencingEpoch: 1 },
     policyVersion: 1,
     signal: opts.signal ?? new AbortController().signal,
-    deadline: new Date('2030-01-01T00:00:00Z'),
+    deadline: opts.deadline ?? new Date('2030-01-01T00:00:00Z'),
     now: () => now,
     secrets: [],
     async fetchText(request) {
@@ -868,6 +869,385 @@ describe('failures, cancellation and isolation', () => {
       const batch = await run(w)
       expect(batch.observations[0]?.normalized.remote ?? null).toBe(expected)
     }
+  })
+})
+
+describe('every refusal says what it is (messages, codes, statuses asserted exactly)', () => {
+  const small = createSmartRecruitersProvider({ maxListPages: 2, maxRequests: 3, pageSize: 2 })
+
+  it('the request bound reports its own number', async () => {
+    const w = world({ answer: simple(['1', '2', '3']) })
+    const provider = createSmartRecruitersProvider({
+      maxListPages: 5,
+      maxRequests: 3,
+      pageSize: 100,
+    })
+    const batch = await run(w, cfg(), provider)
+    expect(batch.requests.at(-1)?.error).toEqual({
+      code: 'PAGE_CAP',
+      message: 'the attempt reached its 3-request bound',
+    })
+    expect(batch.requests.at(-1)?.status).toBeNull()
+  })
+
+  it('the page bound reports its own number', async () => {
+    const w = world({
+      answer: (r) =>
+        idOf(r.url) === undefined
+          ? { body: listPage([listItem('1'), listItem('2')], 99) }
+          : { body: detail(idOf(r.url) as string) },
+    })
+    const pageBound = createSmartRecruitersProvider({
+      maxListPages: 2,
+      maxRequests: 100,
+      pageSize: 2,
+    })
+    const batch = await run(w, cfg(), pageBound)
+    expect(batch.requests.map((r) => r.error?.message ?? null)).toContain(
+      'the attempt reached its 2-page bound',
+    )
+  })
+
+  it('a cancelled run says so, and a cancel in the middle of the details ends the run CANCELLED', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const before = await run(world({ answer: simple(['1']), signal: controller.signal }))
+    expect(before.requests[0]?.error).toEqual({
+      code: 'CANCELLED',
+      message: 'the run was cancelled before this request',
+    })
+
+    const mid = new AbortController()
+    const w = world({
+      signal: mid.signal,
+      answer: (r) => {
+        if (idOf(r.url) === undefined) {
+          mid.abort()
+          return { body: listPage([listItem('1')], 1) }
+        }
+        return { body: detail('1') }
+      },
+    })
+    const batch = await run(w)
+    expect(batch.outcome).toBe('CANCELLED')
+    expect(batch.requests.at(-1)?.error?.code).toBe('CANCELLED')
+    expect(batch.counts).toEqual({
+      raw: 1,
+      normalized: 0,
+      invalid: 0,
+      quarantined: 0,
+      discarded: 1,
+    })
+  })
+
+  it('a fetch that throws after the run was cancelled is CANCELLED, not a network error', async () => {
+    const controller = new AbortController()
+    const w = world({ answer: simple(['1']), signal: controller.signal })
+    w.ctx.fetchText = async () => {
+      controller.abort()
+      throw new Error('aborted')
+    }
+    const batch = await run(w)
+    expect(batch.outcome).toBe('CANCELLED')
+    expect(batch.requests[0]?.error).toEqual({ code: 'CANCELLED', message: 'aborted' })
+  })
+
+  it('the deadline: before it the run goes on, AT it nothing is sent', async () => {
+    const deadline = new Date('2026-10-24T05:00:00Z')
+    const before = world({ answer: simple(['1']), deadline, now: new Date(deadline.getTime() - 1) })
+    expect((await run(before)).outcome).toBe('SUCCEEDED')
+    const at = world({ answer: simple(['1']), deadline, now: deadline })
+    const batch = await run(at)
+    expect(at.sent).toEqual([])
+    expect(batch.requests[0]?.error).toEqual({
+      code: 'DEADLINE',
+      message: 'the attempt deadline passed before this request',
+    })
+  })
+
+  it('a refused reservation says COST_STOP in words, with no status and no cost', async () => {
+    const batch = await run(world({ answer: simple(['1']), budget: 0 }))
+    expect(batch.requests[0]).toMatchObject({ status: null, cost: null })
+    expect(batch.requests[0]?.error).toEqual({
+      code: 'COST_STOP',
+      message: 'the meter refused a reservation',
+    })
+  })
+
+  it('a reconcile that fails is reported as ours (PERSISTENCE), and the run stops', async () => {
+    const w = world({ answer: simple(['1']) })
+    w.ctx.meter.reconcile = async () => {
+      throw new Error('ledger down')
+    }
+    const batch = await run(w)
+    expect(batch.outcome).toBe('FAILED')
+    expect(batch.requests[0]?.error).toEqual({
+      code: 'PERSISTENCE',
+      message: 'the reservation could not be reconciled: ledger down',
+    })
+    expect(w.sent).toHaveLength(1)
+  })
+
+  it('a stored cursor that is not an offset says so', async () => {
+    const stored: ValidatedCheckpoint = {
+      configVersion: 1,
+      policyVersion: 1,
+      adapterVersion: 'smartrecruiters-1',
+      position: { kind: 'CURSOR', page: 1, cursor: 'abc' },
+      completedAt: new Date('2026-10-23T00:00:00Z'),
+    }
+    const batch = await run(world({ answer: simple(['1']), stored }))
+    expect(batch.requests[0]?.error).toEqual({
+      code: 'PARSE_DRIFT',
+      message: 'the stored page cursor is not an offset',
+    })
+    expect(batch.requests[0]?.url).toBe('about:request-not-built')
+  })
+
+  it('a list that is not JSON, is too large or is the wrong shape says which', async () => {
+    const notJson = await run(world({ answer: () => ({ body: '<html/>' }) }))
+    expect(notJson.requests[0]?.error?.code).toBe('PARSE_DRIFT')
+    expect(notJson.requests[0]?.error?.message).toMatch(/^NOT_JSON: /)
+
+    const pad = 'x'.repeat(2 * 1024 * 1024)
+    const big = await run(world({ answer: () => ({ body: `{"content":[],"pad":"${pad}"}` }) }))
+    expect(big.requests[0]?.error?.code).toBe('PAYLOAD_TOO_LARGE')
+    expect(big.requests[0]?.error?.message).toMatch(/^TOO_MANY_BYTES: /)
+
+    const shape = await run(world({ answer: () => ({ body: { content: 'no' } }) }))
+    expect(shape.requests[0]?.error).toEqual({
+      code: 'PARSE_DRIFT',
+      message: 'envelope: did not match',
+    })
+  })
+
+  it('a page over the page size says how many and what the cap is', async () => {
+    const w = world({
+      answer: () => ({ body: listPage([listItem('1'), listItem('2'), listItem('3')], 3) }),
+    })
+    const batch = await run(w, cfg(), small)
+    expect(batch.requests.at(-1)?.error).toEqual({
+      code: 'PAYLOAD_TOO_LARGE',
+      message: 'page carried 3 items, over the 2 cap',
+    })
+  })
+
+  it('a list that answers 404 is a failed request (UPSTREAM) at that status, not an answer', async () => {
+    const batch = await run(world({ answer: () => ({ status: 404, body: 'x' }) }))
+    expect(batch.requests).toHaveLength(1)
+    expect(batch.requests[0]).toMatchObject({ status: 404, error: { code: 'UPSTREAM' } })
+  })
+
+  it('statuses: 200, 204 and 299 pass, 199, 300 and 301 do not (the success range is 2xx exactly)', async () => {
+    for (const status of [200, 204, 299]) {
+      const batch = await run(world({ answer: () => ({ status, body: listPage([], 0) }) }))
+      expect(batch.outcome).toBe('SUCCEEDED')
+    }
+    for (const status of [199, 300, 301]) {
+      const batch = await run(world({ answer: () => ({ status, body: listPage([], 0) }) }))
+      expect(batch.requests[0]?.error?.code).toBe('UPSTREAM')
+    }
+  })
+
+  it('a page that cannot be persisted is reported at the list address and status', async () => {
+    const batch = await run(world({ answer: simple(['1']), failSave: true }))
+    expect(batch.requests.at(-1)).toMatchObject({ status: 200, url: listUrl(0) })
+  })
+})
+
+describe('what a sample says, and what a discarded page counts', () => {
+  it('an invalid posting and a quarantined one are sampled with their reasons', async () => {
+    const w = world({
+      answer: (r) =>
+        idOf(r.url) === undefined
+          ? { body: listPage([{ id: 5 }, listItem('1', { company: null }), listItem('2')], 3) }
+          : { body: detail(idOf(r.url) as string) },
+    })
+    const batch = await run(w)
+    expect(batch.invalidSamples.map((s) => s.reason)).toEqual([
+      'ITEM_SCHEMA',
+      'QUARANTINED: MISSING_COMPANY',
+    ])
+  })
+
+  it('a page thrown away still counts its invalid and quarantined postings (received, then lost)', async () => {
+    const w = world({
+      budget: 2,
+      answer: (r) =>
+        idOf(r.url) === undefined
+          ? {
+              body: listPage(
+                [{ id: 5 }, listItem('1', { company: null }), listItem('2'), listItem('3')],
+                4,
+              ),
+            }
+          : { body: detail(idOf(r.url) as string) },
+    })
+    const batch = await run(w)
+    expect(batch.counts).toEqual({
+      raw: 4,
+      normalized: 0,
+      invalid: 1,
+      quarantined: 1,
+      discarded: 2,
+    })
+  })
+
+  it('a kept page counts them too', async () => {
+    const w = world({
+      answer: (r) =>
+        idOf(r.url) === undefined
+          ? { body: listPage([{ id: 5 }, listItem('1', { company: null }), listItem('2')], 3) }
+          : { body: detail(idOf(r.url) as string) },
+    })
+    const batch = await run(w)
+    expect(batch.counts).toEqual({
+      raw: 3,
+      normalized: 1,
+      invalid: 1,
+      quarantined: 1,
+      discarded: 0,
+    })
+  })
+
+  it('a 404 detail is no sample', async () => {
+    const gone = await run(
+      world({ answer: simple(['111'], { '111': { status: 404, body: 'x' } }) }),
+    )
+    expect(gone.invalidSamples).toEqual([])
+  })
+
+  it("the observation is dated by the attempt's clock: a release date after it is flagged FUTURE", async () => {
+    const w = world({
+      now: new Date('2026-01-01T00:00:00Z'),
+      answer: (r) =>
+        idOf(r.url) === undefined
+          ? { body: listPage([listItem('1', { releasedDate: '2026-06-01T00:00:00Z' })], 1) }
+          : { body: detail('1') },
+    })
+    const batch = await run(w)
+    expect(batch.observations[0]?.evidence).toContainEqual({
+      field: 'date.PUBLISHED',
+      kind: 'DATE_UNCERTAIN',
+      detail: 'FUTURE',
+    })
+  })
+
+  it('a short page that totalFound says is not the last continues', async () => {
+    const provider = createSmartRecruitersProvider({
+      maxListPages: 3,
+      maxRequests: 50,
+      pageSize: 5,
+    })
+    const w = world({
+      answer: (r) => {
+        const id = idOf(r.url)
+        if (id !== undefined) return { body: detail(id) }
+        const offset = Number(new URL(r.url).searchParams.get('offset'))
+        return { body: listPage([listItem(String(offset + 1))], 2) }
+      },
+    })
+    const batch = await run(w, cfg(), provider)
+    expect(
+      w.sent.filter((r) => !isDetail(r)).map((r) => new URL(r.url).searchParams.get('offset')),
+    ).toEqual(['0', '1'])
+    expect(batch.observations).toHaveLength(2)
+  })
+
+  it('the detail cache is keyed by company and posting id, under its own name', async () => {
+    const cache = new Map<string, CachedResponse>()
+    await run(world({ answer: simple(['111']), cache }))
+    expect([...cache.keys()]).toEqual([
+      JSON.stringify(['smartrecruiters-detail', 'smartrecruiters:Acme', '111']),
+    ])
+  })
+})
+
+describe('the description and the workplace, section by section', () => {
+  const withDetail = (body: unknown, listExtra: Record<string, unknown> = {}) =>
+    world({
+      answer: (r) =>
+        idOf(r.url) === undefined ? { body: listPage([listItem('1', listExtra)], 1) } : { body },
+    })
+  const mdOf = async (body: unknown) =>
+    (await run(withDetail(body))).observations[0]?.normalized.descriptionMd ?? ''
+
+  it('no jobAd, no sections, no section, a blank or missing text: no description at all', async () => {
+    for (const body of [
+      { id: '1' },
+      { id: '1', jobAd: null },
+      { id: '1', jobAd: {} },
+      { id: '1', jobAd: { sections: null } },
+      { id: '1', jobAd: { sections: {} } },
+      { id: '1', jobAd: { sections: { jobDescription: null } } },
+      { id: '1', jobAd: { sections: { jobDescription: { title: 'T', text: '   ' } } } },
+      { id: '1', jobAd: { sections: { jobDescription: { title: 'T' } } } },
+    ]) {
+      expect(await mdOf(body)).toBe('')
+    }
+  })
+
+  it('a section without a title is just its text', async () => {
+    const md = await mdOf({
+      id: '1',
+      jobAd: { sections: { jobDescription: { text: '<p>Only text</p>' } } },
+    })
+    expect(md).toBe('Only text')
+  })
+
+  it('a section title is a heading and is text, never markup', async () => {
+    const md = await mdOf({
+      id: '1',
+      jobAd: { sections: { jobDescription: { title: 'R&D <i>x</i> > y', text: '<p>Body</p>' } } },
+    })
+    expect(md).toContain('R&D')
+    expect(md).toContain('\\<i\\>x\\</i\\>')
+    expect(md).toContain('\\> y')
+    expect(md).not.toContain('R&amp;D')
+    expect(md).toContain('Body')
+  })
+
+  it('a posting with no location has no location and no workplace', async () => {
+    const nulled = world({
+      answer: (r) =>
+        idOf(r.url) === undefined
+          ? { body: listPage([listItem('1', { location: null })], 1) }
+          : { body: detail('1') },
+    })
+    const o = (await run(nulled)).observations[0]
+    expect(o?.normalized.location ?? null).toBeNull()
+    expect(o?.normalized.remote ?? null).toBeNull()
+    const { location: _gone, ...without } = listItem('1')
+    const absent = world({
+      answer: (r) =>
+        idOf(r.url) === undefined ? { body: listPage([without], 1) } : { body: detail('1') },
+    })
+    expect((await run(absent)).observations[0]?.normalized.location ?? null).toBeNull()
+  })
+
+  it('a location with only some parts keeps those parts', async () => {
+    const country = (await run(withDetail(detail('1'), { location: { country: 'de' } })))
+      .observations[0]
+    expect(country?.normalized.location).toBe('de')
+    const both = (
+      await run(withDetail(detail('1'), { location: { city: 'Berlin', country: 'de' } }))
+    ).observations[0]
+    expect(both?.normalized.location).toBe('Berlin, de')
+  })
+
+  it('visibility: PUBLIC and none are open; INTERNAL on the list or the detail, or an inactive detail, is not', async () => {
+    const open = [
+      await run(withDetail(detail('1'), { visibility: 'PUBLIC' })),
+      await run(withDetail(detail('1', { visibility: 'PUBLIC' }))),
+      await run(withDetail(detail('1'))),
+    ]
+    expect(open.map((b) => b.counts.normalized)).toEqual([1, 1, 1])
+    const closed = [
+      await run(withDetail(detail('1'), { visibility: 'INTERNAL' })),
+      await run(withDetail(detail('1', { visibility: 'INTERNAL' }))),
+      await run(withDetail(detail('1', { active: false }))),
+    ]
+    expect(closed.map((b) => b.counts.quarantined)).toEqual([1, 1, 1])
   })
 })
 
