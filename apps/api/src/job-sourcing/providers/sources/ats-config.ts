@@ -35,7 +35,8 @@ export type AtsRegion = 'global' | 'eu'
 
 export interface AtsBoardKind {
   /** The namespace prefix; part of every identity key, so it never changes once a board is live. */
-  readonly label: 'greenhouse' | 'lever' | 'ashby'
+  readonly label:
+    'greenhouse' | 'lever' | 'ashby' | 'workable' | 'smartrecruiters' | 'recruitee' | 'personio'
   /** Regional endpoint variants. The first is the default. One entry = no regional variant. */
   readonly regions: readonly [AtsRegion, ...AtsRegion[]]
   readonly slugMaxChars: number
@@ -93,6 +94,76 @@ export const ASHBY_KIND: AtsBoardKind = {
   slugPattern: SLUG_PATTERN,
 }
 
+/**
+ * TASK 3.4: THE SECOND HALF OF THE SECURITY SURFACE. For Greenhouse, Lever and Ashby the slug is a
+ * path segment under a host the adapter fixed. For Recruitee (`{tenant}.recruitee.com`) and Personio
+ * (`{tenant}.jobs.personio.de`) the tenant IS PART OF THE HOST, so a string that is merely safe in a
+ * path can still steer the request: `evil.example` would make `evil.example.recruitee.com`, a
+ * name with a dot adds a subdomain level, a unicode lookalike (or its `xn--` punycode spelling) is
+ * a different host that renders like the intended one, and an empty tenant makes
+ * `.recruitee.com`. So the alphabet of these two kinds is one DNS LABEL, written out exactly:
+ *
+ *  - lowercase ASCII letters, digits and hyphens only (no dot, so a tenant can never add a label;
+ *    no uppercase, so one tenant cannot have two namespaces);
+ *  - not starting or ending with a hyphen (RFC 1123);
+ *  - at most 63 characters (RFC 1035 label limit), which `slugMaxChars` enforces beside the pattern;
+ *  - never `--` in positions 3-4: the `xn--` prefix and every other reserved label form (RFC 5891
+ *    section 4.2.3.1) is how a lookalike reaches a resolver, and no real tenant needs one.
+ *
+ * A one-character label is accepted (`a`); nothing measured needs one, but refusing it would be a
+ * rule with no reason behind it.
+ */
+export const DNS_LABEL_PATTERN = /^(?![a-z0-9]{2}--)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/
+export const DNS_LABEL_MAX_CHARS = 63
+
+/**
+ * Workable account subdomains (`huggingface`, `hirefellows`): a path segment under the adapter's
+ * host, in the same alphabet as Greenhouse and Ashby. Every account measured on 2026-10-24 fits it;
+ * a hyphenated or numeric one has not been seen, so none is claimed beyond what the pattern allows.
+ */
+export const WORKABLE_KIND: AtsBoardKind = {
+  label: 'workable',
+  regions: ['global'],
+  slugMaxChars: ATS_SLUG_MAX_CHARS,
+  slugPattern: SLUG_PATTERN,
+}
+
+/**
+ * SmartRecruiters company identifiers are the last segment of a career-site URL and are
+ * case-SENSITIVE in the documented examples (the documentation page uses `smartrecruiters`; the
+ * employers' own sites use mixed case). NOTHING WAS MEASURED, because the API host's robots.txt
+ * disallows this collector (see `__fixtures__/smartrecruiters/api-robots.provenance.json`), so
+ * the alphabet is the CLOSED superset that cannot reach a host: ASCII letters and digits joined by
+ * single hyphens or underscores. If the API turns out to treat case as insignificant, the same
+ * company gets two namespaces from two spellings, which is the cost of not being able to measure.
+ */
+export const SMARTRECRUITERS_KIND: AtsBoardKind = {
+  label: 'smartrecruiters',
+  regions: ['global'],
+  slugMaxChars: ATS_SLUG_MAX_CHARS,
+  slugPattern: /^[A-Za-z0-9]+(?:[-_][A-Za-z0-9]+)*$/,
+}
+
+/** Recruitee tenants are the subdomain of `{tenant}.recruitee.com`: a DNS label. */
+export const RECRUITEE_KIND: AtsBoardKind = {
+  label: 'recruitee',
+  regions: ['global'],
+  slugMaxChars: DNS_LABEL_MAX_CHARS,
+  slugPattern: DNS_LABEL_PATTERN,
+}
+
+/**
+ * Personio companies are the subdomain of `{company}.jobs.personio.de`: a DNS label. The `.de` and
+ * `.com` hosts served byte-identical documents for the tenants measured, so they are ONE data set
+ * and the host variant is not a region (it is not in the namespace); see `personio.provider.ts`.
+ */
+export const PERSONIO_KIND: AtsBoardKind = {
+  label: 'personio',
+  regions: ['global'],
+  slugMaxChars: DNS_LABEL_MAX_CHARS,
+  slugPattern: DNS_LABEL_PATTERN,
+}
+
 export const atsBoardSlug = (kind: AtsBoardKind) =>
   z.string().min(1).max(kind.slugMaxChars).regex(kind.slugPattern)
 
@@ -119,28 +190,50 @@ export function atsNamespace(kind: AtsBoardKind, region: AtsRegion, board: strin
   return kind.regions.length > 1 ? `${kind.label}:${region}:${board}` : `${kind.label}:${board}`
 }
 
+/**
+ * The three fields every board has. Exported (Task 3.4) so a provider with one more field builds
+ * its own schema FROM these instead of loosening this module: Personio adds `language` and calls
+ * `constrainAtsBoardConfig` / `atsBoardGroupOf` below, which apply the same rules.
+ */
+export const atsBoardFields = (kind: AtsBoardKind) => ({
+  board: atsBoardSlug(kind),
+  region: z.enum(kind.regions).default(kind.regions[0]),
+  employer: employerEvidenceSchema.nullable().default(null),
+})
+
 /** One board, as a manifest group lists it: no version, no namespace (derived), no host. */
-export const atsBoardEntrySchema = (kind: AtsBoardKind) =>
-  z
-    .object({
-      board: atsBoardSlug(kind),
-      region: z.enum(kind.regions).default(kind.regions[0]),
-      employer: employerEvidenceSchema.nullable().default(null),
-    })
-    .strict()
+export const atsBoardEntrySchema = (kind: AtsBoardKind) => z.object(atsBoardFields(kind)).strict()
 
 /**
  * The config one adapter run receives: one board. The namespace is DERIVED from provider, region
  * and slug, so a config cannot name a namespace that disagrees with the board it fetches.
  */
 export const atsBoardConfigSchema = (kind: AtsBoardKind) =>
-  baseSourceConfigSchema
-    .extend({
-      board: atsBoardSlug(kind),
-      region: z.enum(kind.regions).default(kind.regions[0]),
-      employer: employerEvidenceSchema.nullable().default(null),
-    })
-    .strict()
+  constrainAtsBoardConfig(kind, baseSourceConfigSchema.extend(atsBoardFields(kind)).strict())
+
+/** What every ATS board config carries, whatever else a provider adds to it. */
+export interface AtsBoardConfigFields {
+  namespace: string
+  configVersion: number
+  query: string | null
+  window: { from: Date; to: Date } | null
+  board: string
+  region: AtsRegion
+  employer: EmployerEvidence | null
+}
+
+/**
+ * The rules a board config obeys, applied to a schema that may carry MORE fields than the three
+ * (Task 3.4: Personio's `language`). `atsBoardConfigSchema` is this applied to the plain shape, so
+ * a provider that extends the shape gets the same three rules and cannot write a weaker copy: the
+ * board is the scope (no query), there is no date window, and the namespace is derived (a stated
+ * one is refused unless it equals the derived one).
+ */
+export function constrainAtsBoardConfig<T extends AtsBoardConfigFields>(
+  kind: AtsBoardKind,
+  schema: z.ZodType<T>,
+) {
+  return schema
     .refine((c) => c.query === null, {
       message: 'ATS boards are not searched; the board is the scope',
     })
@@ -149,6 +242,7 @@ export const atsBoardConfigSchema = (kind: AtsBoardKind) =>
       message: 'namespace is derived from the board and region and cannot be set to anything else',
     })
     .transform((c) => ({ ...c, namespace: atsNamespace(kind, c.region, c.board) }))
+}
 
 /** At most this many boards in one manifest group (plan Task 3.3). The 301st is refused. */
 export const ATS_MAX_BOARDS_PER_GROUP = 300
@@ -159,10 +253,20 @@ export const ATS_MAX_BOARDS_PER_GROUP = 300
  * namespace twice.
  */
 export const atsBoardGroupSchema = (kind: AtsBoardKind) =>
-  z
+  atsBoardGroupOf(kind, atsBoardEntrySchema(kind))
+
+/**
+ * A group of whatever entry a provider lists: the plain entry above, or one with an extra field.
+ * The limit and the duplicate rule are written once, here.
+ */
+export function atsBoardGroupOf<B extends { board: string; region: AtsRegion }>(
+  kind: AtsBoardKind,
+  entry: z.ZodType<B>,
+) {
+  return z
     .object({
       configVersion: baseSourceConfigSchema.shape.configVersion,
-      boards: z.array(atsBoardEntrySchema(kind)).min(1).max(ATS_MAX_BOARDS_PER_GROUP),
+      boards: z.array(entry).min(1).max(ATS_MAX_BOARDS_PER_GROUP),
     })
     .strict()
     .refine(
@@ -171,16 +275,20 @@ export const atsBoardGroupSchema = (kind: AtsBoardKind) =>
         g.boards.length,
       { message: 'a board is listed twice in the group' },
     )
+}
 export type AtsBoardGroup = z.infer<ReturnType<typeof atsBoardGroupSchema>>
 
-/** The per-board inputs `parseConfig` takes, in the group's order. */
-export function boardConfigsOf(group: AtsBoardGroup) {
-  return group.boards.map((b) => ({
-    configVersion: group.configVersion,
-    board: b.board,
-    region: b.region,
-    employer: b.employer,
-  }))
+/**
+ * The per-board inputs `parseConfig` takes, in the group's order. Every field of the entry is
+ * passed on, so a provider-specific one (Personio's `language`) reaches its config without this
+ * function knowing it exists; for the three Task 3.3 providers the result is exactly the four
+ * fields it always was.
+ */
+export function boardConfigsOf<B extends { board: string; region: AtsRegion }>(group: {
+  configVersion: number
+  boards: readonly B[]
+}) {
+  return group.boards.map((b) => ({ configVersion: group.configVersion, ...b }))
 }
 
 /**
@@ -205,6 +313,32 @@ export function presentStrings(
   values: readonly (string | null | undefined)[] | null | undefined,
 ): string[] {
   return (values ?? []).filter((v): v is string => typeof v === 'string')
+}
+
+/**
+ * The text itself, or null when the provider sent nothing worth keeping: absent, null, or only
+ * whitespace. Workable and Personio send `""` for "no value" (an empty `employment_type`, an empty
+ * `city`), and an empty string kept as a tag or an employment type is a false statement that the
+ * posting has one.
+ */
+export function nonBlank(value: string | null | undefined): string | null {
+  if (value === null || value === undefined) return null
+  const trimmed = value.trim()
+  return trimmed === '' ? null : trimmed
+}
+
+/**
+ * One location from its parts, in reading order and without the repeats ATS payloads carry ("New
+ * York, New York, United States" becomes "New York, United States"): blank parts are dropped, and a
+ * part equal to the one before it is dropped. Nothing is invented: three blank parts give null.
+ */
+export function placeOf(parts: readonly (string | null | undefined)[]): string | null {
+  const kept: string[] = []
+  for (const part of parts) {
+    const text = nonBlank(part)
+    if (text !== null && text !== kept.at(-1)) kept.push(text)
+  }
+  return kept.length === 0 ? null : kept.join(', ')
 }
 
 // ---------------------------------------------------------------------------

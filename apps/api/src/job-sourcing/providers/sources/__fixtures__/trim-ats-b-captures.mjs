@@ -100,7 +100,7 @@ await emitJson(
   {
     ...WK,
     notes: wkNotes(
-      'Hugging Face: 6 jobs, all kept. All are remote (telecommuting true) full-time jobs; one has a location with hidden:true and an empty city, two have an empty state. OWNERSHIP VERIFIED, EVIDENCE: PAYLOAD_FIELD (the envelope name is "Hugging Face"); job urls are apply.workable.com/j/{shortcode}.',
+      'Hugging Face: 6 jobs, all kept. All are remote (telecommuting true) full-time jobs; three have a location with hidden:true, and three have a country-only location (empty city, region null). OWNERSHIP VERIFIED, EVIDENCE: PAYLOAD_FIELD (the envelope name is "Hugging Face"); job urls are apply.workable.com/j/{shortcode}.',
     ),
   },
 )
@@ -128,7 +128,7 @@ await emitJson(
   {
     ...WK,
     notes: wkNotes(
-      'Hire Fellows: 23 jobs captured (21 on-site full-time, 1 remote, 1 on-site with employment_type ""), 4 kept so the fixture covers a remote job, an empty employment type, a two-location job and a plain on-site job. OWNERSHIP VERIFIED, EVIDENCE: PAYLOAD_FIELD (the envelope name is "Hire Fellows").',
+      'Hire Fellows: 23 jobs captured (21 on-site full-time, 1 remote, 1 on-site with employment_type ""), 3 kept: the one remote job (which is also the only one with several locations: six countries), the one with an empty employment type and an empty department, and a plain on-site full-time job. OWNERSHIP VERIFIED, EVIDENCE: PAYLOAD_FIELD (the envelope name is "Hire Fellows").',
     ),
   },
 )
