@@ -4761,6 +4761,9 @@ destination.
   the outcome uncertain _before_ it fetches — not the store's guard. Either the transport calls the
   mark at the moment the request leaves, with its transaction committed first, or the sent state is
   formally retired with a reason. Deciding it by silence is the one option not available.
+  OWNER: the quota-adapter task, plan Task 3.5b — it is the first task with a transport that
+  actually sends, and its own text carries the item. Named here because the task file that
+  says so is gitignored.
 
 - **Settlement charges the full reserved worst case, with no path to correct the row.** Reconciliation
   carries no actual cost, so a source billed per returned record is charged its whole page every time:
@@ -4769,6 +4772,9 @@ destination.
   compounding, because a second settlement is a no-op and the used amount is already written. Until the
   port can carry the incurred cost, `used` is an upper bound on spend rather than spend, and nothing
   downstream may report it to the owner as money actually billed. The store's docblock says so now.
+  OWNER: the quota-adapter task, plan Task 3.5b — it is the first task with a source whose real
+  cost differs from its reservation, and its own text carries the port change. Named here
+  because the task file that says so is gitignored.
 
 - **A crashed worker strands a reservation that nobody can classify or settle.** The plan's lease
   recovery is the named owner, but its text speaks only of uncertain reservations, and a crash mostly

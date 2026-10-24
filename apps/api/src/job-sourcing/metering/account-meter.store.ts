@@ -541,7 +541,12 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
       // unassertable survivors in the payload lines below (see the note in the unit spec where
       // that test was removed). Legal settlements are asserted by counter VALUES, every
       // transition and both hold counters, in the integration spec.
-      // Stryker disable next-line ConditionalExpression: apply path is integration-only, verified there by counter values
+      //
+      // MEASURED by the code review of PR #1103, and written here because a figure that lives only
+      // in a review thread dies with it: forcing this branch true passes the whole unit suite and
+      // fails 18 of the 48 integration cases. That ratio is the point — it is the number that says
+      // the apply path is guarded by value where a double cannot reach it.
+      // Stryker disable next-line ConditionalExpression: forcing it true fails 18 of 48 integration tests and 0 of the unit suite
       if (plan.kind === 'illegal') throw illegal(row.status, resolution)
 
       // The STORED amount, never the caller's claim.
