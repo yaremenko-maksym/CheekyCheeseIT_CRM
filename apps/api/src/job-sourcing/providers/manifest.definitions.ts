@@ -12,7 +12,10 @@ import {
   SMARTRECRUITERS_OWNER_DECISION,
   WORKABLE_OWNER_DECISION,
 } from './owner-decisions'
+import { LEVER_HOSTS } from './sources/lever.provider'
 import { RECRUITEE_TOKEN_DEADLINE } from './sources/recruitee.provider'
+import { smartrecruitersAllowedHosts } from './sources/smartrecruiters.provider'
+import { workableAllowedHosts } from './sources/workable.provider'
 import { REED_SOURCE_STATUS } from './sources/reed.provider'
 import { REMOTIVE_SOURCE_STATUS } from './sources/remotive.provider'
 import { THEIRSTACK_SOURCE_STATUS } from './sources/theirstack.provider'
@@ -150,6 +153,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     attribution: 'LINK_BACK_REQUIRED',
     endpointVariant: 'latest-feed',
     scopeKind: 'LATEST_FEED',
+    hostKey: () => 'remoteok.com',
     entries: [legacy('remoteok.api.latest', {})],
   },
   {
@@ -163,6 +167,10 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     attribution: 'LINK_BACK_REQUIRED',
     endpointVariant: 'category',
     scopeKind: 'CATEGORY',
+    hostKey: () => 'remotive.com',
+    // The provenance notes: at most about four requests a day and never more than two a minute,
+    // across every Remotive entry and manual run (#1139 SR-L-3). One request per run.
+    hostRate: { perMinute: 2, perDay: 4 },
     // The provider advises at most about four requests a day (provenance notes): six hours apart.
     minIntervalHoursFloor: 6,
     entries: [
@@ -180,6 +188,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     attribution: 'CREDIT_REQUIRED',
     endpointVariant: 'browse',
     scopeKind: 'BROWSE',
+    hostKey: () => 'himalayas.app',
     entries: [fresh('himalayas.api.browse', {})],
   },
   {
@@ -191,6 +200,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     attribution: 'CREDIT_REQUIRED',
     endpointVariant: 'feed',
     scopeKind: 'FEED_WINDOW',
+    hostKey: () => 'jobicy.com',
     entries: [
       legacy('jobicy.api.engineering-europe', {
         count: 100,
@@ -209,6 +219,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     attribution: 'LINK_BACK_REQUIRED',
     endpointVariant: 'job-board-api',
     scopeKind: 'PAGED_FEED',
+    hostKey: () => 'www.arbeitnow.com',
     requestsPerRun: 5,
     entries: [legacy('arbeitnow.api.feed', { maxPages: 5 })],
   },
@@ -222,6 +233,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     attribution: 'NONE_RECORDED',
     endpointVariant: 'exposed-jobs',
     scopeKind: 'LATEST_FEED',
+    hostKey: () => 'www.workingnomads.com',
     // No entries: the adapter refuses EVERY config (`SourceBlockedError`), so none can be validated.
     entries: [],
   },
@@ -236,6 +248,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     attribution: 'NONE_RECORDED',
     endpointVariant: 'astroapi-ai-jobs',
     scopeKind: 'PAGED_FEED',
+    hostKey: () => 'jobgether.com',
     requestsPerRun: 5,
     entries: [fresh('jobgether.api.jobs', {})],
   },
@@ -250,6 +263,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     attribution: 'NONE_RECORDED',
     endpointVariant: 'algolia-who-is-hiring',
     scopeKind: 'THREAD',
+    hostKey: () => 'hn.algolia.com',
     requestsPerRun: 2,
     entries: [legacy('hn-hiring.thread.latest', {})],
   },
@@ -262,6 +276,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     attribution: 'NONE_RECORDED',
     endpointVariant: 'job-board-api',
     scopeKind: 'BOARD',
+    hostKey: () => 'boards-api.greenhouse.io',
     entries: [
       board(
         'greenhouse.board.stripe',
@@ -288,6 +303,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     attribution: 'NONE_RECORDED',
     endpointVariant: 'postings-api',
     scopeKind: 'BOARD',
+    // Two regions, two API hosts, two data sets: each region is its own scope.
+    hostKey: (config) => LEVER_HOSTS[config['region'] as keyof typeof LEVER_HOSTS],
     entries: [
       board(
         'lever.board.spotify',
@@ -318,6 +335,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     attribution: 'NONE_RECORDED',
     endpointVariant: 'posting-api',
     scopeKind: 'BOARD',
+    hostKey: () => 'api.ashbyhq.com',
     entries: [
       board('ashby.board.linear', { board: 'linear' }, ['linear-board.json'], 'Linear'),
       board('ashby.board.supabase', { board: 'supabase' }, ['supabase-board.json'], 'Supabase'),
@@ -333,6 +351,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     attribution: 'NONE_RECORDED',
     endpointVariant: 'widget-accounts',
     scopeKind: 'BOARD',
+    // Every tenant is a path on ONE host (`workableAllowedHosts`), so one key for all of them.
+    hostKey: () => workableAllowedHosts()[0]!,
     entries: [
       board(
         'workable.board.huggingface',
@@ -358,6 +378,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     attribution: 'NONE_RECORDED',
     endpointVariant: 'posting-api',
     scopeKind: 'BOARD',
+    hostKey: () => smartrecruitersAllowedHosts()[0]!,
     // No entries: no board was ever captured. The only committed fixture is the host's robots.txt,
     // which is not the postings API payload. The owner accepted the robots.txt risk on 2026-10-24,
     // so the decision above lifts the PERMISSION blocker, but the type stays not ready
@@ -376,6 +397,10 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     attribution: 'NONE_RECORDED',
     endpointVariant: 'careers-site-api',
     scopeKind: 'BOARD',
+    // Tenant subdomains (`{board}.recruitee.com`): the provider's apex, so a provider-wide limit
+    // pauses every tenant; a 403 is one tenant's own answer and bans only that source (SR-M-24).
+    hostKey: () => 'recruitee.com',
+    banScope: 'SOURCE',
     entries: [board('recruitee.board.bunq', { board: 'bunq' }, ['bunq-offers.json'], 'bunq')],
   },
   {
@@ -387,6 +412,10 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     attribution: 'NONE_RECORDED',
     endpointVariant: 'xml-feed',
     scopeKind: 'BOARD',
+    // Tenant subdomains (`{board}.jobs.personio.{tld}`): the apex of the tld the adapter uses, so
+    // a provider-wide limit pauses every tenant; a 403 bans only that source (SR-M-24).
+    hostKey: (config) => `personio.${String(config['tld'])}`,
+    banScope: 'SOURCE',
     entries: [
       board(
         'personio.board.westwing',
@@ -412,6 +441,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     attribution: 'NONE_RECORDED',
     endpointVariant: 'search-post',
     scopeKind: 'SEARCH',
+    hostKey: () => 'jooble.org',
     quota: JOOBLE_ACCOUNT,
     entries: [
       legacy(
@@ -431,6 +461,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     attribution: 'NONE_RECORDED',
     endpointVariant: 'rapidapi-search',
     scopeKind: 'SEARCH',
+    hostKey: () => 'jsearch.p.rapidapi.com',
     quota: JSEARCH_ACCOUNT,
     entries: [
       legacy(
@@ -460,6 +491,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     attribution: 'NONE_RECORDED',
     endpointVariant: 'jobs-search-post',
     scopeKind: 'SEARCH',
+    hostKey: () => 'api.theirstack.com',
     quota: THEIRSTACK_ACCOUNT,
     entries: [
       legacy(
@@ -479,6 +511,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     attribution: 'LINK_BACK_REQUIRED',
     endpointVariant: 'public-jobs',
     scopeKind: 'CATEGORY',
+    hostKey: () => 'www.themuse.com',
     requestsPerRun: 5,
     entries: [
       legacy('muse.api.software-engineering-senior', {
@@ -498,6 +531,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     attribution: 'NONE_RECORDED',
     endpointVariant: 'jobseeker-search',
     scopeKind: 'SEARCH',
+    hostKey: () => 'www.reed.co.uk',
     quota: REED_ACCOUNT,
     entries: [
       legacy('reed.api.senior-developer-remote', {
@@ -515,6 +549,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     attribution: 'NONE_RECORDED',
     endpointVariant: 'rss-primary-keyword',
     scopeKind: 'FEED_WINDOW',
+    hostKey: () => 'djinni.co',
     entries: [
       fresh('djinni.rss.python', { primaryKeyword: 'Python' }),
       fresh('djinni.rss.rust', { primaryKeyword: 'Rust' }),
@@ -529,6 +564,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     attribution: 'NONE_RECORDED',
     endpointVariant: 'rss',
     scopeKind: 'FEED_WINDOW',
+    hostKey: () => 'weworkremotely.com',
     entries: [
       fresh('wwr.rss.all-jobs', {}),
       fresh('wwr.rss.devops', { category: 'remote-devops-sysadmin-jobs' }),
@@ -543,6 +579,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     attribution: 'NONE_RECORDED',
     endpointVariant: 'wp-job-manager-feed',
     scopeKind: 'FEED_WINDOW',
+    hostKey: () => 'euremotejobs.com',
     entries: [legacy('euremotejobs.rss.feed', {})],
   },
   blockedHtml('JUSTJOIN_HTML', 'JustJoin.it'),
