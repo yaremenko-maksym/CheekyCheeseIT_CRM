@@ -179,6 +179,11 @@ describe('fixture provenance', () => {
  * beside an allow-listed role mailbox (e.g. the managing director in an Impressum block) is personal
  * data this instrument never looks for.
  *
+ * PROFILE LINKS have their own zero-tolerance test below (no allow-list). PHONE NUMBERS are NOT
+ * scanned: none exist in the remaining files, a phone pattern is far noisier than a profile path, and a
+ * guard with no subject is decoration; the four mobile numbers found earlier left with the deleted
+ * Arbeitnow page captures.
+ *
  * NOT COVERED (a scan that reads nothing passes like one that finds nothing, so the limits are stated):
  * the spelled-out form `x at y dot z` (none exists in the tree today); any compression but `.gz` (a
  * `.br` or `.zst` capture would pass unseen; none exists); and every directory outside the two roots,
@@ -333,10 +338,24 @@ function hitsOf(text: string): string[] {
   return [...new Set(hits)].sort()
 }
 
-function hitsIn(path: string): string[] {
+function textIn(path: string): string {
   const raw = readFileSync(path)
-  return hitsOf((path.endsWith('.gz') ? gunzipSync(raw) : raw).toString('utf8'))
+  return (path.endsWith('.gz') ? gunzipSync(raw) : raw).toString('utf8')
 }
+
+function hitsIn(path: string): string[] {
+  return hitsOf(textIn(path))
+}
+
+// A personal LinkedIn profile link: `linkedin.com/in/<slug>` with the slashes as they occur in the
+// corpus: literal, JSON-escaped (`\/`), or HTML-entity (`&#x2F;`, `&#47;`) as the HN API writes them, or
+// percent-encoded. A literal-slash-only pattern returned ZERO on captures that held 12 (JSON escapes the
+// slash), which is why the controls below exist. A slug that is only x characters is the redaction.
+const SLASH = String.raw`(?:\\?/|&#x2F;|&#47;|%2F)`
+const PROFILE_LINK = new RegExp(
+  String.raw`linkedin\.com${SLASH}in${SLASH}(?!x+(?![A-Za-z0-9_%-]))[A-Za-z0-9_%-]+`,
+  'gi',
+)
 
 describe('every @-equivalent token in the two scanned roots is the placeholder or allow-listed by reason', () => {
   const files = [...walk(ROOT), ...walk(RAW_ROOT)]
@@ -433,6 +452,31 @@ describe('every @-equivalent token in the two scanned roots is the placeholder o
         [...new Set(allowedHitsOf(name))].sort(),
       )
     }
+  })
+
+  it.each([
+    ['literal', 'see https://www.linkedin.com/in/jane-doe/ now'],
+    ['JSON-escaped', 'see https:\\/\\/www.linkedin.com\\/in\\/jane-doe\\/ now'],
+    ['HTML entity', 'see https:&#x2F;&#x2F;www.linkedin.com&#x2F;in&#x2F;jane-doe now'],
+    ['decimal entity', 'see linkedin.com&#47;in&#47;jane-doe now'],
+    ['percent-encoded', 'see linkedin.com%2Fin%2Fjane-doe now'],
+  ])('the profile-link pattern finds a planted %s link (control)', (_form, text) => {
+    expect(text.match(PROFILE_LINK)).toHaveLength(1)
+  })
+
+  it.each([
+    'see linkedin.com/in/xxxxxxxxxx/ now',
+    'see linkedin.com&#x2F;in&#x2F;xxxxxxxxxx now',
+    'see linkedin.com/company/arbeitnow now',
+  ])('the profile-link pattern ignores a redacted or company link (%s)', (text) => {
+    expect(text.match(PROFILE_LINK)).toBeNull()
+  })
+
+  it('no personal LinkedIn profile link in either scanned root (no allow-list)', () => {
+    const offenders = files.flatMap((file) =>
+      (textIn(file).match(PROFILE_LINK) ?? []).map((m) => `${labelOf(file)}: ${m}`),
+    )
+    expect(offenders).toEqual([])
   })
 
   it("the raw captures that hold other people's personal data are not committed", () => {
