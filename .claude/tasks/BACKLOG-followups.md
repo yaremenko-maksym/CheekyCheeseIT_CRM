@@ -4551,6 +4551,23 @@ A related sharp edge found in the same attempt: passing the path through a shell
 right, and it means any batch cleanup must expand each path to a literal first — which is also why a
 loop over `git worktree list` cannot be the fix.
 
+**It is a leak with a rate, not a backlog of 16 (re-measured 2026-10-24, ~50 minutes later).** The
+count went 16 -> 19 in that window, and the three new ones are exactly the three reviewer checkouts
+dispatched in it: one per review that needed to run something. So the number in the paragraph above is
+not a quantity to clear once; it is a reading of a meter. Whatever the figure says when you read this,
+it is wrong and it is larger.
+
+That changes the priority rather than the diagnosis. A fixed backlog of stranded trees is housekeeping
+the owner can do when convenient; a leak of one tree per review is a cost on every review this repo
+runs, and the registered-worktree total is already 81. Re-measure before acting, reading the producer
+into a variable first so that an unread list cannot pass for an empty one:
+
+```
+wt=$(git -C <main repo> worktree list --porcelain)
+printf '%s' "$wt" | grep -c '^worktree '                    # total registered
+printf '%s' "$wt" | grep '^worktree ' | grep -c 'claude-501' # in session scratchpads
+```
+
 **Check on closing:** an agent creates a worktree at the `/private/tmp/...` path the harness issued it
 and then removes it, with no intervening step. Both commands succeed. And a tree whose creator is gone
 can be cleared by _someone_ without forcing past the guard.
