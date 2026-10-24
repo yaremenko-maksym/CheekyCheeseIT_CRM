@@ -54,12 +54,15 @@ const fullPage = (from: number) =>
 describe('the requests', () => {
   it('asks the global host with mode=json and a page of 50 from skip 0', async () => {
     const { f } = await run(page('spotify-page1'))
-    expect(f.sent).toEqual([
-      {
-        url: 'https://api.lever.co/v0/postings/spotify?mode=json&limit=50&skip=0',
-        headers: { accept: 'application/json' },
-      },
-    ])
+    // The properties this test cares about, not a deep-equal of the whole request (see the
+    // Greenhouse spec): the request structure grows, and this one broke the day after it did.
+    expect(f.sent).toHaveLength(1)
+    expect(f.sent[0]).toMatchObject({
+      url: 'https://api.lever.co/v0/postings/spotify?mode=json&limit=50&skip=0',
+      headers: { accept: 'application/json' },
+    })
+    expect(f.sent[0]?.method ?? 'GET').toBe('GET')
+    expect(f.sent[0]?.body).toBeUndefined()
   })
 
   it('asks the EU host for an EU board', async () => {

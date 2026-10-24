@@ -3188,6 +3188,8 @@ describe('the response cap a source declares', () => {
   it('a cap equal to the transport default (2 MiB) is not attached: nothing changes for it', async () => {
     const h = harness({ pages: [onePage([job('1')])] })
     await collectJsonPages(withCap(2_097_152), config(), h.ctx)
+    // DELIBERATELY a deep-equal: this is the pin that a source declaring the default cap puts no
+    // new field on the wire at all - the one place where "any new key" is the defect.
     expect(h.sent[0]).toEqual({ url: 'https://api.example.com/jobs?page=1' })
   })
 

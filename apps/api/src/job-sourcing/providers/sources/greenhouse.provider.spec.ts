@@ -48,12 +48,21 @@ const job = (id: number, extra: Record<string, unknown> = {}) => ({
 describe('the request', () => {
   it('asks the documented list endpoint with content=true, once, for JSON', async () => {
     const { f } = await run(airbnb())
-    expect(f.sent).toEqual([
-      {
-        url: 'https://boards-api.greenhouse.io/v1/boards/airbnb/jobs?content=true',
-        headers: { accept: 'application/json' },
-      },
-    ])
+    // The properties this test cares about. NOT a deep-equal of the whole request: the request
+    // structure grows (it gained `maxBytes`), and a test that fails for a growth rather than a
+    // defect only teaches people to paste the new field into the expectation.
+    expect(f.sent).toHaveLength(1)
+    expect(f.sent[0]).toMatchObject({
+      url: 'https://boards-api.greenhouse.io/v1/boards/airbnb/jobs?content=true',
+      headers: { accept: 'application/json' },
+    })
+    expect(f.sent[0]?.method ?? 'GET').toBe('GET')
+    expect(f.sent[0]?.body).toBeUndefined()
+  })
+
+  it('declares its 10 MiB response cap on the request, so the transport does not refuse it at 2 MiB', async () => {
+    const { f } = await run(airbnb())
+    expect(f.sent[0]?.maxBytes).toBe(10_485_760)
   })
 
   it('puts the configured board token in the path and nowhere else', async () => {

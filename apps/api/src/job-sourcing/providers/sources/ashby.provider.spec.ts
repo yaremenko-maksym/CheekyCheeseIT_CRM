@@ -51,12 +51,20 @@ const job = (n: number, extra: Record<string, unknown> = {}) => ({
 describe('the request', () => {
   it('asks the documented endpoint with includeCompensation=true, once, for JSON', async () => {
     const { f } = await run(linear())
-    expect(f.sent).toEqual([
-      {
-        url: 'https://api.ashbyhq.com/posting-api/job-board/linear?includeCompensation=true',
-        headers: { accept: 'application/json' },
-      },
-    ])
+    // The properties this test cares about, not a deep-equal of the whole request (see the
+    // Greenhouse spec): the request structure grows.
+    expect(f.sent).toHaveLength(1)
+    expect(f.sent[0]).toMatchObject({
+      url: 'https://api.ashbyhq.com/posting-api/job-board/linear?includeCompensation=true',
+      headers: { accept: 'application/json' },
+    })
+    expect(f.sent[0]?.method ?? 'GET').toBe('GET')
+    expect(f.sent[0]?.body).toBeUndefined()
+  })
+
+  it('declares its 10 MiB response cap on the request, so the transport does not refuse it at 2 MiB', async () => {
+    const { f } = await run(linear())
+    expect(f.sent[0]?.maxBytes).toBe(10_485_760)
   })
 
   it('puts the configured board name in the path and nowhere else', async () => {
