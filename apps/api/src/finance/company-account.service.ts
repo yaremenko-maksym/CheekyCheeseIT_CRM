@@ -39,6 +39,7 @@ import {
 } from './onchain-tx'
 import { toDepositDto } from './company-account-mapper.util'
 import { assertFoundAndVisible } from './transaction-visibility.util'
+import { backdateAuditRow } from './transaction-date-audit.util'
 import { resolveTransactionDateWithPolicy } from './transaction-date-policy'
 
 /**
@@ -290,8 +291,6 @@ export class CompanyAccountService {
     input: {
       txHashOrLink: string
       txDate?: string | null | undefined
-      // SR-809-H-1 / D-2: travels with txDate (transactionBusinessDateFields).
-      backdateReason?: string | null | undefined
     },
     currentUser: SessionUser,
   ): Promise<CompanyDepositDto> {
@@ -370,10 +369,16 @@ export class CompanyAccountService {
     // a block-timestamp lookup the Etherscan adapter does not expose yet, so it
     // is NOT done here — see the PR body. This bound is the floor, not the
     // finished article.
+    //
+    // No `backdateReason` is passed ON PURPOSE, and no audit row is written for
+    // one: the guard above admits only SENIOR and DROP, and neither is exempt
+    // from the window under D-2, so a reason could never be consumed here. The
+    // same reasoning as `createPayoutRequest`. `createDividend` below is the
+    // ADMIN-only path where the exemption IS reachable, and that one does record
+    // its justification.
     const dateDecision = resolveTransactionDateWithPolicy(input.txDate, {
       role: currentUser.role,
       flow: 'EXECUTED',
-      backdateReason: input.backdateReason,
     })
 
     const verifiedAmount = verification.amountUsdt ?? 0
@@ -810,6 +815,31 @@ export class CompanyAccountService {
         }
         throw err
       }
+
+      // SR-809-L-3 / owner decision D-2: "ADMIN/ACCOUNTANT may go beyond the
+      // 31-day limit ONLY with a mandatory reason written to the audit log".
+      // Without this the reason was collected and validated and then dropped —
+      // the rule would look enforced while leaving nothing an auditor could
+      // read, which is worse than not asking for it.
+      //
+      // Placement mirrors `payout-confirmation.service`'s shape: inside the
+      // transaction, on the path that ACTUALLY performed the write (there, after
+      // the conditional claim returned rows; here, after a successful fresh
+      // insert). That is what keeps it off BOTH idempotent replay paths — the
+      // early select returns before this transaction opens, and the 23505 branch
+      // returns from inside the `catch` above — so one backdate is recorded
+      // exactly once rather than once per retry.
+      if (dateDecision.backdateReason) {
+        await dbtx.insert(transactionAuditLog).values(
+          backdateAuditRow({
+            targetId: row!.id,
+            actor: currentUser,
+            txDate: dateDecision.txDate,
+            backdateReason: dateDecision.backdateReason,
+          }),
+        )
+      }
+
       return row!
     })
 

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { inspect } from 'util'
+import { getTableName } from 'drizzle-orm'
 import { Logger } from '@nestjs/common'
 import { COMPANY_REQUISITES_MAX } from '@crm/shared'
 import type { SessionUser } from '@crm/shared'
@@ -849,18 +850,28 @@ describe('CompanyAccountService.createDividend (ADMIN only)', () => {
   })
 
   it('stores an explicitly selected dividend business date', async () => {
-    let booked: Record<string, unknown> | undefined
-    const db = makeDividendDb({ onValues: (v) => (booked = v as Record<string, unknown>) })
-    const svc = makeService(db)
-    await svc.createDividend(
-      {
-        amount: 100,
-        txDate: '2026-10-04',
-        receiptExternalUrl: 'https://etherscan.io/tx/0xabc123',
-      },
-      ADMIN,
-    )
-    expect((booked?.['txDate'] as Date).toISOString().slice(0, 10)).toBe('2026-10-04')
+    // SR-809-H-1: the clock is pinned beside the literal. This test is about the
+    // date being STORED as chosen; against real time the literal sits inside the
+    // 31-day backdating window only until early November, after which this would
+    // have started failing for an unrelated reason (the window).
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-20T12:00:00.000Z'))
+    try {
+      let booked: Record<string, unknown> | undefined
+      const db = makeDividendDb({ onValues: (v) => (booked = v as Record<string, unknown>) })
+      const svc = makeService(db)
+      await svc.createDividend(
+        {
+          amount: 100,
+          txDate: '2026-10-04',
+          receiptExternalUrl: 'https://etherscan.io/tx/0xabc123',
+        },
+        ADMIN,
+      )
+      expect((booked?.['txDate'] as Date).toISOString().slice(0, 10)).toBe('2026-10-04')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('acquires the advisory lock before reading balance (TOCTOU serialization)', async () => {
@@ -1001,5 +1012,190 @@ describe('CompanyAccountService.updateRequisites (ADMIN only)', () => {
     const svc = makeService(db)
     await svc.updateRequisites(same, ADMIN)
     expect(auditInsertSpy).not.toHaveBeenCalled()
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SR-809-L-3 / owner decision D-2 — "ADMIN/ACCOUNTANT may go beyond the 31-day
+// limit ONLY with a mandatory reason written to the audit log".
+//
+// The reason was being collected and validated by the policy and then dropped:
+// the guard passed review and passed tests while recording nothing an auditor
+// could read. That is worse than not having the field, because it looks like
+// provenance. Flagged by an automated security review as an audit-trail bypass.
+//
+// `createDividend` is the dividend path and ADMIN-only, so the exemption is
+// actually reachable here (unlike `submitDeposit`, which is SENIOR/DROP and can
+// never be exempt — see the comment at its policy call).
+// ─────────────────────────────────────────────────────────────────────────────
+describe('CompanyAccountService.createDividend — backdate reason audit trail (SR-809-L-3)', () => {
+  const RECEIPT = 'https://etherscan.io/tx/0xabc123'
+  // Pinned: these cases turn on WHERE a date sits relative to the 31-day window,
+  // so a literal compared against real time would drift in and out of the window
+  // as the calendar moves.
+  const NOW = new Date('2026-10-20T12:00:00.000Z')
+  const FAR_PAST = '2026-01-15' // far outside the window
+  const IN_WINDOW = '2026-10-04' // comfortably inside it
+
+  /**
+   * Like `makeDividendDb` above, but records every insert WITH its table so the
+   * audit row can be told apart from the ledger row, and can make the
+   * `transactions` insert fail with a Postgres unique violation to exercise the
+   * idempotent replay path.
+   */
+  function makeAuditDb(opts: {
+    failTransactionsInsert?: boolean
+    /** Resolved by the EARLY idempotency SELECT, which runs before the transaction. */
+    existingOnEarlySelect?: unknown
+    /** Resolved by the post-23505 re-read, which runs after the insert fails. */
+    existingOnReplay?: unknown
+  }) {
+    const inserts: Array<{ table: string; values: unknown }> = []
+    const dbtx = {
+      execute: vi.fn().mockResolvedValue(undefined),
+      select: selectReturning(['5000', '0', '0', '0', '0', '0', '0']),
+      insert: vi.fn((table: unknown) => ({
+        values: (v: unknown) => {
+          const name = getTableName(table as never)
+          inserts.push({ table: name, values: v })
+          if (name === 'transactions' && opts.failTransactionsInsert) {
+            // The shape `uniqueViolationConstraint` walks for: SQLSTATE 23505.
+            throw Object.assign(new Error('duplicate key'), {
+              code: '23505',
+              constraint: 'uq_transactions_dividend_idempotency_key',
+            })
+          }
+          return { returning: () => Promise.resolve([{ id: 'div-1' }]) }
+        },
+      })),
+    }
+    const db = makeDb({
+      query: {
+        companyAccount: { findFirst: vi.fn() },
+        transactions: {
+          // Two separate replay paths read this: the EARLY idempotency SELECT
+          // (before the transaction) and the post-23505 re-read (after the
+          // insert fails). They are different code paths and are tested apart.
+          findFirst: vi
+            .fn()
+            .mockResolvedValueOnce(opts.existingOnEarlySelect)
+            .mockResolvedValue(opts.existingOnReplay),
+        },
+        users: { findFirst: vi.fn().mockResolvedValue({ id: ADMIN.id, role: 'ADMIN' }) },
+      },
+      transaction: vi.fn((cb: (tx: typeof dbtx) => unknown) => cb(dbtx)),
+    })
+    const auditRows = () => inserts.filter((i) => i.table === 'transaction_audit_log')
+    return { db, inserts, auditRows }
+  }
+
+  it('writes the reason to the audit log when an ADMIN dates a dividend outside the window', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+    try {
+      const { db, auditRows } = makeAuditDb({})
+      const svc = makeService(db)
+
+      await svc.createDividend(
+        {
+          amount: 100,
+          txDate: FAR_PAST,
+          backdateReason: '  Q1 reconciliation, invoice arrived late  ',
+          receiptExternalUrl: RECEIPT,
+        },
+        ADMIN,
+      )
+
+      expect(auditRows()).toHaveLength(1)
+      expect(auditRows()[0]!.values).toEqual({
+        actorId: ADMIN.id,
+        targetId: 'div-1',
+        action: 'TX_DATE_BACKDATED',
+        metadata: {
+          txDate: FAR_PAST,
+          // Trimmed by the policy, so the trail never stores padding as content.
+          backdateReason: 'Q1 reconciliation, invoice arrived late',
+        },
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('writes no audit row for an ordinary in-window date — there was no exemption to justify', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+    try {
+      const { db, auditRows } = makeAuditDb({})
+      const svc = makeService(db)
+
+      await svc.createDividend(
+        { amount: 100, txDate: IN_WINDOW, receiptExternalUrl: RECEIPT },
+        ADMIN,
+      )
+
+      expect(auditRows()).toHaveLength(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // The sharp case the security review singled out: an audit log that
+  // DOUBLE-counts is a different falsehood from one that under-counts, and both
+  // are reachable here. A replayed request must not mint a second row claiming a
+  // backdate that happened once.
+  const EXISTING = { id: 'div-1', amount: '100', type: 'DIVIDEND_TO_ADMIN' }
+  const IDEM_KEY = '11111111-1111-4111-8111-111111111111'
+
+  const backdatedReplayInput = {
+    amount: 100,
+    txDate: FAR_PAST,
+    backdateReason: 'Q1 reconciliation',
+    idempotencyKey: IDEM_KEY,
+    receiptExternalUrl: RECEIPT,
+  }
+
+  it('writes no audit row when the EARLY idempotency select already finds the dividend', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+    try {
+      const { db, auditRows, inserts } = makeAuditDb({ existingOnEarlySelect: EXISTING })
+      const svc = makeService(db)
+
+      const res = await svc.createDividend(backdatedReplayInput, ADMIN)
+
+      expect(res).toMatchObject({ id: 'div-1' })
+      // Short-circuited before the transaction: nothing was written at all.
+      expect(inserts).toHaveLength(0)
+      expect(auditRows()).toHaveLength(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('writes no audit row when the insert loses the unique-index race, so one backdate is recorded once', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+    try {
+      const { db, auditRows, inserts } = makeAuditDb({
+        // The early select misses (it runs outside the lock) and the insert then
+        // trips uq_transactions_dividend_idempotency_key.
+        existingOnEarlySelect: undefined,
+        failTransactionsInsert: true,
+        existingOnReplay: EXISTING,
+      })
+      const svc = makeService(db)
+
+      const res = await svc.createDividend(backdatedReplayInput, ADMIN)
+
+      // The replay returned the committed winner...
+      expect(res).toMatchObject({ id: 'div-1' })
+      // ...the ledger insert WAS attempted and rejected by the unique index...
+      expect(inserts.filter((i) => i.table === 'transactions')).toHaveLength(1)
+      // ...and nothing was added to the audit trail for it.
+      expect(auditRows()).toHaveLength(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
