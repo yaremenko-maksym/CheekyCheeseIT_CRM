@@ -5417,7 +5417,7 @@ breaks both depth and nodes, the reason now names whichever comes first in the t
 beyond that, stated honestly: the scan runs before `JSON.parse`, so a MALFORMED body with more than
 `maxNodes` structural commas used to be `NOT_JSON` and is now `TOO_MANY_NODES`, which `api-json.provider.ts`
 and `smartrecruiters.provider.ts` map to `PAYLOAD_TOO_LARGE` instead of `PARSE_DRIFT` (acceptable: such a
-body is hostile either way; spec: the malformed, node-heavy case). The estimate also over-counts empty
+body is hostile either way; spec: `reports TOO_MANY_NODES, not NOT_JSON, for a malformed body with too many separators` in `bounded-json.spec.ts`). The estimate also over-counts empty
 containers: `[{},{},...]` is refused at about half the node limit (ratio 1.999; `{"tags":[],"x":1}` 1.333;
 a 30-field record with three empty containers 1.097), a known conservative margin pinned by spec. The Node 20
 figures recorded above were not re-run.
