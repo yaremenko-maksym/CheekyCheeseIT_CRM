@@ -477,10 +477,16 @@ describe('the pre-parse node bound', () => {
   })
 
   it('refuses a scalar root against a zero node limit', () => {
-    expect(parseBoundedJson('1', limits({ maxNodes: 0 }))).toMatchObject({
-      ok: false,
-      reason: 'TOO_MANY_NODES',
-    })
+    const parse = vi.spyOn(JSON, 'parse')
+    try {
+      expect(parseBoundedJson('1', limits({ maxNodes: 0 }))).toMatchObject({
+        ok: false,
+        reason: 'TOO_MANY_NODES',
+      })
+      expect(parse).not.toHaveBeenCalled()
+    } finally {
+      parse.mockRestore()
+    }
     expect(parseBoundedJson('1', limits({ maxNodes: 1 }))).toMatchObject({ ok: true })
   })
 

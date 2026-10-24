@@ -73,14 +73,11 @@ export type BoundedJsonResult =
  */
 export function scanDepthWithin(text: string, maxDepth: number): number | null {
   const shape = scanShape(text, maxDepth, Number.POSITIVE_INFINITY)
-  return shape.breach === 'depth' ? null : shape.depth
+  return shape.breach === null ? shape.depth : null
 }
 
-export interface ShapeScan {
-  /** The first bound the scan crossed, in text order, or `null` when it crossed none. */
-  breach: 'depth' | 'nodes' | null
-  depth: number
-}
+/** Either the first bound the scan crossed (in text order), or the depth when it crossed none. */
+export type ShapeScan = { breach: 'depth' | 'nodes' } | { breach: null; depth: number }
 
 const QUOTE = 0x22
 const BACKSLASH = 0x5c
@@ -138,21 +135,22 @@ export function scanShape(text: string, maxDepth: number, maxNodes: number): Sha
       inString = true
     } else if (code === COMMA) {
       nodeUpperBound += 1
-      if (nodeUpperBound > maxNodes) return { breach: 'nodes', depth: maxNesting + 1 }
+      if (nodeUpperBound > maxNodes) return { breach: 'nodes' }
     } else if (code === OPEN_BRACKET || code === OPEN_BRACE) {
       nesting += 1
       nodeUpperBound += 1
       maxNesting = Math.max(maxNesting, nesting)
       // A value nested under N open brackets sits at depth N + 1; a bare scalar is depth 1.
-      if (maxNesting + 1 > maxDepth) return { breach: 'depth', depth: maxNesting + 1 }
-      if (nodeUpperBound > maxNodes) return { breach: 'nodes', depth: maxNesting + 1 }
+      if (maxNesting + 1 > maxDepth) return { breach: 'depth' }
+      if (nodeUpperBound > maxNodes) return { breach: 'nodes' }
     } else if (code === CLOSE_BRACKET || code === CLOSE_BRACE) {
       nesting -= 1
     }
   }
 
   // A scalar root has no separator or opening to trip the in-loop check, so test the final figure.
-  return { breach: nodeUpperBound > maxNodes ? 'nodes' : null, depth: maxNesting + 1 }
+  if (nodeUpperBound > maxNodes) return { breach: 'nodes' }
+  return { breach: null, depth: maxNesting + 1 }
 }
 
 /**

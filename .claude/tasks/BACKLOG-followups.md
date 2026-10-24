@@ -5345,7 +5345,9 @@ counted only the other files the filter matched.
 
 ## 318. A hostile JSON body stalls the event loop before the byte cap can refuse it, once a per-source cap is raised (2026-10-24)
 
-**Open** — found by the security review of the ATS A adapters (SR-M-1); the fix belongs to the shared
+**Closed (2026-10-24)** by the pre-parse node bound in the shared bounded-JSON reader; proof is the
+`the pre-parse node bound` block of `bounded-json.spec.ts` and the closing note at the end of this entry.
+Originally: found by the security review of the ATS A adapters (SR-M-1); the fix belongs to the shared
 bounded-JSON reader, not to the adapters, so this entry is the deliverable and the next task to touch
 that reader owns the repair. Number chosen by measurement: the highest `## NNN.` heading across all
 574 fetched `origin` refs was 317 (a different entry, on `origin/docs/integration-run-third-case`;
@@ -5400,6 +5402,19 @@ the pinned 22**, so the figures are indicative and not the pin's behaviour: 3.56
 size took ~66 ms — that run **did not reproduce** the ~1.6 s figure recorded above for the array shape.
 Both measurements are kept rather than reconciled, because which one is right is itself unresolved, and
 a single averaged number would hide that.
+
+**Closing note (2026-10-24).** The shape scan (`scanShape`) now counts, outside string literals only, structural
+commas plus container openings, starting from 1 for the root, in the same pass as the depth bound, and
+stops at the first breach. That figure is an upper bound of the post-parse count (it over-counts one per
+empty container) and is checked before `JSON.parse`. The cure as first suggested, a raw comma count, was
+rejected: prose inside strings is comma-heavy and a string-blind count refuses an honest ~4 MiB page.
+Measured on the pinned **Node v22.23.1**, 10 MiB `[0,0,...]` and `[{},{},...]` under a 10 MiB / 200,000-node
+limit: before the fix 286 ms / +404 MiB RSS and 496 ms / +303 MiB RSS (refused only after parsing); after,
+4.8 ms and 4.6 ms with RSS +15 and +10 MiB, which is the body string itself, not a parsed tree. Proof:
+`bounded-json.spec.ts`, describe `the pre-parse node bound` (spy shows `JSON.parse` is never called; array and
+object boundaries; escaped quote and escaped backslash; ~4 MiB comma-heavy prose that must pass). When a body
+breaks both depth and nodes, the reason now names whichever comes first in the text. The Node 20 figures
+recorded above were not re-run.
 
 ## 319. An adapter's declared byte cap cannot reach the transport, so a source whose pages exceed the transport's default is refused before its own cap is consulted (2026-10-24)
 
