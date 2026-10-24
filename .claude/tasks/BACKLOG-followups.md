@@ -5855,3 +5855,53 @@ range from dev servers so the origins never collide.
 **Check on closing:** a QA pass on a reused profile either reports zero service-worker registrations
 before its first assertion, or states that it unregistered them — and never reports a render without
 one of those two.
+
+## 332. Auto-merge refused a PR whose required contexts it had just confirmed green, declared it non-transient, and the same merge then succeeded by hand (2026-10-24)
+
+**Cause not established.** This entry records measured facts and what is ruled out, deliberately
+without a theory, because two plausible theories were formed and both were wrong.
+
+**What happened, with timestamps from run 40081584341 on PR #1127 (a docs-only diff):**
+
+- **09:22:27 — the workflow's own guard emitted:** `OK: every required context is present and passing`,
+  listing all five (`Typecheck · Lint · Unit Tests`, `E2E Tests`, `Integration Tests (Postgres)`,
+  `Mutation Gate`, `Flow Gate`).
+- **09:22:28 — one second later, `gh pr merge` was refused:** `not mergeable: the base branch policy
+prohibits the merge`, and the workflow logged `refused by branch protection policy (not a transient
+error) — not retrying`.
+- **Minutes later the identical `gh pr merge --squash` succeeded by hand**, with nothing about the PR
+  changed in between (same head `96dc10add`, no new commits, no label change).
+
+**Ruled out by measurement, not by argument:**
+
+- **Branch protection is intact.** `branches/main/protection` reports five `required_status_checks.contexts`
+  including `Flow Gate`, with `enforce_admins: true`, `required_linear_history: true`,
+  `required_conversation_resolution: true`, `strict: false`. Nothing had been stripped.
+- **No required context was skipped or absent.** Each of the five was individually `SUCCESS` on the PR.
+- **Not the workflow-file restriction.** The diff was one `.md` file, so the `GITHUB_TOKEN` limitation
+  on `.github/workflows/**` does not apply.
+
+**The actionable part, independent of the cause: the "not retrying" policy is wrong here.** The
+workflow declares this class non-transient and refuses to retry, yet the same merge succeeded on a
+later attempt with no intervening change. Whatever the mechanism, it is time-dependent in effect, so
+either the message should not claim non-transience, or the workflow should retry once after a short
+delay before giving up. As it stands it reports a permanent-sounding failure for something that clears
+on its own.
+
+**A diagnostic trap this cost two wrong diagnoses, and it generalises to every CI log read here.**
+The first theory was that protection had lost its required contexts, because the log contains the
+string `reports zero required_status_checks.contexts`. **That line is the script's own source, echoed
+by the runner, not output the script emitted** — the runner prefixes echoed script with an ANSI
+sequence (`ESC[36;1m`), and a plain `grep` for an error string matches the `echo "::error::…"` that
+_would_ print it as readily as a line that _did_. So **grepping a CI log for an error message finds
+the error's source text as well as its occurrence**, and the two are indistinguishable without
+separating echoed script from emitted output:
+
+```
+# emitted only — drop the runner's script-echo lines
+grep -a '<needle>' run.log | grep -av $'\033[36;1m'
+```
+
+**Check on closing:** the auto-merge workflow either retries this class once before declaring failure,
+or its message stops asserting non-transience; and whoever next debugs a CI log distinguishes echoed
+script from emitted output before concluding anything from a matched string.
