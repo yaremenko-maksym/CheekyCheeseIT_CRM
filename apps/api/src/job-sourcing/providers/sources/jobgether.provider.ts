@@ -109,8 +109,9 @@ type Envelope = z.infer<typeof envelopeSchema>
 
 /** True once the announced sunset is not after `now`. No sunset, or one that is not a date: not yet. */
 function isRetired(d: Deprecation | undefined, now: Date): boolean {
-  if (d?.deprecated !== true || d.sunset === undefined) return false
-  const sunset = Date.parse(d.sunset)
+  if (d?.deprecated !== true) return false
+  // An absent sunset stringifies to 'undefined', which is not a date.
+  const sunset = Date.parse(`${d.sunset}`)
   return Number.isFinite(sunset) && sunset <= now.getTime()
 }
 
@@ -160,9 +161,8 @@ export const jobgetherSpecFor = (now: Date): ApiJsonSourceSpec<Config, Envelope,
   },
   extractItems: (envelope) =>
     envelope.deprecation?.deprecated === true
-      ? envelope.jobs.map((job) =>
-          typeof job === 'object' && job !== null ? { ...job, pathDeprecated: true } : job,
-        )
+      ? // Spreading a null or primitive job gives `{}`, which is an invalid item either way.
+        envelope.jobs.map((job) => ({ ...(job as object), pathDeprecated: true }))
       : envelope.jobs,
   nextCursor: (envelope, at) => (envelope.pagination.hasMore ? `page:${at.page + 1}` : null),
   nativeIdOf: (item) => item.id,

@@ -505,6 +505,10 @@ describe('config errors fail before any network call', () => {
 })
 
 describe('the BLOCKED state', () => {
+  it('declares the provider type', () => {
+    expect(jobgetherProvider.type).toBe('JOBGETHER_API')
+  })
+
   it('the provider declares itself blocked, UNCLEAR, with both facts - and the provenance agrees', () => {
     expect(JOBGETHER_SOURCE_STATUS.blocked).toBe(true)
     expect(JOBGETHER_SOURCE_STATUS.permission).toBe('UNCLEAR')
