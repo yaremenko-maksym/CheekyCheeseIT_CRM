@@ -279,6 +279,13 @@ describe('the account envelope guards the employer evidence (no company is injec
     expect(batch.observations[0]?.normalized.companyName).toBe('Hugging Face')
   })
 
+  it('a name that differs by a space or an accent is a different name, not the same one', async () => {
+    for (const name of ['HuggingFace', 'Hugging  Face!', 'Hüggingface', 'Hugging Fac']) {
+      const { batch } = await run(wrap([job('AAAAAAAAAA')], name))
+      expect(batch.outcome).toBe('FAILED')
+    }
+  })
+
   it('ignores case and spacing when comparing the envelope name with the evidence', async () => {
     const { batch } = await run(wrap([job('AAAAAAAAAA')], '  HUGGING   face '))
     expect(batch.outcome).toBe('SUCCEEDED')

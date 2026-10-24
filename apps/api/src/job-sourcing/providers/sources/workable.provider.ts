@@ -96,11 +96,7 @@ const itemSchema = z.object({
   city: optionalString(200),
   state: optionalString(200),
   country: optionalString(200),
-  locations: z
-    .array(locationSchema)
-    .max(100)
-    .nullish()
-    .transform((v) => v ?? []),
+  locations: z.array(locationSchema).max(100).nullish(),
 })
 type Item = z.infer<typeof itemSchema>
 
@@ -112,11 +108,16 @@ const envelopeSchema = z.object({
 type Envelope = z.infer<typeof envelopeSchema>
 
 /** Names compared the way a person reads them: case and runs of whitespace do not matter. */
-const readable = (name: string) => name.trim().replace(/\s+/g, ' ').toLowerCase()
+const sameName = (a: string, b: string) =>
+  a
+    .trim()
+    .replace(/\s+/g, ' ')
+    .localeCompare(b.trim().replace(/\s+/g, ' '), undefined, { sensitivity: 'accent' }) === 0
 
 function locationOf(item: Item): string | null {
-  const fromList = item.locations.map((l) => placeOf([l.city, l.region, l.country]))
-  const places = [...new Set(presentStrings(fromList))]
+  const places = [
+    ...new Set(presentStrings(item.locations?.map((l) => placeOf([l.city, l.region, l.country])))),
+  ]
   if (places.length > 0) return places.join('; ')
   return placeOf([item.city, item.state, item.country])
 }
@@ -136,7 +137,7 @@ export const workableSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
     cacheKey: 'account',
   }),
   extractItems: (envelope, config) => {
-    if (config.employer !== null && readable(envelope.name) !== readable(config.employer.name)) {
+    if (config.employer !== null && !sameName(envelope.name, config.employer.name)) {
       throw new Error(
         `the account is now named "${envelope.name}", not the verified employer "${config.employer.name}"; the board's employer evidence is stale`,
       )

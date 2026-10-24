@@ -137,7 +137,11 @@ describe('the token requirement (evidence: docs.recruitee.com/reference/authenti
     expect(batch.requests).toHaveLength(1)
     expect(batch.requests[0]?.status).toBeNull()
     expect(batch.requests[0]?.error?.code).toBe('ACCESS_POLICY')
-    expect(batch.requests[0]?.error?.message).toContain('2027-02-10')
+    expect(batch.requests[0]?.error?.message).toBe(
+      "from 2027-02-10 the Careers Site API requires the employer's own credentials, this collector holds none and made no request",
+    )
+    expect(batch.invalidSamples).toEqual([])
+    expect(batch.checkpoint).toBeNull()
     expect(batch.scope).toEqual({
       namespace: 'recruitee:bunq',
       query: null,

@@ -610,6 +610,7 @@ describe('the budget includes detail pages (AC4)', () => {
     const batch = await run(boom)
     expect(boom.reconciled).toEqual(['UNCERTAIN'])
     expect(batch.requests[0]?.error?.code).toBe('TRANSIENT_NETWORK')
+    expect(batch.outcome).toBe('FAILED')
   })
 })
 
@@ -1185,6 +1186,19 @@ describe('the description and the workplace, section by section', () => {
     ]) {
       expect(await mdOf(body)).toBe('')
     }
+  })
+
+  it('sections are joined with nothing between them: two sections, exactly', async () => {
+    const md = await mdOf({
+      id: '1',
+      jobAd: {
+        sections: {
+          jobDescription: { text: '<p>One</p>' },
+          qualifications: { text: '<p>Two</p>' },
+        },
+      },
+    })
+    expect(md).toBe('One\n\nTwo')
   })
 
   it('a section without a title is just its text', async () => {

@@ -134,7 +134,7 @@ function recordOf(position: XmlElementNode): Record<string, unknown> {
     subcompany: textOf(position, 'subcompany'),
     office: textOf(position, 'office'),
     additionalOffices:
-      offices === undefined ? [] : findChildren(offices, 'office').map((o) => o.text.trim()),
+      offices === undefined ? [] : findChildren(offices, 'office').map((o) => o.text),
     department: textOf(position, 'department'),
     recruitingCategory: textOf(position, 'recruitingCategory'),
     employmentType: textOf(position, 'employmentType'),
@@ -164,7 +164,8 @@ function locationOf(item: Item): string | null {
   const places = [
     ...new Set(presentStrings([nonBlank(item.office), ...item.additionalOffices.map(nonBlank)])),
   ]
-  return places.length === 0 ? null : places.join('; ')
+  // None at all is the empty string, which the normalizer reads as no location.
+  return places.join('; ')
 }
 
 export const personioSpec: XmlSourceSpec<Config, Item> = {

@@ -12,7 +12,13 @@ import {
   type CollectionBatch,
   type CollectionContext,
 } from '../reporting-provider'
-import { atsBoardConfigSchema, nonBlank, presentStrings, RECRUITEE_KIND } from './ats-config'
+import {
+  atsBoardConfigSchema,
+  nonBlank,
+  placeOf,
+  presentStrings,
+  RECRUITEE_KIND,
+} from './ats-config'
 import { boundedString, dateRaw, optionalString, positiveSafeInt, urlString } from './as'
 
 /**
@@ -99,17 +105,8 @@ const itemSchema = z.object({
   on_site: z.boolean().nullish(),
   hybrid: z.boolean().nullish(),
   location: optionalString(ORIGINAL_LIMITS.location),
-  locations: z
-    .array(locationSchema)
-    .max(100)
-    .nullish()
-    // Stryker disable next-line ArrayDeclaration: `locationOf` reads `locations` only when there are MORE THAN ONE, so a placeholder element standing in for an absent array (length 1) is indistinguishable from none.
-    .transform((v) => v ?? []),
-  tags: z
-    .array(z.unknown())
-    .max(200)
-    .nullish()
-    .transform((v) => v ?? []),
+  locations: z.array(locationSchema).max(100).nullish(),
+  tags: z.array(z.unknown()).max(200).nullish(),
   published_at: dateRaw(),
   updated_at: dateRaw(),
   close_at: dateRaw(),
@@ -143,13 +140,9 @@ export function remoteFromFlags(item: {
 }
 
 function locationOf(item: Item): string | null {
-  const several = item.locations.length > 1
-  if (several) {
-    const places = item.locations.map((l) =>
-      [nonBlank(l.city), nonBlank(l.country)].filter((p) => p !== null).join(', '),
-    )
-    const kept = [...new Set(places.filter((p) => p !== ''))]
-    if (kept.length > 0) return kept.join('; ')
+  if ((item.locations?.length ?? 0) > 1) {
+    const kept = new Set(presentStrings(item.locations?.map((l) => placeOf([l.city, l.country]))))
+    if (kept.size > 0) return [...kept].join('; ')
   }
   return nonBlank(item.location)
 }
@@ -182,10 +175,9 @@ export const recruiteeSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
     description: [item.description ?? '', item.requirements ?? ''].join(''),
     remote: remoteFromFlags(item),
     employmentType: nonBlank(item.employment_type_code),
-    tags: presentStrings([
-      nonBlank(item.department),
-      ...item.tags.map((t) => (typeof t === 'string' ? nonBlank(t) : null)),
-    ]),
+    tags: presentStrings([nonBlank(item.department)]).concat(
+      presentStrings(item.tags?.map((t) => (typeof t === 'string' ? nonBlank(t) : null))),
+    ),
     dates: [
       { raw: recruiteeInstant(item.published_at), contract: 'ISO_ZONED', semantics: 'PUBLISHED' },
       { raw: recruiteeInstant(item.updated_at), contract: 'ISO_ZONED', semantics: 'UPDATED' },
@@ -233,7 +225,7 @@ function refuseWithoutToken(config: Config, ctx: CollectionContext): CollectionB
           cost: null,
           error: {
             code: 'ACCESS_POLICY',
-            message: `the Careers Site API needs a per-company token from ${RECRUITEE_TOKEN_DEADLINE.toISOString().slice(0, 10)} and this collector holds none; no request was made`,
+            message: `from ${RECRUITEE_TOKEN_DEADLINE.toISOString().slice(0, 10)} the Careers Site API requires the employer's own credentials, this collector holds none and made no request`,
           },
         },
         ctx.secrets,

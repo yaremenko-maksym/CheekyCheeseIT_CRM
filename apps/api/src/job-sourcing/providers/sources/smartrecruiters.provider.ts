@@ -180,14 +180,15 @@ const SECTION_ORDER = [
 const escapeHtml = (text: string) =>
   text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
-function bodyHtml(detail: Detail | null): string | null {
-  const parts = SECTION_ORDER.flatMap((name) => {
+/** The sections that have text, each under its title; none at all is the empty string, which the normalizer reads as no description. */
+function bodyHtml(detail: Detail | null): string {
+  return SECTION_ORDER.flatMap((name) => {
     const section = detail?.jobAd?.sections?.[name]
-    if (nonBlank(section?.text) === null) return []
-    const title = nonBlank(section?.title)
-    return [`${title === null ? '' : `<h3>${escapeHtml(title)}</h3>`}${section?.text ?? ''}`]
-  })
-  return parts.length === 0 ? null : parts.join('')
+    if (section === undefined || section === null) return []
+    if (section.text === null || section.text.trim() === '') return []
+    const title = nonBlank(section.title)
+    return [`${title === null ? '' : `<h3>${escapeHtml(title)}</h3>`}${section.text}`]
+  }).join('')
 }
 
 /**
@@ -318,7 +319,8 @@ async function collectSmartRecruiters(
   let checkpoint: ValidatedCheckpoint | null = null
   let pagesCompleted = 0
   let requestsMade = 0
-  let stop: StopReason = 'EXHAUSTED'
+  // Every path out of the loop assigns it; `finish` reads it after.
+  let stop!: StopReason
 
   // Unbounded here on purpose: a page is at most `pageSize` postings and the attempt at most
   // `maxListPages` pages, and `buildCollectionBatch` keeps the first `MAX_SAMPLES` of them.
