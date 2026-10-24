@@ -16,7 +16,7 @@ export const REMOTE_PHRASES = [
   'work from home',
   'working from home',
   'wfh',
-  'telecommute*',
+  'telecommut*',
   'fully distributed',
   'віддален*',
   'дистанційн*',

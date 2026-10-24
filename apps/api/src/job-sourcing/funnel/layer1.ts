@@ -271,11 +271,7 @@ const extractWorkplace: Extractor<WorkplaceSignal> = (folded) => {
     // "2 days in the office" is one hybrid phrase: its "in office" is not an onsite signal.
     if (inside(hybrid, h.index)) continue
     if (isNegated(folded, h.index) || isSoftened(folded, h.index)) continue
-    const next =
-      folded
-        .slice(h.index + h.text.length)
-        .trim()
-        .split(' ')[0] ?? ''
+    const next = wordsAfter(folded, h).split(' ')[0] ?? ''
     if ((ONSITE_NOT_A_WORKPLACE_FOLLOWERS as readonly string[]).includes(next)) continue
     out.push({ value: 'ONSITE', code: 'ONSITE_KEYWORD' })
   }
@@ -347,7 +343,8 @@ function classifyWorkplace(input: Layer1Input): {
 const FULL_RE = phraseRegex(FULL_TIME_PHRASES)
 const PART_RE = phraseRegex(PART_TIME_PHRASES)
 /** "40 hours per week", "20 год на тиждень". */
-const HOURS_RE = /(\d{1,2}) ?(?:hours?|hrs?|год\p{L}*) ?(?:\/|per|a|в|на) ?(?:week|wk|тиж\p{L}*)/gu
+const HOURS_RE =
+  /(?<!\d)(\d{1,2}) ?(?:hours?|hrs?|год\p{L}*) ?(?:\/|per|a|в|на) ?(?:week|wk|тиж\p{L}*)/gu
 
 const extractSchedule: Extractor<Schedule> = (folded) => {
   const full = hitsOf(FULL_RE, folded).filter((h) => !isNegated(folded, h.index))
@@ -449,6 +446,18 @@ function classifyDuration(input: Layer1Input): Dimension<Duration> {
   return dim<Duration>(r.value ?? 'UNKNOWN', 'PASS', r.evidence)
 }
 
+/** The words after a hit, punctuation dropped, single-spaced, with a trailing space. */
+const wordsAfter = (folded: string, hit: Hit): string =>
+  `${folded
+    .slice(hit.index + hit.text.length)
+    .split(/[^\p{L}']+/u)
+    .filter((w) => w.length > 0)
+    .join(' ')} `
+
+/** What follows an agency noun, with a linking "are" dropped: "agencies are not welcome". */
+const agencyTail = (folded: string, hit: Hit): string =>
+  wordsAfter(folded, hit).replace(/^are /, '')
+
 const AGENCY_NOUN_RE = phraseRegex(AGENCY_NOUNS)
 const AGENCY_PROHIBIT_RE = phraseRegex(AGENCY_PROHIBIT_PHRASES)
 const AGENCY_ACCEPT_RE = phraseRegex(AGENCY_ACCEPT_PHRASES)
@@ -456,23 +465,17 @@ const AGENCY_ACCEPT_RE = phraseRegex(AGENCY_ACCEPT_PHRASES)
 const extractAgency: Extractor<AgencyAcceptance> = (folded) => {
   const prohibited =
     hitsOf(AGENCY_PROHIBIT_RE, folded).length > 0 ||
-    hitsOf(AGENCY_NOUN_RE, folded).some((h) => {
-      const after = folded.slice(h.index + h.text.length).trim()
-      return (
+    hitsOf(AGENCY_NOUN_RE, folded).some(
+      (h) =>
         isNegated(folded, h.index, AGENCY_NEGATION_WORDS) ||
-        AGENCY_PROHIBIT_AFTER.some((p) => after.startsWith(`${p} `) || after === p)
-      )
-    })
+        AGENCY_PROHIBIT_AFTER.some((p) => agencyTail(folded, h).startsWith(`${p} `)),
+    )
   if (prohibited) return [{ value: 'PROHIBITED', code: 'NO_AGENCY' }]
   const accepted =
     hitsOf(AGENCY_ACCEPT_RE, folded).length > 0 ||
-    hitsOf(AGENCY_NOUN_RE, folded).some((h) => {
-      const after = folded
-        .slice(h.index + h.text.length)
-        .trim()
-        .replace(/^are /, '')
-      return AGENCY_ACCEPT_AFTER.some((p) => after === p || after.startsWith(`${p} `))
-    })
+    hitsOf(AGENCY_NOUN_RE, folded).some((h) =>
+      AGENCY_ACCEPT_AFTER.some((p) => agencyTail(folded, h).startsWith(`${p} `)),
+    )
   return accepted ? [{ value: 'ACCEPTED', code: 'AGENCY_WELCOME' }] : []
 }
 
