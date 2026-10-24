@@ -33,12 +33,41 @@ export interface AtsJobKey {
   key: string
 }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const DIGITS = /^[0-9]+$/
-/** One DNS label / path segment worth of account name. */
-const ACCOUNT = /^[a-z0-9][a-z0-9_-]{0,99}$/i
-const SHORTCODE = /^[a-z0-9]{6,20}$/i
-const SLUG = /^[a-z0-9][a-z0-9-]{0,199}$/i
+const GH_HOST = /^(?:job-)?boards\.(?:eu\.)?greenhouse\.io$/
+const GH_PATH = /^\/([a-z0-9][a-z0-9_-]*)\/jobs\/([0-9]+)(?:\/|$)/i
+const GH_EMBED_PATH = /^\/embed\/job_app\/?$/
+const NAME_ONLY = /^[a-z0-9][a-z0-9_-]*$/i
+const DIGITS_ONLY = /^[0-9]+$/
+const LEVER_HOST = /^jobs\.(?:eu\.)?lever\.co$/
+const LEVER_PATH =
+  /^\/([a-z0-9][a-z0-9_-]*)\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/apply)?\/?$/i
+const ASHBY_HOST = /^jobs\.ashbyhq\.com$/
+const ASHBY_PATH =
+  /^\/([a-z0-9][a-z0-9_-]*)\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/application)?\/?$/i
+const WORKABLE_HOST = /^apply\.workable\.com$/
+const WORKABLE_PATH = /^\/([a-z0-9][a-z0-9_-]*)\/j\/([a-z0-9]{6,20})(?:\/apply)?\/?$/i
+const SR_HOST = /^(?:jobs|careers)\.smartrecruiters\.com$/
+const SR_PATH = /^\/([a-z0-9][a-z0-9_-]*)\/([0-9]+)(?:-[^/]*)?\/?$/i
+const RECRUITEE_HOST = /^(?!www\.)([a-z0-9][a-z0-9_-]*)\.recruitee\.com$/
+const RECRUITEE_PATH = /^\/o\/([a-z0-9][a-z0-9-]*)(?:\/|$)/i
+const PERSONIO_HOST = /^([a-z0-9][a-z0-9_-]*)\.jobs\.personio\.(?:de|com)$/
+const PERSONIO_PATH = /^\/job\/([0-9]+)\/?$/
+
+const VENDOR_HOSTS = [
+  GH_HOST,
+  LEVER_HOST,
+  ASHBY_HOST,
+  WORKABLE_HOST,
+  SR_HOST,
+  RECRUITEE_HOST,
+  PERSONIO_HOST,
+]
+
+/** Capture groups of `re` on `text`, or null. Every group of every pattern above is mandatory. */
+function groups(re: RegExp, text: string): string[] | null {
+  const m = re.exec(text)
+  return m === null ? null : (m.slice(1) as string[])
+}
 
 function make(
   provider: AtsProvider,
@@ -56,113 +85,62 @@ function make(
   }
 }
 
-/** Path segments with empty ones dropped (trailing/double slashes are not information). */
-const segments = (path: string): string[] => path.split('/').filter((s) => s.length > 0)
-
-function greenhouse(host: string, url: URL, parts: string[]): AtsJobKey | null {
-  const [p0 = '', p1 = '', p2 = ''] = parts
-  if (
-    host === 'boards.greenhouse.io' ||
-    host === 'job-boards.greenhouse.io' ||
-    host === 'boards.eu.greenhouse.io' ||
-    host === 'job-boards.eu.greenhouse.io'
-  ) {
-    if (parts.length >= 3 && p1 === 'jobs' && ACCOUNT.test(p0) && DIGITS.test(p2)) {
-      return make('greenhouse', p0, p2, 'ATS_HOSTED')
-    }
-    const board = url.searchParams.get('for')
-    const token = url.searchParams.get('token')
-    if (
-      parts.length === 2 &&
-      p0 === 'embed' &&
-      p1 === 'job_app' &&
-      board &&
-      token &&
-      ACCOUNT.test(board) &&
-      DIGITS.test(token)
-    ) {
+function hosted(host: string, path: string, query: URLSearchParams): AtsJobKey | null {
+  if (GH_HOST.test(host)) {
+    const m = groups(GH_PATH, path)
+    if (m !== null) return make('greenhouse', m[0], m[1], 'ATS_HOSTED')
+    const board = query.get('for') ?? ''
+    const token = query.get('token') ?? ''
+    if (GH_EMBED_PATH.test(path) && NAME_ONLY.test(board) && DIGITS_ONLY.test(token)) {
       return make('greenhouse', board, token, 'ATS_HOSTED')
     }
     return null
   }
+  if (LEVER_HOST.test(host)) {
+    const m = groups(LEVER_PATH, path)
+    return m === null ? null : make('lever', m[0], m[1].toLowerCase(), 'ATS_HOSTED')
+  }
+  if (ASHBY_HOST.test(host)) {
+    const m = groups(ASHBY_PATH, path)
+    return m === null ? null : make('ashby', m[0], m[1].toLowerCase(), 'ATS_HOSTED')
+  }
+  if (WORKABLE_HOST.test(host)) {
+    const m = groups(WORKABLE_PATH, path)
+    return m === null ? null : make('workable', m[0], m[1].toUpperCase(), 'ATS_HOSTED')
+  }
+  if (SR_HOST.test(host)) {
+    const m = groups(SR_PATH, path)
+    return m === null ? null : make('smartrecruiters', m[0], m[1], 'ATS_HOSTED')
+  }
+  const recruitee = groups(RECRUITEE_HOST, host)
+  if (recruitee !== null) {
+    const m = groups(RECRUITEE_PATH, path)
+    return m === null ? null : make('recruitee', recruitee[0], m[0].toLowerCase(), 'ATS_HOSTED')
+  }
+  const personio = groups(PERSONIO_HOST, host)
+  if (personio !== null) {
+    const m = groups(PERSONIO_PATH, path)
+    return m === null ? null : make('personio', personio[0], m[0], 'ATS_HOSTED')
+  }
   return null
-}
-
-const LEVER_HOSTS = new Set(['jobs.lever.co', 'jobs.eu.lever.co'])
-const ASHBY_HOSTS = new Set(['jobs.ashbyhq.com'])
-
-/** `<account>/<uuid>[/apply|/application]` on a fixed-host ATS. */
-function accountUuid(provider: 'lever' | 'ashby', parts: string[], tail: string): AtsJobKey | null {
-  const [account = '', id = '', suffix] = parts
-  if (parts.length < 2 || parts.length > 3) return null
-  if (parts.length === 3 && suffix !== tail) return null
-  if (!ACCOUNT.test(account) || !UUID.test(id)) return null
-  return make(provider, account, id.toLowerCase(), 'ATS_HOSTED')
-}
-
-function workable(parts: string[]): AtsJobKey | null {
-  // /<account>/j/<SHORTCODE>[/apply]
-  const [account = '', j, code = '', suffix] = parts
-  if (parts.length < 3 || parts.length > 4 || j !== 'j') return null
-  if (parts.length === 4 && suffix !== 'apply') return null
-  if (!ACCOUNT.test(account) || !SHORTCODE.test(code)) return null
-  return make('workable', account, code.toUpperCase(), 'ATS_HOSTED')
-}
-
-function smartRecruiters(parts: string[]): AtsJobKey | null {
-  // /<Company>/<numeric id>[-slug]
-  const [account = '', last = ''] = parts
-  if (parts.length !== 2 || !ACCOUNT.test(account)) return null
-  const id = /^([0-9]+)(?:-.*)?$/.exec(last)?.[1]
-  return id === undefined ? null : make('smartrecruiters', account, id, 'ATS_HOSTED')
-}
-
-function subdomainOf(host: string, suffix: string): string | null {
-  if (!host.endsWith(`.${suffix}`)) return null
-  const sub = host.slice(0, host.length - suffix.length - 1)
-  return ACCOUNT.test(sub) && sub !== 'www' ? sub : null
-}
-
-function recruitee(host: string, parts: string[]): AtsJobKey | null {
-  const account = subdomainOf(host, 'recruitee.com')
-  const [o, slug = ''] = parts
-  if (account === null || parts.length < 2 || o !== 'o' || !SLUG.test(slug)) return null
-  return make('recruitee', account, slug.toLowerCase(), 'ATS_HOSTED')
-}
-
-function personio(host: string, parts: string[]): AtsJobKey | null {
-  const account = subdomainOf(host, 'jobs.personio.de') ?? subdomainOf(host, 'jobs.personio.com')
-  const [job, id = ''] = parts
-  if (account === null || parts.length !== 2 || job !== 'job' || !DIGITS.test(id)) return null
-  return make('personio', account, id, 'ATS_HOSTED')
 }
 
 export function atsJobKey(raw: string | null | undefined): AtsJobKey | null {
   const link = checkStoredLink(raw)
   if (!link.ok) return null
-  const url = link.url
-  const host = url.hostname.toLowerCase()
-  const parts = segments(url.pathname)
-
-  const hosted =
-    greenhouse(host, url, parts) ??
-    (LEVER_HOSTS.has(host) ? accountUuid('lever', parts, 'apply') : null) ??
-    (ASHBY_HOSTS.has(host) ? accountUuid('ashby', parts, 'application') : null) ??
-    (host === 'apply.workable.com' ? workable(parts) : null) ??
-    (host === 'jobs.smartrecruiters.com' || host === 'careers.smartrecruiters.com'
-      ? smartRecruiters(parts)
-      : null) ??
-    recruitee(host, parts) ??
-    personio(host, parts)
-  if (hosted !== null) return hosted
+  const { hostname, pathname, searchParams } = link.url
+  const found = hosted(hostname, pathname, searchParams)
+  if (found !== null) return found
 
   // `gh_jid` on any other host: an employer page embedding a Greenhouse board. Scoped to the host
-  // because the same number on another site is another job.
-  const jid = url.searchParams.get('gh_jid')
-  // A dotless host ("acme") is a legal URL host but not an employer site, and would read like a
-  // board slug; the scope is also in the key tuple, so the two can never collide.
-  if (jid !== null && DIGITS.test(jid) && host.includes('.')) {
-    return make('greenhouse', host, jid, 'EMPLOYER_HOST')
-  }
-  return null
+  // because the same number on another site is another job. A dotless host ("acme") is a legal URL
+  // host but not an employer site, and would read like a board slug; the scope is also in the key
+  // tuple, so the two can never collide.
+  // A vendor host is never an "employer host": a URL it rejected stays rejected.
+  const jid = searchParams.get('gh_jid') ?? ''
+  return DIGITS_ONLY.test(jid) &&
+    hostname.includes('.') &&
+    !VENDOR_HOSTS.some((re) => re.test(hostname))
+    ? make('greenhouse', hostname, jid, 'EMPLOYER_HOST')
+    : null
 }

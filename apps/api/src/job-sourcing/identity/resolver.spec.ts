@@ -240,6 +240,174 @@ describe('assess: same company/title is a candidate only', () => {
   })
 })
 
+describe('assess: exact evidence and strong-key policy', () => {
+  it('an unverified apply URL is recorded as evidence and decides nothing', () => {
+    const a = rec('a', { postingUrl: GH(100) })
+    const b = rec('b', { nativeId: 'x', applicationUrl: GH(100), applicationUrlVerified: false })
+    expect(assess(a, b)).toEqual({
+      decision: 'CANDIDATE',
+      rule: 'COMPANY_TITLE',
+      evidence: ['APPLY_URL_UNVERIFIED:b'],
+      revision: IDENTITY_RULES_VERSION,
+    })
+  })
+
+  it('evidence from both sides is sorted', () => {
+    const a = rec('a', { applicationUrl: GH(1), applicationUrlVerified: false })
+    const b = rec('b', { nativeId: 'x', applicationUrl: GH(2), applicationUrlVerified: false })
+    expect(assess(b, a).evidence).toEqual(['APPLY_URL_UNVERIFIED:a', 'APPLY_URL_UNVERIFIED:b'])
+  })
+
+  it('a non-ATS application URL leaves no evidence', () => {
+    const a = rec('a', {
+      applicationUrl: 'https://example.com/apply',
+      applicationUrlVerified: false,
+    })
+    expect(assess(a, rec('b', { nativeId: 'x' })).evidence).toEqual([])
+  })
+
+  it('a self-contradicting record yields exactly APPLY_URL_CONFLICT and no keys', () => {
+    const self = rec('a', {
+      postingUrl: GH(1),
+      applicationUrl: GH(2),
+      applicationUrlVerified: true,
+    })
+    const other = rec('b', { nativeId: 'x', postingUrl: GH(1) })
+    expect(assess(self, other)).toEqual({
+      decision: 'CANDIDATE',
+      rule: 'COMPANY_TITLE',
+      evidence: ['APPLY_URL_CONFLICT:a'],
+      revision: IDENTITY_RULES_VERSION,
+    })
+  })
+
+  it('a verified apply URL equal to the posting key is consistent, not a conflict', () => {
+    const a = rec('a', { postingUrl: GH(1), applicationUrl: GH(1), applicationUrlVerified: true })
+    const b = rec('b', { nativeId: 'x', postingUrl: GH(1) })
+    expect(assess(a, b).rule).toBe('ATS_JOB_KEY')
+  })
+
+  it('a verified apply URL to a different board of the same id is a conflict too', () => {
+    const a = rec('a', {
+      postingUrl: GH(1, 'acme'),
+      applicationUrl: GH(1, 'other'),
+      applicationUrlVerified: true,
+    })
+    expect(assess(a, rec('b', { nativeId: 'x' })).evidence).toEqual(['APPLY_URL_CONFLICT:a'])
+  })
+
+  it('a posting URL on an employer host (gh_jid) is not a strong key', () => {
+    const url = 'https://careers.acme.example/roles?gh_jid=5'
+    const a = rec('a', { postingUrl: url, company: 'Acme' })
+    const b = rec('b', { nativeId: 'x', postingUrl: url, company: 'Globex' })
+    expect(assess(a, b)).toMatchObject({ decision: 'DISTINCT', rule: 'NO_SHARED_IDENTITY' })
+  })
+
+  it('a verified apply URL is strong even when only the apply side carries it', () => {
+    const a = rec('a', { postingUrl: 'https://remoteok.com/a' })
+    const b = rec('b', { nativeId: 'x', applicationUrl: GH(5), applicationUrlVerified: true })
+    const c = rec('c', { nativeId: 'y', postingUrl: GH(5) })
+    expect(assess(b, c).rule).toBe('ATS_JOB_KEY')
+    expect(assess(a, b).rule).toBe('COMPANY_TITLE')
+  })
+
+  it('ASSOCIATE evidence is exactly the shared key', () => {
+    const a = rec('a', { postingUrl: GH(7) })
+    const b = rec('b', { nativeId: 'x', postingUrl: GH(7) })
+    expect(assess(a, b)).toEqual({
+      decision: 'ASSOCIATE',
+      rule: 'ATS_JOB_KEY',
+      evidence: ['ATS_KEY:["ats1","greenhouse","ATS_HOSTED","acme","7"]'],
+      revision: IDENTITY_RULES_VERSION,
+    })
+  })
+
+  it('both contradictions are listed in a fixed order', () => {
+    const a = rec('a', { postingUrl: GH(7) })
+    const b = rec('b', {
+      nativeId: 'x',
+      postingUrl: GH(7),
+      company: 'Globex',
+      title: 'Data Analyst',
+    })
+    expect(assess(a, b).evidence).toEqual([
+      'ATS_KEY:["ats1","greenhouse","ATS_HOSTED","acme","7"]',
+      'COMPANY_MISMATCH',
+      'TITLE_MISMATCH',
+    ])
+  })
+
+  it('company contradiction alone, and title contradiction alone, each demote to CANDIDATE', () => {
+    const a = rec('a', { postingUrl: GH(7) })
+    expect(
+      assess(a, rec('b', { nativeId: 'x', postingUrl: GH(7), company: 'Globex' })).evidence,
+    ).toEqual(['ATS_KEY:["ats1","greenhouse","ATS_HOSTED","acme","7"]', 'COMPANY_MISMATCH'])
+    expect(
+      assess(a, rec('c', { nativeId: 'y', postingUrl: GH(7), title: 'Data Analyst' })).evidence,
+    ).toEqual(['ATS_KEY:["ats1","greenhouse","ATS_HOSTED","acme","7"]', 'TITLE_MISMATCH'])
+  })
+
+  it('one side missing company/title is no contradiction, in either direction', () => {
+    const a = rec('a', { postingUrl: GH(7) })
+    const gaps = [{ company: null }, { title: '' }, { title: '---' }]
+    for (const gap of gaps) {
+      expect(assess(a, rec('b', { nativeId: 'x', postingUrl: GH(7), ...gap })).decision).toBe(
+        'ASSOCIATE',
+      )
+      expect(assess(rec('b', { nativeId: 'x', postingUrl: GH(7), ...gap }), a).decision).toBe(
+        'ASSOCIATE',
+      )
+    }
+  })
+
+  it('distinct ATS ids are flagged only when BOTH sides carry a key', () => {
+    const a = rec('a', { postingUrl: GH(1) })
+    expect(assess(a, rec('b', { nativeId: 'x', postingUrl: GH(2) })).evidence).toEqual([
+      'DISTINCT_ATS_IDS',
+    ])
+    expect(assess(a, rec('c', { nativeId: 'y' })).evidence).toEqual([])
+    expect(assess(rec('c', { nativeId: 'y' }), a).evidence).toEqual([])
+  })
+
+  it('NATIVE_ID evidence names provider, namespace and id; any one differing breaks it', () => {
+    const a = rec('a', { nativeId: 'n1', company: 'A', title: 'T1' })
+    expect(assess(a, rec('b', { nativeId: 'n1', company: 'B', title: 'T2' })).evidence).toEqual([
+      'NATIVE:REMOTEOK:remoteok.com:n1',
+    ])
+    expect(assess(a, rec('c', { nativeId: 'n2', company: 'B', title: 'T2' })).decision).toBe(
+      'DISTINCT',
+    )
+  })
+
+  it('unknown (null, empty or punctuation-only) location/department is compatible; known values compare case-insensitively', () => {
+    for (const unknown of [null, '', ' - ']) {
+      expect(assess(rec('a', { location: unknown }), rec('b')).decision).toBe('CANDIDATE')
+      expect(assess(rec('a'), rec('b', { location: unknown })).decision).toBe('CANDIDATE')
+      expect(
+        assess(rec('a', { department: unknown }), rec('b', { department: 'Growth' })).decision,
+      ).toBe('CANDIDATE')
+      expect(
+        assess(rec('a', { department: 'Growth' }), rec('b', { department: unknown })).decision,
+      ).toBe('CANDIDATE')
+    }
+    expect(
+      assess(rec('a', { location: 'BERLIN' }), rec('b', { location: 'berlin' })).decision,
+    ).toBe('CANDIDATE')
+    expect(
+      assess(rec('a', { department: 'Growth' }), rec('b', { department: 'GROWTH' })).decision,
+    ).toBe('CANDIDATE')
+  })
+
+  it('a missing title on either side never makes a COMPANY_TITLE candidate', () => {
+    expect(assess(rec('a', { title: '' }), rec('b', { title: '' })).decision).toBe('DISTINCT')
+  })
+
+  it('company mismatch with equal titles is DISTINCT, and title mismatch with equal company is DISTINCT', () => {
+    expect(assess(rec('a'), rec('b', { company: 'Globex' })).decision).toBe('DISTINCT')
+    expect(assess(rec('a'), rec('b', { title: 'Data Analyst' })).decision).toBe('DISTINCT')
+  })
+})
+
 describe('canAttach and clusterRecords: every-member check', () => {
   const a = rec('a', { postingUrl: GH(1), company: 'Acme' })
   // b shares the ATS key with a AND a native id with c.

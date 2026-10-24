@@ -77,8 +77,7 @@ function strongKeys(r: ResolverRecord): { keys: AtsJobKey[]; evidence: string[] 
     // The record contradicts itself: trust neither URL.
     return { keys: [], evidence: [`APPLY_URL_CONFLICT:${r.id}`] }
   }
-  const keys = [postingStrong, applyStrong].filter((k): k is AtsJobKey => k !== null)
-  return { keys: keys.filter((k, i) => keys.findIndex((o) => o.key === k.key) === i), evidence }
+  return { keys: [postingStrong, applyStrong].filter((k): k is AtsJobKey => k !== null), evidence }
 }
 
 const base = (decision: Decision, rule: AssessRule, evidence: string[]): Assessment => ({
@@ -93,8 +92,8 @@ const compatible = (a: string | null, b: string | null, norm: (s: string) => str
   a === null || b === null || norm(a) === '' || norm(b) === '' || norm(a) === norm(b)
 
 export function assess(x: ResolverRecord, y: ResolverRecord): Assessment {
-  // Canonical operand order: the result must not depend on which side is "a".
-  const [a, b] = x.id <= y.id ? [x, y] : [y, x]
+  // Every field below is symmetric in (a, b) by construction, which the symmetry test pins.
+  const [a, b] = [x, y]
 
   if (
     a.nativeId !== null &&

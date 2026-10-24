@@ -177,4 +177,123 @@ describe('atsJobKey: key stability and separation', () => {
       '["ats1","greenhouse","ATS_HOSTED","acme","9"]',
     )
   })
+
+  it('every shape is anchored and strict: junk before, after or inside the id/account is rejected', () => {
+    const U = '5f1c2d3e-aaaa-4bbb-8ccc-0123456789ab'
+    const bad = [
+      // greenhouse
+      'https://boards.greenhouse.io/x/acme/jobs/1',
+      'https://boards.greenhouse.io/acme/jobs/12abc',
+      'https://boards.greenhouse.io/-acme/jobs/1',
+      'https://boards.greenhouse.io/ac.me/jobs/1',
+      'https://boards.greenhouse.io/acme/jobs/1x/y',
+      'https://boards.greenhouse.io/embed/job_app/extra?for=acme&token=1',
+      'https://boards.greenhouse.io/x/embed/job_app?for=acme&token=1',
+      'https://boards.greenhouse.io/embed/job_app?for=-acme&token=1',
+      'https://boards.greenhouse.io/embed/job_app?for=acme&token=1a',
+      'https://boards.greenhouse.io/embed/job_app?for=acme',
+      'https://boards.greenhouse.io/embed/job_app?token=1',
+      'https://xboards.greenhouse.io/acme/jobs/1',
+      'https://boards.xgreenhouse.io/acme/jobs/1',
+      // lever
+      `https://jobs.lever.co/x/acme/${U}`,
+      `https://jobs.lever.co/acme/${U}/x`,
+      `https://jobs.lever.co/acme/${U}0`,
+      `https://jobs.lever.co/acme/x${U}`,
+      `https://jobs.lever.co/-acme/${U}`,
+      `https://jobs.lever.co/ac.me/${U}`,
+      `https://jobs.lever.co/acme/${U.replace('-aaaa-', '-aaa-')}`,
+      `https://xjobs.lever.co/acme/${U}`,
+      `https://jobs.lever.com/acme/${U}`,
+      // ashby
+      `https://jobs.ashbyhq.com/acme/${U}/apply`,
+      `https://jobs.ashbyhq.com/x/acme/${U}`,
+      `https://jobs.ashbyhq.com/-acme/${U}`,
+      `https://jobs.ashbyhq.com/acme/${U}0`,
+      `https://xjobs.ashbyhq.com/acme/${U}`,
+      `https://jobs.ashbyhq.com.example/acme/${U}`,
+      // workable
+      'https://apply.workable.com/x/acme/j/AB12CD34EF',
+      'https://apply.workable.com/acme/j/AB12C',
+      'https://apply.workable.com/acme/j/AB12CD34EF56GH78IJ90K',
+      'https://apply.workable.com/acme/j/AB12CD34EF/x',
+      'https://apply.workable.com/acme/x/AB12CD34EF',
+      'https://apply.workable.com/-acme/j/AB12CD34EF',
+      'https://apply.workable.com/acme/j/AB12-D34EF',
+      'https://xapply.workable.com/acme/j/AB12CD34EF',
+      // smartrecruiters
+      'https://jobs.smartrecruiters.com/x/Acme/743999876543',
+      'https://jobs.smartrecruiters.com/Acme/743999876543/x',
+      'https://jobs.smartrecruiters.com/-Acme/743999876543',
+      'https://jobs.smartrecruiters.com/Acme/x743999876543',
+      'https://xjobs.smartrecruiters.com/Acme/743999876543',
+      'https://jobs.smartrecruiters.com.example/Acme/743999876543',
+      // recruitee
+      'https://acme.recruitee.com/x/o/engineer',
+      'https://acme.recruitee.com/p/engineer',
+      'https://acme.recruitee.com/o/',
+      'https://acme.recruitee.com/o/-engineer',
+      'https://-acme.recruitee.com/o/engineer',
+      'https://acme.recruitee.com.example/o/engineer',
+      'https://recruitee.com/o/engineer',
+      // personio
+      'https://acme.jobs.personio.de/x/job/1',
+      'https://acme.jobs.personio.de/job/1/x',
+      'https://acme.jobs.personio.de/job/1a',
+      'https://-acme.jobs.personio.de/job/1',
+      'https://acme.jobs.personio.org/job/1',
+      'https://acme.jobs.personio.de.example/job/1',
+      'https://jobs.personio.de/job/1',
+    ]
+    for (const u of bad) expect(k(u), u).toBeNull()
+  })
+
+  it('accepts the documented optional tails, trailing slashes and name characters', () => {
+    const U = '5f1c2d3e-aaaa-4bbb-8ccc-0123456789ab'
+    expect(sig('https://boards.greenhouse.io/ac_me-1/jobs/7/')).toBe('greenhouse|ac_me-1|7')
+    expect(sig('https://boards.greenhouse.io/acme/jobs/7/extra')).toBe('greenhouse|acme|7')
+    expect(sig('https://boards.greenhouse.io/embed/job_app/?for=acme&token=7')).toBe(
+      'greenhouse|acme|7',
+    )
+    expect(sig('https://job-boards.eu.greenhouse.io/acme/jobs/7')).toBe('greenhouse|acme|7')
+    expect(sig(`https://jobs.lever.co/ac_me-1/${U}/`)).toBe(`lever|ac_me-1|${U}`)
+    expect(sig(`https://jobs.lever.co/acme/${U.toUpperCase()}/apply/`)).toBe(`lever|acme|${U}`)
+    expect(sig(`https://jobs.ashbyhq.com/ac_me/${U}/application/`)).toBe(`ashby|ac_me|${U}`)
+    expect(sig('https://apply.workable.com/acme/j/abcdef/')).toBe('workable|acme|ABCDEF')
+    expect(sig('https://apply.workable.com/acme/j/abcdefghij0123456789')).toBe(
+      'workable|acme|ABCDEFGHIJ0123456789',
+    )
+    expect(sig('https://jobs.smartrecruiters.com/Acme/7439-senior-dev/')).toBe(
+      'smartrecruiters|acme|7439',
+    )
+    expect(sig('https://jobs.smartrecruiters.com/Acme/7439/')).toBe('smartrecruiters|acme|7439')
+    expect(sig('https://acme.recruitee.com/o/senior-dev/')).toBe('recruitee|acme|senior-dev')
+    expect(sig('https://ac_me.recruitee.com/o/Senior-Dev')).toBe('recruitee|ac_me|senior-dev')
+    expect(sig('https://acme.jobs.personio.de/job/55/')).toBe('personio|acme|55')
+    expect(sig('https://acme.jobs.personio.com/job/55')).toBe('personio|acme|55')
+  })
+
+  it('gh_jid: digits only, non-empty, any other host needs a dot', () => {
+    expect(k('https://careers.acme.example/x?gh_jid=')).toBeNull()
+    expect(k('https://careers.acme.example/x?gh_jid=1x')).toBeNull()
+    expect(k('https://careers.acme.example/x?gh_jid=x1')).toBeNull()
+    expect(k('https://careers.acme.example/x')).toBeNull()
+    expect(sig('https://careers.acme.example/x?gh_jid=12')).toBe(
+      'greenhouse|careers.acme.example|12',
+    )
+  })
+
+  it('a rejected hosted URL does not fall through to gh_jid on the vendor host', () => {
+    for (const u of [
+      'https://boards.greenhouse.io/acme?gh_jid=1',
+      'https://jobs.lever.co/acme?gh_jid=1',
+      'https://jobs.ashbyhq.com/acme?gh_jid=1',
+      'https://apply.workable.com/acme?gh_jid=1',
+      'https://jobs.smartrecruiters.com/acme?gh_jid=1',
+      'https://acme.recruitee.com/?gh_jid=1',
+      'https://acme.jobs.personio.de/?gh_jid=1',
+    ]) {
+      expect(k(u), u).toBeNull()
+    }
+  })
 })
