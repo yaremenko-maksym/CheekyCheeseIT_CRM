@@ -2,10 +2,10 @@
   "author": "whoishiring",
   "children": [
     {
-      "author": "mwest1066",
+      "author": "hnuser06",
       "children": [
         {
-          "author": "cebert",
+          "author": "hnuser07",
           "children": [],
           "created_at": "2026-10-02T00:13:01.000Z",
           "created_at_i": 1790899981,
@@ -33,7 +33,7 @@
       "url": null
     },
     {
-      "author": "mcintyem",
+      "author": "hnuser08",
       "children": [],
       "created_at": "2026-10-01T15:03:36.000Z",
       "created_at_i": 1790867016,
@@ -48,7 +48,7 @@
       "url": null
     },
     {
-      "author": "eterps",
+      "author": "hnuser09",
       "children": [],
       "created_at": "2026-10-01T15:04:09.000Z",
       "created_at_i": 1790867049,
@@ -63,7 +63,7 @@
       "url": null
     },
     {
-      "author": "jaredzwick",
+      "author": "hnuser10",
       "children": [],
       "created_at": "2026-10-01T15:09:41.000Z",
       "created_at_i": 1790867381,
@@ -78,7 +78,7 @@
       "url": null
     },
     {
-      "author": "btesser21",
+      "author": "hnuser11",
       "children": [],
       "created_at": "2026-10-01T15:58:38.000Z",
       "created_at_i": 1790870318,
@@ -93,10 +93,10 @@
       "url": null
     },
     {
-      "author": "anorphirith",
+      "author": "hnuser12",
       "children": [
         {
-          "author": "swozey",
+          "author": "hnuser13",
           "children": [],
           "created_at": "2026-10-01T18:37:42.000Z",
           "created_at_i": 1790879862,
@@ -111,13 +111,13 @@
           "url": null
         },
         {
-          "author": "willmeyers",
+          "author": "hnuser14",
           "children": [
             {
-              "author": "anorphirith",
+              "author": "hnuser12",
               "children": [
                 {
-                  "author": "laxisOp",
+                  "author": "hnuser15",
                   "children": [],
                   "created_at": "2026-10-02T09:00:55.000Z",
                   "created_at_i": 1790931655,
@@ -158,7 +158,7 @@
           "url": null
         },
         {
-          "author": "dmarticus",
+          "author": "hnuser16",
           "children": [],
           "created_at": "2026-10-01T19:24:28.000Z",
           "created_at_i": 1790882668,
@@ -173,7 +173,7 @@
           "url": null
         },
         {
-          "author": "coolThingsFirst",
+          "author": "hnuser17",
           "children": [],
           "created_at": "2026-10-01T20:03:09.000Z",
           "created_at_i": 1790884989,
@@ -188,13 +188,13 @@
           "url": null
         },
         {
-          "author": "echelon",
+          "author": "hnuser18",
           "children": [
             {
-              "author": "w4yai",
+              "author": "hnuser19",
               "children": [
                 {
-                  "author": "zshrdlu",
+                  "author": "hnuser20",
                   "children": [],
                   "created_at": "2026-10-05T07:01:20.000Z",
                   "created_at_i": 1791183680,
@@ -222,7 +222,7 @@
               "url": null
             },
             {
-              "author": "echelon",
+              "author": "hnuser18",
               "children": [],
               "created_at": "2026-10-08T15:17:08.000Z",
               "created_at_i": 1791472628,
@@ -263,13 +263,13 @@
       "url": null
     },
     {
-      "author": "kwakubiney",
+      "author": "hnuser21",
       "children": [
         {
-          "author": "CalRobert",
+          "author": "hnuser22",
           "children": [
             {
-              "author": "kwakubiney",
+              "author": "hnuser21",
               "children": [],
               "created_at": "2026-10-01T19:04:17.000Z",
               "created_at_i": 1790881457,
@@ -297,7 +297,7 @@
           "url": null
         },
         {
-          "author": "dang",
+          "author": "hnuser23",
           "children": [],
           "created_at": "2026-10-01T22:05:22.000Z",
           "created_at_i": 1790892322,
@@ -325,7 +325,7 @@
       "url": null
     },
     {
-      "author": "mixeden",
+      "author": "hnuser24",
       "children": [],
       "created_at": "2026-10-01T19:29:35.000Z",
       "created_at_i": 1790882975,

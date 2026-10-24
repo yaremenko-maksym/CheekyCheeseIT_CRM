@@ -281,7 +281,7 @@ describe('mapping the authentic October 2026 thread', () => {
     expect(o?.normalized.title).toBe(
       'PrairieLearn (Remote US) — Full-Stack Software Engineer — TypeScript / Postgres / React / AI',
     )
-    expect(o?.normalized.companyName).toBe('HN @mwest1066')
+    expect(o?.normalized.companyName).toBe('HN @hnuser06')
     expect(o?.normalized.location).toBeNull()
     expect(o?.normalized.remote).toBe(true)
     expect(o?.normalized.tags).toEqual(['employer-unverified'])
@@ -300,49 +300,49 @@ describe('mapping the authentic October 2026 thread', () => {
   it.each([
     [
       '49922609',
-      'mcintyem',
+      'hnuser08',
       'Sidekick Labs | Senior SWE, R&D Engineer, Intelligence Engineer | REMOTE (US Timezones) | Full-time | $170k to $230k Base + Equity + Health',
       true,
       ['employer-unverified', 'triage:multi-role'],
     ],
     [
       '49922615',
-      'eterps',
+      'hnuser09',
       'Open Education Applications / Neon | Senior/Lead Platform & DevOps Engineer, Senior Frontend Engineer, Senior Full-Stack Engineer | Utrecht, The Netherlands | HYBRID | DUTCH REQUIRED',
       null,
       ['employer-unverified', 'triage:multi-role'],
     ],
     [
       '49922711',
-      'jaredzwick',
+      'hnuser10',
       'CareerJumpShip | Multiple engineering + go-to-market roles | Remote-first',
       true,
       ['employer-unverified', 'triage:multi-role'],
     ],
     [
       '49923426',
-      'btesser21',
+      'hnuser11',
       'PDT Partners | NYC, Hybrid, 3 days in office',
       null,
       ['employer-unverified'],
     ],
     [
       '49924849',
-      'anorphirith',
+      'hnuser12',
       'there used to be 800+ posts here :(',
       null,
       ['employer-unverified', 'triage:no-role-signal'],
     ],
     [
       '49925544',
-      'kwakubiney',
+      'hnuser21',
       "This role always shows up here. There's no way you're not finding anyone to fill this?",
       null,
       ['employer-unverified', 'triage:no-role-signal'],
     ],
     [
       '49926031',
-      'mixeden',
+      'hnuser24',
       "whitecircle.com/careers, we're building the most advanced AI safety infra, raised roughly $70m in total, join us",
       null,
       ['employer-unverified'],
@@ -392,12 +392,12 @@ describe('headers by shape (September 2026 and May 2019 captures)', () => {
     expect(close?.normalized.title).toBe(
       'Remote (US) Close (https://close.com) | Senior/Staff Backend Engineer, Backend Platform | Full-time',
     )
-    expect(close?.normalized.companyName).toBe('HN @veraalb')
+    expect(close?.normalized.companyName).toBe('HN @hnuser05')
     expect(close?.normalized.remote).toBe(true)
     expect(close?.normalized.location).toBeNull()
 
     const norm = byId(sep.batch, '49540382')
-    expect(norm?.normalized.companyName).toBe('HN @jperaino')
+    expect(norm?.normalized.companyName).toBe('HN @hnuser04')
     expect(
       norm?.originalFields.title.value.startsWith(
         'NYC | ONSITE (hybrid) Norm Ai, the agentic law company',
