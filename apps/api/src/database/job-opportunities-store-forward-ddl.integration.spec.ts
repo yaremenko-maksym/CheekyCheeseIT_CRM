@@ -134,6 +134,8 @@ const MIGRATION_SCHEMA = 'ddl_job_queue_reason_redacted_alter'
 const CONFIG_GUARD_SCHEMA = 'ddl_job_sources_config_guard'
 /** Its own schema too: the T1/T1b cases seed rows and bad states before PART_5 runs. */
 const T1_SCHEMA = 'ddl_job_runs_single_flight'
+/** Task 2.5 T8: PART_6 over planted bad states, in its own schema. */
+const T8_SCHEMA = 'ddl_job_source_hosts'
 /** A non-superuser used to reproduce the masked-progress-row case (SR-M-4). */
 const UNPRIVILEGED_ROLE = 'ddl_forward_ddl_probe'
 /** Two indexes on one table, so "a build on the same table" is expressible. */
@@ -1609,6 +1611,161 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
       await applyAtomically()
       const after = (await client.query(`SHOW lock_timeout`)).rows[0] as { lock_timeout: string }
       expect(after.lock_timeout).toBe('7s')
+    }, 180_000)
+  })
+
+  /**
+   * Task 2.5 T8 (round 1, CR-M-1): the PART_6 file's own claims, standing — the static form,
+   * a wrong-shape object refused by the final check with the manual remedy, a lock-free re-run,
+   * and a final check that is load-bearing (deleting it would let a wrong shape through).
+   */
+  describe('PART_6 (T8 host state) applied atomically over bad states', () => {
+    /** BEGIN, the given SQL statement by statement, COMMIT — or ROLLBACK and rethrow. */
+    async function applyText(sqlText: string): Promise<void> {
+      await client.query('BEGIN')
+      try {
+        for (const statement of splitSqlStatements(sqlText)) await client.query(statement)
+        await client.query('COMMIT')
+      } catch (error) {
+        await client.query('ROLLBACK')
+        throw error
+      }
+    }
+    const applyPart6 = () => applyText(readPart(PART_6_MIGRATION))
+
+    /** Parts 1, 2 and 5 in T8_SCHEMA: the state PART_6 is applied over in production. */
+    async function seedPreT8(): Promise<void> {
+      await buildPreStoreStub(client, T8_SCHEMA)
+      await applyParts(client, [PART_1, PART_2, PART_5_MIGRATION])
+      await client.query(
+        `INSERT INTO job_sources (type, config) VALUES ('DOU_RSS', '{"t8":1}'::jsonb)`,
+      )
+    }
+
+    /** What PART_6 leaves behind in T8_SCHEMA: "nothing" is no column, no table. */
+    async function t8State(): Promise<{ column: boolean; table: boolean }> {
+      const { rows } = await client.query(
+        `SELECT EXISTS (SELECT 1 FROM information_schema.columns
+                         WHERE table_schema = $1 AND table_name = 'job_sources' AND column_name = 'host_key') AS column,
+                to_regclass($1 || '.job_source_hosts') IS NOT NULL AS table`,
+        [T8_SCHEMA],
+      )
+      return rows[0] as { column: boolean; table: boolean }
+    }
+
+    afterEach(async () => {
+      await client.query('ROLLBACK').catch(() => undefined)
+      await client.query(`SET search_path TO ${SCHEMA}`)
+      await client.query(`RESET lock_timeout`)
+    })
+
+    afterAll(async () => {
+      await client?.query(`DROP SCHEMA IF EXISTS ${T8_SCHEMA} CASCADE`).catch(() => undefined)
+    })
+
+    it('applies only as a whole transaction: no CONCURRENTLY, no inner BEGIN/COMMIT, no GRANT', () => {
+      const sql = readPart(PART_6_MIGRATION)
+        .split('\n')
+        .filter((line) => !line.trimStart().startsWith('--'))
+        .join('\n')
+      expect(sql).not.toMatch(/\bCONCURRENTLY\b/i)
+      expect(sql).not.toMatch(/^\s*(BEGIN|COMMIT|ROLLBACK)\s*;/im)
+      expect(sql).not.toMatch(/\b(GRANT|REVOKE|OWNER TO)\b/i)
+      // Two DO blocks: the pre-checked DDL and the final shape check.
+      expect(sql.match(/^DO \$\$/gm)).toHaveLength(2)
+    })
+
+    it('a same-named CHECK of the WRONG shape fails the final check, names the manual remedy, and leaves no table', async () => {
+      await seedPreT8()
+      await client.query(`ALTER TABLE job_sources ADD COLUMN host_key text`)
+      await client.query(
+        `ALTER TABLE job_sources ADD CONSTRAINT ck_job_sources_host_key_format CHECK (host_key IS NULL OR host_key <> '')`,
+      )
+      const message = await applyPart6().then(
+        () => 'applied',
+        (error: Error) => error.message,
+      )
+      expect(message).toContain(
+        'CHECK ck_job_sources_host_key_format is missing, not validated or not exactly the intended definition',
+      )
+      expect(message).toContain('ALTER TABLE <table> DROP CONSTRAINT <name>')
+      // Rolled back to the planted state: the table the same apply created is gone.
+      expect(await t8State()).toEqual({ column: true, table: false })
+    }, 180_000)
+
+    it('a same-named UNIQUE index, or an extra column on job_source_hosts, also fails the final check', async () => {
+      await seedPreT8()
+      await client.query(`ALTER TABLE job_sources ADD COLUMN host_key text`)
+      await client.query(`CREATE UNIQUE INDEX idx_job_sources_host_key ON job_sources (host_key)`)
+      await expect(applyPart6()).rejects.toThrow(
+        /index idx_job_sources_host_key is missing, invalid, unique/,
+      )
+
+      await seedPreT8()
+      await client.query(`CREATE TABLE job_source_hosts (host_key text PRIMARY KEY, extra int)`)
+      await expect(applyPart6()).rejects.toThrow(/has columns this file does not declare/)
+    }, 180_000)
+
+    it('the final check is load-bearing: without it the wrong-shape CHECK would apply cleanly', async () => {
+      await seedPreT8()
+      await client.query(`ALTER TABLE job_sources ADD COLUMN host_key text`)
+      await client.query(
+        `ALTER TABLE job_sources ADD CONSTRAINT ck_job_sources_host_key_format CHECK (host_key IS NULL OR host_key <> '')`,
+      )
+      const full = readPart(PART_6_MIGRATION)
+      const finalCheck = full.slice(full.lastIndexOf('DO $$'))
+      expect(finalCheck).toContain('NOT in the intended state')
+      // The file minus its final DO block: section 1 sees an incomplete state, adds what is
+      // missing by name, and nothing else refuses the planted shape.
+      await expect(applyText(full.slice(0, full.lastIndexOf('DO $$')))).resolves.toBeUndefined()
+      expect(await t8State()).toEqual({ column: true, table: true })
+    }, 180_000)
+
+    it('a re-run on the complete state takes NO lock that conflicts with a writer', async () => {
+      await seedPreT8()
+      await applyPart6()
+      const writer = await pool.connect()
+      try {
+        await writer.query('BEGIN')
+        await writer.query(`LOCK TABLE ${T8_SCHEMA}.job_sources IN ROW EXCLUSIVE MODE`)
+        const started = Date.now()
+        await applyPart6()
+        expect(Date.now() - started).toBeLessThan(5_000)
+      } finally {
+        await writer.query('ROLLBACK')
+        writer.release()
+      }
+      expect(await t8State()).toEqual({ column: true, table: true })
+    }, 180_000)
+
+    it("control: the FIRST apply does need the lock — under the same writer the file's own timeout fires and leaves nothing", async () => {
+      await seedPreT8()
+      await client.query(`SET lock_timeout = 0`)
+      const writer = await pool.connect()
+      let outcome = 'not run'
+      try {
+        await writer.query('BEGIN')
+        await writer.query(`LOCK TABLE ${T8_SCHEMA}.job_sources IN ROW EXCLUSIVE MODE`)
+        const apply = applyPart6().then(
+          () => 'applied',
+          (error: Error) => error.message,
+        )
+        let timer: NodeJS.Timeout | undefined
+        const hung = new Promise<string>((resolve) => {
+          timer = setTimeout(() => resolve('HUNG'), 25_000)
+        })
+        outcome = await Promise.race([apply, hung])
+        clearTimeout(timer)
+        if (outcome === 'HUNG') {
+          await writer.query('ROLLBACK')
+          await apply
+        }
+      } finally {
+        await writer.query('ROLLBACK').catch(() => undefined)
+        writer.release()
+      }
+      expect(outcome).toContain('lock timeout')
+      expect(await t8State()).toEqual({ column: false, table: false })
     }, 180_000)
   })
 })

@@ -19,8 +19,10 @@ import { hostOpenPredicate } from './host-state'
  *  - the "already running" term (T3), which needs the run ledger. `isDue` takes it as an input.
  *
  * The host term (T8) IS here: `hostOpenPredicate`, which refuses a NULL `host_key` first and then a
- * host whose ban pause has not expired. DOU keeps a NULL key and is never due to the ledger: it is
- * collected by the legacy path, which its LEGACY kind selects explicitly.
+ * host whose ban pause has not expired. DOU is never due to the ledger. The boundary in THIS query is
+ * `manifest_id IS NOT NULL`: DOU has no manifest entry, so its row has none. Its NULL `host_key`
+ * is a second, redundant exclusion. Neither is the explicit LEGACY allow the ADR requires; that
+ * kind check is T3's claim gate and T7's routing, not part of this predicate.
  *
  * `findDueSources` is therefore a PRE-filter: every row `isDue` accepts is in its result, and
  * `isDue` makes the final call. An invalid option (a cap above the ceiling, a slack above its

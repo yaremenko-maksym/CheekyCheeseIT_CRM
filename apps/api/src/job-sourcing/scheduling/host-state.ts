@@ -43,12 +43,7 @@ export type RetryAfter =
   { readonly kind: 'DELAY'; readonly seconds: number } | { readonly kind: 'AT'; readonly at: Date }
 
 const DELAY_SECONDS = /^\d{1,12}$/
-/** RFC 9110 IMF-fixdate (`Sun, 06 Nov 1994 08:49:37 GMT`), four-digit year: the only date form read. */
-const IMF_FIXDATE =
-  // Stryker disable next-line Regex: equivalent — the round trip and the year range in parseRetryAfter refuse whatever a weakened pattern would let through (proof at its use)
-  /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}:\d{2} GMT$/
-/** The years Postgres `timestamptz` and a four-digit IMF-fixdate both hold (SEC-AUTO-1). */
-const MIN_YEAR = 1
+/** The last year `timestamptz` and a `toISOString` without a `+` sign both hold (SEC-AUTO-1). */
 const MAX_YEAR = 9999
 
 /**
@@ -64,24 +59,18 @@ export function parseRetryAfter(raw: unknown): RetryAfter | null {
   if (DELAY_SECONDS.test(value)) {
     return { kind: 'DELAY', seconds: Math.min(Number(value), HOST_BAN_PAUSE_MAX_SECONDS) }
   }
-  // SEC-AUTO-1: three guards, so an instant that reaches the SQL is always one Postgres can store
+  // SEC-AUTO-1: two guards, so an instant that reaches the SQL is always one Postgres can store
   // (a value it cannot cast would make the ban FAIL, the gap SR-M-21 forbids).
-  // 1. The strict form first. Redundant with guards 2 and 3 together (proof: any non-fixdate text
-  //    fails the round trip, and a 5-digit year fails guard 3), kept as defence in depth.
-  // Stryker disable next-line ConditionalExpression,BooleanLiteral: equivalent — guards 2 and 3 refuse every input this refuses (the proof above); spec "SEC-AUTO-1" shows the input goes red once all three are removed
-  if (!IMF_FIXDATE.test(value)) return null
-  // 2. The round trip: `toUTCString` writes exactly an IMF-fixdate, so a date the parser rolled
-  //    over (31 Feb -> 3 Mar, 24:00 -> the next day), a wrong weekday, or "Invalid Date" is refused.
+  // 1. The round trip: `toUTCString` writes exactly an IMF-fixdate (RFC 9110,
+  //    `Sun, 06 Nov 1994 08:49:37 GMT`), so any other date form `Date.parse` accepts, a date it
+  //    rolled over (31 Feb -> 3 Mar, 24:00 -> the next day), a wrong weekday, or "Invalid Date" is
+  //    refused. Measured on Node 22: a year below 100 is read as 19xx/20xx and a negative year as
+  //    NaN, so neither round-trips; this guard is what keeps year 0 (not a timestamptz) out.
   const at = new Date(Date.parse(value))
   if (at.toUTCString() !== value) return null
-  // 3. Year 1..9999 only: year 0 is out of range for `timestamptz`, and outside 0..9999
-  //    `toISOString` grows a `+`/`-` sign that the `::timestamptz` cast refuses. Unreachable
-  //    behind guards 1 and 2 (measured on Node 22: `\d{4}` caps the year at 9999, and V8 reads a
-  //    year 0000-0099 as 19xx/20xx, which fails the round trip), kept as defence in depth; the
-  //    spec "SEC-AUTO-1" shows a year-10000 input goes red once guards 1 and 3 are both removed.
-  const year = at.getUTCFullYear()
-  // Stryker disable next-line ConditionalExpression,EqualityOperator,LogicalOperator: equivalent — unreachable behind guards 1 and 2 (the proof above)
-  if (year < MIN_YEAR || year > MAX_YEAR) return null
+  // 2. Year 9999 at most: a 5-digit year DOES round-trip, and its `toISOString` (`+010000-…`)
+  //    is refused by the `::timestamptz` cast.
+  if (at.getUTCFullYear() > MAX_YEAR) return null
   return { kind: 'AT', at }
 }
 

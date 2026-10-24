@@ -575,13 +575,14 @@ describe.skipIf(!hasDatabaseUrl())(
         expect(await ban(key, a)).toEqual({ applied: false })
       })
 
-      it('SR-M-24: a 403 on one tenant of a SOURCE-scoped type leaves its sibling claimable; a 429 does not', async () => {
+      // SR-M-24, T8's half only: the decision, and the host-wide effect of a HOST ban. "A 403 on a
+      // SOURCE-scoped tenant writes no row and the sibling stays claimable" needs T7's wrapper
+      // (the caller that honours `banTargetOf`), so it is T7's test and is not claimed here.
+      it('SR-M-24 (T8 half): a scoped 403 targets the SOURCE, a 429 the HOST, and a host ban pauses the sibling tenant', async () => {
         const key = host('srm24')
         await source(key)
         const sibling = await source(key)
         expect(banTargetOf('SOURCE', 403)).toBe('SOURCE')
-        // The SOURCE target writes no ban, so the sibling's claim is granted.
-        expect(await inClaimTx((tx) => claimHostSlot(tx, key, NO_RATE))).toEqual({ granted: true })
         expect(banTargetOf('SOURCE', 429)).toBe('HOST')
         await ban(key, sibling)
         expect(await inClaimTx((tx) => claimHostSlot(tx, key, NO_RATE))).toMatchObject({
