@@ -5751,3 +5751,29 @@ already tracked as entry **317** ("The integration-run model is a dichotomy; rea
 reports a confident pass"), filed by a parallel session. The security axis found the same thing on #1119
 independently; #1119 closed its instance by recording an actual filtered run with the executed count. No new
 entry — 317 holds it, and this line exists so the #1119 provenance points at it.
+
+## 329. Two follow-ups from PR #1122's round-2 review — the next layer of the SmartRecruiters dormancy guard (2026-10-24)
+
+Both found by the code axis on PR #1122 at `b747340c`, both correctly judged non-blocking there, both the
+_next_ layer of a guard that is sound for every path reachable today. Recorded so they are not lost when
+that PR merges.
+
+- **`createSmartRecruitersProvider(bounds, { liveDespiteRobots: true })` is a public export.** The provider
+  is dormant by construction — the live loop (`collectSmartRecruiters`) is unexported, and the only route to
+  it is the `liveDespiteRobots === true` option, which parsed config cannot supply, so the default export
+  and every config refuse. But a **future non-spec caller** could arm the factory directly, and every
+  current test would stay green, because the dormancy specs exercise the default export rather than forbid
+  the armed one outside tests. The fix the reviewer proposed is a **source-scan test that no non-spec file
+  contains `liveDespiteRobots`**. This belongs with registration — the first place such a caller could
+  appear is plan Task 2.5 / Task 3.7 — and SmartRecruiters is `BLOCKED(robots)` with no authentic capture,
+  so there is nothing to register today. **Check:** a test fails if any non-spec file references
+  `liveDespiteRobots`, added no later than the change that first registers a phase-3 adapter.
+- **The Personio host-declaration assertion compares two copies of the same template**, so it catches drift
+  between the declared host and the request but not a mistake shared by both. The real protection is the
+  slug-and-`tld` validation (`board` a single DNS label, `tld` limited to `de`/`com`), which is tested
+  against hostile spellings. **Check:** the host assertion derives the expected host from something other
+  than the same template the code uses, or the review note explains why the slug/tld validation makes that
+  unnecessary.
+
+Both are on the SmartRecruiters path, which cannot run in production until registration (Task 2.5) exists —
+the same keystone every phase-3 adapter waits on.
