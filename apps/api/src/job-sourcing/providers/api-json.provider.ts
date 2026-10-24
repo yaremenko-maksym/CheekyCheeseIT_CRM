@@ -632,7 +632,6 @@ function withByteCap(request: FetchRequest, maxBytes: number): FetchRequest {
 class CostHookError extends Error {
   constructor(cause: unknown) {
     super(cause instanceof Error ? cause.message : 'the cost hook threw a non-Error value')
-    this.name = 'CostHookError'
   }
 }
 

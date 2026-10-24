@@ -458,7 +458,10 @@ describe('what a reviewer would otherwise have to take on trust', () => {
   })
 
   it('a body too deep to read is no cost reading: the whole reservation is charged', () => {
-    expect(theirstackIncurredCredits(`${'['.repeat(100)}${']'.repeat(100)}`)).toBeNull()
+    // Depth 101 INSIDE `data`: unbounded, this parses and counts 1 job; bounded, it is refused.
+    const deep = `{"data":[${'['.repeat(100)}${']'.repeat(100)}]}`
+    expect(theirstackIncurredCredits(deep)).toBeNull()
+    expect(theirstackIncurredCredits('{"data":[[]]}')).toBe(1)
   })
 })
 
