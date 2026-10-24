@@ -198,6 +198,7 @@ describe('the generated seed delta', () => {
     expect(blocked).toEqual([
       'WORKINGNOMADS_API',
       'ASHBY_ATS',
+      'SMARTRECRUITERS_ATS',
       'JOOBLE_API',
       'JSEARCH_API',
       'THEIRSTACK_API',

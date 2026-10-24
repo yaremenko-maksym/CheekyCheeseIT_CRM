@@ -24,8 +24,8 @@ import {
  * `Disallow: /*category=`, and this adapter requests exactly `/api/remote-jobs?category=`. The
  * owner ruled that the documented API takes priority over robots.txt. That is an ACCEPTED RISK,
  * NOT a documented permission: the provenance still says `UNCLEAR`. The vendor's limits stay
- * binding on us (attribution to Remotive, jobs delayed 24 h, at most about 4 requests a day and
- * never more than 2 a minute). Not registered or enabled by this: registration is plan Task 2.5.
+ * binding on us (attribution to Remotive, at most about 4 requests a day and never more than 2 a
+ * minute). The 24 h job delay is applied by Remotive at the source and is not a request limit. Not registered or enabled by this: registration is plan Task 2.5.
  *
  * WHAT THIS ADAPTER DOES AND DOES NOT ENFORCE OF THOSE LIMITS. One run is ONE request per entry
  * (`nextCursor` is always null), the manifest floors the interval at 6 hours, and a spec derives

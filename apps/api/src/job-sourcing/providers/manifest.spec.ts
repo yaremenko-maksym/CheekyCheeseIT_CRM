@@ -639,6 +639,7 @@ describe('readiness is derived from provenance, not retyped', () => {
   it.each([
     ['MUSE_API', ['PERMISSION_UNCLEAR', 'STATUS_CONSTANT_BLOCKED']],
     ['ASHBY_ATS', ['PERMISSION_UNCLEAR']],
+    ['SMARTRECRUITERS_ATS', ['NO_API_CAPTURE']],
     ['DJINNI_RSS', ['PERMISSION_UNCLEAR']],
     ['WWR_RSS', ['PERMISSION_UNCLEAR']],
     ['EUREMOTEJOBS_RSS', ['PERMISSION_UNCLEAR']],

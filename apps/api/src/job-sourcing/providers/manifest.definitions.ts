@@ -358,9 +358,12 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     attribution: 'NONE_RECORDED',
     endpointVariant: 'posting-api',
     scopeKind: 'BOARD',
-    // No entries: no board was ever captured (the host's robots.txt disallows this collector; the
-    // owner accepted that risk on 2026-10-24, so the decision is recorded above, but the type stays
-    // not ready until a real capture exists: NO_CAPTURE).
+    // No entries: no board was ever captured. The only committed fixture is the host's robots.txt,
+    // which is not the postings API payload. The owner accepted the robots.txt risk on 2026-10-24,
+    // so the decision above lifts the PERMISSION blocker, but the type stays not ready
+    // (NO_API_CAPTURE) until a real capture of the postings API payload is committed under the name
+    // below. The first real call within the owner's permission (a controlled smoke) would clear it.
+    payloadFixtures: ['postings-list.json'],
     entries: [],
   },
   {

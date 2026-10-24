@@ -6,12 +6,8 @@ import {
   type SourceObservation,
 } from '../../normalize/observation'
 import { definePagedProvider, UNBUILT_REQUEST_URL } from '../api-json.provider'
-import {
-  isWellFormedDecision,
-  liftsUnclear,
-  type OwnerDecision,
-  SMARTRECRUITERS_OWNER_DECISION,
-} from '../owner-decisions'
+import { type OwnerDecision, SMARTRECRUITERS_OWNER_DECISION } from '../owner-decisions'
+import { SourceBlockedError, SourceRateLimitedError } from '../../http/source-errors'
 import { DEFAULT_API_JSON_LIMITS } from '../api-json.limits'
 import { parseBoundedJson } from '../bounded-json'
 import {
@@ -47,10 +43,13 @@ import { boundedString, dateRaw, optionalString, urlString } from './as'
  *
  * !! THIS ADAPTER IS A DECISION GATE: it sends a request only when it is armed with an owner
  * decision. The loop runs only when `createSmartRecruitersProvider(bounds, { ownerDecision })` is
- * given an `ACCEPT_RISK` decision for the `posting-api` endpoint (`SMARTRECRUITERS_OWNER_DECISION`
- * in `owner-decisions.ts`, the same record the manifest carries); without one every attempt is
- * refused without a request (`refuseWithoutDecision`). The exported `smartrecruitersProvider` is
- * armed with the recorded decision. `api.smartrecruiters.com/robots.txt` says
+ * given THE recorded decision object itself (`SMARTRECRUITERS_OWNER_DECISION` in
+ * `owner-decisions.ts`), compared by reference, so a structurally equal forged object does not arm
+ * it; without it every attempt is refused without a request (`refuseWithoutDecision`). The exported
+ * `smartrecruitersProvider` is armed with that decision. DELIBERATE DEVIATION from "reads its
+ * manifest entry": this adapter cannot import the manifest (the manifest imports the adapters, a
+ * circular import), so both import the one constant, and a spec ties them: the decision the
+ * manifest attaches to the SmartRecruiters type IS the object this adapter is armed with. `api.smartrecruiters.com/robots.txt` says
  * `User-agent: LinkedInBot / Allow: /v1/companies/ / User-agent: * / Disallow: /`: the Posting API is
  * disallowed to every agent but one named crawler, this collector included, while the documentation
  * calls the same API "public". The owner accepted that conflict as a RISK on 2026-10-24 ("until
@@ -61,8 +60,13 @@ import { boundedString, dateRaw, optionalString, urlString } from './as'
  *
  * STOP ON BAN, NEVER EVADE. A 401, 403, 451 (`ACCESS_POLICY`) or 429 (`RATE_LIMIT`) on ANY request ends
  * the run at once: no retry, no further request in that run (the page in flight is discarded, not
- * stored half-enriched). Nothing here changes the User-Agent, rotates a proxy or retries around a
- * refusal, and requests carry only an `accept` header. A ban is a stop, not an obstacle.
+ * stored half-enriched). The real transport THROWS on these (`SourceBlockedError` for 403,
+ * `SourceRateLimitedError` for 429, a plain error for 401/451), so `failureOfThrown` maps them to
+ * the same codes; a ban is never reported as a retryable network blip. Nothing here changes the
+ * User-Agent, rotates a proxy or retries around a refusal. The adapter's own request sets only an
+ * `accept` header; the shared transport adds its fixed identifying User-Agent (it is not ours to
+ * change here), and there is no proxy. A ban is a stop, not an obstacle. Cross-run stop (a ban on
+ * one board stopping the next run of every board) is the scheduler's, Task 2.5.
  *
  * WHY THIS ADAPTER DOES NOT USE THE PAGE LOOP'S SPEC. The loop asks one request per page, and a
  * posting's description and canonical URL live only in the DETAIL (`jobAd.sections`, `postingUrl`),
@@ -292,6 +296,36 @@ type Fetched =
   | { ok: true; status: number; bodyText: string; startedAt: Date; cost: RequestReport['cost'] }
   | { ok: false; stop: StopReason }
 
+/** The real transport's plain error for any other non-2xx: `<host> responded <status>`. */
+const TRANSPORT_STATUS = /^\S+ responded (\d{3})$/
+
+/**
+ * A throw out of the transport, as a failure. A ban or a rate limit is a REFUSAL by the host, not a
+ * network blip: it must not wear `TRANSIENT_NETWORK`, which a retry policy would act on.
+ */
+function failureOfThrown(error: unknown, aborted: boolean): Failure {
+  if (error instanceof SourceBlockedError) {
+    return {
+      code: 'ACCESS_POLICY',
+      message: `provider answered HTTP ${error.status}`,
+      status: error.status,
+    }
+  }
+  if (error instanceof SourceRateLimitedError) {
+    return { code: 'RATE_LIMIT', message: 'provider answered HTTP 429', status: 429 }
+  }
+  const message = error instanceof Error ? error.message : 'the request failed'
+  const status = TRANSPORT_STATUS.exec(message)?.[1]
+  if (status !== undefined && classify(Number(status)) === 'ACCESS_POLICY') {
+    return {
+      code: 'ACCESS_POLICY',
+      message: `provider answered HTTP ${status}`,
+      status: Number(status),
+    }
+  }
+  return { code: aborted ? 'CANCELLED' : 'TRANSIENT_NETWORK', message, status: null }
+}
+
 /** HTTP status -> our code, from the STATUS and never the body. */
 function classify(status: number): CollectionErrorCode | null {
   if (status >= 200 && status < 300) return null
@@ -429,13 +463,10 @@ async function collectSmartRecruiters(
       resolution = 'USED'
       answer = { response: { status: fetched.status, bodyText: fetched.bodyText } }
     } catch (error) {
-      answer = {
-        failure: {
-          code: ctx.signal.aborted ? 'CANCELLED' : 'TRANSIENT_NETWORK',
-          message: error instanceof Error ? error.message : 'the request failed',
-          status: null,
-        },
-      }
+      const failure = failureOfThrown(error, ctx.signal.aborted)
+      // A refusal is an answer: the request reached the host, so the reservation was used.
+      if (failure.code === 'ACCESS_POLICY' || failure.code === 'RATE_LIMIT') resolution = 'USED'
+      answer = { failure }
     }
     // Every path out of the try above reaches this line, so the reservation is always resolved.
     const unreconciled: Failure | null = await ctx.meter.reconcile(reservation, resolution).then(
@@ -726,17 +757,15 @@ export const SMARTRECRUITERS_ENDPOINT_VARIANT = 'posting-api'
 
 export interface SmartRecruitersOptions {
   /**
-   * Arms the real loop. It must be an `ACCEPT_RISK` decision about `SMARTRECRUITERS_ENDPOINT_VARIANT`
-   * and well-formed; anything else (absent, informational, another endpoint) leaves the adapter
-   * refusing every attempt. The decision is the owner's, recorded once in `owner-decisions.ts`.
+   * Arms the real loop. It must be THE recorded `SMARTRECRUITERS_OWNER_DECISION` object (compared by
+   * reference); anything else, however structurally alike, leaves the adapter refusing every
+   * attempt. The decision is the owner's, recorded once in `owner-decisions.ts`.
    */
   readonly ownerDecision?: OwnerDecision
 }
 
 const isArmedBy = (decision: OwnerDecision | undefined): boolean =>
-  decision !== undefined &&
-  isWellFormedDecision(decision) &&
-  liftsUnclear([decision], SMARTRECRUITERS_ENDPOINT_VARIANT)
+  decision === SMARTRECRUITERS_OWNER_DECISION
 
 export function createSmartRecruitersProvider(
   bounds: SmartRecruitersBounds = SMARTRECRUITERS_BOUNDS,

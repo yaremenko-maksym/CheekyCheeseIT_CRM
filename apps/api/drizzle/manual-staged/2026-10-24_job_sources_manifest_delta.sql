@@ -84,6 +84,7 @@ SELECT $manifest${"sources":[
 ],"typeBlocks":[
   {"type":"WORKINGNOMADS_API","reason":"PERMISSION_UNCLEAR: a fixture records permission UNCLEAR; STATUS_CONSTANT_BLOCKED: blocked: no documented permission - the terms say nothing either way on automated access"},
   {"type":"ASHBY_ATS","reason":"PERMISSION_UNCLEAR: a fixture records permission UNCLEAR"},
+  {"type":"SMARTRECRUITERS_ATS","reason":"NO_API_CAPTURE: none of postings-list.json is a real capture of the API payload"},
   {"type":"JOOBLE_API","reason":"KEY_REQUIRED: a fixture records permission KEY_REQUIRED; NO_CAPTURE: every fixture is a hand-written unit example; STATUS_CONSTANT_BLOCKED: no API key is provisioned and none may be before the owner runs a controlled authenticated smoke; payload shapes are from public descriptions, not Jooble documentation"},
   {"type":"JSEARCH_API","reason":"KEY_REQUIRED: a fixture records permission KEY_REQUIRED; NO_CAPTURE: every fixture is a hand-written unit example; STATUS_CONSTANT_BLOCKED: no RapidAPI key is provisioned and none may be before the owner runs a controlled authenticated smoke; payload shapes and the num_pages billing rule are not verified against a response"},
   {"type":"THEIRSTACK_API","reason":"KEY_REQUIRED: a fixture records permission KEY_REQUIRED; NO_CAPTURE: every fixture is a hand-written unit example; STATUS_CONSTANT_BLOCKED: no API key is provisioned and none may be before the owner runs a controlled authenticated smoke; payload shapes are from the published API reference, not from a response"},

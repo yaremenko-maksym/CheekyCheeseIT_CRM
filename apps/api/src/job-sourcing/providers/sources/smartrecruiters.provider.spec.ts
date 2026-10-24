@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { __resetThrottleForTests, boundedFetchText } from '../../http/bounded-fetch'
+import { SourceBlockedError, SourceRateLimitedError } from '../../http/source-errors'
 import { expectNoneOf, expectOnlyPublicRequests } from '../../../test/ats-b-assertions'
 import { readFixtureText } from '../../../test/fixture-provenance'
 import {
@@ -1390,7 +1392,7 @@ describe('the decision gate: without the owner decision robots.txt stands and no
     )
   })
 
-  it('only an ACCEPT_RISK decision about this endpoint arms it: absent, informational, another source or malformed do not', async () => {
+  it('only THE recorded decision object arms it: absent, another source, informational, or a structurally equal forgery do not', async () => {
     const armed = (ownerDecision: OwnerDecision | undefined) =>
       createSmartRecruitersProvider(SMARTRECRUITERS_BOUNDS, { ownerDecision })
     await expectRefused(armed(undefined))
@@ -1399,8 +1401,10 @@ describe('the decision gate: without the owner decision robots.txt stands and no
     await expectRefused(
       armed({ ...SMARTRECRUITERS_OWNER_DECISION, endpointVariant: 'posting-api-v2' }),
     )
-    await expectRefused(armed({ ...SMARTRECRUITERS_OWNER_DECISION, decidedAt: 'yesterday' }))
-    await expectRefused(armed({ ...SMARTRECRUITERS_OWNER_DECISION, scope: '  ' }))
+    // A forgery equal in every field is still not the recorded object.
+    const forged: OwnerDecision = { ...SMARTRECRUITERS_OWNER_DECISION }
+    expect(forged).toEqual(SMARTRECRUITERS_OWNER_DECISION)
+    await expectRefused(armed(forged))
   })
 
   it('the recorded decision is about the endpoint variant this adapter sends to', () => {
@@ -1494,6 +1498,110 @@ describe('stop on ban, never evade (owner decision of 2026-10-24)', () => {
     const w = world({ answer: simple(['1', '2', '3']) })
     await run(w, cfg(), small)
     expect(w.sent).toHaveLength(2)
+  })
+})
+
+describe('stop on ban through the REAL transport, which throws instead of returning a status', () => {
+  /** `ctx.fetchText` backed by the real `boundedFetchText` over a stubbed global `fetch`. */
+  function realTransportWorld(status: number, onlyAfterFirst = false) {
+    const fetched: string[] = []
+    const stub = vi.fn(async (url: string) => {
+      fetched.push(url)
+      if (onlyAfterFirst && fetched.length === 1) {
+        return new Response(JSON.stringify(listPage([listItem('1'), listItem('2')], 2)), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      return new Response('refused', { status })
+    })
+    vi.stubGlobal('fetch', stub)
+    const w = world({ answer: () => ({}) })
+    w.ctx.fetchText = async (request) => ({
+      status: 200,
+      bodyText: await boundedFetchText(request.url, {
+        allowedHosts: smartrecruitersAllowedHosts(),
+        minGapMs: 0,
+      }),
+      headers: {},
+      etag: null,
+    })
+    return { w, fetched }
+  }
+  beforeEach(() => __resetThrottleForTests())
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('the classes asserted here are the ones the transport really throws', async () => {
+    vi.stubGlobal('fetch', async () => new Response('x', { status: 403 }))
+    await expect(
+      boundedFetchText('https://api.smartrecruiters.com/v1/x', {
+        allowedHosts: smartrecruitersAllowedHosts(),
+        minGapMs: 0,
+      }),
+    ).rejects.toBeInstanceOf(SourceBlockedError)
+    vi.stubGlobal('fetch', async () => new Response('x', { status: 429 }))
+    await expect(
+      boundedFetchText('https://api.smartrecruiters.com/v1/x', {
+        allowedHosts: smartrecruitersAllowedHosts(),
+        minGapMs: 0,
+      }),
+    ).rejects.toBeInstanceOf(SourceRateLimitedError)
+  })
+
+  it.each([
+    [401, 'ACCESS_POLICY'],
+    [403, 'ACCESS_POLICY'],
+    [451, 'ACCESS_POLICY'],
+    [429, 'RATE_LIMIT'],
+  ] as const)(
+    'HTTP %i on the list is %s, not a network blip, after exactly one request',
+    async (status, code) => {
+      const { w, fetched } = realTransportWorld(status)
+      const batch = await run(w)
+      expect(fetched).toHaveLength(1)
+      expect(batch.outcome).toBe('FAILED')
+      expect(batch.requests.map((r) => [r.error?.code, r.status])).toEqual([[code, status]])
+      expect(w.reconciled).toEqual(['USED'])
+    },
+  )
+
+  it.each([
+    [403, 'ACCESS_POLICY'],
+    [429, 'RATE_LIMIT'],
+  ] as const)(
+    'HTTP %i on a detail stops the run: no second detail, nothing stored',
+    async (status, code) => {
+      const { w, fetched } = realTransportWorld(status, true)
+      const batch = await run(w)
+      expect(fetched).toHaveLength(2) // the list, then the first detail only
+      expect(w.saved).toEqual([])
+      expect(batch.requests.at(-1)?.error?.code).toBe(code)
+    },
+  )
+
+  it('positive control: a genuine network error is still TRANSIENT_NETWORK', async () => {
+    vi.stubGlobal('fetch', async () => {
+      throw new TypeError('fetch failed')
+    })
+    const w = world({ answer: () => ({}) })
+    w.ctx.fetchText = async (request) => ({
+      status: 200,
+      bodyText: await boundedFetchText(request.url, {
+        allowedHosts: smartrecruitersAllowedHosts(),
+        minGapMs: 0,
+      }),
+      headers: {},
+      etag: null,
+    })
+    const batch = await run(w)
+    expect(batch.requests.map((r) => r.error?.code)).toEqual(['TRANSIENT_NETWORK'])
+    expect(w.reconciled).toEqual(['UNCERTAIN'])
+  })
+
+  it('a 5xx from the real transport is not a ban either', async () => {
+    const { w } = realTransportWorld(503)
+    const batch = await run(w)
+    expect(batch.requests.map((r) => r.error?.code)).toEqual(['TRANSIENT_NETWORK'])
   })
 })
 

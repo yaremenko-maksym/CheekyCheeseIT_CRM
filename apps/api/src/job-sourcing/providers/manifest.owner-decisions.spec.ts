@@ -1,7 +1,9 @@
+import { createHash } from 'node:crypto'
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { fakeCollectionContext } from '../../test/fake-collection-context'
 import { FIXTURE_ROOT } from '../../test/fixture-provenance'
 import {
   type BuildInput,
@@ -23,6 +25,10 @@ import {
   SMARTRECRUITERS_OWNER_DECISION,
   WORKABLE_OWNER_DECISION,
 } from './owner-decisions'
+import {
+  createSmartRecruitersProvider,
+  SMARTRECRUITERS_BOUNDS,
+} from './sources/smartrecruiters.provider'
 
 /**
  * Owner decisions (r5 Task 3.2c), tested at the manifest seam.
@@ -230,17 +236,45 @@ describe('Remotive and Jobgether, by name (AC3: the addendum gives both a decisi
     expect(JOBGETHER_OWNER_DECISION.scope).toContain('knowingly accepted as risk, NOT resolved')
   })
 
-  it('Remotive vendor limits: the requests a day of all its entries stay within 4, one request per run, at least 6 h apart', () => {
+  /**
+   * The most requests a rolling 24 h window can hold for one entry run every `intervalHours`: CEIL,
+   * not floor (7 h apart fits 4 starts in 24 h, floor says 3).
+   */
+  const maxPerDay = (intervals: readonly number[], perRun: number) =>
+    intervals.reduce((sum, h) => sum + Math.ceil(24 / h) * perRun, 0)
+
+  it('Remotive vendor limits: the requests a day of all its entries, counted over a rolling window, stay within 4', () => {
     const m = buildManifest(real())
     const remotive = m.entries.filter((e) => e.type === 'REMOTIVE_API')
     const perRun = typeOf(m, 'REMOTIVE_API').requestsPerRun
     expect(perRun).toBe(1)
-    const perDay = remotive.reduce((sum, e) => sum + Math.floor(24 / e.intervalHours) * perRun, 0)
-    // 3 categories, one run a day each: a hand-counted 3, under the vendor's "about 4 a day".
-    expect(perDay).toBe(3)
-    expect(perDay).toBeLessThanOrEqual(4)
+    // 3 categories, one run every 24 h each: a hand-counted 3, under the vendor's "about 4 a day".
+    expect(
+      maxPerDay(
+        remotive.map((e) => e.intervalHours),
+        perRun,
+      ),
+    ).toBe(3)
     expect(REMOTIVE_OWNER_DECISION.scope).toContain('never more than 2 a minute')
-    // The 6 h floor is what keeps a single entry from exceeding 4 a day.
+  })
+
+  it.each([
+    // [intervals of the entries, hand-counted maximum starts in any 24 h, within 4 a day]
+    [[24, 24, 24], 3, true],
+    [[6], 4, true],
+    [[7], 4, true],
+    [[7, 7, 7], 12, false],
+    [[10, 10, 10], 9, false],
+    [[6, 6, 6], 12, false],
+  ] as const)(
+    'the daily count of entries every %j h is %i (%s within 4)',
+    (intervals, count, ok) => {
+      expect(maxPerDay(intervals, 1)).toBe(count)
+      expect(maxPerDay(intervals, 1) <= 4).toBe(ok)
+    },
+  )
+
+  it('the 6 h floor protects ONE entry only: it refuses 5 h, and says nothing about the total across entries', () => {
     expect(
       refusal(
         build('REMOTIVE_API', (d) => ({
@@ -249,21 +283,86 @@ describe('Remotive and Jobgether, by name (AC3: the addendum gives both a decisi
         })),
       ).code,
     ).toBe('CADENCE_INVALID')
+    // Three entries at the floor are each accepted by the builder although together they exceed 4 a day.
+    const m = build('REMOTIVE_API', (d) => ({
+      ...d,
+      entries: d.entries.map((e) => ({ ...e, intervalHours: 6 })),
+    }))()
+    expect(
+      maxPerDay(
+        m.entries.filter((e) => e.type === 'REMOTIVE_API').map((e) => e.intervalHours),
+        1,
+      ),
+    ).toBe(12)
   })
 })
 
 describe('SmartRecruiters and Workable carry their decisions', () => {
-  it('SmartRecruiters: the decision lifts UNCLEAR for posting-api only, and the type has no entries', () => {
+  it('SmartRecruiters: the decision lifts the PERMISSION blocker only; the evidence blocker NO_API_CAPTURE stays', () => {
     const m = buildManifest(real())
     const t = typeOf(m, 'SMARTRECRUITERS_ATS')
     expect(t.ownerDecisions).toEqual([SMARTRECRUITERS_OWNER_DECISION])
     expect(t.endpointVariant).toBe(SMARTRECRUITERS_OWNER_DECISION.endpointVariant)
-    expect(t.blockers).toEqual([])
+    expect(t.blockers.map((b) => b.code)).toEqual(['NO_API_CAPTURE'])
+    expect(t.payloadVerified).toBe(false)
+    expect(readinessAt(t, NOW).status).toBe('BLOCKED')
     expect(m.entries.filter((e) => e.type === 'SMARTRECRUITERS_ATS')).toEqual([])
     const stripped = build('SMARTRECRUITERS_ATS', without)()
     expect(typeOf(stripped, 'SMARTRECRUITERS_ATS').blockers.map((b) => b.code)).toEqual([
       'PERMISSION_UNCLEAR',
+      'NO_API_CAPTURE',
     ])
+  })
+
+  it('NO_API_CAPTURE is DERIVED: a real postings payload capture in a copy clears it; a sentinel or a robots.txt does not', () => {
+    const addPostings = (patch: Record<string, unknown>) => {
+      const root = fixtureCopy()
+      const body = '{"offset":0,"limit":100,"totalFound":0,"content":[]}\n'
+      writeFileSync(join(root, 'smartrecruiters', 'postings-list.json'), body)
+      writeFileSync(
+        join(root, 'smartrecruiters', 'postings-list.provenance.json'),
+        `${JSON.stringify(
+          {
+            url: 'https://api.smartrecruiters.com/v1/companies/acme/postings',
+            fetchedAt: '2026-10-25T10:00:00.000Z',
+            httpStatus: 200,
+            rawSha256: createHash('sha256').update(body).digest('hex'),
+            fileSha256: createHash('sha256').update(body).digest('hex'),
+            trimmedBy: 'none: stored exactly as received',
+            termsUrl: 'https://developers.smartrecruiters.com/docs/endpoints',
+            termsCheckedAt: '2026-10-25T10:00:00.000Z',
+            permission: 'UNCLEAR',
+            notes: 'a controlled smoke within the owner decision of 2026-10-24',
+            ...patch,
+          },
+          null,
+          2,
+        )}\n`,
+      )
+      return typeOf(build('SMARTRECRUITERS_ATS', (d) => d, root)(), 'SMARTRECRUITERS_ATS')
+    }
+    const captured = addPostings({})
+    expect(captured.blockers).toEqual([])
+    expect(captured.payloadVerified).toBe(true)
+    // a sentinel payload does not count
+    expect(addPostings({ httpStatus: 0 }).blockers.map((b) => b.code)).toEqual(['NO_API_CAPTURE'])
+    expect(addPostings({ notes: 'SENTINEL: hand-written' }).blockers.map((b) => b.code)).toEqual([
+      'NO_API_CAPTURE',
+    ])
+  })
+
+  it('the decision the manifest attaches to SmartRecruiters IS the object the adapter is armed with (by reference)', async () => {
+    const attached = typeOf(buildManifest(real()), 'SMARTRECRUITERS_ATS').ownerDecisions[0]
+    expect(attached).toBe(SMARTRECRUITERS_OWNER_DECISION)
+    const w = fakeCollectionContext({
+      now: NOW,
+      responses: [{ bodyText: '{"content":[],"totalFound":0}' }],
+    })
+    const provider = createSmartRecruitersProvider(SMARTRECRUITERS_BOUNDS, {
+      ownerDecision: attached,
+    })
+    await provider.collectReport(provider.parseConfig({ configVersion: 1, board: 'acme' }), w.ctx)
+    expect(w.sent).toHaveLength(1)
   })
 
   it('Workable: informational, changes no readiness', () => {

@@ -134,6 +134,7 @@ export type BlockerCode =
   | 'PERMISSION_UNCLEAR'
   | 'KEY_REQUIRED'
   | 'NO_CAPTURE'
+  | 'NO_API_CAPTURE'
   | 'STATUS_CONSTANT_BLOCKED'
   | 'AUTH_DEADLINE_PASSED'
   | 'POLICY_EXPIRED'
@@ -236,6 +237,13 @@ export interface TypeDefinition {
    * lifts an `UNCLEAR` permission and nothing else.
    */
   readonly ownerDecisions?: readonly OwnerDecision[]
+  /**
+   * File names (under `fixtureDir`) of a REAL capture of the API's own payload. When declared and
+   * none of them is a present, non-sentinel capture, the type carries `NO_API_CAPTURE`: a capture of
+   * something else (a `robots.txt`) is not a capture of the payload the adapter parses. An owner
+   * decision lifts a PERMISSION blocker; it can never lift this evidence blocker.
+   */
+  readonly payloadFixtures?: readonly string[]
   readonly entries: readonly EntryDefinition[]
 }
 
@@ -726,6 +734,12 @@ export function buildManifest(input: BuildInput): Manifest {
     }
     const unclearLifted = liftsUnclear(ownerDecisions, def.endpointVariant)
 
+    const apiPayloadCaptured =
+      def.payloadFixtures === undefined ||
+      def.payloadFixtures.some((name) =>
+        fixtures.some((f) => f.file === name && f.evidence === 'CAPTURE'),
+      )
+
     const blockers: Blocker[] = []
     if (def.disposition.kind === 'BLOCKED') {
       blockers.push({ code: 'NO_ADAPTER', detail: def.disposition.reason })
@@ -740,6 +754,12 @@ export function buildManifest(input: BuildInput): Manifest {
             fixtures.length === 0
               ? 'no fixture was committed'
               : 'every fixture is a hand-written unit example',
+        })
+      }
+      if (!apiPayloadCaptured) {
+        blockers.push({
+          code: 'NO_API_CAPTURE',
+          detail: `none of ${(def.payloadFixtures ?? []).join(', ')} is a real capture of the API payload`,
         })
       }
       blockers.push(...reconcileStatus(def, permission, unclearLifted))
@@ -777,7 +797,10 @@ export function buildManifest(input: BuildInput): Manifest {
       blockers,
       deadlines: def.deadlines ?? [],
       ownerDecisions,
-      payloadVerified: fixtures.length > 0 && fixtures.every((f) => f.evidence === 'CAPTURE'),
+      payloadVerified:
+        apiPayloadCaptured &&
+        fixtures.length > 0 &&
+        fixtures.every((f) => f.evidence === 'CAPTURE'),
     })
 
     for (const e of def.entries) {
