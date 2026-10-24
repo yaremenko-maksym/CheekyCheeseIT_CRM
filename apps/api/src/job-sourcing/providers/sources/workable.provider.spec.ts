@@ -54,12 +54,21 @@ const job = (shortcode: string, extra: Record<string, unknown> = {}) => ({
 describe('the request (public, one address, nothing authorised)', () => {
   it('asks the widget address with details=true, once, for JSON', async () => {
     const { f } = await run(huggingface())
+    // EXACT on purpose (see the Greenhouse spec): nothing is authorised here, so an exact assertion
+    // must catch a credential header appearing on the wire. `maxBytes` is in the expected object
+    // because the cap is pinned as a deliberate choice by the test below, not derived here.
     expect(f.sent).toEqual([
       {
         url: 'https://apply.workable.com/api/v1/widget/accounts/huggingface?details=true',
         headers: { accept: 'application/json' },
+        maxBytes: 10_485_760,
       },
     ])
+  })
+
+  it('declares its 10 MiB response cap on the request, so the transport does not refuse it at 2 MiB', async () => {
+    const { f } = await run(huggingface())
+    expect(f.sent[0]?.maxBytes).toBe(10_485_760)
   })
 
   it('puts the configured subdomain in the path and nowhere else', async () => {

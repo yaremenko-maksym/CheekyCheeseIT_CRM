@@ -60,9 +60,21 @@ const offer = (id: number, extra: Record<string, unknown> = {}) => ({
 describe('the request (public, one address, no token)', () => {
   it('asks the careers site offers address, once, for JSON', async () => {
     const { f } = await run(bunq())
+    // EXACT on purpose (see the Greenhouse spec): this tenant is public and keyless, so an exact
+    // assertion must catch a credential header appearing on the wire. `maxBytes` is in the expected
+    // object because the cap is pinned as a deliberate choice by the test below, not derived here.
     expect(f.sent).toEqual([
-      { url: 'https://bunq.recruitee.com/api/offers/', headers: { accept: 'application/json' } },
+      {
+        url: 'https://bunq.recruitee.com/api/offers/',
+        headers: { accept: 'application/json' },
+        maxBytes: 10_485_760,
+      },
     ])
+  })
+
+  it('declares its 10 MiB response cap on the request, so the transport does not refuse it at 2 MiB', async () => {
+    const { f } = await run(bunq())
+    expect(f.sent[0]?.maxBytes).toBe(10_485_760)
   })
 
   it('puts the tenant in the host label and nowhere else', async () => {
