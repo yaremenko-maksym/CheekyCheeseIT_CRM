@@ -135,3 +135,54 @@ export function addCalendarMonths(day: string, delta: number): string {
   const pad = (n: number, w: number) => String(n).padStart(w, '0')
   return `${pad(year, 4)}-${pad(month, 2)}-${pad(Math.min(d, lastDay), 2)}`
 }
+
+let kyivHourFormatter: Intl.DateTimeFormat | undefined
+
+/** The first instant of the KYIV calendar month `month` (`YYYY-MM`). */
+function kyivMonthStartInstant(month: string): Date {
+  const utcMidnight = Date.parse(`${month}-01T00:00:00.000Z`)
+  kyivHourFormatter ??= new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Kyiv',
+    hour: '2-digit',
+    hourCycle: 'h23',
+  })
+  // At 00:00Z on the 1st Kyiv is already on the 1st, and its wall-clock hour IS
+  // its UTC offset (2 or 3). The zone never changes offset on the 1st of a month
+  // (EU transitions fall on the last Sunday), so the same offset holds at the
+  // month's true first instant. Looked up per-instant, never hard-coded.
+  const offsetHours = Number(kyivHourFormatter.format(new Date(utcMidnight)))
+  return new Date(utcMidnight - offsetHours * 3_600_000)
+}
+
+/**
+ * The bounds a reader needs to select the rows of ONE business month, mirroring
+ * `transactionBusinessMonth` exactly (backlog 338): a row is in month M iff
+ *   - `tx_date` IS NOT NULL and its UTC-midnight month is M
+ *       -> `tx_date >= dateStart AND tx_date < dateEnd`, or
+ *   - `tx_date` IS NULL and the KYIV month of `created_at` is M
+ *       -> `created_at >= instantStart AND created_at < instantEnd`.
+ * A single `coalesce(tx_date, created_at)` against one window cannot express
+ * this: the two branches live on different clocks.
+ *
+ * `dateStart`/`dateEnd` are UTC midnights (date-only values are stored that way);
+ * `instantStart`/`instantEnd` are the real instants Kyiv midnight falls on, which
+ * is 22:00Z or 21:00Z of the previous UTC day depending on DST. All half-open.
+ */
+export interface BusinessMonthWindow {
+  month: string
+  dateStart: Date
+  dateEnd: Date
+  instantStart: Date
+  instantEnd: Date
+}
+
+export function businessMonthWindow(month: string): BusinessMonthWindow {
+  const next = addCalendarMonths(`${month}-01`, 1).slice(0, 7)
+  return {
+    month,
+    dateStart: new Date(`${month}-01T00:00:00.000Z`),
+    dateEnd: new Date(`${next}-01T00:00:00.000Z`),
+    instantStart: kyivMonthStartInstant(month),
+    instantEnd: kyivMonthStartInstant(next),
+  }
+}

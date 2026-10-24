@@ -6,7 +6,7 @@ import type {
   IncomeComplianceOverviewDto,
   MySalaryStatusDto,
 } from '@crm/shared'
-import { MONEY_SCALE } from '@crm/shared'
+import { MONEY_SCALE, addCalendarMonths, businessMonthWindow, kyivMonthOf } from '@crm/shared'
 import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
 import {
@@ -376,8 +376,9 @@ export class SummaryService {
    * BEFORE any DB access.
    *
    * Implementation: loads all transaction rows via `findMany()` and aggregates
-   * the KPI buckets in-process using a single scan. UTC-based month boundaries
-   * are computed once from `new Date()` so every bucket uses the same cutoff.
+   * the KPI buckets in one aggregating scan. The Kyiv-month boundaries (the same
+   * clock as the monthly graph in `getSummary`) are computed once from
+   * `new Date()` so every bucket uses the same cutoff.
    *
    * KPI semantics:
    *   - pendingValidation  — income rows (SENIOR_INCOME + DROP_INCOME) still in
@@ -407,10 +408,10 @@ export class SummaryService {
       throw apiError('FINANCE_ACCOUNTANT_SUMMARY_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
-    // Current-month boundary, computed once. UTC-based to match how the rest of
-    // the summary buckets months (`createdAt.toISOString().slice(0,7)`).
-    const now = new Date()
-    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+    // Current business month, computed once, on the SAME clock the monthly graph
+    // in `getSummary` uses (`transactionBusinessMonth`): the Kyiv month. See
+    // `businessMonthWindow` for the two-branch row semantics (backlog 338).
+    const { dateStart, instantStart } = businessMonthWindow(kyivMonthOf(new Date()))
 
     // Income types a senior / drop submits that require accountant validation —
     // the validatable-income predicate (pendingValidation + recipientCount).
@@ -433,11 +434,11 @@ export class SummaryService {
             Number,
           ),
         validatedCount:
-          sql<number>`count(*) filter (where ${transactions.status} = 'VALIDATED' and ${transactions.validatedAt} is not null and ${transactions.validatedAt} >= ${monthStart})`.mapWith(
+          sql<number>`count(*) filter (where ${transactions.status} = 'VALIDATED' and ${transactions.validatedAt} is not null and ${transactions.validatedAt} >= ${instantStart})`.mapWith(
             Number,
           ),
         validatedAmount:
-          sql<number>`coalesce(sum(${transactions.amount}) filter (where ${transactions.status} = 'VALIDATED' and ${transactions.validatedAt} is not null and ${transactions.validatedAt} >= ${monthStart}), 0)`.mapWith(
+          sql<number>`coalesce(sum(${transactions.amount}) filter (where ${transactions.status} = 'VALIDATED' and ${transactions.validatedAt} is not null and ${transactions.validatedAt} >= ${instantStart}), 0)`.mapWith(
             Number,
           ),
         // CR-809-H-2: windowed on the BUSINESS date, not on `created_at`.
@@ -446,26 +447,24 @@ export class SummaryService {
         // 30 Sep belongs to September in the monthly graph (which has always
         // bucketed on `txDate ?? createdAt` — see `getSummary` above), so it
         // must not be counted by THIS tile as October money: that disagreement
-        // between two numbers on one screen is the defect. `coalesce` uses the
-        // same `txDate ?? createdAt` source as the monthly graph, but the
-        // windows are NOT identical for NULL-txDate rows: the graph now buckets
-        // their `createdAt` by the KYIV month, while this KPI window (and the
-        // senior-stats ones) still starts at a UTC month boundary, so a
-        // NULL-txDate row created in the first 2-3 hours of a Kyiv month can sit
-        // in a different month here. Moving these windows to Kyiv bucketing is a
-        // tracked follow-up (holdings/debt accounting surface), deliberately not
-        // done in the business-day-clock PR.
+        // between two numbers on one screen is the defect. The window mirrors
+        // the graph's `transactionBusinessMonth` EXACTLY (backlog 338): a dated
+        // row is compared as a date-only value (`tx_date >= dateStart`, UTC
+        // midnight), a NULL-txDate row by the instant its Kyiv month began
+        // (`created_at >= instantStart`). Both bounds come from
+        // `businessMonthWindow`, so the tile and the graph cannot disagree on a
+        // legacy row created in the 2-3 hours after Kyiv midnight on the 1st.
+        // Lower bound only, as before: a future-dated row still counts.
         //
         // Index note: the only date index on `transactions` is
         // `idx_transactions_active_created_at (created_at) WHERE deleted_at IS
-        // NULL`, and a btree on a bare column cannot serve a `coalesce(...)`
-        // expression. Nothing is lost here: the term lives inside a
-        // `FILTER (WHERE ...)` clause, which Postgres evaluates per row while
-        // scanning the set already selected by the query's own
-        // `WHERE deleted_at IS NULL` — it was never an index-driven predicate,
-        // before or after this change.
+        // NULL`. The term lives inside a `FILTER (WHERE ...)` clause, which
+        // Postgres evaluates per row while scanning the set already selected by
+        // the query's own `WHERE deleted_at IS NULL`; it was never an
+        // index-driven predicate (the old `coalesce(...)` could not use a btree
+        // either), so splitting it into two bare-column branches costs nothing.
         paidAmount:
-          sql<number>`coalesce(sum(${transactions.amount}) filter (where ${transactions.status} = 'PAID' and ${paidEligibleTypes} and coalesce(${transactions.txDate}, ${transactions.createdAt}) >= ${monthStart}), 0)`.mapWith(
+          sql<number>`coalesce(sum(${transactions.amount}) filter (where ${transactions.status} = 'PAID' and ${paidEligibleTypes} and ((${transactions.txDate} is not null and ${transactions.txDate} >= ${dateStart}) or (${transactions.txDate} is null and ${transactions.createdAt} >= ${instantStart}))), 0)`.mapWith(
             Number,
           ),
         recipientCount:
@@ -523,17 +522,20 @@ export class SummaryService {
 
     const selfId = currentUser.id
 
-    // Current-month boundary (UTC), computed once — matches HR / accountant.
+    // Business months (`YYYY-MM`), on the SAME clock as the monthly graph in
+    // `getSummary` and the accountant tiles (backlog 338): each income is bucketed
+    // by `transactionBusinessMonth`, and "this" / "last" month are the Kyiv month
+    // of `now` and the one before it. A month KEY compare is exactly the old
+    // half-open window compare: PR #868's rule that a future-dated income (txDate
+    // is user-chosen) must not leak into "this month" holds because a later month
+    // has a different key.
     const now = new Date()
-    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
-    // task-senior-stats-block: PREVIOUS-month window [lastMonthStart, monthStart)
-    // for `lastMonthIncome`. The current-month `YYYY-MM` key (salaryMonth) is also
-    // reused as the per-company arrival bucket so the progress bar and the salary
-    // lookup share one definition of "this month".
-    const lastMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1))
-    // PR #868: half-open [monthStart, nextMonthStart) — a future-dated income
-    // (txDate is user-chosen) must not leak into "this month".
-    const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1))
+    const thisMonthKey = kyivMonthOf(now)
+    const monthKeyBefore = (offset: number): string =>
+      addCalendarMonths(`${thisMonthKey}-01`, -offset).slice(0, 7)
+    const lastMonthKey = monthKeyBefore(1)
+    // The SALARY lookup key stays the UTC month of `now`: it addresses stored
+    // `salary_month` values, which are not part of this finding.
     const salaryMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
 
     // ── 1. Active own senior-projects + effective share % ──────────────────────
@@ -599,8 +601,6 @@ export class SummaryService {
     //   - perMonthShare (YYYY-MM → Σ share) for the sparkline history,
     //   - companiesWithIncomeThisMonth (set of own projectIds that got ≥1 PAID
     //     SENIOR_INCOME dated this month) for the arrival-progress bar.
-    const monthKeyOf = (d: Date): string =>
-      `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
     let incomeTotal = 0
     let incomeThisMonth = 0
     let incomeLastMonth = 0
@@ -612,16 +612,13 @@ export class SummaryService {
       const pct = tx.seniorSharePercent ?? seniorSharePercent
       const share = amt * (pct / 100)
       incomeTotal += share
-      const when = tx.txDate ?? tx.createdAt
-      // `when` is never null: `createdAt` is NOT NULL, so `txDate ?? createdAt` always resolves.
-      const whenDate = new Date(when)
-      // Per-month bucket for the sparkline (keyed by the income's own date).
-      const key = monthKeyOf(whenDate)
+      // Per-month bucket for the sparkline (keyed by the income's business month).
+      const key = transactionBusinessMonth(tx)
       perMonthShare.set(key, (perMonthShare.get(key) ?? 0) + share)
-      if (whenDate >= lastMonthStart && whenDate < monthStart) {
+      if (key === lastMonthKey) {
         incomeLastMonth += share
       }
-      if (whenDate >= monthStart && whenDate < nextMonthStart) {
+      if (key === thisMonthKey) {
         incomeThisMonth += share
         // A project counts toward arrival-progress as soon as ONE of its incomes
         // lands this month. Self-scoped: receiverId is already === self.
@@ -638,8 +635,7 @@ export class SummaryService {
     const HISTORY_MONTHS = 8
     const monthlyHistory: Array<{ month: string; amount: number }> = []
     for (let i = HISTORY_MONTHS - 1; i >= 0; i--) {
-      const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1))
-      const key = monthKeyOf(d)
+      const key = monthKeyBefore(i)
       monthlyHistory.push({ month: key, amount: perMonthShare.get(key) ?? 0 })
     }
 

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   addCalendarMonths,
+  businessMonthWindow,
   kyivDayOf,
   kyivMonthOf,
   kyivToday,
@@ -251,5 +252,64 @@ describe('kyivToday', () => {
       month: '2-digit',
       day: '2-digit',
     })
+  })
+})
+
+/**
+ * backlog 338 (A): the month windows the KPI readers query with. Expected values
+ * are hand-written literals (Kyiv is UTC+2 in winter, UTC+3 in summer), not
+ * recomputed with the same Intl call the helper uses.
+ */
+describe('businessMonthWindow', () => {
+  const iso = (d: Date) => d.toISOString()
+
+  it('winter month: the Kyiv month starts at 22:00Z of the previous UTC day (UTC+2)', () => {
+    const w = businessMonthWindow('2026-01')
+    expect(w.month).toBe('2026-01')
+    expect(iso(w.dateStart)).toBe('2026-01-01T00:00:00.000Z')
+    expect(iso(w.dateEnd)).toBe('2026-02-01T00:00:00.000Z')
+    expect(iso(w.instantStart)).toBe('2025-12-31T22:00:00.000Z')
+    expect(iso(w.instantEnd)).toBe('2026-01-31T22:00:00.000Z')
+  })
+
+  it('summer month: the Kyiv month starts at 21:00Z of the previous UTC day (UTC+3)', () => {
+    const w = businessMonthWindow('2026-07')
+    expect(iso(w.dateStart)).toBe('2026-07-01T00:00:00.000Z')
+    expect(iso(w.dateEnd)).toBe('2026-08-01T00:00:00.000Z')
+    expect(iso(w.instantStart)).toBe('2026-06-30T21:00:00.000Z')
+    expect(iso(w.instantEnd)).toBe('2026-07-31T21:00:00.000Z')
+  })
+
+  it('DST month ends: March starts on +2 and ends on +3, October starts on +3 and ends on +2', () => {
+    const march = businessMonthWindow('2026-03')
+    expect(iso(march.instantStart)).toBe('2026-02-28T22:00:00.000Z')
+    expect(iso(march.instantEnd)).toBe('2026-03-31T21:00:00.000Z')
+    const october = businessMonthWindow('2026-10')
+    expect(iso(october.instantStart)).toBe('2026-09-30T21:00:00.000Z')
+    expect(iso(october.instantEnd)).toBe('2026-10-31T22:00:00.000Z')
+  })
+
+  it('rolls the year over in December', () => {
+    const w = businessMonthWindow('2026-12')
+    expect(iso(w.dateEnd)).toBe('2027-01-01T00:00:00.000Z')
+    expect(iso(w.instantEnd)).toBe('2026-12-31T22:00:00.000Z')
+  })
+
+  it('the instant window agrees with kyivMonthOf at both edges', () => {
+    for (const month of ['2026-01', '2026-03', '2026-07', '2026-10', '2026-12']) {
+      const w = businessMonthWindow(month)
+      expect(kyivMonthOf(w.instantStart)).toBe(month)
+      expect(kyivMonthOf(new Date(w.instantStart.getTime() - 1))).not.toBe(month)
+      expect(kyivMonthOf(new Date(w.instantEnd.getTime() - 1))).toBe(month)
+      expect(kyivMonthOf(w.instantEnd)).not.toBe(month)
+    }
+  })
+
+  it('22:30Z on the last UTC day of a month is already the NEXT Kyiv month (the 338 boundary)', () => {
+    const created = new Date('2026-10-31T22:30:00.000Z')
+    expect(created >= businessMonthWindow('2026-11').instantStart).toBe(true)
+    expect(created < businessMonthWindow('2026-10').instantEnd).toBe(false)
+    const summer = new Date('2026-06-30T21:30:00.000Z')
+    expect(summer >= businessMonthWindow('2026-07').instantStart).toBe(true)
   })
 })

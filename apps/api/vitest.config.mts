@@ -217,6 +217,29 @@ const TIMING_SPEC_GLOB = '**/*.timing.spec.ts'
 const isTimingRun = process.env['TIMING_SPECS'] === '1'
 const timingExclude = isTimingRun ? [] : [TIMING_SPEC_GLOB]
 
+/** Unit specs re-run under each zone below (month-boundary finance windows). */
+const TZ_UNIT_SPECS = ['src/finance/summary.service.spec.ts']
+const TZ_UNIT_SPECS_ZONES = ['Europe/Kyiv', 'America/Los_Angeles']
+
+const discovery = {
+  // `TIMING_SPECS=1` selects ONLY the stopwatch specs (`*.timing.spec.ts`); a normal run never
+  // sees them.
+  include: isTimingRun ? ['src/**/*.timing.spec.ts'] : ['src/**/*.{spec,test}.ts'],
+  // Non-integration runs: exclude every DB-backed integration spec file from
+  // discovery entirely (see the "Non-integration-run structural skip" comment
+  // above) — this is what makes the guard unconditional, independent of
+  // DATABASE_URL. Integration runs keep vitest's plain default exclude; the
+  // CLI's positional `integration.spec` filter narrows execution from there.
+  exclude: isIntegrationRun
+    ? [...configDefaults.exclude, ...timingExclude]
+    : [...configDefaults.exclude, INTEGRATION_SPEC_EXCLUDE_GLOB, ...timingExclude],
+}
+
+// Projects exist only on a plain unit run. Discovery then lives on the `default`
+// project, because `extends: true` MERGES array options such as `include` (a tz
+// project inheriting the root `include` would re-run every spec under its zone).
+const withTzProjects = !isIntegrationRun && !isTimingRun
+
 export default defineConfig({
   // '@crm/shared' is aliased straight to TypeScript SOURCE unconditionally —
   // in the main repo as well as in a worktree (previously this lived inside
@@ -242,17 +265,8 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    // `TIMING_SPECS=1` selects ONLY the stopwatch specs (`*.timing.spec.ts`); a normal run never
-    // sees them. See the block above `defineConfig`.
-    include: isTimingRun ? ['src/**/*.timing.spec.ts'] : ['src/**/*.{spec,test}.ts'],
-    // Non-integration runs: exclude every DB-backed integration spec file from
-    // discovery entirely (see the "Non-integration-run structural skip" comment
-    // above) — this is what makes the guard unconditional, independent of
-    // DATABASE_URL. Integration runs keep vitest's plain default exclude; the
-    // CLI's positional `integration.spec` filter narrows execution from there.
-    exclude: isIntegrationRun
-      ? [...configDefaults.exclude, ...timingExclude]
-      : [...configDefaults.exclude, INTEGRATION_SPEC_EXCLUDE_GLOB, ...timingExclude],
+    // Spec discovery (include / exclude) — see `discovery` above `defineConfig`.
+    ...(withTzProjects ? {} : discovery),
     // Generous per-test budget for CPU-bound tests (contract-pdf ~5s, compression ~60s
     // under load). Pre-push hook now runs packages sequentially so each test worker
     // gets the full CPU, but we keep a 90 s ceiling to catch genuine hangs.
@@ -303,5 +317,21 @@ export default defineConfig({
       include: ['src/**/*.ts'],
       exclude: ['src/**/*.module.ts', 'src/main.ts', 'src/**/*.spec.ts', 'src/**/*.test.ts'],
     },
+    // backlog 338 (A) / SPEC-M-1: the month-boundary UNIT spec must pass under a
+    // non-UTC process zone too (CI itself runs in UTC, which hides host-timezone
+    // bugs). Only on a plain unit run: an integration run (`integration.spec` in
+    // argv, backlog 317) and a timing run keep exactly the single project they
+    // had, so discovery is unchanged. `extends: true` inherits every other root
+    // option; `default` carries the discovery globs, the tz projects re-run just
+    // the named spec.
+    ...(withTzProjects && {
+      projects: [
+        { extends: true as const, test: { name: 'default', ...discovery } },
+        ...TZ_UNIT_SPECS_ZONES.map((tz) => ({
+          extends: true as const,
+          test: { name: `tz:${tz}`, include: TZ_UNIT_SPECS, env: { TZ: tz } },
+        })),
+      ],
+    }),
   },
 })

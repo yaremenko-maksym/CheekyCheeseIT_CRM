@@ -517,7 +517,7 @@ describe('SummaryService.getAccountantSummary — query shape + row mapping', ()
     })
   })
 
-  it('compiles the exact aggregation SQL, bound to the UTC first-of-month boundary', async () => {
+  it('compiles the exact aggregation SQL, bound to the KYIV first-of-month boundaries', async () => {
     freeze('2026-03-17T12:00:00Z')
     const { svc, cap } = makeDb({ accountantRows: [] })
     await svc.getAccountantSummary(user('ADMIN'))
@@ -543,24 +543,90 @@ describe('SummaryService.getAccountantSummary — query shape + row mapping', ()
     expect(compiled.validatedAmount!.sql).toBe(
       `coalesce(sum("transactions"."amount") filter (where ${val}), 0)`,
     )
-    // CR-809-H-2: the PAID window keys on the BUSINESS date, so this fragment
-    // reads `coalesce(tx_date, created_at) >= $1` and NOT `created_at >= $1`.
-    // The monthly graph in `getSummary` has always bucketed on
-    // `txDate ?? createdAt`; while this tile used `created_at` the two numbers
-    // disagreed by exactly the backdated amounts. Note the contrast with the
-    // `val` fragment above, which legitimately still keys on `validated_at`:
-    // "when the accountant validated it" is an audit timestamp, not a business
-    // date, and must NOT follow the operator's chosen date.
+    // CR-809-H-2 + backlog 338: the PAID window keys on the BUSINESS month, on
+    // the same two branches as `transactionBusinessMonth` in the monthly graph: a
+    // dated row compares `tx_date` to the date-only month start ($1), a NULL
+    // `tx_date` row compares `created_at` to the instant the KYIV month began ($2).
+    // The `val` fragment above legitimately keys on `validated_at` (an audit
+    // instant) against the same Kyiv instant.
     expect(compiled.paidAmount!.sql).toBe(
-      `coalesce(sum("transactions"."amount") filter (where "transactions"."status" = 'PAID' and "transactions"."type" in ('SENIOR_INCOME', 'DROP_INCOME', 'PAYOUT', 'PAYOUT_ADMIN', 'PAYOUT_DROP', 'PAYOUT_CONFIRMED') and coalesce("transactions"."tx_date", "transactions"."created_at") >= $1), 0)`,
+      `coalesce(sum("transactions"."amount") filter (where "transactions"."status" = 'PAID' and "transactions"."type" in ('SENIOR_INCOME', 'DROP_INCOME', 'PAYOUT', 'PAYOUT_ADMIN', 'PAYOUT_DROP', 'PAYOUT_CONFIRMED') and (("transactions"."tx_date" is not null and "transactions"."tx_date" >= $1) or ("transactions"."tx_date" is null and "transactions"."created_at" >= $2))), 0)`,
     )
     expect(compiled.recipientCount!.sql).toBe(
       `count(distinct coalesce("transactions"."receiver_id", "transactions"."sender_id")) filter (where "transactions"."type" in ('SENIOR_INCOME', 'DROP_INCOME'))`,
     )
-    for (const k of ['validatedCount', 'validatedAmount', 'paidAmount']) {
-      expect(compiled[k]!.params).toEqual([new Date('2026-03-01T00:00:00.000Z')])
+    // March 2026 in Kyiv starts at 22:00Z on 28 Feb (UTC+2, DST not yet begun).
+    for (const k of ['validatedCount', 'validatedAmount']) {
+      expect(compiled[k]!.params).toEqual([new Date('2026-02-28T22:00:00.000Z')])
     }
+    expect(compiled.paidAmount!.params).toEqual([
+      new Date('2026-03-01T00:00:00.000Z'),
+      new Date('2026-02-28T22:00:00.000Z'),
+    ])
     expect(compileWhere(cap.accountantWhere).sql).toContain('"deleted_at" is null')
+  })
+})
+
+// ── backlog 338 (A): Kyiv month windows at the UTC/Kyiv month boundary ──────
+
+describe('Kyiv month windows at 23:30Z on 31 Oct (UTC October, Kyiv already November)', () => {
+  const BOUNDARY = '2026-10-31T23:30:00Z'
+
+  it('accountant tiles bind the Kyiv NOVEMBER bounds, not the UTC October ones', async () => {
+    freeze(BOUNDARY)
+    const { svc, cap } = makeDb({ accountantRows: [] })
+    await svc.getAccountantSummary(user('ADMIN'))
+    const arg = cap.accountantSelectArg as Record<string, never>
+    const params = (k: string) => new PgDialect().sqlToQuery(arg[k]!).params
+    // Kyiv November began at 22:00Z on 31 Oct (UTC+2 after the 25 Oct DST end).
+    const novemberStart = new Date('2026-10-31T22:00:00.000Z')
+    expect(params('validatedCount')).toEqual([novemberStart])
+    expect(params('validatedAmount')).toEqual([novemberStart])
+    expect(params('paidAmount')).toEqual([new Date('2026-11-01T00:00:00.000Z'), novemberStart])
+  })
+
+  it('senior stats file a NULL-txDate row created 22:30Z on 31 Oct under November', async () => {
+    freeze(BOUNDARY)
+    const { svc, cap } = makeDb({
+      selfUser: { seniorSharePercent: 100 },
+      projects: [{ id: 'p1', name: 'A', companyName: 'Acme', seniorSharePercentOverride: null }],
+      txs: [
+        // Kyiv 00:30 on 1 Nov: THIS month although its UTC month is October
+        {
+          amount: '100',
+          seniorSharePercent: 100,
+          txDate: null,
+          createdAt: new Date('2026-10-31T22:30:00Z'),
+          projectId: 'p1',
+        },
+        // a dated row keeps its own UTC-midnight month: last month
+        {
+          amount: '10',
+          seniorSharePercent: 100,
+          txDate: new Date('2026-10-31T00:00:00Z'),
+          createdAt: new Date('2026-10-31T23:00:00Z'),
+          projectId: null,
+        },
+        // a future-dated row must not leak into this month
+        {
+          amount: '1000',
+          seniorSharePercent: 100,
+          txDate: new Date('2026-12-01T00:00:00Z'),
+          createdAt: new Date('2026-10-01T00:00:00Z'),
+          projectId: null,
+        },
+      ],
+    })
+    const r = await svc.getSeniorSummary(user('SENIOR'))
+    expect(r.seniorShareIncome.thisMonth).toBeCloseTo(100, 9)
+    expect(r.earningsStats.lastMonthIncome).toBeCloseTo(10, 9)
+    const hist = r.earningsStats.monthlyHistory
+    expect(hist.at(-1)).toEqual({ month: '2026-11', amount: 100 })
+    expect(hist.at(-2)).toEqual({ month: '2026-10', amount: 10 })
+    expect(hist[0]!.month).toBe('2026-04')
+    expect(r.earningsStats.companyIncomeProgress).toEqual({ received: 1, total: 1 })
+    // the stored-salary lookup key is deliberately still the UTC month
+    expect(compileWhere(cap.salaryWhere).params).toEqual(['SALARY', 'senior-1', '2026-10'])
   })
 })
 
