@@ -7,8 +7,9 @@ import { jobSources } from '../../database/schema'
 import * as schema from '../../database/schema'
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import type { Manifest } from '../providers/manifest'
+import type { ActivationFacts } from '../registry/activation'
 import { activationFactsByType } from '../providers/manifest.activation'
-import { type DueRow, isDue } from './due-policy'
+import { isDue } from './due-policy'
 import { findDueSources } from './due-sources.query'
 
 /**
@@ -37,6 +38,7 @@ interface Seed {
 
 const PAST = (): Date => new Date(Date.now() - 2 * HOUR)
 const FUTURE = (): Date => new Date(Date.now() + 5 * HOUR)
+const IN_MIN = (m: number): Date => new Date(Date.now() + m * 60_000)
 
 const SEEDS: Seed[] = [
   { n: 1, label: 'due', type: 'REMOTEOK_API', row: {} },
@@ -52,6 +54,8 @@ const SEEDS: Seed[] = [
   { n: 11, label: 'MANUAL only', type: 'REMOTEOK_API', row: { triggerMode: 'MANUAL' } },
   { n: 12, label: 'cooldown over', type: 'REMOTEOK_API', row: { cooldownUntil: PAST() } },
   { n: 13, label: 'two failures', type: 'REMOTEOK_API', row: { consecutiveFailures: 2 } },
+  { n: 14, label: 'cadence in 5 min', type: 'REMOTEOK_API', row: { nextAttemptAt: IN_MIN(5) } },
+  { n: 15, label: 'cadence in 15 min', type: 'REMOTEOK_API', row: { nextAttemptAt: IN_MIN(15) } },
 ]
 const IDS = SEEDS.map((s) => id(s.n))
 
@@ -106,15 +110,33 @@ describe.skipIf(!hasDatabaseUrl())('due query vs pure isDue over a seeded mix (T
     await pool.end()
   })
 
-  /** The query's rows, then `isDue` over them -- the production composition. */
+  /** What the SQL pre-filter returns, as ids. */
+  async function sqlIds(trigger: JobSourceTriggerMode): Promise<string[]> {
+    return (await findDueSources(db, trigger, { onlyIds: IDS })).map((r) => r.id).sort()
+  }
+
+  /** The production composition: the SQL rows, then `isDue` with the real facts at the clock. */
   async function selected(trigger: JobSourceTriggerMode): Promise<string[]> {
     const now = new Date()
     const facts = activationFactsByType(manifestAt(now), now)
     const rows = await findDueSources(db, trigger, { onlyIds: IDS })
     return rows
-      .filter((r) => isDue(r, { trigger, now, readiness: facts.get(r.type) }).due)
+      .filter(
+        (r) =>
+          isDue(r, {
+            trigger,
+            now,
+            readiness: facts.get(r.type),
+            costBlocked: false,
+            hostPaused: false,
+            alreadyRunning: false,
+          }).due,
+      )
       .map((r) => r.id)
+      .sort()
   }
+
+  const ids = (...ns: number[]): string[] => ns.map(id).sort()
 
   it('AC1: the deadline-crossed row is stored CANDIDATE, and is not due', async () => {
     const stored = await db
@@ -126,63 +148,75 @@ describe.skipIf(!hasDatabaseUrl())('due query vs pure isDue over a seeded mix (T
     expect(await selected('MANUAL')).not.toContain(id(4))
   })
 
-  it('a scheduled trigger selects exactly the due rows (a literal list)', async () => {
-    // 1 due, 12 cooldown over, 13 two failures. Everything else is refused for its own reason.
-    expect((await selected('SCHEDULED')).sort()).toEqual([id(1), id(12), id(13)].sort())
+  it('CR-M-2: the SQL pre-filter alone, scheduled, is exactly this literal list', async () => {
+    // 1 due, 4 deadline-crossed (readiness is TypeScript, invisible to SQL), 12 cooldown over,
+    // 13 two failures. Refused by SQL: 2 disabled, 3 cooling, 5 no manifest, 6 cap, 7 PAUSED,
+    // 8 RETIRED, 9 / 14 / 15 cadence ahead, 10 cadence NULL, 11 MANUAL-only.
+    expect(await sqlIds('SCHEDULED')).toEqual(ids(1, 4, 12, 13))
   })
 
-  it('a manual trigger selects the same rows plus those only the cadence term refused (AC7)', async () => {
-    // + 9 cadence in future, 10 cadence NULL, 11 MANUAL only. Still not: 2, 3, 4, 5, 6, 7, 8.
-    expect((await selected('MANUAL')).sort()).toEqual(
-      [id(1), id(9), id(10), id(11), id(12), id(13)].sort(),
-    )
+  it('CR-M-2: the SQL pre-filter alone, manual, is exactly this literal list', async () => {
+    // The scheduled list plus every row only the cadence term (and the trigger policy) refused:
+    // 9, 14, 15 (cadence ahead), 10 (NULL), 11 (MANUAL-only). Still refused: 2, 3, 5, 6, 7, 8.
+    expect(await sqlIds('MANUAL')).toEqual(ids(1, 4, 9, 10, 11, 12, 13, 14, 15))
   })
 
-  it('agrees with the pure isDue on every seeded row, for both triggers', async () => {
+  it('CR-M-2: the SQL set EQUALS the rows isDue accepts once readiness is fixed to activatable and the inputs SQL cannot see are false', async () => {
     const now = new Date()
-    const facts = activationFactsByType(manifestAt(now), now)
+    const activatable: ActivationFacts = {
+      readiness: 'CANDIDATE',
+      blockerCodes: [],
+      payloadVerified: true,
+    }
     const all = await db.select().from(jobSources).where(inArray(jobSources.id, IDS))
     expect(all).toHaveLength(SEEDS.length)
     for (const trigger of ['SCHEDULED', 'MANUAL'] as const) {
-      const fromQuery = new Set(await selected(trigger))
-      for (const r of all) {
-        const row: DueRow = r
-        const pure = isDue(row, { trigger, now, readiness: facts.get(r.type) }).due
-        expect({ id: r.id, trigger, due: fromQuery.has(r.id) }).toEqual({
-          id: r.id,
-          trigger,
-          due: pure,
-        })
-      }
+      const accepted = all
+        .filter(
+          (r) =>
+            isDue(r, {
+              trigger,
+              now,
+              readiness: activatable,
+              costBlocked: false,
+              hostPaused: false,
+              alreadyRunning: false,
+            }).due,
+        )
+        .map((r) => r.id)
+        .sort()
+      expect({ trigger, ids: await sqlIds(trigger) }).toEqual({ trigger, ids: accepted })
     }
   })
 
-  it('the SQL pre-filter alone already drops every row the scalar terms refuse', async () => {
-    // The readiness term is TypeScript; the deadline-crossed row passes the SQL and fails there.
-    const sched = (await findDueSources(db, 'SCHEDULED', { onlyIds: IDS })).map((r) => r.id)
-    expect(sched.sort()).toEqual([id(1), id(4), id(12), id(13)].sort())
+  it('a scheduled trigger selects exactly the due rows after readiness (a literal list)', async () => {
+    expect(await selected('SCHEDULED')).toEqual(ids(1, 12, 13))
   })
 
-  it('AC3: the early-due slack widens the cadence term in SQL and nothing else', async () => {
-    // Row 9 is 5 h out: a 10-minute slack does not reach it, a 6 h slack does; the cooled-down row
-    // (3) stays out under both.
-    const tenMin = (
+  it('a manual trigger selects the same rows plus those only the cadence term refused (AC7)', async () => {
+    expect(await selected('MANUAL')).toEqual(ids(1, 9, 10, 11, 12, 13, 14, 15))
+  })
+
+  it('AC3: the early-due slack widens the cadence term in SQL, by at most ten minutes, and nothing else', async () => {
+    const withSlack = (
       await findDueSources(db, 'SCHEDULED', { onlyIds: IDS, cadenceSlackMs: 600_000 })
-    ).map((r) => r.id)
-    expect(tenMin).not.toContain(id(9))
-    const sixHours = (
-      await findDueSources(db, 'SCHEDULED', { onlyIds: IDS, cadenceSlackMs: 6 * HOUR })
-    ).map((r) => r.id)
-    expect(sixHours).toContain(id(9))
-    expect(sixHours).not.toContain(id(3))
-    expect(sixHours).not.toContain(id(6))
+    )
+      .map((r) => r.id)
+      .sort()
+    // 14 is 5 min out: reached. 15 is 15 min out and 9 is 5 h out: not. Cooled-down (3) and
+    // capped (6) rows stay out.
+    expect(withSlack).toEqual(ids(1, 4, 12, 13, 14))
+    await expect(
+      findDueSources(db, 'SCHEDULED', { onlyIds: IDS, cadenceSlackMs: 6 * HOUR }),
+    ).rejects.toThrow(RangeError)
+    await expect(
+      findDueSources(db, 'SCHEDULED', { onlyIds: IDS, maxConsecutiveFailures: 99 }),
+    ).rejects.toThrow(RangeError)
   })
 
   it('orders by next_attempt_at, oldest first', async () => {
     const rows = await findDueSources(db, 'MANUAL', { onlyIds: IDS })
-    const times = rows
-      .filter((r) => r.nextAttemptAt !== null)
-      .map((r) => r.nextAttemptAt!.getTime())
+    const times = rows.flatMap((r) => (r.nextAttemptAt === null ? [] : [r.nextAttemptAt.getTime()]))
     expect(times).toEqual([...times].sort((a, b) => a - b))
   })
 })

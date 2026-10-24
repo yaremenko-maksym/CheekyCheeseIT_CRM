@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { JobSourceTriggerMode } from '@crm/shared'
+import { type ActivationFacts, activationOf } from '../registry/activation'
+import type { RegisteredAdapter } from '../registry/registered-adapter'
 import { FIXTURE_ROOT } from '../../test/fixture-provenance'
 import { buildManifest } from '../providers/manifest'
 import { activationFactsByType } from '../providers/manifest.activation'
@@ -10,8 +12,10 @@ import {
   DUE_REFUSALS,
   type DueContext,
   type DueRow,
-  LEGACY_EARLY_DUE_SLACK_MS,
   MAX_CONSECUTIVE_FAILURES,
+  MAX_CONSECUTIVE_FAILURES_CEILING,
+  MAX_EARLY_DUE_SLACK_MS,
+  factsActivate,
   isDue,
   sourceAcceptsTrigger,
   typePassesFilter,
@@ -21,12 +25,15 @@ const NOW = new Date('2026-11-01T05:00:00.000Z')
 const MINUTE = 60_000
 const at = (offsetMs: number): Date => new Date(NOW.getTime() + offsetMs)
 
-const READY = { readiness: 'CANDIDATE' } as const
-const BLOCKED = { readiness: 'BLOCKED' } as const
+const READY: ActivationFacts = { readiness: 'CANDIDATE', blockerCodes: [], payloadVerified: true }
+const BLOCKED: ActivationFacts = {
+  readiness: 'BLOCKED',
+  blockerCodes: ['AUTH_DEADLINE_PASSED'],
+  payloadVerified: true,
+}
 
 /** A row that is due on a schedule: every term satisfied. Each test breaks exactly one term. */
 const dueRow = (over: Partial<DueRow> = {}): DueRow => ({
-  type: 'REMOTEOK_API',
   enabled: true,
   adminState: 'ACTIVE',
   manifestId: 'remoteok.api',
@@ -40,6 +47,11 @@ const ctx = (over: Partial<DueContext> = {}): DueContext => ({
   trigger: 'SCHEDULED',
   now: NOW,
   readiness: READY,
+  // T3 (meter, ledger) and T8 (host state) own these; nothing supplies them yet, so every call here
+  // says "not blocked" out loud. They are required fields: omitting one is a compile error.
+  costBlocked: false,
+  hostPaused: false,
+  alreadyRunning: false,
   ...over,
 })
 
@@ -110,7 +122,7 @@ describe('isDue', () => {
   })
 
   it('readiness LEGACY (the DOU pipeline, outside the ledger) is not due either', () => {
-    expect(isDue(dueRow(), ctx({ readiness: { readiness: 'LEGACY' } }))).toEqual({
+    expect(isDue(dueRow(), ctx({ readiness: { ...READY, readiness: 'LEGACY' } }))).toEqual({
       due: false,
       reason: 'READINESS_BLOCKED',
     })
@@ -123,7 +135,7 @@ describe('isDue', () => {
       fixtureRoot: FIXTURE_ROOT,
     })
     // The stored column still says CANDIDATE: DueRow cannot even carry it.
-    const seeded = dueRow({ type: 'RECRUITEE_ATS', manifestId: 'recruitee.ats' })
+    const seeded = dueRow({ manifestId: 'recruitee.ats' })
 
     it('a Recruitee row is due one millisecond before RECRUITEE_TOKEN_DEADLINE', () => {
       const before = new Date(RECRUITEE_TOKEN_DEADLINE.getTime() - 1)
@@ -215,9 +227,9 @@ describe('isDue', () => {
   })
 
   describe('AC3: the legacy 10-minute early-due slack widens the cadence term only', () => {
-    const slack = { cadenceSlackMs: LEGACY_EARLY_DUE_SLACK_MS }
+    const slack = { cadenceSlackMs: MAX_EARLY_DUE_SLACK_MS }
     it('is ten minutes', () => {
-      expect(LEGACY_EARLY_DUE_SLACK_MS).toBe(600_000)
+      expect(MAX_EARLY_DUE_SLACK_MS).toBe(600_000)
     })
     it('admits a source up to ten minutes early, and not a millisecond more', () => {
       expect(isDue(dueRow({ nextAttemptAt: at(10 * MINUTE) }), ctx(slack))).toEqual({ due: true })
@@ -312,9 +324,118 @@ describe('isDue', () => {
     }
   })
 
+  describe('CR-M-1: readiness is T2 ACTIVATABLE, not merely CANDIDATE', () => {
+    it('a CANDIDATE type whose payload is not verified is not due, by schedule or by hand', () => {
+      const unverified: ActivationFacts = { ...READY, payloadVerified: false }
+      for (const trigger of ['SCHEDULED', 'MANUAL'] as const) {
+        expect(isDue(dueRow(), ctx({ trigger, readiness: unverified }))).toEqual({
+          due: false,
+          reason: 'READINESS_BLOCKED',
+        })
+      }
+    })
+    it('a CANDIDATE type with an evidence blocker (NO_API_CAPTURE) is not due, by schedule or by hand', () => {
+      const noCapture: ActivationFacts = {
+        readiness: 'CANDIDATE',
+        blockerCodes: ['NO_API_CAPTURE'],
+        payloadVerified: true,
+      }
+      for (const trigger of ['SCHEDULED', 'MANUAL'] as const) {
+        expect(isDue(dueRow(), ctx({ trigger, readiness: noCapture }))).toEqual({
+          due: false,
+          reason: 'READINESS_BLOCKED',
+        })
+      }
+    })
+    it('factsActivate agrees with T2 activationOf (REPORTING) over every combination of facts', () => {
+      const reporting = {
+        contract: 'REPORTING',
+        type: 'REMOTEOK_API',
+      } as unknown as RegisteredAdapter
+      for (const readiness of ['CANDIDATE', 'BLOCKED', 'LEGACY'] as const) {
+        for (const blockerCodes of [
+          [],
+          ['NO_API_CAPTURE'],
+          ['NO_CAPTURE'],
+          ['AUTH_DEADLINE_PASSED'],
+        ]) {
+          for (const payloadVerified of [true, false]) {
+            const facts: ActivationFacts = { readiness, blockerCodes, payloadVerified }
+            expect(factsActivate(facts)).toBe(activationOf(reporting, facts) === 'ACTIVATABLE')
+          }
+        }
+      }
+      expect(factsActivate(undefined)).toBe(false)
+    })
+  })
+
+  describe('SR-M-2: an invalid input fails closed', () => {
+    const invalid = { due: false, reason: 'INVALID_INPUT' } as const
+    it('a NaN cadence slack', () => {
+      expect(isDue(dueRow(), ctx({ cadenceSlackMs: Number.NaN }))).toEqual(invalid)
+    })
+    it('a NaN failure cap', () => {
+      expect(isDue(dueRow(), ctx({ maxConsecutiveFailures: Number.NaN }))).toEqual(invalid)
+    })
+    it('an invalid now', () => {
+      expect(isDue(dueRow(), ctx({ now: new Date(Number.NaN) }))).toEqual(invalid)
+      expect(isDue(dueRow(), ctx({ now: new Date(Number.NaN), trigger: 'MANUAL' }))).toEqual(
+        invalid,
+      )
+    })
+    it('an invalid cooldown_until', () => {
+      expect(isDue(dueRow({ cooldownUntil: new Date(Number.NaN) }), ctx())).toEqual(invalid)
+    })
+    it('an invalid next_attempt_at and a NaN or negative failure count', () => {
+      expect(isDue(dueRow({ nextAttemptAt: new Date(Number.NaN) }), ctx())).toEqual(invalid)
+      expect(isDue(dueRow({ consecutiveFailures: Number.NaN }), ctx())).toEqual(invalid)
+      expect(isDue(dueRow({ consecutiveFailures: -1 }), ctx())).toEqual(invalid)
+    })
+  })
+
+  describe('SR-M-3: the cap and the slack are bounded', () => {
+    it('the ceiling is 5 and the slack maximum is ten minutes', () => {
+      expect(MAX_CONSECUTIVE_FAILURES_CEILING).toBe(5)
+      expect(MAX_EARLY_DUE_SLACK_MS).toBe(600_000)
+    })
+    it('a cap at the ceiling is accepted, one past it is refused for both triggers', () => {
+      expect(isDue(dueRow(), ctx({ maxConsecutiveFailures: 5 }))).toEqual({ due: true })
+      for (const trigger of ['SCHEDULED', 'MANUAL'] as const) {
+        expect(
+          isDue(dueRow({ consecutiveFailures: 3 }), ctx({ trigger, maxConsecutiveFailures: 6 })),
+        ).toEqual({ due: false, reason: 'INVALID_INPUT' })
+        expect(
+          isDue(dueRow({ consecutiveFailures: 3 }), ctx({ trigger, maxConsecutiveFailures: 99 })),
+        ).toEqual({ due: false, reason: 'INVALID_INPUT' })
+      }
+      expect(isDue(dueRow(), ctx({ maxConsecutiveFailures: 0 }))).toEqual({
+        due: false,
+        reason: 'INVALID_INPUT',
+      })
+      expect(isDue(dueRow(), ctx({ maxConsecutiveFailures: 1 }))).toEqual({ due: true })
+    })
+    it('a slack at the maximum is accepted, one millisecond past it is refused, as is a negative one', () => {
+      expect(isDue(dueRow(), ctx({ cadenceSlackMs: 600_000 }))).toEqual({ due: true })
+      expect(isDue(dueRow(), ctx({ cadenceSlackMs: 600_001 }))).toEqual({
+        due: false,
+        reason: 'INVALID_INPUT',
+      })
+      expect(isDue(dueRow(), ctx({ cadenceSlackMs: 1e12 }))).toEqual({
+        due: false,
+        reason: 'INVALID_INPUT',
+      })
+      expect(isDue(dueRow(), ctx({ cadenceSlackMs: -1 }))).toEqual({
+        due: false,
+        reason: 'INVALID_INPUT',
+      })
+      expect(isDue(dueRow(), ctx({ cadenceSlackMs: 0 }))).toEqual({ due: true })
+    })
+  })
+
   it('every refusal reason is reachable and listed', () => {
     const seen = new Set<string>()
     const probes: [DueRow, DueContext][] = [
+      [dueRow(), ctx({ now: new Date(NaN) })],
       [dueRow({ enabled: false }), ctx()],
       [dueRow({ adminState: 'PAUSED' }), ctx()],
       [dueRow({ manifestId: null }), ctx()],

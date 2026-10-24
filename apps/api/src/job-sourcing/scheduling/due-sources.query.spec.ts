@@ -44,6 +44,19 @@ describe('dueSourcesPredicate (rendered)', () => {
     expect(params).toEqual([true, 'ACTIVE', 'BOTH', 'SCHEDULED', 5, 600_000])
   })
 
+  it('SR-M-3: a cap above the ceiling, a slack above its maximum or a NaN throws instead of widening', () => {
+    expect(() => render('SCHEDULED', { maxConsecutiveFailures: 6 })).toThrow(RangeError)
+    expect(() => render('MANUAL', { maxConsecutiveFailures: 99 })).toThrow(RangeError)
+    expect(() => render('SCHEDULED', { maxConsecutiveFailures: 0 })).toThrow(RangeError)
+    expect(() => render('SCHEDULED', { maxConsecutiveFailures: Number.NaN })).toThrow(RangeError)
+    expect(() => render('SCHEDULED', { cadenceSlackMs: 600_001 })).toThrow(RangeError)
+    expect(() => render('SCHEDULED', { cadenceSlackMs: Number.NaN })).toThrow(RangeError)
+    expect(() => render('SCHEDULED', { cadenceSlackMs: -1 })).toThrow(RangeError)
+    expect(() =>
+      render('SCHEDULED', { cadenceSlackMs: 600_000, maxConsecutiveFailures: 5 }),
+    ).not.toThrow()
+  })
+
   it('never reads the stored readiness column', () => {
     expect(render('SCHEDULED').sql).not.toContain('readiness')
   })
@@ -105,6 +118,6 @@ describe('findDueSources (the one query, against a recording db)', () => {
   it('an empty onlyIds selects nothing (it does not mean "no scope")', async () => {
     const { db, seen } = recordingDb()
     await findDueSources(db, 'SCHEDULED', { onlyIds: [] })
-    expect(dialect.sqlToQuery(seen.where as SQL).sql).toMatch(/ and false\)$/)
+    expect(dialect.sqlToQuery(seen.where as SQL).sql).toMatch(/ and false$/)
   })
 })

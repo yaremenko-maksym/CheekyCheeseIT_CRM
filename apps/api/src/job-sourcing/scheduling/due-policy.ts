@@ -19,14 +19,28 @@ import type { ActivationFacts } from '../registry/activation'
  */
 export const MAX_CONSECUTIVE_FAILURES = 3
 
+/** The ADR's ceiling for the failure cap: a caller may tighten the cap, never go above this. */
+export const MAX_CONSECUTIVE_FAILURES_CEILING = 5
+
 /**
- * The legacy early-due slack: a scheduled tick may pick a source up to this long BEFORE its
- * `next_attempt_at`, so a cron firing a few seconds ahead of a day-old attempt does not skip a
- * whole day. It widens the CADENCE term and nothing else (`isDue` applies it to that one
- * comparison): it never overrides a cooldown, the failure cap, a cost block or any other term.
- * Callers opt in; the default slack is zero.
+ * The most the cadence comparison may be widened by (10 minutes, the plan's value). A scheduled tick
+ * may pick a source up to this long BEFORE its `next_attempt_at`, so a cron firing a few seconds
+ * ahead of a day-old attempt does not skip a whole day. It widens the CADENCE term and nothing else:
+ * it never overrides a cooldown, the failure cap, a cost block or any other term. Callers opt in;
+ * the default slack is zero. Nothing on main uses a slack yet: this names a bound, not an existing
+ * behaviour.
  */
-export const LEGACY_EARLY_DUE_SLACK_MS = 10 * 60 * 1000
+export const MAX_EARLY_DUE_SLACK_MS = 10 * 60 * 1000
+
+/** A valid failure cap: an integer from 1 to the ceiling. */
+export function isValidFailureCap(n: number): boolean {
+  return Number.isInteger(n) && n >= 1 && n <= MAX_CONSECUTIVE_FAILURES_CEILING
+}
+
+/** A valid slack: an integer number of milliseconds from 0 to `MAX_EARLY_DUE_SLACK_MS`. */
+export function isValidCadenceSlackMs(n: number): boolean {
+  return Number.isInteger(n) && n >= 0 && n <= MAX_EARLY_DUE_SLACK_MS
+}
 
 /**
  * Whether a source configured as `mode` may be collected by `trigger`. Moved from
@@ -65,7 +79,6 @@ export function typePassesFilter(type: JobSourceType, filter: TypeFilter = {}): 
 
 /** The columns of a `job_sources` row the due policy reads. */
 export interface DueRow {
-  readonly type: JobSourceType
   readonly enabled: boolean
   readonly adminState: JobSourceAdminState
   readonly manifestId: string | null
@@ -77,9 +90,11 @@ export interface DueRow {
 
 /**
  * Why a source is not due. The order is the order `isDue` checks, and the first refusal wins, so a
- * reason is stable for a given row.
+ * reason is stable for a given row. `INVALID_INPUT` is a NaN, an invalid date or an out-of-bounds
+ * number anywhere in the row or the context: it fails closed, as the SQL does.
  */
 export const DUE_REFUSALS = [
+  'INVALID_INPUT',
   'DISABLED',
   'NOT_ACTIVE',
   'NO_MANIFEST_ENTRY',
@@ -99,7 +114,7 @@ export type DueVerdict =
 
 /**
  * What `isDue` is told about the world. Everything that is not a column of the row is an input:
- * the clock, the readiness of the row's type AT that clock, and the terms other tasks own.
+ * the clock, the activation facts of the row's type AT that clock, and the terms other tasks own.
  */
 export interface DueContext {
   /** The trigger of this collection. `MANUAL` skips the cadence term and nothing else. */
@@ -107,54 +122,91 @@ export interface DueContext {
   /** The clock. `readiness` must have been evaluated at this same instant. */
   readonly now: Date
   /**
-   * The row's type's readiness AT `now` -- the manifest's `readinessAt(subject, now)`, passed in as
-   * the plain facts the registry already uses (`activationFactsByType`), because production code
-   * must not import the manifest. NEVER the stored `job_sources.readiness` column, a snapshot of
-   * the seed clock that goes stale on its own. Absent = the manifest knows nothing of the type =
-   * not due.
+   * The row's type's activation facts AT `now`: the manifest's `readinessAt(subject, now)` plus the
+   * payload flag, as T2's `activationFactsByType(manifest, now)` builds them. Passed in as a plain
+   * value because production code must not import the manifest. NEVER the stored
+   * `job_sources.readiness` column, a snapshot of the seed clock that goes stale on its own.
+   * Absent = the manifest knows nothing of the type = not due. `factsActivate` is the ONLY
+   * readiness term.
    */
-  readonly readiness: Pick<ActivationFacts, 'readiness'> | undefined
-  /** Slack added to the cadence comparison only. Default 0; see `LEGACY_EARLY_DUE_SLACK_MS`. */
+  readonly readiness: ActivationFacts | undefined
+  /** Slack added to the cadence comparison only. Default 0; at most `MAX_EARLY_DUE_SLACK_MS`. */
   readonly cadenceSlackMs?: number
-  /** Ceiling for `consecutive_failures`. Default `MAX_CONSECUTIVE_FAILURES`. */
+  /** Ceiling for `consecutive_failures`. Default 3; at most `MAX_CONSECUTIVE_FAILURES_CEILING`. */
   readonly maxConsecutiveFailures?: number
+  // The three terms below are REQUIRED, with no default: a caller that forgets one must not
+  // compile, because omission would read as "not blocked" and make the source due.
   /** T3's meter: the quota is spent, or the type declares one and the source has no meter. */
-  readonly costBlocked?: boolean
+  readonly costBlocked: boolean
   /** T8's host state: the source's host is paused by a ban. */
-  readonly hostPaused?: boolean
+  readonly hostPaused: boolean
   /** T3's ledger: a run of this source (or its account) is already active. */
-  readonly alreadyRunning?: boolean
+  readonly alreadyRunning: boolean
+}
+
+/**
+ * Whether the facts amount to T2's `ACTIVATABLE` for a REPORTING adapter (`activationOf` in
+ * `registry/activation.ts`): readiness `CANDIDATE`, no blocker of any kind, payload verified. The
+ * spec pins this against `activationOf` for every combination, so the two cannot drift. LEGACY (DOU,
+ * outside the ledger) is not activatable here.
+ */
+export function factsActivate(facts: ActivationFacts | undefined): boolean {
+  if (facts === undefined) return false
+  return facts.readiness === 'CANDIDATE' && facts.blockerCodes.length === 0 && facts.payloadVerified
 }
 
 function refuse(reason: DueRefusal): DueVerdict {
   return { due: false, reason }
 }
 
+const validDate = (d: Date): boolean => d instanceof Date && Number.isFinite(d.getTime())
+
+/** True when every number and date `isDue` is about to compare is usable. */
+function inputsValid(row: DueRow, ctx: DueContext): boolean {
+  if (!validDate(ctx.now)) return false
+  if (!Number.isInteger(row.consecutiveFailures) || row.consecutiveFailures < 0) return false
+  if (row.cooldownUntil !== null && !validDate(row.cooldownUntil)) return false
+  if (row.nextAttemptAt !== null && !validDate(row.nextAttemptAt)) return false
+  if (ctx.cadenceSlackMs !== undefined && !isValidCadenceSlackMs(ctx.cadenceSlackMs)) return false
+  if (ctx.maxConsecutiveFailures !== undefined && !isValidFailureCap(ctx.maxConsecutiveFailures)) {
+    return false
+  }
+  return true
+}
+
 /**
  * Is this source due, and if not, why not.
  *
  * Terms, all required: `enabled` (administrative permission, nothing more); `admin_state` ACTIVE
- * (PAUSED and RETIRED are never due); a manifest entry; the trigger policy; readiness at the clock;
- * under the failure cap; not cooling down; and the inputs of T3 and T8 (cost, host pause, already
- * running). Then the CADENCE term -- `next_attempt_at <= now (+ slack)` -- which a MANUAL trigger
- * skips and which is the only thing it skips: a manual run is due exactly when the scheduled
- * predicate minus the cadence term is true. A NULL `next_attempt_at` is not yet due on a schedule,
- * as in the ADR's SQL (`NULL <= now` is not true).
+ * (PAUSED and RETIRED are never due); a manifest entry; the trigger policy; activation facts that
+ * amount to ACTIVATABLE at the clock; under the failure cap; not cooling down; and the inputs of T3
+ * and T8 (cost, host pause, already running). Then the CADENCE term -- `next_attempt_at <= now (+
+ * slack)` -- which a MANUAL trigger skips and which is the only thing it skips: a manual run is due
+ * exactly when the scheduled predicate minus the cadence term is true. A NULL `next_attempt_at` is
+ * not yet due on a schedule, as in the ADR's SQL (`NULL <= now` is not true). Every invalid input
+ * (NaN, invalid date, a cap above its ceiling, a slack above its maximum) refuses with
+ * `INVALID_INPUT`: the predicate fails closed.
+ *
+ * REQUIREMENT ON THE CALLER (T7): this is a pre-check, not the permission. The caller must build
+ * the activation facts itself, from the registry and the manifest, at the SAME clock it passes as
+ * `now` (never from anything a request supplied), and must still run T2's activation check on the
+ * locked row at claim time. `due: true` authorises nothing on its own.
  */
 export function isDue(row: DueRow, ctx: DueContext): DueVerdict {
+  if (!inputsValid(row, ctx)) return refuse('INVALID_INPUT')
   if (!row.enabled) return refuse('DISABLED')
   if (row.adminState !== 'ACTIVE') return refuse('NOT_ACTIVE')
   if (row.manifestId === null) return refuse('NO_MANIFEST_ENTRY')
   if (!sourceAcceptsTrigger(row.triggerMode, ctx.trigger)) return refuse('TRIGGER_MODE')
-  if (ctx.readiness?.readiness !== 'CANDIDATE') return refuse('READINESS_BLOCKED')
+  if (!factsActivate(ctx.readiness)) return refuse('READINESS_BLOCKED')
   const cap = ctx.maxConsecutiveFailures ?? MAX_CONSECUTIVE_FAILURES
   if (row.consecutiveFailures >= cap) return refuse('FAILURE_CAP')
   if (row.cooldownUntil !== null && row.cooldownUntil.getTime() > ctx.now.getTime()) {
     return refuse('COOLING_DOWN')
   }
-  if (ctx.costBlocked === true) return refuse('COST_BLOCKED')
-  if (ctx.hostPaused === true) return refuse('HOST_PAUSED')
-  if (ctx.alreadyRunning === true) return refuse('ALREADY_RUNNING')
+  if (ctx.costBlocked) return refuse('COST_BLOCKED')
+  if (ctx.hostPaused) return refuse('HOST_PAUSED')
+  if (ctx.alreadyRunning) return refuse('ALREADY_RUNNING')
   if (ctx.trigger !== 'MANUAL') {
     const horizon = ctx.now.getTime() + (ctx.cadenceSlackMs ?? 0)
     if (row.nextAttemptAt === null || row.nextAttemptAt.getTime() > horizon) {
