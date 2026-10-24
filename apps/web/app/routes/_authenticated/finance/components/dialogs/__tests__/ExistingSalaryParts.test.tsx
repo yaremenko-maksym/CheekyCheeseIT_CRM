@@ -110,6 +110,150 @@ describe('ExistingSalaryParts (SR-795-M-1)', () => {
     await waitFor(() => expect(getSalaryPartsMock).toHaveBeenCalledWith(RECEIVER, '2026-12'))
   })
 
+  // The cases below exist because the mutation gate reported each of these
+  // lines as changeable with every test still passing (CR-H-2 / SR-M-2). Each
+  // one names the behaviour the mutant would have taken away.
+  it('asks with the receiver and month it was given, under a key scoped to both', async () => {
+    getSalaryPartsMock.mockResolvedValue({ receiverId: RECEIVER, month: '2026-09', parts: [] })
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+    render(
+      <QueryClientProvider client={qc}>
+        <ExistingSalaryParts receiverId={RECEIVER} salaryMonth="2026-09" />
+      </QueryClientProvider>,
+      { wrapper: I18nTestProvider },
+    )
+
+    await waitFor(() => expect(getSalaryPartsMock).toHaveBeenCalledWith(RECEIVER, '2026-09'))
+    // A key missing the receiver or the month would serve one employee's parts
+    // for another's, which is the cache bug this spells out.
+    expect(
+      qc
+        .getQueryCache()
+        .findAll()
+        .map((q) => q.queryKey),
+    ).toEqual([['finance', 'salary-parts', RECEIVER, '2026-09']])
+  })
+
+  it('anchors the month pattern at both ends', async () => {
+    // Unanchored, '12026-09' and '2026-09-31' would both look like months and
+    // the component would ask the server for something it rejects.
+    for (const salaryMonth of ['12026-09', '2026-09-31', 'x2026-09']) {
+      renderPanel({ salaryMonth })
+      await waitFor(() => expect(getSalaryPartsMock).not.toHaveBeenCalled())
+    }
+  })
+
+  it('shows nothing while the answer is still in flight', async () => {
+    // Rendering the panel before the answer arrives would flash an empty amber
+    // box on every receiver change.
+    let resolve: (v: unknown) => void = () => {}
+    getSalaryPartsMock.mockReturnValue(
+      new Promise((r) => {
+        resolve = r
+      }),
+    )
+
+    renderPanel()
+    await waitFor(() => expect(getSalaryPartsMock).toHaveBeenCalled())
+    expect(screen.queryByTestId('create-transaction-existing-salary-parts')).toBeNull()
+
+    resolve({
+      receiverId: RECEIVER,
+      month: '2026-09',
+      parts: [
+        {
+          id: 'p1',
+          amount: 1,
+          currency: 'USD',
+          status: 'PENDING',
+          salaryOrigin: 'MANUAL',
+          txDate: null,
+          notes: null,
+        },
+      ],
+    })
+    await screen.findByTestId('create-transaction-existing-salary-parts')
+  })
+
+  it('counts the parts in the heading — singular for one, the number for more', async () => {
+    const part = (id: string) => ({
+      id,
+      amount: 10,
+      currency: 'USD' as const,
+      status: 'PENDING' as const,
+      salaryOrigin: 'MANUAL' as const,
+      txDate: null,
+      notes: null,
+    })
+
+    getSalaryPartsMock.mockResolvedValue({
+      receiverId: RECEIVER,
+      month: '2026-09',
+      parts: [part('p1')],
+    })
+    renderPanel()
+    expect(await screen.findByText('Цей місяць уже має 1 частину зарплати')).toBeInTheDocument()
+
+    getSalaryPartsMock.mockResolvedValue({
+      receiverId: RECEIVER,
+      month: '2026-09',
+      parts: [part('p1'), part('p2'), part('p3')],
+    })
+    renderPanel()
+    expect(await screen.findByText('Цей місяць уже має 3 частини зарплати')).toBeInTheDocument()
+  })
+
+  it('formats the amount for a reader — grouped, and never more than two decimals', async () => {
+    getSalaryPartsMock.mockResolvedValue({
+      receiverId: RECEIVER,
+      month: '2026-09',
+      parts: [
+        {
+          id: 'p1',
+          amount: 1234567.891,
+          currency: 'USD',
+          status: 'PENDING',
+          salaryOrigin: 'MANUAL',
+          txDate: null,
+          notes: null,
+        },
+      ],
+    })
+
+    renderPanel()
+
+    const row = await screen.findByTestId('create-transaction-existing-salary-part')
+    // Hand-written expectation: uk-UA groups with a narrow no-break space and
+    // rounds to 1 234 567,89 — not the raw 1234567.891.
+    expect(row.textContent?.replace(/ | /g, ' ')).toContain('1 234 567,89')
+    expect(row).not.toHaveTextContent('1234567.891')
+  })
+
+  it('labels a MANUAL part as entered by hand', async () => {
+    getSalaryPartsMock.mockResolvedValue({
+      receiverId: RECEIVER,
+      month: '2026-09',
+      parts: [
+        {
+          id: 'p1',
+          amount: 1000,
+          currency: 'USD',
+          status: 'PENDING',
+          salaryOrigin: 'MANUAL',
+          txDate: null,
+          notes: null,
+        },
+      ],
+    })
+
+    renderPanel()
+
+    const row = await screen.findByTestId('create-transaction-existing-salary-part')
+    expect(row).toHaveTextContent('вручну')
+    expect(row).not.toHaveTextContent('автоматично')
+  })
+
   it('reads a legacy NULL origin as automatic, the way every server predicate does', async () => {
     getSalaryPartsMock.mockResolvedValue({
       receiverId: RECEIVER,

@@ -304,6 +304,95 @@ describe('getSalaryMonthGapReport — RBAC guard', () => {
   })
 })
 
+// SR-M-3. The reviewer measured this: deleting the service-body role check in
+// `getSalaryParts` left the whole suite green, because the only thing testing
+// it was an HTTP test that the `@Roles` guard answers first. That is the
+// project's standing trap in miniature — `RolesGuard` is a no-op on a method
+// with no `@Roles`, so the service body is where the real check lives, and a
+// second layer nobody can break is a layer that survives only until someone
+// tidies it away. Called directly here, with no guard in front.
+describe('getSalaryParts — RBAC lives in the service body too (SR-M-3)', () => {
+  const QUERY = { receiverId: '11111111-1111-4111-8111-111111111111', month: MONTH }
+  const forbiddenRoles: SessionUser['role'][] = ['SENIOR', 'JUNIOR', 'HR', 'DROP']
+
+  for (const role of forbiddenRoles) {
+    it(`throws 403 for ${role}, before any DB access`, async () => {
+      const throwingDb = {
+        db: {
+          select: () => {
+            throw new Error('DB must not be read for a forbidden role')
+          },
+        },
+      }
+      const svc = makeTransactionsService({ db: throwingDb as never })
+      await expect(svc.getSalaryParts(user(role), QUERY)).rejects.toMatchObject({
+        response: { code: 'FINANCE_SALARY_MONTH_GAP_FORBIDDEN', statusCode: 403 },
+      })
+    })
+  }
+
+  // The permitted pair, so the four refusals above are a statement about the
+  // role check and not about a method that refuses everyone.
+  for (const role of ['ADMIN', 'ACCOUNTANT'] as const) {
+    it(`reads for ${role}`, async () => {
+      const rows = [
+        {
+          id: '22222222-2222-4222-8222-000000000001',
+          amount: '1500.000000',
+          currency: 'USD',
+          status: 'PENDING',
+          salaryOrigin: 'MANUAL',
+          txDate: null,
+          notes: null,
+        },
+      ]
+      const db = {
+        db: {
+          select: () => ({
+            from: () => ({ where: () => ({ orderBy: async () => rows }) }),
+          }),
+        },
+      }
+      const svc = makeTransactionsService({ db: db as never })
+      await expect(svc.getSalaryParts(user(role), QUERY)).resolves.toMatchObject({
+        receiverId: QUERY.receiverId,
+        month: MONTH,
+        parts: [{ amount: 1500, currency: 'USD', status: 'PENDING', salaryOrigin: 'MANUAL' }],
+      })
+    })
+  }
+
+  it('drops a part whose status is not an obligation an operator weighs', async () => {
+    const rows = [
+      {
+        id: '22222222-2222-4222-8222-000000000001',
+        amount: '1500.000000',
+        currency: 'USD',
+        status: 'PENDING',
+        salaryOrigin: 'MANUAL',
+        txDate: null,
+        notes: null,
+      },
+      {
+        id: '22222222-2222-4222-8222-000000000002',
+        amount: '900.000000',
+        currency: 'USD',
+        status: 'CANCELLED',
+        salaryOrigin: 'MANUAL',
+        txDate: null,
+        notes: null,
+      },
+    ]
+    const db = {
+      db: { select: () => ({ from: () => ({ where: () => ({ orderBy: async () => rows }) }) }) },
+    }
+    const svc = makeTransactionsService({ db: db as never })
+    const result = await svc.getSalaryParts(user('ADMIN'), QUERY)
+    expect(result.parts).toHaveLength(1)
+    expect(result.parts[0]?.status).toBe('PENDING')
+  })
+})
+
 describe('backfillSalaryMonth — RBAC guard (ADMIN only, narrower than the report)', () => {
   const forbiddenRoles: SessionUser['role'][] = ['SENIOR', 'JUNIOR', 'HR', 'DROP', 'ACCOUNTANT']
 
