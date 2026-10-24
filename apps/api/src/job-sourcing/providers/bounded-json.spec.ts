@@ -333,8 +333,8 @@ describe('the pre-parse node bound', () => {
   })
 
   it('refuses a 10 MiB [0,0,...] body WITHOUT calling the parser', () => {
-    const body = '[' + '0,'.repeat(5 * MiB - 1) + '0]'
-    expect(Buffer.byteLength(body)).toBe(10 * MiB)
+    const body = '[' + '0,'.repeat(5 * MiB - 2) + '0]'
+    expect(Buffer.byteLength(body)).toBeLessThanOrEqual(10 * MiB)
     const parse = vi.spyOn(JSON, 'parse')
     try {
       const result = parseBoundedJson(body, wide({ maxBytes: 10 * MiB }))
@@ -441,7 +441,7 @@ describe('the pre-parse node bound', () => {
     // Counts: containers plus every value, keys not counted.
     it.each([
       ['[[1],[2]]', 5],
-      ['{"a":[1,2],"b":{"c":3}}', 7],
+      ['{"a":[1,2],"b":{"c":3}}', 6],
       ['42', 1],
       ['"x"', 1],
     ])('%s is accepted at its true count of %i', (text, nodes) => {
@@ -450,7 +450,7 @@ describe('the pre-parse node bound', () => {
 
     it.each([
       ['[[1],[2]]', 4],
-      ['{"a":[1,2],"b":{"c":3}}', 6],
+      ['{"a":[1,2],"b":{"c":3}}', 5],
     ])('%s is refused below its true count (limit %i)', (text, limit) => {
       expect(parseBoundedJson(text, limits({ maxNodes: limit }))).toMatchObject({
         ok: false,
