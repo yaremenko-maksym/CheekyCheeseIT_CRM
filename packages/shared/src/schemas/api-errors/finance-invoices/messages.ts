@@ -330,6 +330,22 @@ export const FINANCE_INVOICES_ERROR_MESSAGES: Record<FinanceInvoicesErrorCode, M
       id: 'api-error.FINANCE_PAYOUT_DATE_BEFORE_INCOME',
       message: 'Дата виплати не може бути раніше дати вибраного доходу',
     },
+    FINANCE_TX_DATE_INVALID: /* i18n */ {
+      id: 'api-error.FINANCE_TX_DATE_INVALID',
+      message: 'Некоректна дата транзакції',
+    },
+    FINANCE_TX_DATE_IN_FUTURE: /* i18n */ {
+      id: 'api-error.FINANCE_TX_DATE_IN_FUTURE',
+      message: 'Дата транзакції не може бути в майбутньому для вже виконаної операції',
+    },
+    FINANCE_TX_DATE_TOO_OLD: /* i18n */ {
+      id: 'api-error.FINANCE_TX_DATE_TOO_OLD',
+      message: 'Дата транзакції задавнена понад дозволений період — зверніться до адміністратора',
+    },
+    FINANCE_TX_DATE_BACKDATE_REASON_REQUIRED: /* i18n */ {
+      id: 'api-error.FINANCE_TX_DATE_BACKDATE_REASON_REQUIRED',
+      message: 'Щоб задати таку давню дату, вкажіть причину — її буде записано в журнал аудиту',
+    },
     FINANCE_PAYOUT_SINGLE_PROJECT_ONLY: /* i18n */ {
       id: 'api-error.FINANCE_PAYOUT_SINGLE_PROJECT_ONLY',
       message: 'Виплата має охоплювати лише один проєкт',

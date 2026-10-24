@@ -2738,6 +2738,26 @@ msgstr "The sender must be an admin"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
+msgid "api-error.FINANCE_TX_DATE_BACKDATE_REASON_REQUIRED"
+msgstr "Backdating this far requires a reason, which is written to the audit log"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
+msgid "api-error.FINANCE_TX_DATE_IN_FUTURE"
+msgstr "The transaction date can't be in the future for an operation that already happened"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
+msgid "api-error.FINANCE_TX_DATE_INVALID"
+msgstr "The transaction date is not a valid storable calendar date"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
+msgid "api-error.FINANCE_TX_DATE_TOO_OLD"
+msgstr "The transaction date is backdated beyond the allowed window — ask an admin to record it"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_TX_HASH_ALREADY_CONSUMED"
 msgstr "This transaction hash has already been used for a payout or a company account deposit"
 

@@ -2738,6 +2738,26 @@ msgstr "Відправник має бути адміністратором"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
+msgid "api-error.FINANCE_TX_DATE_BACKDATE_REASON_REQUIRED"
+msgstr "Щоб задати таку давню дату, вкажіть причину — її буде записано в журнал аудиту"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
+msgid "api-error.FINANCE_TX_DATE_IN_FUTURE"
+msgstr "Дата транзакції не може бути в майбутньому для вже виконаної операції"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
+msgid "api-error.FINANCE_TX_DATE_INVALID"
+msgstr "Некоректна дата транзакції"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
+msgid "api-error.FINANCE_TX_DATE_TOO_OLD"
+msgstr "Дата транзакції задавнена понад дозволений період — зверніться до адміністратора"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices/messages.ts
 msgid "api-error.FINANCE_TX_HASH_ALREADY_CONSUMED"
 msgstr "Цей хеш уже використано для виплати або поповнення рахунку компанії"
 

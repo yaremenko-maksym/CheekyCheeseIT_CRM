@@ -26,6 +26,11 @@ export type {
 } from './finance/enums'
 export {
   MAX_TRANSACTION_AMOUNT,
+  // SR-809-L-2: the sane business-year window. Exported because the API's
+  // `parseTransactionBusinessDate` enforces the SAME bounds as the Zod schema —
+  // one definition, two enforcement points, so they cannot drift.
+  MIN_TRANSACTION_BUSINESS_YEAR,
+  MAX_TRANSACTION_BUSINESS_YEAR,
   transactionAmountError,
   BLOCKCHAIN_EXPLORER_HOSTS,
   isExplorerUrl,
