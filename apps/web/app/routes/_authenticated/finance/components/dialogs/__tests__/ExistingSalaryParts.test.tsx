@@ -11,7 +11,7 @@
  * is pinned against a real database in `salary-month-gap.integration.spec.ts`.
  */
 import { render, screen, waitFor, within } from '@testing-library/react'
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
@@ -42,6 +42,13 @@ function renderPanel(props: { receiverId?: string; salaryMonth?: string } = {}) 
 beforeEach(async () => {
   await loadCatalog('uk')
   getSalaryPartsMock.mockReset()
+})
+
+// The date case pins `TZ` (COPY-L-1); restoring it after EVERY case keeps that
+// pin from leaking into a neighbour and silently making some other assertion
+// zone-dependent in the opposite direction.
+afterEach(() => {
+  vi.unstubAllEnvs()
 })
 
 describe('ExistingSalaryParts (SR-795-M-1)', () => {
@@ -289,6 +296,38 @@ describe('ExistingSalaryParts (SR-795-M-1)', () => {
     expect(row).not.toHaveTextContent('автоматично')
   })
 
+  // COPY-M-3 — status and origin were separated by flex spacing ALONE, so the
+  // row emitted "Очікує валідаціївручну" and rendered as the single phrase
+  // "Очікує валідації вручну" — "awaiting validation BY HAND", a qualifier of
+  // the validation rather than two independent facts. The assertion is on the
+  // emitted characters, which is the thing that was wrong; a layout gap is not
+  // a separator.
+  it('separates status from origin with a real character, not only spacing', async () => {
+    getSalaryPartsMock.mockResolvedValue({
+      receiverId: RECEIVER,
+      month: '2026-09',
+      parts: [
+        {
+          id: 'p1',
+          amount: 1000,
+          currency: 'USD',
+          status: 'PENDING',
+          salaryOrigin: 'MANUAL',
+          txDate: null,
+          notes: null,
+        },
+      ],
+    })
+
+    renderPanel()
+
+    const row = await screen.findByTestId('create-transaction-existing-salary-part')
+    const text = (row.textContent ?? '').replace(/\s+/g, ' ')
+    expect(text).toContain('Очікує валідації·вручну')
+    // The two labels must never run together again.
+    expect(text).not.toContain('Очікує валідаціївручну')
+  })
+
   it('reads a legacy NULL origin as automatic, the way every server predicate does', async () => {
     getSalaryPartsMock.mockResolvedValue({
       receiverId: RECEIVER,
@@ -319,7 +358,16 @@ describe('ExistingSalaryParts (SR-795-M-1)', () => {
   // them, formatted with the same locale-aware `formatDate`/`shortYY` the finance
   // table's date column uses. A legacy row may carry no date — then it is simply
   // omitted, never rendered as "Invalid Date".
+  //
+  // COPY-L-1 — the TIMEZONE is pinned, and that is not ceremony. Unlike every
+  // other style, `shortYY` deliberately does NOT pass `timeZone: 'UTC'`
+  // (format.spec.ts pins exactly that), so it renders the instant in the
+  // RUNNER's zone. An earlier edition of this test asserted '30.09.26' for a
+  // midnight-Z instant and a comment claiming "UTC": measured, it renders
+  // '29.09.26' under TZ=America/Los_Angeles and passed here only because this
+  // host is Europe/Kiev. That is a test whose result depends on where it runs.
   it('shows each part its business date (shortYY), and omits it when absent', async () => {
+    vi.stubEnv('TZ', 'UTC')
     getSalaryPartsMock.mockResolvedValue({
       receiverId: RECEIVER,
       month: '2026-09',
@@ -348,7 +396,7 @@ describe('ExistingSalaryParts (SR-795-M-1)', () => {
     renderPanel()
 
     const rows = await screen.findAllByTestId('create-transaction-existing-salary-part')
-    // uk shortYY: day.month.2-digit-year, UTC.
+    // uk shortYY: day.month.2-digit-year, read in the pinned UTC zone.
     expect(rows[0]).toHaveTextContent('30.09.26')
     // The dateless row renders without a date and without "Invalid Date".
     expect(rows[1]).not.toHaveTextContent('30.09.26')

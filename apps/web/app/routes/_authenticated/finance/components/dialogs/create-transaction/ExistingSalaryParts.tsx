@@ -104,6 +104,15 @@ export function ExistingSalaryParts({
               {/* The same localized status wording the finance table uses —
                   reused rather than restated so the two cannot drift. */}
               <span>{i18n._(STATUS_LABEL_MESSAGES[part.status])}</span>
+              {/* COPY-M-3: a REAL separator character, not flex spacing. With
+                  only `gap-1.5` the row emitted "Очікує валідаціївручну", and a
+                  reader parses the visually-spaced "Очікує валідації вручну" as
+                  one phrase — "awaiting validation BY HAND", a qualifier of the
+                  validation — instead of two independent facts, status and
+                  origin. On a panel whose job is recognising a part that is a
+                  real ambiguity. `aria-hidden` because it is punctuation: a
+                  screen reader gets the two labels, not a stray dot. */}
+              <span aria-hidden="true">·</span>
               <span className="text-[10px]">
                 {/* A NULL origin is a row written before the column existed;
                     every predicate on the server reads it as automatic. */}
