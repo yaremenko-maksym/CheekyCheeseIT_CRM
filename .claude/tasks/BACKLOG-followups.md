@@ -6071,3 +6071,51 @@ grep -a '<needle>' run.log | grep -av $'\033[36;1m'
 **Check on closing:** the auto-merge workflow either retries this class once before declaring failure,
 or its message stops asserting non-transience; and whoever next debugs a CI log distinguishes echoed
 script from emitted output before concluding anything from a matched string.
+
+## 337. The sources-manifest seed delta cannot reach production until DevOps wires it, and three requirements for that wiring live only in a PR body (2026-10-24)
+
+Task 3.7 (PR #1132) ships the forward seed delta staged in `apps/api/drizzle/manual-staged/`, **not**
+`manual/`, because `scripts/devops/check-prod-ddl-wiring.py` fails any `manual/` file the deploy does not
+wire. Staging is deliberate and safe: `deploy.yml` copies an explicit file list that excludes
+`manual-staged/`, so the delta cannot run in production. The cost is that **nothing in the repository
+tracks the staged file**: the wiring gate lists only `manual/` and `manual-private/`, so its
+`Apply-order violations: 0` line prints 0 whether the staged file exists or not. The `git mv` that
+promotes the file is therefore the load-bearing step, and the three requirements for it are written down
+only in PR #1132's body.
+
+**What DevOps must do, and the three things that are easy to get wrong:**
+
+1. **Apply it after `2026-10-17_job_opportunities_store.sql`**, in `scripts/devops/deploy-stack-on-vps.sh`
+   (the psql applies live there; `deploy.yml` only copies files). The delta writes `manifest_id`,
+   `namespace`, `config_version`, `readiness`, columns that migration adds. In the script the 2026-10-05
+   seed is applied before the store migration, so "right after the seed" is the wrong place and fails
+   with `column "manifest_id" does not exist` under `ON_ERROR_STOP`. Review of #1132 caught this before
+   merge; the original PR text had it wrong.
+2. **Pass `--single-transaction`.** The delta ends in a `RAISE` when a manifest entry has no row, which
+   happens if an operator hand-created a row with the same `(type, config)`. Without the flag, steps 1-3
+   commit and step 4 never runs: a half-applied delta behind a loud failure. With it, the whole delta
+   rolls back.
+3. **Do the `git mv` and the four wiring edits in one change** (scp source list, apply step, hard-required
+   file list, runbook §9), so the wiring gate goes from blind to enforcing in the same commit that makes
+   the file live.
+
+**The gap this entry exists to name:** the drift spec asserts the documented apply line contains
+`--single-transaction`, which proves the _documentation_. The real `psql` call is in
+`deploy-stack-on-vps.sh`, which #1132 does not touch, so if DevOps writes the step without the flag,
+nothing goes red. Code review and spec review both noted this independently.
+
+**A consequence to put in the runbook (raised by the security axis on #1132):** once the delta is wired, a
+_permanent_ collision with an operator-made row makes every deploy fail until someone claims or retires that
+row by hand. That is the loud failure the `RAISE` was added to produce, and it is the right trade against a
+silent skip, but an operator meeting it for the first time during a deploy needs to be told what it means
+and which row to look at. The error names the manifest id; the runbook should say what to do with it.
+The DevOps PR that adds the apply step should be reviewed for the `--single-transaction` flag in
+particular, since nothing else in the repository goes red without it.
+
+**Check on closing:** `deploy-stack-on-vps.sh` applies the delta after the store migration with
+`--single-transaction`; the file is in `manual/`, listed in all four wiring places; and a CI check fails if
+the apply line lacks the flag, not merely if the header says it should.
+
+Related: the seeded `readiness` column is a frozen snapshot (2026-10-24) and stays `CANDIDATE` for
+`recruitee.board.bunq` after `RECRUITEE_TOKEN_DEADLINE`; nothing reads it today, and plan Task 2.5 must
+evaluate `readinessAt` instead of trusting the column when it wires a source to run.
