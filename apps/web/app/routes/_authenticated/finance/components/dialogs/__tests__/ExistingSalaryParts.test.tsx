@@ -237,10 +237,16 @@ describe('ExistingSalaryParts (SR-795-M-1)', () => {
     renderPanel()
 
     const row = await screen.findByTestId('create-transaction-existing-salary-part')
+    const text = (row.textContent ?? '').replace(/ | /g, ' ')
     // Hand-written expectation: uk-UA groups with a narrow no-break space and
-    // rounds to 1 234 567,89 — not the raw 1234567.891.
-    expect(row.textContent?.replace(/ | /g, ' ')).toContain('1 234 567,89')
-    expect(row).not.toHaveTextContent('1234567.891')
+    // rounds to two decimals — 1 234 567,89 USD.
+    expect(text).toContain('1 234 567,89 USD')
+    // And NOT three, which is what `toLocaleString` does when the options are
+    // dropped. `toContain('1 234 567,89')` alone cannot say this: it is a
+    // prefix of '1 234 567,891', so the weaker assertion passed either way —
+    // which is precisely how the mutation gate caught it. The third decimal is
+    // the whole difference, so the assertion has to name it.
+    expect(text).not.toContain(',891')
   })
 
   it('labels a MANUAL part as entered by hand', async () => {
