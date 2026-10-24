@@ -180,7 +180,7 @@ const NEGATORS: ReadonlySet<string> = new Set([
 /** A negator up to this many tokens before the keyword negates it ("no experience with Java"). */
 const NEGATOR_WINDOW = 3
 /** "<keyword> … not required": the `not` may sit up to this many tokens after the keyword. */
-const TRAILING_NEGATION_WINDOW = 4
+const TRAILING_NEGATION_DISTANCES = [1, 2, 3, 4] as const
 const TRAILING_NEGATION_FOLLOWERS: ReadonlySet<string> = new Set([
   'required',
   'needed',
@@ -241,7 +241,6 @@ function isHeadingLine(line: string): boolean {
 }
 
 interface BodyReading {
-  clauses: BodyClause[]
   /** Every clause's tokens, each followed by SEGMENT_BREAK. */
   tokens: string[]
   /** For every entry of `tokens`, the clause it belongs to and where that clause starts in `tokens`. */
@@ -257,7 +256,6 @@ interface BodyReading {
  * a whole, any other line clause by clause.
  */
 function readBody(body: string | null): BodyReading {
-  const clauses: BodyClause[] = []
   // Stryker disable next-line ArrayDeclaration: a junk first token only shifts every start by one and never equals a keyword token, so no observable output changes
   const tokens: string[] = []
   const owner: BodyReading['owner'] = []
@@ -286,7 +284,6 @@ function readBody(body: string | null): BodyReading {
         budget -= part.length
         requirements = requirements || hasRequirementMarker(part)
         const clause: BodyClause = { sentence: sentence.trim(), tokens: part, optional }
-        clauses.push(clause)
         const owned = { clause, start: tokens.length }
         for (const token of part) {
           tokens.push(token)
@@ -297,14 +294,14 @@ function readBody(body: string | null): BodyReading {
       }
     }
   }
-  return { clauses, tokens, owner, requirements, truncated }
+  return { tokens, owner, requirements, truncated }
 }
 
 /** Is the keyword at `local` negated by a cue inside its own clause? */
 function isNegatedAt(clauseTokens: readonly string[], local: number): boolean {
   const before = clauseTokens.slice(Math.max(0, local - NEGATOR_WINDOW), local)
   if (before.some((token) => NEGATORS.has(token))) return true
-  for (let distance = 1; distance <= TRAILING_NEGATION_WINDOW; distance += 1) {
+  for (const distance of TRAILING_NEGATION_DISTANCES) {
     if (
       clauseTokens[local + distance] === 'not' &&
       TRAILING_NEGATION_FOLLOWERS.has(String(clauseTokens[local + distance + 1]))
@@ -318,18 +315,16 @@ function isNegatedAt(clauseTokens: readonly string[], local: number): boolean {
 const SOURCE_ORDER: readonly MentionSource[] = ['TITLE', 'TAG', 'BODY']
 
 interface Mention {
+  strength: MentionStrength
   source: MentionSource
   excerpt: string | null
 }
 
-/** Every mention of one keyword, grouped by its strength. */
-type Buckets = Record<MentionStrength, Mention[]>
-
-/** The strongest bucket wins; its mentions supply the sources and the excerpt. */
-function bestEvidence(keyword: string, buckets: Buckets): KeywordEvidence {
-  const strength: MentionStrength =
-    buckets.CORE.length > 0 ? 'CORE' : buckets.OPTIONAL.length > 0 ? 'OPTIONAL' : 'NEGATED'
-  const winners = buckets[strength]
+/** The strongest strength wins; the mentions of that strength supply the sources and the excerpt. */
+function bestEvidence(keyword: string, mentions: readonly Mention[]): KeywordEvidence {
+  const has = (wanted: MentionStrength) => mentions.some((m) => m.strength === wanted)
+  const strength: MentionStrength = has('CORE') ? 'CORE' : has('OPTIONAL') ? 'OPTIONAL' : 'NEGATED'
+  const winners = mentions.filter((m) => m.strength === strength)
   return {
     keyword,
     strength,
@@ -350,6 +345,7 @@ interface PostingReading {
  * mention of every keyword in `union`, after cutting it to the input bounds.
  */
 function readPosting(posting: TechMatchPosting, union: readonly string[]): PostingReading {
+  // Stryker disable next-line ArrayDeclaration: a junk first token shifts every surface index by one, and the source looked up at the shifted index belongs to the next token of the same surface (or its break), so no source changes
   const surface: string[] = []
   const surfaceSource: MentionSource[] = []
   const addSurface = (tokens: readonly string[], source: MentionSource) => {
@@ -371,34 +367,26 @@ function readPosting(posting: TechMatchPosting, union: readonly string[]): Posti
   }
   const body = readBody(posting.body)
 
-  const buckets = new Map<string, Buckets>()
-  const record = (keyword: string, strength: MentionStrength, mention: Mention) => {
-    let entry = buckets.get(keyword)
-    if (entry === undefined) {
-      entry = { CORE: [], OPTIONAL: [], NEGATED: [] }
-      buckets.set(keyword, entry)
-    }
-    entry[strength].push(mention)
-  }
-
+  const evidence = new Map<string, KeywordEvidence>()
   for (const [keyword, hit] of stackKeywordHits(union, surface, body.tokens)) {
-    for (const index of hit.titleIndexes) {
+    const mentions: Mention[] = hit.titleIndexes.map((index) => ({
+      strength: 'CORE',
       // `surfaceSource` has one entry per surface token, and the matcher only returns token indexes.
-      record(keyword, 'CORE', { source: surfaceSource[index] as MentionSource, excerpt: null })
-    }
+      source: surfaceSource[index] as MentionSource,
+      excerpt: null,
+    }))
     for (const index of hit.bodyIndexes) {
       // `owner` has one entry per body token, and the matcher only returns token indexes.
       const { clause, start } = body.owner[index] as BodyReading['owner'][number]
       const negated = isNegatedAt(clause.tokens, index - start)
-      record(keyword, negated ? 'NEGATED' : clause.optional ? 'OPTIONAL' : 'CORE', {
+      mentions.push({
+        strength: negated ? 'NEGATED' : clause.optional ? 'OPTIONAL' : 'CORE',
         source: 'BODY',
         excerpt: clause.sentence.slice(0, MAX_EVIDENCE_EXCERPT_CHARS),
       })
     }
+    evidence.set(keyword, bestEvidence(keyword, mentions))
   }
-
-  const evidence = new Map<string, KeywordEvidence>()
-  for (const [keyword, entry] of buckets) evidence.set(keyword, bestEvidence(keyword, entry))
   return {
     evidence,
     tags,

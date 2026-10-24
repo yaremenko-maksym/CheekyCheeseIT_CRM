@@ -371,6 +371,10 @@ describe('context cues, one by one', () => {
     expect(strengthOf('nice to have a b c d e f:\nJava')).toBe('CORE')
   })
 
+  it('heading length counts words, however many spaces separate them', () => {
+    expect(strengthOf('nice to  have   a b c d e:\nJava')).toBe('OPTIONAL')
+  })
+
   it('a heading with surrounding spaces is still a heading', () => {
     expect(strengthOf('  Nice to have:   \nJava')).toBe('OPTIONAL')
   })
@@ -796,10 +800,24 @@ describe('input bounds are flagged, never silent', () => {
   })
 
   it('characters beyond MAX_BODY_CHARS are not read', () => {
-    const body = `${'x '.repeat(MAX_BODY_CHARS / 2)}java`
+    const body = `${'x'.repeat(MAX_BODY_CHARS)} java`
     const r = run({ body }, [profile(A, ['java'])])
     expect(r.rosterMatches).toEqual([])
     expect(r.inputTruncated).toBe(true)
+  })
+
+  it('the token budget is shared across clauses and sentences', () => {
+    const half = MAX_BODY_TOKENS / 2
+    const fits = `${'x '.repeat(half)}, ${'x '.repeat(half - 1)}java`
+    const r = run({ body: fits }, [profile(A, ['java'])])
+    expect(r.inputTruncated).toBe(false)
+    expect(r.rosterMatches).toHaveLength(1)
+    const over = `${'x '.repeat(half)}, ${'x '.repeat(half)}java`
+    const cut = run({ body: over }, [profile(A, ['java'])])
+    expect(cut.inputTruncated).toBe(true)
+    expect(cut.rosterMatches).toEqual([])
+    const sentences = `${'x '.repeat(half)}. ${'x '.repeat(half)}. java`
+    expect(run({ body: sentences }, [profile(A, ['java'])]).inputTruncated).toBe(true)
   })
 
   it('exactly MAX_BODY_TOKENS tokens are read, the next one is cut and flagged', () => {
@@ -980,6 +998,29 @@ describe('forViewer — no excluded senior or exclusion identifier leaks (SR-M-2
     expect(forViewer(withHit, { visibleSeniorIds: [B] }).lowInformation).toBe(true)
     expect(forViewer(withHit, { visibleSeniorIds: [A] }).lowInformation).toBe(false)
     expect(forViewer(withHit, { visibleSeniorIds: [] }).lowInformation).toBe(false)
+  })
+
+  it('a visible matched hit and a visible negated hit together are a keyword hit', () => {
+    const r = run({ body: 'No Rust.\nPython' }, [profile(A, ['rust']), profile(B, ['python'])])
+    const view = forViewer(r, { visibleSeniorIds: [A, B] })
+    expect(view.evidenceSurfaces.keywordHit).toBe(true)
+    expect(view.lowInformation).toBe(false)
+  })
+
+  it('coreMismatch is recomputed per viewer in every case', () => {
+    const r = run({ body: 'Requirements: Python' }, [
+      profile(A, ['python']),
+      profile(B, ['cobol']),
+      profile(C, []),
+    ])
+    const view = forViewer(r, { visibleSeniorIds: [A, B, C] })
+    const byId = Object.fromEntries(view.seniors.map((s) => [s.seniorId, s.coreMismatch]))
+    expect(byId).toEqual({ [A]: false, [B]: true, [C]: false })
+    const low = run({ body: 'Chatting.' }, [profile(A, ['rust'])])
+    expect(forViewer(low, { visibleSeniorIds: [A] }).seniors[0]?.coreMismatch).toBe(false)
+    const withHit = run({ title: 'Python' }, [profile(A, ['python']), profile(B, ['rust'])])
+    expect(withHit.seniors.find((s) => s.seniorId === B)?.coreMismatch).toBe(true)
+    expect(forViewer(withHit, { visibleSeniorIds: [B] }).seniors[0]?.coreMismatch).toBe(false)
   })
 
   it('passes the posting-level facts through unchanged', () => {
