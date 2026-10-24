@@ -1160,36 +1160,45 @@ UPDATE`. Under `READ COMMITTED`, a second claimer's conflicting insert waits on 
   - worker-start recovery (AC 16).
 - **Model:** opus, high (cross-zone, meter).
 
-### T5 — cron: enqueue only
+### T5 — cron: two daily handlers, each with a bounded collection window
 
 - **Files:** `JobSourcingCronService`; `JobSourcingModule`.
 - **Carries:** the existing `@Cron('0 5 * * *')` and a new 02:30 HTML schedule, **both with
-  `timeZone: 'Europe/Kyiv'`** (F7: today there is none). The two daily handlers only **enqueue**:
-  each calls the ledger's `openCycle(trigger, types)`, which creates the cycle row and brings
-  `next_attempt_at` forward for the selected types. The handlers write no `job_sources` column
-  themselves ("Who writes which column").
-
-  **A one-minute ledger tick** (added on the round-4 adversarial re-read) runs the work, each step in
-  its own try/catch: `recoverExpired`, `settleStaleUncertain`, `sweepOrphanReservations`, then
-  `claimDue` through the worker. Without it, two things break with a daily cron only. A crash at
-  05:10 would not be recovered until the next day. And a source refused for the per-minute host gap,
-  whose `next_attempt_at` was pushed by seconds, would wait a day rather than a minute.
-
-  All handlers keep the try/catch-never-rethrow convention (C-23). DST and restarts are repaired by
-  due-work reconciliation and idempotent claims.
-
-- **Depends on:** T7.
-- **AC:** (1) both decorators carry the zone; (2) a handler that throws inside does not rethrow;
-  (3) two ticks in one minute create no second claim; (4) each ledger tick calls `recoverExpired`,
-  `settleStaleUncertain` and `sweepOrphanReservations` before `claimDue`, and a failure in any of
-  them does not prevent the claim step; (5) an expired lease is recovered by the next ledger tick,
-  not the next daily cron.
-- **Real-Postgres:** a double tick; a lease aged past expiry by `ageRun` and recovered by the next
-  ledger tick (AC 5). **No clock is injected into the ledger** (Option A, "The clock is the
-  database's"). The DST case is tested on the pure side: the cron expression resolved in
-  `Europe/Kyiv` across both 2027 transitions, with an injected clock. Its effect on the database is
-  only which types are made due, and a fixture of aged rows tests that.
-- **Model:** sonnet, low–medium.
+  `timeZone: 'Europe/Kyiv'`** (F7: today neither has one). Each handler does the following, every
+  step in its own try/catch (the C-23 convention: never rethrow):
+  1. `openCycle(trigger)`, which inserts the cycle row and nothing else;
+  2. `recoverExpired`, then `sweepOrphanReservations`;
+  3. at 05:00 only, the **legacy DOU collection, exactly as today** (`collectAll` over the legacy
+     contract);
+  4. **the collection window.** It repeatedly calls `claimDue(freeSlots)` for its own type set
+     (`onlyTypes`: API types at 05:00, HTML types at 02:30), and between calls waits a bounded
+     interval for runs to finish. A source refused `HOST_BUSY` or `HOST_RATE_GAP` is picked up on a
+     later call in the same window. The window ends when nothing it may claim is due, or at
+     `COLLECTION_WINDOW` after the handler started (a config value with a ceiling), whichever
+     comes first. Unfinished work waits for the next day.
+- **Deleted in round 5: the one-minute ledger tick** and `settleStaleUncertain`.
+  - The tick existed to recover crashes within a minute and to retry host-gap refusals within a
+    minute. The worker-start recovery, the window's repeated claims and the daily recovery cover
+    the owner's goals without it.
+  - _What the owner loses:_ a crash outside a window is recovered at the next boot or the next
+    handler, not within a minute.
+- **Depends on:** T7, **T6** (round 5, SR-M-16). Unattended collection is not switched on before
+  `allowedHosts` and the byte caps are wired. T3's `TRANSPORT_NOT_WIRED` gate enforces the same
+  thing at claim time, and this dependency enforces it at merge time.
+- **AC:**
+  1. Both decorators carry the zone.
+  2. A step that throws does not stop the later steps, and the handler does not rethrow.
+  3. Two concurrent handler invocations (two replicas) create no second claim of any source, and two
+     cycle rows at most.
+  4. A source refused `HOST_BUSY` at the start of a window is claimed later in the same window, after
+     the host's run ends.
+  5. The window ends at `COLLECTION_WINDOW` even while work is still due.
+  6. DOU is collected at 05:00 exactly as before (T7 AC 15).
+  7. An expired lease left before the handler is recovered by step 2.
+- **Real-Postgres:** AC 3, 4, 5 and 7, with time moved by the aging helpers. The DST case is tested
+  on the pure side only: the cron expression resolved in `Europe/Kyiv` across both 2027
+  transitions, with an injected clock. **No clock is injected into the ledger.**
+- **Model:** sonnet, medium.
 
 ### T6 — transport wiring (after T0)
 
@@ -1214,41 +1223,45 @@ UPDATE`. Under `READ COMMITTED`, a second claimer's conflicting insert waits on 
   (Greenhouse, Ashby, Arbeitnow) against a fixture server.
 - **Model:** opus, high (security surface). **security-reviewer mandatory.**
 
-### T9 — ADMIN controls for excluded sources (round 4, CR-M-15)
+### T9 — ADMIN reset of the failure cap, and a read-only listing (rounds 4–5)
 
-A source at the failure cap is never claimed, so a successful run cannot clear it, and a ban pause
-lifts only on expiry. Both therefore need an administrative exit. Without one, an implementer would
-add a back door or leave capped sources dead. Both are state changes on paid sources, so they are
-**ADMIN only**.
+A source at the failure cap is never claimed, so a successful run cannot clear it. It needs an
+administrative exit. That is a state change on a possibly paid source, so it is **ADMIN only**.
 
-- **Files:** `JobSourcingController`, with new endpoints under the existing job-sourcing route;
-  calls into the ledger (`resetFailures`) and into T8's host-state module (`clearHostPause`); the
-  store operation for a precise `UNCERTAIN` settle (a thin call into `reconcile`'s arithmetic).
+**Narrowed in round 5** (SR-M-11, SR-M-12, CR-M-17, CONTRA-2):
+
+- **Deleted:** the host-wide pause clear, and the manual `UNCERTAIN` settle. A pause lifts only on
+  expiry. No `UNCERTAIN` hold outlives its run, because the end-of-run settlement counts it as
+  spent.
+- **Consequence: T9 adds no DDL and no audit table.** Its only write is `resetFailures`, whose audit
+  entry is the `RESET_FAILURES` element of the source's existing `admin_state_history` column.
+- _What the owner loses:_ an ADMIN cannot lift a mistaken pause early, and cannot record a precise
+  provider figure for a request whose cost was unknown.
+
+- **Files:** `JobSourcingController`, gaining two endpoints under the existing job-sourcing route,
+  and the Zod schemas in `@crm/shared` for their bodies. T9 **calls** T3's `resetFailures`. It
+  edits neither the ledger nor the host-state module.
 - **Endpoints:**
-  - `GET` excluded sources, each with its reason (failure cap with `last_error_code`, host pause
-    with `paused_until`, refusal reason) and every open `UNCERTAIN` hold with its age;
-  - `POST` reset the failure cap of one source;
-  - `POST` clear the pause of one host;
-  - `POST` settle one `UNCERTAIN` reservation with an observed provider figure.
-- **RBAC:** `@Roles('ADMIN')` **and** a role check in the service body. `RolesGuard` is a no-op on a
-  handler without `@Roles` (the `security-review` skill, "no-op RolesGuard"), so the decorator alone is not trusted.
-- **Writes, through the ledger and host-state functions only.** Locks follow the global order:
-  source, then host.
-  - `resetFailures` sets `consecutive_failures = 0` and `cooldown_until = NULL`, and appends a
-    RESET entry with the actor to `admin_state_history`. That entry also stops the checkpoint copy
-    ("Crash resume").
-  - `clearHostPause` sets `paused_until = NULL` and records the actor and reason in an audit row
-    T9 defines.
-  - An ADMIN `enabled` toggle clears neither, as T8 states.
-- **Depends on:** T3 (`resetFailures`, the ledger), T8 (`clearHostPause`).
-- **AC:** (1) each endpoint answers 403 to every non-ADMIN role, tested against the real backend,
-  not a mocked E2E; (2) a reset makes a capped source claimable at the next tick, and writes one
-  `admin_state_history` entry naming the actor; (3) after a reset, the predecessor's checkpoint is
-  not copied; (4) a clear makes a paused host's sources due at the next tick, and is recorded with
-  the actor; (5) the `UNCERTAIN` settle accepts an observed figure within the reservation, refuses
-  one above it, and refuses a second, different figure (first conversion wins); (6) the `GET`
-  listing includes a capped source, a paused host and an `UNCERTAIN` hold seeded for the test.
-- **Real-Postgres:** AC 2–5 against a scratch database, as `crm_app`; AC 1 against the running API.
+  - `GET` excluded sources: those at the failure cap (with `last_error_code`), those on a paused
+    host (with `paused_until` and `pause_reason`), and those whose last claim was refused (with its
+    reason). Read only.
+  - `POST` reset the failure cap of one source. The body is `{ reason }`, a bounded string, checked
+    with Zod `.parse()`, and the source id is a UUID path parameter.
+- **RBAC and abuse limits:** `@Roles('ADMIN')` **and** a role check in the service body, on **both**
+  endpoints. `RolesGuard` is a no-op on a handler without `@Roles` (the `security-review` skill,
+  "no-op RolesGuard"), so the decorator alone is not trusted. The `POST` carries a `@Throttle`, like
+  the existing `collect` route.
+- **Depends on:** T3 (`resetFailures`).
+- **AC:**
+  1. Both endpoints answer 403 to every non-ADMIN role, tested against the real backend, not a
+     mocked E2E.
+  2. A reset makes a capped source claimable at the next handler. It writes exactly one
+     `admin_state_history` entry `{ kind: 'RESET_FAILURES', actor, at, reason }`, where `at` is the
+     database clock.
+  3. A body with no `reason` or an over-long `reason`, and a malformed UUID, are refused with 400 and
+     write nothing.
+  4. The `GET` listing includes a capped source and a paused host seeded for the test.
+- **Real-Postgres:** AC 2–4 against a scratch database, as `crm_app`; AC 1 against the running API.
 - **Model:** opus (RBAC on paid sources). **security-reviewer mandatory.**
 
 ### Constraint ledger: every appended constraint in exactly one task
