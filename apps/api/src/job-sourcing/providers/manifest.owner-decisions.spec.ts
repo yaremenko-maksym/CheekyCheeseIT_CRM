@@ -329,6 +329,22 @@ describe('the provenance keeps saying UNCLEAR (AC4): the decision is recorded be
 describe('an owner decision is a well-formed record', () => {
   const ok: OwnerDecision = HN_OWNER_DECISION
 
+  it('every recorded reference opens with the same dated note', () => {
+    for (const d of [
+      HN_OWNER_DECISION,
+      REMOTIVE_OWNER_DECISION,
+      JOBGETHER_OWNER_DECISION,
+      SMARTRECRUITERS_OWNER_DECISION,
+      WORKABLE_OWNER_DECISION,
+    ]) {
+      expect(
+        d.reference.startsWith(
+          'Owner decision, 2026-10-24 (answer given in the vacancy-sourcing session). Question: ',
+        ),
+      ).toBe(true)
+    }
+  })
+
   it('accepts the recorded decisions', () => {
     for (const d of [
       HN_OWNER_DECISION,
@@ -348,7 +364,10 @@ describe('an owner decision is a well-formed record', () => {
     ['a timestamp, not a date', { decidedAt: '2026-10-24T00:00:00Z' }],
     ['a blank scope', { scope: '   ' }],
     ['a blank reference', { reference: '' }],
+    ['a whitespace-only reference', { reference: '   ' }],
     ['a blank endpoint variant', { endpointVariant: ' ' }],
+    ['a date with a trailing space', { decidedAt: '2026-10-24 ' }],
+    ['a date with a leading text', { decidedAt: 'x2026-10-24' }],
   ])('refuses %s', (_name, patch) => {
     expect(isWellFormedDecision({ ...ok, ...patch })).toBe(false)
   })

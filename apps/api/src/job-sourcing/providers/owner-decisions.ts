@@ -35,11 +35,9 @@ export interface OwnerDecision {
   readonly reference: string
 }
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
-
 /** True when the record is well-formed: a real calendar date and non-blank scope and reference. */
 export function isWellFormedDecision(d: OwnerDecision): boolean {
-  if (!ISO_DATE.test(d.decidedAt)) return false
+  // Only `YYYY-MM-DD` survives the round trip: anything else is an invalid date or changes on re-print.
   const parsed = new Date(`${d.decidedAt}T00:00:00.000Z`)
   if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== d.decidedAt) {
     return false
