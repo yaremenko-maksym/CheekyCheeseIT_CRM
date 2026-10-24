@@ -5736,6 +5736,16 @@ context is that all three adapter PRs are blocked, unkeyed, and inert in product
   profile URL would pass. None is in the corpus. **Check:** either the test covers those forms, or the
   header lists them as not covered.
 
+**A durability gap the spec axis raised on #1122, recorded here because it outlives that PR.** Two
+decisions made during these rounds live only in gitignored task files, where a PR reader and the repo's own
+history cannot see them: the loosening of Task 3.4's "`ats-config.ts` additive only" to "behaviour-preserving
+extension", and the closure of the Recruitee-deadline manifest finding by deferral to Task 3.7. The
+adapter-level fact is durable — `RECRUITEE_TOKEN_DEADLINE` is an exported constant the adapter enforces — but
+**the manifest's obligation to import and assert against it lives only in the untracked 3.7 brief.** If that
+brief is lost or reworded, nothing in the repository records that Task 3.7 must derive readiness from the
+date rather than re-type it. **Check:** Task 3.7's PR, when it lands, carries that requirement in a tracked
+file (its own code, a spec, or an ADR), not only in `.claude/tasks/`.
+
 **The one that is not mine and not deferrable the same way:** the convergent integration-run defect is
 already tracked as entry **317** ("The integration-run model is a dichotomy; reality has a third case that
 reports a confident pass"), filed by a parallel session. The security axis found the same thing on #1119
