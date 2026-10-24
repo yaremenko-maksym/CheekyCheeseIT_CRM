@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { type Manifest, readinessAt, readinessReason } from './manifest'
+import { isReporting, type Manifest, readinessAt, readinessReason } from './manifest'
 
 /**
  * The forward seed delta (r5 Task 3.7, correction C-16), GENERATED from the manifest.
@@ -102,7 +102,7 @@ export function seedRowsOf(manifest: Manifest, clock: Date = SEED_CLOCK) {
     }
   })
   const typeBlocks: SeedTypeBlock[] = manifest.types
-    .filter((t) => t.disposition.kind === 'IMPLEMENTED' && t.disposition.contract === 'REPORTING')
+    .filter((t) => isReporting(t.disposition))
     .flatMap((t) => {
       const r = readinessAt(t, clock)
       return r.status === 'BLOCKED' ? [{ type: t.type, reason: readinessReason(r)! }] : []

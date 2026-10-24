@@ -10,6 +10,7 @@ import {
   type BuildInput,
   buildManifest,
   canonicalJson,
+  isReporting,
   type Manifest,
   ManifestError,
   type ManifestErrorCode,
@@ -18,6 +19,7 @@ import {
   PERMISSION_STRENGTH,
   READINESS_REASON_MAX_CHARS,
   READY_PERMISSIONS,
+  SHA256_OF_NOTHING,
   readinessAt,
   readinessReason,
   type TypeDefinition,
@@ -1816,5 +1818,44 @@ describe('more exact behaviour', () => {
       ).rejects.toThrow(/is not configured/)
       expect(f.sent, t).toEqual([])
     }
+  })
+})
+
+describe('the last boundaries', () => {
+  it('an orphan provenance file is refused even when other fixtures sit beside it', () => {
+    const root = fixtureCopy()
+    cpSync(
+      join(root, 'remoteok', 'feed.provenance.json'),
+      join(root, 'remoteok', 'orphan.provenance.json'),
+    )
+    expect(refusal(() => rebuildOn(root))).toEqual(
+      refused('FIXTURE_MISSING', 'remoteok/orphan.provenance.json has no fixture beside it'),
+    )
+  })
+
+  it('policy references keep distinct (URL, date) pairs apart', () => {
+    const root = fixtureCopy()
+    editJson(join(root, 'himalayas', 'browse-page2.provenance.json'), (o) => {
+      o['termsCheckedAt'] = '2026-10-20T00:00:00.000Z'
+    })
+    const refs = rebuildOn(root).types.find((t) => t.type === 'HIMALAYAS_API')!.policyRefs
+    expect(refs.map((r) => r.termsCheckedAt).sort()).toEqual([
+      '2026-10-20T00:00:00.000Z',
+      '2026-10-23T20:10:00.000Z',
+    ])
+  })
+
+  it('only a type implemented on the reporting contract is "reporting"', () => {
+    expect(isReporting({ kind: 'IMPLEMENTED', contract: 'REPORTING' })).toBe(true)
+    expect(isReporting({ kind: 'IMPLEMENTED', contract: 'LEGACY', note: 'n' })).toBe(false)
+    expect(isReporting({ kind: 'BLOCKED', reason: 'r', owner: 'o' })).toBe(false)
+    // A blocked type that somehow carries the contract word is still not reporting.
+    expect(
+      isReporting({ kind: 'BLOCKED', contract: 'REPORTING', reason: 'r', owner: 'o' } as never),
+    ).toBe(false)
+  })
+
+  it('the hash of nothing is the hash of zero bytes', () => {
+    expect(SHA256_OF_NOTHING).toBe(createHash('sha256').update('').digest('hex'))
   })
 })

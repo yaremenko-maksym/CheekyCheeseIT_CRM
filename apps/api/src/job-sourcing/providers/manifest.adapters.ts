@@ -40,36 +40,39 @@ import { wwrProvider } from './sources/wwr.provider'
  * reads it, and an unconfigured one makes a `collectReport` call through here refuse before any
  * request, which is the safe failure for a map that must not be used to collect.
  */
+// Stryker disable next-line StringLiteral: the provider name only selects which env key the reader asks for, and the reader answers the same unconfigured credential whatever it is given
 const NO_KEY = readQuotaCredential('jooble', () => undefined)
 
 type Validator = Pick<ReportingJobSourceProvider, 'type' | 'parseConfig'>
 
-export const MANIFEST_VALIDATION_ADAPTERS: ReadonlyMap<JobSourceType, Validator> = new Map(
-  (
-    [
-      remoteokProvider,
-      remotiveProvider,
-      himalayasProvider,
-      jobicyProvider,
-      arbeitnowProvider,
-      workingNomadsProvider,
-      jobgetherProvider,
-      hnHiringProvider,
-      greenhouseProvider,
-      leverProvider,
-      ashbyProvider,
-      workableProvider,
-      smartrecruitersProvider,
-      recruiteeProvider,
-      personioProvider,
-      createJoobleProvider({ credential: NO_KEY }),
-      createJSearchProvider({ credential: NO_KEY }),
-      createTheirStackProvider({ credential: NO_KEY }),
-      museProvider,
-      createReedProvider({ credential: NO_KEY }),
-      djinniProvider,
-      wwrProvider,
-      euRemoteJobsProvider,
-    ] as Validator[]
-  ).map((p) => [p.type, p] as const),
-)
+const VALIDATORS = [
+  remoteokProvider,
+  remotiveProvider,
+  himalayasProvider,
+  jobicyProvider,
+  arbeitnowProvider,
+  workingNomadsProvider,
+  jobgetherProvider,
+  hnHiringProvider,
+  greenhouseProvider,
+  leverProvider,
+  ashbyProvider,
+  workableProvider,
+  smartrecruitersProvider,
+  recruiteeProvider,
+  personioProvider,
+  createJoobleProvider({ credential: NO_KEY }),
+  createJSearchProvider({ credential: NO_KEY }),
+  createTheirStackProvider({ credential: NO_KEY }),
+  museProvider,
+  createReedProvider({ credential: NO_KEY }),
+  djinniProvider,
+  wwrProvider,
+  euRemoteJobsProvider,
+] as Validator[]
+
+export const MANIFEST_VALIDATION_ADAPTERS: ReadonlyMap<JobSourceType, Validator> = (() => {
+  const byType = new Map<JobSourceType, Validator>()
+  for (const p of VALIDATORS) byType.set(p.type, p)
+  return byType
+})()

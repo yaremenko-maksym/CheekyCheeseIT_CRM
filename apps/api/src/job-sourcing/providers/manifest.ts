@@ -171,6 +171,11 @@ export type DispositionDefinition =
   | { readonly kind: 'IMPLEMENTED'; readonly contract: 'LEGACY'; readonly note: string }
   | { readonly kind: 'BLOCKED'; readonly reason: string; readonly owner: string }
 
+/** True for a type implemented on the reporting contract: the only kind that carries entries. */
+export function isReporting(d: DispositionDefinition): boolean {
+  return d.kind === 'IMPLEMENTED' && d.contract === 'REPORTING'
+}
+
 export interface BudgetDeclaration {
   readonly limit: number
   readonly window: 'DAY' | 'MONTH'
@@ -223,7 +228,8 @@ export interface TypeDefinition {
 // Provenance reading
 // ---------------------------------------------------------------------------
 
-const SHA256_OF_NOTHING = createHash('sha256').update('').digest('hex')
+/** sha256 of zero bytes: a provenance file that says no byte was received. Pinned against `createHash` in the spec. */
+export const SHA256_OF_NOTHING = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
 const EPOCH = '1970-01-01T00:00:00.000Z'
 
 export type EvidenceKind = 'CAPTURE' | 'SENTINEL'
@@ -672,20 +678,21 @@ export function buildManifest(input: BuildInput): Manifest {
     seenTypes.add(def.type)
     const type = def.type as JobSourceType
 
-    const reporting =
-      def.disposition.kind === 'IMPLEMENTED' && def.disposition.contract === 'REPORTING'
+    const reporting = isReporting(def.disposition)
     const adapter = input.adapters.get(type)
-    if (reporting && adapter === undefined) {
-      throw new ManifestError(
-        'NO_ADAPTER',
-        `${type} is declared implemented and no adapter was supplied`,
-      )
-    }
-    if (reporting && adapter !== undefined && adapter.type !== type) {
-      throw new ManifestError(
-        'UNKNOWN_PROVIDER',
-        `the adapter supplied for ${type} says it is ${adapter.type}`,
-      )
+    if (reporting) {
+      if (adapter === undefined) {
+        throw new ManifestError(
+          'NO_ADAPTER',
+          `${type} is declared implemented and no adapter was supplied`,
+        )
+      }
+      if (adapter.type !== type) {
+        throw new ManifestError(
+          'UNKNOWN_PROVIDER',
+          `the adapter supplied for ${type} says it is ${adapter.type}`,
+        )
+      }
     }
     if (!reporting && def.entries.length > 0) {
       throw new ManifestError(
@@ -707,7 +714,8 @@ export function buildManifest(input: BuildInput): Manifest {
     }
     if (reporting) {
       blockers.push(...permissionBlockers(permissions))
-      if (fixtures.length === 0 || fixtures.every((f) => f.evidence === 'SENTINEL')) {
+      // Vacuously true for a source with no fixture at all: it has no capture either.
+      if (fixtures.every((f) => f.evidence === 'SENTINEL')) {
         blockers.push({
           code: 'NO_CAPTURE',
           detail:

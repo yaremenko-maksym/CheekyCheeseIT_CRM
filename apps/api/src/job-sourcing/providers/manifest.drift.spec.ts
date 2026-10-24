@@ -128,15 +128,20 @@ describe('every fixture directory is accounted for', () => {
 })
 
 describe('the generated seed delta', () => {
-  const { manual, staged } = seedDeltaLocations(DRIZZLE)
-  const committedPath = existsSync(manual) ? manual : staged
+  // Resolved inside each test: a call that throws while the describe is being collected fails the
+  // file to load, which a mutation run cannot tell from "no test failed".
+  const where = () => {
+    const { manual, staged } = seedDeltaLocations(DRIZZLE)
+    return { manual, staged, committed: existsSync(manual) ? manual : staged }
+  }
 
   it('lives in exactly one place', () => {
+    const { manual, staged } = where()
     expect([existsSync(manual), existsSync(staged)].filter(Boolean)).toHaveLength(1)
   })
 
   it('is byte-for-byte what the generator produces (run the generate script if this fails)', () => {
-    expect(readFileSync(committedPath, 'utf8'), GENERATE_COMMAND).toBe(
+    expect(readFileSync(where().committed, 'utf8'), GENERATE_COMMAND).toBe(
       generateSeedDelta(manifest, SEED_CLOCK),
     )
   })
