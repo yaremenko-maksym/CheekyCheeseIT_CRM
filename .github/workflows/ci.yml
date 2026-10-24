@@ -1405,6 +1405,14 @@ jobs:
             files: tests/payout-admin-projectid-regression.spec.ts tests/payout-auto-cascade-invoice.spec.ts tests/payout-manual-confirm-method.spec.ts tests/phase2-auto-distribution-regression.spec.ts tests/senior-confirm-payout.spec.ts tests/senior-payout-no-dup.spec.ts tests/senior-project-distribution-regression.spec.ts
           - name: junior
             files: tests/junior-hub.spec.ts
+          # `cache`: the Service-Worker / cache-integration project (Playwright project
+          # `cache`, serviceWorkers:'allow'). The default `chromium` project blocks service
+          # workers and `testIgnore`s tests/cache/, so these specs need their own leg
+          # (run step below passes `--project=cache`). Same stack as the other shards:
+          # production build served by `vite preview` + the real API. The directory-prefix
+          # token lets the shard-coverage guard cover every spec under tests/cache/.
+          - name: cache
+            files: tests/cache/
           - name: landing
             files: tests/landing/
     services:
@@ -1675,6 +1683,8 @@ jobs:
         run: |
           if [ "${{ matrix.shard.name }}" = "landing" ]; then
             pnpm --filter @crm/e2e exec playwright test --project=landing
+          elif [ "${{ matrix.shard.name }}" = "cache" ]; then
+            pnpm --filter @crm/e2e exec playwright test --project=cache
           else
             pnpm --filter @crm/e2e exec playwright test $SHARD_FILES
           fi
