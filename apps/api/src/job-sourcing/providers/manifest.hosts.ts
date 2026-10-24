@@ -17,16 +17,10 @@
  * (it is data, not a registry): the caller passes `hostPolicyOf(manifest, key)` in.
  */
 import type { JobSourceType } from '@crm/shared'
-import { JOB_HOST_KEY_MAX, JOB_HOST_KEY_PATTERN } from '../../database/schema/job-patterns'
+import type { HostPolicy, HostRate } from '../scheduling/host-policy'
 
-export type BanScope = 'HOST' | 'SOURCE'
-
-export interface HostRate {
-  /** At most this many claims in any 60 s: a claim waits `60 / perMinute` s after the last one. */
-  readonly perMinute: number
-  /** At most this many claims in the trailing 24 h. */
-  readonly perDay: number
-}
+export type { BanScope, HostPolicy, HostRate } from '../scheduling/host-policy'
+export { isValidHostKey } from '../scheduling/host-policy'
 
 export type HostKeyOf = (config: Readonly<Record<string, unknown>>) => string
 
@@ -34,13 +28,6 @@ export type HostKeyOf = (config: Readonly<Record<string, unknown>>) => string
 export const MAX_FLOOR_HOURS = 720
 const MAX_PER_MINUTE = 60
 const MAX_PER_DAY = 10_000
-
-const HOST_KEY = new RegExp(JOB_HOST_KEY_PATTERN)
-
-/** A key the database CHECK would accept: the same pattern and the same bound. */
-export function isValidHostKey(key: unknown): key is string {
-  return typeof key === 'string' && key.length <= JOB_HOST_KEY_MAX && HOST_KEY.test(key)
-}
 
 /** Why a rate declaration is refused, or null when it is valid for a type of `requestsPerRun`. */
 export function hostRateProblem(rate: HostRate, requestsPerRun: number): string | null {
@@ -55,14 +42,6 @@ export function hostRateProblem(rate: HostRate, requestsPerRun: number): string 
     return `perDay counts claims, and this type sends ${requestsPerRun} requests a run`
   }
   return null
-}
-
-/** What the claim and ban paths need to know about one host key, merged over every type on it. */
-export interface HostPolicy {
-  /** The strictest rate any type on the host declares, or null when none declares one. */
-  readonly rate: HostRate | null
-  /** The longest `minIntervalHoursFloor` of any type on the host (0 when none declares one). */
-  readonly floorHours: number
 }
 
 export interface HostedType {

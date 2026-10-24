@@ -1,7 +1,7 @@
 import { type SQL, sql } from 'drizzle-orm'
 import type { DatabaseService } from '../../database/database.service'
 import { jobSources } from '../../database/schema'
-import { type BanScope, type HostPolicy, isValidHostKey } from '../providers/manifest.hosts'
+import { type BanScope, type HostPolicy, isValidHostKey } from './host-policy'
 
 /**
  * Host-level state (r5 Task 2.5 T8; ADR docs/architecture/2026-10-24-job-source-run-ownership.md,
@@ -259,12 +259,15 @@ export async function claimHostSlot(
   await tx.execute(hostSlotStatements.lock(hostKey))
   const state = (await tx.execute(hostSlotStatements.read(hostKey, gapMs))).rows[0]
   if (state === undefined) throw new Error('claimHostSlot: the host row vanished under its lock')
-  if (state['paused'] === true) return refuse('HOST_PAUSED', state['paused_until'])
-  if (state['busy'] === true) return refuse('HOST_BUSY')
+  // Fail closed: only a literal `false` from the database means "not blocked".
+  if (state['paused'] !== false) return refuse('HOST_PAUSED', state['paused_until'])
+  if (state['busy'] !== false) return refuse('HOST_BUSY')
   if (policy.rate !== null) {
-    if (state['in_gap'] === true) return refuse('HOST_RATE_GAP', state['gap_ends_at'])
+    if (state['in_gap'] !== false) return refuse('HOST_RATE_GAP', state['gap_ends_at'])
     const day = (await tx.execute(hostSlotStatements.daily(hostKey, policy.rate.perDay))).rows[0]
-    if (Number(day?.['claims']) >= policy.rate.perDay) {
+    const claims = Number(day?.['claims'])
+    // A missing or unreadable count is never read as "no claims".
+    if (!Number.isInteger(claims) || claims >= policy.rate.perDay) {
       return refuse('HOST_DAILY_CAP', day?.['opens_at'])
     }
   }
