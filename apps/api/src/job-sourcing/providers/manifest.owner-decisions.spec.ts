@@ -351,6 +351,30 @@ describe('SmartRecruiters and Workable carry their decisions', () => {
     ])
   })
 
+  it('NO_API_CAPTURE: any ONE of several declared payload files clears it, and the detail names them all', () => {
+    const declared = (names: string[]) => (d: TypeDefinition) => ({ ...d, payloadFixtures: names })
+    const none = typeOf(
+      build('SMARTRECRUITERS_ATS', declared(['a.json', 'b.json']))(),
+      'SMARTRECRUITERS_ATS',
+    )
+    expect(none.blockers).toEqual([
+      {
+        code: 'NO_API_CAPTURE',
+        detail: 'none of a.json, b.json is a real capture of the API payload',
+      },
+    ])
+    // `api-robots.txt` is a real capture on disk, so naming it alongside an absent file clears the blocker.
+    const one = typeOf(
+      build('SMARTRECRUITERS_ATS', declared(['absent.json', 'api-robots.txt']))(),
+      'SMARTRECRUITERS_ATS',
+    )
+    expect(one.blockers).toEqual([])
+    // Declaring nothing asks for nothing.
+    expect(
+      typeOf(build('SMARTRECRUITERS_ATS', declared([]))(), 'SMARTRECRUITERS_ATS').blockers,
+    ).toEqual([])
+  })
+
   it('the decision the manifest attaches to SmartRecruiters IS the object the adapter is armed with (by reference)', async () => {
     const attached = typeOf(buildManifest(real()), 'SMARTRECRUITERS_ATS').ownerDecisions[0]
     expect(attached).toBe(SMARTRECRUITERS_OWNER_DECISION)

@@ -315,13 +315,10 @@ function failureOfThrown(error: unknown, aborted: boolean): Failure {
     return { code: 'RATE_LIMIT', message: 'provider answered HTTP 429', status: 429 }
   }
   const message = error instanceof Error ? error.message : 'the request failed'
-  const status = TRANSPORT_STATUS.exec(message)?.[1]
-  if (status !== undefined && classify(Number(status)) === 'ACCESS_POLICY') {
-    return {
-      code: 'ACCESS_POLICY',
-      message: `provider answered HTTP ${status}`,
-      status: Number(status),
-    }
+  // No match gives NaN, which `classify` answers with UPSTREAM, never a ban.
+  const status = Number(TRANSPORT_STATUS.exec(message)?.[1])
+  if (classify(status) === 'ACCESS_POLICY') {
+    return { code: 'ACCESS_POLICY', message: `provider answered HTTP ${status}`, status }
   }
   return { code: aborted ? 'CANCELLED' : 'TRANSIENT_NETWORK', message, status: null }
 }

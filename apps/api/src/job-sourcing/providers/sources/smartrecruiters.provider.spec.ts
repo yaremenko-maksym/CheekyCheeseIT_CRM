@@ -1560,7 +1560,9 @@ describe('stop on ban through the REAL transport, which throws instead of return
       const batch = await run(w)
       expect(fetched).toHaveLength(1)
       expect(batch.outcome).toBe('FAILED')
-      expect(batch.requests.map((r) => [r.error?.code, r.status])).toEqual([[code, status]])
+      expect(batch.requests.map((r) => [r.error?.code, r.status, r.error?.message])).toEqual([
+        [code, status, `provider answered HTTP ${status}`],
+      ])
       expect(w.reconciled).toEqual(['USED'])
     },
   )
@@ -1576,6 +1578,25 @@ describe('stop on ban through the REAL transport, which throws instead of return
       expect(fetched).toHaveLength(2) // the list, then the first detail only
       expect(w.saved).toEqual([])
       expect(batch.requests.at(-1)?.error?.code).toBe(code)
+    },
+  )
+
+  it.each([
+    ['a longer status', 'api.smartrecruiters.com responded 4511'],
+    ['a prefix before the host', 'see api.smartrecruiters.com responded 403'],
+    ['a trailing word', 'api.smartrecruiters.com responded 403 again'],
+    ['a status the host did not ban with', 'api.smartrecruiters.com responded 503'],
+  ])(
+    'a thrown message that only looks like a ban (%s) stays TRANSIENT_NETWORK',
+    async (_name, text) => {
+      const w = world({ answer: () => ({}) })
+      w.ctx.fetchText = async () => {
+        throw new Error(text)
+      }
+      const batch = await run(w)
+      expect(batch.requests.map((r) => [r.error?.code, r.error?.message, r.status])).toEqual([
+        ['TRANSIENT_NETWORK', text, null],
+      ])
     },
   )
 

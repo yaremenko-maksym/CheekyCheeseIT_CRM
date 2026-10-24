@@ -734,9 +734,11 @@ export function buildManifest(input: BuildInput): Manifest {
     }
     const unclearLifted = liftsUnclear(ownerDecisions, def.endpointVariant)
 
+    // Declared names only; none declared means the type asks for no payload capture.
+    const payloadFixtures = def.payloadFixtures ?? []
     const apiPayloadCaptured =
-      def.payloadFixtures === undefined ||
-      def.payloadFixtures.some((name) =>
+      payloadFixtures.length === 0 ||
+      payloadFixtures.some((name) =>
         fixtures.some((f) => f.file === name && f.evidence === 'CAPTURE'),
       )
 
@@ -759,7 +761,7 @@ export function buildManifest(input: BuildInput): Manifest {
       if (!apiPayloadCaptured) {
         blockers.push({
           code: 'NO_API_CAPTURE',
-          detail: `none of ${(def.payloadFixtures ?? []).join(', ')} is a real capture of the API payload`,
+          detail: `none of ${payloadFixtures.join(', ')} is a real capture of the API payload`,
         })
       }
       blockers.push(...reconcileStatus(def, permission, unclearLifted))
