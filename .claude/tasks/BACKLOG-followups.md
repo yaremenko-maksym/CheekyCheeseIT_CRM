@@ -4132,7 +4132,7 @@ rather than from anyone's recollection:
 | carried by the collaborator's #868 | #868           | 3   | merged — see the note below      |
 | `retro-salary-ledger-integrity`    | #1102          | 8   | merged (#1102)                   |
 | `retro-txdate-policy`              | merged (#1113) | 9   | branch `fix/retro-txdate-policy` |
-| `retro-business-day-clock`         | not started    | 6   | waits on txdate-policy           |
+| `retro-business-day-clock`         | not started    | 6   | in review (#1133)                |
 | `retro-manual-ddl-coverage`        | not started    | 6   | —                                |
 
 Closed: 4 + 8 + 1 + 5 + 2 + 3 = **23**. In flight or pending: 8 + 9 + 6 + 6 = **29**. Sum **52**, which
@@ -6119,3 +6119,53 @@ the apply line lacks the flag, not merely if the header says it should.
 Related: the seeded `readiness` column is a frozen snapshot (2026-10-24) and stays `CANDIDATE` for
 `recruitee.board.bunq` after `RECRUITEE_TOKEN_DEADLINE`; nothing reads it today, and plan Task 2.5 must
 evaluate `readinessAt` instead of trusting the column when it wires a source to run.
+
+## 338. The accountant and senior-stats month windows are still UTC while the graph buckets by Kyiv month; three non-UTC test failures are invisible to CI (2026-10-24)
+
+Raised in round 1 of the PR #1133 reviews (`retro-business-day-clock`) by three axes independently:
+CR-M-2, SPEC-M-1 and SR-M-1 are the same finding.
+
+**The defect.** PR #1133 moved the finance summary graph's per-month key to the Kyiv business month
+(`transactionBusinessMonth`: a row with a non-null `txDate` is keyed by the UTC-midnight month of that
+date; a row with a NULL `txDate` falls back to the Kyiv month of `createdAt` via `kyivMonthOf`).
+`getAccountantSummary` (`paidThisMonth` / `validatedThisMonth`) and `getSeniorStats` (its month key and
+the `monthStart` / `lastMonthStart` / `nextMonthStart` windows) still compute UTC month windows with
+`Date.UTC`. The two disagree **only** for a legacy row with a NULL `txDate` whose `createdAt` falls in the
+roughly 2-3 hour window at a month boundary where Kyiv is already a day ahead of UTC: the graph files it
+in the new month, the KPI tiles in the previous one. A comment in `getAccountantSummary` that claimed its
+window matched the graph "exactly, including for NULL-txDate rows" was corrected in #1133 to say the
+windows remain UTC.
+
+**Severity: MED (security-reviewer's rating).** Non-persisted: stored values are untouched. Every insert
+path now persists a non-null Kyiv-day `txDate` (`resolveTransactionDate`), so new data cannot reach the
+fallback branch. It is a transient dashboard reconciliation gap between two views, not a misstatement of
+any invoice or record.
+
+**What to do.** Two options, and they compose:
+
+- Move both windows to the Kyiv month key, using the `@crm/shared` Kyiv helpers as the single source of
+  truth. Code-only, reversible, and the cheaper of the two: it can ship in one PR with no data operation.
+- Backfill NULL `txDate` so the class disappears and the `kyivMonthOf` fallback branch can be deleted
+  outright. This removes the cause rather than aligning three readers, but it is a production-data
+  operation, so it is owner-only (A3) and cannot be run by an agent.
+
+Recommendation: do the window change first; treat the backfill as the owner's separate decision.
+
+**Second part: three web tests fail under a non-UTC `TZ` and CI cannot see them.** On the #1133 head, under
+`TZ=America/Los_Angeles`, these `apps/web` tests fail and are unrelated to that PR's diff: the
+`ValidateQueue` info-card labels, the `PayoutDetailDialog` income-row fields, and the
+`SettleSeniorPayoutDialog` createdAt date (renders `01.06.26`). They are the same bug class as #1133 - a
+date rendered or fixtured in the wrong clock. CI runs in UTC, so nothing in CI sees them. `@crm/shared`
+gained `tz:Europe/Kyiv` and `tz:America/Los_Angeles` vitest projects in #1133, but `apps/web` has none,
+which is exactly why they stay invisible. Recommended: add the same TZ projects to the web finance specs,
+then fix the three.
+
+**Check on closing:**
+
+- A NULL-`txDate` row created at 22:30 UTC on the last day of a month lands in the **same** month in the
+  summary graph, the accountant tiles and the senior stats.
+- A month-boundary test for that case runs and passes under both `TZ=Europe/Kyiv` and
+  `TZ=America/Los_Angeles`.
+- The `apps/web` finance specs pass under both `TZ=Europe/Kyiv` and `TZ=America/Los_Angeles`.
+
+Sources: PR #1133 review round 1 (code-reviewer CR-M-2, spec-reviewer SPEC-M-1, security-reviewer SR-M-1).
