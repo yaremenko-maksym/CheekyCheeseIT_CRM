@@ -75,7 +75,6 @@ KNOWN_UNSHARDED = {
     "tests/cache/sw-smoke.spec.ts",               # debt: cache tests not in any shard, migrate later
     # --- landing/ suite: see EXCLUDED_DIRS above (structural, not debt) ---
     # --- accountant ---
-    "tests/accountant-dashboard.spec.ts",         # debt: not gated, migrate to accountant shard later
     # --- admin ---
     "tests/admin-templates.spec.ts",              # debt: not gated, migrate to misc shard later
     # --- dashboard ---
@@ -96,7 +95,6 @@ KNOWN_UNSHARDED = {
     # closes PR #376 MED-1 coverage gap).
     # --- finance extras ---
     # --- hr ---
-    "tests/hr-dashboard.spec.ts",                 # debt: not gated, migrate to team-users shard later
     # --- invoices ---
     # --- junior ---
     "tests/junior-hub.spec.ts",                   # debt: not gated, migrate to misc shard later

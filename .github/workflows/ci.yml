@@ -1235,7 +1235,7 @@ jobs:
             # file directs this shard ("где живёт профиль"), same mocked-auth
             # pattern as the other three files here (`mockAuthAs`, no live
             # backend calls).
-            files: tests/team.spec.ts tests/users.spec.ts tests/rbac-hr-on-senior.spec.ts tests/locale-switcher.spec.ts tests/hr-create-senior.spec.ts tests/team-share-override.spec.ts
+            files: tests/team.spec.ts tests/users.spec.ts tests/rbac-hr-on-senior.spec.ts tests/locale-switcher.spec.ts tests/hr-create-senior.spec.ts tests/team-share-override.spec.ts tests/hr-dashboard.spec.ts
           - name: projects
             # tests/project-status-filter-ui.spec.ts (task-project-status-filter-ui,
             # PR #646, feat/project-status-filter-ui, not yet merged as of this line
@@ -1300,7 +1300,7 @@ jobs:
             # is consistently one of the shorter E2E shards (misc/team-users
             # are the longest), so the ~19 extra (fast, mocked) tests here are
             # unlikely to make it the new critical-path leg.
-            files: tests/finance.spec.ts tests/finance-senior-flow.spec.ts tests/company-share-cta.spec.ts tests/finance-funding-source.spec.ts tests/finance-senior-payment-flow.spec.ts tests/finance-smoke-regressions.spec.ts
+            files: tests/finance.spec.ts tests/finance-senior-flow.spec.ts tests/company-share-cta.spec.ts tests/finance-funding-source.spec.ts tests/finance-senior-payment-flow.spec.ts tests/finance-smoke-regressions.spec.ts tests/accountant-dashboard.spec.ts
           - name: misc
             # tests/job-sourcing-mobile.spec.ts (task-job-sourcing-slice1, PR #493): the "Подбор
             # вакансий" modal on the kanban — same screen/mock-stack shape as
