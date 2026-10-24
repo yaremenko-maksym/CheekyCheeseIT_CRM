@@ -5748,3 +5748,45 @@ are under `.claude/tasks/`, which is **gitignored** and dies with the worktree. 
 **Check on closing:** all 13 writers resolve their date through the one shared policy (grep the call
 sites); the on-chain flows take their date from the block timestamp, not the client; and the
 `⚠ NOT YET UNIVERSAL` block in `transaction-date-policy.ts` is gone because it has become universal.
+
+## 330. Pushing with `DATABASE_URL=` empty means your integration specs did not run, and nothing says so (2026-10-24)
+
+`git-policy.md` requires feature branches to be pushed as `DATABASE_URL= git push` (the variable
+empty). That rule is right and should stay: without it the pre-push integration specs connect to the
+libpq default — the live `crm_db` — which is how a database once got wiped. The rule's stated purpose
+is data safety and it achieves it.
+
+**The unstated cost: with `DATABASE_URL=` empty the integration specs graceful-skip, so no integration
+spec is ever exercised before a push.** The author gets a green pre-push gate and reads it as "my
+changes pass", when the gate did not run the class of test most likely to catch a cross-service
+regression. Nothing in the rule, the hook output or the gate summary says which tests were skipped or
+why.
+
+**Measured instance (PR #1113, 2026-10-24).** A new server-side upper bound on the transaction date
+was added. The author's pre-push gate was 6/6 green. CI then failed "Integration Tests (Postgres)" at
+**1 failed / 162 passed**: `drop-topup.integration.spec.ts` settles on a next-day fixture and the new
+bound correctly refused it with `FINANCE_TX_DATE_IN_FUTURE`. The merge base was green, so the PR caused
+it, and **the author could not have seen it** — the only place those specs execute is CI.
+
+**Why this is the same family as entry 317 and worse than it looks.** 317 is a filtered run that drops
+integration specs from discovery and still exits 0. This is the same shape reached by a different
+route, and it is _mandated_ rather than accidental: every agent and every contributor follows it on
+every push. So the pre-push gate systematically reports a pass for a test class it never ran, and the
+first signal is a red CI job after the push.
+
+**Candidates, and the first is cheap:**
+
+1. **Make the skip loud.** When the integration specs graceful-skip, print one line naming the count
+   skipped and the reason ("DATABASE_URL empty — integration specs not run"). The information exists
+   at skip time; the author just never sees it. This alone converts a silent pass into an informed one.
+2. **Give the pre-push gate a scratch database** rather than no database: point `DATABASE_URL` at a
+   disposable DB (the `crm_scratch_*` convention already exists and the seed/integration guards
+   already refuse anything that does not look disposable) so the specs actually run and the live DB
+   stays protected. This is the real fix; it costs provisioning in the hook.
+3. **State the cost in `git-policy.md` beside the rule** — one sentence: pushing with `DATABASE_URL=`
+   empty means your integration specs did not run, so CI is the only place they execute. Cheapest of
+   all and stops the misreading even if 1 and 2 are never done.
+
+**Check on closing:** a developer or agent pushing a change that breaks an integration spec either
+sees it fail pre-push, or sees an explicit line saying integration specs were not run — and in neither
+case reads an unqualified green.
