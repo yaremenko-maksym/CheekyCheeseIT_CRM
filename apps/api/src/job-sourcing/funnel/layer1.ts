@@ -421,6 +421,450 @@ const extractAgency: Extractor<AgencyAcceptance> = (sentence) => {
   return []
 }
 
+// ---------------------------------------------------------------------------------------------
+// Role family, seniority, leadership
+// ---------------------------------------------------------------------------------------------
+
+const FAMILY_RULES: ReadonlyArray<readonly [RoleFamily, RegExp]> = [
+  [
+    'DEVOPS',
+    /\bdevops\b|\bsre\b|site reliability|platform engineer|infrastructure engineer|cloud engineer/iu,
+  ],
+  [
+    'DATA',
+    /\bdata (?:scientist|engineer|analyst)\b|machine learning|\bml engineer\b|\bai engineer\b/iu,
+  ],
+  ['QA', /\bqa\b|quality assurance|\bsdet\b|test engineer|\btester\b/iu],
+  ['DESIGN', /\bdesigner\b|\bux\b|\bui\b/iu],
+  ['PRODUCT', /product (?:manager|owner)|project manager|scrum master|delivery manager/iu],
+  [
+    'SOFTWARE',
+    /\bdeveloper\b|\bengineer\b|\bprogrammer\b|\bsoftware\b|front-?end|back-?end|full[- ]?stack|розробник|програміст|разработчик|entwickler/iu,
+  ],
+  ['OTHER', /\brecruiter\b|\bsales\b|\bmarketing\b|\baccountant\b|\bsupport\b|\bhr\b|\blegal\b/iu],
+]
+
+function classifyRoleFamily(input: Layer1Input): Dimension<RoleFamily> {
+  const probes: Array<{ source: EvidenceSource; field: string; text: string }> = [
+    { source: 'TITLE', field: 'title', text: input.title },
+    ...(input.tags ?? []).map((t) => ({ source: 'STRUCTURED' as const, field: 'tags', text: t })),
+  ]
+  // Title decides; tags only fill in a title that names no family. The body is never read: a job
+  // description mentions every family in passing.
+  for (const probe of probes) {
+    const rule = FAMILY_RULES.find(([, re]) => re.test(probe.text))
+    if (rule)
+      return dim<RoleFamily>(rule[0], 'PASS', [
+        {
+          source: probe.source,
+          field: probe.field,
+          excerpt: excerptOf(probe.text),
+          code: `FAMILY_${rule[0]}`,
+          used: true,
+        },
+      ])
+  }
+  return dim<RoleFamily>('UNKNOWN', 'WARN_UNKNOWN', [])
+}
+
+const LEVEL_ORDER: readonly Seniority[] = [
+  'INTERN',
+  'JUNIOR',
+  'MIDDLE',
+  'SENIOR',
+  'LEAD',
+  'EXECUTIVE',
+]
+const LEVEL_RULES: ReadonlyArray<readonly [Seniority, RegExp, string]> = [
+  ['INTERN', /\bintern(?:ship)?\b|\btrainee\b|стажер|стажист|стажу/iu, 'LEVEL_INTERN'],
+  ['JUNIOR', /\bjunior\b|\bjr\.?(?=\s|$)|\bentry[- ]level\b|джуніор|джуниор/iu, 'LEVEL_JUNIOR'],
+  ['MIDDLE', /\bmiddle\b|\bmid(?:-?level)?\b|\bmid-senior\b|мідл|миддл/iu, 'LEVEL_MIDDLE'],
+  ['SENIOR', /\bsenior\b|\bsr\.?(?=\s|$)|сеніор|сеньор|синьор/iu, 'LEVEL_SENIOR'],
+  // Staff / principal are senior EXPERTISE; they say nothing about leading people.
+  ['SENIOR', /\bstaff\b|\bprincipal\b|\bdistinguished\b/iu, 'LEVEL_STAFF_PRINCIPAL'],
+  [
+    'LEAD',
+    /\bteam[- ]?lead\b|\btech(?:nical)?[- ]lead\b|\blead\b|\bhead of\b|engineering manager|development manager|тімлід|тімлід|тимлид|тім лід|тех ?лід/iu,
+    'LEVEL_LEAD',
+  ],
+  [
+    'EXECUTIVE',
+    /\bdirector\b|\bvp\b|vice president|\bcto\b|\bchief\b|директор/iu,
+    'LEVEL_EXECUTIVE',
+  ],
+]
+const YEARS_RE =
+  /(?<![\d.])(\d{1,2})\s*\+?(?:\s*[-–]\s*\d{1,2})?\s*\+?\s*(?:years?|yrs?|роки|років|рік|лет|года|jahre|lat)\b/giu
+
+function levelFromYears(years: number): Seniority {
+  if (years >= 5) return 'SENIOR'
+  if (years >= 2) return 'MIDDLE'
+  return 'JUNIOR'
+}
+
+function classifySeniority(input: Layer1Input): Dimension<Seniority> {
+  const sources = textSources(input).filter((s) => s.field !== 'descriptionMd')
+  const first: Array<Signal<Seniority>> = []
+  for (const src of sources) {
+    if (src.field !== 'title' && src.field !== 'seniorityHint') continue
+    for (const [value, re, code] of LEVEL_RULES) {
+      if (re.test(src.text))
+        first.push({
+          value,
+          source: src.source,
+          field: src.field,
+          excerpt: excerptOf(src.text),
+          code,
+        })
+    }
+  }
+  const evidence: Layer1Evidence[] = []
+  if (first.length > 0) {
+    const top = LEVEL_ORDER.reduce<Seniority | null>(
+      (best, lvl) => (first.some((s) => s.value === lvl) ? lvl : best),
+      null,
+    ) as Seniority
+    for (const s of first) evidence.push({ ...s, used: s.value === top })
+    return dim<Seniority>(top, levelVerdict(top, false), evidence)
+  }
+  // Body requirement sections second: only an explicit years-of-experience statement counts.
+  // Words such as "junior" or "mentorship" in a body describe the team, not the role.
+  let years = -1
+  let excerpt = ''
+  for (const sentence of sentencesOf(input.descriptionMd)) {
+    for (const m of sentence.matchAll(YEARS_RE)) {
+      const n = Number(m[1])
+      if (n > years) {
+        years = n
+        excerpt = excerptOf(sentence)
+      }
+    }
+  }
+  if (years < 0) return dim<Seniority>('UNKNOWN', 'WARN_UNKNOWN', [])
+  const value = levelFromYears(years)
+  return dim<Seniority>(value, levelVerdict(value, true), [
+    {
+      source: 'BODY',
+      field: 'descriptionMd',
+      excerpt,
+      code: `YEARS_${years}`,
+      used: true,
+    },
+  ])
+}
+
+/** A body-derived junior reading is a hint, not a strong explicit contradiction: it only warns. */
+function levelVerdict(level: Seniority, fromBody: boolean): Verdict {
+  if (level === 'INTERN' || level === 'JUNIOR') return fromBody ? 'WARN_UNKNOWN' : 'REJECT'
+  if (level === 'EXECUTIVE' || level === 'UNKNOWN') return 'WARN_UNKNOWN'
+  return 'PASS'
+}
+
+const LEADS_RE =
+  /\bteam[- ]?lead\b|\btech(?:nical)?[- ]lead\b|\blead\b|\bhead of\b|engineering manager|development manager|тімлід|тимлид|тім лід/iu
+const BODY_LEADS_RE =
+  /\bpeople management\b|\bmanage (?:a )?team of\b|\bdirect reports?\b|\bline manage\w*|керувати командою|управлять командой/iu
+const IC_RE = /\bindividual contributor\b|\bIC role\b/iu
+
+function classifyLeadership(input: Layer1Input): Dimension<Leadership> {
+  const probes = [
+    { source: 'TITLE' as const, field: 'title', text: input.title },
+    ...(input.seniorityHint
+      ? [{ source: 'STRUCTURED' as const, field: 'seniorityHint', text: input.seniorityHint }]
+      : []),
+  ]
+  for (const p of probes) {
+    if (LEADS_RE.test(p.text))
+      return dim<Leadership>('LEADS_PEOPLE', 'PASS', [
+        {
+          source: p.source,
+          field: p.field,
+          excerpt: excerptOf(p.text),
+          code: 'LEAD_TITLE',
+          used: true,
+        },
+      ])
+  }
+  // Mentorship, "staff" and "principal" are deliberately NOT leadership evidence.
+  for (const sentence of sentencesOf(input.descriptionMd)) {
+    const code = BODY_LEADS_RE.test(sentence)
+      ? 'LEAD_BODY'
+      : IC_RE.test(sentence)
+        ? 'IC_BODY'
+        : null
+    if (code === 'LEAD_BODY')
+      return dim<Leadership>('LEADS_PEOPLE', 'PASS', [
+        { source: 'BODY', field: 'descriptionMd', excerpt: excerptOf(sentence), code, used: true },
+      ])
+    if (code === 'IC_BODY')
+      return dim<Leadership>('INDIVIDUAL_CONTRIBUTOR', 'PASS', [
+        { source: 'BODY', field: 'descriptionMd', excerpt: excerptOf(sentence), code, used: true },
+      ])
+  }
+  return dim<Leadership>('UNKNOWN', 'PASS', [])
+}
+
+// ---------------------------------------------------------------------------------------------
+// Geography / work authorization
+// ---------------------------------------------------------------------------------------------
+
+const REGION_NAMES: ReadonlyArray<readonly [string, string]> = [
+  ['EUROPE', 'europe|eu|emea|європ\\p{L}*|европ\\p{L}*'],
+  ['US', 'us|usa|u\\.s\\.|united states|сша'],
+  ['UK', 'uk|united kingdom'],
+  ['CANADA', 'canada'],
+  ['LATAM', 'latam|latin america'],
+  ['APAC', 'apac'],
+]
+const REGION_PATTERN = REGION_NAMES.map(([, p]) => p).join('|')
+const REGION_LIMIT_RE = new RegExp(
+  `\\bremote\\s*(?:\\(|[-,:–]\\s*|in\\s+|within\\s+|from\\s+)?(?:the\\s+)?(${REGION_PATTERN})\\b\\)?` +
+    `|\\b(${REGION_PATTERN})[- ]only\\b|\\bmust (?:be (?:located|based)|reside|live) in (?:the )?(${REGION_PATTERN})\\b`,
+  'giu',
+)
+const WORK_AUTH_RE =
+  /\b(?:authori[sz]ed|eligible|legally entitled|legal right) to work in (?:the )?(us|u\.s\.|united states|uk|canada|eu)\b|\b(us|u\.s\.) work authori[sz]ation\b|\b(us|u\.s\.) citizen\w*\b|дозвіл на роботу в (сша)|разрешение на работу в (сша)|arbeitserlaubnis/giu
+
+function regionCode(word: string): string {
+  const w = word.toLowerCase()
+  for (const [code, pattern] of REGION_NAMES) {
+    if (new RegExp(`^(?:${pattern})$`, 'iu').test(w)) return code
+  }
+  return w.toUpperCase()
+}
+
+function classifyGeography(input: Layer1Input): Dimension<GeographyValue> {
+  const regions = new Set<string>()
+  let authorization = false
+  const evidence: Layer1Evidence[] = []
+  for (const src of textSources(input)) {
+    for (const sentence of sentencesOf(src.text)) {
+      for (const m of sentence.matchAll(REGION_LIMIT_RE)) {
+        if (isNegated(sentence, m.index ?? 0)) continue
+        const word = m[1] ?? m[2] ?? m[3] ?? ''
+        regions.add(regionCode(word))
+        evidence.push({
+          source: src.source,
+          field: src.field,
+          excerpt: excerptOf(sentence),
+          code: 'REGION_LIMIT',
+          used: true,
+        })
+      }
+      for (const m of sentence.matchAll(WORK_AUTH_RE)) {
+        if (isNegated(sentence, m.index ?? 0)) continue
+        authorization = true
+        const word = m[1] ?? m[2] ?? m[3] ?? m[4] ?? m[5] ?? ''
+        if (word) regions.add(regionCode(word))
+        evidence.push({
+          source: src.source,
+          field: src.field,
+          excerpt: excerptOf(sentence),
+          code: 'WORK_AUTHORIZATION',
+          used: true,
+        })
+      }
+    }
+  }
+  const kind: Geography = authorization
+    ? 'WORK_AUTHORIZATION_REQUIRED'
+    : regions.size > 0
+      ? 'REGION_LIMITED'
+      : 'UNSTATED'
+  // Policy A1o is "any location": a restriction can only warn, because whether it excludes a
+  // given senior depends on that senior, which Layer 1 does not know.
+  return dim<GeographyValue>(
+    { kind, regions: [...regions].sort() },
+    kind === 'UNSTATED' ? 'PASS' : 'WARN_UNKNOWN',
+    evidence,
+  )
+}
+
+// ---------------------------------------------------------------------------------------------
+// Salary
+// ---------------------------------------------------------------------------------------------
+
+function toMonthly(amount: number, period: 'HOUR' | 'MONTH' | 'YEAR'): number {
+  if (period === 'YEAR') return amount / 12
+  if (period === 'HOUR') return amount * HOURS_PER_MONTH
+  return amount
+}
+
+function classifySalary(input: Layer1Input): {
+  dimension: Dimension<SalaryValue>
+  flag: Layer1Flag | null
+} {
+  const salary = input.salary
+  const top = salary ? (salary.max ?? salary.min) : null
+  if (!salary || top === null || !Number.isFinite(top) || top <= 0)
+    return {
+      dimension: dim<SalaryValue>({ state: 'UNKNOWN', monthlyUsd: null }, 'PASS', [
+        policyNote('SALARY_UNKNOWN'),
+      ]),
+      flag: 'SALARY_UNKNOWN',
+    }
+  const currency = salary.currency.toUpperCase()
+  let usdPerUnit: number | null = null
+  const evidence: Layer1Evidence[] = []
+  if (currency === 'USD') usdPerUnit = 1
+  else if (
+    input.fxRate &&
+    input.fxRate.currency.toUpperCase() === currency &&
+    Number.isFinite(input.fxRate.usdPerUnit) &&
+    input.fxRate.usdPerUnit > 0
+  ) {
+    usdPerUnit = input.fxRate.usdPerUnit
+    evidence.push(
+      policyNote(
+        'RECORDED_RATE',
+        `${currency}->USD ${input.fxRate.usdPerUnit} @ ${input.fxRate.recordedAt}`,
+      ),
+    )
+  }
+  if (usdPerUnit === null)
+    return {
+      dimension: dim<SalaryValue>({ state: 'UNCONVERTIBLE', monthlyUsd: null }, 'WARN_UNKNOWN', [
+        policyNote('NO_RECORDED_RATE', currency),
+      ]),
+      flag: 'SALARY_UNCONVERTIBLE',
+    }
+  const monthlyUsd = toMonthly(top, salary.period) * usdPerUnit
+  const above = monthlyUsd >= SALARY_FLOOR_USD_MONTHLY
+  evidence.push(policyNote(above ? 'AT_OR_ABOVE_FLOOR' : 'BELOW_FLOOR', String(monthlyUsd)))
+  return {
+    dimension: dim<SalaryValue>(
+      { state: above ? 'ABOVE_FLOOR' : 'BELOW_FLOOR', monthlyUsd },
+      above ? 'PASS' : 'REJECT',
+      evidence,
+    ),
+    flag: null,
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Freshness (a rank, never a closure criterion)
+// ---------------------------------------------------------------------------------------------
+
+function classifyFreshness(
+  input: Layer1Input,
+  now: Date,
+): { dimension: Dimension<FreshnessValue>; flags: Layer1Flag[] } {
+  const flags: Layer1Flag[] = []
+  const evidence: Layer1Evidence[] = []
+  let newest: Date | null = null
+  let expired = false
+  for (const d of input.dates) {
+    if (d.status === 'FUTURE') {
+      flags.push('FUTURE_DATE_IGNORED')
+      evidence.push({
+        source: 'STRUCTURED',
+        field: `date.${d.semantics}`,
+        excerpt: d.raw,
+        code: 'FUTURE_DATE',
+        used: false,
+      })
+      continue
+    }
+    if (d.status !== 'OK') {
+      flags.push('DATE_UNCERTAIN')
+      evidence.push({
+        source: 'STRUCTURED',
+        field: `date.${d.semantics}`,
+        excerpt: d.raw,
+        code: `DATE_${d.status}`,
+        used: false,
+      })
+      continue
+    }
+    if (d.semantics === 'EXPIRY') {
+      if (d.value.getTime() <= now.getTime()) {
+        expired = true
+        evidence.push({
+          source: 'STRUCTURED',
+          field: 'date.EXPIRY',
+          excerpt: d.raw,
+          code: 'EXPIRED',
+          used: true,
+        })
+      }
+      continue
+    }
+    if (d.value.getTime() > now.getTime() + FUTURE_TOLERANCE_MS) {
+      flags.push('FUTURE_DATE_IGNORED')
+      evidence.push({
+        source: 'STRUCTURED',
+        field: `date.${d.semantics}`,
+        excerpt: d.raw,
+        code: 'FUTURE_DATE',
+        used: false,
+      })
+      continue
+    }
+    evidence.push({
+      source: 'STRUCTURED',
+      field: `date.${d.semantics}`,
+      excerpt: d.raw,
+      code: 'DATED',
+      used: true,
+    })
+    if (newest === null || d.value.getTime() > newest.getTime()) newest = d.value
+  }
+  let value: FreshnessValue = { bucket: 'UNKNOWN', ageDays: null, rank: 0 }
+  if (newest !== null) {
+    const ageDays = Math.max(0, Math.floor((now.getTime() - newest.getTime()) / MS_PER_DAY))
+    const bucket =
+      ageDays <= 7 ? 'FRESH' : ageDays <= 30 ? 'RECENT' : ageDays <= 90 ? 'AGING' : 'OLD'
+    value = { bucket, ageDays, rank: 1 / (1 + ageDays) }
+  }
+  // A passed EXPIRY is the source closing the posting; age alone never is.
+  return { dimension: dim<FreshnessValue>(value, expired ? 'REJECT' : 'PASS', evidence), flags }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Entry point
+// ---------------------------------------------------------------------------------------------
+
+export function classifyLayer1(input: Layer1Input, options: Layer1Options): Layer1Result {
+  if (options.ruleVersion !== RULE_VERSION)
+    throw new UnsupportedRuleVersionError(options.ruleVersion)
+  const workplace = classifyWorkplace(input)
+  const schedule = classifySchedule(input)
+  const salary = classifySalary(input)
+  const freshness = classifyFreshness(input, options.evaluationTime)
+
+  const flags = new Set<Layer1Flag>(freshness.flags)
+  if (workplace.contradiction || schedule.contradiction) flags.add('UNRESOLVED_CONTRADICTION')
+  if (salary.flag) flags.add(salary.flag)
+  if (input.evidence?.some((e) => e.field === 'description' && e.kind === 'DISPLAY_TRUNCATED'))
+    flags.add('DESCRIPTION_TRUNCATED')
+
+  const named = {
+    workplace: workplace.dimension,
+    basis: classifyBasis(input),
+    schedule: schedule.dimension,
+    duration: classifyDuration(input),
+    agency: classifyAgency(input),
+    roleFamily: classifyRoleFamily(input),
+    seniority: classifySeniority(input),
+    leadership: classifyLeadership(input),
+    geography: classifyGeography(input),
+    salary: salary.dimension,
+    freshness: freshness.dimension,
+  }
+  const entries = Object.entries(named) as Array<[string, Dimension<unknown>]>
+  const rejectedBy = entries.filter(([, d]) => d.verdict === 'REJECT').map(([k]) => k)
+  const unknown = entries.filter(([, d]) => d.verdict === 'WARN_UNKNOWN').map(([k]) => k)
+  return {
+    ruleVersion: RULE_VERSION,
+    evaluatedAt: options.evaluationTime.toISOString(),
+    ...named,
+    verdict: rejectedBy.length > 0 ? 'REJECT' : unknown.length > 0 ? 'WARN_UNKNOWN' : 'PASS',
+    rejectedBy,
+    unknown,
+    flags: [...flags].sort(),
+  }
+}
+
 function classifyAgency(input: Layer1Input): Dimension<AgencyAcceptance> {
   const r = resolve(collect(textSources(input), extractAgency, ['descriptionMd']))
   if (r.conflict) return dim<AgencyAcceptance>('UNKNOWN', 'WARN_UNKNOWN', r.evidence)
