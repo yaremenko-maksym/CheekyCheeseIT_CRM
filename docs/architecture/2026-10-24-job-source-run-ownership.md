@@ -122,7 +122,45 @@ task below must not start (§ Decomposition, task T6).
 
 ## Option A — hand-written claims on Postgres
 
-_Pending._
+One module, the **run ledger** (working name `JobRunLedger`), is the only writer of the ownership
+columns. Its interface is five operations. Every one of them is a short transaction, and none holds
+a lock across network I/O.
+
+| Operation                       | What it does, in one transaction                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `claimDue(limit, owner, now)`   | `SELECT … FROM job_sources WHERE <due> ORDER BY next_attempt_at FOR UPDATE SKIP LOCKED LIMIT n`. For each row it locks the account's `job_account_meters` row (`FOR UPDATE`, when `account_meter_id` is set), then checks that no `STARTED` run exists for the source (any `config_version`) or the account. It then inserts or re-claims the `job_collection_runs` row with a fresh `owner_token`, `fencing_epoch = max(epoch for this source) + 1` and `lease_expires_at = now() + L`. It **commits before any I/O**. |
+| `heartbeat(run, owner, epoch)`  | `UPDATE … SET lease_expires_at = now() + L WHERE id = $run AND owner_token = $owner AND fencing_epoch = $epoch AND outcome = 'STARTED' AND lease_expires_at > now()`. If zero rows change, the worker is fenced out: abort the `AbortSignal` and stop.                                                                                                                                                                                                                                                                                                |
+| `assertOwned(tx, run, owner, epoch)` | `SELECT 1 FROM job_collection_runs WHERE <same predicate> FOR UPDATE`, called **first inside every page write** (`checkpoints.savePage`) and inside the meter's `reserve` and `markSent`. If no row comes back, the transaction rolls back and the worker raises `RUN_FENCED`.                                                                                                                                                                                                                                                                      |
+| `finish(run, owner, epoch, outcome)` | The terminal transition under the same predicate. It writes `job_sources` state (`last_attempt_at`, `last_success_at`, `last_nonempty_at`, `next_attempt_at`, `cooldown_until`, `consecutive_failures`) in the same transaction.                                                                                                                                                                                                                                                                                                          |
+| `recoverExpired(now)`           | For each `STARTED` run with `lease_expires_at < now()` (`FOR UPDATE SKIP LOCKED`), it moves that attempt's `SENT` reservations to `UNCERTAIN` and leaves `RESERVED` ones for the replay walk. It then either re-queues the source (`next_attempt_at = now()`) and marks the run `FAILED` with `LEASE_EXPIRED`, or re-claims it under a new epoch.                                                                                                                                                                       |
+
+**Why this makes F4 false.** The meter binding gains `ownerToken` and calls `assertOwned` inside its
+own transaction. A second live executor of the same `attemptId` holds a different token, or the
+superseded epoch, so its `reserve` and `markSent` are refused before anything leaves the process.
+Recovery and `markSent` lock the same run row, so they serialize. Either `markSent` commits `SENT`
+first, and recovery turns it into `UNCERTAIN` (a hold, the safe direction), or recovery commits
+first and `markSent` is refused, so the request is never sent. With the fence in place, the replay
+walk's reading of `RESERVED` as "never sent" becomes sound.
+
+**One active fetch per source and per account.** The claim checks this under row locks, and the
+database enforces it as a backstop with two partial unique indexes over `outcome = 'STARTED'`: one
+on `source_id` alone (today's index is per `(source_id, config_version)`, F3), and one on an
+`account_key` column (the meter id, or the source id when it has none). This is the only DDL
+Option A needs. It is **additive**, it lives in `public`, it changes no privilege, and it goes
+through the existing `deploy.yml` path.
+
+**Bounded worker pool.** An in-process semaphore of size `N` per API process. The claim's `LIMIT` is
+the free slots, never more. `N`, `L`, the heartbeat interval and the per-run deadline are config
+values with ceilings, frozen after MP-05.
+
+**Cost of A** (estimate, not measured). The ledger is about 300–450 lines plus real-Postgres specs.
+The arithmetic it owns is the lease predicate, the epoch increment, the recovery transitions, and
+the due-time computation (cooldown, cadence, readiness). Due time is needed under Option B too.
+The precedent `OutboxRepository.claimDue` (F6) already covers the claim half, and the house has a
+real-Postgres spec style for it.
+
+**Strongest argument against A.** Phase 3's worst defects were hand-rolled lifecycle arithmetic.
+Option A adds more of that arithmetic, in the most concurrency-sensitive place in the feature.
 
 ## Option B — `pg-boss`
 
