@@ -5717,3 +5717,34 @@ regression guard).
 **Check on closing:** no "is absent" assertion in `team.spec.ts` keys on a Russian product string that
 the uk/en catalog has replaced; each former such assertion now keys on the catalog string or a
 testid, and fails when its control is removed.
+
+## 329. The transaction-date policy is wired into 9 of 13 writers; the remainder needs a committed address (2026-10-24)
+
+PR #1113 ships the server-side transaction-date policy (retro of #809) wired into **9 of 13** writers,
+by a deliberate owner-ratified scope decision: ship what can take the policy now, document the rest as
+not done, split the remainder rather than hold a finance fix for a spec-harness rewrite. This is that
+remainder's durable home — the PR body names it, but a PR body is not where the next person looks, and
+the task files that described it (`task-retro-txdate-policy.md`, `task-retro-business-day-clock.md`)
+are under `.claude/tasks/`, which is **gitignored** and dies with the worktree. (Same lesson as entry
+327: a follow-up recorded only in a gitignored path is not recorded.)
+
+**What remains, by behaviour, not coordinates:**
+
+1. **Four writers do not call the policy** and so accept any client-supplied date:
+   `createExpense`, `createSalary`, `createAdminTransfer` (in `transaction-entry.service.ts`) and
+   `paySalary` (in `salary-payment.service.ts`). They are unwired because their specs mock the
+   `transaction-date.util` **module** seam, so moving the seam means rewriting those specs — a design
+   decision about the seam, which is why it was split out rather than rushed. `createSalary` is also
+   the one `PLANNED` flow and needs its own future-date case, not the same bound as the executed ones.
+2. **AC 2 of the #809 retro is not met:** on-chain-verified flows (`payPayoutRequest`, `submitDeposit`)
+   are **bounded** but still persist the **client-supplied** date rather than the block timestamp,
+   because `DepositVerification` exposes no timestamp and the adapter makes no `eth_getBlockByNumber`
+   call. Taking the date from the verified block is the unfinished half. Until then an invoice for an
+   on-chain-verified transfer can still carry an operator-chosen date within the bound, which is better
+   than unbounded and is not the verified truth.
+3. **CR-809-M-5 is untouched:** whether the NBU rate day should follow the picked settle date or stay
+   on the booking day is a product decision never taken; the rate day currently follows the picker.
+
+**Check on closing:** all 13 writers resolve their date through the one shared policy (grep the call
+sites); the on-chain flows take their date from the block timestamp, not the client; and the
+`⚠ NOT YET UNIVERSAL` block in `transaction-date-policy.ts` is gone because it has become universal.
