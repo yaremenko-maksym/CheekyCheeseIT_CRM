@@ -1717,7 +1717,13 @@ test('the compare filter: a list at the cap is truncated, on either side', () =>
 })
 
 test('the compare filter and the gate agree on the cap', () => {
+  // Code lines only: the header's prose mentions a jq version with a `>=` in it, and a number in a
+  // comment is not a cap. (It caught that comment when it was first written, which is the test
+  // working — but the assertion is about the filter, so the scope is the filter.)
   const jq = readFileSync(JQ_FILTER, 'utf8')
+    .split('\n')
+    .filter((l) => !/^\s*#/.test(l))
+    .join('\n')
   const caps = [...jq.matchAll(/>=\s*(\d+)/g)].map((m) => Number(m[1]))
   assert.ok(caps.length > 0, 'the filter states no cap')
   for (const c of caps) assert.equal(c, MAX_COMPARE_FILES)
@@ -1728,4 +1734,112 @@ test('the workflow runs the filter from its file, not a copy inline', () => {
   const wf = readFileSync(join(here, '..', '..', '.github', 'workflows', 'flow-gate.yml'), 'utf8')
   assert.match(wf, /-f scripts\/architect\/flow-gate-compare\.jq/)
   assert.doesNotMatch(wf, /def paths:/, 'the filter is inline again — the tested file is bypassed')
+})
+
+// --- CR-M-9: an allowlist whose anchors are untested is a prefix list that matches anywhere -----
+
+test('CR-M-9: the inert allowlist is ANCHORED — a prefixed or nested path is not inert', () => {
+  // These are the three shapes the truth table above cannot reach, and each one is a real mutation
+  // that survived: dropping the `^`, matching `docs/business/` with `includes`, and letting the
+  // dated-ADR pattern span a subdirectory. All three would put agent-read territory inside the
+  // allowlist — the same defect as the `!p.includes('/')` edition, one level deeper.
+  for (const p of [
+    // `docs/business/` reached by substring rather than prefix
+    '.claude/skills/x/docs/business/y.md',
+    'apps/api/docs/business/notes.md',
+    // the dated-ADR pattern reached without the `^` anchor
+    '.claude/skills/x/docs/architecture/2026-01-01-y.md',
+    'vendor/docs/architecture/2026-01-01-y.md',
+    // a dated name that is really a directory: `[^/]+` must not become `.+`
+    'docs/architecture/2026-01-01-sub/y.md',
+    'docs/architecture/2026-01-01-a/b/c.md',
+    // and the root README is the root one only
+    'vendor/README.md',
+  ])
+    assert.equal(isInertDoc(p), false, p)
+  // The happy cases still hold, so the anchoring did not simply disable the allowlist.
+  assert.equal(isInertDoc('docs/architecture/2026-01-01-y.md'), true)
+  assert.equal(isInertDoc('docs/business/y.md'), true)
+  assert.equal(isInertDoc('README.md'), true)
+})
+
+// --- CR-M-8: the join between a verdict's sha and its own drift measurement ---------------------
+
+test('CR-M-8: each verdict is judged by ITS OWN drift measurement, matched by sha', () => {
+  // Every other `compares:` fixture holds one entry, so `find(c => c.base === ref.sha)` could be
+  // replaced by `compares[0]` and nothing noticed. The join key is the core of the rule: with two
+  // reviewed shas, the wrong measurement judging a verdict is a small drift excusing an older
+  // review — the failure this PR exists to prevent, reintroduced by fixture shape.
+  const SPEC_SHA = '3'.repeat(40)
+  const r = ev(
+    good({
+      files: [API, API_SPEC, 'README.md'],
+      reviews: [
+        // reviewed OLD; code changed since → must be STALE
+        rv('Verdict: APPROVE', { commit_id: OLD }),
+        // reviewed SPEC_SHA; only the root README changed since → must stay fresh
+        rv('Spec Review: PASS', { commit_id: SPEC_SHA }),
+      ],
+      commits: [
+        commit('wip: a', { sha: OLD }),
+        commit('wip: b', { sha: SPEC_SHA }),
+        commit('feat: c\n\nac_verified: 1', { sha: HEAD }),
+      ],
+      compares: [
+        // Deliberately FIRST, and deliberately harmless: `compares[0]` would excuse the Review.
+        cmp(SPEC_SHA, ['README.md'], { ownedAt: [API, API_SPEC, 'README.md'] }),
+        cmp(OLD, [API], { ownedAt: [API, API_SPEC] }),
+      ],
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'stale')
+  assert.ok(failureFor(r, 'Review').includes(API), failureFor(r, 'Review'))
+  assert.equal(status(r, 'Spec-Review'), 'satisfied')
+})
+
+test('CR-M-8: the sha join is EQUALITY — an entry whose base is a prefix does not match', () => {
+  // `ref.sha === c.base` must not weaken to `ref.sha.startsWith(c.base)`: an abbreviated or
+  // truncated base would then capture a verdict and answer for a measurement that is not its own.
+  const r = ev(
+    good({
+      files: [API, API_SPEC, 'README.md'],
+      reviews: [rv('Verdict: APPROVE', { commit_id: OLD }), rv('Spec Review: PASS')],
+      commits: twoCommits(),
+      compares: [
+        // base is a strict PREFIX of the reviewed sha, and harmless; it must be ignored.
+        cmp(OLD.slice(0, 7), ['README.md'], { ownedAt: [API, API_SPEC, 'README.md'] }),
+        cmp(OLD, [API], { ownedAt: [API, API_SPEC] }),
+      ],
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'stale')
+  assert.ok(failureFor(r, 'Review').includes(API), failureFor(r, 'Review'))
+})
+
+// --- CR-M-10: `statedCommit` selection and shape, as documented --------------------------------
+
+test('CR-M-10: the FIRST `Commit:` line of a comment is the statement', () => {
+  // The docstring says first-match, and the round-1 attack list rested on it: appending a line to
+  // an existing verdict comment must not be able to re-point it.
+  assert.equal(statedCommit(`Commit: ${OLD}\nCommit: ${HEAD}`), OLD)
+  assert.equal(statedCommit(`QA Verdict: PASS\nCommit: ${OLD}\n\nlater: Commit: ${HEAD}`), OLD)
+  // End to end: the appended second line cannot make a stale verdict read fresh.
+  const r = ev(
+    uiPr({
+      comments: [cm(`QA Verdict: PASS\nCommit: ${OLD}\nCommit: ${HEAD}`)],
+      compares: [uiCmp(OLD, [UI])],
+    }),
+  )
+  assert.equal(status(r, 'QA'), 'stale')
+})
+
+test('CR-M-10: a `Commit:` reference mid-sentence is not a statement', () => {
+  // Dropping the `^` anchor would let prose about an earlier commit count as the claim; dropping
+  // the `\\b` would let a 41st hex character be silently truncated into a valid-looking sha.
+  assert.equal(statedCommit(`the earlier Commit: ${OLD} was superseded`), null)
+  assert.equal(statedCommit(`see Commit: ${HEAD}`), null)
+  assert.equal(statedCommit(`Commit: ${'a'.repeat(41)}`), null)
+  assert.equal(statedCommit(`Commit: ${OLD}x`), null)
+  // A legitimate statement still reads, including an abbreviation and trailing prose.
+  assert.equal(statedCommit('Commit: abc1234 (the head when I looked)'), 'abc1234')
 })

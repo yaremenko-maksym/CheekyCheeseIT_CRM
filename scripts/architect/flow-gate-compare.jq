@@ -21,6 +21,11 @@
 #
 # The `>= 300` cap below must equal `MAX_COMPARE_FILES` in `flow-gate.mjs`, which re-checks it on
 # the arrays themselves; a test asserts the two numbers agree.
+#
+# RUNNER DEPENDENCY, named because an implicit one breaks silently on an image bump: the trailing
+# comma after `ownedAt` needs **jq >= 1.7**. `ubuntu-latest` is 24.04, which ships jq 1.7.1, and the
+# unit suite runs this filter through whatever `jq` is on PATH — so a downgrade of either fails the
+# "the compare filter" cases loudly rather than at gate time.
 
 def measured: (type == "object") and ((.files | type) == "array");
 def paths: [.files[]? | .filename] + [.files[]? | .previous_filename // empty];
