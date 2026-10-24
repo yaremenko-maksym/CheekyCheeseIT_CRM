@@ -1277,7 +1277,7 @@ describe('the manifest stays out of the production build', () => {
     /\.(spec|test)\.ts$/.test(p) || p.includes(`${join('src', 'test')}/`)
   const isManifest = (p: string) => /providers\/manifest[^/]*\.ts$/.test(p)
 
-  it('the build tsconfig excludes every manifest module, so none of it (nor the test helper it reads) is compiled into dist', () => {
+  it('the build tsconfig excludes every manifest module', () => {
     const build = JSON.parse(readFileSync(join(SRC, '..', 'tsconfig.build.json'), 'utf8')) as {
       exclude: string[]
     }

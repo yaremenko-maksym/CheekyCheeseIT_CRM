@@ -146,6 +146,12 @@ describe('the generated seed delta', () => {
     )
   })
 
+  it('tells the applier to run it in ONE transaction, which the step-3b guard depends on', () => {
+    const sql = generateSeedDelta(manifest)
+    expect(sql).toContain('psql -v ON_ERROR_STOP=1 --single-transaction < <this file>')
+    expect(sql).toContain('RAISE EXCEPTION')
+  })
+
   it('has a generate script that runs the generator', () => {
     const pkg = JSON.parse(
       readFileSync(join(__dirname, '..', '..', '..', 'package.json'), 'utf8'),

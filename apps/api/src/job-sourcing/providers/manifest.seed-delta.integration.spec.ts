@@ -19,7 +19,9 @@ import {
  * never by parsing the SQL), reapplying it changes nothing, and a redeploy never undoes an ADMIN.
  *
  * Every test runs inside a transaction that is ROLLED BACK, so nothing is left behind and the
- * 2026-10-05 seed can be applied afresh each time. Run against a scratch database only:
+ * 2026-10-05 seed can be applied afresh each time. THE TABLE IS ASSUMED EMPTY at the start: the
+ * row-count case expects the seed's 16 rows and the delta's 19 to be the only ones added, and an
+ * "enabled" check is scoped to manifest-owned rows. Run against a scratch database only:
  *
  *   DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_scratch_manifest37 \
  *     pnpm --filter @crm/api exec vitest run manifest.seed-delta.integration
@@ -31,14 +33,26 @@ const LEGACY_SEED = readFileSync(
   'utf8',
 )
 
-const manifest = buildManifest({
-  definitions: MANIFEST_DEFINITIONS,
-  adapters: MANIFEST_VALIDATION_ADAPTERS,
-  fixtureRoot: FIXTURE_ROOT,
-})
-const DELTA = generateSeedDelta(manifest)
-const LEGACY_ENTRIES = manifest.entries.filter((e) => e.legacySeed)
-const NEW_ENTRIES = manifest.entries.filter((e) => !e.legacySeed)
+// Built on first use INSIDE a test, fresh per test: a build at module scope is invisible to a mutation
+// run (a throw fails the file to load) and would be attributed to no test.
+let built: Manifest | undefined
+const manifest = {
+  get entries() {
+    return (built ??= buildOnce()).entries
+  },
+  get types() {
+    return (built ??= buildOnce()).types
+  },
+}
+const buildOnce = () =>
+  buildManifest({
+    definitions: MANIFEST_DEFINITIONS,
+    adapters: MANIFEST_VALIDATION_ADAPTERS,
+    fixtureRoot: FIXTURE_ROOT,
+  })
+const delta = () => generateSeedDelta(manifest)
+const legacyEntries = () => manifest.entries.filter((e) => e.legacySeed)
+const newEntries = () => manifest.entries.filter((e) => !e.legacySeed)
 
 let pool: Pool
 let client: PoolClient
@@ -57,9 +71,9 @@ const byManifestId = async (id: string) =>
   (await client.query('SELECT * FROM job_sources WHERE manifest_id = $1', [id])).rows[0] as
     Record<string, unknown> | undefined
 
-const applySeedThenDelta = async (delta = DELTA) => {
+const applySeedThenDelta = async (sql = delta()) => {
   await client.query(LEGACY_SEED)
-  await client.query(delta)
+  await client.query(sql)
 }
 
 describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Postgres', () => {
@@ -74,6 +88,7 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
     await pool.end()
   })
   beforeEach(async () => {
+    built = undefined
     client = await pool.connect()
     await client.query('BEGIN')
   })
@@ -134,15 +149,17 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
     // The legacy entries CLAIMED the 15 rows the seed inserted (none was inserted a second time);
     // the other 19 are new, and Working Nomads (a seeded row with no entry) is the 16th seeded row.
     const after = (await rowsOf()).length
-    expect(LEGACY_ENTRIES).toHaveLength(15)
-    expect(after - before).toBe(16 + NEW_ENTRIES.length)
-    expect(NEW_ENTRIES).toHaveLength(19)
+    expect(legacyEntries()).toHaveLength(15)
+    expect(after - before).toBe(16 + newEntries().length)
+    expect(newEntries()).toHaveLength(19)
   })
 
   it('no row the delta wrote is enabled, and no meter row was created', async () => {
     const meters = (await rowsOf('SELECT * FROM job_account_meters')).length
     await applySeedThenDelta()
-    expect(await rowsOf('SELECT 1 FROM job_sources WHERE enabled')).toEqual([])
+    expect(
+      await rowsOf('SELECT 1 FROM job_sources WHERE manifest_id IS NOT NULL AND enabled'),
+    ).toEqual([])
     expect((await rowsOf('SELECT * FROM job_account_meters')).length).toBe(meters)
   })
 
@@ -158,10 +175,10 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
   it('reapplying the delta leaves every row byte-identical, including updated_at', async () => {
     await applySeedThenDelta()
     const once = await snapshot()
-    await client.query(DELTA)
+    await client.query(delta())
     const twice = await snapshot()
     expect(twice).toEqual(once)
-    await client.query(DELTA)
+    await client.query(delta())
     expect(await snapshot()).toEqual(once)
   })
 
@@ -181,7 +198,7 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
     const idOfRetired = (await byManifestId('wwr.rss.devops'))!['id']
     const adminTouched = await snapshot()
 
-    await client.query(DELTA)
+    await client.query(delta())
 
     expect(await snapshot()).toEqual(adminTouched)
     expect((await rowsOf()).length).toBe(count)
@@ -201,7 +218,7 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
     await client.query(
       `UPDATE job_sources SET enabled = true, budget_used = 3 WHERE type = 'REMOTEOK_API'`,
     )
-    await client.query(DELTA)
+    await client.query(delta())
     const row = (await rowsOf(`SELECT * FROM job_sources WHERE type = 'REMOTEOK_API'`))[0]!
     expect([row['enabled'], row['budget_used'], row['manifest_id']]).toEqual([
       true,
@@ -215,7 +232,7 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
     await client.query(
       `UPDATE job_sources SET readiness = 'VERIFIED' WHERE type IN ('REMOTEOK_API', 'REMOTIVE_API')`,
     )
-    await client.query(DELTA)
+    await client.query(delta())
     const readiness = async (id: string) => (await byManifestId(id))!['readiness']
     expect(await readiness('remoteok.api.latest')).toBe('VERIFIED') // manifest: CANDIDATE
     expect(await readiness('remotive.api.devops')).toBe('BLOCKED') // manifest: BLOCKED wins
@@ -243,7 +260,7 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
     // Reapplying the revision is a no-op, and so is reapplying the ORIGINAL (it is lower).
     const settled = await snapshot()
     await client.query(revisedDelta)
-    await client.query(DELTA)
+    await client.query(delta())
     expect(await snapshot()).toEqual(settled)
   })
 
@@ -268,13 +285,13 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
     await client.query(
       `INSERT INTO job_sources (type, config) VALUES ('HIMALAYAS_API', '{}'::jsonb)`,
     )
-    await expect(client.query(DELTA)).rejects.toThrow(/himalayas\.api\.browse/)
+    await expect(client.query(delta())).rejects.toThrow(/himalayas\.api\.browse/)
   })
 
   it('the committed file, when present, is what the generator produces (drift)', async () => {
     const { manual, staged } = seedDeltaLocations(DRIZZLE)
     const committed = readFileSync(existsSync(manual) ? manual : staged, 'utf8')
-    expect(committed).toBe(DELTA)
+    expect(committed).toBe(delta())
     expect(SEED_DELTA_FILE).toMatch(/\.sql$/)
   })
 })

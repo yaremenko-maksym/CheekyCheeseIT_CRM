@@ -159,7 +159,10 @@ export function generateSeedDelta(manifest: Manifest, clock: Date = SEED_CLOCK):
 -- start, which nobody holds for a key nobody has.
 --
 -- How to apply (the deploy wires this file; see the DevOps note in the PR):
---   psql -v ON_ERROR_STOP=1 < <this file>
+--   psql -v ON_ERROR_STOP=1 --single-transaction < <this file>
+-- --single-transaction is REQUIRED, not a nicety: without it each statement commits on its own, and the
+-- step 3b RAISE (an unmanaged row blocked an insert) would leave steps 1-3 committed and step 4 never
+-- run, a half-applied delta behind a loud failure. In one transaction the RAISE rolls everything back.
 
 DROP TABLE IF EXISTS pg_temp._jsm_doc;
 DROP TABLE IF EXISTS pg_temp._jsm_sources;
