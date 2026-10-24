@@ -67,6 +67,16 @@ const DEV_S3_SECRET_ACCESS_KEY = 'crmdevsecretkey'
 const isDevCredentialMatch = (value: string, devValue: string): boolean =>
   value.trim().toLowerCase() === devValue
 
+/**
+ * An optional secret where a blank value (`KEY=` left in a .env, or whitespace) means ABSENT —
+ * the same hole `JOB_MATCH_THRESHOLD`'s preprocess closes, applied to a credential.
+ */
+const optionalSecret = () =>
+  z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    z.string().min(1).optional(),
+  )
+
 const envSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
@@ -291,6 +301,17 @@ const envSchema = z
     LOCAL_MODEL_KEY: z.string().min(1).optional(),
     LOCAL_MODEL_NAME: z.string().min(1).optional(),
     INFERENCE_EXTRACTION_PROVIDER: z.enum(['local', 'openrouter']).optional(),
+
+    // Vacancy-sourcing quota providers (r5 Task 3.5). All optional, no default: an absent OR
+    // blank key leaves that provider unconfigured, never fails boot and never yields an empty
+    // credential. The Muse needs no key. Each is its OWN credential — never derived from
+    // CLOUDFLARE_* (C-21). Read only by `job-sourcing/quota-credentials.ts`, which also hands
+    // the value to `CollectionContext.secrets` for redaction.
+    JOOBLE_API_KEY: optionalSecret(),
+    /** RapidAPI key for JSearch. */
+    RAPIDAPI_KEY: optionalSecret(),
+    THEIRSTACK_API_KEY: optionalSecret(),
+    REED_API_KEY: optionalSecret(),
 
     // task-vacancy-matching §3 — the stack-match score below which a suggestion
     // is COLLAPSED (still counted, still one click away; never discarded).
