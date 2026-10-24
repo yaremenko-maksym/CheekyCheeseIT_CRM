@@ -3,6 +3,15 @@
 // redact personal data inside string values -> JSON.stringify -> prettier. Never a byte cut.
 // Usage: node trim-captures-3.2.mjs <termsCheckedAt-ISO>
 // `rawSha256` is the sha256 of the bytes as RECEIVED (the decompressed capture).
+//
+// RAW CAPTURES THAT CARRY COMMENT OR OTHER USER-SUBMITTED TEXT ARE NEVER COMMITTED (task 3.1's
+// script says the same of its captures). The first version of this directory committed the three
+// Hacker News thread captures, which hold 462 other people's e-mail addresses, to a public
+// repository (PR #1120): the trimmed fixtures were redacted and scanned, the raw directory sat
+// outside every check. `fixture-pii-scan.spec.ts` now scans the whole tree and fails on any
+// address. Consequently the three hn-hiring thread fixtures below are NOT reproducible from the
+// repository: capture the threads again into raw-captures-3.2/ (locally, uncommitted), run this
+// script, and delete the raw files before committing. Their provenance files record the hashes.
 import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
