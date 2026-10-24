@@ -5060,6 +5060,26 @@ quirk are written that way.
 suite's result with the gate's report. If they agree, the quirk is gone and every suppression citing
 it can be deleted.
 
+## 314. Readiness is stated in two places, and nothing reconciles them (2026-10-24)
+
+**Open.** Introduced with the first four JSON source adapters, deliberately, as the lesser of two evils.
+
+A source's readiness — whether we are permitted to collect from it — is recorded in its fixture's provenance
+file, as the `permission` field with its evidence. One adapter now also carries a readiness constant in its
+provider module, because a provider that reads as fully live while a JSON field alone calls it blocked is a
+source that goes live by omission.
+
+Two statements of one fact are only safe while something reconciles them. Today one spec asserts that the
+constant's permission equals the provenance's, which covers that pair and nothing else: a second adapter
+adding its own constant inherits no such check, and the fields the provenance has no counterpart for are
+pinned by literals rather than derived. The manifest task is where the reconciliation belongs — it must fail
+the manifest build when a constant and its provenance disagree, rather than preferring either — and until
+that exists, the enforcement is a spec per adapter that someone has to remember to write.
+
+**Check on closing:** flip a provenance `permission` to UNCLEAR for a source that also has a readiness
+constant, and the build fails rather than the entry quietly staying ready. If the only thing that fails is
+one hand-written spec, the reconciliation does not exist yet.
+
 ## 315. A Stryker directive inside a method chain is silently not honoured (2026-10-24)
 
 **Open** — a tooling fact with no mechanism behind it, so it will be rediscovered unless it is written
