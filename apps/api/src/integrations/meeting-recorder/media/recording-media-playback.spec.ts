@@ -127,6 +127,17 @@ describe('bearer recording media playback', () => {
     await expect(
       pending.service.playback(artifact.connectionId, `media_${artifact.id}`),
     ).rejects.toMatchObject({ status: 409, response: { code: 'MEDIA_NOT_READY' } })
+
+    for (const status of ['purging', 'purged'] as const) {
+      const purged = setupBearer({ ...artifact, status })
+      await expect(
+        purged.service.playback(artifact.connectionId, `media_${artifact.id}`),
+      ).rejects.toMatchObject({
+        status: 410,
+        response: { code: 'MEDIA_RECORDING_PURGED' },
+      })
+      expect(purged.playback).not.toHaveBeenCalled()
+    }
   })
 
   it('rejects malformed and missing bearer artifact ids with the stable not-found code', async () => {

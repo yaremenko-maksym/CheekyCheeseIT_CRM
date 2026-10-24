@@ -7732,6 +7732,10 @@ msgstr "Контакт HR"
 msgid "Активні"
 msgstr "Активні"
 
+#: apps/web/app/routes/_authenticated/interviews/constants.ts
+msgid "Запис мікрофона"
+msgstr "Запис мікрофона"
+
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "Виплачено за місяць"
 msgstr "Виплачено за місяць"
@@ -9642,6 +9646,10 @@ msgstr "Шаблон не налаштовано"
 msgid "Далі"
 msgstr "Далі"
 
+#: apps/web/app/routes/_authenticated/interviews/constants.ts
+msgid "Відео з камери"
+msgstr "Відео з камери"
+
 #: apps/web/app/components/onboarding/SignContractStep.tsx
 #: apps/web/app/components/onboarding/SignContractStep.tsx
 msgid "Юридичне ПІБ ще не заповнено — напишіть адміністратору, і підписання відкриється одразу після цього"
@@ -11317,6 +11325,10 @@ msgstr "Google for Jobs (необов’язково)"
 #: apps/web/app/routes/_authenticated/onboarding/index.tsx
 msgid "Підписати контракт"
 msgstr "Підписати контракт"
+
+#: apps/web/app/routes/_authenticated/interviews/constants.ts
+msgid "Запис вкладки"
+msgstr "Запис вкладки"
 
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 msgid "Податок на дивіденди"

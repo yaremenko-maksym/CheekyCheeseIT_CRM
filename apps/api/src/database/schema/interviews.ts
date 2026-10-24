@@ -190,8 +190,9 @@ export const recordingMediaArtifacts = pgTable(
     check('ck_recording_media_artifact_bytes', sql`${t.bytes} > 0`),
     check(
       'ck_recording_media_artifact_status',
-      sql`${t.status} IN ('uploading', 'completing', 'ready', 'failed')`,
+      sql`${t.status} IN ('uploading', 'completing', 'ready', 'failed', 'purging', 'purged')`,
     ),
+    index('idx_recording_media_artifact_purge').on(t.status),
   ],
 )
 
@@ -285,6 +286,7 @@ export const interviewRecordings = pgTable(
     autoMatchSuppressed: boolean('auto_match_suppressed').notNull().default(false),
     readiness: jsonb('readiness').notNull(),
     snapshot: jsonb('snapshot').notNull(),
+    purgedAt: timestamp('purged_at', { withTimezone: true }),
     linkedByUserId: uuid('linked_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),

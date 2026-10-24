@@ -1,12 +1,14 @@
 import { createHash } from 'node:crypto'
-import { Injectable, Logger } from '@nestjs/common'
+import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import { and, eq, gt, inArray, lte, notExists, or } from 'drizzle-orm'
 import { QueryBuilder } from 'drizzle-orm/pg-core'
 
 import { DatabaseService } from '../../../database/database.service'
 import { recordingMediaArtifacts, recordingMediaUploads } from '../../../database/schema'
+import { RECORDING_MEDIA_COMPLETION_LEASE_MS } from './recording-media-constants'
 import { RecordingMediaStorageService } from './recording-media-storage.service'
+import { RecordingMediaUploadService } from './recording-media-upload.service'
 
 const RECONCILIATION_GRACE_MS = 48 * 60 * 60 * 1000
 const REPORT_BATCH_SIZE = 400
@@ -39,6 +41,7 @@ export class RecordingMediaReconciliationService {
   constructor(
     private readonly db: DatabaseService,
     private readonly storage: RecordingMediaStorageService,
+    private readonly uploads: RecordingMediaUploadService,
   ) {}
 
   @Cron('30 4 * * *')
@@ -61,8 +64,32 @@ export class RecordingMediaReconciliationService {
     }
   }
 
+  @Cron('*/5 * * * *')
+  async sweepExpiredCompletionsOnSchedule(): Promise<void> {
+    try {
+      await this.sweepExpiredCompletions()
+    } catch (error) {
+      this.logger.error(
+        'Meeting Recorder expired-completion sweep failed; will retry',
+        error instanceof Error ? error.stack : String(error),
+      )
+    }
+  }
+
+  /**
+   * Fast DB/HEAD-only convergence for the two-minute completion lease. Keep
+   * bucket-wide multipart/object enumeration on the daily reconciliation pass.
+   */
+  async sweepExpiredCompletions(now: Date = new Date()): Promise<void> {
+    const completionCutoff = new Date(now.getTime() - RECORDING_MEDIA_COMPLETION_LEASE_MS)
+    await this.recoverExpiredCompletions(completionCutoff)
+    await this.failArtifactsWithoutLiveAttempts(now, completionCutoff)
+  }
+
   async reconcile(now: Date = new Date(), dryRun = false): Promise<ReconciliationResult> {
     const graceCutoff = new Date(now.getTime() - RECONCILIATION_GRACE_MS)
+    const completionCutoff = new Date(now.getTime() - RECORDING_MEDIA_COMPLETION_LEASE_MS)
+    if (!dryRun) await this.sweepExpiredCompletions(now)
     const open = await this.storage.listOpenMediaUploads()
     let stale = 0
     let aborted = 0
@@ -71,7 +98,6 @@ export class RecordingMediaReconciliationService {
     // already removed. Converge quota-bearing artifact state directly from
     // durable DB lifecycle as well, so provider-side disappearance cannot
     // leave an abandoned artifact reserving connection quota forever.
-    if (!dryRun) await this.failArtifactsWithoutLiveAttempts(now, graceCutoff)
     // Bound query parameter count for large buckets; do not scan unrelated document tables.
     for (let offset = 0; offset < open.length; offset += REPORT_BATCH_SIZE) {
       const batch = open.slice(offset, offset + REPORT_BATCH_SIZE)
@@ -93,11 +119,14 @@ export class RecordingMediaReconciliationService {
         )
       const known = new Map(attempts.map((a) => [`${a.storageKey}\u0000${a.storageUploadId}`, a]))
       for (const upload of batch) {
-        if (upload.initiatedAt >= graceCutoff) continue
         const attempt = known.get(`${upload.key}\u0000${upload.uploadId}`)
+        // The long grace protects only provider uploads that may have been
+        // created immediately before their DB attempt commits. Once an attempt
+        // exists, its upload/completion lifecycle deadlines are authoritative.
+        if (!attempt && upload.initiatedAt >= graceCutoff) continue
         // Preserve live 6-day transfers even when the provider created them >48h ago.
         if (attempt?.status === 'uploading' && attempt.expiresAt > now) continue
-        if (attempt?.status === 'completing' && attempt.updatedAt > graceCutoff) continue
+        if (attempt?.status === 'completing' && attempt.updatedAt > completionCutoff) continue
         // A ready row is durable evidence that this provider state should not be mutated by cleanup.
         if (attempt?.status === 'ready') continue
         stale++
@@ -116,7 +145,7 @@ export class RecordingMediaReconciliationService {
                     ),
                     and(
                       eq(recordingMediaUploads.status, 'completing'),
-                      lte(recordingMediaUploads.updatedAt, graceCutoff),
+                      lte(recordingMediaUploads.updatedAt, completionCutoff),
                     ),
                     eq(recordingMediaUploads.status, 'expired'),
                     eq(recordingMediaUploads.status, 'aborted'),
@@ -133,7 +162,7 @@ export class RecordingMediaReconciliationService {
         }
       }
     }
-    const orphanReport = await this.reportCompletedOrphans(now, graceCutoff)
+    const orphanReport = await this.reportCompletedOrphans(now, graceCutoff, completionCutoff)
     return {
       scanned: open.length,
       stale,
@@ -143,9 +172,50 @@ export class RecordingMediaReconciliationService {
     }
   }
 
+  /**
+   * A completion reply can be lost after R2 has already assembled the object.
+   * Reuse the upload service's authoritative HEAD + lifecycle-lock recovery path
+   * before stale rows are expired and their quota reservation is released.
+   */
+  private async recoverExpiredCompletions(completionCutoff: Date): Promise<void> {
+    const candidates = await this.db.db
+      .select({
+        id: recordingMediaUploads.id,
+        connectionId: recordingMediaArtifacts.connectionId,
+      })
+      .from(recordingMediaUploads)
+      .innerJoin(
+        recordingMediaArtifacts,
+        eq(recordingMediaUploads.artifactId, recordingMediaArtifacts.id),
+      )
+      .where(
+        and(
+          eq(recordingMediaUploads.status, 'completing'),
+          lte(recordingMediaUploads.updatedAt, completionCutoff),
+        ),
+      )
+
+    for (const candidate of candidates) {
+      try {
+        await this.uploads.status(candidate.connectionId, `upload_${candidate.id}`)
+      } catch (error: unknown) {
+        if (
+          error instanceof HttpException &&
+          [HttpStatus.NOT_FOUND, HttpStatus.CONFLICT, HttpStatus.GONE].includes(error.getStatus())
+        ) {
+          // Missing object/attempt, a concurrently renewed completion lease, or
+          // a purge/disable race are terminal lifecycle outcomes for this pass.
+          continue
+        }
+        throw error
+      }
+    }
+  }
+
   private async reportCompletedOrphans(
     now: Date,
     graceCutoff: Date,
+    completionCutoff: Date,
   ): Promise<Pick<ReconciliationResult, 'objectsScanned' | 'orphanObjects' | 'orphanSample'>> {
     const objects = await this.storage.listMediaObjects()
     const candidates = objects.filter((object) => object.lastModified < graceCutoff)
@@ -179,7 +249,7 @@ export class RecordingMediaReconciliationService {
                 ),
                 and(
                   eq(recordingMediaUploads.status, 'completing'),
-                  gt(recordingMediaUploads.updatedAt, graceCutoff),
+                  gt(recordingMediaUploads.updatedAt, completionCutoff),
                 ),
               ),
             ),
@@ -217,7 +287,7 @@ export class RecordingMediaReconciliationService {
    * and then observe its committed attempt) or waits for this transaction and
    * subsequently revives the artifact itself.
    */
-  private async failArtifactsWithoutLiveAttempts(now: Date, graceCutoff: Date): Promise<void> {
+  private async failArtifactsWithoutLiveAttempts(now: Date, completionCutoff: Date): Promise<void> {
     const liveAttempt = new QueryBuilder()
       .select({ id: recordingMediaUploads.id })
       .from(recordingMediaUploads)
@@ -232,7 +302,7 @@ export class RecordingMediaReconciliationService {
             ),
             and(
               eq(recordingMediaUploads.status, 'completing'),
-              gt(recordingMediaUploads.updatedAt, graceCutoff),
+              gt(recordingMediaUploads.updatedAt, completionCutoff),
             ),
           ),
         ),
@@ -272,7 +342,7 @@ export class RecordingMediaReconciliationService {
                 ),
                 and(
                   eq(recordingMediaUploads.status, 'completing'),
-                  gt(recordingMediaUploads.updatedAt, graceCutoff),
+                  gt(recordingMediaUploads.updatedAt, completionCutoff),
                 ),
               ),
             ),
@@ -297,7 +367,7 @@ export class RecordingMediaReconciliationService {
                 ),
                 and(
                   eq(recordingMediaUploads.status, 'completing'),
-                  lte(recordingMediaUploads.updatedAt, graceCutoff),
+                  lte(recordingMediaUploads.updatedAt, completionCutoff),
                 ),
               ),
             ),

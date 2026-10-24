@@ -213,13 +213,13 @@ const envSchema = z
       .number()
       .int()
       .min(1)
-      .max(7 * 24 * 60 * 60)
+      .max(15 * 60)
       .optional(),
     MEETING_RECORDER_MEDIA_PLAYBACK_URL_TTL_SECONDS: z.coerce
       .number()
       .int()
       .min(1)
-      .max(7 * 24 * 60 * 60)
+      .max(30 * 60)
       .optional(),
     MEETING_RECORDER_MEDIA_UPLOAD_LIFETIME_MS: z.coerce
       .number()

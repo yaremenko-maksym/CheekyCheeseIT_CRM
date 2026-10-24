@@ -338,11 +338,13 @@ check_header_contains "CRM: CSP font-src allows fonts.gstatic.com" \
 # URLs (cross-origin) via fetch (connect-src), <iframe> (frame-src), and
 # <object> (object-src) — see apps/web/app/hooks/use-document-blob.ts,
 # apps/web/app/components/invoices/invoice-detail-dialog.tsx,
-# apps/web/.../finance/components/dialogs/receipt-panel.tsx. Verified live
-# in a real Chromium instance (PR #429 body) that the pre-fix policy
-# genuinely blocked all three and the fixed policy genuinely does not.
+# apps/web/.../finance/components/dialogs/receipt-panel.tsx. Meeting-recorder
+# playback also uses presigned R2 URLs through HTML media elements, which is
+# governed separately by media-src (PR #869 CR-M-3).
 check_header_contains "HIGH-1: CRM CSP connect-src allows R2 (*.r2.cloudflarestorage.com)" \
   "/" "$CRM_HOST" "$CRM_CSP_HEADER" "connect-src 'self' https://*.r2.cloudflarestorage.com"
+check_header_contains "CR-M-3: CRM CSP media-src allows R2 (*.r2.cloudflarestorage.com)" \
+  "/" "$CRM_HOST" "$CRM_CSP_HEADER" "media-src 'self' https://*.r2.cloudflarestorage.com"
 check_header_contains "HIGH-1: CRM CSP frame-src allows R2 (*.r2.cloudflarestorage.com)" \
   "/" "$CRM_HOST" "$CRM_CSP_HEADER" "frame-src 'self' blob: https://*.r2.cloudflarestorage.com"
 check_header_contains "HIGH-1: CRM CSP object-src allows R2 (*.r2.cloudflarestorage.com)" \

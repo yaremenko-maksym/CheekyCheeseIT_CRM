@@ -35,9 +35,14 @@ const mediaMigration = readFileSync(
   join(__dirname, '../../drizzle/manual/2026-10-08_meeting_recorder_media.sql'),
   'utf8',
 )
+const mediaPurgeMigration = readFileSync(
+  join(__dirname, '../../drizzle/manual/2026-10-24_meeting_recorder_media_purge.sql'),
+  'utf8',
+)
 const migration = [
   phase1Migration,
   mediaMigration,
+  mediaPurgeMigration,
   readFileSync(
     join(__dirname, '../../drizzle/manual/2026-10-22_interviews_call_meet_code.sql'),
     'utf8',
@@ -156,6 +161,8 @@ describe('meeting recorder database foundation', () => {
 
     expect(column('revision').getSQLType()).toBe('bigint')
     expect(column('duration_ms').getSQLType()).toBe('double precision')
+    expect(column('purged_at').notNull).toBe(false)
+    expect(mediaPurgeMigration).toContain('purged_at')
 
     const unmatched = config.indexes.find(
       (item) => item.config.name === 'idx_interview_recordings_unmatched_created_at',
@@ -412,9 +419,10 @@ describe('meeting recorder database foundation', () => {
     for (const table of [recordingMediaArtifacts, recordingMediaUploads]) {
       const config = getTableConfig(table)
       expect(mediaMigration).toContain(`CREATE TABLE IF NOT EXISTS ${config.name}`)
-      for (const column of config.columns) expect(mediaMigration).toContain(column.name)
-      for (const index of config.indexes) expect(mediaMigration).toContain(index.config.name)
-      for (const constraint of config.checks) expect(mediaMigration).toContain(constraint.name)
+      const mediaMigrationChain = `${mediaMigration}\n${mediaPurgeMigration}`
+      for (const column of config.columns) expect(mediaMigrationChain).toContain(column.name)
+      for (const index of config.indexes) expect(mediaMigrationChain).toContain(index.config.name)
+      for (const constraint of config.checks) expect(mediaMigrationChain).toContain(constraint.name)
     }
 
     const artifacts = getTableConfig(recordingMediaArtifacts)
@@ -434,6 +442,7 @@ describe('meeting recorder database foundation', () => {
       'completed_at',
     ])
     expect(artifacts.indexes.map((index) => index.config.name).sort()).toEqual([
+      'idx_recording_media_artifact_purge',
       'idx_recording_media_artifact_recording',
       'uq_recording_media_artifact_connection_transfer',
     ])
@@ -464,8 +473,9 @@ describe('meeting recorder database foundation', () => {
     )
     expect(normalizedSql(artifactBytesCheck!.value)).toBe('recording_media_artifacts.bytes > 0')
     expect(normalizedSql(artifactStatusCheck!.value)).toBe(
-      "recording_media_artifacts.status IN ('uploading', 'completing', 'ready', 'failed')",
+      "recording_media_artifacts.status IN ('uploading', 'completing', 'ready', 'failed', 'purging', 'purged')",
     )
+    expect(mediaPurgeMigration).toContain('ck_recording_media_artifact_status')
 
     const uploads = getTableConfig(recordingMediaUploads)
     expect(uploads.columns.map((column) => column.name)).toEqual([

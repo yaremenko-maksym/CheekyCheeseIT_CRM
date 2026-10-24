@@ -1947,6 +1947,29 @@ docker compose \
   < "$MEETING_RECORDER_MEDIA_FILE"
 echo "==> meeting recorder media DDL applied successfully"
 
+# ── meeting recorder media purge state (PR #869; idempotent, rollback-safe) ──
+# Source: apps/api/drizzle/manual/2026-10-24_meeting_recorder_media_purge.sql
+# copy-compose checks for this file in the rollback-target checkout before SCP.
+# A rollback target predating PR #869 therefore legitimately leaves it absent;
+# notice-skip that case instead of turning an older target into a deep deploy
+# failure. On current deploys the file is present, copied, and applied here
+# immediately after the base 2026-10-08 meeting-recorder media migration.
+MEETING_RECORDER_MEDIA_PURGE_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-24_meeting_recorder_media_purge.sql"
+
+if [ ! -f "$MEETING_RECORDER_MEDIA_PURGE_FILE" ]; then
+  echo "::notice::Meeting recorder media purge DDL file not found at $MEETING_RECORDER_MEDIA_PURGE_FILE — rollback target predates PR #869 purge state. Skipping this step."
+else
+  echo "==> Applying meeting recorder media purge DDL (idempotent) — user=${PGUSER} db=${PGDB}"
+  docker compose \
+    -f docker-compose.prod.yml \
+    -f docker-compose.ghcr.yml \
+    --env-file .env.production \
+    exec -T postgres \
+    psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+    < "$MEETING_RECORDER_MEDIA_PURGE_FILE"
+  echo "==> meeting recorder media purge DDL applied successfully"
+fi
+
 # ── multipart salary: PREPARE while the previous API may still serve ──
 # Applied here, BEFORE the privilege grants below, so the relation it creates
 # (salary_month_initializations) is covered by them on a fresh database.

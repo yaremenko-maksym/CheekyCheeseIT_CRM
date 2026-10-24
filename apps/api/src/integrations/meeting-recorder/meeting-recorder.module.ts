@@ -16,6 +16,7 @@ import { MeetingRecorderSecretCryptoService } from './meeting-recorder-secret-cr
 import { MeetingRecorderWebhookVerifier } from './meeting-recorder-webhook-verifier'
 import { MeetingRecorderService } from './meeting-recorder.service'
 import { RecordingMediaAuthService } from './media/recording-media-auth.service'
+import { RecordingMediaPurgeService } from './media/recording-media-purge.service'
 import { RecordingMediaStorageService } from './media/recording-media-storage.service'
 import { RecordingMediaUploadService } from './media/recording-media-upload.service'
 import { RecordingMediaController } from './media/recording-media.controller'
@@ -41,6 +42,7 @@ import {
     MeetingRecorderMatcher,
     MeetingRecorderRetentionCronService,
     RecordingMediaAuthService,
+    RecordingMediaPurgeService,
     RecordingMediaAuthenticationGuard,
     RecordingMediaConnectionThrottlerGuard,
     RecordingMediaStorageService,

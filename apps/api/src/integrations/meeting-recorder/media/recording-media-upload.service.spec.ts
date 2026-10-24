@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto'
-import { GoneException, HttpException } from '@nestjs/common'
+import { GoneException } from '@nestjs/common'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
+  interviewRecordings,
   meetingRecorderConnections,
   recordingMediaArtifacts,
   recordingMediaUploads,
@@ -170,7 +171,7 @@ function fixture(
         }
       }),
       update,
-      transaction: vi.fn((callback: (tx: typeof tx) => Promise<unknown>) => callback(tx)),
+      transaction: vi.fn((callback: (transaction: typeof tx) => Promise<unknown>) => callback(tx)),
     },
   }
   return {
@@ -208,13 +209,14 @@ function createFixture(
     connection?: { enabled: boolean } | null
     existing?: Record<string, unknown> | null
     latest?: Record<string, unknown> | null
-    quotaBytes?: string
+    quotaBytes?: string | null
     activeCount?: number | null
     providerUploadId?: string
     attemptReturned?: boolean
     uploadLifetimeMs?: number
     head?: { bytes: number; mimeType: string } | null
     abortFails?: boolean
+    recordingPurgedAt?: Date | null
   } = {},
 ) {
   const selections: Array<{ table: unknown; selection: Record<string, unknown> | undefined }> = []
@@ -243,6 +245,19 @@ function createFixture(
             where: (filter: unknown) => {
               filters.push({ table, filter })
               return { for: connectionLock }
+            },
+          }
+        }
+        if (table === interviewRecordings) {
+          return {
+            where: (filter: unknown) => {
+              filters.push({ table, filter })
+              return {
+                limit: async () =>
+                  options.recordingPurgedAt === undefined
+                    ? []
+                    : [{ purgedAt: options.recordingPurgedAt }],
+              }
             },
           }
         }
@@ -349,6 +364,18 @@ function createFixture(
 }
 
 describe('CRM media upload create contract', () => {
+  it('SPEC-M-1: rejects creation for a tombstoned recording before provider allocation', async () => {
+    const { service, begin } = createFixture({
+      recordingPurgedAt: new Date('2026-10-24T12:00:00.000Z'),
+    })
+
+    await expect(service.create(artifact.connectionId, validCreateInput)).rejects.toMatchObject({
+      status: 410,
+      response: { code: 'MEDIA_RECORDING_PURGED' },
+    })
+    expect(begin).not.toHaveBeenCalled()
+  })
+
   it.each([
     [{}, 'missing fields'],
     [{ ...validCreateInput, clientTransferId: '!transfer' }, 'invalid transfer prefix'],
@@ -359,7 +386,7 @@ describe('CRM media upload create contract', () => {
       { ...validCreateInput, artifact: { ...validCreateInput.artifact, role: 'unknown' } },
       'invalid role',
     ],
-  ])('rejects an invalid create request (%s: %s)', async (body) => {
+  ])('rejects an invalid create request (%s: %s)', async (body, _case) => {
     const { service, begin } = createFixture()
     await expect(service.create(artifact.connectionId, body)).rejects.toMatchObject({
       status: 422,
@@ -465,14 +492,17 @@ describe('CRM media upload create contract', () => {
   it.each([
     [null, 'missing'],
     [{ enabled: false }, 'disabled'],
-  ] as const)('rejects a %s connection under the create lifecycle lock', async (connection) => {
-    const { service, begin } = createFixture({ connection })
-    await expect(service.create(artifact.connectionId, validCreateInput)).rejects.toMatchObject({
-      status: 410,
-      response: { code: 'MEDIA_CONNECTION_DISABLED' },
-    })
-    expect(begin).not.toHaveBeenCalled()
-  })
+  ] as const)(
+    'rejects a %s connection under the create lifecycle lock',
+    async (connection, _case) => {
+      const { service, begin } = createFixture({ connection })
+      await expect(service.create(artifact.connectionId, validCreateInput)).rejects.toMatchObject({
+        status: 410,
+        response: { code: 'MEDIA_CONNECTION_DISABLED' },
+      })
+      expect(begin).not.toHaveBeenCalled()
+    },
+  )
 
   it('creates a new multipart attempt with exact persisted/provider contract and default lifetime', async () => {
     vi.useFakeTimers()
@@ -494,6 +524,7 @@ describe('CRM media upload create contract', () => {
         partSize: 32 * 1024 * 1024,
         maxConcurrency: 3,
       })
+      if (result.state !== 'uploading') throw new Error('Expected uploading create result')
       expect(result.artifactId).toMatch(/^media_[0-9a-f-]{36}$/)
       expect(result.uploadId).toMatch(/^upload_[0-9a-f-]{36}$/)
 
@@ -526,7 +557,10 @@ describe('CRM media upload create contract', () => {
       const artifactFilters = filters.filter((entry) => entry.table === recordingMediaArtifacts)
       const quotaQuery = new PgDialect().sqlToQuery(artifactFilters.at(-1)!.filter as never)
       expect(quotaQuery.params).toContain(artifact.connectionId)
-      expect(quotaQuery.sql).toContain('"status" != \'failed\'')
+      expect(quotaQuery.params).toEqual(
+        expect.arrayContaining(['uploading', 'completing', 'ready']),
+      )
+      expect(quotaQuery.params).not.toEqual(expect.arrayContaining(['failed', 'purging', 'purged']))
 
       const artifactInsert = inserts.find((entry) => entry.table === recordingMediaArtifacts)!
       expect(artifactInsert.values).toMatchObject({
@@ -917,6 +951,27 @@ describe('CRM media upload lifecycle contract', () => {
     ).rejects.toMatchObject({ status: 403, response: { code: 'MEDIA_FORBIDDEN' } })
   })
 
+  it.each(['purging', 'purged'] as const)(
+    'SPEC-M-1: rejects status/sign operations for a %s artifact',
+    async (status) => {
+      const blocked = fixture({ artifactOverrides: { status } })
+
+      await expect(
+        blocked.service.status(artifact.connectionId, `upload_${upload.id}`),
+      ).rejects.toMatchObject({
+        status: 410,
+        response: { code: 'MEDIA_RECORDING_PURGED' },
+      })
+      await expect(
+        blocked.service.signPart(artifact.connectionId, `upload_${upload.id}`, 1),
+      ).rejects.toMatchObject({
+        status: 410,
+        response: { code: 'MEDIA_RECORDING_PURGED' },
+      })
+      expect(blocked.provider.signPart).not.toHaveBeenCalled()
+    },
+  )
+
   it('selects the exact artifact/upload attempt projection and join/filter identity', async () => {
     const { service, dbSelections, dbFilters, joinFilters } = fixture()
     await service.status(artifact.connectionId, `upload_${upload.id}`)
@@ -1011,10 +1066,21 @@ describe('CRM media upload lifecycle contract', () => {
     await expect(
       service.signPart(artifact.connectionId, `upload_${upload.id}`, 2),
     ).resolves.toEqual({ method: 'PUT', url: 'https://upload.example.test' })
-    expect(provider.signPart).toHaveBeenCalledWith(artifact.storageKey, upload.storageUploadId, 2)
+    expect(provider.signPart).toHaveBeenCalledWith(
+      artifact.storageKey,
+      upload.storageUploadId,
+      2,
+      1,
+    )
     await expect(
       service.signPart(artifact.connectionId, `upload_${upload.id}`, 1),
     ).resolves.toEqual({ method: 'PUT', url: 'https://upload.example.test' })
+    expect(provider.signPart).toHaveBeenCalledWith(
+      artifact.storageKey,
+      upload.storageUploadId,
+      1,
+      32 * 1024 * 1024,
+    )
 
     for (const invalid of [0, 3, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
       await expect(
@@ -1140,6 +1206,26 @@ describe('CRM media upload lifecycle contract', () => {
 describe('CRM media multipart completion contract', () => {
   const onePartBody = { parts: [{ partNumber: 1, etag: 'etag-1' }] }
 
+  it('SPEC-M-1: a purge that wins during completion cannot be resurrected by a late HEAD', async () => {
+    const { service, provider, txUpdateRecords } = fixture({ artifactStatus: 'purging' })
+    provider.head.mockResolvedValue({ bytes: artifact.bytes, mimeType: artifact.mimeType })
+
+    await expect(
+      service.complete(artifact.connectionId, `upload_${upload.id}`, onePartBody),
+    ).rejects.toMatchObject({
+      status: 410,
+      response: { code: 'MEDIA_RECORDING_PURGED' },
+    })
+    expect(txUpdateRecords).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          table: recordingMediaArtifacts,
+          values: expect.objectContaining({ status: 'ready' }),
+        }),
+      ]),
+    )
+  })
+
   it('returns an already-ready artifact before parsing or touching provider completion', async () => {
     const { service, provider } = fixture({ artifactOverrides: { status: 'ready' } })
     await expect(
@@ -1163,7 +1249,7 @@ describe('CRM media multipart completion contract', () => {
       },
       'wrong part count',
     ],
-  ])('rejects invalid completion manifests (%s: %s)', async (body) => {
+  ])('rejects invalid completion manifests (%s: %s)', async (body, _case) => {
     const { service, provider } = fixture()
     await expect(
       service.complete(artifact.connectionId, `upload_${upload.id}`, body),
@@ -1386,7 +1472,7 @@ describe('CRM media multipart completion contract', () => {
     [{ id: upload.id, status: 'aborted' }, 'aborted latest attempt'],
   ] as const)(
     'refuses late readiness when lifecycle has moved on (%s: %s)',
-    async (latestAttempt) => {
+    async (latestAttempt, _case) => {
       const { service, provider, txUpdateRecords } = fixture({ latestAttempt })
       provider.head.mockResolvedValue({ bytes: artifact.bytes, mimeType: artifact.mimeType })
       await expect(
@@ -1441,8 +1527,8 @@ describe('CRM media multipart completion contract', () => {
     const quotaFilter = exact.txFilters
       .filter((entry) => entry.table === recordingMediaArtifacts)
       .at(-1)!
-    expect(new PgDialect().sqlToQuery(quotaFilter.filter as never).sql).toContain(
-      '"status" != \'failed\'',
+    expect(new PgDialect().sqlToQuery(quotaFilter.filter as never).params).toEqual(
+      expect.arrayContaining(['uploading', 'completing', 'ready']),
     )
 
     const missingAggregate = fixture({ artifactStatus: 'failed', quotaBytes: null })
@@ -1561,6 +1647,9 @@ describe('CRM media upload recovery', () => {
           if (table === meetingRecorderConnections) {
             return { where: () => ({ for: () => ({ limit: async () => [{ enabled: true }] }) }) }
           }
+          if (table === interviewRecordings) {
+            return { where: () => ({ limit: async () => [] }) }
+          }
           if (table === recordingMediaArtifacts) {
             return { where: () => ({ limit: async () => [] }) }
           }
@@ -1630,6 +1719,9 @@ describe('CRM media upload recovery', () => {
           if (table === meetingRecorderConnections) {
             return { where: () => ({ for: () => ({ limit: async () => [{ enabled: true }] }) }) }
           }
+          if (table === interviewRecordings) {
+            return { where: () => ({ limit: async () => [] }) }
+          }
           if (table === recordingMediaArtifacts) {
             artifactSelects++
             if (artifactSelects === 1) {
@@ -1694,6 +1786,9 @@ describe('CRM media upload recovery', () => {
         from: (table: unknown) => {
           if (table === meetingRecorderConnections) {
             return { where: () => ({ for: () => ({ limit: async () => [{ enabled: true }] }) }) }
+          }
+          if (table === interviewRecordings) {
+            return { where: () => ({ limit: async () => [] }) }
           }
           if (table === recordingMediaArtifacts) {
             artifactSelects++

@@ -1,3 +1,4 @@
+import { ServiceUnavailableException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import { PgDialect } from 'drizzle-orm/pg-core'
 
@@ -7,6 +8,7 @@ import { RecordingMediaReconciliationService } from './recording-media-reconcili
 const now = new Date('2026-10-08T20:00:00Z')
 const old = new Date('2026-09-29T20:00:00Z')
 const fresh = new Date('2026-10-08T19:00:00Z')
+const completionFresh = new Date(now.getTime() - 60_000)
 
 type AttemptRow = {
   id: string
@@ -38,6 +40,7 @@ function fixture(
     artifactFailureCandidates?: string[]
     artifactLiveOnRecheck?: boolean
     lockedArtifactStatus?: string | null
+    completionCandidates?: Array<{ id: string; connectionId: string }>
   } = {},
 ) {
   const attempts = options.attempts ?? []
@@ -49,6 +52,8 @@ function fixture(
     listMediaObjects: vi.fn().mockResolvedValue(objects),
     abort,
   }
+  const status = vi.fn().mockResolvedValue({ state: 'ready' })
+  const uploadService = { status }
 
   let artifactCandidateFilter: unknown
   let artifactReferenceFilter: unknown
@@ -60,38 +65,49 @@ function fixture(
   const attemptFilters: unknown[] = []
   const attemptSelections: Record<string, unknown>[] = []
   const select = vi.fn((selection: Record<string, unknown>) => ({
-    from: (table: unknown) => ({
-      where: vi.fn().mockImplementation((filter: unknown) => {
-        if (table === recordingMediaArtifacts) {
-          if ('id' in selection) {
-            artifactCandidateFilter = filter
+    from: (table: unknown) => {
+      if (table === recordingMediaUploads && 'connectionId' in selection) {
+        return {
+          innerJoin: () => ({
+            where: vi.fn().mockResolvedValue(options.completionCandidates ?? []),
+          }),
+        }
+      }
+      return {
+        where: vi.fn().mockImplementation((filter: unknown) => {
+          if (table === recordingMediaArtifacts) {
+            if ('id' in selection) {
+              artifactCandidateFilter = filter
+              return Promise.resolve(
+                (options.artifactFailureCandidates ?? ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa']).map(
+                  (id) => ({ id }),
+                ),
+              )
+            }
+            artifactReferenceFilter = filter
+            artifactReferenceFilters.push(filter)
+            artifactReferenceSelections.push(selection)
             return Promise.resolve(
-              (options.artifactFailureCandidates ?? ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa']).map(
-                (id) => ({ id }),
-              ),
+              (options.artifactRefs ?? []).map((storageKey) => ({ storageKey })),
             )
           }
-          artifactReferenceFilter = filter
-          artifactReferenceFilters.push(filter)
-          artifactReferenceSelections.push(selection)
-          return Promise.resolve((options.artifactRefs ?? []).map((storageKey) => ({ storageKey })))
-        }
-        if (table === recordingMediaUploads && 'id' in selection) {
-          attemptFilters.push(filter)
-          attemptSelections.push(selection)
-          return Promise.resolve(attempts)
-        }
-        if (table === recordingMediaUploads) {
-          uploadReferenceFilter = filter
-          uploadReferenceFilters.push(filter)
-          uploadReferenceSelections.push(selection)
-          return Promise.resolve(
-            (options.liveAttemptRefs ?? []).map((storageKey) => ({ storageKey })),
-          )
-        }
-        throw new Error('Unexpected reconciliation table')
-      }),
-    }),
+          if (table === recordingMediaUploads && 'id' in selection) {
+            attemptFilters.push(filter)
+            attemptSelections.push(selection)
+            return Promise.resolve(attempts)
+          }
+          if (table === recordingMediaUploads) {
+            uploadReferenceFilter = filter
+            uploadReferenceFilters.push(filter)
+            uploadReferenceSelections.push(selection)
+            return Promise.resolve(
+              (options.liveAttemptRefs ?? []).map((storageKey) => ({ storageKey })),
+            )
+          }
+          throw new Error('Unexpected reconciliation table')
+        }),
+      }
+    },
   }))
   const returning = vi
     .fn()
@@ -157,11 +173,16 @@ function fixture(
       transaction: vi.fn((callback: (transaction: typeof tx) => Promise<unknown>) => callback(tx)),
     },
   }
-  const service = new RecordingMediaReconciliationService(db as never, storage as never)
+  const service = new RecordingMediaReconciliationService(
+    db as never,
+    storage as never,
+    uploadService as never,
+  )
   return {
     service,
     abort,
     storage,
+    status,
     update,
     set,
     updateWhere,
@@ -185,6 +206,70 @@ function fixture(
 }
 
 describe('dedicated media multipart reconciliation', () => {
+  it('CR-M-1: keeps provider enumeration daily and schedules only the lightweight completion sweep every five minutes', () => {
+    expect(
+      Reflect.getMetadata(
+        'SCHEDULE_CRON_OPTIONS',
+        RecordingMediaReconciliationService.prototype.reconcileOnSchedule,
+      ),
+    ).toEqual({ cronTime: '30 4 * * *' })
+    expect(
+      Reflect.getMetadata(
+        'SCHEDULE_CRON_OPTIONS',
+        RecordingMediaReconciliationService.prototype.sweepExpiredCompletionsOnSchedule,
+      ),
+    ).toEqual({ cronTime: '*/5 * * * *' })
+  })
+
+  it('CR-M-1: the five-minute sweep recovers completions and releases stale quota without enumerating R2', async () => {
+    const candidate = {
+      id: '99999999-9999-4999-8999-999999999999',
+      connectionId: '88888888-8888-4888-8888-888888888888',
+    }
+    const { service, status, set, storage, abort } = fixture({
+      completionCandidates: [candidate],
+      artifactFailureCandidates: [],
+    })
+
+    await expect(service.sweepExpiredCompletions(now)).resolves.toBeUndefined()
+    expect(status).toHaveBeenCalledWith(candidate.connectionId, `upload_${candidate.id}`)
+    expect(set).not.toHaveBeenCalledWith({ status: 'failed' })
+    expect(storage.listOpenMediaUploads).not.toHaveBeenCalled()
+    expect(storage.listMediaObjects).not.toHaveBeenCalled()
+    expect(abort).not.toHaveBeenCalled()
+  })
+
+  it('CR-M-1: keeps an expired completion retryable when provider HEAD recovery is unavailable', async () => {
+    const candidate = {
+      id: '99999999-9999-4999-8999-999999999999',
+      connectionId: '88888888-8888-4888-8888-888888888888',
+    }
+    const { service, status, set, storage } = fixture({
+      completionCandidates: [candidate],
+      artifactFailureCandidates: [],
+    })
+    status.mockRejectedValueOnce(new ServiceUnavailableException('MEDIA_STORAGE_UNAVAILABLE'))
+
+    await expect(service.sweepExpiredCompletions(now)).rejects.toMatchObject({ status: 503 })
+    expect(set).not.toHaveBeenCalledWith({ status: 'failed' })
+    expect(storage.listOpenMediaUploads).not.toHaveBeenCalled()
+    expect(storage.listMediaObjects).not.toHaveBeenCalled()
+  })
+
+  it('CR-M-1: the five-minute sweep expires dead attempts and releases artifact quota without bucket scans', async () => {
+    const { service, set, storage, abort } = fixture({
+      completionCandidates: [],
+      artifactFailureCandidates: ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'],
+    })
+
+    await expect(service.sweepExpiredCompletions(now)).resolves.toBeUndefined()
+    expect(set).toHaveBeenCalledWith({ status: 'expired', updatedAt: now })
+    expect(set).toHaveBeenCalledWith({ status: 'failed' })
+    expect(storage.listOpenMediaUploads).not.toHaveBeenCalled()
+    expect(storage.listMediaObjects).not.toHaveBeenCalled()
+    expect(abort).not.toHaveBeenCalled()
+  })
+
   it('preserves live work, tombstones stale DB attempts, and aborts stale provider sessions', async () => {
     const {
       service,
@@ -211,7 +296,7 @@ describe('dedicated media multipart reconciliation', () => {
           storageUploadId: 'completing',
           status: 'completing',
           expiresAt: old,
-          updatedAt: fresh,
+          updatedAt: completionFresh,
         },
         {
           id: '33333333-3333-4333-8333-333333333333',
@@ -327,14 +412,17 @@ describe('dedicated media multipart reconciliation', () => {
   it.each([
     [null, 'missing'],
     ['ready', 'terminal'],
-  ] as const)('preserves a %s artifact after taking the lifecycle lock (%s)', async (status) => {
-    const { service, set } = fixture({
-      uploads: [],
-      lockedArtifactStatus: status,
-    })
-    await expect(service.reconcile(now)).resolves.toMatchObject({ scanned: 0 })
-    expect(set).not.toHaveBeenCalledWith({ status: 'failed' })
-  })
+  ] as const)(
+    'preserves a %s artifact after taking the lifecycle lock (%s)',
+    async (status, _case) => {
+      const { service, set } = fixture({
+        uploads: [],
+        lockedArtifactStatus: status,
+      })
+      await expect(service.reconcile(now)).resolves.toMatchObject({ scanned: 0 })
+      expect(set).not.toHaveBeenCalledWith({ status: 'failed' })
+    },
+  )
 
   it('converges a completing artifact when no live attempt remains after the lock', async () => {
     const { service, set } = fixture({
@@ -375,6 +463,7 @@ describe('dedicated media multipart reconciliation', () => {
 
   it('pins the exact stale/live time boundaries for provider multipart work', async () => {
     const graceCutoff = new Date(now.getTime() - 48 * 60 * 60 * 1000)
+    const completionCutoff = new Date(now.getTime() - 2 * 60 * 1000)
     const uploads = [
       { key: 'meeting-recordings/a/at-grace', uploadId: 'at-grace', initiatedAt: graceCutoff },
       {
@@ -389,13 +478,13 @@ describe('dedicated media multipart reconciliation', () => {
         initiatedAt: old,
       },
       {
-        key: 'meeting-recordings/a/completing-at-grace',
-        uploadId: 'completing-at-grace',
+        key: 'meeting-recordings/a/completing-at-lease',
+        uploadId: 'completing-at-lease',
         initiatedAt: old,
       },
       {
-        key: 'meeting-recordings/a/completing-after-grace',
-        uploadId: 'completing-after-grace',
+        key: 'meeting-recordings/a/completing-after-lease',
+        uploadId: 'completing-after-lease',
         initiatedAt: old,
       },
       { key: 'meeting-recordings/a/ready', uploadId: 'ready', initiatedAt: old },
@@ -423,7 +512,7 @@ describe('dedicated media multipart reconciliation', () => {
         storageUploadId: uploads[4]!.uploadId,
         status: 'completing',
         expiresAt: old,
-        updatedAt: graceCutoff,
+        updatedAt: completionCutoff,
       },
       {
         id: '44444444-4444-4444-8444-444444444444',
@@ -431,7 +520,7 @@ describe('dedicated media multipart reconciliation', () => {
         storageUploadId: uploads[5]!.uploadId,
         status: 'completing',
         expiresAt: old,
-        updatedAt: new Date(graceCutoff.getTime() + 1),
+        updatedAt: new Date(completionCutoff.getTime() + 1),
       },
       {
         id: '55555555-5555-4555-8555-555555555555',

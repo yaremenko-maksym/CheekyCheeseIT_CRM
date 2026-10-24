@@ -332,7 +332,9 @@ export class MeetingRecorderService {
     const rows = await this.db.db
       .select(recordingSummaryColumns)
       .from(interviewRecordings)
-      .where(eq(interviewRecordings.interviewId, interviewId))
+      .where(
+        and(eq(interviewRecordings.interviewId, interviewId), isNull(interviewRecordings.purgedAt)),
+      )
       .orderBy(desc(interviewRecordings.startedAt))
     return rows.map((row) => this.mapSummary(row))
   }
@@ -344,7 +346,7 @@ export class MeetingRecorderService {
     const [row] = await this.db.db
       .select()
       .from(interviewRecordings)
-      .where(eq(interviewRecordings.id, recordingId))
+      .where(and(eq(interviewRecordings.id, recordingId), isNull(interviewRecordings.purgedAt)))
       .limit(1)
     if (!row) {
       throw apiError('MEETING_RECORDER_RECORDING_NOT_FOUND', HttpStatus.NOT_FOUND)
@@ -357,7 +359,7 @@ export class MeetingRecorderService {
     const rows = await this.db.db
       .select(recordingSummaryColumns)
       .from(interviewRecordings)
-      .where(isNull(interviewRecordings.interviewId))
+      .where(and(isNull(interviewRecordings.interviewId), isNull(interviewRecordings.purgedAt)))
       .orderBy(desc(interviewRecordings.createdAt))
     return rows.map((row) => meetingRecorderUnmatchedRecordingSchema.parse(this.mapSummary(row)))
   }
@@ -392,7 +394,7 @@ export class MeetingRecorderService {
       const rows = await tx
         .select()
         .from(interviewRecordings)
-        .where(eq(interviewRecordings.id, recordingId))
+        .where(and(eq(interviewRecordings.id, recordingId), isNull(interviewRecordings.purgedAt)))
         .for('update')
         .limit(1)
       const row = rows[0]
@@ -464,6 +466,20 @@ export class MeetingRecorderService {
       .limit(1)
     const existing = existingRows[0]
     if (existing && existing.revision >= event.data.revision) return
+
+    if (existing?.purgedAt) {
+      const eventTime = new Date(event.time)
+      const now = new Date()
+      await tx
+        .update(interviewRecordings)
+        .set({ revision: event.data.revision, lastEventAt: eventTime, updatedAt: now })
+        .where(eq(interviewRecordings.id, existing.id))
+      await tx
+        .update(meetingRecorderConnections)
+        .set({ lastEventAt: eventTime, updatedAt: now })
+        .where(eq(meetingRecorderConnections.id, connectionId))
+      return
+    }
 
     let interviewId = existing?.interviewId ?? null
     let stageAtLink = existing?.stageAtLink ?? null
