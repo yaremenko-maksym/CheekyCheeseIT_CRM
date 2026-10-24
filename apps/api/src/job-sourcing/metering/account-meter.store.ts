@@ -49,6 +49,12 @@ import {
  *   defect in the cost estimate rather than a budget condition, and must be seen rather than
  *   quietly treated as "no room". The ceiling is checked BEFORE the capacity test, so an amount
  *   within the ceiling but over the limit still returns `null` rather than throwing.
+ *
+ *   The ceiling is also checked BEFORE `db.transaction` is entered, so an over-ceiling amount
+ *   opens no transaction, writes no reservation row and leaves no hold behind — it cannot leak
+ *   cost into `reserved` on its way out. That is the safe direction, and it is asserted: the unit
+ *   cases for the ceiling run against a database double that throws on first contact and assert
+ *   it was never touched.
  * - Idempotent attempt reservation, committed before I/O. The reservation key is
  *   `<attemptId>#<unit>#<n>`, where `n` counts this binding's paid requests of that unit. A retry
  *   of the same attempt (a fresh binding, nothing in memory) replays the same keys: a key still
@@ -257,11 +263,13 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
 
   /** Lock the meter row, then apply a due window reset in place. Returns the current row. */
   async function lockMeter(tx: DrizzleTx, where: SQL | undefined): Promise<MeterRow> {
-    // Row locking is observable only under real concurrency — a mocked query returns its rows
-    // with or without FOR UPDATE.
-    // Verified by the multi-worker exhaustion case in the integration spec: N concurrent
-    // reservers against room for K, exactly K succeed, which fails if this lock is not taken.
-    // Stryker disable next-line StringLiteral: row lock, observable only under real concurrency
+    // FOR UPDATE, not FOR SHARE: a share lock would let two reservers both pass the capacity test.
+    // GATED, so do not delete the assertion that gates it: the unit spec records the lock mode
+    // ("the peek reads only the meter id, and both row locks are FOR UPDATE") and the integration
+    // spec's multi-worker exhaustion case — N reservers, room for K, exactly K succeed — fails
+    // outright without this lock. R4-SR-M-2: this line carried a `Stryker disable` whose reason
+    // ("observable only under real concurrency") stopped being true the moment that unit
+    // assertion existed, so the directive was removed rather than left to hide a live mutant.
     const [meter] = await tx.select().from(jobAccountMeters).where(where).for('update')
     if (meter === undefined) {
       throw new AccountMeterError(
@@ -270,12 +278,10 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
       )
     }
     const next = rollWindow(meter.window, meter.resetsAt, await dbNow(tx))
-    // A due roll's only unit-visible difference is that a statement was issued; its real effect
-    // (`used` back to 0, the bounds advanced) is asserted by VALUES in the integration spec's
-    // rollover block. Asserting the write COUNT here instead would give the roll's payload lines
-    // coverage without assertions — measured: doing exactly that for the apply block below turned
-    // 20 of its mutants from NoCoverage into Survived.
-    // Stryker disable next-line ConditionalExpression: roll decision, verified by the integration rollover cases
+    // The roll's real effect (`used` back to 0, the bounds advanced) is asserted by VALUES in the
+    // integration spec's rollover block; forcing this arm FALSE — rolling a window that is not
+    // due — is caught by 6 unit tests. R4-SR-M-2: a `disable next-line` here blanket-covered that
+    // killable arm too, which is lost signal, so it was removed.
     if (next === null) return meter
     const [rolled] = await tx
       .update(jobAccountMeters)

@@ -4766,7 +4766,18 @@ closing any one of them alone still leaves the meter's `used` unable to mean wha
   and it is not what "reschedule uncertain reservations" describes. The store also exposes no way to
   enumerate or settle a dead attempt's rows, so the recovery has no entry point to call.
 
+- **The port's own comment describes a refusal shape that is no longer the only one.** The
+  collection-loop-facing meter port documents its reservation call as returning `null` when the
+  budget refuses — "a COST_STOP, not an error". Since the per-unit sanity ceiling was added, the
+  store has a second refusal shape: an amount above the ceiling THROWS rather than returning
+  `null`, because a cost estimate that large is a defect and not a budget condition. A loop author
+  reading the port's comment would handle only the `null` and meet an uncatchable throw. The store's
+  own class docblock now states both shapes; the port's comment is in a provider base, outside the
+  zone of the task that introduced the ceiling, so the correction travels with the port change in
+  the first item above rather than on its own.
+
 **Check on closing:** two concurrent executors of one attempt each sending a real request are charged
 twice, not once; a worker killed between sending and settling leaves cost held rather than released;
-a per-record source that returns 3 records against a worst case of 50 is charged 3; and a recovery
-process can name and settle the reservations of an attempt whose worker died.
+a per-record source that returns 3 records against a worst case of 50 is charged 3; a recovery
+process can name and settle the reservations of an attempt whose worker died; and the port's comment
+names both refusal shapes, so a loop built from it handles the throw as well as the `null`.
