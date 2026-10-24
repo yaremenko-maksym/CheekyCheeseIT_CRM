@@ -315,3 +315,293 @@ describe('parseBoundedJson', () => {
     expect(JSON.stringify(result)).not.toContain('TOPSECRET')
   })
 })
+
+/**
+ * Backlog 318: the node bound used to fire only AFTER `JSON.parse`, so a flat hostile body inside
+ * the byte cap and the depth limit was parsed in full before it was refused. The estimate is taken
+ * from the raw text, string-aware, and must be an UPPER BOUND of the post-parse count.
+ *
+ * Every expected figure is a hand-counted literal, never a re-derivation of the code's own sum.
+ */
+describe('the pre-parse node bound', () => {
+  const MiB = 1024 * 1024
+  const wide = (over: Partial<JsonLimits> = {}): JsonLimits => ({
+    maxBytes: 20 * MiB,
+    maxDepth: 64,
+    maxNodes: 200_000,
+    ...over,
+  })
+
+  it('refuses a 10 MiB [0,0,...] body WITHOUT calling the parser', () => {
+    const body = '[' + '0,'.repeat(5 * MiB - 2) + '0]'
+    expect(Buffer.byteLength(body)).toBeLessThanOrEqual(10 * MiB)
+    const parse = vi.spyOn(JSON, 'parse')
+    try {
+      const result = parseBoundedJson(body, wide({ maxBytes: 10 * MiB }))
+      expect(result).toMatchObject({
+        ok: false,
+        reason: 'TOO_MANY_NODES',
+        detail: 'node count exceeds 200000',
+      })
+      expect(parse).not.toHaveBeenCalled()
+    } finally {
+      parse.mockRestore()
+    }
+  })
+
+  it('refuses a 10 MiB [{},{},...] body WITHOUT calling the parser', () => {
+    const body = '[' + '{},'.repeat(Math.floor((10 * MiB - 2) / 3)) + '{}]'
+    const parse = vi.spyOn(JSON, 'parse')
+    try {
+      const result = parseBoundedJson(body, wide({ maxBytes: 11 * MiB }))
+      expect(result).toMatchObject({ ok: false, reason: 'TOO_MANY_NODES' })
+      expect(parse).not.toHaveBeenCalled()
+    } finally {
+      parse.mockRestore()
+    }
+  })
+
+  describe('boundaries, array shape', () => {
+    // [0,0,0] is the array plus three scalars: 4 nodes, by hand.
+    it('accepts exactly maxNodes and refuses one past it', () => {
+      expect(parseBoundedJson('[0,0,0]', limits({ maxNodes: 4 }))).toMatchObject({ ok: true })
+      expect(parseBoundedJson('[0,0,0]', limits({ maxNodes: 3 }))).toMatchObject({
+        ok: false,
+        reason: 'TOO_MANY_NODES',
+      })
+    })
+
+    it('refuses one past the limit from the scan, not the parser', () => {
+      const parse = vi.spyOn(JSON, 'parse')
+      try {
+        parseBoundedJson('[0,0,0]', limits({ maxNodes: 3 }))
+        expect(parse).not.toHaveBeenCalled()
+      } finally {
+        parse.mockRestore()
+      }
+    })
+  })
+
+  describe('boundaries, object shape', () => {
+    // The object plus three values: 4 nodes, by hand.
+    const text = '{"a":0,"b":0,"c":0}'
+    it('accepts exactly maxNodes and refuses one past it', () => {
+      expect(parseBoundedJson(text, limits({ maxNodes: 4 }))).toMatchObject({ ok: true })
+      expect(parseBoundedJson(text, limits({ maxNodes: 3 }))).toMatchObject({
+        ok: false,
+        reason: 'TOO_MANY_NODES',
+      })
+    })
+  })
+
+  describe('string state at its edges', () => {
+    // 1 array + 2 strings = 3 nodes. Commas and brackets INSIDE the strings are not structure.
+    it('does not count commas, brackets or braces inside strings', () => {
+      const text = '["a,b,c,d,e,f","[{,},]"]'
+      expect(parseBoundedJson(text, limits({ maxNodes: 3 }))).toMatchObject({ ok: true })
+    })
+
+    it('does not let an escaped quote end the string (commas after it stay content)', () => {
+      const text = '["a\\"b,c,d,e",1]' // array + 2 = 3 nodes
+      expect(JSON.parse(text)).toHaveLength(2)
+      expect(parseBoundedJson(text, limits({ maxNodes: 3 }))).toMatchObject({ ok: true })
+      expect(parseBoundedJson(text, limits({ maxNodes: 2 }))).toMatchObject({
+        ok: false,
+        reason: 'TOO_MANY_NODES',
+      })
+    })
+
+    it('lets the quote after an escaped backslash end the string (the next comma is structure)', () => {
+      const text = '["\\\\",1,2]' // array + 3 = 4 nodes
+      expect(JSON.parse(text)).toHaveLength(3)
+      expect(parseBoundedJson(text, limits({ maxNodes: 4 }))).toMatchObject({ ok: true })
+      expect(parseBoundedJson(text, limits({ maxNodes: 3 }))).toMatchObject({
+        ok: false,
+        reason: 'TOO_MANY_NODES',
+      })
+    })
+
+    /**
+     * What would this test's green look like if commas INSIDE strings were counted? Red: ~4 MiB of
+     * prose with a comma every ~10 characters (~400k commas) against a 200k-node limit, yet only
+     * 3 real nodes. It is the false refusal the naive cure would ship.
+     */
+    it('passes ~4 MiB of comma-heavy prose that has few real nodes', () => {
+      const prose = 'lorem, ipsum dolor, sit amet, '.repeat(Math.ceil((4 * MiB) / 30))
+      const text = JSON.stringify({ description: prose, title: 'x' })
+      expect(Buffer.byteLength(text)).toBeGreaterThan(4 * MiB)
+      expect(prose.split(',').length).toBeGreaterThan(400_000)
+      expect(parseBoundedJson(text, wide())).toMatchObject({ ok: true })
+    })
+  })
+
+  describe('an upper bound of the post-parse count', () => {
+    // Accepted at the hand-counted true count: an estimate BELOW the truth is not the failure
+    // here (that would let a body through); an estimate far above it is a false refusal.
+    // Counts: containers plus every value, keys not counted.
+    it.each([
+      ['[[1],[2]]', 5],
+      ['{"a":[1,2],"b":{"c":3}}', 6],
+      ['42', 1],
+      ['"x"', 1],
+    ])('%s is accepted at its true count of %i', (text, nodes) => {
+      expect(parseBoundedJson(text, limits({ maxNodes: nodes }))).toMatchObject({ ok: true })
+    })
+
+    it.each([
+      ['[[1],[2]]', 4],
+      ['{"a":[1,2],"b":{"c":3}}', 5],
+    ])('%s is refused below its true count (limit %i)', (text, limit) => {
+      expect(parseBoundedJson(text, limits({ maxNodes: limit }))).toMatchObject({
+        ok: false,
+        reason: 'TOO_MANY_NODES',
+      })
+    })
+  })
+
+  it('still reports NOT_JSON for a small malformed body', () => {
+    expect(parseBoundedJson('[1,,', limits())).toMatchObject({ ok: false, reason: 'NOT_JSON' })
+  })
+
+  it('names whichever bound a body breaks FIRST in the text when it breaks both', () => {
+    // Deep before wide: the sixth opening bracket trips depth 5 long before 20 nodes accrue.
+    const deepFirst = `${'['.repeat(10)}${'1,'.repeat(50)}1${']'.repeat(10)}`
+    expect(parseBoundedJson(deepFirst, limits({ maxDepth: 5, maxNodes: 20 }))).toMatchObject({
+      reason: 'TOO_DEEP',
+    })
+    // Wide before deep: 20 nodes are exceeded by the commas, before any nesting begins.
+    const wideFirst = `[${'1,'.repeat(50)}${'['.repeat(10)}1${']'.repeat(10)}]`
+    expect(parseBoundedJson(wideFirst, limits({ maxDepth: 5, maxNodes: 20 }))).toMatchObject({
+      reason: 'TOO_MANY_NODES',
+    })
+  })
+
+  it('refuses a scalar root against a zero node limit', () => {
+    const parse = vi.spyOn(JSON, 'parse')
+    try {
+      expect(parseBoundedJson('1', limits({ maxNodes: 0 }))).toMatchObject({
+        ok: false,
+        reason: 'TOO_MANY_NODES',
+      })
+      expect(parse).not.toHaveBeenCalled()
+    } finally {
+      parse.mockRestore()
+    }
+    expect(parseBoundedJson('1', limits({ maxNodes: 1 }))).toMatchObject({ ok: true })
+  })
+
+  it('names nodes when the breach is at an OPENING that precedes a later depth breach', () => {
+    // Five openings, no comma. maxNodes 2 is crossed by the second opening; maxDepth 4 only by the
+    // fourth. With the node check deleted from the opening branch this reads TOO_DEEP.
+    const parse = vi.spyOn(JSON, 'parse')
+    try {
+      expect(parseBoundedJson('['.repeat(5), limits({ maxDepth: 4, maxNodes: 2 }))).toMatchObject({
+        ok: false,
+        reason: 'TOO_MANY_NODES',
+      })
+      expect(parse).not.toHaveBeenCalled()
+    } finally {
+      parse.mockRestore()
+    }
+  })
+
+  it('names depth when ONE opening breaches both bounds (depth is checked first)', () => {
+    // '[1]' under maxDepth 1 and maxNodes 1: the single opening crosses both.
+    expect(parseBoundedJson('[1]', limits({ maxDepth: 1, maxNodes: 1 }))).toMatchObject({
+      ok: false,
+      reason: 'TOO_DEEP',
+    })
+  })
+
+  // SPEC-M-1: the scan runs before the parser, so a malformed body is judged on its shape first.
+  // Before backlog 318 this was NOT_JSON; the caller maps it to PAYLOAD_TOO_LARGE, not PARSE_DRIFT.
+  it('reports TOO_MANY_NODES, not NOT_JSON, for a malformed body with too many separators', () => {
+    const parse = vi.spyOn(JSON, 'parse')
+    try {
+      expect(parseBoundedJson('[1,,,,,,,', limits({ maxNodes: 3 }))).toMatchObject({
+        ok: false,
+        reason: 'TOO_MANY_NODES',
+      })
+      expect(parse).not.toHaveBeenCalled()
+    } finally {
+      parse.mockRestore()
+    }
+  })
+
+  // SPEC-L-2 / CR-M-2 / SR-L-2: the estimate counts every opening, so empty containers are
+  // over-counted. Known conservative margin: an all-empty body is refused at about HALF the limit.
+  describe('the empty-container over-count', () => {
+    it('refuses a body whose exact count is within the limit, never the other way round', () => {
+      // [{},{},{},{}]: exact 5 nodes (array + four objects); estimate 1 + 3 commas + 5 openings = 9.
+      const text = '[{},{},{},{}]'
+      expect(parseBoundedJson(text, limits({ maxNodes: 9 }))).toMatchObject({ ok: true })
+      expect(parseBoundedJson(text, limits({ maxNodes: 8 }))).toMatchObject({
+        ok: false,
+        reason: 'TOO_MANY_NODES',
+      })
+    })
+
+    it('refuses an all-empty body at about half the node limit (documented ratio ~2)', () => {
+      const text = '[' + '{},'.repeat(99) + '{}]' // exact 101 nodes, estimate 201
+      expect(JSON.parse(text)).toHaveLength(100)
+      expect(parseBoundedJson(text, limits({ maxBytes: 10_000, maxNodes: 150 }))).toMatchObject({
+        ok: false,
+        reason: 'TOO_MANY_NODES',
+      })
+      expect(parseBoundedJson(text, limits({ maxBytes: 10_000, maxNodes: 201 }))).toMatchObject({
+        ok: true,
+      })
+    })
+  })
+
+  /**
+   * The early exit changes no RESULT: the final post-loop check would name the same reason, only
+   * after reading the whole body. So the result cannot pin it and the cost has to be pinned
+   * directly, by counting the characters the scan reads. A deliberate implementation-coupled pin
+   * (`charCodeAt` is the scan's only reader), the cheapest deterministic form of "stops early".
+   */
+  describe('how much of the text the scan reads', () => {
+    const reads = (text: string, l: JsonLimits): number => {
+      const spy = vi.spyOn(String.prototype, 'charCodeAt')
+      try {
+        parseBoundedJson(text, l)
+        return spy.mock.calls.length
+      } finally {
+        spy.mockRestore()
+      }
+    }
+
+    it('reads each character of a clean document exactly once', () => {
+      // 11 characters. A loop bound one too far reads a 12th, past the end.
+      const text = '{"a":[1,2]}'
+      expect(text).toHaveLength(11)
+      expect(reads(text, limits())).toBe(11)
+    })
+
+    it('stops at the comma that crosses the node limit', () => {
+      // [0,0,0,... : the estimate is 2 after the opening and grows by one per comma, so maxNodes 10
+      // is crossed by the 9th comma (estimate 11), at index 18: nineteen characters read.
+      const text = '[' + '0,'.repeat(5_000) + '0]'
+      expect(reads(text, limits({ maxBytes: 100_000, maxNodes: 10 }))).toBe(19)
+    })
+
+    it('stops at the opening that crosses the node limit', () => {
+      // maxNodes 10 is crossed by the 10th opening (estimate 11): ten characters read.
+      const text = '['.repeat(5_000)
+      expect(reads(text, limits({ maxBytes: 100_000, maxDepth: 100_000, maxNodes: 10 }))).toBe(10)
+    })
+  })
+
+  it('refuses at the opening bracket that crosses the limit, not only at commas', () => {
+    // [[[ : three nodes by openings alone, no comma anywhere.
+    const parse = vi.spyOn(JSON, 'parse')
+    try {
+      expect(parseBoundedJson('[[[]]]', limits({ maxNodes: 2 }))).toMatchObject({
+        reason: 'TOO_MANY_NODES',
+      })
+      expect(parse).not.toHaveBeenCalled()
+    } finally {
+      parse.mockRestore()
+    }
+  })
+})

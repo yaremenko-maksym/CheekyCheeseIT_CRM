@@ -15,8 +15,11 @@
  *     The already-merged XML decision record requires the same of its own wrapper in the same
  *     words ("the bounds the wrapper must enforce BEFORE the parser sees the bytes, and why each
  *     cannot be left to the library"); the JSON path does not get to be the weaker of the two.
- *  3. NODES, after parsing, because a node count is not cheaply derivable from the text and the
- *     byte cap already bounds what parsing can allocate.
+ *  3. NODES, twice. An UPPER BOUND from the same pre-parse pass (string-aware separator count,
+ *     see `scanShape`) refuses a flat hostile body before the parser allocates its tree — at a
+ *     10 MiB per-source cap that parse is hundreds of ms and ~300 MB (backlog 318). The exact
+ *     count after parsing stays: the estimate over-counts empty containers, so it can refuse but
+ *     never admit, and the walk also serves values an adapter hands in without a pre-scan.
  *
  * Fetch-time byte bounds and egress policy are Task 2.2's; what is bounded HERE is the SHAPE. The
  * byte bound is re-checked rather than trusted, because this module is also what a phase-3 adapter
@@ -69,35 +72,92 @@ export type BoundedJsonResult =
  * refuse what is too deep before the parser is reached.
  */
 export function scanDepthWithin(text: string, maxDepth: number): number | null {
+  const shape = scanShape(text, maxDepth, Number.POSITIVE_INFINITY)
+  return shape.breach === null ? shape.depth : null
+}
+
+/** Either the first bound the scan crossed (in text order), or the depth when it crossed none. */
+export type ShapeScan = { breach: 'depth' | 'nodes' } | { breach: null; depth: number }
+
+const QUOTE = 0x22
+const BACKSLASH = 0x5c
+const COMMA = 0x2c
+const OPEN_BRACKET = 0x5b
+const CLOSE_BRACKET = 0x5d
+const OPEN_BRACE = 0x7b
+const CLOSE_BRACE = 0x7d
+
+/**
+ * One pass over the raw text enforcing BOTH pre-parse bounds: nesting depth and an upper bound of
+ * the node count. The scan stops at the FIRST breach in text order, so a flat hostile body is
+ * refused after the few hundred KB that hold `maxNodes` separators rather than after all 10 MiB.
+ * A full pass over 10 MiB costs tens to a couple of hundred ms depending on the machine and the
+ * body (measured 45-220 ms on Node 20/22, all-string bodies being the slow end), so the early exit
+ * is what makes the refusal cheap. The estimate only grows, so stopping early is sound. A body
+ * that breaks both bounds is named by whichever it breaches first in the text; before this scan
+ * it was always `TOO_DEEP`. The scan also runs before `JSON.parse`, so a MALFORMED body with more
+ * than `maxNodes` structural commas is now `TOO_MANY_NODES` rather than `NOT_JSON`.
+ *
+ * The node estimate is `1 + structural commas + container openings`, where a structural comma is
+ * one OUTSIDE a string literal. The post-parse count (`countNodesWithin`) is the container plus
+ * every value in it, object KEYS not counted: a non-empty container with k commas holds k + 1
+ * values, so the true count is `1 + commas + non-empty containers`. Counting every opening, empty
+ * or not, can only add: it OVER-counts by one per empty container (`[]`, `{}`) and is never below
+ * the truth for well-formed JSON. Over-counting is the safe direction for a refusal that only has
+ * to stop a hostile flat body, but the margin is NOT negligible for empty-heavy bodies. Estimate
+ * over exact, measured: `[{},{},...]` 1.999 (refused at about HALF the node limit), `{"tags":[],
+ * "x":1}` 1.333, a 30-field record with three empty containers 1.097. A real page of a few
+ * thousand records with a handful of empty arrays each sits far below the limit, so this is
+ * accepted as a known conservative margin.
+ *
+ * The string state is what keeps the estimate honest. Job descriptions are prose full of commas;
+ * counting those would refuse a 4 MiB page that has a few dozen real nodes. So commas and
+ * brackets inside strings, escaped quotes and escaped backslashes included, are not structure.
+ *
+ * Indexed `charCodeAt` rather than `for...of`: the scan runs over up to 10 MiB, and structural
+ * characters are all ASCII, which a UTF-16 code unit identifies exactly (a surrogate half is never
+ * one of them).
+ */
+export function scanShape(text: string, maxDepth: number, maxNodes: number): ShapeScan {
   let nesting = 0
   let maxNesting = 0
+  // The root, then +1 per structural comma and +1 per container opening.
+  let nodeUpperBound = 1
   let inString = false
   let escaped = false
 
-  for (const ch of text) {
+  for (let i = 0; i < text.length; i += 1) {
+    const code = text.charCodeAt(i)
     if (inString) {
       if (escaped) {
         escaped = false
-      } else if (ch === '\\') {
+      } else if (code === BACKSLASH) {
         escaped = true
-      } else if (ch === '"') {
+      } else if (code === QUOTE) {
         inString = false
       }
       continue
     }
-    if (ch === '"') {
+    if (code === QUOTE) {
       inString = true
-    } else if (ch === '[' || ch === '{') {
+    } else if (code === COMMA) {
+      nodeUpperBound += 1
+      if (nodeUpperBound > maxNodes) return { breach: 'nodes' }
+    } else if (code === OPEN_BRACKET || code === OPEN_BRACE) {
       nesting += 1
+      nodeUpperBound += 1
       maxNesting = Math.max(maxNesting, nesting)
       // A value nested under N open brackets sits at depth N + 1; a bare scalar is depth 1.
-      if (maxNesting + 1 > maxDepth) return null
-    } else if (ch === ']' || ch === '}') {
+      if (maxNesting + 1 > maxDepth) return { breach: 'depth' }
+      if (nodeUpperBound > maxNodes) return { breach: 'nodes' }
+    } else if (code === CLOSE_BRACKET || code === CLOSE_BRACE) {
       nesting -= 1
     }
   }
 
-  return maxNesting + 1
+  // A scalar root has no separator or opening to trip the in-loop check, so test the final figure.
+  if (nodeUpperBound > maxNodes) return { breach: 'nodes' }
+  return { breach: null, depth: maxNesting + 1 }
 }
 
 /**
@@ -146,8 +206,18 @@ export function parseBoundedJson(text: string, limits: JsonLimits): BoundedJsonR
     }
   }
 
-  if (scanDepthWithin(text, limits.maxDepth) === null) {
+  const shape = scanShape(text, limits.maxDepth, limits.maxNodes)
+  if (shape.breach === 'depth') {
     return { ok: false, reason: 'TOO_DEEP', detail: `nesting exceeds ${limits.maxDepth}` }
+  }
+  // Refused BEFORE `JSON.parse`: a flat body inside the byte cap and the depth limit would
+  // otherwise be parsed in full (backlog 318). The post-parse count below stays as the exact check.
+  if (shape.breach === 'nodes') {
+    return {
+      ok: false,
+      reason: 'TOO_MANY_NODES',
+      detail: `node count exceeds ${limits.maxNodes}`,
+    }
   }
 
   let value: unknown
