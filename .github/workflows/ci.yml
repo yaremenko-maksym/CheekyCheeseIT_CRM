@@ -1235,7 +1235,7 @@ jobs:
             # file directs this shard ("где живёт профиль"), same mocked-auth
             # pattern as the other three files here (`mockAuthAs`, no live
             # backend calls).
-            files: tests/team.spec.ts tests/users.spec.ts tests/rbac-hr-on-senior.spec.ts tests/locale-switcher.spec.ts tests/hr-create-senior.spec.ts tests/team-share-override.spec.ts tests/hr-dashboard.spec.ts tests/rbac-senior-junior.spec.ts tests/senior-create-default.spec.ts tests/senior-teamless.spec.ts
+            files: tests/team.spec.ts tests/users.spec.ts tests/rbac-hr-on-senior.spec.ts tests/locale-switcher.spec.ts tests/hr-create-senior.spec.ts tests/team-share-override.spec.ts tests/hr-dashboard.spec.ts tests/rbac-senior-junior.spec.ts tests/senior-create-default.spec.ts tests/senior-teamless.spec.ts tests/junior-hub.spec.ts
           - name: projects
             # tests/project-status-filter-ui.spec.ts (task-project-status-filter-ui,
             # PR #646, feat/project-status-filter-ui, not yet merged as of this line
@@ -1385,6 +1385,19 @@ jobs:
             # team, so a separate shard also groups them by what they
             # actually test, not just by filename prefix.
             files: tests/drop-archive-real.spec.ts tests/drop-archive-user-real.spec.ts tests/drop-archive-impact-contract.spec.ts tests/drop-project-create.spec.ts tests/drop-duplicate-email.spec.ts tests/drop-multi-hr.spec.ts tests/interviews-drop-team-board.spec.ts tests/drop-archive-cascade.spec.ts tests/drop-create-ui-regressions.spec.ts tests/drop-junior-rbac.spec.ts tests/drop-rotate-senior.spec.ts tests/drop-routing-hub.spec.ts tests/drop-rbac.spec.ts tests/drop-route-guards.spec.ts tests/drop-findings-pr198.spec.ts tests/drop-create.spec.ts tests/drop-add-senior.spec.ts tests/drop-senior-readonly.spec.ts
+          # `docs-money`: documents + invoices + payout specs gated in the
+          # gate-ungated-e2e-specs task. Small mocked/real-API specs (~50 s together) grouped in ONE
+          # leg so they do not each pay a full runner set-up (checkout + install + build + seed).
+          - name: docs-money
+            files: tests/documents-pr1.spec.ts tests/documents-pr3.spec.ts tests/invoice-public-verify.spec.ts tests/invoices-signing-flow.spec.ts tests/invoice-aggregate.spec.ts tests/invoice-signing-real.spec.ts tests/payout-admin-projectid-regression.spec.ts tests/payout-auto-cascade-invoice.spec.ts tests/payout-manual-confirm-method.spec.ts tests/phase2-auto-distribution-regression.spec.ts tests/senior-confirm-payout.spec.ts tests/senior-payout-no-dup.spec.ts tests/senior-project-distribution-regression.spec.ts
+          # `cache`: the Service-Worker / cache-integration project (Playwright project
+          # `cache`, serviceWorkers:'allow'). The default `chromium` project blocks service
+          # workers and `testIgnore`s tests/cache/, so these specs need their own leg
+          # (run step below passes `--project=cache`). Same stack as the other shards:
+          # production build served by `vite preview` + the real API. The directory-prefix
+          # token lets the shard-coverage guard cover every spec under tests/cache/.
+          - name: cache
+            files: tests/cache/
           # task-landing-e2e-in-ci.md Part 2. Different stack shape than every
           # other leg above (no apps/web dev server; apps/landing prerender +
           # `vite preview` instead — see the matrix.shard.name == 'landing'
@@ -1397,22 +1410,6 @@ jobs:
           # shard-coverage guard (scripts/devops/check-e2e-shard-coverage.py)
           # auto-covers every spec under this directory, including future
           # ones, without a per-file list here.
-          - name: documents
-            files: tests/documents-pr1.spec.ts tests/documents-pr3.spec.ts
-          - name: invoices
-            files: tests/invoice-public-verify.spec.ts tests/invoices-signing-flow.spec.ts tests/invoice-aggregate.spec.ts tests/invoice-signing-real.spec.ts
-          - name: payouts
-            files: tests/payout-admin-projectid-regression.spec.ts tests/payout-auto-cascade-invoice.spec.ts tests/payout-manual-confirm-method.spec.ts tests/phase2-auto-distribution-regression.spec.ts tests/senior-confirm-payout.spec.ts tests/senior-payout-no-dup.spec.ts tests/senior-project-distribution-regression.spec.ts
-          - name: junior
-            files: tests/junior-hub.spec.ts
-          # `cache`: the Service-Worker / cache-integration project (Playwright project
-          # `cache`, serviceWorkers:'allow'). The default `chromium` project blocks service
-          # workers and `testIgnore`s tests/cache/, so these specs need their own leg
-          # (run step below passes `--project=cache`). Same stack as the other shards:
-          # production build served by `vite preview` + the real API. The directory-prefix
-          # token lets the shard-coverage guard cover every spec under tests/cache/.
-          - name: cache
-            files: tests/cache/
           - name: landing
             files: tests/landing/
     services:
