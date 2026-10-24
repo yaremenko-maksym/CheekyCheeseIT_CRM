@@ -5278,6 +5278,67 @@ and `.github/` shell and JS are in scope; this entry measured only `.mjs`.
 either reformatted by the pre-commit hook or fails the CI formatting gate — today it does neither, and
 that is the assertion to re-run.
 
+## 317. The integration-run model is a dichotomy; reality has a third case that reports a confident pass (2026-10-24)
+
+`isIntegrationRun` in `apps/api/vitest.config.mts` is
+`process.argv.some((arg) => arg.includes('integration.spec'))`. When it is false,
+`INTEGRATION_SPEC_EXCLUDE_GLOB` removes every `*.integration.spec.ts` **from discovery** — the files
+are never parsed, so the summary reports no skip count.
+
+**A correction to this entry's own first draft, measured independently by two reviewers.** It said
+"nothing is reported as skipped", which overstated it: a generic `console.warn` does fire once at
+config load. It fires on **every** unit run, says nothing about the files the user named, and the
+run summary still shows no skip count — so the defect stands and the sentence did not. Recorded
+because an entry about a misleading instrument should not itself overstate its evidence.
+
+**None of that is new or undocumented.** It is stated in the config, in spec-file headers
+(`transactions.drop-self-feeds.spec.ts`, `job-sourcing-budget-race.integration.spec.ts`), in
+`.claude/rules/common/mutation-gate-integration-specs.md`, and `task-integration-db-guard-any-run.md`
+is a whole task about one of its consequences. **The gap is that every one of those describes a
+dichotomy** — an _unfiltered_ run (specs excluded) versus a run _filtered on `integration.spec`_
+(specs run, guard attached, `fileParallelism: false`). The task file's own verification list has
+exactly those two cases plus a variant of the second.
+
+**The third case is the dangerous one and nothing names it:** a run filtered by a path that does not
+contain the substring. You intended an integration run, your filter matches the files you want, and
+they are excluded anyway — and the run exits 0 with a count of whatever else matched.
+
+**Measured instance (PR #1102, round 1).** Filter `src/finance/salary-month-gap` matched two files, a
+unit spec and an integration spec. The integration spec was dropped from discovery, the run printed
+`Test Files 1 passed` where two matched, and the body reported "gap suite 40 passed" — a **true count
+of the wrong file**. The two new integration cases had never executed. CI, which runs the filtered
+`integration.spec` form, failed them. The body and CI disagreed for a whole review round, and the
+author found it by finally reading `Test Files 1 passed` rather than the pass count.
+
+**Why this is worse than an ordinary missing warning.** The other two cases announce themselves: the
+unfiltered run visibly skips, the properly filtered run visibly runs. The third produces a green
+number with no symptom. "0 passed" and "nothing ran" are distinguishable in this repo's rules;
+"40 passed" and "40 passed of the files you did not ask about" are not.
+
+**A second hazard in the same predicate, found by a reviewer hitting it by accident.** Because the
+check is `argv.some(...)`, `vitest run integration.spec <other-path>` **ORs** the filters: it runs every
+integration spec in the repository rather than the intersection. One reviewer did this unintentionally
+and wrote to a scratch database for ~100 s before killing the run by PID. So the predicate has two
+failure modes in opposite directions — a filter without the substring runs too few files and says
+nothing, and a filter with it runs far too many.
+
+**Candidates, cheapest first:**
+
+1. Make the exclusion loud when a filter was supplied: if `argv` carries a positional filter, no
+   element contains `integration.spec`, and the filter would otherwise match an excluded file, print
+   one line naming the excluded files. The data is available at config time.
+2. Reconcile counts rather than trusting them: teach whoever runs a narrowed suite to compare
+   `Test Files N passed` against the number of files the filter matches (`vitest --list` or a glob).
+   Procedural, and it is what actually caught this one.
+3. Widen the predicate so an explicit path to an `*.integration.spec.ts` file counts as an
+   integration run. Attractive and the riskiest of the three: it silently attaches the DB guard and
+   `fileParallelism: false` to runs that do not have them today, so it needs the same scrutiny as
+   `task-integration-db-guard-any-run` and probably belongs with it.
+
+**Check on closing:** a run filtered by a path that matches an `*.integration.spec.ts` file either
+executes it or says in one line that it did not — and in neither case does it exit 0 having silently
+counted only the other files the filter matched.
+
 ## 318. A hostile JSON body stalls the event loop before the byte cap can refuse it, once a per-source cap is raised (2026-10-24)
 
 **Open** — found by the security review of the ATS A adapters (SR-M-1); the fix belongs to the shared
@@ -5586,3 +5647,43 @@ command substitutions ran first in the environment that had just been destroyed.
 
 **Check on closing:** `grep -nE '(^|[^A-Za-z_])path=' ` over `scripts/`, `.claude/hooks/` and
 `.github/workflows/` finds no assignment to a bare `path` in a zsh-executed context.
+
+## 327. An unboarded JUNIOR crashes the production build on `/` (React #185) — and the two tests for it are `fixme` (2026-10-24)
+
+Found while gating the 54 previously ungated E2E specs (PR #1121). **A product defect, deliberately
+not edited around:** the author left two tests as `test.fixme` rather than making them pass, which is
+the right call and the reason this entry exists.
+
+**Symptoms as reported.** An unboarded JUNIOR landing on `/` crashes the **production build** with
+React error #185, "Maximum update depth exceeded" — a render loop, not a blank screen. It reproduces
+on the real stack, not only under mocks: seed user `ivan.petrenko` gets an empty `<main>` on
+`/project` and never reaches `/onboarding`. Under mocks, 13 of 15 cases in the affected spec fail.
+
+**Suspected cause, and it is a hypothesis rather than a diagnosis:** the JUNIOR redirect in
+`index.tsx` racing the onboarding gate in `route.tsx`. React #185 is minified, so reproduce in a
+production build and get the real component stack before changing anything — `diagnosing-bugs`
+applies and its gate is "no red command, no hypotheses".
+
+**The part that makes this urgent rather than merely open: the defect is invisible in CI.** Both
+tests are `test.fixme`, so they report as skipped on every run. Un-skipping them is part of the fix,
+not a follow-up — without that there is nothing to confirm a fix against.
+
+- `onboarding-flow.spec.ts` › "JUNIOR: unboarded user …"
+- `onboarding-regression-pr110.spec.ts` › "Unboarded JUNIOR: …"
+
+**Why this is in the backlog and not only in a task file — a lesson worth more than the bug.** The
+reporter wrote its notes to `.claude/tasks/<task>.blocked.md`, and the spec reviewer filed it as a
+finding because that path is **gitignored**: the notes live in one worktree and die with it. I then
+wrote a task file for the fix and it had the identical defect, for the identical reason. **A follow-up
+recorded in a gitignored path is not recorded.** `BACKLOG-followups.md` is committed and is the only
+durable home in this repository; every `.blocked.md` any agent writes has this property, and the rule
+that tells agents to write one does not say so.
+
+**Also worth checking when this is fixed:** seed senior B (`dmytro.marchenko`) is deliberately not
+onboarded, so the unboarded path is reachable for more than one role and may have more than one entry
+point. State whether any other role is affected rather than fixing only the JUNIOR route.
+
+**Check on closing:** an unboarded JUNIOR reaches `/onboarding` from `/` and from `/project` without
+a render loop in a production build; both `fixme` markers are gone and both tests are green twice; and
+a test fails if the race returns, since a redirect race fixed by reordering two effects is the kind of
+fix that comes back silently.
