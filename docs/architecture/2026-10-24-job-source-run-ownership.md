@@ -185,7 +185,6 @@ it. "Read" means a plain `SELECT` with no row lock.
 | `openCycle` (T3, called by T5)        | 1                 | `INSERT` one `job_collection_cycles` row. No existing row is locked.                                                                                                                                                                                                                                         |
 | `claimDue` / `claimSource` (T3)       | 1 per source      | `job_sources` 1 row (`FOR UPDATE SKIP LOCKED`; for `claimSource`, `FOR UPDATE` with `lock_timeout`) → `job_source_hosts` 1 row (`INSERT … ON CONFLICT DO NOTHING`, then `SELECT … FOR UPDATE`) → read the host's `STARTED` runs → `INSERT` 1 `job_collection_runs` row (it may wait on a unique-index entry) |
 | `heartbeat` (T3)                      | 1                 | `job_collection_runs` 1 row (`UPDATE`)                                                                                                                                                                                                                                                                       |
-| `readHostPause` (T8, called by T7)    | 1                 | read only                                                                                                                                                                                                                                                                                                    |
 | `recordHostBan` (T8, called by T7)    | 1                 | `job_source_hosts` 1 row (`INSERT … ON CONFLICT DO NOTHING`, then `UPDATE`). `pause_source_id` is a **plain column with no foreign key**, so no lock is taken on `job_sources`.                                                                                                                              |
 | `reserve` (meter store)               | 1                 | `job_account_meters` 1 row (`lockMeter`) → `job_collection_runs` 1 row (`assertOwned`, `FOR UPDATE`) → `INSERT` 1 reservation                                                                                                                                                                                |
 | `markSent`, `reconcile` (meter store) | 1                 | `job_account_meters` 1 row → `job_collection_runs` 1 row (`assertOwned`) → 1 reservation (`FOR UPDATE`)                                                                                                                                                                                                      |
@@ -252,7 +251,6 @@ is therefore provably unsent, which is why the end-of-run settlement may release
 | -------------------------------------------------------------------------- | ----------- | -------------------------------------------------------------------------------- |
 | `finish`: success                                                          | `SUCCEEDED` | none                                                                             |
 | `finish`: a designed stop                                                  | `PARTIAL`   | `PAGE_CAP`, `COST_STOP` or `DEADLINE`                                            |
-| `finish`: stopped by a host pause it did not cause                         | `PARTIAL`   | `HOST_PAUSED`                                                                    |
 | `finish`: adapter or transport error                                       | `FAILED`    | the adapter's code, for example `ACCESS_POLICY`, `PARSE_DRIFT` or `CURSOR_CYCLE` |
 | `finish`: shutdown while the lease is still held                           | `CANCELLED` | `CANCELLED`                                                                      |
 | recovery: lease expired (crash, fence, a shutdown that could not `finish`) | `FAILED`    | `LEASE_EXPIRED`                                                                  |
@@ -392,7 +390,7 @@ No age rule and no clock comparison decide the copy, so a single clock is not ev
 | Run ended                                                                                            | `consecutive_failures` | `cooldown_until`                         | `next_attempt_at`                                      |
 | ---------------------------------------------------------------------------------------------------- | ---------------------- | ---------------------------------------- | ------------------------------------------------------ |
 | `SUCCEEDED`                                                                                          | 0                      | cleared                                  | now + cadence                                          |
-| `PARTIAL`: `PAGE_CAP`, `DEADLINE` or `HOST_PAUSED`                                                   | unchanged              | unchanged                                | now + cadence                                          |
+| `PARTIAL`: `PAGE_CAP` or `DEADLINE`                                                                  | unchanged              | unchanged                                | now + cadence                                          |
 | `PARTIAL`: `COST_STOP`                                                                               | unchanged              | unchanged                                | the later of now + cadence and the meter's `resets_at` |
 | `CANCELLED` (shutdown)                                                                               | unchanged              | unchanged                                | now + cadence                                          |
 | `FAILED`, **any** code, including `ACCESS_POLICY`, `PARSE_DRIFT`, `CURSOR_CYCLE` and `LEASE_EXPIRED` | +1                     | `clock_timestamp() + backoff(n)`, capped | now + cadence                                          |
@@ -423,16 +421,18 @@ capped source leaves the cap only through T9's recorded reset.
     the host, and a parsed `Retry-After`. It is capped at `HOST_BAN_PAUSE_MAX` (30 days).
   - `Retry-After` is parsed as finite and non-negative, in both its seconds and HTTP-date forms, and
     capped. Anything else is ignored.
-- **Every request and every heartbeat checks the pause.** `readHostPause` returns a boolean
-  computed in SQL, `paused_until > clock_timestamp()`, and is never cached in process. T7 calls it
-  in its `markSent` wrapper before each request: a paused host means the call rejects with
-  `HOST_PAUSED` and nothing is sent. It also calls it after each heartbeat: a paused host means the
-  run's `signal` is aborted with `HOST_PAUSED`. A run stopped this way ends `PARTIAL` /
-  `HOST_PAUSED`, which counts as neither a failure nor a ban.
-- **The real bound.** At most one run is active per host (`HOST_BUSY`), and an adapter issues its
-  subrequests one at a time. So at most one request per host is in flight when a refusal arrives:
-  the refused request itself. After the ban commits, every check sees it. The slip window is the
-  refused request's own round trip, and it involves no other request.
+- **The refused run sends nothing more.** After a refusal, T7's production context refuses every
+  further `fetchText` of that run, in process and before any I/O, whatever the adapter does next.
+- **No other run can be in flight on a banned host.** At most one run is active per host
+  (`HOST_BUSY`), adapters issue their subrequests one at a time, and only that run's transport can
+  write the host's ban. So when a refusal arrives, the only request in flight on the host is the
+  refused request itself. The real bound is exactly that request, with no slip window for any other.
+  A new run on the host is then refused at claim until `paused_until`.
+- **Deleted in round 5: the per-request and per-heartbeat database reads of the pause**
+  (`readHostPause`). With one run per host they guarded against nothing, and they were the
+  unlocked read SR-M-13 and SR-M-14 found holes around. _What the owner loses:_ nothing, provided
+  `hostKey(config)` maps every source that shares a real host to one key. T8's drift test asserts
+  that sources sharing a provider apex share a key.
 
 **Lease, heartbeat and page writes (SR-L-9).** The heartbeat interval is `H ≤ L / 3`. A page-write
 transaction runs with `SET LOCAL statement_timeout` and `lock_timeout` so that it ends within `H`.
@@ -484,6 +484,9 @@ corrective, in `public`, changes no privilege, and goes through `deploy.yml`.
   mistake lifts only on expiry (24 hours by default, at most 30 days).
 - **`finish` writing bans.** _Loss:_ none. The transport has already written the ban, at the moment
   it saw it.
+- **The per-request and per-heartbeat database reads of the host pause.** One active run per host
+  makes them redundant. _Loss:_ none, provided the host-key mapping is complete, which T8's drift
+  test checks.
 
 **Bounded worker pool.** An in-process semaphore of size `N` per API process. The claim's `LIMIT` is
 the free slots, never more. `N`, `L`, the heartbeat interval and the per-run deadline are config
@@ -853,8 +856,8 @@ Each is run against real Postgres, as `crm_app`.
   - the 3.5a characterisation case (AutoTest zone; Master assigns that edit);
   - the aging helpers in `src/test/`.
 - **New codes (one owner).**
-  - T3 adds `RUN_FENCED`, `LEASE_EXPIRED`, `NOT_MARKED_SENT` and `HOST_PAUSED` to
-    `COLLECTION_ERROR_CODES`, in one edit. T7 raises `NOT_MARKED_SENT` and `HOST_PAUSED` but does
+  - T3 adds `RUN_FENCED`, `LEASE_EXPIRED` and `NOT_MARKED_SENT` to
+    `COLLECTION_ERROR_CODES`, in one edit. T7 raises `NOT_MARKED_SENT` but does
     not edit the list.
   - The claim's refusal reasons are a separate closed list, written to `job_sources.last_error_code`:
     `MANIFEST_ENTRY_MISSING`, `NOT_ACTIVATABLE`, `READINESS_BLOCKED`, `TRANSPORT_NOT_WIRED`,
@@ -895,7 +898,7 @@ Each is run against real Postgres, as `crm_app`.
   8. After recovery, the run is `FAILED` / `LEASE_EXPIRED`. Its `RESERVED` rows are `RELEASED`, and
      its `SENT` and `UNCERTAIN` rows are `USED` at the full amount. **No `UNCERTAIN` row remains on
      any terminal run** (`finish`, recovery and the sweep alike).
-  9. The four new codes are members of `COLLECTION_ERROR_CODES`.
+  9. The three new codes are members of `COLLECTION_ERROR_CODES`.
   10. **Crash resume:** a run that crashes after page `k` is durable is followed by a run that starts
       at page `k + 1`. The fixture server sees pages `1..k` exactly once each.
   11. A successor that fails **before its first page** leaves the inherited checkpoint in its own
@@ -916,7 +919,7 @@ Each is run against real Postgres, as `crm_app`.
   14. A persistently refused source at the head of the queue does not block a claimable source
       behind it.
   15. Failure accounting follows its table row by row. Specifically: a source whose own requests get
-      403 reaches the cap after 3 runs; `HOST_PAUSED`, `COST_STOP`, `PAGE_CAP` and `CANCELLED` leave
+      403 reaches the cap after 3 runs; `COST_STOP`, `PAGE_CAP`, `DEADLINE` and `CANCELLED` leave
       the counter unchanged; and `claimSource` is refused inside a cooldown.
   16. **Host behaviour, end to end** (moved here from T8, round 5, CR-M-16):
       - a ban written by T7's transport refusal makes the sibling source on that host refused by
@@ -983,7 +986,7 @@ the storage is this separate task.
   - the manifest: a per-type `hostRate: { perMinute, perDay }`, and a per-type `hostKey(config)`
     function (see (a));
   - a new `job-sourcing/scheduling/host-state.ts`, with `recordHostBan`, `claimHostSlot`,
-    `hostOpenPredicate` and `readHostPause`;
+    and `hostOpenPredicate`;
   - the seed-delta generator `manifest.seed-sql.ts`.
 - **`pause_source_id` is a plain `uuid` column with no foreign key** (round 5, SR-M-10 item 4).
   `recordHostBan` therefore takes no lock on `job_sources`, and the lock order holds.
@@ -1011,8 +1014,6 @@ the storage is this separate task.
 
   It refuses a NULL key explicitly.
 
-- **`readHostPause(hostKey)`** returns `paused_until > clock_timestamp()`, computed in SQL, as a
-  boolean. It takes no lock and is never cached in process.
 - **`hostOpenPredicate`** is written `s.host_key IS NOT NULL AND NOT EXISTS (…)`, with the null test
   **first**. A bare `NOT EXISTS` is TRUE for a NULL key and would fail open.
 - **(a) How `host_key` is derived.** The manifest's `hostKey(config)` gives the **scope a provider
@@ -1068,7 +1069,7 @@ UPDATE`. Under `READ COMMITTED`, a second claimer's conflicting insert waits on 
       ignores a malformed or negative one, never shortens a pause, and is a no-op on a repeat from
       the same source within its pause.
   13. The drift test refuses `perDay` on a type whose `requestsPerRun` is not 1.
-  14. Tenant-subdomain sources of one provider share one `host_key`.
+  14. Tenant-subdomain sources of one provider share one `host_key`, and the drift test fails if two types whose requests reach one real host map to different keys.
 - **Real-Postgres:** AC 1–4 and 6–12 against a scratch database, as `crm_app`. Time is moved by
   `ageHostPause`.
 - **Model:** opus (Drizzle migration). **security-reviewer mandatory.**
@@ -1095,17 +1096,20 @@ UPDATE`. Under `READ COMMITTED`, a second claimer's conflicting insert waits on 
   - **When `markSent` is refused with `RUN_FENCED` mid-run** (T3 fenced this executor out): the
     request is not sent and the run stops at once. It is reported as `RUN_FENCED`, not
     `PERSISTENCE` (today's label for a failed `markSent`), because the cause is ownership, not our
-    storage. No `reconcile` is attempted, since it would be refused as well (T3 AC 7). The
-    reservation is settled by recovery (`recoverRun`), or by `sweepOrphanReservations` if the run
-    is already terminal.
-- **Stop-on-ban, the in-flight half (round 4, SR-H-3).** As specified in Option A, "Stop-on-ban for
-  runs in flight":
+    storage. No `reconcile` is attempted, since it would be refused as well. The reservation is
+    settled by recovery's end-of-run settlement.
+- **Stop-on-ban, the in-flight half** (rounds 4–5, as specified in Option A, "Stop-on-ban"):
   - the `fetchText` wrapper calls T8's `recordHostBan` on the transport's `SourceBlockedError` (403)
-    and `SourceRateLimitedError` (429), **before** it rethrows to the adapter (451 follows in T6);
-  - the `markSent` wrapper reads `readHostPause` lock-free before every request, and on a paused host
-    rejects with `ACCESS_POLICY`, sending nothing;
-  - the worker reads it after every heartbeat, and on a paused host aborts the run's `signal` with
-    `ACCESS_POLICY`.
+    and `SourceRateLimitedError` (429), **before** it rethrows to the adapter. 451 follows in T6.
+    It imports these classes from `http/source-errors.ts`, not the unrelated class of the same name
+    in the WorkingNomads adapter;
+  - after a refusal, the context refuses every further `fetchText` of that run, in process and
+    before any I/O.
+
+  There is no database read of the pause during a run: one run per host makes it redundant (Option
+  A, round-5 deletions).
+
+- **Worker start:** the worker calls `recoverExpired` once at start, before it claims anything.
 - **Carries:** every port backed in production:
   - `run`, with the ledger's owner and epoch;
   - `meter` = `createAccountMeter`, bound with the owner token and with the **`account_key` read from
@@ -1113,7 +1117,7 @@ UPDATE`. Under `READ COMMITTED`, a second claimer's conflicting insert waits on 
     complete-meter-set argument rests on this;
   - `checkpoints.load` returning the checkpoint the claim chose, and `checkpoints.savePage` =
     the ledger's `savePage`;
-  - `cache`, `secrets`, and `signal`, which is aborted by a failed heartbeat or a host pause;
+  - `cache`, `secrets`, and `signal`, which is aborted by a failed heartbeat;
   - the heartbeat loop at interval `H`, on its own reserved connection (pool `N + 1`), with
     page-write transactions bounded to `H` (Option A, "Lease, heartbeat and page writes");
     **the per-run `deadline`** (#1138 SR-M-1 makes this task its owner). `fetchText` uses
@@ -1122,7 +1126,7 @@ UPDATE`. Under `READ COMMITTED`, a second claimer's conflicting insert waits on 
     calendar-month window. **Bounded worker pool** (size `N` from config, with a ceiling). One
     source's failure never blocks another. **Run telemetry persists even if the DTO fails.** Empty
     and partial runs record honestly.
-- **Depends on:** T2, T3, T8 (T8's `readHostPause` and `recordHostBan`).
+- **Depends on:** T2, T3, T8 (T8's `recordHostBan`).
 - **AC:** (1) `grep` finds a `CollectionContext` producer outside `src/test/`; (2) a reporting
   adapter runs end to end against a local fixture server; (3) a TheirStack run that would exceed
   200 records stops with `COST_STOP`; (4) a throwing source leaves the others' runs `SUCCEEDED`;
@@ -1136,22 +1140,24 @@ UPDATE`. Under `READ COMMITTED`, a second claimer's conflicting insert waits on 
   `fetchText` without a committed `markSent`. **AC 6 and AC 9 are the enforcing instruments.** A
   grep cannot tell whether a call site is preceded by an awaited `markSent`. The list of
   `ctx.fetchText(` call sites outside `src/test/` (two on `d0f876f33`) is a reading aid for the
-  reviewer, not a gate; (10) **in-flight stop-on-ban:** two runs on one host, A and B. A receives a
-  403, and B's every request whose pause check follows the ban's commit is refused. Measured at the
-  fixture server, **B sends zero further requests** after its next check; (11) a heartbeat after a
-  ban aborts the run with `ACCESS_POLICY` before its next subrequest; (12) a request refused by the
-  pause check leaves its reservation `RELEASED`, never `SENT`; (13) the meter binding's account key
-  equals the run row's `account_key`, and building a binding with a window from another account is refused, even when the source's `account_meter_id` changed after the
-  claim; (14) a heartbeat queued behind a page write lands before the lease expires, with a page
-  write held to its `H` budget.
+  reviewer, not a gate. 10. **Stop-on-ban:** a fixture server answers one request with 403 (and, in a second case, 429).
+  The host's `paused_until` is written before the adapter sees the error, and the fixture server
+  receives **zero further requests from that run**, even from an adapter written to keep going. 11. A source on the paused host is refused at claim until the pause expires (`HOST_PAUSED`). 12. A `fetchText` refused after a ban leaves its reservation `RELEASED`, never `SENT`. 13. The meter binding's account key equals the run row's `account_key`, and building a binding with
+  a window from another account is refused, even when the source's `account_meter_id` changed
+  after the claim. 14. A heartbeat queued behind a page write lands before the lease expires, with a page write held
+  to its `H` budget. 15. **DOU is untouched** (round 5, SR-M-17): the golden DOU specs pass unchanged; the 05:00
+  handler still collects DOU through the legacy path; DOU never gets a `job_collection_runs`
+  row from the ledger. 16. At worker start, an expired run left by a previous process is recovered before the first
+  claim.
 - **Real-Postgres:**
   - two workers on one source: one wins, using the ledger rather than a mock;
   - an empty run and a partial run;
   - a deadline overrun stops before the next subrequest;
   - a worker fenced out between `reserve` and `markSent` (its lease recovered by a second worker)
     sends nothing, and the account is charged exactly what the successor sent;
-  - **the in-flight ban (AC 10)**, with two runs on one host against one fixture server;
-  - the heartbeat-behind-page-write bound (AC 14).
+  - the ban (AC 10–12) against one fixture server, with the request count asserted;
+  - the heartbeat-behind-page-write bound (AC 14);
+  - worker-start recovery (AC 16).
 - **Model:** opus, high (cross-zone, meter).
 
 ### T5 — cron: enqueue only
