@@ -989,6 +989,35 @@ describe('every refusal says what it is (messages, codes, statuses asserted exac
     expect(w.sent).toHaveLength(1)
   })
 
+  it('a thrown value that is not an Error still gets a message (fetch, meter, store)', async () => {
+    const fetchThrows = world({ answer: simple(['1']) })
+    fetchThrows.ctx.fetchText = async () => {
+      throw 'plain string'
+    }
+    expect((await run(fetchThrows)).requests[0]?.error).toEqual({
+      code: 'TRANSIENT_NETWORK',
+      message: 'the request failed',
+    })
+
+    const meterThrows = world({ answer: simple(['1']) })
+    meterThrows.ctx.meter.reconcile = async () => {
+      throw 'plain string'
+    }
+    expect((await run(meterThrows)).requests[0]?.error).toEqual({
+      code: 'PERSISTENCE',
+      message: 'the reservation could not be reconciled: the meter failed',
+    })
+
+    const storeThrows = world({ answer: simple(['1']) })
+    storeThrows.ctx.checkpoints.savePage = async () => {
+      throw 'plain string'
+    }
+    expect((await run(storeThrows)).requests.at(-1)?.error).toEqual({
+      code: 'PERSISTENCE',
+      message: 'the page could not be persisted',
+    })
+  })
+
   it('a stored cursor that is not an offset says so', async () => {
     const stored: ValidatedCheckpoint = {
       configVersion: 1,

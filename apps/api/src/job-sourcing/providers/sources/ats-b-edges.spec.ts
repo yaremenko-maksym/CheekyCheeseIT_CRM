@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { fakeCollectionContext } from '../../../test/fake-collection-context'
 import { personioProvider, personioSpec } from './personio.provider'
 import { recruiteeProvider, recruiteeSpec } from './recruitee.provider'
-import { smartrecruitersProvider } from './smartrecruiters.provider'
 import { workableProvider, workableSpec } from './workable.provider'
 
 /**

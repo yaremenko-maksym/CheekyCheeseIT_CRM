@@ -140,10 +140,10 @@ export function remoteFromFlags(item: {
 }
 
 function locationOf(item: Item): string | null {
-  if ((item.locations?.length ?? 0) > 1) {
-    const kept = new Set(presentStrings(item.locations?.map((l) => placeOf([l.city, l.country]))))
-    if (kept.size > 0) return [...kept].join('; ')
-  }
+  const places = [
+    ...new Set(presentStrings(item.locations?.map((l) => placeOf([l.city, l.country])))),
+  ]
+  if ((item.locations?.length ?? 0) > 1 && places.length > 0) return places.join('; ')
   return nonBlank(item.location)
 }
 

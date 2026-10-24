@@ -286,6 +286,12 @@ describe('the account envelope guards the employer evidence (no company is injec
     }
   })
 
+  it('spacing is ignored on the evidence side too: "Hugging   Face" in the config is "Hugging Face"', async () => {
+    const config = cfg('huggingface', { employer: { name: 'Hugging \t  Face', evidence: 'x' } })
+    const { batch } = await run(wrap([job('AAAAAAAAAA')], 'Hugging Face'), config)
+    expect(batch.outcome).toBe('SUCCEEDED')
+  })
+
   it('ignores case and spacing when comparing the envelope name with the evidence', async () => {
     const { batch } = await run(wrap([job('AAAAAAAAAA')], '  HUGGING   face '))
     expect(batch.outcome).toBe('SUCCEEDED')

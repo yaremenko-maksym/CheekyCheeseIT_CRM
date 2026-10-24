@@ -452,7 +452,7 @@ async function collectSmartRecruiters(
   /** A cached or fetched detail body, judged: the posting's own detail, or nothing. */
   const detailOf = (bodyText: string, id: string): Detail | null => {
     const parsed = jsonOf(bodyText)
-    // Stryker disable next-line ConditionalExpression: a body that is not JSON carries no `value`, so without this line `safeParse(undefined)` fails and returns null by the next line; the guard documents the order and cannot change a result.
+    // Stryker disable next-line ConditionalExpression: with the guard removed (`false`), a body that is not JSON carries no `value`, `safeParse(undefined)` fails, and the next line returns null exactly as the guard does; the same directive also covers `true`, which every test that reads a detail kills.
     if (!parsed.ok) return null
     const detail = detailSchema.safeParse(parsed.value)
     return detail.success && detail.data.id === id ? detail.data : null
