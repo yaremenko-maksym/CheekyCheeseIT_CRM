@@ -287,16 +287,28 @@ export function createAccountMeter(db: MeterDb, rawBinding: AccountMeterBinding)
     // due — is caught by 6 unit tests. R4-SR-M-2: a `disable next-line` here blanket-covered that
     // killable arm too, which is lost signal, so it was removed.
     if (next === null) return meter
+    // Hoisted out of the `.set({ ... })` below rather than written inline, which is the workaround
+    // backlog 312 names: a `Stryker disable` is not honoured inside a method chain, so a line that
+    // genuinely needs one has to be a statement. The clock text itself is SQL — only Postgres
+    // evaluates it, and a database double is handed the object whatever it says.
+    // Stryker disable next-line StringLiteral: SQL text, only Postgres evaluates it
+    const touchedAt = sql`now()`
     const [rolled] = await tx
       .update(jobAccountMeters)
       .set({
         used: 0,
         windowStartedAt: next.windowStartedAt,
         resetsAt: next.resetsAt,
-        updatedAt: sql`now()`,
+        updatedAt: touchedAt,
       })
       .where(eq(jobAccountMeters.id, meter.id))
       .returning()
+    // The ROLLED row, so the caller sees the advanced bounds; `meter` is the pre-roll fallback for
+    // the case the UPDATE matched nothing. A double cannot tell the two apart, because it returns
+    // the same row object either way; what distinguishes them is a real UPDATE, and the integration
+    // spec's "a reconcile can itself be the first operation of W+1 and still accounts to W" case is
+    // what fails if the stale row is returned, because the window decision reads its start instant.
+    // Stryker disable next-line LogicalOperator: needs a really-updated row, verified by the integration rollover cases
     return rolled ?? meter
   }
 
