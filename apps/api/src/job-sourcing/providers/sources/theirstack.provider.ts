@@ -30,9 +30,12 @@ import { requireApiKey, withSecrets } from './quota-provider'
  * - BILLING IS PER RETURNED RECORD. The reference says the endpoint "consumes 1 API credit for each
  *   job returned in the response" and lists no per-request charge. So the meter unit is `RECORD`,
  *   not `REQUEST`, and the two never share a counter. A page is RESERVED at its worst case, `limit`
- *   credits, before the request leaves; the response settles at the number of jobs it actually
- *   carried (`data.length`), so a short or empty page frees the rest; and a request that timed out
- *   after it left holds the whole reservation as UNCERTAIN, because the credits may have been spent.
+ *   credits, before the request leaves; WITH NO billing observation (the state today) the
+ *   response settles at the whole reservation, so a short or empty page frees nothing. ONLY once a
+ *   `billingObservation` supports per-record billing does the response settle at the number of
+ *   jobs it carried (`data.length`) and free the rest (see `billingObservationSchema` for what
+ *   that does and does not guarantee). A request that timed out after it left holds the whole
+ *   reservation as UNCERTAIN either way, because the credits may have been spent.
  * - `limit` is 1..50 here (the plan's bound; the reference gives a minimum of 1 and no maximum).
  *   Every credit is real money, so the reservation is also capped by the account's meter.
  * - AT LEAST ONE POSTED-DATE FILTER IS REQUIRED by the API; `posted_at_max_age_days` is always sent,
@@ -145,7 +148,8 @@ function makeSpec(
       // Settling below the reservation FREES budget that may have been really spent (SR-M-1:
       // measured, a limit of 100 reserved at 10 a page and settled at 1 permitted 91 pages, 910
       // worst-case credits), so the reading is attached only once the billing basis has been
-      // observed. Until then every page is charged its worst case and the meter stays a hard ceiling.
+      // observed. Until then every page is charged its worst case. Once attached, the meter is only as
+      // accurate as the observation (see `billingObservationSchema`).
       ...(billingVerified && { incurredAmount: theirstackIncurredCredits }),
     },
     pageRequest: (c, at) => ({
@@ -207,9 +211,9 @@ function makeSpec(
  *   that one request, read from its account (HOW it is read - dashboard or API - is not known to
  *   this code, which is why the fields are plain numbers).
  *
- * Verified means the record is CONSISTENT WITH per-record billing and with neither of the two
- * alternatives it can actually separate it from: `2 <= jobsReturned < requestedLimit` and the
- * balance fell by exactly `jobsReturned`.
+ * "Verified" means only that the record SUPPORTS per-record billing: `2 <= jobsReturned <
+ * requestedLimit` and the balance fell by exactly `jobsReturned`. That separates per-record billing
+ * from two alternatives, and from no others:
  * - It rules out billing per `limit` (the drop would be `requestedLimit`, not `jobsReturned`), which
  *   is why a run that returned the whole `limit` verifies nothing.
  * - It rules out a flat charge of ONE credit per request only from 2 returned jobs up: at exactly
@@ -219,8 +223,22 @@ function makeSpec(
  *   evidence, not proof; the smoke should ask for a `limit` of at least 3 and be run with nothing
  *   else spending the account's credits.
  * - A run that returned nothing cannot tell anything, so it does not verify.
- * If the evidence is wrong, the cost direction is the safe one: an unverified source is charged its
- * worst case per page, which over-counts and never frees budget.
+ *
+ * THE MONEY DIRECTION, BRANCH BY BRANCH (it is not one direction):
+ * - UNVERIFIED (no observation, or one that does not support per-record billing): every page is
+ *   charged its worst case, `limit` credits. That over-counts and frees nothing.
+ * - VERIFIED, and the evidence is right: pages settle at `data.length`, which is the real charge.
+ * - VERIFIED IN ERROR (the residuals above): the adapter attaches an actual cost and the difference
+ *   is freed for re-reservation, so the meter UNDER-counts. Route: the true charge is a flat `F`
+ *   per request and `F` happened to equal `jobsReturned` on the one observed page; a later page that
+ *   returns fewer than `F` records is then settled at its record count while `F` was really spent.
+ *   The bounds in the loop's `readIncurred` (a whole number in `0..reserved`, 0 recorded as 1) do
+ *   NOT close this: `data.length` is always inside them. They stop an out-of-range reading from
+ *   being believed, and raising the threshold can only move a source toward the worst case;
+ *   neither makes a wrongly verified source safe.
+ * So the worst-case guarantee holds only while the source is unverified. Verifying a source is a
+ * decision to trust the observation with money, not a formality. (This meter's unit is `RECORD`,
+ * credits.)
  *
  * It lives beside the adapter that bills; the registration task persists it (in the source's
  * provenance) and passes it here. NO OBSERVATION IS COMMITTED TODAY, so the source is unverified.
@@ -236,8 +254,11 @@ export const billingObservationSchema = z
   .strict()
 export type BillingObservation = z.infer<typeof billingObservationSchema>
 
-/** Whether an observation PROVES per-record billing (see above). Throws on a malformed record. */
-export function billingProvenBy(raw: unknown): boolean {
+/**
+ * Whether an observation SUPPORTS per-record billing - evidence, not proof (see above; this was
+ * named `billingProvenBy` until round 4). Throws on a malformed record.
+ */
+export function billingSupportedBy(raw: unknown): boolean {
   const o = billingObservationSchema.parse(raw)
   return (
     o.jobsReturned >= 2 &&
@@ -251,9 +272,11 @@ export interface TheirStackOptions {
   /**
    * The smoke's evidence. ABSENT (today): every page is charged its worst case. PRESENT: it is
    * parsed (a malformed record throws when the provider is built) and the per-record reading is
-   * attached only if it proves per-record billing. There is no flag to set: the reading follows the
-   * evidence, because a freed difference is re-reservable within the window and an unverified
-   * reading turns a hard budget into a multiple of it (measured 9.1x).
+   * attached only if it supports per-record billing (evidence, not proof: an observation that is
+   * wrong in the ways `billingObservationSchema` lists makes the meter under-count). There is no
+   * flag to set: the reading follows the evidence, because a freed difference is re-reservable
+   * within the window and an unverified reading turns a hard budget into a multiple of it
+   * (measured 9.1x).
    */
   billingObservation?: unknown
 }
@@ -263,7 +286,7 @@ export function createTheirStackProvider(
 ): ReportingJobSourceProvider<Validated<Config>> {
   // Decided once, when the provider is built, from evidence - never from a flag.
   const billingVerified =
-    options.billingObservation !== undefined && billingProvenBy(options.billingObservation)
+    options.billingObservation !== undefined && billingSupportedBy(options.billingObservation)
   return definePagedProvider({ type: 'THEIRSTACK_API', configSchema }, (config, ctx) => {
     // Before the reservation and before any network call: a source without a key costs nothing.
     const apiKey = requireApiKey(

@@ -9,7 +9,7 @@ import { UnvalidatedConfigError } from '../reporting-provider'
 import { SourceNotReadyError } from './quota-provider'
 import {
   createTheirStackProvider,
-  billingProvenBy,
+  billingSupportedBy,
   THEIRSTACK_SOURCE_STATUS,
   theirstackIncurredCredits,
 } from './theirstack.provider'
@@ -30,7 +30,7 @@ const SEEDED = { limit: 25, seniority: ['senior'] }
  * An observation that PROVES per-record billing, hand-written: asked for 25, got 7, and the balance
  * fell from 1000 to 993. (Invented for this unit test; the real one is the owner's smoke.)
  */
-const PROVEN = {
+const SUPPORTING = {
   observedAt: '2026-10-24T09:00:00.000Z',
   requestedLimit: 25,
   jobsReturned: 7,
@@ -42,7 +42,7 @@ const NOT_CONFIGURED = { configured: false, apiKey: null, secrets: [] } as const
 
 const provider = (
   credential: Parameters<typeof createTheirStackProvider>[0]['credential'] = READY,
-  observation: unknown = PROVEN,
+  observation: unknown = SUPPORTING,
 ) => createTheirStackProvider({ credential, billingObservation: observation })
 const cfg = (extra: Record<string, unknown> = {}, p = provider()) =>
   p.parseConfig({ configVersion: 1, ...SEEDED, ...extra })
@@ -501,9 +501,9 @@ describe('billing is not trusted until it has been observed (SR-M-1)', () => {
     expect(batch.requests[0]?.cost).toEqual({ unit: 'RECORD', amount: 25 })
   })
 
-  it('only PROVEN evidence attaches the reading: 2 jobs back, 2 charged', async () => {
+  it('only supporting evidence attaches the reading: 2 jobs back, 2 charged', async () => {
     const { m } = await runWith(
-      createTheirStackProvider({ credential: READY, billingObservation: PROVEN }),
+      createTheirStackProvider({ credential: READY, billingObservation: SUPPORTING }),
     )
     expect(m.settled).toEqual([{ id: 'res-1', resolution: 'USED', incurred: 2 }])
   })
@@ -517,8 +517,8 @@ describe('billing is not trusted until it has been observed (SR-M-1)', () => {
     }
   })
 
-  it('evidence that does not prove per-record billing leaves the worst case in force', async () => {
-    const disproving = { ...PROVEN, creditBalanceAfter: 975 } // balance fell by the whole limit
+  it('evidence that does not support per-record billing leaves the worst case in force', async () => {
+    const disproving = { ...SUPPORTING, creditBalanceAfter: 975 } // balance fell by the whole limit
     const { m } = await runWith(
       createTheirStackProvider({ credential: READY, billingObservation: disproving }),
     )
@@ -549,39 +549,52 @@ describe('billing is not trusted until it has been observed (SR-M-1)', () => {
 })
 
 /** R2-SR-M-2: what an observation must show before the per-record reading is believed. */
-describe('billingProvenBy', () => {
-  const obs = (over: Record<string, unknown>) => ({ ...PROVEN, ...over })
+describe('billingSupportedBy', () => {
+  const obs = (over: Record<string, unknown>) => ({ ...SUPPORTING, ...over })
 
-  it('proves per-record billing: 7 of 25 returned, balance fell by exactly 7', () => {
-    expect(billingProvenBy(PROVEN)).toBe(true)
+  it('supports per-record billing: 7 of 25 returned, balance fell by exactly 7', () => {
+    expect(billingSupportedBy(SUPPORTING)).toBe(true)
   })
 
-  it('AT the edges: 2 of 3 proves; 1 of 3 is ambiguous with a flat charge of 1; the whole limit (3 of 3) cannot tell per-record from per-limit', () => {
+  it('AT the edges: 2 of 3 supports; 1 of 3 is ambiguous with a flat charge of 1; the whole limit (3 of 3) cannot tell per-record from per-limit', () => {
     expect(
-      billingProvenBy(obs({ requestedLimit: 3, jobsReturned: 2, creditBalanceAfter: 998 })),
+      billingSupportedBy(obs({ requestedLimit: 3, jobsReturned: 2, creditBalanceAfter: 998 })),
     ).toBe(true)
     // One returned and one credit spent is exactly what a flat per-request charge of 1 also looks
-    // like, so it proves nothing. (The money direction is safe either way: unproven = worst case.)
+    // like, so it supports nothing. Unverified means worst case per page; the opposite error (verified
+    // wrongly) is the one that under-counts - see `billingObservationSchema`.
     expect(
-      billingProvenBy(obs({ requestedLimit: 3, jobsReturned: 1, creditBalanceAfter: 999 })),
+      billingSupportedBy(obs({ requestedLimit: 3, jobsReturned: 1, creditBalanceAfter: 999 })),
     ).toBe(false)
     expect(
-      billingProvenBy(obs({ requestedLimit: 3, jobsReturned: 3, creditBalanceAfter: 997 })),
+      billingSupportedBy(obs({ requestedLimit: 3, jobsReturned: 3, creditBalanceAfter: 997 })),
     ).toBe(false)
     // one past: more returned than asked is not a billing observation either
     expect(
-      billingProvenBy(obs({ requestedLimit: 3, jobsReturned: 4, creditBalanceAfter: 996 })),
+      billingSupportedBy(obs({ requestedLimit: 3, jobsReturned: 4, creditBalanceAfter: 996 })),
     ).toBe(false)
   })
 
-  it('a flat charge of 1 per request is told apart from per-record only once 2+ jobs came back', () => {
+  // NOT the threshold's pin: this is false because the drop of 1 differs from 2 returned jobs, and
+  // it would be false under `>= 1`, `>= 2` and `>= 3` alike. The edge test above is what kills a
+  // changed threshold. This one only documents that flat-1 is separable at 2+ jobs.
+  it('a flat charge of 1 per request does not match 2 returned jobs', () => {
     expect(
-      billingProvenBy(obs({ requestedLimit: 25, jobsReturned: 2, creditBalanceAfter: 999 })),
+      billingSupportedBy(obs({ requestedLimit: 25, jobsReturned: 2, creditBalanceAfter: 999 })),
     ).toBe(false)
   })
 
-  it('nothing returned proves nothing, even with an unchanged balance', () => {
-    expect(billingProvenBy(obs({ jobsReturned: 0, creditBalanceAfter: 1000 }))).toBe(false)
+  it('KNOWN RESIDUAL: a flat charge of 5 per request that happened to meet 5 returned jobs is indistinguishable, so it is supported', () => {
+    // Documents the route to an under-count (see `billingObservationSchema`): this record is what a
+    // flat 5-credit-per-request account would also write down. Verifying on it attaches the actual
+    // cost, and a later 2-record page then settles at 2 while 5 was really spent.
+    expect(
+      billingSupportedBy(obs({ requestedLimit: 25, jobsReturned: 5, creditBalanceAfter: 995 })),
+    ).toBe(true)
+  })
+
+  it('nothing returned supports nothing, even with an unchanged balance', () => {
+    expect(billingSupportedBy(obs({ jobsReturned: 0, creditBalanceAfter: 1000 }))).toBe(false)
   })
 
   it.each([
@@ -590,23 +603,23 @@ describe('billingProvenBy', () => {
     ['the balance went UP', 1001],
     ['the whole limit was charged', 975],
     ['a flat per-request charge of 1', 999],
-  ])('does not prove it when %s', (_label, after) => {
-    expect(billingProvenBy(obs({ creditBalanceAfter: after }))).toBe(false)
+  ])('does not support it when %s', (_label, after) => {
+    expect(billingSupportedBy(obs({ creditBalanceAfter: after }))).toBe(false)
   })
 
   it.each([
-    ['a missing field', { ...PROVEN, observedAt: undefined }],
-    ['an unknown field', { ...PROVEN, note: 'x' }],
-    ['a date without milliseconds', { ...PROVEN, observedAt: '2026-10-24T09:00:00Z' }],
-    ['a date with text before it', { ...PROVEN, observedAt: 'on 2026-10-24T09:00:00.000Z' }],
-    ['a date with text after it', { ...PROVEN, observedAt: '2026-10-24T09:00:00.000Z!' }],
-    ['a limit of 0', { ...PROVEN, requestedLimit: 0 }],
-    ['a limit of 51', { ...PROVEN, requestedLimit: 51 }],
-    ['a fractional balance', { ...PROVEN, creditBalanceBefore: 1000.5 }],
-    ['a negative balance', { ...PROVEN, creditBalanceAfter: -1 }],
-    ['a string', 'proven'],
+    ['a missing field', { ...SUPPORTING, observedAt: undefined }],
+    ['an unknown field', { ...SUPPORTING, note: 'x' }],
+    ['a date without milliseconds', { ...SUPPORTING, observedAt: '2026-10-24T09:00:00Z' }],
+    ['a date with text before it', { ...SUPPORTING, observedAt: 'on 2026-10-24T09:00:00.000Z' }],
+    ['a date with text after it', { ...SUPPORTING, observedAt: '2026-10-24T09:00:00.000Z!' }],
+    ['a limit of 0', { ...SUPPORTING, requestedLimit: 0 }],
+    ['a limit of 51', { ...SUPPORTING, requestedLimit: 51 }],
+    ['a fractional balance', { ...SUPPORTING, creditBalanceBefore: 1000.5 }],
+    ['a negative balance', { ...SUPPORTING, creditBalanceAfter: -1 }],
+    ['a string', 'verified'],
     ['null', null],
   ])('refuses %s', (_label, raw) => {
-    expect(() => billingProvenBy(raw)).toThrow()
+    expect(() => billingSupportedBy(raw)).toThrow()
   })
 })
