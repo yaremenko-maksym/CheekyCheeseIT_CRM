@@ -14,7 +14,7 @@ import { Link } from '@tanstack/react-router'
 import { motion } from 'framer-motion'
 import { useLingui } from '@lingui/react/macro'
 import type { TransactionDto } from '@crm/shared'
-import { formatDate } from '@crm/shared'
+import { formatTxOrCreated } from '../utils/tx-date'
 import { cn } from '@/lib/utils'
 import { useLocale } from '@/lib/i18n'
 import { Button } from '@/components/ui/button'
@@ -420,7 +420,7 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
         </td>
 
         <td className="py-3 px-4 text-xs text-muted-foreground whitespace-nowrap">
-          {formatDate(tx.txDate ?? tx.createdAt, locale, 'shortYY')}
+          {formatTxOrCreated(tx.txDate, tx.createdAt, locale)}
         </td>
 
         <td className="py-3 px-4">

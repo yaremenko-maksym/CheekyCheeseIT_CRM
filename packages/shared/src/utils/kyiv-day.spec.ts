@@ -1,5 +1,42 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { kyivDayOf, kyivToday, latestSettleBusinessDay } from './kyiv-day'
+import {
+  addCalendarMonths,
+  kyivDayOf,
+  kyivMonthOf,
+  kyivToday,
+  latestSettleBusinessDay,
+} from './kyiv-day'
+
+/**
+ * Retro business-day clock (CR-867-L-1 / SR-809-L-1): month math on the Kyiv
+ * business day must come from calendar PARTS, never from `Date#setMonth` or the
+ * host timezone. The TZ matrix in vitest.config.mts runs this file under the
+ * host TZ, Europe/Kyiv and America/Los_Angeles.
+ */
+describe('kyivMonthOf', () => {
+  it('buckets by the Kyiv month, not the UTC month, on the Kyiv 1st', () => {
+    // Kyiv 2026-08-01 01:30 EEST = UTC 2026-07-31 22:30
+    expect(kyivMonthOf(new Date('2026-07-31T22:30:00Z'))).toBe('2026-08')
+    expect(kyivMonthOf(new Date('2026-07-31T20:59:00Z'))).toBe('2026-07')
+  })
+})
+
+describe('addCalendarMonths', () => {
+  it('subtracts months by calendar parts', () => {
+    expect(addCalendarMonths('2026-10-15', -3)).toBe('2026-07-15')
+    expect(addCalendarMonths('2026-02-10', -3)).toBe('2025-11-10')
+  })
+
+  it('clamps to the last day of a shorter target month instead of overflowing', () => {
+    expect(addCalendarMonths('2026-05-31', -3)).toBe('2026-02-28')
+    expect(addCalendarMonths('2024-05-31', -3)).toBe('2024-02-29')
+    expect(addCalendarMonths('2026-12-31', -1)).toBe('2026-11-30')
+  })
+
+  it('adds months across a year boundary', () => {
+    expect(addCalendarMonths('2026-11-30', 3)).toBe('2027-02-28')
+  })
+})
 
 /**
  * `kyivDayOf` — the same Kyiv calendar day, for an instant the CALLER supplies

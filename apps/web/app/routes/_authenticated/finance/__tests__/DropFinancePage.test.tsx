@@ -74,7 +74,7 @@ function makeIncome(overrides: Partial<DropIncomeDto>): DropIncomeDto {
     companyName: 'TechCorp',
     amount: 1000,
     currency: 'USDT',
-    createdAt: '2026-08-01T00:00:00.000Z',
+    createdAt: '2026-08-01T12:00:00.000Z',
     // CR-809-M-6: NULL by default — the shape of a row that predates #809.
     txDate: null,
     status: 'pending',
@@ -444,9 +444,9 @@ describe('DropFinancePage — labels with no prior assertion (mutation-gate cove
   it('payments history renders its section title and each payment status text/variant', () => {
     useDropPaymentsMock.mockReturnValue({
       data: [
-        { id: 'p1', createdAt: '2026-08-01T00:00:00.000Z', amount: 100, status: 'pending' },
-        { id: 'p2', createdAt: '2026-08-02T00:00:00.000Z', amount: 200, status: 'confirmed' },
-        { id: 'p3', createdAt: '2026-08-03T00:00:00.000Z', amount: 300, status: 'failed' },
+        { id: 'p1', createdAt: '2026-08-01T12:00:00.000Z', amount: 100, status: 'pending' },
+        { id: 'p2', createdAt: '2026-08-02T12:00:00.000Z', amount: 200, status: 'confirmed' },
+        { id: 'p3', createdAt: '2026-08-03T12:00:00.000Z', amount: 300, status: 'failed' },
       ],
       isLoading: false,
     })
@@ -494,7 +494,7 @@ describe('DropFinancePage — labels with no prior assertion (mutation-gate cove
  * date must be ABSENT, which is what a `?? ` the wrong way round would fail.
  */
 describe('DropFinancePage — tables render the business date (CR-809-M-6)', () => {
-  const ENTERED = '2026-08-01T00:00:00.000Z' // when the row was created → 01.08.26
+  const ENTERED = '2026-08-01T12:00:00.000Z' // when the row was created → 01.08.26
   const DATED = '2026-05-30T00:00:00.000Z' // the operator-chosen date → 30.05.26
 
   it('an income with a txDate shows the txDate, not the creation date', () => {

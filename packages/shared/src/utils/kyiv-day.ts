@@ -108,3 +108,30 @@ export function latestSettleBusinessDay(sourceBusinessDay: string): string {
   // Stryker disable next-line EqualityOperator: PROVABLY equivalent mutant (`>` to `>=`), not an untested bound. The two differ in which BRANCH is taken only when the operands are equal, and then both branches return the same string. Verified exhaustively over the three orderings (source after / equal to / before today): the returned value is identical for all three, so no test can distinguish the mutant. WHICH of the two values is returned is tested both ways in kyiv-day.spec.ts.
   return sourceBusinessDay > today ? sourceBusinessDay : today
 }
+
+/**
+ * The Kyiv calendar month of an instant, as `YYYY-MM`. The month-bucketing
+ * counterpart of `kyivDayOf`: between 00:00 and 02:00/03:00 Kyiv on the 1st the
+ * UTC month is still the previous one, so `toISOString().slice(0, 7)` mis-files
+ * the row. Derived from `kyivDayOf` so there is still ONE definition of the day.
+ */
+export function kyivMonthOf(at: Date): string {
+  return kyivDayOf(at).slice(0, 7)
+}
+
+/**
+ * Shift a `YYYY-MM-DD` day by whole calendar months, clamping the day to the
+ * last day of the target month (31 May - 3 months = 28 Feb, not 3 Mar).
+ *
+ * Pure calendar arithmetic on the key's parts: no `Date#setMonth` (which
+ * overflows on the 29th-31st) and no host timezone involved.
+ */
+export function addCalendarMonths(day: string, delta: number): string {
+  const [y, m, d] = day.split('-').map(Number) as [number, number, number]
+  const index = y * 12 + (m - 1) + delta
+  const year = Math.floor(index / 12)
+  const month = (index % 12) + 1
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate()
+  const pad = (n: number, w: number) => String(n).padStart(w, '0')
+  return `${pad(year, 4)}-${pad(month, 2)}-${pad(Math.min(d, lastDay), 2)}`
+}

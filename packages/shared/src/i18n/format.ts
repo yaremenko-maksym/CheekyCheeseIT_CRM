@@ -49,6 +49,7 @@ export function formatDate(
     | 'monthYear'
     | 'dateTime'
     | 'shortYY'
+    | 'shortYYUtc'
     | 'dateTimeWithYear' = 'short',
 ): string {
   // `new Date(x)` accepts a `Date` exactly as well as a date string — a
@@ -58,7 +59,14 @@ export function formatDate(
   // would only ever be a no-op copy-constructor call on one side.
   const d = new Date(value)
   const STYLE_OPTS: Record<
-    'short' | 'long' | 'month' | 'monthYear' | 'dateTime' | 'shortYY' | 'dateTimeWithYear',
+    | 'short'
+    | 'long'
+    | 'month'
+    | 'monthYear'
+    | 'dateTime'
+    | 'shortYY'
+    | 'shortYYUtc'
+    | 'dateTimeWithYear',
     Intl.DateTimeFormatOptions
   > = {
     short: { timeZone: 'UTC' },
@@ -67,6 +75,9 @@ export function formatDate(
     monthYear: { month: 'long', year: 'numeric', timeZone: 'UTC' },
     dateTime: { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' },
     shortYY: { day: '2-digit', month: '2-digit', year: '2-digit' },
+    // Date-only business fields (UTC-midnight encoded): the shortYY shape pinned to
+    // UTC, so the stored day is the day shown in every reader timezone.
+    shortYYUtc: { day: '2-digit', month: '2-digit', year: '2-digit', timeZone: 'UTC' },
     dateTimeWithYear: {
       day: 'numeric',
       month: 'short',

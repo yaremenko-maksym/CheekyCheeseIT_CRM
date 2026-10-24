@@ -275,7 +275,7 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
             {sourceDateKey && (
               <p className="text-[11px] text-muted-foreground">
                 <Trans>
-                  Не раніше дати транзакції: {formatDate(sourceDateKey, locale, 'shortYY')}
+                  Не раніше дати транзакції: {formatDate(sourceDateKey, locale, 'shortYYUtc')}
                 </Trans>
               </p>
             )}

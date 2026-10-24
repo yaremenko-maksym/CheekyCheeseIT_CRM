@@ -108,7 +108,7 @@ export function ExistingSalaryParts({
                     Guarded, with its separator inside the guard so a dateless
                     legacy row cannot start with a dangling `·`. */}
                 <span className="tabular-nums text-[10px] text-muted-foreground">
-                  {formatDate(part.txDate, locale, 'shortYY')}
+                  {formatDate(part.txDate, locale, 'shortYYUtc')}
                 </span>
                 <span aria-hidden="true">·</span>
               </>

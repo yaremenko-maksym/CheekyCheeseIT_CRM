@@ -1,5 +1,10 @@
 import { HttpStatus } from '@nestjs/common'
-import { MAX_TRANSACTION_BUSINESS_YEAR, MIN_TRANSACTION_BUSINESS_YEAR } from '@crm/shared'
+import {
+  kyivDayOf,
+  kyivMonthOf,
+  MAX_TRANSACTION_BUSINESS_YEAR,
+  MIN_TRANSACTION_BUSINESS_YEAR,
+} from '@crm/shared'
 import { apiError } from '../common/api-error'
 
 /**
@@ -46,13 +51,31 @@ export function formatTransactionBusinessDate(date: Date): string {
   return date.toISOString().slice(0, 10)
 }
 
+/**
+ * The business month (`YYYY-MM`) a transaction belongs to.
+ *
+ * A `txDate` is a date-only business value encoded at UTC midnight (see above),
+ * so its own UTC month IS the business month. The `createdAt` fallback is a real
+ * instant, so it is bucketed by the KYIV month: between 00:00 and 02:00/03:00
+ * Kyiv on the 1st its UTC month is still the previous one.
+ */
+export function transactionBusinessMonth(tx: { txDate: Date | null; createdAt: Date }): string {
+  return tx.txDate ? tx.txDate.toISOString().slice(0, 7) : kyivMonthOf(tx.createdAt)
+}
+
+/**
+ * An omitted date means "today" on the KYIV business-day clock, the same clock
+ * the web defaults and the policy window use. Resolving it as a bare `now` would
+ * give a UTC date one day behind the business day for the 2-3 hours after Kyiv
+ * midnight, mis-filing the row (and, on the Kyiv 1st, its month).
+ */
 export function resolveTransactionDate(
   rawTxDate: string | null | undefined,
   now: Date = new Date(),
 ): Date {
-  if (!rawTxDate) return now
+  const businessDay = rawTxDate || kyivDayOf(now)
 
-  const parsed = parseTransactionBusinessDate(rawTxDate)
+  const parsed = parseTransactionBusinessDate(businessDay)
 
-  return rawTxDate === formatTransactionBusinessDate(now) ? now : parsed
+  return businessDay === formatTransactionBusinessDate(now) ? now : parsed
 }

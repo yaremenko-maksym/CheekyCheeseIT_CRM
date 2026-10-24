@@ -5,6 +5,7 @@ import {
   formatTransactionBusinessDate,
   parseTransactionBusinessDate,
   resolveTransactionDate,
+  transactionBusinessMonth,
 } from './transaction-date.util'
 
 /**
@@ -27,6 +28,19 @@ describe('formatTransactionBusinessDate', () => {
   })
 })
 
+describe('transactionBusinessMonth', () => {
+  it('reads a date-only (UTC-midnight) txDate by its own UTC month', () => {
+    const txDate = new Date('2026-08-01T00:00:00.000Z')
+    const createdAt = new Date('2026-09-20T10:00:00.000Z')
+    expect(transactionBusinessMonth({ txDate, createdAt })).toBe('2026-08')
+  })
+
+  it('falls back to the KYIV month of createdAt, not the UTC month, on the Kyiv 1st', () => {
+    const createdAt = new Date('2026-07-31T22:30:00.000Z') // Kyiv 2026-08-01 01:30
+    expect(transactionBusinessMonth({ txDate: null, createdAt })).toBe('2026-08')
+  })
+})
+
 describe('resolveTransactionDate', () => {
   it('keeps the exact current instant when no custom date is supplied', () => {
     const now = new Date('2026-10-05T18:12:34.567Z')
@@ -45,6 +59,22 @@ describe('resolveTransactionDate', () => {
     // timestamp whose UTC date is the 14th.
     const now = new Date('2026-07-14T21:30:00.000Z')
     expect(resolveTransactionDate('2026-07-15', now).toISOString()).toBe('2026-07-15T00:00:00.000Z')
+  })
+
+  // SR-809-L-1 / CR-809-M-2: the omitted date is the KYIV business day. Between
+  // 21:00 UTC and midnight UTC (Kyiv already on the next day) a bare `now` has a
+  // UTC date one day BEHIND the business day, and the date-only UTC rendering
+  // (and the UTC month) would show the wrong day. Store the Kyiv day at UTC
+  // midnight instead — the same encoding an explicit date gets.
+  it('resolves an omitted date to the Kyiv business day when Kyiv is already a day ahead of UTC', () => {
+    const now = new Date('2026-07-14T21:30:00.000Z') // Kyiv 2026-07-15 00:30
+    expect(resolveTransactionDate(undefined, now).toISOString()).toBe('2026-07-15T00:00:00.000Z')
+    expect(resolveTransactionDate(null, now).toISOString()).toBe('2026-07-15T00:00:00.000Z')
+  })
+
+  it('resolves an omitted date on the Kyiv 1st to the new month, not the previous UTC month', () => {
+    const now = new Date('2026-07-31T22:30:00.000Z') // Kyiv 2026-08-01 01:30
+    expect(resolveTransactionDate(undefined, now).toISOString()).toBe('2026-08-01T00:00:00.000Z')
   })
 
   it('stores a historical calendar date at UTC midnight', () => {
