@@ -1013,7 +1013,9 @@ describe('applyPayoutPaidCascade — write ORDER (the serialization contract)', 
       'base query consumedTxHashes', // registry fast-fail
       'tx-begin',
       'update payout_requests', // atomic PENDING→PAID claim (serialization point)
-      'select transactions', // PAYOUT source row (date floor)
+      // SR-809-M-3: no `txDate` was sent, so the PAYOUT source row is NOT read.
+      // That lookup only ever supplied the date floor, and reading it anyway is
+      // what made a request with no PAYOUT row unpayable.
       'query payoutRequests', // layer-2 reuse guard, after the claim
       'insert consumed_tx_hashes', // cross-path hash claim
       'select consumed_tx_hashes', // release-history probe
@@ -1088,10 +1090,27 @@ describe('applyPayoutPaidCascade — the atomic PENDING→PAID claim', () => {
     expect(h.findPayoutRequest).not.toHaveBeenCalled()
   })
 
-  it('no PAYOUT row for the request → 400 PAYOUT_TRANSACTION_NOT_FOUND_FOR_REQUEST and rollback (the claim is undone)', async () => {
+  // SR-809-M-3 = CR-809-L-3. This lookup exists ONLY to supply the lower bound
+  // for an explicitly chosen payment date, but #809 ran it unconditionally and
+  // threw when it found nothing. That made every payout request without a PAYOUT
+  // row (legacy data, a half-failed create) permanently unpayable — including
+  // through `manualConfirmPayout`, which IS the ADMIN/ACCOUNTANT recovery path.
+  it('no PAYOUT row and no txDate → the confirmation still proceeds, and the lower-bound lookup is not issued at all', async () => {
+    const h = build({ payoutSource: [] })
+    await expect(h.svc.manualConfirmPayout(REQUEST_ID, 'CASH', ADMIN)).resolves.toBeDefined()
+    expect(h.labels()).toContain('tx-commit')
+    // `select transactions` is not a unique label — the linked-income read uses
+    // it too. With no date supplied exactly ONE such read happens (the incomes);
+    // the PAYOUT date-floor lookup is the one that must be absent.
+    expect(h.labels().filter((l) => l === 'select transactions')).toHaveLength(1)
+    const onlyRead = h.find('select transactions')[0]!.where!
+    expect(onlyRead.params).toEqual([REQUEST_ID, 'SENIOR_INCOME', 'DROP_INCOME'])
+  })
+
+  it('no PAYOUT row but a txDate was sent → 400 PAYOUT_TRANSACTION_NOT_FOUND_FOR_REQUEST and rollback (the claim is undone)', async () => {
     const h = build({ payoutSource: [] })
     await expectApiError(
-      h.svc.manualConfirmPayout(REQUEST_ID, 'CASH', ADMIN),
+      h.svc.manualConfirmPayout(REQUEST_ID, 'CASH', ADMIN, { txDate: '2026-06-10' }),
       'FINANCE_PAYOUT_TRANSACTION_NOT_FOUND_FOR_REQUEST',
       HttpStatus.BAD_REQUEST,
     )
@@ -1102,8 +1121,138 @@ describe('applyPayoutPaidCascade — the atomic PENDING→PAID claim', () => {
       'tx-rollback',
     ])
     const sel = h.one('select transactions').where!
-    expect(sel.sql).toBe('("transactions"."payout_request_id" = $1 and "transactions"."type" = $2)')
     expect(sel.params).toEqual([REQUEST_ID, 'PAYOUT'])
+  })
+
+  // SR-809-M-3, second half: a soft-deleted PAYOUT row used to satisfy the
+  // lookup and then supply the lower-bound date, so a deleted row silently
+  // governed what date a live payment could carry.
+  it('the lower-bound lookup excludes soft-deleted PAYOUT rows', async () => {
+    const h = build()
+    await h.svc.manualConfirmPayout(REQUEST_ID, 'CASH', ADMIN, { txDate: '2026-06-10' })
+    const sel = h.find('select transactions')[0]!.where!
+    expect(sel.sql).toBe(
+      '("transactions"."payout_request_id" = $1 and "transactions"."type" = $2 and "transactions"."deleted_at" is null)',
+    )
+    expect(sel.params).toEqual([REQUEST_ID, 'PAYOUT'])
+  })
+})
+
+// SR-809-L-3 — the pay-flow audit metadata recorded the NEW date but not the one
+// it replaced, and the PAYOUT row's own date is overwritten at pay time. Without
+// the previous value the override is not reconstructable from the audit trail.
+describe('applyPayoutPaidCascade — date-override audit trail (SR-809-L-3)', () => {
+  it('records both the replaced and the written business date when a date is supplied', async () => {
+    const h = build({
+      payoutSource: [
+        {
+          id: PAYOUT_ROW_ID,
+          txDate: new Date('2026-06-01T00:00:00.000Z'),
+          createdAt: new Date('2026-06-01T10:00:00.000Z'),
+        },
+      ],
+    })
+    await h.svc.manualConfirmPayout(REQUEST_ID, 'CASH', ADMIN, { txDate: '2026-06-10' })
+    const metadata = h.one('insert transaction_audit_log').values!['metadata'] as Record<
+      string,
+      unknown
+    >
+    expect(metadata['txDateBefore']).toBe('2026-06-01')
+    expect(metadata['txDateAfter']).toBe('2026-06-10')
+  })
+
+  it('records a null previous date when the PAYOUT row carried none', async () => {
+    const h = build({
+      payoutSource: [
+        { id: PAYOUT_ROW_ID, txDate: null, createdAt: new Date('2026-06-01T10:00:00.000Z') },
+      ],
+    })
+    await h.svc.manualConfirmPayout(REQUEST_ID, 'CASH', ADMIN, { txDate: '2026-06-10' })
+    const metadata = h.one('insert transaction_audit_log').values!['metadata'] as Record<
+      string,
+      unknown
+    >
+    expect(metadata['txDateBefore']).toBeNull()
+    expect(metadata['txDateAfter']).toBe('2026-06-10')
+  })
+
+  // SR-809-H-1 at THIS call site. The date written here is the one
+  // `invoice-creation.service` stamps onto the invoice, so the bound matters on a
+  // legal document. These pin that the policy call passes the actor's role and
+  // the EXECUTED flow — without them the mutation gate leaves `flow: 'EXECUTED'`
+  // and the whole options object alive, nothing having observed the difference
+  // between an EXECUTED flow and no flow at all.
+  it('refuses a future payment date — by the time this cascade runs the payment has happened', async () => {
+    const h = build()
+    const tomorrow = new Date(NOW.getTime() + 86_400_000).toISOString().slice(0, 10)
+    await expectApiError(
+      h.svc.manualConfirmPayout(REQUEST_ID, 'CASH', ADMIN, { txDate: tomorrow }),
+      'FINANCE_TX_DATE_IN_FUTURE',
+      HttpStatus.BAD_REQUEST,
+    )
+    expect(h.labels()).toContain('tx-rollback')
+  })
+
+  it('refuses a far backdate with no reason, and records the reason when one is given', async () => {
+    const farPast = new Date(NOW.getTime() - 200 * 86_400_000).toISOString().slice(0, 10)
+    const source = [
+      {
+        id: PAYOUT_ROW_ID,
+        txDate: new Date(`${farPast}T00:00:00.000Z`),
+        createdAt: new Date(`${farPast}T00:00:00.000Z`),
+      },
+    ]
+
+    const refused = build({ payoutSource: source })
+    await expectApiError(
+      refused.svc.manualConfirmPayout(REQUEST_ID, 'CASH', ADMIN, { txDate: farPast }),
+      'FINANCE_TX_DATE_BACKDATE_REASON_REQUIRED',
+      HttpStatus.BAD_REQUEST,
+    )
+
+    const allowed = build({ payoutSource: source })
+    await allowed.svc.manualConfirmPayout(REQUEST_ID, 'CASH', ADMIN, {
+      txDate: farPast,
+      backdateReason: '  settled offline in Q1  ',
+    })
+    const auditRows = allowed.find('insert transaction_audit_log').map((c) => c.values!)
+    const settled = auditRows.find((v) => v['action'] === 'PAYOUT_SETTLED')!
+    const metadata = settled['metadata'] as Record<string, unknown>
+    // SR-809-L-3: trimmed, so the trail never stores padding as content.
+    expect(metadata['backdateReason']).toBe('settled offline in Q1')
+    expect(metadata['txDateAfter']).toBe(farPast)
+
+    // CR-M-1: the cascade also writes the dedicated row every other writer does,
+    // exactly once, targeting the PAYOUT row it justifies.
+    const backdated = auditRows.filter((v) => v['action'] === 'TX_DATE_BACKDATED')
+    expect(backdated).toHaveLength(1)
+    expect(backdated[0]).toMatchObject({
+      targetId: PAYOUT_ROW_ID,
+      metadata: { txDate: farPast, backdateReason: 'settled offline in Q1' },
+    })
+  })
+
+  it('writes no backdateReason key for an in-window date — there was no exemption to justify', async () => {
+    const h = build()
+    await h.svc.manualConfirmPayout(REQUEST_ID, 'CASH', ADMIN, { txDate: '2026-06-10' })
+    const metadata = h.one('insert transaction_audit_log').values!['metadata'] as Record<
+      string,
+      unknown
+    >
+    expect(metadata).not.toHaveProperty('backdateReason')
+    // ...and no dedicated TX_DATE_BACKDATED row either (the `one` above already
+    // proves PAYOUT_SETTLED is the only audit insert).
+  })
+
+  it('writes neither key when no date was supplied — there was no override to record', async () => {
+    const h = build()
+    await h.svc.manualConfirmPayout(REQUEST_ID, 'CASH', ADMIN)
+    const metadata = h.one('insert transaction_audit_log').values!['metadata'] as Record<
+      string,
+      unknown
+    >
+    expect(metadata).not.toHaveProperty('txDateBefore')
+    expect(metadata).not.toHaveProperty('txDateAfter')
   })
 })
 
@@ -1287,7 +1436,9 @@ describe('applyPayoutPaidCascade — ledger rows', () => {
   it('linked-income read selects SENIOR_INCOME or DROP_INCOME of this request', async () => {
     const h = build()
     await h.svc.manualConfirmPayout(REQUEST_ID, 'CASH', ADMIN)
-    const read = h.find('select transactions')[1]!.where!
+    // SR-809-M-3: with no `txDate` the PAYOUT date-floor lookup no longer runs,
+    // so the linked-income read is the FIRST `select transactions`, not the second.
+    const read = h.find('select transactions')[0]!.where!
     expect(read.sql).toBe(
       '("transactions"."payout_request_id" = $1 and ("transactions"."type" = $2 or "transactions"."type" = $3))',
     )
@@ -1376,6 +1527,10 @@ describe('applyPayoutPaidCascade — ledger rows', () => {
         payableAmount: '740.070000',
         note,
         txDate: '2026-06-12',
+        // SR-809-L-3: both ends of the date override. `null` = the PAYOUT row
+        // carried no business date before this settlement overwrote it.
+        txDateBefore: null,
+        txDateAfter: '2026-06-12',
       },
     })
   })

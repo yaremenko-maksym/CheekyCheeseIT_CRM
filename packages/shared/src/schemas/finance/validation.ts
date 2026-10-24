@@ -7,12 +7,55 @@ function isRealCalendarDate(value: string): boolean {
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
 }
 
+/**
+ * SR-809-L-2 — the sane year window every operator-entered financial date sits
+ * inside. Before this, "is a real calendar day" was the ONLY check, so `0000-01-01`
+ * and `9999-12-31` both validated; year 0 does not exist for Postgres
+ * `timestamptz`, so it surfaced as a driver 500 instead of a 400.
+ *
+ * The lower bound is the first year this company has financial records for. The
+ * upper bound is a typo-catcher, deliberately far beyond any legitimate planned
+ * row (a pending salary is planned weeks ahead, not decades), so widening the
+ * window is never needed to record real business.
+ *
+ * This window is role- and flow-INDEPENDENT on purpose. "How far back may THIS
+ * caller backdate" and "may THIS flow accept a future date at all" depend on the
+ * caller's role and on the flow; a Zod schema cannot see either, so those live in
+ * the server-side policy (`transaction-date-policy.ts`) instead.
+ */
+export const MIN_TRANSACTION_BUSINESS_YEAR = 2020
+export const MAX_TRANSACTION_BUSINESS_YEAR = 2100
+
+function isWithinBusinessYearWindow(value: string): boolean {
+  const year = Number(value.slice(0, 4))
+  return year >= MIN_TRANSACTION_BUSINESS_YEAR && year <= MAX_TRANSACTION_BUSINESS_YEAR
+}
+
 // Every financial date input uses one strict YYYY-MM-DD calendar validator.
 // Whether a future date is legal is flow-specific (for example, NBU-priced
-// settlement forbids it, while a pending salary may legitimately be planned).
+// settlement forbids it, while a pending salary may legitimately be planned) and
+// is decided by the server-side policy, not here.
 export const transactionBusinessDateSchema = z
   .string()
   .refine(isRealCalendarDate, { message: 'zod.DATE_FORMAT_YYYYMMDD' })
+  .refine(isWithinBusinessYearWindow, { message: 'zod.DATE_YEAR_OUT_OF_RANGE' })
+
+/**
+ * SR-809-H-1 / owner decision D-2 — the operator-chosen business date and the
+ * reason that may be required to justify it, as ONE spread so a writer cannot
+ * accept the date while silently lacking the channel for its justification.
+ *
+ * `backdateReason` is optional here because it is conditionally required: the
+ * server-side policy (`transaction-date-policy.ts`) demands it only when an
+ * ADMIN/ACCOUNTANT dates a row beyond the 31-day backdating window, and ignores
+ * it otherwise. That condition depends on the caller's role and so cannot be
+ * expressed in this schema — which is exactly why the requirement is enforced
+ * server-side and this field is merely the transport for it.
+ */
+export const transactionBusinessDateFields = {
+  txDate: transactionBusinessDateSchema.optional().nullable(),
+  backdateReason: z.string().trim().max(500).optional().nullable(),
+}
 
 // ---------------------------------------------------------------------------
 // Create / Update schemas

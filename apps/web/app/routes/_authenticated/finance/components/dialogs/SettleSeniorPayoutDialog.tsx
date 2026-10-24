@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Trans, useLingui } from '@lingui/react/macro'
 import type { TransactionDto } from '@crm/shared'
-import { kyivToday, receiptMandatoryError, formatDate } from '@crm/shared'
+import { latestSettleBusinessDay, receiptMandatoryError, formatDate } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -192,6 +192,25 @@ export function SettleSeniorPayoutDialog({
   // `NbuCurrencyService.getRates(selectedDate)` call at settle time — the
   // worst case is still a stale ON-SCREEN preview, corrected the moment the
   // mutation resolves, never a wrong payout.
+  // CR-809-H-1 = SR-809-M-2 — the picker's two bounds, as ONE pair of values so
+  // they cannot disagree with each other or with the server.
+  //
+  // `settleMinDate` is the source row's own business day: a settlement never
+  // predates the thing it settles (`PendingSettlementService` enforces the same).
+  // `maxSettleDate` is that day clamped UP against today, mirroring the service's
+  // `selected <= max(kyivToday(), sourceDate)`. A bare `kyivToday()` here used to
+  // fall BELOW `settleMinDate` whenever the source row was future-dated, and a
+  // picker with `min > max` offers no selectable day at all — which is how a
+  // future-dated source became unsettleable through the UI.
+  // Stryker disable next-line StringLiteral: the `tx == null` fallback is never READ. The component returns before rendering anything when `tx` is null (pinned by "renders nothing and does not throw when tx is null"), so no bound, default or payload can observe which empty-ish string sits here.
+  // Stryker disable next-line MethodExpression: `.slice(0,10)` matters only in a REAL browser in a non-UTC local timezone — DatePickerField's `parseISO` reads a date-only string as LOCAL midnight (the operator's own calendar day) while a full ISO instant anchors to UTC. This project's test environment is TZ=UTC-pinned, where "local" IS "UTC", so the two collapse to the same calendar day for every time-of-day and no test run under the mandated TZ can observe the difference. Identical reasoning to the documented suppression on the `value={txDate}` slice below.
+  const settleMinDate = tx ? (tx.txDate ?? tx.createdAt).slice(0, 10) : ''
+  // CR-M-4: the SAME function the server bound calls, so the picker cannot
+  // disagree with what `PendingSettlementService` will accept. This was hand-
+  // written here and again in the service — one rule, two copies, two separate
+  // Stryker proofs. The proof now lives on the helper, once.
+  const maxSettleDate = latestSettleBusinessDay(settleMinDate)
+
   const rateDateParam = txDate.replace(/-/g, '')
   const { data: rates } = useQuery<ExchangeRates>({
     // The `'exchange-rate'` label's exact text is functionally inert — it
@@ -566,7 +585,7 @@ export function SettleSeniorPayoutDialog({
               // obligation row just for this bound (a shape change to a
               // dialog that today only holds the transaction). Not worth
               // it for a coincidence window measured in milliseconds.
-              minDate={(tx.txDate ?? tx.createdAt).slice(0, 10)}
+              minDate={settleMinDate}
               // security-review PR #578 review (MED-2) — SUPERSEDES the
               // round-3 "decided NOT to fix" note this used to carry. That
               // note reasoned UTC "today" was merely ANNOYING (more
@@ -579,11 +598,19 @@ export function SettleSeniorPayoutDialog({
               // no date) is now the KYIV day, so a UTC picker bound here
               // would disagree with the server for up to 3 hours a day
               // instead of merely lagging the operator's own clock.
-              // `kyivToday()` — the SAME function the schema's upper bound
-              // now calls — keeps this picker, the schema, and the actual
-              // priced rate agreed on the same day, closing the gap
-              // instead of merely bounding its blast radius.
-              maxDate={kyivToday()}
+              // `kyivToday()` — the SAME business-day clock the server's
+              // upper bound now uses — keeps this picker, the service bound
+              // and the actual priced rate agreed on the same day, closing
+              // the gap instead of merely bounding its blast radius.
+              //
+              // CR-809-H-1 = SR-809-M-2: clamped UP to `minDate`. A bare
+              // `kyivToday()` goes BELOW the lower bound whenever the source
+              // row is future-dated, and `min > max` renders an empty picker
+              // — the operator could then not settle the obligation at all.
+              // This mirrors the service exactly, which allows
+              // `selected <= max(kyivToday(), sourceDate)`, and matches what
+              // the payout / pay-salary / confirm dialogs already do.
+              maxDate={maxSettleDate}
               className="w-full"
               data-testid="settle-senior-txdate"
             />

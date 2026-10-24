@@ -117,6 +117,11 @@ export const FINANCE_INVOICES_ERROR_FALLBACK_EN: Record<FinanceInvoicesErrorCode
     'Some transactions are already in a payout or unavailable — refresh the list',
   FINANCE_PAYOUT_DATE_BEFORE_INCOME:
     "The payout date can't be earlier than the selected income date",
+  FINANCE_TX_DATE_INVALID: "The transaction date isn't a valid date",
+  FINANCE_TX_DATE_IN_FUTURE: "A completed operation can't have a future date",
+  FINANCE_TX_DATE_TOO_OLD: 'This date is too far in the past — ask an admin to record it',
+  FINANCE_TX_DATE_BACKDATE_REASON_REQUIRED:
+    "This date is too far back and needs a documented reason — it can't be recorded from this screen",
   FINANCE_PAYOUT_SINGLE_PROJECT_ONLY: 'A payout must cover only one project',
   FINANCE_COMPANY_WALLET_NOT_CONFIGURED: "The company wallet isn't configured",
   FINANCE_NBU_RATE_UNAVAILABLE: 'The NBU exchange rate is unavailable — try again later',

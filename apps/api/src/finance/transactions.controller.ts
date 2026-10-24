@@ -228,6 +228,12 @@ export class TransactionsController {
       method: data.method,
       ...(data.txHash !== undefined && data.txHash !== null ? { txHash: data.txHash } : {}),
       ...(data.txDate !== undefined && data.txDate !== null ? { txDate: data.txDate } : {}),
+      // SR-809-H-1 / D-2: the reason travels with the date. Same conditional
+      // spread shape as its neighbours — exactOptionalPropertyTypes refuses an
+      // explicit `undefined` on an optional property.
+      ...(data.backdateReason !== undefined && data.backdateReason !== null
+        ? { backdateReason: data.backdateReason }
+        : {}),
     })
   }
 
@@ -456,6 +462,12 @@ export class PayoutRequestsController {
       ...(data.note !== undefined && data.note !== null ? { note: data.note } : {}),
       ...(data.txHash !== undefined && data.txHash !== null ? { txHash: data.txHash } : {}),
       ...(data.txDate !== undefined && data.txDate !== null ? { txDate: data.txDate } : {}),
+      // SR-809-H-1 / D-2: the reason travels with the date. Same conditional
+      // spread shape as its neighbours — exactOptionalPropertyTypes refuses an
+      // explicit `undefined` on an optional property.
+      ...(data.backdateReason !== undefined && data.backdateReason !== null
+        ? { backdateReason: data.backdateReason }
+        : {}),
     })
   }
 }

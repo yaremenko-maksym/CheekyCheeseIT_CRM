@@ -20,6 +20,7 @@
  */
 import { BadRequestException, ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
+import { getTableName } from 'drizzle-orm'
 import type { SessionUser } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 
@@ -130,6 +131,7 @@ interface MockState {
   payoutRow: ReturnType<typeof makePayoutRow> | null
   recipient: { id: string; role: string; archivedAt: Date | null } | null
   inserts: Array<Record<string, unknown>>
+  auditInserts: Array<Record<string, unknown>>
   updates: Array<{ id: string; set: Record<string, unknown> }>
 }
 
@@ -138,6 +140,7 @@ function makeService(initial: Partial<MockState> = {}) {
     payoutRow: makePayoutRow(),
     recipient: MAKSYM_USER,
     inserts: [],
+    auditInserts: [],
     updates: [],
     ...initial,
   }
@@ -181,8 +184,16 @@ function makeService(initial: Partial<MockState> = {}) {
             }),
           }),
         }),
-        insert: (_table: unknown) => ({
+        insert: (table: unknown) => ({
           values: async (row: Record<string, unknown>) => {
+            // SR-809-L-3: audit rows are kept APART from ledger rows. The mock
+            // used to ignore the table, so a transaction_audit_log insert landed
+            // in `state.inserts` beside the PAYOUT_CONFIRMED row it describes —
+            // hiding the audit write and polluting every count assertion.
+            if (getTableName(table as never) === 'transaction_audit_log') {
+              state.auditInserts.push(row)
+              return
+            }
             state.inserts.push(row)
           },
         }),
@@ -421,21 +432,119 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
       expect(confirmed['createdBy']).toBe(accountantUser.id)
     })
 
+    // SR-809-H-1 at THIS call site: pins that `confirmPayout` passes the actor's
+    // role and the EXECUTED flow to the policy, and records the justification.
+    // Without these the mutation gate leaves `flow: 'EXECUTED'`, the whole
+    // options object, and the `if (dateDecision.backdateReason)` guard alive,
+    // because nothing observed the difference between an EXECUTED flow and no
+    // flow at all, or between writing the audit row and not writing it.
+    it('refuses a future confirmation date — a confirmation records a payment that happened', async () => {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-05-05T12:00:00.000Z'))
+      try {
+        const { svc, state } = makeService({
+          payoutRow: makePayoutRow({ txDate: new Date('2026-05-01T00:00:00.000Z') }),
+        })
+
+        await expect(
+          svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
+            method: 'CASH',
+            txDate: '2026-05-06',
+          }),
+        ).rejects.toMatchObject({
+          response: { code: 'FINANCE_TX_DATE_IN_FUTURE', statusCode: 400 },
+        })
+        expect(state.updates).toHaveLength(0)
+        expect(state.inserts).toHaveLength(0)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('refuses a far backdate with no reason, and records the reason when one is given', async () => {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-05-05T12:00:00.000Z'))
+      try {
+        const refused = makeService({
+          payoutRow: makePayoutRow({ txDate: new Date('2026-01-01T00:00:00.000Z') }),
+        })
+        await expect(
+          refused.svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
+            method: 'CASH',
+            txDate: '2026-01-02',
+          }),
+        ).rejects.toMatchObject({
+          response: { code: 'FINANCE_TX_DATE_BACKDATE_REASON_REQUIRED', statusCode: 400 },
+        })
+        expect(refused.state.auditInserts).toHaveLength(0)
+
+        const allowed = makeService({
+          payoutRow: makePayoutRow({ txDate: new Date('2026-01-01T00:00:00.000Z') }),
+        })
+        await allowed.svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
+          method: 'CASH',
+          txDate: '2026-01-02',
+          backdateReason: '  cash handed over in January  ',
+        })
+        expect(allowed.state.auditInserts).toEqual([
+          {
+            actorId: accountantUser.id,
+            targetId: 'payout-tx-1',
+            action: 'TX_DATE_BACKDATED',
+            // Trimmed by the policy, so the trail never stores padding as content.
+            metadata: { txDate: '2026-01-02', backdateReason: 'cash handed over in January' },
+          },
+        ])
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('writes no audit row for an in-window confirmation date', async () => {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-05-05T12:00:00.000Z'))
+      try {
+        const { svc, state } = makeService({
+          payoutRow: makePayoutRow({ txDate: new Date('2026-05-01T00:00:00.000Z') }),
+        })
+        await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
+          method: 'CASH',
+          txDate: '2026-05-04',
+        })
+        expect(state.auditInserts).toHaveLength(0)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    // SR-809-H-1: the clock is pinned beside the fixture dates. These three
+    // tests are about the LOWER bound (a confirmation cannot predate its PAYOUT
+    // row), and they used to run against real time with May-2026 literals — so
+    // once the 31-day backdating window existed they started failing for an
+    // unrelated reason (the window), and would have drifted in and out of
+    // passing as the calendar moved. Pinning keeps each one testing the bound it
+    // was written for, permanently.
     it('stores the selected business date on both PAYOUT and PAYOUT_CONFIRMED', async () => {
-      const { svc, state } = makeService({
-        payoutRow: makePayoutRow({ txDate: new Date('2026-05-01T00:00:00.000Z') }),
-      })
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-05-05T12:00:00.000Z'))
+      try {
+        const { svc, state } = makeService({
+          payoutRow: makePayoutRow({ txDate: new Date('2026-05-01T00:00:00.000Z') }),
+        })
 
-      await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
-        method: 'CASH',
-        txDate: '2026-05-04',
-      })
+        await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
+          method: 'CASH',
+          txDate: '2026-05-04',
+        })
 
-      expect((state.updates[0]!.set['txDate'] as Date).toISOString().slice(0, 10)).toBe(
-        '2026-05-04',
-      )
-      expect((state.inserts[0]!['txDate'] as Date).toISOString().slice(0, 10)).toBe('2026-05-04')
-      expect(state.updates[0]!.set['txDate']).toBe(state.inserts[0]!['txDate'])
+        expect((state.updates[0]!.set['txDate'] as Date).toISOString().slice(0, 10)).toBe(
+          '2026-05-04',
+        )
+        expect((state.inserts[0]!['txDate'] as Date).toISOString().slice(0, 10)).toBe('2026-05-04')
+        expect(state.updates[0]!.set['txDate']).toBe(state.inserts[0]!['txDate'])
+      } finally {
+        vi.useRealTimers()
+      }
     })
 
     it('rejects an omitted confirmation date when today is before the PAYOUT business date', async () => {
@@ -459,37 +568,49 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
     })
 
     it('rejects a selected date before the PAYOUT business date', async () => {
-      const { svc, state } = makeService({
-        payoutRow: makePayoutRow({ txDate: new Date('2026-05-03T00:00:00.000Z') }),
-      })
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-05-05T12:00:00.000Z'))
+      try {
+        const { svc, state } = makeService({
+          payoutRow: makePayoutRow({ txDate: new Date('2026-05-03T00:00:00.000Z') }),
+        })
 
-      await expect(
-        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
-          method: 'CASH',
-          txDate: '2026-05-02',
-        }),
-      ).rejects.toMatchObject({
-        response: { code: 'FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', statusCode: 400 },
-      })
-      expect(state.updates).toHaveLength(0)
-      expect(state.inserts).toHaveLength(0)
+        await expect(
+          svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
+            method: 'CASH',
+            txDate: '2026-05-02',
+          }),
+        ).rejects.toMatchObject({
+          response: { code: 'FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', statusCode: 400 },
+        })
+        expect(state.updates).toHaveLength(0)
+        expect(state.inserts).toHaveLength(0)
+      } finally {
+        vi.useRealTimers()
+      }
     })
 
     it('accepts a selected date equal to the PAYOUT business date', async () => {
-      const { svc, state } = makeService({
-        payoutRow: makePayoutRow({
-          txDate: new Date('2026-05-03T00:00:00.000Z'),
-          createdAt: new Date('2026-05-05T10:00:00.000Z'),
-        }),
-      })
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-05-05T12:00:00.000Z'))
+      try {
+        const { svc, state } = makeService({
+          payoutRow: makePayoutRow({
+            txDate: new Date('2026-05-03T00:00:00.000Z'),
+            createdAt: new Date('2026-05-05T10:00:00.000Z'),
+          }),
+        })
 
-      await expect(
-        svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
-          method: 'CASH',
-          txDate: '2026-05-03',
-        }),
-      ).resolves.toBeDefined()
-      expect(state.updates).not.toHaveLength(0)
+        await expect(
+          svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, {
+            method: 'CASH',
+            txDate: '2026-05-03',
+          }),
+        ).resolves.toBeDefined()
+        expect(state.updates).not.toHaveLength(0)
+      } finally {
+        vi.useRealTimers()
+      }
     })
 
     it('selecting Kostya credits Kostya, not Maksym', async () => {

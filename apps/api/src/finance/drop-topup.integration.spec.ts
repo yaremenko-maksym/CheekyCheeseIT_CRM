@@ -192,6 +192,11 @@ describe.skipIf(!hasDatabaseUrl())('task-drop-topup — closing a drop remainder
         receiverId: ADMIN.id,
         idempotencyKey: randomUUID(),
         receiptExternalUrl: `https://etherscan.io/tx/0x${randomUUID().replace(/-/g, '')}`,
+        // SR-809-H-1 (CR-H-1): the income — and so the drop obligation derived
+        // from it — is dated a few days BACK, which is what makes two distinct
+        // settle days legal below. See the `dayOf` comment for why that matters.
+        // Well inside the 31-day backdating window, so no reason is required.
+        txDate: SOURCE_TX_DATE,
       },
       ADMIN,
     )
@@ -232,13 +237,30 @@ describe.skipIf(!hasDatabaseUrl())('task-drop-topup — closing a drop remainder
 
   /**
    * Dates of record for the two payments. Computed rather than hard-coded: the
-   * settle refuses a `txDate` earlier than the obligation's creation day, and
-   * the obligation is created by the fixture at run time.
+   * obligation is created by the fixture at run time, and the settle is bounded
+   * at BOTH ends relative to it.
+   *
+   * SR-809-H-1 (CR-H-1) — why these moved. `SECOND_TX_DATE` used to be
+   * `dayOf(1)`, i.e. tomorrow, and the comment here recorded only the LOWER
+   * bound ("the settle refuses a txDate earlier than the obligation's creation
+   * day") — so going forwards was simply the cheap way to obtain a second
+   * distinct day. Owner decision D-2 then added the upper bound, and a drop
+   * top-up is an EXECUTED settle: it books a PAID `PAYOUT_DROP` row for money
+   * that has already moved, so it cannot be dated tomorrow. The policy was
+   * right to refuse it and the fixture was wrong.
+   *
+   * What the test actually needs is two DISTINGUISHABLE days, not a future one
+   * — it asserts that the row's single `txDate` column is overwritten by the
+   * second payment while the first survives only in the audit journal. So the
+   * source income is backdated (`SOURCE_TX_DATE`) and both payments sit in the
+   * past, between that day and today. That is also what two real payments on
+   * different days look like.
    */
   const dayOf = (offsetDays: number) =>
     new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10)
-  const FIRST_TX_DATE = dayOf(0)
-  const SECOND_TX_DATE = dayOf(1)
+  const SOURCE_TX_DATE = dayOf(-5)
+  const FIRST_TX_DATE = dayOf(-3)
+  const SECOND_TX_DATE = dayOf(-1)
 
   /** The company-funded drop settle this task is about, receipt and date and all. */
   function settleDropFromCompany(

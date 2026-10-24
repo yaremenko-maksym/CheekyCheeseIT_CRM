@@ -8,7 +8,8 @@ import { DEFAULT_DROP_SHARE_PERCENT } from './drop-share-resolver'
 import { DEFAULT_SENIOR_SHARE_PERCENT } from './drop-distribution.util'
 import { NbuCurrencyService } from './nbu-currency.service'
 import { PayoutRequestReadService } from './payout-request-read.service'
-import { formatTransactionBusinessDate, resolveTransactionDate } from './transaction-date.util'
+import { resolveTransactionDateWithPolicy } from './transaction-date-policy'
+import { formatTransactionBusinessDate } from './transaction-date.util'
 import { convertToUsdtMinor } from './usdt-conversion.util'
 
 /**
@@ -44,7 +45,22 @@ export class PayoutRequestService {
     }
     // SR-809-M-1 (PR #868): the lower bound below is checked on the RESOLVED
     // date, so omitting txDate ("now") cannot predate the income it settles.
-    const effectivePayoutTxDate = resolveTransactionDate(txDate, new Date())
+    //
+    // SR-809-H-1 Scenario 3 / owner decision D-2: the chosen date is also bounded
+    // by the shared server-side policy. This matters here specifically because
+    // `invoice-creation.service` stamps the invoice from the PAYOUT row's date —
+    // a legal document — so an unbounded client value was printable as fact.
+    // EXECUTED: a payout request is raised for work already delivered, so its
+    // date is never ahead of today.
+    //
+    // No `backdateReason` is plumbed through this endpoint ON PURPOSE: the guard
+    // above admits only SENIOR and DROP, and neither is exempt from the
+    // backdating window under D-2, so a reason could never be consumed here. A
+    // parameter that cannot change any outcome would be misleading transport.
+    const effectivePayoutTxDate = resolveTransactionDateWithPolicy(txDate, {
+      role: currentUser.role,
+      flow: 'EXECUTED',
+    }).txDate
     const effectivePayoutBusinessDate = formatTransactionBusinessDate(effectivePayoutTxDate)
     const isDrop = currentUser.role === 'DROP'
     const incomeType = isDrop ? 'DROP_INCOME' : 'SENIOR_INCOME'

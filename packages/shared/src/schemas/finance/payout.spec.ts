@@ -12,6 +12,7 @@ import {
   settleSeniorPayoutSchema,
   updateProjectFinanceSettingsSchema,
 } from './payout'
+import { MAX_TRANSACTION_BUSINESS_YEAR } from './validation'
 
 const UUID = 'a0000000-0000-4000-8000-000000000001'
 const UUID2 = 'a0000000-0000-4000-8000-000000000002'
@@ -181,9 +182,17 @@ describe('settleSeniorPayoutSchema', () => {
       currency: 'USD',
       receiptExternalUrl: PLAIN_LINK,
     }
-    expect(issues(parse({ ...base, txDate: '2999-01-01' }))).toEqual([
-      { code: 'custom', message: 'zod.DATE_NOT_IN_FUTURE', path: ['txDate'] },
-    ])
+    // SR-809-M-2 = CR-809-H-1: a future date is no longer rejected HERE. The
+    // real bound is `selected <= max(kyivToday(), sourceDate)`, which needs the
+    // source row, so it lives in `PendingSettlementService`. Rejecting every
+    // future date in the schema locked an operator out of settling an obligation
+    // whose source row was itself future-dated (min > max, empty picker).
+    expect(parse({ ...base, txDate: `${MAX_TRANSACTION_BUSINESS_YEAR}-01-01` }).success).toBe(true)
+    // The sane year window (SR-809-L-2) still applies — it is role- and
+    // row-independent, so it CAN live in the schema.
+    expect(parse({ ...base, txDate: `${MAX_TRANSACTION_BUSINESS_YEAR + 1}-01-01` }).success).toBe(
+      false,
+    )
     expect(parse({ ...base, txDate: '2020-01-01' }).success).toBe(true)
     expect(parse({ ...base, txDate: null }).success).toBe(true)
     expect(parse(base).success).toBe(true)
