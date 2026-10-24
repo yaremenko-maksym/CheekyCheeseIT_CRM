@@ -2959,6 +2959,17 @@ describe('SENT is recorded before the request leaves', () => {
     )
   })
 
+  it('names a markSent that rejects with something that is not an Error', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    h.ctx.meter.markSent = () => Promise.reject('boom')
+    const batch = await collectJsonPages(makeSpec({ meter: metered }), config(), h.ctx)
+
+    expect(h.sent).toEqual([])
+    expect(batch.requests.at(-1)?.error?.message).toBe(
+      'the request was not sent, its reservation could not be marked sent: the meter failed',
+    )
+  })
+
   it('does not mark a reservation sent when the cache read fails first: nothing left', async () => {
     const h = harness({ pages: [onePage([job('1')])], cacheGetThrows: true })
     await collectJsonPages(makeSpec({ meter: metered }), config(), h.ctx)
