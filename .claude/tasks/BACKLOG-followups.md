@@ -5984,3 +5984,27 @@ in CI without anyone re-reading the spec.
 
 Related: entry 332 (the scan reads delimiters and addresses, not names in free text), and the #1120 history
 for what the controls caught.
+
+## 335. Two instrument-honesty gaps in the fixture privacy scan, deferred from PR #1120's final axes (2026-10-24)
+
+Both raised at PR #1120's merged head (`4db0cd92`), both MED, both about what the scan _says_ it covers versus
+what it covers, neither exposed data. Deferred rather than held for a fourteenth round: the source is blocked
+and inert, three independent decode-first sweeps found no personal data in the tree, and each item is a
+one-sentence or one-line change with no behavioural effect.
+
+**The `@`-token scan cannot see a Cloudflare `data-cfemail` token, and the header does not say so (RM-SR-M-1).**
+`an-terms.html` holds two such tokens; they XOR-decode to `contact@arbeitnow.com`, a role mailbox on
+Arbeitnow's own terms page — not personal data, which is why this does not block. But the token is
+XOR-obfuscated hex with no literal `@`, so the scan is blind to it: it would stay green if such a token held a
+_personal_ address. The security axis checked the whole tree (2,539 files) and found no other `data-cfemail`
+token. **Fix:** add `data-cfemail` / Cloudflare-email-protection to the spec header's NOT-COVERED list, or
+decode the token in `hitsOf`. **Check on closing:** a planted `data-cfemail` token encoding a non-role address
+either fails the scan or is named in the NOT-COVERED list.
+
+**A decode-ceiling comment in `fixture-provenance.spec.ts` is one very long line (RM-CR-M-1).** Prettier
+accepts it, so it is cosmetic; wrap it when the file is next touched. No check on closing beyond "prettier
+still passes".
+
+These join 334 (the scan's controls are not mutation-tested) as the standing instrument-limit set for the
+fixture privacy scan: the scan is a denylist of encodings and its honest boundary is the header's NOT-COVERED
+list, so that list is the thing to keep accurate as encodings are found.
