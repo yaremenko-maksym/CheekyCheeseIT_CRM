@@ -87,6 +87,24 @@ The "critical-path trigger zones" references from `orchestration-routing.md`, `a
 
 ---
 
+## 2.2. Token economy in dispatch and acceptance
+
+Binding on every dispatch (`rules/common/token-economy.md`, skill `token-economy`, added 2026-10-24):
+
+- **Dispatch prompt:** Master includes one line — "Follow token-economy: invoke the skill at start; report
+  carries `Token-economy:`." (The agent prompts already say so; the line is the reminder at the point of use.)
+- **Acceptance:** a report without a `Token-economy: <saving | n/a (why)>` line is returned for rework, like a
+  missing `Worktree:` / `Pushed:` / `Verdict:` line. A report that restates the diff/task in prose where the
+  fixed lines would do is a finding.
+- **Master's own turns:** tier by `model-routing.md`; no text turn on a non-terminal event; bulk output to a
+  scratchpad file; breadth-first surveys are a fan-out (`orchestration-routing.md`), not Master's context.
+- **Tooling conflicts:** RTK compacts Bash output — evidence to be read verbatim is run as
+  `rtk bypass <cmd>`. All `pre:bash:*` guards treat `rtk` as a transparent wrapper (differential-tested,
+  `docs/architecture/rules-rationale/token-economy.md`); a guard that decides differently on `rtk <cmd>` vs
+  `<cmd>` is a defect to fix in `lib/cmdscan.py`, never a reason to disable RTK or a guard.
+
+---
+
 ## 3. AutoTest dispatch decision
 
 After the Coder created/updated a PR — Master checks the diff for E2E coverage **BEFORE**

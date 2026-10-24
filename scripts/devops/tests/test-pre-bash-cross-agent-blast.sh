@@ -60,6 +60,14 @@ assert_red "removing another agent's worktree -> BLOCK (PR #544)" \
   --contains '"decision": "block"' \
   -- run_hook "$MINE" "git worktree remove --force $OTHER"
 
+assert_red "RTK-wrapped removal of another agent's worktree -> BLOCK (token-economy: rtk is a transparent wrapper)" \
+  --contains '"decision": "block"' \
+  -- run_hook "$MINE" "rtk git worktree remove --force $OTHER"
+
+assert_red "RTK bypass-wrapped removal of another agent's worktree -> BLOCK" \
+  --contains '"decision": "block"' \
+  -- run_hook "$MINE" "rtk bypass git worktree remove --force $OTHER"
+
 assert_red "mutating another agent's tree -> BLOCK (PR #551)" \
   --contains '"decision": "block"' \
   -- run_hook "$MINE" "cd $OTHER && git checkout -- apps/api/src/x.ts"

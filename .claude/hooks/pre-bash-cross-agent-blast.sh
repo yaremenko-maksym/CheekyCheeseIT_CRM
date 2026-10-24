@@ -62,7 +62,7 @@
 # and newlines, and each predicate looks at the FIRST TOKEN of a segment —
 # never at a substring of the raw line. Leading `VAR=value` assignments and
 # command wrappers (`xargs`, `sudo`, `env`, `nice`, `nohup`, `command`,
-# `stdbuf`, `timeout`) plus leading shell keywords (`do`, `then`, `if`, ...) are
+# `stdbuf`, `timeout`, `rtk` — the token-economy output filter) plus leading shell keywords (`do`, `then`, `if`, ...) are
 # unwrapped first, so the effective command is what gets judged.
 #
 # WHAT SILENCE MEANS — the distinction this hook got wrong until 2026-09-02.
@@ -359,7 +359,7 @@ segments = re.split(r"(?:\|\||&&|[;\n|&])", cmd)
 # `find <other worktree> | xargs rm` was a real, reproduced miss (CR-M-1 on
 # PR #553). Unwrapping is safe for the false-positive budget because a
 # predicate still additionally requires a foreign path to be referenced.
-WRAPPERS = {"xargs", "sudo", "env", "nice", "nohup", "command", "stdbuf", "timeout"}
+WRAPPERS = {"xargs", "sudo", "env", "nice", "nohup", "command", "stdbuf", "timeout", "rtk"}
 # Wrapper flags that consume the NEXT token as their value.
 VALUE_FLAGS = {"-I", "-i", "-n", "-P", "-d", "-E", "-s", "-L", "-a", "-u", "-p"}
 
@@ -394,6 +394,9 @@ def first_token(seg):
             flag = parts.pop(0)
             if flag in VALUE_FLAGS and parts:
                 parts.pop(0)
+        # rtk bypass <cmd> - RTKs run-unfiltered subcommand sits where the command would be
+        if wrapper == "rtk" and parts and parts[0] == "bypass":
+            parts.pop(0)
         # `timeout 60 rm ...` — the duration sits where the command would be
         if wrapper == "timeout" and parts and re.match(r"^[0-9.]+[smhd]?$", parts[0]):
             parts.pop(0)

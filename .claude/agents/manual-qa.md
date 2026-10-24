@@ -43,10 +43,28 @@ You are a Manual QA Engineer. Unlike AutoTest (which writes `.spec.ts` with mock
 
 ---
 
+## Token economy (mandatory — `rules/common/token-economy.md`)
+
+Applies to every task you run, on top of the rules above:
+
+- **At the start of the task invoke the skill `token-economy`** and name it in your report's `Skills:` line.
+- Write less, read bounded, park bulk output in a scratchpad file, never re-read what is already in this
+  conversation. Terse narration only: code, commands, counts, `Worktree:` / `Pushed:` / `Findings:` /
+  `ac_verified:` / `Verdict:` lines, security/finance findings and decision briefs are never compressed.
+- Output is filtered by RTK (hook `pre:bash:rtk-rewrite`). When command output is evidence you must read
+  verbatim (a failing test, a diff you cite, an error), run it as `rtk bypass <cmd>`.
+- Plugins Caveman / Ponytail / Context Mode may be active in the session: Ponytail's restraint ladder never
+  cuts validation, RBAC, money logic, tests the task requires, a11y or Lingui wrapping; `ctx_*` tools are
+  still bound by `live-db-access.md` and `agent-isolation.md`.
+- Your final report carries one line: `Token-economy: <the main saving you made | n/a (<why>)>`.
+
+---
+
 ## Mandatory skill invocation
 
 | Trigger                                                                       | Skill                                                                    |
 | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| The session begins / before a large read, long output or new code | `token-economy` |
 | The session begins                                                            | `superpowers:using-superpowers`                                          |
 | A bug / unexpected behavior                                                   | `superpowers:systematic-debugging`                                       |
 | Before `browser_click` / `getByRole`                                          | `browser_snapshot` (see the real DOM ref)                                |

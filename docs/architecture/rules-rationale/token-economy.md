@@ -61,10 +61,18 @@ Note `claude plugin marketplace add --scope project` rewrote the whole `settings
 (dropped hook `id`/`description`, cache TTLs, and reset `permissions.allow`) — **do not use the CLI
 command on this file; paste the JSON block.**
 
-**Not verified:** hook ordering with RTK. The other `pre:bash:*` guards are expected to see the
-original command (hooks run on the same input and RTK only supplies `updatedInput`), but this was
-not tested end-to-end — the existing hooks carry owner-machine absolute paths and cannot run in the
-cloud container. Smoke-test on the owner machine: `git push` with a bad `ac_verified` must still be
+**Hook conflicts — found and resolved (2026-10-24).** A differential run of every `pre:bash:*` guard
+over the 419-row command corpus plus push/commit/worktree cases, original vs RTK-rewritten (151 commands
+rewritten), found 30 divergences when a guard sees `rtk <cmd>`: false negatives (`rtk git worktree
+remove`, `rtk psql … COPY PROGRAM 'rm -rf /etc'` slipped through) and false positives (`rtk grep 'pnpm dev'`
+blocked). Fix: `rtk` is a transparent wrapper in `lib/cmdscan.py` (and `rtk bypass` is unwrapped) and in
+`pre-bash-cross-agent-blast.sh`; regression rows added to the corpus and the blast test. Re-run: 0
+divergences. (A first "0" was a false green — a syntax error made both sides exit 2; the harness now also
+checks the decision body and crashes.) Whether Claude Code hands guards the original or the rewritten
+command no longer matters.
+
+**Still not verified:** end-to-end ordering inside a live Claude Code session — the existing hooks carry
+owner-machine absolute paths and cannot run in the cloud container. Smoke-test on the owner machine: `git push` with a bad `ac_verified` must still be
 refused. The code of the four tools was not audited line by line; privacy claims (RTK telemetry off
 by default, Context Mode local-only) are from their READMEs.
 

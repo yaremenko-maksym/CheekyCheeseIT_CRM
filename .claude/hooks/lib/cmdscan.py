@@ -286,6 +286,11 @@ WRAPPER_SPEC = {
                   code_flags=("-c", "--command"), operands=1, exact=False),
     # the project's own TTL wrapper: `dev-ttl.sh [--ttl N] -- <command>`
     "dev-ttl.sh": _w(),
+    # RTK output filter (token-economy): `rtk git status` IS `git status` with a compacted
+    # output, and `rtk bypass <cmd>` is `<cmd>` unfiltered (the `bypass` token is dropped in
+    # _unwrap). Modelled as a transparent wrapper so every pre:bash guard decides the same on
+    # the original and on the RTK-rewritten command, whichever of the two it is handed.
+    "rtk": _w(),
 }
 
 INTERPRETERS = {"sh", "bash", "zsh", "dash", "ksh", "ash"}
@@ -1185,6 +1190,8 @@ def _unwrap(tokens, assigns):
         tokens.pop(0)
         if not spec["exact"] and inexact is None:
             inexact = base
+        if base == "rtk" and tokens and tokens[0] == "bypass":
+            tokens.pop(0)
         if base == "dev-ttl.sh" and "--" in tokens:
             # Its contract is `dev-ttl.sh [--ttl N] -- <command>`; everything
             # before the `--` is the wrapper's own business.

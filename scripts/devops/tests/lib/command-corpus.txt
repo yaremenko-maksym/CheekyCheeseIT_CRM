@@ -663,3 +663,11 @@ allow	all	yarn install
 # entry for a package literally named `dev`; it executes nothing.
 narrowed	db,ttl	npm why vite
 allow	all	npm info dev
+# RTK (token-economy) rewrites `cmd` to `rtk cmd`; `rtk bypass cmd` runs it unfiltered. The guards
+# must decide the same on all three forms (2026-10-24, differential run over this corpus).
+block	safety	rtk rm -rf /etc
+block	safety	rtk bypass rm -rf /etc
+block	db,ttl	rtk pnpm dev
+block	db,ttl	rtk bypass pnpm dev
+allow	all	rtk git status
+allow	all	rtk git diff --stat

@@ -217,10 +217,28 @@ The full rules — [`.claude/knowledge/legal/cross-cutting/citation-rules.md`](.
 
 ---
 
+## Token economy (mandatory — `rules/common/token-economy.md`)
+
+Applies to every task you run, on top of the rules above:
+
+- **At the start of the task invoke the skill `token-economy`** and name it in your report's `Skills:` line.
+- Write less, read bounded, park bulk output in a scratchpad file, never re-read what is already in this
+  conversation. Terse narration only: code, commands, counts, `Worktree:` / `Pushed:` / `Findings:` /
+  `ac_verified:` / `Verdict:` lines, security/finance findings and decision briefs are never compressed.
+- Output is filtered by RTK (hook `pre:bash:rtk-rewrite`). When command output is evidence you must read
+  verbatim (a failing test, a diff you cite, an error), run it as `rtk bypass <cmd>`.
+- Plugins Caveman / Ponytail / Context Mode may be active in the session: Ponytail's restraint ladder never
+  cuts validation, RBAC, money logic, tests the task requires, a11y or Lingui wrapping; `ctx_*` tools are
+  still bound by `live-db-access.md` and `agent-isolation.md`.
+- Your final report carries one line: `Token-economy: <the main saving you made | n/a (<why>)>`.
+
+---
+
 ## Superpowers Skills
 
 | When                                                          | Skill                                                                                 |
 | ------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| The session begins / before a large read, long output or new code | `token-economy` |
 | Mode A consultation on UA tax / company structure             | `ua-tax-compliance` (FOP/TOV-Diia City/CFC/banking caps/audit/TP/recharacterization)  |
 | Mode A / Mode B on the crypto channel / wallets / smart-contracts | `ua-crypto-compliance` (Law 2074-IX status + AML/361-IX + multi-issuer hard refuse) |
 | Mode A / Mode C on IT-contract structure / templates          | `ua-it-contract` (6 SENIOR risks + GDPR/2297-VI + lawyer prep-pack)                   |
