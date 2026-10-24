@@ -1,4 +1,4 @@
-import type { RegisteredAdapter } from './registered-adapter'
+import { LEGACY_SOURCE_TYPE, type RegisteredAdapter } from './registered-adapter'
 
 /**
  * Whether a registered adapter may be ACTIVATED for scheduled collection (r5 Task 2.5 T2).
@@ -49,7 +49,11 @@ export function activationOf(
   facts: ActivationFacts | undefined,
 ): ActivationStatus {
   if (adapter === undefined) return 'UNREGISTERED'
-  if (adapter.contract === 'LEGACY') return 'ACTIVATABLE'
+  if (adapter.contract === 'LEGACY') {
+    // The exemption belongs to DOU alone. A legacy-tagged adapter of any other type (which
+    // `LegacyDouAdapter` refuses to build) is never activatable.
+    return adapter.type === LEGACY_SOURCE_TYPE ? 'ACTIVATABLE' : 'BLOCKED'
+  }
   if (facts === undefined) return 'NOT_VERIFIED'
   if (facts.blockerCodes.some((c) => !EVIDENCE_BLOCKERS.has(c))) return 'BLOCKED'
   if (facts.blockerCodes.length > 0 || !facts.payloadVerified) return 'NOT_VERIFIED'

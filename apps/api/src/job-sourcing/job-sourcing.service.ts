@@ -57,7 +57,7 @@ import {
 import { toSafeFailureMessage } from './safe-failure-message'
 import type { NormalizedPosting } from './job-source.provider'
 import { JobSourceRegistry } from './registry/job-source-registry'
-import { LegacyDouAdapter } from './registry/registered-adapter'
+import { resolveRegistry } from './registry/production-registry'
 
 /**
  * Job sourcing — task-job-sourcing-slice1.
@@ -177,15 +177,12 @@ export class JobSourcingService {
    * registry: the service never holds more than one, and production always passes the real one.
    */
   constructor(
-    private readonly db: DatabaseService,
-    private readonly hrAccess: HrAccessService,
+    @Inject(DatabaseService) private readonly db: DatabaseService,
+    @Inject(HrAccessService) private readonly hrAccess: HrAccessService,
     @Inject(JobSourceRegistry) adapters: JobSourceRegistry | DouRssProvider,
-    @Optional() private readonly config?: ConfigService<Env, true>,
+    @Optional() @Inject(ConfigService) private readonly config?: ConfigService<Env, true>,
   ) {
-    this.registry =
-      adapters instanceof JobSourceRegistry
-        ? adapters
-        : new JobSourceRegistry([new LegacyDouAdapter(adapters)])
+    this.registry = resolveRegistry(adapters)
   }
 
   /**

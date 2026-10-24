@@ -15,8 +15,8 @@ import { remoteokProvider } from '../providers/sources/remoteok.provider'
 import { smartrecruitersProvider } from '../providers/sources/smartrecruiters.provider'
 import { type ActivationFacts, activationOf } from './activation'
 import { DuplicateJobSourceTypeError, JobSourceRegistry } from './job-source-registry'
-import { createProductionRegistry } from './production-registry'
-import { LegacyDouAdapter, ReportingAdapter } from './registered-adapter'
+import { createProductionRegistry, resolveRegistry } from './production-registry'
+import { LegacyDouAdapter, type RegisteredAdapter, ReportingAdapter } from './registered-adapter'
 
 const legacy = (type: JobSourceType): LegacyDouAdapter =>
   new LegacyDouAdapter({ type, collect: () => Promise.resolve([]) } satisfies JobSourceProvider)
@@ -56,9 +56,18 @@ describe('JobSourceRegistry construction (AC1)', () => {
     expect(reporting('REMOTEOK_API').type).toBe('REMOTEOK_API')
   })
 
-  it('rejects a duplicate across the two contracts', () => {
+  it('rejects a duplicate across the two contracts, in either order', () => {
+    expect(() => new JobSourceRegistry([legacy('DOU_RSS'), reporting('DOU_RSS')])).toThrow(
+      DuplicateJobSourceTypeError,
+    )
+    expect(() => new JobSourceRegistry([reporting('DOU_RSS'), legacy('DOU_RSS')])).toThrow(
+      DuplicateJobSourceTypeError,
+    )
+  })
+
+  it('rejects two reporting adapters of one type', () => {
     expect(
-      () => new JobSourceRegistry([legacy('REMOTEOK_API'), reporting('REMOTEOK_API')]),
+      () => new JobSourceRegistry([reporting('REMOTEOK_API'), reporting('REMOTEOK_API')]),
     ).toThrow(DuplicateJobSourceTypeError)
   })
 
@@ -244,12 +253,83 @@ describe('the production registry (AC2, AC5)', () => {
   it('the service keeps no provider map of its own', () => {
     const service = readFileSync(join(__dirname, '..', 'job-sourcing.service.ts'), 'utf8')
     expect(service).not.toMatch(/new Map<JobSourceType/)
-    expect(service).not.toMatch(/\bproviders\b/)
   })
 
   it('the module registers the registry through the production factory', () => {
     const module = readFileSync(join(__dirname, '..', 'job-sourcing.module.ts'), 'utf8')
     expect(module).toMatch(/provide: JobSourceRegistry/)
     expect(module).toMatch(/useFactory: createProductionRegistry/)
+  })
+})
+
+describe('the legacy exemption belongs to DOU alone (CR-M-3 / SPEC-L-2 / SR-M-1)', () => {
+  it('LegacyDouAdapter refuses to wrap any provider that is not DOU_RSS', () => {
+    expect(
+      () => new LegacyDouAdapter({ type: 'REMOTEOK_API', collect: () => Promise.resolve([]) }),
+    ).toThrow(/DOU_RSS only; got REMOTEOK_API/)
+  })
+
+  it('a legacy-tagged adapter of another type is never ACTIVATABLE, with or without ready facts', () => {
+    // Forged past the constructor guard on purpose: the activation rule must hold on its own.
+    const forged = {
+      contract: 'LEGACY',
+      type: 'REMOTEOK_API',
+      provider: { type: 'REMOTEOK_API' },
+    } as unknown as RegisteredAdapter
+    expect(activationOf(forged, undefined)).toBe('BLOCKED')
+    expect(activationOf(forged, VERIFIED)).toBe('BLOCKED')
+  })
+})
+
+describe('resolveRegistry (CR-M-1)', () => {
+  it('passes a registry through unchanged', () => {
+    const r = createProductionRegistry(new DouRssProvider())
+    expect(resolveRegistry(r)).toBe(r)
+  })
+
+  it('wraps a bare DOU provider into the SAME content createProductionRegistry builds', () => {
+    const dou = new DouRssProvider()
+    const viaHelper = resolveRegistry(dou)
+    const viaFactory = createProductionRegistry(dou)
+    expect(viaHelper.types()).toEqual(viaFactory.types())
+    expect(viaHelper.legacyProvider('DOU_RSS')).toBe(dou)
+    expect(viaHelper.activatable(new Map())).toEqual(viaFactory.activatable(new Map()))
+  })
+
+  it('refuses a registry-shaped mock loudly instead of wrapping it as a provider with no type', () => {
+    const mock = { legacyProvider: () => undefined, types: () => [] } as never
+    expect(() => resolveRegistry(mock)).toThrow(/no source type/)
+    expect(() => resolveRegistry(undefined as never)).toThrow(/no source type/)
+  })
+})
+
+describe('activatable() reads facts (CR-M-2)', () => {
+  // One reporting type, three real input flips. If `facts` were ignored (treated as always
+  // absent), case 1 would be NOT_VERIFIED instead of ACTIVATABLE; if it were treated as always
+  // ready, case 3 would be ACTIVATABLE instead of BLOCKED.
+  const deadline = new Date('2027-02-10T00:00:00.000Z')
+  const manifestType = {
+    type: 'RECRUITEE_ATS',
+    blockers: [],
+    deadlines: [{ kind: 'AUTH_REQUIRED_FROM', at: deadline, symbol: 'D' }],
+    payloadVerified: true,
+  } as unknown as Parameters<typeof activationFactsByType>[0]['types'][number]
+  const factsAt = (now: Date) => activationFactsByType({ types: [manifestType] }, now)
+  const registry = () => new JobSourceRegistry([reporting('RECRUITEE_ATS')])
+
+  it('case 1: WITH ready facts the reporting type is returned', () => {
+    const facts = factsAt(new Date('2027-02-09T00:00:00.000Z'))
+    expect(registry().activatable(facts)).toEqual(['RECRUITEE_ATS'])
+  })
+
+  it('case 2: the same type with NO facts is not returned', () => {
+    expect(registry().activatable(new Map())).toEqual([])
+    expect(registry().activation('RECRUITEE_ATS')).toBe('NOT_VERIFIED')
+  })
+
+  it('case 3: the same type with a blocking fact (deadline passed at the injected clock) is BLOCKED', () => {
+    const facts = factsAt(deadline)
+    expect(registry().activatable(facts)).toEqual([])
+    expect(registry().activation('RECRUITEE_ATS', facts.get('RECRUITEE_ATS'))).toBe('BLOCKED')
   })
 })

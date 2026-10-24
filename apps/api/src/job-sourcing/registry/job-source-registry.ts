@@ -60,6 +60,11 @@ export class JobSourceRegistry {
    * The ACTIVATION QUERY: registered types that may be switched on. A type missing from `facts` is
    * judged without facts (a reporting adapter is then `NOT_VERIFIED`). `enabled` on a source row is
    * never consulted here and never sufficient.
+   *
+   * !! FOR T7: this signature takes `facts` from the CALLER only so T2 can be tested. When T7 wires
+   * it, the registry must build the facts and read the real clock ITSELF; a caller that can pass
+   * facts (or an old `now`) can forge a ready type, for example un-block Recruitee after its
+   * token deadline.
    */
   activatable(facts: ReadonlyMap<JobSourceType, ActivationFacts>): JobSourceType[] {
     return this.types().filter((t) => this.activation(t, facts.get(t)) === 'ACTIVATABLE')

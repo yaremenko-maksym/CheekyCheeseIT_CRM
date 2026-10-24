@@ -9,9 +9,15 @@ import type { ReportingJobSourceProvider } from '../providers/reporting-provider
  */
 export type RegisteredAdapter = LegacyDouAdapter | ReportingAdapter
 
+/** The one type allowed on the legacy contract (plan A1h / C-20). */
+export const LEGACY_SOURCE_TYPE: JobSourceType = 'DOU_RSS'
+
 /**
  * DOU, wrapped. The wrapper adds nothing to behaviour: it only makes the legacy contract an explicit,
  * named case of the registry instead of a special case of the service's constructor.
+ *
+ * It REFUSES any provider that is not DOU: the legacy contract skips every manifest check at
+ * activation, so wrapping a phase-3 provider here would silently exempt it.
  */
 export class LegacyDouAdapter {
   readonly contract = 'LEGACY' as const
@@ -19,6 +25,11 @@ export class LegacyDouAdapter {
   readonly type: JobSourceType
 
   constructor(readonly provider: JobSourceProvider) {
+    if (provider.type !== LEGACY_SOURCE_TYPE) {
+      throw new TypeError(
+        `LegacyDouAdapter wraps ${LEGACY_SOURCE_TYPE} only; got ${String(provider.type)}`,
+      )
+    }
     this.type = provider.type
   }
 }
