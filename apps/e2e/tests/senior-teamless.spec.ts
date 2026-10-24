@@ -75,9 +75,15 @@ test.describe('Senior teamless surfaces — AC5/AC7', () => {
     await expect(page.getByTestId('projects-teamless-empty-state')).toBeVisible({
       timeout: 8_000,
     })
-    await expect(page.getByText(/У вас нет активной команды/i)).toBeVisible()
+    await expect(
+      page.getByText(new RegExp(assertInCatalog(uk, 'У вас немає активної команди'), 'i')),
+    ).toBeVisible()
     // Empty state CTA opens the same rejoin dialog.
-    await page.getByRole('button', { name: /Создать или выбрать команду/i }).click()
+    await page
+      .getByRole('button', {
+        name: new RegExp(assertInCatalog(uk, 'Створити або обрати команду'), 'i'),
+      })
+      .click()
     await expect(page.getByTestId('rejoin-team-dialog')).toBeVisible()
   })
 

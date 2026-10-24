@@ -108,8 +108,6 @@ KNOWN_UNSHARDED = {
     # --- project ---
     # --- rbac ---
     # --- senior ---
-    "tests/senior-create-default.spec.ts",        # debt: not gated, migrate to team-users shard later
-    "tests/senior-teamless.spec.ts",              # debt: not gated, migrate to team-users shard later
     # --- team share ---
     # --- ui ---
     "tests/ui-invariants-pr56.spec.ts",           # debt: not gated, migrate to misc shard later

@@ -1235,7 +1235,7 @@ jobs:
             # file directs this shard ("где живёт профиль"), same mocked-auth
             # pattern as the other three files here (`mockAuthAs`, no live
             # backend calls).
-            files: tests/team.spec.ts tests/users.spec.ts tests/rbac-hr-on-senior.spec.ts tests/locale-switcher.spec.ts tests/hr-create-senior.spec.ts tests/team-share-override.spec.ts tests/hr-dashboard.spec.ts tests/rbac-senior-junior.spec.ts
+            files: tests/team.spec.ts tests/users.spec.ts tests/rbac-hr-on-senior.spec.ts tests/locale-switcher.spec.ts tests/hr-create-senior.spec.ts tests/team-share-override.spec.ts tests/hr-dashboard.spec.ts tests/rbac-senior-junior.spec.ts tests/senior-create-default.spec.ts tests/senior-teamless.spec.ts
           - name: projects
             # tests/project-status-filter-ui.spec.ts (task-project-status-filter-ui,
             # PR #646, feat/project-status-filter-ui, not yet merged as of this line
