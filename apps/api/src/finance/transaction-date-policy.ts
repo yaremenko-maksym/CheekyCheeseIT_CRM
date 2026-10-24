@@ -156,10 +156,11 @@ export function resolveTransactionDateWithPolicy(
 ): ResolvedTransactionDate {
   const now = policy.now ?? new Date()
 
-  // No chosen date: the row is stamped with the real current instant, exactly as
-  // before this policy existed. There is nothing for a window to bound, and the
-  // legacy callers that never send a date keep working byte-for-byte.
-  if (!rawTxDate) return { txDate: now, backdateReason: null }
+  // No chosen date: the row is stamped with today's Kyiv business day (the real
+  // current instant whenever that is also the UTC day, so same-day ordering is
+  // unchanged). There is nothing for a window to bound, and the legacy callers
+  // that never send a date keep working.
+  if (!rawTxDate) return { txDate: resolveTransactionDate(rawTxDate, now), backdateReason: null }
 
   // Parses strictly and enforces the calendar + year window, as a 400.
   const txDate = resolveTransactionDate(rawTxDate, now)

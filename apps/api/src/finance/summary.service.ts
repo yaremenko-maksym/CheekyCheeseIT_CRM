@@ -19,6 +19,7 @@ import {
 import { NbuCurrencyService } from './nbu-currency.service'
 import { convertToBase, type BalanceCurrency } from './balance.service'
 import { resolveSeniorShare } from './senior-share-resolver'
+import { transactionBusinessMonth } from './transaction-date.util'
 import { getOwnSalaryStates } from './salary-status.helper'
 import { findActiveTeamsForUser } from './active-teams.util'
 import { CRON_ELIGIBLE_SALARY_ROLES } from './salary-roles.const'
@@ -318,8 +319,7 @@ export class SummaryService {
       // amended because it was being read as a licence to key sibling
       // aggregates on `createdAt`; `getAccountantSummary.paidAmount` did
       // exactly that and disagreed with this graph by the backdated amounts.
-      const when = tx.txDate ?? tx.createdAt
-      const month = when.toISOString().slice(0, 7) // YYYY-MM
+      const month = transactionBusinessMonth(tx) // YYYY-MM
       if (!monthMap.has(month))
         monthMap.set(month, { incomeScaled: 0, expensesScaled: 0, salariesScaled: 0 })
       const entry = monthMap.get(month)!
