@@ -80,6 +80,10 @@ assert_red "CRM CSP drops the R2 allowance (would break document preview) -> red
   --contains "r2.cloudflarestorage.com" \
   -- run_case csp-drops-r2
 
+assert_red "PR #869 CR-M-3: CRM CSP drops media-src R2 playback allowance -> red" \
+  --contains "CR-M-3: CRM CSP media-src allows R2" \
+  -- run_case csp-drops-media-src
+
 assert_red "premature flip to enforcing while the mode says report-only -> red" \
   --contains "want: header ABSENT" \
   -- run_case csp-premature-enforcing

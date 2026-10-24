@@ -7,6 +7,7 @@ import {
 } from './interview-recordings.controller'
 import type { MeetingRecorderService } from './meeting-recorder.service'
 import type { RecordingMediaUploadService } from './media/recording-media-upload.service'
+import type { RecordingMediaPurgeService } from './media/recording-media-purge.service'
 
 const INTERVIEW_ID = '11111111-1111-4111-8111-111111111111'
 const RECORDING_ID = '22222222-2222-4222-8222-222222222222'
@@ -25,8 +26,13 @@ describe('interview recording controllers', () => {
       listReadyForCrm: vi.fn(),
       playbackForCrm: vi.fn(),
     } as unknown as RecordingMediaUploadService
+    const purge = { purgeRecording: vi.fn().mockReturnValue('purged') }
     const interviewController = new InterviewMeetingRecordingsController(typedService)
-    const recordingsController = new InterviewRecordingsController(typedService, media)
+    const recordingsController = new InterviewRecordingsController(
+      typedService,
+      media,
+      purge as unknown as RecordingMediaPurgeService,
+    )
 
     expect(interviewController.list(INTERVIEW_ID, user)).toBe('list')
     expect(service.listInterviewRecordings).toHaveBeenCalledWith(INTERVIEW_ID, user)
@@ -45,6 +51,9 @@ describe('interview recording controllers', () => {
       { interviewId: INTERVIEW_ID },
       user,
     )
+
+    expect(recordingsController.purgeRecording(RECORDING_ID, user)).toBe('purged')
+    expect(purge.purgeRecording).toHaveBeenCalledWith(RECORDING_ID, user.id)
   })
 
   it('accepts an explicit null interview id for administrator unlink', () => {
@@ -55,6 +64,7 @@ describe('interview recording controllers', () => {
         listReadyForCrm: vi.fn(),
         playbackForCrm: vi.fn(),
       } as unknown as RecordingMediaUploadService,
+      { purgeRecording: vi.fn() } as unknown as RecordingMediaPurgeService,
     )
 
     expect(controller.link(RECORDING_ID, { interviewId: null }, user)).toBe('unlinked')
@@ -74,6 +84,7 @@ describe('interview recording controllers', () => {
     const controller = new InterviewRecordingsController(
       service as unknown as MeetingRecorderService,
       media as unknown as RecordingMediaUploadService,
+      { purgeRecording: vi.fn() } as unknown as RecordingMediaPurgeService,
     )
 
     await expect(controller.mediaPlayback(RECORDING_ID, 'media_abc', user)).resolves.toEqual({
@@ -103,6 +114,7 @@ describe('interview recording controllers', () => {
     const controller = new InterviewRecordingsController(
       service as unknown as MeetingRecorderService,
       media as unknown as RecordingMediaUploadService,
+      { purgeRecording: vi.fn() } as unknown as RecordingMediaPurgeService,
     )
 
     await expect(controller.mediaList(RECORDING_ID, user)).resolves.toEqual([

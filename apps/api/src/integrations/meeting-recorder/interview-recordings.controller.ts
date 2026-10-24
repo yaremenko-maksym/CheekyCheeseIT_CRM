@@ -3,6 +3,8 @@ import {
   Controller,
   Get,
   Header,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -16,6 +18,7 @@ import { Roles } from '../../common/decorators/roles.decorator'
 import { RolesGuard } from '../../common/guards/roles.guard'
 import { AdminWriteThrottle } from '../../config/throttle-decorators'
 import { MeetingRecorderService } from './meeting-recorder.service'
+import { RecordingMediaPurgeService } from './media/recording-media-purge.service'
 import { RecordingMediaUploadService } from './media/recording-media-upload.service'
 
 @UseGuards(RolesGuard)
@@ -37,6 +40,7 @@ export class InterviewRecordingsController {
   constructor(
     private readonly service: MeetingRecorderService,
     private readonly media: RecordingMediaUploadService,
+    private readonly purge: RecordingMediaPurgeService,
   ) {}
 
   @Get('unmatched')
@@ -92,5 +96,17 @@ export class InterviewRecordingsController {
     @CurrentUser() user: SessionUser,
   ) {
     return this.service.linkRecording(id, linkMeetingRecorderRecordingSchema.parse(body), user)
+  }
+
+  @Post(':recordingId/purge')
+  @Roles('ADMIN')
+  @AdminWriteThrottle()
+  @HttpCode(HttpStatus.OK)
+  @Header('Cache-Control', 'no-store')
+  purgeRecording(
+    @Param('recordingId', ParseUUIDPipe) recordingId: string,
+    @CurrentUser() user: SessionUser,
+  ) {
+    return this.purge.purgeRecording(recordingId, user.id)
   }
 }

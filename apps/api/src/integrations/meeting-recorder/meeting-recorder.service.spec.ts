@@ -614,6 +614,51 @@ describe('MeetingRecorderService snapshot revision semantics', () => {
     expect(ctx.update).not.toHaveBeenCalled()
   })
 
+  it('SPEC-M-1: acknowledges a later snapshot without recreating a purged recording', async () => {
+    const matcher = { findExactMatch: vi.fn() } as unknown as MeetingRecorderMatcher
+    const service = new MeetingRecorderService(
+      {} as DatabaseService,
+      {} as MeetingRecorderSecretCryptoService,
+      matcher,
+      {} as InterviewAccessPolicyService,
+    )
+    const ctx = snapshotTx([
+      {
+        id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        revision: 1,
+        purgedAt: new Date('2026-10-08T10:00:00.000Z'),
+        interviewId: null,
+        stageAtLink: null,
+        matchedBy: 'unmatched',
+        autoMatchSuppressed: true,
+        linkedByUserId: null,
+        linkedAt: null,
+      },
+    ])
+
+    await expect(
+      (service as unknown as SnapshotIngestor).ingestSnapshot(
+        ctx.tx,
+        CONNECTION_ID,
+        updatedEvent(2),
+      ),
+    ).resolves.toBeUndefined()
+
+    expect(matcher.findExactMatch).not.toHaveBeenCalled()
+    expect(ctx.insert).not.toHaveBeenCalled()
+    expect(ctx.updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        revision: 2,
+        lastEventAt: new Date('2026-10-07T19:02:00.000Z'),
+        updatedAt: expect.any(Date),
+      }),
+    )
+    for (const [value] of ctx.updateSet.mock.calls) {
+      expect(value).not.toHaveProperty('snapshot')
+      expect(value).not.toHaveProperty('title')
+    }
+  })
+
   it('matches a new recording and persists its source metadata', async () => {
     const matcher = {
       findExactMatch: vi.fn().mockResolvedValue({

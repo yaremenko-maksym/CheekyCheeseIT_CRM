@@ -2,6 +2,7 @@ import {
   AbortMultipartUploadCommand,
   CompleteMultipartUploadCommand,
   CreateMultipartUploadCommand,
+  DeleteObjectCommand,
   HeadObjectCommand,
   ListMultipartUploadsCommand,
   ListObjectsV2Command,
@@ -123,7 +124,7 @@ describe('media provider part verification', () => {
     }
     const service = new RecordingMediaStorageService(config as never)
     const before = Date.now()
-    const part = await service.signPart('meeting-recordings/a', 'upload-a', 1)
+    const part = await service.signPart('meeting-recordings/a', 'upload-a', 1, 1)
     const playback = await service.playback('meeting-recordings/a', 'video/webm')
     const after = Date.now()
 
@@ -238,7 +239,7 @@ describe('media provider part verification', () => {
     })
 
     await expect(service.uploadOrigin()).resolves.toBe('https://bucket.example.test')
-    expect(signPart).toHaveBeenCalledWith('meeting-recordings/discovery', 'discovery', 1)
+    expect(signPart).toHaveBeenCalledWith('meeting-recordings/discovery', 'discovery', 1, 1)
   })
 
   it('uses an isolated media S3 configuration when it is provided', async () => {
@@ -323,11 +324,63 @@ describe('media provider part verification', () => {
     }
     const service = new RecordingMediaStorageService(config as never)
 
-    const part = await service.signPart('meeting-recordings/a', 'opaque-upload', 1)
+    const part = await service.signPart('meeting-recordings/a', 'opaque-upload', 1, 5)
     const playback = await service.playback('meeting-recordings/a', 'video/webm')
 
     expect(new URL(part.url).searchParams.get('X-Amz-Expires')).toBe('2')
     expect(new URL(playback.url).searchParams.get('X-Amz-Expires')).toBe('3')
+  })
+
+  it('SPEC-H-1: caps URL issuance even if config validation is bypassed', async () => {
+    const config = {
+      get: (name: string) =>
+        ({
+          S3_BUCKET: 'private-media',
+          S3_USE_SSE: false,
+          S3_ENDPOINT: 'https://abc123.r2.cloudflarestorage.com',
+          S3_REGION: 'auto',
+          S3_FORCE_PATH_STYLE: false,
+          AWS_ACCESS_KEY_ID: 'test',
+          AWS_SECRET_ACCESS_KEY: 'test',
+          MEETING_RECORDER_MEDIA_PART_URL_TTL_SECONDS: 901,
+          MEETING_RECORDER_MEDIA_PLAYBACK_URL_TTL_SECONDS: 1801,
+        })[name as 'S3_BUCKET'],
+    }
+    const service = new RecordingMediaStorageService(config as never)
+    const before = Date.now()
+
+    const part = await service.signPart('meeting-recordings/a', 'opaque-upload', 1, 5)
+    const playback = await service.playback('meeting-recordings/a', 'video/webm')
+    const after = Date.now()
+
+    expect(new URL(part.url).searchParams.get('X-Amz-Expires')).toBe('900')
+    expect(Date.parse(part.expiresAt)).toBeGreaterThanOrEqual(before + 900_000)
+    expect(Date.parse(part.expiresAt)).toBeLessThanOrEqual(after + 900_000)
+    expect(new URL(playback.url).searchParams.get('X-Amz-Expires')).toBe('1800')
+    expect(Date.parse(playback.expiresAt)).toBeGreaterThanOrEqual(before + 1_800_000)
+    expect(Date.parse(playback.expiresAt)).toBeLessThanOrEqual(after + 1_800_000)
+  })
+
+  it('SR-M-1: binds the authoritative expected part bytes into the presigned signature', async () => {
+    const config = {
+      get: (name: string) =>
+        ({
+          S3_BUCKET: 'private-media',
+          S3_USE_SSE: false,
+          S3_ENDPOINT: 'https://abc123.r2.cloudflarestorage.com',
+          S3_REGION: 'auto',
+          S3_FORCE_PATH_STYLE: false,
+          AWS_ACCESS_KEY_ID: 'test',
+          AWS_SECRET_ACCESS_KEY: 'test',
+        })[name as 'S3_BUCKET'],
+    }
+    const service = new RecordingMediaStorageService(config as never)
+
+    const signed = await service.signPart('meeting-recordings/a', 'opaque-upload', 2, 12_345)
+    const url = new URL(signed.url)
+
+    expect(url.searchParams.get('X-Amz-SignedHeaders')?.split(';')).toContain('content-length')
+    expect(signed.headers).toEqual({})
   })
 
   it('retains provider-reported sizes across multipart ListParts pages', async () => {
@@ -505,6 +558,19 @@ describe('media provider part verification', () => {
       Bucket: 'test-bucket',
       Key: 'meeting-recordings/a',
       UploadId: 'provider-upload',
+    })
+  })
+
+  it('SR-M-2: deletes exactly the requested media object key', async () => {
+    const { service, send } = fixture()
+    send.mockResolvedValue({})
+
+    await expect(service.delete('meeting-recordings/a/artifact/attempt')).resolves.toBeUndefined()
+
+    expect(send.mock.calls[0]?.[0]).toBeInstanceOf(DeleteObjectCommand)
+    expect(send.mock.calls[0]?.[0].input).toEqual({
+      Bucket: 'test-bucket',
+      Key: 'meeting-recordings/a/artifact/attempt',
     })
   })
 

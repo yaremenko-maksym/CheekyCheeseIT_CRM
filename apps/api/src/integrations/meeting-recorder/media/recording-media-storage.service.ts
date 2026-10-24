@@ -4,6 +4,7 @@ import {
   AbortMultipartUploadCommand,
   CompleteMultipartUploadCommand,
   CreateMultipartUploadCommand,
+  DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
   ListMultipartUploadsCommand,
@@ -19,6 +20,8 @@ import type { Env } from '../../../config/env'
 
 const DEFAULT_PART_URL_TTL_SECONDS = 15 * 60
 const DEFAULT_PLAYBACK_URL_TTL_SECONDS = 30 * 60
+const MAX_PART_URL_TTL_SECONDS = 15 * 60
+const MAX_PLAYBACK_URL_TTL_SECONDS = 30 * 60
 // Smithy's Node handler has no request timeout by default. Some provider calls
 // (notably HEAD and multipart creation) can run while create() holds the
 // connection lifecycle lock, and the others still occupy API/cron resources.
@@ -46,12 +49,16 @@ export class RecordingMediaStorageService {
     this.useSse =
       config.get('MEETING_RECORDER_MEDIA_S3_USE_SSE', { infer: true }) ??
       config.get('S3_USE_SSE', { infer: true })
-    this.partUrlTtlSeconds =
+    this.partUrlTtlSeconds = Math.min(
       config.get('MEETING_RECORDER_MEDIA_PART_URL_TTL_SECONDS', { infer: true }) ??
-      DEFAULT_PART_URL_TTL_SECONDS
-    this.playbackUrlTtlSeconds =
+        DEFAULT_PART_URL_TTL_SECONDS,
+      MAX_PART_URL_TTL_SECONDS,
+    )
+    this.playbackUrlTtlSeconds = Math.min(
       config.get('MEETING_RECORDER_MEDIA_PLAYBACK_URL_TTL_SECONDS', { infer: true }) ??
-      DEFAULT_PLAYBACK_URL_TTL_SECONDS
+        DEFAULT_PLAYBACK_URL_TTL_SECONDS,
+      MAX_PLAYBACK_URL_TTL_SECONDS,
+    )
     this.client = new S3Client({
       endpoint:
         config.get('MEETING_RECORDER_MEDIA_S3_ENDPOINT', { infer: true }) ??
@@ -93,12 +100,12 @@ export class RecordingMediaStorageService {
 
   /** Origin of presigned UploadPart URLs, including SDK virtual-host bucket rewriting. */
   async uploadOrigin(): Promise<string | null> {
-    const signed = await this.signPart('meeting-recordings/discovery', 'discovery', 1)
+    const signed = await this.signPart('meeting-recordings/discovery', 'discovery', 1, 1)
     const url = new URL(signed.url)
     return url.protocol === 'https:' && !url.username && !url.password ? url.origin : null
   }
 
-  async signPart(key: string, uploadId: string, partNumber: number) {
+  async signPart(key: string, uploadId: string, partNumber: number, expectedBytes: number) {
     return this.safe(async () => ({
       method: 'PUT' as const,
       url: await getSignedUrl(
@@ -108,6 +115,7 @@ export class RecordingMediaStorageService {
           Key: key,
           UploadId: uploadId,
           PartNumber: partNumber,
+          ContentLength: expectedBytes,
         }),
         { expiresIn: this.partUrlTtlSeconds },
       ),
@@ -208,6 +216,15 @@ export class RecordingMediaStorageService {
           Key: key,
           UploadId: uploadId,
         }),
+        this.providerRequestOptions(),
+      )
+    })
+  }
+
+  async delete(key: string): Promise<void> {
+    await this.safe(async () => {
+      await this.client.send(
+        new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
         this.providerRequestOptions(),
       )
     })

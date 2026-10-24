@@ -2,16 +2,18 @@ import { createHash, randomUUID } from 'node:crypto'
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { meetingRecorderMediaArtifactSchema } from '@crm/shared'
-import { and, asc, count, desc, eq, gt, or, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gt, inArray, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 
 import { DatabaseService } from '../../../database/database.service'
 import {
+  interviewRecordings,
   meetingRecorderConnections,
   recordingMediaArtifacts,
   recordingMediaUploads,
 } from '../../../database/schema'
 import type { Env } from '../../../config/env'
+import { RECORDING_MEDIA_COMPLETION_LEASE_MS } from './recording-media-constants'
 import {
   RecordingMediaStorageService,
   type UploadedMediaPart,
@@ -22,7 +24,6 @@ const MAX_PARTS = 10_000
 const MAX_BYTES = 8 * 1024 * 1024 * 1024
 const CONNECTION_QUOTA = 64 * 1024 * 1024 * 1024
 const DEFAULT_UPLOAD_LIFETIME_MS = 6 * 24 * 60 * 60 * 1000
-const COMPLETION_LEASE_MS = 2 * 60 * 1000
 const MAX_ACTIVE = 4
 const MAX_CONCURRENCY = 3
 
@@ -110,6 +111,20 @@ export class RecordingMediaUploadService {
         if (!connection || !connection.enabled)
           throw mediaError('MEDIA_CONNECTION_DISABLED', HttpStatus.GONE)
 
+        const [recordingTombstone] = await tx
+          .select({ purgedAt: interviewRecordings.purgedAt })
+          .from(interviewRecordings)
+          .where(
+            and(
+              eq(interviewRecordings.connectionId, connectionId),
+              eq(interviewRecordings.externalRecordingId, input.recordingId),
+            ),
+          )
+          .limit(1)
+        if (recordingTombstone?.purgedAt) {
+          throw mediaError('MEDIA_RECORDING_PURGED', HttpStatus.GONE)
+        }
+
         const [existing] = await tx
           .select()
           .from(recordingMediaArtifacts)
@@ -123,6 +138,9 @@ export class RecordingMediaUploadService {
         if (existing && existing.requestFingerprint !== requestFingerprint) {
           throw mediaError('MEDIA_TRANSFER_CONFLICT', HttpStatus.CONFLICT)
         }
+        if (existing && ['purging', 'purged'].includes(existing.status)) {
+          throw mediaError('MEDIA_RECORDING_PURGED', HttpStatus.GONE)
+        }
         if (existing?.status === 'ready') return this.ready(existing)
 
         const assertQuotaForArtifact = async () => {
@@ -132,7 +150,7 @@ export class RecordingMediaUploadService {
             .where(
               and(
                 eq(recordingMediaArtifacts.connectionId, connectionId),
-                sql`${recordingMediaArtifacts.status} != 'failed'`,
+                inArray(recordingMediaArtifacts.status, ['uploading', 'completing', 'ready']),
               ),
             )
           const quotaBytes = quota ? Number(quota.bytes) : 0
@@ -166,7 +184,7 @@ export class RecordingMediaUploadService {
                 .where(eq(recordingMediaUploads.id, latest.id))
               return this.ready(existing)
             }
-            if (latest.updatedAt > new Date(Date.now() - COMPLETION_LEASE_MS)) {
+            if (latest.updatedAt > new Date(Date.now() - RECORDING_MEDIA_COMPLETION_LEASE_MS)) {
               throw mediaError('MEDIA_UPLOAD_COMPLETING', HttpStatus.CONFLICT)
             }
           }
@@ -202,7 +220,10 @@ export class RecordingMediaUploadService {
                 ),
                 and(
                   eq(recordingMediaUploads.status, 'completing'),
-                  gt(recordingMediaUploads.updatedAt, new Date(Date.now() - COMPLETION_LEASE_MS)),
+                  gt(
+                    recordingMediaUploads.updatedAt,
+                    new Date(Date.now() - RECORDING_MEDIA_COMPLETION_LEASE_MS),
+                  ),
                 ),
               ),
             ),
@@ -273,7 +294,7 @@ export class RecordingMediaUploadService {
       if (await this.confirmObject(artifact, upload)) return await this.markReady(artifact, upload)
       // Once the completion lease expires, the client can recreate the same logical
       // artifact. An endless 409 here strands transfers after lost completion replies.
-      if (upload.updatedAt.getTime() <= Date.now() - COMPLETION_LEASE_MS)
+      if (upload.updatedAt.getTime() <= Date.now() - RECORDING_MEDIA_COMPLETION_LEASE_MS)
         throw mediaError('MEDIA_UPLOAD_EXPIRED', HttpStatus.GONE)
       throw mediaError('MEDIA_UPLOAD_COMPLETING', HttpStatus.CONFLICT)
     }
@@ -306,7 +327,16 @@ export class RecordingMediaUploadService {
     ) {
       throw mediaError('MEDIA_PART_INVALID', HttpStatus.UNPROCESSABLE_ENTITY)
     }
-    return this.storage.signPart(upload.storageKey, upload.storageUploadId, partNumber)
+    const expectedBytes = Math.min(
+      upload.partSize,
+      artifact.bytes - (partNumber - 1) * upload.partSize,
+    )
+    return this.storage.signPart(
+      upload.storageKey,
+      upload.storageUploadId,
+      partNumber,
+      expectedBytes,
+    )
   }
 
   async complete(connectionId: string, uploadId: string, body: unknown) {
@@ -353,7 +383,7 @@ export class RecordingMediaUploadService {
       .where(
         and(
           eq(recordingMediaUploads.id, upload.id),
-          sql`(${recordingMediaUploads.status} = 'uploading' AND ${recordingMediaUploads.expiresAt} > ${now}) OR (${recordingMediaUploads.status} = 'completing' AND ${recordingMediaUploads.updatedAt} < ${new Date(now.getTime() - COMPLETION_LEASE_MS)})`,
+          sql`(${recordingMediaUploads.status} = 'uploading' AND ${recordingMediaUploads.expiresAt} > ${now}) OR (${recordingMediaUploads.status} = 'completing' AND ${recordingMediaUploads.updatedAt} < ${new Date(now.getTime() - RECORDING_MEDIA_COMPLETION_LEASE_MS)})`,
         ),
       )
       .returning({ id: recordingMediaUploads.id })
@@ -412,6 +442,9 @@ export class RecordingMediaUploadService {
     if (!artifact) throw mediaError('MEDIA_NOT_FOUND', HttpStatus.NOT_FOUND)
     if (artifact.connectionId !== connectionId)
       throw mediaError('MEDIA_FORBIDDEN', HttpStatus.FORBIDDEN)
+    if (artifact.status === 'purging' || artifact.status === 'purged') {
+      throw mediaError('MEDIA_RECORDING_PURGED', HttpStatus.GONE)
+    }
     if (artifact.status !== 'ready') throw mediaError('MEDIA_NOT_READY', HttpStatus.CONFLICT)
     return this.storage.playback(artifact.storageKey, artifact.mimeType)
   }
@@ -483,6 +516,9 @@ export class RecordingMediaUploadService {
     if (!row) throw mediaError('MEDIA_NOT_FOUND', HttpStatus.NOT_FOUND)
     if (row.artifact.connectionId !== connectionId)
       throw mediaError('MEDIA_FORBIDDEN', HttpStatus.FORBIDDEN)
+    if (row.artifact.status === 'purging' || row.artifact.status === 'purged') {
+      throw mediaError('MEDIA_RECORDING_PURGED', HttpStatus.GONE)
+    }
     return row
   }
 
@@ -571,6 +607,9 @@ export class RecordingMediaUploadService {
         .where(eq(recordingMediaArtifacts.id, artifact.id))
         .limit(1)
       if (!currentArtifact) throw mediaError('MEDIA_NOT_FOUND', HttpStatus.NOT_FOUND)
+      if (currentArtifact.status === 'purging' || currentArtifact.status === 'purged') {
+        throw mediaError('MEDIA_RECORDING_PURGED', HttpStatus.GONE)
+      }
       if (currentArtifact.status === 'failed') {
         const [quota] = await tx
           .select({ bytes: sql<string>`coalesce(sum(${recordingMediaArtifacts.bytes}),0)` })
@@ -578,7 +617,7 @@ export class RecordingMediaUploadService {
           .where(
             and(
               eq(recordingMediaArtifacts.connectionId, artifact.connectionId),
-              sql`${recordingMediaArtifacts.status} != 'failed'`,
+              inArray(recordingMediaArtifacts.status, ['uploading', 'completing', 'ready']),
             ),
           )
         if (Number(quota?.bytes ?? 0) + artifact.bytes > CONNECTION_QUOTA) {

@@ -1,6 +1,6 @@
 import { msg } from '@lingui/core/macro'
 import type { MessageDescriptor } from '@lingui/core'
-import type { InterviewStage } from '@crm/shared'
+import type { InterviewStage, MeetingRecorderMediaArtifactDto } from '@crm/shared'
 
 export const ACTIVE_STAGES: InterviewStage[] = [
   'HR_SCREEN',
@@ -14,6 +14,12 @@ export const ACTIVE_STAGES: InterviewStage[] = [
 export const TERMINAL_STAGES: InterviewStage[] = ['HIRED', 'REJECTED', 'ARCHIVED']
 
 export const ALL_STAGES: InterviewStage[] = [...ACTIVE_STAGES, ...TERMINAL_STAGES]
+
+export const RECORDING_MEDIA_ROLE_LABEL_MESSAGES = {
+  'tab-recording': msg`Запис вкладки`,
+  'microphone-recording': msg`Запис мікрофона`,
+  'self-video': msg`Відео з камери`,
+} satisfies Record<MeetingRecorderMediaArtifactDto['role'], MessageDescriptor>
 
 // Canon terms — CONTEXT.md «Волна c — web-projects». satisfies WITHOUT
 // `as const` (урок #707): `as const satisfies …` disables Stryker for the

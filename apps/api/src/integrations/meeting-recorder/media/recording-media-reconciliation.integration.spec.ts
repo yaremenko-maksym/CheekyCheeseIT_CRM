@@ -102,7 +102,8 @@ describe.skipIf(!hasDatabaseUrl())('Recording media reconciliation — real Post
       listMediaObjects: vi.fn().mockResolvedValue([]),
       abort: vi.fn(),
     } as unknown as RecordingMediaStorageService
-    service = new RecordingMediaReconciliationService(dbService, storage)
+    const uploads = { status: vi.fn() }
+    service = new RecordingMediaReconciliationService(dbService, storage, uploads as never)
   }, 20_000)
 
   beforeEach(async () => {

@@ -3,6 +3,7 @@ import { test, expect, API_RE, INTERVIEWS, type Page, type Route } from './fixtu
 const CONNECTION_ID = '11111111-1111-4111-8111-111111111111'
 const RECORDING_ID = '22222222-2222-4222-8222-222222222222'
 const INTERVIEW_ID = '33333333-3333-4333-8333-333333333333'
+const MEDIA_ARTIFACT_ID = 'media_44444444-4444-4444-8444-444444444444'
 
 const connection = {
   id: CONNECTION_ID,
@@ -75,6 +76,14 @@ const recordingDetail = {
       ],
     },
   },
+}
+
+const mediaArtifact = {
+  artifactId: MEDIA_ARTIFACT_ID,
+  role: 'tab-recording' as const,
+  filename: 'meeting.webm',
+  mimeType: 'video/webm' as const,
+  bytes: 1_048_576,
 }
 
 function json(route: Route, body: unknown, status = 200) {
@@ -183,7 +192,17 @@ test.describe('Meeting Recorder CRM UI', () => {
       json(route, recordingDetail),
     )
     await page.route(new RegExp(`${API_RE}/interview-recordings/${RECORDING_ID}/media$`), (route) =>
-      json(route, []),
+      json(route, [mediaArtifact]),
+    )
+    await page.route(
+      new RegExp(
+        `${API_RE}/interview-recordings/${RECORDING_ID}/media/${MEDIA_ARTIFACT_ID}/playback$`,
+      ),
+      (route) =>
+        json(route, {
+          url: 'https://media.example.test/meeting.webm',
+          expiresAt: '2026-10-07T18:00:00.000Z',
+        }),
     )
 
     await page.goto('/interviews')
@@ -193,6 +212,15 @@ test.describe('Meeting Recorder CRM UI', () => {
 
     await expect(page.getByText('Sensitive transcript stays plain text.')).toBeVisible()
     await expect(page.getByText('React', { exact: true })).toBeVisible()
+    await expect(page.getByText('meeting.webm', { exact: true })).toBeVisible()
+    await expect(page.getByText('Запис вкладки', { exact: true })).toBeVisible()
+
+    await page.getByRole('button', { name: 'Відкрити програвач' }).click()
+    await expect(page.locator('video')).toHaveAttribute(
+      'src',
+      'https://media.example.test/meeting.webm',
+    )
+
     await expect(page.getByRole('button', { name: "Відв'язати" })).toHaveCount(0)
     await expect(page.getByRole('button', { name: "Переприв'язати" })).toHaveCount(0)
   })

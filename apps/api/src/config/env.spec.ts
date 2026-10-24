@@ -319,19 +319,19 @@ describe('validateEnv — S3_USE_SSE and Cloudflare R2 compatibility (Section E)
   it('enforces the exact meeting-recorder media expiry ceilings', () => {
     const max = validateEnv({
       ...BASE_DEV,
-      MEETING_RECORDER_MEDIA_PART_URL_TTL_SECONDS: String(7 * 24 * 60 * 60),
-      MEETING_RECORDER_MEDIA_PLAYBACK_URL_TTL_SECONDS: String(7 * 24 * 60 * 60),
+      MEETING_RECORDER_MEDIA_PART_URL_TTL_SECONDS: '900',
+      MEETING_RECORDER_MEDIA_PLAYBACK_URL_TTL_SECONDS: '1800',
       MEETING_RECORDER_MEDIA_UPLOAD_LIFETIME_MS: String(6 * 24 * 60 * 60 * 1_000),
     })
-    expect(max.MEETING_RECORDER_MEDIA_PART_URL_TTL_SECONDS).toBe(604_800)
-    expect(max.MEETING_RECORDER_MEDIA_PLAYBACK_URL_TTL_SECONDS).toBe(604_800)
+    expect(max.MEETING_RECORDER_MEDIA_PART_URL_TTL_SECONDS).toBe(900)
+    expect(max.MEETING_RECORDER_MEDIA_PLAYBACK_URL_TTL_SECONDS).toBe(1800)
     expect(max.MEETING_RECORDER_MEDIA_UPLOAD_LIFETIME_MS).toBe(518_400_000)
 
     expect(() =>
-      validateEnv({ ...BASE_DEV, MEETING_RECORDER_MEDIA_PART_URL_TTL_SECONDS: '604801' }),
+      validateEnv({ ...BASE_DEV, MEETING_RECORDER_MEDIA_PART_URL_TTL_SECONDS: '901' }),
     ).toThrow()
     expect(() =>
-      validateEnv({ ...BASE_DEV, MEETING_RECORDER_MEDIA_PLAYBACK_URL_TTL_SECONDS: '604801' }),
+      validateEnv({ ...BASE_DEV, MEETING_RECORDER_MEDIA_PLAYBACK_URL_TTL_SECONDS: '1801' }),
     ).toThrow()
     expect(() =>
       validateEnv({ ...BASE_DEV, MEETING_RECORDER_MEDIA_UPLOAD_LIFETIME_MS: '518400001' }),

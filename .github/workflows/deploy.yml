@@ -874,13 +874,30 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     environment: production
-    # No repo/package access needed — only SSHes to the VPS.
+    # Repo access is limited to running the checked-in deployment preflight
+    # before any production configuration is written over SSH.
     permissions:
       contents: read
     # UNTESTED: requires a real VPS with all secrets set.
     # See docs/runbooks/deployment.md §3 for provisioning checklist.
 
     steps:
+      # PR #869 CR-M-2: fail before opening the SSH write step when the
+      # dedicated meeting-recorder R2 endpoint inputs are missing/malformed.
+      # The account ID is part of the endpoint we write below, so it is a
+      # required media dependency even though the Workers-AI integration also
+      # happens to consume the same GitHub secret.
+      - name: Checkout deployment validation
+        uses: actions/checkout@v4
+
+      - name: Validate meeting recorder media R2 deployment inputs
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          MEETING_RECORDER_MEDIA_S3_BUCKET: ${{ secrets.MEETING_RECORDER_MEDIA_S3_BUCKET }}
+          MEETING_RECORDER_MEDIA_AWS_ACCESS_KEY_ID: ${{ secrets.MEETING_RECORDER_MEDIA_AWS_ACCESS_KEY_ID }}
+          MEETING_RECORDER_MEDIA_AWS_SECRET_ACCESS_KEY: ${{ secrets.MEETING_RECORDER_MEDIA_AWS_SECRET_ACCESS_KEY }}
+        run: bash scripts/devops/check-meeting-recorder-r2-deploy-env.sh
+
       - name: Write .env.production via SSH
         uses: appleboy/ssh-action@v1.2.0
         env:
@@ -1008,13 +1025,6 @@ jobs:
               echo "ERROR: TELEMETRY_SESSION_SALT secret is not set in GitHub Actions."
               echo "The production API fails fast on boot without it (apps/api/src/config/env.ts refine, task-telemetry-api PR #412)."
               echo "Create the secret — see scripts/devops/telemetry-digest-runbook.md."
-              exit 1
-            fi
-
-            if [ -z "$MEETING_RECORDER_MEDIA_S3_BUCKET" ] || [ -z "$MEETING_RECORDER_MEDIA_AWS_ACCESS_KEY_ID" ] || [ -z "$MEETING_RECORDER_MEDIA_AWS_SECRET_ACCESS_KEY" ]; then
-              echo "ERROR: dedicated meeting-recorder media R2 secrets are incomplete."
-              echo "Required: MEETING_RECORDER_MEDIA_S3_BUCKET, MEETING_RECORDER_MEDIA_AWS_ACCESS_KEY_ID, MEETING_RECORDER_MEDIA_AWS_SECRET_ACCESS_KEY."
-              echo "Provision a bucket-scoped R2 Object Read & Write token before deploying the media integration."
               exit 1
             fi
 
@@ -2468,6 +2478,33 @@ jobs:
           target: '/opt/crm'
           # apps/api/drizzle/manual/2026-10-08_meeting_recorder_media.sql
           #   → /opt/crm/apps/api/drizzle/manual/2026-10-08_meeting_recorder_media.sql
+
+      # PR #869 purge state extends the meeting-recorder media schema above.
+      # Keep this copy guarded because this job checks out the requested rollback
+      # commit: a rollback target from before the purge migration legitimately
+      # does not contain the file and must not fail in scp before deployment.
+      - name: Check for meeting recorder media purge DDL file
+        id: meeting-recorder-media-purge-ddl-check
+        run: |
+          if [ -f apps/api/drizzle/manual/2026-10-24_meeting_recorder_media_purge.sql ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::apps/api/drizzle/manual/2026-10-24_meeting_recorder_media_purge.sql not found in checkout — rollback target predates PR #869 purge state. Skipping copy; deploy job's matching step also notice-skips applying it."
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Copy meeting recorder media purge DDL via SCP (only if present)
+        if: steps.meeting-recorder-media-purge-ddl-check.outputs.exists == 'true'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-10-24_meeting_recorder_media_purge.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-10-24_meeting_recorder_media_purge.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-10-24_meeting_recorder_media_purge.sql
 
       # ── least-privileged database roles (r5 Task 1.3c, ADR 2026-10-17-db-least-privilege-roles) ──
       # Three files, three apply positions in the deploy job (roles FIRST, grants after the store

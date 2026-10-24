@@ -29,6 +29,7 @@ import {
   useInterviewRecording,
   useLinkInterviewRecording,
 } from '@/lib/meeting-recorder-api'
+import { RECORDING_MEDIA_ROLE_LABEL_MESSAGES } from '../constants'
 import { LinkRecordingDialog } from './LinkRecordingDialog'
 import { RecordingDuration } from './RecordingDuration'
 
@@ -139,6 +140,7 @@ function RecordingMediaArtifactPlayer({
   artifact: MeetingRecorderMediaArtifactDto
   playbackErrorLabel: string
 }) {
+  const { i18n } = useLingui()
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null)
   const mountedRef = useRef(true)
   const refreshInFlightRef = useRef(false)
@@ -231,7 +233,7 @@ function RecordingMediaArtifactPlayer({
   const metadata = (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
       <span className="font-medium text-foreground">{artifact.filename}</span>
-      <span>{artifact.role}</span>
+      <span>{i18n._(RECORDING_MEDIA_ROLE_LABEL_MESSAGES[artifact.role])}</span>
       <span>{formatBytes(artifact.bytes)}</span>
     </div>
   )

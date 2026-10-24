@@ -54,6 +54,7 @@ CRM_CSP = (
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
     "img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com; "
     "connect-src 'self' https://*.r2.cloudflarestorage.com; "
+    "media-src 'self' https://*.r2.cloudflarestorage.com; "
     "frame-src 'self' blob: https://*.r2.cloudflarestorage.com; "
     "object-src 'self' blob: https://*.r2.cloudflarestorage.com; "
     "base-uri 'self'; frame-ancestors 'none'; form-action 'self'; "
@@ -282,6 +283,10 @@ class Handler(BaseHTTPRequestHandler):
                 )
             elif ARGS.flaw == "csp-drops-r2":
                 csp = CRM_CSP.replace(" https://*.r2.cloudflarestorage.com", "")
+            elif ARGS.flaw == "csp-drops-media-src":
+                csp = CRM_CSP.replace(
+                    "media-src 'self' https://*.r2.cloudflarestorage.com; ", ""
+                )
 
             header_name = (
                 "Content-Security-Policy"
