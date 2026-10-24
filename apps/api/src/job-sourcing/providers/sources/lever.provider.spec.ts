@@ -18,9 +18,9 @@ import {
  */
 
 const NOW = new Date('2026-10-24T04:00:00Z')
-const SPOTIFY = { name: 'Spotify', evidence: 'posting text names Spotify (71 of 90 postings)' }
-const SITEIMPROVE = { name: 'Siteimprove', evidence: 'posting text names Siteimprove (11 of 12)' }
-const QUANTCO = { name: 'QuantCo', evidence: 'posting text names QuantCo (11 of 14)' }
+const SPOTIFY = { name: 'Spotify', evidence: 'posting text names Spotify (87 of 90 postings)' }
+const SITEIMPROVE = { name: 'Siteimprove', evidence: 'posting text names Siteimprove (12 of 12)' }
+const QUANTCO = { name: 'QuantCo', evidence: 'posting text names QuantCo (14 of 14)' }
 
 const cfg = (board = 'spotify', extra: Record<string, unknown> = {}) =>
   leverProvider.parseConfig({ configVersion: 1, board, ...extra })

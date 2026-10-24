@@ -145,7 +145,7 @@ describe.each(PROVIDERS)('$label: board slug refusal table', ({ provider, kind }
     },
   )
 
-  it.each(['a--b', 'a_b', 'snake_case', 'a_', 'a-_b'])(
+  it.each(['a--b', 'a_b', 'snake_case', 'a_', 'a-_b', 'a--', 'x1--', 'a---'])(
     'refuses %j: no board read needs an underscore or a doubled hyphen',
     (slug) => {
       expect(issuePaths(() => provider.parseConfig(goodConfig(slug)))).toEqual(['board'])
