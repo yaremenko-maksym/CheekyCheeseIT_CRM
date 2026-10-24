@@ -60,7 +60,7 @@ describe('JobSourcingService swallow-and-log paths record a database error’s S
     const svc = new JobSourcingService(
       { db: { insert: () => insertChain } } as never,
       {} as never,
-      { type: 'DOU' } as never,
+      { type: 'DOU_RSS' } as never,
     )
 
     const result = await (svc as unknown as Internals).persistPostings('source-1', [
@@ -88,7 +88,7 @@ describe('JobSourcingService swallow-and-log paths record a database error’s S
     const svc = new JobSourcingService(
       { db: { insert: () => insertChain } } as never,
       {} as never,
-      { type: 'DOU' } as never,
+      { type: 'DOU_RSS' } as never,
     )
 
     await (svc as unknown as Internals).persistPostings('source-1', [
@@ -107,7 +107,7 @@ describe('JobSourcingService swallow-and-log paths record a database error’s S
         db: { select: () => ({ from: () => ({ where: () => Promise.resolve([source]) }) }) },
       } as never,
       {} as never,
-      { type: 'DOU' } as never,
+      { type: 'DOU_RSS' } as never,
     )
     vi.spyOn(svc as unknown as Internals, 'collectSource').mockRejectedValue(deniedQueryError())
 

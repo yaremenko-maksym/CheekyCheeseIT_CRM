@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -16,7 +17,6 @@ import type {
   JobExclusionDto,
   JobSourceDto,
   JobSourceTriggerMode,
-  JobSourceType,
   JobSuggestionDto,
   JobSuggestionListDto,
   SessionUser,
@@ -47,7 +47,7 @@ import {
   teamMembers,
   users,
 } from '../database/schema'
-import { DouRssProvider } from './dou.provider'
+import type { DouRssProvider } from './dou.provider'
 import { deriveProjectExclusions, findMatchingExclusion } from './filtering'
 import {
   JobSourceBudgetContentionError,
@@ -55,7 +55,9 @@ import {
   JobSourceDeliberateStopError,
 } from './source-budget.error'
 import { toSafeFailureMessage } from './safe-failure-message'
-import type { JobSourceProvider, NormalizedPosting } from './job-source.provider'
+import type { NormalizedPosting } from './job-source.provider'
+import { JobSourceRegistry } from './registry/job-source-registry'
+import { resolveRegistry } from './registry/production-registry'
 
 /**
  * Job sourcing — task-job-sourcing-slice1.
@@ -165,17 +167,22 @@ export function sourceAcceptsTrigger(
 @Injectable()
 export class JobSourcingService {
   private readonly logger = new Logger(JobSourcingService.name)
-  private readonly providers: Map<JobSourceType, JobSourceProvider>
+  private readonly registry: JobSourceRegistry
 
+  /**
+   * `adapters` is THE registry (the module provides it through `createProductionRegistry`). It also
+   * accepts a bare `DouRssProvider` -- the shape this constructor had before the registry existed --
+   * and wraps it in a one-adapter registry, so the DOU golden specs, which build the service by hand
+   * with a DOU provider, run unchanged. That is a convenience for those callers, not a second
+   * registry: the service never holds more than one, and production always passes the real one.
+   */
   constructor(
-    private readonly db: DatabaseService,
-    private readonly hrAccess: HrAccessService,
-    dou: DouRssProvider,
-    @Optional() private readonly config?: ConfigService<Env, true>,
+    @Inject(DatabaseService) private readonly db: DatabaseService,
+    @Inject(HrAccessService) private readonly hrAccess: HrAccessService,
+    @Inject(JobSourceRegistry) adapters: JobSourceRegistry | DouRssProvider,
+    @Optional() @Inject(ConfigService) private readonly config?: ConfigService<Env, true>,
   ) {
-    // Provider registry — slice 2 adds its source here and nothing else in this
-    // service changes.
-    this.providers = new Map<JobSourceType, JobSourceProvider>([[dou.type, dou]])
+    this.registry = resolveRegistry(adapters)
   }
 
   /**
@@ -890,7 +897,7 @@ export class JobSourcingService {
 
   /** Run one configured source end to end. */
   async collectSource(source: BudgetedSource): Promise<JobCollectionResultDto> {
-    const provider = this.providers.get(source.type)
+    const provider = this.registry.legacyProvider(source.type)
     if (!provider) throw new BadRequestException(`Нет провайдера для источника ${source.type}`)
 
     // Budget FIRST — before the provider, before the network. A source that has

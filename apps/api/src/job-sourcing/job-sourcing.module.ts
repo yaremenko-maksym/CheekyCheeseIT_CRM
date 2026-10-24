@@ -6,6 +6,8 @@ import { JobQueueActionRetentionCronService } from './job-queue-action-retention
 import { JobSourcingController } from './job-sourcing.controller'
 import { JobSourcingCronService } from './job-sourcing.cron'
 import { JobSourcingService } from './job-sourcing.service'
+import { JobSourceRegistry } from './registry/job-source-registry'
+import { createProductionRegistry } from './registry/production-registry'
 
 /**
  * Job sourcing (task-job-sourcing-slice1).
@@ -15,8 +17,9 @@ import { JobSourcingService } from './job-sourcing.service'
  * module injects the one shared instance instead of a second copy of the
  * "does this HR share a team with this user" rule.
  *
- * Adding a source in slice 2 = provide the new provider class here and register
- * it in `JobSourcingService`'s registry map. No other file changes.
+ * There is ONE adapter registry (`JobSourceRegistry`), built by `createProductionRegistry`; it
+ * rejects a duplicate type while this module initialises. Adding a source = provide its class here
+ * and add it to that factory. `JobSourcingService` keeps no map of its own.
  *
  * `JobQueueActionRetentionCronService` is a SECOND cron, deliberately separate from
  * `JobSourcingCronService`: it discharges the statutory two-year retention of
@@ -35,6 +38,11 @@ import { JobSourcingService } from './job-sourcing.service'
     JobSourcingCronService,
     JobQueueActionRetentionCronService,
     DouRssProvider,
+    {
+      provide: JobSourceRegistry,
+      useFactory: createProductionRegistry,
+      inject: [DouRssProvider],
+    },
   ],
   exports: [JobSourcingService],
 })

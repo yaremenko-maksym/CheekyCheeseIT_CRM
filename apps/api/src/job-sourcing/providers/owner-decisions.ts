@@ -59,49 +59,52 @@ export function liftsUnclear(
   )
 }
 
+// Every decision below is `Object.freeze`d (Task 2.5 T2, #1139 delta LOW 1): an adapter is armed by
+// the SHARED object, so a runtime write to it would leave an adapter armed while the manifest stops
+// lifting. Every field is a string, so the shallow freeze is the whole of it.
 const REFERENCE_NOTE = 'Owner decision, 2026-10-24 (answer given in the vacancy-sourcing session).'
 
-export const HN_OWNER_DECISION: OwnerDecision = {
+export const HN_OWNER_DECISION: OwnerDecision = Object.freeze({
   decidedAt: '2026-10-24',
   decision: 'ACCEPT_RISK',
   endpointVariant: 'algolia-who-is-hiring',
   scope:
     'The Algolia HN Search API only: two requests per run to hn.algolia.com; no use of news.ycombinator.com pages.',
   reference: `${REFERENCE_NOTE} Question: do Y Combinator's terms ("no data mining, robots, scraping or similar data gathering or extraction methods" in connection with "the Site") cover the public, unauthenticated, documented HN Search API on Algolia? Options: (a) treat the API as allowed and lift the block, (b) ask Y Combinator, (c) do not use it. Answer: (a). Accepted risk, not a documented permission.`,
-}
+})
 
-export const REMOTIVE_OWNER_DECISION: OwnerDecision = {
+export const REMOTIVE_OWNER_DECISION: OwnerDecision = Object.freeze({
   decidedAt: '2026-10-24',
   decision: 'ACCEPT_RISK',
   endpointVariant: 'category',
   scope:
     'Exactly /api/remote-jobs?category= on remotive.com; the vendor limits stay binding on us: attribution to Remotive, jobs delayed 24 hours, at most about 4 requests a day and never more than 2 a minute.',
   reference: `${REFERENCE_NOTE} Question: robots.txt says "Disallow: /api/*" while the documented API grants developer access; which takes priority? Answer: the documented API takes priority, lift the block. Accepted risk, not a documented permission.`,
-}
+})
 
-export const JOBGETHER_OWNER_DECISION: OwnerDecision = {
+export const JOBGETHER_OWNER_DECISION: OwnerDecision = Object.freeze({
   decidedAt: '2026-10-24',
   decision: 'ACCEPT_RISK',
   endpointVariant: 'astroapi-ai-jobs',
   scope:
     'Exactly /astroapi/ai/jobs.json on jobgether.com. The Terms of Use (4.5, 9) forbid automated extraction and the use of content to train or operate machine-learning models; relevance in this feature runs through a model. That clause is knowingly accepted as risk, NOT resolved.',
   reference: `${REFERENCE_NOTE} Question: the API is documented as public and "intended for AI agents" while the Terms of Use forbid automated extraction and ML use of content; lift the block? Concern raised and reaffirmed by the owner. Answer: lift the block. Accepted risk, not a documented permission.`,
-}
+})
 
-export const SMARTRECRUITERS_OWNER_DECISION: OwnerDecision = {
+export const SMARTRECRUITERS_OWNER_DECISION: OwnerDecision = Object.freeze({
   decidedAt: '2026-10-24',
   decision: 'ACCEPT_RISK',
   endpointVariant: 'posting-api',
   scope:
     'The public SmartRecruiters postings API (api.smartrecruiters.com/v1/companies/{company}/postings) only, despite robots.txt (Disallow for every agent except LinkedInBot), until banned. A 403, a 429 or any explicit block ends the run with no further request; no user-agent change, proxy or other evasion, ever.',
   reference: `${REFERENCE_NOTE} Question: robots.txt disallows every agent except LinkedInBot while the documentation calls the Posting API public; use it anyway? Answer: yes, until banned. Accepted risk, not a documented permission.`,
-}
+})
 
-export const WORKABLE_OWNER_DECISION: OwnerDecision = {
+export const WORKABLE_OWNER_DECISION: OwnerDecision = Object.freeze({
   decidedAt: '2026-10-24',
   decision: 'INFORMATIONAL',
   endpointVariant: 'widget-accounts',
   scope:
     'Workable sends "Content-Signal: ai-train=no"; the owner reads it as not covering relevance scoring. Informational: Workable is PUBLIC_API_DOCUMENTED and its readiness does not depend on this.',
   reference: `${REFERENCE_NOTE} Question: does the Content-Signal "ai-train=no" header cover scoring relevance with a model? Answer: no, it is read as not covering relevance scoring.`,
-}
+})
