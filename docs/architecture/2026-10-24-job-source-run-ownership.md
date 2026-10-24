@@ -15,11 +15,15 @@ lifecycle arithmetic, so this comparison is a real one. Every fact below was re-
 
 **How the facts were obtained.** Codegraph MCP was not in this agent's tool set, so code facts come
 from `grep` and reading files at that commit. Schema facts come from the Drizzle schema plus a
-read-only `psql` session (`default_transaction_read_only=on`). A finding about the database itself:
-**the local `crm_db` on port 5432 (docker-compose, PostgreSQL 16.15) holds no user tables at all.**
-It has zero relations outside the system schemas. `SELECT current_database(), version()` confirmed
-the target. The job-sourcing tables exist only in scratch databases built from the migrations, so the
-live column list was read from `crm_scratch_manifest37` (read-only). Production was not read.
+read-only `psql` session (`default_transaction_read_only=on`).
+
+**Machine-local observations (not reproducible elsewhere; they support no conclusion on their own).**
+On the author's machine on 2026-10-24, the local `crm_db` (docker-compose, PostgreSQL 16.15,
+confirmed with `SELECT current_database(), version()`) held no user tables. So the column list was
+read from a scratch database built from the migrations, `crm_scratch_manifest37`. Production was not
+read. The reproducible source for every column named below is the committed DDL:
+`git show origin/main:apps/api/drizzle/manual/2026-10-17_job_opportunities_store.sql`, plus the
+Drizzle schema files.
 
 ### F1 — The service can reach only the legacy contract
 
@@ -35,11 +39,27 @@ reporting adapter.**
 `CollectionContext` (in `providers/reporting-provider.ts`) carries these ports: `run`
 (`{ sourceId, cycleId, attemptId, fencingEpoch }`), `policyVersion`, `signal`, `deadline`, `now`,
 `secrets`, `fetchText`, `meter` (`reserve`, `markSent`, `reconcile`), `checkpoints`
-(`load`, `savePage`) and `cache`. Two code paths construct a value of that type, and both are test
-helpers: `test/fake-collection-context.ts` and `test/quota-harness.ts`. The only production
-implementation behind any port is the 3.5a meter store, `createAccountMeter` in
-`metering/account-meter.store.ts`. It already exposes `markSent`. Task 3.5b landed that, so this task
-inherits the **call site in the transport**, not the port method.
+(`load`, `savePage`) and `cache`.
+
+Exactly two code paths build one from nothing, and both are test helpers:
+`test/fake-collection-context.ts` and `test/quota-harness.ts`. One production function returns a
+`CollectionContext` without being a producer: `withSecrets` in `providers/sources/quota-provider.ts`
+spreads a context it is given and adds secrets. The only production implementation behind any port
+is the 3.5a meter store, `createAccountMeter` in `metering/account-meter.store.ts`.
+
+**`markSent`: the port method and its main call site both exist already (Task 3.5b).** The call site
+is in the adapter loop, not the transport. `collectJsonPages` in `api-json.provider.ts` sets
+`markSentStarted`, then awaits `ctx.meter.markSent(reservation)` immediately before
+`ctx.fetchText(request)`. If `markSent` rejects, the reservation is reconciled `RELEASED` and the
+failure is reported as `PERSISTENCE`, because nothing left the process.
+
+**The gap that remains is the one the store header names:** a caller that reaches `fetchText`
+without going through that loop. There is one such caller today. The SmartRecruiters adapter's
+detail request reserves through `ctx.meter.reserve`, then calls `ctx.fetchText` directly with
+**no `markSent`**. Run `git grep -n 'ctx.fetchText(' origin/main -- apps/api/src ':!*.spec.ts' ':!apps/api/src/test/**'` and
+you get exactly two call sites: `collectJsonPages` and the SmartRecruiters adapter. Under recovery
+(Option A), a `RESERVED` row is read as "never sent", so that path is unsafe once a ledger exists.
+T7 owns closing it.
 
 `transportOptionsFor` and `boundedFetchText` exist in `http/bounded-fetch.ts`, and production calls
 neither. That is why every adapter's declared `maxBytes` is inert today (backlog 319; PR #1138 SR-M-2).
