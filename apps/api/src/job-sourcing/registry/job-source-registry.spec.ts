@@ -329,6 +329,9 @@ describe('activatable() reads facts (CR-M-2)', () => {
 
   it('case 3: the same type with a blocking fact (deadline passed at the injected clock) is BLOCKED', () => {
     const facts = factsAt(deadline)
+    // This line alone does NOT discriminate: with facts ignored the type is NOT_VERIFIED, also
+    // absent. The proof that `facts` is read is the next assertion (BLOCKED, not NOT_VERIFIED),
+    // together with case 1 (ready facts -> returned).
     expect(registry().activatable(facts)).toEqual([])
     expect(registry().activation('RECRUITEE_ATS', facts.get('RECRUITEE_ATS'))).toBe('BLOCKED')
   })
