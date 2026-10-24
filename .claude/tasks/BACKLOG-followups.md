@@ -5283,7 +5283,13 @@ that is the assertion to re-run.
 `isIntegrationRun` in `apps/api/vitest.config.mts` is
 `process.argv.some((arg) => arg.includes('integration.spec'))`. When it is false,
 `INTEGRATION_SPEC_EXCLUDE_GLOB` removes every `*.integration.spec.ts` **from discovery** — the files
-are never parsed, so nothing is reported as skipped.
+are never parsed, so the summary reports no skip count.
+
+**A correction to this entry's own first draft, measured independently by two reviewers.** It said
+"nothing is reported as skipped", which overstated it: a generic `console.warn` does fire once at
+config load. It fires on **every** unit run, says nothing about the files the user named, and the
+run summary still shows no skip count — so the defect stands and the sentence did not. Recorded
+because an entry about a misleading instrument should not itself overstate its evidence.
 
 **None of that is new or undocumented.** It is stated in the config, in spec-file headers
 (`transactions.drop-self-feeds.spec.ts`, `job-sourcing-budget-race.integration.spec.ts`), in
@@ -5308,6 +5314,13 @@ author found it by finally reading `Test Files 1 passed` rather than the pass co
 unfiltered run visibly skips, the properly filtered run visibly runs. The third produces a green
 number with no symptom. "0 passed" and "nothing ran" are distinguishable in this repo's rules;
 "40 passed" and "40 passed of the files you did not ask about" are not.
+
+**A second hazard in the same predicate, found by a reviewer hitting it by accident.** Because the
+check is `argv.some(...)`, `vitest run integration.spec <other-path>` **ORs** the filters: it runs every
+integration spec in the repository rather than the intersection. One reviewer did this unintentionally
+and wrote to a scratch database for ~100 s before killing the run by PID. So the predicate has two
+failure modes in opposite directions — a filter without the substring runs too few files and says
+nothing, and a filter with it runs far too many.
 
 **Candidates, cheapest first:**
 
