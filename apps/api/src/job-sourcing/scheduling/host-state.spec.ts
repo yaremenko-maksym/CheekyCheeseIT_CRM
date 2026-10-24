@@ -1,8 +1,6 @@
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import type { SQL } from 'drizzle-orm'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { DatabaseService } from '../../database/database.service'
 import {
   HOST_BAN_PAUSE_MAX_HOURS,
@@ -547,15 +545,39 @@ describe('cadenceHoursAtFloor (AC 5)', () => {
   })
 })
 
-describe('SR-L-20: no application clock anywhere in the module', () => {
-  it('the source never reads Date.now or constructs a Date from nothing', () => {
-    const text = readFileSync(join(__dirname, 'host-state.ts'), 'utf8')
-    expect(text).not.toMatch(/Date\.now\s*\(/)
-    expect(text).not.toMatch(/new Date\(\s*\)/)
-    expect(text).not.toMatch(/performance\.now/)
-    // The two Dates it builds are from the header's own fields and from a database value.
-    expect(text.match(/new Date\(/g)).toHaveLength(2)
-    expect(text).toContain('new Date(\n    Date.UTC(')
-    expect(text).toContain("typeof value === 'string' ? new Date(value)")
+describe('SR-L-20: no application clock in the ban or claim path', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  /**
+   * By behaviour, not by reading the source (a source-text check reads Stryker's instrumented copy
+   * under the mutation gate): the same inputs give the same statement and verdict whatever the
+   * process clock says, and `Date.now` is never asked.
+   */
+  it('the statement and the parse are identical under two process clocks, and Date.now is never read', async () => {
+    const run = async () => {
+      const header = 'Wed, 21 Oct 2026 07:28:00 GMT'
+      const tx = {
+        execute: () =>
+          Promise.resolve({ rows: [{ paused: true, paused_until: '2026-10-25 00:00:00+00' }] }),
+      }
+      return {
+        ban: render(hostBanStatement(ban({ retryAfter: header }))),
+        parse: parseRetryAfter(header),
+        slot: await claimHostSlot(tx, 'remotive.com', { rate: null, floorHours: 0 }),
+        floor: cadenceHoursAtFloor(1, 6, 24),
+      }
+    }
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2001-01-01T00:00:00Z'))
+    const nowSpy = vi.spyOn(Date, 'now')
+    const early = await run()
+    vi.setSystemTime(new Date('2040-06-15T12:00:00Z'))
+    const late = await run()
+    expect(late).toEqual(early)
+    expect(nowSpy).not.toHaveBeenCalled()
+    expect(early.ban.params).toContain('2026-10-21T07:28:00.000Z')
   })
 })
