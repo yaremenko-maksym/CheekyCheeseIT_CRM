@@ -4538,8 +4538,22 @@ scratchpad) still cannot clean up after itself. The affected agent declined to f
 which is correct — "this looks abandoned" is not an observation it can make — so the refusal is working
 as designed on the removal side while the recording side is the defect.
 
+**The escape route is closed from both ends, measured 2026-10-24.** The rule's answer to a tree you
+cannot remove is "report it to the orchestrator, who sees all agents". The orchestrator is refused
+too, by `WORKTREE-REMOVE`: the path is not _its_ worktree either, and the refusal is correct as a rule.
+Tried from the orchestrator with the literal path, after the creating agent had already been refused —
+so neither the agent that made it nor the only party the rule names as the fallback can clear it, and
+it genuinely falls to the owner. **Measured scale at the time of writing: 16 such checkouts across two
+sessions' scratchpads**, most from reviews closed hours earlier.
+
+A related sharp edge found in the same attempt: passing the path through a shell variable gets
+`WORKTREE-OPAQUE` instead, because the hook cannot expand it and refuses rather than guess. That is
+right, and it means any batch cleanup must expand each path to a literal first — which is also why a
+loop over `git worktree list` cannot be the fix.
+
 **Check on closing:** an agent creates a worktree at the `/private/tmp/...` path the harness issued it
-and then removes it, with no intervening step. Both commands succeed.
+and then removes it, with no intervening step. Both commands succeed. And a tree whose creator is gone
+can be cleared by _someone_ without forcing past the guard.
 
 ## 301. A verification can be real but less precise than the claim it supports (2026-10-23)
 
