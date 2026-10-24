@@ -20,11 +20,10 @@ import { JobSourcingService, type BudgetedSource } from './job-sourcing.service'
  * `collectAll` classifies a zero-postings source (a failure, `budgetExhausted: false`, error log).
  *
  * QUEUE FLAG: no queue flag exists in product code at the time of writing (checked: no env key and
- * no service branch named for one). `QUEUE_FLAG_CASES` is therefore `[false]` and the "on" variant
- * is NOT exercised. When the flag lands, add `true` here and the barrier runs both ways. Until then
- * this suite proves the legacy path only.
+ * no service branch named for one). This suite therefore proves the legacy path only; the flag-on
+ * variant is NOT exercised and is recorded as an `it.todo` below. Adding it later needs the flag to
+ * be wired first (Task 4.6d); it is not a parameter flip.
  */
-const QUEUE_FLAG_CASES = [{ queueFlag: false }] as const
 
 const SOURCE_ID = 'c0mpa7ba-0000-4000-8000-000000000001'
 /** Controlled clock: every test runs at this instant. */
@@ -74,7 +73,7 @@ function makeHarness(collectImpl: () => Promise<unknown[]>, listRows: Row[] = []
   return { service, events, written, collect, update }
 }
 
-describe.each(QUEUE_FLAG_CASES)('Compat barrier — budget arithmetic (queueFlag=$queueFlag)', () => {
+describe('Compat barrier — legacy DOU path, queue flag does not exist yet: budget arithmetic', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.setSystemTime(NOW)
@@ -183,47 +182,44 @@ describe.each(QUEUE_FLAG_CASES)('Compat barrier — budget arithmetic (queueFlag
   })
 })
 
-describe.each(QUEUE_FLAG_CASES)(
-  'Compat barrier — collectAll classification (queueFlag=$queueFlag)',
-  () => {
-    let warnSpy: ReturnType<typeof vi.spyOn>
-    let errorSpy: ReturnType<typeof vi.spyOn>
-    beforeEach(() => {
-      vi.useFakeTimers()
-      vi.setSystemTime(NOW)
-      warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
-      errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
-    })
-    afterEach(() => {
-      vi.useRealTimers()
-      vi.restoreAllMocks()
-    })
+describe('Compat barrier — legacy DOU path, queue flag does not exist yet: collectAll classification', () => {
+  let warnSpy: ReturnType<typeof vi.spyOn>
+  let errorSpy: ReturnType<typeof vi.spyOn>
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+    warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+    errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
 
-    it('C-05: zero postings is a FAILURE with budgetExhausted=false, logged as an error (not a deliberate stop)', async () => {
-      const { service } = makeHarness(() => Promise.resolve([]), [dayRow()])
+  it('C-05: zero postings is a FAILURE with budgetExhausted=false, logged as an error (not a deliberate stop)', async () => {
+    const { service } = makeHarness(() => Promise.resolve([]), [dayRow()])
 
-      const run = await service.collectAll('SCHEDULED')
+    const run = await service.collectAll('SCHEDULED')
 
-      expect(run.results).toEqual([])
-      expect(run.failures).toHaveLength(1)
-      expect(run.failures[0]).toMatchObject({ sourceType: 'DOU_RSS', budgetExhausted: false })
-      expect(run.failures[0]?.message).toMatch(/0 usable postings/)
-      expect(errorSpy).toHaveBeenCalledTimes(1)
-      expect(warnSpy).not.toHaveBeenCalled()
-    })
+    expect(run.results).toEqual([])
+    expect(run.failures).toHaveLength(1)
+    expect(run.failures[0]).toMatchObject({ sourceType: 'DOU_RSS', budgetExhausted: false })
+    expect(run.failures[0]?.message).toMatch(/0 usable postings/)
+    expect(errorSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).not.toHaveBeenCalled()
+  })
 
-    it('CONTROL: genuine exhaustion on the same path is the opposite classification (true, warn, no error log)', async () => {
-      const { service, collect } = makeHarness(
-        () => Promise.resolve([]),
-        [dayRow({ budgetUsed: 10 })],
-      )
+  it('CONTROL: genuine exhaustion on the same path is the opposite classification (true, warn, no error log)', async () => {
+    const { service, collect } = makeHarness(
+      () => Promise.resolve([]),
+      [dayRow({ budgetUsed: 10 })],
+    )
 
-      const run = await service.collectAll('SCHEDULED')
+    const run = await service.collectAll('SCHEDULED')
 
-      expect(run.failures[0]).toMatchObject({ sourceType: 'DOU_RSS', budgetExhausted: true })
-      expect(warnSpy).toHaveBeenCalledTimes(1)
-      expect(errorSpy).not.toHaveBeenCalled()
-      expect(collect).not.toHaveBeenCalled()
-    })
-  },
-)
+    expect(run.failures[0]).toMatchObject({ sourceType: 'DOU_RSS', budgetExhausted: true })
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(errorSpy).not.toHaveBeenCalled()
+    expect(collect).not.toHaveBeenCalled()
+  })
+})

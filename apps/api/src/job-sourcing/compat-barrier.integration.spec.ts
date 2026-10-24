@@ -37,13 +37,12 @@ import { JobSourceBudgetExhaustedError } from './source-budget.error'
  * rows have fingerprints no other spec owns (dou-golden.integration.spec.ts cleans up by golden
  * fingerprint; sharing them would race when files run in parallel).
  *
- * QUEUE FLAG: none exists in product code today, so `QUEUE_FLAG_CASES` is `[false]`. The "on"
- * variant is NOT exercised. See compat-barrier.spec.ts for the same note.
+ * QUEUE FLAG: none exists in product code today. These tests prove the legacy path only; the
+ * flag-on variant is NOT exercised (see the `it.todo` at the end). Adding it needs the flag wired
+ * first (Task 4.6d), it is not a parameter flip.
  *
  * Scratch DB only (inline DATABASE_URL, never crm_db). Skipped when DATABASE_URL is unset.
  */
-const QUEUE_FLAG_CASES = [{ queueFlag: false }] as const
-
 // Seed namespace: c0b4a246-7a6e-4f10-**
 const id = (kind: string, n: number) => `c0b4a246-7a6e-4f10-${kind}-${String(n).padStart(12, '0')}`
 
@@ -91,8 +90,8 @@ class FixtureDouProvider extends DouRssProvider {
 
 const URL_OF = (tail: string) => `https://jobs.dou.ua/companies/${tail}`
 
-describe.skipIf(!hasDatabaseUrl()).each(QUEUE_FLAG_CASES)(
-  'Compat barrier — real DB (queueFlag=$queueFlag)',
+describe.skipIf(!hasDatabaseUrl())(
+  'Compat barrier — legacy DOU path, queue flag does not exist yet: real DB',
   () => {
     let pool: Pool
     let dbSvc: DatabaseService
@@ -188,6 +187,8 @@ describe.skipIf(!hasDatabaseUrl()).each(QUEUE_FLAG_CASES)(
         .update(jobSources)
         .set({
           lastCollectedAt: null,
+          triggerMode: 'BOTH',
+          enabled: true,
           budgetLimit: null,
           budgetWindow: null,
           budgetUsed: 0,
@@ -221,15 +222,22 @@ describe.skipIf(!hasDatabaseUrl()).each(QUEUE_FLAG_CASES)(
       const rejectedSuggestion = await suggestionOf(S_DECIDER.id, rejected)
       await service.updateStatus(appliedSuggestion!.id, { status: 'APPLIED' }, S_DECIDER)
       await service.updateStatus(rejectedSuggestion!.id, { status: 'REJECTED' }, S_DECIDER)
-      const oldIds = new Set((await myPostings()).map((p) => p.id))
+      const before = await myPostings()
+      const oldIds = new Set(before.map((p) => p.id))
+      const fingerprintOf = (rows: typeof before, rowId: string) =>
+        rows.find((p) => p.id === rowId)?.fingerprint
+      const appliedFingerprint = fingerprintOf(before, applied)
+      const rejectedFingerprint = fingerprintOf(before, rejected)
+      expect(appliedFingerprint).toMatch(/^[0-9a-f]{64}$/)
 
       await dbSvc.db
         .update(jobPostings)
         .set({ collectedAt: LONG_AGO })
         .where(eq(jobPostings.sourceId, SOURCE_ID))
 
-      // 8 stored - 2 decided = 6 undecided, all older than the cutoff.
-      expect(await service.purgeStalePostings(NOW)).toBe(6)
+      // 8 stored - 2 decided = 6 undecided, all older than the cutoff. The delete is global, so the
+      // count is a floor; the exact claim is made on this spec's own rows just below.
+      expect(await service.purgeStalePostings(NOW)).toBeGreaterThanOrEqual(6)
       expect((await myPostings()).map((p) => p.id).sort()).toEqual([applied, rejected].sort())
 
       // Re-collect the SAME feed: the two survivors collide on fingerprint, the six come back.
@@ -239,8 +247,8 @@ describe.skipIf(!hasDatabaseUrl()).each(QUEUE_FLAG_CASES)(
       const after = await myPostings()
       expect(after).toHaveLength(8)
       // The survivors are the SAME rows (same ids), not re-inserted copies.
-      expect(after.find((p) => p.id === applied)?.fingerprint).toBeTruthy()
-      expect(after.find((p) => p.id === rejected)?.fingerprint).toBeTruthy()
+      expect(fingerprintOf(after, applied)).toBe(appliedFingerprint)
+      expect(fingerprintOf(after, rejected)).toBe(rejectedFingerprint)
       // The six others are new rows with new ids.
       const reborn = after.filter((p) => p.id !== applied && p.id !== rejected)
       expect(reborn).toHaveLength(6)
@@ -286,7 +294,8 @@ describe.skipIf(!hasDatabaseUrl()).each(QUEUE_FLAG_CASES)(
         .set({ collectedAt: new Date(NOW.getTime() - 90 * DAY_MS - 1) })
         .where(eq(jobPostings.id, justOlder.id))
 
-      expect(await service.purgeStalePostings(NOW)).toBe(1)
+      // Global delete: assert the exact outcome on this spec's own rows, the count only as a floor.
+      expect(await service.purgeStalePostings(NOW)).toBeGreaterThanOrEqual(1)
 
       const left = (await myPostings()).map((p) => p.id)
       expect(left).toContain(atCutoff.id)
@@ -331,32 +340,72 @@ describe.skipIf(!hasDatabaseUrl()).each(QUEUE_FLAG_CASES)(
 
     // ── 4. legacy resume-based ranking of the golden postings ──────────────────
 
-    it('ranks the golden postings by the senior’s resume stack; no-resume senior keeps pure freshness order', async () => {
+    async function setStack(skills: string[]): Promise<void> {
+      await dbSvc.db
+        .update(seniorResumes)
+        .set({
+          content: { summary: '', skills, experience: [], education: [], languages: [], links: [] },
+        })
+        .where(eq(seniorResumes.userId, S_DECIDER.id))
+    }
+
+    /** Explicit, distinct collected_at per row so no ordering rests on separate now() values. */
+    async function pinCollectedAt(): Promise<void> {
+      const rows = [...(await myPostings())].sort((a, b) => a.url.localeCompare(b.url))
+      for (const [i, row] of rows.entries()) {
+        await dbSvc.db
+          .update(jobPostings)
+          .set({ collectedAt: new Date(Date.UTC(2026, 2, 1, 0, 0, i)) })
+          .where(eq(jobPostings.id, row.id))
+      }
+    }
+
+    const summaryOf = (list: Awaited<ReturnType<JobSourcingService['listSuggestions']>>['items']) =>
+      list.map((i) => [i.posting.url.replace(URL_OF(''), ''), i.matchScore, i.matchedKeywords])
+
+    it('score order beats freshness order: the OLDEST published posting leads when it scores highest', async () => {
       await service.collectSource(source)
+      await pinCollectedAt()
+      await setStack(['AWS', 'Kubernetes', 'Terraform'])
 
       const ranked = await service.listSuggestions(S_DECIDER.id, S_DECIDER)
-      const summary = (list: typeof ranked.items) =>
-        list.map((i) => [i.posting.url.replace(URL_OF(''), ''), i.matchScore, i.matchedKeywords])
+
+      // DevOps/9360010 is the oldest published item here, yet scores 1, so it must lead. Freshness
+      // alone would put wetelo (published 08-06) first. The two 1/3 ties keep freshness order
+      // (wetelo is fresher than soft-serve).
+      expect(summaryOf(ranked.items)).toEqual([
+        ['ciklum/vacancies/9360010', 1, ['aws', 'kubernetes', 'terraform']],
+        ['wetelo/vacancies/9360001', 1 / 3, ['kubernetes']],
+        ['soft-serve/vacancies/9360004', 1 / 3, ['aws']],
+      ])
+    })
+
+    it('threshold split of the golden postings: below 0.2 is collapsed but counted, in freshness order; a no-resume senior keeps pure freshness', async () => {
+      await service.collectSource(source)
+      await pinCollectedAt()
+      await setStack(['TypeScript', 'React', 'GraphQL', 'Kubernetes'])
+
+      const ranked = await service.listSuggestions(S_DECIDER.id, S_DECIDER)
 
       expect({
         threshold: ranked.threshold,
         stackKeywords: ranked.stackKeywords,
         total: ranked.total,
         lowMatchCount: ranked.lowMatchCount,
-        items: summary(ranked.items),
-        lowMatch: summary(ranked.lowMatch).map((row) => row.slice(0, 2)),
+        items: summaryOf(ranked.items),
+        lowMatch: summaryOf(ranked.lowMatch).map((row) => row.slice(0, 2)),
       }).toEqual({
         threshold: 0.2,
         stackKeywords: ['typescript', 'react', 'graphql', 'kubernetes'],
         total: 8,
         lowMatchCount: 5,
-        // Score desc; the two 0.25 ties keep the freshness order of the base query.
         items: [
           ['epam-systems/vacancies/9356562', 0.75, ['typescript', 'react', 'graphql']],
           ['wetelo/vacancies/9360001', 0.25, ['kubernetes']],
           ['ciklum/vacancies/9360010', 0.25, ['kubernetes']],
         ],
-        // Below the 0.2 threshold: collapsed but counted, again in freshness order.
+        // Score 0 everywhere; the two unpublished rows (romashka, rnd-labs) are ordered by the
+        // explicit collected_at pinned above (romashka later), the rest by publishedAt.
         lowMatch: [
           ['romashka/vacancies/9360009', 0],
           ['rnd-labs/vacancies/9360008', 0],
@@ -366,35 +415,51 @@ describe.skipIf(!hasDatabaseUrl()).each(QUEUE_FLAG_CASES)(
         ],
       })
 
-      // The resume is read on every request, so editing it re-ranks at once.
-      await dbSvc.db
-        .update(seniorResumes)
-        .set({
-          content: {
-            summary: '',
-            skills: ['AWS', 'Kubernetes', 'Terraform'],
-            experience: [],
-            education: [],
-            languages: [],
-            links: [],
-          },
-        })
-        .where(eq(seniorResumes.userId, S_DECIDER.id))
-      const rerank = await service.listSuggestions(S_DECIDER.id, S_DECIDER)
-      // INVERSION: DevOps/9360010 is the OLDEST published item here, yet scores highest, so it must
-      // lead. The two 1/3 ties keep freshness order (wetelo is fresher than soft-serve). A ranking
-      // that silently fell back to freshness would put wetelo first.
-      expect(summary(rerank.items)).toEqual([
-        ['ciklum/vacancies/9360010', 1, ['aws', 'kubernetes', 'terraform']],
-        ['wetelo/vacancies/9360001', 1 / 3, ['kubernetes']],
-        ['soft-serve/vacancies/9360004', 1 / 3, ['aws']],
-      ])
-
       const fresh = await service.listSuggestions(S_BYSTANDER.id, S_BYSTANDER)
       expect(fresh.lowMatch).toEqual([])
       expect(fresh.lowMatchCount).toBe(0)
       expect(fresh.stackKeywords).toEqual([])
       expect(fresh.total).toBe(8)
     })
+
+    // ── 5. bare row vs live row; trigger mode over real rows ───────────────────
+
+    it('CHARACTERISES TODAY, NOT A REQUIREMENT: collectSource charges the row object it is given — a bare {id,type,config} is treated as unlimited, the live row is charged', async () => {
+      await dbSvc.db
+        .update(jobSources)
+        .set({ budgetLimit: 3, budgetWindow: 'MONTH' })
+        .where(eq(jobSources.id, SOURCE_ID))
+
+      await service.collectSource(source)
+      expect((await sourceRow()).budgetUsed).toBe(0)
+      expect(provider.fetchCalls).toBe(1)
+
+      await service.collectSource(await sourceRow())
+      expect((await sourceRow()).budgetUsed).toBe(1)
+      expect(provider.fetchCalls).toBe(2)
+    })
+
+    it('trigger mode over real rows: a SCHEDULED-only source is skipped by a MANUAL collectAll and runs under a SCHEDULED one', async () => {
+      await dbSvc.db
+        .update(jobSources)
+        .set({ triggerMode: 'SCHEDULED', enabled: true, budgetLimit: 5, budgetWindow: 'MONTH' })
+        .where(eq(jobSources.id, SOURCE_ID))
+      const only = { onlyTypes: ['DOU_RSS' as const] }
+
+      await service.collectAll('MANUAL', only)
+      // Assert on this spec's own row only: other DOU rows may exist in a shared database.
+      const skipped = await sourceRow()
+      expect(skipped.budgetUsed).toBe(0)
+      expect(skipped.lastCollectedAt).toBeNull()
+      expect(await myPostings()).toHaveLength(0)
+
+      await service.collectAll('SCHEDULED', only)
+      const ran = await sourceRow()
+      expect(ran.budgetUsed).toBe(1)
+      expect(ran.lastCollectedAt).toBeInstanceOf(Date)
+      expect(await myPostings()).toHaveLength(8)
+    })
+
+    it.todo('flag-on variant: add when the queue flag is wired (Task 4.6d)')
   },
 )
