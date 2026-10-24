@@ -459,13 +459,14 @@ ownership. Also reopen if `apps/api` moves to `module: node16`.
 
 - **The choice of A over B is A2.** The ADR is reversible (one PR), but redoing an implemented
   ledger is expensive. The **owner** confirms, in the phase's decision brief.
-  **Before the owner answers, T1, T2, T4 and T8 can start.** None of them consumes the ledger, and
+  **Before the owner answers, T1, T1b, T2, T4 and T8 can start.** None of them consumes the ledger, and
   each is needed under either option. T3 is the ledger itself. T7 consumes it. T5 and T6 depend on
   T7, and under B T5's cron would call `send` instead of the ledger. So T3, T7, T5 and T6 all wait
   for the answer.
 - **T1's migration** (two partial unique indexes and an `account_key` column) is a Drizzle migration
   in a critical-path zone. It goes through the normal full pipeline with a mandatory
-  security-reviewer. It changes no privilege.
+  security-reviewer. It changes no privilege. So do **T1b** (the account-key correction) and **T8**
+  (the host table).
 - **Had the recommendation been B, it would be A3.** B adds a schema and new grants to `crm_app`
   under the least-privilege ADR, and that ADR's text is the owner's. The owner would decide before
   any code.
@@ -486,8 +487,9 @@ ownership. Also reopen if `apps/api` moves to `module: node16`.
 
 ## Decomposition of Task 2.5
 
-Eight tasks plus one external prerequisite. (T8 was added in review round 1 to store the
-host-level state; T1's scope was left as dispatched.) Files are named by module and symbol. Path fragments are
+Nine tasks plus one external prerequisite. T8 was added in review round 1 to store the host-level
+state, and T1b in round 3 to correct T1's account key. T1's and T2's sections are left exactly as
+dispatched. Files are named by module and symbol. Path fragments are
 given only where a file does not exist yet. "Real-Postgres" means an integration spec against a
 scratch database, never `crm_db` (`live-db-access.md`), and **run as `crm_app`** wherever the claim
 is about privileges. That matches the least-privilege ADR's finding that specs run as `crm_user`
@@ -499,49 +501,53 @@ Every arrow below is one entry of a task's own "Depends on" line, and there are 
 `A ──► B` means B depends on A.
 
 ```
-T1 migration ──────────────┬──────────────────────────► T3 run ledger
-                           └──► T8 host state ────────► T3
-T2 registry ──► T4 due policy ──┬──────────────────────► T3
+T1 migration ──┬──────────────────────────────────────► T3 run ledger
+               └──► T1b account key ──┬───────────────► T3
+                                      └──► T8 host state ──► T3
+T2 registry ──► T4 due policy ──┬─────────────────────► T3
                                 └──► T8
-T2 ─────────────────────────────────────────────────────► T7 context + worker
-T3 ─────────────────────────────────────────────────────► T7
+T2 ────────────────────────────────────────────────────► T7 context + worker
+T3 ────────────────────────────────────────────────────► T7
 T7 ──┬──► T5 cron
      └──► T6 transport wiring
-T0 (backlog 318, parallel PR — external) ───────────────► T6
+T0 (backlog 318, parallel PR — external) ──────────────► T6
 ```
 
 **Self-check: each task's "Depends on" line against the arrows.**
 
-| Task | Its "Depends on" line                                | Arrows into it   |
-| ---- | ---------------------------------------------------- | ---------------- |
-| T1   | nothing                                              | none             |
-| T2   | nothing                                              | none             |
-| T4   | T2 (sequencing only: both edit `JobSourcingService`) | T2 → T4          |
-| T8   | T1, T4                                               | T1 → T8, T4 → T8 |
-| T3   | T1, T4, T8                                           | T1, T4, T8 → T3  |
-| T7   | T2, T3                                               | T2 → T7, T3 → T7 |
-| T5   | T7                                                   | T7 → T5          |
-| T6   | T0, T7                                               | T0 → T6, T7 → T6 |
+| Task | Its "Depends on" line                                | Arrows into it       |
+| ---- | ---------------------------------------------------- | -------------------- |
+| T1   | nothing                                              | none                 |
+| T2   | nothing                                              | none                 |
+| T1b  | T1                                                   | T1 → T1b             |
+| T4   | T2 (sequencing only: both edit `JobSourcingService`) | T2 → T4              |
+| T8   | T1b, T4                                              | T1b → T8, T4 → T8    |
+| T3   | T1, T1b, T4, T8                                      | T1, T1b, T4, T8 → T3 |
+| T7   | T2, T3                                               | T2 → T7, T3 → T7     |
+| T5   | T7                                                   | T7 → T5              |
+| T6   | T0, T7                                               | T0 → T6, T7 → T6     |
 
-Eleven arrows and eleven dependency entries, one for one.
+Thirteen arrows and thirteen dependency entries, one for one.
 
 - **Wave 1, in parallel:** T1 and T2. Their file sets are disjoint: the run-table schema plus a
   migration, versus the registry plus `JobSourcingService`'s `providers` map and constructor.
-- **Wave 2:** T4, **after T2 merges**. T4 edits `JobSourcingService` too (`collectAll`'s signature,
-  and it moves `sourceAcceptsTrigger` out). The two touch different regions of one file, so a
-  textual conflict is likely, and they are serialized rather than run in parallel. T2 is already
-  running, so T4 is dispatched once T2 is on `main`.
-- **Wave 3:** T8. It is a second migration, so it lands after T1 (both append to `deploy.yml`'s
-  ordered list), and it extends T4's due predicate.
-- **Wave 4:** T3, which needs T1's indexes, T4's due predicate and T8's host state.
+- **Wave 2, in parallel:** T1b, after T1 merges, and T4, **after T2 merges**. Their file sets are
+  disjoint (a run-table column plus a migration, versus a new scheduling module plus
+  `JobSourcingService`). T4 waits for T2 because T4 edits `JobSourcingService` too: `collectAll`'s
+  signature, and it moves `sourceAcceptsTrigger` out. The two touch different regions of one file,
+  so a textual conflict is likely, and they are serialized rather than run in parallel. T2 is
+  already running, so T4 is dispatched once T2 is on `main`.
+- **Wave 3:** T8. It is the third migration, so it lands after T1b (all three append to
+  `deploy.yml`'s ordered list), and it extends T4's due predicate.
+- **Wave 4:** T3, which needs T1's and T1b's indexes, T4's due predicate and T8's host state.
 - **Wave 5:** T7, which needs T2's registry and T3's ledger.
 - **Wave 6, in parallel:** T5 and T6. Their file sets are disjoint: the cron file, versus `http/`,
   the context builder's `fetchText` and adapter host lists. **T6 also waits for T0** (backlog 318).
   Constraint (a): no `transportOptionsFor` wiring before 318 is fixed.
-- **Not parallel:** T2 with T4 (both edit `JobSourcingService`), T1 with T8 (two migrations and one
-  file list), T3 with T7 (T7 consumes the ledger's interface), and T2 with T5 (both edit
-  `JobSourcingModule`).
-- **May start before the owner answers the A-versus-B question:** T1, T2, T4 and T8 (see
+- **Not parallel:** T2 with T4 (both edit `JobSourcingService`); T1, T1b and T8 with each other
+  (three migrations, one file list); T3 with T7 (T7 consumes the ledger's interface); and T2 with
+  T5 (both edit `JobSourcingModule`).
+- **May start before the owner answers the A-versus-B question:** T1, T1b, T2, T4 and T8 (see
   "Autonomy classification").
 
 ### T0 — backlog 318: parse-order fix in the shared bounded-JSON reader (prerequisite, not part of 2.5)
@@ -1004,7 +1010,9 @@ This PR is documentation only.
   indexes remain a valid backstop under B. B's production DDL path is the five steps in
   "Option B", and choosing it is an A3 decision.
 - **Per-task rollback** belongs to each task's PR. T1's migration is additive: dropping the two
-  indexes and the column restores today's schema, through the same `deploy.yml` path.
+  indexes and the column restores today's schema, through the same `deploy.yml` path. T1b reverts by
+  restoring T1's column type and backfill. T8 reverts by dropping `job_source_hosts` and
+  `job_sources.host_key`.
 
 ## Verification
 
