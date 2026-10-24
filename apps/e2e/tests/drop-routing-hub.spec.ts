@@ -76,6 +76,15 @@ const PAYMENT1_ID = 'b3000000-0000-4000-8000-000000000001'
  * field — both rows are the old self-declared model (never 'validated' for
  * an obligation row).
  */
+// CR-809-M-6 / CR-H-1: every mocked row below carries `txDate`, because the
+// web client parses these payloads through the SHARED schema
+// (`paginatedDropIncomesSchema` / `dropPaymentDtoSchema` in use-drop-incomes.ts)
+// and `txDate` is required-nullable there — `z.string().nullable()` rejects an
+// OMITTED key ("expected string, received undefined"); only `.optional()` would
+// accept it. `null` is the right value here: these fixtures stand in for rows
+// with no operator-chosen date, which is what every pre-#809 row looks like.
+// Leaving the key out makes the whole finance cabinet fail to render, not just
+// the date cell — the parse throws before any row is drawn.
 const DROP_VALIDATED_INCOMES = {
   items: [
     {
@@ -84,6 +93,7 @@ const DROP_VALIDATED_INCOMES = {
       amount: 5000,
       currency: 'USDT',
       createdAt: '2026-05-10T10:00:00.000Z',
+      txDate: null,
       status: 'validated' as const,
       model: 'declared' as const,
     },
@@ -93,6 +103,7 @@ const DROP_VALIDATED_INCOMES = {
       amount: 3000,
       currency: 'USDT',
       createdAt: '2026-05-15T12:00:00.000Z',
+      txDate: null,
       status: 'validated' as const,
       model: 'declared' as const,
     },
@@ -129,6 +140,7 @@ const DROP_ALL_INCOMES = {
       amount: 5000,
       currency: 'USDT',
       createdAt: '2026-05-10T10:00:00.000Z',
+      txDate: null,
       status: 'pending' as const,
       model: 'declared' as const,
     },
@@ -138,6 +150,7 @@ const DROP_ALL_INCOMES = {
       amount: 3000,
       currency: 'USDT',
       createdAt: '2026-05-15T12:00:00.000Z',
+      txDate: null,
       status: 'validated' as const,
       model: 'declared' as const,
     },
@@ -147,6 +160,7 @@ const DROP_ALL_INCOMES = {
       amount: 2000,
       currency: 'USD',
       createdAt: '2026-04-01T08:00:00.000Z',
+      txDate: null,
       status: 'paid' as const,
       model: 'declared' as const,
     },
@@ -165,6 +179,7 @@ const DROP_PAYMENTS = [
     txHash: '0xabc123def456',
     status: 'confirmed' as const,
     createdAt: '2026-05-20T14:00:00.000Z',
+    txDate: null,
   },
 ]
 

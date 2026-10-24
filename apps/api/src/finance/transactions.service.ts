@@ -1,6 +1,6 @@
 import { Injectable, forwardRef, Inject, Optional } from '@nestjs/common'
 
-import { desc, isNull } from 'drizzle-orm'
+import { desc, isNull, sql } from 'drizzle-orm'
 import type {
   SessionUser,
   DropIncomesQuery,
@@ -317,7 +317,45 @@ export class TransactionsService {
 
     const allTxs = (await this.db.db.query.transactions.findMany({
       ...(showDeleted ? {} : { where: isNull(transactions.deletedAt) }),
-      orderBy: [desc(transactions.createdAt)],
+      // CR-809-M-6: order by the BUSINESS date, falling back to `created_at`
+      // for the rows that predate #809 (and for any type that never carries a
+      // `tx_date`). The list renders `txDate ?? createdAt` as "the date" and
+      // the client sorts on that, so ordering the server page on `created_at`
+      // made the page order disagree with the column the user is reading —
+      // a backdated row appeared in the wrong place rather than the wrong
+      // month. Same expression as `admin-summary.service`'s active-tx feed, so
+      // the two lists agree on what "newest" means.
+      //
+      // Index note (corrected — CR-L-1). This DOES cost something, and the
+      // first version of this comment argued from a false premise: that because
+      // the query materialises every row anyway, the ordering is free.
+      // Materialising is not sorting. `idx_transactions_active_created_at
+      // (created_at) WHERE deleted_at IS NULL` could previously satisfy
+      // `ORDER BY created_at DESC` as an ordered index scan with no sort at all;
+      // a btree on a bare column cannot serve `coalesce(...)`, so Postgres now
+      // adds a real Sort node over the whole non-deleted set.
+      //
+      // Accepted anyway, for two reasons that do not pretend the cost away:
+      //   - an index scan in the WRONG order is not an optimisation. The
+      //     business date is what the client sorts and renders by, so
+      //     `created_at` order was answering the wrong question cheaply.
+      //   - the sort is small beside what this path already does. There is no
+      //     LIMIT: the whole non-deleted set is fetched, shipped to Node,
+      //     filtered by role and mapped row by row. An in-database O(n log n)
+      //     sort over that same n is not the dominant term.
+      // Measured, so the claim is not left as an assertion either way: on a
+      // seeded scratch DB `EXPLAIN` gives the IDENTICAL plan for both orderings
+      // (Seq Scan + Sort), and still a Sort even with `enable_seqscan = off`
+      // (the planner takes a Bitmap Heap Scan, which does not preserve order).
+      // So the sort-free ordered index scan is available in principle but is
+      // not what this table gets today — the regression is real at scale and
+      // nil at current volume.
+      //
+      // If this path ever gains real pagination the calculus flips — a LIMIT
+      // lets an ordered index scan stop early, which a Sort node cannot — and
+      // the index to add then is
+      // `((coalesce(tx_date, created_at)) DESC) WHERE deleted_at IS NULL`.
+      orderBy: [desc(sql`coalesce(${transactions.txDate}, ${transactions.createdAt})`)],
       with: {
         // task-counterparty-role-masking: `role` drives ADMIN-party masking in mapTx.
         sender: { columns: { displayName: true, role: true } },

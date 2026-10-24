@@ -543,8 +543,16 @@ describe('SummaryService.getAccountantSummary — query shape + row mapping', ()
     expect(compiled.validatedAmount!.sql).toBe(
       `coalesce(sum("transactions"."amount") filter (where ${val}), 0)`,
     )
+    // CR-809-H-2: the PAID window keys on the BUSINESS date, so this fragment
+    // reads `coalesce(tx_date, created_at) >= $1` and NOT `created_at >= $1`.
+    // The monthly graph in `getSummary` has always bucketed on
+    // `txDate ?? createdAt`; while this tile used `created_at` the two numbers
+    // disagreed by exactly the backdated amounts. Note the contrast with the
+    // `val` fragment above, which legitimately still keys on `validated_at`:
+    // "when the accountant validated it" is an audit timestamp, not a business
+    // date, and must NOT follow the operator's chosen date.
     expect(compiled.paidAmount!.sql).toBe(
-      `coalesce(sum("transactions"."amount") filter (where "transactions"."status" = 'PAID' and "transactions"."type" in ('SENIOR_INCOME', 'DROP_INCOME', 'PAYOUT', 'PAYOUT_ADMIN', 'PAYOUT_DROP', 'PAYOUT_CONFIRMED') and "transactions"."created_at" >= $1), 0)`,
+      `coalesce(sum("transactions"."amount") filter (where "transactions"."status" = 'PAID' and "transactions"."type" in ('SENIOR_INCOME', 'DROP_INCOME', 'PAYOUT', 'PAYOUT_ADMIN', 'PAYOUT_DROP', 'PAYOUT_CONFIRMED') and coalesce("transactions"."tx_date", "transactions"."created_at") >= $1), 0)`,
     )
     expect(compiled.recipientCount!.sql).toBe(
       `count(distinct coalesce("transactions"."receiver_id", "transactions"."sender_id")) filter (where "transactions"."type" in ('SENIOR_INCOME', 'DROP_INCOME'))`,
