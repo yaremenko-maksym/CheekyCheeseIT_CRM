@@ -1843,3 +1843,70 @@ test('CR-M-10: a `Commit:` reference mid-sentence is not a statement', () => {
   // A legitimate statement still reads, including an abbreviation and trailing prose.
   assert.equal(statedCommit('Commit: abc1234 (the head when I looked)'), 'abc1234')
 })
+
+// --- SR-M-4: the drift step's fail-closed clauses, pinned lexically ----------------------------
+//
+// Case "the workflow runs the filter from its file" pins WHERE the filter comes from, and the
+// fixtures pin what the filter DOES. Nothing pinned the shell deciding whether a measurement is
+// emitted at all: replacing the `else` with a permissive default, adding `continue-on-error: true`,
+// or dropping `set -euo pipefail` would each reopen a fail-open with every other test still green.
+//
+// WHAT THIS GUARD IS, AND WHAT DEFEATS IT. It is a lexical assertion over the workflow YAML, the
+// same kind of tripwire as the date guard, and it is honest about the same limit: it cannot prove
+// the shell's semantics, only that the three clauses the property rests on are still present. It is
+// defeated by `set -e` written as `set -o errexit`, by a failure path that emits `unavailable`
+// through a variable rather than a literal, by `continue-on-error` set at the job level or through
+// an expression, and by anything that moves the step out of this file. It is worth having anyway,
+// because the absence of those clauses is otherwise silent.
+
+test('SR-M-4: the drift step fails closed — the three clauses are still there', () => {
+  const here = dirname(fileURLToPath(import.meta.url))
+  const wf = readFileSync(join(here, '..', '..', '.github', 'workflows', 'flow-gate.yml'), 'utf8')
+  const start = wf.indexOf('- name: Measure verdict drift')
+  assert.ok(start > 0, 'the drift step was renamed or removed — re-point this guard')
+  const next = wf.indexOf('\n      - ', start + 1)
+  const step = wf.slice(start, next === -1 ? wf.length : next)
+
+  // 1. The shell aborts on a failed command rather than carrying on with a partial measurement.
+  assert.match(step, /^\s*set -euo pipefail$/m, 'the drift step lost `set -euo pipefail`')
+  // 2. A failed read becomes an explicit `unavailable` measurement, which the gate reads as STALE.
+  assert.match(step, /^\s*else$/m, 'the drift step lost its explicit failure branch')
+  assert.match(step, /unavailable: true/, 'the failure branch no longer emits `unavailable: true`')
+  // 3. Nothing lets the step pass while having failed, or skip itself.
+  assert.doesNotMatch(step, /continue-on-error/, 'the drift step may not continue on error')
+  assert.doesNotMatch(step, /^\s{8}if:/m, 'the drift step may not be conditional')
+  // 4. stderr from a failed read is preserved rather than discarded — it is the channel that says
+  //    why (`verification-integrity.md` form 1).
+  assert.match(step, /cat "\$D\/c\.err" >&2/, 'the failure branch stopped reporting stderr')
+  assert.doesNotMatch(step, /2>\/dev\/null/, 'the drift step discards stderr')
+})
+
+test('SR-M-4: no job-level escape hatch around the gate', () => {
+  const here = dirname(fileURLToPath(import.meta.url))
+  const wf = readFileSync(join(here, '..', '..', '.github', 'workflows', 'flow-gate.yml'), 'utf8')
+  // A `continue-on-error` on the job, or a `continue-on-error` anywhere in the file, would let the
+  // whole gate report success having not run — the outer form of the same defect.
+  assert.doesNotMatch(wf, /continue-on-error/, 'the Flow Gate workflow may not continue on error')
+  // The evaluation step is what turns the verdict into the check's exit code; it stays unguarded.
+  assert.match(
+    wf,
+    /- name: Evaluate\n\s+env:\n(\s+.*\n)*\s+run: node scripts\/architect\/flow-gate\.mjs/,
+  )
+})
+
+// --- the declined LOW, taken anyway because CR-M-9 made it free --------------------------------
+
+test('SR-M-4 (LOW): a `..` segment is never inert, on any clause', () => {
+  // Unreachable from the GitHub API — git refuses `..` as a tree path component — but the
+  // dated-ADR clause was traversal-proof via `[^/]+` while `docs/business/` was a bare prefix, and
+  // anchoring one while leaving the other asymmetric is the kind of difference that later reads as
+  // intent. One clause covers all three.
+  for (const p of [
+    'docs/business/../../CLAUDE.md',
+    'docs/business/../../.claude/rules/common/git-policy.md',
+    'docs/business/..md', // not a `..` SEGMENT — stays inert, so the split is on segments
+  ])
+    assert.equal(isInertDoc(p), p === 'docs/business/..md', p)
+  assert.equal(isInertDoc('docs/architecture/2026-01-01-x.md'), true)
+  assert.equal(isInertDoc('docs/business/modules/finance.md'), true)
+})

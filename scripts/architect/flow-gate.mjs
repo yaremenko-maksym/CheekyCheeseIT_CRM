@@ -165,6 +165,12 @@ export const isDoc = (p) => p.endsWith('.md')
  */
 export const isInertDoc = (p) =>
   isDoc(p) &&
+  // No `..` segment anywhere. The dated-ADR clause is traversal-proof already (`[^/]+` cannot
+  // cross a slash), but `docs/business/` is a bare prefix, so `docs/business/../../CLAUDE.md`
+  // would otherwise read inert. It is unreachable today — git refuses `..` as a tree path
+  // component and the only inputs are GitHub-API tree paths — so this is removing an asymmetry in
+  // robustness rather than closing a live hole, and it costs one clause.
+  !p.split('/').includes('..') &&
   (/^docs\/architecture\/\d{4}-\d{2}-\d{2}-[^/]+\.md$/.test(p) ||
     p.startsWith('docs/business/') ||
     p === 'README.md')
@@ -543,8 +549,18 @@ export function verdictFreshness(item, ctx) {
   // so an empty owned set can only mean the read did not happen. This is the second layer; the
   // first is `flow-gate-compare.jq`, which emits `unavailable` for a response that succeeded
   // carrying no file list. The shape is the one this repository records most: exit 0 without the
-  // artifact. An empty `paths` is NOT suspicious the same way — a merge whose tree equals V's
-  // genuinely moves nothing — so only the owned side is asserted here.
+  // artifact.
+  //
+  // WHY THE ASYMMETRY IS SOUND, and it is a proof rather than a preference (security review,
+  // 2026-10-24). An empty `paths` is NOT suspicious the way an empty `ownedAt` is, because
+  // `compare V...HEAD` is three-dot — it reports against `merge-base(V, HEAD)`, not against `V`.
+  // Every `V` that reaches this line has already passed `ctx.shas.has(ref.sha)` **above**, so `V`
+  // is necessarily one of the PR's own commits and therefore an ancestor of the head; hence
+  // `merge-base(V, HEAD) == V`, and an empty drift provably means `tree(V) == tree(HEAD)`. The one
+  // shape that could lie — `V` a descendant of the head after a force-push, where the three-dot
+  // base would not be `V` — dies at that membership check. So the ordering of these two tests is
+  // load-bearing: moving `compares.find` above `shas.has` would turn an empty drift from a fact
+  // into an assumption.
   if (
     !m ||
     m.unavailable ||
