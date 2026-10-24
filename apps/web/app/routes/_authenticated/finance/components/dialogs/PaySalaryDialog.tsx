@@ -76,6 +76,11 @@ export function PaySalaryDialog({
   // SERVER prices by (backlog 148), or this pre-fills the amount from a rate
   // a stale-by-up-to-3-hours cache thinks is still "today's".
   const todayKey = kyivToday()
+  // The picker bound, hint and default name the day the SERVER floors on:
+  // `SalaryPaymentService` compares the payment date with the UTC day of
+  // `txDate ?? createdAt`. Do NOT derive this from the browser-zone day the
+  // «Дата» cell shows for a NULL-`txDate` row - the picker would then offer a
+  // date the API refuses (FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION; QA-MED-1).
   const sourceDateKey = tx
     ? new Date(tx.txDate ?? tx.createdAt).toISOString().slice(0, 10)
     : todayKey

@@ -386,16 +386,20 @@ describe('PayoutDetailDialog — «Транзакции в выплате» list
       // Both set — the row must prefer txDate, not createdAt (kills the
       // `txDate ?? createdAt` -> `txDate && createdAt` mutant).
       txDate: '2026-04-09T00:00:00.000Z',
-      createdAt: '2026-05-20T00:00:00.000Z',
+      // Midday UTC so the createdAt day is the same in every zone.
+      createdAt: '2026-05-20T12:00:00.000Z',
     })
     PAYOUT.transactions = [incomeTx]
     renderDialog()
     const row = screen.getByTestId('payout-detail-tx-drop-income-long-id-1')
-    const expectedDate = formatDate(incomeTx.txDate!, 'uk', 'shortYY')
+    // `txDate` is a date-only business field stored at UTC midnight: it must
+    // read 09.04.26 in EVERY zone (literal, not recomputed with the code's own
+    // formatter, and not the browser-local `shortYY`, which gives 08.04.26 in LA).
+    const expectedDate = '09.04.26'
     // id.slice(0, 6) — first 6 chars of the id, not the full id.
     expect(row).toHaveTextContent(`#${incomeTx.id.slice(0, 6)} від ${expectedDate}`)
     expect(row).not.toHaveTextContent(incomeTx.id)
-    expect(row).not.toHaveTextContent(formatDate(incomeTx.createdAt, 'uk', 'shortYY'))
+    expect(row).not.toHaveTextContent('20.05.26')
   })
 })
 

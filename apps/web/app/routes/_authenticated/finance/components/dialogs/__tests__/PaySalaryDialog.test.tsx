@@ -227,6 +227,30 @@ describe('PaySalaryDialog — account + currency selectors', () => {
     )
   })
 
+  // QA-MED-1 (backlog 338, QA-LOW-1 attempt backed out): the picker `min`, the
+  // hint and the default pay date must equal the SERVER floor. The API
+  // (`SalaryPaymentService`) rejects a payment dated before the UTC day of
+  // `txDate ?? createdAt` with FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION, so for a
+  // legacy NULL-`txDate` row created 2026-10-20 05:00Z the floor is 20 Oct in
+  // EVERY zone. The date CELL deliberately shows the browser-zone instant
+  // (19.10.26 in Los Angeles) - that one may differ; the bound must not.
+  // Runs under the default, Kyiv and Los Angeles projects.
+  it('NULL txDate: picker min, hint and default date equal the server floor (UTC day) in any zone', async () => {
+    renderDialog({
+      ...(TX as object),
+      txDate: null,
+      createdAt: '2026-10-20T05:00:00.000Z',
+    } as SalaryTx)
+    await screen.findByTestId('pay-salary-account-company')
+    const picker = screen.getByTestId('pay-salary-txdate')
+    expect(picker).toHaveAttribute('min', '2026-10-20')
+    expect(screen.getByText(/Найраніша доступна дата/).textContent).toBe(
+      'Найраніша доступна дата — 20.10.2026.',
+    )
+    // The default is max(today, floor); the floor is in the past, so it is today.
+    expect((picker as HTMLInputElement).value >= '2026-10-20').toBe(true)
+  })
+
   it('prefers txDate over createdAt and clamps a future salary payment date', async () => {
     renderDialog({
       ...(TX as object),

@@ -71,6 +71,20 @@ if (!worktreeRoot) {
 }
 const worktree = isGitWorktree(worktreeRoot)
 
+/**
+ * The finance specs run THREE times: under the host TZ (the `default` project,
+ * which still runs the whole suite exactly as before), then pinned to
+ * Europe/Kyiv and America/Los_Angeles. CI runs in UTC, where a host-timezone
+ * bug is invisible - that is how the finance date defects shipped (backlog
+ * #338). `env.TZ` is set on the forked worker, so it covers `Date` and `Intl`
+ * for the whole file. Mirrors `packages/shared/vitest.config.mts`.
+ */
+const FINANCE_SPECS = [
+  'app/routes/_authenticated/finance/**/*.{spec,test}.{ts,tsx}',
+  'app/components/finance/**/*.{spec,test}.{ts,tsx}',
+  'app/__tests__/salary-form-defaults.test.ts',
+]
+
 export default defineConfig({
   plugins: [
     react({ babel: { plugins: ['@lingui/babel-plugin-lingui-macro'] } }),
@@ -145,7 +159,7 @@ export default defineConfig({
       },
     },
     setupFiles: ['./app/test/setup.ts'],
-    include: ['app/**/*.{spec,test}.{ts,tsx}'],
+    // `include` is set per project (below); `default` keeps the whole-suite glob.
     // In a worktree the happy-dom environment startup is slower and React
     // component tests compete for CPU with API tests running in parallel.
     // Raise testTimeout and limit forks so heavy tests don't hit the wall.
@@ -154,6 +168,16 @@ export default defineConfig({
       pool: 'forks',
       poolOptions: { forks: { maxForks: 2 } },
     }),
+    projects: [
+      {
+        extends: true,
+        test: { name: 'default', include: ['app/**/*.{spec,test}.{ts,tsx}'] },
+      },
+      ...['Europe/Kyiv', 'America/Los_Angeles'].map((tz) => ({
+        extends: true as const,
+        test: { name: `tz:${tz}`, include: FINANCE_SPECS, env: { TZ: tz } },
+      })),
+    ],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],
