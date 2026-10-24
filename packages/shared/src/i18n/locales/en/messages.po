@@ -5880,7 +5880,7 @@ msgstr "Could not return: {errMessage}"
 msgid "Рахунок розійшовся із сумою — потрібна ручна звірка"
 msgstr "The invoice is out of step with the amount — it needs a manual check"
 
-#. placeholder {0}: formatDate(tx.txDate ?? tx.createdAt, locale, 'shortYYUtc')
+#. placeholder {0}: formatTxOrCreated(tx.txDate, tx.createdAt, locale)
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
 msgid "Дохід від {0}"
@@ -7607,7 +7607,7 @@ msgstr "Attaching a supporting document to the transaction"
 
 #. placeholder {0}: tx.projectName ?? '—'
 #. placeholder {1}: tx.id.slice(0, 6)
-#. placeholder {2}: formatDate(tx.txDate ?? tx.createdAt, locale, 'shortYYUtc')
+#. placeholder {2}: formatTxOrCreated(tx.txDate, tx.createdAt, locale)
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "{0} · #{1} від {2}"
 msgstr "{0} · #{1} of {2}"
@@ -11203,7 +11203,7 @@ msgid "Не задано — діє частка сеньйора за замо�
 msgstr "Not set — the senior’s default share applies (26% unless changed). Move the slider to set a team share."
 
 #. placeholder {0}: tx.id.slice(0, 6)
-#. placeholder {1}: formatDate(tx.txDate ?? tx.createdAt, locale, 'shortYYUtc')
+#. placeholder {1}: formatTxOrCreated(tx.txDate, tx.createdAt, locale)
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "#{0} від {1}"
 msgstr "#{0} of {1}"
