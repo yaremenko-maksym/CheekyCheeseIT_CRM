@@ -826,3 +826,27 @@ test('CLI: malformed input exits 2, never 0', () => {
   assert.equal(runCli('{not json').status, 2)
   assert.equal(runCli(good({ files: [] })).status, 2)
 })
+
+// --- AC-1: the defect, asserted before it is fixed ----------------------------------------------
+
+test('AC-1: a positive review verdict on an older sha is NOT done', () => {
+  const OLD = '1'.repeat(40)
+  const r = ev(
+    good({
+      headSha: 'f'.repeat(40),
+      reviews: [rv('Verdict: APPROVE', { commit_id: OLD }), rv('Spec Review: PASS')],
+      commits: [
+        { sha: OLD, message: 'wip: first cut', parents: 1, committedAt: '2026-10-21T08:00:00Z' },
+        {
+          sha: 'f'.repeat(40),
+          message: 'feat(api): follow-up\n\nac_verified: 1,2',
+          parents: 1,
+          committedAt: '2026-10-21T12:00:00Z',
+        },
+      ],
+      compares: [{ base: OLD, paths: [API], truncated: false }],
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'stale')
+  assert.equal(r.pass, false)
+})
