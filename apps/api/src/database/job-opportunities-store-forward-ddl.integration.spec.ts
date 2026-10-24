@@ -119,6 +119,8 @@ const SCHEMA = 'ddl_job_opportunities_store'
 /** Its own schema, so the migration path cannot disturb the fresh-path comparison. */
 const MIGRATION_SCHEMA = 'ddl_job_queue_reason_redacted_alter'
 const CONFIG_GUARD_SCHEMA = 'ddl_job_sources_config_guard'
+/** Its own schema too: the T1b backfill case seeds rows before PART_5 runs. */
+const BACKFILL_SCHEMA = 'ddl_job_runs_account_key_backfill'
 /** A non-superuser used to reproduce the masked-progress-row case (SR-M-4). */
 const UNPRIVILEGED_ROLE = 'ddl_forward_ddl_probe'
 /** Two indexes on one table, so "a build on the same table" is expressible. */
@@ -1102,6 +1104,94 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
    * build its fixture is a spec that breaks on a squash. The honest limit is written
    * here instead of being papered over.
    */
+  /**
+   * Task 2.5 T1b AC3 — the BACKFILL, over rows, applied twice. The fresh path above runs
+   * PART_5 over an empty `job_collection_runs`, so its UPDATE never reaches a row; here
+   * the pre-T1 store (parts 1 and 2) is seeded first with a mix the key derivation has
+   * to tell apart, and only then does PART_5 run:
+   *   - source A, bound to the REQUEST row of one paid account  -> that account's key
+   *   - source B, bound to the RECORD row of the SAME account   -> the SAME key (T1b)
+   *   - source C, with no meter                                 -> '#source:' || C
+   */
+  describe('the T1b backfill over a seeded mix, applied twice (2.5 T1b AC3)', () => {
+    const ACCOUNT = 'acct-t1b:shared'
+    let keysAfterFirst: Array<{ attempt_id: string; account_key: string }>
+    let keysAfterSecond: Array<{ attempt_id: string; account_key: string }>
+    let unmeteredSource: string
+
+    beforeAll(async () => {
+      await buildPreStoreStub(client, BACKFILL_SCHEMA)
+      await applyParts(client, [PART_1, PART_2])
+      const meters = await client.query(
+        `INSERT INTO job_account_meters (account_key, unit, window_kind, window_started_at)
+         VALUES ($1, 'REQUEST', 'DAY', now()), ($1, 'RECORD', 'DAY', now())
+         RETURNING id, unit`,
+        [ACCOUNT],
+      )
+      const row = (unit: string) =>
+        (meters.rows as Array<{ id: string; unit: string }>).find((r) => r.unit === unit)!.id
+      const sources = await client.query(
+        `INSERT INTO job_sources (type, config, enabled, account_meter_id) VALUES
+           ('DOU_RSS', '{"t1b":"a"}'::jsonb, true, $1),
+           ('DOU_RSS', '{"t1b":"b"}'::jsonb, true, $2),
+           ('DOU_RSS', '{"t1b":"c"}'::jsonb, true, NULL)
+         RETURNING id, config->>'t1b' AS tag`,
+        [row('REQUEST'), row('RECORD')],
+      )
+      const source = (tag: string) =>
+        (sources.rows as Array<{ id: string; tag: string }>).find((r) => r.tag === tag)!.id
+      unmeteredSource = source('c')
+      const cycle = await client.query(
+        `INSERT INTO job_collection_cycles (trigger, trigger_key) VALUES ('SCHEDULED', 't1b') RETURNING id`,
+      )
+      const cycleId = (cycle.rows[0] as { id: string }).id
+      // Pre-T1 rows: no account_key column exists yet. A live run of A and of C, and a
+      // terminal one of B (A and B share an account, so only one of them may be live).
+      await client.query(
+        `INSERT INTO job_collection_runs
+           (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger, owner_token, lease_expires_at)
+         VALUES ($1, $3, 'run-a', 1, 'v1', 'SCHEDULED', 'o-a', now() + interval '5 min'),
+                ($2, $3, 'run-c', 1, 'v1', 'SCHEDULED', 'o-c', now() + interval '5 min')`,
+        [source('a'), source('c'), cycleId],
+      )
+      await client.query(
+        `INSERT INTO job_collection_runs
+           (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger, outcome, owner_token, ended_at)
+         VALUES ($1, $2, 'run-b', 1, 'v1', 'SCHEDULED', 'SUCCEEDED', 'o-b', now())`,
+        [source('b'), cycleId],
+      )
+
+      const read = async () =>
+        (
+          await client.query(
+            `SELECT attempt_id, account_key FROM job_collection_runs ORDER BY attempt_id`,
+          )
+        ).rows as Array<{ attempt_id: string; account_key: string }>
+      await applyParts(client, [PART_5_MIGRATION])
+      keysAfterFirst = await read()
+      await applyParts(client, [PART_5_MIGRATION])
+      keysAfterSecond = await read()
+      // `buildPreStoreStub` repointed `search_path`; the sibling describes read SCHEMA.
+      await client.query(`SET search_path TO ${SCHEMA}`)
+    }, 180_000)
+
+    afterAll(async () => {
+      await client?.query(`DROP SCHEMA IF EXISTS ${BACKFILL_SCHEMA} CASCADE`).catch(() => undefined)
+    })
+
+    it("writes the meter's text key for BOTH rows of one account, and #source:<id> without a meter", () => {
+      expect(keysAfterFirst).toEqual([
+        { attempt_id: 'run-a', account_key: ACCOUNT },
+        { attempt_id: 'run-b', account_key: ACCOUNT },
+        { attempt_id: 'run-c', account_key: `#source:${unmeteredSource}` },
+      ])
+    })
+
+    it('changes nothing on a second application', () => {
+      expect(keysAfterSecond).toEqual(keysAfterFirst)
+    })
+  })
+
   describe('the ALTER path agrees with the fresh path (SR-M-4)', () => {
     let beforeMigration: Catalog
     let withoutRedactionReasonNull: Catalog

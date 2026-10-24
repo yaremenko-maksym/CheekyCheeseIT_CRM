@@ -1551,7 +1551,7 @@ describe.skipIf(!hasDatabaseUrl())('account meter store (real Postgres)', () => 
         `INSERT INTO job_collection_runs
            (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger,
             owner_token, lease_expires_at, account_key)
-         VALUES ($1, $2, $3, 1, 'v1', 'SCHEDULED', $4, now() + interval '5 min', $1) RETURNING id`,
+         VALUES ($1, $2, $3, 1, 'v1', 'SCHEDULED', $4, now() + interval '5 min', '#source:' || $1::uuid::text) RETURNING id`,
         [src[0].id, cycleId, attemptId, `owner-${nextTag()}`],
       )
       const m = await newMeter({ limit: 10 })

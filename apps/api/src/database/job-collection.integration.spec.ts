@@ -115,9 +115,27 @@ async function newMeter(
 }
 
 /**
+ * ONE paid account with TWO meter rows — a REQUEST row and a RECORD row under the same
+ * text `account_key` (rows are unique per (account_key, unit, window)). This is the shape
+ * Task 2.5 T1b exists for: two sources of one account bound to different rows.
+ */
+async function newAccount(): Promise<{ key: string; requestRow: string; recordRow: string }> {
+  const key = `${TAG.toLowerCase()}:${(seq += 1)}`
+  const { rows } = await q(
+    `INSERT INTO job_account_meters (account_key, unit, window_kind, window_started_at)
+     VALUES ($1, 'REQUEST', 'DAY', now()), ($1, 'RECORD', 'DAY', now())
+     RETURNING id, unit`,
+    [key],
+  )
+  const row = (unit: string) =>
+    (rows as Array<{ id: string; unit: string }>).find((r) => r.unit === unit)!.id
+  return { key, requestRow: row('REQUEST'), recordRow: row('RECORD') }
+}
+
+/**
  * A STARTED run needs an owner and a lease; this is the valid shape. The
- * account key defaults to the source id — what the run ledger derives for a
- * source with no meter (Task 2.5 T1), which every `newSource()` here is.
+ * account key defaults to `#source:<source id>` — what the run ledger derives
+ * for a source with no meter (Task 2.5 T1b), which every `newSource()` here is.
  */
 async function startRun(
   sourceId: string,
@@ -135,7 +153,7 @@ async function startRun(
       opts.attemptId ?? nextTag(),
       opts.configVersion ?? 1,
       `owner-${nextTag()}`,
-      opts.accountKey ?? sourceId,
+      opts.accountKey ?? `#source:${sourceId}`,
     ],
   )
 }
@@ -517,7 +535,7 @@ describe.skipIf(!hasDatabaseUrl())('job collection machinery (real Postgres cata
         `INSERT INTO job_collection_runs
            (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger,
             owner_token, lease_expires_at, account_key)
-         VALUES ($1, $2, $3, 1, 'v1', 'SCHEDULED', 'o', now(), $1)`,
+         VALUES ($1, $2, $3, 1, 'v1', 'SCHEDULED', 'o', now(), '#source:' || $1::uuid::text)`,
         [source, cycle, attempt],
       )
       expect(r.code).toBe(UNIQUE_VIOLATION)
@@ -532,7 +550,7 @@ describe.skipIf(!hasDatabaseUrl())('job collection machinery (real Postgres cata
         `INSERT INTO job_collection_runs
            (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger,
             owner_token, lease_expires_at, account_key)
-         VALUES ($1, $2, $3, 1, 'v1', 'SCHEDULED', 'other-owner', now() + interval '5 min', $1)`,
+         VALUES ($1, $2, $3, 1, 'v1', 'SCHEDULED', 'other-owner', now() + interval '5 min', '#source:' || $1::uuid::text)`,
         [source, cycle, nextTag()],
       )
       expect(second.code).toBe(UNIQUE_VIOLATION)
@@ -563,7 +581,7 @@ describe.skipIf(!hasDatabaseUrl())('job collection machinery (real Postgres cata
            (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger,
             owner_token, lease_expires_at, account_key)
          VALUES ($1, $2, $3, 2, 'v1', 'SCHEDULED', 'owner-cfg2', now() + interval '5 min',
-                 gen_random_uuid())`,
+                 '#source:' || gen_random_uuid()::text)`,
         [source, cycle, nextTag()],
       )
       expect(r).toEqual({
@@ -572,22 +590,24 @@ describe.skipIf(!hasDatabaseUrl())('job collection machinery (real Postgres cata
       })
     })
 
-    it('refuses a STARTED run of a second source that shares the account (2.5 T1 AC3)', async () => {
+    // T1b AC1 — the case T1's uuid key got wrong: one paid account, two meter ROWS
+    // (different units), one source bound to each. Keyed on the row id they would not
+    // contend; keyed on the account's text key they must.
+    it('refuses a second STARTED run of one paid account across different meter rows (2.5 T1b AC1)', async () => {
       const cycle = await newCycle()
-      const meter = await newMeter()
+      const account = await newAccount()
       const a = await newSource()
       const b = await newSource()
-      await q(`UPDATE job_sources SET account_meter_id = $1 WHERE id = ANY($2::uuid[])`, [
-        meter,
-        [a, b],
-      ])
-      await startRun(a, cycle, { accountKey: meter })
+      await q(`UPDATE job_sources SET account_meter_id = $1 WHERE id = $2`, [account.requestRow, a])
+      await q(`UPDATE job_sources SET account_meter_id = $1 WHERE id = $2`, [account.recordRow, b])
+      expect(account.requestRow).not.toBe(account.recordRow)
+      await startRun(a, cycle, { accountKey: account.key })
       const r = await rejected(
         `INSERT INTO job_collection_runs
            (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger,
             owner_token, lease_expires_at, account_key)
          VALUES ($1, $2, $3, 1, 'v1', 'SCHEDULED', 'owner-b', now() + interval '5 min', $4)`,
-        [b, cycle, nextTag(), meter],
+        [b, cycle, nextTag(), account.key],
       )
       expect(r).toEqual({
         code: UNIQUE_VIOLATION,
@@ -595,9 +615,60 @@ describe.skipIf(!hasDatabaseUrl())('job collection machinery (real Postgres cata
       })
     })
 
+    it('lets two sources of DIFFERENT paid accounts run at once (2.5 T1b AC2)', async () => {
+      const cycle = await newCycle()
+      const first = await newAccount()
+      const second = await newAccount()
+      const a = await newSource()
+      const b = await newSource()
+      await startRun(a, cycle, { accountKey: first.key })
+      const { rows } = await startRun(b, cycle, { accountKey: second.key })
+      expect(rows).toHaveLength(1)
+      const { rows: running } = await q(
+        `SELECT count(*)::int AS n FROM job_collection_runs
+          WHERE account_key = ANY($1::text[]) AND outcome = 'STARTED'`,
+        [[first.key, second.key]],
+      )
+      expect(running[0].n).toBe(2)
+    })
+
+    it('refuses an account key that is neither a meter key nor exactly #source:<uuid> (2.5 T1b)', async () => {
+      const source = await newSource()
+      const cycle = await newCycle()
+      // Every `#`-key other than exactly `#source:<lowercase uuid>`, plus an empty and an
+      // upper-case key that no meter could carry. (A string in the meters' own alphabet,
+      // e.g. `source:<uuid>`, is by construction indistinguishable from a real meter key
+      // and passes — the guarantee is that a SYNTHETIC key can never equal a real one.)
+      for (const key of [
+        '#source:not-a-uuid',
+        `#Source:${source}`,
+        `#source:${source.toUpperCase()}`,
+        `#source:${source}:extra`,
+        `#meter:${source}`,
+        '',
+        'UPPER-CASE-KEY',
+      ]) {
+        const r = await rejected(
+          `INSERT INTO job_collection_runs
+             (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger,
+              owner_token, lease_expires_at, account_key)
+           VALUES ($1, $2, $3, 1, 'v1', 'SCHEDULED', 'owner', now() + interval '5 min', $4)`,
+          [source, cycle, nextTag(), key],
+        )
+        expect({ key, ...r }).toEqual({
+          key,
+          code: CHECK_VIOLATION,
+          constraint: 'ck_job_collection_runs_account_key_format',
+        })
+      }
+      // The synthetic form itself is accepted.
+      const { rows } = await startRun(source, cycle, { accountKey: `#source:${source}` })
+      expect(rows).toHaveLength(1)
+    })
+
     it('lets terminal runs of one source and one account accumulate without contending (2.5 T1 AC4)', async () => {
       const cycle = await newCycle()
-      const meter = await newMeter()
+      const meter = (await newAccount()).key
       const a = await newSource()
       const b = await newSource()
       const running = await startRun(a, cycle, { accountKey: meter })
@@ -652,7 +723,7 @@ describe.skipIf(!hasDatabaseUrl())('job collection machinery (real Postgres cata
       const unowned = await rejected(
         `INSERT INTO job_collection_runs
            (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger, account_key)
-         VALUES ($1, $2, $3, 1, 'v1', 'SCHEDULED', $1)`,
+         VALUES ($1, $2, $3, 1, 'v1', 'SCHEDULED', '#source:' || $1::uuid::text)`,
         [source, cycle, nextTag()],
       )
       expect(unowned.constraint).toBe('ck_job_collection_runs_running_has_lease')
@@ -1312,7 +1383,7 @@ describe.skipIf(!hasDatabaseUrl())('job collection machinery (real Postgres cata
         `INSERT INTO job_collection_runs
            (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger,
             owner_token, lease_expires_at, account_key)
-         VALUES ($1, $2, $3, 1, 'v1', 'SCHEDULED', 'owner', now() + interval '5 min', $1)`,
+         VALUES ($1, $2, $3, 1, 'v1', 'SCHEDULED', 'owner', now() + interval '5 min', '#source:' || $1::uuid::text)`,
         [source, cycle, over],
       )
       expect(attempt.constraint).toBe('ck_job_collection_runs_attempt_id_bounded')
@@ -1476,7 +1547,7 @@ describe.skipIf(!hasDatabaseUrl())('job collection machinery (real Postgres cata
         `INSERT INTO job_collection_runs
            (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger,
             owner_token, lease_expires_at, account_key)
-         VALUES ($1, $2, $3, 1, 'v1', 'MANUAL', 'owner', now() + interval '5 min', $1)`,
+         VALUES ($1, $2, $3, 1, 'v1', 'MANUAL', 'owner', now() + interval '5 min', '#source:' || $1::uuid::text)`,
         [source, cycle, nextTag()],
       )
       expect(r.code).toBe(FK_VIOLATION)
@@ -1520,7 +1591,7 @@ describe.skipIf(!hasDatabaseUrl())('job collection machinery (real Postgres cata
         const insert = `INSERT INTO job_collection_runs
              (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger,
               owner_token, lease_expires_at, account_key)
-           VALUES ($1, $2, $3, 1, 'v1', 'SCHEDULED', $4, now() + interval '5 min', $1)`
+           VALUES ($1, $2, $3, 1, 'v1', 'SCHEDULED', $4, now() + interval '5 min', '#source:' || $1::uuid::text)`
         await a.query(insert, [source, cycle, nextTag(), 'owner-a'])
 
         // B's INSERT blocks on the partial unique index until A resolves. Start
