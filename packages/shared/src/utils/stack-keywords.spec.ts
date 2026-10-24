@@ -7,6 +7,7 @@ import {
   canonicalStackKeyword,
   canonicalStackKeywords,
   normalizeStackKeyword,
+  stackKeywordHits,
   stackMatchScore,
   stackTokens,
   textMentionsStackKeyword,
@@ -673,5 +674,94 @@ describe('stackMatchScore — the ranking signal (AC1)', () => {
     ])
     expect(result.score).toBe(1)
     expect(result.total).toBe(1)
+  })
+})
+
+describe('stackKeywordHits — uncapped union matching over pre-tokenised text', () => {
+  const hitsFor = (canonicals: string[], title: string, body: string) =>
+    stackKeywordHits(canonicals, stackTokens(title), stackTokens(body))
+
+  it('is NOT capped at MAX_STACK_KEYWORDS: 150 distinct keywords all match', () => {
+    const words = Array.from({ length: 150 }, (_, i) => `techword${i}`)
+    const hits = hitsFor(words, '', words.join(' '))
+    expect(MAX_STACK_KEYWORDS).toBe(60)
+    expect(hits.size).toBe(150)
+  })
+
+  it('reports every body start index and no keyword that is absent', () => {
+    const hits = hitsFor(['python', 'rust'], '', 'python and more python')
+    expect([...hits.keys()]).toEqual(['python'])
+    expect(hits.get('python')).toEqual({ titleIndexes: [], bodyIndexes: [0, 3] })
+  })
+
+  it('keeps the alias and token semantics: Java never matches JavaScript', () => {
+    expect(hitsFor(['java'], '', 'javascript developer').size).toBe(0)
+    expect(hitsFor(['javascript'], '', 'we use js daily').get('javascript')?.bodyIndexes).toEqual([
+      2,
+    ])
+  })
+
+  it('honours multi-token spellings and the symbol rewrites', () => {
+    expect(hitsFor(['dotnet'], '', 'we run .NET Core services').size).toBe(1)
+    expect(hitsFor(['csharp'], '', 'C# and C++').size).toBe(1)
+    expect(hitsFor(['cplusplus'], '', 'C# only').size).toBe(0)
+  })
+
+  it('counts an ambiguous alias in the title only', () => {
+    const inTitle = hitsFor(['golang'], 'Go Developer', '')
+    expect(inTitle.get('golang')).toEqual({ titleIndexes: [0], bodyIndexes: [] })
+    expect(hitsFor(['golang'], '', 'ready to go to market').size).toBe(0)
+  })
+
+  it('does not match a phrase that would run past the end of the tokens', () => {
+    expect(hitsFor(['react native'], '', 'react').size).toBe(0)
+    expect(hitsFor(['react native'], '', 'react native').size).toBe(1)
+  })
+
+  it('agrees with textMentionsStackKeyword for every keyword it is asked about', () => {
+    const body = 'k8s, node, rest apis, postgres, google cloud'
+    for (const canonical of ['kubernetes', 'nodejs', 'rest api', 'postgresql', 'gcp', 'aws']) {
+      expect(hitsFor([canonical], '', body).has(canonical)).toBe(
+        textMentionsStackKeyword(canonical, { title: '', body }),
+      )
+    }
+  })
+
+  it('lists indexes in ascending order even when spellings are found out of order', () => {
+    const hit = hitsFor(['kubernetes'], '', 'k8s and kubernetes and k8s').get('kubernetes')
+    expect(hit?.bodyIndexes).toEqual([0, 2, 4])
+    const inTitle = hitsFor(['kubernetes'], 'k8s kubernetes', '').get('kubernetes')
+    expect(inTitle?.titleIndexes).toEqual([0, 1])
+  })
+
+  it('reports a start once when several spellings begin at the same token', () => {
+    expect(hitsFor(['dotnet'], '', 'we run .NET Core').get('dotnet')?.bodyIndexes).toEqual([2])
+  })
+
+  it.each(['constructor', '__proto__', 'toString', 'valueOf', 'hasOwnProperty', 'prototype'])(
+    'a keyword named "%s" neither throws nor matches by inheritance (SR-H-1)',
+    (name) => {
+      const canonical = canonicalStackKeyword(name)
+      expect(() => hitsFor([canonical], '', 'plain text')).not.toThrow()
+      expect(hitsFor([canonical], '', 'plain text').size).toBe(0)
+      expect(hitsFor([canonical], '', `we use ${name} daily`).get(canonical)?.bodyIndexes).toEqual([
+        2,
+      ])
+      expect(() => textMentionsStackKeyword(canonical, { title: '', body: 'x' })).not.toThrow()
+      expect(stackMatchScore({ title: 'x', body: 'y' }, [name]).matched).toEqual([])
+      expect(({} as Record<string, unknown>)['polluted']).toBeUndefined()
+    },
+  )
+
+  it('handles 100k repeated tokens in well under a second (no quadratic copying)', () => {
+    const body = Array.from({ length: 100_000 }, () => 'java')
+    const started = performance.now()
+    const hit = stackKeywordHits(['java'], [], body).get('java')
+    expect(performance.now() - started).toBeLessThan(1000)
+    expect(hit?.bodyIndexes).toHaveLength(100_000)
+  })
+
+  it('collapses a repeated canonical in the input to one entry', () => {
+    expect(hitsFor(['python', 'python'], '', 'python').size).toBe(1)
   })
 })
