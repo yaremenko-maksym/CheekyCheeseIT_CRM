@@ -529,7 +529,6 @@ describe('billing is not trusted until it has been observed (SR-M-1)', () => {
   })
 
   it('a flat charge of 5 that met the observation: a 2-record page settles at 2 while 5 was really spent', async () => {
-    const REALLY_CHARGED_PER_REQUEST = 5 // the account's true flat charge: a literal, not computed
     const flatObservation = {
       observedAt: '2026-10-24T09:00:00.000Z',
       requestedLimit: 25,
@@ -543,10 +542,9 @@ describe('billing is not trusted until it has been observed (SR-M-1)', () => {
     const settledAt = wrong.m.settled[0]?.incurred
     expect(settledAt).toBe(2)
     expect(wrong.batch.requests[0]?.cost).toEqual({ unit: 'RECORD', amount: 2 })
-    // The under-count is the gap between this 2 and the account's true flat charge of
-    // REALLY_CHARGED_PER_REQUEST (5): a model of the account, not an observation of TheirStack.
-    // (A literal-versus-literal comparison here could not fail, so it is not asserted.)
-    void REALLY_CHARGED_PER_REQUEST
+    // The under-count is the gap between this 2 and the modelled account's flat charge of 5: a
+    // model of the account, not an observation of TheirStack. (A literal-versus-literal comparison
+    // here could not fail, so it is not asserted.)
 
     // Without the observation the SAME page is charged whole: no incurred amount, so the store
     // takes the full 25-credit reservation, which is not below what was spent. If the route did not
@@ -576,6 +574,8 @@ describe('billing is not trusted until it has been observed (SR-M-1)', () => {
     const recorded = m.settled.reduce((sum, s) => sum + (s.incurred ?? 0), 0)
     expect(m.settled).toHaveLength(5)
     expect(recorded).toBe(41)
+    // What carries this test is the recorded 41 and the settlement count of 5. The line below is
+    // arithmetic on the same literals (a cross-check of the docblock's formula, not the teeth).
     const reallySpent = m.settled.length * F // the model of the account: 5 requests at a flat F
     expect(reallySpent - recorded).toBe((5 - 1) * (F - 10) + (F - 1))
   })

@@ -262,9 +262,12 @@ function makeSpec(
  *   times it, and nothing here bounds that by the budget. Arithmetic (not a run of the real
  *   service) on the integration spec's own account - limit 100, reserve 25, 2-record pages - attempts
  *   continue while `used + 25 <= 100`: 38 attempts, 76 recorded against 38 * 5 = 190 spent, about
- *   1.9 times the budget. With F near the limit and 1-record pages the ratio approaches F. The
- *   integration spec reproduces the 38-attempt case against a MODEL of the account (`sent * F`),
- *   not an observation of TheirStack.
+ *   1.9 times the budget. In general, for an account budget B, a reservation of L (the configured
+ *   `limit`) and r records per page: attempts N = floor((B - L) / r) + 1, and the ratio of modelled
+ *   spend to budget is N * F / B. For 1-record pages and B = 100 that is F * (101 - L) / 100: it
+ *   approaches F only when L is small against B, and at L = F = 49 it is about 25.5. The shape is
+ *   the formula's, not a rule of thumb. The integration spec reproduces the 38-attempt case against
+ *   a MODEL of the account (`sent * F`), not an observation of TheirStack.
  * "Worst case per page" is therefore a statement about the unverified branch, conditional on the
  * published billing statement. Verifying a source is a decision to trust the observation with money,
  * not a formality. (This meter's unit is `RECORD`, credits.)

@@ -994,11 +994,14 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
         }
       } else {
         bodyText = response.bodyText
-        // LOAD-BEARING ORDER: `incurred` is set only here, in the final `else` of the status chain,
-        // after the 304 branch. A 304 therefore settles the whole reservation. If this read moved
-        // above the 304 branch, a 304 would be settled at the CACHED body's record count and no test
-        // would fail (there is no metered-304 test; TheirStack is a POST source, so it is barely
-        // reachable there).
+        // LOAD-BEARING PLACEMENT: `incurred` is set only here, in the final `else` of the status
+        // chain, so a 304 (which never reaches this line) settles the whole reservation. The hazard
+        // is a SHARED cost read placed AFTER the chain: by then the 304 branch has run
+        // `bodyText = cached.bodyText`, and a read of it would settle a 304 at the CACHED body's
+        // record count (an under-count). Moving the read ABOVE the 304 branch is not that hazard
+        // (`bodyText` is still empty there, so it reads nothing and charges the whole reservation).
+        // No test fails either way: there is no metered-304 test (TheirStack is a POST source, so a
+        // 304 is barely reachable there).
         incurred = readCostOrFlag(costReader, bodyText)
         const lastModified = response.headers['last-modified']
         if ((isValidator(response.etag) || isValidator(lastModified)) && cacheKey !== undefined) {

@@ -112,7 +112,9 @@ import {
  *   schema's `used_settled` CHECK refuses a USED row with no cost, so a free request is recorded
  *   as one unit until that CHECK is relaxed by a migration. So `used` is exact for an incurred
  *   cost of 1..reserved and over-recorded by one at zero. A source that reports no cost (every
- *   flat per-request source) is charged its worst case: `used` is an UPPER BOUND for those.
+ *   flat per-request source) is charged its worst case, the whole reservation: for those, `used`
+ *   bounds the RESERVATIONS TAKEN, not real spend. It bounds real spend only if the provider never
+ *   charges more per request than that reservation, which the store cannot know.
  *
  *   SETTLING BELOW THE RESERVATION IS THE OVERSPEND DIRECTION against the external account (SR-M-1,
  *   measured: a limit of 100, 10 reserved and 1 settled per page permitted 91 pages, 910 worst-case
