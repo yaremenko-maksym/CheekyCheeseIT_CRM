@@ -5339,7 +5339,212 @@ nothing, and a filter with it runs far too many.
 executes it or says in one line that it did not — and in neither case does it exit 0 having silently
 counted only the other files the filter matched.
 
-## 318. An unboarded JUNIOR crashes the production build on `/` (React #185) — and the two tests for it are `fixme` (2026-10-24)
+## 318. A hostile JSON body stalls the event loop before the byte cap can refuse it, once a per-source cap is raised (2026-10-24)
+
+**Open** — found by the security review of the ATS A adapters (SR-M-1); the fix belongs to the shared
+bounded-JSON reader, not to the adapters, so this entry is the deliverable and the next task to touch
+that reader owns the repair. Number chosen by measurement: the highest `## NNN.` heading across all
+574 fetched `origin` refs was 317 (a different entry, on `origin/docs/integration-run-third-case`;
+this one first took 317 when 316 was the highest and was renumbered), so 318 was the next free one.
+If another branch has claimed it since, renumber at merge.
+
+The reader bounds a body in this order: bytes, then nesting depth (a pre-parse scan of the raw text),
+then `JSON.parse`, then a node count after parsing. A body inside the byte cap and inside the depth
+limit is therefore parsed in full before the node count can refuse it. At the default 2 MiB that is
+cheap. The Greenhouse and Ashby adapters declare a **10 MiB** response cap (the plan's ceiling for a
+per-source cap, justified by three measured real boards of 2.7, 5.6 and 8.0 MB and an Ashby board of
+13.9 MB), and at that size the order matters.
+
+Measured by feeding the reader a hostile 10 MiB body that fits the cap and the depth limit:
+
+- 10 MiB of `[0,0,0,…]` parses in **1.6 s** at about **+310 MB RSS**, synchronously, so nothing else
+  on the event loop runs meanwhile; the node-count limit then refuses it, after the cost is paid;
+- 10 MiB of `[{},{},{},…]` parses in **2.8 s**;
+- for contrast, a deeply nested body and a body one byte over the cap are both refused in about
+  **2 ms**, because those two bounds fire before parsing — the bound that is missing is the one
+  that matters for a flat body.
+
+Compare the legitimate case: the real 8.0 MB Cloudflare board parses in 51 ms at +26 MB, so the
+hostile cost is two orders of magnitude above the honest one, which is the room a pre-parse bound
+has to work in.
+
+Suggested cure (the reviewer's): count the commas of the raw text inside the existing depth-scan
+pass and refuse a body whose element count already exceeds the node limit, so the flat case is
+refused for the price of one scan, like the depth case is. A count of separators over-estimates
+nodes slightly (strings with commas), which is the safe direction for a refusal.
+
+Until it is fixed, the exposure is bounded by who can choose the body: the three public ATS
+providers, reached only through a manifest the owner enables source by source, and not before the
+transport carries a per-source byte cap at all (the entry titled "An adapter's declared byte cap
+cannot reach the transport …", number 319) — until then the transport refuses anything over 2 MiB
+and the 10 MiB is not reachable.
+
+**Check on closing:** parse a 10 MiB `[0,0,…]` body through the shared bounded-JSON reader under a
+10 MiB limit and a 200,000-node limit. Today it takes about 1.6 s and +310 MB before refusing; closed
+means it is refused in single-digit milliseconds without allocating the parsed tree.
+
+## 319. An adapter's declared byte cap cannot reach the transport, so a source whose pages exceed the transport's default is refused before its own cap is consulted (2026-10-24)
+
+**Open** — found while measuring the ATS A adapters; the work belongs to the task that owns the quota
+adapters (Task 3.5b), whose adapters are the next to need a cap above the default. Distinct from entry
+318: that one is the event-loop cost of parsing a large body and only exists once this one is fixed;
+this one is why a large body never arrives at all today.
+
+An adapter can declare its own response cap (`limits.maxBytes` on the JSON spec, up to the plan's
+10 MiB ceiling), and the body decoder honours it. But the request an adapter hands to the loop,
+`FetchRequest`, carries no per-request cap, and the transport (`http/bounded-fetch.ts`) applies its
+own default of 2 MiB per response (ceiling 10 MiB, reachable only through its `maxBytes` option,
+which nothing can set per request). So a source whose single response is larger than 2 MiB is refused
+by the transport before the adapter's own cap is ever consulted, and the adapter's declaration is
+inert. The plan already asks for the missing mechanism: Task 2.2's text says "per-source byte caps
+from MP-02 within the 10 MiB ceiling or list-plus-detail mode", and that task is marked landed
+without it.
+
+Four measured cases, so this is not hypothetical (all 2026-10-24, single GET each):
+
+- Greenhouse `content=true` list: airbnb **2.7 MB**, stripe **5.6 MB**, cloudflare **8.0 MB**: every
+  board measured is over the default;
+- Ashby job board: one board at **13.9 MB** (past even the 10 MiB ceiling, which is the honest
+  `PAYLOAD_TOO_LARGE` for that board), three others at 2.6-3.0 MB;
+- Arbeitnow page 1: **4,209,793 bytes**, with `per_page`, `limit`, `page_size`, `size` and `perPage`
+  all ignored by the provider, so the page size cannot be lowered to fit.
+
+The shape of the fix (not a decision): an additive optional `maxBytes?` on `FetchRequest`, honoured by
+`bounded-fetch` when present, still bounded at the default when absent and refused when above the
+hard ceiling; each adapter then passes its own declared cap into the request it builds, instead of
+repeating a literal.
+
+**Check on closing:** fetch a response of 3 MiB through the transport with the adapter's declared cap
+at 10 MiB and see it delivered; fetch the same with no declared cap and see it refused at 2 MiB;
+declare 11 MiB and see the declaration refused. Today the first is refused.
+
+## 320. A board carrying a permanent unlisted posting never reaches the full-inventory claim, so absence-based closure never fires for it (2026-10-24)
+
+**Open** — a consequence of quarantining Ashby `isListed: false` postings, which is the right
+treatment and the plan's; it currently belongs to nobody. Owner to be named by whoever owns the
+disappeared-postings sweep (the consumer of the coverage claim).
+
+The base derives a batch's coverage from its counts, and any quarantined item makes the coverage
+`PARTIAL` instead of `FULL_INVENTORY`. In the code comments of the lifecycle work `FULL_INVENTORY` is
+the closure signal: only a complete inventory entitles the collector to treat a posting that is no
+longer listed as gone. An Ashby board that permanently carries one unlisted posting (documented as
+reachable by direct link only) will therefore be `PARTIAL` on every run, and none of its vacancies
+will ever be closed by absence. Measured behaviour, pinned by a test in the Ashby spec: a board of one
+listed posting is `SUCCEEDED` with coverage `FULL_INVENTORY`; the same board plus one unlisted posting
+is `SUCCEEDED` with coverage `PARTIAL`.
+
+Not observed in practice yet: none of 10 non-empty Ashby boards (1,612 postings) held an unlisted
+posting, so the public listing appears to omit them and the case may never occur. If it does, the
+options are a base-level adapter exclusion that is counted but does not weaken the claim, or accepting
+`PARTIAL` for such a board. That choice belongs to the owner of the sweep.
+
+**Check on closing:** a board with one deliberately unlisted posting is collected twice, and the
+postings that disappeared between the runs are either closed (exclusion kept out of the coverage
+claim) or the loss of closure is documented as accepted.
+
+## 321. The Task 3.1 provenance specs list four providers by name and keep their own copy of the schema; consolidate onto the shared helper (2026-10-24)
+
+**Open** — raised by the spec review of the ATS A adapters. The ATS A change added one shared
+provenance schema and reader (`src/test/fixture-provenance.ts`) and a spec that walks every directory
+under `__fixtures__` (`fixture-provenance.all.spec.ts`), which already covers the RSS captures that
+had no hash check. It left Task 3.1's two older specs alone, to avoid conflicting with work in flight:
+`fixture-provenance.spec.ts` still enumerates four providers by name and carries its own copy of the
+schema with slightly different rules (status 200 required, raw and file hashes required to differ),
+and `native-id.spec.ts` keeps its own table next to the new `ats-native-id.spec.ts`.
+
+Two schemas and two provider lists describing one contract is a seam that will rot: a field added to
+one is silently absent from the other, and a new provider is protected only if somebody remembers to
+add it to the right list. Owner: the next task that touches either spec (Task 3.7 reads every
+`*.provenance.json`, so it is the natural one).
+
+**Check on closing:** `grep -rn "provenanceSchema" apps/api/src` finds exactly one definition, and
+adding a provider directory with a fixture and no provenance file fails a spec without anyone editing
+a list.
+
+## 322. A stranded worktree's documented destination is an agent who is refused the same command (2026-10-24)
+
+`agent-isolation.md` rule 6 says: "Your own — remove it, a foreign one — report to the orchestrator."
+`pre:bash:cross-agent-blast` says the same thing in its own refusal text: "Чужой стух? Не трогай: сообщи
+оркестратору, он видит всех агентов, а ты — нет." Both name the orchestrator as the party who resolves it.
+
+**Measured: the orchestrator is refused that command too.** On PR #1120 the code reviewer finished, reported
+its checkout clean, and said plainly that `git worktree remove` had been refused as `WORKTREE-UNRECORDED` and
+that it had not bypassed the hook — exactly the behaviour the rule asks for. The orchestrator then ran the
+removal itself, from its own worktree, with a fully expanded literal path and no variable anywhere in the
+command, and was refused `WORKTREE-REMOVE`: the path is not recorded against the orchestrator either, because
+the hook's record is written only to the agent that created the worktree.
+
+So the escalation path terminates nowhere. The reviewer is right not to remove it, the orchestrator cannot, and
+the rule's sentence describes a handoff that no code permits. **This is a rule naming a destination that cannot
+act** — the same defect class as a deferral pointing at a file nobody tracks, one level up: the destination
+exists as a role rather than as a file, and is equally unable to receive the item.
+
+**What the orchestrator genuinely does and does not know.** It knows the agent is finished (its task notified
+completion) and that the tree is clean (checked by `--git-dir`/`--work-tree`, which the hook does not intercept).
+It does not know this from seeing the agent, which the hook correctly assumes; it knows it because the agent
+reported and then stopped. That distinction is why extending the hook's trust to "any orchestrator" would be
+wrong, and why the fix belongs in the record rather than in the predicate.
+
+**Candidate answers, in increasing cost:**
+
+1. **Record the dispatching session alongside the creating agent.** `git worktree add` under a session's
+   scratchpad already identifies the session in the path; writing `<session_id> <path>` next to
+   `<agent_id> <path>` would let the orchestrator of that session remove what its own children stranded,
+   while a sibling agent stays refused. This keeps the predicate's shape and only widens the ledger.
+2. **A `--released` handshake.** An agent that finishes with a checkout it cannot remove writes one line
+   releasing it; the hook then permits removal by anyone in that session. More faithful (the agent asserts it is
+   done rather than the orchestrator inferring it) and more machinery.
+3. **Let the harness remove the scratchpad.** The session scratchpad is the harness's to clean, and a worktree
+   inside it is only awkward because the main checkout holds a `.git/worktrees/<name>` administrative entry
+   pointing into it. A `git worktree prune` on the main checkout after the session ends would collect them,
+   and nothing in the rules says who runs it.
+
+Until one of them lands, the correct behaviour for both agent and orchestrator is what happened here: leave it,
+record it, and let the owner sweep — which is a running cost of roughly one stranded checkout per review round,
+tracked in `.claude/tasks/SWEEP-stranded-checkouts-2026-10-24.md` (untracked file; its count was 15 before this
+one).
+
+**Check on closing:** an agent that creates a worktree in its session scratchpad and exits without removing it
+leaves a tree that the dispatching orchestrator can remove in one command, while an agent of a different session
+is still refused the same path.
+
+## 323. Four small findings from the PR #1119 review rounds, each too small for its own entry (2026-10-24)
+
+Three review axes passed PR #1119 (Task 3.5b, quota-metered adapters) and raised sixteen identifiers. The
+MED ones were fixed in the PR. These four are what is left: none blocks, each is checkable, and each would
+otherwise live only in a review thread that nobody re-reads.
+
+**`observedAt` is validated by shape and never read.** The TheirStack billing observation carries an
+`observedAt` instant checked only against a format regex, so `2026-13-45T99:99:99.000Z` is accepted. The
+field is recorded and no code consumes it. Two honest answers: validate it as a date, or drop it and let
+the record say when the smoke happened in prose. **Check on closing:** an impossible calendar date is
+refused, or the field no longer exists.
+
+**`accept-language` is on the JSON header allowlist with no caller.** Measured at the time: every `headers`
+literal across the five quota adapters and the five JSON providers on main sends only `accept` —
+plus `content-type`, `authorization` and the RapidAPI pair where a scheme needs them. The allowlist's own
+comment justifies itself as "what the adapters were MEASURED to send", and this member was not. It is the
+same no-user problem that removed `from`, and the exact-set test pins it either way, so the test passing is
+not evidence that it is used. **Check on closing:** the allowlist contains no member that no caller sends,
+asserted by a search over the callers rather than by the allowlist's own test.
+
+**A mutation-gate tool failure is reported without naming the mutant.** Runs on this branch report 712
+mutants, 711 killed, 0 survived and **1 tool failure**, and the tool failure is attributed to a module-load
+quirk in `muse.provider.ts`. A tool failure is neither a pass nor a survivor — a distinction this project
+has already paid for once, by counting `[Survived]` mentions in a log instead of reading the gate's own
+classification. The figure is only trustworthy if the one failure is named and shown to sit outside the
+code whose mutants matter, in this case the secret-redaction floor and the billing derivation. **Check on
+closing:** the gate's own output names the failing mutant, or the count is reported as 711 of 711 with the
+twelfth excluded for a stated reason.
+
+**The 8-character secret floor in `env.ts` is a boot-time refusal.** A key shorter than eight characters
+stops the process rather than being rejected at use. That is the right direction and it is currently
+unreachable, because no provider key is provisioned and none may be — so there is no deployed short key to
+break. It becomes real the day the owner provisions one, and a provider that issues a short key would
+present as a boot failure rather than as a configuration error. **Check on closing:** a short key produces
+a message naming the variable and the floor, at whatever point it is rejected.
+
+## 324. An unboarded JUNIOR crashes the production build on `/` (React #185) — and the two tests for it are `fixme` (2026-10-24)
 
 Found while gating the 54 previously ungated E2E specs (PR #1121). **A product defect, deliberately
 not edited around:** the author left two tests as `test.fixme` rather than making them pass, which is

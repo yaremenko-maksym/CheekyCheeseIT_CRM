@@ -1,0 +1,12 @@
+{
+  "url": "https://api.ashbyhq.com/posting-api/job-board/supabase?includeCompensation=true",
+  "fetchedAt": "2026-10-24T02:13:14.000Z",
+  "httpStatus": 200,
+  "rawSha256": "7fc7d7528ab7b00cc753ee9b2ab06bb33815b16d9e5d93a9336d10df6ea13ac6",
+  "fileSha256": "7c1474c221c5f32b351ed311724f0f0c3d14f516df240e25e7ad21e8cb832a15",
+  "trimmedBy": "node trim-ats-a-captures.mjs (JSON.parse, whole-record selection by job id, regex redaction of e-mail addresses and separator-bearing phone numbers inside string values, JSON.stringify, prettier); never a byte cut",
+  "termsUrl": "https://developers.ashbyhq.com/docs/public-job-posting-api",
+  "termsCheckedAt": "2026-10-24T03:30:00.000Z",
+  "permission": "UNCLEAR",
+  "notes": "PERMISSION IS UNCLEAR, NOT DOCUMENTED-PUBLIC: the endpoint is documented without credentials, but https://api.ashbyhq.com/robots.txt answers HTTP 401, so this host states no robots verdict and the permission field must not read stronger than that. 59 jobs captured (0.82 MB), 4 kept: workplaceType null with isRemote null, a job with a published compensation tier (\"$200K – $270K • Offers Equity\"), a job with two secondary locations, and a Remote one. OWNERSHIP, EVIDENCE: TEXT_FULL (no employer field in the payload): descriptionPlain names Supabase in 59 of 59 jobs (\"ABOUT SUPABASE: Supabase is the Postgres development platform ...\"). Documented (https://developers.ashbyhq.com/docs/public-job-posting-api): a public endpoint with no credentials in the example; the page states no rate limit or terms of use. robots.txt: https://api.ashbyhq.com/robots.txt answers HTTP 401, so NO robots verdict exists for the API host (recorded as such, not as permission). The payload carries NO employer name; employer evidence is the posting text naming the employer. includeCompensation=true was requested; every job carries a compensation object, empty tiers where the employer published none. isListed was true on every one of 1,612 postings across 10 non-empty boards, so no unlisted posting was ever captured. DECISION AND COST: publishedAt is documented as the last publish and is read as PUBLISHED; the content hash covers PUBLISHED, so an Ashby re-publish with identical content changes contentHash (reading it as UPDATED would keep the hash stable but leave Ashby vacancies without a publication date). E-mail addresses and phone numbers inside string values were replaced by a parser; personal NAMES in free-text descriptions cannot be found by a parser and were not redacted (records were chosen with short descriptions to limit exposure)."
+}

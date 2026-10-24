@@ -1,0 +1,12 @@
+{
+  "url": "https://api.lever.co/v0/postings/quantco-?mode=json&limit=50&skip=0",
+  "fetchedAt": "2026-10-24T02:16:20.000Z",
+  "httpStatus": 200,
+  "rawSha256": "7a8013a9fa2ab482253da7c8cebf1806c34726ef0128e375a83c74e89c26eca4",
+  "fileSha256": "63924982b605d1a8fc449317728cd7828443b9bee194a40d627901b44e91d174",
+  "trimmedBy": "node trim-ats-a-captures.mjs (JSON.parse, whole-record selection by posting id, regex redaction of e-mail addresses and separator-bearing phone numbers inside string values, JSON.stringify, prettier); never a byte cut",
+  "termsUrl": "https://github.com/lever/postings-api",
+  "termsCheckedAt": "2026-10-24T03:30:00.000Z",
+  "permission": "PUBLIC_API_DOCUMENTED",
+  "notes": "A real Lever site whose NAME ENDS IN A HYPHEN: quantco- answers 200, quantco answers 404 (measured). 14 postings captured, 2 kept (onsite and hybrid). OWNERSHIP, EVIDENCE: TEXT_FULL (no employer field in the payload): all 14 postings name QuantCo somewhere in their text (11 in the main description). The fixtures keep 2 of the 14. Documented (https://github.com/lever/postings-api): a public read API, HTTPS only, \"Only published postings are public ... These jobs may be scraped by third parties\"; the only documented rate limit is on application POSTs (not used). robots.txt of both api.lever.co and api.eu.lever.co: User-agent * / Allow: / / Crawl-delay: 1 - a longer gap than the 500 ms proposed in ats-config.ts. The payload carries NO employer name; employer evidence is the posting text naming the employer. Observed drift from the documentation: workplaceType is \"onsite\" on the live API, the README lists \"on-site\"; createdAt is present on every posting but is not in the README's field list. E-mail addresses and phone numbers inside string values were replaced by a parser; personal NAMES in free-text descriptions cannot be found by a parser and were not redacted (records were chosen with short descriptions to limit exposure)."
+}
