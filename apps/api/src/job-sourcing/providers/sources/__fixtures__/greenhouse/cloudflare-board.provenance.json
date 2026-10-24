@@ -1,0 +1,12 @@
+{
+  "url": "https://boards-api.greenhouse.io/v1/boards/cloudflare/jobs?content=true",
+  "fetchedAt": "2026-10-24T02:07:53.000Z",
+  "httpStatus": 200,
+  "rawSha256": "abd3f5f931f25382d6e7089feeea9dedb701e32f1c8a96b63526701408fb2d9a",
+  "fileSha256": "c56d469aeb0783bf99a98c350047d2c8d26ab4b3ec26f2063830c54f781d8fd1",
+  "trimmedBy": "node trim-ats-a-captures.mjs (JSON.parse, whole-record selection by job id (meta.total rewritten to the kept count so the envelope stays self-consistent), regex redaction of e-mail addresses and separator-bearing phone numbers inside string values, JSON.stringify, prettier); never a byte cut",
+  "termsUrl": "https://docs.greenhouse.io/job-board.html",
+  "termsCheckedAt": "2026-10-24T03:30:00.000Z",
+  "permission": "PUBLIC_API_DOCUMENTED",
+  "notes": "453 jobs captured, 2 kept: 7421718 carries a body that its author escaped TWICE (the visible text \"&lt; 60% travel\" arrives as \"&amp;lt; 60% travel\"), and 8288769 has location.name \"Hybrid\" (a workplace type in the location field). Whole response 8.0 MB, 28,539 JSON nodes. OWNERSHIP VERIFIED from the payload: company_name is \"Cloudflare\" on 453 of 453 jobs; absolute_url is boards.greenhouse.io/cloudflare/jobs/N?gh_jid=N. Documented (https://docs.greenhouse.io/job-board.html): GET endpoints need no authentication (\"Job Board data is publicly available\"); only the application POST needs Basic auth. robots.txt of boards-api.greenhouse.io: User-agent * / Disallow: /embed/ only, so /v1/boards/{token}/jobs is allowed. The docs state no rate limit or terms of use. Job content is HTML-escaped by Greenhouse (entities) and the adapter decodes it once. company_name and first_published appear on every job of this response although the docs show them only in the single-job example. E-mail addresses and phone numbers inside string values were replaced by a parser; personal NAMES in free-text descriptions cannot be found by a parser and were not redacted (records were chosen with short descriptions to limit exposure)."
+}

@@ -1,0 +1,12 @@
+{
+  "url": "https://api.lever.co/v0/postings/spotify?mode=json&limit=50&skip=50",
+  "fetchedAt": "2026-10-24T02:16:14.000Z",
+  "httpStatus": 200,
+  "rawSha256": "83903d7de99bb5c4e72fb97221bf75b7e0fc4ac4b1bd4a98141a466ac6ef6a89",
+  "fileSha256": "512e8c860a0beb28ba7e713fc830de932a7eb237e7e4f78c79474a137ac12efb",
+  "trimmedBy": "node trim-ats-a-captures.mjs (JSON.parse, whole-record selection by posting id, regex redaction of e-mail addresses and separator-bearing phone numbers inside string values, JSON.stringify, prettier); never a byte cut",
+  "termsUrl": "https://github.com/lever/postings-api",
+  "termsCheckedAt": "2026-10-24T03:30:00.000Z",
+  "permission": "PUBLIC_API_DOCUMENTED",
+  "notes": "Second page of the spotify site (skip=50): 40 postings captured, 3 kept; a SHORT page, which is how the end of the board is recognised. Documented (https://github.com/lever/postings-api): a public read API, HTTPS only, \"Only published postings are public ... These jobs may be scraped by third parties\"; the only documented rate limit is on application POSTs (not used). robots.txt of both api.lever.co and api.eu.lever.co: User-agent * / Allow: / / Crawl-delay: 1 - a longer gap than the 500 ms proposed in ats-config.ts. The payload carries NO employer name; employer evidence is the posting text naming the employer. Observed drift from the documentation: workplaceType is \"onsite\" on the live API, the README lists \"on-site\"; createdAt is present on every posting but is not in the README's field list. E-mail addresses and phone numbers inside string values were replaced by a parser; personal NAMES in free-text descriptions cannot be found by a parser and were not redacted (records were chosen with short descriptions to limit exposure)."
+}

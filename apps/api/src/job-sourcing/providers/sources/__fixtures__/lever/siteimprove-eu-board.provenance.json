@@ -1,0 +1,12 @@
+{
+  "url": "https://api.eu.lever.co/v0/postings/siteimprove?mode=json&limit=50&skip=0",
+  "fetchedAt": "2026-10-24T02:16:18.000Z",
+  "httpStatus": 200,
+  "rawSha256": "bc15eb208b5d445abcbf78891b36edec689347616a133d16b6eb251e71b3d08e",
+  "fileSha256": "51c16ae00bdb20da6123ca040147ad0df8d8c0e6826aea22ced96bd6002eb806",
+  "trimmedBy": "node trim-ats-a-captures.mjs (JSON.parse, whole-record selection by posting id, regex redaction of e-mail addresses and separator-bearing phone numbers inside string values, JSON.stringify, prettier); never a byte cut",
+  "termsUrl": "https://github.com/lever/postings-api",
+  "termsCheckedAt": "2026-10-24T03:30:00.000Z",
+  "permission": "PUBLIC_API_DOCUMENTED",
+  "notes": "EU deployment (api.eu.lever.co): the whole siteimprove site is 12 postings, 3 kept (one with salaryRange, one remote). The same slug on the GLOBAL host answers 404, measured the same day, so region is part of a board's identity. hostedUrl is jobs.eu.lever.co/siteimprove/<uuid>. OWNERSHIP: 11 of 12 postings name Siteimprove in their text. Documented (https://github.com/lever/postings-api): a public read API, HTTPS only, \"Only published postings are public ... These jobs may be scraped by third parties\"; the only documented rate limit is on application POSTs (not used). robots.txt of both api.lever.co and api.eu.lever.co: User-agent * / Allow: / / Crawl-delay: 1 - a longer gap than the 500 ms proposed in ats-config.ts. The payload carries NO employer name; employer evidence is the posting text naming the employer. Observed drift from the documentation: workplaceType is \"onsite\" on the live API, the README lists \"on-site\"; createdAt is present on every posting but is not in the README's field list. E-mail addresses and phone numbers inside string values were replaced by a parser; personal NAMES in free-text descriptions cannot be found by a parser and were not redacted (records were chosen with short descriptions to limit exposure)."
+}

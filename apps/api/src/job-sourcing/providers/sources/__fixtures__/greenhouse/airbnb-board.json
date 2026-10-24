@@ -1,0 +1,160 @@
+{
+  "jobs": [
+    {
+      "absolute_url": "https://careers.airbnb.com/positions/8102684?gh_jid=8102684",
+      "data_compliance": [
+        {
+          "type": "gdpr",
+          "requires_consent": false,
+          "requires_processing_consent": false,
+          "requires_retention_consent": false,
+          "retention_period": null,
+          "demographic_data_consent_applies": false
+        }
+      ],
+      "internal_job_id": 3510291,
+      "location": { "name": "Bangalore, India" },
+      "metadata": [
+        {
+          "id": 9245691,
+          "name": "Is this job part of ACC?",
+          "value": true,
+          "value_type": "yes_no"
+        },
+        {
+          "id": 10216612,
+          "name": "Workplace Type",
+          "value": "Remote",
+          "value_type": "single_select"
+        }
+      ],
+      "id": 8102684,
+      "updated_at": "2026-10-22T09:26:06-04:00",
+      "requisition_id": "REQ51785",
+      "title": "Tech Lead Manager, Oracle ERP",
+      "company_name": "Airbnb",
+      "first_published": "2026-08-03T11:56:35-04:00",
+      "language": "en",
+      "application_deadline": null,
+      "content": "&lt;div class=&quot;content-intro&quot;&gt;&lt;p&gt;&lt;span style=&quot;font-family: helvetica, arial, sans-serif; font-size: 12pt;&quot;&gt;Airbnb was born in 2007 when two hosts welcomed three guests to their San Francisco home, and has since grown to over 5 million hosts who have welcomed over 2 billion guest arrivals in almost every country across the globe. Every day, hosts offer unique stays and experiences that make it possible for guests to connect with communities in a more authentic way.&lt;/span&gt;&lt;/p&gt;&lt;/div&gt;&lt;h4&gt;&lt;strong&gt;The Community You Will Join&lt;/strong&gt;&lt;/h4&gt;\n&lt;p&gt;The Integrations &amp;amp; Application Engineering team owns the integration and automation platforms at Airbnb. We enable teams across the company to self-serve in connecting their systems and automating solutions, and we integrate Airbnb’s enterprise systems end-to-end. The team also builds and manages custom in-house solutions and the application infrastructure that supports them.&lt;/p&gt;\n&lt;p&gt;This is a hybrid IC and people-leadership role focused on Finance integrations and automations. As a Tech Lead Manager, you will lead and grow a team of engineers while operating hands-on at a senior IC level, setting technical direction, owning delivery, and writing and reviewing code yourself. We’re looking for someone with deep ERP product knowledge who builds integrations in general-purpose languages, takes ownership of systems and people, and is enthusiastic about applying AI, building tools and integrations with Claude Code that extend what the team can do.&lt;/p&gt;\n&lt;h3&gt;&lt;strong&gt;A Typical Day&lt;/strong&gt;&lt;/h3&gt;\n&lt;ul&gt;\n&lt;li&gt;Lead the Finance and ERP integration practice: set direction, run initiatives in parallel, and own the systems and processes your team supports.&lt;/li&gt;\n&lt;li&gt;Balance management with hands-on work: unblock the team, review designs and code, and build complex integrations, backend services, APIs and MCPs yourself.&lt;/li&gt;\n&lt;li&gt;Partner with Finance, Procurement, and cross-functional teams to translate requirements into integrations, automations, and reporting.&lt;/li&gt;\n&lt;li&gt;Coach and grow engineers and contractors through design reviews, architecture discussions, and career development.&lt;/li&gt;\n&lt;li&gt;Own the smooth operation of month-end financial integrations and reporting, proactively surfacing and fixing gaps.&lt;/li&gt;\n&lt;li&gt;Explore the evolving GenAI landscape, evaluate new models and techniques, and share the learnings.&lt;/li&gt;\n&lt;/ul&gt;\n&lt;h3&gt;&lt;strong&gt;Role &amp;amp; Responsibilities&lt;/strong&gt;&lt;/h3&gt;\n&lt;ul&gt;\n&lt;li&gt;Lead a team of engineers, including hiring, mentoring, and developing careers, while personally contributing at a Staff IC level.&lt;/li&gt;\n&lt;li&gt;Own the architecture, delivery, and reliability of ERP and Finance integrations and microservices in Java / Python.&lt;/li&gt;\n&lt;li&gt;Migrate integrations from Oracle Cloud onto our in-house platform, and extend that platform so teams across Airbnb can self-serve.&lt;/li&gt;\n&lt;li&gt;Design and build AI-assisted automations and MCP integrations that extend internal platform capabilities.&lt;/li&gt;\n&lt;li&gt;Contribute to organizational priorities and to defining the team roadmap and strategy.&lt;/li&gt;\n&lt;li&gt;Uphold quality, reliability, and security through code reviews, testing, monitoring, and incident response.&lt;/li&gt;\n&lt;/ul&gt;\n&lt;h3&gt;&lt;strong&gt;Your Expertise&lt;/strong&gt;&lt;/h3&gt;\n&lt;h4&gt;&lt;strong&gt;Required:&lt;/strong&gt;&lt;/h4&gt;\n&lt;ul&gt;\n&lt;li&gt;10+ years of software engineering experience, including building and operating production systems and integrations.&lt;/li&gt;\n&lt;li&gt;Experience leading engineers as a manager or tech lead, with a genuine desire to grow the careers of others.&lt;/li&gt;\n&lt;li&gt;Strong ERP product knowledge (Oracle Cloud ERP or comparable), including Finance modules such as R2R, P2P, AP, and AR.&lt;/li&gt;\n&lt;li&gt;Strong proficiency in general-purpose languages (Java or Python), building microservices, APIs, and integrations from the ground up.&lt;/li&gt;\n&lt;li&gt;Experience using AI in development to ship products from prototype to production (LLMs, prompt engineering, RAG).&lt;/li&gt;\n&lt;li&gt;Strong relational database and SQL proficiency.&lt;/li&gt;\n&lt;li&gt;Proven ability to collaborate cross-functionally and influence without authority.&lt;/li&gt;\n&lt;li&gt;Excellent communication skills, with the ability to distill complex concepts for diverse audiences.&lt;/li&gt;\n&lt;/ul&gt;\n&lt;h4&gt;&lt;strong&gt;Preferred:&lt;/strong&gt;&lt;/h4&gt;\n&lt;ul&gt;\n&lt;li&gt;Hands-on experience with Oracle Integration Cloud (OIC) and OCI/PaaS, and Oracle reporting.&lt;/li&gt;\n&lt;li&gt;Experience building AI agents and MCPs, preferably using Claude.&lt;/li&gt;\n&lt;/ul&gt;&lt;div class=&quot;content-conclusion&quot;&gt;&lt;p&gt;&amp;nbsp;&lt;/p&gt;\n&lt;p&gt;&lt;span style=&quot;font-family: helvetica, arial, sans-serif; font-size: 12pt;&quot;&gt;&lt;strong&gt;Reasonable Accommodations:&lt;/strong&gt; We are committed to providing reasonable accommodations throughout the recruitment process for applicants with disabilities. If you need assistance, or an accommodation, please let your recruiter know once you are contacted about a role.&lt;/span&gt;&lt;/p&gt;\n&lt;p&gt;&lt;span style=&quot;font-family: helvetica, arial, sans-serif; font-size: 12pt;&quot;&gt;&lt;strong&gt;A Note on Recruiting Scams:&lt;/strong&gt; Scammers sometimes pose as Airbnb recruiters to get money or personal information from candidates. A few things that will always be true for Airbnb’s hiring process: our open roles are posted on Airbnb’s Career’s Page at careers.airbnb.com, and our recruiters correspond only from @&lt;a href=&quot;http://airbnb.com&quot;&gt;airbnb.com&lt;/a&gt; or @&lt;a href=&quot;http://ext.airbnb.com&quot;&gt;ext.airbnb.com&lt;/a&gt; email addresses. Our recruiters will never ask for your Social Security number, bank account details, passport, or payment app information while you are interviewing.&amp;nbsp; We’ll also never ask you to pay a fee, send money, deposit or cash a check, or purchase work-related equipment (such as a company laptop) during the interview process. We encourage candidates to remain vigilant of these recruiting scams and not share sensitive information if you do not believe an individual is actually affiliated with Airbnb.&lt;/span&gt;&lt;/p&gt;\n&lt;p&gt;&amp;nbsp;&lt;/p&gt;&lt;/div&gt;",
+      "departments": [
+        { "id": 77, "name": "Software Engineering", "child_ids": [], "parent_id": 73703 }
+      ],
+      "offices": [
+        {
+          "id": 75876,
+          "name": "Bangalore, India",
+          "location": null,
+          "child_ids": [],
+          "parent_id": 64272
+        }
+      ],
+      "ai_disclaimer": null,
+      "include_ai_disclaimer": null,
+      "ai_opt_out_request_url": null
+    },
+    {
+      "absolute_url": "https://careers.airbnb.com/positions/7789554?gh_jid=7789554",
+      "data_compliance": [
+        {
+          "type": "gdpr",
+          "requires_consent": false,
+          "requires_processing_consent": false,
+          "requires_retention_consent": false,
+          "retention_period": null,
+          "demographic_data_consent_applies": false
+        }
+      ],
+      "internal_job_id": 3407102,
+      "location": { "name": "Tokyo, Japan" },
+      "metadata": [
+        {
+          "id": 9245691,
+          "name": "Is this job part of ACC?",
+          "value": false,
+          "value_type": "yes_no"
+        },
+        {
+          "id": 10216612,
+          "name": "Workplace Type",
+          "value": "Hybrid",
+          "value_type": "single_select"
+        }
+      ],
+      "id": 7789554,
+      "updated_at": "2026-09-29T20:00:54-04:00",
+      "requisition_id": "ONE",
+      "title": "Associate Legal Counsel, Japan",
+      "company_name": "Airbnb",
+      "first_published": "2026-04-13T04:49:05-04:00",
+      "language": "en",
+      "application_deadline": null,
+      "content": "&lt;div class=&quot;content-intro&quot;&gt;&lt;p&gt;&lt;span style=&quot;font-family: helvetica, arial, sans-serif; font-size: 12pt;&quot;&gt;Airbnb was born in 2007 when two hosts welcomed three guests to their San Francisco home, and has since grown to over 5 million hosts who have welcomed over 2 billion guest arrivals in almost every country across the globe. Every day, hosts offer unique stays and experiences that make it possible for guests to connect with communities in a more authentic way.&lt;/span&gt;&lt;/p&gt;&lt;/div&gt;&lt;p&gt;&lt;span style=&quot;font-family: arial, helvetica, sans-serif; color: #000000;&quot;&gt;&lt;strong&gt;The Community You Will Join:&amp;nbsp;&lt;/strong&gt;&lt;/span&gt;&lt;/p&gt;\n&lt;p&gt;&lt;span style=&quot;font-family: arial, helvetica, sans-serif; color: #000000;&quot;&gt;Airbnb’s Legal team embodies the company’s innovative, forward-thinking spirit. At the frontier of the sharing economy, Airbnb is breaking new ground in matters of policy, law, and government relations. Where some see obstacles, we see the opportunity to find creative, practical solutions, right at the cutting edge. Our adventurous, fast-moving legal team is committed to building a team of talented, collaborative and self-motivated legal professionals across the globe who believe in Airbnb’s mission and leading as a 21st century company.&lt;/span&gt;&lt;/p&gt;\n&lt;p&gt;&amp;nbsp;&lt;/p&gt;\n&lt;p&gt;&lt;span style=&quot;font-family: arial, helvetica, sans-serif; color: #000000;&quot;&gt;&lt;strong&gt;The Difference You Will Make:&lt;/strong&gt;&lt;/span&gt;&lt;/p&gt;\n&lt;p&gt;We are in search of an Associate Legal Counsel for Japan.This role reports to the Associate General Counsel - Northeast Asia and serves as legal partner to many other teams outside Legal. Collaboration will be a key attribute as this role will work very closely with the other members of the legal team both in the region and globally.&amp;nbsp;&lt;/p&gt;\n&lt;p&gt;This role needs to be based in Japan. Any location in Japan is welcomed. Living in Tokyo or the greater Kanto area, with the ability to commute to the Tokyo office, is a plus. Candidates based elsewhere in Japan will need to travel to the Tokyo office roughly once or twice a month, as needed.&lt;/p&gt;\n&lt;p&gt;&amp;nbsp;&lt;/p&gt;\n&lt;p&gt;&lt;span style=&quot;font-family: arial, helvetica, sans-serif; color: #000000;&quot;&gt;&lt;strong&gt;A Typical Day:&amp;nbsp;&lt;/strong&gt;&lt;/span&gt;&lt;/p&gt;\n&lt;ul&gt;\n&lt;li&gt;Act as an effective and trusted partner to the fast-paced and high-performing Airbnb team.&amp;nbsp;&lt;/li&gt;\n&lt;li&gt;Deliver clear, effective and practical legal advice to the various business functions. These include business development, public policy, marketing and communications.&amp;nbsp;&amp;nbsp;&lt;/li&gt;\n&lt;li&gt;Legal advice includes regulatory matters, consumer protection, competition, marketing, employment, privacy, dispute resolution, and law enforcement.&amp;nbsp;&lt;/li&gt;\n&lt;li&gt;Be adept in making sensible legal risk assessments which consider practical solutions to mitigate legal risk whilst keeping business priorities at the forefront.&lt;/li&gt;\n&lt;/ul&gt;\n&lt;p&gt;&amp;nbsp;&lt;/p&gt;\n&lt;p&gt;&lt;span style=&quot;font-family: arial, helvetica, sans-serif; color: #000000;&quot;&gt;&lt;strong&gt;Your Expertise:&lt;/strong&gt;&lt;/span&gt;&lt;/p&gt;\n&lt;ul&gt;\n&lt;li&gt;Qualification in Japan (as bengoshi) is a must.&amp;nbsp;&lt;/li&gt;\n&lt;li&gt;Native-level command of Japanese (written and spoken) is a must.&lt;/li&gt;\n&lt;li&gt;Business-level English (written and spoken) is essential. High scores in standardized tests (TOEIC/TOEFL) is a plus.&lt;/li&gt;\n&lt;li&gt;Minimum 2years post-qualification experience - In-house (including secondment from a law firm) in an MNC and/or start-up is a plus.&lt;/li&gt;\n&lt;li&gt;Consistently delivers creative, thoughtful and business-oriented results that appropriately balance growth and risk.&lt;/li&gt;\n&lt;li&gt;Tech-forward mindset with a proactive willingness to leverage AI tools to optimize legal productivity.&lt;/li&gt;\n&lt;li&gt;Team player, highly collaborative with excellent communication and listening skills.&amp;nbsp;&lt;/li&gt;\n&lt;li&gt;Proactive owner who takes initiative while navigating competing priorities in a fast-paced environment.&lt;/li&gt;\n&lt;li&gt;Empathetic, caring and humble.&lt;/li&gt;\n&lt;li&gt;Occasional travel may be required: domestic travel to the Tokyo office roughly once or twice a month for candidates based outside the Kanto area, and international travel typically once a year for a few days. We give full consideration to individual circumstances and family commitments&lt;/li&gt;\n&lt;/ul&gt;\n&lt;p&gt;&amp;nbsp;&lt;/p&gt;\n&lt;p&gt;&lt;span style=&quot;font-family: arial, helvetica, sans-serif; color: #000000;&quot;&gt;&lt;strong&gt;Our Commitment To Inclusion &amp;amp; Belonging:&lt;/strong&gt;&lt;/span&gt;&lt;/p&gt;\n&lt;p&gt;&lt;span style=&quot;font-family: arial, helvetica, sans-serif; color: #000000;&quot;&gt;Airbnb is committed to working with the broadest talent pool possible. We believe diverse ideas foster innovation and engagement, and allow us to attract creatively-led people, and to develop the best products, services and solutions. All qualified individuals are encouraged to apply.&lt;/span&gt;&lt;/p&gt;\n&lt;p&gt;&amp;nbsp;&lt;/p&gt;&lt;div class=&quot;content-conclusion&quot;&gt;&lt;p&gt;&amp;nbsp;&lt;/p&gt;\n&lt;p&gt;&lt;span style=&quot;font-family: helvetica, arial, sans-serif; font-size: 12pt;&quot;&gt;&lt;strong&gt;Reasonable Accommodations:&lt;/strong&gt; We are committed to providing reasonable accommodations throughout the recruitment process for applicants with disabilities. If you need assistance, or an accommodation, please let your recruiter know once you are contacted about a role.&lt;/span&gt;&lt;/p&gt;\n&lt;p&gt;&lt;span style=&quot;font-family: helvetica, arial, sans-serif; font-size: 12pt;&quot;&gt;&lt;strong&gt;A Note on Recruiting Scams:&lt;/strong&gt; Scammers sometimes pose as Airbnb recruiters to get money or personal information from candidates. A few things that will always be true for Airbnb’s hiring process: our open roles are posted on Airbnb’s Career’s Page at careers.airbnb.com, and our recruiters correspond only from @&lt;a href=&quot;http://airbnb.com&quot;&gt;airbnb.com&lt;/a&gt; or @&lt;a href=&quot;http://ext.airbnb.com&quot;&gt;ext.airbnb.com&lt;/a&gt; email addresses. Our recruiters will never ask for your Social Security number, bank account details, passport, or payment app information while you are interviewing.&amp;nbsp; We’ll also never ask you to pay a fee, send money, deposit or cash a check, or purchase work-related equipment (such as a company laptop) during the interview process. We encourage candidates to remain vigilant of these recruiting scams and not share sensitive information if you do not believe an individual is actually affiliated with Airbnb.&lt;/span&gt;&lt;/p&gt;\n&lt;p&gt;&amp;nbsp;&lt;/p&gt;&lt;/div&gt;",
+      "departments": [{ "id": 253, "name": "Legal", "child_ids": [], "parent_id": 73696 }],
+      "offices": [
+        {
+          "id": 625,
+          "name": "Tokyo, Japan",
+          "location": "Tokyo, Japan",
+          "child_ids": [],
+          "parent_id": 64274
+        }
+      ],
+      "ai_disclaimer": null,
+      "include_ai_disclaimer": null,
+      "ai_opt_out_request_url": null
+    },
+    {
+      "absolute_url": "https://careers.airbnb.com/positions/8303135?gh_jid=8303135",
+      "data_compliance": [
+        {
+          "type": "gdpr",
+          "requires_consent": false,
+          "requires_processing_consent": false,
+          "requires_retention_consent": false,
+          "retention_period": null,
+          "demographic_data_consent_applies": false
+        }
+      ],
+      "internal_job_id": 3590069,
+      "location": { "name": "Paris, France " },
+      "metadata": [
+        {
+          "id": 9245691,
+          "name": "Is this job part of ACC?",
+          "value": false,
+          "value_type": "yes_no"
+        },
+        {
+          "id": 10216612,
+          "name": "Workplace Type",
+          "value": "Hybrid",
+          "value_type": "single_select"
+        }
+      ],
+      "id": 8303135,
+      "updated_at": "2026-10-20T12:01:26-04:00",
+      "requisition_id": "ONE",
+      "title": "Market Coordinator (12 Month Fixed-Term Contract)",
+      "company_name": "Airbnb",
+      "first_published": "2026-10-20T12:01:26-04:00",
+      "language": "en",
+      "application_deadline": null,
+      "content": "&lt;div class=&quot;content-intro&quot;&gt;&lt;p&gt;&lt;span style=&quot;font-family: helvetica, arial, sans-serif; font-size: 12pt;&quot;&gt;Airbnb was born in 2007 when two hosts welcomed three guests to their San Francisco home, and has since grown to over 5 million hosts who have welcomed over 2 billion guest arrivals in almost every country across the globe. Every day, hosts offer unique stays and experiences that make it possible for guests to connect with communities in a more authentic way.&lt;/span&gt;&lt;/p&gt;&lt;/div&gt;&lt;p&gt;&lt;em&gt;Please note this is a 12 Month Fixed-Term hybrid position from our Paris office. Please submit your CV in English.&lt;/em&gt;&lt;/p&gt;\n&lt;p&gt;&lt;strong&gt;The Community You Will Join&lt;/strong&gt;&lt;/p&gt;\n&lt;p&gt;The Market Coordinator plays a pivotal role in supporting Airbnb’s Field Team by managing high value Host-related inquiries and escalations in the FR-Benelux Region.&amp;nbsp;&lt;/p&gt;\n&lt;p&gt;&lt;strong&gt;The Difference You Will Make&lt;/strong&gt;&lt;/p&gt;\n&lt;p&gt;Acting as a critical liaison between Hosts and internal teams, the Market Coordinator ensures timely resolution of issues while delivering exceptional service. You support the Market Management Field Teams by sharing your ideas and recommendations and by building good relationships with those you work with, both inside and outside of your team.&amp;nbsp;&lt;/p&gt;\n&lt;p&gt;The ultimate aim of the Market Coordinator role is to streamline processes, enhance Host satisfaction, and allow Market Managers to dedicate more time to strategic revenue-focused initiatives.&lt;/p&gt;\n&lt;p&gt;This role provides a balance of independent problem-solving and collaborative teamwork, making it integral to Airbnb’s mission of creating an efficient, supportive, and proactive hosting environment.&lt;/p&gt;\n&lt;p&gt;&lt;strong&gt;A Typical Day&lt;/strong&gt;&lt;/p&gt;\n&lt;ul&gt;\n&lt;li&gt;Serve as an additional Host-facing support for the Market Management Team&amp;nbsp;&lt;/li&gt;\n&lt;li&gt;Master and maintain knowledge of company policies and procedures inside and out, being an expert in Community Support and brand risk topics&lt;/li&gt;\n&lt;li&gt;Provide end-to-end resolution and communication to Hosts while maintaining professionalism and clarity&amp;nbsp;&lt;/li&gt;\n&lt;li&gt;Conduct in-depth research to address and resolve Host issues&lt;/li&gt;\n&lt;li&gt;Triage and assign escalations tickets and and provide recommendations for efficient resolution&lt;/li&gt;\n&lt;li&gt;Respond promptly and accurately to Host inquiries via email, maintaining a high level of service in a dynamic environment&lt;/li&gt;\n&lt;li&gt;Work to proactively improve the listing quality of the hosts in your region as we drive to increase the percentage of 5-star bookings in your markets&lt;/li&gt;\n&lt;li&gt;Support In-Market events for your territory, when required&lt;/li&gt;\n&lt;li&gt;Effective communication in the context of stakeholders management&lt;/li&gt;\n&lt;li&gt;Proven track record of meeting or exceeding SLA response times&lt;/li&gt;\n&lt;/ul&gt;\n&lt;p&gt;&lt;strong&gt;Your Expertise&lt;/strong&gt;&lt;/p&gt;\n&lt;ul&gt;\n&lt;li&gt;3+ years as a Customer Support Representative or Account Management&lt;/li&gt;\n&lt;li&gt;2+ years of hospitality/travel industry experience (nice to have)&lt;/li&gt;\n&lt;li&gt;Language skills required: fluent English &amp;amp; French&lt;/li&gt;\n&lt;li&gt;Proven expertise in handling high value and time sensitive customer service inquiries with strong active listening and problem-solving skills&lt;/li&gt;\n&lt;li&gt;Exceptional written and verbal communication abilities.&lt;/li&gt;\n&lt;li&gt;Ability to manage multiple priorities and execute tasks efficiently in a fast-paced environment&lt;/li&gt;\n&lt;li&gt;Proven ability to analyze and assess challenges with a track record of solving complex issues&lt;/li&gt;\n&lt;li&gt;Skilled at de-escalating conflicts and achieving resolutions, even when outcomes may not meet Host expectations&lt;/li&gt;\n&lt;li&gt;Strong analytical skills that will enable you to support your peers, Lead and Market Managers&lt;/li&gt;\n&lt;li&gt;Proficiency in tools like Salesforce, G-Suite, and Jira (preferred)&lt;/li&gt;\n&lt;li&gt;Previous experience in hospitality, customer service, or a related field&lt;/li&gt;\n&lt;li&gt;Strong attention to detail and organizational skills&lt;/li&gt;\n&lt;/ul&gt;&lt;div class=&quot;content-pay-transparency&quot;&gt;&lt;div class=&quot;pay-input&quot;&gt;&lt;div class=&quot;description&quot;&gt;&lt;p&gt;&lt;span style=&quot;font-size: 16px;&quot;&gt;&lt;strong&gt;&lt;span style=&quot;font-family: arial, helvetica, sans-serif; color: rgb(0, 0, 0);&quot;&gt;How We&#39;ll Take Care of You:&lt;/span&gt;&lt;/strong&gt;&lt;/span&gt;&lt;/p&gt;\n&lt;p&gt;&lt;span style=&quot;font-size: 16px;&quot;&gt;The actual base pay is dependent upon many factors, such as: training, transferable skills, work experience, business needs and market demands. The base pay range shown below is annualized, is subject to change and may be modified in the future. This role may also be eligible for bonus, benefits, and Employee Travel Credits.&lt;/span&gt;&lt;/p&gt;&lt;/div&gt;&lt;div class=&quot;title&quot;&gt;France Annual Pay Range&lt;/div&gt;&lt;div class=&quot;pay-range&quot;&gt;&lt;span&gt;€48.000&lt;/span&gt;&lt;span class=&quot;divider&quot;&gt;&amp;mdash;&lt;/span&gt;&lt;span&gt;€56.000 EUR&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class=&quot;content-conclusion&quot;&gt;&lt;p&gt;&amp;nbsp;&lt;/p&gt;\n&lt;p&gt;&lt;span style=&quot;font-family: helvetica, arial, sans-serif; font-size: 12pt;&quot;&gt;&lt;strong&gt;Reasonable Accommodations:&lt;/strong&gt; We are committed to providing reasonable accommodations throughout the recruitment process for applicants with disabilities. If you need assistance, or an accommodation, please let your recruiter know once you are contacted about a role.&lt;/span&gt;&lt;/p&gt;\n&lt;p&gt;&lt;span style=&quot;font-family: helvetica, arial, sans-serif; font-size: 12pt;&quot;&gt;&lt;strong&gt;A Note on Recruiting Scams:&lt;/strong&gt; Scammers sometimes pose as Airbnb recruiters to get money or personal information from candidates. A few things that will always be true for Airbnb’s hiring process: our open roles are posted on Airbnb’s Career’s Page at careers.airbnb.com, and our recruiters correspond only from @&lt;a href=&quot;http://airbnb.com&quot;&gt;airbnb.com&lt;/a&gt; or @&lt;a href=&quot;http://ext.airbnb.com&quot;&gt;ext.airbnb.com&lt;/a&gt; email addresses. Our recruiters will never ask for your Social Security number, bank account details, passport, or payment app information while you are interviewing.&amp;nbsp; We’ll also never ask you to pay a fee, send money, deposit or cash a check, or purchase work-related equipment (such as a company laptop) during the interview process. We encourage candidates to remain vigilant of these recruiting scams and not share sensitive information if you do not believe an individual is actually affiliated with Airbnb.&lt;/span&gt;&lt;/p&gt;\n&lt;p&gt;&amp;nbsp;&lt;/p&gt;&lt;/div&gt;",
+      "departments": [{ "id": 57796, "name": "Sales", "child_ids": [], "parent_id": 73691 }],
+      "offices": [
+        {
+          "id": 178,
+          "name": "Paris, France",
+          "location": "Paris, France",
+          "child_ids": [],
+          "parent_id": 64281
+        }
+      ],
+      "ai_disclaimer": null,
+      "include_ai_disclaimer": null,
+      "ai_opt_out_request_url": null
+    }
+  ],
+  "meta": { "total": 3 }
+}

@@ -1,0 +1,116 @@
+[
+  {
+    "additional": "",
+    "additionalPlain": "",
+    "categories": {
+      "commitment": "Permanent",
+      "department": "Engineering",
+      "location": "London",
+      "team": "Experience",
+      "allLocations": ["London", "Stockholm"]
+    },
+    "createdAt": 1792601057090,
+    "descriptionPlain": "",
+    "description": "<div>\n<p>We design Spotify’s consumer experience—end to end, moment to moment, across every screen, platform, and partner integration. Our mission is to make listening feel effortless, personal, and joyful for billions of users around the world. That means turning complexity into clarity across hundreds of touchpoints—from our mobile and desktop apps to the smart speakers, TVs, cars, and integrations where Spotify shows up every day. If it touches a consumer, we shape it. We bring deep insight into human behavior, design, and technology to craft experiences that feel intuitive, expressive, and unmistakably Spotify.</p>\n<p>We own music content ingestion at Spotify, which is how music from labels, distributors and other partners gets onto the platform. We receive industry-standard deliveries, validate them, and turn them into the catalog data that teams across Spotify build on, including lyrics, rights and supply data. As we add new content types and partners, we’re building an ingestion platform that scales without a custom build every time.</p>\n</div>",
+    "id": "9f66e598-8587-4a57-8552-2cdb8672014a",
+    "lists": [
+      {
+        "text": "What You'll Do",
+        "content": "<div>\n\n<li>Build and run the backend services and data pipelines that ingest, validate and process music deliveries from partners, covering audio, metadata, lyrics and new content types</li>\n<li>Own large parts of the ingestion pipeline and lead technical work as we add video, richer partner data and other new content</li>\n<li>Make ingestion more reliable, catch data quality problems at the point of entry, and improve the operational tooling around the pipeline</li>\n<li>Design and evolve APIs and schemas that other teams depend on, keeping contracts stable and backward compatible</li>\n<li>Help move validation towards real time and make Silk Road a well-documented, self-serve platform</li>\n<li>Deliver roadmap work, take part in planning, review code, and share on-call</li>\n<li>Work with Content Ops, operations tooling teams, partner teams and the product teams that build on our content</li>\n\n</div>"
+      },
+      {
+        "text": "Who You Are",
+        "content": "<div>\n\n<li>You have strong experience building and operating backend services and data pipelines in production at scale, ideally in Java, Scala or Go</li>\n<li>You have designed APIs and handled schema evolution and backward compatibility in systems where other teams rely on stable contracts</li>\n<li>You’re comfortable modelling data for auditability, versioning and efficient querying and&nbsp; understand the tradeoffs between real-time and batch processing</li>\n<li>You lead projects from discovery to handover, make sound technical decisions, and mentor others</li>\n<li>You may have worked with content ingestion, metadata standards such as DDEX, B2B partner integrations, rights or compliance-sensitive data, lyrics or time-synced data, or GCP.</li>\n\n</div>"
+      },
+      {
+        "text": "Where You'll Be",
+        "content": "\n<li>This role is based in London or Stockholm.</li>\n<li>We offer you the flexibility to work where you work best! There will be some in person meetings, but still allows for flexibility to work from home.</li>\n"
+      }
+    ],
+    "text": "Senior Backend Engineer - Content Platform",
+    "country": "GB",
+    "workplaceType": "hybrid",
+    "opening": "",
+    "openingPlain": "",
+    "descriptionBody": "<div>\n<p>We design Spotify&rsquo;s consumer experience&mdash;end to end, moment to moment, across every screen, platform, and partner integration. Our mission is to make listening feel effortless, personal, and joyful for billions of users around the world. That means turning complexity into clarity across hundreds of touchpoints&mdash;from our mobile and desktop apps to the smart speakers, TVs, cars, and integrations where Spotify shows up every day. If it touches a consumer, we shape it. We bring deep insight into human behavior, design, and technology to craft experiences that feel intuitive, expressive, and unmistakably Spotify.</p>\n<p>We own music content ingestion at Spotify, which is how music from labels, distributors and other partners gets onto the platform. We receive industry-standard deliveries, validate them, and turn them into the catalog data that teams across Spotify build on, including lyrics, rights and supply data. As we add new content types and partners, we&rsquo;re building an ingestion platform that scales without a custom build every time.</p>\n</div>",
+    "descriptionBodyPlain": "",
+    "hostedUrl": "https://jobs.lever.co/spotify/9f66e598-8587-4a57-8552-2cdb8672014a",
+    "applyUrl": "https://jobs.lever.co/spotify/9f66e598-8587-4a57-8552-2cdb8672014a/apply"
+  },
+  {
+    "additional": "",
+    "additionalPlain": "",
+    "categories": {
+      "commitment": "Permanent",
+      "department": "Markets and Subscriber Growth",
+      "location": "Mumbai",
+      "team": "Premium Business",
+      "allLocations": ["Mumbai"]
+    },
+    "createdAt": 1791281616397,
+    "descriptionPlain": "",
+    "description": "<div>\n<p data-pm-slice=\"1 1 []\">You’ll join the Premium Growth India team within the Markets &amp; Subscriptions organisation, focused on making Spotify Premium an increasingly desirable music experience in India. Sitting at the intersection of marketing, product, music, and strategy, the team works closely with Music, Marketing, Partnerships, and other teams to grow Premium through cultural relevance and artist-led initiatives.</p>\n<p>In this role, you’ll own Premium desirability and the artist and partner Premium flywheel for India, shaping how we work with artists, cultural moments, fandom, and partnerships to drive Premium consideration and measurable conversion at scale.</p>\n</div>",
+    "id": "9fd98cde-6a1b-419c-a27a-daae7a7483f0",
+    "lists": [
+      {
+        "text": "What You’ll Do",
+        "content": "<div>\n<ul data-spread=\"false\" data-pm-slice=\"3 3 []\">\n<li>\n<p>Define and execute the Premium desirability strategy for India, using artist-led and culturally relevant initiatives to drive consideration and conversion.</p>\n</li>\n<li>\n<p>Own the artist and partner flywheel for Premium growth, evolving artist advocacy, fan experiences, and partnership programs toward measurable Premium outcomes.</p>\n</li>\n<li>\n<p>Shape and execute the Premium opportunity within existing in-person activations, including film partnerships, bespoke music events, festivals, and other relevant cultural moments.</p>\n</li>\n<li>\n<p>Partner with local Music &amp; Podcasts, Marketing, Partnerships, and other teams to identify and activate artists, creators, and partners that can help grow Premium.</p>\n</li>\n<li>\n<p>Design and run desirability initiatives with clear success metrics, using performance data and audience behaviour to understand what works and continuously improve the strategy.</p>\n</li>\n<li>\n<p>Own the fandom value opportunity for Premium end-to-end, from identifying opportunities to partnering with Product on fan-facing Premium features and experiences.</p>\n</li>\n<li>\n<p>Develop business cases and evaluate the impact of desirability, artist, and partner initiatives to inform where we invest and scale.</p>\n</li>\n<li>\n<p>Capture and share learnings that strengthen the India Premium Growth playbook, contribute to cross-regional Growth initiatives, and support adjacent growth priorities when business needs require it.</p>\n</li>\n<li>\n<p>Integrate AI-driven tools and workflows thoughtfully to improve decision-making and execution efficiency.</p>\n</li>\n\n</ul></div>"
+      },
+      {
+        "text": "Who You Are",
+        "content": "<div>\n<ul data-spread=\"false\" data-pm-slice=\"3 3 []\">\n<li>\n<p>You have 5+ years of experience across growth, marketing, partnerships, strategy, or related roles in a digital consumer business such as streaming, music, entertainment, media, or technology.</p>\n</li>\n<li>\n<p>You have strong experience with music and fandom and understand how fan communities form, what drives engagement, and how fandom can translate into measurable business outcomes.</p>\n</li>\n<li>\n<p>You understand growth marketing and connect cultural and creative ideas to measurable outcomes such as consideration, conversion, and subscriber growth.</p>\n</li>\n<li>\n<p>You have experience independently owning and scaling artist-led campaigns, partnerships, live experiences, or similarly complex consumer initiatives from strategy through execution and measurement.</p>\n</li>\n<li>\n<p>You are comfortable using data and audience insights to make decisions, test hypotheses, measure impact, and refine your approach.</p>\n</li>\n<li>\n<p>You work effectively across functions and can influence outcomes without direct authority, particularly when collaborating with Music, Marketing, Partnerships, Product, and other teams.</p>\n</li>\n<li>\n<p>You are curious about cultural trends and user behaviour in India and enjoy testing, learning, and iterating to understand what drives Premium consideration and conversion.</p>\n</li>\n<li>\n<p>Experience working directly with artists, labels, fan platforms, music or entertainment marketing, or Product teams on consumer-facing experiences can help you succeed in this role.</p>\n</li>\n\n</ul></div>"
+      },
+      {
+        "text": "Where You’ll Be",
+        "content": "<div>\n<ul data-spread=\"false\" data-pm-slice=\"3 3 []\">\n<li>\n<p>This role is based in Mumbai</p>\n</li>\n<li>\n<p>We offer you the flexibility to work where you work best! There will be some in person meetings, but still allows for flexibility to work from home.</p>\n</li>\n\n</ul></div>"
+      }
+    ],
+    "text": "Senior Growth Manager",
+    "country": "IN",
+    "workplaceType": "onsite",
+    "opening": "",
+    "openingPlain": "",
+    "descriptionBody": "<div>\n<p data-pm-slice=\"1 1 []\">You&rsquo;ll join the Premium Growth India team within the Markets &amp; Subscriptions organisation, focused on making Spotify Premium an increasingly desirable music experience in India. Sitting at the intersection of marketing, product, music, and strategy, the team works closely with Music, Marketing, Partnerships, and other teams to grow Premium through cultural relevance and artist-led initiatives.</p>\n<p>In this role, you&rsquo;ll own Premium desirability and the artist and partner Premium flywheel for India, shaping how we work with artists, cultural moments, fandom, and partnerships to drive Premium consideration and measurable conversion at scale.</p>\n</div>",
+    "descriptionBodyPlain": "",
+    "hostedUrl": "https://jobs.lever.co/spotify/9fd98cde-6a1b-419c-a27a-daae7a7483f0",
+    "applyUrl": "https://jobs.lever.co/spotify/9fd98cde-6a1b-419c-a27a-daae7a7483f0/apply"
+  },
+  {
+    "additionalPlain": "The United States base range for this position is $92,126–$131,609, plus equity. The benefits available for this position include health insurance, six-month paid parental leave, 401(k) retirement plan, monthly meal allowance, 23 paid days off, paid flexible holidays, and paid sick leave. These ranges may be modified in the future.\n",
+    "additional": "<div>\n<p data-pm-slice=\"1 1 []\">The United States base range for this position is $92,126–$131,609, plus equity. The benefits available for this position include health insurance, six-month paid parental leave, 401(k) retirement plan, monthly meal allowance, 23 paid days off, paid flexible holidays, and paid sick leave. These ranges may be modified in the future.</p>\n</div>",
+    "categories": {
+      "commitment": "Permanent",
+      "department": "Content",
+      "location": "Los Angeles, CA",
+      "team": "Podcast Business",
+      "allLocations": ["Los Angeles, CA"]
+    },
+    "createdAt": 1791310998061,
+    "descriptionPlain": "The Ringer is looking for an experienced Talent Relations Manager to work with high-profile talent and book guests across our slate of shows. You’ll partner closely with our content teams, hosts, and producers to identify compelling talent opportunities and strategically book guests who connect with each show’s audience. You’ll bring strong relationships across the entertainment industry, sound judgment, and a genuine passion for podcasts and culture.\n",
+    "description": "<div>\n<p data-pm-slice=\"1 1 []\">The Ringer is looking for an experienced Talent Relations Manager to work with high-profile talent and book guests across our slate of shows. You’ll partner closely with our content teams, hosts, and producers to identify compelling talent opportunities and strategically book guests who connect with each show’s audience. You’ll bring strong relationships across the entertainment industry, sound judgment, and a genuine passion for podcasts and culture.</p>\n</div>",
+    "id": "1f56d4be-4e54-441a-ad05-946b9efcc391",
+    "lists": [
+      {
+        "text": "What You'll Do",
+        "content": "<div>\n\n<li>Manage talent bookings across The Ringer’s podcast network, partnering closely with hosts and producers to identify and secure compelling guests.</li>\n<li>Build consistent workflows and communication with show teams, including regular check-ins, guest pitches, and planning around tentpole events and key coverage moments.</li>\n<li>Develop thoughtful guest strategies that align talent opportunities with each show’s audience, voice, and editorial priorities.</li>\n<li>Support hosts and producers in preparing for guest appearances and help ensure teams have the information and resources they need.</li>\n<li>Build trusted relationships with hosts across the network and act as a bridge between show teams and senior leadership.</li>\n<li>Develop and maintain strong external relationships with talent, managers, agents, publicists, PR firms, studios, and networks.</li>\n<li>Keep internal and external partners informed about new shows, launches, and opportunities across The Ringer network.</li>\n\n</div>"
+      },
+      {
+        "text": "Who You Are",
+        "content": "<div>\n\n<li>You have 5+ years of relevant experience working with celebrities, creators, managers, publicists, or other partners across the entertainment industry.</li>\n<li>You have a demonstrated track record of booking high-profile guests and building trusted relationships with talent and their representatives.</li>\n<li>You are a persuasive and thoughtful communicator who knows how to develop and pitch opportunities to internal and external partners.</li>\n<li>You use audience insights, performance data, and strong editorial judgment to inform talent and booking decisions.</li>\n<li>You have experience booking talent for podcasts, digital content, television, film, or related entertainment formats.</li>\n<li>You have a strong understanding of pop culture and stay curious about emerging talent, conversations, and cultural moments.</li>\n<li>You bring professionalism, discretion, sound judgment, and strong organizational skills to sensitive and fast-moving situations.</li>\n<li>You are comfortable adapting to changing talent needs and traveling when the role requires it.</li>\n\n</div>"
+      },
+      {
+        "text": "Where You'll Be",
+        "content": "<div>\n\n<li>This role is based in Los Angeles, California.</li>\n<li>We offer you the flexibility to work where you work best! There will be some in person meetings, but still allows for flexibility to work from home. We ask that you come in 3-4 days a week.</li>\n\n</div>"
+      }
+    ],
+    "text": "Talent Relations Manager",
+    "country": "US",
+    "workplaceType": "hybrid",
+    "opening": "",
+    "openingPlain": "",
+    "descriptionBody": "<div>\n<p data-pm-slice=\"1 1 []\">The Ringer is looking for an experienced Talent Relations Manager to work with high-profile talent and book guests across our slate of shows. You&rsquo;ll partner closely with our content teams, hosts, and producers to identify compelling talent opportunities and strategically book guests who connect with each show&rsquo;s audience. You&rsquo;ll bring strong relationships across the entertainment industry, sound judgment, and a genuine passion for podcasts and culture.</p>\n</div>",
+    "descriptionBodyPlain": "The Ringer is looking for an experienced Talent Relations Manager to work with high-profile talent and book guests across our slate of shows. You’ll partner closely with our content teams, hosts, and producers to identify compelling talent opportunities and strategically book guests who connect with each show’s audience. You’ll bring strong relationships across the entertainment industry, sound judgment, and a genuine passion for podcasts and culture.\n",
+    "hostedUrl": "https://jobs.lever.co/spotify/1f56d4be-4e54-441a-ad05-946b9efcc391",
+    "applyUrl": "https://jobs.lever.co/spotify/1f56d4be-4e54-441a-ad05-946b9efcc391/apply"
+  }
+]
