@@ -590,6 +590,32 @@ before `JSON.parse` is entered (its own spec).
 - **Real-Postgres:** none needed beyond the existing DOU integration spec, which must stay green.
 - **Model:** sonnet, medium.
 
+### T1b — correct T1's account key (follow-up migration)
+
+Added in review round 3 (SR-M-3), because T1 was already dispatched from its current text and that
+text is left unchanged. The defect and the correct key are described under Option A, "Defect in T1
+as dispatched".
+
+- **Files:** the Drizzle schema (`jobCollectionRuns.account_key`); a new
+  `apps/api/drizzle/manual/<date>_job_runs_account_key_text.sql`; its line in `deploy.yml`'s ordered
+  list (a DevOps-zone line, so the dispatch names it); the privileges manifest only if a class
+  changes.
+- **Change:** `account_key` becomes `text NOT NULL`. It is backfilled from
+  `job_account_meters.account_key` through `job_sources.account_meter_id`, or from
+  `'source:' || source_id` when the source has no meter. The partial unique index on
+  `(account_key) WHERE outcome = 'STARTED'` is rebuilt over the new column. If T1 has not merged
+  when T1b is dispatched, Master may fold T1b into T1's review round instead; the text here does not
+  presume which.
+- **Depends on:** T1.
+- **AC:** (1) two sources of one paid account, bound to different unit rows of that account's
+  meters, cannot both hold a `STARTED` run (23505); (2) two sources of different accounts can;
+  (3) the backfill writes the meter's `account_key` for a metered source and `'source:<id>'` for an
+  unmetered one, and a second application changes nothing; (4) the catalog check passes, and
+  `crm_app` gains no privilege.
+- **Real-Postgres:** the three refusals and permissions of AC 1–2, each in its own transaction; the
+  backfill over a seeded mix of metered and unmetered sources.
+- **Model:** opus (Drizzle migration). **security-reviewer mandatory.**
+
 ### T3 — run ledger (the core of this ADR)
 
 - **Files:** a new `job-sourcing/ownership/` module (`JobRunLedger`: `claimDue`, `heartbeat`,
@@ -876,12 +902,15 @@ dispatched with a fixed scope, so the storage is a new task rather than a larger
 
 - **Files:** `JobSourcingCronService`; `JobSourcingModule`.
 - **Carries:** the existing `@Cron('0 5 * * *')` and a new 02:30 HTML schedule, **both with
-  `timeZone: 'Europe/Kyiv'`** (F7: today there is none). Handlers only enqueue (create the cycle and
-  call `recoverExpired`, then `claimDue` through the worker), and keep the try/catch-never-rethrow
+  `timeZone: 'Europe/Kyiv'`** (F7: today there is none). Handlers only enqueue: create the cycle,
+  call `recoverExpired` and `settleStaleUncertain` (the `UNCERTAIN` resolver's entry point), then
+  `claimDue` through the worker. They keep the try/catch-never-rethrow
   convention (C-23). DST and restarts are repaired by due-work reconciliation and idempotent claims.
 - **Depends on:** T7.
 - **AC:** (1) both decorators carry the zone; (2) a handler that throws inside does not rethrow;
-  (3) two ticks in one minute create no second claim.
+  (3) two ticks in one minute create no second claim; (4) each tick calls `recoverExpired` and
+  `settleStaleUncertain` before `claimDue`, and a failure in either does not prevent the claim
+  step.
 - **Real-Postgres:** a DST-shift catch-up case (clock injected) and a double tick.
 - **Model:** sonnet, low–medium.
 
@@ -936,8 +965,24 @@ backlog entry, if Master writes one, should point here rather than duplicate the
 ## What this ADR does not decide
 
 - **The numeric values** of the lease length `L`, the heartbeat interval, the pool size `N`, the
-  per-run deadline, and the backoff cap. The plan freezes them after MP-05 measurements. This ADR
-  fixes only that they are config values with ceilings.
+  per-run deadline, the backoff cap, `MAX_CONSECUTIVE_FAILURES` and `UNCERTAIN_MAX_AGE`. The plan
+  freezes them after MP-05 measurements. This ADR fixes only that they are config values with
+  ceilings, and that `L` exceeds the per-request timeout plus the pool's acquire timeout.
+- **The operator surface for `UNCERTAIN` holds** (how an ADMIN sees and settles one with a provider
+  figure). This ADR fixes the store operation and the automatic age rule, not the UI.
+- **A lint ban on direct HTTP in adapters (follow-up, round 3, SR-L-5).** T7's send-permit guard
+  works in-process, on calls that go through the production `CollectionContext`. An adapter that
+  bypassed the context, calling `fetch` or an HTTP client directly, would send requests that no
+  reservation records. After recovery releases its `RESERVED` row, that cost is then under-counted.
+  On `d0f876f33` no reporting adapter does this. There are exactly two non-test
+  `ctx.fetchText(` call sites. The only direct `fetch(` calls under `job-sourcing/` are the
+  transport (`boundedFetchText`) and the legacy `DouRssProvider`, which uses no account meter and
+  stays on the legacy path. Run
+  `git grep -n -E "(^|[^.a-zA-Z])fetch\(" origin/main -- apps/api/src/job-sourcing ':!*.spec.ts'`
+  to check. The proposed follow-up is an ESLint rule (`no-restricted-imports` /
+  `no-restricted-globals` over `providers/**`) refusing `fetch`, `undici` and `node:http(s)`
+  outside the transport module. It is recorded here, not assigned, because it is a lint-config
+  change in the Coder's and DevOps' zones.
 - **Whether T0's fix makes a pre-parse node bound unnecessary.** T6 records that decision.
 - **The 404 and retry policy itself.** T6 decides it. This ADR says only that it is decided
   together with status propagation.
