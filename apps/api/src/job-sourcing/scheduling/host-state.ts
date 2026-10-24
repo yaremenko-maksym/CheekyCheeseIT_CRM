@@ -196,8 +196,18 @@ export type HostSlot =
   | { readonly granted: true }
   | { readonly granted: false; readonly reason: HostRefusal; readonly opensAt: Date | null }
 
+/**
+ * A timestamp the DATABASE computed, as a `Date`. drizzle's node-postgres driver hands
+ * `timestamptz` back as text, a raw `pg` client as a `Date`; anything unreadable is `null`. This
+ * converts a database value; it never reads a clock.
+ */
+function dbInstant(value: unknown): Date | null {
+  const at = value instanceof Date ? value : typeof value === 'string' ? new Date(value) : null
+  return at !== null && Number.isFinite(at.getTime()) ? at : null
+}
+
 function refuse(reason: HostRefusal, opensAt: unknown = null): HostSlot {
-  return { granted: false, reason, opensAt: opensAt instanceof Date ? opensAt : null }
+  return { granted: false, reason, opensAt: dbInstant(opensAt) }
 }
 
 function assertPolicy(policy: HostPolicy): void {

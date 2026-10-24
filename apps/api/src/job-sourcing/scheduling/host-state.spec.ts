@@ -347,6 +347,13 @@ describe('claimHostSlot (against a scripted executor)', () => {
       reason: 'HOST_DAILY_CAP',
       opensAt: null,
     })
+    // drizzle's driver returns timestamptz as text: it is read as the instant it names.
+    const text = scripted([[], [{}], [open], [{ claims: 4, opens_at: '2026-10-25 00:00:00+00' }]])
+    expect(await claimHostSlot(text.tx, 'remotive.com', policy)).toEqual({
+      granted: false,
+      reason: 'HOST_DAILY_CAP',
+      opensAt: AT,
+    })
     const below = scripted([[], [{}], [open], [{ claims: 3, opens_at: null }], []])
     expect(await claimHostSlot(below.tx, 'remotive.com', policy)).toEqual({ granted: true })
   })
@@ -546,7 +553,9 @@ describe('SR-L-20: no application clock anywhere in the module', () => {
     expect(text).not.toMatch(/Date\.now\s*\(/)
     expect(text).not.toMatch(/new Date\(\s*\)/)
     expect(text).not.toMatch(/performance\.now/)
-    // The one Date it builds is from the header's own fields.
-    expect(text.match(/new Date\(/g)).toHaveLength(1)
+    // The two Dates it builds are from the header's own fields and from a database value.
+    expect(text.match(/new Date\(/g)).toHaveLength(2)
+    expect(text).toContain('new Date(\n    Date.UTC(')
+    expect(text).toContain("typeof value === 'string' ? new Date(value)")
   })
 })
