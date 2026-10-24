@@ -634,19 +634,21 @@ the prod image of the API or create a separate migrate container in `docker-comp
 ### 5.1 Database roles in the deploy: apply order and how the `crm_app` credential reaches the VPS
 
 **Apply order inside the "Pull, up, migrate, health-check via SSH" step** (positions count distinct
-manual files in textual order, which is execution order; all 54 run in that one step):
+manual files in textual order, which is execution order; 62 distinct files run in that one step,
+derived from the script on 2026-10-25 with the wiring guard's own `applied_commands()`; re-derive
+rather than trust the numbers, they shift whenever a file is added above):
 
 | Position | File                                                   | Why it sits there                                                                                                         |
 | -------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
 | 1        | `2026-10-18_db_roles.sql`                              | Roles first: the grants file and the append-only triggers file need them                                                  |
-| 47       | `2026-10-04_multiple_salary_transactions_prepare.sql`  | Creates `salary_month_initializations`; must precede the grants. Back-compat                                              |
-| 48       | `2026-10-17_job_opportunities_store.sql`               | Creates the job-store tables                                                                                              |
-| 49       | `2026-10-24_job_run_single_flight.sql`                 | Needs `job_collection_runs` and `job_account_meters` (position 48); before the grants and both checks. One transaction    |
-| 50       | `2026-10-24_job_sources_manifest_delta.sql`            | Writes `job_sources` columns position 48 adds, so AFTER it (not after the 2026-10-05 seed); TEMP tables. One transaction  |
-| 51       | `2026-10-18_db_grants.sql`                             | After EVERY file that creates a table, view or sequence                                                                   |
-| 52       | `2026-10-17_job_opportunities_store_indexes.sql`       | Indexes only, creates no relation                                                                                         |
-| 53       | `2026-10-18_db_privileges_check.sql`                   | First run: before the container swap, so a drift fails while the old API serves                                           |
-| 54       | `2026-10-04_multiple_salary_transactions_activate.sql` | Breaking half, must follow the swap and the health gate; creates no relation                                              |
+| 51       | `2026-10-04_multiple_salary_transactions_prepare.sql`  | Creates `salary_month_initializations`; must precede the grants. Back-compat                                              |
+| 52       | `2026-10-17_job_opportunities_store.sql`               | Creates the job-store tables                                                                                              |
+| 55       | `2026-10-24_job_run_single_flight.sql`                 | Needs `job_collection_runs` and `job_account_meters` (position 52); before the grants and both checks. One transaction    |
+| 56       | `2026-10-24_job_sources_manifest_delta.sql`            | Writes `job_sources` columns position 52 adds, so AFTER it (not after the 2026-10-05 seed); TEMP tables. One transaction  |
+| 57       | `2026-10-18_db_grants.sql`                             | After EVERY file that creates a table, view or sequence                                                                   |
+| 58       | `2026-10-17_job_opportunities_store_indexes.sql`       | Indexes only, creates no relation                                                                                         |
+| 61       | `2026-10-18_db_privileges_check.sql`                   | First run: before the container swap, so a drift fails while the old API serves                                           |
+| 62       | `2026-10-04_multiple_salary_transactions_activate.sql` | Breaking half, must follow the swap and the health gate; creates no relation                                              |
 | (end)    | `2026-10-18_db_privileges_check.sql` (second run)      | The last database step, after the post-cutover `drop_cascade_origin` marker re-run, so the END state is what is validated |
 
 Two invariants, both enforced by `scripts/devops/check-prod-ddl-wiring.py` (it derives the apply order
@@ -1182,7 +1184,7 @@ What follows from that:
 ### Job-sourcing migrations (backlog 337): when a deploy fails on them, and what a rollback does
 
 Two files run on every deploy right after `2026-10-17_job_opportunities_store.sql` and before the
-grants (§5.1, positions 49 and 50), each with `psql -v ON_ERROR_STOP=1 --single-transaction`, so a
+grants (§5.1, positions 55 and 56), each with `psql -v ON_ERROR_STOP=1 --single-transaction`, so a
 failure in either rolls that file back completely and stops the deploy BEFORE the container swap: the
 old API keeps serving. `scripts/devops/check-prod-ddl-wiring.py` fails CI if either apply line loses
 `--single-transaction`, because each file's header carries the apply line it requires.
