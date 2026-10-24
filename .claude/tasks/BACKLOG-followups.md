@@ -5777,3 +5777,42 @@ that PR merges.
 
 Both are on the SmartRecruiters path, which cannot run in production until registration (Task 2.5) exists —
 the same keystone every phase-3 adapter waits on.
+
+## 330. The privacy scan's own controls are unguarded by CI, so a later loosening would be caught by nothing (2026-10-24)
+
+Raised by the spec axis on PR #1120 at `abc12d1b` as outside its own axis, and it is right that it needs a
+home rather than a verdict.
+
+`fixture-provenance.spec.ts` carries the personal-data scan for the job-source fixtures: a decode-first
+`@`-token check, a decode-first `linkedin.com/in/` check with 13 planted-form controls, a whole-value
+`isPlaceholder`, a root guard and a recommitted-raw guard. Those controls are real — during PR #1120 they
+found two named individuals' e-mail addresses and three personal profile slugs that four hand-written scans
+had missed, and one control (`/in&#x2Fbob`) exposed a genuine greedy-hex bug that read `&#x2Fb` as U+02FB.
+
+**The gap: nothing mechanically proves the controls still bite.** The mutation gate loads spec files in its
+dry run but does **not mutate them**, so a 0-survivor gate result says nothing about whether the scan's
+regexes still catch anything. The only evidence they work is a **hand-mutation the author performed once**
+— reverting the slug class to ASCII and making the entity read greedy, observing four controls fail, then
+restoring the file. That is good practice and it is **not re-runnable by anyone**, so it does not survive
+into the future. A later simplification of the scan — widening `isPlaceholder`, shortening the decode
+rounds, narrowing the slug class back to ASCII — would pass CI green.
+
+This is the same shape as the defect the whole PR was about, one level up: a property established by an act
+rather than by an instrument.
+
+**Candidate answers, in increasing cost:**
+
+1. **Mutation-test the scan helpers by moving them out of the spec.** If `decodeDelimiters`, `PROFILE_LINK`
+   and `isPlaceholder` lived in `src/test/` as a module rather than inside the spec file, the gate would
+   mutate them and the 13 controls would become the thing that kills those mutants. Cheapest real fix, and
+   it uses machinery that already exists.
+2. **A meta-test that mutates the scan in-process** — apply a known loosening to a copy of the pattern and
+   assert the control fails. Self-contained but writes a mutation harness by hand.
+3. **Leave it and rely on review.** This is the status quo and is what the twelve rounds of #1120 show does
+   not reliably hold.
+
+**Check on closing:** a loosening of the slug class, the decode-round cap or `isPlaceholder` fails a check
+in CI without anyone re-reading the spec.
+
+Related: entry 328 (the scan reads delimiters and addresses, not names in free text), and the #1120 history
+for what the controls caught.
