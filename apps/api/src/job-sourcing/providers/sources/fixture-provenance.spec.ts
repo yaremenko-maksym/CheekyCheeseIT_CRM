@@ -190,6 +190,11 @@ describe('fixture provenance', () => {
  * (the ceiling is four rounds); `%u002F`; `\u{2F}`; octal escapes; a fullwidth solidus; base64; and markup or
  * zero-width characters splitting the host or the path.
  *
+ * PSEUDONYMISED, NOT ANONYMISED: the account names in the hn-hiring thread fixtures were replaced by
+ * `hnuserNN` so that no real account name is committed. The item ids (`id`, `parent_id`, `story_id`) are
+ * kept on purpose, because the tests key on them, and `news.ycombinator.com/item?id=<id>` still shows the
+ * original account to anyone who follows it. Nothing here claims otherwise.
+ *
  * ALSO NOT LOOKED FOR: first names that sit beside a redacted link (a poster signing off with a first
  * name), and the role address in the HN fixture, which is allow-listed above, not absent.
  *
@@ -303,6 +308,26 @@ const ALLOWED_HITS: Array<{ file: string; reason: string; hits: string[] }> = [
     hits: ['+@'],
   },
   {
+    file: 'personio/westwing-de.provenance.json',
+    reason: 'the npm package name @rgrove/parse-xml in the trimming note: a scope, not an address',
+    hits: ['@rgrove'],
+  },
+  {
+    file: 'personio/westwing-en.provenance.json',
+    reason: 'the npm package name @rgrove/parse-xml in the trimming note: a scope, not an address',
+    hits: ['@rgrove'],
+  },
+  {
+    file: 'trim-ats-b-captures.mjs',
+    reason: 'the npm package name @rgrove/parse-xml, and the regex source of the redaction',
+    hits: ['+@', '@rgrove'],
+  },
+  {
+    file: 'trim-muse-captures.mjs',
+    reason: 'the regex source of the redaction',
+    hits: ['+@'],
+  },
+  {
     file: 'trim-ats-a-captures.mjs',
     reason: 'the regex source of the redaction',
     hits: ['+@'],
@@ -363,9 +388,10 @@ function hitsIn(path: string): string[] {
 // characters is the redaction.
 //
 // DECODE CEILING: at most DECODE_ROUNDS = 4 layers are peeled; a fifth is not seen (pinned by a test).
-// A numeric entity WITHOUT a semicolon is read as an ASCII character (at most two hex or three decimal
-// digits), because a slug may start with a hex digit (`&#x2Fbob`): the scanner takes the reading that
-// exposes the link. Named entities use a null-prototype map so `&constructor;` stays text.
+// A numeric entity WITHOUT a semicolon is read as an ASCII character, taking at most two hex or three
+// decimal digits, because a slug may start with a hex digit (`&#x2Fbob`). The bound is the whole story:
+// a slug that starts with a DIGIT directly after an unterminated decimal entity is misread (`&#47123` is
+// taken as code point 471, where a browser would read all five digits), so that one spelling is missed. Named entities use a null-prototype map so `&constructor;` stays text.
 const NAMED_ENTITIES = new Map<string, string>([
   ['sol', '/'],
   ['period', '.'],
@@ -514,6 +540,8 @@ describe('every @-equivalent token in the two scanned roots is the placeholder o
     ['accented slug, plain', 'see linkedin.com/in/élodie-martin now'],
     ['accented slug, percent-encoded', 'see linkedin.com/in/%C3%A9lodie-martin now'],
     ['Cyrillic slug', 'see linkedin.com/in/иван-петров now'],
+    ['accented slug that starts with x (not a redaction)', 'see linkedin.com/in/xénon-doe now'],
+    ['slug that starts with x and continues in Cyrillic', 'see linkedin.com/in/xиван now'],
     ['four layers of percent-escaping', 'see linkedin.com%2525252Fin%2525252Fjane-doe now'],
     ['named entity', 'see linkedin.com&sol;in&sol;jane-doe now'],
     ['percent-encoded slash', 'see linkedin.com%2Fin%2Fjane-doe now'],
@@ -525,6 +553,18 @@ describe('every @-equivalent token in the two scanned roots is the placeholder o
   ])('the profile-link check finds a planted %s link (control)', (_form, text) => {
     expect(profileLinksIn(text)).toHaveLength(1)
   })
+
+  it.each([
+    ['linkedin.com/in/xénon-doe', 'linkedin.com/in/xénon-doe'],
+    ['linkedin.com/in/xиван', 'linkedin.com/in/xиван'],
+    ['linkedin.com/in/jane%zzdoe', 'linkedin.com/in/jane%zzdoe'],
+    ['linkedin.com/in/%C3%A9lodie', 'linkedin.com/in/élodie'],
+  ])(
+    'the profile link %s is reported whole as %s (pins the slug class and the redaction lookahead)',
+    (text, whole) => {
+      expect(profileLinksIn(`see ${text} now`)).toEqual([whole])
+    },
+  )
 
   it('a non-entity word between & and ; decodes to itself (no prototype lookup)', () => {
     const text = 'a &constructor; b &toString; c &__proto__; d &hasOwnProperty; e'

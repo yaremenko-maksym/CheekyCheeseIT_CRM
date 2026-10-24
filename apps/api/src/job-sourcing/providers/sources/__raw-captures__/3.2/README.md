@@ -40,7 +40,8 @@ replaced by a same-length run of x characters by hand (the terms text is unchang
   named people, one a full-name slug) in earlier commits of `an-terms.html` (first committed in
   `81aba17f6`, moved in `09eb1eb61`, redacted in `435be6415`) and of the two hn-hiring fixtures
   `thread-2026-10.json` and `thread-2019-05.json` (first committed in `4adb81b61`, redacted in
-  `435be6415`). Deleting the branch after merge does not purge them; a squash merge keeps them out of
+  `435be6415`); and the 24 original HN account names, in the earlier commits of the three thread fixtures
+  (every commit up to `4592af268`; replaced in `abc12d1bf`). Deleting the branch after merge does not purge them; a squash merge keeps them out of
   `main` without deleting them. The owner decided NOT to ask GitHub to purge the history and judged that
   acceptable for this content. Two review bodies on this PR that quoted two of the addresses were
   redacted; their edit history stays, by the same decision. History is not rewritten.
@@ -51,13 +52,15 @@ replaced by a same-length run of x characters by hand (the terms text is unchang
 - Two hn-hiring fixtures (`thread-2019-05`, `thread-2026-10`) and `an-terms.html` also had personal LinkedIn slugs replaced by hand (same-length
   x runs, `fileSha256` and notes updated for the two HN fixtures); see the residual bullet for where the
   originals live.
-- HN account names: the 24 human account names in the three hn-hiring thread fixtures (the `author`
-  fields) were replaced by synthetic one-to-one names `hnuser01`..`hnuser24` by hand, including HN's
-  moderator account; no test needs a real name. Two are kept on purpose: `whoishiring`, HN's own posting
-  bot, which is the query constant (`tags=story,author_whoishiring`) the adapter uses to find the monthly
-  thread, and `Tessian`, a company whose name in the job text is what the employer-extraction tests
-  assert. The adapter surfaces the account as `HN @<handle>`. Names inside post text (first names, the
-  poster's own sign-off) are not touched.
+- HN account names are PSEUDONYMISED, not anonymised: the 24 human account names in the three hn-hiring
+  thread fixtures (the `author` fields) were replaced by hand by `hnuser01`..`hnuser24`, one-to-one, so no
+  real account name is committed (HN's moderator account included; no test needs a real name). The item
+  ids (`id`, `parent_id`, `story_id`) are kept deliberately, because tests key on them, and anyone with an
+  id can still resolve the original account at `news.ycombinator.com/item?id=<id>`. Two names are kept on
+  purpose: `whoishiring`, HN's own posting bot, which is the query constant (`tags=story,author_whoishiring`)
+  the adapter uses to find the monthly thread, and `Tessian`, a company whose name in the job text is what
+  the employer-extraction tests assert. The adapter surfaces the account as `HN @<handle>`. Names inside
+  post text (first names, a poster's sign-off) are not touched.
 - `termsCheckedAt` is one value across every provenance file: the date (2026-10-24) is when the
   terms were read, the time of day is a single stand-in.
 - Re-derivability: five provenance files are proven against `trim-captures-3.2.mjs` by a run, because
