@@ -483,3 +483,58 @@ describe('config errors fail before any network call', () => {
     )
   })
 })
+
+describe('checkpoint cursors and next-link shapes', () => {
+  const one = (n: number, links?: unknown) =>
+    JSON.stringify({
+      data: [{ ...jobs()[0], slug: `job-${n}`, url: `https://www.arbeitnow.com/jobs/job-${n}` }],
+      ...(links === undefined ? {} : { links }),
+    })
+
+  it('saves a literal cursor after each page that has a successor', async () => {
+    const f = fakeCollectionContext({
+      now: NOW,
+      responses: [
+        { bodyText: one(1, { next: 'https://x/api?page=2' }) },
+        { bodyText: one(2, { next: 'https://x/api?page=3' }) },
+        { bodyText: one(3, { next: null }) },
+      ],
+    })
+    await arbeitnowProvider.collectReport(cfg(), f.ctx)
+    expect(f.saved[0]?.position).toEqual({ kind: 'CURSOR', page: 1, cursor: 'page:2' })
+    expect(f.saved[1]?.position).toEqual({ kind: 'CURSOR', page: 2, cursor: 'page:3' })
+  })
+
+  it.each([
+    ['no links object', undefined],
+    ['an empty links object', {}],
+    ['a null next', { next: null }],
+    ['an empty next', { next: '' }],
+  ])('%s ends the walk after one request', async (_label, links) => {
+    const f = fakeCollectionContext({
+      now: NOW,
+      responses: [{ bodyText: one(1, links) }, { bodyText: one(2, links) }],
+    })
+    const batch = await arbeitnowProvider.collectReport(cfg(), f.ctx)
+    expect(f.sent).toHaveLength(1)
+    expect(batch.outcome).toBe('SUCCEEDED')
+  })
+})
+
+describe('escaped descriptions', () => {
+  const descriptionOf = async (description: string) =>
+    (await run(withJobs([{ ...jobs()[0], description }]))).batch.observations[0]?.normalized
+      .descriptionMd
+
+  it('a description that begins with an escaped tag is unescaped once, including a double-escaped ampersand', async () => {
+    expect(await descriptionOf('&lt;p&gt;Q&amp;amp;A&lt;/p&gt;')).toBe('Q&A')
+  })
+
+  it('a description that begins with a real tag keeps its entities as written', async () => {
+    expect(await descriptionOf('<p>Q&amp;amp;A and &lt;i&gt;</p>')).toBe('Q&amp;A and \\<i\\>')
+  })
+
+  it('leading whitespace before an escaped tag means it is NOT treated as escaped markup', async () => {
+    expect(await descriptionOf(' &lt;p&gt;x&lt;/p&gt;')).toBe('\\<p\\>x\\</p\\>')
+  })
+})

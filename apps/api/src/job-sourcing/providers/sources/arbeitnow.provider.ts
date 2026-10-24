@@ -87,18 +87,16 @@ const envelopeSchema = z.object({
 type Envelope = z.infer<typeof envelopeSchema>
 
 /**
- * A description whose markup is mostly entity-escaped is unescaped ONCE; real markup is left alone.
+ * A description that BEGINS with an escaped tag is entity-escaped markup and is unescaped ONCE;
+ * one that begins with anything else is left alone.
  *
- * Measured on the capture: the first job's body is `&lt;p&gt;...` (92 escaped tags) followed by a
- * REAL `<p>Find <a href=...>Jobs in Germany</a> on Arbeitnow</a>` footer (4 real tags), and its
- * non-breaking spaces are double-escaped (`&amp;nbsp;`). "Mostly" is the count comparison below,
- * so a real-markup description that merely mentions an escaped tag stays untouched.
+ * Measured on the capture: the first job's body is `&lt;p&gt;...` followed by a REAL
+ * `<p>Find <a href=...>Jobs in Germany</a> on Arbeitnow</a>` footer (the link back its terms ask
+ * for), and its non-breaking spaces are double-escaped (`&amp;nbsp;`), so `&amp;` is undone too.
+ * The other captured descriptions begin with a real tag (`<h2>`, `<p>`).
  */
 function unescapeMarkup(description: string | null): string | null {
-  if (description === null) return null
-  const escapedTags = (description.match(/&lt;\/?[a-z]/gi) ?? []).length
-  const realTags = (description.match(/<\/?[a-z]/gi) ?? []).length
-  if (escapedTags <= realTags) return description
+  if (description === null || !description.startsWith('&lt;')) return description
   return description.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
 }
 
@@ -134,10 +132,10 @@ export const arbeitnowSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
   },
   extractItems: (envelope) => envelope.data,
   // The next-link is never followed as a URL; its presence is the only thing read from it.
-  nextCursor: (envelope, at) =>
-    envelope.links?.next === undefined || envelope.links.next === null || envelope.data.length === 0
-      ? null
-      : `page:${at.page + 1}`,
+  nextCursor: (envelope, at) => {
+    const next = envelope.links?.next
+    return next && envelope.data.length > 0 ? `page:${at.page + 1}` : null
+  },
   nativeIdOf: (item) => item.slug,
   mapItem,
   scopeOf: (config) => ({

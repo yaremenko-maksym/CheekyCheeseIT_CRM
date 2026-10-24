@@ -122,21 +122,13 @@ const envelopeSchema = z
     title: z.string().max(300).nullish(),
     children: z.array(z.unknown()).optional(),
   })
-  .superRefine((envelope, ctx) => {
-    if (envelope.children === undefined) {
-      if (envelope.hits === undefined) {
-        ctx.addIssue({ code: 'custom', message: 'neither a search result nor a thread' })
-      }
-      return
-    }
-    if (
-      envelope.title === undefined ||
-      envelope.title === null ||
-      !HIRING_TITLE.test(envelope.title)
-    ) {
-      ctx.addIssue({ code: 'custom', message: 'the thread is not a "Who is hiring?" story' })
-    }
+  .refine((e) => e.children !== undefined || e.hits !== undefined, {
+    message: 'neither a search result nor a thread',
   })
+  .refine(
+    (e) => e.children === undefined || (typeof e.title === 'string' && HIRING_TITLE.test(e.title)),
+    { message: 'the thread is not a "Who is hiring?" story' },
+  )
 type Envelope = z.infer<typeof envelopeSchema>
 
 const ENTITIES: Record<string, string> = {
@@ -180,7 +172,7 @@ const REMOTE_NEGATED =
   /\b(?:no|not|non)[- ]remote\b|\bremote[: ]+(?:no|not)\b|\bon-?site[ -]only\b|\bonly on-?site\b/i
 
 export const isMultiRole = (header: string) =>
-  MULTI_ROLE_WORDS.test(header) || (header.match(ROLE_NOUN) ?? []).length >= 2
+  MULTI_ROLE_WORDS.test(header) || [...header.matchAll(ROLE_NOUN)].length >= 2
 
 export const hasRoleSignal = (header: string) => header.includes('|') || ROLE_SIGNAL.test(header)
 
@@ -254,7 +246,7 @@ export function currentThreadId(
   return now.getTime() - newest.created_at_i * 1000 <= maxAgeDays * DAY_MS ? newest.objectID : null
 }
 
-function hnSpec(now: Date, ageDays: number): ApiJsonSourceSpec<Config, Envelope, Item> {
+export function hnSpec(now: Date, ageDays: number): ApiJsonSourceSpec<Config, Envelope, Item> {
   return {
     type: 'HN_HIRING',
     adapterVersion: HN_ADAPTER_VERSION,
@@ -279,9 +271,8 @@ function hnSpec(now: Date, ageDays: number): ApiJsonSourceSpec<Config, Envelope,
       }
     },
     extractItems: (envelope) => (envelope.children ?? []).filter((c) => !isTombstone(c)),
-    // Only the search step has a successor; the thread step ends the run.
-    nextCursor: (envelope, at) => {
-      if (at.cursor !== null) return null
+    // Only a search body has hits, so the thread step (children, no hits) has no successor.
+    nextCursor: (envelope) => {
       const id = currentThreadId(envelope.hits ?? [], now, ageDays)
       return id === null ? null : `story:${id}`
     },

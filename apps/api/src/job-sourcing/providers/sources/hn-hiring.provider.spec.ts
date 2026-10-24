@@ -9,6 +9,8 @@ import {
   headerOf,
   hnHiringProvider,
   HN_MAX_COMMENTS,
+  hasRoleSignal,
+  isMultiRole,
   HN_SOURCE_STATUS,
   remoteOf,
 } from './hn-hiring.provider'
@@ -708,5 +710,202 @@ describe('the BLOCKED state', () => {
       expect(p.notes).toContain('public, unauthenticated, documented endpoint')
       expect(p.notes).toContain('unanswered')
     }
+  })
+})
+
+describe('resuming at the thread step from a stored checkpoint', () => {
+  async function firstCheckpoint() {
+    const first = await walk(search(), octThread())
+    const cp = first.f.saved[0]
+    if (cp === undefined) throw new Error('no checkpoint after the search step')
+    return cp
+  }
+
+  it('the search step saves the literal thread cursor', async () => {
+    const cp = await firstCheckpoint()
+    expect(cp.position).toEqual({ kind: 'CURSOR', page: 1, cursor: 'story:49922569' })
+  })
+
+  it('a stored cursor goes straight to that thread: no search request is made', async () => {
+    const cp = await firstCheckpoint()
+    const f = fakeCollectionContext({
+      now: NOW,
+      responses: [{ bodyText: JSON.stringify(octThread()) }],
+      stored: cp,
+    })
+    const batch = await hnHiringProvider.collectReport(cfg(), f.ctx)
+    expect(f.sent.map((r) => r.url)).toEqual(['https://hn.algolia.com/api/v1/items/49922569'])
+    expect(f.sent[0]?.headers).toEqual({ accept: 'application/json' })
+    expect(batch.requests[0]?.page).toBe(2)
+    expect(batch.counts.normalized).toBe(8)
+  })
+
+  it.each([
+    ['an empty id', 'story:'],
+    ['a non-numeric id', 'story:12ab'],
+    ['a trailing path', 'story:12/../../x'],
+    ['a 16-digit id', 'story:1234567890123456'],
+    ['a prefix before story', 'xstory:12'],
+    ['another prefix', 'thread:12'],
+    ['a bare id', '49922569'],
+  ])('%s is never put in a URL', async (_label, cursor) => {
+    const cp = await firstCheckpoint()
+    const f = fakeCollectionContext({
+      now: NOW,
+      responses: [{ bodyText: JSON.stringify(octThread()) }],
+      stored: { ...cp, position: { kind: 'CURSOR', page: 1, cursor } },
+    })
+    const batch = await hnHiringProvider.collectReport(cfg(), f.ctx)
+    expect(f.sent).toHaveLength(0)
+    expect(batch.requests[0]?.error).toBeTruthy()
+  })
+
+  it('a 15-digit id is accepted', async () => {
+    const cp = await firstCheckpoint()
+    const f = fakeCollectionContext({
+      now: NOW,
+      responses: [{ bodyText: JSON.stringify(octThread()) }],
+      stored: { ...cp, position: { kind: 'CURSOR', page: 1, cursor: 'story:123456789012345' } },
+    })
+    await hnHiringProvider.collectReport(cfg(), f.ctx)
+    expect(f.sent[0]?.url).toBe('https://hn.algolia.com/api/v1/items/123456789012345')
+  })
+})
+
+describe('thread selection, strictly', () => {
+  const hit = (over: Record<string, unknown>) => ({ ...search().hits[0], ...over })
+  const idOf = (hits: unknown[]) => currentThreadId(hits, NOW, 45)
+
+  it('only objectIDs of 1 to 15 digits count', () => {
+    expect(idOf([hit({ objectID: 'ab49922569' })])).toBeNull()
+    expect(idOf([hit({ objectID: '49922569ab' })])).toBeNull()
+    expect(idOf([hit({ objectID: '1234567890123456' })])).toBeNull()
+    expect(idOf([hit({ objectID: '' })])).toBeNull()
+    expect(idOf([hit({ objectID: '123456789012345' })])).toBe('123456789012345')
+  })
+
+  it('the title must START with "Ask HN: Who is hiring?"', () => {
+    expect(idOf([hit({ title: 'Re: Ask HN: Who is hiring? (October 2026)' })])).toBeNull()
+    expect(idOf([hit({ title: 'Ask HN: Who is hiring (October 2026)' })])).toBeNull()
+    expect(idOf([hit({ title: 'ask hn: who is hiring? (october 2026)' })])).toBe('49922569')
+  })
+
+  it('on a tie in time the first listed hit wins', () => {
+    const a = hit({ objectID: '111', created_at_i: 1790866927 })
+    const b = hit({ objectID: '222', created_at_i: 1790866927 })
+    expect(idOf([a, b])).toBe('111')
+    expect(idOf([b, a])).toBe('222')
+  })
+
+  it('the thread title must start with the same words, and a null title is refused', async () => {
+    for (const title of ['Re: Ask HN: Who is hiring? (October 2026)', null]) {
+      const { batch } = await walk(search(), { ...octThread(), title })
+      expect(batch.requests[1]?.error?.message).toBe(
+        'envelope: the thread is not a "Who is hiring?" story',
+      )
+    }
+  })
+
+  it('the thread step carries the accept header', async () => {
+    const { f } = await walk(search(), octThread())
+    expect(f.sent[1]?.headers).toEqual({ accept: 'application/json' })
+  })
+
+  it('declares the provider type', () => {
+    expect(hnHiringProvider.type).toBe('HN_HIRING')
+  })
+})
+
+describe('children that are not objects', () => {
+  it('a null or primitive child is an invalid item, never a crash', async () => {
+    const tombstone = { ...octThread().children[0], id: 5, text: null, author: null, children: [] }
+    const children = [null, 7, 'x', tombstone, octThread().children[1]]
+    const { batch } = await walk(search(), withChildren(octThread(), children))
+    expect(batch.counts).toEqual({
+      raw: 4,
+      normalized: 1,
+      invalid: 3,
+      quarantined: 0,
+      discarded: 0,
+    })
+  })
+})
+
+describe('headerOf: numeric entities and spacing', () => {
+  it('decodes decimal, lower-case hex and upper-case hex references, and the apostrophe name', () => {
+    expect(headerOf('&#65;&#x42;&#X43;')).toBe('ABC')
+    expect(headerOf('it&apos;s')).toBe("it's")
+    expect(headerOf('x&#x10FFFF;y')).toBe('x\u{10FFFF}y')
+    expect(headerOf('&#x1;')).toBe('\u0001')
+  })
+  it('trims both ends and collapses inner runs of whitespace', () => {
+    expect(headerOf('  a \t b  ')).toBe('a b')
+    expect(headerOf('&nbsp;a&nbsp;')).toBe('a')
+  })
+})
+
+describe('triage vocabulary, word by word', () => {
+  const NOUNS = [
+    'engineer',
+    'developer',
+    'designer',
+    'manager',
+    'analyst',
+    'scientist',
+    'architect',
+    'lead',
+    'specialist',
+    'recruiter',
+    'consultant',
+  ]
+  it.each(NOUNS)('two "%s"s make a multi-role header, singular or plural; one does not', (noun) => {
+    expect(isMultiRole(`${noun}, ${noun}`)).toBe(true)
+    expect(isMultiRole(`${noun}s, ${noun}s`)).toBe(true)
+    expect(isMultiRole(noun)).toBe(false)
+    expect(isMultiRole(`${noun}s`)).toBe(false)
+  })
+  it('a noun inside another word is not a role noun', () => {
+    expect(isMultiRole('engineering, leading')).toBe(false)
+  })
+
+  const SIGNALS = [
+    'hiring',
+    'engineer',
+    'engineers',
+    'developer',
+    'developers',
+    'designer',
+    'designers',
+    'remote',
+    'onsite',
+    'on-site',
+    'hybrid',
+    'full time',
+    'full-time',
+    'fulltime',
+    'part time',
+    'part-time',
+    'parttime',
+    'contract',
+    'intern',
+    'interns',
+    'internship',
+    'internships',
+    'apply',
+    'join',
+    'career',
+    'careers',
+    'job',
+    'jobs',
+  ]
+  it.each(SIGNALS)('"%s" is a hiring word', (word) => {
+    expect(hasRoleSignal(word)).toBe(true)
+    expect(hasRoleSignal(`we say ${word} here`)).toBe(true)
+  })
+  it('a word merely containing one is not a hiring word, and prose has none', () => {
+    expect(hasRoleSignal('contracted')).toBe(false)
+    expect(hasRoleSignal('remotely')).toBe(false)
+    expect(hasRoleSignal('lovely weather')).toBe(false)
+    expect(hasRoleSignal('a | b')).toBe(true)
   })
 })

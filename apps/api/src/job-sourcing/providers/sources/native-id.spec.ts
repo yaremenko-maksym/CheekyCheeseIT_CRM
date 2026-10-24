@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { ZodType } from 'zod'
 import { sourceFixture } from '../../../test/source-fixtures'
+import { arbeitnowProvider, arbeitnowSpec } from './arbeitnow.provider'
 import { himalayasBrowseSpec, himalayasProvider, himalayasSearchSpec } from './himalayas.provider'
+import { hnHiringProvider, hnSpec } from './hn-hiring.provider'
+import { jobgetherProvider, jobgetherSpec } from './jobgether.provider'
 import { jobicyProvider, jobicySpec } from './jobicy.provider'
 import { remoteokProvider, remoteokSpec } from './remoteok.provider'
 import { remotiveProvider, remotiveSpec } from './remotive.provider'
@@ -71,6 +74,27 @@ const rows: Row[] = [
     config: jobicyProvider.parseConfig({ configVersion: 1 }),
     rawItem: first('jobicy', 'seeded-page1', 'jobs'),
     expected: '156602',
+  },
+  {
+    name: 'arbeitnow',
+    spec: arbeitnowSpec as Row['spec'],
+    config: arbeitnowProvider.parseConfig({ configVersion: 1 }),
+    rawItem: first('arbeitnow', 'page-1', 'data'),
+    expected: 'inside-solutions-engineer-454685',
+  },
+  {
+    name: 'jobgether',
+    spec: jobgetherSpec as Row['spec'],
+    config: jobgetherProvider.parseConfig({ configVersion: 1 }),
+    rawItem: first('jobgether', 'page-1', 'jobs'),
+    expected: '6adc0a6822c2644c03e6a821',
+  },
+  {
+    name: 'hn-hiring (thread step)',
+    spec: hnSpec(new Date('2026-10-24T03:00:00Z'), 45) as Row['spec'],
+    config: hnHiringProvider.parseConfig({ configVersion: 1 }),
+    rawItem: first('hn-hiring', 'thread-2026-10', 'children'),
+    expected: '49922584',
   },
 ]
 

@@ -113,6 +113,9 @@ describe('mapping the authentic capture', () => {
     expect(await remote('full remote')).toBe(true)
     expect(await remote('Remote-first')).toBe(true)
     expect(await remote('Remote first')).toBe(true)
+    expect(await remote('  Full Remote  ')).toBe(true)
+    expect(await remote('Not Full Remote')).toBeNull()
+    expect(await remote('Full Remote!')).toBeNull()
     expect(await remote('Hybrid')).toBeNull()
     expect(await remote('Full Remote (maybe)')).toBeNull()
     expect(await remote('')).toBeNull()
@@ -441,5 +444,28 @@ describe('the BLOCKED state', () => {
       )
       expect(p.notes).toContain('intended for AI agents/assistants')
     }
+  })
+})
+
+describe('checkpoint cursors', () => {
+  it('saves a literal cursor after each page that has more', async () => {
+    const page = (n: number, hasMore: boolean) =>
+      JSON.stringify({
+        ...withJobs([
+          { ...jobs()[0], id: `job-${n}`, url: `https://jobgether.com/offer/job-${n}` },
+        ]),
+        pagination: { page: n, limit: 25, hasMore },
+      })
+    const f = fakeCollectionContext({
+      now: NOW,
+      responses: [
+        { bodyText: page(1, true) },
+        { bodyText: page(2, true) },
+        { bodyText: page(3, false) },
+      ],
+    })
+    await jobgetherProvider.collectReport(cfg(), f.ctx)
+    expect(f.saved[0]?.position).toEqual({ kind: 'CURSOR', page: 1, cursor: 'page:2' })
+    expect(f.saved[1]?.position).toEqual({ kind: 'CURSOR', page: 2, cursor: 'page:3' })
   })
 })

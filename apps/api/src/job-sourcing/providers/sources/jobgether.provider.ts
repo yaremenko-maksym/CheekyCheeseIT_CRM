@@ -87,25 +87,23 @@ const itemSchema = z.object({
 type Item = z.infer<typeof itemSchema>
 
 /** `jobs` stays OPAQUE so one bad job is isolated instead of failing the page. */
+const deprecationSchema = z.object({
+  deprecated: z.boolean().optional(),
+  sunset: z.string().max(64).optional(),
+  successor: z.string().max(200).optional(),
+})
+
 const envelopeSchema = z
   .object({
     jobs: z.array(z.unknown()),
     pagination: z.object({ hasMore: z.boolean() }),
-    deprecation: z
-      .object({
-        deprecated: z.boolean().optional(),
-        sunset: z.string().max(64).optional(),
-        successor: z.string().max(200).optional(),
-      })
-      .optional(),
+    deprecation: deprecationSchema.optional(),
   })
-  .superRefine((envelope, ctx) => {
-    const d = envelope.deprecation
-    if (d?.deprecated !== true) return
-    ctx.addIssue({
-      code: 'custom',
-      message: `Jobgether reports this path deprecated (sunset ${d.sunset ?? 'unannounced'}, successor ${d.successor ?? 'unnamed'})`,
-    })
+  .refine((envelope) => envelope.deprecation?.deprecated !== true, {
+    error: ({ input }) => {
+      const d = deprecationSchema.parse((input as { deprecation: unknown }).deprecation)
+      return `Jobgether reports this path deprecated (sunset ${d.sunset ?? 'unannounced'}, successor ${d.successor ?? 'unnamed'})`
+    },
   })
 type Envelope = z.infer<typeof envelopeSchema>
 
