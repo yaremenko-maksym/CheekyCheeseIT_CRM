@@ -7,6 +7,7 @@ import {
   canonicalStackKeyword,
   canonicalStackKeywords,
   normalizeStackKeyword,
+  stackKeywordHits,
   stackMatchScore,
   stackTokens,
   textMentionsStackKeyword,
@@ -673,5 +674,60 @@ describe('stackMatchScore — the ranking signal (AC1)', () => {
     ])
     expect(result.score).toBe(1)
     expect(result.total).toBe(1)
+  })
+})
+
+describe('stackKeywordHits — uncapped union matching over pre-tokenised text', () => {
+  const hitsFor = (canonicals: string[], title: string, body: string) =>
+    stackKeywordHits(canonicals, stackTokens(title), stackTokens(body))
+
+  it('is NOT capped at MAX_STACK_KEYWORDS: 150 distinct keywords all match', () => {
+    const words = Array.from({ length: 150 }, (_, i) => `techword${i}`)
+    const hits = hitsFor(words, '', words.join(' '))
+    expect(MAX_STACK_KEYWORDS).toBe(60)
+    expect(hits.size).toBe(150)
+  })
+
+  it('reports every body start index and no keyword that is absent', () => {
+    const hits = hitsFor(['python', 'rust'], '', 'python and more python')
+    expect([...hits.keys()]).toEqual(['python'])
+    expect(hits.get('python')).toEqual({ titleIndexes: [], bodyIndexes: [0, 3] })
+  })
+
+  it('keeps the alias and token semantics: Java never matches JavaScript', () => {
+    expect(hitsFor(['java'], '', 'javascript developer').size).toBe(0)
+    expect(hitsFor(['javascript'], '', 'we use js daily').get('javascript')?.bodyIndexes).toEqual([
+      2,
+    ])
+  })
+
+  it('honours multi-token spellings and the symbol rewrites', () => {
+    expect(hitsFor(['dotnet'], '', 'we run .NET Core services').size).toBe(1)
+    expect(hitsFor(['csharp'], '', 'C# and C++').size).toBe(1)
+    expect(hitsFor(['cplusplus'], '', 'C# only').size).toBe(0)
+  })
+
+  it('counts an ambiguous alias in the title only', () => {
+    const inTitle = hitsFor(['golang'], 'Go Developer', '')
+    expect(inTitle.get('golang')).toEqual({ titleIndexes: [0], bodyIndexes: [] })
+    expect(hitsFor(['golang'], '', 'ready to go to market').size).toBe(0)
+  })
+
+  it('does not match a phrase that would run past the end of the tokens', () => {
+    expect(hitsFor(['react native'], '', 'react').size).toBe(0)
+    expect(hitsFor(['react native'], '', 'react native').size).toBe(1)
+  })
+
+  it('agrees with textMentionsStackKeyword for every keyword it is asked about', () => {
+    const body = 'k8s, node, rest apis, postgres, google cloud'
+    for (const canonical of ['kubernetes', 'nodejs', 'rest api', 'postgresql', 'gcp', 'aws']) {
+      expect(hitsFor([canonical], '', body).has(canonical)).toBe(
+        textMentionsStackKeyword(canonical, { title: '', body }),
+      )
+    }
+  })
+
+  it('collapses a repeated canonical in the input to one entry', () => {
+    expect(hitsFor(['python', 'python'], '', 'python').size).toBe(1)
   })
 })

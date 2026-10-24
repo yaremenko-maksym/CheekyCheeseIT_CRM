@@ -535,6 +535,84 @@ export function stackMatchScore(
   }
 }
 
+/** Where, in already-tokenised text, one canonical keyword was found. */
+export interface StackKeywordHit {
+  /** Start indexes in the title token list (ambiguous spellings such as `go` count here). */
+  titleIndexes: number[]
+  /** Start indexes in the body token list (ambiguous spellings never count here). */
+  bodyIndexes: number[]
+}
+
+/**
+ * Uncapped union matching over text that is ALREADY tokenised (`stackTokens`), so
+ * a caller scoring a whole roster tokenises a posting once and not once per
+ * keyword. `canonicals` is taken as given: no `MAX_STACK_KEYWORDS` truncation is
+ * applied here — the per-profile cap belongs to `canonicalStackKeywords`, and a
+ * roster union of several profiles legitimately exceeds it.
+ *
+ * Same spelling and ambiguity semantics as `textMentionsStackKeyword`. The result
+ * holds ONLY keywords with at least one hit, in the order given, and every index
+ * so a caller can look at the neighbourhood of each mention.
+ */
+export function stackKeywordHits(
+  canonicals: readonly string[],
+  titleTokens: readonly string[],
+  bodyTokens: readonly string[],
+): Map<string, StackKeywordHit> {
+  const titleIndex = indexByFirstToken(titleTokens)
+  const bodyIndex = indexByFirstToken(bodyTokens)
+  const hits = new Map<string, StackKeywordHit>()
+
+  for (const canonical of canonicals) {
+    if (hits.has(canonical)) continue
+    const hit: StackKeywordHit = { titleIndexes: [], bodyIndexes: [] }
+    for (const spelling of spellingsOf(canonical)) {
+      const needle = spelling.split(' ').filter(Boolean)
+      collectPhraseStarts(titleTokens, titleIndex, needle, hit.titleIndexes)
+      if (!AMBIGUOUS_ALIASES.has(spelling)) {
+        collectPhraseStarts(bodyTokens, bodyIndex, needle, hit.bodyIndexes)
+      }
+    }
+    if (hit.titleIndexes.length > 0 || hit.bodyIndexes.length > 0) {
+      hit.titleIndexes.sort((a, b) => a - b)
+      hit.bodyIndexes.sort((a, b) => a - b)
+      hits.set(canonical, hit)
+    }
+  }
+  return hits
+}
+
+function indexByFirstToken(tokens: readonly string[]): Map<string, number[]> {
+  const index = new Map<string, number[]>()
+  tokens.forEach((token, position) => {
+    const list = index.get(token)
+    if (list) list.push(position)
+    else index.set(token, [position])
+  })
+  return index
+}
+
+function collectPhraseStarts(
+  tokens: readonly string[],
+  index: ReadonlyMap<string, number[]>,
+  needle: readonly string[],
+  out: number[],
+): void {
+  const first = needle[0]
+  if (first === undefined) return
+  for (const start of index.get(first) ?? []) {
+    if (start + needle.length > tokens.length) continue
+    let hit = true
+    for (let j = 1; j < needle.length; j += 1) {
+      if (tokens[start + j] !== needle[j]) {
+        hit = false
+        break
+      }
+    }
+    if (hit && !out.includes(start)) out.push(start)
+  }
+}
+
 /** Exported for tests + docs: the alias families this build folds. */
 export const STACK_ALIAS_FAMILIES = ALIAS_FAMILIES
 /** Exported for tests: spellings honoured only in a title. */
