@@ -1,7 +1,7 @@
 import { jobMeterUnitSchema, type JobMeterUnit, type JobSourceType } from '@crm/shared'
 import { z } from 'zod'
 import type { QuotaCredential, QuotaEnvKey } from '../../quota-credentials'
-import type { CollectionContext } from '../reporting-provider'
+import { type CollectionContext, MIN_REDACTABLE_SECRET_CHARS } from '../reporting-provider'
 
 /**
  * What the four keyed quota adapters (Jooble, JSearch, TheirStack, Reed) share, and nothing else:
@@ -46,6 +46,15 @@ export function requireApiKey(
 
 /** The ctx the loop sees: the worker's secrets plus the ones this adapter knows it sends. */
 export function withSecrets(ctx: CollectionContext, secrets: readonly string[]): CollectionContext {
+  // Refuse, with no value in the message, a secret the redactor cannot represent: registering it
+  // would make the report claim a redaction that cannot happen.
+  for (const secret of secrets) {
+    if (secret.length < MIN_REDACTABLE_SECRET_CHARS) {
+      throw new Error(
+        `a secret of ${secret.length} character(s) cannot be redacted (minimum ${MIN_REDACTABLE_SECRET_CHARS})`,
+      )
+    }
+  }
   return { ...ctx, secrets: [...ctx.secrets, ...secrets] }
 }
 

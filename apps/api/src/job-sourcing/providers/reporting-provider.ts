@@ -564,8 +564,17 @@ function secretForms(secret: string): string[] {
   // Stryker disable next-line StringLiteral: same fallback as the line above — an unrecognised input encoding silently becomes utf8, so the base64url form produced is unchanged.
   forms.add(Buffer.from(secret, 'utf8').toString('base64url'))
   // A one-character form would redact the whole string and say nothing.
-  return [...forms].filter((f) => f.length > 1)
+  return [...forms].filter((f) => f.length >= MIN_REDACTABLE_SECRET_CHARS)
 }
+
+/**
+ * The shortest secret this redactor can represent. A shorter one has no usable form (see the filter
+ * in `secretForms`), so it would be reported VERBATIM while the report claims to be redacted.
+ * Exported so that whoever REGISTERS a secret (`withSecrets`) refuses one below it, loudly, at the
+ * place the filter lives - and so a floor set elsewhere (the env boundary's) can be asserted not to
+ * have drifted beneath it.
+ */
+export const MIN_REDACTABLE_SECRET_CHARS = 2
 
 /**
  * Replace every known secret, in every form it can be written in, with `REDACTED`. Longest first.

@@ -1319,8 +1319,11 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
 /**
  * The headers a JSON adapter may send, as an ALLOWLIST (inverted from a denylist for the reason the
  * feed binding's `honestRequest` gives: a denylist is the impersonations someone thought of). It is
- * what the five quota adapters need and nothing more: content negotiation, the credential headers
- * of the two header-keyed schemes (`authorization`, RapidAPI's pair), and `from`. NOT here, and so
+ * what the five quota adapters were MEASURED to send (a search of every `headers` they build): the
+ * content-negotiation pair, `content-type` for the two POST bodies, and the credential headers of
+ * the header-keyed schemes (`authorization`, RapidAPI's pair). A member nobody sends is not here:
+ * `from` is by specification an e-mail address, the channel a User-Agent disclosure once went out
+ * through, so it is added by the first adapter that needs it, with that argument. NOT here, and so
  * dropped: `user-agent` (the transport owns our outbound identity and sets the honest one by
  * default), `cookie`, `referer`, `origin`, `x-forwarded-for`. The loop's own conditional headers
  * are added AFTER this filter, so they are unaffected.
@@ -1330,7 +1333,6 @@ export const ALLOWED_JSON_REQUEST_HEADERS: ReadonlySet<string> = new Set([
   'accept-language',
   'authorization',
   'content-type',
-  'from',
   'x-rapidapi-key',
   'x-rapidapi-host',
 ])

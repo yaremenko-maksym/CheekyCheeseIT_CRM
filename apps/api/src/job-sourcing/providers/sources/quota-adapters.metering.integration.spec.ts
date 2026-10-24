@@ -117,8 +117,15 @@ const theirstackJobs = (n: number, from = 1) =>
 const theirstackBody = (n: number, from = 1): FakeResponse => ({
   bodyText: JSON.stringify({ data: theirstackJobs(n, from) }),
 })
-// The reading is attached (billing verified) except where SR-M-1 says otherwise.
-const ts = createTheirStackProvider({ credential: READY, billingVerified: true })
+// The reading is attached (the evidence proves per-record billing) except where SR-M-1 says otherwise.
+const PROVEN = {
+  observedAt: '2026-10-24T09:00:00.000Z',
+  requestedLimit: 25,
+  jobsReturned: 7,
+  creditBalanceBefore: 1000,
+  creditBalanceAfter: 993,
+}
+const ts = createTheirStackProvider({ credential: READY, billingObservation: PROVEN })
 const tsUnverified = createTheirStackProvider({ credential: READY })
 const tsConfig = (extra: Record<string, unknown> = {}) =>
   ts.parseConfig({ configVersion: 1, limit: 25, seniority: ['senior'], ...extra })

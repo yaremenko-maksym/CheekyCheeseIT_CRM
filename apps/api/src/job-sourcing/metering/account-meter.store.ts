@@ -119,7 +119,7 @@ import {
  *   credits). The difference is freed and may be re-reserved in the same window, on purpose: a
  *   short page is real information. That is only safe when the reported cost is what the provider
  *   billed, so a source must not report one until its billing basis has been OBSERVED (TheirStack's
- *   `billingVerified`). The store cannot tell; it trusts the caller within the reservation.
+ *   `billingObservation`). The store cannot tell; it trusts the caller within the reservation.
  * - Window rollover. A meter row is reset in place, lazily, under the same lock, by the first
  *   operation at or after `resets_at`: `used` returns to 0; outstanding `reserved` / `uncertain`
  *   stay, because they are holds of the window they were taken in. When such a reservation later

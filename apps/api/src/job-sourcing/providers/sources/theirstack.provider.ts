@@ -195,20 +195,65 @@ function makeSpec(
   }
 }
 
+/**
+ * THE EVIDENCE BEHIND "TheirStack bills one credit per job returned", as a record a reader can
+ * check, instead of a boolean someone sets. The owner's authenticated smoke makes ONE search that
+ * returns FEWER jobs than it asked for and writes down what it saw:
+ *
+ * - `observedAt`: when (ISO, UTC, milliseconds);
+ * - `requestedLimit`: the `limit` sent;
+ * - `jobsReturned`: `data.length` of the response;
+ * - `creditBalanceBefore` / `creditBalanceAfter`: TheirStack's own credit balance either side of
+ *   that one request, read from its account (HOW it is read - dashboard or API - is not known to
+ *   this code, which is why the fields are plain numbers).
+ *
+ * Verified means the three agree the way per-record billing predicts and per-request or
+ * per-`limit` billing does not: `0 < jobsReturned < requestedLimit` and the balance fell by exactly
+ * `jobsReturned`. A run that returned the full `limit` cannot tell per-record from per-`limit`, and
+ * one that returned nothing cannot tell anything, so neither verifies.
+ *
+ * It lives beside the adapter that bills; the registration task persists it (in the source's
+ * provenance) and passes it here. NO OBSERVATION IS COMMITTED TODAY, so the source is unverified.
+ */
+export const billingObservationSchema = z
+  .object({
+    observedAt: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
+    requestedLimit: z.number().int().min(1).max(THEIRSTACK_MAX_LIMIT),
+    jobsReturned: z.number().int().min(0).max(THEIRSTACK_MAX_LIMIT),
+    creditBalanceBefore: z.number().int().min(0),
+    creditBalanceAfter: z.number().int().min(0),
+  })
+  .strict()
+export type BillingObservation = z.infer<typeof billingObservationSchema>
+
+/** Whether an observation PROVES per-record billing (see above). Throws on a malformed record. */
+export function billingProvenBy(raw: unknown): boolean {
+  const o = billingObservationSchema.parse(raw)
+  return (
+    o.jobsReturned >= 1 &&
+    o.jobsReturned < o.requestedLimit &&
+    o.creditBalanceBefore - o.creditBalanceAfter === o.jobsReturned
+  )
+}
+
 export interface TheirStackOptions {
   credential: QuotaCredential
   /**
-   * True only after the owner's authenticated smoke has reconciled `data.length` against
-   * TheirStack's own credit balance. DEFAULT FALSE: the "1 credit per job returned" sentence is a
-   * published reference, not an observation, and a freed difference is re-reservable within the
-   * window, so an unverified reading turns a hard budget into a multiple of it.
+   * The smoke's evidence. ABSENT (today): every page is charged its worst case. PRESENT: it is
+   * parsed (a malformed record throws when the provider is built) and the per-record reading is
+   * attached only if it proves per-record billing. There is no flag to set: the reading follows the
+   * evidence, because a freed difference is re-reservable within the window and an unverified
+   * reading turns a hard budget into a multiple of it (measured 9.1x).
    */
-  billingVerified?: boolean
+  billingObservation?: unknown
 }
 
 export function createTheirStackProvider(
   options: TheirStackOptions,
 ): ReportingJobSourceProvider<Validated<Config>> {
+  // Decided once, when the provider is built, from evidence - never from a flag.
+  const billingVerified =
+    options.billingObservation !== undefined && billingProvenBy(options.billingObservation)
   return definePagedProvider({ type: 'THEIRSTACK_API', configSchema }, (config, ctx) => {
     // Before the reservation and before any network call: a source without a key costs nothing.
     const apiKey = requireApiKey(
@@ -218,7 +263,7 @@ export function createTheirStackProvider(
     )
     return collectJsonPages(
       {
-        ...makeSpec(apiKey, config, options.billingVerified === true),
+        ...makeSpec(apiKey, config, billingVerified),
         limits: { maxPages: config.maxPages, maxItemsPerPage: config.limit },
       },
       config,

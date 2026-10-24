@@ -1,3 +1,5 @@
+import { readdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { fakeCollectionContext, type FakeResponse } from '../../../test/fake-collection-context'
 import { meteredContext } from '../../../test/quota-harness'
@@ -7,6 +9,7 @@ import { UnvalidatedConfigError } from '../reporting-provider'
 import { SourceNotReadyError } from './quota-provider'
 import {
   createTheirStackProvider,
+  billingProvenBy,
   THEIRSTACK_SOURCE_STATUS,
   theirstackIncurredCredits,
 } from './theirstack.provider'
@@ -23,13 +26,24 @@ import {
 const NOW = new Date('2026-10-24T04:00:00Z')
 const KEY = 'tsk_0000fake0000fake0000fake0000fake'
 const SEEDED = { limit: 25, seniority: ['senior'] }
+/**
+ * An observation that PROVES per-record billing, hand-written: asked for 25, got 7, and the balance
+ * fell from 1000 to 993. (Invented for this unit test; the real one is the owner's smoke.)
+ */
+const PROVEN = {
+  observedAt: '2026-10-24T09:00:00.000Z',
+  requestedLimit: 25,
+  jobsReturned: 7,
+  creditBalanceBefore: 1000,
+  creditBalanceAfter: 993,
+}
 const READY = { configured: true, apiKey: KEY, secrets: [KEY] } as const
 const NOT_CONFIGURED = { configured: false, apiKey: null, secrets: [] } as const
 
 const provider = (
   credential: Parameters<typeof createTheirStackProvider>[0]['credential'] = READY,
-  billingVerified = true,
-) => createTheirStackProvider({ credential, billingVerified })
+  observation: unknown = PROVEN,
+) => createTheirStackProvider({ credential, billingObservation: observation })
 const cfg = (extra: Record<string, unknown> = {}, p = provider()) =>
   p.parseConfig({ configVersion: 1, ...SEEDED, ...extra })
 
@@ -487,30 +501,99 @@ describe('billing is not trusted until it has been observed (SR-M-1)', () => {
     expect(batch.requests[0]?.cost).toEqual({ unit: 'RECORD', amount: 25 })
   })
 
-  it('with billingVerified false, explicitly, the same', async () => {
+  it('only PROVEN evidence attaches the reading: 2 jobs back, 2 charged', async () => {
     const { m } = await runWith(
-      createTheirStackProvider({ credential: READY, billingVerified: false }),
-    )
-    expect(m.settled).toEqual([{ id: 'res-1', resolution: 'USED' }])
-  })
-
-  it('only billingVerified true attaches the reading: 2 jobs back, 2 charged', async () => {
-    const { m } = await runWith(
-      createTheirStackProvider({ credential: READY, billingVerified: true }),
+      createTheirStackProvider({ credential: READY, billingObservation: PROVEN }),
     )
     expect(m.settled).toEqual([{ id: 'res-1', resolution: 'USED', incurred: 2 }])
   })
 
-  it('a truthy non-true value does not count as verification', async () => {
+  it('there is no flag: a `billingVerified` option, whatever its value, changes nothing', async () => {
+    for (const flag of [true, 'true', 1, {}]) {
+      const { m } = await runWith(
+        createTheirStackProvider({ credential: READY, billingVerified: flag } as never),
+      )
+      expect(m.settled).toEqual([{ id: 'res-1', resolution: 'USED' }])
+    }
+  })
+
+  it('evidence that does not prove per-record billing leaves the worst case in force', async () => {
+    const disproving = { ...PROVEN, creditBalanceAfter: 975 } // balance fell by the whole limit
     const { m } = await runWith(
-      createTheirStackProvider({ credential: READY, billingVerified: 1 as never }),
+      createTheirStackProvider({ credential: READY, billingObservation: disproving }),
     )
     expect(m.settled).toEqual([{ id: 'res-1', resolution: 'USED' }])
+  })
+
+  it('a malformed observation fails when the provider is built, not mid-run', () => {
+    expect(() =>
+      createTheirStackProvider({ credential: READY, billingObservation: { jobsReturned: 7 } }),
+    ).toThrow()
+    expect(() =>
+      createTheirStackProvider({ credential: READY, billingObservation: 'verified' }),
+    ).toThrow()
+  })
+
+  it('no observation is committed today: the source is unverified until one is', () => {
+    expect(readdirSync(join(__dirname, '__fixtures__', 'theirstack')).sort()).toEqual([
+      'doc-example.json',
+      'doc-example.provenance.json',
+    ])
   })
 
   it('the cost reader admits a body past the 2 MiB default (the transport already admitted it)', () => {
     const big = JSON.stringify({ data: [{ pad: 'x'.repeat(2_200_000) }, {}] })
     expect(big.length).toBeGreaterThan(2_097_152)
     expect(theirstackIncurredCredits(big)).toBe(2)
+  })
+})
+
+/** R2-SR-M-2: what an observation must show before the per-record reading is believed. */
+describe('billingProvenBy', () => {
+  const obs = (over: Record<string, unknown>) => ({ ...PROVEN, ...over })
+
+  it('proves per-record billing: 7 of 25 returned, balance fell by exactly 7', () => {
+    expect(billingProvenBy(PROVEN)).toBe(true)
+  })
+
+  it('AT the edges: 1 returned of 2 asked proves; the whole limit (2 of 2) cannot tell per-record from per-limit', () => {
+    expect(
+      billingProvenBy(obs({ requestedLimit: 2, jobsReturned: 1, creditBalanceAfter: 999 })),
+    ).toBe(true)
+    expect(
+      billingProvenBy(obs({ requestedLimit: 2, jobsReturned: 2, creditBalanceAfter: 998 })),
+    ).toBe(false)
+    // one past: more returned than asked is not a billing observation either
+    expect(
+      billingProvenBy(obs({ requestedLimit: 2, jobsReturned: 3, creditBalanceAfter: 997 })),
+    ).toBe(false)
+  })
+
+  it('nothing returned proves nothing, even with an unchanged balance', () => {
+    expect(billingProvenBy(obs({ jobsReturned: 0, creditBalanceAfter: 1000 }))).toBe(false)
+  })
+
+  it.each([
+    ['one credit too many', 992],
+    ['one credit too few', 994],
+    ['the balance went UP', 1001],
+    ['the whole limit was charged', 975],
+    ['a flat per-request charge of 1', 999],
+  ])('does not prove it when %s', (_label, after) => {
+    expect(billingProvenBy(obs({ creditBalanceAfter: after }))).toBe(false)
+  })
+
+  it.each([
+    ['a missing field', { ...PROVEN, observedAt: undefined }],
+    ['an unknown field', { ...PROVEN, note: 'x' }],
+    ['a date without milliseconds', { ...PROVEN, observedAt: '2026-10-24T09:00:00Z' }],
+    ['a limit of 0', { ...PROVEN, requestedLimit: 0 }],
+    ['a limit of 51', { ...PROVEN, requestedLimit: 51 }],
+    ['a fractional balance', { ...PROVEN, creditBalanceBefore: 1000.5 }],
+    ['a negative balance', { ...PROVEN, creditBalanceAfter: -1 }],
+    ['a string', 'proven'],
+    ['null', null],
+  ])('refuses %s', (_label, raw) => {
+    expect(() => billingProvenBy(raw)).toThrow()
   })
 })

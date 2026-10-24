@@ -3396,7 +3396,6 @@ describe('the JSON binding admits only argued-for request headers (SR-M-4)', () 
       'accept-language',
       'authorization',
       'content-type',
-      'from',
       'x-rapidapi-host',
       'x-rapidapi-key',
     ])
@@ -3417,6 +3416,16 @@ describe('the JSON binding admits only argued-for request headers (SR-M-4)', () 
       h.ctx,
     )
     expect(h.sent[0]?.headers).toEqual({ accept: 'application/json' })
+  })
+
+  it('drops `from` (an e-mail header nobody sends) in any letter case', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    await collectJsonPages(
+      sending({ From: 'someone@example.test', Accept: 'a/b' }),
+      config(),
+      h.ctx,
+    )
+    expect(h.sent[0]?.headers).toEqual({ accept: 'a/b' })
   })
 
   it('keeps the credential headers of the keyed schemes', async () => {
