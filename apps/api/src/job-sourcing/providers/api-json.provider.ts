@@ -266,8 +266,9 @@ export interface PagedSourceSpec<TConfig extends SourceConfigFields, TEnvelope, 
    * the provider actually charged, or `null` when it cannot tell. The loop settles with that amount
    * when it lies in `0..amountPerRequest` (a free request, 0, settles as 1: the store cannot record
    * a USED reservation with no cost); absent, `null`, non-integer or past the reservation, the
-   * full reservation is charged — the direction that cannot overspend. It must not throw (a throw
-   * is treated as `null`).
+   * full reservation is charged — the direction that cannot overspend. It must not throw: a throw is
+   * a defect in the adapter and fails the page like any other, with the response already counted as
+   * having arrived (the reservation settles USED, whole).
    */
   readonly meter?: {
     unit: JobMeterUnit
@@ -579,13 +580,7 @@ function readIncurred(
   bodyText: string,
   reserved: number,
 ): number | undefined {
-  let amount: number | null
-  try {
-    amount = read(bodyText)
-    // Stryker disable next-line BlockStatement: equivalent - emptied, the catch leaves `amount` undefined, which the whole-number check below refuses exactly as the `return undefined` it replaces (the gate's own run: every test still passes with the block emptied)
-  } catch {
-    return undefined
-  }
+  const amount = read(bodyText)
   if (!isWholeNumber(amount)) return undefined
   if (amount < 0 || amount > reserved) return undefined
   // The store cannot record a USED reservation of zero (its `used_settled` CHECK), so a free
@@ -836,10 +831,12 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
     // simply out of budget, and everything already persisted stands.
     let reservation: MeterReservation | null = null
     // How this source reads the cost off a response; set with the reservation, absent otherwise.
-    // Called detached from the meter object, so a hook must not use `this`.
-    let costReader: ((bodyText: string) => number | null) | undefined
+    let costReader: ((bodyText: string) => number | undefined) | undefined
     if (spec.meter !== undefined) {
-      costReader = spec.meter.incurredAmount
+      const { incurredAmount, amountPerRequest } = spec.meter
+      if (incurredAmount !== undefined) {
+        costReader = (body) => readIncurred(incurredAmount, body, amountPerRequest)
+      }
       reservation = await ctx.meter.reserve(spec.meter.unit, spec.meter.amountPerRequest)
       if (reservation === null) {
         stop = 'COST_STOP'
@@ -900,8 +897,8 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
      * All three are reachable and asserted, so the `finally` is not a guard without a failing test.
      */
     let resolution: ReservationResolution = 'RELEASED'
-    // The body of a FRESH successful response: the only thing the cost is ever read from.
-    let freshBody: string | undefined
+    // The cost the provider actually charged, read off a FRESH successful response only.
+    let incurred: number | undefined
     // True from the moment `markSent` is called: with `resolution` still RELEASED, a throw can only
     // have come from `markSent` itself, so the request was NEVER sent.
     let markSentStarted = false
@@ -952,7 +949,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
         }
       } else {
         bodyText = response.bodyText
-        freshBody = bodyText
+        incurred = costReader?.(bodyText)
         const lastModified = response.headers['last-modified']
         if ((isValidator(response.etag) || isValidator(lastModified)) && cacheKey !== undefined) {
           /**
@@ -1016,11 +1013,6 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
          * A failure already set is NOT overwritten: it says why the page failed, which is more
          * informative than the bookkeeping that failed afterwards.
          */
-        // The cost the provider actually charged, when this source can read it off the response.
-        const incurred =
-          costReader === undefined || freshBody === undefined
-            ? undefined
-            : readIncurred(costReader, freshBody, reservation.amount)
         try {
           await ctx.meter.reconcile(reservation, resolution, incurred)
           cost = { unit: reservation.unit, amount: incurred ?? reservation.amount }

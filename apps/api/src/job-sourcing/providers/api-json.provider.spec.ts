@@ -3063,7 +3063,7 @@ describe('settling at the cost actually incurred', () => {
     expect(batch.requests[0]?.cost).toEqual({ unit: 'RECORD', amount: 50 })
   })
 
-  it('a hook that throws charges the whole reservation and the page still stands', async () => {
+  it('a hook that throws fails the page loudly, with its own message, and settles the whole reservation', async () => {
     const h = harness({ pages: [onePage([job('1')])] })
     const batch = await collectJsonPages(
       makeSpec({
@@ -3075,9 +3075,12 @@ describe('settling at the cost actually incurred', () => {
       h.ctx,
     )
 
+    // The response arrived (so USED, whole): the adapter's defect fails the page instead of being
+    // swallowed into a quiet worst-case charge.
     expect(h.reconciles).toEqual([{ id: 'r1', resolution: 'USED' }])
-    expect(batch.outcome).toBe('SUCCEEDED')
-    expect(batch.observations).toHaveLength(1)
+    expect(batch.outcome).toBe('FAILED')
+    expect(batch.observations).toEqual([])
+    expect(batch.requests.at(-1)?.error?.message).toBe('hook bug')
   })
 
   it('a refused response is charged the whole reservation: the hook is never asked', async () => {
