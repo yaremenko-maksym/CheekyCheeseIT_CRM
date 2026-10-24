@@ -86,6 +86,8 @@ let scratchPool: Pool
 let scratchName: string
 let receiverA: string
 let receiverB: string
+/** The legacy index exactly as Postgres reports it while it exists (captured, not invented). */
+let retiredIndexDef: string
 const snapshots: Record<string, Snapshot> = {}
 
 async function applyFile(file: string): Promise<void> {
@@ -224,6 +226,12 @@ describe.skipIf(!hasDatabaseUrl())('manual salary DDL replay on a pre-#795 datab
 
     await applyFile(PREPARE_SQL)
     snapshots['afterPrepare1'] = await snapshot()
+    // PREPARE keeps the legacy index, so this is its real definition from the replay.
+    const legacyDef = await scratchPool.query(
+      `SELECT indexdef FROM pg_indexes WHERE schemaname='public' AND indexname=$1`,
+      [RETIRED_INDEX],
+    )
+    retiredIndexDef = legacyDef.rows[0].indexdef as string
     await applyFile(PREPARE_SQL)
     snapshots['afterPrepare2'] = await snapshot()
     await applyFile(ACTIVATE_SQL)
@@ -351,5 +359,56 @@ describe.skipIf(!hasDatabaseUrl())('manual salary DDL replay on a pre-#795 datab
     const expected = await defs(adminPool)
     expect(expected).toHaveLength(SCHEMA_CONSTRAINTS.length)
     expect(await defs(scratchPool)).toEqual(expected)
+  })
+
+  async function transactionsIndexes(): Promise<{ indexname: string; indexdef: string }[]> {
+    return (
+      await scratchPool.query(
+        `SELECT indexname, indexdef FROM pg_indexes
+          WHERE schemaname='public' AND tablename='transactions' ORDER BY indexname`,
+      )
+    ).rows
+  }
+
+  it('ACTIVATE applied a SECOND time is a no-op (it is re-run on every deploy)', async () => {
+    const before = await transactionsIndexes()
+    await applyFile(ACTIVATE_SQL)
+    const after = await transactionsIndexes()
+    expect(after).toEqual(before)
+    const names = after.map((r) => r.indexname)
+    expect(names).not.toContain(RETIRED_INDEX)
+    expect(names).toContain(LOOKUP_INDEX)
+  })
+
+  it('ACTIVATE self-heals a retired index re-created by a restore or a bad replay', async () => {
+    // A unique index over (receiver_id, salary_month) cannot be built while duplicate
+    // SALARY rows exist, and the test above this one inserted two. Remove only the rows
+    // added after the legacy ones (they carry an idempotency key; legacy rows do not),
+    // leaving the one-per-month legacy state a restore of old data would have.
+    await scratchPool.query(
+      `DELETE FROM transactions
+        WHERE type='SALARY' AND receiver_id=$1 AND salary_month=$2 AND idempotency_key IS NOT NULL`,
+      [receiverA, MONTH_A],
+    )
+    await scratchPool.query(retiredIndexDef)
+    expect((await transactionsIndexes()).map((r) => r.indexname)).toContain(RETIRED_INDEX)
+
+    // Precondition with teeth: while the index is back, a second row for the same
+    // receiver/month is really refused.
+    const insertSecond = () =>
+      scratchPool.query(
+        `INSERT INTO transactions (type, amount, created_by, receiver_id, salary_month,
+                                   salary_origin, idempotency_key)
+         VALUES ('SALARY', '250.000000', $1, $1, $2, 'MANUAL', $3)`,
+        [receiverA, MONTH_A, randomUUID()],
+      )
+    await expect(insertSecond()).rejects.toMatchObject({ code: '23505' })
+
+    await applyFile(ACTIVATE_SQL)
+
+    const names = (await transactionsIndexes()).map((r) => r.indexname)
+    expect(names).not.toContain(RETIRED_INDEX)
+    expect(names).toContain(LOOKUP_INDEX)
+    await expect(insertSecond()).resolves.toBeDefined()
   })
 })
