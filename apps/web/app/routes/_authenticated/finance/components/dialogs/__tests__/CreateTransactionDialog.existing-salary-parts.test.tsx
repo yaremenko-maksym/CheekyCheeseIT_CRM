@@ -46,7 +46,7 @@ const RECEIVER = '11111111-1111-4111-8111-111111111111'
 
 function renderDialog() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
+  const rendered = render(
     <QueryClientProvider client={qc}>
       <CreateTransactionDialog
         open
@@ -56,6 +56,20 @@ function renderDialog() {
     </QueryClientProvider>,
     { wrapper: I18nTestProvider },
   )
+  return { ...rendered, qc }
+}
+
+/**
+ * Salary-parts queries with a LIVE observer — i.e. ones a mounted component is
+ * subscribed to. Counting cache entries instead would prove nothing: TanStack
+ * keeps an entry after unmount until gc, so the SALARY-era query is still there
+ * either way. The observer is what disappears when the component does.
+ */
+function mountedSalaryPartsQueries(qc: QueryClient): unknown[] {
+  return qc
+    .getQueryCache()
+    .findAll()
+    .filter((q) => q.queryKey[1] === 'salary-parts' && q.getObserversCount() > 0)
 }
 
 beforeEach(async () => {
@@ -90,7 +104,7 @@ describe('CreateTransactionDialog — existing salary parts (SR-795-M-1)', () =>
   })
 
   it('drops the panel — and stops asking — when the type switches away from SALARY', async () => {
-    renderDialog()
+    const { qc } = renderDialog()
     await screen.findByTestId('create-transaction-existing-salary-parts')
     getSalaryPartsMock.mockClear()
 
@@ -102,5 +116,12 @@ describe('CreateTransactionDialog — existing salary parts (SR-795-M-1)', () =>
     // An EXPENSE has no salary month and its receiver is a category, so asking
     // at all would be a request the server answers with 400.
     expect(getSalaryPartsMock).not.toHaveBeenCalled()
+
+    // And the panel is not merely rendering null — it is not MOUNTED. The
+    // distinction is what the mutation gate asked for: switching type clears
+    // the receiver, so a panel mounted for EXPENSE would self-disable and look
+    // identical on screen. Its query registration is the only visible
+    // difference, and a `true` guard leaves one behind.
+    await waitFor(() => expect(mountedSalaryPartsQueries(qc)).toHaveLength(0))
   })
 })
