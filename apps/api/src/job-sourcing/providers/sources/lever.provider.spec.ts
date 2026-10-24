@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { fakeCollectionContext, type FakeResponse } from '../../../test/fake-collection-context'
+import { readProvenance } from '../../../test/fixture-provenance'
 import { sourceFixture, sourceFixtureText } from '../../../test/source-fixtures'
 import { ORIGINAL_LIMITS } from '../../normalize/observation'
+import { ownershipCountOf } from '../manifest'
 import { boardVerdictOf } from './ats-config'
 import {
   LEVER_HOSTS,
@@ -18,9 +20,20 @@ import {
  */
 
 const NOW = new Date('2026-10-24T04:00:00Z')
-const SPOTIFY = { name: 'Spotify', evidence: 'posting text names Spotify (87 of 90 postings)' }
-const SITEIMPROVE = { name: 'Siteimprove', evidence: 'posting text names Siteimprove (12 of 12)' }
-const QUANTCO = { name: 'QuantCo', evidence: 'posting text names QuantCo (14 of 14)' }
+/**
+ * The ownership figures are READ from the provenance files, not kept here: all three of these had
+ * drifted once as free text (Spotify 71 vs 87 of 90, Siteimprove 11 vs 12, QuantCo 11 vs 14) and
+ * were corrected only because somebody grepped. The manifest reads the same sentence, so the two
+ * cannot disagree.
+ */
+const ownership = (name: string, file: string) => {
+  const count = ownershipCountOf(readProvenance('lever', `${file}.provenance.json`).notes)
+  if (count === null) throw new Error(`${file}: no ownership count in the provenance notes`)
+  return { name, evidence: `posting text names ${name} (${count.matched} of ${count.total})` }
+}
+const SPOTIFY = ownership('Spotify', 'spotify-page1')
+const SITEIMPROVE = ownership('Siteimprove', 'siteimprove-eu-board')
+const QUANTCO = ownership('QuantCo', 'quantco-trailing-hyphen-board')
 
 const cfg = (board = 'spotify', extra: Record<string, unknown> = {}) =>
   leverProvider.parseConfig({ configVersion: 1, board, ...extra })
