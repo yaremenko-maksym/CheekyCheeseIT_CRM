@@ -20,13 +20,14 @@
  */
 
 import { test, expect } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 // CRM root, anchored on the WHOLE url — matches `/` (and `/?x`) but NOT `/team` etc.
 // (a bare `/\/?$/` matches EVERY url, so it asserted nothing).
 const CRM_ROOT = /^https?:\/\/[^/]+\/?(\?.*)?$/
 
 test.describe('Drop RBAC visibility — AC8 (phase 3 update)', () => {
-  test('sidebar has exactly 5 items for DROP: Дашборд / Финансы / Команда / Документы / Профиль', async ({
+  test('sidebar has exactly 6 items for DROP: Дашборд / Чекають рішення / Команда / Финансы / Документы / Профиль', async ({
     asDrop: page,
   }) => {
     // Navigate to DROP home (dashboard hub at the CRM root /crm).
@@ -39,15 +40,16 @@ test.describe('Drop RBAC visibility — AC8 (phase 3 update)', () => {
 
     // Finding 1 fix (PR #198): DROP added to /documents ROUTE_ACCESS.
     // nav-sidebar uses navRolesFor('/documents') → now includes DROP.
-    // Phase 3 + Finding 1: 5 allowed entries.
+    // Phase 3 + Finding 1 + pending-decisions screen (/pending, all roles): 6 entries.
     await expect(nav.locator('a[href="/"]')).toBeVisible()
+    await expect(nav.locator('a[href="/pending"]')).toBeVisible()
     await expect(nav.locator('a[href="/finance"]')).toBeVisible()
     await expect(nav.locator('a[href="/team"]')).toBeVisible()
     await expect(nav.locator('a[href="/documents"]')).toBeVisible()
     await expect(nav.locator('a[href="/profile"]')).toBeVisible()
 
-    // Exactly 5 nav links.
-    await expect(nav.locator('a')).toHaveCount(5)
+    // Exactly 6 nav links.
+    await expect(nav.locator('a')).toHaveCount(6)
 
     // Forbidden entries — absent for DROP.
     await expect(nav.locator('a[href="/projects"]')).toHaveCount(0)
@@ -71,7 +73,7 @@ test.describe('Drop RBAC visibility — AC8 (phase 3 update)', () => {
     await expect(page).toHaveURL(CRM_ROOT, { timeout: 8_000 })
   })
 
-  test('DROP self-profile renders with correct tabs (contract tab present, no interviews)', async ({
+  test('DROP self-profile renders with the trimmed tab set (overview + requisites, no finance/interviews)', async ({
     asDrop: page,
   }) => {
     await page.goto('/profile')
@@ -81,38 +83,42 @@ test.describe('Drop RBAC visibility — AC8 (phase 3 update)', () => {
       timeout: 8_000,
     })
 
-    // Key change in PR #198: 'contract' tab is now included in the DROP profile view.
-    // The mock for /api/users/me is matched by the generic /users/:id handler (LIFO)
-    // which returns buildAdminViewingUser(DROP) → includes 'contract' tab because
-    // DROP is non-ADMIN. This means the mock faithfully reflects the PR #198 backend
-    // change: GET /api/users/:id/contract is now owner-or-ADMIN (not ADMIN-only),
-    // so the profile service now includes 'contract' in DROP's tabs.
+    // The real API trims the DROP self-view to an explicit allow-list
+    // (users-access.service, task-drop-profile-rbac-r2 Finding A): overview +
+    // requisites only. Finance lives on /finance, the contract on /documents —
+    // neither is a profile tab any more. (This supersedes the PR #198 expectation
+    // of a «Контракт» tab, which the product dropped on purpose.)
     //
     // AnimatedTabs renders each entry as a plain <button> (not role=tab).
-    // Scope to <main> to avoid matching the sidebar «Финансы» / «Документы» links.
+    // Tab labels are product i18n (uk default) — read from the catalog.
+    const uk = await loadMessages('uk')
     const main = page.locator('main')
-    await expect(main.getByRole('button', { name: /Финансы/ }).first()).toBeVisible({
-      timeout: 8_000,
-    })
-    // «Контракт» tab MUST be present for DROP (key PR #198 regression guard)
-    await expect(main.getByRole('button', { name: /Контракт/ }).first()).toBeVisible()
+    await expect(
+      main.getByRole('button', { name: assertInCatalog(uk, 'Огляд'), exact: true }),
+    ).toBeVisible({ timeout: 8_000 })
+    await expect(
+      main.getByRole('button', { name: assertInCatalog(uk, 'Реквізити'), exact: true }),
+    ).toBeVisible()
 
-    // Forbidden tab — «Собеседования» must never surface for DROP.
-    await expect(main.getByRole('button', { name: /^Собеседования$/ })).toHaveCount(0)
+    // Forbidden tabs — interviews and finance must never surface for DROP.
+    await expect(
+      main.getByRole('button', { name: assertInCatalog(uk, 'Співбесіди'), exact: true }),
+    ).toHaveCount(0)
+    await expect(
+      main.getByRole('button', { name: assertInCatalog(uk, 'Фінанси'), exact: true }),
+    ).toHaveCount(0)
   })
 
   test('DROP can open /finance and stays on the finance page', async ({ asDrop: page }) => {
     // Spec §4: DROP sees Finance. `useRoleGuard` on /finance now
     // includes DROP, so the page renders the standard finance shell with
-    // the «Финансы» header and the transactions table (may be empty).
+    // DROP's own finance cabinet (may be empty).
     await page.goto('/finance')
     await expect(page).toHaveURL(/\/finance/, { timeout: 8_000 })
     await expect(page).not.toHaveURL(/\/login/)
     await expect(page).not.toHaveURL(/\/profile/)
-    const main = page.locator('main')
-    await expect(main.getByRole('heading', { level: 1, name: 'Финансы' })).toBeVisible({
-      timeout: 8_000,
-    })
+    // Page-title h1s were removed deliberately — anchor on the root testid.
+    await expect(page.getByTestId('drop-finance-page')).toBeVisible({ timeout: 8_000 })
   })
 
   test('DROP can open /team and stays on the team page', async ({ asDrop: page }) => {

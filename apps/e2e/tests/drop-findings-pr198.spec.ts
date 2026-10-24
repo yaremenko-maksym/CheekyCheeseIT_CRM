@@ -145,11 +145,10 @@ test.describe('Finding 1 — DROP documents page access (PR #198)', () => {
     await expect(page).not.toHaveURL(/\/dashboard/)
     await expect(page).not.toHaveURL(/\/login/)
 
-    // Page shell renders the «Документы» heading.
-    const main = page.locator('main')
-    await expect(main.getByRole('heading', { name: /документы/i }).first()).toBeVisible({
-      timeout: 8_000,
-    })
+    // Page shell renders (page-title h1s were removed — anchor on the root testid)
+    // and the viewer is NOT shown the no-access state.
+    await expect(page.getByTestId('documents-page')).toBeVisible({ timeout: 8_000 })
+    await expect(page.getByTestId('documents-no-access')).toHaveCount(0)
   })
 
   test('F1b: drop-nav contains «Документы» link after Finding 1 fix', async ({ asDrop: page }) => {
