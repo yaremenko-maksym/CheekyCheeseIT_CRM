@@ -336,6 +336,18 @@ test.describe('Flow E4 — InvoiceDetailDialog signature cards', () => {
       invoicePendingSignature: true,
       createdAt: '2026-05-10T12:00:00.000Z',
     }
+    // The dialog's inline PDF previewer asks /documents/:id/preview for a presigned
+    // URL; unmocked it hits the real API, 401s and bounces the page to /login.
+    await asSenior.route(new RegExp(`${API_RE}/documents/e4-invoice-doc/preview$`), (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          url: 'http://localhost:9000/invoice.pdf',
+          expiresAt: '2099-01-01T00:00:00.000Z',
+        }),
+      }),
+    )
     await asSenior.route(new RegExp(`${API_RE}/documents/e4-invoice-doc/download$`), (r) =>
       r.fulfill({
         status: 200,

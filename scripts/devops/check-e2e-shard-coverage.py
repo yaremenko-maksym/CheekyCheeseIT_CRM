@@ -97,10 +97,8 @@ KNOWN_UNSHARDED = {
     # --- hr ---
     # --- invoices ---
     # --- junior ---
-    "tests/junior-hub.spec.ts",                   # debt: not gated, migrate to misc shard later
     # --- legend ---
     # --- onboarding ---
-    "tests/onboarding-flow.spec.ts",              # debt: not gated, migrate to misc shard later
     # --- payout ---
     # --- phase ---
     "tests/phase8-payout-company.spec.ts",        # debt: not gated, migrate to finance shard later
@@ -110,7 +108,6 @@ KNOWN_UNSHARDED = {
     # --- senior ---
     # --- team share ---
     # --- ui ---
-    "tests/ui-invariants-pr56.spec.ts",           # debt: not gated, migrate to misc shard later
 
 }
 
