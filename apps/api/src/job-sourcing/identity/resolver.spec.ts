@@ -962,6 +962,45 @@ describe('chooseCanonical: authority policy', () => {
     ).toBe('UNKNOWN')
   })
 
+  it('the tie-break is a total order: an invalid date is the oldest, in all 6 permutations (CR-M-5)', () => {
+    const mk = (id: string, observedAt: Date, revision = 1) =>
+      claim({ sourceRecordId: id, observedAt, revision })
+    const bad = mk('a', new Date('nope'))
+    const older = mk('b', new Date('2026-10-02T00:00:00Z'))
+    const newer = mk('c', new Date('2026-10-03T00:00:00Z'))
+    const perms = [
+      [bad, older, newer],
+      [bad, newer, older],
+      [older, bad, newer],
+      [older, newer, bad],
+      [newer, bad, older],
+      [newer, older, bad],
+    ]
+    for (const p of perms)
+      expect(chooseCanonical(p), p.map((c) => c.sourceRecordId).join('')).toMatchObject({
+        winnerId: 'c',
+      })
+  })
+
+  it('two invalid dates fall through to revision, then id, in every order', () => {
+    const mk = (id: string, revision: number) =>
+      claim({ sourceRecordId: id, observedAt: new Date('nope'), revision })
+    const winners = new Set<string>()
+    for (const p of [
+      [mk('a', 1), mk('b', 2), mk('c', 2)],
+      [mk('c', 2), mk('b', 2), mk('a', 1)],
+      [mk('b', 2), mk('a', 1), mk('c', 2)],
+    ]) {
+      const r = chooseCanonical(p)
+      winners.add(r.status === 'CHOSEN' ? r.winnerId : 'none')
+    }
+    expect([...winners]).toEqual(['b'])
+    // a NaN revision is the lowest
+    const nan = chooseCanonical([mk('a', Number.NaN), mk('z', 0)])
+    expect(nan).toMatchObject({ winnerId: 'z' })
+    expect(chooseCanonical([mk('z', 0), mk('a', Number.NaN)])).toMatchObject({ winnerId: 'z' })
+  })
+
   it('a neutral claim carries no information: a restrictive aggregator claim still stands (CR-M-4)', () => {
     const r = chooseCanonical([
       claim({ sourceRecordId: 'e', authority: 'EMPLOYER_ATS', value: 'anywhere' }),

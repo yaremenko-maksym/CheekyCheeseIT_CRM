@@ -101,13 +101,6 @@ const base = (decision: Decision, rule: AssessRule, evidence: string[]): Assessm
   revision: IDENTITY_RULES_VERSION,
 })
 
-/** Unknown on either side is compatible; two known values must be equal. */
-const compatible = (a: string | null, b: string | null) => {
-  const na = a === null ? '' : normalizeTitle(a)
-  const nb = b === null ? '' : normalizeTitle(b)
-  return na === '' || nb === '' || na === nb
-}
-
 /** A field over the cap is unknown (never truncated: two long strings sharing a prefix must not meet). */
 function bounded(
   value: string | null,
@@ -120,37 +113,57 @@ function bounded(
   return null
 }
 
-export function assess(a: ResolverRecord, b: ResolverRecord): Assessment {
+/**
+ * Everything `assess` needs from one record, computed ONCE: URL parsing and every string
+ * normalisation happen here, so the pairwise loop only compares finished values.
+ */
+interface Prepared {
+  record: ResolverRecord
+  keys: AtsJobKey[]
+  /** Evidence from keys and from over-long fields; merged and sorted per pair. */
+  evidence: string[]
+  company: string | null
+  /** Squashed title; '' = unknown. */
+  title: string
+  /** Normalised; '' = unknown. */
+  location: string
+  department: string
+}
+
+function prepare(r: ResolverRecord): Prepared {
+  const { keys, evidence } = strongKeys(r)
+  const own = [...evidence]
+  const company = normalizeCompanyName(bounded(r.company, 'company', r.id, own))
+  const title = squash(normalizeTitle(bounded(r.title, 'title', r.id, own) ?? ''))
+  const location = normalizeTitle(bounded(r.location, 'location', r.id, own) ?? '')
+  const department = normalizeTitle(bounded(r.department, 'department', r.id, own) ?? '')
+  return { record: r, keys, evidence: own, company, title, location, department }
+}
+
+/** Unknown ('') on either side is compatible; two known values must be equal. */
+const compatible = (a: string, b: string) => a === '' || b === '' || a === b
+
+function assessPrepared(a: Prepared, b: Prepared): Assessment {
   // `a` and `b` are interchangeable in everything below, which the symmetry test pins.
+  const ra = a.record
+  const rb = b.record
   if (
-    a.nativeId !== null &&
-    a.nativeId !== '' &&
-    a.nativeId === b.nativeId &&
-    a.provider === b.provider &&
-    a.namespace === b.namespace
+    ra.nativeId !== null &&
+    ra.nativeId !== '' &&
+    ra.nativeId === rb.nativeId &&
+    ra.provider === rb.provider &&
+    ra.namespace === rb.namespace
   ) {
-    return base('ASSOCIATE', 'NATIVE_ID', [`NATIVE:${a.provider}:${a.namespace}:${a.nativeId}`])
+    return base('ASSOCIATE', 'NATIVE_ID', [`NATIVE:${ra.provider}:${ra.namespace}:${ra.nativeId}`])
   }
 
-  const ka = strongKeys(a)
-  const kb = strongKeys(b)
-  const evidence = [...ka.evidence, ...kb.evidence]
-  const shared = ka.keys.find((k) => kb.keys.some((o) => o.key === k.key))
+  const evidence = [...a.evidence, ...b.evidence].sort()
+  const shared = a.keys.find((k) => b.keys.some((o) => o.key === k.key))
 
-  const companyA = normalizeCompanyName(bounded(a.company, 'company', a.id, evidence))
-  const companyB = normalizeCompanyName(bounded(b.company, 'company', b.id, evidence))
-  const titleA = squash(normalizeTitle(bounded(a.title, 'title', a.id, evidence) ?? ''))
-  const titleB = squash(normalizeTitle(bounded(b.title, 'title', b.id, evidence) ?? ''))
-  const locationA = bounded(a.location, 'location', a.id, evidence)
-  const locationB = bounded(b.location, 'location', b.id, evidence)
-  const departmentA = bounded(a.department, 'department', a.id, evidence)
-  const departmentB = bounded(b.department, 'department', b.id, evidence)
-  evidence.sort()
-
-  const companyEqual = companyA !== null && companyA === companyB
-  const companyMismatch = companyA !== null && companyB !== null && companyA !== companyB
-  const titleEqual = titleA !== '' && titleA === titleB
-  const titleMismatch = titleA !== '' && titleB !== '' && titleA !== titleB
+  const companyEqual = a.company !== null && a.company === b.company
+  const companyMismatch = a.company !== null && b.company !== null && a.company !== b.company
+  const titleEqual = a.title !== '' && a.title === b.title
+  const titleMismatch = a.title !== '' && b.title !== '' && a.title !== b.title
 
   if (shared !== undefined) {
     const found = [...evidence, `ATS_KEY:${shared.key}`]
@@ -160,18 +173,23 @@ export function assess(a: ResolverRecord, b: ResolverRecord): Assessment {
       return base('CANDIDATE', 'ATS_JOB_KEY_CONTRADICTED', found)
     // An unknown side is not an agreement: a blank company and title would otherwise match ANY
     // record onto someone else's ATS key (SR-H-1). At least one field must positively agree.
+    //
+    // Residual (SR-M-5, deferred to 4.4 / MP-12): an adversary who copies the victim's PUBLIC
+    // company name still gets ASSOCIATE, because no location/department rule applies here. Adding
+    // one would cut recall on legitimate cross-source copies whose location strings differ; it is
+    // to be decided with labelled data, not guessed.
     if (!companyEqual && !titleEqual) {
       return base('CANDIDATE', 'ATS_JOB_KEY_UNCORROBORATED', [...found, 'NO_POSITIVE_MATCH'])
     }
     return base('ASSOCIATE', 'ATS_JOB_KEY', found)
   }
 
-  const distinctIds = ka.keys.length > 0 && kb.keys.length > 0
+  const distinctIds = a.keys.length > 0 && b.keys.length > 0
   if (
     companyEqual &&
     titleEqual &&
-    compatible(locationA, locationB) &&
-    compatible(departmentA, departmentB)
+    compatible(a.location, b.location) &&
+    compatible(a.department, b.department)
   ) {
     return base(
       'CANDIDATE',
@@ -180,6 +198,10 @@ export function assess(a: ResolverRecord, b: ResolverRecord): Assessment {
     )
   }
   return base('DISTINCT', 'NO_SHARED_IDENTITY', evidence)
+}
+
+export function assess(a: ResolverRecord, b: ResolverRecord): Assessment {
+  return assessPrepared(prepare(a), prepare(b))
 }
 
 export interface Association {
@@ -215,34 +237,45 @@ const byId = (p: { id: string }, q: { id: string }) => (p.id < q.id ? -1 : 1)
 export const revocationSet = (pairs: ResolveOptions['revokedPairs']): Set<string> =>
   new Set((pairs ?? []).map(([p, q]) => pairKey(p, q)))
 
+function assessPreparedWithRevocations(a: Prepared, b: Prepared, revoked: Set<string>): Assessment {
+  return revoked.has(pairKey(a.record.id, b.record.id))
+    ? base('DISTINCT', 'REVOKED', [`REVOKED:${sortedPair(a.record.id, b.record.id).join(',')}`])
+    : assessPrepared(a, b)
+}
+
 /** `assess`, except that a pair an ADMIN split is DISTINCT whatever the rules say. */
 export function assessWithRevocations(
   a: ResolverRecord,
   b: ResolverRecord,
   revoked: Set<string>,
 ): Assessment {
-  return revoked.has(pairKey(a.id, b.id))
-    ? base('DISTINCT', 'REVOKED', [`REVOKED:${sortedPair(a.id, b.id).join(',')}`])
-    : assess(a, b)
+  return assessPreparedWithRevocations(prepare(a), prepare(b), revoked)
 }
 
+/**
+ * `exhaustive` lists EVERY blocker (the public `canAttach` contract); otherwise the first
+ * non-associated member ends the check, which is all clusterRecords needs.
+ */
 function attach(
-  cluster: readonly ResolverRecord[],
-  c: ResolverRecord,
+  cluster: readonly Prepared[],
+  c: Prepared,
   revoked: Set<string>,
+  exhaustive: boolean,
 ): AttachResult {
   if (cluster.length === 0) return { attach: false, reason: 'EMPTY_CLUSTER', blockedBy: [] }
-  if (cluster.some((m) => m.id === c.id))
-    return { attach: false, reason: 'ALREADY_MEMBER', blockedBy: [c.id] }
+  if (cluster.some((m) => m.record.id === c.record.id))
+    return { attach: false, reason: 'ALREADY_MEMBER', blockedBy: [c.record.id] }
   const associations: Association[] = []
   const blockedBy: string[] = []
-  for (const m of [...cluster].sort(byId)) {
-    const r = assessWithRevocations(m, c, revoked)
+  const members = exhaustive ? [...cluster].sort((p, q) => byId(p.record, q.record)) : cluster
+  for (const m of members) {
+    const r = assessPreparedWithRevocations(m, c, revoked)
     if (r.decision !== 'ASSOCIATE') {
-      blockedBy.push(m.id)
+      blockedBy.push(m.record.id)
+      if (!exhaustive) break
       continue
     }
-    const [aId, bId] = sortedPair(m.id, c.id)
+    const [aId, bId] = sortedPair(m.record.id, c.record.id)
     associations.push({
       aId,
       bId,
@@ -262,7 +295,7 @@ export function canAttach(
   cluster: readonly ResolverRecord[],
   candidate: ResolverRecord,
 ): AttachResult {
-  return attach(cluster, candidate, new Set())
+  return attach(cluster.map(prepare), prepare(candidate), new Set(), true)
 }
 
 export interface Cluster {
@@ -306,12 +339,14 @@ export function clusterRecords(
     return { ok: false, reason: 'DUPLICATE_RECORD_IDS', detail: [...duplicated].sort() }
   }
   const revoked = revocationSet(options.revokedPairs)
-  const ordered = [...records].sort(byId)
-  const groups: { members: ResolverRecord[]; associations: Association[] }[] = []
+  // Each record is parsed and normalised exactly once, before any pair is looked at.
+  const ordered = records.map(prepare).sort((p, q) => byId(p.record, q.record))
+  const groups: { members: Prepared[]; associations: Association[] }[] = []
   for (const rec of ordered) {
     let placed = false
     for (const g of groups) {
-      const r = attach(g.members, rec, revoked)
+      // Members were added in id order, so no re-sort and the first non-associated one ends it.
+      const r = attach(g.members, rec, revoked, false)
       if (r.attach) {
         g.members.push(rec)
         g.associations.push(...r.associations)
@@ -324,7 +359,7 @@ export function clusterRecords(
   return {
     ok: true,
     clusters: groups.map((g) => ({
-      memberIds: g.members.map((m) => m.id),
+      memberIds: g.members.map((m) => m.record.id),
       associations: g.associations,
     })),
   }
@@ -376,6 +411,26 @@ export type CanonicalChoice =
 /** Array claims are sets: the same members in another order are the same value. */
 const valueKey = (v: ClaimValue) => JSON.stringify(typeof v === 'object' ? [...v].sort() : v)
 
+/** A number that cannot be compared (NaN) sorts as the lowest possible. */
+const orderable = (n: number) => (Number.isNaN(n) ? Number.NEGATIVE_INFINITY : n)
+
+/**
+ * A TOTAL order, so the winner never depends on the input order: newest valid observation first
+ * (an invalid date is the oldest), then highest revision (NaN lowest), then lowest source id.
+ * The subtraction only happens for unequal values, so it is never -Infinity - -Infinity = NaN.
+ */
+function compareClaims(p: FieldClaim, q: FieldClaim): number {
+  const tp = orderable(p.observedAt.getTime())
+  const tq = orderable(q.observedAt.getTime())
+  if (tp !== tq) return tq - tp
+  const rp = orderable(p.revision)
+  const rq = orderable(q.revision)
+  if (rp !== rq) return rq - rp
+  return (
+    (p.sourceRecordId < q.sourceRecordId ? -1 : 0) + (p.sourceRecordId > q.sourceRecordId ? 1 : 0)
+  )
+}
+
 export function chooseCanonical(claims: readonly FieldClaim[]): CanonicalChoice {
   const policyVersion = canonicalAuthorityPolicyVersion
   if (claims.length === 0)
@@ -400,12 +455,7 @@ export function chooseCanonical(claims: readonly FieldClaim[]): CanonicalChoice 
     }
   }
   // `tier` is non-empty: `claims` is, and `top` is the maximum of a non-empty pool.
-  const winner = [...tier].sort(
-    (p, q) =>
-      q.observedAt.getTime() - p.observedAt.getTime() ||
-      q.revision - p.revision ||
-      (p.sourceRecordId < q.sourceRecordId ? -1 : p.sourceRecordId > q.sourceRecordId ? 1 : 0),
-  )[0] as FieldClaim
+  const winner = [...tier].sort(compareClaims)[0] as FieldClaim
   return {
     status: 'CHOSEN',
     value: winner.value,
