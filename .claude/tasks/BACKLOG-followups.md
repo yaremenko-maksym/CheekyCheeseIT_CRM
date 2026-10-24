@@ -6104,6 +6104,14 @@ only in PR #1132's body.
 `deploy-stack-on-vps.sh`, which #1132 does not touch, so if DevOps writes the step without the flag,
 nothing goes red. Code review and spec review both noted this independently.
 
+**A consequence to put in the runbook (raised by the security axis on #1132):** once the delta is wired, a
+_permanent_ collision with an operator-made row makes every deploy fail until someone claims or retires that
+row by hand. That is the loud failure the `RAISE` was added to produce, and it is the right trade against a
+silent skip, but an operator meeting it for the first time during a deploy needs to be told what it means
+and which row to look at. The error names the manifest id; the runbook should say what to do with it.
+The DevOps PR that adds the apply step should be reviewed for the `--single-transaction` flag in
+particular, since nothing else in the repository goes red without it.
+
 **Check on closing:** `deploy-stack-on-vps.sh` applies the delta after the store migration with
 `--single-transaction`; the file is in `manual/`, listed in all four wiring places; and a CI check fails if
 the apply line lacks the flag, not merely if the header says it should.
