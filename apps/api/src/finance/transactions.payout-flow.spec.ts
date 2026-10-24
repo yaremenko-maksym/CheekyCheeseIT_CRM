@@ -660,25 +660,28 @@ describe('createPayoutRequest (#7)', () => {
     })
   })
 
-  it('keeps the legacy two-argument call valid and stamps the PAYOUT with today', async () => {
-    const tx = makeTx({
-      id: 'tx-1',
-      status: 'VALIDATED' as const,
-      createdAt: new Date('2020-01-01T00:00:00.000Z'),
-    })
-    const { svc, mocks } = makeServiceWithTransaction([tx], makePayoutRequestRow('pr-date-3'))
+  it('keeps the legacy two-argument call valid and stamps the Kyiv day when UTC is behind', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-24T22:30:00.000Z')) // Already Oct 25 in Kyiv
+    try {
+      const tx = makeTx({
+        id: 'tx-1',
+        status: 'VALIDATED' as const,
+        createdAt: new Date('2020-01-01T00:00:00.000Z'),
+      })
+      const { svc, mocks } = makeServiceWithTransaction([tx], makePayoutRequestRow('pr-date-3'))
 
-    const before = new Date()
-    await svc.createPayoutRequest(['tx-1'], SENIOR_USER)
-    const after = new Date()
+      await svc.createPayoutRequest(['tx-1'], SENIOR_USER)
 
-    const payoutInsertArg = mocks.insertValuesResolveMock.mock.calls[0]?.[0] as Record<
-      string,
-      unknown
-    >
-    const stored = payoutInsertArg['txDate'] as Date
-    expect(stored.getTime()).toBeGreaterThanOrEqual(before.getTime())
-    expect(stored.getTime()).toBeLessThanOrEqual(after.getTime())
+      const payoutInsertArg = mocks.insertValuesResolveMock.mock.calls[0]?.[0] as Record<
+        string,
+        unknown
+      >
+      const stored = payoutInsertArg['txDate'] as Date
+      expect(stored.toISOString()).toBe('2026-10-25T00:00:00.000Z')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('rejects an omitted payout date when today is before the latest selected source date', async () => {
