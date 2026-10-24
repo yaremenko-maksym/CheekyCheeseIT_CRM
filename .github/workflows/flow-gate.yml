@@ -145,18 +145,13 @@ jobs:
             if gh api "repos/$REPO/compare/${sha}...${head_sha}" >"$D/drift.json" 2>"$D/c.err" \
               && gh api "repos/$REPO/compare/${base_ref}...${sha}" >"$D/owned.json" 2>>"$D/c.err"
             then
-              # The compare endpoint returns at most 300 files and reports no total, so a list AT
-              # the limit is treated as truncated rather than as a complete answer.
+              # The filter is a file, not inline, so the unit suite can feed it fixtures: a
+              # response that succeeded with no file list must come out `unavailable`, and a
+              # rename must be judged by both of its names. Both are security properties and
+              # neither had a test while this lived in YAML.
               jq -n --arg base "$sha" \
-                --slurpfile drift "$D/drift.json" --slurpfile owned "$D/owned.json" '
-                def paths: ([.files[]? | .filename] + [.files[]? | .previous_filename // empty]);
-                {
-                  base: $base,
-                  truncated: (((($drift[0].files // []) | length) >= 300)
-                              or ((($owned[0].files // []) | length) >= 300)),
-                  paths: ($drift[0] | paths),
-                  ownedAt: ($owned[0] | paths)
-                }'
+                --slurpfile drift "$D/drift.json" --slurpfile owned "$D/owned.json" \
+                -f scripts/architect/flow-gate-compare.jq
             else
               cat "$D/c.err" >&2
               jq -n --arg base "$sha" '{base: $base, unavailable: true}'

@@ -123,6 +123,23 @@ export const isCritical = matcher(CRITICAL_PATH_GLOBS)
 export const isCopy = matcher(COPY_GLOBS)
 /** Documentation is markdown — nothing else, wherever it lives. */
 export const isDoc = (p) => p.endsWith('.md')
+/**
+ * Markdown a FOLLOW-UP commit may change without invalidating a verdict (`verdictFreshness`).
+ * Narrower than `isDoc` on purpose, and the narrowing is a security decision (SR-M-2): markdown
+ * under `.claude/**` is an agent's instructions, which this repository executes as behaviour, so a
+ * follow-up commit that rewrote one would otherwise merge on the back of a critical-path review
+ * that never saw it. `.github/**` is excluded on the same ground, not by analogy: the `Skip-*`
+ * block in `.github/pull_request_template.md` decides whether a skip line counts at all — this
+ * gate's own test reads that file — so it is gate configuration written in markdown.
+ *
+ * Exempt: `docs/**` and the repository root. Everything else goes through a fresh review pass.
+ * Erring strict here costs one review round on an unusual path; erring loose costs the hole.
+ *
+ * This does NOT touch `isDocsOnly`, the pre-existing WHOLE-PR docs exemption — that one is judged
+ * by the reviewers the flow already requires for the diff in front of them, rather than inherited
+ * from a verdict on different code.
+ */
+export const isExemptDoc = (p) => isDoc(p) && (p.startsWith('docs/') || !p.includes('/'))
 // `__test-helpers__/` is a tracked test-support directory (15 files under apps/api on 2026-10-21);
 // `__mocks__/` is deliberately absent — no such directory exists in the repo.
 export const isTestFile = (p) =>
@@ -185,9 +202,9 @@ export function normalizeFiles(files) {
 export function completenessProblem(pr, entries) {
   const want = pr.counts ?? {}
   const issues = []
-  // Freshness is decided by comparing a verdict's commit against the head, and by placing a
-  // comment among the commits — both answer "fresh" by default when the head is not in the list.
-  // An absent head therefore has to fail here rather than read as "nothing drifted".
+  // Freshness is decided by comparing a verdict's commit against the head, so a head missing from
+  // the list makes every verdict read as "given on something not in the PR" — or, worse, lets a
+  // stated sha equal a head nothing corroborates. An absent head fails here instead.
   if (!pr.commits.some((c) => String(c.sha) === pr.headSha))
     issues.push(`the PR head ${short(pr.headSha)} is not among the listed commits`)
   if (typeof want.changedFiles !== 'number' || typeof want.commits !== 'number') {
@@ -289,15 +306,27 @@ export const MARKERS = Object.freeze({
   design: { prefix: 'Design Review', pos: ['PASS', 'APPROVE'], neg: ['POLISH-REQUESTED', 'BLOCK'] },
 })
 
+/**
+ * The lines of a body that are the author's own statements, each normalised so a leading `##` or a
+ * `**bold**` wrapper does not hide the key. A quoted line (`> …`) is someone else's text being
+ * cited, and a line inside a fenced block or an HTML comment is an example — none of the three is a
+ * statement. Shared by `parseMarker` and `statedCommit`: a verdict and the sha it was given on are
+ * read under one rule, and that rule has one implementation.
+ */
+export function proseLines(text) {
+  const out = []
+  for (const raw of stripNonProse(text).split(/\r?\n/)) {
+    if (/^\s*>/.test(raw)) continue
+    out.push(raw.replace(/^[\s#*_`-]+/, '').replace(/[*_`]+/g, ''))
+  }
+  return out
+}
+
 export function parseMarker(body, kind) {
   const { prefix, pos, neg } = MARKERS[kind]
   const values = [...pos, ...neg].sort((a, b) => b.length - a.length)
   const re = new RegExp(`^${prefix}:\\s*(${values.join('|')})(?![A-Z-])`)
-  // A quoted line (`> …`) is someone else's verdict being cited, and a verdict inside a fenced
-  // block or an HTML comment is an example — none of them is the author's own marker.
-  for (const raw of stripNonProse(body).split(/\r?\n/)) {
-    if (/^\s*>/.test(raw)) continue
-    const line = raw.replace(/^[\s#*_`-]+/, '').replace(/[*_`]+/g, '')
+  for (const line of proseLines(body)) {
     const m = re.exec(line)
     if (m) return pos.includes(m[1]) ? 'pos' : 'neg'
   }
@@ -360,29 +389,32 @@ export function standingVerdict(items, kind) {
 // one people route around. A routed-around gate is worse than the hole. So two classes of
 // follow-up commit preserve a verdict, and both fall out of ONE measurement: the set of paths that
 // differ between the reviewed commit V and the head H (`compares`, fetched by the workflow from
-// `GET /repos/{repo}/compare/{V}...{H}`), intersected with the PR's OWN changed-file set P
-// (`pulls/files`, which is the diff against the CURRENT base):
+// `GET /repos/{repo}/compare/{V}...{H}`), intersected with the set the PR OWNS — `own` in the
+// code below, the union of its net diff NOW (`pulls/files`, against the CURRENT base) and its net
+// diff at V (`ownedAt`):
 //
-//   * a path in the drift but NOT in P differs between V and H and does NOT differ between the
+//   * a path in the drift but NOT in `own` differs between V and H and does NOT differ between the
 //     base tip and H — the PR contributes nothing to that file. It is base-branch movement pulled
 //     in by a merge, already reviewed on its way into the base. Ignoring it IS the merge
 //     exemption, and it is exactly the check the owner ran by hand on #1108 ("the merge of main
-//     altered none of the PR's own 14 files"). P is the union of the PR's net diff NOW and its net
-//     diff at V (`ownedAt`): a file reverted after the verdict is gone from the first and must
-//     still count — see SEC-2 in `verdictFreshness`.
-//   * a path in the drift AND in P that ends in `.md` is documentation — the gate's existing
-//     docs-only rule applied to a follow-up commit.
+//     altered none of the PR's own 14 files"). The union is what makes `own` correct: a file
+//     reverted after the verdict is gone from the net diff and must still count — SEC-2 below.
+//   * a path in the drift AND in `own` that is exempt documentation is the gate's docs-only rule
+//     applied to a follow-up commit. `isExemptDoc`, NOT `isDoc`: markdown that an agent reads as
+//     instructions is not prose — SR-M-2, stated there.
 //
-// So a verdict stands iff every drifted path the PR owns is markdown. The dangerous case the
-// merge exemption invites — a conflict resolution that mangles a file subtly — cannot slip
-// through: a conflicting file was touched by both sides, so it is in P, and the merge rewrote it,
-// so it is in the drift. The claim being tested is not "this commit is a merge" (which a commit
+// So a verdict stands iff every drifted path the PR owns is exempt documentation. The dangerous
+// case the merge exemption invites — a conflict resolution that mangles a file subtly — cannot slip
+// through: a conflicting file was touched by both sides, so it is in `own`, and the merge rewrote
+// it, so it is in the drift. The claim being tested is not "this commit is a merge" (which a commit
 // can assert about itself) but "nothing the PR owns moved", which it cannot.
 //
-// EVERYTHING UNMEASURABLE IS STALE, never fresh: no `commit_id`, a reviewed commit no longer in
-// the PR (force-push or rebase), a missing / truncated / unavailable drift measurement, a commit
-// with no readable date. The gate already fails closed on a PR it could not read; this is the same
-// rule one level down.
+// EVERYTHING UNMEASURABLE IS STALE, never fresh: a review with no `commit_id`, a comment with no
+// `Commit:` line, an ambiguous abbreviation, a reviewed commit no longer in the PR (force-push or
+// rebase), and a drift measurement that is missing, unavailable, truncated, or whose owned side
+// came back EMPTY — a PR always owns a file, so an empty owned set means the read did not happen,
+// not that it found nothing (SR-M-1). The gate already fails closed on a PR it could not read;
+// this is the same rule one level down.
 
 const short = (sha) => String(sha ?? '').slice(0, 7) || '(none)'
 
@@ -393,9 +425,7 @@ const short = (sha) => String(sha ?? '').slice(0, 7) || '(none)'
  * tolerated (`**Commit:** abc1234`), which `bodyLine` does not do.
  */
 export function statedCommit(body) {
-  for (const raw of stripNonProse(body).split(/\r?\n/)) {
-    if (/^\s*>/.test(raw)) continue
-    const line = raw.replace(/^[\s#*_`-]+/, '').replace(/[*_`]+/g, '')
+  for (const line of proseLines(body)) {
     const m = /^Commit:\s*([0-9a-fA-F]{7,40})\b/.exec(line)
     if (m) return m[1].toLowerCase()
   }
@@ -480,7 +510,20 @@ export function verdictFreshness(item, ctx) {
       why: `${where}, which is no longer part of the PR (force-push or rebase)${how}`,
     }
   const m = ctx.compares.find((c) => c.base === ref.sha)
-  if (!m || m.unavailable || !Array.isArray(m.paths) || !Array.isArray(m.ownedAt))
+  // SR-M-1 / CR-M-5: `ownedAt` EMPTY is treated as "not measured", not as "the PR owned nothing".
+  // A PR always changes a file — `validate` rejects an empty `files` list for exactly that reason —
+  // so an empty owned set can only mean the read did not happen. This is the second layer; the
+  // first is `flow-gate-compare.jq`, which emits `unavailable` for a response that succeeded
+  // carrying no file list. The shape is the one this repository records most: exit 0 without the
+  // artifact. An empty `paths` is NOT suspicious the same way — a merge whose tree equals V's
+  // genuinely moves nothing — so only the owned side is asserted here.
+  if (
+    !m ||
+    m.unavailable ||
+    !Array.isArray(m.paths) ||
+    !Array.isArray(m.ownedAt) ||
+    m.ownedAt.length === 0
+  )
     return { fresh: false, why: `${where}, and the drift between them could not be measured${how}` }
   if (m.truncated || m.paths.length >= MAX_COMPARE_FILES || m.ownedAt.length >= MAX_COMPARE_FILES)
     return {
@@ -500,7 +543,7 @@ export function verdictFreshness(item, ctx) {
       fresh: true,
       note: `given on ${short(ref.sha)}; everything since touches base-branch files only, none this PR owns`,
     }
-  const nonDoc = drifted.filter((p) => !isDoc(p))
+  const nonDoc = drifted.filter((p) => !isExemptDoc(p))
   if (nonDoc.length === 0)
     return {
       fresh: true,
@@ -702,8 +745,8 @@ export function lastWorkCommit(commits) {
  * @param {string}   pr.headSha   the PR head sha — freshness is judged against it
  * @param {Array<{author:string,association:string,state:string,body:string,at:string,commit_id:?string}>} pr.reviews
  * @param {Array<{author:string,association:string,body:string,at:string}>} pr.comments  PR comments
- * @param {Array<{sha:string,message:string,parents?:number,committedAt?:string}>} pr.commits  oldest first
- * @param {Array<{base:string,paths?:string[],truncated?:boolean,unavailable?:boolean}>} [pr.compares]
+ * @param {Array<{sha:string,message:string,parents?:number}>} pr.commits  oldest first
+ * @param {Array<{base:string,paths?:string[],ownedAt?:string[],truncated?:boolean,unavailable?:boolean}>} [pr.compares]
  *        the paths differing between each reference sha and the head (`comparePlan` names them)
  */
 export function evaluate(pr) {
