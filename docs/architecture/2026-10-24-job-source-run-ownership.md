@@ -2,8 +2,10 @@
 
 ## Status
 
-**Proposed (2026-10-24).** Waiting for the owner to confirm the choice of A over B (A2, see
-"Autonomy classification"). Companion research file: `2026-10-24-pg-boss-research.md`.
+**Accepted (2026-10-24).** Proposed the same day; the owner confirmed the choice of A over B (A2,
+see "Autonomy classification") in chat on 2026-10-24: hand-written Postgres claims, no `pg-boss`.
+The decomposition T0–T9 below is therefore the plan of record for Task 2.5. Companion research
+file: `2026-10-24-pg-boss-research.md`.
 
 ## Context — the measured facts
 
