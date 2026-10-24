@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { basename, join, relative } from 'node:path'
 import { gunzipSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
@@ -174,6 +174,13 @@ function walk(dir: string): string[] {
   })
 }
 
+// A label is a path relative to `__fixtures__`, or relative to this directory when it starts with
+// `__raw-captures__/`. One pair of functions, so a label and its file cannot be resolved differently.
+const RAW_LABEL_PREFIX = `${basename(RAW_ROOT)}/`
+const labelOf = (file: string) => relative(file.startsWith(RAW_ROOT) ? __dirname : ROOT, file)
+const pathOfLabel = (label: string) =>
+  label.startsWith(RAW_LABEL_PREFIX) ? join(__dirname, label) : join(ROOT, label)
+
 function addressesIn(path: string): string[] {
   const raw = readFileSync(path)
   const text = (path.endsWith('.gz') ? gunzipSync(raw) : raw).toString('utf8')
@@ -182,7 +189,6 @@ function addressesIn(path: string): string[] {
 
 describe('no personal e-mail address anywhere under __fixtures__ or __raw-captures__', () => {
   const files = [...walk(ROOT), ...walk(RAW_ROOT)]
-  const labelOf = (f: string) => relative(f.startsWith(RAW_ROOT) ? __dirname : ROOT, f)
   const rel = files.map(labelOf)
 
   it('scans the whole tree: every provider directory, the raw captures and the scripts', () => {
@@ -193,6 +199,25 @@ describe('no personal e-mail address anywhere under __fixtures__ or __raw-captur
     }
     expect(rel).toContain('trim-captures-3.2.mjs')
     expect(rel).toContain('__raw-captures__/3.2/an-p1.raw.gz')
+  })
+
+  it('the scan root is __raw-captures__ itself, not one task directory under it', () => {
+    // A guard, not a probe: with the root narrowed back to `.../3.2` every label below would be
+    // computed identically and nothing else in this file would notice. (Checked by hand once with a
+    // `__raw-captures__/3.4/hn-probe.raw` file: both the offender scan and the hn- check failed.)
+    expect(basename(RAW_ROOT)).toBe('__raw-captures__')
+  })
+
+  it('a label resolves to the file it names, in either root (the allow-list path)', () => {
+    // The case that used to throw ENOENT: an allow-listed raw-capture label joined against __fixtures__.
+    const raw = '__raw-captures__/3.2/robots-workingnomads.txt'
+    expect(rel).toContain(raw)
+    expect(pathOfLabel(raw)).toBe(join(RAW_ROOT, '3.2', 'robots-workingnomads.txt'))
+    expect(() => addressesIn(pathOfLabel(raw))).not.toThrow()
+    expect(pathOfLabel('workingnomads/terms.html.txt')).toBe(
+      join(ROOT, 'workingnomads', 'terms.html.txt'),
+    )
+    for (const file of files) expect(pathOfLabel(labelOf(file))).toBe(file)
   })
 
   it('finds no address except the placeholder and the allow-listed published contacts', () => {
@@ -209,7 +234,7 @@ describe('no personal e-mail address anywhere under __fixtures__ or __raw-captur
   it('every allow-listed file exists and still carries exactly the addresses listed for it', () => {
     for (const [name, expected] of Object.entries(PUBLISHED_CONTACTS)) {
       expect(rel).toContain(name)
-      expect(addressesIn(join(ROOT, name))).toEqual([...expected].sort())
+      expect(addressesIn(pathOfLabel(name))).toEqual([...expected].sort())
     }
   })
 
