@@ -221,8 +221,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_transactions_dividend_idempotency_key
   WHERE type = 'DIVIDEND_TO_ADMIN' AND idempotency_key IS NOT NULL;
 
 -- =============================================================================
--- VERIFY: before multipart salary, expect exactly 7 rows. After multipart
--- salary, expect 6 because uq_transactions_salary_receiver_month is retired.
+-- VERIFY: the expected row count depends on whether the multipart salary
+-- ACTIVATE (2026-10-04) has run. The only difference is the legacy index
+-- uq_transactions_salary_receiver_month, which ACTIVATE retires.
+--   BEFORE multipart ACTIVATE (including after PREPARE, which keeps the index):
+--     expect 7 rows, one per name in the list below.
+--   AFTER multipart ACTIVATE (the index is dropped, and the July replay must not
+--   recreate it while salary_month_initializations exists):
+--     expect 6 rows, the same list without uq_transactions_salary_receiver_month.
+--   Any other count means an index is missing or unexpected: re-check the output above.
 -- =============================================================================
 -- SELECT indexname
 --   FROM pg_indexes
@@ -235,5 +242,5 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_transactions_dividend_idempotency_key
 --    'uq_interviews_created_project_id',
 --    'uq_transactions_dividend_idempotency_key'
 -- );
--- Expected: 7 rows. Any fewer → re-check the output for errors above.
+-- Expected: 7 rows before multipart ACTIVATE, 6 rows after it (see VERIFY above).
 -- =============================================================================
