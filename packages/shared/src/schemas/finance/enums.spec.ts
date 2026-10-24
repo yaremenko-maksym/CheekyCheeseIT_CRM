@@ -129,10 +129,24 @@ describe('salaryOriginSchema (CR-795-L-2)', () => {
     expect(isAutomaticSalaryOrigin('ADJUSTED')).toBe(false)
   })
 
+  // `undefined` is a separate arm of the guard from `null`, and it is not
+  // decoration: a Drizzle row selected without the column, or a partial read,
+  // hands this `undefined` rather than `null`, and the two must answer alike —
+  // treating an absent origin as non-automatic would drop a legacy row out of
+  // the cron-idempotency predicate. The mutation gate found the arm unpinned.
+  it('isAutomaticSalaryOrigin — an ABSENT origin answers like a legacy NULL', () => {
+    expect(isAutomaticSalaryOrigin(undefined)).toBe(true)
+    expect(isAutomaticSalaryOrigin(undefined)).toBe(isAutomaticSalaryOrigin(null))
+  })
+
   it('accountsForSalaryMonth — everything except an ADJUSTED correction', () => {
     expect(accountsForSalaryMonth(null)).toBe(true)
     expect(accountsForSalaryMonth('CRON')).toBe(true)
     expect(accountsForSalaryMonth('MANUAL')).toBe(true)
     expect(accountsForSalaryMonth('ADJUSTED')).toBe(false)
+  })
+
+  it('accountsForSalaryMonth — an ABSENT origin accounts for its month', () => {
+    expect(accountsForSalaryMonth(undefined)).toBe(true)
   })
 })

@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PgDialect, getTableConfig } from 'drizzle-orm/pg-core'
 import { describe, expect, it } from 'vitest'
+import { salaryOriginSchema } from '@crm/shared'
 
 import { salaryMonthInitializations, transactions, users } from './schema'
 
@@ -144,8 +145,28 @@ describe('multipart salary — Drizzle schema contract', () => {
     // on every deploy (see its header).
     expect(MULTIPART_SALARY_PREPARE_DDL).toContain('ck_transactions_salary_origin_domain')
     expect(MULTIPART_SALARY_PREPARE_DDL).toMatch(
-      /CHECK \(\s*salary_origin IS NULL\s+OR salary_origin IN \('MANUAL', 'CRON', 'ADJUSTED'\)\s*\)/,
+      /CHECK \(salary_origin IS NULL OR salary_origin IN \(%s\)\) NOT VALID/,
     )
+  })
+
+  // CR-M-2. SQL cannot import the TypeScript union, so the one thing that can
+  // keep them together is arithmetic: the DDL states the domain ONCE, and this
+  // reconciles that single copy against `salaryOriginSchema.options`. A second
+  // hand-typed copy — the defect this replaces, where the constraint and its
+  // validation precondition each spelled the list out and could drift — fails
+  // the count, not somebody's attention.
+  it('states the salary_origin domain exactly once in the DDL, and it matches the union', () => {
+    const expectedList = salaryOriginSchema.options.map((o) => `''${o}''`).join(', ')
+    expect(expectedList).toBe("''MANUAL'', ''CRON'', ''ADJUSTED''")
+
+    expect(MULTIPART_SALARY_PREPARE_DDL).toContain(`v_domain text := '${expectedList}';`)
+
+    // One declaration, and no bare re-statement of the list anywhere else in the
+    // file. `%s` placeholders are the uses; they carry no list of their own.
+    const bareList = MULTIPART_SALARY_PREPARE_DDL.match(/'MANUAL', 'CRON', 'ADJUSTED'/g) ?? []
+    expect(bareList).toHaveLength(0)
+    const declarations = MULTIPART_SALARY_PREPARE_DDL.match(/v_domain text :=/g) ?? []
+    expect(declarations).toHaveLength(1)
   })
 
   // SR-795-M-1 / owner decision D-3. The marker backfill originally adopted only

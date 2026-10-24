@@ -367,13 +367,17 @@ export class SalaryService {
 
     if (expected.length === 0) return { month, missing: [] }
 
-    // A manual salary part is intentionally NOT evidence that cron has run:
-    // manual and automatic parts may coexist. Markers are authoritative after
-    // this feature ships. Legacy rows (salary_origin IS NULL) and existing CRON
-    // rows are also accepted so the first post-upgrade gap check/backfill does
-    // not falsely advertise an already-accrued salary. Raw transactions are
-    // deliberate here: a soft-deleted automatic component must not be
-    // resurrected by backfill.
+    // Two independent kinds of evidence that a month is accounted for, and the
+    // split matters since owner decision D-3 (SR-795-M-1):
+    //   - a MARKER. Authoritative, and a manual part now claims one too — which
+    //     is how a month recorded by hand stops being advertised here (before
+    //     D-3 a manual part was deliberately NOT evidence, and the gap report
+    //     kept offering a month that already had a salary in it);
+    //   - an automatic ROW (legacy NULL or CRON). Still accepted on its own, so
+    //     the first post-upgrade gap check does not advertise an already-accrued
+    //     salary on a database whose markers were not backfilled yet.
+    // Raw transactions are deliberate: a soft-deleted automatic component must
+    // not be resurrected by backfill.
     const receiverIds = expected.map((r) => r.userId)
     const [markers, automaticRows] = await Promise.all([
       this.db.db

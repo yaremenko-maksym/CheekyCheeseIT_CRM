@@ -6,7 +6,7 @@ import {
   Logger,
   forwardRef,
 } from '@nestjs/common'
-import { and, eq, isNull, or, sql } from 'drizzle-orm'
+import { and, eq, isNull, sql } from 'drizzle-orm'
 import type { CascadePlan, SessionUser } from '@crm/shared'
 import {
   PAID_ROW_LOCKED_FIELD_ERROR_CODES,

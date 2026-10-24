@@ -420,6 +420,73 @@ describe.skipIf(!hasDatabaseUrl())(
     // SR-795-L-2 on a real database: the idempotency index has no deleted_at
     // term, so the key survives the delete. What must not survive is the
     // wrong-success — a 200 naming a row every read path hides.
+    // CR-M-3. The marker claim and the row insert share one transaction, and
+    // until now nothing could break that: splitting the row back onto the pool
+    // left every assertion green. It matters more than its severity suggests —
+    // a claimed marker with no row behind it makes cron skip a month that has
+    // no salary in it, which is the mirror image of the defect this whole task
+    // fixes, and it would be silent in exactly the same way.
+    //
+    // A real database is the only place the guarantee exists, so the row insert
+    // is made to fail where no application code can intercept it: a BEFORE
+    // INSERT trigger that raises on a sentinel. Scratch database only, and
+    // dropped in `finally` whatever happens.
+    it('a failed row insert leaves no marker behind (one transaction, not two)', async () => {
+      await dbSvc.db.execute(sql`
+        CREATE OR REPLACE FUNCTION pg_temp_fail_salary_insert() RETURNS trigger AS $fn$
+        BEGIN
+          IF NEW.notes = 'CR-M-3 fault injection' THEN
+            RAISE EXCEPTION 'injected failure after the marker claim';
+          END IF;
+          RETURN NEW;
+        END
+        $fn$ LANGUAGE plpgsql;
+      `)
+      await dbSvc.db.execute(sql`
+        CREATE TRIGGER trg_cr_m_3_fault_injection
+          BEFORE INSERT ON transactions
+          FOR EACH ROW EXECUTE FUNCTION pg_temp_fail_salary_insert();
+      `)
+
+      try {
+        expect(await countInitializations(HR_EMP_ID)).toBe(0)
+
+        // Drizzle wraps the driver error, so the injected text is on `cause` —
+        // asserted rather than merely "it rejected", so the rejection cannot
+        // come from something else and still pass.
+        await expect(
+          svc.createSalary(
+            {
+              receiverId: HR_EMP_ID,
+              amount: 500,
+              currency: 'USD',
+              salaryMonth: MONTH,
+              idempotencyKey: randomUUID(),
+              notes: 'CR-M-3 fault injection',
+            },
+            ADMIN_ACTOR,
+          ),
+        ).rejects.toMatchObject({
+          cause: { message: expect.stringContaining('injected failure after the marker claim') },
+        })
+
+        // The marker insert ran BEFORE the row insert, so it is only absent now
+        // because the two share a transaction that rolled back together.
+        expect(await countInitializations(HR_EMP_ID)).toBe(0)
+        expect(await countSalaries(HR_EMP_ID)).toBe(0)
+
+        // And the month is still accruable, which is the consequence that
+        // actually matters: cron can mint the salary the failure denied.
+        await svc.createMonthlySalaries(MONTH)
+        expect(await countSalaries(HR_EMP_ID)).toBe(1)
+      } finally {
+        await dbSvc.db.execute(
+          sql`DROP TRIGGER IF EXISTS trg_cr_m_3_fault_injection ON transactions`,
+        )
+        await dbSvc.db.execute(sql`DROP FUNCTION IF EXISTS pg_temp_fail_salary_insert()`)
+      }
+    }, 30_000)
+
     it('a replay whose part was deleted is refused, not answered with the deleted id', async () => {
       const idempotencyKey = randomUUID()
       const payload = {

@@ -29,6 +29,7 @@ import {
 } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { ZodExceptionFilter } from '../zod-exception.filter'
 import { previousSalaryMonthKey } from './salary-month.util'
 
 /**
@@ -202,8 +203,14 @@ const TARGET_MONTH = '2099-11'
 // company-wide backfill for HR_AUDIT_PROOF's (receiver, month) pair,
 // independent of this file's OWN test execution order.
 const AUDIT_MONTH = '2099-10'
-const TX_HR_COVERED_SALARY = 'f3000000-0000-4000-cc00-000000000001'
-const TX_HR_SOFT_DELETED_SALARY = 'f3000000-0000-4000-cc00-000000000002'
+// The variant nibble (first of the 4th group) must be 8/9/a/b for an RFC-4122
+// UUID, and these fixtures carried `c`. Postgres's `uuid` type accepts the
+// looser form, so nothing noticed until `salaryPartsResponseSchema` — whose
+// `id` is `z.string().uuid()`, and zod 4 checks version AND variant — parsed a
+// response built from them. The DTO is right: every real row's id comes from
+// `gen_random_uuid()`. It is the fixture that was invalid by construction.
+const TX_HR_COVERED_SALARY = 'f3000000-0000-4000-8c00-000000000001'
+const TX_HR_SOFT_DELETED_SALARY = 'f3000000-0000-4000-8c00-000000000002'
 const TEST_TX_IDS = [TX_HR_COVERED_SALARY, TX_HR_SOFT_DELETED_SALARY]
 
 // `NbuCurrencyService` is a REAL constructor dependency of
@@ -323,6 +330,13 @@ describe.skipIf(!hasDatabaseUrl())(
 
       app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
       await app.register(cookie, { secret: 'salary-month-gap-integration-cookie-secret' })
+      // `main.ts` registers this filter on the real app, so a controller's
+      // `schema.parse()` rejection reaches a client as 400. Without it here a
+      // ZodError escapes as 500 and a test asserting 400 would be asserting the
+      // harness's gap instead of the product's contract — which is why the two
+      // sibling specs that exercise a rejected DTO register it too
+      // (company-account.rbac, transactions.create-accountant.rbac).
+      app.useGlobalFilters(new ZodExceptionFilter())
       app.setGlobalPrefix('api')
       await app.init()
       await app.getHttpAdapter().getInstance().ready()

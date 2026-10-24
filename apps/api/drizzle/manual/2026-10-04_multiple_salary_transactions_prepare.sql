@@ -82,7 +82,18 @@ $$;
 -- `SalaryOrigin` union in @crm/shared. NULL stays legal (rows written before the
 -- column existed). Added pre-swap on purpose: the previous API image writes only
 -- MANUAL and CRON, both inside the domain.
+-- CR-M-2: the domain list is written ONCE, in `v_domain` below, and both the
+-- constraint and its validation precondition are built from it. An earlier
+-- edition of this file hand-typed the three values twice — the same
+-- one-predicate-many-copies defect CR-795-M-7 is about, reappearing in SQL,
+-- where the two copies could drift apart with nothing to notice. SQL cannot
+-- import the TypeScript union, so `multiple-salary-transactions-schema.spec.ts`
+-- reconciles this literal against `salaryOriginSchema.options` and asserts the
+-- file contains exactly one copy of it.
 DO $$
+DECLARE
+  v_domain text := '''MANUAL'', ''CRON'', ''ADJUSTED''';
+  v_clean boolean;
 BEGIN
   IF NOT EXISTS (
     SELECT 1
@@ -90,28 +101,29 @@ BEGIN
     WHERE conname = 'ck_transactions_salary_origin_domain'
       AND conrelid = 'transactions'::regclass
   ) THEN
-    ALTER TABLE transactions
-      ADD CONSTRAINT ck_transactions_salary_origin_domain
-      CHECK (
-        salary_origin IS NULL
-        OR salary_origin IN ('MANUAL', 'CRON', 'ADJUSTED')
-      ) NOT VALID;
+    EXECUTE format(
+      'ALTER TABLE transactions
+         ADD CONSTRAINT ck_transactions_salary_origin_domain
+         CHECK (salary_origin IS NULL OR salary_origin IN (%s)) NOT VALID',
+      v_domain
+    );
   END IF;
-END
-$$;
 
--- NOT VALID for the same reason as the CHECK above: an environment that somehow
--- holds an out-of-domain value must not turn this deploy into a failed one.
--- PostgreSQL enforces the CHECK on every new and updated row regardless, so the
--- defect cannot spread; validate as soon as the table is clean.
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM transactions
-    WHERE salary_origin IS NOT NULL
-      AND salary_origin NOT IN ('MANUAL', 'CRON', 'ADJUSTED')
-  ) THEN
+  -- NOT VALID for the same reason as the CHECK above: an environment that
+  -- somehow holds an out-of-domain value must not turn this deploy into a
+  -- failed one. PostgreSQL enforces the CHECK on every new and updated row
+  -- regardless, so the defect cannot spread; validate as soon as the table is
+  -- clean. The precondition is the constraint's own predicate, negated, built
+  -- from the same `v_domain` — so the two can never disagree about what the
+  -- domain is.
+  EXECUTE format(
+    'SELECT NOT EXISTS (
+       SELECT 1 FROM transactions
+        WHERE salary_origin IS NOT NULL AND salary_origin NOT IN (%s))',
+    v_domain
+  ) INTO STRICT v_clean;
+
+  IF v_clean THEN
     ALTER TABLE transactions
       VALIDATE CONSTRAINT ck_transactions_salary_origin_domain;
   END IF;

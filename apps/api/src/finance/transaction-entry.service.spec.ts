@@ -528,6 +528,11 @@ describe('TransactionEntryService.createSalary', () => {
         target: [salaryMonthInitializations.receiverId, salaryMonthInitializations.salaryMonth],
       })
       expect(h.txInserted).toHaveLength(1)
+      // CR-M-3: "one transaction was opened and both writes happened" does not
+      // say they happened in the SAME one — moving the row insert back onto the
+      // pool would satisfy every assertion above. The harness logs pool-level
+      // inserts separately, so an empty pool log is what actually pins it.
+      expect(h.inserted).toHaveLength(0)
     })
 
     it('attributes the marker to the impersonator, not the impersonated admin', async () => {
