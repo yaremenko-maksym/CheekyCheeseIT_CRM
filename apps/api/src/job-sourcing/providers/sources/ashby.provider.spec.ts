@@ -2,9 +2,11 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { fakeCollectionContext } from '../../../test/fake-collection-context'
+import { readProvenance } from '../../../test/fixture-provenance'
 import { sourceFixture, sourceFixtureText } from '../../../test/source-fixtures'
 import { ORIGINAL_LIMITS } from '../../normalize/observation'
 import { ASHBY_LIMITS, ashbyProvider, remoteFromAshbyWorkplace } from './ashby.provider'
+import { ownershipCountOf } from '../manifest.ownership'
 import { boardVerdictOf } from './ats-config'
 
 /**
@@ -14,8 +16,20 @@ import { boardVerdictOf } from './ats-config'
  */
 
 const NOW = new Date('2026-10-24T04:00:00Z')
-const LINEAR = { name: 'Linear', evidence: 'descriptionPlain names Linear in 34 of 34 jobs' }
-const SUPABASE = { name: 'Supabase', evidence: 'descriptionPlain names Supabase in 59 of 59 jobs' }
+/** The count is READ from the provenance notes (backlog 285), not kept here as a second copy. */
+const countOf = (dir: string, file: string) => {
+  const c = ownershipCountOf(readProvenance(dir, `${file}.provenance.json`).notes)
+  if (c === null) throw new Error(`${dir}/${file}: no ownership count in the provenance notes`)
+  return `${c.matched} of ${c.total}`
+}
+const LINEAR = {
+  name: 'Linear',
+  evidence: `descriptionPlain names Linear in ${countOf('ashby', 'linear-board')} jobs`,
+}
+const SUPABASE = {
+  name: 'Supabase',
+  evidence: `descriptionPlain names Supabase in ${countOf('ashby', 'supabase-board')} jobs`,
+}
 
 const cfg = (board = 'linear', extra: Record<string, unknown> = {}) =>
   ashbyProvider.parseConfig({ configVersion: 1, board, ...extra })

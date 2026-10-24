@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { ZodError } from 'zod'
 import { fakeCollectionContext } from '../../../test/fake-collection-context'
+import { readProvenance } from '../../../test/fixture-provenance'
 import { sourceFixtureText } from '../../../test/source-fixtures'
+import { ownershipCountOf } from '../manifest.ownership'
 import { UnvalidatedConfigError } from '../reporting-provider'
 import {
   ASHBY_KIND,
@@ -229,10 +231,14 @@ describe('namespaces', () => {
 })
 
 describe('employer evidence', () => {
+  // The count is READ from the provenance notes (backlog 285), not kept here as a second copy.
+  const airbnb = ownershipCountOf(
+    readProvenance('greenhouse', 'airbnb-board.provenance.json').notes,
+  )!
   const employer = {
     name: 'Airbnb',
     domain: 'careers.airbnb.com',
-    evidence: 'company_name is "Airbnb" on 191 of 191 jobs in the payload',
+    evidence: `company_name is "Airbnb" on ${airbnb.matched} of ${airbnb.total} jobs in the payload`,
   }
 
   it('is carried verbatim when given', () => {
