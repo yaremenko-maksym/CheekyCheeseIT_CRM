@@ -82,13 +82,11 @@ KNOWN_UNSHARDED = {
     # --- documents ---
     # --- drop suite ---
     "tests/drop-add-senior.spec.ts",              # debt: not gated, migrate to drop shard later
-    "tests/drop-balances-panel.spec.ts",          # debt: not gated, migrate to drop shard later
     "tests/drop-create.spec.ts",                  # debt: not gated, migrate to drop shard later
     "tests/drop-findings-pr198.spec.ts",          # debt: not gated, migrate to drop shard later
     "tests/drop-income-ui.spec.ts",               # debt: not gated, migrate to drop shard later
     "tests/drop-rbac.spec.ts",                    # debt: not gated, migrate to drop shard later
     "tests/drop-route-guards.spec.ts",            # debt: not gated, migrate to drop shard later
-    "tests/drop-routing-hub.spec.ts",             # debt: not gated, migrate to drop shard later
     "tests/drop-senior-readonly.spec.ts",         # debt: not gated, migrate to drop shard later
     # --- 12 files GATED 2026-08-18 (PR #573, backlog item 139) — moved out of
     # this debt list into the `drop-finance` (6) / `drop-lifecycle` (6) shards
@@ -104,8 +102,6 @@ KNOWN_UNSHARDED = {
     # drop-share-slider.spec.ts: gated in drop-finance shard (task-drop-share-slider-shard,
     # closes PR #376 MED-1 coverage gap).
     # --- finance extras ---
-    "tests/finance-payout-simulate.spec.ts",      # debt: not gated, migrate to finance shard later
-    "tests/finance-smoke-regressions.spec.ts",    # debt: not gated, migrate to finance shard later
     # --- hr ---
     "tests/hr-dashboard.spec.ts",                 # debt: not gated, migrate to team-users shard later
     # --- invoices ---
