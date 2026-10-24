@@ -522,18 +522,26 @@ export class PayoutSettlementService {
         // not reconstructable from the trail. Record both ends of it. `null` means
         // "the row carried no business date before", which is different from
         // "no override happened" (then neither key is written at all).
+        //
+        // Discriminated on `dateDecision` itself rather than on `paymentTxDate`,
+        // which is derived from it: "was a date decided" is the actual question,
+        // and asking it directly lets the compiler narrow the type, so the
+        // optional chaining this used to need on `backdateReason` is gone. That
+        // `?.` was dead either way — inside this branch a decision provably
+        // exists — and dead defensiveness is worse than none: it reads as if the
+        // undefined case were reachable and nothing can test that it is not.
         const dateOverrideAudit =
-          paymentTxDate === undefined
+          dateDecision === undefined
             ? {}
             : {
                 txDateBefore: payoutSourceTxDate
                   ? formatTransactionBusinessDate(payoutSourceTxDate)
                   : null,
-                txDateAfter: formatTransactionBusinessDate(paymentTxDate),
+                txDateAfter: formatTransactionBusinessDate(dateDecision.txDate),
                 // SR-809-L-3 / D-2: present only when the policy actually
                 // consumed a reason — i.e. an ADMIN/ACCOUNTANT dated this
                 // payment beyond the backdating window.
-                ...(dateDecision?.backdateReason
+                ...(dateDecision.backdateReason
                   ? { backdateReason: dateDecision.backdateReason }
                   : {}),
               }
