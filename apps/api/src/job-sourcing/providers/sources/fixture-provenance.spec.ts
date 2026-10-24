@@ -186,6 +186,10 @@ describe('fixture provenance', () => {
  * guard with no subject is decoration; the four mobile numbers found earlier left with the deleted
  * Arbeitnow page captures.
  *
+ * THE PROFILE DECODER DOES NOT SEE (none is in the tree; stated, not chased): a fifth layer of escaping
+ * (the ceiling is four rounds); `%u002F`; `\u{2F}`; octal escapes; a fullwidth solidus; base64; and markup or
+ * zero-width characters splitting the host or the path.
+ *
  * ALSO NOT LOOKED FOR: first names that sit beside a redacted link (a poster signing off with a first
  * name), and the role address in the HN fixture, which is allow-listed above, not absent.
  *
@@ -353,21 +357,43 @@ function hitsIn(path: string): string[] {
 
 // A personal LinkedIn profile link: `linkedin.com/in/<slug>` AFTER the delimiters are decoded. The
 // earlier misses (`%40` for the at-sign, `&#x2F;` for the slash) were always an ENCODING of a delimiter,
-// so this does not list slash spellings: it decodes entities (numeric with any padding, with or without
-// the semicolon, and the named ones), percent-escapes, `\uXXXX`, `\xXX` and JSON's `\/`, repeatedly
+// so this does not list slash spellings: it decodes entities (numeric with any padding, and the named
+// ones), percent-escapes (as UTF-8 where they form it), `\uXXXX`, `\xXX` and JSON's `\/`, repeatedly
 // (double-escaping occurs in this corpus), and then matches the plain text. A slug that is only x
 // characters is the redaction.
-const NAMED_ENTITIES: Record<string, string> = { sol: '/', period: '.', commat: '@', amp: '&' }
+//
+// DECODE CEILING: at most DECODE_ROUNDS = 4 layers are peeled; a fifth is not seen (pinned by a test).
+// A numeric entity WITHOUT a semicolon is read as an ASCII character (at most two hex or three decimal
+// digits), because a slug may start with a hex digit (`&#x2Fbob`): the scanner takes the reading that
+// exposes the link. Named entities use a null-prototype map so `&constructor;` stays text.
+const NAMED_ENTITIES = new Map<string, string>([
+  ['sol', '/'],
+  ['period', '.'],
+  ['commat', '@'],
+  ['amp', '&'],
+])
+const DECODE_ROUNDS = 4
 const fromCode = (code: number, original: string) =>
   Number.isInteger(code) && code >= 0 && code <= 0x10ffff ? String.fromCodePoint(code) : original
+const percentRun = (run: string) => {
+  try {
+    return decodeURIComponent(run)
+  } catch {
+    return run.replace(/%([0-9a-f]{2})/gi, (_m, h: string) => String.fromCharCode(parseInt(h, 16)))
+  }
+}
 function decodeDelimiters(input: string): string {
   let text = input
-  for (let round = 0; round < 4; round += 1) {
+  for (let round = 0; round < DECODE_ROUNDS; round += 1) {
     const next = text
-      .replace(/&#x([0-9a-f]+);?/gi, (m, h: string) => fromCode(parseInt(h, 16), m))
-      .replace(/&#(\d+);?/g, (m, d: string) => fromCode(parseInt(d, 10), m))
-      .replace(/&([a-z]+);/gi, (m, n: string) => NAMED_ENTITIES[n.toLowerCase()] ?? m)
-      .replace(/%([0-9a-f]{2})/gi, (_m, h: string) => String.fromCharCode(parseInt(h, 16)))
+      .replace(/&#x([0-9a-f]+);|&#x([0-9a-f]{1,2})/gi, (m, withSemi?: string, bare?: string) =>
+        fromCode(parseInt((withSemi ?? bare) as string, 16), m),
+      )
+      .replace(/&#(\d+);|&#(\d{1,3})/g, (m, withSemi?: string, bare?: string) =>
+        fromCode(parseInt((withSemi ?? bare) as string, 10), m),
+      )
+      .replace(/&([a-z]+);/gi, (m, n: string) => NAMED_ENTITIES.get(n.toLowerCase()) ?? m)
+      .replace(/(?:%[0-9a-f]{2})+/gi, percentRun)
       .replace(/\\u([0-9a-f]{4})/gi, (_m, h: string) => String.fromCharCode(parseInt(h, 16)))
       .replace(/\\x([0-9a-f]{2})/gi, (_m, h: string) => String.fromCharCode(parseInt(h, 16)))
       .replace(/\\\//g, '/')
@@ -376,7 +402,10 @@ function decodeDelimiters(input: string): string {
   }
   return text
 }
-const PROFILE_LINK = /linkedin\.com\/in\/(?!x+(?![\w%-]))[\w%-]+/gi
+// The slug is any Unicode letter or digit, `_`, `-` or a leftover `%`: an accented or Cyrillic slug is a
+// slug (`\w` is ASCII-only and would not see it).
+const SLUG = String.raw`[\p{L}\p{N}_%-]`
+const PROFILE_LINK = new RegExp(String.raw`linkedin\.com/in/(?!x+(?!${SLUG}))${SLUG}+`, 'giu')
 const profileLinksIn = (text: string) => decodeDelimiters(text).match(PROFILE_LINK) ?? []
 
 describe('every @-equivalent token in the two scanned roots is the placeholder or allow-listed by reason', () => {
@@ -481,6 +510,11 @@ describe('every @-equivalent token in the two scanned roots is the placeholder o
     ['padded hex entity', 'see linkedin.com&#x02F;in&#x02F;jane-doe now'],
     ['decimal entity', 'see linkedin.com&#47;in&#47;jane-doe now'],
     ['padded decimal entity without semicolon', 'see linkedin.com&#047in&#047jane-doe now'],
+    ['hex entity without semicolon before a hex-digit slug', 'see linkedin.com&#x2Fin&#x2Fbob now'],
+    ['accented slug, plain', 'see linkedin.com/in/élodie-martin now'],
+    ['accented slug, percent-encoded', 'see linkedin.com/in/%C3%A9lodie-martin now'],
+    ['Cyrillic slug', 'see linkedin.com/in/иван-петров now'],
+    ['four layers of percent-escaping', 'see linkedin.com%2525252Fin%2525252Fjane-doe now'],
     ['named entity', 'see linkedin.com&sol;in&sol;jane-doe now'],
     ['percent-encoded slash', 'see linkedin.com%2Fin%2Fjane-doe now'],
     ['double percent-encoded slash', 'see linkedin.com%252Fin%252Fjane-doe now'],
@@ -490,6 +524,15 @@ describe('every @-equivalent token in the two scanned roots is the placeholder o
     ['double-escaped entity', 'see linkedin.com&amp;#x2F;in&amp;#x2F;jane-doe now'],
   ])('the profile-link check finds a planted %s link (control)', (_form, text) => {
     expect(profileLinksIn(text)).toHaveLength(1)
+  })
+
+  it('a non-entity word between & and ; decodes to itself (no prototype lookup)', () => {
+    const text = 'a &constructor; b &toString; c &__proto__; d &hasOwnProperty; e'
+    expect(decodeDelimiters(text)).toBe(text)
+  })
+
+  it('the decode ceiling is four layers: a fifth is NOT seen (the header states it)', () => {
+    expect(profileLinksIn('see linkedin.com%252525252Fin%252525252Fjane-doe now')).toEqual([])
   })
 
   it.each([

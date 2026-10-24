@@ -51,8 +51,10 @@ replaced by a same-length run of x characters by hand (the terms text is unchang
 - Two hn-hiring fixtures (`thread-2019-05`, `thread-2026-10`) and `an-terms.html` also had personal LinkedIn slugs replaced by hand (same-length
   x runs, `fileSha256` and notes updated for the two HN fixtures); see the residual bullet for where the
   originals live.
-- HN author handles are kept verbatim in the trimmed fixtures: they are public pseudonyms and the
-  adapter uses them as the posting account (`HN @<handle>`).
+- HN author handles are kept verbatim in the trimmed fixtures: they are the public account names
+  the HN API returns (most are pseudonyms; at least one in `thread-2019-05.json` reads as a real name,
+  which is an open question for the owner) and the adapter uses them as the posting account
+  (`HN @<handle>`).
 - `termsCheckedAt` is one value across every provenance file: the date (2026-10-24) is when the
   terms were read, the time of day is a single stand-in.
 - Re-derivability: five provenance files are proven against `trim-captures-3.2.mjs` by a run, because
