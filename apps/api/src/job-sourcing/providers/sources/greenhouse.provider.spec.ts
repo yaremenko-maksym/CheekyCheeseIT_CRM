@@ -525,3 +525,42 @@ describe('size bounds: measured, not assumed', () => {
     expect(past.batch.requests[0]?.error?.code).toBe('PAYLOAD_TOO_LARGE')
   })
 })
+
+describe('conditional requests: a big board is not downloaded twice', () => {
+  it('stores the ETag under the board slot, and a 304 replays the stored body with the validator sent', async () => {
+    const first = fakeCollectionContext({
+      now: NOW,
+      responses: [{ status: 200, bodyText: JSON.stringify(airbnb()), etag: 'W/"abc"' }],
+    })
+    await greenhouseProvider.collectReport(cfg(), first.ctx)
+    expect([...first.cache.keys()].map((k) => (JSON.parse(k) as string[])[0])).toEqual(['board'])
+
+    const second = fakeCollectionContext({
+      now: NOW,
+      responses: [{ status: 304 }],
+      cacheSeed: Object.fromEntries(first.cache),
+    })
+    const batch = await greenhouseProvider.collectReport(cfg(), second.ctx)
+    expect(second.sent[0]?.headers).toEqual({
+      accept: 'application/json',
+      'if-none-match': 'W/"abc"',
+    })
+    expect(batch.counts.raw).toBe(3)
+    expect(batch.outcome).toBe('SUCCEEDED')
+  })
+
+  it('a board never shares a cache entry with another board', async () => {
+    const first = fakeCollectionContext({
+      now: NOW,
+      responses: [{ status: 200, bodyText: JSON.stringify(airbnb()), etag: 'W/"abc"' }],
+    })
+    await greenhouseProvider.collectReport(cfg('airbnb'), first.ctx)
+    const other = fakeCollectionContext({
+      now: NOW,
+      responses: [{ status: 200, bodyText: JSON.stringify(stripe()) }],
+      cacheSeed: Object.fromEntries(first.cache),
+    })
+    await greenhouseProvider.collectReport(cfg('stripe'), other.ctx)
+    expect(other.sent[0]?.headers).toEqual({ accept: 'application/json' })
+  })
+})

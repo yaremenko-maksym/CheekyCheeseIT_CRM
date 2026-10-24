@@ -223,10 +223,39 @@ describe('employer evidence', () => {
     ['a domain with userinfo', { ...employer, domain: 'a@careers.airbnb.com' }],
     ['a single-label domain', { ...employer, domain: 'localhost' }],
     ['an unexpected key', { ...employer, logo: 'x' }],
+    ['an upper-case domain', { ...employer, domain: 'Careers.Airbnb.com' }],
+    ['a domain label starting with a hyphen', { ...employer, domain: '-a.airbnb.com' }],
+    ['a domain label ending with a hyphen', { ...employer, domain: 'a-.airbnb.com' }],
+    ['an empty domain label', { ...employer, domain: 'careers..airbnb.com' }],
+    ['a trailing dot', { ...employer, domain: 'careers.airbnb.com.' }],
+    ['a domain with a port', { ...employer, domain: 'careers.airbnb.com:443' }],
+    [
+      'a domain of 254 characters',
+      {
+        ...employer,
+        domain: `${'a'.repeat(63)}.${'b'.repeat(63)}.${'c'.repeat(63)}.${'d'.repeat(59)}.co`,
+      },
+    ],
   ])('refuses %s', (_why, bad) => {
     expect(() => greenhouseProvider.parseConfig(goodConfig('airbnb', { employer: bad }))).toThrow(
       ZodError,
     )
+  })
+
+  it.each([
+    ['a hyphen inside a label', 'my-company.example.com'],
+    ['digits', 'a1.b2.example'],
+    ['a punycode label', 'xn--bcher-kva.example'],
+    ['two labels', 'airbnb.com'],
+    [
+      'a domain of exactly 253 characters',
+      `${'a'.repeat(63)}.${'b'.repeat(63)}.${'c'.repeat(63)}.${'d'.repeat(58)}.co`,
+    ],
+  ])('accepts a domain with %s', (_why, domain) => {
+    expect(
+      greenhouseProvider.parseConfig(goodConfig('airbnb', { employer: { ...employer, domain } }))
+        .employer?.domain,
+    ).toBe(domain)
   })
 
   it('accepts a name of exactly 255 and evidence of exactly 500 characters', () => {
@@ -421,6 +450,28 @@ describe('running a group: independent boards, independent failures', () => {
     expect(run.boards[1]?.configError).toContain('board')
   })
 
+  it('a config refusal that is not an Error object still yields a stated reason', async () => {
+    const odd = {
+      type: 'LEVER_ATS',
+      parseConfig: () => {
+        throw 'plain string'
+      },
+      collectReport: () => {
+        throw new Error('must not be called')
+      },
+    } as unknown as typeof leverProvider
+    const run = await collectBoardGroup(odd, [{}], () => {
+      throw new Error('no context expected')
+    })
+    expect(run.boards[0]).toEqual({
+      index: 0,
+      namespace: null,
+      verdict: 'CONFIG_INVALID',
+      batch: null,
+      configError: 'config refused',
+    })
+  })
+
   it('reports nothing dead and no failure for an empty list of inputs', async () => {
     const run = await collectBoardGroup(leverProvider, [], () => {
       throw new Error('no context expected')
@@ -458,6 +509,39 @@ describe('boardVerdictOf', () => {
 
   it('a clean 200 is SUCCEEDED', async () => {
     expect(boardVerdictOf(await batchFor(200, '[]'))).toBe('SUCCEEDED')
+  })
+
+  it('a page that landed before the next one failed is PARTIAL, not a dead board or a failure', async () => {
+    const full = JSON.stringify(
+      Array.from({ length: 50 }, (_, i) => ({
+        id: `id-${i}`,
+        text: 'Role',
+        hostedUrl: `https://jobs.lever.co/ok/id-${i}`,
+      })),
+    )
+    const f = fakeCollectionContext({
+      responses: [
+        { status: 200, bodyText: full },
+        { status: 404, bodyText: '[]' },
+      ],
+    })
+    const batch = await leverProvider.collectReport(
+      leverProvider.parseConfig(goodConfig('ok', { employer: { name: 'Ok Co', evidence: 'e' } })),
+      f.ctx,
+    )
+    expect(batch.outcome).toBe('PARTIAL')
+    expect(boardVerdictOf(batch)).toBe('PARTIAL')
+  })
+
+  it('a cancelled run is CANCELLED', async () => {
+    const f = fakeCollectionContext({ responses: [{ status: 200, bodyText: '[]' }] })
+    f.ctx.signal = AbortSignal.abort()
+    const batch = await leverProvider.collectReport(
+      leverProvider.parseConfig(goodConfig('ok')),
+      f.ctx,
+    )
+    expect(f.sent).toEqual([])
+    expect(boardVerdictOf(batch)).toBe('CANCELLED')
   })
 })
 

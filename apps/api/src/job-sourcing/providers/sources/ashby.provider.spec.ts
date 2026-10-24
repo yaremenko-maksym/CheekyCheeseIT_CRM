@@ -487,3 +487,26 @@ describe('size bounds: measured, not assumed', () => {
     expect((await run(many(2_001))).batch.requests[0]?.error?.code).toBe('PAYLOAD_TOO_LARGE')
   })
 })
+
+describe('conditional requests: a big board is not downloaded twice', () => {
+  it('stores the ETag under the board slot, and a 304 replays the stored body with the validator sent', async () => {
+    const first = fakeCollectionContext({
+      now: NOW,
+      responses: [{ status: 200, bodyText: JSON.stringify(linear()), etag: 'W/"abc"' }],
+    })
+    await ashbyProvider.collectReport(linearCfg(), first.ctx)
+    expect([...first.cache.keys()].map((k) => (JSON.parse(k) as string[])[0])).toEqual(['board'])
+
+    const second = fakeCollectionContext({
+      now: NOW,
+      responses: [{ status: 304 }],
+      cacheSeed: Object.fromEntries(first.cache),
+    })
+    const batch = await ashbyProvider.collectReport(linearCfg(), second.ctx)
+    expect(second.sent[0]?.headers).toEqual({
+      accept: 'application/json',
+      'if-none-match': 'W/"abc"',
+    })
+    expect(batch.counts.raw).toBe(4)
+  })
+})

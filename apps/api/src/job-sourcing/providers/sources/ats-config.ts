@@ -211,15 +211,25 @@ export function boardVerdictOf(batch: CollectionBatch): Exclude<BoardVerdict, 'C
   }
 }
 
-export interface BoardRun {
+/** A board whose provider was asked: it has a namespace, a verdict and the batch behind it. */
+export interface BoardRan {
   readonly index: number
-  /** `null` only when the config was refused, so no namespace could be derived. */
-  readonly namespace: string | null
-  readonly verdict: BoardVerdict
-  /** `null` when the config was refused: no request was made and no context was built. */
-  readonly batch: CollectionBatch | null
-  readonly configError: string | null
+  readonly namespace: string
+  readonly verdict: Exclude<BoardVerdict, 'CONFIG_INVALID'>
+  readonly batch: CollectionBatch
+  readonly configError: null
 }
+
+/** A board whose config was refused: no namespace could be derived, no request was made, no context was built. */
+export interface BoardRefused {
+  readonly index: number
+  readonly namespace: null
+  readonly verdict: 'CONFIG_INVALID'
+  readonly batch: null
+  readonly configError: string
+}
+
+export type BoardRun = BoardRan | BoardRefused
 
 export interface BoardGroupRun {
   readonly boards: readonly BoardRun[]
@@ -270,9 +280,7 @@ export async function collectBoardGroup<TConfig extends ValidatedSourceConfig>(
   }
   return {
     boards,
-    deadBoards: boards.flatMap((b) =>
-      b.verdict === 'BOARD_NOT_FOUND' && b.namespace !== null ? [b.namespace] : [],
-    ),
+    deadBoards: boards.flatMap((b) => (b.verdict === 'BOARD_NOT_FOUND' ? [b.namespace] : [])),
     sourceFailure: boards.some((b) => b.verdict === 'SOURCE_FAILED'),
   }
 }

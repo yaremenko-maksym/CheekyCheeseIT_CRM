@@ -574,3 +574,58 @@ describe('item isolation and bounds', () => {
     expect(batch.observations[0]?.evidence.map((e) => e.field)).toContain('applicationUrl')
   })
 })
+
+describe('partial categories and bodies', () => {
+  it('a posting with only a department has just that tag; with only a team, just that one', async () => {
+    const a = await run([posting(1, { categories: { department: 'Eng' } })])
+    expect(a.batch.observations[0]?.normalized.tags).toEqual(['Eng'])
+    const b = await run([posting(2, { categories: { team: 'Platform' } })])
+    expect(b.batch.observations[0]?.normalized.tags).toEqual(['Platform'])
+  })
+
+  it('a list with no heading or no items contributes nothing invented, and an absent intro/closing is empty', async () => {
+    const { batch } = await run([
+      posting(1, {
+        description: null,
+        additional: null,
+        lists: [
+          { text: null, content: '<li>Only item</li>' },
+          { text: 'Heading only', content: null },
+        ],
+      }),
+    ])
+    const md = batch.observations[0]?.normalized.descriptionMd ?? ''
+    expect(md.replace(/[\s#*\-\\]+/g, ' ').trim()).toBe('Only item Heading only')
+  })
+
+  it('a posting with nothing but the required fields has an empty description', async () => {
+    const { batch } = await run([posting(1)])
+    expect(batch.observations[0]?.normalized.descriptionMd).toBe('')
+  })
+})
+
+describe('conditional requests: each page is revalidated on its own slot', () => {
+  it('stores one entry per skip, and 304s replay each page with its own validator', async () => {
+    const first = fakeCollectionContext({
+      now: NOW,
+      responses: [
+        { status: 200, bodyText: JSON.stringify(fullPage(0)), etag: 'W/"p1"' },
+        { status: 200, bodyText: JSON.stringify([posting(500)]), etag: 'W/"p2"' },
+      ],
+    })
+    await leverProvider.collectReport(spotifyCfg(), first.ctx)
+    expect([...first.cache.keys()].map((k) => (JSON.parse(k) as string[])[0])).toEqual([
+      'skip-0',
+      'skip-50',
+    ])
+
+    const second = fakeCollectionContext({
+      now: NOW,
+      responses: [{ status: 304 }, { status: 304 }],
+      cacheSeed: Object.fromEntries(first.cache),
+    })
+    const batch = await leverProvider.collectReport(spotifyCfg(), second.ctx)
+    expect(second.sent.map((r) => r.headers?.['if-none-match'])).toEqual(['W/"p1"', 'W/"p2"'])
+    expect(batch.counts.raw).toBe(51)
+  })
+})
