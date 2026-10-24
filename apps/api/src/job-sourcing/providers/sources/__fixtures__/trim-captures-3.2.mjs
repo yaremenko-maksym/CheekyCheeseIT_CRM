@@ -109,7 +109,7 @@ const byIds = (ids, key) => (arr) => ids.map((id) => arr.find((x) => String(x[ke
 // ---- Arbeitnow ----
 const AN_TERMS = 'https://www.arbeitnow.com/terms'
 const UNV_AN =
-  ' UNVERIFIABLE FROM THIS REPOSITORY (measured 2026-10-24, evidence not committed): that per_page, limit, page_size, size and perPage are ignored (the five responses were not kept), and the sizes of pages 10 (1510962 bytes), 20 (923504) and the emptiness of page 40; only pages 1, 2 and the empty page 100 are committed.'
+  ' UNVERIFIABLE FROM THIS REPOSITORY (measured 2026-10-24, evidence not committed): that per_page, limit, page_size, size and perPage are ignored (the five responses were not kept), and the sizes of pages 10 (1510962 bytes), 20 (923504) and the emptiness of page 40; of the Arbeitnow captures only the empty page 100 body, the terms page and the response headers (pages 1, 2 and 20) are committed; the bodies of pages 1 and 2 are not (their sizes are recorded here).'
 const anNotes = (extra) =>
   `${extra} Terms section 11 (API): "You also agree to providing a link back to Arbeitnow.com on your platform. We may revoke the permission to use API at any time." The API envelope itself says: "This is a free public API for jobs, please do not abuse. I would appreciate linking back to the site." robots.txt (User-agent *) has an empty Disallow, plus Disallow: /*?__hstc. BLOCKED ON THE BYTE CAP: live page 1 is 4209793 bytes decoded (2 MiB cap = 2097152), page 2 is 2311796; the page size is not selectable (per_page, limit, page_size, size and perPage were tried and ignored; each returned the same ~1.83 MB gzip body); pages 10 and 20 fit (1510962, 923504). Pages are 300/300/250/150 items and \`links.last\` is always null.${UNV_AN} ${REDACTION}`
 await emit(

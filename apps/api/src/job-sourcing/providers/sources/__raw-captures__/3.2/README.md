@@ -48,7 +48,7 @@ replaced by a same-length run of x characters by hand (the terms text is unchang
 - The guards are in `fixture-provenance.spec.ts` (see the top of this file): the token scan with its
   per-file allow-list, the profile-link test, and a test that fails if an `hn-*` or `an-p1`/`an-p2` raw is
   committed again.
-- Three hn-hiring fixtures and `an-terms.html` also had personal LinkedIn slugs replaced by hand (same-length
+- Two hn-hiring fixtures (`thread-2019-05`, `thread-2026-10`) and `an-terms.html` also had personal LinkedIn slugs replaced by hand (same-length
   x runs, `fileSha256` and notes updated for the two HN fixtures); see the residual bullet for where the
   originals live.
 - HN author handles are kept verbatim in the trimmed fixtures: they are public pseudonyms and the
