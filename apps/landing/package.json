@@ -44,7 +44,7 @@
     "@vitest/eslint-plugin": "^1.6.27",
     "eslint": "^10.12.0",
     "eslint-plugin-testing-library": "^7.16.2",
-    "happy-dom": "20.9.0",
+    "happy-dom": "21.0.4",
     "playwright": "^1.52.0",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3",

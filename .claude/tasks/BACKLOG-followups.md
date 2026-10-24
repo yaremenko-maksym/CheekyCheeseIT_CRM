@@ -4551,6 +4551,23 @@ A related sharp edge found in the same attempt: passing the path through a shell
 right, and it means any batch cleanup must expand each path to a literal first — which is also why a
 loop over `git worktree list` cannot be the fix.
 
+**It is a leak with a rate, not a backlog of 16 (re-measured 2026-10-24, ~50 minutes later).** The
+count went 16 -> 19 in that window, and the three new ones are exactly the three reviewer checkouts
+dispatched in it: one per review that needed to run something. So the number in the paragraph above is
+not a quantity to clear once; it is a reading of a meter. Whatever the figure says when you read this,
+it is wrong and it is larger.
+
+That changes the priority rather than the diagnosis. A fixed backlog of stranded trees is housekeeping
+the owner can do when convenient; a leak of one tree per review is a cost on every review this repo
+runs, and the registered-worktree total is already 81. Re-measure before acting, reading the producer
+into a variable first so that an unread list cannot pass for an empty one:
+
+```
+wt=$(git -C <main repo> worktree list --porcelain)
+printf '%s' "$wt" | grep -c '^worktree '                    # total registered
+printf '%s' "$wt" | grep '^worktree ' | grep -c 'claude-501' # in session scratchpads
+```
+
 **Check on closing:** an agent creates a worktree at the `/private/tmp/...` path the harness issued it
 and then removes it, with no intervening step. Both commands succeed. And a tree whose creator is gone
 can be cleared by _someone_ without forcing past the guard.
@@ -4661,6 +4678,39 @@ Re-measured properly (full stdout to a file, ANSI stripped, pattern unanchored, 
 total exactly. The reconciliation against a known total is what turned a plausible number into a
 checkable one, and it is the cheap habit worth copying: a count that does not have to add up to
 anything is a count nobody can falsify.
+
+### Instance 3 — a red step retried until green, with its reason truncated away (2026-10-24)
+
+Reported verbatim by the agent on PR #1110, and it is worth preserving in its own words because the
+honesty is what makes it usable: _"The first `git push` failed in the husky pre-push script (code 1),
+and I did not capture why. A second attempt piped through `head` and its result was unclear, so I
+discarded it. The third, redirected to a file, passed and pushed."_
+
+Three separate failures of instrumentation in one sequence, and only the third attempt was
+instrumented well enough to be believed:
+
+1. **A red step whose reason was never captured.** A pre-push failure is the gate doing its job; a
+   pre-push failure nobody read is indistinguishable from flake, and the only available response to
+   it is to try again. That is the habit every other gate in this repo depends on people not having.
+2. **`| head` on the diagnostic output**, which is this entry's own defect: the reason was probably in
+   the lines that truncation discarded.
+3. **An "unclear" result discarded rather than resolved.** Discarding an inconclusive measurement and
+   re-running is the same move as re-running red until green; it differs only in that nobody can
+   later tell it happened.
+
+The agent reports no hook was bypassed, and the final push is independently checkable
+(`git ls-remote origin` matched local HEAD), so the work itself is sound. **The defect is that
+red -> red -> green across three attempts is on the record with no explanation, and that is exactly the
+shape an intermittent gate failure and a real one share.** Nothing here distinguishes them.
+
+**What would have cost one command:** `git push > /tmp/push.log 2>&1 || tail -50 /tmp/push.log` on the
+FIRST attempt — redirect before you need it, not after two attempts have already failed. The agent
+arrived at this form by the third try; the point of writing it down is that it is available on the
+first.
+
+**Check on closing:** a pre-push failure in any agent's report is accompanied by the reason, or by a
+statement that the reason could not be obtained and why. A report that says a push failed and later
+succeeded, with nothing in between, is incomplete on its face.
 
 ## 303. User-facing error text left over from the retro-PR wave (2026-10-23)
 
@@ -4790,6 +4840,94 @@ read `SKIPPED (no Task declared)` rather than `n/a`, or require its own skip lin
 **Check on closing:** a PR body with `**Task:**` passes the Task row; a PR whose only code change is a
 vitest setup file does not report `Tests: MISSING`; and a `Skip-Task:` PR shows Spec-Review as skipped
 with a reason rather than as not applicable.
+
+### A fourth gap, and it is not a matcher gap: a verdict is not pinned to the commit it was given on (2026-10-24)
+
+Separated from the three above because they are cosmetic and this one defeats the gate's purpose.
+Measured by reading the gate, not inferred:
+
+```
+git show origin/main:scripts/architect/flow-gate.mjs | grep -nE 'commit_id|head_sha|latest'
+```
+
+`latest` is selected by `ts(it.at)` among trusted-association markers. **`commit_id` and `head_sha`
+do not appear in the file at all.** So a positive verdict stays positive across any number of
+subsequent commits, and the gate reports the step `done`.
+
+**The reviewed code and the merged code can therefore be different code, with nothing in the gate's
+output distinguishing them.** This is the same shape as the defect the Flow Gate was built to close:
+the gate exists because five PRs merged with no review, and this hole lets a PR merge with a review
+of something else. Narrower, and not hypothetical — observed on PR #1110, where `Verdict: APPROVE`
+and `Spec Review: PASS` were given on `abc3fa24c`, and a further commit followed. The gate would
+have passed it on those verdicts; it was caught by hand, which is exactly the attentiveness a gate
+exists to replace.
+
+**What makes it fixable:** a GitHub review object carries `commit_id`, the commit it was submitted
+against. A PR comment does not, so comment-borne verdicts have only `created_at` and are strictly
+weaker — a fix must say what it does about them rather than treating them as always fresh.
+
+**The trade to get right, and the reason this is not a one-line change.** If any follow-up commit
+invalidates a verdict, then every PR-body edit forces a fresh review round, and a gate that expensive
+is one people route around — worse than the hole. A docs-only exemption (every changed path ends in
+`.md`) is the obvious relief and is consistent with the gate's existing docs-only rule. There is also
+a reporting choice worth making deliberately: `MISSING` is strictest, but a distinct `STALE` status
+tells the author whether they need to run a reviewer or get a fresh pass, and those are different
+remedies.
+
+**Check on closing:** a PR with a positive review verdict on an older sha does NOT report that step
+`done`; the same PR with only a subsequent docs commit still does; and the gate still fails closed on
+a truncated or failed API fetch.
+
+## 312. A read-only reviewer can check out a PR inside the orchestrator's own working directory (2026-10-24)
+
+`agent-isolation.md` says a read-only reviewer is deliberately NOT forced a worktree, and the dispatch
+gate passes it silently, on the sound grounds that it reads a diff rather than a tree. Rule 4 then
+tells it to make its own checkout if it needs to run something, and `pre:bash:cross-agent-blast`
+refuses it a _foreign_ tree. **Nothing covers the session's own directory**, which is the one tree it
+shares with the orchestrator — so the protection is complete against siblings and absent against the
+parent.
+
+**Observed, from the reflog rather than inferred.** A reviewer on PR #1102 made its own checkout as the
+rule prescribes, and also ran a checkout in the session working directory:
+
+```
+e445077d8 checkout: moving from docs/worktree-leak-rate to refs/pr/1102
+```
+
+The orchestrator was left on a detached HEAD at someone else's PR head, with no error and no notice.
+It then appended to a long-lived file and committed. Measured consequence:
+
+|                                                  | lines |
+| ------------------------------------------------ | ----- |
+| the file on the orchestrator's branch            | 4842  |
+| the file at the PR head it was silently moved to | 4792  |
+| the resulting commit                             | 4829  |
+
+The commit was a clean `+37` on the wrong base. Pushed to the branch, it would have **reverted two
+earlier entries** — `grep -c` for each returned 0 in that commit — while reporting "1 file changed, 37
+insertions(+)" and nothing else. This is `verification-integrity.md`'s silent-revert hazard reached
+without staging anything stale: the base itself moved underfoot.
+
+**Why `git add` by name did not help, and what did.** The staged set was correct and the diffstat was
+correct; both describe the change relative to a HEAD that was not the intended one. What caught it was
+`git push` failing with "You are not currently on a branch" — luck, in that the detachment happened to
+block the one command that would have done damage. Had the reviewer checked out a _branch_ instead of
+a ref, the push would have succeeded.
+
+**Candidate answers, in increasing cost:**
+
+1. Extend `pre:bash:cross-agent-blast` to refuse `git checkout` / `switch` / `reset` with a revision
+   argument when the agent is non-isolated and the target tree is the session working directory. Cheap
+   and precise; it does not restrict an agent's own scratch checkout, which is what the rule wants it
+   to use.
+2. Have write-capable commands assert the branch first. The orchestrator's own discipline already
+   requires `git branch --show-current` before a write operation (`session_ops_lessons_2026_06_15`);
+   this incident is what that line is for, and it was not run.
+3. Dispatch reviewers with `isolation="worktree"` after all, which the rule rejects on cost grounds —
+   and that reasoning still holds, so this is the fallback, not the fix.
+
+**Check on closing:** a non-isolated agent that runs `git checkout <rev>` in the session working
+directory is refused, and its own scratch-path checkout still succeeds.
 
 ## 314. Readiness is stated in two places, and nothing reconciles them (2026-10-24)
 

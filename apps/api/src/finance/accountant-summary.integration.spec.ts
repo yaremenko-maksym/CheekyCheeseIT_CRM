@@ -5,7 +5,7 @@ import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify
 import { Test } from '@nestjs/testing'
 import cookie from '@fastify/cookie'
 import { drizzle } from 'drizzle-orm/node-postgres'
-import { inArray } from 'drizzle-orm'
+import { and, gte, inArray, sql } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { SessionUser, AccountantSummaryDto as AccountantSummaryDtoT } from '@crm/shared'
@@ -122,6 +122,12 @@ const TX_VALIDATED_NULL = 'ac111111-0000-4000-cc00-000000000007' // VALIDATED, v
 const TX_EXPENSE_PENDING = 'ac111111-0000-4000-cc00-000000000008' // EXPENSE PENDING 333 → not validatable income
 const TX_SALARY_PENDING = 'ac111111-0000-4000-cc00-000000000009' // SALARY PENDING 444 → not validatable income
 const TX_DEDUP_PARTY = 'ac111111-0000-4000-cc00-00000000000a' // 2nd SENIOR_INCOME for SENIOR → dedup, no new party
+// CR-809-H-2 fixtures — the two rows where createdAt and the business date
+// disagree across a month boundary. These are the ONLY rows in this spec that
+// can tell `created_at` and `coalesce(tx_date, created_at)` apart, so they are
+// what makes the window column observable at all.
+const TX_PAID_BACKDATED_OUT = 'ac111111-0000-4000-cc00-00000000000b' // PAID 1111, created THIS month, dated LAST month → OUT
+const TX_PAID_BACKDATED_IN = 'ac111111-0000-4000-cc00-00000000000c' // PAID 2222, created LAST month, dated THIS month → IN
 
 const TEST_USER_IDS = [ACCOUNTANT.id, ADMIN.id, SENIOR.id, SENIOR2.id, JUNIOR.id, HR.id, DROP.id]
 const TEST_TX_IDS = [
@@ -135,6 +141,8 @@ const TEST_TX_IDS = [
   TX_EXPENSE_PENDING,
   TX_SALARY_PENDING,
   TX_DEDUP_PARTY,
+  TX_PAID_BACKDATED_OUT,
+  TX_PAID_BACKDATED_IN,
 ]
 
 // ── Sentinel controller — mirrors the real /finance/accountant-summary route ─
@@ -438,6 +446,40 @@ describe.skipIf(!hasDatabaseUrl())(
           createdAt: thisMonth,
           createdBy: ADMIN.id,
         },
+        // ── CR-809-H-2: createdAt and the business date on opposite sides of
+        //    the month boundary. Both directions, because a window keyed on the
+        //    wrong column fails one of them in each direction and a test that
+        //    only checked one would pass on a half-fix.
+        // Recorded this month FOR last month (the "6 Oct admin pays a September
+        // salary, picks 30 Sep" case from the finding) → September money, so
+        // this tile must NOT count it.
+        {
+          id: TX_PAID_BACKDATED_OUT,
+          type: 'SENIOR_INCOME',
+          status: 'PAID',
+          amount: '1111',
+          currency: 'USDT',
+          senderId: SENIOR.id,
+          projectId: PROJ_ID,
+          createdAt: thisMonth,
+          txDate: lastMonth,
+          createdBy: SENIOR.id,
+        },
+        // The mirror image: entered late last month but dated into this one →
+        // this month's money, so this tile MUST count it even though the row
+        // was created last month.
+        {
+          id: TX_PAID_BACKDATED_IN,
+          type: 'SENIOR_INCOME',
+          status: 'PAID',
+          amount: '2222',
+          currency: 'USDT',
+          senderId: SENIOR.id,
+          projectId: PROJ_ID,
+          createdAt: lastMonth,
+          txDate: thisMonth,
+          createdBy: SENIOR.id,
+        },
         // 2nd validatable-income row for SENIOR (already a party via the rows
         // above). VALIDATED last month so it touches NO money/count bucket; its
         // only possible effect is recipientCount — and the COUNT(DISTINCT …) must
@@ -557,9 +599,15 @@ describe.skipIf(!hasDatabaseUrl())(
         Math.round((body.validatedThisMonth.amount - base.validatedThisMonth.amount) * 100) / 100,
       ).toBe(800)
 
-      // Δ paidThisMonth: +2000 (TX_PAID_THIS); lastMonth PAID row excluded.
+      // Δ paidThisMonth: +4222 = TX_PAID_THIS (2000, created + dated this month)
+      // + TX_PAID_BACKDATED_IN (2222, created last month, DATED this month).
+      // Excluded: TX_PAID_OLD (6666, last month, no txDate) and
+      // TX_PAID_BACKDATED_OUT (1111, created this month, DATED last month).
+      // CR-809-H-2: windowed on `created_at` this delta would be 3111
+      // (2000 + 1111) — the two numbers differ by exactly the backdated rows,
+      // which is what makes this assertion discriminate.
       expect(Math.round((body.paidThisMonth.amount - base.paidThisMonth.amount) * 100) / 100).toBe(
-        2000,
+        4222,
       )
 
       // Δ recipientCount: +2 new income parties (SENIOR + DROP — neither owned an
@@ -584,11 +632,67 @@ describe.skipIf(!hasDatabaseUrl())(
     it('excludes PAID rows created in a previous month from paidThisMonth', async () => {
       const base = baseline!
       const body = await summaryAsAdmin()
-      // TX_PAID_OLD (6666, lastMonth) must NOT appear — only TX_PAID_THIS (2000) does.
-      // If the createdAt month filter regressed, the delta would be 8666, not 2000.
+      // TX_PAID_OLD (6666, lastMonth, NO txDate → coalesce falls back to
+      // created_at) must NOT appear. The expected 4222 is TX_PAID_THIS (2000) +
+      // TX_PAID_BACKDATED_IN (2222); a regressed month filter would surface
+      // 6666 on top of it.
       expect(Math.round((body.paidThisMonth.amount - base.paidThisMonth.amount) * 100) / 100).toBe(
-        2000,
+        4222,
       )
+    })
+
+    // ── CR-809-H-2 ────────────────────────────────────────────────────────────
+    // The tile and the monthly graph must agree about which month a backdated
+    // row belongs to. Both directions are asserted separately from the
+    // aggregate delta above so a failure names which half broke.
+
+    it('counts a PAID row created LAST month but DATED this month (CR-809-H-2)', async () => {
+      const base = baseline!
+      const body = await summaryAsAdmin()
+      // The delta carries TX_PAID_BACKDATED_IN's 2222. Keyed on created_at this
+      // row is invisible to the tile, so the delta would be 3111 instead.
+      const delta = Math.round((body.paidThisMonth.amount - base.paidThisMonth.amount) * 100) / 100
+      expect(delta).toBe(4222)
+      // Spelled out as the arithmetic the finding describes: the business-date
+      // window includes the backdated-IN row and excludes the backdated-OUT one.
+      expect(delta - 2000).toBe(2222)
+    })
+
+    it('excludes a PAID row created THIS month but DATED last month (CR-809-H-2)', async () => {
+      const base = baseline!
+      const body = await summaryAsAdmin()
+      // TX_PAID_BACKDATED_OUT is 1111, created this month. A created_at window
+      // counts it; a business-date window does not. 4222 contains no 1111
+      // (4222 + 1111 = 5333 would be the created_at answer for the IN row too).
+      const delta = Math.round((body.paidThisMonth.amount - base.paidThisMonth.amount) * 100) / 100
+      expect(delta).not.toBe(5333)
+      expect(delta).toBe(4222)
+    })
+
+    it('selects the same month-key rows Postgres does for the business date (CR-809-H-2)', async () => {
+      // Independent of the service: ask Postgres directly which of THIS spec's
+      // PAID rows the business-date window admits, and compare against a
+      // hand-written expected set. The expectation is a literal list of ids, not
+      // a second evaluation of the production expression, so this cannot pass by
+      // construction the way `expect(f(x)).toBe(f(x))` would.
+      const db = dbSvc.db
+      const now = new Date()
+      const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+      const rows = await db
+        .select({ id: transactions.id })
+        .from(transactions)
+        .where(
+          and(
+            inArray(transactions.id, [
+              TX_PAID_THIS,
+              TX_PAID_OLD,
+              TX_PAID_BACKDATED_IN,
+              TX_PAID_BACKDATED_OUT,
+            ]),
+            gte(sql`coalesce(${transactions.txDate}, ${transactions.createdAt})`, monthStart),
+          ),
+        )
+      expect(rows.map((r) => r.id).sort()).toEqual([TX_PAID_BACKDATED_IN, TX_PAID_THIS].sort())
     })
 
     it('excludes VALIDATED rows with NULL validatedAt from validatedThisMonth', async () => {
