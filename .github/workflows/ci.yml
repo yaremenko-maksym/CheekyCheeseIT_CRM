@@ -1309,7 +1309,7 @@ jobs:
             # heaviest shard by both file count (16 specs) and wall time (~4:53 of a 15-minute
             # job timeout on a recent main run, gh run 31194170529) but has ample headroom —
             # 11 fast mocked tests do not meaningfully move that number.
-            files: tests/interviews.spec.ts tests/job-sourcing-mobile.spec.ts tests/profile-self-edit.spec.ts tests/requisites-warning.spec.ts tests/admin-actions.spec.ts tests/onboarding-logout.spec.ts tests/documents-pdf-preview.spec.ts tests/persist-query.spec.ts tests/vacancies.spec.ts tests/crm tests/dashboard-russian-strings.spec.ts tests/polish-regressions.spec.ts tests/senior-archive-regression.spec.ts tests/onboarding-regression-pr110.spec.ts tests/ui-invariants-pr56.spec.ts tests/onboarding-flow.spec.ts
+            files: tests/interviews.spec.ts tests/job-sourcing-mobile.spec.ts tests/profile-self-edit.spec.ts tests/requisites-warning.spec.ts tests/admin-actions.spec.ts tests/onboarding-logout.spec.ts tests/documents-pdf-preview.spec.ts tests/persist-query.spec.ts tests/vacancies.spec.ts tests/crm tests/dashboard-russian-strings.spec.ts tests/polish-regressions.spec.ts tests/senior-archive-regression.spec.ts tests/onboarding-regression-pr110.spec.ts tests/ui-invariants-pr56.spec.ts tests/onboarding-flow.spec.ts tests/admin-templates.spec.ts
           - name: meeting-recorder
             # The Meeting Recorder flow is a self-contained mocked-browser suite
             # spanning admin connection setup, unmatched-recording linking and

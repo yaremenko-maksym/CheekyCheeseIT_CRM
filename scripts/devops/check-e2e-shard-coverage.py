@@ -76,7 +76,6 @@ KNOWN_UNSHARDED = {
     # --- landing/ suite: see EXCLUDED_DIRS above (structural, not debt) ---
     # --- accountant ---
     # --- admin ---
-    "tests/admin-templates.spec.ts",              # debt: not gated, migrate to misc shard later
     # --- dashboard ---
     # --- documents ---
     # --- drop suite ---
