@@ -14,7 +14,7 @@ import { WORKINGNOMADS_SOURCE_STATUS } from './workingnomads.provider'
  * The provenance contract of the phase-3 fixtures (`phase3-common.md`): Task 3.7 builds the
  * manifest from these files, so their shape is a contract, not a convention. Every fixture must
  * have a sibling provenance file, the recorded hash must describe the bytes actually committed,
- * and no file anywhere under `__fixtures__/` may carry a stray e-mail address.
+ * and no file anywhere under `__fixtures__/` or `__raw-captures__/` may carry a stray e-mail address.
  *
  * ONE WALKER, TWO CHECKS: the e-mail scan used to read only the trimmed fixtures this file listed,
  * and three raw Hacker News captures with 462 commenters' addresses were committed unseen (PR
@@ -23,15 +23,17 @@ import { WORKINGNOMADS_SOURCE_STATUS } from './workingnomads.provider'
  * ADDING A SOURCE: append ONE row to `FIXTURES` (provider -> fixture name -> permission). There
  * is no global count to edit.
  *
- * HAND-OFF (Task 3.2 -> the ATS task, PR #1117): `apps/api/src/test/fixture-provenance.ts` plus
+ * HAND-OFF (Task 3.2 -> Task 3.3, PR #1117): `apps/api/src/test/fixture-provenance.ts` plus
  * `fixture-provenance.all.spec.ts` (one shared reader walking every `__fixtures__` directory) is
- * not on `origin/main` yet. WHOEVER MERGES SECOND adopts that helper and moves the `FIXTURES` rows,
- * the raw-capture hash rows and the e-mail scan below into it, rather than keeping two readers.
+ * on `origin/main`. Moving the `FIXTURES` rows, the raw-capture hash rows and the e-mail scan below
+ * into it, so that one reader remains, has NOT been done yet.
  */
 
 const ROOT = join(__dirname, '__fixtures__')
 // Evidence, not fixtures: kept outside __fixtures__ so the shared walk does not count it as a provider.
-const RAW_ROOT = join(__dirname, '__raw-captures__', '3.2')
+// The root is `__raw-captures__` itself (`phase3-common.md`: `__raw-captures__/<task>/`), so a later
+// task's capture directory is scanned without editing this file.
+const RAW_ROOT = join(__dirname, '__raw-captures__')
 
 type Permission =
   'PUBLIC_API_DOCUMENTED' | 'PUBLIC_FEED' | 'UNCLEAR' | 'PROHIBITED' | 'KEY_REQUIRED'
@@ -134,7 +136,7 @@ describe('fixture provenance', () => {
   it.each(RAW_CAPTURES)(
     '%s/%s: the committed raw capture %s hashes to the recorded rawSha256',
     (provider, name, rawFile) => {
-      const raw = readFileSync(join(RAW_ROOT, rawFile))
+      const raw = readFileSync(join(RAW_ROOT, '3.2', rawFile))
       const bytes = rawFile.endsWith('.gz') ? gunzipSync(raw) : raw
       expect(sha256(bytes)).toBe(provenanceOf(provider, name).rawSha256)
     },
@@ -154,7 +156,7 @@ describe('fixture provenance', () => {
 })
 
 /**
- * E-mail addresses anywhere under `__fixtures__/`, raw captures and scripts included, `.gz`
+ * E-mail addresses anywhere under `__fixtures__/` and `__raw-captures__/`, raw captures and scripts included, `.gz`
  * decompressed. The allow-list is per FILE and per ADDRESS: the redaction placeholder, and the
  * published role mailboxes of a third-party terms page kept as evidence of a verdict. A new
  * address in an allow-listed file fails, as does any address in any other file.
@@ -178,7 +180,7 @@ function addressesIn(path: string): string[] {
   return [...new Set(text.match(EMAIL) ?? [])].sort()
 }
 
-describe('no personal e-mail address anywhere under __fixtures__', () => {
+describe('no personal e-mail address anywhere under __fixtures__ or __raw-captures__', () => {
   const files = [...walk(ROOT), ...walk(RAW_ROOT)]
   const labelOf = (f: string) => relative(f.startsWith(RAW_ROOT) ? __dirname : ROOT, f)
   const rel = files.map(labelOf)
@@ -212,7 +214,11 @@ describe('no personal e-mail address anywhere under __fixtures__', () => {
   })
 
   it("the raw Hacker News thread captures are not committed (they hold commenters' addresses)", () => {
-    expect(rel.filter((f) => /^__raw-captures__\/3\.2\/hn-/.test(f))).toEqual([])
+    // Any task directory under __raw-captures__, not only 3.2. The control proves the pattern can
+    // match the label shape the walk produces, so an empty result is not an instrument that cannot see.
+    const hnCapture = /^__raw-captures__\/[^/]+\/hn-/
+    expect(hnCapture.test('__raw-captures__/3.2/hn-item-oct.raw')).toBe(true)
+    expect(rel.filter((f) => hnCapture.test(f))).toEqual([])
   })
 })
 
