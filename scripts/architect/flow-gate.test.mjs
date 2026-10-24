@@ -21,11 +21,23 @@ import {
   isUiCode,
   isCopy,
   render,
+  comparePlan,
+  statedCommit,
+  isDoc,
+  isInertDoc,
+  MAX_COMPARES,
+  MAX_COMPARE_FILES,
 } from './flow-gate.mjs'
 
+// `headSha` defaults to the last listed commit, which is what GitHub reports for a real PR. A
+// fixture that wants a stale verdict overrides the reviews' `commit_id`, not the head.
 const withCounts = (pr) =>
   pr && typeof pr === 'object' && Array.isArray(pr.files) && Array.isArray(pr.commits)
-    ? { counts: { changedFiles: pr.files.length, commits: pr.commits.length }, ...pr }
+    ? {
+        counts: { changedFiles: pr.files.length, commits: pr.commits.length },
+        headSha: pr.commits.length ? pr.commits[pr.commits.length - 1].sha : undefined,
+        ...pr,
+      }
     : pr
 const ev = (pr) => evaluate(withCounts(pr))
 
@@ -37,6 +49,7 @@ const rv = (body, over = {}) => ({
   state: 'COMMENTED',
   body,
   at: '2026-10-21T10:00:00Z',
+  commit_id: 'f'.repeat(40), // the default `commit()` sha, so a default review is on the head
   ...over,
 })
 const cm = (body, over = {}) => ({
@@ -46,6 +59,12 @@ const cm = (body, over = {}) => ({
   at: '2026-10-21T10:00:00Z',
   ...over,
 })
+// A comment-borne verdict carries no `commit_id`, so it must name the commit it judged. `cmv` is
+// the ordinary case: a verdict on the default head. `cm` is left bare for the fixtures that test
+// what happens without the line.
+const cmv = (body, over = {}) => cm(`${body}\nCommit: ${'f'.repeat(40)}`, over)
+// No `committedAt`: the gate reads no commit date (SEC-1). The two fixtures that still supply one
+// do it adversarially, to prove it is ignored.
 const commit = (message, over = {}) => ({ sha: 'f'.repeat(40), message, parents: 1, ...over })
 
 const API = 'apps/api/src/vacancies/vacancies.service.ts' // product code, not critical, not UI
@@ -182,8 +201,8 @@ const EVIDENCE = {
   'Security-Review': (pr) => ({ ...pr, reviews: [...pr.reviews, rv('Security Review: APPROVE')] }),
   'Spec-Review': (pr) => ({ ...pr, reviews: [...pr.reviews, rv('Spec Review: PASS')] }),
   'Copy-Review': (pr) => ({ ...pr, reviews: [...pr.reviews, rv('Copy Review: PASS')] }),
-  QA: (pr) => ({ ...pr, comments: [...pr.comments, cm('QA Verdict: PASS')] }),
-  'Design-Review': (pr) => ({ ...pr, comments: [...pr.comments, cm('Design Review: PASS')] }),
+  QA: (pr) => ({ ...pr, comments: [...pr.comments, cmv('QA Verdict: PASS')] }),
+  'Design-Review': (pr) => ({ ...pr, comments: [...pr.comments, cmv('Design Review: PASS')] }),
   AC: (pr) => ({ ...pr, commits: [commit('feat: x\n\nac_verified: 1')] }),
 }
 
@@ -387,16 +406,16 @@ test('an outsider BLOCK (association CONTRIBUTOR) after an APPROVE is ignored', 
 test('an outsider QA comment is ignored; MEMBER and COLLABORATOR count', () => {
   const ui = good({ files: ['apps/web/app/x.tsx', 'apps/web/app/x.spec.tsx'] })
   assert.equal(
-    status(ev({ ...ui, comments: [cm('QA Verdict: PASS', { association: 'NONE' })] }), 'QA'),
+    status(ev({ ...ui, comments: [cmv('QA Verdict: PASS', { association: 'NONE' })] }), 'QA'),
     'missing',
   )
   assert.equal(
-    status(ev({ ...ui, comments: [cm('QA Verdict: PASS', { association: 'MEMBER' })] }), 'QA'),
+    status(ev({ ...ui, comments: [cmv('QA Verdict: PASS', { association: 'MEMBER' })] }), 'QA'),
     'satisfied',
   )
   assert.equal(
     status(
-      ev({ ...ui, comments: [cm('QA Verdict: PASS', { association: 'COLLABORATOR' })] }),
+      ev({ ...ui, comments: [cmv('QA Verdict: PASS', { association: 'COLLABORATOR' })] }),
       'QA',
     ),
     'satisfied',
@@ -428,7 +447,7 @@ test('a review with no association field does not count (fail closed)', () => {
 // --- completeness (fail closed on truncation) --------------------------------------------------
 
 test('listed files fewer than the PR reports → FAIL "could not read the whole PR", even when docs-only', () => {
-  const r = evaluate({ ...bare(['docs/a.md']), counts: { changedFiles: 2, commits: 1 } })
+  const r = ev({ ...bare(['docs/a.md']), counts: { changedFiles: 2, commits: 1 } })
   assert.equal(r.pass, false)
   assert.equal(r.docsOnly, false)
   assert.match(
@@ -438,7 +457,7 @@ test('listed files fewer than the PR reports → FAIL "could not read the whole 
 })
 
 test('listed commits fewer than the PR reports → FAIL', () => {
-  const r = evaluate({ ...good(), counts: { changedFiles: 2, commits: 3 } })
+  const r = ev({ ...good(), counts: { changedFiles: 2, commits: 3 } })
   assert.equal(r.pass, false)
   assert.match(r.failures[0], /listed 1 commits, the PR reports 3/)
 })
@@ -446,18 +465,23 @@ test('listed commits fewer than the PR reports → FAIL', () => {
 test('changed_files ≥ 3000 or commits ≥ 250 → FAIL even when the counts match', () => {
   const files = Array.from({ length: 3000 }, (_, i) => `docs/f${i}.md`)
   assert.match(
-    evaluate({ ...bare(files), counts: { changedFiles: 3000, commits: 1 } }).failures[0],
+    ev({ ...bare(files), counts: { changedFiles: 3000, commits: 1 } }).failures[0],
     /lists at most 3000/,
   )
   const commits = Array.from({ length: 250 }, () => commit('wip: x'))
   assert.match(
-    evaluate({ ...good({ commits }), counts: { changedFiles: 2, commits: 250 } }).failures[0],
+    ev({ ...good({ commits }), counts: { changedFiles: 2, commits: 250 } }).failures[0],
     /lists at most 250/,
   )
 })
 
 test('missing counts → FAIL, a skip line cannot cover it', () => {
-  const r = evaluate({ ...good(), body: `${FULL_BODY}Skip-Completeness: whatever reason here\n` })
+  // Deliberately NOT through `ev`: that helper derives the counts, and this case is their absence.
+  const r = evaluate({
+    ...good(),
+    headSha: 'f'.repeat(40),
+    body: `${FULL_BODY}Skip-Completeness: whatever reason here\n`,
+  })
   assert.equal(r.pass, false)
   assert.match(r.failures[0], /counts were not provided/)
 })
@@ -552,9 +576,9 @@ test('Review/Security/Spec read reviews only; Copy/QA/Design read reviews and co
       cm('Verdict: APPROVE'),
       cm('Security Review: APPROVE'),
       cm('Spec Review: PASS'),
-      cm('Copy Review: PASS'),
-      cm('QA Verdict: PASS'),
-      cm('Design Review: PASS'),
+      cmv('Copy Review: PASS'),
+      cmv('QA Verdict: PASS'),
+      cmv('Design Review: PASS'),
     ],
     reviews: [],
   })
@@ -825,4 +849,1142 @@ test('CLI: FAIL exits 1 with one ::error:: line per missing step', () => {
 test('CLI: malformed input exits 2, never 0', () => {
   assert.equal(runCli('{not json').status, 2)
   assert.equal(runCli(good({ files: [] })).status, 2)
+})
+
+// --- verdict freshness: a verdict is pinned to the commit it was given on -----------------------
+//
+// Backlog 311 (fourth gap), PR #1110: both verdicts were given on `abc3fa24c`, a further commit
+// landed, and the gate still reported both steps `done`. The reviewed code and the merged code
+// were different code.
+
+const HEAD = 'f'.repeat(40) // the default `commit()` sha, and so the default head
+const OLD = '1'.repeat(40)
+const GONE = '2'.repeat(40)
+
+// `ownedAt` is the PR's own changed-file set AT `base` — by default the same files it owns now.
+// A fixture testing SEC-2 passes a wider set.
+const cmp = (base, paths, over = {}) => ({
+  base,
+  paths,
+  ownedAt: [API, API_SPEC],
+  truncated: false,
+  ...over,
+})
+/** Two commits: an older one a review was given on, then the head. */
+const twoCommits = (headMessage = 'feat(api): follow-up\n\nac_verified: 1,2') => [
+  commit('wip: first cut', { sha: OLD }),
+  commit(headMessage, { sha: HEAD }),
+]
+const mergeCommits = (driftPaths) => ({
+  commits: [
+    commit('feat(api): x\n\nac_verified: 1,2', { sha: OLD }),
+    commit("Merge branch 'main' into feature", { sha: HEAD, parents: 2 }),
+  ],
+  compares: [cmp(OLD, driftPaths)],
+})
+
+test('AC-1: a positive review verdict on an older sha is NOT done', () => {
+  const r = ev(
+    good({
+      reviews: [rv('Verdict: APPROVE', { commit_id: OLD }), rv('Spec Review: PASS')],
+      commits: twoCommits(),
+      compares: [cmp(OLD, [API])],
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'stale')
+  assert.equal(r.pass, false)
+  assert.match(failureFor(r, 'Review'), /1111111/)
+  assert.match(failureFor(r, 'Review'), /fffffff/)
+})
+
+test('a positive review verdict on the head sha is done', () => {
+  const r = ev(good({ commits: twoCommits(), compares: [] }))
+  assert.equal(status(r, 'Review'), 'satisfied')
+  assert.equal(status(r, 'Spec-Review'), 'satisfied')
+  assert.equal(r.pass, true, r.failures.join('\n'))
+})
+
+test('a stale verdict followed only by a docs commit stays done', () => {
+  const r = ev(
+    good({
+      files: [API, API_SPEC, 'README.md'],
+      reviews: [rv('Verdict: APPROVE', { commit_id: OLD }), rv('Spec Review: PASS')],
+      commits: twoCommits('docs: fix a typo in the README\n\nac_verified: 1,2'),
+      compares: [cmp(OLD, ['README.md'])],
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'satisfied')
+  assert.match(r.steps.find((s) => s.key === 'Review').detail, /docs/)
+})
+
+test("a base-branch merge that leaves the PR's own files alone keeps the verdict", () => {
+  const r = ev(
+    good({
+      reviews: [rv('Verdict: APPROVE', { commit_id: OLD }), rv('Spec Review: PASS')],
+      // The merge brought in base-branch files; none of them is a file this PR changes.
+      ...mergeCommits(['apps/api/src/unrelated/other.service.ts', 'docs/x.md']),
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'satisfied')
+  assert.match(r.steps.find((s) => s.key === 'Review').detail, /base/)
+})
+
+test('a merge whose conflict resolution touched a file the PR owns makes the verdict stale', () => {
+  const r = ev(
+    good({
+      reviews: [rv('Verdict: APPROVE', { commit_id: OLD }), rv('Spec Review: PASS')],
+      ...mergeCommits(['apps/api/src/unrelated/other.service.ts', API]),
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'stale')
+  assert.ok(failureFor(r, 'Review').includes(API), failureFor(r, 'Review'))
+})
+
+test('a review with no commit_id is unverifiable, so not done (fail closed)', () => {
+  const r = ev(
+    good({
+      reviews: [rv('Verdict: APPROVE', { commit_id: null }), rv('Spec Review: PASS')],
+      commits: twoCommits(),
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'stale')
+  assert.match(failureFor(r, 'Review'), /no commit_id/)
+})
+
+test('a verdict on a commit that is no longer in the PR (force-push) is stale', () => {
+  const r = ev(
+    good({
+      reviews: [rv('Verdict: APPROVE', { commit_id: GONE }), rv('Spec Review: PASS')],
+      commits: twoCommits(),
+      compares: [],
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'stale')
+  assert.match(failureFor(r, 'Review'), /no longer part of the PR/)
+})
+
+test('a stale verdict with no drift measurement fails closed', () => {
+  const r = ev(
+    good({
+      reviews: [rv('Verdict: APPROVE', { commit_id: OLD }), rv('Spec Review: PASS')],
+      commits: twoCommits(),
+      compares: [],
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'stale')
+  assert.match(failureFor(r, 'Review'), /could not be measured/)
+})
+
+test('a truncated or unavailable drift measurement fails closed', () => {
+  for (const over of [{ truncated: true }, { unavailable: true }]) {
+    const r = ev(
+      good({
+        reviews: [rv('Verdict: APPROVE', { commit_id: OLD }), rv('Spec Review: PASS')],
+        commits: twoCommits(),
+        compares: [cmp(OLD, [], over)],
+      }),
+    )
+    assert.equal(status(r, 'Review'), 'stale', JSON.stringify(over))
+  }
+})
+
+test('an earlier FRESH positive verdict is honoured even when a later one is stale', () => {
+  const r = ev(
+    good({
+      reviews: [
+        rv('Verdict: APPROVE', { commit_id: HEAD, at: '2026-10-21T13:00:00Z' }),
+        rv('Verdict: APPROVE', { commit_id: OLD, at: '2026-10-21T14:00:00Z' }),
+        rv('Spec Review: PASS'),
+      ],
+      commits: twoCommits(),
+      compares: [cmp(OLD, [API])],
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'satisfied')
+})
+
+test('a fresh positive BEFORE a negative does not revive it', () => {
+  const r = ev(
+    good({
+      reviews: [
+        rv('Verdict: APPROVE', { commit_id: HEAD, at: '2026-10-21T13:00:00Z' }),
+        rv('Verdict: BLOCK', { commit_id: HEAD, at: '2026-10-21T14:00:00Z' }),
+        rv('Spec Review: PASS'),
+      ],
+      commits: twoCommits(),
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'missing')
+  assert.match(failureFor(r, 'Review'), /is negative/)
+})
+
+test('a negative verdict reads as before — unchanged behaviour, not stale', () => {
+  const r = ev(
+    good({
+      reviews: [rv('Verdict: BLOCK', { commit_id: OLD }), rv('Spec Review: PASS')],
+      commits: twoCommits(),
+      compares: [cmp(OLD, [API])],
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'missing')
+  assert.match(failureFor(r, 'Review'), /is negative/)
+})
+
+test('a stale verdict is still waivable by a recorded Skip line', () => {
+  const r = ev(
+    good({
+      body: `${FULL_BODY}Skip-Review: owner re-read the delta in the chat before merging\n`,
+      reviews: [rv('Verdict: APPROVE', { commit_id: OLD }), rv('Spec Review: PASS')],
+      commits: twoCommits(),
+      compares: [cmp(OLD, [API])],
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'skipped')
+  assert.equal(r.pass, true, r.failures.join('\n'))
+})
+
+// --- comment-borne verdicts: no commit_id, so the body must state the sha ----------------------
+
+const UI = 'apps/web/app/routes/x.tsx'
+const UI_SPEC = 'apps/web/app/routes/x.spec.tsx'
+const uiPr = (over = {}) =>
+  good({
+    files: [UI, UI_SPEC],
+    reviews: FULL_REVIEWS,
+    commits: twoCommits(),
+    ...over,
+  })
+const uiCmp = (base, paths, over = {}) => cmp(base, paths, { ownedAt: [UI, UI_SPEC], ...over })
+
+test('a comment-borne verdict naming the head is done', () => {
+  const r = ev(
+    uiPr({
+      comments: [
+        cm(`QA Verdict: PASS\nCommit: ${HEAD}`),
+        cm(`Design Review: PASS\nCommit: ${HEAD}`),
+      ],
+    }),
+  )
+  assert.equal(status(r, 'QA'), 'satisfied')
+  assert.equal(status(r, 'Design-Review'), 'satisfied')
+})
+
+test('a comment-borne verdict may abbreviate the sha and may decorate the line', () => {
+  const r = ev(
+    uiPr({
+      comments: [
+        cm(`QA Verdict: PASS\n**Commit:** ${HEAD.slice(0, 7)}`),
+        cm(`Design Review: PASS\n- Commit: ${HEAD.slice(0, 12)}`),
+      ],
+    }),
+  )
+  assert.equal(status(r, 'QA'), 'satisfied')
+  assert.equal(status(r, 'Design-Review'), 'satisfied')
+})
+
+test('a comment-borne verdict with no `Commit:` line is stale, not fresh', () => {
+  const r = ev(uiPr({ comments: [cm('QA Verdict: PASS'), cm('Design Review: PASS')] }))
+  assert.equal(status(r, 'QA'), 'stale')
+  assert.equal(status(r, 'Design-Review'), 'stale')
+  assert.match(failureFor(r, 'QA'), /no `Commit: <sha>` line/)
+  // The remedy for this one is the line, not another QA pass.
+  assert.match(failureFor(r, 'QA'), /Add a `Commit: <sha>` line/)
+})
+
+test('a quoted or fenced `Commit:` line is not a statement', () => {
+  assert.equal(statedCommit(`> Commit: ${HEAD}`), null)
+  assert.equal(statedCommit('```\nCommit: abc1234\n```'), null)
+  assert.equal(statedCommit(`<!--\nCommit: ${HEAD}\n-->`), null)
+  assert.equal(statedCommit('Commit: ABC1234'), 'abc1234')
+  // LOW: the `{7,40}` LOWER bound, at the boundary rather than far below it.
+  assert.equal(statedCommit('Commit: abc'), null)
+  assert.equal(statedCommit('Commit: abc123'), null) // 6 hex characters — one short
+  assert.equal(statedCommit('Commit: abc1234'), 'abc1234') // 7 is the minimum
+  assert.equal(statedCommit(`Commit: ${'a'.repeat(40)}`), 'a'.repeat(40)) // 40 is the maximum
+})
+
+test('a comment-borne verdict naming an older commit, with code drift since, is stale', () => {
+  const r = ev(
+    uiPr({
+      comments: [cm(`QA Verdict: PASS\nCommit: ${OLD}`), cm(`Design Review: PASS\nCommit: ${OLD}`)],
+      compares: [uiCmp(OLD, [UI])],
+    }),
+  )
+  assert.equal(status(r, 'QA'), 'stale')
+  assert.equal(status(r, 'Design-Review'), 'stale')
+  assert.match(failureFor(r, 'QA'), /Commit:/)
+})
+
+test('a comment-borne verdict followed only by a docs commit stays done', () => {
+  const r = ev(
+    uiPr({
+      files: [UI, UI_SPEC, 'README.md'],
+      comments: [cm(`QA Verdict: PASS\nCommit: ${OLD}`)],
+      compares: [uiCmp(OLD, ['README.md'], { ownedAt: [UI, UI_SPEC, 'README.md'] })],
+    }),
+  )
+  assert.equal(status(r, 'QA'), 'satisfied')
+})
+
+test('a `Commit:` line naming a commit outside the PR is stale', () => {
+  const r = ev(
+    uiPr({
+      comments: [cm(`QA Verdict: PASS\nCommit: ${GONE}`)],
+      compares: [],
+    }),
+  )
+  assert.equal(status(r, 'QA'), 'stale')
+  assert.match(failureFor(r, 'QA'), /no longer part of the PR/)
+})
+
+test('an abbreviation matching more than one commit of the PR is refused, not guessed', () => {
+  const r = ev(
+    uiPr({
+      comments: [cm('QA Verdict: PASS\nCommit: aaaaaaa')],
+      commits: [
+        commit('wip: a', { sha: 'aaaaaaa1'.padEnd(40, '0') }),
+        commit('wip: b', { sha: 'aaaaaaa2'.padEnd(40, '0') }),
+        commit('feat: c\n\nac_verified: 1', { sha: HEAD }),
+      ],
+    }),
+  )
+  assert.equal(status(r, 'QA'), 'stale')
+  assert.match(failureFor(r, 'QA'), /matches 2 commits/)
+})
+
+// --- the compare plan: which drift measurements the workflow must fetch --------------------------
+
+test('comparePlan names each distinct reference sha, never the head, and only hex shas', () => {
+  const plan = comparePlan(
+    withCounts(
+      good({
+        reviews: [
+          rv('Verdict: APPROVE', { commit_id: OLD }),
+          rv('Spec Review: PASS', { commit_id: OLD }),
+          rv('Security Review: APPROVE', { commit_id: HEAD }),
+        ],
+        commits: twoCommits(),
+      }),
+    ),
+  )
+  assert.deepEqual(plan, [OLD])
+})
+
+test('comparePlan resolves the sha a comment-borne verdict states, abbreviation included', () => {
+  const plan = comparePlan(
+    withCounts(
+      uiPr({
+        comments: [cm(`QA Verdict: PASS\nCommit: ${OLD.slice(0, 8)}`)],
+      }),
+    ),
+  )
+  assert.deepEqual(plan, [OLD])
+})
+
+test('comparePlan is capped, and an unmeasured sha then fails closed', () => {
+  assert.equal(typeof MAX_COMPARES, 'number')
+  const commits = []
+  const reviews = [rv('Spec Review: PASS')]
+  for (let i = 0; i < MAX_COMPARES + 3; i++) {
+    const sha = (i + 10).toString(16).padStart(2, '0').repeat(20)
+    commits.push(commit(`wip: ${i}`, { sha }))
+    reviews.push(
+      rv('Verdict: APPROVE', {
+        commit_id: sha,
+        at: `2026-10-22T${String(i).padStart(2, '0')}:00:00Z`,
+      }),
+    )
+  }
+  commits.push(commit('feat: last\n\nac_verified: 1', { sha: HEAD }))
+  const plan = comparePlan(withCounts(good({ reviews, commits })))
+  assert.equal(plan.length, MAX_COMPARES)
+  for (const sha of plan) assert.match(sha, /^[0-9a-f]{7,40}$/)
+})
+
+// --- completeness: the head must be among the listed commits -----------------------------------
+
+test('a head sha absent from the listed commits fails closed', () => {
+  const r = ev(good({ headSha: 'b'.repeat(40), commits: twoCommits() }))
+  assert.equal(r.pass, false)
+  assert.match(r.failures.join('\n'), /could not read the whole PR/)
+})
+
+test('a missing headSha is malformed input, not an empty head', () => {
+  assert.throws(() => evaluate({ ...withCounts(good()), headSha: null }), /headSha/)
+})
+
+test('render names STALE in the table', () => {
+  const pr = withCounts(
+    good({
+      reviews: [rv('Verdict: APPROVE', { commit_id: OLD }), rv('Spec Review: PASS')],
+      commits: twoCommits(),
+      compares: [cmp(OLD, [API])],
+    }),
+  )
+  const text = render(evaluate(pr), pr)
+  assert.match(text, /\| Review \| STALE \|/)
+  assert.match(text, /a fresh pass on the new code/)
+})
+
+// --- SEC-1 / SEC-2: the freshness check must not key on anything the PR author controls --------
+
+test('SEC-1: a backdated commit must not make a comment-borne verdict read fresh', () => {
+  // `committedAt` is git metadata — `git commit --date` sets it to anything. Backdated to AFTER
+  // the reviewed commit but BEFORE the verdict comment, the head became the newest commit the
+  // comment could have seen, and the date-keyed reference read the verdict as given on the head.
+  // The verdict names its commit now, so the dates below are decoration and the drift decides.
+  const r = ev(
+    uiPr({
+      comments: [cm(`QA Verdict: PASS\nCommit: ${OLD}`, { at: '2026-10-21T10:00:00Z' })],
+      commits: [
+        commit('feat: reviewed', { sha: OLD, committedAt: '2026-10-21T08:00:00Z' }),
+        commit('feat: NOT reviewed\n\nac_verified: 1', {
+          sha: HEAD,
+          committedAt: '2026-10-21T09:00:00Z',
+        }),
+      ],
+      compares: [uiCmp(OLD, [UI])],
+    }),
+  )
+  assert.equal(status(r, 'QA'), 'stale')
+})
+
+test('SEC-2: a path the PR reverted AFTER the verdict still counts as owned', () => {
+  // `pulls/files` is the PR's NET diff, so a file reverted after the review is no longer "owned"
+  // and a change to it would fall under the base-merge exemption — the verdict would survive a
+  // change to code the reviewer did read.
+  const REVERTED = 'apps/api/src/vacancies/reverted.service.ts'
+  const r = ev(
+    good({
+      files: [API, API_SPEC], // REVERTED is NOT here: the PR no longer changes it
+      reviews: [rv('Verdict: APPROVE', { commit_id: OLD }), rv('Spec Review: PASS')],
+      commits: twoCommits(),
+      // It drifted between the reviewed commit and the head, and it WAS part of the PR at the
+      // reviewed commit.
+      compares: [cmp(OLD, [REVERTED], { ownedAt: [API, API_SPEC, REVERTED] })],
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'stale')
+})
+
+// --- SR-M-1 / CR-M-5: a read that returned nothing is not a measurement of nothing -------------
+
+test('SR-M-1: an EMPTY owned side is "not measured", not "the PR owned nothing"', () => {
+  // A PR always changes a file (`validate` rejects an empty `files` list for that reason), so an
+  // empty owned set can only mean the read did not happen. Left as a zero-path measurement it
+  // produces a POSITIVE claim — "everything since touches base-branch files only" — from a compare
+  // that never carried a file list. Exit 0 without the artifact.
+  const r = ev(
+    good({
+      reviews: [rv('Verdict: APPROVE', { commit_id: OLD }), rv('Spec Review: PASS')],
+      commits: twoCommits(),
+      compares: [cmp(OLD, [], { ownedAt: [] })],
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'stale')
+  assert.match(failureFor(r, 'Review'), /could not be measured/)
+})
+
+test('an empty DRIFT side with a real owned side is a genuine "nothing moved"', () => {
+  // The asymmetry is deliberate: a merge whose tree equals the reviewed commit's moves nothing,
+  // and that is a real answer. Only the owned side is asserted non-empty.
+  const r = ev(
+    good({
+      reviews: [rv('Verdict: APPROVE', { commit_id: OLD }), rv('Spec Review: PASS')],
+      commits: twoCommits(),
+      compares: [cmp(OLD, [])],
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'satisfied')
+})
+
+// --- SR-M-2: markdown an agent reads as instructions is not exempt prose -----------------------
+
+test('SR-M-2: a follow-up commit to `.claude/**` markdown does NOT keep a verdict', () => {
+  const AGENT_DOC = '.claude/agents/coder.md'
+  const r = ev(
+    good({
+      files: [API, API_SPEC, AGENT_DOC],
+      reviews: [rv('Verdict: APPROVE', { commit_id: OLD }), rv('Spec Review: PASS')],
+      commits: twoCommits('docs(agents): rewrite the coder rules\n\nac_verified: 1'),
+      compares: [cmp(OLD, [AGENT_DOC], { ownedAt: [API, API_SPEC, AGENT_DOC] })],
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'stale')
+  assert.ok(failureFor(r, 'Review').includes(AGENT_DOC), failureFor(r, 'Review'))
+})
+
+test('SR-M-2: `.github/**` markdown is gate configuration, so it is not exempt either', () => {
+  const TEMPLATE = '.github/pull_request_template.md'
+  const r = ev(
+    good({
+      files: [API, API_SPEC, TEMPLATE],
+      reviews: [rv('Verdict: APPROVE', { commit_id: OLD }), rv('Spec Review: PASS')],
+      commits: twoCommits(),
+      compares: [cmp(OLD, [TEMPLATE], { ownedAt: [API, API_SPEC, TEMPLATE] })],
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'stale')
+})
+
+test('SR-M-3: isInertDoc is an ALLOWLIST — every instruction file is excluded', () => {
+  // A denylist exempted `CLAUDE.md`, the file loaded into every session. The asymmetry of being
+  // wrong is the argument: a missing denylist entry silently exempts behaviour, a missing allowlist
+  // entry costs one review round and the author says so. Paths below are real, from
+  // `git ls-tree -r --name-only origin/main` on 2026-10-24.
+  for (const p of [
+    'docs/architecture/2026-10-20-xml-parser-dependency-review.md',
+    'docs/architecture/2026-05-23-dev-flow-rca.md',
+    'docs/business/overview.md',
+    'docs/business/modules/finance.md',
+    'README.md',
+  ])
+    assert.equal(isInertDoc(p), true, p)
+  for (const p of [
+    // root-level instruction files — the defect the first edition had
+    'CLAUDE.md',
+    'AGENTS.md',
+    'CONTEXT.md',
+    'GEMINI.md',
+    // auto-loaded rules and agent prompts
+    '.claude/rules/common/git-policy.md',
+    '.claude/agents/coder.md',
+    '.claude/RULES.md',
+    // read on demand to decide what a LIVE rule means
+    'docs/architecture/rules-rationale/verification-integrity.md',
+    // upstream rule/agent copies an architect reads before adapting a pattern
+    'docs/architecture/ecc-reference/RULES.upstream.md',
+    // procedures agents follow
+    'docs/runbooks/human-only.md',
+    // vendored agent prompts, at the repository root — a denylist would not have named these
+    'agents/code-reviewer.md',
+    'skills/ecc/common/testing.md',
+    'docs/superpowers/writing-plans.md',
+    'hooks/COEXISTENCE.md',
+    // gate configuration that happens to be markdown
+    '.github/pull_request_template.md',
+    // deliberately-rejected requests, read to avoid redoing them
+    '.out-of-scope/README.md',
+    // not in the allowlist: an undated architecture file, and docs outside the two subtrees
+    'docs/architecture/notes.md',
+    'docs/runbooks/README.md',
+    'docs/design/x.md',
+    'docs/legal/contract.md',
+    'docs/README.md',
+    'apps/api/README.md',
+    // not markdown at all
+    'docs/business/x.ts',
+  ])
+    assert.equal(isInertDoc(p), false, p)
+})
+
+test('SR-M-3: a follow-up commit touching only CLAUDE.md makes the verdict STALE', () => {
+  // The predicate having the right truth value and the gate honouring it are different claims.
+  const r = ev(
+    good({
+      files: [API, API_SPEC, 'CLAUDE.md'],
+      reviews: [rv('Verdict: APPROVE', { commit_id: OLD }), rv('Spec Review: PASS')],
+      commits: twoCommits('docs: tighten a CLAUDE.md pointer\n\nac_verified: 1'),
+      compares: [cmp(OLD, ['CLAUDE.md'], { ownedAt: [API, API_SPEC, 'CLAUDE.md'] })],
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'stale')
+  assert.ok(failureFor(r, 'Review').includes('CLAUDE.md'), failureFor(r, 'Review'))
+})
+
+test('SR-M-3: a follow-up commit touching only a dated ADR keeps the verdict', () => {
+  const ADR = 'docs/architecture/2026-10-24-flow-gate-verdict-staleness.md'
+  const r = ev(
+    good({
+      files: [API, API_SPEC, ADR],
+      reviews: [rv('Verdict: APPROVE', { commit_id: OLD }), rv('Spec Review: PASS')],
+      commits: twoCommits(),
+      compares: [cmp(OLD, [ADR], { ownedAt: [API, API_SPEC, ADR] })],
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'satisfied')
+  assert.match(r.steps.find((s) => s.key === 'Review').detail, /docs-only/)
+})
+
+test('SR-M-3: the allowlist is checked against the tree, not invented', () => {
+  // Every path the allowlist claims is inert must exist in the repository, and the two excluded
+  // subtrees under docs/architecture must still be there — otherwise the dated-file rule is
+  // guarding nothing and the next reader cannot tell.
+  const here = dirname(fileURLToPath(import.meta.url))
+  // HEAD, not `origin/main`: `actions/checkout` fetches a single ref, so `origin/main` does not
+  // resolve on a runner — this test failed in CI with "Not a valid object name origin/main" while
+  // passing locally. HEAD is also the more correct question, being the tree under judgement.
+  const ls = spawnSync('git', ['ls-tree', '-r', '--name-only', 'HEAD'], {
+    cwd: join(here, '..', '..'),
+    encoding: 'utf8',
+  })
+  // "I could not check the allowlist" and "the allowlist is wrong" are different findings and both
+  // are RED. Skipping on an unreadable tree would report nothing and read as a pass, which is
+  // `verification-integrity.md` form 1 — the defect this whole PR is about.
+  assert.equal(
+    ls.status,
+    0,
+    `COULD NOT READ THE TREE (exit ${ls.status}) — this says nothing about the allowlist: ${ls.stderr}`,
+  )
+  const tracked = new Set(ls.stdout.split('\n'))
+  const md = [...tracked].filter(isDoc)
+  assert.ok(
+    md.length > 100,
+    `COULD NOT READ THE TREE — only ${md.length} markdown paths came back, so the checks below would pass on an empty answer`,
+  )
+  for (const p of ['CLAUDE.md', 'CONTEXT.md', 'README.md', 'docs/business/overview.md'])
+    assert.ok(tracked.has(p), `${p} is gone — revisit the allowlist`)
+  assert.ok(
+    md.some((p) => p.startsWith('docs/architecture/rules-rationale/')),
+    'rules-rationale is gone — the dated-file rule may no longer be excluding anything',
+  )
+  assert.ok(
+    md.some((p) => /^docs\/architecture\/\d{4}-\d{2}-\d{2}-/.test(p)),
+    'no dated architecture record — the allowlist exempts nothing',
+  )
+  // The inert set must stay a small minority of the corpus: if a change ever makes most of the
+  // repository's markdown exempt, the allowlist has drifted back into a denylist.
+  const inert = md.filter(isInertDoc)
+  assert.ok(
+    inert.length > 0 && inert.length < md.length / 2,
+    `${inert.length} of ${md.length} markdown files are inert — too many for an allowlist`,
+  )
+})
+
+test('the WHOLE-PR docs exemption is deliberately NOT narrowed', () => {
+  // `isDocsOnly` still goes by extension alone: there the reviewers the flow requires are looking
+  // at the diff in front of them, where `isInertDoc` inherits a verdict given on other code.
+  assert.equal(isDoc('.claude/rules/common/git-policy.md'), true)
+  assert.equal(ev(bare(['.claude/rules/x.md'])).docsOnly, true)
+  assert.equal(ev(bare(['CLAUDE.md'])).docsOnly, true)
+})
+
+// --- CR-M-1: for a review, `commit_id` is the only thing read ----------------------------------
+
+test('CR-M-1: a `Commit:` line in a REVIEW body cannot override its recorded commit_id', () => {
+  // Downgrade attempt: the review was submitted against OLD, and its body claims the head.
+  const stale = ev(
+    good({
+      reviews: [
+        rv(`Verdict: APPROVE\nCommit: ${HEAD}`, { commit_id: OLD }),
+        rv('Spec Review: PASS'),
+      ],
+      commits: twoCommits(),
+      compares: [cmp(OLD, [API])],
+    }),
+  )
+  assert.equal(status(stale, 'Review'), 'stale')
+  assert.match(failureFor(stale, 'Review'), /1111111/)
+  // And the reverse: a body naming an older commit cannot make a head review stale.
+  const fresh = ev(
+    good({
+      reviews: [
+        rv(`Verdict: APPROVE\nCommit: ${OLD}`, { commit_id: HEAD }),
+        rv('Spec Review: PASS'),
+      ],
+      commits: twoCommits(),
+      compares: [cmp(OLD, [API])],
+    }),
+  )
+  assert.equal(status(fresh, 'Review'), 'satisfied')
+})
+
+// --- CR-M-2: mutations that survived a scratch-copy run ----------------------------------------
+
+test('CR-M-2: a stated sha is resolved by PREFIX, not by substring', () => {
+  // `abcdef1` occurs INSIDE the commit sha but does not begin it. Resolving by substring would
+  // accept it as naming that commit; resolving by prefix does not, and an unresolved sha is stale.
+  const sha = `0abcdef1${'0'.repeat(32)}`
+  assert.equal(sha.includes('abcdef1'), true)
+  assert.equal(sha.startsWith('abcdef1'), false)
+  const r = ev(
+    uiPr({
+      comments: [cm('QA Verdict: PASS\nCommit: abcdef1')],
+      commits: [commit('wip: a', { sha }), commit('feat: b\n\nac_verified: 1', { sha: HEAD })],
+      compares: [],
+    }),
+  )
+  assert.equal(status(r, 'QA'), 'stale')
+  assert.match(failureFor(r, 'QA'), /no longer part of the PR/)
+})
+
+test('CR-M-2: comparePlan skips a sha that is not one of the PR commits', () => {
+  // Nothing to measure against a commit the PR does not contain, and the verdict is stale on the
+  // membership check alone — asking the API for it would be a read with no question behind it.
+  const plan = comparePlan(
+    withCounts(
+      good({
+        reviews: [rv('Verdict: APPROVE', { commit_id: GONE }), rv('Spec Review: PASS')],
+        commits: twoCommits(),
+      }),
+    ),
+  )
+  assert.deepEqual(plan, [])
+})
+
+test('CR-M-2: comparePlan emits hex only — a sha is interpolated into an API path', () => {
+  for (const bad of ['../../../etc/passwd', 'main;rm -rf /', 'z'.repeat(40), 'HEAD']) {
+    const plan = comparePlan(
+      withCounts(
+        good({
+          reviews: [rv('Verdict: APPROVE', { commit_id: bad }), rv('Spec Review: PASS')],
+          commits: [
+            commit('wip: a', { sha: bad }),
+            commit('feat: b\n\nac_verified: 1', { sha: HEAD }),
+          ],
+        }),
+      ),
+    )
+    assert.deepEqual(plan, [], bad)
+  }
+})
+
+test('CR-M-2: a drift or owned list AT the 300-file cap is truncated, not complete', () => {
+  const many = (n, pre) => Array.from({ length: n }, (_, i) => `${pre}/f${i}.ts`)
+  const at = MAX_COMPARE_FILES
+  for (const over of [
+    { paths: many(at, 'base'), ownedAt: [API, API_SPEC] },
+    { paths: [], ownedAt: many(at, 'own') },
+  ]) {
+    const r = ev(
+      good({
+        reviews: [rv('Verdict: APPROVE', { commit_id: OLD }), rv('Spec Review: PASS')],
+        commits: twoCommits(),
+        compares: [{ base: OLD, truncated: false, ...over }],
+      }),
+    )
+    assert.equal(status(r, 'Review'), 'stale', JSON.stringify(Object.keys(over)))
+    assert.match(failureFor(r, 'Review'), /too large to list in full/)
+  }
+  // One file under the cap, and the same lists are a complete answer.
+  const ok = ev(
+    good({
+      reviews: [rv('Verdict: APPROVE', { commit_id: OLD }), rv('Spec Review: PASS')],
+      commits: twoCommits(),
+      compares: [{ base: OLD, truncated: false, paths: many(at - 1, 'base'), ownedAt: [API] }],
+    }),
+  )
+  assert.equal(status(ok, 'Review'), 'satisfied')
+})
+
+// --- CR-M-3: the original SEC-1 exploit, as it was before the `Commit:` line existed -----------
+
+test('SEC-1b: the original exploit — no `Commit:` line at all, head backdated', () => {
+  // This is the shape that read `done` before the fix: the verdict comment said nothing about
+  // which commit it judged, and the head's committer date was set to before the comment.
+  const r = ev(
+    uiPr({
+      comments: [cm('QA Verdict: PASS', { at: '2026-10-21T10:00:00Z' })],
+      commits: [
+        { sha: OLD, message: 'feat: reviewed', parents: 1, committedAt: '2026-10-21T08:00:00Z' },
+        {
+          sha: HEAD,
+          message: 'feat: NOT reviewed\n\nac_verified: 1',
+          parents: 1,
+          committedAt: '2026-10-21T09:00:00Z', // backdated to before the comment
+        },
+      ],
+      compares: [uiCmp(OLD, [UI])],
+    }),
+  )
+  assert.equal(status(r, 'QA'), 'stale')
+  // And the reason is the absent statement, not a date comparison.
+  assert.match(failureFor(r, 'QA'), /no `Commit: <sha>` line/)
+})
+
+// --- CR-M-4: what the date-read guard actually covers, said plainly ----------------------------
+
+test('no BARE date read in the gate or the workflow (a lexical tripwire, not a proof)', () => {
+  // SEC-1 was freshness keyed on a committer date, which the committer sets. This scans for the
+  // shapes that regression would most likely take and NOTHING MORE: it is defeated by
+  // `c['committer']['date']`, by destructuring, and by any timestamp field not named below. It is
+  // a tripwire on the obvious path, and the property it guards is argued in `referenceSha`.
+  const here = dirname(fileURLToPath(import.meta.url))
+  const DATE_RE = /committedAt|committer\.date|author\.date|pushedAt|\.date\b/
+  const src = readFileSync(join(here, 'flow-gate.mjs'), 'utf8')
+    .split('\n')
+    .filter((l) => DATE_RE.test(l) && !/^\s*(\/\/|\*|\/\*)/.test(l))
+  assert.deepEqual(src, [], `flow-gate.mjs reads a commit date again:\n${src.join('\n')}`)
+  // The workflow is scanned too: it is where the field would be re-introduced into the input, and
+  // CR-M-4 noted the first edition of this test never looked outside the .mjs.
+  for (const f of ['../../.github/workflows/flow-gate.yml', 'flow-gate-compare.jq']) {
+    const lines = readFileSync(join(here, f), 'utf8')
+      .split('\n')
+      .filter((l) => DATE_RE.test(l) && !/^\s*#/.test(l))
+    assert.deepEqual(lines, [], `${f} carries a commit date again:\n${lines.join('\n')}`)
+  }
+})
+
+// --- the compare filter: the workflow's jq, under test ----------------------------------------
+//
+// It lived only in YAML, where both of the round-2 security findings sat and where the single
+// `previous_filename` term that keeps the rename bypass closed would have regressed in silence.
+
+const JQ_FILTER = join(dirname(fileURLToPath(import.meta.url)), 'flow-gate-compare.jq')
+
+/** Run the real filter the workflow runs, on crafted compare responses. */
+const runFilter = (drift, owned, base = '1'.repeat(40)) => {
+  const dir = mkdtempSync(join(tmpdir(), 'flow-gate-jq-'))
+  const d = join(dir, 'drift.json')
+  const o = join(dir, 'owned.json')
+  writeFileSync(d, JSON.stringify(drift))
+  writeFileSync(o, JSON.stringify(owned))
+  const res = spawnSync(
+    'jq',
+    [
+      '-n',
+      '--arg',
+      'base',
+      base,
+      '--slurpfile',
+      'drift',
+      d,
+      '--slurpfile',
+      'owned',
+      o,
+      '-f',
+      JQ_FILTER,
+    ],
+    { encoding: 'utf8' },
+  )
+  // A missing jq must fail this test, not skip it: a filter nobody ran is the defect one level up.
+  assert.equal(res.status, 0, `jq exited ${res.status}: ${res.stderr}`)
+  return JSON.parse(res.stdout)
+}
+
+const fileList = (...names) => ({ files: names.map((filename) => ({ filename })) })
+
+test('the compare filter: both names of a rename reach `paths` (the docs-exemption bypass)', () => {
+  // Approve `apps/api/src/finance/x.ts`, then rename it to `docs/x.md`: without the rename SOURCE
+  // the drift would list only the `.md` name and the docs exemption would carry the verdict.
+  const out = runFilter(
+    {
+      files: [
+        {
+          filename: 'docs/x.md',
+          previous_filename: 'apps/api/src/finance/x.ts',
+          status: 'renamed',
+        },
+      ],
+    },
+    fileList('apps/api/src/finance/x.ts'),
+  )
+  assert.deepEqual(out.paths.sort(), ['apps/api/src/finance/x.ts', 'docs/x.md'])
+  assert.deepEqual(out.ownedAt, ['apps/api/src/finance/x.ts'])
+  assert.equal(out.truncated, false)
+  assert.equal(out.unavailable, undefined)
+  // End to end: the renamed-away critical file is in both sets, so the verdict goes stale.
+  const r = ev(
+    good({
+      files: [
+        'docs/x.md',
+        { filename: 'docs/x.md', previous_filename: 'apps/api/src/finance/x.ts' },
+      ],
+      reviews: [
+        rv('Verdict: APPROVE', { commit_id: OLD }),
+        rv('Security Review: APPROVE', { commit_id: OLD }),
+        rv('Spec Review: PASS'),
+      ],
+      commits: twoCommits(),
+      compares: [{ base: OLD, truncated: false, ...out }],
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'stale')
+})
+
+test('the compare filter: a response that succeeded with NO file list is unavailable', () => {
+  for (const [drift, owned, label] of [
+    [{}, fileList('a.ts'), 'drift has no files key'],
+    [fileList('a.ts'), {}, 'owned has no files key'],
+    [{ files: null }, fileList('a.ts'), 'drift files is null'],
+    [fileList('a.ts'), { files: 'nope' }, 'owned files is not an array'],
+    [{}, {}, 'neither has files'],
+  ]) {
+    const out = runFilter(drift, owned)
+    assert.equal(out.unavailable, true, label)
+    assert.equal(out.paths, undefined, label)
+  }
+})
+
+test('the compare filter: an honestly empty file list is a measurement, not unavailable', () => {
+  const out = runFilter({ files: [] }, fileList('a.ts'))
+  assert.equal(out.unavailable, undefined)
+  assert.deepEqual(out.paths, [])
+  assert.deepEqual(out.ownedAt, ['a.ts'])
+})
+
+test('the compare filter: a list at the cap is truncated, on either side', () => {
+  const many = (n) => ({ files: Array.from({ length: n }, (_, i) => ({ filename: `f${i}.ts` })) })
+  assert.equal(runFilter(many(MAX_COMPARE_FILES), fileList('a.ts')).truncated, true)
+  assert.equal(runFilter(fileList('a.ts'), many(MAX_COMPARE_FILES)).truncated, true)
+  assert.equal(runFilter(many(MAX_COMPARE_FILES - 1), fileList('a.ts')).truncated, false)
+})
+
+test('the compare filter and the gate agree on the cap', () => {
+  // Code lines only: the header's prose mentions a jq version with a `>=` in it, and a number in a
+  // comment is not a cap. (It caught that comment when it was first written, which is the test
+  // working — but the assertion is about the filter, so the scope is the filter.)
+  const jq = readFileSync(JQ_FILTER, 'utf8')
+    .split('\n')
+    .filter((l) => !/^\s*#/.test(l))
+    .join('\n')
+  const caps = [...jq.matchAll(/>=\s*(\d+)/g)].map((m) => Number(m[1]))
+  assert.ok(caps.length > 0, 'the filter states no cap')
+  for (const c of caps) assert.equal(c, MAX_COMPARE_FILES)
+})
+
+test('the workflow runs the filter from its file, not a copy inline', () => {
+  const here = dirname(fileURLToPath(import.meta.url))
+  const wf = readFileSync(join(here, '..', '..', '.github', 'workflows', 'flow-gate.yml'), 'utf8')
+  assert.match(wf, /-f scripts\/architect\/flow-gate-compare\.jq/)
+  assert.doesNotMatch(wf, /def paths:/, 'the filter is inline again — the tested file is bypassed')
+})
+
+// --- CR-M-9: an allowlist whose anchors are untested is a prefix list that matches anywhere -----
+
+test('CR-M-9: the inert allowlist is ANCHORED — a prefixed or nested path is not inert', () => {
+  // These are the three shapes the truth table above cannot reach, and each one is a real mutation
+  // that survived: dropping the `^`, matching `docs/business/` with `includes`, and letting the
+  // dated-ADR pattern span a subdirectory. All three would put agent-read territory inside the
+  // allowlist — the same defect as the `!p.includes('/')` edition, one level deeper.
+  for (const p of [
+    // `docs/business/` reached by substring rather than prefix
+    '.claude/skills/x/docs/business/y.md',
+    'apps/api/docs/business/notes.md',
+    // the dated-ADR pattern reached without the `^` anchor
+    '.claude/skills/x/docs/architecture/2026-01-01-y.md',
+    'vendor/docs/architecture/2026-01-01-y.md',
+    // a dated name that is really a directory: `[^/]+` must not become `.+`
+    'docs/architecture/2026-01-01-sub/y.md',
+    'docs/architecture/2026-01-01-a/b/c.md',
+    // and the root README is the root one only
+    'vendor/README.md',
+    // LOW: the `$` anchor of the dated-ADR pattern. Without it, `[^/]+\.md` matches the first
+    // `.md` component and anything may follow it.
+    'docs/architecture/2026-01-01-x.md/evil.md',
+    'docs/architecture/2026-01-01-x.md/sub/evil.md',
+    // LOW: the trailing slash on `docs/business/`. Without it, any `docs/business*` sibling
+    // directory is inert.
+    'docs/business-archive/secret.md',
+    'docs/businessplan.md',
+    'docs/business.md',
+  ])
+    assert.equal(isInertDoc(p), false, p)
+  // The happy cases still hold, so the anchoring did not simply disable the allowlist.
+  assert.equal(isInertDoc('docs/architecture/2026-01-01-y.md'), true)
+  assert.equal(isInertDoc('docs/business/y.md'), true)
+  assert.equal(isInertDoc('README.md'), true)
+})
+
+// --- CR-M-8: the join between a verdict's sha and its own drift measurement ---------------------
+
+test('CR-M-8: each verdict is judged by ITS OWN drift measurement, matched by sha', () => {
+  // Every other `compares:` fixture holds one entry, so `find(c => c.base === ref.sha)` could be
+  // replaced by `compares[0]` and nothing noticed. The join key is the core of the rule: with two
+  // reviewed shas, the wrong measurement judging a verdict is a small drift excusing an older
+  // review — the failure this PR exists to prevent, reintroduced by fixture shape.
+  const SPEC_SHA = '3'.repeat(40)
+  const r = ev(
+    good({
+      files: [API, API_SPEC, 'README.md'],
+      reviews: [
+        // reviewed OLD; code changed since → must be STALE
+        rv('Verdict: APPROVE', { commit_id: OLD }),
+        // reviewed SPEC_SHA; only the root README changed since → must stay fresh
+        rv('Spec Review: PASS', { commit_id: SPEC_SHA }),
+      ],
+      commits: [
+        commit('wip: a', { sha: OLD }),
+        commit('wip: b', { sha: SPEC_SHA }),
+        commit('feat: c\n\nac_verified: 1', { sha: HEAD }),
+      ],
+      compares: [
+        // Deliberately FIRST, and deliberately harmless: `compares[0]` would excuse the Review.
+        cmp(SPEC_SHA, ['README.md'], { ownedAt: [API, API_SPEC, 'README.md'] }),
+        cmp(OLD, [API], { ownedAt: [API, API_SPEC] }),
+      ],
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'stale')
+  assert.ok(failureFor(r, 'Review').includes(API), failureFor(r, 'Review'))
+  assert.equal(status(r, 'Spec-Review'), 'satisfied')
+})
+
+test('CR-M-8: the sha join is EQUALITY — an entry whose base is a prefix does not match', () => {
+  // `ref.sha === c.base` must not weaken to `ref.sha.startsWith(c.base)`: an abbreviated or
+  // truncated base would then capture a verdict and answer for a measurement that is not its own.
+  //
+  // CR-M-12: the assertion deliberately does NOT depend on which entry comes first. The earlier
+  // edition put the harmless prefix entry first and relied on that silently, so swapping the two
+  // let a `startsWith` join survive with zero failures — a fixture whose ORDER carries the
+  // assertion, which the next reader tidies and nothing goes red. Both orders are asserted here,
+  // so there is no order left to tidy.
+  const prefixEntry = cmp(OLD.slice(0, 7), ['README.md'], {
+    ownedAt: [API, API_SPEC, 'README.md'],
+  })
+  const realEntry = cmp(OLD, [API], { ownedAt: [API, API_SPEC] })
+  for (const compares of [
+    [prefixEntry, realEntry],
+    [realEntry, prefixEntry],
+  ]) {
+    const r = ev(
+      good({
+        files: [API, API_SPEC, 'README.md'],
+        reviews: [rv('Verdict: APPROVE', { commit_id: OLD }), rv('Spec Review: PASS')],
+        commits: twoCommits(),
+        compares,
+      }),
+    )
+    const order = compares[0] === prefixEntry ? 'prefix entry first' : 'real entry first'
+    assert.equal(status(r, 'Review'), 'stale', order)
+    assert.ok(failureFor(r, 'Review').includes(API), `${order}: ${failureFor(r, 'Review')}`)
+  }
+})
+
+// --- CR-M-10: `statedCommit` selection and shape, as documented --------------------------------
+
+test('CR-M-10: the FIRST `Commit:` line of a comment is the statement', () => {
+  // The docstring says first-match, and the round-1 attack list rested on it: appending a line to
+  // an existing verdict comment must not be able to re-point it.
+  assert.equal(statedCommit(`Commit: ${OLD}\nCommit: ${HEAD}`), OLD)
+  assert.equal(statedCommit(`QA Verdict: PASS\nCommit: ${OLD}\n\nlater: Commit: ${HEAD}`), OLD)
+  // End to end: the appended second line cannot make a stale verdict read fresh.
+  const r = ev(
+    uiPr({
+      comments: [cm(`QA Verdict: PASS\nCommit: ${OLD}\nCommit: ${HEAD}`)],
+      compares: [uiCmp(OLD, [UI])],
+    }),
+  )
+  assert.equal(status(r, 'QA'), 'stale')
+})
+
+test('CR-M-10: a `Commit:` reference mid-sentence is not a statement', () => {
+  // Dropping the `^` anchor would let prose about an earlier commit count as the claim; dropping
+  // the `\\b` would let a 41st hex character be silently truncated into a valid-looking sha.
+  assert.equal(statedCommit(`the earlier Commit: ${OLD} was superseded`), null)
+  assert.equal(statedCommit(`see Commit: ${HEAD}`), null)
+  assert.equal(statedCommit(`Commit: ${'a'.repeat(41)}`), null)
+  assert.equal(statedCommit(`Commit: ${OLD}x`), null)
+  // A legitimate statement still reads, including an abbreviation and trailing prose.
+  assert.equal(statedCommit('Commit: abc1234 (the head when I looked)'), 'abc1234')
+})
+
+// --- SR-M-4: the drift step's fail-closed clauses, pinned lexically ----------------------------
+//
+// Case "the workflow runs the filter from its file" pins WHERE the filter comes from, and the
+// fixtures pin what the filter DOES. Nothing pinned the shell deciding whether a measurement is
+// emitted at all: replacing the `else` with a permissive default, adding `continue-on-error: true`,
+// or dropping `set -euo pipefail` would each reopen a fail-open with every other test still green.
+//
+// WHAT THIS GUARD IS, AND WHAT DEFEATS IT. It is a lexical assertion over the workflow YAML, the
+// same kind of tripwire as the date guard, and it is honest about the same limit: it cannot prove
+// the shell's semantics, only that the clauses the property rests on are still present.
+//
+// **The list below is NOT exhaustive**, and saying so is the point: an enumerated defeat list
+// invites being read as a boundary. Known defeats: a failure path emitting `unavailable` through a
+// variable rather than a literal; `continue-on-error` reached through an expression; anything that
+// moves the step out of this file. `|| true` on the plan invocation WAS a defeat of the first
+// edition and is now asserted against — which shortens the list rather than completing it.
+//
+// One correction to that first edition: `set -e` spelled `set -o errexit` is **refused, not
+// defeated**, because the assertion requires the literal `set -euo pipefail`. That errs safe, and
+// listing it as a bypass had the direction backwards.
+
+test('SR-M-4: the drift step fails closed — the three clauses are still there', () => {
+  const here = dirname(fileURLToPath(import.meta.url))
+  const wf = readFileSync(join(here, '..', '..', '.github', 'workflows', 'flow-gate.yml'), 'utf8')
+  const start = wf.indexOf('- name: Measure verdict drift')
+  assert.ok(start > 0, 'the drift step was renamed or removed — re-point this guard')
+  const next = wf.indexOf('\n      - ', start + 1)
+  const step = wf.slice(start, next === -1 ? wf.length : next)
+
+  // 1. The shell aborts on a failed command rather than carrying on with a partial measurement.
+  assert.match(step, /^\s*set -euo pipefail$/m, 'the drift step lost `set -euo pipefail`')
+  // 2. A failed read becomes an explicit `unavailable` measurement, which the gate reads as STALE.
+  assert.match(step, /^\s*else$/m, 'the drift step lost its explicit failure branch')
+  assert.match(step, /unavailable: true/, 'the failure branch no longer emits `unavailable: true`')
+  // 3. Nothing lets the step pass while having failed, or skip itself.
+  assert.doesNotMatch(step, /continue-on-error/, 'the drift step may not continue on error')
+  assert.doesNotMatch(step, /^\s{8}if:/m, 'the drift step may not be conditional')
+  // 4. stderr from a failed read is preserved rather than discarded — it is the channel that says
+  //    why (`verification-integrity.md` form 1).
+  assert.match(step, /cat "\$D\/c\.err" >&2/, 'the failure branch stopped reporting stderr')
+  assert.doesNotMatch(step, /2>\/dev\/null/, 'the drift step discards stderr')
+  // 5. No `|| true` anywhere: it was a known survivor of this guard's first edition — appended to
+  //    the plan invocation it suppresses a failed plan while leaving every other test green. The
+  //    legitimate `||` in this step is the `[ -n "$sha" ] || continue` guard, which this allows.
+  assert.doesNotMatch(step, /\|\|\s*true/, 'the drift step swallows a failure with `|| true`')
+})
+
+test('SR-M-4: no job-level escape hatch around the gate', () => {
+  const here = dirname(fileURLToPath(import.meta.url))
+  const wf = readFileSync(join(here, '..', '..', '.github', 'workflows', 'flow-gate.yml'), 'utf8')
+  // A `continue-on-error` on the job, or a `continue-on-error` anywhere in the file, would let the
+  // whole gate report success having not run — the outer form of the same defect.
+  assert.doesNotMatch(wf, /continue-on-error/, 'the Flow Gate workflow may not continue on error')
+  // The evaluation step is what turns the verdict into the check's exit code; it stays unguarded.
+  assert.match(
+    wf,
+    /- name: Evaluate\n\s+env:\n(\s+.*\n)*\s+run: node scripts\/architect\/flow-gate\.mjs/,
+  )
+})
+
+// --- the declined LOW, taken anyway because CR-M-9 made it free --------------------------------
+
+test('SR-M-4 (LOW): a `..` segment is never inert, on any clause', () => {
+  // Unreachable from the GitHub API — git refuses `..` as a tree path component — but the
+  // dated-ADR clause was traversal-proof via `[^/]+` while `docs/business/` was a bare prefix, and
+  // anchoring one while leaving the other asymmetric is the kind of difference that later reads as
+  // intent. One clause covers all three.
+  for (const p of [
+    'docs/business/../../CLAUDE.md',
+    'docs/business/../../.claude/rules/common/git-policy.md',
+    // LOW: a SINGLE `..` segment, which every other row doubles or nests
+    'docs/business/../CLAUDE.md',
+    'docs/business/../x.md',
+    '../docs/business/x.md',
+    'docs/business/..md', // not a `..` SEGMENT — stays inert, so the split is on segments
+    'docs/business/a..b.md', // nor is this one
+  ])
+    assert.equal(isInertDoc(p), p.endsWith('..md') || p.endsWith('a..b.md'), p)
+  assert.equal(isInertDoc('docs/architecture/2026-01-01-x.md'), true)
+  assert.equal(isInertDoc('docs/business/modules/finance.md'), true)
+})
+
+// --- SR-M-5: the membership gate is pinned by OUTCOME, not by message text ---------------------
+
+test('SR-M-5/CR-M-11: a measurement supplied for a NON-MEMBER sha is never honoured', () => {
+  // The case that was missing, and its absence is why the ordering claim was unpinned.
+  //
+  // The three cases that went red when the membership gate was disabled all used `compares: []`,
+  // so `compares.find` returned undefined, the code fell into the unmeasured branch, and the
+  // verdict stayed stale whatever the gate did. They failed on the message text — "no longer part
+  // of the PR" vs "could not be measured" — not on the outcome. A test that goes red for an
+  // incidental reason reads exactly like one that pins the property.
+  //
+  // Here the non-member sha HAS a measurement, and that measurement is a clean empty drift with a
+  // real owned side — the one shape that would be honoured if the membership gate did not run
+  // first. On real code: stale, because the sha is not in the PR. With the gate disabled: the
+  // empty drift is believed and the verdict reads fresh. So this case, and only this case, pins
+  // the no-false-empty-drift property by its outcome.
+  const r = ev(
+    good({
+      reviews: [rv('Verdict: APPROVE', { commit_id: GONE }), rv('Spec Review: PASS')],
+      commits: twoCommits(),
+      compares: [cmp(GONE, [], { ownedAt: [API, API_SPEC] })],
+    }),
+  )
+  assert.equal(status(r, 'Review'), 'stale')
+  assert.match(failureFor(r, 'Review'), /no longer part of the PR/)
+})
+
+test('SR-M-5/CR-M-11: a measurement for a non-member sha, stated by a comment', () => {
+  const r = ev(
+    uiPr({
+      comments: [cm(`QA Verdict: PASS\nCommit: ${GONE}`)],
+      compares: [cmp(GONE, [], { ownedAt: [UI, UI_SPEC] })],
+    }),
+  )
+  assert.equal(status(r, 'QA'), 'stale')
+  assert.match(failureFor(r, 'QA'), /no longer part of the PR/)
 })
