@@ -1051,6 +1051,67 @@ CORRESPONDS to the requested image tag. The practical consequence:
   unavoidable asymmetry of a rollback — more honest to name it than to pretend
   it does not exist.
 
+### Rolling back below multipart salary (older than #795) — the salary cron loses its ON CONFLICT arbiter
+
+**Security review SR-866-L-1.** The multipart-salary ACTIVATE step
+(`2026-10-04_multiple_salary_transactions_activate.sql`, run by the deploy script after the
+container swap) executes `DROP INDEX IF EXISTS uq_transactions_salary_receiver_month`. An API
+image older than #795 uses exactly that unique index as the `ON CONFLICT` arbiter of its
+salary cron. Once ACTIVATE has run, the old image's cron cannot work against the live database,
+and the schema is not rolled back with the image (see the asymmetry note above).
+
+**(a) Symptom.** After the image is rolled back, the salary cron (or any salary insert that
+uses `ON CONFLICT`) fails with Postgres error `42P10`: "there is no unique or exclusion
+constraint matching the ON CONFLICT specification". Monthly salary rows stop being created.
+
+**(b) Dedupe check — run it BEFORE recreating the index.** Multipart salary legitimately allows
+several SALARY parts for one receiver and month, so the unique index cannot be built while such
+rows exist. This read-only query mirrors the index predicate exactly (it does not skip
+soft-deleted rows, because the index does not either). Any returned row blocks the recreate and
+must be resolved by a human (decide which part survives or is merged) first. Do not delete
+or edit transactions to make the index build.
+
+```sql
+SELECT receiver_id, salary_month, count(*) AS parts
+  FROM transactions
+ WHERE type = 'SALARY' AND salary_month IS NOT NULL
+ GROUP BY receiver_id, salary_month
+HAVING count(*) > 1;
+```
+
+**(c) Manual recreate.** Only when (b) returns no rows. The statement is the index definition from
+`2026-07-04_audit_hardening_constraints.sql`, verbatim:
+
+```sql
+CREATE UNIQUE INDEX IF NOT EXISTS uq_transactions_salary_receiver_month
+  ON transactions (receiver_id, salary_month)
+  WHERE type = 'SALARY' AND salary_month IS NOT NULL;
+```
+
+**(d) The sharp edge — what the deploy script actually does.** The `deploy` job copies and
+runs `scripts/devops/deploy-stack-on-vps.sh` from an UNPINNED checkout (the current `main`), even
+on a rollback dispatch. That script applies the ACTIVATE file unconditionally: it is gated only on
+the file existing and on the pre-activation health check of the new API container, never on
+`image_tag` or on "this is a rollback". So any deploy-workflow run, whether a rollback dispatch,
+a merge to `main` or the Sunday 03:00 UTC rebuild, DROPS the index you just recreated, and the
+July DDL replay does not bring it back because `salary_month_initializations` now exists (that is
+the transition gate in the July file).
+
+What follows from that:
+
+- The `image_tag` workflow cannot take you below multipart anyway: the rollback-target
+  verification step in the `build` job lists both multipart files as hard-required, so a target
+  commit older than #795 is refused before anything is sent to the VPS. Going below multipart is
+  possible only through the "Emergency SSH path" below, which runs `pull` and `up -d` and applies
+  no DDL.
+- After such an SSH rollback and the recreate in (c), run NO deploy workflow until the multipart
+  commit(s) are reverted in `main`. The revert removes the ACTIVATE step from the script and so
+  stops the next deploy from dropping the index. The auto-deploy on merge and the Sunday rebuild
+  also count as deploy runs: the revert PR must be the next thing that lands, and no other merge
+  should happen before it.
+- Order: SSH rollback of the image, then (b), then (c), then the revert in `main`. If (b) returns
+  rows, do not run (c); the cron stays broken until those rows are resolved by a human.
+
 ### After a rollback — the mandatory next step: a revert in `main`
 
 **Security review PR #615 round 2, SR-H-1.** This workflow does NOT touch

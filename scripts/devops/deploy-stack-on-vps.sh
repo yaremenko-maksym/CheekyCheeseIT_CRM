@@ -264,7 +264,18 @@ echo "==> database roles applied successfully"
 #
 # ON_ERROR_STOP=1 — any SQL error exits psql with non-zero status, which
 # propagates through `exec -T`, causing the whole script to fail (set -e).
-# The DDL is fully idempotent (IF NOT EXISTS) — safe on repeated deploys.
+# The DDL is idempotent AND transition-gated — safe on repeated deploys.
+# Most statements are plain IF NOT EXISTS. The exception is the legacy
+# uq_transactions_salary_receiver_month index: it sits inside a guarded
+# DO block that creates it ONLY while to_regclass('public.salary_month_initializations')
+# is NULL, i.e. before the multipart-salary PREPARE has created that marker
+# table. Once the marker exists the gate skips the CREATE, so this replay (it
+# runs on every deploy) never resurrects the index that the multipart-salary
+# ACTIVATE step (after the container swap, below) retires on purpose. Without
+# the gate every deploy would recreate the index and ACTIVATE would drop it
+# again, and a database holding several SALARY parts for one month would fail
+# the CREATE UNIQUE INDEX outright. Rollback below multipart:
+# docs/runbooks/deployment.md §9.
 DDL_FILE="/opt/crm/apps/api/drizzle/manual/2026-07-04_audit_hardening_constraints.sql"
 PGUSER=$(grep '^POSTGRES_USER=' /opt/crm/.env.production | cut -d= -f2)
 PGDB=$(grep '^POSTGRES_DB='   /opt/crm/.env.production | cut -d= -f2)
