@@ -12,14 +12,18 @@ import { boundedString, dateRaw, optionalString, optionalStringArray, urlString 
  * Jobgether job search (`https://jobgether.com/astroapi/ai/jobs.json`, published OpenAPI 3.1 at
  * `https://jobgether.com/openapi.json`), page-number pagination.
  *
- * BLOCKED - NOT TO BE REGISTERED OR ENABLED (permission `UNCLEAR`; see `JOBGETHER_SOURCE_STATUS`).
+ * PERMISSION IS `UNCLEAR` AND THE RISK IS ACCEPTED BY THE OWNER (decision of 2026-10-24, answer
+ * "3a"; see `JOBGETHER_OWNER_DECISION` and `JOBGETHER_SOURCE_STATUS`). The owner lifted the block
+ * on `/astroapi/ai/jobs.json` only, after the concern below was raised and reaffirmed. THE ML
+ * CLAUSE IS KNOWINGLY ACCEPTED AS RISK, NOT RESOLVED. Not registered or enabled by this:
+ * registration is plan Task 2.5.
+ *
  * The two published statements contradict each other: the API is documented as public,
  * unauthenticated and "intended for AI agents/assistants" (llms.txt, the OpenAPI), while the
  * Terms of Use clause 4.5 forbid "accessing the Platform or extracting its content by automated
  * means (bots, scrapers, crawlers)" and "using Platform content to train, fine-tune or operate
  * machine-learning models", and section 9 prohibits "extraction, data mining, scraping". Whether
- * the API is "the Platform" is an OWNER decision. The adapter and its authentic fixtures stay
- * until it is made. The ML clause matters on its own: relevance decisions in this feature run
+ * the API is "the Platform" was the owner's decision. The ML clause matters on its own: relevance decisions in this feature run
  * through a model.
  *
  * - ENDPOINT is `/astroapi/ai/jobs.json`, the path robots.txt explicitly Allows (with a query) and
@@ -49,10 +53,10 @@ import { boundedString, dateRaw, optionalString, optionalStringArray, urlString 
  */
 
 export const JOBGETHER_SOURCE_STATUS = {
-  blocked: true,
+  blocked: false,
   permission: 'UNCLEAR',
   reason:
-    'Terms of Use 4.5 forbid automated extraction while the API is documented for AI agents; owner decision required before registration',
+    'permission stays UNCLEAR (Terms of Use 4.5 forbid automated extraction and ML use of content while the API is documented for AI agents); the owner lifted the block on 2026-10-24 knowingly accepting the risk, which is not a documented permission',
 } as const
 
 export const JOBGETHER_ADAPTER_VERSION = 'jobgether-1'

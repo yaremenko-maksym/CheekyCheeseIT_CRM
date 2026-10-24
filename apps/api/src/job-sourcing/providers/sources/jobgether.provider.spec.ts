@@ -504,16 +504,17 @@ describe('config errors fail before any network call', () => {
   })
 })
 
-describe('the BLOCKED state', () => {
+describe('the owner-accepted risk (decision of 2026-10-24): not blocked, still UNCLEAR', () => {
   it('declares the provider type', () => {
     expect(jobgetherProvider.type).toBe('JOBGETHER_API')
   })
 
-  it('the provider declares itself blocked, UNCLEAR, with both facts - and the provenance agrees', () => {
-    expect(JOBGETHER_SOURCE_STATUS.blocked).toBe(true)
+  it('the provider declares itself not blocked but UNCLEAR, as an accepted risk - and the provenance still says UNCLEAR', () => {
+    expect(JOBGETHER_SOURCE_STATUS.blocked).toBe(false)
     expect(JOBGETHER_SOURCE_STATUS.permission).toBe('UNCLEAR')
     expect(JOBGETHER_SOURCE_STATUS.reason).toContain('Terms of Use 4.5')
-    expect(JOBGETHER_SOURCE_STATUS.reason).toContain('owner decision')
+    expect(JOBGETHER_SOURCE_STATUS.reason).toContain('knowingly accepting the risk')
+    expect(JOBGETHER_SOURCE_STATUS.reason).toContain('not a documented permission')
     for (const name of ['page-1', 'page-10', 'no-results', 'deprecated-path']) {
       const p = sourceProvenance('jobgether', name) as { permission: string; notes: string }
       expect(p.permission).toBe(JOBGETHER_SOURCE_STATUS.permission)

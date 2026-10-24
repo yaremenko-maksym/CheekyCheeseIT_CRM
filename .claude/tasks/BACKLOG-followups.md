@@ -6195,3 +6195,30 @@ that wiring and its brief must carry the three points below.
   deadline are Task 2.5's, not this adapter's.
 - (c) **How to verify it is done.** Grep the production code (not specs) for a `fetchText` builder that
   calls `transportOptionsFor` for the Arbeitnow source; absent, the cap is still only a declaration.
+
+## 340. Task 2.5 must own what a manifest cannot enforce (2026-10-24)
+
+**Open** — raised in round 1 of PR #1139 (`feature/r5-3.2c-hn-owner-decision`) by the security review
+(SR-M-2 cross-run half, SR-L-3, SR-L-4). The owner decisions of 2026-10-24 are recorded as manifest data and
+checked at build time; three things they depend on can only be enforced by the scheduler and the database, which
+Task 2.5 builds. Its brief must carry all three.
+
+- (a) **Cross-run stop-on-ban for SmartRecruiters.** The adapter stops its own run on a 401, 403, 451 or 429. A
+  ban on one board must also stop the NEXT run of every board of that host (`api.smartrecruiters.com`); nothing
+  in an adapter can see another run. How to verify: after a recorded `ACCESS_POLICY` or `RATE_LIMIT` for that
+  host, the scheduler issues zero requests to it until an admin clears it (a scheduler test with two boards).
+- (b) **Remotive's limits are enforced on manifest data only.** About 4 requests a day and never more than 2 a
+  minute are held by the manifest cadence floor (`minIntervalHoursFloor`) and by the spec over manifest values
+  in `manifest.owner-decisions.spec.ts`. The floor protects one entry; the total across entries is guarded only
+  by that spec; an admin-editable `min_interval_hours` in `job_sources` is not bound until the scheduler exists,
+  and nothing paces separate entries within a minute. How to verify: the scheduler reads a per-host request
+  budget (day and minute) rather than each row's own interval.
+- (c) **The seed delta's claim step and readiness.** The claim step overwrites `readiness` only for rows whose
+  `manifest_id` is NULL, so an admin-set BLOCKED on an unclaimed legacy row (for example a Remotive or HN row)
+  becomes CANDIDATE (`enabled` is never touched, so nothing starts running). A database that already ran an
+  earlier delta keeps its old BLOCKED rows, which is the safe direction. How to verify: query
+  `job_sources` for rows of the decided types where `manifest_id IS NULL` before applying the delta, and compare
+  `readiness` and `admin_state` after; an admin BLOCKED that must survive needs an explicit guard in the claim
+  step.
+
+Sources: PR #1139 review round 1 (security-reviewer SR-M-2, SR-L-3, SR-L-4).

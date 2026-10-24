@@ -15,11 +15,16 @@ import { boundedString, dateRaw, positiveSafeInt } from './as'
  *   1. `search_by_date?tags=story,author_whoishiring` -> the newest "Who is hiring?" story;
  *   2. `items/{id}` -> that story with its whole comment tree.
  *
- * BLOCKED - NOT TO BE REGISTERED OR ENABLED (permission `UNCLEAR`; see `HN_SOURCE_STATUS`). The
- * Y Combinator terms say "you will not engage in or use any data mining, robots, scraping or
- * similar data gathering or extraction methods" in connection with "the Site"; the Algolia API is
- * a public, unauthenticated, documented endpoint. Whether it is "the Site" is an OWNER decision,
- * put to him and unanswered. The adapter and its authentic fixtures stay until it is made.
+ * PERMISSION IS `UNCLEAR` AND THE RISK IS ACCEPTED BY THE OWNER (decision of 2026-10-24, answer
+ * "1a"; see `HN_OWNER_DECISION` and `HN_SOURCE_STATUS`). The Y Combinator terms say "you will not
+ * engage in or use any data mining, robots, scraping or similar data gathering or extraction
+ * methods" in connection with "the Site"; the Algolia API is a public, unauthenticated, documented
+ * endpoint. Whether it is "the Site" was put to the owner, who chose to treat the API as allowed.
+ * That is an ACCEPTED RISK, NOT a documented permission: the provenance still says `UNCLEAR`, and
+ * the decision is recorded beside it. The decision covers the Algolia HN Search API only (two
+ * requests per run to hn.algolia.com) and no use of news.ycombinator.com pages. Lifting the block
+ * does NOT make HN's company data trustworthy: every observation stays `employer-unverified`.
+ * Not registered or enabled by this: registration is plan Task 2.5.
  *
  * - THE VACANCY is a TOP-LEVEL comment of the thread; nested replies are conversation and are
  *   never read (the item schema has no `children`). Identity is the comment id, with the link
@@ -49,18 +54,25 @@ import { boundedString, dateRaw, positiveSafeInt } from './as'
  *   tombstones, not counted as invalid. NOT VERIFIED against an authentic sample: none of the 1331
  *   top-level comments captured was deleted. An EDITED comment is the same id with different text:
  *   the identity is unchanged and the content hash differs. Algolia exposes no edit time.
- * - A thread can exceed the 2 MiB JSON cap: the largest captured (May 2019, 816 comments) was
- *   1 402 131 bytes. Past the cap the thread step fails as `PAYLOAD_TOO_LARGE`, never cut.
+ * - A thread can approach the shared 2 MiB JSON default: the largest captured (May 2019, 816
+ *   comments) was 1 402 131 bytes, about two thirds of it, and threads grow. This source therefore
+ *   declares `HN_MAX_BYTES` (4 MiB), under the 10 MiB shared ceiling, which is NOT raised, the way
+ *   Arbeitnow and Greenhouse declare theirs. One setting lifts both refusals (the transport's byte
+ *   cap and the decoded-text bound). Past the declared cap the thread step still fails as
+ *   `PAYLOAD_TOO_LARGE`, never cut. The cap is a declaration: this file proves the request carries it.
  * - Y Combinator's robots.txt sets `Crawl-delay: 30` for news.ycombinator.com; this adapter makes
  *   two requests per run to hn.algolia.com, which serves no robots.txt.
  */
 
 export const HN_SOURCE_STATUS = {
-  blocked: true,
+  blocked: false,
   permission: 'UNCLEAR',
   reason:
-    'Y Combinator terms forbid scraping "the Site" while the Algolia API is public and documented; owner decision required before registration',
+    'permission stays UNCLEAR (Y Combinator terms forbid scraping "the Site"; the Algolia API is public and documented); the owner accepted the risk on 2026-10-24 for the Algolia HN Search API only, which is not a documented permission',
 } as const
+
+/** 4 MiB: headroom over the largest thread captured (1 402 131 bytes), under the 10 MiB shared ceiling. */
+export const HN_MAX_BYTES = 4 * 1024 * 1024
 
 export const HN_ADAPTER_VERSION = 'hn-hiring-1'
 export const HN_NAMESPACE = 'hn-hiring'
@@ -288,7 +300,11 @@ export const hnHiringProvider = definePagedProvider(
     collectJsonPages(
       {
         ...hnSpec(ctx.now(), config.maxThreadAgeDays),
-        limits: { maxPages: HN_PAGES_PER_RUN, maxItemsPerPage: HN_MAX_COMMENTS },
+        limits: {
+          maxPages: HN_PAGES_PER_RUN,
+          maxItemsPerPage: HN_MAX_COMMENTS,
+          maxBytes: HN_MAX_BYTES,
+        },
       },
       config,
       ctx,

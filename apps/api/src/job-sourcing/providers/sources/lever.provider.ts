@@ -28,10 +28,11 @@ import { boundedString, dateRaw, optionalString, urlString } from './as'
  *   is weaker than a name field and is written as such in the config's `evidence`.
  * - LOCATION is `categories.allLocations` joined with "; " when there is more than one, else the
  *   single `categories.location`.
- * - `workplaceType` is mapped from its DOCUMENTED values only: `remote` -> remote, `on-site` and
- *   `hybrid` -> not remote, `unspecified` -> unknown. DRIFT, observed: the live API sends `onsite`
- *   (no hyphen), which the documentation does not list, so it maps to unknown rather than to a
- *   guess; whether to alias it is an owner decision (an open question on PR #1117).
+ * - `workplaceType`: `remote` -> remote, `on-site` and `hybrid` -> not remote, `unspecified` ->
+ *   unknown. DRIFT, observed: the live API also sends `onsite` (no hyphen), which the documentation
+ *   does not list. The owner decided on 2026-10-24 (answer "4a") to map it exactly like `on-site`
+ *   (not remote). That alias rests on ONE observation plus that decision, not on documentation.
+ *   Any other value stays unknown rather than a guess.
  * - DATES: `createdAt` (epoch milliseconds) is the only date. It is observed, NOT in the
  *   documented field list, and it is a creation time, which can precede publication; it is read as
  *   `PUBLISHED` for want of a better-named semantic and a reviewer should know it is a proxy.
@@ -93,12 +94,13 @@ function skipOf(cursor: string | null): number {
   return Number(cursor)
 }
 
-/** Remote-ness from the documented `workplaceType` values; anything else is unknown. */
+/** Remote-ness from the documented `workplaceType` values plus the owner-aliased `onsite`; anything else is unknown. */
 export function remoteFromWorkplaceType(value: string | null): boolean | null {
   switch (value) {
     case 'remote':
       return true
     case 'on-site':
+    case 'onsite':
     case 'hybrid':
       return false
     default:

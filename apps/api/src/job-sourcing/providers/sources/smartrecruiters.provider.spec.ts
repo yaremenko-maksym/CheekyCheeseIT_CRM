@@ -1,6 +1,13 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { __resetThrottleForTests, boundedFetchText } from '../../http/bounded-fetch'
+import { SourceBlockedError, SourceRateLimitedError } from '../../http/source-errors'
 import { expectNoneOf, expectOnlyPublicRequests } from '../../../test/ats-b-assertions'
 import { readFixtureText } from '../../../test/fixture-provenance'
+import {
+  HN_OWNER_DECISION,
+  type OwnerDecision,
+  SMARTRECRUITERS_OWNER_DECISION,
+} from '../owner-decisions'
 import type {
   CachedResponse,
   CollectionContext,
@@ -12,6 +19,7 @@ import {
   createSmartRecruitersProvider,
   smartrecruitersAllowedHosts,
   SMARTRECRUITERS_BOUNDS,
+  SMARTRECRUITERS_ENDPOINT_VARIANT,
   smartrecruitersProvider,
 } from './smartrecruiters.provider'
 
@@ -178,7 +186,9 @@ const simple =
     return details[id] ?? { body: detail(id) }
   }
 
-const live = createSmartRecruitersProvider(SMARTRECRUITERS_BOUNDS, { liveDespiteRobots: true })
+const live = createSmartRecruitersProvider(SMARTRECRUITERS_BOUNDS, {
+  ownerDecision: SMARTRECRUITERS_OWNER_DECISION,
+})
 
 async function run(w: World, config = cfg(), provider = live) {
   return provider.collectReport(config, w.ctx)
@@ -553,7 +563,7 @@ describe('the budget includes detail pages (AC4)', () => {
         maxRequests: 50,
         pageSize: 2,
       },
-      { liveDespiteRobots: true },
+      { ownerDecision: SMARTRECRUITERS_OWNER_DECISION },
     )
     const w = world({
       budget: 5,
@@ -588,7 +598,7 @@ describe('the budget includes detail pages (AC4)', () => {
         maxRequests: 3,
         pageSize: 100,
       },
-      { liveDespiteRobots: true },
+      { ownerDecision: SMARTRECRUITERS_OWNER_DECISION },
     )
     const atBound = world({ answer: simple(['111', '222']) })
     expect((await run(atBound, cfg(), provider)).outcome).toBe('SUCCEEDED')
@@ -625,7 +635,7 @@ describe('the budget includes detail pages (AC4)', () => {
 describe('the list: paging, bounds, resume', () => {
   const small = createSmartRecruitersProvider(
     { maxListPages: 2, maxRequests: 100, pageSize: 2 },
-    { liveDespiteRobots: true },
+    { ownerDecision: SMARTRECRUITERS_OWNER_DECISION },
   )
   const pages =
     (answer: (offset: number) => { items: string[]; total: number | null }) =>
@@ -887,7 +897,7 @@ describe('failures, cancellation and isolation', () => {
 describe('every refusal says what it is (messages, codes, statuses asserted exactly)', () => {
   const small = createSmartRecruitersProvider(
     { maxListPages: 2, maxRequests: 3, pageSize: 2 },
-    { liveDespiteRobots: true },
+    { ownerDecision: SMARTRECRUITERS_OWNER_DECISION },
   )
 
   it('the request bound reports its own number', async () => {
@@ -898,7 +908,7 @@ describe('every refusal says what it is (messages, codes, statuses asserted exac
         maxRequests: 3,
         pageSize: 100,
       },
-      { liveDespiteRobots: true },
+      { ownerDecision: SMARTRECRUITERS_OWNER_DECISION },
     )
     const batch = await run(w, cfg(), provider)
     expect(batch.requests.at(-1)?.error).toEqual({
@@ -921,7 +931,7 @@ describe('every refusal says what it is (messages, codes, statuses asserted exac
         maxRequests: 100,
         pageSize: 2,
       },
-      { liveDespiteRobots: true },
+      { ownerDecision: SMARTRECRUITERS_OWNER_DECISION },
     )
     const batch = await run(w, cfg(), pageBound)
     expect(batch.requests.map((r) => r.error?.message ?? null)).toContain(
@@ -1190,7 +1200,7 @@ describe('what a sample says, and what a discarded page counts', () => {
         maxRequests: 50,
         pageSize: 5,
       },
-      { liveDespiteRobots: true },
+      { ownerDecision: SMARTRECRUITERS_OWNER_DECISION },
     )
     const w = world({
       answer: (r) => {
@@ -1317,7 +1327,7 @@ describe('the description and the workplace, section by section', () => {
   })
 })
 
-describe('the exported provider is DORMANT: robots.txt disallows this collector, so it sends nothing', () => {
+describe('the decision gate: without the owner decision robots.txt stands and nothing is sent', () => {
   const expectRefused = async (provider: typeof smartrecruitersProvider) => {
     const w = world({ answer: simple(['111', '222']) })
     const batch = await provider.collectReport(
@@ -1355,12 +1365,25 @@ describe('the exported provider is DORMANT: robots.txt disallows this collector,
     expect(batch.requests[0]?.error).toEqual({
       code: 'ACCESS_POLICY',
       message:
-        'robots.txt of api.smartrecruiters.com disallows this collector and the owner has not decided otherwise, so no request was made',
+        'robots.txt of api.smartrecruiters.com disallows this collector and no owner decision covers it, so no request was made',
     })
   }
 
-  it('the default export sends no request, reserves nothing, stores nothing and says why', async () => {
-    await expectRefused(smartrecruitersProvider)
+  it('the default export is armed with the recorded decision and sends', async () => {
+    const w = world({ answer: simple(['111']) })
+    const batch = await smartrecruitersProvider.collectReport(
+      smartrecruitersProvider.parseConfig({ configVersion: 1, board: 'acme' }),
+      w.ctx,
+    )
+    expect(w.sent.map((r) => r.url)).toEqual([
+      listUrl(0),
+      'https://api.smartrecruiters.com/v1/companies/acme/postings/111',
+    ])
+    expect(batch.outcome).toBe('SUCCEEDED')
+  })
+
+  it('built without a decision (default options, custom bounds) it sends nothing, reserves nothing, stores nothing and says why', async () => {
+    await expectRefused(createSmartRecruitersProvider())
   })
 
   it('custom bounds do not arm it', async () => {
@@ -1369,16 +1392,25 @@ describe('the exported provider is DORMANT: robots.txt disallows this collector,
     )
   })
 
-  it('only the explicit flag arms it: false, absent and "truthy" do not', async () => {
+  it('only THE recorded decision object arms it: absent, another source, informational, or a structurally equal forgery do not', async () => {
+    const armed = (ownerDecision: OwnerDecision | undefined) =>
+      createSmartRecruitersProvider(SMARTRECRUITERS_BOUNDS, { ownerDecision })
+    await expectRefused(armed(undefined))
+    await expectRefused(armed({ ...SMARTRECRUITERS_OWNER_DECISION, decision: 'INFORMATIONAL' }))
+    await expectRefused(armed(HN_OWNER_DECISION))
     await expectRefused(
-      createSmartRecruitersProvider(SMARTRECRUITERS_BOUNDS, { liveDespiteRobots: false }),
+      armed({ ...SMARTRECRUITERS_OWNER_DECISION, endpointVariant: 'posting-api-v2' }),
     )
-    await expectRefused(createSmartRecruitersProvider(SMARTRECRUITERS_BOUNDS, {}))
-    await expectRefused(
-      createSmartRecruitersProvider(SMARTRECRUITERS_BOUNDS, {
-        liveDespiteRobots: 1 as unknown as boolean,
-      }),
-    )
+    // A forgery equal in every field is still not the recorded object.
+    const forged: OwnerDecision = { ...SMARTRECRUITERS_OWNER_DECISION }
+    expect(forged).toEqual(SMARTRECRUITERS_OWNER_DECISION)
+    await expectRefused(armed(forged))
+  })
+
+  it('the recorded decision is about the endpoint variant this adapter sends to', () => {
+    expect(SMARTRECRUITERS_OWNER_DECISION.endpointVariant).toBe(SMARTRECRUITERS_ENDPOINT_VARIANT)
+    expect(SMARTRECRUITERS_ENDPOINT_VARIANT).toBe('posting-api')
+    expect(SMARTRECRUITERS_OWNER_DECISION.decision).toBe('ACCEPT_RISK')
   })
 
   it('the armed factory is the same adapter and does send (the spec above runs on it)', async () => {
@@ -1392,6 +1424,205 @@ describe('the exported provider is DORMANT: robots.txt disallows this collector,
     await run(w)
     expect(smartrecruitersAllowedHosts()).toEqual(['api.smartrecruiters.com'])
     for (const r of w.sent) expect(smartrecruitersAllowedHosts()).toContain(new URL(r.url).host)
+  })
+})
+
+describe('stop on ban, never evade (owner decision of 2026-10-24)', () => {
+  const stops = [
+    [401, 'ACCESS_POLICY'],
+    [403, 'ACCESS_POLICY'],
+    [451, 'ACCESS_POLICY'],
+    [429, 'RATE_LIMIT'],
+  ] as const
+
+  it.each(stops)(
+    'HTTP %i on the list ends the run after exactly one request',
+    async (status, code) => {
+      const w = world({ answer: () => ({ status, body: 'blocked' }) })
+      const batch = await run(w)
+      expect(w.sent).toHaveLength(1)
+      expect(w.reserved).toBe(1)
+      expect(batch.outcome).toBe('FAILED')
+      expect(batch.requests.map((r) => r.error?.code)).toEqual([code])
+    },
+  )
+
+  it.each(stops)(
+    'HTTP %i on a detail stops the run: no later detail, no next page, nothing stored',
+    async (status, code) => {
+      const w = world({
+        answer: simple(['111', '222', '333'], { '222': { status, body: 'blocked' } }),
+      })
+      const batch = await run(w)
+      expect(w.sent.map((r) => r.url)).toEqual([
+        listUrl(0),
+        'https://api.smartrecruiters.com/v1/companies/acme/postings/111',
+        'https://api.smartrecruiters.com/v1/companies/acme/postings/222',
+      ])
+      expect(w.saved).toEqual([])
+      expect(batch.observations).toEqual([])
+      expect(batch.requests.at(-1)?.error?.code).toBe(code)
+    },
+  )
+
+  it('a block on a later list page ends the run without another request, keeping the pages already stored', async () => {
+    const w = world({
+      answer: (r) => {
+        if (r.url === listUrl(0)) return { body: listPage([listItem('1')], 2) }
+        if (idOf(r.url) !== undefined) return { body: detail('1') }
+        return { status: 403, body: 'blocked' }
+      },
+    })
+    const batch = await run(w)
+    expect(w.sent.map((r) => r.url)).toEqual([
+      listUrl(0),
+      'https://api.smartrecruiters.com/v1/companies/acme/postings/1',
+      listUrl(1),
+    ])
+    expect(w.saved).toHaveLength(1)
+    expect(batch.requests.at(-1)?.error?.code).toBe('ACCESS_POLICY')
+  })
+
+  it('never evades: every request carries the accept header and nothing else, and a refusal is not answered by a retry', async () => {
+    const w = world({ answer: () => ({ status: 403, body: 'blocked' }) })
+    await run(w)
+    for (const r of w.sent) expect(r.headers).toEqual({ accept: 'application/json' })
+    expect(w.sent).toHaveLength(1)
+  })
+
+  it('keeps the per-attempt request ceiling', async () => {
+    const small = createSmartRecruitersProvider(
+      { maxListPages: 20, maxRequests: 2, pageSize: 100 },
+      { ownerDecision: SMARTRECRUITERS_OWNER_DECISION },
+    )
+    const w = world({ answer: simple(['1', '2', '3']) })
+    await run(w, cfg(), small)
+    expect(w.sent).toHaveLength(2)
+  })
+})
+
+describe('stop on ban through the REAL transport, which throws instead of returning a status', () => {
+  /** `ctx.fetchText` backed by the real `boundedFetchText` over a stubbed global `fetch`. */
+  function realTransportWorld(status: number, onlyAfterFirst = false) {
+    const fetched: string[] = []
+    const stub = vi.fn(async (url: string) => {
+      fetched.push(url)
+      if (onlyAfterFirst && fetched.length === 1) {
+        return new Response(JSON.stringify(listPage([listItem('1'), listItem('2')], 2)), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      return new Response('refused', { status })
+    })
+    vi.stubGlobal('fetch', stub)
+    const w = world({ answer: () => ({}) })
+    w.ctx.fetchText = async (request) => ({
+      status: 200,
+      bodyText: await boundedFetchText(request.url, {
+        allowedHosts: smartrecruitersAllowedHosts(),
+        minGapMs: 0,
+      }),
+      headers: {},
+      etag: null,
+    })
+    return { w, fetched }
+  }
+  beforeEach(() => __resetThrottleForTests())
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('the classes asserted here are the ones the transport really throws', async () => {
+    vi.stubGlobal('fetch', async () => new Response('x', { status: 403 }))
+    await expect(
+      boundedFetchText('https://api.smartrecruiters.com/v1/x', {
+        allowedHosts: smartrecruitersAllowedHosts(),
+        minGapMs: 0,
+      }),
+    ).rejects.toBeInstanceOf(SourceBlockedError)
+    vi.stubGlobal('fetch', async () => new Response('x', { status: 429 }))
+    await expect(
+      boundedFetchText('https://api.smartrecruiters.com/v1/x', {
+        allowedHosts: smartrecruitersAllowedHosts(),
+        minGapMs: 0,
+      }),
+    ).rejects.toBeInstanceOf(SourceRateLimitedError)
+  })
+
+  it.each([
+    [401, 'ACCESS_POLICY'],
+    [403, 'ACCESS_POLICY'],
+    [451, 'ACCESS_POLICY'],
+    [429, 'RATE_LIMIT'],
+  ] as const)(
+    'HTTP %i on the list is %s, not a network blip, after exactly one request',
+    async (status, code) => {
+      const { w, fetched } = realTransportWorld(status)
+      const batch = await run(w)
+      expect(fetched).toHaveLength(1)
+      expect(batch.outcome).toBe('FAILED')
+      expect(batch.requests.map((r) => [r.error?.code, r.status, r.error?.message])).toEqual([
+        [code, status, `provider answered HTTP ${status}`],
+      ])
+      expect(w.reconciled).toEqual(['USED'])
+    },
+  )
+
+  it.each([
+    [403, 'ACCESS_POLICY'],
+    [429, 'RATE_LIMIT'],
+  ] as const)(
+    'HTTP %i on a detail stops the run: no second detail, nothing stored',
+    async (status, code) => {
+      const { w, fetched } = realTransportWorld(status, true)
+      const batch = await run(w)
+      expect(fetched).toHaveLength(2) // the list, then the first detail only
+      expect(w.saved).toEqual([])
+      expect(batch.requests.at(-1)?.error?.code).toBe(code)
+    },
+  )
+
+  it.each([
+    ['a longer status', 'api.smartrecruiters.com responded 4511'],
+    ['a prefix before the host', 'see api.smartrecruiters.com responded 403'],
+    ['a trailing word', 'api.smartrecruiters.com responded 403 again'],
+    ['a status the host did not ban with', 'api.smartrecruiters.com responded 503'],
+  ])(
+    'a thrown message that only looks like a ban (%s) stays TRANSIENT_NETWORK',
+    async (_name, text) => {
+      const w = world({ answer: () => ({}) })
+      w.ctx.fetchText = async () => {
+        throw new Error(text)
+      }
+      const batch = await run(w)
+      expect(batch.requests.map((r) => [r.error?.code, r.error?.message, r.status])).toEqual([
+        ['TRANSIENT_NETWORK', text, null],
+      ])
+    },
+  )
+
+  it('positive control: a genuine network error is still TRANSIENT_NETWORK', async () => {
+    vi.stubGlobal('fetch', async () => {
+      throw new TypeError('fetch failed')
+    })
+    const w = world({ answer: () => ({}) })
+    w.ctx.fetchText = async (request) => ({
+      status: 200,
+      bodyText: await boundedFetchText(request.url, {
+        allowedHosts: smartrecruitersAllowedHosts(),
+        minGapMs: 0,
+      }),
+      headers: {},
+      etag: null,
+    })
+    const batch = await run(w)
+    expect(batch.requests.map((r) => r.error?.code)).toEqual(['TRANSIENT_NETWORK'])
+    expect(w.reconciled).toEqual(['UNCERTAIN'])
+  })
+
+  it('a 5xx from the real transport is not a ban either', async () => {
+    const { w } = realTransportWorld(503)
+    const batch = await run(w)
+    expect(batch.requests.map((r) => r.error?.code)).toEqual(['TRANSIENT_NETWORK'])
   })
 })
 

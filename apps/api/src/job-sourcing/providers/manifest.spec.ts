@@ -600,7 +600,7 @@ describe('readiness is derived from provenance, not retyped', () => {
   it('a constant that says "not blocked" over a provenance that is not ready fails the build', () => {
     expect(
       refusal(
-        withDefinition('REMOTIVE_API', (d) => ({
+        withDefinition('MUSE_API', (d) => ({
           ...d,
           status: { symbol: d.status!.symbol, value: { ...d.status!.value, blocked: false } },
         })),
@@ -608,7 +608,7 @@ describe('readiness is derived from provenance, not retyped', () => {
     ).toEqual(
       refused(
         'STATUS_CONSTANT_DISAGREES',
-        'REMOTIVE_SOURCE_STATUS.blocked is false but the provenance permission UNCLEAR is not a ready one',
+        'MUSE_SOURCE_STATUS.blocked is false but the provenance permission UNCLEAR is not a ready one',
       ),
     )
   })
@@ -637,15 +637,12 @@ describe('readiness is derived from provenance, not retyped', () => {
   })
 
   it.each([
-    ['REMOTIVE_API', ['PERMISSION_UNCLEAR', 'STATUS_CONSTANT_BLOCKED']],
-    ['HN_HIRING', ['PERMISSION_UNCLEAR', 'STATUS_CONSTANT_BLOCKED']],
-    ['JOBGETHER_API', ['PERMISSION_UNCLEAR', 'STATUS_CONSTANT_BLOCKED']],
     ['MUSE_API', ['PERMISSION_UNCLEAR', 'STATUS_CONSTANT_BLOCKED']],
     ['ASHBY_ATS', ['PERMISSION_UNCLEAR']],
+    ['SMARTRECRUITERS_ATS', ['NO_API_CAPTURE']],
     ['DJINNI_RSS', ['PERMISSION_UNCLEAR']],
     ['WWR_RSS', ['PERMISSION_UNCLEAR']],
     ['EUREMOTEJOBS_RSS', ['PERMISSION_UNCLEAR']],
-    ['SMARTRECRUITERS_ATS', ['PERMISSION_UNCLEAR']],
     ['WORKINGNOMADS_API', ['PERMISSION_UNCLEAR', 'STATUS_CONSTANT_BLOCKED']],
     ['JOOBLE_API', ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED']],
     ['JSEARCH_API', ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED']],
@@ -658,7 +655,7 @@ describe('readiness is derived from provenance, not retyped', () => {
   it('a reason too long for the column is refused rather than cut', () => {
     expect(
       refusal(
-        withDefinition('REMOTIVE_API', (d) => ({
+        withDefinition('MUSE_API', (d) => ({
           ...d,
           status: {
             symbol: d.status!.symbol,
@@ -667,10 +664,7 @@ describe('readiness is derived from provenance, not retyped', () => {
         })),
       ),
     ).toEqual(
-      refused(
-        'REASON_TOO_LONG',
-        /^REASON_TOO_LONG: REMOTIVE_API: readiness reason is \d+ characters$/,
-      ),
+      refused('REASON_TOO_LONG', /^REASON_TOO_LONG: MUSE_API: readiness reason is \d+ characters$/),
     )
   })
 })
@@ -1574,8 +1568,8 @@ describe('exact behaviour: constants, markers and boundaries', () => {
       expect(readinessReason(readinessAt(entry('remoteok.api.latest'), NOW))).toBeNull()
       expect(readinessReason(readinessAt(type('ARBEITNOW_API'), NOW))).toBeNull()
       expect(
-        readinessReason(readinessAt(type('REMOTIVE_API'), NOW))!.startsWith(
-          'PERMISSION_UNCLEAR: a fixture records permission UNCLEAR; STATUS_CONSTANT_BLOCKED: robots.txt',
+        readinessReason(readinessAt(type('MUSE_API'), NOW))!.startsWith(
+          'PERMISSION_UNCLEAR: a fixture records permission UNCLEAR; STATUS_CONSTANT_BLOCKED: terms section 2.2',
         ),
       ).toBe(true)
     })
@@ -1585,7 +1579,7 @@ describe('exact behaviour: constants, markers and boundaries', () => {
         'PERMISSION_UNCLEAR: a fixture records permission UNCLEAR; STATUS_CONSTANT_BLOCKED: '
       expect(READINESS_REASON_MAX_CHARS).toBe(500)
       const reasonOf = (n: number) =>
-        withDefinition('REMOTIVE_API', (d) => ({
+        withDefinition('MUSE_API', (d) => ({
           ...d,
           status: {
             symbol: d.status!.symbol,
@@ -1596,7 +1590,7 @@ describe('exact behaviour: constants, markers and boundaries', () => {
       expect(
         readinessReason(
           readinessAt(
-            ok.types.find((t) => t.type === 'REMOTIVE_API')!,
+            ok.types.find((t) => t.type === 'MUSE_API')!,
             NOW,
           ),
         ),

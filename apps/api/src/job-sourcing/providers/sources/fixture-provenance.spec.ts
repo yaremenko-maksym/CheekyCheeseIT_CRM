@@ -623,9 +623,14 @@ const STATUSES: Array<[provider: string, name: string, blocked: boolean]> = [
 ]
 
 describe('readiness is not derivable from permission alone', () => {
-  it('every Task 3.2 source and Remotive is blocked, except Arbeitnow (permitted, large pages)', () => {
+  it('every Task 3.2 source and Remotive is blocked, except Arbeitnow (permitted) and the three the owner decided on 2026-10-24', () => {
+    // HN, Remotive and Jobgether are NOT permitted: their provenance still says UNCLEAR. They are
+    // unblocked by an owner decision (ACCEPT_RISK), which the manifest requires for exactly that.
     expect(STATUSES.filter(([, , blocked]) => !blocked).map(([provider]) => provider)).toEqual([
       'arbeitnow',
+      'jobgether',
+      'hn-hiring',
+      'remotive',
     ])
   })
 

@@ -6,6 +6,8 @@ import {
   type SourceObservation,
 } from '../../normalize/observation'
 import { definePagedProvider, UNBUILT_REQUEST_URL } from '../api-json.provider'
+import { type OwnerDecision, SMARTRECRUITERS_OWNER_DECISION } from '../owner-decisions'
+import { SourceBlockedError, SourceRateLimitedError } from '../../http/source-errors'
 import { DEFAULT_API_JSON_LIMITS } from '../api-json.limits'
 import { parseBoundedJson } from '../bounded-json'
 import {
@@ -39,16 +41,32 @@ import { boundedString, dateRaw, optionalString, urlString } from './as'
  * for the list and `.../postings/{id}` for one posting's detail
  * (https://developers.smartrecruiters.com/docs/endpoints).
  *
- * !! THIS SOURCE IS BLOCKED, AND THE ADAPTER IS DORMANT BY CONSTRUCTION: the exported provider refuses
- * every attempt without a request (`refuseDisallowedHost`); the real loop runs only from
- * `createSmartRecruitersProvider(bounds, { liveDespiteRobots: true })`, which only the spec calls. `api.smartrecruiters.com/robots.txt` says
+ * !! THIS ADAPTER IS A DECISION GATE: it sends a request only when it is armed with an owner
+ * decision. The loop runs only when `createSmartRecruitersProvider(bounds, { ownerDecision })` is
+ * given THE recorded decision object itself (`SMARTRECRUITERS_OWNER_DECISION` in
+ * `owner-decisions.ts`), compared by reference, so a structurally equal forged object does not arm
+ * it; without it every attempt is refused without a request (`refuseWithoutDecision`). The exported
+ * `smartrecruitersProvider` is armed with that decision. DELIBERATE DEVIATION from "reads its
+ * manifest entry": this adapter cannot import the manifest (the manifest imports the adapters, a
+ * circular import), so both import the one constant, and a spec ties them: the decision the
+ * manifest attaches to the SmartRecruiters type IS the object this adapter is armed with. `api.smartrecruiters.com/robots.txt` says
  * `User-agent: LinkedInBot / Allow: /v1/companies/ / User-agent: * / Disallow: /`: the Posting API is
  * disallowed to every agent but one named crawler, this collector included, while the documentation
- * calls the same API "public". The two conflict, the brief says to stop at a disallowed path, and
- * so NO REQUEST WAS SENT to this host except for `robots.txt` itself. There is no authentic
+ * calls the same API "public". The owner accepted that conflict as a RISK on 2026-10-24 ("until
+ * banned"); it is not a permission, and the provenance file still records `permission: UNCLEAR`.
+ * NO REQUEST WAS SENT to this host except for `robots.txt` itself, so there is no authentic
  * capture: the spec builds its payloads from the DOCUMENTED schema (the documentation's own examples
- * are not valid JSON) and says so. The provenance file records `permission: UNCLEAR`. It must not be
- * enabled until the owner decides.
+ * are not valid JSON) and says so. Nothing is registered or enabled by this (plan Task 2.5).
+ *
+ * STOP ON BAN, NEVER EVADE. A 401, 403, 451 (`ACCESS_POLICY`) or 429 (`RATE_LIMIT`) on ANY request ends
+ * the run at once: no retry, no further request in that run (the page in flight is discarded, not
+ * stored half-enriched). The real transport THROWS on these (`SourceBlockedError` for 403,
+ * `SourceRateLimitedError` for 429, a plain error for 401/451), so `failureOfThrown` maps them to
+ * the same codes; a ban is never reported as a retryable network blip. Nothing here changes the
+ * User-Agent, rotates a proxy or retries around a refusal. The adapter's own request sets only an
+ * `accept` header; the shared transport adds its fixed identifying User-Agent (it is not ours to
+ * change here), and there is no proxy. A ban is a stop, not an obstacle. Cross-run stop (a ban on
+ * one board stopping the next run of every board) is the scheduler's, Task 2.5.
  *
  * WHY THIS ADAPTER DOES NOT USE THE PAGE LOOP'S SPEC. The loop asks one request per page, and a
  * posting's description and canonical URL live only in the DETAIL (`jobAd.sections`, `postingUrl`),
@@ -278,10 +296,37 @@ type Fetched =
   | { ok: true; status: number; bodyText: string; startedAt: Date; cost: RequestReport['cost'] }
   | { ok: false; stop: StopReason }
 
+/** The real transport's plain error for any other non-2xx: `<host> responded <status>`. */
+const TRANSPORT_STATUS = /^\S+ responded (\d{3})$/
+
+/**
+ * A throw out of the transport, as a failure. A ban or a rate limit is a REFUSAL by the host, not a
+ * network blip: it must not wear `TRANSIENT_NETWORK`, which a retry policy would act on.
+ */
+function failureOfThrown(error: unknown, aborted: boolean): Failure {
+  if (error instanceof SourceBlockedError) {
+    return {
+      code: 'ACCESS_POLICY',
+      message: `provider answered HTTP ${error.status}`,
+      status: error.status,
+    }
+  }
+  if (error instanceof SourceRateLimitedError) {
+    return { code: 'RATE_LIMIT', message: 'provider answered HTTP 429', status: 429 }
+  }
+  const message = error instanceof Error ? error.message : 'the request failed'
+  // No match gives NaN, which `classify` answers with UPSTREAM, never a ban.
+  const status = Number(TRANSPORT_STATUS.exec(message)?.[1])
+  if (classify(status) === 'ACCESS_POLICY') {
+    return { code: 'ACCESS_POLICY', message: `provider answered HTTP ${status}`, status }
+  }
+  return { code: aborted ? 'CANCELLED' : 'TRANSIENT_NETWORK', message, status: null }
+}
+
 /** HTTP status -> our code, from the STATUS and never the body. */
 function classify(status: number): CollectionErrorCode | null {
   if (status >= 200 && status < 300) return null
-  if (status === 401 || status === 403) return 'ACCESS_POLICY'
+  if (status === 401 || status === 403 || status === 451) return 'ACCESS_POLICY'
   if (status === 429) return 'RATE_LIMIT'
   return 'UPSTREAM'
 }
@@ -415,13 +460,10 @@ async function collectSmartRecruiters(
       resolution = 'USED'
       answer = { response: { status: fetched.status, bodyText: fetched.bodyText } }
     } catch (error) {
-      answer = {
-        failure: {
-          code: ctx.signal.aborted ? 'CANCELLED' : 'TRANSIENT_NETWORK',
-          message: error instanceof Error ? error.message : 'the request failed',
-          status: null,
-        },
-      }
+      const failure = failureOfThrown(error, ctx.signal.aborted)
+      // A refusal is an answer: the request reached the host, so the reservation was used.
+      if (failure.code === 'ACCESS_POLICY' || failure.code === 'RATE_LIMIT') resolution = 'USED'
+      answer = { failure }
     }
     // Every path out of the try above reaches this line, so the reservation is always resolved.
     const unreconciled: Failure | null = await ctx.meter.reconcile(reservation, resolution).then(
@@ -666,13 +708,13 @@ async function collectSmartRecruiters(
 }
 
 /**
- * The attempt that is not made, whatever the context: the Posting API's robots.txt disallows this
- * collector, so no request is sent and the batch says why. Same shape as Recruitee's
+ * The attempt that is not made without an owner decision: the Posting API's robots.txt disallows
+ * this collector, so no request is sent and the batch says why. Same shape as Recruitee's
  * `refuseWithoutToken`: ONE report, `ACCESS_POLICY`, at the unbuilt-request address, `ERROR` with no
  * page, so the batch is FAILED and claims no coverage. (The message avoids the word that the report
  * redactor rewrites.)
  */
-function refuseDisallowedHost(config: Config, ctx: CollectionContext): CollectionBatch {
+function refuseWithoutDecision(config: Config, ctx: CollectionContext): CollectionBatch {
   const at = ctx.now()
   return buildCollectionBatch({
     observations: [],
@@ -696,7 +738,7 @@ function refuseDisallowedHost(config: Config, ctx: CollectionContext): Collectio
           cost: null,
           error: {
             code: 'ACCESS_POLICY',
-            message: `robots.txt of ${HOST} disallows this collector and the owner has not decided otherwise, so no request was made`,
+            message: `robots.txt of ${HOST} disallows this collector and no owner decision covers it, so no request was made`,
           },
         },
         ctx.secrets,
@@ -707,28 +749,36 @@ function refuseDisallowedHost(config: Config, ctx: CollectionContext): Collectio
   })
 }
 
+/** The manifest `endpointVariant` this adapter sends requests to; a decision must be about it. */
+export const SMARTRECRUITERS_ENDPOINT_VARIANT = 'posting-api'
+
 export interface SmartRecruitersOptions {
   /**
-   * Arms the real loop. ONLY the spec factory passes it: the exported `smartrecruitersProvider`
-   * never does, so importing this module and handing it a context sends nothing. Turning it on in
-   * production is the owner's decision about the robots.txt conflict, made in review, not a default.
+   * Arms the real loop. It must be THE recorded `SMARTRECRUITERS_OWNER_DECISION` object (compared by
+   * reference); anything else, however structurally alike, leaves the adapter refusing every
+   * attempt. The decision is the owner's, recorded once in `owner-decisions.ts`.
    */
-  readonly liveDespiteRobots?: boolean
+  readonly ownerDecision?: OwnerDecision
 }
+
+const isArmedBy = (decision: OwnerDecision | undefined): boolean =>
+  decision === SMARTRECRUITERS_OWNER_DECISION
 
 export function createSmartRecruitersProvider(
   bounds: SmartRecruitersBounds = SMARTRECRUITERS_BOUNDS,
   options: SmartRecruitersOptions = {},
 ) {
   return definePagedProvider({ type: 'SMARTRECRUITERS_ATS', configSchema }, (config, ctx) =>
-    options.liveDespiteRobots === true
+    isArmedBy(options.ownerDecision)
       ? collectSmartRecruiters(bounds, config, ctx)
-      : Promise.resolve(refuseDisallowedHost(config, ctx)),
+      : Promise.resolve(refuseWithoutDecision(config, ctx)),
   )
 }
 
-/** DORMANT: refuses every attempt without a request. See `refuseDisallowedHost`. */
-export const smartrecruitersProvider = createSmartRecruitersProvider()
+/** Armed with the owner's recorded decision. Without it the factory refuses; see `refuseWithoutDecision`. */
+export const smartrecruitersProvider = createSmartRecruitersProvider(SMARTRECRUITERS_BOUNDS, {
+  ownerDecision: SMARTRECRUITERS_OWNER_DECISION,
+})
 
 /** The one host this adapter's requests may reach; a transport is pinned to it. */
 export const smartrecruitersAllowedHosts = (): readonly string[] => [HOST]
