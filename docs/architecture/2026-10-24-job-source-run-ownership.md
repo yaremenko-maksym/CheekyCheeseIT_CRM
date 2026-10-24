@@ -657,14 +657,14 @@ ownership. Also reopen if `apps/api` moves to `module: node16`.
 
 - **The choice of A over B is A2.** The ADR is reversible (one PR), but redoing an implemented
   ledger is expensive. The **owner** confirms, in the phase's decision brief.
-  **Before the owner answers, T1, T1b, T2, T4 and T8 can start.** None of them consumes the ledger, and
+  **Before the owner answers, T1 (with T1b folded in), T2, T4 and T8 can start.** None of them consumes the ledger, and
   each is needed under either option. T3 is the ledger itself. T7 and T9 consume it. T5 and T6 depend on
   T7, and under B T5's cron would call `send` instead of the ledger. So T3, T7, T9, T5 and T6 all
   wait for the answer.
 - **T1's migration** (two partial unique indexes and an `account_key` column) is a Drizzle migration
   in a critical-path zone. It goes through the normal full pipeline with a mandatory
-  security-reviewer. It changes no privilege. So do **T1b** (the account-key correction) and **T8**
-  (the host table).
+  security-reviewer. It changes no privilege. The same holds for the folded T1b (the account-key
+  correction, inside T1's migration) and for **T8** (the host table).
 - **Had the recommendation been B, it would be A3.** B adds a schema and new grants to `crm_app`
   under the least-privilege ADR, and that ADR's text is the owner's. The owner would decide before
   any code.
@@ -685,13 +685,18 @@ ownership. Also reopen if `apps/api` moves to `module: node16`.
 
 ## Decomposition of Task 2.5
 
-Ten tasks plus one external prerequisite. Three were added in review: T8 in round 1 to store the
-host-level state, T1b in round 3 to correct T1's account key, and T9 in round 4 for the ADMIN exits. T1's and T2's sections are left exactly as
-dispatched. Files are named by module and symbol. Path fragments are
-given only where a file does not exist yet. "Real-Postgres" means an integration spec against a
-scratch database, never `crm_db` (`live-db-access.md`), and **run as `crm_app`** wherever the claim
-is about privileges. That matches the least-privilege ADR's finding that specs run as `crm_user`
-prove nothing about `crm_app`.
+Nine tasks plus one external prerequisite (T0).
+
+- **Added in review:** T8 in round 1, for the host-level state, and T9 in round 4, for the ADMIN
+  exit, narrowed in round 5.
+- **T1b is folded into T1** (PR #1142) and is not a separate task. Its section records what the
+  fold carries.
+- T1's and T2's sections are kept exactly as dispatched.
+
+Files are named by module and symbol, with path fragments only where a file does not exist yet.
+"Real-Postgres" means an integration spec against a scratch database, never `crm_db`
+(`live-db-access.md`), and **run as `crm_app`** wherever the claim is about privileges. Specs run
+as `crm_user` prove nothing about `crm_app`, which is the least-privilege ADR's finding.
 
 ### Order and parallelism
 
@@ -699,60 +704,52 @@ Every arrow below is one entry of a task's own "Depends on" line, and there are 
 `A ──► B` means B depends on A.
 
 ```
-T1 migration ──┬──────────────────────────────────────► T3 run ledger
-               └──► T1b account key ──┬───────────────► T3
-                                      └──► T8 host state ──► T3
-T2 registry ──► T4 due policy ──┬─────────────────────► T3
-                                └──► T8
-T2 ────────────────────────────────────────────────────► T7 context + worker
-T3 ────────────────────────────────────────────────────► T7
-T8 ────────────────────────────────────────────────────► T7
-T3 ────────────────────────────────────────────────────► T9 ADMIN controls
-T8 ────────────────────────────────────────────────────► T9
-T7 ──┬──► T5 cron
-     └──► T6 transport wiring
-T0 (backlog 318, parallel PR — external) ──────────────► T6
+T1 migration (with T1b folded in) ──┬─────────────────► T3 run ledger
+                                    └──► T8 host state ──► T3
+T2 registry ──┬──► T4 due policy ──┬──────────────────► T3
+              │                    └──► T8
+              ├───────────────────────────────────────► T3
+              └───────────────────────────────────────► T7 context + worker
+T3 ───────────────────────────────────────────────────► T7
+T8 ───────────────────────────────────────────────────► T7
+T3 ───────────────────────────────────────────────────► T9 ADMIN reset
+T7 ───────────────────────────────────────────────────► T6 transport wiring
+T0 (backlog 318, parallel PR — external) ─────────────► T6
+T6 ───────────────────────────────────────────────────► T5 cron
+T7 ───────────────────────────────────────────────────► T5
 ```
 
 **Self-check: each task's "Depends on" line against the arrows.**
 
 | Task | Its "Depends on" line                                | Arrows into it            |
 | ---- | ---------------------------------------------------- | ------------------------- |
-| T1   | nothing                                              | none                      |
+| T1   | nothing (T1b folded in)                              | none                      |
 | T2   | nothing                                              | none                      |
-| T1b  | T1                                                   | T1 → T1b                  |
 | T4   | T2 (sequencing only: both edit `JobSourcingService`) | T2 → T4                   |
-| T8   | T1b, T4                                              | T1b → T8, T4 → T8         |
-| T3   | T1, T1b, T4, T8                                      | T1, T1b, T4, T8 → T3      |
+| T8   | T1, T4                                               | T1 → T8, T4 → T8          |
+| T3   | T1, T2, T4, T8                                       | T1, T2, T4, T8 → T3       |
 | T7   | T2, T3, T8                                           | T2 → T7, T3 → T7, T8 → T7 |
-| T9   | T3, T8                                               | T3 → T9, T8 → T9          |
-| T5   | T7                                                   | T7 → T5                   |
+| T9   | T3                                                   | T3 → T9                   |
 | T6   | T0, T7                                               | T0 → T6, T7 → T6          |
+| T5   | T6, T7                                               | T6 → T5, T7 → T5          |
 
-Sixteen arrows and sixteen dependency entries, one for one.
+Fifteen arrows and fifteen dependency entries, one for one.
 
-- **Wave 1, in parallel:** T1 and T2. Their file sets are disjoint: the run-table schema plus a
-  migration, versus the registry plus `JobSourcingService`'s `providers` map and constructor.
-- **Wave 2, in parallel:** T1b, after T1 merges, and T4, **after T2 merges**. Their file sets are
-  disjoint (a run-table column plus a migration, versus a new scheduling module plus
-  `JobSourcingService`). T4 waits for T2 because T4 edits `JobSourcingService` too: `collectAll`'s
-  signature, and it moves `sourceAcceptsTrigger` out. The two touch different regions of one file,
-  so a textual conflict is likely, and they are serialized rather than run in parallel. T2 is
-  already running, so T4 is dispatched once T2 is on `main`.
-- **Wave 3:** T8. It is the third migration, so it lands after T1b (all three append to
-  `deploy.yml`'s ordered list), and it extends T4's due predicate.
-- **Wave 4:** T3, which needs T1's and T1b's indexes, T4's due predicate and T8's host state.
-- **Wave 5, in parallel:** T7, which needs T2's registry, T3's ledger and T8's host reads, and T9,
-  which needs T3 and T8. Their file sets are disjoint: the runtime module, the service and the
-  adapters, versus the controller plus one ledger function and one host-state function.
-- **Wave 6, in parallel:** T5 and T6. Their file sets are disjoint: the cron file, versus `http/`,
-  the context builder's `fetchText` and adapter host lists. **T6 also waits for T0** (backlog 318).
-  Constraint (a): no `transportOptionsFor` wiring before 318 is fixed.
-- **Not parallel:** T2 with T4 (both edit `JobSourcingService`); T1, T1b and T8 with each other
-  (three migrations, one file list); T3 with T7 or T9 (both consume the ledger's interface); T2 with
-  T5 (both edit `JobSourcingModule`); and T7 with T6 (both edit `buildCollectionContext`'s
-  `fetchText`, so T6 follows T7).
-- **May start before the owner answers the A-versus-B question:** T1, T1b, T2, T4 and T8 (see
+- **Wave 1, in parallel:** T1 (with T1b folded in) and T2. Their file sets are disjoint.
+- **Wave 2:** T4, after T2 merges. Both edit `JobSourcingService` (T2 the `providers` map and
+  constructor; T4 `collectAll`'s signature and `sourceAcceptsTrigger`), so they are serialized.
+- **Wave 3:** T8, after T1 and T4. It is a migration after T1's in `deploy.yml`'s list, and it
+  extends T4's predicate.
+- **Wave 4:** T3.
+- **Wave 5, in parallel:** T7 and T9. T7 is the runtime module, the service and the adapters. T9 is
+  the controller and the shared Zod schemas, and only **calls** T3's `resetFailures`.
+- **Wave 6:** T6, after T7 and T0 (backlog 318). T6 edits `buildCollectionContext`'s `fetchText`
+  after T7.
+- **Wave 7:** T5, after T6. Unattended collection is never switched on before the transport caps
+  exist.
+- **Not parallel:** T2 with T4; T1 with T8; T3 with T7 or T9; T7 with T6; T6 with T5. T2 and T5
+  both edit `JobSourcingModule`, and they are already serialized by the chain.
+- **May start before the owner answers the A-versus-B question:** T1, T2, T4 and T8 (see
   "Autonomy classification").
 
 ### T0 — backlog 318: parse-order fix in the shared bounded-JSON reader (prerequisite, not part of 2.5)
@@ -1266,27 +1263,27 @@ administrative exit. That is a state change on a possibly paid source, so it is 
 
 ### Constraint ledger: every appended constraint in exactly one task
 
-| Constraint (source)                                                                                                                      | Task         |
-| ---------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
-| 318 before transport wiring (PR #1119 security axis)                                                                                     | T6 gate (T0) |
-| `readinessAt`, not the stored column (PR #1132 SPEC-L-2 / SR-M-2)                                                                        | T4           |
-| `allowedHosts` + `maxBytes` reaches fetch (PR #1138 SR-M-2)                                                                              | T6           |
-| Transient memory: per-run deadline (PR #1138 SR-M-1)                                                                                     | T7           |
-| Transient memory: pre-parse node bound decision (PR #1138 SR-M-1)                                                                        | T6           |
-| Free-plan meters, TheirStack 200 RECORD/month                                                                                            | T7           |
-| Cross-run stop-on-ban (PR #1139 SR-M-2), storage and claim half: pause storage, duration, claim-time refusal                             | T8           |
-| Cross-run stop-on-ban (PR #1139 SR-M-2), in-flight half: ban at observation, pause check per request and per heartbeat (round 4, SR-H-3) | T7           |
-| Rates the manifest cannot enforce (PR #1139 SR-L-3): Remotive per-minute and daily, `min_interval_hours` floor                           | T8           |
-| Evidence is not permission (PR #1139)                                                                                                    | T2           |
-| `Object.freeze` of the SmartRecruiters decision and its four siblings (#1139 delta LOW 1)                                                | T2           |
-| 404 policy with retry policy (#1139 delta LOW 2)                                                                                         | T6           |
-| Backlog 319 (`transportOptionsFor` in `fetchText`)                                                                                       | T6           |
-| One live executor per attempt; replace the SR-H-1 case                                                                                   | T3           |
-| `RESERVED`/`SENT` recovery with an entry point                                                                                           | T3           |
-| `markSent` fires when every request leaves (brief): send-permit guard, SmartRecruiters call site, `RUN_FENCED` mid-run                   | T7           |
-| Registry seam, legacy map fate (brief)                                                                                                   | T2           |
-| Production `CollectionContext` builder with the 3.5a meter as `meter` (brief)                                                            | T7           |
-| ADMIN-only exits from the failure cap and the host pause; "ADMIN enable never clears an unresolved block" (plan; round 4, CR-M-15)       | T9           |
+| Constraint (source)                                                                                                                  | Task         |
+| ------------------------------------------------------------------------------------------------------------------------------------ | ------------ |
+| 318 before transport wiring (PR #1119 security axis)                                                                                 | T6 gate (T0) |
+| `readinessAt`, not the stored column (PR #1132 SPEC-L-2 / SR-M-2)                                                                    | T4           |
+| `allowedHosts` + `maxBytes` reaches fetch (PR #1138 SR-M-2)                                                                          | T6           |
+| Transient memory: per-run deadline (PR #1138 SR-M-1)                                                                                 | T7           |
+| Transient memory: pre-parse node bound decision (PR #1138 SR-M-1)                                                                    | T6           |
+| Free-plan meters, TheirStack 200 RECORD/month                                                                                        | T7           |
+| Cross-run stop-on-ban (PR #1139 SR-M-2), storage and claim half: pause storage, duration, claim-time refusal                         | T8           |
+| Cross-run stop-on-ban (PR #1139 SR-M-2), in-flight half: ban written at observation; the refused run sends nothing more (rounds 4–5) | T7           |
+| Rates the manifest cannot enforce (PR #1139 SR-L-3): Remotive per-minute and daily, `min_interval_hours` floor                       | T8           |
+| Evidence is not permission (PR #1139)                                                                                                | T2           |
+| `Object.freeze` of the SmartRecruiters decision and its four siblings (#1139 delta LOW 1)                                            | T2           |
+| 404 policy with retry policy (#1139 delta LOW 2)                                                                                     | T6           |
+| Backlog 319 (`transportOptionsFor` in `fetchText`)                                                                                   | T6           |
+| One live executor per attempt; replace the SR-H-1 case                                                                               | T3           |
+| `RESERVED`/`SENT` recovery with an entry point                                                                                       | T3           |
+| `markSent` fires when every request leaves (brief): send-permit guard, SmartRecruiters call site, `RUN_FENCED` mid-run               | T7           |
+| Registry seam, legacy map fate (brief)                                                                                               | T2           |
+| Production `CollectionContext` builder with the 3.5a meter as `meter` (brief)                                                        | T7           |
+| ADMIN-only exit from the failure cap; "ADMIN enable never clears an unresolved block" (plan; rounds 4–5, CR-M-15)                    | T9           |
 
 Two review items have two separable halves, and each half lands in exactly one task. The
 transient-memory finding splits into the deadline (T7) and the parse bound (T6). Cross-run
@@ -1297,19 +1294,21 @@ backlog entry, if Master writes one, should point here rather than duplicate the
 ## What this ADR does not decide
 
 - **The numeric values of most constants.** These are the lease length `L`, the heartbeat interval
-  `H`, the pool size `N`, the per-run deadline, the backoff cap, `MAX_CONSECUTIVE_FAILURES`,
-  `UNCERTAIN_MAX_AGE`, `CHECKPOINT_MAX_AGE`, `REFUSAL_RECHECK` and `MAX_CLAIM_SCAN`. The plan
-  freezes them after MP-05 measurements. This ADR fixes only their relations:
+  `H`, the pool size `N`, the per-run deadline, the backoff cap, `REFUSAL_RECHECK`,
+  `MAX_CLAIM_SCAN` and `COLLECTION_WINDOW`. The plan freezes them after MP-05 measurements. This ADR
+  fixes only their relations:
   - each is a config value with a ceiling;
   - `H ≤ L / 3`, and a page-write transaction ends within `H`;
-  - `L` exceeds the per-request timeout plus the pool's acquire timeout;
-  - `UNCERTAIN_MAX_AGE` is at least 7 days;
-  - `CHECKPOINT_MAX_AGE` is at most the cadence plus the backoff ceiling.
+  - `L` exceeds the per-request timeout plus the pool's acquire timeout.
 
-  The host-ban pause **is** decided here: at least 24 hours, at most 30 days (T8).
+  **Decided here:**
+  - `MAX_CONSECUTIVE_FAILURES = 3` (ceiling 5);
+  - the host-ban pause: at least 24 hours, at most 30 days (T8).
 
-- **The UI for ADMIN controls.** T9 builds the endpoints and their RBAC; any screen over them is a
-  separate, design-gated task.
+  `UNCERTAIN_MAX_AGE` and `CHECKPOINT_MAX_AGE` no longer exist (round 5).
+
+- **The UI for ADMIN controls.** T9 builds the two endpoints and their RBAC. Any screen over them is
+  a separate, design-gated task.
 - **A lint ban on direct HTTP in adapters (follow-up, round 3, SR-L-5).** T7's send-permit guard
   works in-process, on calls that go through the production `CollectionContext`. An adapter that
   bypassed the context, calling `fetch` or an HTTP client directly, would send requests that no
@@ -1340,17 +1339,18 @@ This PR is documentation only.
   `docs/architecture/` are gone and nothing else has changed. To verify, run
   `git show --stat <revert sha>`. It lists exactly `2026-10-24-job-source-run-ownership.md` and
   `2026-10-24-pg-boss-research.md`.
-- **If the owner picks B later:** supersede this ADR with a new one. **Kept unchanged:** T1, T1b,
-  T2, T4 and T8. These are the tasks "Autonomy classification" lets start before the answer, and
+- **If the owner picks B later:** supersede this ADR with a new one. **Kept unchanged:** T1 (with
+  T1b folded in), T2, T4 and T8. These are the tasks "Autonomy classification" lets start before the answer, and
   each is needed under either option. The indexes remain a valid backstop, and the registry, the due
   policy and the host state are pg-boss-independent. T6's transport wiring is also unchanged in
   substance. **Changed:** T3 and T7, which are built on the ledger; T9, which calls ledger
   functions; and T5, whose cron would call `send`. B's production DDL path is the five steps in
   "Option B", and choosing it is an A3 decision.
-- **Per-task rollback** belongs to each task's PR. T1's migration is additive: dropping the two
-  indexes and the column restores today's schema, through the same `deploy.yml` path. T1b reverts by
-  restoring T1's column type and backfill. T8 reverts by dropping `job_source_hosts` and
-  `job_sources.host_key`. T9 adds no DDL; its audit rows, if a table, revert with T9's own PR.
+- **Per-task rollback** belongs to each task's PR. T1's combined migration (T1b folded in)
+  is additive: dropping its two indexes and its column restores today's schema, through the same
+  `deploy.yml` path. T8 reverts by dropping `job_source_hosts` and `job_sources.host_key`. T9 adds no
+  DDL and no table (round 5, CONTRA-2); reverting its PR removes two endpoints, and any
+  `RESET_FAILURES` entries already written stay as history.
 
 ## Verification
 
