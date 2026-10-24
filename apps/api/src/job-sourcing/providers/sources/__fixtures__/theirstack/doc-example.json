@@ -1,0 +1,46 @@
+{
+  "metadata": {
+    "total_results": null,
+    "total_companies": null,
+    "truncated_results": 0,
+    "truncated_companies": 0
+  },
+  "data": [
+    {
+      "id": 7001001,
+      "job_title": "Senior Platform Engineer",
+      "url": "https://boards.example-ats.test/example-co/7001001",
+      "final_url": "https://example-co.test/careers/platform-engineer",
+      "source_url": "https://www.example-board.test/jobs/view/7001001",
+      "date_posted": "2026-10-21",
+      "discovered_at": "2026-10-21T10:11:12.000Z",
+      "company": "Example Co",
+      "company_domain": "example-co.test",
+      "remote": true,
+      "hybrid": false,
+      "location": "Berlin, Germany",
+      "country_code": "DE",
+      "seniority": "senior",
+      "employment_statuses": ["full_time"],
+      "description": "Run the platform that runs the platform."
+    },
+    {
+      "id": 7001002,
+      "job_title": "Staff Backend Engineer",
+      "url": "https://boards.example-ats.test/example-labs/7001002",
+      "final_url": null,
+      "source_url": "https://www.example-board.test/jobs/view/7001002",
+      "date_posted": "2026-10-20",
+      "discovered_at": "2026-10-20T07:00:00.000Z",
+      "company": "Example Labs",
+      "company_domain": "example-labs.test",
+      "remote": null,
+      "hybrid": true,
+      "location": null,
+      "country_code": "PT",
+      "seniority": "staff",
+      "employment_statuses": ["contract"],
+      "description": null
+    }
+  ]
+}

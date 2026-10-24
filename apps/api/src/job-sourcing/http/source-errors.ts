@@ -28,3 +28,20 @@ export class SourceRateLimitedError extends JobSourceDeliberateStopError {
     this.name = 'SourceRateLimitedError'
   }
 }
+
+/**
+ * A response larger than the cap the request was allowed. Typed (and not a bare `Error`) so the
+ * collection loop can report it as `PAYLOAD_TOO_LARGE` - the code a reader acts on - instead of as a
+ * network failure. Thrown BEFORE any body reaches a caller: the transport cancels the stream, so
+ * nothing partial is ever returned.
+ */
+export class SourcePayloadTooLargeError extends Error {
+  constructor(
+    readonly host: string,
+    readonly maxBytes: number,
+    detail: string,
+  ) {
+    super(`${host} response too large: ${detail}`)
+    this.name = 'SourcePayloadTooLargeError'
+  }
+}

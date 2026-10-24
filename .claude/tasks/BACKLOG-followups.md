@@ -5688,7 +5688,175 @@ a render loop in a production build; both `fixme` markers are gone and both test
 a test fails if the race returns, since a redirect race fixed by reordering two effects is the kind of
 fix that comes back silently.
 
-## 328. Deferred non-blocking items from the PR #1119 / #1120 / #1122 review rounds (2026-10-24)
+## 328. ~20 trivially-passing "absent" assertions in an already-gated spec (`team.spec.ts`) (2026-10-24)
+
+Found while gating the 54 previously ungated E2E specs (PR #1121). The gating PR fixed this class of
+assertion in the specs it newly gated, and correctly left `team.spec.ts` alone because that spec was
+already gated and rewriting ~20 assertions in it would have ballooned an unrelated diff. So it is a
+real gap with a deliberate reason for not being closed here, which is exactly what belongs in the
+backlog rather than in the PR.
+
+**The defect.** `team.spec.ts` asserts the **absence** of Russian strings that the i18n migration
+removed from the product — among them `Переименовать` (three sites), `Все роли`, `Статистика` /
+`Активность`, `Участники команди` [sic], `Создана`, `Активные проекты`, `Добавить` / `Редактировать`,
+the form placeholders, and `Отмена` / `Сохранить` — roughly 20 in all. An "is absent" assertion for a
+string the product can no longer render **passes without testing anything**: it would pass even if the
+feature it guards were deleted. This is the same class the gating PR fixed elsewhere by asserting
+against the uk catalog or a role-neutral locator instead of a removed Russian literal.
+
+**Why it is worth fixing rather than deleting.** Each assertion was written to check that some control
+is reachable or some text shows for a role; the intent is real, only the anchor is dead. Rewrite each
+to the uk catalog string (or a `data-testid` / role locator), so it fails when the control it names
+disappears. Deleting them would remove the intent with the dead anchor.
+
+**Scope note.** `polish-regressions` deliberately asserts the absence of an _old_ Russian spelling, and
+that one is meaningful — do not sweep it with the rest. Distinguish "absence of a string the product
+replaced with a localised one" (dead) from "absence of a spelling we deliberately removed" (a real
+regression guard).
+
+**Check on closing:** no "is absent" assertion in `team.spec.ts` keys on a Russian product string that
+the uk/en catalog has replaced; each former such assertion now keys on the catalog string or a
+testid, and fails when its control is removed.
+
+## 329. The transaction-date policy is wired into 9 of 13 writers; the remainder needs a committed address (2026-10-24)
+
+PR #1113 ships the server-side transaction-date policy (retro of #809) wired into **9 of 13** writers,
+by a deliberate owner-ratified scope decision: ship what can take the policy now, document the rest as
+not done, split the remainder rather than hold a finance fix for a spec-harness rewrite. This is that
+remainder's durable home — the PR body names it, but a PR body is not where the next person looks, and
+the task files that described it (`task-retro-txdate-policy.md`, `task-retro-business-day-clock.md`)
+are under `.claude/tasks/`, which is **gitignored** and dies with the worktree. (Same lesson as entry
+327: a follow-up recorded only in a gitignored path is not recorded.)
+
+**What remains, by behaviour, not coordinates:**
+
+1. **Four writers do not call the policy** and so accept any client-supplied date:
+   `createExpense`, `createSalary`, `createAdminTransfer` (in `transaction-entry.service.ts`) and
+   `paySalary` (in `salary-payment.service.ts`). They are unwired because their specs mock the
+   `transaction-date.util` **module** seam, so moving the seam means rewriting those specs — a design
+   decision about the seam, which is why it was split out rather than rushed. `createSalary` is also
+   the one `PLANNED` flow and needs its own future-date case, not the same bound as the executed ones.
+2. **AC 2 of the #809 retro is not met:** on-chain-verified flows (`payPayoutRequest`, `submitDeposit`)
+   are **bounded** but still persist the **client-supplied** date rather than the block timestamp,
+   because `DepositVerification` exposes no timestamp and the adapter makes no `eth_getBlockByNumber`
+   call. Taking the date from the verified block is the unfinished half. Until then an invoice for an
+   on-chain-verified transfer can still carry an operator-chosen date within the bound, which is better
+   than unbounded and is not the verified truth.
+3. **CR-809-M-5 is untouched:** whether the NBU rate day should follow the picked settle date or stay
+   on the booking day is a product decision never taken; the rate day currently follows the picker.
+
+**Scoped by the security review of #1113 (2026-10-24), which changes what the remainder must do.**
+Two facts, and the first is reassurance rather than work:
+
+- **The four unwired writers are not a hole today.** All four are privilege-gated — `createExpense`,
+  `createSalary` and `createAdminTransfer` require ADMIN or ACCOUNTANT, `paySalary` requires ADMIN —
+  the year/calendar schema floor still applies, and none of them is invoice-facing. No unprivileged
+  role can inject a date through them. That is why shipping 9 of 13 was defensible rather than
+  reckless: the gap is bounded by the role gate, not merely documented.
+- **But wiring the policy is not sufficient.** The residual at those four is that ADMIN/ACCOUNTANT can
+  still **future-date EXECUTED rows** and **backdate out of window without an audit reason**. So the
+  remainder must do three things, not one: route the four through the shared policy, _block future
+  dates on EXECUTED rows there_, and _capture the audit reason_ on an out-of-window backdate.
+- **AC 2 likewise needs more than the bound.** A bounded-but-client-chosen date on a verified transfer
+  **can misstate the on-chain settlement date on an invoice**, which is a legal document. Closing it
+  means adding the `eth_getBlockByNumber` lookup so the date comes from the verified block, not
+  tightening the bound further.
+
+A fourth, cosmetic: `createSeniorIncome` and `createDropIncome` plumb a `backdateReason` the policy can
+never consume for SENIOR/DROP — dead transport for something nothing reads. (#1113 removes it; noted
+here in case it reappears when the four writers are wired.)
+
+**Check on closing:** all 13 writers resolve their date through the one shared policy (grep the call
+sites); the on-chain flows take their date from the block timestamp, not the client; and the
+`⚠ NOT YET UNIVERSAL` block in `transaction-date-policy.ts` is gone because it has become universal.
+
+## 330. Pushing with `DATABASE_URL=` empty means your integration specs did not run, and nothing says so (2026-10-24)
+
+`git-policy.md` requires feature branches to be pushed as `DATABASE_URL= git push` (the variable
+empty). That rule is right and should stay: without it the pre-push integration specs connect to the
+libpq default — the live `crm_db` — which is how a database once got wiped. The rule's stated purpose
+is data safety and it achieves it.
+
+**The unstated cost: with `DATABASE_URL=` empty the integration specs graceful-skip, so no integration
+spec is ever exercised before a push.** The author gets a green pre-push gate and reads it as "my
+changes pass", when the gate did not run the class of test most likely to catch a cross-service
+regression. Nothing in the rule, the hook output or the gate summary says which tests were skipped or
+why.
+
+**Measured instance (PR #1113, 2026-10-24).** A new server-side upper bound on the transaction date
+was added. The author's pre-push gate was 6/6 green. CI then failed "Integration Tests (Postgres)" at
+**1 failed / 162 passed**: `drop-topup.integration.spec.ts` settles on a next-day fixture and the new
+bound correctly refused it with `FINANCE_TX_DATE_IN_FUTURE`. The merge base was green, so the PR caused
+it, and **the author could not have seen it** — the only place those specs execute is CI.
+
+**Why this is the same family as entry 317 and worse than it looks.** 317 is a filtered run that drops
+integration specs from discovery and still exits 0. This is the same shape reached by a different
+route, and it is _mandated_ rather than accidental: every agent and every contributor follows it on
+every push. So the pre-push gate systematically reports a pass for a test class it never ran, and the
+first signal is a red CI job after the push.
+
+**Candidates, and the first is cheap:**
+
+1. **Make the skip loud.** When the integration specs graceful-skip, print one line naming the count
+   skipped and the reason ("DATABASE_URL empty — integration specs not run"). The information exists
+   at skip time; the author just never sees it. This alone converts a silent pass into an informed one.
+2. **Give the pre-push gate a scratch database** rather than no database: point `DATABASE_URL` at a
+   disposable DB (the `crm_scratch_*` convention already exists and the seed/integration guards
+   already refuse anything that does not look disposable) so the specs actually run and the live DB
+   stays protected. This is the real fix; it costs provisioning in the hook.
+3. **State the cost in `git-policy.md` beside the rule** — one sentence: pushing with `DATABASE_URL=`
+   empty means your integration specs did not run, so CI is the only place they execute. Cheapest of
+   all and stops the misreading even if 1 and 2 are never done.
+
+**Check on closing:** a developer or agent pushing a change that breaks an integration spec either
+sees it fail pre-push, or sees an explicit line saying integration specs were not run — and in neither
+case reads an unqualified green.
+
+## 331. A stale service worker in a reused browser profile silently serves the OLD build to a QA pass (2026-10-24)
+
+Found by the manual-QA re-check on PR #1102. Its first attempts at 320px tested **code that was not in
+the branch** — no date column, and the `salary-parts` query never fired — and the render looked
+plausible rather than broken, so nothing announced the problem.
+
+**The cause.** The Playwright profile held a service worker registered by an **earlier production
+build** on `localhost:3010`. A service worker is scoped to an origin, not to a build, so it survives
+swapping the dev server behind that port and keeps serving its cached app shell. The agent was driving
+a fresh Vite dev server and reading the previous build's UI.
+
+**Why this is the dangerous shape rather than a nuisance.** The failure is a **false negative with a
+plausible surface**: the page renders, the flows click through, and the only symptom is that new UI is
+absent and new network calls do not happen — which reads exactly like "the feature is not working" or,
+worse, like "the feature works and looks like this". A QA pass is the one gate whose whole value is
+seeing the real thing, so an instrument that quietly shows the wrong build defeats it completely. It is
+the same family as a filtered test run reporting green for tests it never executed (entry 317) and a
+figure measured on the wrong Node version: the instrument answered about something other than the
+subject.
+
+**The cheap check, which costs one line before trusting any render:**
+
+```
+navigator.serviceWorker.getRegistrations().then(r => r.length)   // expect 0
+```
+
+Non-zero on a reused profile means unregister and clear caches before believing anything on screen.
+The agent did exactly that, and all of its reported results come from the clean run — which is the only
+reason the verdict is worth anything.
+
+**Why it will recur.** The repository deliberately ships a service worker (there is a `cache` E2E
+project testing it, with `sw-smoke` and `anti-stale` specs), agents reuse ports 3010/3011 constantly,
+and the browser profile is shared across runs. So any agent that previews a production build on a port
+another agent later uses for dev has armed this trap for them.
+
+**Candidates:** have manual-qa assert zero registrations as a precondition of any visual pass and say
+so in its report (cheapest, and it is a precondition like `node -v`); or have the dev-server start
+script unregister service workers for its own origin; or give production previews a different port
+range from dev servers so the origins never collide.
+
+**Check on closing:** a QA pass on a reused profile either reports zero service-worker registrations
+before its first assertion, or states that it unregistered them — and never reports a render without
+one of those two.
+
+## 332. Deferred non-blocking items from the PR #1119 / #1120 / #1122 review rounds (2026-10-24)
 
 These are LOW items the review axes raised on the three Task-3.x adapter PRs and that I (Master) chose not to
 hold a merge for. Each is a sentence or a bounded, non-urgent fix; each has a verification condition so a
@@ -5752,7 +5920,7 @@ reports a confident pass"), filed by a parallel session. The security axis found
 independently; #1119 closed its instance by recording an actual filtered run with the executed count. No new
 entry — 317 holds it, and this line exists so the #1119 provenance points at it.
 
-## 329. Two follow-ups from PR #1122's round-2 review — the next layer of the SmartRecruiters dormancy guard (2026-10-24)
+## 333. Two follow-ups from PR #1122's round-2 review — the next layer of the SmartRecruiters dormancy guard (2026-10-24)
 
 Both found by the code axis on PR #1122 at `b747340c`, both correctly judged non-blocking there, both the
 _next_ layer of a guard that is sound for every path reachable today. Recorded so they are not lost when
@@ -5778,7 +5946,7 @@ that PR merges.
 Both are on the SmartRecruiters path, which cannot run in production until registration (Task 2.5) exists —
 the same keystone every phase-3 adapter waits on.
 
-## 330. The privacy scan's own controls are unguarded by CI, so a later loosening would be caught by nothing (2026-10-24)
+## 334. The privacy scan's own controls are unguarded by CI, so a later loosening would be caught by nothing (2026-10-24)
 
 Raised by the spec axis on PR #1120 at `abc12d1b` as outside its own axis, and it is right that it needs a
 home rather than a verdict.
@@ -5814,5 +5982,5 @@ rather than by an instrument.
 **Check on closing:** a loosening of the slug class, the decode-round cap or `isPlaceholder` fails a check
 in CI without anyone re-reading the spec.
 
-Related: entry 328 (the scan reads delimiters and addresses, not names in free text), and the #1120 history
+Related: entry 332 (the scan reads delimiters and addresses, not names in free text), and the #1120 history
 for what the controls caught.

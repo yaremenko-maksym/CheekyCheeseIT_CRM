@@ -54,12 +54,18 @@ const fullPage = (from: number) =>
 describe('the requests', () => {
   it('asks the global host with mode=json and a page of 50 from skip 0', async () => {
     const { f } = await run(page('spotify-page1'))
+    // EXACT on purpose (see the Greenhouse spec): no extra header on a keyless public board.
     expect(f.sent).toEqual([
       {
         url: 'https://api.lever.co/v0/postings/spotify?mode=json&limit=50&skip=0',
         headers: { accept: 'application/json' },
       },
     ])
+  })
+
+  it('declares no response cap: Lever leaves the transport default (2 MiB) in force', async () => {
+    const { f } = await run(page('spotify-page1'))
+    expect(f.sent[0]).not.toHaveProperty('maxBytes')
   })
 
   it('asks the EU host for an EU board', async () => {

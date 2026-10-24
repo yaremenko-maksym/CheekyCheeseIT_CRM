@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { validateEnv } from './env'
+import { validateEnv, MIN_API_CREDENTIAL_CHARS } from './env'
 
 /**
  * Unit tests for validateEnv:
@@ -779,7 +779,20 @@ describe('validateEnv — vacancy-sourcing quota provider keys (r5 Task 3.5a)', 
   })
 
   it.each(KEYS)('%s set -> kept verbatim', (key) => {
-    expect(validateEnv({ ...BASE_DEV, [key]: 'k-123' })[key]).toBe('k-123')
+    expect(validateEnv({ ...BASE_DEV, [key]: 'k-12345678' })[key]).toBe('k-12345678')
+  })
+
+  // SR-M-3: a key the redactor cannot represent must not be configurable. The floor is 8: AT it
+  // accepted, one character BELOW it refused at boot, and the one-character key that leaked in the
+  // review ('Z') refused.
+  it.each(KEYS)('%s: 8 characters accepted, 7 refused, 1 refused', (key) => {
+    expect(validateEnv({ ...BASE_DEV, [key]: '12345678' })[key]).toBe('12345678')
+    expect(() => validateEnv({ ...BASE_DEV, [key]: '1234567' })).toThrow()
+    expect(() => validateEnv({ ...BASE_DEV, [key]: 'Z' })).toThrow()
+  })
+
+  it('the floor is exported as 8', () => {
+    expect(MIN_API_CREDENTIAL_CHARS).toBe(8)
   })
 
   it('Cloudflare credentials do not configure any quota provider (C-21)', () => {

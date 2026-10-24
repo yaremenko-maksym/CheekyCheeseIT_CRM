@@ -51,12 +51,20 @@ const job = (n: number, extra: Record<string, unknown> = {}) => ({
 describe('the request', () => {
   it('asks the documented endpoint with includeCompensation=true, once, for JSON', async () => {
     const { f } = await run(linear())
+    // EXACT on purpose (see the Greenhouse spec): a keyless public board must not gain a header,
+    // and `maxBytes` is expected here because the cap is pinned as a choice by the next test.
     expect(f.sent).toEqual([
       {
         url: 'https://api.ashbyhq.com/posting-api/job-board/linear?includeCompensation=true',
         headers: { accept: 'application/json' },
+        maxBytes: 10_485_760,
       },
     ])
+  })
+
+  it('declares its 10 MiB response cap on the request, so the transport does not refuse it at 2 MiB', async () => {
+    const { f } = await run(linear())
+    expect(f.sent[0]?.maxBytes).toBe(10_485_760)
   })
 
   it('puts the configured board name in the path and nowhere else', async () => {

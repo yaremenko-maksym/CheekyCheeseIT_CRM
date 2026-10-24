@@ -48,12 +48,22 @@ const job = (id: number, extra: Record<string, unknown> = {}) => ({
 describe('the request', () => {
   it('asks the documented list endpoint with content=true, once, for JSON', async () => {
     const { f } = await run(airbnb())
+    // EXACT on purpose. This board is public and keyless, so the one thing an exact assertion must
+    // catch is a credential (or any other) header appearing on the wire; `toMatchObject` would let
+    // `authorization`, which is on the JSON header allowlist, through. `maxBytes` is in the expected
+    // object because the cap is pinned as a deliberate choice by the test below, not derived here.
     expect(f.sent).toEqual([
       {
         url: 'https://boards-api.greenhouse.io/v1/boards/airbnb/jobs?content=true',
         headers: { accept: 'application/json' },
+        maxBytes: 10_485_760,
       },
     ])
+  })
+
+  it('declares its 10 MiB response cap on the request, so the transport does not refuse it at 2 MiB', async () => {
+    const { f } = await run(airbnb())
+    expect(f.sent[0]?.maxBytes).toBe(10_485_760)
   })
 
   it('puts the configured board token in the path and nowhere else', async () => {

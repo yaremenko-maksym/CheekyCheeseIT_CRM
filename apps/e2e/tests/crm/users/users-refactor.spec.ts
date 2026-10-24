@@ -72,7 +72,9 @@ test.describe('Users page refactor (PR 2)', () => {
       // and in the viewport before dispatching the click.
       // Promise.all ties the waitForURL to the click atomically so Playwright
       // awaits the navigation rather than racing a separate toHaveURL assert.
-      await row.scrollIntoViewIfNeeded()
+      // (No explicit scrollIntoViewIfNeeded: the list re-mounts once its data settles, which
+      // detached the row mid-call — "Element is not attached to the DOM", ~1 run in 8.
+      // `click()` re-resolves the locator and scrolls by itself.)
       await expect(row).toBeVisible()
       await Promise.all([
         page.waitForURL(new RegExp(`/profile/${USERS.senior.id}`)),
@@ -129,6 +131,10 @@ test.describe('Users page refactor (PR 2)', () => {
     test('Create dialog shows all 5 sections', async ({ asAdmin: page }) => {
       const uk = await loadMessages('uk')
       await page.goto('/users')
+      // Let the list settle first: a click/Enter on «Добавить» before the page has finished
+      // loading can be lost (the dialog never opens) — the flake class behind the
+      // «Modal Escape» / TechAutocomplete reds.
+      await expect(page.getByTestId('users-list')).toBeVisible()
       await page.getByTestId('users-create-button').click()
       const dialog = page.getByTestId('user-dialog')
       await expect(dialog).toBeVisible()
@@ -162,6 +168,10 @@ test.describe('Users page refactor (PR 2)', () => {
     }) => {
       const uk = await loadMessages('uk')
       await page.goto('/users')
+      // Let the list settle first: a click/Enter on «Добавить» before the page has finished
+      // loading can be lost (the dialog never opens) — the flake class behind the
+      // «Modal Escape» / TechAutocomplete reds.
+      await expect(page.getByTestId('users-list')).toBeVisible()
       await page.getByTestId('users-create-button').click()
       // Switch role to SENIOR
       await page.getByTestId('user-dialog-role-trigger').click()
@@ -385,6 +395,10 @@ test.describe('Users page refactor (PR 2)', () => {
       asAdmin: page,
     }) => {
       await page.goto('/users')
+      // Let the list settle first: a click/Enter on «Добавить» before the page has finished
+      // loading can be lost (the dialog never opens) — the flake class behind the
+      // «Modal Escape» / TechAutocomplete reds.
+      await expect(page.getByTestId('users-list')).toBeVisible()
       const triggerBtn = page.getByTestId('users-create-button')
       // Use keyboard activation so Radix knows the trigger and can later
       // restore focus on close.
@@ -409,6 +423,10 @@ test.describe('Users page refactor (PR 2)', () => {
       asAdmin: page,
     }) => {
       await page.goto('/users')
+      // Let the list settle first: a click/Enter on «Добавить» before the page has finished
+      // loading can be lost (the dialog never opens) — the flake class behind the
+      // «Modal Escape» / TechAutocomplete reds.
+      await expect(page.getByTestId('users-list')).toBeVisible()
       await page.getByTestId('users-create-button').click()
       await expect(page.getByRole('dialog')).toBeVisible()
 
@@ -457,6 +475,10 @@ test.describe('Users page refactor (PR 2)', () => {
       asAdmin: page,
     }) => {
       await page.goto('/users')
+      // Let the list settle first: a click/Enter on «Добавить» before the page has finished
+      // loading can be lost (the dialog never opens) — the flake class behind the
+      // «Modal Escape» / TechAutocomplete reds.
+      await expect(page.getByTestId('users-list')).toBeVisible()
       await page.getByTestId('users-create-button').click()
       const dialog = page.getByRole('dialog')
       await expect(dialog).toBeVisible()
@@ -487,6 +509,10 @@ test.describe('Users page refactor (PR 2)', () => {
       asAdmin: page,
     }) => {
       await page.goto('/users')
+      // Let the list settle first: a click/Enter on «Добавить» before the page has finished
+      // loading can be lost (the dialog never opens) — the flake class behind the
+      // «Modal Escape» / TechAutocomplete reds.
+      await expect(page.getByTestId('users-list')).toBeVisible()
       await page.getByTestId('users-create-button').click()
       await expect(page.getByRole('dialog')).toBeVisible()
 
@@ -512,6 +538,10 @@ test.describe('Users page refactor (PR 2)', () => {
 
     test('TechAutocomplete: Tab commits the highlighted suggestion', async ({ asAdmin: page }) => {
       await page.goto('/users')
+      // Let the list settle first: a click/Enter on «Добавить» before the page has finished
+      // loading can be lost (the dialog never opens) — the flake class behind the
+      // «Modal Escape» / TechAutocomplete reds.
+      await expect(page.getByTestId('users-list')).toBeVisible()
       await page.getByTestId('users-create-button').click()
       await expect(page.getByRole('dialog')).toBeVisible()
 
@@ -530,6 +560,10 @@ test.describe('Users page refactor (PR 2)', () => {
 
     test('PhoneInput shows inline error on blur for invalid number', async ({ asAdmin: page }) => {
       await page.goto('/users')
+      // Let the list settle first: a click/Enter on «Добавить» before the page has finished
+      // loading can be lost (the dialog never opens) — the flake class behind the
+      // «Modal Escape» / TechAutocomplete reds.
+      await expect(page.getByTestId('users-list')).toBeVisible()
       await page.getByTestId('users-create-button').click()
       await expect(page.getByRole('dialog')).toBeVisible()
 
@@ -562,6 +596,10 @@ test.describe('Users page refactor (PR 2)', () => {
     test('HR add popover opens and lists remaining HRs (ut-16)', async ({ asAdmin: page }) => {
       const uk = await loadMessages('uk')
       await page.goto('/users')
+      // Let the list settle first: a click/Enter on «Добавить» before the page has finished
+      // loading can be lost (the dialog never opens) — the flake class behind the
+      // «Modal Escape» / TechAutocomplete reds.
+      await expect(page.getByTestId('users-list')).toBeVisible()
       await page.getByTestId('users-create-button').click()
       // Switch role to SENIOR to surface HR multiselect.
       await page.getByTestId('user-dialog-role-trigger').click()

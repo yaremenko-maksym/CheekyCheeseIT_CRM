@@ -17,8 +17,9 @@
 import { test, expect, API_RE } from './fixtures'
 import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
-// CRM root, anchored — matches `/` (and `/`) but NOT `/team` etc.
-const CRM_ROOT = /\/?$/
+// CRM root, anchored on the WHOLE url — matches `/` (and `/?x`) but NOT `/team` etc.
+// (a bare `/\/?$/` matches EVERY url, so it asserted nothing).
+const CRM_ROOT = /^https?:\/\/[^/]+\/?(\?.*)?$/
 
 // ── A. Dispatch + hub render ─────────────────────────────────────────────────
 
@@ -26,18 +27,14 @@ test.describe('A. ACCOUNTANT dashboard dispatch', () => {
   test('ACCOUNTANT on /crm sees the accountant hub (not general dashboard)', async ({
     asAccountant: page,
   }) => {
-    const uk = await loadMessages('uk')
     await page.goto('/')
     await expect(page).toHaveURL(CRM_ROOT, { timeout: 8_000 })
 
-    const hub = page.getByTestId('accountant-dashboard-hub')
-    await expect(hub).toBeVisible({ timeout: 8_000 })
-    await expect(hub.getByRole('heading', { level: 1 })).toContainText(
-      assertInCatalog(uk, 'Дашборд'),
-    )
+    // Page-title h1s were removed deliberately — the anchor is the hub's root testid.
+    await expect(page.getByTestId('accountant-dashboard-hub')).toBeVisible({ timeout: 8_000 })
 
     // DROP hub testid must NOT appear for ACCOUNTANT.
-    await expect(page.getByTestId('drop-routing-hub')).toHaveCount(0)
+    await expect(page.getByTestId('drop-dashboard-hub')).toHaveCount(0)
   })
 })
 
@@ -51,16 +48,17 @@ test.describe('B. ACCOUNTANT hub — KPI cards', () => {
     const pending = page.getByTestId('kpi-pending-validation')
     await expect(pending).toBeVisible()
     await expect(pending).toContainText('4')
-    await expect(pending).toContainText('$15,000.00')
+    // Money is locale-formatted (uk: «15 000,00 USD», NBSP thousands separator).
+    await expect(pending).toContainText(/15\s000,00/)
 
     const validated = page.getByTestId('kpi-validated-month')
     await expect(validated).toBeVisible()
     await expect(validated).toContainText('2')
-    await expect(validated).toContainText('$3,500.00')
+    await expect(validated).toContainText(/3\s500,00/)
 
     const paid = page.getByTestId('kpi-paid-month')
     await expect(paid).toBeVisible()
-    await expect(paid).toContainText('$12,000.00')
+    await expect(paid).toContainText(/12\s000,00/)
 
     const recipients = page.getByTestId('kpi-recipient-count')
     await expect(recipients).toBeVisible()
@@ -139,7 +137,7 @@ test.describe('C. ACCOUNTANT hub — validate CTA', () => {
     // AC3: ValidateDialog opens (modal, not navigation to /finance).
     await expect(page.getByTestId('validate-transaction-dialog')).toBeVisible({ timeout: 8_000 })
     // Page URL stays on dashboard — no navigation happened.
-    await expect(page).toHaveURL(/\/dashboard/)
+    await expect(page).toHaveURL(CRM_ROOT)
   })
 })
 

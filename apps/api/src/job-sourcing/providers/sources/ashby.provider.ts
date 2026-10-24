@@ -15,10 +15,10 @@ import { boundedString, dateRaw, optionalString, urlString } from './as'
  * RSS). The 2 MiB default would refuse three of those four, so the cap is raised to 10 MiB, the
  * plan's ceiling for a per-source cap, and the openai board - the only one past it - fails as
  * `PAYLOAD_TOO_LARGE` FOR THAT BOARD, which is the honest answer (a bigger cap is a measurement, not
- * an edit). As for Greenhouse, the same caveat holds: this is the body decoder's cap, and the fetch
- * port carries no per-request byte cap yet; tracked in `.claude/tasks/BACKLOG-followups.md` under
- * the entry titled "An adapter's declared byte cap cannot reach the transport …", see
- * `GREENHOUSE_LIMITS`.
+ * an edit). As for Greenhouse, the same caveat holds: the request now carries this cap in
+ * `FetchRequest.maxBytes`, but it is a declaration, not a guarantee (the transport is not wired to
+ * this adapter yet); see the entry in `.claude/tasks/BACKLOG-followups.md` titled "An adapter's
+ * declared byte cap cannot reach the transport …", and `GREENHOUSE_LIMITS`.
  *
  * - NAMESPACE `ashby:{board}`; `id` (a UUID) is the native id. Ashby treats the board name as
  *   case-insensitive (`LINEAR` answered 200), hence lowercase-only slugs in `ats-config.ts`.
