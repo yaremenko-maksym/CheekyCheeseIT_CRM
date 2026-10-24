@@ -43,11 +43,9 @@ export type RetryAfter =
   { readonly kind: 'DELAY'; readonly seconds: number } | { readonly kind: 'AT'; readonly at: Date }
 
 const DELAY_SECONDS = /^\d{1,12}$/
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 /** RFC 9110 IMF-fixdate, the one HTTP-date form a sender must generate. */
 const IMF_FIXDATE =
-  /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), (\d{2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{4}) (\d{2}):(\d{2}):(\d{2}) GMT$/
+  /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}:\d{2} GMT$/
 
 /**
  * `Retry-After` in its two forms (RFC 9110 §10.2.3): delay-seconds, or an IMF-fixdate. A delay is
@@ -62,20 +60,12 @@ export function parseRetryAfter(raw: unknown): RetryAfter | null {
   if (DELAY_SECONDS.test(value)) {
     return { kind: 'DELAY', seconds: Math.min(Number(value), HOST_BAN_PAUSE_MAX_SECONDS) }
   }
-  const m = IMF_FIXDATE.exec(value)
-  if (m === null) return null
-  const [, dayName, day, month, year, hh, mm, ss] = m as unknown as string[]
-  const at = new Date(
-    Date.UTC(Number(year), MONTHS.indexOf(month!), Number(day), Number(hh), Number(mm), Number(ss)),
-  )
-  // Date.UTC rolls an impossible date or time over (31 Feb -> 3 Mar, 24:00 -> next day): refuse it.
-  const exact =
-    at.getUTCDate() === Number(day) &&
-    at.getUTCHours() === Number(hh) &&
-    at.getUTCMinutes() === Number(mm) &&
-    at.getUTCSeconds() === Number(ss) &&
-    DAYS[at.getUTCDay()] === dayName
-  return exact ? { kind: 'AT', at } : null
+  if (!IMF_FIXDATE.test(value)) return null
+  // `toUTCString` writes exactly an IMF-fixdate. A date the parser rolled over (31 Feb -> 3 Mar,
+  // 24:00 -> the next day), a weekday that does not match, or no date at all ("Invalid Date") does
+  // not round-trip to the same text, and is refused.
+  const at = new Date(Date.parse(value))
+  return at.toUTCString() === value ? { kind: 'AT', at } : null
 }
 
 // ---------------------------------------------------------------------------
@@ -321,8 +311,9 @@ export async function readHostPaused(
 /** The longest interval anyone may set: a year. */
 const MAX_INTERVAL_HOURS = 8760
 
-const validHours = (n: unknown): n is number =>
-  typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= MAX_INTERVAL_HOURS
+// `Number.isInteger` is false for null and for anything that is not a number.
+const validHours = (n: number | null): n is number =>
+  Number.isInteger(n) && (n as number) >= 1 && (n as number) <= MAX_INTERVAL_HOURS
 
 /**
  * The cadence a source actually runs at (T8, #1139 SR-L-3): its stored `min_interval_hours`,

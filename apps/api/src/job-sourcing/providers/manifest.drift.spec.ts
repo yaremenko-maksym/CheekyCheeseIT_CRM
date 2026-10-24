@@ -420,7 +420,17 @@ describe('T8: every reporting source has a host key that scopes what it really r
     expect(rebuilt({ minIntervalHoursFloor: -1 })).toThrow('CADENCE_INVALID')
     expect(rebuilt({ minIntervalHoursFloor: 1.5 })).toThrow('CADENCE_INVALID')
     expect(rebuilt({ minIntervalHoursFloor: 24 })).not.toThrow()
+    // 720 passes the type's floor check; the entry's own 24 h is then refused against it.
+    expect(rebuilt({ minIntervalHoursFloor: 720 })).toThrow(
+      "CADENCE_INVALID: remoteok.api.latest: 24 h is under the 720 h the provider's terms allow",
+    )
     expect(rebuilt({ minIntervalHoursFloor: 0 })).not.toThrow()
+  })
+
+  it('types with no entry yet still name their real host (WorkingNomads, SmartRecruiters)', () => {
+    const keyOf = (type: string) => MANIFEST_DEFINITIONS.find((d) => d.type === type)!.hostKey!({})
+    expect(keyOf('WORKINGNOMADS_API')).toBe('www.workingnomads.com')
+    expect(keyOf('SMARTRECRUITERS_ATS')).toBe('api.smartrecruiters.com')
   })
 
   it('a non-reporting type needs no key: DOU stays outside the ledger', () => {

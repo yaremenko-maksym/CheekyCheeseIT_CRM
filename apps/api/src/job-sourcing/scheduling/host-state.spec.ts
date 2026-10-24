@@ -86,6 +86,21 @@ describe('parseRetryAfter', () => {
     }
   })
 
+  it('reads every month and every weekday', () => {
+    for (let month = 0; month < 12; month += 1) {
+      for (const day of [1, 2, 3, 4, 5, 6, 7]) {
+        const at = new Date(Date.UTC(2027, month, day, 9, 5, 7))
+        expect(parseRetryAfter(at.toUTCString()), at.toUTCString()).toEqual({ kind: 'AT', at })
+      }
+    }
+  })
+
+  it('ignores a date the parser would roll over, even with the weekday of the rolled date', () => {
+    // 31 Feb 2026 rolls to Tue 3 Mar; 24:00 on Wed 21 Oct rolls to Thu 22 Oct.
+    expect(parseRetryAfter('Tue, 31 Feb 2026 07:28:00 GMT')).toBeNull()
+    expect(parseRetryAfter('Thu, 21 Oct 2026 24:00:00 GMT')).toBeNull()
+  })
+
   it('ignores a date that does not exist or whose weekday is wrong', () => {
     expect(parseRetryAfter('Sat, 31 Feb 2026 07:28:00 GMT')).toBeNull()
     expect(parseRetryAfter('Thu, 21 Oct 2026 07:28:00 GMT')).toBeNull()
@@ -121,16 +136,15 @@ describe('banTargetOf (SR-M-24)', () => {
 describe('hostBanStatement', () => {
   it('pins the statement: capped, never shorter than a day or the floor, monotone, same-source no-op', () => {
     const q = render(hostBanStatement(ban({ retryAfter: '7200', floorHours: 6 })))
-    expect(q.sql).toMatchInlineSnapshot(`
-      "INSERT INTO job_source_hosts AS h (host_key, paused_until, pause_reason, pause_source_id)
-      VALUES ($1, LEAST(clock_timestamp() + make_interval(hours => $2), GREATEST(clock_timestamp() + make_interval(hours => $3), clock_timestamp() + make_interval(secs => $4))), $5, $6::uuid)
-      ON CONFLICT (host_key) DO UPDATE SET
-        paused_until = GREATEST(h.paused_until, EXCLUDED.paused_until),
-        pause_reason = CASE WHEN EXCLUDED.paused_until > COALESCE(h.paused_until, '-infinity') THEN EXCLUDED.pause_reason ELSE h.pause_reason END,
-        pause_source_id = CASE WHEN EXCLUDED.paused_until > COALESCE(h.paused_until, '-infinity') THEN EXCLUDED.pause_source_id ELSE h.pause_source_id END
-      WHERE h.paused_until IS NULL OR h.paused_until <= clock_timestamp() OR h.pause_source_id IS DISTINCT FROM EXCLUDED.pause_source_id
-      RETURNING 1 AS applied"
-    `)
+    expect(q.sql)
+      .toBe(`INSERT INTO job_source_hosts AS h (host_key, paused_until, pause_reason, pause_source_id)
+VALUES ($1, LEAST(clock_timestamp() + make_interval(hours => $2), GREATEST(clock_timestamp() + make_interval(hours => $3), clock_timestamp() + make_interval(secs => $4))), $5, $6::uuid)
+ON CONFLICT (host_key) DO UPDATE SET
+  paused_until = GREATEST(h.paused_until, EXCLUDED.paused_until),
+  pause_reason = CASE WHEN EXCLUDED.paused_until > COALESCE(h.paused_until, '-infinity') THEN EXCLUDED.pause_reason ELSE h.pause_reason END,
+  pause_source_id = CASE WHEN EXCLUDED.paused_until > COALESCE(h.paused_until, '-infinity') THEN EXCLUDED.pause_source_id ELSE h.pause_source_id END
+WHERE h.paused_until IS NULL OR h.paused_until <= clock_timestamp() OR h.pause_source_id IS DISTINCT FROM EXCLUDED.pause_source_id
+RETURNING 1 AS applied`)
     expect(q.params).toEqual(['remotive.com', 720, 24, 7200, 'HTTP_429', SOURCE])
   })
 
@@ -376,6 +390,14 @@ describe('claimHostSlot (against a scripted executor)', () => {
     expect(params[2]).toEqual([0, 0, 'api.lever.co'])
   })
 
+  it('accepts the smallest usable rate: one claim a minute, one a day', async () => {
+    const { tx, params } = scripted([[], [{}], [open], [{ claims: 0 }], []])
+    expect(
+      await claimHostSlot(tx, 'remotive.com', { rate: { perMinute: 1, perDay: 1 }, floorHours: 0 }),
+    ).toEqual({ granted: true })
+    expect(params[2]).toEqual([60_000, 60_000, 'remotive.com'])
+  })
+
   it('the gap is 60 s divided by perMinute, rounded up', async () => {
     const { tx, params } = scripted([[], [{}], [{ ...open, in_gap: true }]])
     await claimHostSlot(tx, 'remotive.com', { rate: { perMinute: 7, perDay: 4 }, floorHours: 0 })
@@ -441,37 +463,35 @@ describe('claimHostSlot (against a scripted executor)', () => {
   })
 
   it('pins the statements', () => {
-    expect(render(hostSlotStatements.ensureRow('a.b')).sql).toMatchInlineSnapshot(
-      `"INSERT INTO job_source_hosts (host_key) VALUES ($1) ON CONFLICT (host_key) DO NOTHING"`,
+    expect(render(hostSlotStatements.ensureRow('a.b')).sql).toBe(
+      'INSERT INTO job_source_hosts (host_key) VALUES ($1) ON CONFLICT (host_key) DO NOTHING',
     )
-    expect(render(hostSlotStatements.lock('a.b')).sql).toMatchInlineSnapshot(
-      `"SELECT 1 FROM job_source_hosts WHERE host_key = $1 FOR UPDATE"`,
+    expect(render(hostSlotStatements.lock('a.b')).sql).toBe(
+      'SELECT 1 FROM job_source_hosts WHERE host_key = $1 FOR UPDATE',
     )
-    expect(render(hostSlotStatements.read('a.b', 30_000)).sql).toMatchInlineSnapshot(`
-      "SELECT COALESCE(h.paused_until > clock_timestamp(), false) AS paused, h.paused_until,
-        EXISTS (SELECT 1 FROM job_collection_runs r JOIN job_sources s ON s.id = r.source_id
-                WHERE s.host_key = h.host_key AND r.outcome = 'STARTED') AS busy,
-        COALESCE(h.last_claimed_at + make_interval(secs => $1 / 1000.0) > clock_timestamp(), false) AS in_gap,
-        h.last_claimed_at + make_interval(secs => $2 / 1000.0) AS gap_ends_at
-      FROM job_source_hosts h WHERE h.host_key = $3"
-    `)
-    expect(render(hostSlotStatements.daily('a.b', 4)).sql).toMatchInlineSnapshot(`
-      "WITH w AS (SELECT r.started_at FROM job_collection_runs r JOIN job_sources s ON s.id = r.source_id
-                 WHERE s.host_key = $1 AND r.started_at > clock_timestamp() - interval '24 hours')
-      SELECT (SELECT count(*) FROM w)::int AS claims,
-        (SELECT started_at + interval '24 hours' FROM w ORDER BY started_at
-          OFFSET GREATEST((SELECT count(*) FROM w) - $2, 0) LIMIT 1) AS opens_at"
-    `)
-    expect(render(hostSlotStatements.stamp('a.b')).sql).toMatchInlineSnapshot(
-      `"UPDATE job_source_hosts SET last_claimed_at = clock_timestamp() WHERE host_key = $1"`,
+    expect(render(hostSlotStatements.read('a.b', 30_000)).sql)
+      .toBe(`SELECT COALESCE(h.paused_until > clock_timestamp(), false) AS paused, h.paused_until,
+  EXISTS (SELECT 1 FROM job_collection_runs r JOIN job_sources s ON s.id = r.source_id
+          WHERE s.host_key = h.host_key AND r.outcome = 'STARTED') AS busy,
+  COALESCE(h.last_claimed_at + make_interval(secs => $1 / 1000.0) > clock_timestamp(), false) AS in_gap,
+  h.last_claimed_at + make_interval(secs => $2 / 1000.0) AS gap_ends_at
+FROM job_source_hosts h WHERE h.host_key = $3`)
+    expect(render(hostSlotStatements.daily('a.b', 4)).sql)
+      .toBe(`WITH w AS (SELECT r.started_at FROM job_collection_runs r JOIN job_sources s ON s.id = r.source_id
+           WHERE s.host_key = $1 AND r.started_at > clock_timestamp() - interval '24 hours')
+SELECT (SELECT count(*) FROM w)::int AS claims,
+  (SELECT started_at + interval '24 hours' FROM w ORDER BY started_at
+    OFFSET GREATEST((SELECT count(*) FROM w) - $2, 0) LIMIT 1) AS opens_at`)
+    expect(render(hostSlotStatements.stamp('a.b')).sql).toBe(
+      'UPDATE job_source_hosts SET last_claimed_at = clock_timestamp() WHERE host_key = $1',
     )
   })
 })
 
 describe('hostOpenPredicate and readHostPaused', () => {
   it('tests the NULL key FIRST, then a non-expired pause on the database clock', () => {
-    expect(render(hostOpenPredicate()).sql).toMatchInlineSnapshot(
-      `"("job_sources"."host_key" IS NOT NULL AND NOT EXISTS (SELECT 1 FROM job_source_hosts h WHERE h.host_key = "job_sources"."host_key" AND h.paused_until > clock_timestamp()))"`,
+    expect(render(hostOpenPredicate()).sql).toBe(
+      '("job_sources"."host_key" IS NOT NULL AND NOT EXISTS (SELECT 1 FROM job_source_hosts h WHERE h.host_key = "job_sources"."host_key" AND h.paused_until > clock_timestamp()))',
     )
   })
 
@@ -497,8 +517,8 @@ describe('hostOpenPredicate and readHostPaused', () => {
     ])
     const q = render(seen!)
     expect(q.params).toEqual(['a', 'b', 'c'])
-    expect(q.sql).toMatchInlineSnapshot(
-      `"SELECT "job_sources"."id" AS id, NOT ("job_sources"."host_key" IS NOT NULL AND NOT EXISTS (SELECT 1 FROM job_source_hosts h WHERE h.host_key = "job_sources"."host_key" AND h.paused_until > clock_timestamp())) AS paused FROM "job_sources" WHERE "job_sources"."id" IN ($1, $2, $3)"`,
+    expect(q.sql).toBe(
+      'SELECT "job_sources"."id" AS id, NOT ("job_sources"."host_key" IS NOT NULL AND NOT EXISTS (SELECT 1 FROM job_source_hosts h WHERE h.host_key = "job_sources"."host_key" AND h.paused_until > clock_timestamp())) AS paused FROM "job_sources" WHERE "job_sources"."id" IN ($1, $2, $3)',
     )
   })
 
