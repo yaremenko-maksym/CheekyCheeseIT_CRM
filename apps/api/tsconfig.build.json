@@ -6,6 +6,7 @@
     "**/*.spec.ts",
     "**/*.test.ts",
     "**/__test-helpers__/**",
-    "src/database/privileges/cluster-acl-snapshot.ts"
+    "src/database/privileges/cluster-acl-snapshot.ts",
+    "src/job-sourcing/providers/manifest*.ts"
   ]
 }

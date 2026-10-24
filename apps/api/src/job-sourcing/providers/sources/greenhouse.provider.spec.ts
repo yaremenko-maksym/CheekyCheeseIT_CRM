@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { fakeCollectionContext } from '../../../test/fake-collection-context'
+import { readProvenance } from '../../../test/fixture-provenance'
 import { sourceFixture, sourceFixtureText } from '../../../test/source-fixtures'
 import { ORIGINAL_LIMITS } from '../../normalize/observation'
+import { ownershipCountOf } from '../manifest'
 import { boardVerdictOf } from './ats-config'
 import { decodeEscapedOnce, GREENHOUSE_LIMITS, greenhouseProvider } from './greenhouse.provider'
 
@@ -12,7 +14,16 @@ import { decodeEscapedOnce, GREENHOUSE_LIMITS, greenhouseProvider } from './gree
  */
 
 const NOW = new Date('2026-10-24T04:00:00Z')
-const AIRBNB = { name: 'Airbnb', evidence: 'company_name is "Airbnb" on 191 of 191 jobs' }
+/** The count is READ from the provenance notes (backlog 285), not kept here as a second copy. */
+const countOf = (dir: string, file: string) => {
+  const c = ownershipCountOf(readProvenance(dir, `${file}.provenance.json`).notes)
+  if (c === null) throw new Error(`${dir}/${file}: no ownership count in the provenance notes`)
+  return `${c.matched} of ${c.total}`
+}
+const AIRBNB = {
+  name: 'Airbnb',
+  evidence: `company_name is "Airbnb" on ${countOf('greenhouse', 'airbnb-board')} jobs`,
+}
 
 const cfg = (board = 'airbnb', extra: Record<string, unknown> = {}) =>
   greenhouseProvider.parseConfig({ configVersion: 1, board, ...extra })

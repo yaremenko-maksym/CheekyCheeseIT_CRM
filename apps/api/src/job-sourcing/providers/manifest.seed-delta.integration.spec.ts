@@ -247,6 +247,30 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
     expect(await snapshot()).toEqual(settled)
   })
 
+  it('a board revision moves the derived namespace with it, so the row still equals the manifest', async () => {
+    await applySeedThenDelta()
+    const before = (await byManifestId('lever.board.spotify'))!
+    expect(before['namespace']).toBe('lever:global:spotify')
+    const revised = reviseSpotifyToEu()
+    await client.query(generateSeedDelta(revised))
+    const row = (await byManifestId('lever.board.spotify'))!
+    const entry = revised.entries.find((e) => e.id === 'lever.board.spotify')!
+    expect(entry.namespace).toBe('lever:eu:spotify')
+    expect([
+      row['namespace'],
+      row['config_version'],
+      (row['config'] as { region: string }).region,
+    ]).toEqual(['lever:eu:spotify', 2, 'eu'])
+  })
+
+  it('an unmanaged row with the same (type, config) as a new entry is a loud failure, not a silent skip', async () => {
+    await client.query(LEGACY_SEED)
+    await client.query(
+      `INSERT INTO job_sources (type, config) VALUES ('HIMALAYAS_API', '{}'::jsonb)`,
+    )
+    await expect(client.query(DELTA)).rejects.toThrow(/himalayas\.api\.browse/)
+  })
+
   it('the committed file, when present, is what the generator produces (drift)', async () => {
     const { manual, staged } = seedDeltaLocations(DRIZZLE)
     const committed = readFileSync(existsSync(manual) ? manual : staged, 'utf8')
@@ -254,6 +278,26 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
     expect(SEED_DELTA_FILE).toMatch(/\.sql$/)
   })
 })
+
+/** The manifest with Spotify's board moved to the EU host: the config changes, and so does the namespace. */
+function reviseSpotifyToEu(): Manifest {
+  return buildManifest({
+    definitions: MANIFEST_DEFINITIONS.map((d) =>
+      d.type !== 'LEVER_ATS'
+        ? d
+        : {
+            ...d,
+            entries: d.entries.map((e) =>
+              e.id === 'lever.board.spotify'
+                ? { ...e, config: { board: 'spotify', region: 'eu' }, configVersion: 2 }
+                : e,
+            ),
+          },
+    ),
+    adapters: MANIFEST_VALIDATION_ADAPTERS,
+    fixtureRoot: FIXTURE_ROOT,
+  })
+}
 
 /** The manifest with Remotive's `data` entry revised: new config, config_version 2. */
 function reviseRemotiveData(): Manifest {

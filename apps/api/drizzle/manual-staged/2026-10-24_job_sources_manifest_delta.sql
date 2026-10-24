@@ -6,7 +6,12 @@
 -- fixtures' provenance. DO NOT EDIT BY HAND: `pnpm --filter @crm/api job-sources:manifest:generate` rewrites it, and
 -- manifest.drift.spec.ts fails when this file differs from what the generator produces.
 --
--- Apply AFTER 2026-10-05_vacancy_sources_seed.sql (it claims the rows that file inserted).
+-- APPLY ORDER (load-bearing). Apply AFTER 2026-10-17_job_opportunities_store.sql: that migration ADDS
+-- job_sources.manifest_id, namespace, config_version, readiness and readiness_reason, which this file
+-- writes, and it runs AFTER 2026-10-05_vacancy_sources_seed.sql in scripts/devops/deploy-stack-on-vps.sh
+-- (the real apply order; deploy.yml only copies the files). Placed straight after the 2026-10-05 seed
+-- it dies on: column "manifest_id" does not exist. It also claims the rows that seed inserted, so it
+-- must come after the seed too.
 -- Both 2026-10-05 files are immutable; this is the forward delta that supersedes the "append
 -- rows to this file" note in the seed header.
 --
@@ -19,10 +24,13 @@
 --
 -- Idempotent and safe to re-run on every deploy:
 --   1. claim      - gives the 2026-10-05 rows their manifest_id (only rows that have none)
---   2. revise     - a LOWER config_version is raised to the manifest's, which starts a new
---                   checkpoint scope (a checkpoint belongs to its config version)
+--   2. revise     - a LOWER config_version is raised to the manifest's (config, namespace and
+--                   versions with it), which starts a new checkpoint scope (a checkpoint
+--                   belongs to its config version)
 --   3. insert     - rows the seed never held; ON CONFLICT DO NOTHING, so a row an admin has
 --                   enabled, paused, retired or re-budgeted is never reset or re-added
+--   3b. verify    - RAISES when an entry still has no row (an unmanaged row of the same
+--                   (type, config) swallowed the insert), so the skip is never silent
 --   4. block      - rows of a not-ready type that no entry claimed
 -- No job_account_meters row is created: a rolling meter needs the provider's billing-window
 -- start, which nobody holds for a key nobody has.
@@ -126,6 +134,7 @@ WHERE m.legacy
 -- 2. revise: a config revision raises config_version, so the old checkpoints stop applying.
 UPDATE job_sources s
 SET config           = m.config,
+    namespace        = m.namespace,
     config_version   = m.config_version,
     manifest_version = m.manifest_version,
     policy_version   = m.policy_version,
@@ -146,6 +155,23 @@ SELECT m.type::job_source_type, m.config, false, 'SCHEDULED'::job_source_trigger
 FROM _jsm_sources m
 ORDER BY m.manifest_id
 ON CONFLICT DO NOTHING;
+
+-- 3b. verify: every manifest entry must now be a row. A hand-made row with the same (type, config) and
+-- no manifest_id makes step 3 a silent no-op for that entry; say so instead of leaving an entry the
+-- manifest describes and the database does not hold.
+DO $$
+DECLARE
+  missing text;
+BEGIN
+  SELECT string_agg(m.manifest_id, ', ' ORDER BY m.manifest_id)
+    INTO missing
+    FROM _jsm_sources m
+   WHERE NOT EXISTS (SELECT 1 FROM job_sources s WHERE s.manifest_id = m.manifest_id);
+  IF missing IS NOT NULL THEN
+    RAISE EXCEPTION 'manifest entries with no job_sources row (an unmanaged row with the same (type, config) already exists; claim or retire it by hand): %', missing;
+  END IF;
+END
+$$;
 
 -- 4. block: a row of a not-ready type that no manifest entry claimed must not read as a candidate.
 UPDATE job_sources s

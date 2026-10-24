@@ -1265,6 +1265,35 @@ describe('cadence', () => {
   })
 })
 
+describe('the manifest stays out of the production build', () => {
+  const SRC = join(__dirname, '..', '..')
+  const sources = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+      const p = join(dir, e.name)
+      if (e.isDirectory()) return e.name === 'node_modules' ? [] : sources(p)
+      return p.endsWith('.ts') ? [p] : []
+    })
+  const isTest = (p: string) =>
+    /\.(spec|test)\.ts$/.test(p) || p.includes(`${join('src', 'test')}/`)
+  const isManifest = (p: string) => /providers\/manifest[^/]*\.ts$/.test(p)
+
+  it('the build tsconfig excludes every manifest module, so none of it (nor the test helper it reads) is compiled into dist', () => {
+    const build = JSON.parse(readFileSync(join(SRC, '..', 'tsconfig.build.json'), 'utf8')) as {
+      exclude: string[]
+    }
+    expect(build.exclude).toContain('src/job-sourcing/providers/manifest*.ts')
+  })
+
+  it('no production source file anywhere in src imports a manifest module', () => {
+    const all = sources(SRC)
+    expect(all.filter(isManifest).length).toBeGreaterThanOrEqual(6)
+    const importers = all
+      .filter((p) => !isTest(p) && !isManifest(p))
+      .filter((p) => /from\s+'[^']*\/manifest(\.[a-z-]+)?'/.test(readFileSync(p, 'utf8')))
+    expect(importers).toEqual([])
+  })
+})
+
 describe('the manifest is not a registry', () => {
   it('makes no source runnable: no module, service or cron imports the manifest or its adapter map', () => {
     const root = join(__dirname, '..')

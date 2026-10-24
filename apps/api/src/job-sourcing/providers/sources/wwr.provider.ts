@@ -10,7 +10,7 @@ import { defineRssProvider, type RssSourceSpec } from '../rss.provider'
  * FEEDS. The all-jobs feed (`/remote-jobs.rss`) and the category feeds
  * (`/categories/<slug>.rss`). The category is a closed enum of the four feeds that were fetched and
  * found live. A slug that does not exist is not a 404: the site answers 403 with a Cloudflare "Just a
- * moment..." interstitial (captured as `unknown-category.challenge-403.html`), so a guessed slug would
+ * moment..." interstitial (captured as `unknown-category.challenge-403.html.txt`), so a guessed slug would
  * cost a challenge against our own address. The legacy `remote-programming-jobs.rss` is left out: it
  * answered 200 with 25 items, no `expires_at` and nothing newer than 2026-10-05 while its siblings had
  * items from the day of the fetch.

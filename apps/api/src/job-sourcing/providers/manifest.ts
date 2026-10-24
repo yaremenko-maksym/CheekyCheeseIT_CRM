@@ -394,6 +394,11 @@ export interface ManifestType {
   readonly disposition: DispositionDefinition
   readonly fixtures: readonly FixtureRecord[]
   readonly permission: Permission | null
+  /**
+   * The terms URL and the date it was read. No hash of its own: the provenance file that states
+   * them IS the hashed reference (`provenanceSha256` on each fixture record), so a hash here would
+   * be a second copy of one fact.
+   */
   readonly policyRefs: readonly {
     readonly termsUrl: string
     readonly termsCheckedAt: string | null

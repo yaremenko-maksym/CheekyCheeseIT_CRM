@@ -162,7 +162,7 @@ describe('the generated seed delta', () => {
   it('never deletes or truncates, never owns its transaction, and never names the live database', () => {
     const sql = generateSeedDelta(manifest)
     expect(sql).not.toMatch(/\b(DELETE\s+FROM|TRUNCATE)\b/i)
-    expect(sql).not.toMatch(/^\s*(BEGIN|COMMIT|ROLLBACK)\b/im)
+    expect(sql).not.toMatch(/^\s*(BEGIN|COMMIT|ROLLBACK)\s*;/im)
     expect(sql).not.toMatch(/crm_db/)
     // The only tables it drops are its own temporaries.
     const drops = [...sql.matchAll(/DROP TABLE (?:IF EXISTS )?(\S+?);/g)].map((m) => m[1])
