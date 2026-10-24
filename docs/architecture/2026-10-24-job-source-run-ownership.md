@@ -492,13 +492,13 @@ corrective, in `public`, changes no privilege, and goes through `deploy.yml`.
 the free slots, never more. `N`, `L`, the heartbeat interval and the per-run deadline are config
 values with ceilings, frozen after MP-05.
 
-**Cost of A** (estimate, not measured; revised in round 4). The ledger, `recoverRun` and the host
-state are together about 700–1,000 lines, plus real-Postgres specs. Four review rounds grew it from
-a first estimate of 300–450, and the growth is the honest measure of the problem's size. The
+**Cost of A** (estimate, not measured; revised in rounds 4–5). The ledger, the end-of-run settlement and the host
+state are together about 600–900 lines, plus real-Postgres specs. Four review rounds grew it from
+a first estimate of 300–450, and round 5 cut it back by deleting mechanisms. The
 arithmetic A owns:
 
 - the lease predicate and the epoch increment;
-- the recovery and `finish` settlements;
+- the end-of-run settlement (`finish`, recovery, sweep);
 - the refusal write-back and the failure-accounting table;
 - the checkpoint-copy rule;
 - the due-time computation (cooldown, cadence, readiness).
@@ -568,7 +568,7 @@ active job returns `null` and leaves exactly one job. A `send` that throws is an
 that source alone; it must not abort the cycle (C-23).
 
 **What pg-boss does not give.** It does not recover our meter reservations (`RESERVED → RELEASED`,
-`SENT → UNCERTAIN`), and it does not resolve `UNCERTAIN` holds. It does not evaluate readiness through `readinessAt`, cooldown, cadence,
+`SENT`, `UNCERTAIN` → `USED` at the end of a run). It does not evaluate readiness through `readinessAt`, cooldown, cadence,
 `min_interval_hours`, or the host-level stop-on-ban across sources. It provides no epoch check on
 our writes, and it does not keep `job_sources` state (last success versus last non-empty). All of
 that is hand-written under either option.
@@ -680,7 +680,7 @@ ownership. Also reopen if `apps/api` moves to `module: node16`.
   ceilings**, frozen after MP-05, as the plan requires.
 - **A single API process** is today's deployment. The design does not assume one: two processes
   claiming concurrently is the first case in T3's spec (replica overlap, from the plan's test list).
-- **Cost:** about 700–1,000 lines of ledger, recovery and host-state code (estimate, revised in round 4; see "Cost of A"). In exchange there is no external schema to
+- **Cost:** about 600–900 lines of ledger, settlement and host-state code (estimate, revised in rounds 4–5; see "Cost of A"). In exchange there is no external schema to
   keep in step on every upgrade.
 
 ## Decomposition of Task 2.5
@@ -1110,7 +1110,7 @@ UPDATE`. Under `READ COMMITTED`, a second claimer's conflicting insert waits on 
 - **Carries:** every port backed in production:
   - `run`, with the ledger's owner and epoch;
   - `meter` = `createAccountMeter`, bound with the owner token and with the **`account_key` read from
-    the claimed run row, never recomputed from the source** (round 4, SR-L-11). `recoverRun`'s
+    the claimed run row, never recomputed from the source** (round 4, SR-L-11). The end-of-run settlement's
     complete-meter-set argument rests on this;
   - `checkpoints.load` returning the checkpoint the claim chose, and `checkpoints.savePage` =
     the ledger's `savePage`;
