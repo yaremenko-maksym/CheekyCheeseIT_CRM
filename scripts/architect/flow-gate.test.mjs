@@ -1407,14 +1407,27 @@ test('SR-M-3: the allowlist is checked against the tree, not invented', () => {
   // subtrees under docs/architecture must still be there — otherwise the dated-file rule is
   // guarding nothing and the next reader cannot tell.
   const here = dirname(fileURLToPath(import.meta.url))
-  const ls = spawnSync('git', ['ls-tree', '-r', '--name-only', 'origin/main'], {
+  // HEAD, not `origin/main`: `actions/checkout` fetches a single ref, so `origin/main` does not
+  // resolve on a runner — this test failed in CI with "Not a valid object name origin/main" while
+  // passing locally. HEAD is also the more correct question, being the tree under judgement.
+  const ls = spawnSync('git', ['ls-tree', '-r', '--name-only', 'HEAD'], {
     cwd: join(here, '..', '..'),
     encoding: 'utf8',
   })
-  assert.equal(ls.status, 0, ls.stderr)
+  // "I could not check the allowlist" and "the allowlist is wrong" are different findings and both
+  // are RED. Skipping on an unreadable tree would report nothing and read as a pass, which is
+  // `verification-integrity.md` form 1 — the defect this whole PR is about.
+  assert.equal(
+    ls.status,
+    0,
+    `COULD NOT READ THE TREE (exit ${ls.status}) — this says nothing about the allowlist: ${ls.stderr}`,
+  )
   const tracked = new Set(ls.stdout.split('\n'))
   const md = [...tracked].filter(isDoc)
-  assert.ok(md.length > 100, `expected the repo's markdown corpus, got ${md.length}`)
+  assert.ok(
+    md.length > 100,
+    `COULD NOT READ THE TREE — only ${md.length} markdown paths came back, so the checks below would pass on an empty answer`,
+  )
   for (const p of ['CLAUDE.md', 'CONTEXT.md', 'README.md', 'docs/business/overview.md'])
     assert.ok(tracked.has(p), `${p} is gone — revisit the allowlist`)
   assert.ok(
