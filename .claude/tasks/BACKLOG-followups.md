@@ -4116,6 +4116,39 @@ Sum: 4+8+1+8+5+6+11+2+7+2+4+8+4+2+3 = **75**.
 
 **Check on closing:** every task and backlog entry above is closed or carries a recorded decision.
 
+### Progress, 2026-10-24 — 23 of the 52 task-bound identifiers closed on `main`
+
+The map above assigns every identifier a destination; this says which destinations have landed. The
+arithmetic is the point, so it is reconciled rather than asserted, and it is derived from merged PRs
+rather than from anyone's recollection:
+
+| Destination                        | PR          | ids | state                            |
+| ---------------------------------- | ----------- | --- | -------------------------------- |
+| `retro-mr-matcher-access`          | #1094       | 4   | merged                           |
+| `retro-mr-webhook-ingest`          | #1097       | 8   | merged                           |
+| `retro-mr-en-catalog`              | #1091       | 1   | merged                           |
+| `retro-salary-form-defaults`       | #1093       | 5   | merged                           |
+| `retro-txdate-reporting`           | #1108       | 2   | merged                           |
+| carried by the collaborator's #868 | #868        | 3   | merged — see the note below      |
+| `retro-salary-ledger-integrity`    | #1102       | 8   | open, `BLOCK`, 13-finding round  |
+| `retro-txdate-policy`              | in progress | 9   | branch `fix/retro-txdate-policy` |
+| `retro-business-day-clock`         | not started | 6   | waits on txdate-policy           |
+| `retro-manual-ddl-coverage`        | not started | 6   | —                                |
+
+Closed: 4 + 8 + 1 + 5 + 2 + 3 = **23**. In flight or pending: 8 + 9 + 6 + 6 = **29**. Sum **52**, which
+matches the task-bound total in the map above (the remaining 23 of the 75 are the 18 deferred to
+backlog 280-283 and the 5 already closed).
+
+**The three ids carried by #868** are `SR-809-M-1` = `CR-809-M-1` (the "payment cannot predate its
+source" check applying only when `txDate` is supplied) and `CR-867-M-1` (`periodToDates` building
+local-midnight keys). The map's header says open PRs #868/#869 were deliberately not counted as
+fixes, which was correct when written — **#868 merged 2026-10-23T20:17:53Z**, so they count now. The
+two task files record the scope change; this row is what keeps the sum reconcilable across it.
+
+**Not a closure:** `retro-txdate-policy`'s and `retro-business-day-clock`'s counts here are 9 and 6,
+not the map's 11 and 7, for exactly that reason. If you reconcile against the map without reading this
+paragraph the sum will look wrong by 3.
+
 ## 280. Meeting-recorder transcripts are kept forever and outlive their interview (2026-10-22)
 
 `MeetingRecorderRetentionCronService` purges only webhook receipts. `interview_recordings.snapshot`
@@ -4545,6 +4578,13 @@ Tried from the orchestrator with the literal path, after the creating agent had 
 so neither the agent that made it nor the only party the rule names as the fallback can clear it, and
 it genuinely falls to the owner. **Measured scale at the time of writing: 16 such checkouts across two
 sessions' scratchpads**, most from reviews closed hours earlier.
+
+**The app's own cleanup cannot reach these (measured 2026-10-24).** The obvious alternative to an
+owner-run command is the desktop app's "Clean up inactive sessions" facility. It qualifies sessions by
+**no activity for at least 30, 60 or 90 days** — those are the only accepted values — so a tree
+stranded today is outside its reach by design, and will stay so for a month. It also cleans
+_session_ worktrees, not the scratchpad checkouts reviewers create. So the escape route is closed from
+a third end as well, and "just use the app's cleanup" is not an answer to this entry.
 
 A related sharp edge found in the same attempt: passing the path through a shell variable gets
 `WORKTREE-OPAQUE` instead, because the hook cannot expand it and refuses rather than guess. That is
