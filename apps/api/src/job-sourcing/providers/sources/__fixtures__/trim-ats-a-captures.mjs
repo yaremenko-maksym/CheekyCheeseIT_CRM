@@ -68,7 +68,10 @@ async function emit(provider, name, rawFile, hdrFile, url, produce, meta) {
         : `node trim-ats-a-captures.mjs (JSON.parse, whole-record selection by ${meta.select}, regex redaction of e-mail addresses and separator-bearing phone numbers inside string values, JSON.stringify, prettier); never a byte cut`,
     termsUrl: meta.termsUrl,
     termsCheckedAt,
-    permission: meta.permission ?? 'PUBLIC_API_DOCUMENTED',
+    // Ashby is UNCLEAR, not PUBLIC_API_DOCUMENTED: the API is documented as public, but its host
+    // gives no robots verdict at all (robots.txt answers 401), and Task 3.7 derives readiness from
+    // this structured field, not from the notes. See the notes of every ashby file.
+    permission: meta.permission ?? (provider === 'ashby' ? 'UNCLEAR' : 'PUBLIC_API_DOCUMENTED'),
     notes: meta.notes,
   }
   writeFileSync(
@@ -237,7 +240,7 @@ await emit(
 // ------------------------------------------------------------------- Ashby
 const AS_TERMS = 'https://developers.ashbyhq.com/docs/public-job-posting-api'
 const asNotes = (extra) =>
-  `${extra} Documented (${AS_TERMS}): a public endpoint with no credentials in the example; the page states no rate limit or terms of use. robots.txt: https://api.ashbyhq.com/robots.txt answers HTTP 401, so NO robots verdict exists for the API host (recorded as such, not as permission). The payload carries NO employer name; employer evidence is the posting text naming the employer. includeCompensation=true was requested; every job carries a compensation object, empty tiers where the employer published none. isListed was true on every one of 1,612 postings across 10 non-empty boards, so no unlisted posting was ever captured. ${REDACTION}`
+  `PERMISSION IS UNCLEAR, NOT DOCUMENTED-PUBLIC: the endpoint is documented without credentials, but https://api.ashbyhq.com/robots.txt answers HTTP 401, so this host states no robots verdict and the permission field must not read stronger than that. ${extra} Documented (${AS_TERMS}): a public endpoint with no credentials in the example; the page states no rate limit or terms of use. robots.txt: https://api.ashbyhq.com/robots.txt answers HTTP 401, so NO robots verdict exists for the API host (recorded as such, not as permission). The payload carries NO employer name; employer evidence is the posting text naming the employer. includeCompensation=true was requested; every job carries a compensation object, empty tiers where the employer published none. isListed was true on every one of 1,612 postings across 10 non-empty boards, so no unlisted posting was ever captured. ${REDACTION}`
 for (const p of [
   {
     name: 'linear-board',

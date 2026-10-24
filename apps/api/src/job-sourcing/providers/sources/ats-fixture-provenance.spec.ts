@@ -68,7 +68,8 @@ describe('ATS A fixture provenance', () => {
       // Equal exactly when nothing was done to the body (a plain-text 404 stored as received).
       expect(p.rawSha256 === p.fileSha256).toBe(p.trimmedBy.startsWith('none:'))
       expect(p.httpStatus).toBe(NOT_FOUND.has(name) ? 404 : 200)
-      expect(p.permission).toBe('PUBLIC_API_DOCUMENTED')
+      // Task 3.7 reads this structured field, not the notes: Ashby's host gives no robots verdict.
+      expect(p.permission).toBe(provider === 'ashby' ? 'UNCLEAR' : 'PUBLIC_API_DOCUMENTED')
       expect(HOSTS[provider]).toContain(new URL(p.url).host)
       // A robots verdict is part of the record, even when the verdict is "none exists".
       expect(p.notes).toMatch(/robots/i)
@@ -99,7 +100,18 @@ describe('ATS A fixture provenance', () => {
   })
 
   it('records the Ashby API host as having NO robots verdict (401), not as permission', () => {
-    expect(load('ashby', 'linear-board').notes).toContain('answers HTTP 401')
+    const p = load('ashby', 'linear-board')
+    expect(p.notes).toContain('answers HTTP 401')
+    expect(p.permission).toBe('UNCLEAR')
+  })
+
+  it('every Ashby file, not only one, carries the UNCLEAR permission and says why', () => {
+    const ashby = fixtures.filter((f) => f.provider === 'ashby')
+    expect(ashby).toHaveLength(4)
+    for (const f of ashby) {
+      const p = load('ashby', f.name)
+      expect([p.permission, p.notes.startsWith('PERMISSION IS UNCLEAR')]).toEqual(['UNCLEAR', true])
+    }
   })
 
   it("records Lever's Crawl-delay: 1, which is longer than the proposed 500 ms gap", () => {

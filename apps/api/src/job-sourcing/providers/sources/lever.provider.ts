@@ -31,7 +31,7 @@ import { boundedString, dateRaw, optionalString, urlString } from './as'
  * - `workplaceType` is mapped from its DOCUMENTED values only: `remote` -> remote, `on-site` and
  *   `hybrid` -> not remote, `unspecified` -> unknown. DRIFT, observed: the live API sends `onsite`
  *   (no hyphen), which the documentation does not list, so it maps to unknown rather than to a
- *   guess; whether to alias it is an owner decision (see the task report).
+ *   guess; whether to alias it is an owner decision (an open question on PR #1117).
  * - DATES: `createdAt` (epoch milliseconds) is the only date. It is observed, NOT in the
  *   documented field list, and it is a creation time, which can precede publication; it is read as
  *   `PUBLISHED` for want of a better-named semantic and a reviewer should know it is a proxy.

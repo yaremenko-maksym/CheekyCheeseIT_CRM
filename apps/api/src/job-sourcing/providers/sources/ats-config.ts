@@ -68,8 +68,11 @@ export const ASHBY_KIND: AtsBoardKind = {
 /**
  * A board slug: lowercase letters and digits, with `-` and `_` allowed after the first character.
  *
- * NOT `slugString` from `as.ts`, deliberately: that one refuses a trailing hyphen, and Lever has a
+ * NOT `slugString` from `as.ts`, deliberately. This pattern relaxes THREE things that one refuses:
+ * a trailing hyphen, consecutive hyphens, and underscores. Only the first is evidenced: Lever has a
  * real site named `quantco-` (HTTP 200; `quantco` without the hyphen is 404, measured 2026-10-24).
+ * The other two are not observed on any board read; they are accepted because the alphabet stays
+ * closed (no separator, dot, percent or `@`), so they add no injection route.
  * Lowercase only because Greenhouse and Ashby treat case as insignificant (`LINEAR` answered 200,
  * measured) - accepting `Linear` and `linear` would give one board two namespaces, so two
  * identities for every vacancy on it. Lever is case-sensitive (`SPOTIFY` is 404), and every site
