@@ -664,7 +664,7 @@ This PR is documentation only.
   `docs/architecture/` are gone and nothing else has changed. To verify, run
   `git show --stat <revert sha>`. It lists exactly `2026-10-24-job-source-run-ownership.md` and
   `2026-10-24-pg-boss-research.md`.
-- **If the owner picks B later:** supersede this ADR with a new one. Only T3 and T7 change. T1's
+- **If the owner picks B later:** supersede this ADR with a new one. T3 and T7 change, and so does T5 (its cron would call `send`). T1's
   indexes remain a valid backstop under B. B's production DDL path is the five steps in
   "Option B", and choosing it is an A3 decision.
 - **Per-task rollback** belongs to each task's PR. T1's migration is additive: dropping the two
