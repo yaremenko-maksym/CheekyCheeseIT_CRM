@@ -5687,3 +5687,33 @@ point. State whether any other role is affected rather than fixing only the JUNI
 a render loop in a production build; both `fixme` markers are gone and both tests are green twice; and
 a test fails if the race returns, since a redirect race fixed by reordering two effects is the kind of
 fix that comes back silently.
+
+## 328. ~20 trivially-passing "absent" assertions in an already-gated spec (`team.spec.ts`) (2026-10-24)
+
+Found while gating the 54 previously ungated E2E specs (PR #1121). The gating PR fixed this class of
+assertion in the specs it newly gated, and correctly left `team.spec.ts` alone because that spec was
+already gated and rewriting ~20 assertions in it would have ballooned an unrelated diff. So it is a
+real gap with a deliberate reason for not being closed here, which is exactly what belongs in the
+backlog rather than in the PR.
+
+**The defect.** `team.spec.ts` asserts the **absence** of Russian strings that the i18n migration
+removed from the product — among them `Переименовать` (three sites), `Все роли`, `Статистика` /
+`Активность`, `Участники команди` [sic], `Создана`, `Активные проекты`, `Добавить` / `Редактировать`,
+the form placeholders, and `Отмена` / `Сохранить` — roughly 20 in all. An "is absent" assertion for a
+string the product can no longer render **passes without testing anything**: it would pass even if the
+feature it guards were deleted. This is the same class the gating PR fixed elsewhere by asserting
+against the uk catalog or a role-neutral locator instead of a removed Russian literal.
+
+**Why it is worth fixing rather than deleting.** Each assertion was written to check that some control
+is reachable or some text shows for a role; the intent is real, only the anchor is dead. Rewrite each
+to the uk catalog string (or a `data-testid` / role locator), so it fails when the control it names
+disappears. Deleting them would remove the intent with the dead anchor.
+
+**Scope note.** `polish-regressions` deliberately asserts the absence of an _old_ Russian spelling, and
+that one is meaningful — do not sweep it with the rest. Distinguish "absence of a string the product
+replaced with a localised one" (dead) from "absence of a spelling we deliberately removed" (a real
+regression guard).
+
+**Check on closing:** no "is absent" assertion in `team.spec.ts` keys on a Russian product string that
+the uk/en catalog has replaced; each former such assertion now keys on the catalog string or a
+testid, and fails when its control is removed.
