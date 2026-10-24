@@ -100,7 +100,6 @@ KNOWN_UNSHARDED = {
     # --- onboarding ---
     # --- payout ---
     # --- phase ---
-    "tests/phase8-payout-company.spec.ts",        # debt: not gated, migrate to finance shard later
     # --- polish ---
     # --- project ---
     # --- rbac ---
