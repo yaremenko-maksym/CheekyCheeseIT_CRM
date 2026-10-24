@@ -3,7 +3,7 @@ lockfileVersion: 5.4
 overrides:
   fastify: ^5.12.5
   find-my-way: '>=9.7.0 <10.0.0'
-  fast-uri: '>=3.1.8 <4.0.0'
+  fast-uri: '>=3.1.9 <4.0.0'
   ws: '>=8.20.1'
   '@xmldom/xmldom': '>=0.8.15 <0.9.0'
   brace-expansion: '>=5.0.12'
@@ -198,7 +198,7 @@ importers:
       eslint: ^10.12.0
       eslint-plugin-testing-library: ^7.16.2
       framer-motion: ^12.43.0
-      happy-dom: 20.9.0
+      happy-dom: 21.0.4
       lucide-react: ^1.52.0
       playwright: ^1.52.0
       react: ^18.3.1
@@ -243,13 +243,13 @@ importers:
       '@vitest/eslint-plugin': 1.6.27_zjx5fkzdmzhuqj2aevf3aqjwpa
       eslint: 10.12.0
       eslint-plugin-testing-library: 7.16.2_pm2q23isa25qegdtp6zqni23fm
-      happy-dom: 20.9.0
+      happy-dom: 21.0.4
       playwright: 1.59.1
       tailwindcss: 4.3.3
       typescript: 5.9.3
       vite: 6.4.4
       vite-tsconfig-paths: 5.1.4_hsxmgd37sll37udgly2smtgvru
-      vitest: 4.1.12_happy-dom@20.9.0
+      vitest: 4.1.12_happy-dom@21.0.4
 
   apps/web:
     specifiers:
@@ -306,7 +306,7 @@ importers:
       eslint: ^10.12.0
       eslint-plugin-testing-library: ^7.16.2
       framer-motion: ^12.43.0
-      happy-dom: 20.9.0
+      happy-dom: 21.0.4
       idb-keyval: ^6.3.0
       jsdom: ^29.1.1
       libphonenumber-js: ^1.13.14
@@ -401,14 +401,14 @@ importers:
       '@vitest/eslint-plugin': 1.6.27_zjx5fkzdmzhuqj2aevf3aqjwpa
       eslint: 10.12.0
       eslint-plugin-testing-library: 7.16.2_pm2q23isa25qegdtp6zqni23fm
-      happy-dom: 20.9.0
+      happy-dom: 21.0.4
       jsdom: 29.1.1
       tailwindcss: 4.3.3
       typescript: 5.9.3
       vite: 6.4.4
       vite-plugin-pwa: 1.3.0_vite@6.4.4
       vite-tsconfig-paths: 5.1.4_hsxmgd37sll37udgly2smtgvru
-      vitest: 4.1.12_536hjtiquj6cg5iarko7a5jrha
+      vitest: 4.1.12_nrdqwifc7j2yp5rirjhrmavynq
 
   packages/inference:
     specifiers:
@@ -2810,7 +2810,7 @@ packages:
     dependencies:
       ajv: 8.20.0
       ajv-formats: 3.0.1
-      fast-uri: 3.1.8
+      fast-uri: 3.1.9
     dev: false
 
   /@fastify/busboy/3.2.2:
@@ -6774,7 +6774,7 @@ packages:
       obug: 2.1.2
       std-env: 4.1.0
       tinyrainbow: 3.1.0
-      vitest: 4.1.12_536hjtiquj6cg5iarko7a5jrha
+      vitest: 4.1.12_nrdqwifc7j2yp5rirjhrmavynq
     dev: true
 
   /@vitest/eslint-plugin/1.6.27_zjx5fkzdmzhuqj2aevf3aqjwpa:
@@ -7072,7 +7072,7 @@ packages:
     resolution: {integrity: sha512-PlXPeEWMXMZ7sPYOHqmDyCJzcfNrUr3fGNKtezX14ykXOEIvyK81d+qydx89KY5O71FKMPaQ2vBfBFI5NHR63A==}
     dependencies:
       fast-deep-equal: 3.1.3
-      fast-uri: 3.1.8
+      fast-uri: 3.1.9
       json-schema-traverse: 1.0.0
       require-from-string: 2.0.2
     dev: true
@@ -7081,7 +7081,7 @@ packages:
     resolution: {integrity: sha512-Thbli+OlOj+iMPYFBVBfJ3OmCAnaSyNn4M1vz9T6Gka5Jt9ba/HIR56joy65tY6kx/FCF5VXNB819Y7/GUrBGA==}
     dependencies:
       fast-deep-equal: 3.1.3
-      fast-uri: 3.1.8
+      fast-uri: 3.1.9
       json-schema-traverse: 1.0.0
       require-from-string: 2.0.2
 
@@ -7396,6 +7396,13 @@ packages:
 
   /buffer-from/1.1.2:
     resolution: {integrity: sha512-E+XQCRwSbaaiChtv6k6Dwgc+bx+Bs6vuKJHHl5kox/BaKbhiXzqQOwK4cO22yElGp2OCmjwVhT3HmxgyPGnJfQ==}
+    dev: true
+
+  /buffer-image-size/0.6.4:
+    resolution: {integrity: sha512-nEh+kZOPY1w+gcCMobZ6ETUp9WfibndnosbpwB1iJk/8Gt5ZF2bhS6+B6bPYz424KtwsR6Rflc3tCz1/ghX2dQ==}
+    engines: {node: '>=4.0'}
+    dependencies:
+      '@types/node': 22.20.5
     dev: true
 
   /buffer/5.7.1:
@@ -8686,7 +8693,7 @@ packages:
       '@fastify/merge-json-schemas': 0.2.1
       ajv: 8.20.0
       ajv-formats: 3.0.1
-      fast-uri: 3.1.8
+      fast-uri: 3.1.9
       json-schema-ref-resolver: 3.0.0
       rfdc: 1.4.1
     dev: false
@@ -8697,7 +8704,7 @@ packages:
       '@fastify/merge-json-schemas': 0.2.1
       ajv: 8.20.0
       ajv-formats: 3.0.1
-      fast-uri: 3.1.8
+      fast-uri: 3.1.9
       json-schema-ref-resolver: 3.0.0
       rfdc: 1.4.1
     dev: false
@@ -8729,8 +8736,8 @@ packages:
       fast-string-truncated-width: 3.0.3
     dev: true
 
-  /fast-uri/3.1.8:
-    resolution: {integrity: sha512-GZMtZUTNRpOVIECoXwLNZS5xUGE+mVNbTB8h/7Rwh2TFWcBQiPzTgyZi05BF9UMZKkLJv8XBRJTlU7zg8+ZfMg==}
+  /fast-uri/3.1.9:
+    resolution: {integrity: sha512-hS/0Wt3Ya043oKXs0sIxrMpKQITXhMLIrVAKKXi4gozGC9v7YRWVnXIZzjNPTO02M9BdxLCWqK1yRXgNziVyJQ==}
 
   /fast-wrap-ansi/0.2.2:
     resolution: {integrity: sha512-7F2Fl+TjRSenLqlU3UjSH0iyqopqoZIu7eZVpEirP2g1GtWa2G/ecEmBdgz31+Mxr+ELclgg6sokpSFIQiZ02Q==}
@@ -9216,13 +9223,14 @@ packages:
     resolution: {integrity: sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ==}
     dev: true
 
-  /happy-dom/20.9.0:
-    resolution: {integrity: sha512-GZZ9mKe8r646NUAf/zemnGbjYh4Bt8/MqASJY+pSm5ZDtc3YQox+4gsLI7yi1hba6o+eCsGxpHn5+iEVn31/FQ==}
+  /happy-dom/21.0.4:
+    resolution: {integrity: sha512-tFm+GaLBgo6o0awHnvHaNoraVo27qJ+2tZEtZ+cIa08hXbeitrxAJajLI05hsUy/2/YTKcUjQYzHe5mCcraLBw==}
     engines: {node: '>=20.0.0'}
     dependencies:
       '@types/node': 22.20.5
       '@types/whatwg-mimetype': 3.0.2
       '@types/ws': 8.18.1
+      buffer-image-size: 0.6.4
       entities: 7.0.1
       whatwg-mimetype: 3.0.0
       ws: 8.21.0
@@ -13568,83 +13576,6 @@ packages:
       - yaml
     dev: true
 
-  /vitest/4.1.12_536hjtiquj6cg5iarko7a5jrha:
-    resolution: {integrity: sha512-5eWdz2yb3ajxWF3C8C4TjkXl7FGm3n2E/VlazALrQHzK7nYMSGFnCZto0bbPNl77AwkOZVLk0YnBAejUu0NiWA==}
-    engines: {node: ^20.0.0 || ^22.0.0 || >=24.0.0}
-    hasBin: true
-    peerDependencies:
-      '@edge-runtime/vm': '*'
-      '@opentelemetry/api': ^1.9.0
-      '@types/node': ^20.0.0 || ^22.0.0 || >=24.0.0
-      '@vitest/browser-playwright': 4.1.12
-      '@vitest/browser-preview': 4.1.12
-      '@vitest/browser-webdriverio': ^4.1.11
-      '@vitest/coverage-istanbul': 4.1.12
-      '@vitest/coverage-v8': 4.1.12
-      '@vitest/ui': 4.1.12
-      happy-dom: '*'
-      jsdom: '*'
-    peerDependenciesMeta:
-      '@edge-runtime/vm':
-        optional: true
-      '@opentelemetry/api':
-        optional: true
-      '@types/node':
-        optional: true
-      '@vitest/browser-playwright':
-        optional: true
-      '@vitest/browser-preview':
-        optional: true
-      '@vitest/browser-webdriverio':
-        optional: true
-      '@vitest/coverage-istanbul':
-        optional: true
-      '@vitest/coverage-v8':
-        optional: true
-      '@vitest/ui':
-        optional: true
-      happy-dom:
-        optional: true
-      jsdom:
-        optional: true
-    dependencies:
-      '@vitest/coverage-v8': 4.1.12_vitest@4.1.12
-      '@vitest/expect': 4.1.12
-      '@vitest/mocker': 4.1.12_vite@6.4.4
-      '@vitest/pretty-format': 4.1.12
-      '@vitest/runner': 4.1.12
-      '@vitest/snapshot': 4.1.12
-      '@vitest/spy': 4.1.12
-      '@vitest/utils': 4.1.12
-      es-module-lexer: 2.1.0
-      expect-type: 1.3.0
-      happy-dom: 20.9.0
-      jsdom: 29.1.1
-      magic-string: 0.30.21
-      obug: 2.1.2
-      pathe: 2.0.3
-      picomatch: 4.0.5
-      std-env: 4.1.0
-      tinybench: 2.9.0
-      tinyexec: 1.2.4
-      tinyglobby: 0.2.17
-      tinyrainbow: 3.1.0
-      vite: 6.4.4
-      why-is-node-running: 2.3.0
-    transitivePeerDependencies:
-      - jiti
-      - less
-      - lightningcss
-      - msw
-      - sass
-      - sass-embedded
-      - stylus
-      - sugarss
-      - terser
-      - tsx
-      - yaml
-    dev: true
-
   /vitest/4.1.12_@types+node@22.20.5:
     resolution: {integrity: sha512-5eWdz2yb3ajxWF3C8C4TjkXl7FGm3n2E/VlazALrQHzK7nYMSGFnCZto0bbPNl77AwkOZVLk0YnBAejUu0NiWA==}
     engines: {node: ^20.0.0 || ^22.0.0 || >=24.0.0}
@@ -13795,7 +13726,7 @@ packages:
       - yaml
     dev: true
 
-  /vitest/4.1.12_happy-dom@20.9.0:
+  /vitest/4.1.12_happy-dom@21.0.4:
     resolution: {integrity: sha512-5eWdz2yb3ajxWF3C8C4TjkXl7FGm3n2E/VlazALrQHzK7nYMSGFnCZto0bbPNl77AwkOZVLk0YnBAejUu0NiWA==}
     engines: {node: ^20.0.0 || ^22.0.0 || >=24.0.0}
     hasBin: true
@@ -13844,7 +13775,84 @@ packages:
       '@vitest/utils': 4.1.12
       es-module-lexer: 2.1.0
       expect-type: 1.3.0
-      happy-dom: 20.9.0
+      happy-dom: 21.0.4
+      magic-string: 0.30.21
+      obug: 2.1.2
+      pathe: 2.0.3
+      picomatch: 4.0.5
+      std-env: 4.1.0
+      tinybench: 2.9.0
+      tinyexec: 1.2.4
+      tinyglobby: 0.2.17
+      tinyrainbow: 3.1.0
+      vite: 6.4.4
+      why-is-node-running: 2.3.0
+    transitivePeerDependencies:
+      - jiti
+      - less
+      - lightningcss
+      - msw
+      - sass
+      - sass-embedded
+      - stylus
+      - sugarss
+      - terser
+      - tsx
+      - yaml
+    dev: true
+
+  /vitest/4.1.12_nrdqwifc7j2yp5rirjhrmavynq:
+    resolution: {integrity: sha512-5eWdz2yb3ajxWF3C8C4TjkXl7FGm3n2E/VlazALrQHzK7nYMSGFnCZto0bbPNl77AwkOZVLk0YnBAejUu0NiWA==}
+    engines: {node: ^20.0.0 || ^22.0.0 || >=24.0.0}
+    hasBin: true
+    peerDependencies:
+      '@edge-runtime/vm': '*'
+      '@opentelemetry/api': ^1.9.0
+      '@types/node': ^20.0.0 || ^22.0.0 || >=24.0.0
+      '@vitest/browser-playwright': 4.1.12
+      '@vitest/browser-preview': 4.1.12
+      '@vitest/browser-webdriverio': ^4.1.11
+      '@vitest/coverage-istanbul': 4.1.12
+      '@vitest/coverage-v8': 4.1.12
+      '@vitest/ui': 4.1.12
+      happy-dom: '*'
+      jsdom: '*'
+    peerDependenciesMeta:
+      '@edge-runtime/vm':
+        optional: true
+      '@opentelemetry/api':
+        optional: true
+      '@types/node':
+        optional: true
+      '@vitest/browser-playwright':
+        optional: true
+      '@vitest/browser-preview':
+        optional: true
+      '@vitest/browser-webdriverio':
+        optional: true
+      '@vitest/coverage-istanbul':
+        optional: true
+      '@vitest/coverage-v8':
+        optional: true
+      '@vitest/ui':
+        optional: true
+      happy-dom:
+        optional: true
+      jsdom:
+        optional: true
+    dependencies:
+      '@vitest/coverage-v8': 4.1.12_vitest@4.1.12
+      '@vitest/expect': 4.1.12
+      '@vitest/mocker': 4.1.12_vite@6.4.4
+      '@vitest/pretty-format': 4.1.12
+      '@vitest/runner': 4.1.12
+      '@vitest/snapshot': 4.1.12
+      '@vitest/spy': 4.1.12
+      '@vitest/utils': 4.1.12
+      es-module-lexer: 2.1.0
+      expect-type: 1.3.0
+      happy-dom: 21.0.4
+      jsdom: 29.1.1
       magic-string: 0.30.21
       obug: 2.1.2
       pathe: 2.0.3
