@@ -455,7 +455,7 @@ describe('a challenge is a stop, never something to get around', () => {
   it('the real 403 interstitial fails the run as an access-policy block after exactly one request', async () => {
     const { batch, f, mapped } = await collect({
       status: 403,
-      bodyText: fixture('unknown-category.challenge-403.html'),
+      bodyText: fixture('unknown-category.challenge-403.html.txt'),
     })
     expect(batch.outcome).toBe('FAILED')
     expect(batch.requests.at(-1)?.error?.code).toBe('ACCESS_POLICY')
@@ -467,7 +467,7 @@ describe('a challenge is a stop, never something to get around', () => {
   it('the same interstitial served with 200 is drift, also after exactly one request', async () => {
     const { batch, f } = await collect({
       status: 200,
-      bodyText: fixture('unknown-category.challenge-403.html'),
+      bodyText: fixture('unknown-category.challenge-403.html.txt'),
     })
     expect(batch.outcome).toBe('FAILED')
     expect(batch.requests.at(-1)?.error?.code).toBe('PARSE_DRIFT')

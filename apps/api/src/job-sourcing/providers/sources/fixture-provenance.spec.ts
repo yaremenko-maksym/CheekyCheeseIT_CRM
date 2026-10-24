@@ -237,7 +237,7 @@ const ALLOWED_HITS: Array<{ file: string; reason: string; hits: string[] }> = [
     hits: ['@media'],
   },
   {
-    file: 'wwr/unknown-category.challenge-403.html',
+    file: 'wwr/unknown-category.challenge-403.html.txt',
     reason: 'a CSS @media rule in a committed challenge page',
     hits: ['@media'],
   },
