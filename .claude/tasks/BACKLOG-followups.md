@@ -4122,18 +4122,18 @@ The map above assigns every identifier a destination; this says which destinatio
 arithmetic is the point, so it is reconciled rather than asserted, and it is derived from merged PRs
 rather than from anyone's recollection:
 
-| Destination                        | PR             | ids | state                            |
-| ---------------------------------- | -------------- | --- | -------------------------------- |
-| `retro-mr-matcher-access`          | #1094          | 4   | merged                           |
-| `retro-mr-webhook-ingest`          | #1097          | 8   | merged                           |
-| `retro-mr-en-catalog`              | #1091          | 1   | merged                           |
-| `retro-salary-form-defaults`       | #1093          | 5   | merged                           |
-| `retro-txdate-reporting`           | #1108          | 2   | merged                           |
-| carried by the collaborator's #868 | #868           | 3   | merged — see the note below      |
-| `retro-salary-ledger-integrity`    | #1102          | 8   | merged (#1102)                   |
-| `retro-txdate-policy`              | merged (#1113) | 9   | branch `fix/retro-txdate-policy` |
-| `retro-business-day-clock`         | not started    | 6   | in review (#1133)                |
-| `retro-manual-ddl-coverage`        | not started    | 6   | —                                |
+| Destination                        | PR          | ids | state                       |
+| ---------------------------------- | ----------- | --- | --------------------------- |
+| `retro-mr-matcher-access`          | #1094       | 4   | merged                      |
+| `retro-mr-webhook-ingest`          | #1097       | 8   | merged                      |
+| `retro-mr-en-catalog`              | #1091       | 1   | merged                      |
+| `retro-salary-form-defaults`       | #1093       | 5   | merged                      |
+| `retro-txdate-reporting`           | #1108       | 2   | merged                      |
+| carried by the collaborator's #868 | #868        | 3   | merged — see the note below |
+| `retro-salary-ledger-integrity`    | #1102       | 8   | merged                      |
+| `retro-txdate-policy`              | #1113       | 9   | merged                      |
+| `retro-business-day-clock`         | #1133       | 6   | in review                   |
+| `retro-manual-ddl-coverage`        | not started | 6   | —                           |
 
 Closed: 4 + 8 + 1 + 5 + 2 + 3 = **23**. In flight or pending: 8 + 9 + 6 + 6 = **29**. Sum **52**, which
 matches the task-bound total in the map above (the remaining 23 of the 75 are the 18 deferred to
