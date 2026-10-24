@@ -149,17 +149,22 @@ describe('format', () => {
       ),
     )
   })
-  it('formatMonthLabel constructs months at UTC midnight, avoiding a previous-month shift', () => {
-    // Mutating TZ in a running Vitest worker is not reliable: Stryker's
-    // Linux worker can keep using UTC even after vi.stubEnv('TZ', 'Europe/Berlin').
-    // Check the UTC construction directly so the regression is caught in
-    // both UTC (CI) and non-UTC environments.
-    const utcSpy = vi.spyOn(Date, 'UTC')
+  it('formatMonthLabel names the right month in ANY host timezone (behaviour, not an implementation pin)', () => {
+    // CR-867-M-4: this used to spy on `Date.UTC`. The TZ matrix in
+    // vitest.config.mts (host TZ, Europe/Kyiv, America/Los_Angeles) now exercises
+    // the real behaviour instead.
     expect(formatMonthLabel('2026-08', 'uk')).toBe('серпень 2026 р.')
-    expect(utcSpy).toHaveBeenCalledWith(2026, 7, 1)
     expect(formatMonthLabel('2026-08', 'en')).toBe('August 2026')
     expect(formatMonthLabel('2026-01', 'en')).toBe('January 2026')
-    expect(utcSpy).toHaveBeenCalledWith(2026, 0, 1)
+    expect(formatMonthLabel('2026-12', 'en')).toBe('December 2026')
+  })
+  it('the shortYYUtc style shows a UTC-midnight business date as that same calendar day in any host timezone', () => {
+    expect(formatDate(new Date(Date.UTC(2026, 6, 31)), 'en', 'shortYYUtc')).toBe('31/07/26')
+    expect(formatDate('2026-01-01T00:00:00.000Z', 'en', 'shortYYUtc')).toBe('01/01/26')
+    expect(formatDate(new Date(Date.UTC(2026, 6, 31)), 'uk', 'shortYYUtc')).toBe('31.07.26')
+  })
+  it("the shortYY style (instants) keeps the reader's local day", () => {
+    expect(formatDate(new Date(2026, 6, 31, 12, 0), 'en', 'shortYY')).toBe('31/07/26')
   })
   it('formatMonthLabel falls back to an em dash for missing input, and to the raw key when unparseable', () => {
     expect(formatMonthLabel(null, 'uk')).toBe('—')
