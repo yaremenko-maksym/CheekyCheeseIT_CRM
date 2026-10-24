@@ -2,7 +2,7 @@
 
 Only captures with no personal data and a spec or a provenance hash that depends on them are kept.
 Anything carrying comments or other user-submitted text is not committed (the Hacker News threads
-were, by mistake, and were removed: `fixture-pii-scan.spec.ts` now guards the whole tree).
+were, by mistake, and were removed: `fixture-provenance.spec.ts` now scans the whole tree).
 
 | File                                               | What it proves                                                                                                                                 |
 | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
