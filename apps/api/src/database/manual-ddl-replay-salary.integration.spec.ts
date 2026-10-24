@@ -178,9 +178,16 @@ function urlFor(database: string): string {
   return url.toString()
 }
 
+// A pooled idle client terminated by `DROP DATABASE ... WITH (FORCE)` emits 'error' on its Pool;
+// without a listener Node treats that as an unhandled event. Log the message only (never the URL).
+const onPoolError = (err: Error): void => {
+  console.warn(`[manual-ddl-replay] pool error ignored: ${err.message}`)
+}
+
 describe.skipIf(!hasDatabaseUrl())('manual salary DDL replay on a pre-#795 database', () => {
   beforeAll(async () => {
     adminPool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+    adminPool.on('error', onPoolError)
     const who = await adminPool.query('SELECT current_database() AS db, version() AS v')
     if (who.rows[0].db === 'crm_db') throw new Error('refusing to run against the live crm_db')
     console.log(
@@ -200,6 +207,7 @@ describe.skipIf(!hasDatabaseUrl())('manual salary DDL replay on a pre-#795 datab
     if (!SCRATCH_NAME.test(scratchName)) throw new Error(`bad scratch name ${scratchName}`)
     await adminPool.query(`CREATE DATABASE ${scratchName}`)
     scratchPool = new Pool({ connectionString: urlFor(scratchName) })
+    scratchPool.on('error', onPoolError)
     const check = await scratchPool.query('SELECT current_database() AS db')
     if (check.rows[0].db !== scratchName) throw new Error('scratch connection landed elsewhere')
 
