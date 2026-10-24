@@ -134,7 +134,7 @@ export const greenhouseSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
     companyName: employerOf(item, config),
     location: item.location?.name ?? null,
     description: item.content === null ? null : decodeEscapedOnce(item.content),
-    tags: presentStrings((item.departments ?? []).map((d) => d.name)),
+    tags: presentStrings(item.departments?.map((d) => d.name)),
     dates: [
       { raw: item.first_published, contract: 'ISO_ZONED', semantics: 'PUBLISHED' },
       { raw: item.updated_at, contract: 'ISO_ZONED', semantics: 'UPDATED' },

@@ -182,6 +182,14 @@ describe('namespaces', () => {
     expect([global.namespace, eu.namespace]).toEqual(['lever:global:x', 'lever:eu:x'])
   })
 
+  it.each(PROVIDERS)(
+    '$label: the default region is global, and global may also be named',
+    ({ provider }) => {
+      expect(provider.parseConfig(goodConfig('x')).region).toBe('global')
+      expect(provider.parseConfig(goodConfig('x', { region: 'global' })).region).toBe('global')
+    },
+  )
+
   it('exist only for the regions a provider really has', () => {
     expect(() => greenhouseProvider.parseConfig(goodConfig('x', { region: 'eu' }))).toThrow(
       ZodError,
@@ -629,9 +637,11 @@ describe('presentStrings', () => {
     expect(presentStrings(['', 'x'])).toEqual(['', 'x'])
   })
 
-  it('an empty list and an all-absent list are both empty', () => {
+  it('an empty list, an all-absent list and no list at all are all empty', () => {
     expect(presentStrings([])).toEqual([])
     expect(presentStrings([null, undefined])).toEqual([])
+    expect(presentStrings(null)).toEqual([])
+    expect(presentStrings(undefined)).toEqual([])
   })
 })
 

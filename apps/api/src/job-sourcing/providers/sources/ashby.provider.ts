@@ -65,8 +65,7 @@ const itemSchema = z.object({
   secondaryLocations: z
     .array(z.object({ location: optionalString(ORIGINAL_LIMITS.location) }))
     .max(100)
-    .nullish()
-    .transform((v) => v ?? []),
+    .nullish(),
   workplaceType: optionalString(50),
   publishedAt: dateRaw(),
   descriptionHtml: optionalString(ORIGINAL_LIMITS.description),
@@ -99,9 +98,8 @@ export function remoteFromAshbyWorkplace(value: string | null): boolean | null {
 
 /** Primary then secondary locations, de-duplicated and joined; none at all is the empty string, which the normalizer reads as no location. */
 function locationOf(item: Item): string {
-  return [
-    ...new Set(presentStrings([item.location, ...item.secondaryLocations.map((s) => s.location)])),
-  ].join('; ')
+  const secondary = presentStrings(item.secondaryLocations?.map((s) => s.location))
+  return [...new Set(presentStrings([item.location, ...secondary]))].join('; ')
 }
 
 export const ashbySpec: ApiJsonSourceSpec<Config, Envelope, Item> = {

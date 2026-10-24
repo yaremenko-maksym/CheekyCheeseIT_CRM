@@ -185,8 +185,10 @@ export const ATS_PROPOSED_REQUEST_GAP_MS = 500
  * whichever of them the provider sent". Exported so its behaviour is asserted where it lives
  * instead of through three mappers whose downstream normalizer would hide a leaked null.
  */
-export function presentStrings(values: readonly (string | null | undefined)[]): string[] {
-  return values.filter((v): v is string => typeof v === 'string')
+export function presentStrings(
+  values: readonly (string | null | undefined)[] | null | undefined,
+): string[] {
+  return (values ?? []).filter((v): v is string => typeof v === 'string')
 }
 
 // ---------------------------------------------------------------------------
