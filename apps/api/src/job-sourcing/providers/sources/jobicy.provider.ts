@@ -100,16 +100,18 @@ function packCursor(startedAtMs: number, providerCursor: string): string {
   return `v1.${startedAtMs}.${providerCursor}`
 }
 
-function unpackCursor(cursor: string): { startedAtMs: number; providerCursor: string } | null {
-  const m = /^v1\.(\d+)\.(.+)/s.exec(cursor)
-  return m === null ? null : { startedAtMs: Number(m[1]), providerCursor: String(m[2]) }
+function unpackCursor(
+  cursor: string | null,
+): { startedAtMs: number; providerCursor: string } | null {
+  // Optional chaining makes "no cursor yet" a non-match without a separate null branch.
+  const m = cursor?.match(/^v1\.(\d+)\.(.+)/s)
+  return m ? { startedAtMs: Number(m[1]), providerCursor: String(m[2]) } : null
 }
 
 /** The provider cursor to send (or none) and when this traversal started. */
 function traversalOf(at: PageTarget): { startedAtMs: number; providerCursor: string | null } {
   const clock = clockOf(at)
-  // Stryker disable next-line all: the null guard only narrows the type; unpackCursor of a null cursor (coerced to the text "null") never matches, so every mutant of this line is equivalent.
-  const stored = at.cursor === null ? null : unpackCursor(at.cursor)
+  const stored = unpackCursor(at.cursor)
   if (
     stored !== null &&
     clock >= stored.startedAtMs &&

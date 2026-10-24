@@ -185,3 +185,18 @@ describe('optionalStringArray', () => {
     expect(optionalStringArray(2, 3).safeParse('abc').success).toBe(false)
   })
 })
+
+describe('absent-value helpers keep falsy values that are real (the default is `?? null`, not `|| null`)', () => {
+  it('optionalString keeps the empty string', () => {
+    expect(optionalString(5).parse('')).toBe('')
+    expect(optionalUrlString().parse('')).toBe('')
+  })
+  it('optionalBoundedNumber keeps zero', () => {
+    expect(optionalBoundedNumber(0, 10).parse(0)).toBe(0)
+  })
+  it('dateRaw keeps epoch 0 and the empty string, and does not judge a fractional timestamp (the date policy does)', () => {
+    expect(dateRaw().parse(0)).toBe(0)
+    expect(dateRaw().parse('')).toBe('')
+    expect(dateRaw().parse(1792673908.5)).toBe(1792673908.5)
+  })
+})
